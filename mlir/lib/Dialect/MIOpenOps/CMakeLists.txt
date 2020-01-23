@@ -5,5 +5,5 @@ add_llvm_library(MLIRMIOpenOps
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/MIOpenOps
   )
-add_dependencies(MLIRMIOpenOps MLIRStandardOps LLVMSupport)
+add_dependencies(MLIRMIOpenOps MLIRMIOpenOpsIncGen MLIRStandardOps LLVMSupport)
 target_link_libraries(MLIRMIOpenOps LLVMSupport)

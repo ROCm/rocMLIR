@@ -28,8 +28,8 @@ public:
   static StringRef getDialectNamespace() { return "miopen"; }
 };
 
-//#define GET_OP_CLASSES
-//#include "mlir/Dialect/MIOpenOps/MIOpenOps.h.inc"
+#define GET_OP_CLASSES
+#include "mlir/Dialect/MIOpenOps/MIOpenOps.h.inc"
 
 } // end namespace miopen
 } // end namespace mlir
