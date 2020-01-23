@@ -36,17 +36,65 @@ namespace {
 
 MIOpenOpsDialect::MIOpenOpsDialect(MLIRContext *context)
     : Dialect(getDialectNamespace(), context) {
-//  addOperations<
-//#define GET_OP_LIST
-//#include "mlir/Dialect/MIOpenOps/MIOpenOps.cpp.inc"
-//      >();
+  addOperations<
+#define GET_OP_LIST
+#include "mlir/Dialect/MIOpenOps/MIOpenOps.cpp.inc"
+      >();
 
   //addInterfaces<LoopSideEffectsInterface>();
+}
+
+//===----------------------------------------------------------------------===//
+// Conv2DOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseConv2DOp(OpAsmParser &parser, OperationState &result) {
+  return success();
+}
+
+static void print(OpAsmPrinter &p, Conv2DOp op) {
+  p << Conv2DOp::getOperationName();
+}
+
+static LogicalResult verify(Conv2DOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// TransformOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseTransformOp(OpAsmParser &parser, OperationState &result) {
+  return success();
+}
+
+static void print(OpAsmPrinter &p, TransformOp op) {
+  p << TransformOp::getOperationName();
+}
+
+static LogicalResult verify(TransformOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GridwiseGemmOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseGridwiseGemmOp(OpAsmParser &parser, OperationState &result) {
+  return success();
+}
+
+static void print(OpAsmPrinter &p, GridwiseGemmOp op) {
+  p << GridwiseGemmOp::getOperationName();
+}
+
+static LogicalResult verify(GridwiseGemmOp op) {
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 
-//#define GET_OP_CLASSES
-//#include "mlir/Dialect/MIOpenOps/MIOpenOps.cpp.inc"
+#define GET_OP_CLASSES
+#include "mlir/Dialect/MIOpenOps/MIOpenOps.cpp.inc"
