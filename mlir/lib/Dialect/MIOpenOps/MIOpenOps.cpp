@@ -40,8 +40,6 @@ MIOpenOpsDialect::MIOpenOpsDialect(MLIRContext *context)
 #define GET_OP_LIST
 #include "mlir/Dialect/MIOpenOps/MIOpenOps.cpp.inc"
       >();
-
-  //addInterfaces<LoopSideEffectsInterface>();
 }
 
 //===----------------------------------------------------------------------===//
@@ -49,11 +47,19 @@ MIOpenOpsDialect::MIOpenOpsDialect(MLIRContext *context)
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseConv2DOp(OpAsmParser &parser, OperationState &result) {
-  return success();
+  SmallVector<OpAsmParser::OperandType, 3> ops;
+  SmallVector<Type, 3> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
 }
 
 static void print(OpAsmPrinter &p, Conv2DOp op) {
-  p << Conv2DOp::getOperationName();
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
 }
 
 static LogicalResult verify(Conv2DOp op) {
@@ -65,11 +71,24 @@ static LogicalResult verify(Conv2DOp op) {
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseTransformOp(OpAsmParser &parser, OperationState &result) {
+  OpAsmParser::OperandType src;
+  Type srcType, dstType;
+  return failure(
+      parser.parseLParen() ||
+      parser.parseOperand(src) ||
+      parser.parseRParen() ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonType(srcType) ||
+      parser.resolveOperand(src, srcType, result.operands) ||
+      parser.parseKeywordType("to", dstType) ||
+      parser.addTypeToList(dstType, result.types));
   return success();
 }
 
 static void print(OpAsmPrinter &p, TransformOp op) {
-  p << TransformOp::getOperationName();
+  p << op.getOperationName() << "(" << op.getOperand() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperand()->getType() << " to " << op.getType();
 }
 
 static LogicalResult verify(TransformOp op) {
@@ -81,11 +100,19 @@ static LogicalResult verify(TransformOp op) {
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseGridwiseGemmOp(OpAsmParser &parser, OperationState &result) {
-  return success();
+  SmallVector<OpAsmParser::OperandType, 3> ops;
+  SmallVector<Type, 3> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
 }
 
 static void print(OpAsmPrinter &p, GridwiseGemmOp op) {
-  p << GridwiseGemmOp::getOperationName();
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
 }
 
 static LogicalResult verify(GridwiseGemmOp op) {
