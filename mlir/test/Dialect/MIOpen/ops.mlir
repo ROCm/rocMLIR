@@ -3,22 +3,132 @@
 // Run: mlir-opt -mlir-print-op-generic %s | mlir-opt | FileCheck %s
 
 func @miopen_conv2d(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
-  miopen.conv2d
+  miopen.conv2d(%filter, %input, %output) {
+    filter_layout = ["k", "c", "y", "x"],
+    input_layout = ["n", "c", "hi", "wi"],
+    output_layout = ["n", "k", "ho", "wo"],
+    dilations = [1, 1],
+    strides = [1, 1],
+    padding = [0, 0]
+  } : memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, memref<?x?x?x?xf32>
   return
 }
 // CHECK-LABEL: func @miopen_conv2d
 //  CHECK-NEXT: miopen.conv2d
 
-func @miopen_transform(%memref : memref<?x?x?x?xf32>) {
-  miopen.transform
+// test 1-1 dimension mappings.
+func @miopen_transform_1_to_1(%memref: memref<?x?x?x?xf32>) {
+  %transformed_memref = miopen.transform(%memref) {
+    layout = [
+      {
+        dimensions = [0],
+        names = ["n"],
+        transformation = "passthorugh",
+        source_dimensions = [0],
+        source_names = ["n"]
+      },
+      {
+        dimensions = [1],
+        names = ["c"],
+        transformation = "passthorugh",
+        source_dimensions = [1],
+        source_names = ["c"]
+      },
+      {
+        dimensions = [2],
+        names = ["hipad"],
+        transformation = "pad",
+        parameters = [0, 0],
+        source_dimensions = [2],
+        source_names = ["hi"]
+      },
+      {
+        dimensions = [3],
+        names = ["wipad"],
+        transformation = "pad",
+        parameters = [0, 0],
+        source_dimensions = [3],
+        source_names = ["wi"]
+      }
+    ]
+  } : memref<?x?x?x?xf32> to memref<?x?x?x?xf32>
+  return
+}
+// CHECK-LABEL: func @miopen_transform_1_to_1
+//  CHECK-NEXT: miopen.transform
+
+// test multiple source dimensions map to 1 target dimension.
+func @miopen_transform_n_to_1(%memref : memref<?x?x?x?xf32>) {
+  %transformed_memref = miopen.transform(%memref) {
+    layout = [
+      {
+        dimensions = [0],
+        names = ["gemmK"],
+        transformation = "merge",
+        source_dimensions = [1, 2, 3],
+        source_names = ["c", "y", "x"]
+      },
+      {
+        dimensions = [1],
+        names = ["gemmM"],
+        transformation = "passthrough",
+        source_dimensions = [0],
+        source_names = ["n"]
+      }
+    ]
+  } : memref<?x?x?x?xf32> to memref<?x?xf32>
+  return
+}
+// CHECK-LABEL: func @miopen_transform_n_to_1
+//  CHECK-NEXT: miopen.transform
+
+// test 1 source dimension map to multiple target dimensions.
+func @miopen_transform_1_to_n(%memref : memref<?x?x?x?xf32>) {
+  %transformed_memref = miopen.transform(%memref) {
+    layout = [
+      {
+        dimensions = [0],
+        names = ["n"],
+        transformation = "passthrough",
+        source_dimensions = [0],
+        source_names = ["n"]
+      },
+      {
+        dimensions = [1],
+        names = ["c"],
+        transformation = "passthrough",
+        source_dimensions = [1],
+        source_names = ["c"]
+      },
+      {
+        dimensions = [2, 3],
+        names = ["y", "ho"],
+        transformation = "embed",
+        parameters = [1, 1, 0],
+        source_dimensions = [2],
+        source_names = ["hipad"]
+      },
+      {
+        dimensions = [4, 5],
+        names = ["x", "wo"],
+        transformation = "embed",
+        parameters = [1, 1, 0],
+        source_dimensions = [3],
+        source_names = ["wipad"]
+      }
+    ]
+  } : memref<?x?x?x?xf32> to memref<?x?x?x?x?x?xf32>
   return
 }
 
-// CHECK-LABEL: func @miopen_transform
+// CHECK-LABEL: func @miopen_transform_1_to_n
 //  CHECK-NEXT: miopen.transform
 
 func @miopen_gridwise_gemm(%A : memref<?x?xf32>, %B : memref<?x?xf32>, %C : memref<?x?xf32>) {
-  miopen.gridwise_gemm
+  miopen.gridwise_gemm(%A, %B, %C) {
+    parameters = [
+    ]
+  } : memref<?x?xf32>, memref<?x?xf32>, memref<?x?xf32>
   return
 }
 

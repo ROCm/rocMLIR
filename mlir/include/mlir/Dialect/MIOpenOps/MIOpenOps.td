@@ -35,10 +35,36 @@ class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
   let parser = [{ return ::parse$cppClass(parser, result); }];
 }
 
-def MIOpen_Conv2DOp : MIOpen_Op<"conv2d">;
+def MIOpen_Conv2DOp :
+    MIOpen_Op<"conv2d">,
+    Arguments<(ins MemRefRankOf<[F32], [4]>,
+                   MemRefRankOf<[F32], [4]>,
+                   MemRefRankOf<[F32], [4]>)> {
+  let summary = "2D convolution";
+  let description = [{
+    The `miopen.conv2d` op computes 2D convolution.
+  }];
+}
 
-def MIOpen_TransformOp : MIOpen_Op<"transform">;
+def MIOpen_TransformOp :
+    MIOpen_Op<"transform">,
+    Arguments<(ins AnyMemRef)>,
+    Results<(outs AnyMemRef)> {
+  let summary = "Tensor transformation";
+  let description = [{
+    The `miopen.transform` op transforms tensor coordinates.
+  }];
+}
 
-def MIOpen_GridwiseGemmOp : MIOpen_Op<"gridwise_gemm">;
+def MIOpen_GridwiseGemmOp :
+    MIOpen_Op<"gridwise_gemm">,
+    Arguments<(ins MemRefRankOf<[F32], [2]>,
+                   MemRefRankOf<[F32], [2]>,
+                   MemRefRankOf<[F32], [2]>)> {
+  let summary = "Gridwise GEMM";
+  let description = [{
+    The `miopen.gridwise_gemm` op computes gridwise GEMM.
+  }];
+}
 
 #endif // MIOPEN_OPS
