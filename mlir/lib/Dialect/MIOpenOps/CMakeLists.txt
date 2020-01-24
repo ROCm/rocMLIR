@@ -7,3 +7,5 @@ add_llvm_library(MLIRMIOpenOps
   )
 add_dependencies(MLIRMIOpenOps MLIRMIOpenOpsIncGen MLIRStandardOps LLVMSupport)
 target_link_libraries(MLIRMIOpenOps LLVMSupport)
+
+add_subdirectory(CppOutput)
