@@ -5,6 +5,7 @@ add_llvm_library(MLIRMIOpenCpp
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/MIOpenOps
   )
 target_link_libraries(MLIRMIOpenCpp
+  LLVMSupport
   MLIRIR
   MLIRMIOpenOps
   MLIRStandardOps
