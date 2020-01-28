@@ -50,7 +50,9 @@ func @miopen_transform_1_to_1(%memref: memref<?x?x?x?xf32>) {
         source_dimensions = [3],
         source_names = ["wi"]
       }
-    ]
+    ],
+    source_layout = ["n", "c", "hi", "wi"],
+    output_layout = ["n", "c", "hipad", "wipad"]
   } : memref<?x?x?x?xf32> to memref<?x?x?x?xf32>
   return
 }
@@ -73,9 +75,12 @@ func @miopen_transform_n_to_1(%memref : memref<?x?x?x?xf32>) {
         names = ["gemmM"],
         transformation = "passthrough",
         source_dimensions = [0],
-        source_names = ["n"]
+        source_names = ["k"]
       }
-    ]
+    ],
+    source_layout = ["k", "c", "y", "x"],
+    output_layout = ["gemmK", "gemmM"],
+    gridwise_gemm_argument_pos = 0
   } : memref<?x?x?x?xf32> to memref<?x?xf32>
   return
 }
@@ -116,7 +121,9 @@ func @miopen_transform_1_to_n(%memref : memref<?x?x?x?xf32>) {
         source_dimensions = [3],
         source_names = ["wipad"]
       }
-    ]
+    ],
+    intermediate_layout = ["n", "c", "hipad", "wipad"],
+    output_layout = ["n", "c", "y", "ho", "x", "wo"]
   } : memref<?x?x?x?xf32> to memref<?x?x?x?x?x?xf32>
   return
 }
