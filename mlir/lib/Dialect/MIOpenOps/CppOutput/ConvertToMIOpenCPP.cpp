@@ -15,8 +15,10 @@
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
+#include "mlir/Support/STLExtras.h"
 #include "mlir/Translation.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
@@ -222,6 +224,160 @@ void EmitCppEpilogue(llvm::raw_ostream &output, llvm::StringRef layoutStr, llvm:
   output << kCppEpiloguePart2;
 }
 
+static constexpr StringLiteral kHeaderPreamblePart1 = R"(
+#ifndef CK_GRIDWISE_CONVOLUTION_IMPLICIT_GEMM_V4R4_HPP
+#define CK_GRIDWISE_CONVOLUTION_IMPLICIT_GEMM_V4R4_HPP
+
+#include "common_header.hpp"
+#include "tensor_descriptor.hpp"
+#include "tensor_descriptor_helper.hpp"
+#include "gridwise_gemm.hpp"
+
+namespace ck {
+
+// GemmM = K
+// GemmN = N * Ho * Wo
+// GemmK = C * Y * X
+template <index_t GridSize,
+          index_t BlockSize,
+          typename Float,
+          typename AccFloat,
+          typename InGlobalDesc,
+          typename WeiGlobalDesc,
+          typename OutGlobalDesc,
+          typename ConvStrides,
+          typename ConvDilations,
+          typename InLeftPads,
+          typename InRightPads,
+          index_t GemmMPerBlock,
+          index_t GemmNPerBlock,
+          index_t GemmKPerBlock,
+          index_t GemmMPerThreadSubC,
+          index_t GemmNPerThreadSubC,
+          index_t GemmMLevel0Cluster,
+          index_t GemmNLevel0Cluster,
+          index_t GemmMLevel1Cluster,
+          index_t GemmNLevel1Cluster,
+          index_t GemmKPerThreadLoop,
+          index_t GemmThreadGemmDataPerReadM,
+          index_t GemmThreadGemmDataPerReadN,
+          typename GemmABlockCopyThreadSliceLengths_GemmK_GemmM,
+          typename GemmABlockCopyThreadClusterLengths_GemmK_GemmM,
+          index_t GemmABlockCopySrcDataPerRead_GemmK,
+          index_t GemmABlockCopyDstDataPerWrite_GemmM,
+          typename GemmBBlockCopyThreadSliceLengths_GemmK_GemmN,
+          typename GemmBBlockCopyThreadClusterLengths_GemmK_GemmN,
+          index_t GemmBBlockCopySrcDataPerRead_GemmN,
+          index_t GemmBBlockCopyDstDataPerWrite_GemmN,
+          index_t GemmCThreadCopyDstDataPerWrite_GemmN1>
+)";
+
+static constexpr StringLiteral kHeaderPreamblePart2 = R"(
+{
+    __device__ void Run(const Float* const __restrict__ p_in_global,
+                        const Float* const __restrict__ p_wei_global,
+                        Float* const __restrict__ p_out_global) const
+    {
+)";
+
+static constexpr StringLiteral kHeaderPreamblePart3 = R"(
+        constexpr auto I0 = Number<0>{};
+        constexpr auto I1 = Number<1>{};
+        constexpr auto I2 = Number<2>{};
+        constexpr auto I3 = Number<3>{};
+
+        constexpr index_t ConvStrideH = ConvStrides{}[0];
+        constexpr index_t ConvStrideW = ConvStrides{}[1];
+
+        constexpr index_t ConvDilationH = ConvDilations{}[0];
+        constexpr index_t ConvDilationW = ConvDilations{}[1];
+)";
+
+static constexpr StringLiteral kHeaderEpiloguePart1 = R"(
+        // GEMM
+        constexpr auto gridwise_gemm =
+            GridwiseGemmTransposedANormalBNormalC_v1<GridSize,
+                                                     BlockSize,
+                                                     Float,
+                                                     AccFloat,
+)";
+
+static constexpr StringLiteral kHeaderEpiloguePart2 = R"(
+                                                     InMemoryDataOperation::none,
+                                                     GemmMPerBlock,
+                                                     GemmNPerBlock,
+                                                     GemmKPerBlock,
+                                                     GemmMPerThreadSubC,
+                                                     GemmNPerThreadSubC,
+                                                     GemmMLevel0Cluster,
+                                                     GemmNLevel0Cluster,
+                                                     GemmMLevel1Cluster,
+                                                     GemmNLevel1Cluster,
+                                                     GemmKPerThreadLoop,
+                                                     GemmThreadGemmDataPerReadM,
+                                                     GemmThreadGemmDataPerReadN,
+                                                     GemmABlockCopyThreadSliceLengths_GemmK_GemmM,
+                                                     GemmABlockCopyThreadClusterLengths_GemmK_GemmM,
+                                                     Sequence<1, 0>,
+                                                     Sequence<1, 0>,
+                                                     0,
+                                                     GemmABlockCopySrcDataPerRead_GemmK,
+                                                     GemmABlockCopyDstDataPerWrite_GemmM,
+                                                     GemmBBlockCopyThreadSliceLengths_GemmK_GemmN,
+                                                     GemmBBlockCopyThreadClusterLengths_GemmK_GemmN,
+                                                     Sequence<0, 1>,
+                                                     Sequence<0, 1>,
+                                                     1,
+                                                     GemmBBlockCopySrcDataPerRead_GemmN,
+                                                     GemmBBlockCopyDstDataPerWrite_GemmN,
+                                                     Sequence<0, 1, 2, 3>,
+                                                     3,
+                                                     GemmCThreadCopyDstDataPerWrite_GemmN1>{};
+
+        gridwise_gemm.Run(p_wei_global, p_in_global, p_out_global);
+    }
+};
+
+} // namespace ck
+#endif
+)";
+
+void EmitHeaderPreamble(llvm::raw_ostream &output, llvm::StringRef layoutStr, llvm::SmallVector<std::string, 3> &tensorDescs) {
+  output << kHeaderPreamblePart1;
+
+  output << R"(
+struct GridwiseConvolutionImplicitGemm_v4r4_)";
+  output << layoutStr;
+
+  output << kHeaderPreamblePart2;
+
+  output << kHeaderPreamblePart3;
+
+  output << '\n';
+
+  output << R"(
+        constexpr auto )" << tensorDescs[0] << " = InGlobalDesc{};";
+  output << R"(
+        constexpr auto )" << tensorDescs[1] << " = WeiGlobalDesc{};";
+  output << R"(
+        constexpr auto )" << tensorDescs[2] << " = OutGlobalDesc{};";
+}
+
+void EmitHeaderEpilogue(llvm::raw_ostream &output, llvm::SmallDenseMap<int64_t, std::string> &args) {
+  output << kHeaderEpiloguePart1;
+
+// Between Part1 and Part2 emit:
+//                                                   decltype(wei_e_k_global_desc),
+//                                                   decltype(in_e_b_global_desc),
+//                                                   decltype(out_k_b_global_desc),
+  for (int i = 0; i < 3; ++i) {
+    output << R"(
+                                                     decltype()" << args[i] << "),";
+  }
+
+  output << kHeaderEpiloguePart2;
+}
+
 void EmitLayoutString(llvm::raw_ostream &output, llvm::ArrayRef<mlir::Attribute> &layoutArrayAttr, llvm::StringRef prefix, llvm::StringRef suffix, llvm::StringRef delimiter = "") {
   for (int i = 0; i < kConv2DTensorDimension; ++i) {
     auto attr = layoutArrayAttr[i];
@@ -234,11 +390,20 @@ void EmitLayoutString(llvm::raw_ostream &output, llvm::ArrayRef<mlir::Attribute>
   }
 }
 
+void EmitHeaderDimensionLengths(llvm::raw_ostream &output, llvm::ArrayRef<mlir::Attribute> &layoutArrayAttr, llvm::StringRef tensorDesc) {
+  for (int i = 0; i < kConv2DTensorDimension; ++i) {
+    auto attr = layoutArrayAttr[i];
+    if (auto strAttr = attr.dyn_cast<StringAttr>()) {
+      output << "        constexpr index_t " << strAttr.getValue() << " = " << tensorDesc << ".GetLengths()[" << i << "];\n";
+    }
+  }
+}
+
 void EmitDimensionVariables(llvm::raw_ostream &output, llvm::ArrayRef<mlir::Attribute> &layoutArrayAttr) {
   for (int i = 0; i < kConv2DTensorDimension; ++i) {
     auto attr = layoutArrayAttr[i];
     if (auto strAttr = attr.dyn_cast<StringAttr>()) {
-      output << "    const index_t " << strAttr.getValue() << " = CK_PARAM_PROBLEM_";
+      output << "    constexpr index_t " << strAttr.getValue() << " = CK_PARAM_PROBLEM_";
 
       switch (llvm::toUpper(strAttr.getValue()[0])) {
           case 'H':
@@ -258,7 +423,7 @@ void EmitStrideVariables(llvm::raw_ostream &output, llvm::ArrayRef<mlir::Attribu
   for (int i = 0; i < kConv2DTensorDimension; ++i) {
     auto attr = layoutArrayAttr[i];
     if (auto strAttr = attr.dyn_cast<StringAttr>()) {
-      output << "    const index_t stride_" << strAttr.getValue() << " = ";
+      output << "    constexpr index_t stride_" << strAttr.getValue() << " = ";
 
       if (i == 0) {
         output << "1;\n";
@@ -270,6 +435,19 @@ void EmitStrideVariables(llvm::raw_ostream &output, llvm::ArrayRef<mlir::Attribu
       }
     }
   }
+}
+
+void EmitInterleaveArrayAttrOfStringAttrWithSeparator(llvm::raw_ostream &os, mlir::ArrayAttr &arrayAttr, const StringRef &separator) {
+  if (arrayAttr) {
+    interleave(arrayAttr, os, [&](Attribute attr) {
+      if (auto strAttr = attr.dyn_cast<StringAttr>())
+        os << strAttr.getValue();
+    }, separator);
+  }
+}
+
+void EmitInterleaveCommaArrayAttrOfStringAttr(llvm::raw_ostream &os, mlir::ArrayAttr &arrayAttr) {
+  EmitInterleaveArrayAttrOfStringAttrWithSeparator(os, arrayAttr, ", ");
 }
 
 void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std::string, 3> &tensorDescs) {
@@ -315,6 +493,146 @@ void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std
 
 }
 
+std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m) {
+  std::string resultStr;
+  llvm::raw_string_ostream output(resultStr);
+
+  // Enumerate FuncOp instances inside the ModuleOp.
+  for (auto f : m.getOps<FuncOp>()) {
+    std::string layoutStr;
+    llvm::SmallVector<std::string, 3> tensorDescs;
+    llvm::SmallDenseMap<int64_t, std::string> gridwiseGemmArguments;
+
+    // Obtain critical information from ModuleOp.
+    ObtainModuleInfo(m, layoutStr, tensorDescs);
+
+    int srcLayoutAttrCtr = 0;
+
+    // Start emitting.
+    EmitHeaderPreamble(output, layoutStr, tensorDescs);
+
+    f.walk([&output, &srcLayoutAttrCtr, &tensorDescs, &gridwiseGemmArguments](miopen::TransformOp op) {
+      // get source_layout attribute.
+      auto srcLayoutAttr = op.getAttrOfType<ArrayAttr>("source_layout");
+      if (srcLayoutAttr) {
+        auto srcLayout = srcLayoutAttr.getValue();
+        output << "\n        // ";
+        EmitLayoutString(output, srcLayout, "", "", ", ");
+        output << '\n';
+
+        EmitHeaderDimensionLengths(output, srcLayout, tensorDescs[srcLayoutAttrCtr]);
+      }
+      output << '\n';
+ 
+      // get layout attribute.
+      auto layoutAttr = op.getAttrOfType<ArrayAttr>("layout");
+      std::string inputTensorName;
+      std::string outputTensorName;
+      std::string operationSpec;
+      std::string srcDimSpec;
+      std::string dstDimSpec;
+      llvm::raw_string_ostream ins(inputTensorName);
+      llvm::raw_string_ostream outs(outputTensorName);
+      llvm::raw_string_ostream ops(operationSpec);
+      llvm::raw_string_ostream srcs(srcDimSpec);
+      llvm::raw_string_ostream dsts(dstDimSpec);
+
+      // determine input and output tensor name.
+      auto immLayoutAttr = op.getAttrOfType<ArrayAttr>("intermediate_layout");
+      auto outputLayoutAttr = op.getAttrOfType<ArrayAttr>("output_layout");
+      if (srcLayoutAttr) {
+        inputTensorName = tensorDescs[srcLayoutAttrCtr];
+        outs << kVarName[srcLayoutAttrCtr] << "_";
+
+        srcLayoutAttrCtr++;
+      } else {
+        // get intermediate_layout attribute.
+        if (immLayoutAttr) {
+          ins << kVarName[srcLayoutAttrCtr - 1] << "_";
+          EmitInterleaveArrayAttrOfStringAttrWithSeparator(ins, immLayoutAttr, "_");
+          ins << "_desc";
+          ins.flush();
+
+          outs << kVarName[srcLayoutAttrCtr - 1] << "_";
+        }
+      }
+      EmitInterleaveArrayAttrOfStringAttrWithSeparator(outs, outputLayoutAttr, "_");
+      outs << "_desc";
+      outs.flush();
+
+      // determine gridwise GEMM arguments.
+      auto gridwiseGemmArgPosAttr = op.getAttrOfType<IntegerAttr>("gridwise_gemm_argument_position");
+      if (gridwiseGemmArgPosAttr) {
+        llvm::errs() << "gridwise gemm argument pos: " << gridwiseGemmArgPosAttr.getValue() << "\n";
+        llvm::errs() << "tensor: " << outputTensorName << "\n";
+        gridwiseGemmArguments[gridwiseGemmArgPosAttr.getInt()] = outputTensorName;
+      }  
+
+      ops << "            make_tuple(";
+      srcs << "            make_tuple(";
+      dsts << "            make_tuple(";
+
+      for (auto layoutSpec = layoutAttr.begin(); layoutSpec != layoutAttr.end(); ) {
+        if (auto layoutSpecDict = layoutSpec->dyn_cast<DictionaryAttr>()) {
+          auto srcNames = layoutSpecDict.get("source_names").dyn_cast<ArrayAttr>();
+          auto dstNames = layoutSpecDict.get("names").dyn_cast<ArrayAttr>();
+
+          if (auto transform = layoutSpecDict.get("transformation").dyn_cast<StringAttr>()) {
+            if (transform.getValue() == "PassThrough" ||
+                transform.getValue() == "Merge") {
+              ops << transform.getValue() << "<";
+              EmitInterleaveCommaArrayAttrOfStringAttr(ops, srcNames);
+              ops << ">{}";
+            } else if (transform.getValue() == "Pad") {
+              ops << transform.getValue() << "<"
+                  << "Sequence<";
+              EmitInterleaveCommaArrayAttrOfStringAttr(ops, srcNames);
+              ops << ">, InLeftPads, InRightPads" << ">{}";
+            } else if (transform.getValue() == "Embed") {
+              ops << transform.getValue() << "<"
+                  << "Sequence<";
+              EmitInterleaveCommaArrayAttrOfStringAttr(ops, dstNames);
+              ops << ">, Sequence<ConvDilationTBD, ConvDilationTBD, 0>>{}";
+            }
+            srcs << "Sequence<" << layoutSpecDict.get("source_dimensions") << ">{}";
+            dsts << "Sequence<" << layoutSpecDict.get("dimensions") << ">{}";
+          }
+        }
+
+        ++layoutSpec;
+        if (layoutSpec != layoutAttr.end()) {
+          ops << ", ";
+          srcs << ", ";
+          dsts << ", ";
+        }
+      }
+      ops << "),\n";
+      ops.flush();
+      srcs << "),\n";
+      srcs.flush();
+      dsts << ")";
+      dsts.flush();
+
+      output << "        constexpr auto " << outputTensorName << " = transform_tensor_descriptor(\n";
+      output << "            " << inputTensorName << ",\n";
+      output << operationSpec << srcDimSpec << dstDimSpec;
+      output << ");\n";
+    });
+
+    // TBD get tuning parameters.
+    //f.walk([&output](miopen::GridwiseGemmOp op) {
+    //  // get op name.
+    //  //output << "op name: " << op.getOperationName() << "\n";
+    //  //op.dump();
+    //});
+
+    EmitHeaderEpilogue(output, gridwiseGemmArguments);
+  }
+
+  output.flush();
+  return std::make_unique<llvm::StringRef>(resultStr);
+}
+
 std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
   std::string resultStr;
   llvm::raw_string_ostream output(resultStr);
@@ -330,17 +648,15 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
     int srcLayoutAttrCtr = 0;
 
     // Start emitting.
-
     EmitCppPreamble(output, layoutStr);
 
     f.walk([&output, &srcLayoutAttrCtr, &tensorDescs](miopen::TransformOp op) {
-
       // get source_layout attribute.
       auto srcLayoutAttr = op.getAttrOfType<ArrayAttr>("source_layout");
       if (srcLayoutAttr) {
         auto srcLayout = srcLayoutAttr.getValue();
         output << "    // ";
-        EmitLayoutString(output, srcLayout, "", "", ", ");
+        EmitLayoutString(output, srcLayout, "", "", ",");
         output << '\n';
 
         EmitDimensionVariables(output, srcLayout);
@@ -354,20 +670,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
         EmitLayoutString(output, srcLayout, "stride_", "", ", ");
         output << ">{});\n\n";
       }
-
-      //// get layout attribute.
-      // TBD not used in emitting C++ source wrapper.
-      // would be used in emitting C++ header.
-      //auto layoutAttr = op.getAttrOfType<ArrayAttr>("layout");
-      //for (auto layoutSpec : layoutAttr) {
-      //  if (auto layoutSpecDict = layoutSpec.dyn_cast<DictionaryAttr>()) {
-      //    //output << "dimensions: " << layoutSpecDict.get("dimensions") << "\n";
-      //    //output << "names: " << layoutSpecDict.get("names") << "\n";
-      //    //output << "source_dimensions: " << layoutSpecDict.get("source_dimensions") << "\n";
-      //    //output << "source_names: " << layoutSpecDict.get("source_names") << "\n";
-      //    //output << "transformation: " << layoutSpecDict.get("transformation") << "\n";
-      //  }
-      //}
     });
 
     EmitCppInterlude(output);
@@ -396,13 +698,13 @@ static TranslateFromMLIRRegistration
       return success();
     });
 
-//static TranslateFromMLIRRegistration
-//    toHeader("mlir-to-miopen-h", [](ModuleOp module, llvm::raw_ostream &output) {
-//      auto sourceCode = mlir::translateModuleToMIOpenHeader(module);
-//      if (!sourceCode)
-//        return failure();
-//
-//      output << *sourceCode;
-//      return success();
-//    });
+static TranslateFromMLIRRegistration
+    toHeader("mlir-to-miopen-hpp", [](ModuleOp module, llvm::raw_ostream &output) {
+      auto sourceCode = mlir::translateModuleToMIOpenHeader(module);
+      if (!sourceCode)
+        return failure();
+
+      output << *sourceCode;
+      return success();
+    });
 
