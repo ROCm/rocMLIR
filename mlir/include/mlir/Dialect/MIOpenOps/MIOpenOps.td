@@ -37,9 +37,9 @@ class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
 
 def MIOpen_Conv2DOp :
     MIOpen_Op<"conv2d">,
-    Arguments<(ins MemRefRankOf<[F32], [4]>,
-                   MemRefRankOf<[F32], [4]>,
-                   MemRefRankOf<[F32], [4]>)> {
+    Arguments<(ins MemRefRankOf<[F32], [4]>:$filter,
+                   MemRefRankOf<[F32], [4]>:$input,
+                   MemRefRankOf<[F32], [4]>:$output)> {
   let summary = "2D convolution";
   let description = [{
     The `miopen.conv2d` op computes 2D convolution.
