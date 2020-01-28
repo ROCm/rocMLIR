@@ -343,12 +343,17 @@ struct GridwiseConvolutionImplicitGemm_v4r4_)";
   output << kHeaderPreamblePart2;
   output << kHeaderPreamblePart3;
   output << '\n';
-  output << R"(
-        constexpr auto )" << tensorDescs[0] << " = InGlobalDesc{};";
-  output << R"(
-        constexpr auto )" << tensorDescs[1] << " = WeiGlobalDesc{};";
-  output << R"(
-        constexpr auto )" << tensorDescs[2] << " = OutGlobalDesc{};";
+
+  // TBD: remove these interim checks.
+  if (tensorDescs.size() > 0)
+    output << R"(
+          constexpr auto )" << tensorDescs[0] << " = InGlobalDesc{};";
+  if (tensorDescs.size() > 1)
+    output << R"(
+          constexpr auto )" << tensorDescs[1] << " = WeiGlobalDesc{};";
+  if (tensorDescs.size() > 2)
+    output << R"(
+          constexpr auto )" << tensorDescs[2] << " = OutGlobalDesc{};";
   output << '\n';
 }
 
@@ -358,7 +363,7 @@ void EmitHeaderEpilogue(llvm::raw_ostream &output, llvm::SmallDenseMap<int64_t, 
 //                                                   decltype(wei_e_k_global_desc),
 //                                                   decltype(in_e_b_global_desc),
 //                                                   decltype(out_k_b_global_desc),
-  for (int i = 0; i < 3; ++i) {
+  for (unsigned i = 0; i < args.size(); ++i) {
     output << R"(
                                                      decltype()" << args[i] << "),";
   }
@@ -396,7 +401,9 @@ void EmitDimensionVariables(llvm::raw_ostream &output, llvm::ArrayRef<mlir::Attr
           case 'H':
           case 'W':
             output << llvm::toUpper(strAttr.getValue()[0]);
-            output << llvm::toUpper(strAttr.getValue()[1]);
+            // XXX: fix this. 
+            if (strAttr.getValue().size() > 1)
+              output << llvm::toUpper(strAttr.getValue()[1]);
             break;
           default:
             output << llvm::toUpper(strAttr.getValue()[0]);
