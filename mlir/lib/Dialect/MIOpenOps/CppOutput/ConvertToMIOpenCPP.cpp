@@ -429,15 +429,15 @@ void EmitDimensionVariables(llvm::raw_ostream &output, llvm::ArrayRef<mlir::Attr
 }
 
 void EmitStrideVariables(llvm::raw_ostream &output, llvm::ArrayRef<mlir::Attribute> &layoutArrayAttr) {
-  for (int i = 0; i < kConv2DTensorDimension; ++i) {
+  for (int i = kConv2DTensorDimension - 1; i >= 0; --i) {
     auto attr = layoutArrayAttr[i];
     if (auto strAttr = attr.dyn_cast<StringAttr>()) {
       output << "    constexpr index_t stride_" << strAttr.getValue() << " = ";
 
-      if (i == 0) {
+      if (i == kConv2DTensorDimension - 1) {
         output << "1;\n";
       } else {
-        auto prevAttr = layoutArrayAttr[i - 1];
+        auto prevAttr = layoutArrayAttr[i + 1];
         if (auto strPrevAttr = prevAttr.dyn_cast<StringAttr>()) {
           output << strPrevAttr.getValue() << " * stride_" << strPrevAttr.getValue() << ";\n";
         }
