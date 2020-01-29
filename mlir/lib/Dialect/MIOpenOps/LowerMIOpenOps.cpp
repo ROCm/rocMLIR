@@ -66,7 +66,7 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
 
     llvm::SmallVector<NamedAttribute, 3> transformedFilterAttrs;
 
-    // TBD: set layout attribute.
+    // set layout attribute.
     // Weight tensor transformation:
     // - Part 1: Merge non-K dimensions to dimension 0, name it as gemmK.
     // - Part 2: PassThrough K dimension to dimension 1, name it as gemmM.
@@ -414,7 +414,7 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
                                                             StringAttr::get("wo", op.getContext())
                                                         }, op.getContext()));
     transformedInputAttrs.push_back(transformedInputImmLayoutAttr);
-    // TBD: set output_layout attribute.
+    // set output_layout attribute.
     auto transformedInputOutputLayoutAttr = rewriter.getNamedAttr("output_layout",
                                                         ArrayAttr::get({
                                                             StringAttr::get("gemmK", op.getContext()),
@@ -442,49 +442,59 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
 
     llvm::SmallVector<NamedAttribute, 3> transformedOutputAttrs;
 
-    // TBD: set layout attribute.
-    // TBD: Part 1: Passthrough.
-    llvm::SmallVector<NamedAttribute, 5> transformedOutputLayoutPart1Specs;
-    transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({IntegerAttr::get(IntegerType::get(32, op.getContext()), 0)}, op.getContext())));
-    transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({StringAttr::get("gemmM", op.getContext())}, op.getContext())));
-    transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("transformation", StringAttr::get("PassThrough", op.getContext())));
-    transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions",
-                                                ArrayAttr::get({
-                                                    IntegerAttr::get(IntegerType::get(32, op.getContext()), 1),
-                                                }, op.getContext())));
-    transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names",
-                                                ArrayAttr::get({
-                                                    StringAttr::get("ko", op.getContext())
-                                                }, op.getContext())));
+    // set layout attribute.
+    // Weight tensor transformation:
+    // - Part 1: PassThrough K dimension to dimension 0, name it as gemmM.
+    // - Part 2: Merge non-K dimensions to dimension 1, name it as gemmN.
+    {
+      llvm::SmallVector<IntegerAttr, 3> nonKDims;
+      IntegerAttr kDim;
+      llvm::SmallVector<StringAttr, 3> nonKDimNames;
+      StringAttr kDimName;
+      for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
+        if (auto strAttr = outputLayoutAttr.getValue()[i].dyn_cast<StringAttr>()) {
+          if (strAttr.getValue() == "ko") {
+            kDim = IntegerAttr::get(IntegerType::get(32, op.getContext()), i);
+            kDimName = StringAttr::get(strAttr.getValue(), op.getContext());
+          } else {
+            nonKDims.push_back(IntegerAttr::get(IntegerType::get(32, op.getContext()), i));
+            nonKDimNames.push_back(StringAttr::get(strAttr.getValue(), op.getContext()));
+          }
+        }
+      }
+ 
+      // Part 1: Passthrough.
+      llvm::SmallVector<NamedAttribute, 5> transformedOutputLayoutPart1Specs;
+      transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({IntegerAttr::get(IntegerType::get(32, op.getContext()), 0)}, op.getContext())));
+      transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({StringAttr::get("gemmM", op.getContext())}, op.getContext())));
+      transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("transformation", StringAttr::get("PassThrough", op.getContext())));
+      transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions",
+                                                  ArrayAttr::get({kDim}, op.getContext())));
+      transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names",
+                                                  ArrayAttr::get({kDimName}, op.getContext())));
 
-    // TBD: Part 2: Merge.
-    llvm::SmallVector<NamedAttribute, 5> transformedOutputLayoutPart2Specs;
-    transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({IntegerAttr::get(IntegerType::get(32, op.getContext()), 1)}, op.getContext())));
-    transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({StringAttr::get("gemmN", op.getContext())}, op.getContext())));
-    transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("transformation", StringAttr::get("Merge", op.getContext())));
-    transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions",
-                                                ArrayAttr::get({
-                                                    IntegerAttr::get(IntegerType::get(32, op.getContext()), 0),
-                                                    IntegerAttr::get(IntegerType::get(32, op.getContext()), 2),
-                                                    IntegerAttr::get(IntegerType::get(32, op.getContext()), 3),
-                                                }, op.getContext())));
-    transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names",
-                                                ArrayAttr::get({                                                                                             StringAttr::get("no", op.getContext()),
-                                                    StringAttr::get("ho", op.getContext()),
-                                                    StringAttr::get("wo", op.getContext())
-                                                }, op.getContext())));
+      // Part 2: Merge.
+      llvm::SmallVector<NamedAttribute, 5> transformedOutputLayoutPart2Specs;
+      transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({IntegerAttr::get(IntegerType::get(32, op.getContext()), 1)}, op.getContext())));
+      transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({StringAttr::get("gemmN", op.getContext())}, op.getContext())));
+      transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("transformation", StringAttr::get("Merge", op.getContext())));
+      transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions",
+                                                  ArrayAttr::get(ArrayRef<Attribute>(nonKDims.begin(), nonKDims.end()), op.getContext())));
+      transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names",
+                                                  ArrayAttr::get(ArrayRef<Attribute>(nonKDimNames.begin(), nonKDimNames.end()), op.getContext())));
 
-    auto transformedOutputLayoutAttr = rewriter.getNamedAttr("layout",
-                                                             ArrayAttr::get({
-                                                                 DictionaryAttr::get(transformedOutputLayoutPart1Specs, op.getContext()),
-                                                                 DictionaryAttr::get(transformedOutputLayoutPart2Specs, op.getContext())
-                                                             }, op.getContext()));
-    transformedOutputAttrs.push_back(transformedOutputLayoutAttr);
+      auto transformedOutputLayoutAttr = rewriter.getNamedAttr("layout",
+                                                               ArrayAttr::get({
+                                                                   DictionaryAttr::get(transformedOutputLayoutPart1Specs, op.getContext()),
+                                                                   DictionaryAttr::get(transformedOutputLayoutPart2Specs, op.getContext())
+                                                               }, op.getContext()));
+      transformedOutputAttrs.push_back(transformedOutputLayoutAttr);
+    }
 
     // set source_layout attribute.
     auto outputSrcLayoutAttr = rewriter.getNamedAttr("source_layout", outputLayoutAttr);
     transformedOutputAttrs.push_back(outputSrcLayoutAttr);
-    // TBD: set output_layout attribute.
+    // set output_layout attribute.
     auto transformedOutputOutputLayoutAttr = rewriter.getNamedAttr("output_layout",
                                                         ArrayAttr::get({
                                                             StringAttr::get("gemmM", op.getContext()),
@@ -492,7 +502,7 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
                                                         }, op.getContext()));
     transformedOutputAttrs.push_back(transformedOutputOutputLayoutAttr);
 
-    // TBD: set gridwise_gemm_argument_pos attribute.
+    // set gridwise_gemm_argument_pos attribute.
     auto outputGridwiseGemmArgPosAttr = rewriter.getNamedAttr("gridwise_gemm_argument_position", 
                                                              IntegerAttr::get(IntegerType::get(32, op.getContext()), 2));
     transformedOutputAttrs.push_back(outputGridwiseGemmArgPosAttr);
