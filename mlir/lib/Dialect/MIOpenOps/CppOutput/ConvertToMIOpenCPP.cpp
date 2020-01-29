@@ -186,13 +186,20 @@ void EmitCppPreamble(llvm::raw_ostream &output, llvm::StringRef layoutStr) {
 // Between Preamble Part 1 and Part 2:
 // #include "gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw.hpp"
   output << R"(#include "gridwise_convolution_implicit_gemm_v4r4_)";
-  output << layoutStr << R"(.hpp")";
+
+  // Change to fixed "mlir".
+  //output << layoutStr << R"(.hpp")";
+  output << "mlir" << R"(.hpp")";
+
   output << kCppPreamblePart2;
 // Between Preamble Part 2 and Par 3:
 //    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw(
-   output << R"(
+  output << R"(
     __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void gridwise_convolution_implicit_gemm_v4r4_)";
-   output << layoutStr;
+  // Change to fixed "mlir".
+  //output << layoutStr;
+  output << "mlir";
+
   output << kCppPreamblePart3;
 }
 
@@ -205,7 +212,11 @@ void EmitCppEpilogue(llvm::raw_ostream &output, llvm::StringRef layoutStr, llvm:
 //    constexpr auto gridwise_conv = GridwiseConvolutionImplicitGemm_v4r4_nchw_kcyx_nkhw
   output << R"(
     constexpr auto gridwise_conv = GridwiseConvolutionImplicitGemm_v4r4_)";
-  output << layoutStr;
+
+  // Change to fixed "mlir".
+  //output << layoutStr;
+  output << "mlir";
+
   output << kCppEpiloguePart1;
 // Between Part1 and Part2:
 //        decltype(in_nchw_desc),
@@ -339,7 +350,11 @@ void EmitHeaderPreamble(llvm::raw_ostream &output, llvm::StringRef layoutStr, ll
   output << kHeaderPreamblePart1;
   output << R"(
 struct GridwiseConvolutionImplicitGemm_v4r4_)";
-  output << layoutStr;
+
+  // Change to fixed "mlir".
+  //output << layoutStr;
+  output << "mlir";
+
   output << kHeaderPreamblePart2;
   output << kHeaderPreamblePart3;
   output << '\n';
