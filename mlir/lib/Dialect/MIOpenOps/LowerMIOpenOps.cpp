@@ -208,8 +208,8 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
                                                         ArrayAttr::get({
                                                             StringAttr::get("ni", op.getContext()),
                                                             StringAttr::get("ci", op.getContext()),
-                                                            StringAttr::get("hi", op.getContext()),
-                                                            StringAttr::get("wi", op.getContext())
+                                                            StringAttr::get("hipad", op.getContext()),
+                                                            StringAttr::get("wipad", op.getContext())
                                                         }, op.getContext()));
     paddedInputAttrs.push_back(paddedInputOutputLayoutAttr);
     auto paddedInput = rewriter.create<miopen::TransformOp>(op.getLoc(), inputType, op.input(), paddedInputAttrs);
