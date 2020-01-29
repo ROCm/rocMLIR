@@ -362,10 +362,10 @@ struct GridwiseConvolutionImplicitGemm_v4r4_)";
   // TBD: remove these interim checks.
   if (tensorDescs.size() > 0)
     output << R"(
-          constexpr auto )" << tensorDescs[0] << " = InGlobalDesc{};";
+          constexpr auto )" << tensorDescs[0] << " = WeiGlobalDesc{};";
   if (tensorDescs.size() > 1)
     output << R"(
-          constexpr auto )" << tensorDescs[1] << " = WeiGlobalDesc{};";
+          constexpr auto )" << tensorDescs[1] << " = InGlobalDesc{};";
   if (tensorDescs.size() > 2)
     output << R"(
           constexpr auto )" << tensorDescs[2] << " = OutGlobalDesc{};";
