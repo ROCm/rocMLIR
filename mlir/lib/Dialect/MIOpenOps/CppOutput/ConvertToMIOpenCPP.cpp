@@ -222,9 +222,9 @@ void EmitCppEpilogue(llvm::raw_ostream &output, llvm::StringRef layoutStr, llvm:
 //        decltype(in_nchw_desc),
 //        decltype(wei_kcyx_desc),
 //        decltype(out_nkhw_desc),
-  for (auto desc : tensorDescs) {
-    output << "        decltype(" << desc << "),\n";
-  }
+  output << "        decltype(" << tensorDescs[1] << "),\n";
+  output << "        decltype(" << tensorDescs[0] << "),\n";
+  output << "        decltype(" << tensorDescs[2] << "),\n";
   output << kCppEpiloguePart2;
 }
 
@@ -359,15 +359,11 @@ struct GridwiseConvolutionImplicitGemm_v4r4_)";
   output << kHeaderPreamblePart3;
   output << '\n';
 
-  // TBD: remove these interim checks.
-  if (tensorDescs.size() > 0)
-    output << R"(
-          constexpr auto )" << tensorDescs[0] << " = WeiGlobalDesc{};";
-  if (tensorDescs.size() > 1)
-    output << R"(
+  output << R"(
+         constexpr auto )" << tensorDescs[0] << " = WeiGlobalDesc{};";
+  output << R"(
           constexpr auto )" << tensorDescs[1] << " = InGlobalDesc{};";
-  if (tensorDescs.size() > 2)
-    output << R"(
+  output << R"(
           constexpr auto )" << tensorDescs[2] << " = OutGlobalDesc{};";
   output << '\n';
 }
