@@ -89,29 +89,29 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
 
       // Part 1: Merge part.
       llvm::SmallVector<NamedAttribute, 5> transformedFilterLayoutPart1Specs;
-      transformedFilterLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({op.getI32Attr(0)}, op.getContext())));
-      transformedFilterLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({op.getStringAttr("gemmK")}, op.getContext())));
+      transformedFilterLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", op.getArrayAttr({op.getI32Attr(0)})));
+      transformedFilterLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", op.getArrayAttr({op.getStringAttr("gemmK")})));
       transformedFilterLayoutPart1Specs.push_back(rewriter.getNamedAttr("transformation", op.getStringAttr("Merge")));
       transformedFilterLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions",
-                                                  ArrayAttr::get(ArrayRef<Attribute>(nonKDims.begin(), nonKDims.end()), op.getContext())));
+                                                  op.getArrayAttr(ArrayRef<Attribute>(nonKDims.begin(), nonKDims.end()))));
       transformedFilterLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names",
-                                                  ArrayAttr::get(ArrayRef<Attribute>(nonKDimNames.begin(), nonKDimNames.end()), op.getContext())));
+                                                  op.getArrayAttr(ArrayRef<Attribute>(nonKDimNames.begin(), nonKDimNames.end()))));
 
       // Part 2: Passthrough part.
       llvm::SmallVector<NamedAttribute, 5> transformedFilterLayoutPart2Specs;
-      transformedFilterLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({op.getI32Attr(1)}, op.getContext())));
-      transformedFilterLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({op.getStringAttr("gemmM")}, op.getContext())));
+      transformedFilterLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", op.getArrayAttr({op.getI32Attr(1)})));
+      transformedFilterLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", op.getArrayAttr({op.getStringAttr("gemmM")})));
       transformedFilterLayoutPart2Specs.push_back(rewriter.getNamedAttr("transformation", op.getStringAttr("PassThrough")));
       transformedFilterLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions",
-                                                  ArrayAttr::get({kDim}, op.getContext())));
+                                                  op.getArrayAttr({kDim})));
       transformedFilterLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names",
-                                                  ArrayAttr::get({kDimName}, op.getContext())));
+                                                  op.getArrayAttr({kDimName})));
 
       auto transformedFilterLayoutAttr = rewriter.getNamedAttr("layout",
-                                                               ArrayAttr::get({
-                                                                   DictionaryAttr::get(transformedFilterLayoutPart1Specs, op.getContext()),
-                                                                   DictionaryAttr::get(transformedFilterLayoutPart2Specs, op.getContext())
-                                                               }, op.getContext()));
+                                                               op.getArrayAttr({
+                                                                   op.getDictAttr(transformedFilterLayoutPart1Specs),
+                                                                   op.getDictAttr(transformedFilterLayoutPart2Specs)
+                                                               }));
       transformedFilterAttrs.push_back(transformedFilterLayoutAttr);
     }
 
@@ -120,10 +120,10 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
     transformedFilterAttrs.push_back(filterSrcLayoutAttr);
     // set output_layout attribute.
     auto filterOutputLayoutAttr = rewriter.getNamedAttr("output_layout",
-                                                        ArrayAttr::get({
+                                                        op.getArrayAttr({
                                                             op.getStringAttr("gemmK"),
                                                             op.getStringAttr("gemmM")
-                                                        }, op.getContext()));
+                                                        }));
     transformedFilterAttrs.push_back(filterOutputLayoutAttr);
     // set gridwise_gemm_argument_pos attribute.
     auto filterGridwiseGemmArgPosAttr = rewriter.getNamedAttr("gridwise_gemm_argument_position", op.getI32Attr(0));
@@ -186,47 +186,47 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
   
       // Part 1: Passthrough for ni dimension.
       llvm::SmallVector<NamedAttribute, 5> paddedInputLayoutPart1Specs;
-      paddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({nDim}, op.getContext())));
-      paddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({nDimName}, op.getContext())));
+      paddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", op.getArrayAttr({nDim})));
+      paddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", op.getArrayAttr({nDimName})));
       paddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("transformation", op.getStringAttr("PassThrough")));
-      paddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({nDim}, op.getContext())));
-      paddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({nDimName}, op.getContext())));
+      paddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions", op.getArrayAttr({nDim})));
+      paddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names", op.getArrayAttr({nDimName})));
 
       // Part 2: Passthrough for ci dimension.
       llvm::SmallVector<NamedAttribute, 5> paddedInputLayoutPart2Specs;
-      paddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({cDim}, op.getContext())));
-      paddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({cDimName}, op.getContext())));
+      paddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", op.getArrayAttr({cDim})));
+      paddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", op.getArrayAttr({cDimName})));
       paddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("transformation", op.getStringAttr("PassThrough")));
-      paddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({cDim}, op.getContext())));
-      paddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({cDimName}, op.getContext())));
+      paddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions", op.getArrayAttr({cDim})));
+      paddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names", op.getArrayAttr({cDimName})));
 
       // Part 3: Pad for h/w dimensions.
       llvm::SmallVector<NamedAttribute, 5> paddedInputLayoutPart3Specs;
-      paddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get(ArrayRef<Attribute>(hwDims.begin(), hwDims.end()), op.getContext())));
-      paddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get(ArrayRef<Attribute>(hwPaddedDimNames.begin(), hwPaddedDimNames.end()), op.getContext())));
+      paddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("dimensions", op.getArrayAttr(ArrayRef<Attribute>(hwDims.begin(), hwDims.end()))));
+      paddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("names", op.getArrayAttr(ArrayRef<Attribute>(hwPaddedDimNames.begin(), hwPaddedDimNames.end()))));
       paddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("transformation", op.getStringAttr("Pad")));
       // TBD: padding parmeters.
       paddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("parameters",
-                                                  ArrayAttr::get({
+                                                  op.getArrayAttr({
                                                       op.getI32Attr(0),
                                                       op.getI32Attr(0)
-                                                  }, op.getContext())));
-      paddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get(ArrayRef<Attribute>(hwDims.begin(), hwDims.end()), op.getContext())));
-      paddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get(ArrayRef<Attribute>(hwDimNames.begin(), hwDimNames.end()), op.getContext())));
+                                                  })));
+      paddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("source_dimensions", op.getArrayAttr(ArrayRef<Attribute>(hwDims.begin(), hwDims.end()))));
+      paddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("source_names", op.getArrayAttr(ArrayRef<Attribute>(hwDimNames.begin(), hwDimNames.end()))));
 
       auto paddedInputLayoutAttr = rewriter.getNamedAttr("layout",
-                                                               ArrayAttr::get({
-                                                                   DictionaryAttr::get(paddedInputLayoutPart1Specs, op.getContext()),
-                                                                   DictionaryAttr::get(paddedInputLayoutPart2Specs, op.getContext()),
-                                                                   DictionaryAttr::get(paddedInputLayoutPart3Specs, op.getContext())
-                                                               }, op.getContext()));
+                                                               op.getArrayAttr({
+                                                                   op.getDictAttr(paddedInputLayoutPart1Specs),
+                                                                   op.getDictAttr(paddedInputLayoutPart2Specs),
+                                                                   op.getDictAttr(paddedInputLayoutPart3Specs)
+                                                               }));
       paddedInputAttrs.push_back(paddedInputLayoutAttr);
 
       // set source_layout attribute.
       auto inputSrcLayoutAttr = rewriter.getNamedAttr("source_layout", inputLayoutAttr);
       paddedInputAttrs.push_back(inputSrcLayoutAttr);
       // set output_layout attribute.
-      auto paddedInputOutputLayoutAttr = rewriter.getNamedAttr("output_layout", ArrayAttr::get(ArrayRef<Attribute>(reorderedPaddedInputDimNames.begin(), reorderedPaddedInputDimNames.end()), op.getContext()));
+      auto paddedInputOutputLayoutAttr = rewriter.getNamedAttr("output_layout", op.getArrayAttr(ArrayRef<Attribute>(reorderedPaddedInputDimNames.begin(), reorderedPaddedInputDimNames.end())));
       paddedInputAttrs.push_back(paddedInputOutputLayoutAttr);
     }
     auto paddedInput = rewriter.create<miopen::TransformOp>(op.getLoc(), inputType, op.input(), paddedInputAttrs);
@@ -298,74 +298,74 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
 
       // Part 1: Passthrough for ni dimension.
       llvm::SmallVector<NamedAttribute, 5> embeddedInputLayoutPart1Specs;
-      embeddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({reorderedNDim}, op.getContext())));
-      embeddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({nDimName}, op.getContext())));
+      embeddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", op.getArrayAttr({reorderedNDim})));
+      embeddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", op.getArrayAttr({nDimName})));
       embeddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("transformation", op.getStringAttr("PassThrough")));
-      embeddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({nDim}, op.getContext())));
-      embeddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({nDimName}, op.getContext())));
+      embeddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions", op.getArrayAttr({nDim})));
+      embeddedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names", op.getArrayAttr({nDimName})));
 
       // Part 2: Passthrough for ci dimension.
       llvm::SmallVector<NamedAttribute, 5> embeddedInputLayoutPart2Specs;
-      embeddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({reorderedCDim}, op.getContext())));
-      embeddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({cDimName}, op.getContext())));
+      embeddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", op.getArrayAttr({reorderedCDim})));
+      embeddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", op.getArrayAttr({cDimName})));
       embeddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("transformation", op.getStringAttr("PassThrough")));
-      embeddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({cDim}, op.getContext())));
-      embeddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({cDimName}, op.getContext())));
+      embeddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions", op.getArrayAttr({cDim})));
+      embeddedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names", op.getArrayAttr({cDimName})));
 
       // Part 3: Embed for y, ho dimensions.
       llvm::SmallVector<NamedAttribute, 5> embeddedInputLayoutPart3Specs;
-      embeddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get(ArrayRef<Attribute>(reorderedYHoDim.begin(), reorderedYHoDim.end()), op.getContext())));
+      embeddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("dimensions", op.getArrayAttr(ArrayRef<Attribute>(reorderedYHoDim.begin(), reorderedYHoDim.end()))));
       embeddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("names",
-                                                  ArrayAttr::get({
+                                                  op.getArrayAttr({
                                                       op.getStringAttr("y"),
                                                       op.getStringAttr("ho")
-                                                  }, op.getContext())));
+                                                  })));
       embeddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("transformation", op.getStringAttr("Embed")));
       // TBD: padding parmeters.
       embeddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("parameters",
-                                                  ArrayAttr::get({
+                                                  op.getArrayAttr({
                                                       op.getI32Attr(2),
                                                       op.getI32Attr(1),
                                                       op.getI32Attr(1),
                                                       op.getI32Attr(0)
-                                                  }, op.getContext())));
-      embeddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({hDim}, op.getContext())));
-      embeddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({hDimName}, op.getContext())));
+                                                  })));
+      embeddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("source_dimensions", op.getArrayAttr({hDim})));
+      embeddedInputLayoutPart3Specs.push_back(rewriter.getNamedAttr("source_names", op.getArrayAttr({hDimName})));
 
       // Part 4: Embed for x, wo dimensions.
       llvm::SmallVector<NamedAttribute, 5> embeddedInputLayoutPart4Specs;
-      embeddedInputLayoutPart4Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get(ArrayRef<Attribute>(reorderedXWoDim.begin(), reorderedXWoDim.end()), op.getContext())));
+      embeddedInputLayoutPart4Specs.push_back(rewriter.getNamedAttr("dimensions", op.getArrayAttr(ArrayRef<Attribute>(reorderedXWoDim.begin(), reorderedXWoDim.end()))));
       embeddedInputLayoutPart4Specs.push_back(rewriter.getNamedAttr("names",
-                                                  ArrayAttr::get({
+                                                  op.getArrayAttr({
                                                       op.getStringAttr("x"),
                                                       op.getStringAttr("wo")
-                                                  }, op.getContext())));
+                                                  })));
       embeddedInputLayoutPart4Specs.push_back(rewriter.getNamedAttr("transformation", op.getStringAttr("Embed")));
       // TBD: embed parmeters.
       embeddedInputLayoutPart4Specs.push_back(rewriter.getNamedAttr("parameters",
-                                                  ArrayAttr::get({
+                                                  op.getArrayAttr({
                                                       op.getI32Attr(2),
                                                       op.getI32Attr(1),
                                                       op.getI32Attr(1),
                                                       op.getI32Attr(0)
-                                                  }, op.getContext())));
-      embeddedInputLayoutPart4Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({wDim}, op.getContext())));
-      embeddedInputLayoutPart4Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({wDimName}, op.getContext())));
+                                                  })));
+      embeddedInputLayoutPart4Specs.push_back(rewriter.getNamedAttr("source_dimensions", op.getArrayAttr({wDim})));
+      embeddedInputLayoutPart4Specs.push_back(rewriter.getNamedAttr("source_names", op.getArrayAttr({wDimName})));
 
       auto embeddedInputLayoutAttr = rewriter.getNamedAttr("layout",
-                                                               ArrayAttr::get({
-                                                                   DictionaryAttr::get(embeddedInputLayoutPart1Specs, op.getContext()),
-                                                                   DictionaryAttr::get(embeddedInputLayoutPart2Specs, op.getContext()),
-                                                                   DictionaryAttr::get(embeddedInputLayoutPart3Specs, op.getContext()),
-                                                                   DictionaryAttr::get(embeddedInputLayoutPart4Specs, op.getContext())
-                                                               }, op.getContext()));
+                                                               op.getArrayAttr({
+                                                                   op.getDictAttr(embeddedInputLayoutPart1Specs),
+                                                                   op.getDictAttr(embeddedInputLayoutPart2Specs),
+                                                                   op.getDictAttr(embeddedInputLayoutPart3Specs),
+                                                                   op.getDictAttr(embeddedInputLayoutPart4Specs)
+                                                               }));
       embeddedInputAttrs.push_back(embeddedInputLayoutAttr);
 
       // set intermediate_layout attribute.
-      auto embeddedInputImmLayoutAttr = rewriter.getNamedAttr("intermediate_layout", ArrayAttr::get(ArrayRef<Attribute>(reorderedPaddedInputDimNames.begin(), reorderedPaddedInputDimNames.end()), op.getContext()));
+      auto embeddedInputImmLayoutAttr = rewriter.getNamedAttr("intermediate_layout", op.getArrayAttr(ArrayRef<Attribute>(reorderedPaddedInputDimNames.begin(), reorderedPaddedInputDimNames.end())));
       embeddedInputAttrs.push_back(embeddedInputImmLayoutAttr);
       // set output_layout attribute.
-      auto embeddedInputOutputLayoutAttr = rewriter.getNamedAttr("output_layout", ArrayAttr::get(ArrayRef<Attribute>(reorderedEmbeddedInputDimNames.begin(), reorderedEmbeddedInputDimNames.end()), op.getContext()));
+      auto embeddedInputOutputLayoutAttr = rewriter.getNamedAttr("output_layout", op.getArrayAttr(ArrayRef<Attribute>(reorderedEmbeddedInputDimNames.begin(), reorderedEmbeddedInputDimNames.end())));
       embeddedInputAttrs.push_back(embeddedInputOutputLayoutAttr);
     }
     auto embeddedInput = rewriter.create<miopen::TransformOp>(op.getLoc(), embeddedInputMemRefType, ArrayRef<Value>(paddedInput), embeddedInputAttrs);
@@ -417,50 +417,50 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
 
       // Part 1: Merge ci, y, x dimensions.
       llvm::SmallVector<NamedAttribute, 5> transformedInputLayoutPart1Specs;
-      transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({op.getI32Attr(0)}, op.getContext())));
-      transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({op.getStringAttr("gemmK")}, op.getContext())));
+      transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", op.getArrayAttr({op.getI32Attr(0)})));
+      transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", op.getArrayAttr({op.getStringAttr("gemmK")})));
       transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("transformation", op.getStringAttr("Merge")));
 
       // XXX: use better way to match output tensor layout for c/y/x dimension.
       if (cDim.getInt() < yDim.getInt()) {
-        transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({cDim, yDim, xDim}, op.getContext())));
-        transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({cDimName, yDimName, xDimName}, op.getContext())));
+        transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions", op.getArrayAttr({cDim, yDim, xDim})));
+        transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names", op.getArrayAttr({cDimName, yDimName, xDimName})));
       } else {
-        transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({yDim, xDim, cDim}, op.getContext())));
-        transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({yDimName, xDimName, cDimName}, op.getContext())));
+        transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions", op.getArrayAttr({yDim, xDim, cDim})));
+        transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names", op.getArrayAttr({yDimName, xDimName, cDimName})));
       }
 
       // Part 2: Merge ni, ho, wo dimensions.
       llvm::SmallVector<NamedAttribute, 5> transformedInputLayoutPart2Specs;
-      transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({op.getI32Attr(1)}, op.getContext())));
-      transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({op.getStringAttr("gemmN")}, op.getContext())));
+      transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", op.getArrayAttr({op.getI32Attr(1)})));
+      transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", op.getArrayAttr({op.getStringAttr("gemmN")})));
       transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("transformation", op.getStringAttr("Merge")));
 
       // XXX: use better way to match output tensor layout for n/h/w dimension.
       if (nDim.getInt() < hDim.getInt()) {
-        transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({nDim, hDim, wDim}, op.getContext())));
-        transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({nDimName, hDimName, wDimName}, op.getContext())));
+        transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions", op.getArrayAttr({nDim, hDim, wDim})));
+        transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names", op.getArrayAttr({nDimName, hDimName, wDimName})));
       } else {
-        transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({hDim, wDim, nDim}, op.getContext())));
-        transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({hDimName, wDimName, nDimName}, op.getContext())));
+        transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions", op.getArrayAttr({hDim, wDim, nDim})));
+        transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names", op.getArrayAttr({hDimName, wDimName, nDimName})));
       }
 
       auto transformedInputLayoutAttr = rewriter.getNamedAttr("layout",
-                                                               ArrayAttr::get({
-                                                                   DictionaryAttr::get(transformedInputLayoutPart1Specs, op.getContext()),
-                                                                   DictionaryAttr::get(transformedInputLayoutPart2Specs, op.getContext())
-                                                               }, op.getContext()));
+                                                               op.getArrayAttr({
+                                                                   op.getDictAttr(transformedInputLayoutPart1Specs),
+                                                                   op.getDictAttr(transformedInputLayoutPart2Specs)
+                                                               }));
       transformedInputAttrs.push_back(transformedInputLayoutAttr);
     }
     // set intermediate_layout attribute.
-    auto transformedInputImmLayoutAttr = rewriter.getNamedAttr("intermediate_layout", ArrayAttr::get(ArrayRef<Attribute>(reorderedEmbeddedInputDimNames.begin(), reorderedEmbeddedInputDimNames.end()), op.getContext()));
+    auto transformedInputImmLayoutAttr = rewriter.getNamedAttr("intermediate_layout", op.getArrayAttr(ArrayRef<Attribute>(reorderedEmbeddedInputDimNames.begin(), reorderedEmbeddedInputDimNames.end())));
     transformedInputAttrs.push_back(transformedInputImmLayoutAttr);
     // set output_layout attribute.
     auto transformedInputOutputLayoutAttr = rewriter.getNamedAttr("output_layout",
-                                                        ArrayAttr::get({
+                                                        op.getArrayAttr({
                                                             op.getStringAttr("gemmK"),
                                                             op.getStringAttr("gemmN")
-                                                        }, op.getContext()));
+                                                        }));
     transformedInputAttrs.push_back(transformedInputOutputLayoutAttr);
 
     // set gridwise_gemm_argument_pos attribute.
@@ -506,29 +506,29 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
  
       // Part 1: Passthrough.
       llvm::SmallVector<NamedAttribute, 5> transformedOutputLayoutPart1Specs;
-      transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({op.getI32Attr(0)}, op.getContext())));
-      transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({op.getStringAttr("gemmM")}, op.getContext())));
+      transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", op.getArrayAttr({op.getI32Attr(0)})));
+      transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", op.getArrayAttr({op.getStringAttr("gemmM")})));
       transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("transformation", op.getStringAttr("PassThrough")));
       transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions",
-                                                  ArrayAttr::get({kDim}, op.getContext())));
+                                                  op.getArrayAttr({kDim})));
       transformedOutputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names",
-                                                  ArrayAttr::get({kDimName}, op.getContext())));
+                                                  op.getArrayAttr({kDimName})));
 
       // Part 2: Merge.
       llvm::SmallVector<NamedAttribute, 5> transformedOutputLayoutPart2Specs;
-      transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({op.getI32Attr(1)}, op.getContext())));
-      transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({op.getStringAttr("gemmN")}, op.getContext())));
+      transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", op.getArrayAttr({op.getI32Attr(1)})));
+      transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", op.getArrayAttr({op.getStringAttr("gemmN")})));
       transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("transformation", op.getStringAttr("Merge")));
       transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions",
-                                                  ArrayAttr::get(ArrayRef<Attribute>(nonKDims.begin(), nonKDims.end()), op.getContext())));
+                                                  op.getArrayAttr(ArrayRef<Attribute>(nonKDims.begin(), nonKDims.end()))));
       transformedOutputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names",
-                                                  ArrayAttr::get(ArrayRef<Attribute>(nonKDimNames.begin(), nonKDimNames.end()), op.getContext())));
+                                                  op.getArrayAttr(ArrayRef<Attribute>(nonKDimNames.begin(), nonKDimNames.end()))));
 
       auto transformedOutputLayoutAttr = rewriter.getNamedAttr("layout",
-                                                               ArrayAttr::get({
-                                                                   DictionaryAttr::get(transformedOutputLayoutPart1Specs, op.getContext()),
-                                                                   DictionaryAttr::get(transformedOutputLayoutPart2Specs, op.getContext())
-                                                               }, op.getContext()));
+                                                               op.getArrayAttr({
+                                                                   op.getDictAttr(transformedOutputLayoutPart1Specs),
+                                                                   op.getDictAttr(transformedOutputLayoutPart2Specs)
+                                                               }));
       transformedOutputAttrs.push_back(transformedOutputLayoutAttr);
     }
 
@@ -537,10 +537,10 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
     transformedOutputAttrs.push_back(outputSrcLayoutAttr);
     // set output_layout attribute.
     auto transformedOutputOutputLayoutAttr = rewriter.getNamedAttr("output_layout",
-                                                        ArrayAttr::get({
+                                                        op.getArrayAttr({
                                                             op.getStringAttr("gemmM"),
                                                             op.getStringAttr("gemmN")
-                                                        }, op.getContext()));
+                                                        }));
     transformedOutputAttrs.push_back(transformedOutputOutputLayoutAttr);
 
     // set gridwise_gemm_argument_pos attribute.

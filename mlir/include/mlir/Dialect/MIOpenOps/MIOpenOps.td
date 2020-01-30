@@ -41,6 +41,12 @@ class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
     StringAttr getStringAttr(StringRef str) {
       return StringAttr::get(str, getContext());
     }
+    ArrayAttr getArrayAttr(ArrayRef<Attribute> data) {
+      return ArrayAttr::get(data, getContext());
+    }
+    DictionaryAttr getDictAttr(ArrayRef<NamedAttribute> data) {
+      return DictionaryAttr::get(data, getContext());
+    }
   }];
 }
 
