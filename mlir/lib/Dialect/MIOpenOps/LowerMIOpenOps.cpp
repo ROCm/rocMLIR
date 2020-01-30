@@ -380,60 +380,81 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
 
     llvm::SmallVector<NamedAttribute, 3> transformedInputAttrs;
 
-    // TBD: set layout attribute.
-    // TBD: Part 1: Merge.
-    llvm::SmallVector<NamedAttribute, 5> transformedInputLayoutPart1Specs;
-    transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({IntegerAttr::get(IntegerType::get(32, op.getContext()), 0)}, op.getContext())));
-    transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({StringAttr::get("gemmK", op.getContext())}, op.getContext())));
-    transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("transformation", StringAttr::get("Merge", op.getContext())));
-    transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions",
-                                                ArrayAttr::get({
-                                                    IntegerAttr::get(IntegerType::get(32, op.getContext()), 1),
-                                                    IntegerAttr::get(IntegerType::get(32, op.getContext()), 2),
-                                                    IntegerAttr::get(IntegerType::get(32, op.getContext()), 4)
-                                                }, op.getContext())));
-    transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names",
-                                                ArrayAttr::get({
-                                                    StringAttr::get("ci", op.getContext()),
-                                                    StringAttr::get("y", op.getContext()),
-                                                    StringAttr::get("x", op.getContext())
-                                                }, op.getContext())));
+    // set layout attribute.
+    // Transformed input tensor transformation:
+    // - Part 1: Merge ci, y, x dimensions to dimension 0, name it as gemmK.
+    // - Part 2: Merge ni, ho, wo dimensions to dimension 1, name it as gemmN.
+    {
+      IntegerAttr nDim, cDim;
+      StringAttr nDimName, cDimName;
+      IntegerAttr hDim, wDim;
+      StringAttr hDimName, wDimName;
+      IntegerAttr yDim, xDim;
+      StringAttr yDimName, xDimName;
+      // reorder dimensions from 6 to 2.
+      // ex: (ni, ci, y, ho, x, wo) -> ((ci, y, x), (ni, ho, wo)).
+      for (unsigned i = 0; i < reorderedEmbeddedInputDimNames.size(); ++i) {
+        auto strAttr = reorderedEmbeddedInputDimNames[i];
+        if (strAttr.getValue() == "ni") {
+          nDim = IntegerAttr::get(IntegerType::get(32, op.getContext()), i);
+          nDimName = StringAttr::get(strAttr.getValue(), op.getContext());
+        } else if (strAttr.getValue() == "ci") {
+          cDim = IntegerAttr::get(IntegerType::get(32, op.getContext()), i);
+          cDimName = StringAttr::get(strAttr.getValue(), op.getContext());
+        } else if (strAttr.getValue() == "ho") {
+          hDim = IntegerAttr::get(IntegerType::get(32, op.getContext()), i);
+          hDimName = StringAttr::get(strAttr.getValue(), op.getContext());
+        } else if (strAttr.getValue() == "wo") {
+          wDim = IntegerAttr::get(IntegerType::get(32, op.getContext()), i);
+          wDimName = StringAttr::get(strAttr.getValue(), op.getContext());
+        } else if (strAttr.getValue() == "y") {
+          yDim = IntegerAttr::get(IntegerType::get(32, op.getContext()), i);
+          yDimName = StringAttr::get(strAttr.getValue(), op.getContext());
+        } else if (strAttr.getValue() == "x") {
+          xDim = IntegerAttr::get(IntegerType::get(32, op.getContext()), i);
+          xDimName = StringAttr::get(strAttr.getValue(), op.getContext());
+        }
+      }
 
-    // TBD: Part 2: Merge.
-    llvm::SmallVector<NamedAttribute, 5> transformedInputLayoutPart2Specs;
-    transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({IntegerAttr::get(IntegerType::get(32, op.getContext()), 1)}, op.getContext())));
-    transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({StringAttr::get("gemmN", op.getContext())}, op.getContext())));
-    transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("transformation", StringAttr::get("Merge", op.getContext())));
-    transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions",
-                                                ArrayAttr::get({
-                                                    IntegerAttr::get(IntegerType::get(32, op.getContext()), 0),
-                                                    IntegerAttr::get(IntegerType::get(32, op.getContext()), 3),
-                                                    IntegerAttr::get(IntegerType::get(32, op.getContext()), 5)
-                                                }, op.getContext())));
-    transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names",
-                                                ArrayAttr::get({
-                                                    StringAttr::get("ni", op.getContext()),
-                                                    StringAttr::get("ho", op.getContext()),
-                                                    StringAttr::get("wo", op.getContext())
-                                                }, op.getContext())));
+      // Part 1: Merge ci, y, x dimensions.
+      llvm::SmallVector<NamedAttribute, 5> transformedInputLayoutPart1Specs;
+      transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({IntegerAttr::get(IntegerType::get(32, op.getContext()), 0)}, op.getContext())));
+      transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({StringAttr::get("gemmK", op.getContext())}, op.getContext())));
+      transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("transformation", StringAttr::get("Merge", op.getContext())));
 
-    auto transformedInputLayoutAttr = rewriter.getNamedAttr("layout",
-                                                             ArrayAttr::get({
-                                                                 DictionaryAttr::get(transformedInputLayoutPart1Specs, op.getContext()),
-                                                                 DictionaryAttr::get(transformedInputLayoutPart2Specs, op.getContext())
-                                                             }, op.getContext()));
-    transformedInputAttrs.push_back(transformedInputLayoutAttr);
+      // XXX: use better way to match output tensor layout for c/y/x dimension.
+      if (cDim.getInt() < yDim.getInt()) {
+        transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({cDim, yDim, xDim}, op.getContext())));
+        transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({cDimName, yDimName, xDimName}, op.getContext())));
+      } else {
+        transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({yDim, xDim, cDim}, op.getContext())));
+        transformedInputLayoutPart1Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({yDimName, xDimName, cDimName}, op.getContext())));
+      }
 
-    // TBD: set intermediate_layout attribute.
-    auto transformedInputImmLayoutAttr = rewriter.getNamedAttr("intermediate_layout",
-                                                        ArrayAttr::get({
-                                                            StringAttr::get("ni", op.getContext()),
-                                                            StringAttr::get("ci", op.getContext()),
-                                                            StringAttr::get("y", op.getContext()),
-                                                            StringAttr::get("ho", op.getContext()),
-                                                            StringAttr::get("x", op.getContext()),
-                                                            StringAttr::get("wo", op.getContext())
-                                                        }, op.getContext()));
+      // Part 2: Merge ni, ho, wo dimensions.
+      llvm::SmallVector<NamedAttribute, 5> transformedInputLayoutPart2Specs;
+      transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("dimensions", ArrayAttr::get({IntegerAttr::get(IntegerType::get(32, op.getContext()), 1)}, op.getContext())));
+      transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("names", ArrayAttr::get({StringAttr::get("gemmN", op.getContext())}, op.getContext())));
+      transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("transformation", StringAttr::get("Merge", op.getContext())));
+
+      // XXX: use better way to match output tensor layout for n/h/w dimension.
+      if (nDim.getInt() < hDim.getInt()) {
+        transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({nDim, hDim, wDim}, op.getContext())));
+        transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({nDimName, hDimName, wDimName}, op.getContext())));
+      } else {
+        transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_dimensions", ArrayAttr::get({hDim, wDim, nDim}, op.getContext())));
+        transformedInputLayoutPart2Specs.push_back(rewriter.getNamedAttr("source_names", ArrayAttr::get({hDimName, wDimName, nDimName}, op.getContext())));
+      }
+
+      auto transformedInputLayoutAttr = rewriter.getNamedAttr("layout",
+                                                               ArrayAttr::get({
+                                                                   DictionaryAttr::get(transformedInputLayoutPart1Specs, op.getContext()),
+                                                                   DictionaryAttr::get(transformedInputLayoutPart2Specs, op.getContext())
+                                                               }, op.getContext()));
+      transformedInputAttrs.push_back(transformedInputLayoutAttr);
+    }
+    // set intermediate_layout attribute.
+    auto transformedInputImmLayoutAttr = rewriter.getNamedAttr("intermediate_layout", ArrayAttr::get(ArrayRef<Attribute>(reorderedEmbeddedInputDimNames.begin(), reorderedEmbeddedInputDimNames.end()), op.getContext()));
     transformedInputAttrs.push_back(transformedInputImmLayoutAttr);
     // set output_layout attribute.
     auto transformedInputOutputLayoutAttr = rewriter.getNamedAttr("output_layout",
