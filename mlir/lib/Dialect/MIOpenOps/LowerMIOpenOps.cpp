@@ -443,7 +443,7 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
     llvm::SmallVector<NamedAttribute, 3> transformedOutputAttrs;
 
     // set layout attribute.
-    // Weight tensor transformation:
+    // Output tensor transformation:
     // - Part 1: PassThrough K dimension to dimension 0, name it as gemmM.
     // - Part 2: Merge non-K dimensions to dimension 1, name it as gemmN.
     {
