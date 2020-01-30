@@ -33,6 +33,15 @@ class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
   let printer = [{ return ::print(p, *this); }];
   let verifier = [{ return ::verify(*this); }];
   let parser = [{ return ::parse$cppClass(parser, result); }];
+
+  let extraClassDeclaration = [{
+    IntegerAttr getI32Attr(int value) {
+      return IntegerAttr::get(IntegerType::get(32, getContext()), value);
+    }
+    StringAttr getStringAttr(StringRef str) {
+      return StringAttr::get(str, getContext());
+    }
+  }];
 }
 
 def MIOpen_Conv2DOp :
