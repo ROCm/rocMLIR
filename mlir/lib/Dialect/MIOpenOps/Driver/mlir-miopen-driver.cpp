@@ -10,9 +10,18 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Analysis/Passes.h"
-#include "mlir/Pass/Pass.h"
-#include "mlir/Pass/PassManager.h"
+#include "mlir/Dialect/MIOpenOps/MIOpenOps.h"
+#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/Block.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/Function.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Module.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/StandardTypes.h"
+#include "mlir/IR/Types.h"
 #include "mlir/Support/FileUtilities.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
@@ -21,9 +30,6 @@
 
 using namespace llvm;
 using namespace mlir;
-
-static cl::opt<std::string>
-    inputFilename(cl::Positional, cl::desc("<input file>"), cl::init("-"));
 
 static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"),
@@ -47,14 +53,64 @@ int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
 
-  // Set up the input file.
-  std::string errorMessage;
-  auto file = openInputFile(inputFilename, &errorMessage);
-  if (!file) {
-    llvm::errs() << errorMessage << "\n";
-    return 1;
+  // Construct a new ModuleOp.
+  MLIRContext context;
+  OpBuilder builder(&context);
+  auto module = ModuleOp::create(builder.getUnknownLoc());
+
+  // Construct a new FuncOp.
+  auto argType = MemRefType::get({-1, -1, -1, -1}, builder.getF32Type());
+  auto funcType = builder.getFunctionType({argType, argType, argType}, {});
+  auto func = FuncOp::create(builder.getUnknownLoc(), "miopen_conv2d_" + filterLayout + "_" + inputLayout + "_" + outputLayout, funcType);
+  module.push_back(func);
+
+  // Construct a new Block.
+  auto *block = func.addEntryBlock();
+
+  // Construct a new Con2DOp.
+  llvm::SmallVector<StringAttr, 4> filterLayoutSpec;
+  llvm::SmallVector<StringAttr, 4> inputLayoutSpec;
+  llvm::SmallVector<StringAttr, 4> outputLayoutSpec;
+  for (size_t i = 0; i < 4; ++i) {
+    filterLayoutSpec.push_back(builder.getStringAttr(StringRef(&filterLayout.getValue()[i], 1)));
+    inputLayoutSpec.push_back(builder.getStringAttr((StringRef(&inputLayout.getValue()[i], 1) + "i").str()));
+    outputLayoutSpec.push_back(builder.getStringAttr((StringRef(&outputLayout.getValue()[i], 1) + "o").str()));
   }
 
+  auto convOp = builder.create<miopen::Conv2DOp>(
+    builder.getUnknownLoc(),
+    ArrayRef<Type>({}),
+    ValueRange{block->getArgument(0), block->getArgument(1), block->getArgument(2)}, 
+    ArrayRef<NamedAttribute>{
+      builder.getNamedAttr("filter_layout", builder.getArrayAttr(ArrayRef<Attribute>(filterLayoutSpec.begin(), filterLayoutSpec.end()))),
+      builder.getNamedAttr("input_layout", builder.getArrayAttr(ArrayRef<Attribute>(inputLayoutSpec.begin(), inputLayoutSpec.end()))),
+      builder.getNamedAttr("output_layout", builder.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(), outputLayoutSpec.end()))),
+
+      // TBD: support dilations / strides / padding.
+      builder.getNamedAttr("dilations", builder.getArrayAttr({
+                                          builder.getI32IntegerAttr(1),
+                                          builder.getI32IntegerAttr(1),
+                                        })),
+      builder.getNamedAttr("strides", builder.getArrayAttr({
+                                          builder.getI32IntegerAttr(1),
+                                          builder.getI32IntegerAttr(1),
+                                        })),
+      builder.getNamedAttr("padding", builder.getArrayAttr({
+                                          builder.getI32IntegerAttr(0),
+                                          builder.getI32IntegerAttr(0),
+                                        })),
+    });
+  block->push_back(convOp);
+
+  // Construct a new ReturnOp.
+  auto returnOp = builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
+  block->push_back(returnOp);
+
+  module.dump();
+
+  std::string errorMessage;
+
+  // Set up the output file.
   auto output = openOutputFile(outputFilename, &errorMessage);
   if (!output) {
     llvm::errs() << errorMessage << "\n";
