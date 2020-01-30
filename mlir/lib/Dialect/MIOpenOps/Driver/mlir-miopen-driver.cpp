@@ -27,6 +27,7 @@
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 using namespace mlir;
@@ -106,16 +107,16 @@ int main(int argc, char **argv) {
   auto returnOp = builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
   block->push_back(returnOp);
 
-  module.dump();
-
-  std::string errorMessage;
-
   // Set up the output file.
+  std::string errorMessage;
   auto output = openOutputFile(outputFilename, &errorMessage);
   if (!output) {
     llvm::errs() << errorMessage << "\n";
     exit(1);
   }
+
+  module.print(output->os());
+  output->keep();
 
   return 0;
 }
