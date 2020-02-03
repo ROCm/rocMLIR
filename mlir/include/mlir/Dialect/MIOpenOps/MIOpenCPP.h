@@ -40,10 +40,15 @@ std::unique_ptr<llvm::StringRef> translateModuleToMIOpenCpp(ModuleOp m);
 /// the MLIR module), and return `nullptr`.
 std::unique_ptr<llvm::StringRef> translateModuleToMIOpenHeader(ModuleOp m);
 
-/// Convert the given MLIR module into MIOpen C++ Solver. In case of error, report it
+/// Convert the given MLIR module into MIOpen C++ . In case of error, report it
 /// to the error handler registered with the MLIR context, if any (obtained from
 /// the MLIR module), and return `nullptr`.
-std::unique_ptr<llvm::StringRef> translateModuleToMIOpenSolver(ModuleOp m);
+std::unique_ptr<llvm::StringRef> translateModuleToMIOpenCppXDLOPS(ModuleOp m);
+
+/// Convert the given MLIR module into MIOpen C++ Header. In case of error, report it
+/// to the error handler registered with the MLIR context, if any (obtained from
+/// the MLIR module), and return `nullptr`.
+std::unique_ptr<llvm::StringRef> translateModuleToMIOpenHeaderXDLOPS(ModuleOp m);
 
 } // namespace mlir
 
