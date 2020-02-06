@@ -719,3 +719,12 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCppXDLOPS(ModuleOp
   output.flush();
   return std::make_unique<llvm::StringRef>(resultStr);
 }
+
+std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(ModuleOp m) {
+  std::string resultStr;
+  llvm::raw_string_ostream output(resultStr);
+
+  output.flush();
+  return std::make_unique<llvm::StringRef>(resultStr);
+}
+

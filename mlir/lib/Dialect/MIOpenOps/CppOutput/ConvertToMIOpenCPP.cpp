@@ -47,6 +47,16 @@ static TranslateFromMLIRRegistration
       return success();
     });
 
+static TranslateFromMLIRRegistration
+    toCFlags("mlir-to-miopen-cflags", [](ModuleOp module, llvm::raw_ostream &output) {
+      auto sourceCode = mlir::translateModuleToMIOpenCFlags(module);
+      if (!sourceCode)
+        return failure();
+
+      output << *sourceCode;
+      return success();
+    });
+
 // XDLOPS kernel generation.
 static TranslateFromMLIRRegistration
     toCppXDLOPS("mlir-to-miopen-cpp-xdlops", [](ModuleOp module, llvm::raw_ostream &output) {
@@ -68,4 +78,12 @@ static TranslateFromMLIRRegistration
       return success();
     });
 
+static TranslateFromMLIRRegistration
+    toCFlagsXDLOPS("mlir-to-miopen-cflags-xdlops", [](ModuleOp module, llvm::raw_ostream &output) {
+      auto sourceCode = mlir::translateModuleToMIOpenCFlagsXDLOPS(module);
+      if (!sourceCode)
+        return failure();
 
+      output << *sourceCode;
+      return success();
+    });

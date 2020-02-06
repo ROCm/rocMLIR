@@ -718,3 +718,12 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
   output.flush();
   return std::make_unique<llvm::StringRef>(resultStr);
 }
+
+std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m) {
+  std::string resultStr;
+  llvm::raw_string_ostream output(resultStr);
+
+  output.flush();
+  return std::make_unique<llvm::StringRef>(resultStr);
+}
+ 
