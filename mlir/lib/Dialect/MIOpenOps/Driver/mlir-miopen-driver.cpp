@@ -93,12 +93,30 @@ static cl::opt<int64_t> outputWidth("out_w", cl::desc("Output width"),
                                               cl::value_desc("dimension value"),
                                               cl::init(-1));
 
+// populate default values
+static cl::opt<bool> populateDefaultValues("p", cl::desc("To populate default values"),
+                                                cl::value_desc("To populate default values"),
+                                                cl::init(false));
+
 
 int main(int argc, char **argv) {
   InitLLVM y(argc, argv);
 
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
+
+  // Populate default parameters if necessary.
+  if (populateDefaultValues.getValue() == true) {
+    batchSize.setValue(128);
+    inputChannel.setValue(8);
+    inputWidth.setValue(32);
+    inputHeight.setValue(32); 
+    outputChannel.setValue(128);
+    outputWidth.setValue(30);
+    outputHeight.setValue(30);
+    filterWidth.setValue(3);
+    filterHeight.setValue(3);
+  }
 
   // Construct a new ModuleOp.
   MLIRContext context;
