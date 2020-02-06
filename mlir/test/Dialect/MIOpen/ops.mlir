@@ -9,7 +9,7 @@ func @miopen_conv2d(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>,
     output_layout = ["n", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0]
+    padding = [0, 0],
   } : memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, memref<?x?x?x?xf32>
   return
 }
@@ -133,8 +133,15 @@ func @miopen_transform_1_to_n(%memref : memref<?x?x?x?xf32>) {
 
 func @miopen_gridwise_gemm(%A : memref<?x?xf32>, %B : memref<?x?xf32>, %C : memref<?x?xf32>) {
   miopen.gridwise_gemm(%A, %B, %C) {
-    parameters = [
-    ]
+    filter_layout = ["k", "c", "y", "x"],
+    filter_dimension = [1, 2, 3, 4],
+    input_layout = ["n", "c", "hi", "wi"],
+    input_dimension = [5, 6, 7, 8],
+    output_layout = ["n", "k", "ho", "wo"],
+    output_dimension = [9, 10, 11, 12],
+    strides = [1, 1],
+    dilations = [1, 1],
+    padding = [0, 0],
   } : memref<?x?xf32>, memref<?x?xf32>, memref<?x?xf32>
   return
 }
