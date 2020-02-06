@@ -51,7 +51,9 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
     auto inputLayoutAttr = op.getAttrOfType<ArrayAttr>("input_layout");
     auto outputLayoutAttr = op.getAttrOfType<ArrayAttr>("output_layout");
 
-    // TBD: handle dilations, strides, padding.
+    auto dilationsAttr = op.getAttrOfType<ArrayAttr>("dilations");
+    auto stridesAttr = op.getAttrOfType<ArrayAttr>("strides");
+    auto paddingAttr = op.getAttrOfType<ArrayAttr>("padding");
 
     // Transform filter tensor.
     auto filterType = op.filter().getType().dyn_cast<MemRefType>();
@@ -546,8 +548,20 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
     transformedOutputAttrs.push_back(b.getNamedAttr("gridwise_gemm_argument_position", b.getI32IntegerAttr(2)));
     auto gemmC = b.create<miopen::TransformOp>(op.getLoc(), transformedOutputMemRefType, op.output(), transformedOutputAttrs);
 
+    // Set attributes for gridwise_gemm op.
+    llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs {
+      b.getNamedAttr("filter_layout", filterLayoutAttr),
+      b.getNamedAttr("filter_dimension", b.getI64ArrayAttr(filterShape)),
+      b.getNamedAttr("input_layout", inputLayoutAttr),
+      b.getNamedAttr("input_dimension", b.getI64ArrayAttr(inputShape)),
+      b.getNamedAttr("output_layout", outputLayoutAttr),
+      b.getNamedAttr("output_dimension", b.getI64ArrayAttr(outputShape)),
+      b.getNamedAttr("dilations",  dilationsAttr),
+      b.getNamedAttr("strides", stridesAttr),
+      b.getNamedAttr("padding", paddingAttr),
+    };
     // Emit miopen.gridwise_gemm op.
-    b.create<miopen::GridwiseGemmOp>(op.getLoc(), gemmA, gemmB, gemmC);
+    b.create<miopen::GridwiseGemmOp>(op.getLoc(), ArrayRef<Type>{}, ValueRange{gemmA, gemmB, gemmC}, gridwiseGemmAttrs);
 
     // Finally, erase the original Conv2D op.
     op.erase();
