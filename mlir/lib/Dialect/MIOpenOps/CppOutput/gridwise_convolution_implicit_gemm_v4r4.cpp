@@ -810,17 +810,17 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
       //      - parameters which have heuristic-based values.
       //      - parameters which are related to code generation.
 
-      int64_t gemmMPerBlock = 128;
-      int64_t gemmNPerBlock = 128;
-      int64_t gemmM = k;
-      int64_t gemmN = n * ho * wo;
-      int64_t gridSize = (gemmM / gemmMPerBlock) * (gemmN / gemmNPerBlock);
-
-      output << " -DCK_PARAM_DEPENDENT_GRID_SIZE=" << gridSize;
-
       TunableParameters params;
       params.init();
       params.print(output);
+
+      // Emit parameters derived from tunable parameters.
+      int64_t gemmMPerBlock = params["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"];
+      int64_t gemmNPerBlock = params["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"];
+      int64_t gemmM = k;
+      int64_t gemmN = n * ho * wo;
+      int64_t gridSize = (gemmM / gemmMPerBlock) * (gemmN / gemmNPerBlock);
+      output << " -DCK_PARAM_DEPENDENT_GRID_SIZE=" << gridSize;
 
       // Emit code-gen related macros.
       output << " -DCK_THREADWISE_GEMM_USE_AMD_INLINE_ASM=1";
