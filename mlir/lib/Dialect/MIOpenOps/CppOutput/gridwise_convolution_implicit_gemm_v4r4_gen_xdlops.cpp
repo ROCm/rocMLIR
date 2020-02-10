@@ -792,12 +792,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_H=" << paddingAttr.getValue()[0].dyn_cast<IntegerAttr>().getValue();
       output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_W=" << paddingAttr.getValue()[1].dyn_cast<IntegerAttr>().getValue();
 
-      // TBD: ditinguish between:
-      //      - parameters truly need to be tuned.
-      //      - parameters deducible via transformations.
-      //      - parameters which have heuristic-based values.
-      //      - parameters related to code generation.
-
       // TBD: be able to set data type.
       output << " -DMIOPEN_USE_FP32=1 -DMIOPEN_USE_FP16=0";
 
@@ -810,18 +804,23 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       // TBD: be able to set group convolution counts.
       output << " -DCK_PARAM_PROBLEM_CONV_GROUP_COUNTS=1";
 
-      int64_t gemmMPerBlock = 128;
-      int64_t gemmNPerBlock = 128;
-      int64_t gemmKPerBlock = 8;
-      int64_t gemmM = k;
-      int64_t gemmN = n * ho * wo;
-      int64_t gridSize = (gemmM / gemmMPerBlock) * (gemmN / gemmNPerBlock);
-
-      output << " -DCK_PARAM_DEPENDENT_GRID_SIZE=" << gridSize;
+      // TBD: ditinguish between:
+      //      - parameters truly need to be tuned.
+      //      - parameters deducible via transformations.
+      //      - parameters which have heuristic-based values.
+      //      - parameters related to code generation.
 
       TunableParameters params;
       params.init();
       params.print(output);
+
+      // Emit parameters derived from tunable parameters.
+      int64_t gemmMPerBlock = params["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"];
+      int64_t gemmNPerBlock = params["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"];
+      int64_t gemmM = k;
+      int64_t gemmN = n * ho * wo;
+      int64_t gridSize = (gemmM / gemmMPerBlock) * (gemmN / gemmNPerBlock);
+      output << " -DCK_PARAM_DEPENDENT_GRID_SIZE=" << gridSize;
 
       // Emit code-gen related parameters.
       output << " -DCK_PARAM_KPACK_LENGTH=1";

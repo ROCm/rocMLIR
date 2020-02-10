@@ -33,10 +33,8 @@ public:
   void init() {
     auto yaml = mlir::openInputFile(configFileName);
     if (!yaml) {
-      llvm::errs() << "Populating YAML configs.\n";
       customInit();
     } else {
-      llvm::errs() << "Loading YAML configs from " << configFileName << "\n";
       loadYAML(yaml->getBuffer());
     }
   }
@@ -57,6 +55,12 @@ public:
     params.clear();
     llvm::yaml::Input yin(yaml);
     yin >> params;
+  }
+  int operator[](llvm::StringRef str) {
+    if (params.find(str) != params.end()) {
+      return params[str];
+    }
+    return 0;
   }
 protected:
   std::map<std::string, int> params;
