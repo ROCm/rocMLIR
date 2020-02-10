@@ -705,6 +705,38 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
   return std::make_unique<llvm::StringRef>(resultStr);
 }
 
+namespace {
+struct TunableParameters {
+  void init() {
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_BLOCK_SIZE"), 256);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"), 128);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"), 128);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"), 8);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_M_PER_THREAD_SUB_C"), 4);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_N_PER_THREAD_SUB_C"), 4);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_M_LEVEL0_CLUSTER"), 4);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_N_LEVEL0_CLUSTER"), 4);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_M_LEVEL1_CLUSTER"), 4);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_N_LEVEL1_CLUSTER"), 4);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"), 2);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M"), 128);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K"), 1);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M"), 1);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"), 2);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N"), 128);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N"), 1);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N"), 1);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1"), 1);
+  }
+  void print(llvm::raw_ostream &os) {
+    for (auto &kv : params) {
+      os << " -D" << kv.first() << "=" << kv.getValue();
+    }
+  }
+  llvm::StringMap<int> params; 
+};
+} // anonymous namespace
+
 std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m) {
   std::string resultStr;
   resultStr.reserve(4096);
@@ -768,9 +800,13 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
       output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_H=" << paddingAttr.getValue()[0].dyn_cast<IntegerAttr>().getValue();
       output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_W=" << paddingAttr.getValue()[1].dyn_cast<IntegerAttr>().getValue();
 
+      // TBD: be able to set data type.
+      output << " -DMIOPEN_USE_FP32=1 -DMIOPEN_USE_FP16=0 -DMIOPEN_USE_BFP16=0";
 
-      output << "-std=c++14";
-      output << " -D__HIP_PLATFORM_HCC__=1";
+      // TBD: be able to set convolution direction.
+      output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_FORWARD=1";
+      output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_DATA=0";
+      output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_WEIGHT=0";
 
       // TBD: ditinguish between:
       //      - parameters truly need to be tuned.
@@ -778,47 +814,26 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
       //      - parameters which have heuristic-based values.
       //      - parameters which are related to code generation.
 
-      // TBD: be able to set data type.
-      output << " -DMIOPEN_USE_FP32=1 -DMIOPEN_USE_FP16=0";
-
-      // TBD: be able to set convolution direction.
-      output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_FORWARD=1";
-      output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_DATA=0";
-      output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_WEIGHT=0";
-
-
       int64_t gemmMPerBlock = 128;
       int64_t gemmNPerBlock = 128;
       int64_t gemmM = k;
       int64_t gemmN = n * ho * wo;
       int64_t gridSize = (gemmM / gemmMPerBlock) * (gemmN / gemmNPerBlock);
 
-      output << " -DCK_PARAM_TUNABLE_BLOCK_SIZE=256";
-      output << " -DCK_PARAM_TUNABLE_GEMM_M_PER_BLOCK=" << gemmMPerBlock;
-      output << " -DCK_PARAM_TUNABLE_GEMM_N_PER_BLOCK=" << gemmNPerBlock;
-      output << " -DCK_PARAM_TUNABLE_GEMM_K_PER_BLOCK=8";
-      output << " -DCK_PARAM_TUNABLE_GEMM_M_PER_THREAD_SUB_C=4";
-      output << " -DCK_PARAM_TUNABLE_GEMM_N_PER_THREAD_SUB_C=4";
-      output << " -DCK_PARAM_TUNABLE_GEMM_M_LEVEL0_CLUSTER=4";
-      output << " -DCK_PARAM_TUNABLE_GEMM_N_LEVEL0_CLUSTER=4";
-      output << " -DCK_PARAM_TUNABLE_GEMM_M_LEVEL1_CLUSTER=4";
-      output << " -DCK_PARAM_TUNABLE_GEMM_N_LEVEL1_CLUSTER=4";
-      output << " -DCK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K=2";
-      output << " -DCK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M=128";
-      output << " -DCK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K=1";
-      output << " -DCK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M=1";
-      output << " -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K=2";
-      output << " -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N=128";
-      output << " -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N=1";
-      output << " -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N=1";
-      output << " -DCK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1=1";
-
       output << " -DCK_PARAM_DEPENDENT_GRID_SIZE=" << gridSize;
 
+      TunableParameters params;
+      params.init();
+      params.print(output);
+
+      // Emit code-gen related macros.
       output << " -DCK_THREADWISE_GEMM_USE_AMD_INLINE_ASM=1";
+      output << " -std=c++14";
+      output << " -D__HIP_PLATFORM_HCC__=1";
     });
   }
  
   output.flush();
   return std::make_unique<llvm::StringRef>(resultStr);
 }
+
