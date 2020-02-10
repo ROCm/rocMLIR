@@ -17,8 +17,51 @@
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/FileUtilities.h"
+
+#include "llvm/Support/YAMLTraits.h"
 
 #include <memory>
+
+LLVM_YAML_IS_STRING_MAP(int)
+
+class TunableParametersBase {
+public:
+  TunableParametersBase(llvm::StringRef &&yamlFileName) : params(), configFileName(yamlFileName) {}
+  TunableParametersBase() : TunableParametersBase("tunable.yaml") {}
+
+  void init() {
+    auto yaml = mlir::openInputFile(configFileName);
+    if (!yaml) {
+      llvm::errs() << "Populating YAML configs.\n";
+      customInit();
+    } else {
+      llvm::errs() << "Loading YAML configs from " << configFileName << "\n";
+      loadYAML(yaml->getBuffer());
+    }
+  }
+
+  virtual void customInit() = 0;
+
+  void print(llvm::raw_ostream &os) {
+    for (auto kv : params) {
+      os << " -D" << kv.first << "=" << kv.second;
+    }
+  }
+  void printYAML(llvm::raw_ostream &os) {
+    llvm::yaml::Output xout(os, nullptr, 0);
+    xout << params;
+    os.flush();
+  }
+  void loadYAML(llvm::StringRef yaml) {
+    params.clear();
+    llvm::yaml::Input yin(yaml);
+    yin >> params;
+  }
+protected:
+  std::map<std::string, int> params;
+  llvm::StringRef configFileName;
+};
 
 namespace llvm {
 class StringRef;

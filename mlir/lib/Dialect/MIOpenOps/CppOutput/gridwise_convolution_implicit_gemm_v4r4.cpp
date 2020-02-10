@@ -23,17 +23,16 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ToolOutputFile.h"
-#include "llvm/Support/YAMLTraits.h"
 
 using namespace mlir;
-using namespace llvm::yaml;
-
-LLVM_YAML_IS_STRING_MAP(int)
 
 namespace {
 
-struct TunableParameters {
-  void init() {
+class TunableParameters : public TunableParametersBase {
+public:
+  TunableParameters() : TunableParametersBase("gridwise_convolution_implicit_gemm_v4r4.yaml") {}
+
+  virtual void customInit() override {
     params["CK_PARAM_TUNABLE_BLOCK_SIZE"] = 256;
     params["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"] = 128;
     params["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"] = 128;
@@ -54,22 +53,6 @@ struct TunableParameters {
     params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N"] = 1;
     params["CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1"] = 1;
   }
-  void print(llvm::raw_ostream &os) {
-    for (auto kv : params) {
-      os << " -D" << kv.first << "=" << kv.second;
-    }
-  }
-  void printYAML(llvm::raw_ostream &os) {
-    Output xout(os, nullptr, 0);
-    xout << params;
-    os.flush();
-  }
-  void readYAML(std::string &str) {
-    params.clear();
-    Input yin(str);
-    yin >> params;
-  }
-  std::map<std::string, int> params;
 };
 
 
