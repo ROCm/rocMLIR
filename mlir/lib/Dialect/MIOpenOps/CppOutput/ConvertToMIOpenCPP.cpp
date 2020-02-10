@@ -22,9 +22,16 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ToolOutputFile.h"
 
 using namespace mlir;
+using namespace llvm;
+
+static cl::opt<std::string> TunableParametersYAMLFile("tunable-parameters-yaml-file",
+                                                      cl::desc("Tunable parameters YAML file"),
+                                                      cl::value_desc("filename"),
+                                                      cl::Hidden);
 
 // non-XDLOPS kernel generation.
 static TranslateFromMLIRRegistration
