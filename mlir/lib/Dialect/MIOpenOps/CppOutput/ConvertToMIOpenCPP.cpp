@@ -28,15 +28,15 @@
 using namespace mlir;
 using namespace llvm;
 
-static cl::opt<std::string> TunableParametersYAMLFile("tunable-parameters-yaml-file",
+cl::opt<std::string> TunableParametersYAMLFile("tunable-parameters-yaml-file",
                                                       cl::desc("Tunable parameters YAML file"),
                                                       cl::value_desc("filename"),
                                                       cl::Hidden);
 
-static cl::opt<bool> IsPopulateTunableParameters("populate-tunable-parameters-to-yaml-file",
+cl::opt<bool> IsPopulateTunableParameters("populate-tunable-parameters-to-yaml-file",
                                                  cl::desc("Populate default tunable parameters to YAML file"),
                                                  cl::value_desc("bool"),
-                                                 cl::Hidden);
+                                                 cl::init(false));
 
 // non-XDLOPS kernel generation.
 static TranslateFromMLIRRegistration

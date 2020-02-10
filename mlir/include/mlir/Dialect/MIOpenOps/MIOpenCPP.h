@@ -19,9 +19,14 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Support/FileUtilities.h"
 
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/YAMLTraits.h"
 
 #include <memory>
+
+extern llvm::cl::opt<std::string> TunableParametersYAMLFile;
+extern llvm::cl::opt<bool> IsPopulateTunableParameters;
 
 LLVM_YAML_IS_STRING_MAP(int)
 
@@ -44,6 +49,15 @@ public:
   void print(llvm::raw_ostream &os) {
     for (auto kv : params) {
       os << " -D" << kv.first << "=" << kv.second;
+    }
+  }
+  void dump() {
+    auto outputYAMLFile = mlir::openOutputFile(configFileName);
+    if (outputYAMLFile) {
+      printYAML(outputYAMLFile->os());
+      outputYAMLFile->keep();
+    } else {
+      llvm::errs() << "\nOpen output file failed: " << configFileName << "\n";
     }
   }
   void printYAML(llvm::raw_ostream &os) {
