@@ -814,6 +814,11 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       params.init();
       params.print(output);
 
+      if (IsPopulateTunableParameters.getValue()) {
+        // Populate YAML config file.
+        params.dump();
+      }
+
       // Emit parameters derived from tunable parameters.
       int64_t gemmMPerBlock = params["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"];
       int64_t gemmNPerBlock = params["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"];
