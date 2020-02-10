@@ -713,18 +713,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
 
   for (auto f : m.getOps<FuncOp>()) {
     f.walk([&output](miopen::GridwiseGemmOp op) {
-      output << "-std=c++14";
-      output << " -D__HIP_PLATFORM_HCC__=1";
-
-      // TBD: be able to set data type.
-      output << " -DMIOPEN_USE_FP32=1 -DMIOPEN_USE_FP16=0";
-
-      // TBD: be able to set convolution direction.
-      output << " -DCK_PARAM_PROBLEM_DIRECTION=0";
-      output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_FORWARD=1";
-      output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_DATA=0";
-      output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_WEIGHT=0";
-
       // Emit flags immediately determined from convolution configs.
       auto inputLayoutAttr = op.getAttrOfType<ArrayAttr>("input_layout");
       auto inputDimensionAttr = op.getAttrOfType<ArrayAttr>("input_dimension");
@@ -769,13 +757,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
         }
       }
 
-      int64_t gemmMPerBlock = 128;
-      int64_t gemmNPerBlock = 128;
-      int64_t gemmKPerBlock = 8;
-      int64_t gemmM = k;
-      int64_t gemmN = n * ho * wo;
-      int64_t gridSize = (gemmM / gemmMPerBlock) * (gemmN / gemmNPerBlock);
-
       auto strideAttr = op.getAttrOfType<ArrayAttr>("strides");
       auto dilationAttr = op.getAttrOfType<ArrayAttr>("dilations");
       auto paddingAttr = op.getAttrOfType<ArrayAttr>("padding");
@@ -793,6 +774,27 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       //      - parameters deducible via transformations.
       //      - parameters which have heuristic-based values.
       //      - parameters related to code generation.
+
+      output << "-std=c++14";
+      output << " -D__HIP_PLATFORM_HCC__=1";
+
+      // TBD: be able to set data type.
+      output << " -DMIOPEN_USE_FP32=1 -DMIOPEN_USE_FP16=0";
+
+      // TBD: be able to set convolution direction.
+      output << " -DCK_PARAM_PROBLEM_DIRECTION=0";
+      output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_FORWARD=1";
+      output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_DATA=0";
+      output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_WEIGHT=0";
+
+      int64_t gemmMPerBlock = 128;
+      int64_t gemmNPerBlock = 128;
+      int64_t gemmKPerBlock = 8;
+      int64_t gemmM = k;
+      int64_t gemmN = n * ho * wo;
+      int64_t gridSize = (gemmM / gemmMPerBlock) * (gemmN / gemmNPerBlock);
+
+
       output << " -DCK_PARAM_PROBLEM_CONV_GROUP_COUNTS=1";
 
       output << " -DCK_PARAM_TUNABLE_GEMM_M_PER_BLOCK=" << gemmMPerBlock;
