@@ -706,6 +706,34 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCppXDLOPS(ModuleOp
   return std::make_unique<llvm::StringRef>(resultStr);
 }
 
+namespace {
+struct TunableParameters {
+  void init() {
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"), 128);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"), 128);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"), 8);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_BLOCK_SIZE"), 256);
+    params.insert_or_assign(StringRef("CK_PARAM_GEMM_M_PER_WAVE"), 128);
+    params.insert_or_assign(StringRef("CK_PARAM_GEMM_N_PER_WAVE"), 128);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"), 4);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N"), 4);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"), 2);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M"), 4);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N"), 1);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K"), 1);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DATA_PER_ACCESS_N"), 1);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N"), 1);
+    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M"), 1);
+  }
+  void print(llvm::raw_ostream &os) {
+    for (auto &kv : params) {
+      os << " -D" << kv.first() << "=" << kv.getValue();
+    }
+  }
+  llvm::StringMap<int> params;
+};
+} // anonymous namespace
+
 std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(ModuleOp m) {
   std::string resultStr;
   resultStr.reserve(4096);
@@ -775,9 +803,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       //      - parameters which have heuristic-based values.
       //      - parameters related to code generation.
 
-      output << "-std=c++14";
-      output << " -D__HIP_PLATFORM_HCC__=1";
-
       // TBD: be able to set data type.
       output << " -DMIOPEN_USE_FP32=1 -DMIOPEN_USE_FP16=0";
 
@@ -787,6 +812,9 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_DATA=0";
       output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_WEIGHT=0";
 
+      // TBD: be able to set group convolution counts.
+      output << " -DCK_PARAM_PROBLEM_CONV_GROUP_COUNTS=1";
+
       int64_t gemmMPerBlock = 128;
       int64_t gemmNPerBlock = 128;
       int64_t gemmKPerBlock = 8;
@@ -794,34 +822,18 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       int64_t gemmN = n * ho * wo;
       int64_t gridSize = (gemmM / gemmMPerBlock) * (gemmN / gemmNPerBlock);
 
-
-      output << " -DCK_PARAM_PROBLEM_CONV_GROUP_COUNTS=1";
-
-      output << " -DCK_PARAM_TUNABLE_GEMM_M_PER_BLOCK=" << gemmMPerBlock;
-      output << " -DCK_PARAM_TUNABLE_GEMM_N_PER_BLOCK=" << gemmNPerBlock;
-      output << " -DCK_PARAM_TUNABLE_GEMM_K_PER_BLOCK=" << gemmKPerBlock;
       output << " -DCK_PARAM_DEPENDENT_GRID_SIZE=" << gridSize;
-      output << " -DCK_PARAM_TUNABLE_BLOCK_SIZE=256";
 
-      // [8, GEMM_M_PER_BLOCK], power of 2
-      output << " -DCK_PARAM_GEMM_M_PER_WAVE=" << gemmMPerBlock;
-      // [8, GEMM_N_PER_BLOCK], power of 2
-      output << " -DCK_PARAM_GEMM_N_PER_WAVE=" << gemmNPerBlock;
+      TunableParameters params;
+      params.init();
+      params.print(output);
 
-      output << " -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K=4";
-      output << " -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N=4";
-
-      output << " -DCK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K=2";
-      output << " -DCK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M=4";
-      output << " -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N=1";
-      output << " -DCK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K=1";
-      output << " -DCK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DATA_PER_ACCESS_N=1";
-      output << " -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N=1";
-      output << " -DCK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M=1";
-
+      // Emit code-gen related parameters.
       output << " -DCK_PARAM_KPACK_LENGTH=1";
       output << " -DCK_USE_AMD_XDLOPS=1";
       output << " -DCK_USE_AMD_XDLOPS_INLINE_ASM=1";
+      output << " -std=c++14";
+      output << " -D__HIP_PLATFORM_HCC__=1";
     });
   }
 
