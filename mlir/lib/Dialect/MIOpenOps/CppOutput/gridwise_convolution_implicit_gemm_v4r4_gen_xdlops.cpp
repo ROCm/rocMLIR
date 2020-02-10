@@ -23,10 +23,50 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ToolOutputFile.h"
+#include "llvm/Support/YAMLTraits.h"
 
 using namespace mlir;
+using namespace llvm::yaml;
+
+LLVM_YAML_IS_STRING_MAP(int)
 
 namespace {
+
+struct TunableParameters {
+  void init() {
+    params["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"] = 128;
+    params["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"] = 128;
+    params["CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"] = 8;
+    params["CK_PARAM_TUNABLE_BLOCK_SIZE"] = 256;
+    params["CK_PARAM_GEMM_M_PER_WAVE"] = 128;
+    params["CK_PARAM_GEMM_N_PER_WAVE"] = 128;
+    params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] = 4;
+    params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N"] = 4;
+    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] = 2;
+    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M"] = 4;
+    params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N"] = 1;
+    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K"] = 1;
+    params["CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DATA_PER_ACCESS_N"] = 1;
+    params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N"] = 1;
+    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M"] = 1;
+  }
+  void print(llvm::raw_ostream &os) {
+    for (auto &kv : params) {
+      os << " -D" << kv.first << "=" << kv.second;
+    }
+  }
+  void printYAML(llvm::raw_ostream &os) {
+    Output xout(os, nullptr, 0);
+    xout << params;
+    os.flush();
+  }
+  void readYAML(std::string &str) {
+    params.clear();
+    Input yin(str);
+    yin >> params;
+  }
+  std::map<std::string, int> params;
+};
 
 static constexpr StringLiteral kVarName[3] = {"weight", "input", "output"};
 
@@ -705,34 +745,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCppXDLOPS(ModuleOp
   output.flush();
   return std::make_unique<llvm::StringRef>(resultStr);
 }
-
-namespace {
-struct TunableParameters {
-  void init() {
-    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"), 128);
-    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"), 128);
-    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"), 8);
-    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_BLOCK_SIZE"), 256);
-    params.insert_or_assign(StringRef("CK_PARAM_GEMM_M_PER_WAVE"), 128);
-    params.insert_or_assign(StringRef("CK_PARAM_GEMM_N_PER_WAVE"), 128);
-    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"), 4);
-    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N"), 4);
-    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"), 2);
-    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M"), 4);
-    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N"), 1);
-    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K"), 1);
-    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DATA_PER_ACCESS_N"), 1);
-    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N"), 1);
-    params.insert_or_assign(StringRef("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M"), 1);
-  }
-  void print(llvm::raw_ostream &os) {
-    for (auto &kv : params) {
-      os << " -D" << kv.first() << "=" << kv.getValue();
-    }
-  }
-  llvm::StringMap<int> params;
-};
-} // anonymous namespace
 
 std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(ModuleOp m) {
   std::string resultStr;
