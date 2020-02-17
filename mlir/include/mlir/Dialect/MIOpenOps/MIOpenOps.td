@@ -51,8 +51,8 @@ def MIOpen_Conv2DOp :
 
 def MIOpen_TransformOp :
     MIOpen_Op<"transform">,
-    Arguments<(ins AnyMemRef)>,
-    Results<(outs AnyMemRef)> {
+    Arguments<(ins AnyMemRef:$input)>,
+    Results<(outs AnyMemRef:$output)> {
   let summary = "Tensor transformation";
   let description = [{
     The `miopen.transform` op transforms tensor coordinates.
