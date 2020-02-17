@@ -27,6 +27,9 @@ namespace miopen {
 /// gridwise_gemm operations.
 std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsPass();
 
+/// Create a pass to convert transform operations to affine maps.
+std::unique_ptr<OpPassBase<FuncOp>> createLowerTransformPass();
+
 } // namespace miopen
 } // namespace mlir
 
