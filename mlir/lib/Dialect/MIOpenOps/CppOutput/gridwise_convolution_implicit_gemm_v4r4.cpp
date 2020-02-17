@@ -33,22 +33,30 @@ public:
   TunableParameters() : TunableParametersBase("gridwise_convolution_implicit_gemm_v4r4.yaml") {}
 
   virtual void customInit() override {
-    params["CK_PARAM_TUNABLE_BLOCK_SIZE"] = 256;
+    // parameters truly tunable.
     params["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"] = 128;
     params["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"] = 128;
-    params["CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"] = 8;
+    params["CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"] = 16;
     params["CK_PARAM_TUNABLE_GEMM_M_PER_THREAD_SUB_C"] = 4;
     params["CK_PARAM_TUNABLE_GEMM_N_PER_THREAD_SUB_C"] = 4;
+
+    // parameters derivable from tunable parameters.
     params["CK_PARAM_TUNABLE_GEMM_M_LEVEL0_CLUSTER"] = 4;
     params["CK_PARAM_TUNABLE_GEMM_N_LEVEL0_CLUSTER"] = 4;
     params["CK_PARAM_TUNABLE_GEMM_M_LEVEL1_CLUSTER"] = 4;
     params["CK_PARAM_TUNABLE_GEMM_N_LEVEL1_CLUSTER"] = 4;
+    params["CK_PARAM_TUNABLE_BLOCK_SIZE"] = 256;
+
     params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] = 2;
     params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M"] = 128;
-    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K"] = 1;
-    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M"] = 1;
+
     params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] = 2;
     params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N"] = 128;
+
+    // parameters vary per data layout.
+    // TBD. add vectorization computation logic.
+    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K"] = 1;
+    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M"] = 1;
     params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N"] = 1;
     params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N"] = 1;
     params["CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1"] = 1;
