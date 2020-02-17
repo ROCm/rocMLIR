@@ -1,0 +1,19 @@
+// RUN: mlir-opt -miopen-affine-transform %s | FileCheck %s
+
+module {
+  func @miopen_conv2d_kcyx_nchw_nkhw(%arg0: memref<128x8x3x3xf32>, %arg1: memref<128x8x32x32xf32>, %arg2: memref<128x128x30x30xf32>) {
+    %0 = miopen.transform(%arg0) {gridwise_gemm_argument_position = 0 : i32, layout = [{dimensions = [0 : i32], names = ["gemmK"], source_dimensions = [1 : i32, 2 : i32, 3 : i32], source_names = ["c", "y", "x"], transformation = "Unfold"}, {dimensions = [1 : i32], names = ["gemmM"], source_dimensions = [0 : i32], source_names = ["k"], transformation = "PassThrough"}], output_layout = ["gemmK", "gemmM"], source_layout = ["k", "c", "y", "x"]} : memref<128x8x3x3xf32> to memref<?x?xf32>
+    %1 = miopen.transform(%arg1) {layout = [{dimensions = [0 : i32], names = ["ni"], source_dimensions = [0 : i32], source_names = ["ni"], transformation = "PassThrough"}, {dimensions = [1 : i32], names = ["ci"], source_dimensions = [1 : i32], source_names = ["ci"], transformation = "PassThrough"}, {dimensions = [2 : i32, 3 : i32], names = ["hipad", "wipad"], parameters = [0 : i32, 0 : i32], source_dimensions = [2 : i32, 3 : i32], source_names = ["hi", "wi"], transformation = "Pad"}], output_layout = ["ni", "ci", "hipad", "wipad"], source_layout = ["ni", "ci", "hi", "wi"]} : memref<128x8x32x32xf32> to memref<128x8x32x32xf32>
+    %2 = miopen.transform(%1) {intermediate_layout = ["ni", "ci", "hipad", "wipad"], layout = [{dimensions = [0 : i32], names = ["ni"], source_dimensions = [0 : i32], source_names = ["ni"], transformation = "PassThrough"}, {dimensions = [1 : i32], names = ["ci"], source_dimensions = [1 : i32], source_names = ["ci"], transformation = "PassThrough"}, {dimensions = [2 : i32, 3 : i32], names = ["y", "ho"], parameters = [2 : i32, 1 : i32, 1 : i32, 0 : i32], source_dimensions = [2 : i32], source_names = ["hipad"], transformation = "Embed"}, {dimensions = [4 : i32, 5 : i32], names = ["x", "wo"], parameters = [2 : i32, 1 : i32, 1 : i32, 0 : i32], source_dimensions = [3 : i32], source_names = ["wipad"], transformation = "Embed"}], output_layout = ["ni", "ci", "y", "ho", "x", "wo"]} : memref<128x8x32x32xf32> to memref<?x?x?x?x?x?xf32>
+    %3 = miopen.transform(%2) {gridwise_gemm_argument_position = 1 : i32, intermediate_layout = ["ni", "ci", "y", "ho", "x", "wo"], layout = [{dimensions = [0 : i32], names = ["gemmK"], source_dimensions = [1 : i32, 2 : i32, 4 : i32], source_names = ["ci", "y", "x"], transformation = "Merge"}, {dimensions = [1 : i32], names = ["gemmN"], source_dimensions = [0 : i32, 3 : i32, 5 : i32], source_names = ["ni", "ho", "wo"], transformation = "Merge"}], output_layout = ["gemmK", "gemmN"]} : memref<?x?x?x?x?x?xf32> to memref<?x?xf32>
+    %4 = miopen.transform(%arg2) {gridwise_gemm_argument_position = 2 : i32, layout = [{dimensions = [0 : i32], names = ["gemmM"], source_dimensions = [1 : i32], source_names = ["ko"], transformation = "PassThrough"}, {dimensions = [1 : i32], names = ["gemmN"], source_dimensions = [0 : i32, 2 : i32, 3 : i32], source_names = ["no", "ho", "wo"], transformation = "Merge"}], output_layout = ["gemmM", "gemmN"], source_layout = ["no", "ko", "ho", "wo"]} : memref<128x128x30x30xf32> to memref<?x?xf32>
+    miopen.gridwise_gemm(%0, %3, %4) {dilations = [1 : i32, 1 : i32], filter_dimension = [128, 8, 3, 3], filter_layout = ["k", "c", "y", "x"], input_dimension = [128, 8, 32, 32], input_layout = ["ni", "ci", "hi", "wi"], kernel_algorithm = "v4r4", output_dimension = [128, 128, 30, 30], output_layout = ["no", "ko", "ho", "wo"], padding = [[0 : i32, 0 : i32], [0 : i32, 0 : i32]], strides = [1 : i32, 1 : i32]} : memref<?x?xf32>, memref<?x?xf32>, memref<?x?xf32>
+    return
+  }
+}
+// CHECK-LABEL: func @miopen_conv2d_kcyx_nchw_nkhw
+//  CHECK-NEXT: miopen.transform
+//  CHECK-NEXT: miopen.transform
+//  CHECK-NEXT: miopen.transform
+//  CHECK-NEXT: miopen.transform
+//  CHECK-NEXT: miopen.transform
