@@ -345,10 +345,6 @@ static constexpr StringLiteral kHeaderEpiloguePart1 = R"(
                                                      AccFloat,
 )";
 
-// TBD.
-// 0 -> change to vector read dimension for filter.
-// 1 -> change to vector read dimension for input.
-// 3 -> keep it as-is for now.
 static constexpr StringLiteral kHeaderEpiloguePart2 = R"(
                                                      InMemoryDataOperation::none,
                                                      GemmMPerBlock,
@@ -367,7 +363,9 @@ static constexpr StringLiteral kHeaderEpiloguePart2 = R"(
                                                      GemmABlockCopyThreadClusterLengths_GemmK_GemmM,
                                                      Sequence<1, 0>,
                                                      Sequence<1, 0>,
-                                                     0,
+)";
+
+static constexpr StringLiteral kHeaderEpiloguePart3 = R"(
                                                      GemmABlockCopySrcDataPerRead_GemmK,
                                                      GemmABlockCopyDstDataPerWrite_GemmM,
                                                      GemmBBlockCopyThreadSliceLengths_GemmK_GemmN,
@@ -411,7 +409,7 @@ struct GridwiseConvolutionImplicitGemm_v4r4_)";
   output << '\n';
 }
 
-void EmitHeaderEpilogue(llvm::raw_ostream &output, llvm::SmallDenseMap<int64_t, std::string> &args) {
+void EmitHeaderEpilogue(llvm::raw_ostream &output, llvm::SmallDenseMap<int64_t, std::string> &args, bool gemmKVectorizable) {
   output << kHeaderEpiloguePart1;
 // Between Part1 and Part2 emit:
 //                                                   decltype(wei_e_k_global_desc),
@@ -422,6 +420,16 @@ void EmitHeaderEpilogue(llvm::raw_ostream &output, llvm::SmallDenseMap<int64_t, 
                                                      decltype()" << args[i] << "),";
   }
   output << kHeaderEpiloguePart2;
+
+// Between Part2 and Part3 emit which dimension the vectorization takes place for filter tensor.
+// kcyx, kyxc, yxkc, ckyx: 0
+// yxck, cyxk: 1
+  if (gemmKVectorizable) {
+    output << "                                                     0,";
+  } else {
+    output << "                                                     1,";
+  }
+  output << kHeaderEpiloguePart3;
 }
 
 void EmitLayoutString(llvm::raw_ostream &output, llvm::ArrayRef<mlir::Attribute> &layoutArrayAttr, llvm::StringRef prefix, llvm::StringRef suffix, llvm::StringRef delimiter = "") {
@@ -692,7 +700,49 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m)
       output << ");\n\n";
     });
 
-    EmitHeaderEpilogue(output, gridwiseGemmArguments);
+    bool gemmKVectorizable;
+    f.walk([&gemmKVectorizable](miopen::GridwiseGemmOp op) {
+      auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
+      auto filterDimensionAttr = op.getAttrOfType<ArrayAttr>("filter_dimension");
+
+      int64_t k = 0, c = 0, y = 0, x = 0;
+      size_t dimKF, dimCF, dimYF, dimXF;
+
+      for (size_t i = 0; i < 4; ++i) {
+        auto filterDim = filterLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
+        if (filterDim.str() == "k") {
+          dimKF = i;
+          k = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+        } else if (filterDim.str() == "c") {
+          dimCF = i;
+          c = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+        } else if (filterDim.str() == "y") {
+          dimYF = i;
+          y = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+        } else if (filterDim.str() == "x") {
+          dimXF = i;
+          x = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+        }
+      }
+
+      // Filter tensor.
+      // Find the fastest changing dimension.
+      if (dimKF == 3) {
+        // When K is the fastest changing dimension,
+        // gemmM dimension is vectorizable.
+        // vectorization width depending on length of K.
+
+        // gemmK dimension non-vectorizable.
+        gemmKVectorizable = false;
+      } else {
+        // gemmK dimension vectorizable,
+        // depending on which among C, Y, X be the fastest changing dimension.
+        gemmKVectorizable = true;
+        // gemmM dimension non-vectorizable.
+      }
+    });
+
+    EmitHeaderEpilogue(output, gridwiseGemmArguments, gemmKVectorizable);
   }
 
   output.flush();
