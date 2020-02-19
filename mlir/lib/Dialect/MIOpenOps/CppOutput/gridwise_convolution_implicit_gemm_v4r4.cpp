@@ -345,6 +345,10 @@ static constexpr StringLiteral kHeaderEpiloguePart1 = R"(
                                                      AccFloat,
 )";
 
+// TBD.
+// 0 -> change to vector read dimension for filter.
+// 1 -> change to vector read dimension for input.
+// 3 -> keep it as-is for now.
 static constexpr StringLiteral kHeaderEpiloguePart2 = R"(
                                                      InMemoryDataOperation::none,
                                                      GemmMPerBlock,
@@ -755,7 +759,12 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
       auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
       auto filterDimensionAttr = op.getAttrOfType<ArrayAttr>("filter_dimension");
 
-      int64_t n = 0, k = 0, ho = 0, wo = 0;
+      int64_t n = 0, k = 0, ho = 0, wo = 0, hi = 0, wi = 0;
+      int64_t c = 0, y = 0, x = 0;
+
+      size_t dimKF, dimCF, dimYF, dimXF;
+      size_t dimNO, dimKO, dimHO, dimWO;
+      //size_t dimNI, dimCI, dimHI, dimWI;
 
       for (size_t i = 0; i < 4; ++i) {
         auto filterDim = filterLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
@@ -763,45 +772,77 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
         auto outputDim = outputLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
 
         if (filterDim.str() == "k") {
+          dimKF = i;
           k = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
           output << " -DCK_PARAM_PROBLEM_K=" << k;
         } else if (filterDim.str() == "c") {
-          output << " -DCK_PARAM_PROBLEM_C=" << filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getValue();
+          dimCF = i;
+          c = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+          output << " -DCK_PARAM_PROBLEM_C=" << c;
         } else if (filterDim.str() == "y") {
-          output << " -DCK_PARAM_PROBLEM_Y=" << filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getValue();
+          dimYF = i;
+          y = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+          output << " -DCK_PARAM_PROBLEM_Y=" << y;
         } else if (filterDim.str() == "x") {
-          output << " -DCK_PARAM_PROBLEM_X=" << filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getValue();
+          dimXF = i;
+          x = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+          output << " -DCK_PARAM_PROBLEM_X=" << x;
         }
 
         if (inputDim.str() == "ni") {
+          //dimNI = i;
           n = inputDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
           output << " -DCK_PARAM_PROBLEM_N=" << n;
         } else if (inputDim.str() == "hi") {
-          output << " -DCK_PARAM_PROBLEM_HI=" << inputDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getValue();
+          //dimHI = i;
+          hi = inputDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+          output << " -DCK_PARAM_PROBLEM_HI=" << hi;
         } else if (inputDim.str() == "wi") {
-          output << " -DCK_PARAM_PROBLEM_WI=" << inputDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getValue();
+          //dimWI = i;
+          wi = inputDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+          output << " -DCK_PARAM_PROBLEM_WI=" << wi;
+        } else if (inputDim.str() == "ci") {
+          //dimCI = i;
         }
 
         if (outputDim.str() == "ho") {
+          dimHO = i;
           ho = outputDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
           output << " -DCK_PARAM_PROBLEM_HO=" << ho;
         } else if (outputDim.str() == "wo") {
+          dimWO = i;
           wo = outputDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
           output << " -DCK_PARAM_PROBLEM_WO=" << wo;
+        } else if (outputDim.str() == "no") {
+          dimNO = i;
+        } else if (outputDim.str() == "ko") {
+          dimKO = i;
         }
       }
 
       auto strideAttr = op.getAttrOfType<ArrayAttr>("strides");
+      int64_t strideH = strideAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+      int64_t strideW = strideAttr.getValue()[1].dyn_cast<IntegerAttr>().getInt();
+      output << " -DCK_PARAM_PROBLEM_CONV_STRIDE_H=" << strideH;
+      output << " -DCK_PARAM_PROBLEM_CONV_STRIDE_W=" << strideW;
+
       auto dilationAttr = op.getAttrOfType<ArrayAttr>("dilations");
+      int64_t dilationH = dilationAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+      int64_t dilationW = dilationAttr.getValue()[1].dyn_cast<IntegerAttr>().getInt();
+      output << " -DCK_PARAM_PROBLEM_CONV_DILATION_H=" << dilationH;
+      output << " -DCK_PARAM_PROBLEM_CONV_DILATION_W=" << dilationW;
+
+      // TBD. compute left padding and right padding properly.
       auto paddingAttr = op.getAttrOfType<ArrayAttr>("padding");
-      output << " -DCK_PARAM_PROBLEM_CONV_STRIDE_H=" << strideAttr.getValue()[0].dyn_cast<IntegerAttr>().getValue();
-      output << " -DCK_PARAM_PROBLEM_CONV_STRIDE_W=" << strideAttr.getValue()[1].dyn_cast<IntegerAttr>().getValue();
-      output << " -DCK_PARAM_PROBLEM_CONV_DILATION_H=" << dilationAttr.getValue()[0].dyn_cast<IntegerAttr>().getValue();
-      output << " -DCK_PARAM_PROBLEM_CONV_DILATION_W=" << dilationAttr.getValue()[1].dyn_cast<IntegerAttr>().getValue();
-      output << " -DCK_PARAM_PROBLEM_IN_LEFT_PAD_H=" << paddingAttr.getValue()[0].dyn_cast<IntegerAttr>().getValue();
-      output << " -DCK_PARAM_PROBLEM_IN_LEFT_PAD_W=" << paddingAttr.getValue()[1].dyn_cast<IntegerAttr>().getValue();
-      output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_H=" << paddingAttr.getValue()[0].dyn_cast<IntegerAttr>().getValue();
-      output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_W=" << paddingAttr.getValue()[1].dyn_cast<IntegerAttr>().getValue();
+      int64_t paddingHL = paddingAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+      int64_t paddingHR = paddingAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+      int64_t paddingWL = paddingAttr.getValue()[1].dyn_cast<IntegerAttr>().getInt();
+      int64_t paddingWR = paddingAttr.getValue()[1].dyn_cast<IntegerAttr>().getInt();
+
+      output << " -DCK_PARAM_PROBLEM_IN_LEFT_PAD_H=" << paddingHL;
+      output << " -DCK_PARAM_PROBLEM_IN_LEFT_PAD_W=" << paddingWL;
+      output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_H=" << paddingHR;
+      output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_W=" << paddingWR;
 
       // TBD: be able to set data type.
       output << " -DMIOPEN_USE_FP32=1 -DMIOPEN_USE_FP16=0 -DMIOPEN_USE_BFP16=0";
@@ -819,8 +860,80 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
 
       TunableParameters params;
       params.init();
-      params.print(output);
 
+      // TBD.
+      // Determine vectorization dimensions and lengths.
+
+      // Filter tensor.
+      // Find the fastest changing dimension.
+      if (dimKF == 3) {
+        // When K is the fastest changing dimension,
+        // gemmM dimension is vectorizable.
+        // vectorization width depending on length of K.
+        if (k % 4 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M", 4);
+        } else if (k % 2 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M", 2);
+        }
+        // gemmK dimension non-vectorizable.
+      } else {
+        // gemmK dimension vectorizable,
+        // depending on which among C, Y, X be the fastest changing dimension.
+        int64_t vectorizableLength = 0;
+        if (dimKF == 0) {
+          // dimKF is the lowest changing dimension, which means dimC/dimY/dimX
+          vectorizableLength = c * y * x;
+        } else {
+          if (dimCF == 3) {
+            vectorizableLength = c;
+          } else if (dimXF == 3 && dimYF == 2) {
+            vectorizableLength = y * x;
+          }
+        }
+        if (vectorizableLength % 4 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K", 4);
+        } else if (vectorizableLength % 2 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K", 2);
+        }
+
+        // gemmM dimension non-vectorizable.
+      }
+
+      // TBD Input tensor.
+      // After discussion with MIOpen devs. MIOpen gridwise GEMM kernels would
+      // implementation vectorization logic. Skip for now.
+
+      // Output tensor.
+      if (dimKO == 3) {
+        // gemmM vectorizable.
+        // However, there is no parameters for vectorizing gemmM dimension for matrix C.
+        // Do nothing here.
+
+        // gemmN non-vectorizable.
+      } else {
+        // gemmN dimension vectorizable,
+        // depending on which among, N, Ho, Wo be the fastest changing dimension.
+        int vectorizableLength = 0;
+        if (dimKO == 0) {
+          vectorizableLength = n * ho * wo;
+        } else {
+          if (dimNO == 3) {
+            vectorizableLength = n;
+          } else if (dimWO == 3 && dimHO == 2) {
+            vectorizableLength = ho * wo;
+          }
+        }
+        if (vectorizableLength % 4 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1", 4);
+        } else if (vectorizableLength % 2 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1", 2);
+        }
+
+        // gemmM non-vectorizable.
+      }
+
+      // Print out the tunable parameters.
+      params.print(output);
       if (IsPopulateTunableParameters.getValue()) {
         // Populate YAML config file.
         params.dump();

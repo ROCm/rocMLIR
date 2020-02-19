@@ -752,6 +752,9 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       auto filterDimensionAttr = op.getAttrOfType<ArrayAttr>("filter_dimension");
 
       int64_t n = 0, k = 0, ho = 0, wo = 0;
+      int64_t c = 0, y = 0, x = 0;
+
+      size_t dimK, dimC, dimY, dimX;
 
       for (size_t i = 0; i < 4; ++i) {
         auto filterDim = filterLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
@@ -759,14 +762,21 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
         auto outputDim = outputLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
 
         if (filterDim.str() == "k") {
+          dimK = i;
           k = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
           output << " -DCK_PARAM_PROBLEM_K=" << k;
         } else if (filterDim.str() == "c") {
-          output << " -DCK_PARAM_PROBLEM_C=" << filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getValue();
+          dimC = i;
+          c = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+          output << " -DCK_PARAM_PROBLEM_C=" << c;
         } else if (filterDim.str() == "y") {
-          output << " -DCK_PARAM_PROBLEM_Y=" << filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getValue();
+          dimY = i;
+          y = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+          output << " -DCK_PARAM_PROBLEM_Y=" << y;
         } else if (filterDim.str() == "x") {
-          output << " -DCK_PARAM_PROBLEM_X=" << filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getValue();
+          dimX = i;
+          x = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+          output << " -DCK_PARAM_PROBLEM_X=" << x;
         }
 
         if (inputDim.str() == "ni") {
@@ -819,8 +829,54 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
 
       TunableParameters params;
       params.init();
-      params.print(output);
 
+      // TBD.
+      // Determine vectorization dimensions and lengths.
+
+      // Filter tensor.
+      // Find the fastest changing dimension.
+      if (dimK == 3) {
+        // When K is the fastest changing dimension,
+        // gemmM dimension is vectorizable.
+        // vectorization width depending on length of K.
+        if (k % 4 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M", 4);
+        } else if (k % 2 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M", 2);
+        }
+        // gemmK dimension non-vectorizable.
+      } else {
+        // gemmK dimension vectorizable,
+        // depending on which among C, Y, X be the fastest changing dimension.
+        int64_t vectorizableLength = 0;
+        if (dimK == 0) {
+          // dimK is the lowest changing dimension, which means dimC/dimY/dimX
+          vectorizableLength = c * y * x;
+        } else {
+          if (dimC == 3) {
+            vectorizableLength = c;
+          } else if (dimX == 3 && dimY == 2) {
+            vectorizableLength = y * x;
+          }
+        }
+        if (vectorizableLength % 4 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K", 4);
+        } else if (vectorizableLength % 2 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K", 2);
+        }
+
+        // gemmM dimension non-vectorizable.
+      }
+
+      // TBD Input tensor.
+      //params.setValue("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N", 1);
+      //params.setValue("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N", 1);
+
+      // TBD Output tensor.
+      //params.setValue("CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DATA_PER_ACCESS_N", 1);
+
+      // Print out the tunable parameters.
+      params.print(output);
       if (IsPopulateTunableParameters.getValue()) {
         // Populate YAML config file.
         params.dump();
