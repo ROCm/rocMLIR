@@ -372,7 +372,9 @@ static constexpr StringLiteral kHeaderEpiloguePart3 = R"(
                                                      GemmBBlockCopyThreadClusterLengths_GemmK_GemmN,
                                                      Sequence<0, 1>,
                                                      Sequence<0, 1>,
-                                                     1,
+)";
+
+static constexpr StringLiteral kHeaderEpiloguePart4 = R"(
                                                      GemmBBlockCopySrcDataPerRead_GemmN,
                                                      GemmBBlockCopyDstDataPerWrite_GemmN,
                                                      Sequence<0, 1, 2, 3>,
@@ -409,7 +411,7 @@ struct GridwiseConvolutionImplicitGemm_v4r4_)";
   output << '\n';
 }
 
-void EmitHeaderEpilogue(llvm::raw_ostream &output, llvm::SmallDenseMap<int64_t, std::string> &args, bool gemmKVectorizable) {
+void EmitHeaderEpilogue(llvm::raw_ostream &output, llvm::SmallDenseMap<int64_t, std::string> &args, bool filterGemmKVectorizable, bool inputGemmKVectorizable) {
   output << kHeaderEpiloguePart1;
 // Between Part1 and Part2 emit:
 //                                                   decltype(wei_e_k_global_desc),
@@ -424,12 +426,22 @@ void EmitHeaderEpilogue(llvm::raw_ostream &output, llvm::SmallDenseMap<int64_t, 
 // Between Part2 and Part3 emit which dimension the vectorization takes place for filter tensor.
 // kcyx, kyxc, yxkc, ckyx: 0
 // yxck, cyxk: 1
-  if (gemmKVectorizable) {
+  if (filterGemmKVectorizable) {
     output << "                                                     0,";
   } else {
     output << "                                                     1,";
   }
   output << kHeaderEpiloguePart3;
+// Between Part3 and Part4 emit which dimension the vectorization takes place for input tensor.
+// nhwc, hwnc: 0
+// chwn, hwcn: 1
+// nchw, cnhw: non-vectorizable for now, set to 0, with vectorization width to 1.
+  if (inputGemmKVectorizable) {
+    output << "                                                     0,";
+  } else {
+    output << "                                                     1,";
+  }
+  output << kHeaderEpiloguePart4;
 }
 
 void EmitLayoutString(llvm::raw_ostream &output, llvm::ArrayRef<mlir::Attribute> &layoutArrayAttr, llvm::StringRef prefix, llvm::StringRef suffix, llvm::StringRef delimiter = "") {
@@ -700,28 +712,36 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m)
       output << ");\n\n";
     });
 
-    bool gemmKVectorizable;
-    f.walk([&gemmKVectorizable](miopen::GridwiseGemmOp op) {
+    bool filterGemmKVectorizable, inputGemmKVectorizable;
+    f.walk([&filterGemmKVectorizable, &inputGemmKVectorizable](miopen::GridwiseGemmOp op) {
       auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
-      auto filterDimensionAttr = op.getAttrOfType<ArrayAttr>("filter_dimension");
+      auto inputLayoutAttr = op.getAttrOfType<ArrayAttr>("input_layout");
 
-      int64_t k = 0, c = 0, y = 0, x = 0;
       size_t dimKF, dimCF, dimYF, dimXF;
+      size_t dimNI, dimCI, dimHI, dimWI;
 
       for (size_t i = 0; i < 4; ++i) {
         auto filterDim = filterLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
+
         if (filterDim.str() == "k") {
           dimKF = i;
-          k = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
         } else if (filterDim.str() == "c") {
           dimCF = i;
-          c = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
         } else if (filterDim.str() == "y") {
           dimYF = i;
-          y = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
         } else if (filterDim.str() == "x") {
           dimXF = i;
-          x = filterDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+        }
+
+        auto inputDim = inputLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
+        if (inputDim.str() == "ni") {
+          dimNI = i;
+        } else if (inputDim.str() == "ci") {
+          dimCI = i;
+        } else if (inputDim.str() == "hi") {
+          dimHI = i;
+        } else if (inputDim.str() == "wi") {
+          dimWI = i;
         }
       }
 
@@ -733,16 +753,35 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m)
         // vectorization width depending on length of K.
 
         // gemmK dimension non-vectorizable.
-        gemmKVectorizable = false;
+        filterGemmKVectorizable = false;
       } else {
         // gemmK dimension vectorizable,
         // depending on which among C, Y, X be the fastest changing dimension.
-        gemmKVectorizable = true;
+        filterGemmKVectorizable = true;
         // gemmM dimension non-vectorizable.
       }
+
+      // Input tensor.
+      // Find the fastest changing dimension.
+      if (dimNI == 3) {
+        // When N is the fastest changing dimension,
+        // gemmN dimension is vectorizable.
+        // vectorization width depending on length of N.
+
+        // gemmK dimension non-vectorizable.
+        inputGemmKVectorizable = false;
+      } else if (dimCI == 3) {
+        // When C is the fastest changing dimension,
+        // gemmK dimension vectorizable.
+        // vectorization width depending on length of C.
+        inputGemmKVectorizable = true;
+
+        // gemmN dimension non-vectorizable.
+      }
+
     });
 
-    EmitHeaderEpilogue(output, gridwiseGemmArguments, gemmKVectorizable);
+    EmitHeaderEpilogue(output, gridwiseGemmArguments, filterGemmKVectorizable, inputGemmKVectorizable);
   }
 
   output.flush();
@@ -814,7 +853,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
 
       size_t dimKF, dimCF, dimYF, dimXF;
       size_t dimNO, dimKO, dimHO, dimWO;
-      //size_t dimNI, dimCI, dimHI, dimWI;
+      size_t dimNI, dimCI, dimHI, dimWI;
 
       for (size_t i = 0; i < 4; ++i) {
         auto filterDim = filterLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
@@ -840,19 +879,19 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
         }
 
         if (inputDim.str() == "ni") {
-          //dimNI = i;
+          dimNI = i;
           n = inputDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
           output << " -DCK_PARAM_PROBLEM_N=" << n;
         } else if (inputDim.str() == "hi") {
-          //dimHI = i;
+          dimHI = i;
           hi = inputDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
           output << " -DCK_PARAM_PROBLEM_HI=" << hi;
         } else if (inputDim.str() == "wi") {
-          //dimWI = i;
+          dimWI = i;
           wi = inputDimensionAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
           output << " -DCK_PARAM_PROBLEM_WI=" << wi;
         } else if (inputDim.str() == "ci") {
-          //dimCI = i;
+          dimCI = i;
         }
 
         if (outputDim.str() == "ho") {
@@ -949,9 +988,35 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
         // gemmM dimension non-vectorizable.
       }
 
-      // TBD Input tensor.
-      // After discussion with MIOpen devs. MIOpen gridwise GEMM kernels would
-      // implementation vectorization logic. Skip for now.
+      // Input tensor.
+      // Find the fastest changing dimension.
+      if (dimNI == 3) {
+        // When N is the fastest changing dimension,
+        // gemmN dimension is vectorizable.
+        // vectorization width depending on length of N.
+        if (n % 4 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N", 4);
+          params.setValue("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N", 4);
+        } else if (n % 2 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N", 2);
+          params.setValue("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N", 2);
+        }
+
+        // gemmK dimension non-vectorizable.
+      } else if (dimCI == 3) {
+        // When C is the fastest changing dimension,
+        // gemmK dimension vectorizable.
+        // vectorization width depending on length of C.
+
+        // NOTE: After discussion with MIOpen dev, set only READ vectorization here. NOT WRITE.
+        if (c % 4 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N", 4);
+        } else if (c % 2 == 0) {
+          params.setValue("CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N", 2);
+        }
+
+        // gemmN dimension non-vectorizable.
+      }
 
       // Output tensor.
       if (dimKO == 3) {
