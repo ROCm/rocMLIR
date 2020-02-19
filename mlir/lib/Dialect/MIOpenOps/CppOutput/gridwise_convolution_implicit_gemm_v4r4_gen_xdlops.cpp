@@ -27,6 +27,8 @@
 using namespace mlir;
 
 namespace {
+// result string to keep C++ source / header / flags emission.
+std::string resultStr;
 
 class TunableParameters : public TunableParametersBase {
 public:
@@ -50,6 +52,7 @@ public:
     params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M"] = 4;
 
     // parameters vary per data layout.
+    // specify the most conservative parameters first.
     // TBD. add vectorization computation logic.
     params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N"] = 1;
     params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K"] = 1;
@@ -533,7 +536,6 @@ void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std
 } // anontmous namespace
 
 std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(ModuleOp m) {
-  std::string resultStr;
   llvm::raw_string_ostream output(resultStr);
 
   // Enumerate FuncOp instances inside the ModuleOp.
@@ -690,7 +692,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
 }
 
 std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCppXDLOPS(ModuleOp m) {
-  std::string resultStr;
   llvm::raw_string_ostream output(resultStr);
 
   // Enumerate FuncOp instances inside the ModuleOp.
@@ -738,8 +739,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCppXDLOPS(ModuleOp
 }
 
 std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(ModuleOp m) {
-  std::string resultStr;
-  resultStr.reserve(4096);
   llvm::raw_string_ostream output(resultStr);
 
   for (auto f : m.getOps<FuncOp>()) {
