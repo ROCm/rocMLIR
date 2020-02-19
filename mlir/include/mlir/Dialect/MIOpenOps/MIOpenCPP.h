@@ -76,6 +76,9 @@ public:
     }
     return 0;
   }
+  void setValue(llvm::StringRef str, int value) {
+    params[str] = value;
+  }
 protected:
   std::map<std::string, int> params;
   llvm::StringRef configFileName;
