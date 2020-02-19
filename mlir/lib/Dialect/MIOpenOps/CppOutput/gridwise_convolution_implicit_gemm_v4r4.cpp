@@ -27,6 +27,8 @@
 using namespace mlir;
 
 namespace {
+// result string to keep C++ source / header / flags emission.
+std::string resultStr;
 
 class TunableParameters : public TunableParametersBase {
 public:
@@ -54,6 +56,7 @@ public:
     params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N"] = 128;
 
     // parameters vary per data layout.
+    // specify the most conservative parameters first.
     // TBD. add vectorization computation logic.
     params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_K"] = 1;
     params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M"] = 1;
@@ -537,7 +540,6 @@ void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std
 }
 
 std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m) {
-  std::string resultStr;
   llvm::raw_string_ostream output(resultStr);
 
   // Enumerate FuncOp instances inside the ModuleOp.
@@ -694,7 +696,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m)
 }
 
 std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
-  std::string resultStr;
   llvm::raw_string_ostream output(resultStr);
 
   // Enumerate FuncOp instances inside the ModuleOp.
@@ -742,8 +743,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
 }
 
 std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m) {
-  std::string resultStr;
-  resultStr.reserve(4096);
   llvm::raw_string_ostream output(resultStr);
 
   for (auto f : m.getOps<FuncOp>()) {
@@ -812,7 +811,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
       output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_DATA=0";
       output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_WEIGHT=0";
 
-      // TBD: ditinguish between:
+      // TBD: distinguish between:
       //      - parameters truly need to be tuned.
       //      - parameters deducible via transformations.
       //      - parameters which have heuristic-based values.
