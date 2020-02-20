@@ -38,7 +38,7 @@ public:
     // parameters truly tunable.
     params["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"] = 128;
     params["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"] = 128;
-    params["CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"] = 16;
+    params["CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"] = 8;
     params["CK_PARAM_TUNABLE_GEMM_M_PER_THREAD_SUB_C"] = 4;
     params["CK_PARAM_TUNABLE_GEMM_N_PER_THREAD_SUB_C"] = 4;
 
