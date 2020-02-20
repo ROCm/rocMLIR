@@ -921,12 +921,11 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
       output << " -DCK_PARAM_PROBLEM_CONV_DILATION_H=" << dilationH;
       output << " -DCK_PARAM_PROBLEM_CONV_DILATION_W=" << dilationW;
 
-      // TBD. compute left padding and right padding properly.
       auto paddingAttr = op.getAttrOfType<ArrayAttr>("padding");
-      int64_t paddingHL = paddingAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
-      int64_t paddingHR = paddingAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
-      int64_t paddingWL = paddingAttr.getValue()[1].dyn_cast<IntegerAttr>().getInt();
-      int64_t paddingWR = paddingAttr.getValue()[1].dyn_cast<IntegerAttr>().getInt();
+      int64_t paddingHL = paddingAttr.getValue()[0].dyn_cast<ArrayAttr>().getValue()[0].dyn_cast<IntegerAttr>().getInt();
+      int64_t paddingWL = paddingAttr.getValue()[0].dyn_cast<ArrayAttr>().getValue()[1].dyn_cast<IntegerAttr>().getInt();
+      int64_t paddingHR = paddingAttr.getValue()[1].dyn_cast<ArrayAttr>().getValue()[0].dyn_cast<IntegerAttr>().getInt();
+      int64_t paddingWR = paddingAttr.getValue()[1].dyn_cast<ArrayAttr>().getValue()[1].dyn_cast<IntegerAttr>().getInt();
 
       output << " -DCK_PARAM_PROBLEM_IN_LEFT_PAD_H=" << paddingHL;
       output << " -DCK_PARAM_PROBLEM_IN_LEFT_PAD_W=" << paddingWL;
