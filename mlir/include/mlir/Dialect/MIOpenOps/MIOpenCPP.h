@@ -30,6 +30,16 @@ extern llvm::cl::opt<bool> IsPopulateTunableParameters;
 
 LLVM_YAML_IS_STRING_MAP(int)
 
+template <typename Number>
+Number gcd(Number u, Number v) {
+  while (v != 0) {
+    Number r = u % v;
+    u = v;
+    v = r;
+  }
+  return u;
+}
+
 class TunableParametersBase {
 public:
   TunableParametersBase(llvm::StringRef &&yamlFileName) : params(), configFileName(yamlFileName) {}

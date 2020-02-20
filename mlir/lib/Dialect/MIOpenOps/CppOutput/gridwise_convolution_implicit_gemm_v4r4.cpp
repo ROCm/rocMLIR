@@ -30,16 +30,6 @@ namespace {
 // result string to keep C++ source / header / flags emission.
 std::string resultStr;
 
-template <typename Number>
-Number gcd(Number u, Number v) {
-  while (v != 0) {
-    Number r = u % v;
-    u = v;
-    v = r;
-  }
-  return u;
-}
-
 class TunableParameters : public TunableParametersBase {
 public:
   TunableParameters() : TunableParametersBase("gridwise_convolution_implicit_gemm_v4r4.yaml") {}
@@ -64,7 +54,6 @@ public:
 
     // parameters vary per data layout.
     // specify the most conservative parameters first.
-    // TBD. add vectorization computation logic.
     params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] = 2;
     params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M"] = 128;
     params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM"] = 1;
@@ -952,16 +941,15 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
       output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_DATA=0";
       output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_WEIGHT=0";
 
-      // TBD: distinguish between:
-      //      - parameters truly need to be tuned.
-      //      - parameters deducible via transformations.
-      //      - parameters which have heuristic-based values.
-      //      - parameters which are related to code generation.
+      // distinguish between:
+      // - parameters truly need to be tuned.
+      // - parameters deducible via transformations.
+      // - parameters which have heuristic-based values.
+      // - parameters which are related to code generation.
 
       TunableParameters params;
       params.init();
 
-      // TBD.
       // Determine vectorization dimensions and lengths.
       int64_t vectorizableLength = 0;
 
