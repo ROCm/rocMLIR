@@ -141,9 +141,10 @@ func @miopen_transformed_conv2d(%filter : memref<?x?x?x?xf32>, %input : memref<?
   
   // apply gridwise GEMM
   miopen.gridwise_gemm(%filter_gemmK_gemmM, %input_gemmK_gemmN, %output_gemmM_gemmN) {
-    parameters = [
-      // tuning parameters
-    ]
+    // tuning parameters
+    filter_layout = ["k", "c", "y", "x"],
+    input_layout = ["ni", "ci", "hi", "wi"],
+    output_layout = ["no", "ko", "ho", "wo"]
   } : memref<?x?xf32>,
       memref<?x?xf32>,
       memref<?x?xf32>
@@ -154,6 +155,6 @@ func @miopen_transformed_conv2d(%filter : memref<?x?x?x?xf32>, %input : memref<?
 // MIOPEN-CPP:     constexpr auto input_ni_ci_hi_wi_desc = make_native_tensor_descriptor(Sequence<ni, ci, hi, wi>{}, Sequence<stride_ni, stride_ci, stride_hi, stride_wi>{});
 // MIOPEN-CPP:     constexpr auto output_no_ko_ho_wo_desc = make_native_tensor_descriptor(Sequence<no, ko, ho, wo>{}, Sequence<stride_no, stride_ko, stride_ho, stride_wo>{});
 // MIOPEN-CPP:         constexpr auto gridwise_conv = GridwiseConvolutionImplicitGemm_v4r4_mlir
-// MIOPEN-CPP:        decltype(weight_k_c_y_x_desc),
 // MIOPEN-CPP:        decltype(input_ni_ci_hi_wi_desc),
+// MIOPEN-CPP:        decltype(weight_k_c_y_x_desc),
 // MIOPEN-CPP:        decltype(output_no_ko_ho_wo_desc),
