@@ -36,17 +36,17 @@ public:
 
   void customInit() override {
     // parameters truly tunable.
-    params["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"] = 128;
-    params["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"] = 128;
-    params["CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"] = 16;
-    params["CK_PARAM_GEMM_M_PER_WAVE"] = 64;
-    params["CK_PARAM_GEMM_N_PER_WAVE"] = 64;
+    params["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"] = 32;
+    params["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"] = 32;
+    params["CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"] = 8;
+    params["CK_PARAM_GEMM_M_PER_WAVE"] = 16;
+    params["CK_PARAM_GEMM_N_PER_WAVE"] = 16;
 
     // parameters derivable from tunable parameters.
     params["CK_PARAM_TUNABLE_BLOCK_SIZE"] = 256;
 
-    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] = 4;
-    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M"] = 64;
+    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] = 8;
+    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M"] = 32;
 
     params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] = 8;
     params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N"] = 32;
@@ -77,7 +77,7 @@ extern "C" __global__
 )";
 
 static constexpr StringLiteral kCppPreamblePart3 = R"(
-        const FLOAT* const __restrict__ p_in_global,
+        (const FLOAT* const __restrict__ p_in_global,
         const FLOAT* const __restrict__ p_wei_global,
         FLOAT* const __restrict__ p_out_global)
 {
@@ -265,8 +265,8 @@ template <index_t GridSize,
           class OutGlobalDesc,
           class ConvStrides,
           class ConvDilations,
-          class LeftPads,
-          class RightPads,
+          class InLeftPads,
+          class InRightPads,
           index_t GemmMPerBlock,
           index_t GemmNPerBlock,
           index_t GemmKPerBlock,
@@ -633,6 +633,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
               ops << ">, InLeftPads, InRightPads" << ">{}";
             } else if (transform.getValue() == "Embed") {
               ops << transform.getValue() << "<"
+                  << inputTensorName << ".GetLengths()[" << srcDims.getValue()[0].dyn_cast<IntegerAttr>().getInt() << "], "
                   << "Sequence<";
               EmitInterleaveCommaArrayAttr<StringAttr>(ops, dstNames);
               if (convDilationCtr == 0) {
@@ -886,10 +887,10 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       int64_t paddingHR = paddingAttr.getValue()[1].dyn_cast<ArrayAttr>().getValue()[0].dyn_cast<IntegerAttr>().getInt();
       int64_t paddingWR = paddingAttr.getValue()[1].dyn_cast<ArrayAttr>().getValue()[1].dyn_cast<IntegerAttr>().getInt();
 
-      output << " -DCK_PARAM_PROBLEM_IN_LEFT_PAD_H=" << paddingHL;
-      output << " -DCK_PARAM_PROBLEM_IN_LEFT_PAD_W=" << paddingWL;
-      output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_H=" << paddingHR;
-      output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_W=" << paddingWR;
+      output << " -DCK_PARAM_PROBLEM_LEFT_PAD_H=" << paddingHL;
+      output << " -DCK_PARAM_PROBLEM_LEFT_PAD_W=" << paddingWL;
+      output << " -DCK_PARAM_PROBLEM_RIGHT_PAD_H=" << paddingHR;
+      output << " -DCK_PARAM_PROBLEM_RIGHT_PAD_W=" << paddingWR;
 
       // TBD: be able to set data type.
       output << " -DMIOPEN_USE_FP32=1 -DMIOPEN_USE_FP16=0 -DMIOPEN_USE_BFP16=0";
@@ -997,33 +998,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       }
 
       // Output tensor.
-      if (dimKO == 3) {
-        // gemmM vectorizable.
-        // However, there is no parameters for vectorizing gemmM dimension for matrix C.
-        // Do nothing here.
-
-        // gemmN non-vectorizable.
-      } else {
-        // gemmN dimension vectorizable,
-        // depending on which among, N, Ho, Wo be the fastest changing dimension.
-        int vectorizableLength = 0;
-        if (dimKO == 0) {
-          vectorizableLength = n * ho * wo;
-        } else {
-          if (dimNO == 3) {
-            vectorizableLength = n;
-          } else if (dimWO == 3 && dimHO == 2) {
-            vectorizableLength = ho * wo;
-          }
-        }
-        if (vectorizableLength % 4 == 0) {
-          params.setValue("CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1", 4);
-        } else if (vectorizableLength % 2 == 0) {
-          params.setValue("CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1", 2);
-        }
-
-        // gemmM non-vectorizable.
-      }
+      // Dont vectorize on matrix C for now.
 
       // Print out the tunable parameters.
       params.print(output);
@@ -1041,7 +1016,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       output << " -DCK_PARAM_DEPENDENT_GRID_SIZE=" << gridSize;
 
       // Emit code-gen related parameters.
-      output << " -DCK_PARAM_KPACK_LENGTH=1";
       output << " -DCK_USE_AMD_XDLOPS=1";
       output << " -DCK_USE_AMD_XDLOPS_INLINE_ASM=1";
       output << " -std=c++14";
