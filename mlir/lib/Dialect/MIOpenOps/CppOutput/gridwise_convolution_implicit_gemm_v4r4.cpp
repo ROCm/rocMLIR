@@ -39,8 +39,8 @@ public:
     params["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"] = 128;
     params["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"] = 128;
     params["CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"] = 8;
-    params["CK_PARAM_TUNABLE_GEMM_M_PER_THREAD_SUB_C"] = 4;
-    params["CK_PARAM_TUNABLE_GEMM_N_PER_THREAD_SUB_C"] = 4;
+    params["CK_PARAM_TUNABLE_GEMM_M_PER_THREAD"] = 4;
+    params["CK_PARAM_TUNABLE_GEMM_N_PER_THREAD"] = 4;
     params["CK_PARAM_TUNABLE_BLOCK_SIZE"] = 256;
 
     // parameters fixed.
@@ -117,8 +117,8 @@ static constexpr StringLiteral kCppInterlude = R"(
     using InRightPads = Sequence<InRightPadH, InRightPadW>;
 
     // read and calculate tuning parameter
-    constexpr index_t GemmMPerThreadSubC = CK_PARAM_TUNABLE_GEMM_M_PER_THREAD_SUB_C;
-    constexpr index_t GemmNPerThreadSubC = CK_PARAM_TUNABLE_GEMM_N_PER_THREAD_SUB_C;
+    constexpr index_t GemmMPerThreadSubC = CK_PARAM_TUNABLE_GEMM_M_PER_THREAD;
+    constexpr index_t GemmNPerThreadSubC = CK_PARAM_TUNABLE_GEMM_N_PER_THREAD;
     constexpr index_t GemmMLevel0Cluster = CK_PARAM_TUNABLE_GEMM_M_LEVEL0_CLUSTER;
     constexpr index_t GemmNLevel0Cluster = CK_PARAM_TUNABLE_GEMM_N_LEVEL0_CLUSTER;
     constexpr index_t GemmMLevel1Cluster = CK_PARAM_TUNABLE_GEMM_M_LEVEL1_CLUSTER;
@@ -199,11 +199,11 @@ static constexpr StringLiteral kCppEpiloguePart2 =R"(
         GemmKPerBlock,
         GemmMPerThreadSubC,
         GemmNPerThreadSubC,
+        GemmKPerThreadLoop,
         GemmMLevel0Cluster,
         GemmNLevel0Cluster,
         GemmMLevel1Cluster,
         GemmNLevel1Cluster,
-        GemmKPerThreadLoop,
         GemmThreadGemmDataPerReadM,
         GemmThreadGemmDataPerReadN,
         GemmABlockCopyThreadSliceLengths_GemmK_GemmM,
@@ -297,11 +297,11 @@ template <index_t GridSize,
           index_t GemmKPerBlock,
           index_t GemmMPerThreadSubC,
           index_t GemmNPerThreadSubC,
+          index_t GemmKPerThreadLoop,
           index_t GemmMLevel0Cluster,
           index_t GemmNLevel0Cluster,
           index_t GemmMLevel1Cluster,
           index_t GemmNLevel1Cluster,
-          index_t GemmKPerThreadLoop,
           index_t GemmThreadGemmDataPerReadM,
           index_t GemmThreadGemmDataPerReadN,
           typename GemmABlockCopyThreadSliceLengths_GemmK_GemmM,
@@ -346,17 +346,17 @@ static constexpr StringLiteral kHeaderEpiloguePart1 = R"(
 )";
 
 static constexpr StringLiteral kHeaderEpiloguePart2 = R"(
-                                                     InMemoryDataOperation::none,
+                                                     InMemoryDataOperation::Set,
                                                      GemmMPerBlock,
                                                      GemmNPerBlock,
                                                      GemmKPerBlock,
                                                      GemmMPerThreadSubC,
                                                      GemmNPerThreadSubC,
+                                                     GemmKPerThreadLoop,
                                                      GemmMLevel0Cluster,
                                                      GemmNLevel0Cluster,
                                                      GemmMLevel1Cluster,
                                                      GemmNLevel1Cluster,
-                                                     GemmKPerThreadLoop,
                                                      GemmThreadGemmDataPerReadM,
                                                      GemmThreadGemmDataPerReadN,
                                                      GemmABlockCopyThreadSliceLengths_GemmK_GemmM,
@@ -674,6 +674,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m)
               ops << ">, InLeftPads, InRightPads" << ">{}";
             } else if (transform.getValue() == "Embed") {
               ops << transform.getValue() << "<"
+                  << inputTensorName << ".GetLengths()[" << srcDims.getValue()[0].dyn_cast<IntegerAttr>().getInt() << "], "
                   << "Sequence<";
               EmitInterleaveCommaArrayAttr<StringAttr>(ops, dstNames);
               if (convDilationCtr == 0) {
