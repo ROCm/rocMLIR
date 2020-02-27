@@ -424,7 +424,7 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
       llvm::SmallVector<StringAttr, 3> mergedPart2DimNames;
       llvm::SmallVector<IntegerAttr, 3> mergedPart2Dims;
       // Assume hDim is always less than wDim.
-      if (nDim.getInt() < nDim.getInt()) {
+      if (nDim.getInt() < hDim.getInt()) {
         mergedPart2DimNames.push_back(nDimName);
         mergedPart2DimNames.push_back(hDimName);
         mergedPart2DimNames.push_back(wDimName);
