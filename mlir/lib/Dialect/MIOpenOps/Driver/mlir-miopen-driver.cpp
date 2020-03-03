@@ -29,12 +29,18 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <iostream>
+
 using namespace llvm;
 using namespace mlir;
 
 static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"),
                                            cl::init("-"));
+
+static cl::opt<std::string>
+    convFlavor("conv_flavor", cl::desc("Convolution Flavor"),
+               cl::value_desc("convolution flavor string"), cl::init("conv2d"));
 
 static cl::opt<std::string> filterLayout("fil_layout", cl::desc("Filter layout"),
                                               cl::value_desc("layout string"),
@@ -128,6 +134,7 @@ static cl::opt<bool> populateDefaultValues("p", cl::desc("To populate default va
                                                 cl::value_desc("To populate default values"),
                                                 cl::init(false));
 
+void constructConvModule() {}
 
 int main(int argc, char **argv) {
   InitLLVM y(argc, argv);
@@ -204,7 +211,11 @@ int main(int argc, char **argv) {
   auto inputArgType = MemRefType::get(ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()), builder.getF32Type());
   auto outputArgType = MemRefType::get(ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()), builder.getF32Type());
   auto funcType = builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
-  auto func = FuncOp::create(builder.getUnknownLoc(), "miopen_conv2d_" + filterLayout + "_" + inputLayout + "_" + outputLayout, funcType);
+  auto func =
+      FuncOp::create(builder.getUnknownLoc(),
+                     "miopen_" + convFlavor.getValue() + "_" + filterLayout +
+                         "_" + inputLayout + "_" + outputLayout,
+                     funcType);
   module.push_back(func);
 
   // Construct a new Block.
@@ -220,29 +231,85 @@ int main(int argc, char **argv) {
     outputLayoutSpec.push_back(builder.getStringAttr((StringRef(&outputLayout.getValue()[i], 1) + "o").str()));
   }
 
-  auto convOp = builder.create<miopen::Conv2DOp>(
-    builder.getUnknownLoc(),
-    ArrayRef<Type>({}),
-    ValueRange{block->getArgument(0), block->getArgument(1), block->getArgument(2)}, 
-    ArrayRef<NamedAttribute>{
-      builder.getNamedAttr("filter_layout", builder.getArrayAttr(ArrayRef<Attribute>(filterLayoutSpec.begin(), filterLayoutSpec.end()))),
-      builder.getNamedAttr("input_layout", builder.getArrayAttr(ArrayRef<Attribute>(inputLayoutSpec.begin(), inputLayoutSpec.end()))),
-      builder.getNamedAttr("output_layout", builder.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(), outputLayoutSpec.end()))),
+  if (convFlavor.getValue().compare("conv2d") == 0) {
+    auto convOp = builder.create<miopen::Conv2DOp>(
+        builder.getUnknownLoc(), ArrayRef<Type>({}),
+        ValueRange{block->getArgument(0), block->getArgument(1),
+                   block->getArgument(2)},
+        ArrayRef<NamedAttribute>{
+            builder.getNamedAttr(
+                "filter_layout",
+                builder.getArrayAttr(ArrayRef<Attribute>(
+                    filterLayoutSpec.begin(), filterLayoutSpec.end()))),
+            builder.getNamedAttr(
+                "input_layout",
+                builder.getArrayAttr(ArrayRef<Attribute>(
+                    inputLayoutSpec.begin(), inputLayoutSpec.end()))),
+            builder.getNamedAttr(
+                "output_layout",
+                builder.getArrayAttr(ArrayRef<Attribute>(
+                    outputLayoutSpec.begin(), outputLayoutSpec.end()))),
 
-      builder.getNamedAttr("dilations", builder.getArrayAttr({
-                                          builder.getI32IntegerAttr(dilationHeight.getValue()),
-                                          builder.getI32IntegerAttr(dilationWidth.getValue()),
-                                        })),
-      builder.getNamedAttr("strides", builder.getArrayAttr({
-                                          builder.getI32IntegerAttr(strideHeight.getValue()),
-                                          builder.getI32IntegerAttr(strideWidth.getValue()),
-                                        })),
-      builder.getNamedAttr("padding", builder.getArrayAttr({
-                                          builder.getI32IntegerAttr(paddingHeight.getValue()),
-                                          builder.getI32IntegerAttr(paddingWidth.getValue()),
-                                        })),
-    });
-  block->push_back(convOp);
+            builder.getNamedAttr(
+                "dilations",
+                builder.getArrayAttr({
+                    builder.getI32IntegerAttr(dilationHeight.getValue()),
+                    builder.getI32IntegerAttr(dilationWidth.getValue()),
+                })),
+            builder.getNamedAttr(
+                "strides",
+                builder.getArrayAttr({
+                    builder.getI32IntegerAttr(strideHeight.getValue()),
+                    builder.getI32IntegerAttr(strideWidth.getValue()),
+                })),
+            builder.getNamedAttr(
+                "padding",
+                builder.getArrayAttr({
+                    builder.getI32IntegerAttr(paddingHeight.getValue()),
+                    builder.getI32IntegerAttr(paddingWidth.getValue()),
+                })),
+        });
+    block->push_back(convOp);
+  } else if (convFlavor.getValue().compare("conv2d_bwd_data") == 0) {
+    auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
+        builder.getUnknownLoc(), ArrayRef<Type>({}),
+        ValueRange{block->getArgument(0), block->getArgument(1),
+                   block->getArgument(2)},
+        ArrayRef<NamedAttribute>{
+            builder.getNamedAttr(
+                "filter_layout",
+                builder.getArrayAttr(ArrayRef<Attribute>(
+                    filterLayoutSpec.begin(), filterLayoutSpec.end()))),
+            builder.getNamedAttr(
+                "input_layout",
+                builder.getArrayAttr(ArrayRef<Attribute>(
+                    inputLayoutSpec.begin(), inputLayoutSpec.end()))),
+            builder.getNamedAttr(
+                "output_layout",
+                builder.getArrayAttr(ArrayRef<Attribute>(
+                    outputLayoutSpec.begin(), outputLayoutSpec.end()))),
+
+            builder.getNamedAttr(
+                "dilations",
+                builder.getArrayAttr({
+                    builder.getI32IntegerAttr(dilationHeight.getValue()),
+                    builder.getI32IntegerAttr(dilationWidth.getValue()),
+                })),
+            builder.getNamedAttr(
+                "strides",
+                builder.getArrayAttr({
+                    builder.getI32IntegerAttr(strideHeight.getValue()),
+                    builder.getI32IntegerAttr(strideWidth.getValue()),
+                })),
+            builder.getNamedAttr(
+                "padding",
+                builder.getArrayAttr({
+                    builder.getI32IntegerAttr(paddingHeight.getValue()),
+                    builder.getI32IntegerAttr(paddingWidth.getValue()),
+                })),
+        });
+    block->push_back(convOp);
+  }
 
   // Construct a new ReturnOp.
   auto returnOp = builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
