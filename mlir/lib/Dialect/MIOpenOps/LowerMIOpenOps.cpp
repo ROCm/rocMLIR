@@ -590,7 +590,6 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
  
     // Set attributes for gridwise_gemm op.
     llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
-        b.getNamedAttr("kernel_algorithm", b.getStringAttr("v4r4")),
         b.getNamedAttr("filter_layout", filterLayoutAttr),
         b.getNamedAttr("filter_dimension", b.getI64ArrayAttr(filterShape)),
         b.getNamedAttr("input_layout", inputLayoutAttr),
