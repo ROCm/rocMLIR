@@ -30,19 +30,82 @@ extern llvm::cl::opt<bool> IsPopulateTunableParameters;
 
 LLVM_YAML_IS_STRING_MAP(int)
 
-template <typename Number>
-Number gcd(Number u, Number v) {
-  while (v != 0) {
-    Number r = u % v;
-    u = v;
-    v = r;
-  }
-  return u;
+// greatest common divisor, aka highest common factor
+template <typename T>
+T gcd(T x, T y)
+{
+    if(x == y || x == 0)
+    {
+        return y;
+    }
+    else if(y == 0)
+    {
+        return x;
+    }
+    else if(x > y)
+    {
+        return gcd(x - y, y);
+    }
+    else
+    {
+        return gcd(x, y - x);
+    }
 }
+
+template <typename T, typename... Ys>
+T gcd(T x, Ys... ys)
+{
+    return gcd(x, gcd(ys...));
+}
+
+// least common multiple
+template <typename T>
+T lcm(T x, T y)
+{
+    if(x == 0 || y == 0)
+    {
+        return 0;
+    }
+    else
+    {
+        return (x * y) / gcd(x, y);
+    }
+}
+
+template <typename T, typename... Ys>
+T lcm(T x, Ys... ys)
+{
+    return lcm(x, lcm(ys...));
+}
+
+template <typename T>
+T integer_divide_ceil(T x, T y)
+{
+    return (x + y - 1) / y;
+}
+
+template <typename T>
+T integer_least_multiple(T x, T y)
+{
+    return y * integer_divide_ceil(x, y);
+}
+
+struct ConvolutionContext {
+    int64_t k, c, y, x;
+    int64_t n, hi, wi;
+    int64_t ho, wo;
+    int64_t strideH, strideW;
+    int64_t dilationH, dilationW;
+    int64_t paddingHL, paddingHR, paddingWL, paddingWR;
+
+    size_t dimKF, dimCF, dimYF, dimXF;
+    size_t dimNO, dimKO, dimHO, dimWO;
+    size_t dimNI, dimCI, dimHI, dimWI;
+};
 
 class TunableParametersBase {
 public:
-  TunableParametersBase(llvm::StringRef &&yamlFileName) : params(), configFileName(yamlFileName) {}
+  TunableParametersBase(llvm::StringRef &&yamlFileName) : params(), configFileName(yamlFileName), ctx() {}
   TunableParametersBase() : TunableParametersBase("tunable.yaml") {}
 
   void init() {
@@ -52,6 +115,11 @@ public:
     } else {
       loadYAML(yaml->getBuffer());
     }
+  }
+
+  void initWithContext(ConvolutionContext &ctx) {
+    this->ctx = ctx;
+    init();
   }
 
   virtual void customInit() = 0;
@@ -92,6 +160,7 @@ public:
 protected:
   std::map<std::string, int> params;
   llvm::StringRef configFileName;
+  ConvolutionContext ctx;
 };
 
 namespace llvm {
