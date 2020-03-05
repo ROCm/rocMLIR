@@ -177,6 +177,16 @@ public:
         vectorizableLength = ctx.c;
         gemmKVectorizable = true;
         // gemmN dimension non-vectorizable.
+      } else if (ctx.dimCI == 0) {
+        if(ctx.y == 1 && ctx.x == 1 && ctx.strideH == 1 && ctx.strideW == 1 && ctx.paddingHL == 0 &&
+           ctx.paddingHR == 0 && ctx.paddingWL == 0 && ctx.paddingWR == 0) {
+            // \todo there are more configs that can go through this if branch
+            srcDataPerRead_Gemm = gcd(srcDataPerRead_Gemm, ctx.n * ctx.hi * ctx.wi);
+
+            gemmNVectorizable = true;
+        } else {
+            srcDataPerRead_Gemm = 1;
+        }
       } else if (ctx.dimHI == 2 && ctx.dimWI == 3) {
         if(ctx.y == 1 && ctx.x == 1 && ctx.strideH == 1 && ctx.strideW == 1 && ctx.paddingHL == 0 &&
            ctx.paddingHR == 0 && ctx.paddingWL == 0 && ctx.paddingWR == 0) {
