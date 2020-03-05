@@ -662,8 +662,9 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m)
               ops << transform.getValue() << "<";
               EmitInterleaveCommaArrayAttr<StringAttr>(ops, srcNames);
               ops << ">{}";
-            } else if (transform.getValue() == "Merge") {
-              ops << transform.getValue() << "<"
+            } else if (transform.getValue() == "Merge" || transform.getValue() == "Unfold") {
+              // XXX treat Unfold just like Merge on non-XDLOPS path.
+              ops << "Merge" << "<"
                   << "Sequence<";
               EmitInterleaveCommaArrayAttr<StringAttr>(ops, srcNames);
               ops << ">" << ">{}";

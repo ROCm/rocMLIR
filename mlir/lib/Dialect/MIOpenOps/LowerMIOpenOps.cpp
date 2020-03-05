@@ -71,6 +71,7 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
     // set layout attribute.
     // Weight tensor transformation:
     // - Part 1: Merge non-K dimensions to dimension 0, name it as gemmK.
+    //           Optimization: If non-K dimensions are consequetive, apply unfold.
     // - Part 2: PassThrough K dimension to dimension 1, name it as gemmM.
     {
       llvm::SmallVector<IntegerAttr, 3> nonKDims;
@@ -89,27 +90,51 @@ struct Conv2DOpRewritePattern : public OpRewritePattern<miopen::Conv2DOp> {
         }
       } 
 
-      transformedFilterAttrs.push_back(b.getNamedAttr(
-        "layout",
-        b.getArrayAttr({
-          // Part 1: Merge part.
-          b.getDictionaryAttr({
-            b.getNamedAttr("dimensions", b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmK")})),
-            b.getNamedAttr("transformation", b.getStringAttr("Merge")),
-            b.getNamedAttr("source_dimensions", b.getArrayAttr(ArrayRef<Attribute>(nonKDims.begin(), nonKDims.end()))),
-            b.getNamedAttr("source_names", b.getArrayAttr(ArrayRef<Attribute>(nonKDimNames.begin(), nonKDimNames.end()))),
-          }),
+      if (kDim.getInt() != 0 && kDim.getInt() != 3) {
+        transformedFilterAttrs.push_back(b.getNamedAttr(
+          "layout",
+          b.getArrayAttr({
+            // Part 1: Merge part.
+            b.getDictionaryAttr({
+              b.getNamedAttr("dimensions", b.getArrayAttr({b.getI32IntegerAttr(0)})),
+              b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmK")})),
+              b.getNamedAttr("transformation", b.getStringAttr("Merge")),
+              b.getNamedAttr("source_dimensions", b.getArrayAttr(ArrayRef<Attribute>(nonKDims.begin(), nonKDims.end()))),
+              b.getNamedAttr("source_names", b.getArrayAttr(ArrayRef<Attribute>(nonKDimNames.begin(), nonKDimNames.end()))),
+            }),
 
-          // Part 2: Passthrough part.
-          b.getDictionaryAttr({
-            b.getNamedAttr("dimensions", b.getArrayAttr({b.getI32IntegerAttr(1)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmM")})),
-            b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
-            b.getNamedAttr("source_dimensions", b.getArrayAttr({kDim})),
-            b.getNamedAttr("source_names", b.getArrayAttr({kDimName})),
-          }),
-        })));
+            // Part 2: Passthrough part.
+            b.getDictionaryAttr({
+              b.getNamedAttr("dimensions", b.getArrayAttr({b.getI32IntegerAttr(1)})),
+              b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmM")})),
+              b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+              b.getNamedAttr("source_dimensions", b.getArrayAttr({kDim})),
+              b.getNamedAttr("source_names", b.getArrayAttr({kDimName})),
+            }),
+          })));
+       } else {
+        transformedFilterAttrs.push_back(b.getNamedAttr(
+          "layout",
+          b.getArrayAttr({
+            // Part 1: Unfold part.
+            b.getDictionaryAttr({
+              b.getNamedAttr("dimensions", b.getArrayAttr({b.getI32IntegerAttr(0)})),
+              b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmK")})),
+              b.getNamedAttr("transformation", b.getStringAttr("Unfold")),
+              b.getNamedAttr("source_dimensions", b.getArrayAttr(ArrayRef<Attribute>(nonKDims.begin(), nonKDims.end()))),
+              b.getNamedAttr("source_names", b.getArrayAttr(ArrayRef<Attribute>(nonKDimNames.begin(), nonKDimNames.end()))),
+            }),
+
+            // Part 2: Passthrough part.
+            b.getDictionaryAttr({
+              b.getNamedAttr("dimensions", b.getArrayAttr({b.getI32IntegerAttr(1)})),
+              b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmM")})),
+              b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+              b.getNamedAttr("source_dimensions", b.getArrayAttr({kDim})),
+              b.getNamedAttr("source_names", b.getArrayAttr({kDimName})),
+            }),
+          })));
+       }
     }
 
     // set source_layout attribute.

@@ -879,6 +879,12 @@ void EmitInterleaveCommaArrayAttr(llvm::raw_ostream &os, mlir::ArrayAttr &arrayA
   EmitInterleaveArrayAttrWithSeparator<T>(os, arrayAttr, ", ");
 }
 
+template<typename T>
+void EmitInterleaveAsteriskArrayAttr(llvm::raw_ostream &os, mlir::ArrayAttr &arrayAttr) {
+  EmitInterleaveArrayAttrWithSeparator<T>(os, arrayAttr, " * ");
+}
+
+
 void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std::string, 3> &tensorDescs) {
   // (TBD verifiying logic) The Module could contain multiple FuncOp, and inside each FuncOp there
   // should be exactly:
@@ -963,11 +969,13 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
       // get layout attribute.
       auto layoutAttr = op.getAttrOfType<ArrayAttr>("layout");
       std::string inputTensorName;
+      std::string transformedInputTensorName;
       std::string outputTensorName;
       std::string operationSpec;
       std::string srcDimSpec;
       std::string dstDimSpec;
       llvm::raw_string_ostream ins(inputTensorName);
+      llvm::raw_string_ostream pins(transformedInputTensorName);
       llvm::raw_string_ostream outs(outputTensorName);
       llvm::raw_string_ostream ops(operationSpec);
       llvm::raw_string_ostream srcs(srcDimSpec);
@@ -1008,6 +1016,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
 
       // XXX see if we can get better than this.
       int convDilationCtr = 0;
+      bool hasUnfoldTransform = false;
 
       for (auto layoutSpec = layoutAttr.begin(); layoutSpec != layoutAttr.end(); ) {
         if (auto layoutSpecDict = layoutSpec->dyn_cast<DictionaryAttr>()) {
@@ -1042,9 +1051,31 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
               } else {
                 ops << ">, Sequence<ConvDilationW, ConvDilationW, 0>>{}";
               }
+            } else if (transform.getValue() == "Unfold") {
+              hasUnfoldTransform = true;
+              ops << "PassThrough<";
+              EmitInterleaveAsteriskArrayAttr<StringAttr>(ops, srcNames);
+              ops << ">{}";
             }
             srcs << "Sequence<";
-            EmitInterleaveCommaArrayAttr<IntegerAttr>(srcs, srcDims);
+            if (transform.getValue() == "Unfold") {
+              pins << "unfold_tensor_descriptor(" << inputTensorName << ", "
+                   << "Number<" << srcDims.getValue()[0].dyn_cast<IntegerAttr>().getInt() << ">{}, "
+                   << "Number<" << srcDims.getValue()[srcDims.size() - 1].dyn_cast<IntegerAttr>().getInt() << ">{})";
+              pins.flush();
+              srcs << srcDims.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+            } else {
+              if (hasUnfoldTransform) {
+                // XXX see if we can do better than this.
+                if (srcDims.getValue()[0].dyn_cast<IntegerAttr>().getInt() == 0) {
+                  srcs << "0";
+                } else {
+                  srcs << "1";
+                }
+              } else {
+                EmitInterleaveCommaArrayAttr<IntegerAttr>(srcs, srcDims);
+              }
+            }
             srcs << ">{}";
             dsts << "Sequence<";
             EmitInterleaveCommaArrayAttr<IntegerAttr>(dsts, dstDims);
@@ -1067,7 +1098,11 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
       dsts.flush();
 
       output << "        constexpr auto " << outputTensorName << " = transform_tensor_descriptor(\n";
-      output << "            " << inputTensorName << ",\n";
+      if (hasUnfoldTransform) {
+        output << "            " << transformedInputTensorName << ",\n";
+      } else {
+        output << "            " << inputTensorName << ",\n";
+      }
       output << operationSpec << srcDimSpec << dstDimSpec;
       output << ");\n\n";
     });
