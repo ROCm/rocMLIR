@@ -77,6 +77,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // set layout attribute.
     // Weight tensor transformation:
     // - Part 1: Merge non-K dimensions to dimension 0, name it as gemmK.
+    //           Optimization: If non-K dimensions are consequetive, apply
+    //           unfold.
     // - Part 2: PassThrough K dimension to dimension 1, name it as gemmM.
     {
       llvm::SmallVector<IntegerAttr, 3> nonKDims;
@@ -96,14 +98,20 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         }
       }
 
-      llvm::SmallVector<NamedAttribute, 3> sourceNonKDimAttr{
-          b.getNamedAttr("transformation", b.getStringAttr("Merge")),
+      llvm::SmallVector<NamedAttribute, 2> sourceNonKDimAttr{
           b.getNamedAttr("source_dimensions",
                          b.getArrayAttr(ArrayRef<Attribute>(nonKDims.begin(),
                                                             nonKDims.end()))),
           b.getNamedAttr("source_names",
                          b.getArrayAttr(ArrayRef<Attribute>(
                              nonKDimNames.begin(), nonKDimNames.end())))};
+      if (kDim.getInt() != 0 && kDim.getInt() != 3) {
+        sourceNonKDimAttr.push_back(
+            b.getNamedAttr("transformation", b.getStringAttr("Merge")));
+      } else {
+        sourceNonKDimAttr.push_back(
+            b.getNamedAttr("transformation", b.getStringAttr("Unfold")));
+      }
 
       llvm::SmallVector<NamedAttribute, 3> sourceKDimAttr{
           b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
