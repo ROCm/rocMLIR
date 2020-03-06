@@ -38,7 +38,6 @@ enum ConvOpType { Conv2DOp, Conv2DBwdDataOp };
 struct ArgumentFields {
   int gridwiseGemmArgumentPosition[3];
   StringRef gemmTargetCharName[3];
-  bool isFilterTargetDimAlignedWithSource;
 };
 
 template <typename T>
@@ -765,7 +764,6 @@ template <>
 const ArgumentFields Conv2DRewritePattern<miopen::Conv2DOp>::fields = {
     {0, 1, 2},
     {"KM", "KN", "MN"},
-    false,
 };
 template <>
 const ConvOpType Conv2DRewritePattern<miopen::Conv2DOp>::convOpType = Conv2DOp;
@@ -774,7 +772,6 @@ template <>
 const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::fields = {
     {0, 2, 1},
     {"KM", "MN", "KN"},
-    true,
 };
 template <>
 const ConvOpType Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::convOpType =
