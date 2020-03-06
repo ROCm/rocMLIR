@@ -32,8 +32,10 @@
 
 using namespace mlir;
 
-// The argument_fields keep track of differences between conv operations
-struct argument_fields {
+enum ConvOpType { Conv2DOp, Conv2DBwdDataOp };
+
+// The ArgumentFields keep track of differences between conv operations
+struct ArgumentFields {
   int gridwiseGemmArgumentPosition[3];
   StringRef gemmTargetCharName[3];
   bool isFilterTargetDimAlignedWithSource;
@@ -41,7 +43,8 @@ struct argument_fields {
 
 template <typename T>
 struct Conv2DRewritePattern : public OpRewritePattern<T> {
-  const static argument_fields fields;
+  const static ArgumentFields fields;
+  const static ConvOpType convOpType;
   using OpRewritePattern<T>::OpRewritePattern;
 
   PatternMatchResult matchAndRewrite(T op, PatternRewriter &b) const override {
@@ -69,17 +72,23 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     llvm::SmallVector<NamedAttribute, 3> transformedFilterAttrs;
 
-    SmallString<5> arg0TargetLayoutName0("gemm");
+    SmallString<4> arg0TargetLayoutName0("gemm");
     arg0TargetLayoutName0.append(fields.gemmTargetCharName[0].substr(0, 1));
-    SmallString<5> arg0TargetLayoutName1("gemm");
+    SmallString<4> arg0TargetLayoutName1("gemm");
     arg0TargetLayoutName1.append(fields.gemmTargetCharName[0].substr(1, 1));
 
     // set layout attribute.
-    // Weight tensor transformation:
+    // Weight tensor transformation for Conv2DOp
     // - Part 1: Merge non-K dimensions to dimension 0, name it as gemmK.
     //           Optimization: If non-K dimensions are consequetive, apply
     //           unfold.
     // - Part 2: PassThrough K dimension to dimension 1, name it as gemmM.
+    //
+    // Weight tensor transformation for Conv2DBwdDataOp
+    // - Part 1: Merge K dimensions to dimension 0, name it as gemmK.
+    // - Part 2: PassThrough non-K dimension to dimension 1, name it as gemmM.
+    //           Optimization: If non-K dimensions are consequetive, apply
+    //           unfold.
     {
       llvm::SmallVector<IntegerAttr, 3> nonKDims;
       IntegerAttr kDim;
@@ -133,12 +142,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       llvm::SmallVector<NamedAttribute, 0> layoutAttr0;
       llvm::SmallVector<NamedAttribute, 0> layoutAttr1;
 
-      if (fields.isFilterTargetDimAlignedWithSource) {
+      if (convOpType == Conv2DBwdDataOp) {
         layoutAttr0.append(targetKDimAttr.begin(), targetKDimAttr.end());
         layoutAttr0.append(sourceKDimAttr.begin(), sourceKDimAttr.end());
         layoutAttr1.append(targetNonKDimAttr.begin(), targetNonKDimAttr.end());
         layoutAttr1.append(sourceNonKDimAttr.begin(), sourceNonKDimAttr.end());
-      } else {
+      } else if (convOpType == Conv2DOp) {
         layoutAttr0.append(targetKDimAttr.begin(), targetKDimAttr.end());
         layoutAttr0.append(sourceNonKDimAttr.begin(), sourceNonKDimAttr.end());
         layoutAttr1.append(targetNonKDimAttr.begin(), targetNonKDimAttr.end());
@@ -447,9 +456,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     llvm::SmallVector<NamedAttribute, 3> transformedInputAttrs;
 
-    SmallString<5> arg1TargetLayoutName0("gemm");
+    SmallString<4> arg1TargetLayoutName0("gemm");
     arg1TargetLayoutName0.append(fields.gemmTargetCharName[1].substr(0, 1));
-    SmallString<5> arg1TargetLayoutName1("gemm");
+    SmallString<4> arg1TargetLayoutName1("gemm");
     arg1TargetLayoutName1.append(fields.gemmTargetCharName[1].substr(1, 1));
 
     // set layout attribute.
@@ -595,9 +604,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     llvm::SmallVector<NamedAttribute, 3> transformedOutputAttrs;
 
-    SmallString<5> arg2TargetLayoutName0("gemm");
+    SmallString<4> arg2TargetLayoutName0("gemm");
     arg2TargetLayoutName0.append(fields.gemmTargetCharName[2].substr(0, 1));
-    SmallString<5> arg2TargetLayoutName1("gemm");
+    SmallString<4> arg2TargetLayoutName1("gemm");
     arg2TargetLayoutName1.append(fields.gemmTargetCharName[2].substr(1, 1));
 
     // set layout attribute.
@@ -753,18 +762,23 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 // simplicity, we always arrange the first two arguments to be input
 // and the last argument to be output
 template <>
-const argument_fields Conv2DRewritePattern<miopen::Conv2DOp>::fields = {
+const ArgumentFields Conv2DRewritePattern<miopen::Conv2DOp>::fields = {
     {0, 1, 2},
     {"KM", "KN", "MN"},
     false,
 };
+template <>
+const ConvOpType Conv2DRewritePattern<miopen::Conv2DOp>::convOpType = Conv2DOp;
 
 template <>
-const argument_fields Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::fields = {
+const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::fields = {
     {0, 2, 1},
     {"KM", "MN", "KN"},
     true,
 };
+template <>
+const ConvOpType Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::convOpType =
+    Conv2DBwdDataOp;
 
 // Explicitly instantiate the template to operation type
 template struct Conv2DRewritePattern<miopen::Conv2DOp>;
