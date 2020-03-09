@@ -220,14 +220,13 @@ static constexpr StringLiteral kCppEpiloguePart2 =R"(
 }
 )";
  
-void EmitCppPreamble(llvm::raw_ostream &output, llvm::StringRef layoutStr) {
+void EmitCppPreamble(llvm::raw_ostream &output) {
   output << kCppPreamblePart1;
 // Between Preamble Part 1 and Part 2:
 // #include "gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw.hpp"
   output << R"(#include "gridwise_convolution_implicit_gemm_v4r4_)";
 
   // Change to fixed "mlir".
-  //output << layoutStr << R"(.hpp")";
   output << "mlir" << R"(.hpp")";
 
   output << kCppPreamblePart2;
@@ -236,7 +235,6 @@ void EmitCppPreamble(llvm::raw_ostream &output, llvm::StringRef layoutStr) {
   output << R"(
     __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void gridwise_convolution_implicit_gemm_v4r4_)";
   // Change to fixed "mlir".
-  //output << layoutStr;
   output << "mlir";
 
   output << kCppPreamblePart3;
@@ -246,14 +244,13 @@ void EmitCppInterlude(llvm::raw_ostream &output) {
   output << kCppInterlude;
 }
 
-void EmitCppEpilogue(llvm::raw_ostream &output, llvm::StringRef layoutStr, llvm::SmallVector<std::string, 3> tensorDescs) {
+void EmitCppEpilogue(llvm::raw_ostream &output, llvm::SmallVector<std::string, 3> tensorDescs) {
 // Before Part1:
 //    constexpr auto gridwise_conv = GridwiseConvolutionImplicitGemm_v4r4_nchw_kcyx_nkhw
   output << R"(
     constexpr auto gridwise_conv = GridwiseConvolutionImplicitGemm_v4r4_)";
 
   // Change to fixed "mlir".
-  //output << layoutStr;
   output << "mlir";
 
   output << kCppEpiloguePart1;
@@ -389,13 +386,12 @@ static constexpr StringLiteral kHeaderEpiloguePart4 = R"(
 #endif
 )";
 
-void EmitHeaderPreamble(llvm::raw_ostream &output, llvm::StringRef layoutStr, llvm::SmallVector<std::string, 3> &tensorDescs) {
+void EmitHeaderPreamble(llvm::raw_ostream &output, llvm::SmallVector<std::string, 3> &tensorDescs) {
   output << kHeaderPreamblePart1;
   output << R"(
 struct GridwiseConvolutionImplicitGemm_v4r4_)";
 
   // Change to fixed "mlir".
-  //output << layoutStr;
   output << "mlir";
 
   output << kHeaderPreamblePart2;
@@ -520,7 +516,7 @@ void EmitInterleaveCommaArrayAttr(llvm::raw_ostream &os, mlir::ArrayAttr &arrayA
   EmitInterleaveArrayAttrWithSeparator<T>(os, arrayAttr, ", ");
 }
 
-void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std::string, 3> &tensorDescs) {
+void ObtainModuleInfo(ModuleOp &m, llvm::SmallVector<std::string, 3> &tensorDescs) {
   // (TBD verifiying logic) The Module could contain multiple FuncOp, and inside each FuncOp there
   // should be exactly:
   // - 3 input arguments
@@ -533,31 +529,26 @@ void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std
   // Enumerate FuncOp instances inside the ModuleOp.
   for (auto f : m.getOps<FuncOp>()) {
     int srcLayoutAttrCtr = 0;
-    llvm::raw_string_ostream los(layoutStr);
 
     // First iteration. Construct tensor descriptor names.
-    f.walk([&srcLayoutAttrCtr, &tensorDescs, &los](miopen::TransformOp op) {
+    f.walk([&srcLayoutAttrCtr, &tensorDescs](miopen::TransformOp op) {
       // get source_layout attribute.
       auto srcLayoutAttr = op.getAttrOfType<ArrayAttr>("source_layout");
       if (srcLayoutAttr) {
         auto srcLayout = srcLayoutAttr.getValue();
 
         // Prepare tensor descriptor variable name.
-        std::string desc{};
+        std::string desc{kVarName[srcLayoutAttrCtr++]};
         llvm::raw_string_ostream os(desc);
-        os << kVarName[srcLayoutAttrCtr++] << "_";
+        os << "_";
         EmitLayoutString(os, srcLayout, "", "", "_");
         os << "_desc";
         os.flush();
         tensorDescs.push_back(desc);
 
-        // Prepare layout string.
-        if (srcLayoutAttrCtr != 1)
-          los << "_";
-        EmitLayoutString(los, srcLayout, "", "");
       }
     });
-    los.flush();
+
   }
 }
 
@@ -568,17 +559,16 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m)
 
   // Enumerate FuncOp instances inside the ModuleOp.
   for (auto f : m.getOps<FuncOp>()) {
-    std::string layoutStr;
     llvm::SmallVector<std::string, 3> tensorDescs;
     llvm::SmallDenseMap<int64_t, std::string> gridwiseGemmArguments;
 
     // Obtain critical information from ModuleOp.
-    ObtainModuleInfo(m, layoutStr, tensorDescs);
+    ObtainModuleInfo(m, tensorDescs);
 
     int srcLayoutAttrCtr = 0;
 
     // Start emitting.
-    EmitHeaderPreamble(output, layoutStr, tensorDescs);
+    EmitHeaderPreamble(output, tensorDescs);
 
     // First iteration. Output source dimensions.
     f.walk([&output, &srcLayoutAttrCtr, &tensorDescs](miopen::TransformOp op) {
@@ -795,16 +785,15 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
 
   // Enumerate FuncOp instances inside the ModuleOp.
   for (auto f : m.getOps<FuncOp>()) {
-    std::string layoutStr;
     llvm::SmallVector<std::string, 3> tensorDescs;
 
     // Obtain critical information from ModuleOp.
-    ObtainModuleInfo(m, layoutStr, tensorDescs);
+    ObtainModuleInfo(m, tensorDescs);
 
     int srcLayoutAttrCtr = 0;
 
     // Start emitting.
-    EmitCppPreamble(output, layoutStr);
+    EmitCppPreamble(output);
 
     f.walk([&output, &srcLayoutAttrCtr, &tensorDescs](miopen::TransformOp op) {
       // get source_layout attribute.
@@ -830,7 +819,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
 
     EmitCppInterlude(output);
 
-    EmitCppEpilogue(output, layoutStr, tensorDescs);
+    EmitCppEpilogue(output, tensorDescs);
   }
 
   output.flush();
