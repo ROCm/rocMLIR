@@ -32,8 +32,6 @@
 
 using namespace mlir;
 
-enum ConvOpType { Conv2DOp, Conv2DBwdDataOp };
-
 // The ArgumentFields keep track of differences between conv operations
 struct ArgumentFields {
   int gridwiseGemmArgumentPosition[3];
@@ -43,7 +41,7 @@ struct ArgumentFields {
 template <typename T>
 struct Conv2DRewritePattern : public OpRewritePattern<T> {
   const static ArgumentFields fields;
-  const static ConvOpType convOpType;
+  const static miopen::ConvOpType convOpType;
   using OpRewritePattern<T>::OpRewritePattern;
 
   PatternMatchResult matchAndRewrite(T op, PatternRewriter &b) const override {
@@ -141,12 +139,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       llvm::SmallVector<NamedAttribute, 0> layoutAttr0;
       llvm::SmallVector<NamedAttribute, 0> layoutAttr1;
 
-      if (convOpType == Conv2DBwdDataOp) {
+      if (convOpType == miopen::ConvOpType::Conv2DBwdDataOpType) {
         layoutAttr0.append(targetKDimAttr.begin(), targetKDimAttr.end());
         layoutAttr0.append(sourceKDimAttr.begin(), sourceKDimAttr.end());
         layoutAttr1.append(targetNonKDimAttr.begin(), targetNonKDimAttr.end());
         layoutAttr1.append(sourceNonKDimAttr.begin(), sourceNonKDimAttr.end());
-      } else if (convOpType == Conv2DOp) {
+      } else if (convOpType == miopen::ConvOpType::Conv2DOpType) {
         layoutAttr0.append(targetKDimAttr.begin(), targetKDimAttr.end());
         layoutAttr0.append(sourceNonKDimAttr.begin(), sourceNonKDimAttr.end());
         layoutAttr1.append(targetNonKDimAttr.begin(), targetNonKDimAttr.end());
@@ -766,7 +764,8 @@ const ArgumentFields Conv2DRewritePattern<miopen::Conv2DOp>::fields = {
     {"KM", "KN", "MN"},
 };
 template <>
-const ConvOpType Conv2DRewritePattern<miopen::Conv2DOp>::convOpType = Conv2DOp;
+const miopen::ConvOpType Conv2DRewritePattern<miopen::Conv2DOp>::convOpType =
+    miopen::ConvOpType::Conv2DOpType;
 
 template <>
 const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::fields = {
@@ -774,8 +773,8 @@ const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::fields = {
     {"KM", "MN", "KN"},
 };
 template <>
-const ConvOpType Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::convOpType =
-    Conv2DBwdDataOp;
+const miopen::ConvOpType Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::convOpType =
+    miopen::ConvOpType::Conv2DBwdDataOpType;
 
 // Explicitly instantiate the template to operation type
 template struct Conv2DRewritePattern<miopen::Conv2DOp>;
