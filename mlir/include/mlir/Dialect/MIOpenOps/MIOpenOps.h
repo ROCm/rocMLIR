@@ -24,6 +24,8 @@
 namespace mlir {
 namespace miopen {
 
+enum ConvOpType { Conv2DOpType, Conv2DBwdDataOpType, Conv2DBwdWeightOpType };
+
 class MIOpenOpsDialect : public Dialect {
 public:
   MIOpenOpsDialect(MLIRContext *context);
