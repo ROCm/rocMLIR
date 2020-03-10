@@ -736,6 +736,15 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getArrayAttr(
                 {paddingAttr, b.getI32ArrayAttr({rightPadH, rightPadW})})),
     };
+
+    if (convOpType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+      gridwiseGemmAttrs.push_back(b.getNamedAttr(
+          "kernel_algorithm", b.getStringAttr("backward_data_v1r1")));
+    } else if (convOpType == miopen::ConvOpType::Conv2DOpType) {
+      gridwiseGemmAttrs.push_back(
+          b.getNamedAttr("kernel_algorithm", b.getStringAttr("v4r4")));
+    }
+
     // Emit miopen.gridwise_gemm op.
     auto arguments = std::array<miopen::TransformOp, 3>{gemmA, gemmB, gemmC};
     b.create<miopen::GridwiseGemmOp>(

@@ -19,10 +19,11 @@
 #include "mlir/Translation.h"
 
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Format.h"
 #include "llvm/Support/ToolOutputFile.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace mlir;
 
@@ -66,7 +67,6 @@ public:
   }
 };
 
-
 static constexpr StringLiteral kVarName[3] = {"weight", "input", "output"};
 
 static constexpr int kConv2DTensorDimension = 4;
@@ -81,10 +81,10 @@ static constexpr StringLiteral kCppPreamblePart2 = R"(
 extern "C" __global__
 )";
 
-static constexpr StringLiteral kCppPreamblePart3 = R"(
-        (const FLOAT* const __restrict__ p_in_global,
-        const FLOAT* const __restrict__ p_wei_global,
-        FLOAT* const __restrict__ p_out_global)
+static constexpr StringLiteral kCppPreamblePart3Format = R"(
+        (const FLOAT* const __restrict__ %s,
+        const FLOAT* const __restrict__ %s,
+        FLOAT* const __restrict__ %s)
 {
     using namespace ck;
 
@@ -109,7 +109,7 @@ static constexpr StringLiteral kCppPreamblePart3 = R"(
 
 )";
 
-static constexpr StringLiteral kCppInterlude = R"(
+static constexpr StringLiteral kCppInterludeFormat = R"(
     using ConvStrides   = Sequence<ConvStrideH, ConvStrideW>;
     using ConvDilations = Sequence<ConvDilationH, ConvDilationW>;
 
@@ -147,8 +147,8 @@ static constexpr StringLiteral kCppInterlude = R"(
     using GemmABlockCopyThreadClusterLengths_GemmK_GemmM =
         Sequence<GemmABlockCopyClusterLengths_GemmK, GemmABlockCopyClusterLengths_GemmM>;
 
-    constexpr index_t GemmABlockCopySrcDataPerRead_GemmK =
-        CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM;
+    constexpr index_t GemmABlockCopySrcDataPerRead_%s =
+        CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_%s;
 
     constexpr index_t GemmABlockCopyDstDataPerWrite_GemmM =
         CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M;
@@ -189,7 +189,7 @@ static constexpr StringLiteral kCppEpiloguePart1 = R"(
         FLOAT_ACCUM,
 )";
 
-static constexpr StringLiteral kCppEpiloguePart2 =R"(
+static constexpr StringLiteral kCppEpiloguePart2Format = R"(
         ConvStrides,
         ConvDilations,
         InLeftPads,
@@ -208,7 +208,7 @@ static constexpr StringLiteral kCppEpiloguePart2 =R"(
         GemmThreadGemmDataPerReadN,
         GemmABlockCopyThreadSliceLengths_GemmK_GemmM,
         GemmABlockCopyThreadClusterLengths_GemmK_GemmM,
-        GemmABlockCopySrcDataPerRead_GemmK,
+        GemmABlockCopySrcDataPerRead_%s,
         GemmABlockCopyDstDataPerWrite_GemmM,
         GemmBBlockCopyThreadSliceLengths_GemmK_GemmN,
         GemmBBlockCopyThreadClusterLengths_GemmK_GemmN,
@@ -219,12 +219,17 @@ static constexpr StringLiteral kCppEpiloguePart2 =R"(
     gridwise_conv.Run(p_in_global, p_wei_global, p_out_global);
 }
 )";
- 
-void EmitCppPreamble(llvm::raw_ostream &output) {
+
+void EmitCppPreamble(llvm::raw_ostream &output, miopen::ConvOpType opType) {
   output << kCppPreamblePart1;
 // Between Preamble Part 1 and Part 2:
 // #include "gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw.hpp"
-  output << R"(#include "gridwise_convolution_implicit_gemm_v4r4_)";
+  if (opType == miopen::ConvOpType::Conv2DOpType) {
+    output << R"(#include "gridwise_convolution_implicit_gemm_v4r4_)";
+  } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+    output
+        << R"(#include "gridwise_convolution_backward_data_implicit_gemm_v1r1_)";
+  }
 
   // Change to fixed "mlir".
   output << "mlir" << R"(.hpp")";
@@ -232,36 +237,76 @@ void EmitCppPreamble(llvm::raw_ostream &output) {
   output << kCppPreamblePart2;
 // Between Preamble Part 2 and Par 3:
 //    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw(
-  output << R"(
+  if (opType == miopen::ConvOpType::Conv2DOpType) {
+    output << R"(
     __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void gridwise_convolution_implicit_gemm_v4r4_)";
+  } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+    output << R"(
+    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void gridwise_convolution_backward_data_implicit_gemm_v1r1_)";
+  }
   // Change to fixed "mlir".
   output << "mlir";
 
-  output << kCppPreamblePart3;
+  std::string argPInGlobal = "p_in_global";
+  std::string argPOutGlobal = "p_out_global";
+  std::string argPWeiGlobal = "p_wei_global";
+  if (opType == miopen::ConvOpType::Conv2DOpType) {
+    output << llvm::format(kCppPreamblePart3Format.data(), argPInGlobal.c_str(),
+                           argPWeiGlobal.c_str(), argPOutGlobal.c_str());
+  } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+    output << llvm::format(kCppPreamblePart3Format.data(),
+                           argPOutGlobal.c_str(), argPWeiGlobal.c_str(),
+                           argPInGlobal.c_str());
+  }
 }
 
-void EmitCppInterlude(llvm::raw_ostream &output) {
-  output << kCppInterlude;
+void EmitCppInterlude(llvm::raw_ostream &output, miopen::ConvOpType opType) {
+  std::string gemmNameABlockCopySrcDataPerRead;
+  if (opType == miopen::ConvOpType::Conv2DOpType) {
+    gemmNameABlockCopySrcDataPerRead = "GemmK";
+  } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+    gemmNameABlockCopySrcDataPerRead = "GemmM";
+  }
+  output << llvm::format(kCppInterludeFormat.data(),
+                         gemmNameABlockCopySrcDataPerRead.c_str(),
+                         gemmNameABlockCopySrcDataPerRead.c_str());
 }
 
-void EmitCppEpilogue(llvm::raw_ostream &output, llvm::SmallVector<std::string, 3> tensorDescs) {
-// Before Part1:
-//    constexpr auto gridwise_conv = GridwiseConvolutionImplicitGemm_v4r4_nchw_kcyx_nkhw
-  output << R"(
+void EmitCppEpilogue(llvm::raw_ostream &output,
+                     llvm::SmallVector<std::string, 3> tensorDescs,
+                     miopen::ConvOpType opType) {
+  // Before Part1:
+  //    constexpr auto gridwise_conv =
+  //    GridwiseConvolutionImplicitGemm_v4r4_nchw_kcyx_nkhw
+  if (opType == miopen::ConvOpType::Conv2DOpType) {
+    output << R"(
     constexpr auto gridwise_conv = GridwiseConvolutionImplicitGemm_v4r4_)";
+  } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+    output << R"(
+    constexpr auto gridwise_conv = GridwiseConvolutionBackwardDataImplicitGemm_v1r1_)";
+  }
 
   // Change to fixed "mlir".
   output << "mlir";
 
   output << kCppEpiloguePart1;
-// Between Part1 and Part2:
-//        decltype(in_nchw_desc),
-//        decltype(wei_kcyx_desc),
-//        decltype(out_nkhw_desc),
+  // Between Part1 and Part2:
+  //        decltype(in_nchw_desc),
+  //        decltype(wei_kcyx_desc),
+  //        decltype(out_nkhw_desc),
   output << "        decltype(" << tensorDescs[1] << "),\n";
   output << "        decltype(" << tensorDescs[0] << "),\n";
-  output << "        decltype(" << tensorDescs[2] << "),\n";
-  output << kCppEpiloguePart2;
+  output << "        decltype(" << tensorDescs[2] << "),";
+
+  std::string gemmNameABlockCopySrcDataPerRead;
+  if (opType == miopen::ConvOpType::Conv2DOpType) {
+    gemmNameABlockCopySrcDataPerRead = "GemmK";
+  } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+    gemmNameABlockCopySrcDataPerRead = "GemmM";
+  }
+  output << llvm::format(kCppEpiloguePart2Format.data(),
+                         gemmNameABlockCopySrcDataPerRead.c_str(),
+                         gemmNameABlockCopySrcDataPerRead.c_str());
 }
 
 static constexpr StringLiteral kHeaderPreamblePart1 = R"(
@@ -516,7 +561,24 @@ void EmitInterleaveCommaArrayAttr(llvm::raw_ostream &os, mlir::ArrayAttr &arrayA
   EmitInterleaveArrayAttrWithSeparator<T>(os, arrayAttr, ", ");
 }
 
-void ObtainModuleInfo(ModuleOp &m, llvm::SmallVector<std::string, 3> &tensorDescs) {
+void ObtainConvDirection(FuncOp &f, miopen::ConvOpType &opType) {
+  f.walk([&opType](miopen::GridwiseGemmOp op) {
+    auto kernel_algorithm = op.getAttrOfType<StringAttr>("kernel_algorithm");
+    if (kernel_algorithm.getValue().find(StringRef("backward_data")) !=
+        StringRef::npos) {
+      opType = miopen::ConvOpType::Conv2DBwdDataOpType;
+    } else if (kernel_algorithm.getValue().find(StringRef("backward_weight")) !=
+               StringRef::npos) {
+      opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
+    } else {
+      opType = miopen::ConvOpType::Conv2DOpType;
+    }
+  });
+}
+
+void ObtainModuleInfo(ModuleOp &m,
+                      llvm::SmallVector<std::string, 3> &tensorDescs,
+                      miopen::ConvOpType &opType) {
   // (TBD verifiying logic) The Module could contain multiple FuncOp, and inside each FuncOp there
   // should be exactly:
   // - 3 input arguments
@@ -545,13 +607,13 @@ void ObtainModuleInfo(ModuleOp &m, llvm::SmallVector<std::string, 3> &tensorDesc
         os << "_desc";
         os.flush();
         tensorDescs.push_back(desc);
-
       }
     });
 
+    // Second iteration. Determine convolution direction.
+    ObtainConvDirection(f, opType);
   }
 }
-
 }
 
 std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m) {
@@ -559,11 +621,12 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m)
 
   // Enumerate FuncOp instances inside the ModuleOp.
   for (auto f : m.getOps<FuncOp>()) {
+    miopen::ConvOpType opType;
     llvm::SmallVector<std::string, 3> tensorDescs;
     llvm::SmallDenseMap<int64_t, std::string> gridwiseGemmArguments;
 
     // Obtain critical information from ModuleOp.
-    ObtainModuleInfo(m, tensorDescs);
+    ObtainModuleInfo(m, tensorDescs, opType);
 
     int srcLayoutAttrCtr = 0;
 
@@ -785,15 +848,16 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
 
   // Enumerate FuncOp instances inside the ModuleOp.
   for (auto f : m.getOps<FuncOp>()) {
+    miopen::ConvOpType opType;
     llvm::SmallVector<std::string, 3> tensorDescs;
 
     // Obtain critical information from ModuleOp.
-    ObtainModuleInfo(m, tensorDescs);
+    ObtainModuleInfo(m, tensorDescs, opType);
 
     int srcLayoutAttrCtr = 0;
 
     // Start emitting.
-    EmitCppPreamble(output);
+    EmitCppPreamble(output, opType);
 
     f.walk([&output, &srcLayoutAttrCtr, &tensorDescs](miopen::TransformOp op) {
       // get source_layout attribute.
@@ -817,9 +881,9 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
       }
     });
 
-    EmitCppInterlude(output);
+    EmitCppInterlude(output, opType);
 
-    EmitCppEpilogue(output, tensorDescs);
+    EmitCppEpilogue(output, tensorDescs, opType);
   }
 
   output.flush();
@@ -1082,4 +1146,3 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
   output.flush();
   return std::make_unique<llvm::StringRef>(resultStr);
 }
-
