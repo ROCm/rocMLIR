@@ -1,8 +1,9 @@
 // RUN: mlir-translate -mlir-to-miopen-cpp %s | FileCheck -check-prefix=MIOPEN-CPP %s
-// TODO: mlir-translate -mlir-to-miopen-hpp %s | FileCheck -check-prefix=MIOPEN-HPP %s
+// RUN: mlir-translate -mlir-to-miopen-hpp %s | FileCheck -check-prefix=MIOPEN-HPP %s
 
 // MIOPEN-CPP:  __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void gridwise_convolution_backward_data_implicit_gemm_v1r1_mlir
 // MIOPEN-CPP:  FLOAT* const __restrict__ p_in_global
+// MIOPEN-HPP: struct GridwiseConvolutionBackwardDataImplicitGemm_v1r1_mlir
 func @miopen_transformed_conv2d(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
   // filter tensor
   %filter_gemmK_gemmM = miopen.transform(%filter) {
