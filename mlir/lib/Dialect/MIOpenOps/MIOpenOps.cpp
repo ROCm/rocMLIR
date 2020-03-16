@@ -143,6 +143,204 @@ static LogicalResult verify(GridwiseGemmOp op) {
 }
 
 //===----------------------------------------------------------------------===//
+// GridwiseGemmExOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseGridwiseGemmExOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 3> ops;
+  SmallVector<Type, 3> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, GridwiseGemmExOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(GridwiseGemmExOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GpuAllocOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseGpuAllocOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  Type allocatedType;
+
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonType(allocatedType) ||
+      parser.resolveOperands(ops, {parser.getBuilder().getIndexType(), parser.getBuilder().getIndexType()}, parser.getNameLoc(), result.operands) ||
+      parser.addTypeToList(allocatedType, result.types));
+}
+
+static void print(OpAsmPrinter &p, GpuAllocOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getType();
+}
+
+static LogicalResult verify(GpuAllocOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SubviewOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseSubviewOp(OpAsmParser &parser, OperationState &result) {
+  OpAsmParser::OperandType src, offset;
+  Type srcType, dstType;
+  return failure(
+      parser.parseLParen() ||
+      parser.parseOperand(src) ||
+      parser.parseComma() ||
+      parser.parseOperand(offset) ||
+      parser.parseRParen() ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonType(srcType) ||
+      parser.resolveOperand(src, srcType, result.operands) ||
+      parser.resolveOperand(offset, parser.getBuilder().getIndexType(), result.operands) ||
+      parser.parseKeywordType("to", dstType) ||
+      parser.addTypeToList(dstType, result.types));
+  return success();
+}
+
+static void print(OpAsmPrinter &p, miopen::SubviewOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperands()[0]->getType() << " to " << op.getType();
+}
+
+static LogicalResult verify(miopen::SubviewOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// FillOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseFillOp(OpAsmParser &parser, OperationState &result) {
+  OpAsmParser::OperandType src, constantValue;
+  Type srcType;
+
+  return failure(
+      parser.parseLParen() ||
+      parser.parseOperand(src) ||
+      parser.parseComma() ||
+      parser.parseOperand(constantValue) ||
+      parser.parseRParen() ||
+      parser.parseColonType(srcType) ||
+      parser.resolveOperand(src, srcType, result.operands) ||
+      parser.resolveOperand(constantValue, parser.getBuilder().getIndexType(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, FillOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p << " : " << op.getOperands()[0]->getType();
+}
+
+static LogicalResult verify(FillOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// LdsBarrierOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseLdsBarrierOp(OpAsmParser &parser, OperationState &result) {
+  return success();
+}
+
+static void print(OpAsmPrinter &p, LdsBarrierOp op) {
+  p << op.getOperationName();
+}
+
+static LogicalResult verify(LdsBarrierOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// BlockwiseGemmOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseBlockwiseGemmOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 3> ops;
+  SmallVector<Type, 3> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, BlockwiseGemmOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(BlockwiseGemmOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// BlockwiseCopyOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseBlockwiseCopyOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, BlockwiseCopyOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(BlockwiseCopyOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ThreadwiseCopyOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseThreadwiseCopyOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, ThreadwiseCopyOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(ThreadwiseCopyOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 
