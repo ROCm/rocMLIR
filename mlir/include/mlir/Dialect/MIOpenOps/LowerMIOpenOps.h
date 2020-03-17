@@ -32,6 +32,10 @@
 
 using namespace mlir;
 
+//===----------------------------------------------------------------------===//
+// Conv2D (forward, backward) lowering.
+//===----------------------------------------------------------------------===//
+
 // The ArgumentFields keep track of differences between conv operations
 struct ArgumentFields {
   int gridwiseGemmArgumentPosition[3];
@@ -788,3 +792,17 @@ const miopen::ConvOpType Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::convOpTy
 // Explicitly instantiate the template to operation type
 template struct Conv2DRewritePattern<miopen::Conv2DOp>;
 template struct Conv2DRewritePattern<miopen::Conv2DBwdDataOp>;
+
+
+//===----------------------------------------------------------------------===//
+// GridwiseGemm lowering.
+//===----------------------------------------------------------------------===//
+
+struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemmExOp> {
+  using OpRewritePattern<miopen::GridwiseGemmExOp>::OpRewritePattern;
+
+  PatternMatchResult matchAndRewrite(miopen::GridwiseGemmExOp op, PatternRewriter &b) const override {
+    return matchSuccess();
+  }
+};
+
