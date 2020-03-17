@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/Dialect/MIOpenOps/MIOpenOps.h"
 #include "mlir/Dialect/MIOpenOps/Passes.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
@@ -802,6 +803,209 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   using OpRewritePattern<miopen::GridwiseGemmExOp>::OpRewritePattern;
 
   PatternMatchResult matchAndRewrite(miopen::GridwiseGemmExOp op, PatternRewriter &b) const override {
+    // Prepare some useful constants.
+    auto zeroConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 0);
+    auto oneConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 1);
+    auto twoConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 2);
+
+    auto ldsMemorySpace = 3;
+    auto ldsMemorySpaceConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsMemorySpace);
+    auto registerMemorySpace = 5;
+    auto registerMemorySpaceConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), registerMemorySpace);
+
+    // TBD. compute LDS block size from attributes.
+    auto ldsBlockSize = 4096;
+    auto ldsBlockSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockSize);
+    auto ldsMemRefType =
+        MemRefType::get({ldsBlockSize}, b.getIntegerType(8), {}, ldsMemorySpace);
+    auto ldsGpuAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), ldsMemRefType, ldsBlockSizeConstantIndexOp, ldsMemorySpaceConstantIndexOp);
+
+    // Subviews for Matrix A.
+    // TBD. compute LDS block size and offset for Matrix A from attributes.
+    auto ldsBlockADoubleSize = 2048;
+    auto ldsBlockAOffset = 0;
+
+    auto ldsBlockAOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockAOffset);
+    auto ldsBlockADoubleMemRefType =
+        MemRefType::get({ldsBlockADoubleSize}, b.getIntegerType(8), {}, ldsMemorySpace);
+    auto ldsBlockADoubleSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockADoubleMemRefType, ldsGpuAllocOp, ldsBlockAOffsetConstantIndexOp);
+
+    auto ldsBlockASize = ldsBlockADoubleSize / 2;
+    auto ldsBlockAEvenOffset = 0;
+    auto ldsBlockAOddOffset = ldsBlockADoubleSize / 2;
+
+    auto ldsBlockAEvenOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockAEvenOffset);
+    auto ldsBlockAOddOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockAOddOffset);
+    auto ldsBlockAMemRefType =
+        MemRefType::get({ldsBlockASize}, b.getIntegerType(8), {}, ldsMemorySpace);
+    auto ldsBlockAEvenSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockAMemRefType, ldsBlockADoubleSubviewOp, ldsBlockAEvenOffsetConstantIndexOp);
+    auto ldsBlockAOddSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockAMemRefType, ldsBlockADoubleSubviewOp, ldsBlockAOddOffsetConstantIndexOp);
+
+    // Get 2D subviews.
+    // TBD. compute matrix A dimension from attributes.
+    auto lds2DMatrixAHeight = 16;
+    auto lds2DMatrixAWidth = 16;
+    auto lds2DMatrixAMemRefType =
+        MemRefType::get({lds2DMatrixAHeight, lds2DMatrixAWidth}, b.getF32Type(), {}, ldsMemorySpace);
+
+    llvm::SmallVector<int64_t, 2> lds2DMatrixADim {lds2DMatrixAHeight, lds2DMatrixAWidth};
+    llvm::SmallVector<NamedAttribute, 8> lds2DMatrixADimAttr {
+        b.getNamedAttr("dimensions", b.getI64ArrayAttr(lds2DMatrixADim)),
+    };
+ 
+    auto lds2DMatrixAEvenSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), lds2DMatrixAMemRefType, ldsBlockAEvenSubviewOp, zeroConstantIndexOp);
+    lds2DMatrixAEvenSubviewOp.setAttrs(lds2DMatrixADimAttr);
+    auto lds2DMatrixAOddSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), lds2DMatrixAMemRefType, ldsBlockAOddSubviewOp, zeroConstantIndexOp);
+    lds2DMatrixAOddSubviewOp.setAttrs(lds2DMatrixADimAttr);
+ 
+
+    // Subviews for Matrix B.
+    auto ldsBlockBDoubleSize = ldsBlockSize - ldsBlockADoubleSize;
+    auto ldsBlockBOffset = ldsBlockSize - ldsBlockADoubleSize;
+
+    auto ldsBlockBOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockBOffset);
+    auto ldsBlockBDoubleMemRefType =
+        MemRefType::get({ldsBlockBDoubleSize}, b.getIntegerType(8), {}, ldsMemorySpace);
+    auto ldsBlockBDoubleSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockBDoubleMemRefType, ldsGpuAllocOp, ldsBlockBOffsetConstantIndexOp);
+
+    auto ldsBlockBSize = ldsBlockBDoubleSize / 2;
+    auto ldsBlockBEvenOffset = 0;
+    auto ldsBlockBOddOffset = ldsBlockBDoubleSize / 2;
+
+    auto ldsBlockBEvenOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockBEvenOffset);
+    auto ldsBlockBOddOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockBOddOffset);
+    auto ldsBlockBMemRefType =
+        MemRefType::get({ldsBlockBSize}, b.getIntegerType(8), {}, ldsMemorySpace);
+    auto ldsBlockBEvenSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockBMemRefType, ldsBlockBDoubleSubviewOp, ldsBlockBEvenOffsetConstantIndexOp);
+    auto ldsBlockBOddSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockBMemRefType, ldsBlockBDoubleSubviewOp, ldsBlockBOddOffsetConstantIndexOp);
+
+    // Get 2D subviews.
+    // TBD. compute matrix B dimension from attributes.
+    auto lds2DMatrixBHeight = 16;
+    auto lds2DMatrixBWidth = 16;
+    auto lds2DMatrixBMemRefType =
+        MemRefType::get({lds2DMatrixBHeight, lds2DMatrixBWidth}, b.getF32Type(), {}, ldsMemorySpace);
+
+    llvm::SmallVector<int64_t, 2> lds2DMatrixBDim {lds2DMatrixBHeight, lds2DMatrixBWidth};
+    llvm::SmallVector<NamedAttribute, 1> lds2DMatrixBDimAttr {
+        b.getNamedAttr("dimensions", b.getI64ArrayAttr(lds2DMatrixBDim)),
+    };
+
+    auto lds2DMatrixBEvenSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), lds2DMatrixBMemRefType, ldsBlockBEvenSubviewOp, zeroConstantIndexOp);
+    lds2DMatrixBEvenSubviewOp.setAttrs(lds2DMatrixBDimAttr);
+    auto lds2DMatrixBOddSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), lds2DMatrixBMemRefType, ldsBlockBOddSubviewOp, zeroConstantIndexOp);
+    lds2DMatrixBOddSubviewOp.setAttrs(lds2DMatrixBDimAttr);
+
+
+    // Alloc for Matrix C on registers.
+    // TBD compute register size from attributes.
+    auto threadCRegisterSize = 1024;
+    auto threadCRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadCRegisterSize);
+    auto threadCRegisterMemRefType =
+        MemRefType::get({threadCRegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
+    auto threadCAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadCRegisterMemRefType, threadCRegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
+
+    // Subviews for Matrix C.
+    // TBD. compute matrix C dimension from attributes.
+    auto register2DMatrixCHeight = 16;
+    auto register2DMatrixCWidth = 16;
+    auto register2DMatrixCMemRefType =
+        MemRefType::get({register2DMatrixCHeight, register2DMatrixCWidth}, b.getF32Type(), {}, registerMemorySpace);
+
+    llvm::SmallVector<int64_t, 2> register2DMatrixCDim {register2DMatrixCHeight, register2DMatrixCWidth};
+    llvm::SmallVector<NamedAttribute, 1> register2DMatrixCDimAttr {
+        b.getNamedAttr("dimensions", b.getI64ArrayAttr(register2DMatrixCDim)),
+    };
+
+    auto register2DMatrixCSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), register2DMatrixCMemRefType, threadCAllocOp, zeroConstantIndexOp);
+    register2DMatrixCSubviewOp.setAttrs(register2DMatrixCDimAttr);
+ 
+
+    // Alloc for Matrix A / B on registers.
+    // TBD. compute thread A / B on registers from attributes.
+    auto threadARegisterSize = 1024;
+    auto threadARegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadARegisterSize);
+    auto threadARegisterMemRefType =
+        MemRefType::get({threadARegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
+    auto threadAEvenAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType, threadARegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
+    auto threadAOddAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType, threadARegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
+
+    auto threadBRegisterSize = 1024;
+    auto threadBRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadBRegisterSize);
+    auto threadBRegisterMemRefType =
+        MemRefType::get({threadBRegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
+    auto threadBEvenAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType, threadBRegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
+    auto threadBOddAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType, threadBRegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
+
+    // Zero init Matrix C on registers.
+    b.create<miopen::FillOp>(op.getLoc(), threadCAllocOp, zeroConstantIndexOp);
+
+    // Blockwise copies before the loop.
+    // Blockwise copy from global (generic tensor) to LDS (naive tensor).
+    b.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0), ldsBlockAEvenSubviewOp);
+    b.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1), ldsBlockBEvenSubviewOp);
+
+    // Emit loop.
+    // TBD. compute loop iterations from attributes.
+    auto loopIteration = 15;
+    auto loopIterationConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), loopIteration);
+    auto loopOp = b.create<loop::ForOp>(op.getLoc(), zeroConstantIndexOp, loopIterationConstantIndexOp, oneConstantIndexOp);
+
+    // inside the loop.
+    auto lb = loopOp.getBodyBuilder();
+    // LDS barrier.
+    lb.create<miopen::LdsBarrierOp>(op.getLoc());
+
+    // Blockwise copy from global (generic tensor) to register (naive tensor).
+    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAEvenAllocOp);
+    // TBD add attributes.
+    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBEvenAllocOp);
+    // TBD add attributes.
+
+    // Emit blockwise GEMM.
+    lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp, register2DMatrixCSubviewOp);
+    // TBD add attributes.
+
+    // Blockwise copy from reigster (naitve tensor) to LDS (naive tensor).
+    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadAEvenAllocOp, ldsBlockAOddSubviewOp);
+    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadBEvenAllocOp, ldsBlockBOddSubviewOp);
+
+    // LDS barrier.
+    lb.create<miopen::LdsBarrierOp>(op.getLoc());
+
+    // Blockwise copy from global (generic tensor) to register (naive tensor).
+    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAOddAllocOp);
+    // TBD add attributes.
+    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBOddAllocOp);
+    // TBD add attributes.
+
+    // Emit blockwise GEMM.
+    lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp, register2DMatrixCSubviewOp);
+    // TBD add attributes.
+
+    // Blockwise copy from reigster (naitve tensor) to LDS (naive tensor).
+    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadAOddAllocOp, ldsBlockAEvenSubviewOp);
+    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadBOddAllocOp, ldsBlockBEvenSubviewOp);
+
+    // outside the loop.
+
+    
+    // LDS barrier.
+    b.create<miopen::LdsBarrierOp>(op.getLoc());
+
+    // Emit blockwise GEMM for the loop tail.
+    if (loopIteration % 2) {
+      b.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp, register2DMatrixCSubviewOp);
+      // TBD add attributes.
+    } else {
+      b.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp, register2DMatrixCSubviewOp);
+    }
+
+    // Threadwise copy from register (naive tensor) to global (generic tensor).
+    b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), register2DMatrixCSubviewOp, op.getOperand(2));
+
+    op.erase();
+
     return matchSuccess();
   }
 };
