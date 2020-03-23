@@ -54,8 +54,8 @@ void LowerMIOpenOpsPass::runOnModule() {
   OwningRewritePatternList patterns;
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DOp>>(&getContext());
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(&getContext());
-  // TBD: migrate to GridwiseGemmOp
   patterns.insert<GridwiseGemmRewritePattern>(&getContext());
+  patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
   applyPatternsGreedily(getModule(), patterns);
 }
 

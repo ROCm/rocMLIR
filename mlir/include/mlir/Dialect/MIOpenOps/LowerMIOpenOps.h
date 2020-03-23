@@ -1010,3 +1010,45 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   }
 };
 
+//===----------------------------------------------------------------------===//
+// BlockwiseGemm lowering.
+//===----------------------------------------------------------------------===//
+
+struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGemmOp> {
+  using OpRewritePattern<miopen::BlockwiseGemmOp>::OpRewritePattern;
+
+  PatternMatchResult naiveRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const {
+
+    // TBD alloc register for thread_a and thread_b.
+
+    // TBD loop.
+
+    // TBD read matrix A loop.
+
+    // TBD threadwise_copy.
+
+    // TBD read matrix B loop.
+
+    // TBD threadwise_copy.
+
+    // TBD threadwise_gemm.
+
+    //op.erase();
+    return matchSuccess();
+  }
+
+  PatternMatchResult twoByTwoPipelinedRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const {
+    // TBD implement 2x2 pipelined version.
+    op.erase();
+    return matchSuccess();
+  }
+
+  PatternMatchResult matchAndRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const override {
+    // TBD condition upon attributes.
+    if (true) {
+      return naiveRewrite(op, b);
+    } else {
+      return twoByTwoPipelinedRewrite(op, b);
+    }
+  }
+};
