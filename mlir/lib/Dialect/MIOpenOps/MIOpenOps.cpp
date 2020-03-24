@@ -293,6 +293,30 @@ static LogicalResult verify(BlockwiseGemmOp op) {
 }
 
 //===----------------------------------------------------------------------===//
+// ThreadwiseGemmOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseThreadwiseGemmOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 3> ops;
+  SmallVector<Type, 3> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, ThreadwiseGemmOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(ThreadwiseGemmOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // BlockwiseCopyOp
 //===----------------------------------------------------------------------===//
 

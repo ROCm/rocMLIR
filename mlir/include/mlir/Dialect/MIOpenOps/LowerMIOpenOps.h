@@ -1018,22 +1018,66 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
   using OpRewritePattern<miopen::BlockwiseGemmOp>::OpRewritePattern;
 
   PatternMatchResult naiveRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const {
+    // Prepare some useful constants.
+    auto zeroConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 0);
+    auto oneConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 1);
+    auto twoConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 2);
 
-    // TBD alloc register for thread_a and thread_b.
+    auto registerMemorySpace = 5;
+    auto registerMemorySpaceConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), registerMemorySpace);
 
-    // TBD loop.
+    // Alloc register for thread_a and thread_b.
+    // TBD compute actual size from attributes.
+    auto threadARegisterSize = 1024;
+    auto threadARegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadARegisterSize);
+    auto threadARegisterMemRefType =
+        MemRefType::get({threadARegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
+    auto threadAAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType, threadARegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
 
-    // TBD read matrix A loop.
+    auto threadBRegisterSize = 1024;
+    auto threadBRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadBRegisterSize);
+    auto threadBRegisterMemRefType =
+        MemRefType::get({threadARegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
+    auto threadBAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType, threadBRegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
 
-    // TBD threadwise_copy.
+    // Main loop.
+    // TBD. compute loop iterations from attributes.
+    auto loopIteration = 15;
+    auto loopIterationConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), loopIteration);
+    auto loopOp = b.create<loop::ForOp>(op.getLoc(), zeroConstantIndexOp, loopIterationConstantIndexOp, oneConstantIndexOp);
 
-    // TBD read matrix B loop.
+    // inside the main loop.
+    auto lb = loopOp.getBodyBuilder();
+ 
+    // read matrix A loop.
+    // TBD. compute loop iterations from attributes.
+    auto loopReadMatrixAIteration = 15;
+    auto loopReadMatrixAIterationConstantIndexOp = lb.create<ConstantIndexOp>(op.getLoc(), loopReadMatrixAIteration);
+    auto loopReadMatrixAOp = lb.create<loop::ForOp>(op.getLoc(), zeroConstantIndexOp, loopReadMatrixAIterationConstantIndexOp, oneConstantIndexOp);
 
-    // TBD threadwise_copy.
+    // inside read matrix A loop.
+    auto lab = loopReadMatrixAOp.getBodyBuilder();
 
-    // TBD threadwise_gemm.
+    // Threadwise copy from LDS (naive tensor) to register (generic tensor).
+    lab.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAAllocOp);
 
-    //op.erase();
+    // read matrix B loop.
+    // TBD. compute loop iterations from attributes.
+    auto loopReadMatrixBIteration = 15;
+    auto loopReadMatrixBIterationConstantIndexOp = lb.create<ConstantIndexOp>(op.getLoc(), loopReadMatrixBIteration);
+    auto loopReadMatrixBOp = lb.create<loop::ForOp>(op.getLoc(), zeroConstantIndexOp, loopReadMatrixBIterationConstantIndexOp, oneConstantIndexOp);
+
+    // inside read matrix A loop.
+    auto lbb = loopReadMatrixBOp.getBodyBuilder();
+
+    // Threadwise copy from LDS (naive tensor) to register (generic tensor).
+    lbb.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBAllocOp);
+
+    // Emit threadwise GEMM.
+    lb.create<miopen::ThreadwiseGemmOp>(op.getLoc(), threadAAllocOp, threadBAllocOp, op.getOperand(2));
+    // TBD add attributes.
+
+    op.erase();
     return matchSuccess();
   }
 
