@@ -186,9 +186,23 @@ def MIOpen_BlockwiseGemmOp:
                    MemRefRankOf<[F32], [2]>)> {
   let summary = "Blockwise GEMM";
   let description = [{
-    The `miopen.blockgemm` op does GEMM at workgroup (block) level.
+    The `miopen.block_gemm` op does GEMM at workgroup (block) level.
     - Matrix A and Matrix B shall reside on LDS (naive tensor).
     - Matrix C shall reside on register (naive tensor).
+  }];
+}
+
+// threadwise_gemm
+def MIOpen_ThreadwiseGemmOp:
+    MIOpen_Op<"threadwise_gemm">,
+    Arguments<(ins AnyMemRef,
+                   AnyMemRef,
+                   AnyMemRef)> {
+  let summary = "Threadwise GEMM";
+  let description = [{
+    The `miopen.threadwise_gemm` op does GEMM at thread level.
+    - Matrix A and Matrix B shall reside on register (naive tensor).
+    - Matrix C shall reside on LDS (naive tensor).
   }];
 }
 
