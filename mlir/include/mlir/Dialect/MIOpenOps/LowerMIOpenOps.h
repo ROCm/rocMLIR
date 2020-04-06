@@ -957,10 +957,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     lb.create<miopen::LdsBarrierOp>(op.getLoc());
 
     // Blockwise copy from global (generic tensor) to register (naive tensor).
-    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAEvenAllocOp);
-    // TBD add attributes.
-    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBEvenAllocOp);
-    // TBD add attributes.
+    auto blockwiseCopyOpAEven = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAEvenAllocOp);
+    // TBD. compute block_slice_copy_steps and set in the attribute.
+    blockwiseCopyOpAEven.setAttr("move_source_slice_window", b.getI32IntegerAttr(8));
+    auto blockwiseCopyOpBEven = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBEvenAllocOp);
+    // TBD. compute block_slice_copy_steps and set in the attribute.
+    blockwiseCopyOpBEven.setAttr("move_source_slice_window", b.getI32IntegerAttr(8));
 
     // Emit blockwise GEMM.
     lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp, register2DMatrixCSubviewOp);
@@ -974,10 +976,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     lb.create<miopen::LdsBarrierOp>(op.getLoc());
 
     // Blockwise copy from global (generic tensor) to register (naive tensor).
-    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAOddAllocOp);
-    // TBD add attributes.
-    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBOddAllocOp);
-    // TBD add attributes.
+    auto blockwiseCopyOpAOdd = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAOddAllocOp);
+    // TBD. compute block_slice_copy_steps and set in the attribute.
+    blockwiseCopyOpAOdd.setAttr("move_source_slice_window", b.getI32IntegerAttr(8));
+    auto blockwiseCopyOpBOdd = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBOddAllocOp);
+    // TBD. compute block_slice_copy_steps and set in the attribute.
+    blockwiseCopyOpBOdd.setAttr("move_source_slice_window", b.getI32IntegerAttr(8));
 
     // Emit blockwise GEMM.
     lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp, register2DMatrixCSubviewOp);
@@ -1096,3 +1100,54 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     }
   }
 };
+
+//===----------------------------------------------------------------------===//
+// BlockwiseCopy lowering.
+//===----------------------------------------------------------------------===//
+
+struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCopyOp> {
+  using OpRewritePattern<miopen::BlockwiseCopyOp>::OpRewritePattern;
+
+  PatternMatchResult matchAndRewrite(miopen::BlockwiseCopyOp op, PatternRewriter &b) const override {
+    auto source = op.getOperand(0);
+    auto sourceType = source.getType().dyn_cast<MemRefType>();
+    auto dest = op.getOperand(1);
+    auto destType = dest.getType().dyn_cast<MemRefType>();
+
+    // Check the address spaces of source and destination values and determine
+    // lowering logic.
+    // - 0 (global) -> 3 (LDS) : load + store
+    // - 0 (global) -> 5 (register) : load 
+    // - 5 (register) -> 3 (LDS) : store
+    if (sourceType.getMemorySpace() == 0 && destType.getMemorySpace() == 3) {
+      // TBD. compute register size from attributes and operands.
+      auto registerMemorySpace = 5;
+      auto registerMemorySpaceConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), registerMemorySpace);
+      auto threadRegisterSize = 1024;
+      auto threadRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadRegisterSize);
+      auto threadRegisterMemRefType =
+          MemRefType::get({threadRegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
+      auto threadAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadRegisterMemRefType, threadRegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
+
+      // Threadwise copy from global (generic tensor) to register (naive tensor).
+      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), source, threadAllocOp);
+      // Threadwise copy from register (naive tensor) to LDS (naive tensor).
+      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), threadAllocOp, dest);
+    } else if (sourceType.getMemorySpace() == 0 && destType.getMemorySpace() == 5) {
+      // Threadwise copy from global (generic tensor) to register (naive tensor).
+      auto threadwiseCopyOp = b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), source, dest);
+      // Pass blockwise-level attribute to threadwise op.
+      if (op.getAttr("move_source_slice_window")) {
+        threadwiseCopyOp.setAttr("move_source_slice_window", op.getAttr("move_source_slice_window"));
+      }
+    } else if (sourceType.getMemorySpace() == 5 && destType.getMemorySpace() == 3) {
+      // Threadwise copy from register (naive tensor) to LDS (naive tensor).
+      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), source, dest);
+    } else {
+      llvm::errs() << "UNSUPPORTED\n";
+    }
+
+    op.erase();
+    return matchSuccess();
+  }
+}; 
