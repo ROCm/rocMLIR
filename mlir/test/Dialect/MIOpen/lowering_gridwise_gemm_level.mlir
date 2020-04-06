@@ -40,4 +40,3 @@ func @miopen_gridwise_gemm(%matrix_a : memref<?x?xf32>, %matrix_b : memref<?x?xf
 
 // TBD: add lowering checks
 // CHECK-LABEL: func {{@miopen_gridwise_gemm.*%arg0.*%arg1.*%arg2}}
-// CHECK-NEXT:  miopen.gridwise_gemm_ex
