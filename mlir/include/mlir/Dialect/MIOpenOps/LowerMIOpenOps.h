@@ -60,17 +60,33 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto stridesAttr = op.template getAttrOfType<ArrayAttr>("strides");
     auto paddingAttr = op.template getAttrOfType<ArrayAttr>("padding");
 
+    // Get shape of output tensor.
+    auto outputType = op.output().getType().dyn_cast<MemRefType>();
+    auto outputShape = outputType.getShape();
+    // HO/WO dimension for output tensor.
+    int64_t outputHDim, outputWDim;
+
+    // Find Ho/Wo dimension for output tensor. They will be used in
+    // transforming input tensor.
+    for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
+      if (auto strAttr =
+              outputLayoutAttr.getValue()[i].dyn_cast<StringAttr>()) {
+        if (strAttr.getValue() == "ho") {
+          outputHDim = i;
+        } else if (strAttr.getValue() == "wo") {
+          outputWDim = i;
+        }
+      }
+    }
+
     // Transform filter tensor.
     auto filterType = op.filter().getType().dyn_cast<MemRefType>();
     auto filterShape = filterType.getShape();
     auto filterElementType = filterType.getElementType();
+    // Y/X dimension for filter tensor.
+    int64_t filterYDim, filterXDim;
 
     llvm::SmallVector<int64_t, 2> transformedFilterShape;
-    transformedFilterShape.set_size(filterShape.size() - 2);
-    // TBD: compute transformed filter shape dimensions.
-    std::fill(transformedFilterShape.begin(), transformedFilterShape.end(), -1);
-    auto transformedFilterMemRefType =
-        MemRefType::get(transformedFilterShape, filterElementType);
 
     llvm::SmallVector<NamedAttribute, 3> transformedFilterAttrs;
 
@@ -103,11 +119,28 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             kDim = b.getI32IntegerAttr(i);
             kDimName = strAttr;
           } else {
+            // Register filter Y/X dimension to be used later when transforming
+            // input tensor.
+            if (strAttr.getValue() == "y") {
+              filterYDim = i;
+            } else if (strAttr.getValue() == "x") {
+              filterXDim = i;
+            }
             nonKDims.push_back(b.getI32IntegerAttr(i));
             nonKDimNames.push_back(strAttr);
           }
         }
       }
+
+      // Compute transformed filter shape dimension.
+      int64_t nonKDimSize = 1;
+      for (unsigned i = 0; i < filterShape.size(); ++i) {
+        if (i != kDim.getInt()) {
+          nonKDimSize *= filterShape[i];
+        }
+      }
+      transformedFilterShape.push_back(nonKDimSize);
+      transformedFilterShape.push_back(filterShape[kDim.getInt()]);
 
       llvm::SmallVector<NamedAttribute, 2> sourceNonKDimAttr{
           b.getNamedAttr("source_dimensions",
@@ -179,6 +212,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     transformedFilterAttrs.push_back(b.getNamedAttr(
         "gridwise_gemm_argument_position",
         b.getI32IntegerAttr(fields.gridwiseGemmArgumentPosition[0])));
+
+    auto transformedFilterMemRefType =
+        MemRefType::get(transformedFilterShape, filterElementType);
     auto gemmA =
         b.create<miopen::TransformOp>(op.getLoc(), transformedFilterMemRefType,
                                       op.filter(), transformedFilterAttrs);
@@ -189,7 +225,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto inputShape = inputType.getShape();
     auto inputElementType = inputType.getElementType();
 
-    // TBD: compute padded input shape dimensions.
+    llvm::SmallVector<int64_t, 4> paddedInputShape;
 
     llvm::SmallVector<NamedAttribute, 3> paddedInputAttrs;
 
@@ -234,9 +270,14 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       for (unsigned i = 0, j = 0; i < inputLayoutAttr.size(); ++i) {
         if (APInt(32, i) == nDim.getValue()) {
           reorderedPaddedInputDimNames.push_back(nDimName);
+          paddedInputShape.push_back(inputShape[nDim.getInt()]);
         } else if (APInt(32, i) == cDim.getValue()) {
           reorderedPaddedInputDimNames.push_back(cDimName);
+          paddedInputShape.push_back(inputShape[cDim.getInt()]);
         } else {
+          // TBD: padding parameters.
+          paddedInputShape.push_back(inputShape[hwDims[j].getInt()]);
+
           reorderedPaddedInputDimNames.push_back(hwPaddedDimNames[j++]);
         }
       }
@@ -295,16 +336,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         "output_layout", b.getArrayAttr(ArrayRef<Attribute>(
                              reorderedPaddedInputDimNames.begin(),
                              reorderedPaddedInputDimNames.end()))));
+    auto paddedInputMemRefType =
+        MemRefType::get(paddedInputShape, inputElementType);
     auto paddedInput = b.create<miopen::TransformOp>(
-        op.getLoc(), inputType, op.input(), paddedInputAttrs);
+        op.getLoc(), paddedInputMemRefType, op.input(), paddedInputAttrs);
 
     // Input tensor step 2 : embedded input.
     llvm::SmallVector<int64_t, 6> embeddedInputShape;
-    embeddedInputShape.set_size(inputShape.size() + 2);
-    // TBD: compute embedded input shape dimensions.
-    std::fill(embeddedInputShape.begin(), embeddedInputShape.end(), -1);
-    auto embeddedInputMemRefType =
-        MemRefType::get(embeddedInputShape, inputElementType);
 
     llvm::SmallVector<NamedAttribute, 3> embeddedInputAttrs;
 
@@ -338,6 +376,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           reorderedNDim = b.getI32IntegerAttr(dimCtr++);
 
           reorderedEmbeddedInputDimNames.push_back(strAttr);
+
+          embeddedInputShape.push_back(inputShape[nDim.getInt()]);
         } else if (strAttr.getValue() == "ci") {
           cDim = b.getI32IntegerAttr(i);
           cDimName = strAttr;
@@ -345,6 +385,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           reorderedCDim = b.getI32IntegerAttr(dimCtr++);
 
           reorderedEmbeddedInputDimNames.push_back(strAttr);
+
+          embeddedInputShape.push_back(inputShape[cDim.getInt()]);
         } else if (strAttr.getValue() == "hipad") {
           hDim = b.getI32IntegerAttr(i);
           hDimName = strAttr;
@@ -354,6 +396,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
           reorderedEmbeddedInputDimNames.push_back(b.getStringAttr("y"));
           reorderedEmbeddedInputDimNames.push_back(b.getStringAttr("ho"));
+
+          embeddedInputShape.push_back(filterShape[filterYDim]);
+          embeddedInputShape.push_back(outputShape[outputHDim]);
         } else if (strAttr.getValue() == "wipad") {
           wDim = b.getI32IntegerAttr(i);
           wDimName = strAttr;
@@ -363,6 +408,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
           reorderedEmbeddedInputDimNames.push_back(b.getStringAttr("x"));
           reorderedEmbeddedInputDimNames.push_back(b.getStringAttr("wo"));
+
+          embeddedInputShape.push_back(filterShape[filterXDim]);
+          embeddedInputShape.push_back(outputShape[outputWDim]);
         }
       }
 
@@ -444,17 +492,14 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         "output_layout", b.getArrayAttr(ArrayRef<Attribute>(
                              reorderedEmbeddedInputDimNames.begin(),
                              reorderedEmbeddedInputDimNames.end()))));
+    auto embeddedInputMemRefType =
+        MemRefType::get(embeddedInputShape, inputElementType);
     auto embeddedInput = b.create<miopen::TransformOp>(
         op.getLoc(), embeddedInputMemRefType, ArrayRef<Value>(paddedInput),
         embeddedInputAttrs);
 
     // Input tensor step 3: transformed input.
     llvm::SmallVector<int64_t, 2> transformedInputShape;
-    transformedInputShape.set_size(inputShape.size() - 2);
-    // TBD: compute transformed input shape dimensions.
-    std::fill(transformedInputShape.begin(), transformedInputShape.end(), -1);
-    auto transformedInputMemRefType =
-        MemRefType::get(transformedInputShape, inputElementType);
 
     llvm::SmallVector<NamedAttribute, 3> transformedInputAttrs;
 
@@ -535,6 +580,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         mergedPart2Dims.push_back(wDim);
         mergedPart2Dims.push_back(nDim);
       }
+      transformedInputShape.push_back(embeddedInputShape[cDim.getInt()] * embeddedInputShape[yDim.getInt()] * embeddedInputShape[xDim.getInt()]);
+      transformedInputShape.push_back(embeddedInputShape[hDim.getInt()] * embeddedInputShape[wDim.getInt()] * embeddedInputShape[nDim.getInt()]);
 
       transformedInputAttrs.push_back(b.getNamedAttr(
           "layout",
@@ -588,21 +635,15 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     transformedInputAttrs.push_back(b.getNamedAttr(
         "gridwise_gemm_argument_position",
         b.getI32IntegerAttr(fields.gridwiseGemmArgumentPosition[1])));
+    auto transformedInputMemRefType =
+        MemRefType::get(transformedInputShape, inputElementType);
     auto gemmB = b.create<miopen::TransformOp>(
         op.getLoc(), transformedInputMemRefType, ArrayRef<Value>(embeddedInput),
         transformedInputAttrs);
 
     // Transform output tensor.
-    auto outputType = op.output().getType().dyn_cast<MemRefType>();
-    auto outputShape = outputType.getShape();
     auto outputElementType = outputType.getElementType();
-
     llvm::SmallVector<int64_t, 2> transformedOutputShape;
-    transformedOutputShape.set_size(outputShape.size() - 2);
-    // TBD: compute transformed output shape dimensions.
-    std::fill(transformedOutputShape.begin(), transformedOutputShape.end(), -1);
-    auto transformedOutputMemRefType =
-        MemRefType::get(transformedOutputShape, outputElementType);
 
     llvm::SmallVector<NamedAttribute, 3> transformedOutputAttrs;
 
@@ -633,6 +674,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         }
       }
 
+      // Compute transformed filter shape dimension.
+      int64_t nonKDimSize = 1;
+      for (unsigned i = 0; i < outputShape.size(); ++i) {
+        if (i != kDim.getInt()) {
+          nonKDimSize *= outputShape[i];
+        }
+      }
+      transformedOutputShape.push_back(outputShape[kDim.getInt()]);
+      transformedOutputShape.push_back(nonKDimSize);
+ 
       transformedOutputAttrs.push_back(b.getNamedAttr(
           "layout",
           b.getArrayAttr(
@@ -678,6 +729,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     transformedOutputAttrs.push_back(b.getNamedAttr(
         "gridwise_gemm_argument_position",
         b.getI32IntegerAttr(fields.gridwiseGemmArgumentPosition[2])));
+    auto transformedOutputMemRefType =
+        MemRefType::get(transformedOutputShape, outputElementType);
     auto gemmC =
         b.create<miopen::TransformOp>(op.getLoc(), transformedOutputMemRefType,
                                       op.output(), transformedOutputAttrs);
