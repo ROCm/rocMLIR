@@ -45,25 +45,59 @@
 using namespace mlir;
 
 namespace {
-struct LowerMIOpenOpsPass : public ModulePass<LowerMIOpenOpsPass> {
+struct LowerMIOpenOpsStep1Pass : public ModulePass<LowerMIOpenOpsStep1Pass> {
+  void runOnModule() override;
+};
+
+struct LowerMIOpenOpsStep2Pass : public ModulePass<LowerMIOpenOpsStep1Pass> {
+  void runOnModule() override;
+};
+
+struct LowerMIOpenOpsStep3Pass : public ModulePass<LowerMIOpenOpsStep1Pass> {
   void runOnModule() override;
 };
 } // end anonymous namespace
 
-void LowerMIOpenOpsPass::runOnModule() {
+void LowerMIOpenOpsStep1Pass::runOnModule() {
   OwningRewritePatternList patterns;
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DOp>>(&getContext());
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(&getContext());
+  applyPatternsGreedily(getModule(), patterns);
+}
+
+void LowerMIOpenOpsStep2Pass::runOnModule() {
+  OwningRewritePatternList patterns;
   patterns.insert<GridwiseGemmRewritePattern>(&getContext());
+  applyPatternsGreedily(getModule(), patterns);
+}
+
+void LowerMIOpenOpsStep3Pass::runOnModule() {
+  OwningRewritePatternList patterns;
   patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
   patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
   applyPatternsGreedily(getModule(), patterns);
 }
 
-std::unique_ptr<OpPassBase<ModuleOp>> mlir::miopen::createLowerMIOpenOpsPass() {
-  return std::make_unique<LowerMIOpenOpsPass>();
+std::unique_ptr<OpPassBase<ModuleOp>> mlir::miopen::createLowerMIOpenOpsStep1Pass() {
+  return std::make_unique<LowerMIOpenOpsStep1Pass>();
 }
 
-static PassRegistration<LowerMIOpenOpsPass>
-    lowerMIOpenOpsPass("miopen-lowering",
+std::unique_ptr<OpPassBase<ModuleOp>> mlir::miopen::createLowerMIOpenOpsStep2Pass() {
+  return std::make_unique<LowerMIOpenOpsStep2Pass>();
+}
+
+std::unique_ptr<OpPassBase<ModuleOp>> mlir::miopen::createLowerMIOpenOpsStep3Pass() {
+  return std::make_unique<LowerMIOpenOpsStep3Pass>();
+}
+
+static PassRegistration<LowerMIOpenOpsStep1Pass>
+    lowerMIOpenOpsStep1Pass("miopen-lowering",
                        "Lower MIOpen conv2d into transform and gridwise_gemm.");
+
+static PassRegistration<LowerMIOpenOpsStep2Pass>
+    lowerMIOpenOpsStep2Pass("miopen-lowering-step2",
+                       "Lower MIOpen gridwise_gemm into blockwise ops.");
+
+static PassRegistration<LowerMIOpenOpsStep3Pass>
+    lowerMIOpenOpsStep3Pass("miopen-lowering-step3",
+                       "Lower MIOpen blockwise ops into threadwise ops.");

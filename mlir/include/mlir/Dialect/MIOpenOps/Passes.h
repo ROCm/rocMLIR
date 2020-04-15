@@ -25,7 +25,15 @@ namespace miopen {
 
 /// Create a pass to convert MIOpen conv2d operations to transform and
 /// gridwise_gemm operations.
-std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsPass();
+std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsStep1Pass();
+
+/// Create a pass to convert MIOpen gridwise_gemm operations to blockwise
+/// operations.
+std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsStep2Pass();
+
+/// Create a pass to convert MIOpen blockwise operations to threadwise
+/// operations.
+std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsStep3Pass();
 
 /// Create a pass to convert transform operations to affine maps.
 std::unique_ptr<OpPassBase<FuncOp>> createLowerTransformPass();
