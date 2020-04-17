@@ -852,8 +852,112 @@ template struct Conv2DRewritePattern<miopen::Conv2DBwdDataOp>;
 // GridwiseGemm lowering.
 //===----------------------------------------------------------------------===//
 
+namespace math {
+
+// greatest common divisor, aka highest common factor
+template <typename T>
+T gcd(T x, T y)
+{
+    if(x == y || x == 0)
+    {
+        return y;
+    }
+    else if(y == 0)
+    {
+        return x;
+    }
+    else if(x > y)
+    {
+        return gcd(x - y, y);
+    }
+    else
+    {
+        return gcd(x, y - x);
+    }
+}
+
+template <typename X, typename... Ys>
+auto gcd(X x, Ys... ys)
+{
+    return gcd(x, ys...);
+}
+
+// least common multiple
+template <typename T>
+T lcm(T x, T y)
+{
+    return (x * y) / gcd(x, y);
+}
+
+template <typename X, typename... Ys>
+auto lcm(X x, Ys... ys)
+{
+    return lcm(x, lcm(ys...));
+}
+
+template <class X, class Y>
+auto integer_divide_ceil(X x, Y y)
+{
+    return (x + y - 1) / y;
+}
+
+template <class X, class Y>
+auto integer_least_multiple(X x, Y y)
+{
+    return y * integer_divide_ceil(x, y);
+}
+
+
+
+} // namespace math
+
 struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemmOp> {
   using OpRewritePattern<miopen::GridwiseGemmOp>::OpRewritePattern;
+
+  std::tuple<int64_t, int64_t, int64_t> computeLDSBlockByteSizes(miopen::GridwiseGemmOp op) const {
+     int64_t ABlockCopyDstDataPerWrite_M = op.getAttr("matrix_a_dest_data_per_write_dim_m").dyn_cast<IntegerAttr>().getInt();
+     int64_t BBlockCopyDstDataPerWrite_N = op.getAttr("matrix_b_dest_data_per_write_dim_n").dyn_cast<IntegerAttr>().getInt();
+     int64_t ThreadGemmAThreadCopySrcDataPerRead_M = op.getAttr("m_per_thread").dyn_cast<IntegerAttr>().getInt();
+     int64_t ThreadGemmBThreadCopySrcDataPerRead_N = op.getAttr("n_per_thread").dyn_cast<IntegerAttr>().getInt();
+
+     int64_t max_lds_align = math::lcm(ABlockCopyDstDataPerWrite_M,
+                                    BBlockCopyDstDataPerWrite_N,
+                                    ThreadGemmAThreadCopySrcDataPerRead_M,
+                                    ThreadGemmBThreadCopySrcDataPerRead_N);
+
+     int64_t KPerBlock = op.getAttr("k_per_block").dyn_cast<IntegerAttr>().getInt();
+     int64_t MPerBlock = op.getAttr("m_per_block").dyn_cast<IntegerAttr>().getInt();
+     int64_t NPerBlock = op.getAttr("n_per_block").dyn_cast<IntegerAttr>().getInt();
+
+     int64_t AlignedNPerBlock = max_lds_align * math::integer_divide_ceil<int64_t>(NPerBlock, max_lds_align);
+
+     // A matrix in LDS memory, dst of blockwise copy
+     //   be careful of LDS alignment
+     // Original C++ logic:
+     //constexpr auto a_k_m_block_desc = make_native_tensor_descriptor_aligned(
+     //    Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
+     //constexpr index_t a_block_space =
+     //    math::integer_least_multiple(a_k_m_block_desc.GetElementSpace(), max_lds_align);
+     int64_t AlignedMPerBlock = max_lds_align * math::integer_divide_ceil<int64_t>(MPerBlock, max_lds_align);
+     int64_t a_block_space = math::integer_least_multiple(KPerBlock * AlignedMPerBlock, max_lds_align);
+
+     // B matrix in LDS memory, dst of blockwise copy
+     //   be careful of LDS alignment
+     // Original C++ logic:
+     //constexpr auto b_k_n_block_desc = make_native_tensor_descriptor_aligned(
+     //    Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
+     //constexpr index_t b_block_space =
+     //    math::integer_least_multiple(b_k_n_block_desc.GetElementSpace(), max_lds_align);
+     int64_t b_block_space = math::integer_least_multiple(KPerBlock * AlignedNPerBlock, max_lds_align);
+
+     FloatType opElementType = op.getOperand(0).getType().dyn_cast<MemRefType>().getElementType().dyn_cast<FloatType>();
+     unsigned opElementTypeWidthInByte = opElementType.getWidth() / 8;
+
+     return std::make_tuple<int64_t, int64_t, int64_t>(
+       a_block_space * opElementTypeWidthInByte,
+       b_block_space * opElementTypeWidthInByte,
+       2 * (a_block_space + b_block_space) * opElementTypeWidthInByte);
+  }
 
   PatternMatchResult matchAndRewrite(miopen::GridwiseGemmOp op, PatternRewriter &b) const override {
     // Prepare some useful constants.
@@ -866,16 +970,22 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto registerMemorySpace = 5;
     auto registerMemorySpaceConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), registerMemorySpace);
 
-    // TBD. compute LDS block size from attributes.
-    auto ldsBlockSize = 4096;
+
+    // Obtain critical tuning parameters.
+    int64_t KPerBlock = op.getAttr("k_per_block").dyn_cast<IntegerAttr>().getInt();
+    int64_t MPerBlock = op.getAttr("m_per_block").dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerBlock = op.getAttr("n_per_block").dyn_cast<IntegerAttr>().getInt();
+
+    int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
+    std::tie(ldsBlockASize, ldsBlockBSize, ldsBlockSize) = computeLDSBlockByteSizes(op);
+
     auto ldsBlockSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockSize);
     auto ldsMemRefType =
         MemRefType::get({ldsBlockSize}, b.getIntegerType(8), {}, ldsMemorySpace);
     auto ldsGpuAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), ldsMemRefType, ldsBlockSizeConstantIndexOp, ldsMemorySpaceConstantIndexOp);
 
     // Subviews for Matrix A.
-    // TBD. compute LDS block size and offset for Matrix A from attributes.
-    auto ldsBlockADoubleSize = 2048;
+    auto ldsBlockADoubleSize = ldsBlockASize * 2;
     auto ldsBlockAOffset = 0;
 
     auto ldsBlockAOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockAOffset);
@@ -883,7 +993,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         MemRefType::get({ldsBlockADoubleSize}, b.getIntegerType(8), {}, ldsMemorySpace);
     auto ldsBlockADoubleSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockADoubleMemRefType, ldsGpuAllocOp, ldsBlockAOffsetConstantIndexOp);
 
-    auto ldsBlockASize = ldsBlockADoubleSize / 2;
     auto ldsBlockAEvenOffset = 0;
     auto ldsBlockAOddOffset = ldsBlockADoubleSize / 2;
 
@@ -895,9 +1004,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto ldsBlockAOddSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockAMemRefType, ldsBlockADoubleSubviewOp, ldsBlockAOddOffsetConstantIndexOp);
 
     // Get 2D subviews.
-    // TBD. compute matrix A dimension from attributes.
-    auto lds2DMatrixAHeight = 16;
-    auto lds2DMatrixAWidth = 16;
+    // Compute matrix A dimension from attributes.
+    // Original C++ logic.
+    // // A matrix in LDS memory, dst of blockwise copy
+    // //   be careful of LDS alignment
+    // constexpr auto a_k_m_block_desc = make_native_tensor_descriptor_aligned(
+    //     Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
+    auto lds2DMatrixAHeight = KPerBlock;
+    auto lds2DMatrixAWidth = MPerBlock;
     auto lds2DMatrixAMemRefType =
         MemRefType::get({lds2DMatrixAHeight, lds2DMatrixAWidth}, b.getF32Type(), {}, ldsMemorySpace);
 
@@ -913,7 +1027,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
  
 
     // Subviews for Matrix B.
-    auto ldsBlockBDoubleSize = ldsBlockSize - ldsBlockADoubleSize;
+    auto ldsBlockBDoubleSize = ldsBlockBSize * 2;
     auto ldsBlockBOffset = ldsBlockSize - ldsBlockADoubleSize;
 
     auto ldsBlockBOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockBOffset);
@@ -921,7 +1035,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         MemRefType::get({ldsBlockBDoubleSize}, b.getIntegerType(8), {}, ldsMemorySpace);
     auto ldsBlockBDoubleSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockBDoubleMemRefType, ldsGpuAllocOp, ldsBlockBOffsetConstantIndexOp);
 
-    auto ldsBlockBSize = ldsBlockBDoubleSize / 2;
     auto ldsBlockBEvenOffset = 0;
     auto ldsBlockBOddOffset = ldsBlockBDoubleSize / 2;
 
@@ -933,9 +1046,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto ldsBlockBOddSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockBMemRefType, ldsBlockBDoubleSubviewOp, ldsBlockBOddOffsetConstantIndexOp);
 
     // Get 2D subviews.
-    // TBD. compute matrix B dimension from attributes.
-    auto lds2DMatrixBHeight = 16;
-    auto lds2DMatrixBWidth = 16;
+    // Compute matrix B dimension from attributes.
+    // Original C++ logic.
+    // // B matrix in LDS memory, dst of blockwise copy
+    // //   be careful of LDS alignment
+    // constexpr auto b_k_n_block_desc = make_native_tensor_descriptor_aligned(
+    //     Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
+    auto lds2DMatrixBHeight = KPerBlock;
+    auto lds2DMatrixBWidth = NPerBlock;
     auto lds2DMatrixBMemRefType =
         MemRefType::get({lds2DMatrixBHeight, lds2DMatrixBWidth}, b.getF32Type(), {}, ldsMemorySpace);
 
@@ -952,6 +1070,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Alloc for Matrix C on registers.
     // TBD compute register size from attributes.
+    // Original C++ logic.
+    // constexpr index_t GemmMRepeat = MPerBlock / (MPerThread * MLevel0Cluster * MLevel1Cluster);
+    // constexpr index_t GemmNRepeat = NPerBlock / (NPerThread * NLevel0Cluster * NLevel1Cluster);
+    // constexpr auto c_m0m1_n0n1_thread_mtx_desc = make_ConstantMatrixDescriptor_packed(
+    //     Number<GemmMRepeat * MPerThread>{}, Number<GemmNRepeat * NPerThread>{});
     auto threadCRegisterSize = 1024;
     auto threadCRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadCRegisterSize);
     auto threadCRegisterMemRefType =
