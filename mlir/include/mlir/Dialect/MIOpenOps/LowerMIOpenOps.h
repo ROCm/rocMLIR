@@ -852,10 +852,10 @@ template struct Conv2DRewritePattern<miopen::Conv2DBwdDataOp>;
 // GridwiseGemm lowering.
 //===----------------------------------------------------------------------===//
 
-struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemmExOp> {
-  using OpRewritePattern<miopen::GridwiseGemmExOp>::OpRewritePattern;
+struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemmOp> {
+  using OpRewritePattern<miopen::GridwiseGemmOp>::OpRewritePattern;
 
-  PatternMatchResult matchAndRewrite(miopen::GridwiseGemmExOp op, PatternRewriter &b) const override {
+  PatternMatchResult matchAndRewrite(miopen::GridwiseGemmOp op, PatternRewriter &b) const override {
     // Prepare some useful constants.
     auto zeroConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 0);
     auto oneConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 1);
