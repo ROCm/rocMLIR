@@ -27,16 +27,16 @@ void AffixTuningParameters::runOnFunction() {
 
     op.setAttr("m_per_block", b.getI32IntegerAttr(128));
     op.setAttr("n_per_block", b.getI32IntegerAttr(128));
-    op.setAttr("k_per_block", b.getI32IntegerAttr(16));
+    op.setAttr("k_per_block", b.getI32IntegerAttr(8));
 
-    op.setAttr("m_per_thread", b.getI32IntegerAttr(64));
-    op.setAttr("n_per_thread", b.getI32IntegerAttr(64));
-    op.setAttr("k_per_thread", b.getI32IntegerAttr(16));
+    op.setAttr("m_per_thread", b.getI32IntegerAttr(4));
+    op.setAttr("n_per_thread", b.getI32IntegerAttr(4));
+    op.setAttr("k_per_thread", b.getI32IntegerAttr(4));
 
-    op.setAttr("m_level0_cluster", b.getI32IntegerAttr(16));
-    op.setAttr("n_level0_cluster", b.getI32IntegerAttr(16));
-    op.setAttr("m_level1_cluster", b.getI32IntegerAttr(16));
-    op.setAttr("n_level1_cluster", b.getI32IntegerAttr(16));
+    op.setAttr("m_level0_cluster", b.getI32IntegerAttr(4));
+    op.setAttr("n_level0_cluster", b.getI32IntegerAttr(4));
+    op.setAttr("m_level1_cluster", b.getI32IntegerAttr(4));
+    op.setAttr("n_level1_cluster", b.getI32IntegerAttr(4));
 
     op.setAttr("matrix_a_source_vector_read_dim", b.getI32IntegerAttr(0));
     op.setAttr("matrix_a_source_data_per_read", b.getI32IntegerAttr(4));
