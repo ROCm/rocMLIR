@@ -975,10 +975,18 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t KPerBlock = op.getAttr("k_per_block").dyn_cast<IntegerAttr>().getInt();
     int64_t MPerBlock = op.getAttr("m_per_block").dyn_cast<IntegerAttr>().getInt();
     int64_t NPerBlock = op.getAttr("n_per_block").dyn_cast<IntegerAttr>().getInt();
+    int64_t MPerThread = op.getAttr("m_per_thread").dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerThread = op.getAttr("n_per_thread").dyn_cast<IntegerAttr>().getInt();
+    int64_t MLevel0Cluster = op.getAttr("m_level0_cluster").dyn_cast<IntegerAttr>().getInt();
+    int64_t MLevel1Cluster = op.getAttr("m_level1_cluster").dyn_cast<IntegerAttr>().getInt();
+    int64_t NLevel0Cluster = op.getAttr("n_level0_cluster").dyn_cast<IntegerAttr>().getInt();
+    int64_t NLevel1Cluster = op.getAttr("n_level1_cluster").dyn_cast<IntegerAttr>().getInt();
 
+    // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
     std::tie(ldsBlockASize, ldsBlockBSize, ldsBlockSize) = computeLDSBlockByteSizes(op);
 
+    // Allocate LDS.
     auto ldsBlockSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockSize);
     auto ldsMemRefType =
         MemRefType::get({ldsBlockSize}, b.getIntegerType(8), {}, ldsMemorySpace);
@@ -1069,22 +1077,25 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
 
     // Alloc for Matrix C on registers.
-    // TBD compute register size from attributes.
+    // Compute register size from attributes.
     // Original C++ logic.
     // constexpr index_t GemmMRepeat = MPerBlock / (MPerThread * MLevel0Cluster * MLevel1Cluster);
     // constexpr index_t GemmNRepeat = NPerBlock / (NPerThread * NLevel0Cluster * NLevel1Cluster);
     // constexpr auto c_m0m1_n0n1_thread_mtx_desc = make_ConstantMatrixDescriptor_packed(
     //     Number<GemmMRepeat * MPerThread>{}, Number<GemmNRepeat * NPerThread>{});
-    auto threadCRegisterSize = 1024;
+    int64_t GemmMRepeat = MPerBlock / (MPerThread * MLevel0Cluster * MLevel1Cluster);
+    int64_t GemmNRepeat = NPerBlock / (NPerThread * NLevel0Cluster * NLevel1Cluster);
+
+    auto threadCRegisterSize = (GemmMRepeat * MPerThread) * (GemmNRepeat * NPerThread);
     auto threadCRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadCRegisterSize);
     auto threadCRegisterMemRefType =
         MemRefType::get({threadCRegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
     auto threadCAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadCRegisterMemRefType, threadCRegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
 
     // Subviews for Matrix C.
-    // TBD. compute matrix C dimension from attributes.
-    auto register2DMatrixCHeight = 16;
-    auto register2DMatrixCWidth = 16;
+    // Compute matrix C dimension from attributes.
+    auto register2DMatrixCHeight = (GemmMRepeat * MPerThread);
+    auto register2DMatrixCWidth = (GemmNRepeat * NPerThread);
     auto register2DMatrixCMemRefType =
         MemRefType::get({register2DMatrixCHeight, register2DMatrixCWidth}, b.getF32Type(), {}, registerMemorySpace);
 
