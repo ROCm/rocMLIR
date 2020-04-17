@@ -1,4 +1,5 @@
 add_llvm_library(MLIRMIOpenTransforms
+  AffixTuningParameters.cpp
   AffineTransforms.cpp
 
   ADDITIONAL_HEADER_DIRS

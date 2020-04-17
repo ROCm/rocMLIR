@@ -36,7 +36,10 @@ std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsStep2Pass();
 std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsStep3Pass();
 
 /// Create a pass to convert transform operations to affine maps.
-std::unique_ptr<OpPassBase<FuncOp>> createLowerTransformPass();
+std::unique_ptr<OpPassBase<FuncOp>> createAffineTransformPass();
+
+/// Create a pass to affix tuning parameters to gridwise gemm ops.
+std::unique_ptr<OpPassBase<FuncOp>> createAffixTuningParametersPass();
 
 } // namespace miopen
 } // namespace mlir

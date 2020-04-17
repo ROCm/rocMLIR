@@ -163,7 +163,7 @@ void AffineTransforms::runOnFunction() {
   });
 }
 
-std::unique_ptr<OpPassBase<FuncOp>> mlir::miopen::createLowerTransformPass() {
+std::unique_ptr<OpPassBase<FuncOp>> mlir::miopen::createAffineTransformPass() {
   return std::make_unique<AffineTransforms>();
 }
 
