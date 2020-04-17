@@ -959,6 +959,36 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
        2 * (a_block_space + b_block_space) * opElementTypeWidthInByte);
   }
 
+  void affixBlockwiseGemmAttributes(miopen::BlockwiseGemmOp bop, miopen::GridwiseGemmOp gop) const {
+    // Add attributes from C++ template arguments and ctor arguments.
+    //const auto blockwise_gemm = BlockwiseGemmBlockABlockBThreadCTransANormalBNormalC_v2<
+    //    BlockSize,
+    //    decltype(a_k_m_block_mtx_desc),
+    //    decltype(b_k_n_block_mtx_desc),
+    //    decltype(c_m0m1_n0n1_thread_mtx_desc),
+    //    MPerThread,
+    //    NPerThread,
+    //    MLevel0Cluster,
+    //    NLevel0Cluster,
+    //    MLevel1Cluster,
+    //    NLevel1Cluster,
+    //    KPerThread,
+    //    ThreadGemmAThreadCopySrcDataPerRead_M,
+    //    ThreadGemmBThreadCopySrcDataPerRead_N>{};
+    bop.setAttr("block_size", gop.getAttr("block_size"));
+    bop.setAttr("m_per_thread", gop.getAttr("m_per_thread"));
+    bop.setAttr("n_per_thread", gop.getAttr("n_per_thread"));
+    bop.setAttr("k_per_thread", gop.getAttr("k_per_thread"));
+    bop.setAttr("m_level0_cluster", gop.getAttr("m_level0_cluster"));
+    bop.setAttr("m_level1_cluster", gop.getAttr("m_level1_cluster"));
+    bop.setAttr("n_level0_cluster", gop.getAttr("n_level0_cluster"));
+    bop.setAttr("n_level0_cluster", gop.getAttr("n_level1_cluster"));
+    bop.setAttr("matrix_a_source_vector_read_dim", gop.getAttr("matrix_a_source_vector_read_dim"));
+    bop.setAttr("matrix_b_source_vector_read_dim", gop.getAttr("matrix_b_source_vector_read_dim"));
+    bop.setAttr("matrix_a_source_data_per_read", gop.getAttr("matrix_a_source_data_per_read"));
+    bop.setAttr("matrix_b_source_data_per_read", gop.getAttr("matrix_b_source_data_per_read"));
+  }
+
   PatternMatchResult matchAndRewrite(miopen::GridwiseGemmOp op, PatternRewriter &b) const override {
     // Prepare some useful constants.
     auto zeroConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 0);
@@ -1142,20 +1172,44 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //                                       decltype(a_k_m_block_desc),
     //                                       decltype(a_k_m_block_desc.GetLengths()),
     //                                       ABlockCopyThreadSliceLengths_K_M,
+    //                                       -> GemmABlockCopyThreadSliceLengths_GemmK_GemmM
+    //                                       -> Sequence<GemmABlockCopyThreadSliceLengths_GemmK, GemmABlockCopyThreadSliceLengths_GemmM>
+    //                                          -> GemmKPerBlock / GemmABlockCopyClusterLengths_GemmK
+    //                                          -> GemmKPerBlock / (GemmKPerBlock / matrix_a_source_data_per_read)
+    //                                          -> GemmMPerBlock / GemmABlockCopyClusterLengths_GemmM
+    //                                          -> GemmMPerBlock / (GemmMPerBlock / (MPerBlock * KPerBlock / BlockSize) / matrix_a_source_data_per_read)
+
     //                                       ABlockCopyThreadClusterLengths_K_M,
+    //                                       -> GemmABlockCopyThreadClusterLengths_GemmK_GemmM
+    //                                       -> Sequence<GemmABlockCopyClusterLengths_GemmK, GemmABlockCopyClusterLengths_GemmM>
+    //                                          -> GemmKPerBlock / matrix_a_source_data_per_read
+    //                                          -> GemmMPerBlock / (MPerBlock * KPerBlock / BlockSize) / matrix_a_source_data_per_read)
+
     //                                       ABlockCopyThreadClusterArrangeOrder,
+    //                                       -> Sequence<1, 0>
+
     //                                       ABlockCopySrcAccessOrder,
+    //                                       -> Sequence<1, 0>
+
     //                                       Sequence<0, 1>,
+
     //                                       ABlockCopySrcVectorReadDim,
+    //                                       -> from op attribute
+
     //                                       1,
+
     //                                       ABlockCopySrcDataPerRead,
+    //                                       -> from op attribute
+
     //                                       ABlockCopyDstDataPerWrite_M,
+    //                                       -> from op attribute
+
     //                                       AddressSpace::Global,
     //                                       AddressSpace::Vgpr,
     //                                       AddressSpace::Lds,
     //                                       InMemoryDataOperation::Set>(
     //        {0, m_block_data_on_global}, {0, 0});
-    //
+
     //// B matrix blockwise copy
     //auto b_blockwise_copy =
     //    BlockwiseGenericTensorSliceCopy_v4<BlockSize,
@@ -1192,29 +1246,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Blockwise copy from global (generic tensor) to register (naive tensor).
     auto blockwiseCopyOpAEven = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAEvenAllocOp);
-    // TBD. compute block_slice_copy_steps and set in the attribute.
-    blockwiseCopyOpAEven.setAttr("move_source_slice_window", b.getI32IntegerAttr(8));
+    // Compute block_slice_copy_steps and set in the attribute.
+    blockwiseCopyOpAEven.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
     auto blockwiseCopyOpBEven = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBEvenAllocOp);
-    // TBD. compute block_slice_copy_steps and set in the attribute.
-    blockwiseCopyOpBEven.setAttr("move_source_slice_window", b.getI32IntegerAttr(8));
+    // Compute block_slice_copy_steps and set in the attribute.
+    blockwiseCopyOpBEven.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
 
     // Emit blockwise GEMM.
-    // TBD add attributes from C++ template arguments and ctor arguments.
-    //const auto blockwise_gemm = BlockwiseGemmBlockABlockBThreadCTransANormalBNormalC_v2<
-    //    BlockSize,
-    //    decltype(a_k_m_block_mtx_desc),
-    //    decltype(b_k_n_block_mtx_desc),
-    //    decltype(c_m0m1_n0n1_thread_mtx_desc),
-    //    MPerThread,
-    //    NPerThread,
-    //    MLevel0Cluster,
-    //    NLevel0Cluster,
-    //    MLevel1Cluster,
-    //    NLevel1Cluster,
-    //    KPerThread,
-    //    ThreadGemmAThreadCopySrcDataPerRead_M,
-    //    ThreadGemmBThreadCopySrcDataPerRead_N>{};
-    lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp, register2DMatrixCSubviewOp);
+    auto blockwiseGemmEvenOp = lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp, register2DMatrixCSubviewOp);
+    affixBlockwiseGemmAttributes(blockwiseGemmEvenOp, op);
 
     // Blockwise copy from reigster (naitve tensor) to LDS (naive tensor).
     lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadAEvenAllocOp, ldsBlockAOddSubviewOp);
@@ -1225,15 +1265,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Blockwise copy from global (generic tensor) to register (naive tensor).
     auto blockwiseCopyOpAOdd = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAOddAllocOp);
-    // TBD. compute block_slice_copy_steps and set in the attribute.
-    blockwiseCopyOpAOdd.setAttr("move_source_slice_window", b.getI32IntegerAttr(8));
+    // Compute block_slice_copy_steps and set in the attribute.
+    blockwiseCopyOpAOdd.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
     auto blockwiseCopyOpBOdd = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBOddAllocOp);
-    // TBD. compute block_slice_copy_steps and set in the attribute.
-    blockwiseCopyOpBOdd.setAttr("move_source_slice_window", b.getI32IntegerAttr(8));
+    // Compute block_slice_copy_steps and set in the attribute.
+    blockwiseCopyOpBOdd.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
 
     // Emit blockwise GEMM.
-    lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp, register2DMatrixCSubviewOp);
-    // TBD add attributes.
+    auto blockwiseGemmOddOp = lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp, register2DMatrixCSubviewOp);
+    affixBlockwiseGemmAttributes(blockwiseGemmOddOp, op);
 
     // Blockwise copy from reigster (naitve tensor) to LDS (naive tensor).
     lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadAOddAllocOp, ldsBlockAEvenSubviewOp);
@@ -1247,10 +1287,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Emit blockwise GEMM for the loop tail.
     if (loopIteration % 2) {
-      b.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp, register2DMatrixCSubviewOp);
-      // TBD add attributes.
+      auto blockwiseGemmTailEvenOp = b.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp, register2DMatrixCSubviewOp);
+      affixBlockwiseGemmAttributes(blockwiseGemmTailEvenOp, op);
     } else {
-      b.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp, register2DMatrixCSubviewOp);
+      auto blockwiseGemmTailOddOp = b.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp, register2DMatrixCSubviewOp);
+      affixBlockwiseGemmAttributes(blockwiseGemmTailOddOp, op);
     }
 
     // Threadwise copy from register (naive tensor) to global (generic tensor).
