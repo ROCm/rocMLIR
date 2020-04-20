@@ -54,6 +54,7 @@ struct LowerMIOpenOpsToLLVMPass : public FunctionPass<LowerMIOpenOpsToLLVMPass> 
 
 void LowerMIOpenOpsToLLVMPass::runOnFunction() {
   FuncOp func = getFunction();
+  LLVMTypeConverter converter(&getContext());
 
   func.walk([&](miopen::TransformOp op) {
     op.replaceAllUsesWith(op.input());
@@ -82,6 +83,37 @@ void LowerMIOpenOpsToLLVMPass::runOnFunction() {
   });
 
   func.walk([&](miopen::GpuAllocOp op) {
+    auto loc = op.getLoc();
+    auto sizeBytes = op.sizeBytes().getDefiningOp()->getAttr("value").dyn_cast<IntegerAttr>().getInt();
+    auto type = op.output().getType().cast<MemRefType>();
+
+    OpBuilder b(op.getContext());
+
+    if (type.getMemorySpace() == 5) {
+      // Create llvm.mlir.alloca for VGPRs.
+      b.setInsertionPointToStart(op.getOperation()->getBlock());
+      auto ptrType = converter.convertType(type.getElementType())
+                         .cast<LLVM::LLVMType>().getPointerTo();
+
+      auto *llvmDialect = b.getContext()->getRegisteredDialect<LLVM::LLVMDialect>();
+
+      auto int64Ty = LLVM::LLVMType::getInt64Ty(llvmDialect);
+      auto numElements = b.create<LLVM::ConstantOp>(loc, int64Ty, b.getIntegerAttr(b.getIndexType(), sizeBytes));
+      auto allocated = b.create<LLVM::AllocaOp>(loc, ptrType, numElements, 0);
+      op.replaceAllUsesWith(allocated.res());
+    } else if (type.getMemorySpace() == 3) {
+      // Create llvm.mlir.global for LDS.
+      b.setInsertionPointToStart(op.getOperation()->getParentOp()->getBlock());
+      auto elementType = converter.convertType(type.getElementType()).cast<LLVM::LLVMType>();
+      auto arrayType = LLVM::LLVMType::getArrayTy(elementType, sizeBytes);
+      StringRef name = "lds_buffer";
+      auto globalOp = b.create<LLVM::GlobalOp>(loc, arrayType.cast<LLVM::LLVMType>(),
+                                               /*isConstant=*/false, LLVM::Linkage::Internal, name,
+                                               /*value=*/Attribute(), 3);
+      b.setInsertionPoint(op);
+      auto addrOfOp = b.create<LLVM::AddressOfOp>(loc, globalOp);
+      op.replaceAllUsesWith(addrOfOp.res());
+    }
     op.erase();
   });
 }
