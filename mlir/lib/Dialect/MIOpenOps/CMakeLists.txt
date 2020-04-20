@@ -10,4 +10,5 @@ target_link_libraries(MLIRMIOpenOps LLVMSupport)
 
 add_subdirectory(CppOutput)
 add_subdirectory(Driver)
+add_subdirectory(LLVMOutput)
 add_subdirectory(Transform)
