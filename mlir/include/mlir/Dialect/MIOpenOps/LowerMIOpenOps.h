@@ -1562,3 +1562,37 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
     return matchSuccess();
   }
 }; 
+
+//===----------------------------------------------------------------------===//
+// Fill lowering.
+//===----------------------------------------------------------------------===//
+
+struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
+  using OpRewritePattern<miopen::FillOp>::OpRewritePattern;
+
+  PatternMatchResult matchAndRewrite(miopen::FillOp op, PatternRewriter &b) const override {
+    auto loc = op.getLoc();
+    auto inputType = op.input().getType().cast<MemRefType>();
+    auto inputShape = inputType.getShape();
+
+    auto value = op.value().getDefiningOp()->getAttr("value").dyn_cast<IntegerAttr>().getInt();
+    auto valueOp = b.create<ConstantIntOp>(loc, value, 8);
+
+    auto zero = b.create<ConstantIndexOp>(loc, 0);
+    auto one = b.create<ConstantIndexOp>(loc, 1);
+    auto loopIteration = b.create<ConstantIndexOp>(loc, inputShape[0]);
+    auto loopOp = b.create<loop::ForOp>(loc, zero, loopIteration, one);
+
+    // inside loop.
+    auto lb = loopOp.getBodyBuilder();
+
+    for (unsigned i = 0; i < inputShape[0]; ++i) {
+      auto iter = b.create<ConstantIndexOp>(loc, i);
+      auto storeOp = lb.create<StoreOp>(loc, valueOp, op.input(), ValueRange{iter});
+    }
+
+    op.erase();
+    return matchSuccess();
+  }
+};
+ 
