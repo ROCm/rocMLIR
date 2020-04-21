@@ -27,6 +27,8 @@
 #include "mlir/Dialect/MIOpenOps/MIOpenOps.h"
 #include "mlir/Dialect/MIOpenOps/Passes.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/IR/AffineExpr.h"
+#include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
@@ -89,16 +91,30 @@ void LowerMIOpenOpsToStdPass::runOnModule() {
     });
 
     func.walk([&](miopen::SubviewOp op) {
+      OpBuilder b(op.getContext());
+      b.setInsertionPoint(op);
+
       auto loc = op.getLoc();
       auto outputType = op.output().getType().cast<MemRefType>();
       auto outputShape = outputType.getShape();
       auto inputType = op.input().getType().cast<MemRefType>();
       auto inputShape = inputType.getShape();
+      auto inputAffineMaps = inputType.getAffineMaps();
 
-      OpBuilder b(op.getContext());
-      b.setInsertionPoint(op);
+      auto offset = op.offset().getDefiningOp()->getAttr("value").dyn_cast<IntegerAttr>().getInt();
+      auto expr = getAffineDimExpr(0, op.getContext()) + getAffineConstantExpr(offset, op.getContext());
+      AffineMap transformAffineMap = AffineMap::get(1, 0, ArrayRef<AffineExpr>{expr});
+      AffineMap outputAffineMap;
+      if (inputAffineMaps.size() != 0) {
+        auto inputAffineMap = inputAffineMaps[0];
+        outputAffineMap = inputAffineMap.compose(transformAffineMap);
+      } else {
+        outputAffineMap = transformAffineMap;
+      }
 
-      auto subviewOp = b.create<SubViewOp>(loc, op.output().getType(), op.input());
+      auto transformedOutputType = MemRefType::get(outputShape, outputType.getElementType(),
+                                                   {outputAffineMap}, outputType.getMemorySpace());
+      auto subviewOp = b.create<SubViewOp>(loc, transformedOutputType, op.input());
       op.replaceAllUsesWith(subviewOp.getResult());
       op.erase();
     });
