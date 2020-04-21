@@ -23,13 +23,10 @@ class FuncOp;
 class ModuleOp;
 template <typename T> class OpPassBase;
 
-void populateMIOpenOpsToLLVMConversionPatterns(LLVMTypeConverter &converter,
-                                               OwningRewritePatternList &patterns);
-
 namespace miopen {
 
-/// Create a pass to convert MIOpen operations to LLVM operations.
-std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsToLLVMPass();
+/// Create a pass to convert MIOpen operations to std operations.
+std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsToStdPass();
 
 } // namespace miopen
 } // namespace mlir

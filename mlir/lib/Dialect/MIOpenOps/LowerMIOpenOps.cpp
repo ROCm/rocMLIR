@@ -73,6 +73,7 @@ void LowerMIOpenOpsStep2Pass::runOnModule() {
 
 void LowerMIOpenOpsStep3Pass::runOnModule() {
   OwningRewritePatternList patterns;
+  patterns.insert<FillRewritePattern>(&getContext());
   patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
   patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
   applyPatternsGreedily(getModule(), patterns);
