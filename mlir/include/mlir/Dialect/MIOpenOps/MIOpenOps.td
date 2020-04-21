@@ -181,9 +181,9 @@ def MIOpen_ThreadwiseCopyOp:
 // blockwise_gemm
 def MIOpen_BlockwiseGemmOp:
     MIOpen_Op<"blockwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32], [2]>,
-                   MemRefRankOf<[F32], [2]>,
-                   MemRefRankOf<[F32], [2]>)> {
+    Arguments<(ins AnyMemRef:$matrixA, // MemRefRankOf<[F32], [2]>,
+                   AnyMemRef:$matrixB, // MemRefRankOf<[F32], [2]>,
+                   AnyMemRef:$matrixC)> { // MemRefRankOf<[F32], [2]>)> {
   let summary = "Blockwise GEMM";
   let description = [{
     The `miopen.block_gemm` op does GEMM at workgroup (block) level.
@@ -195,9 +195,9 @@ def MIOpen_BlockwiseGemmOp:
 // threadwise_gemm
 def MIOpen_ThreadwiseGemmOp:
     MIOpen_Op<"threadwise_gemm">,
-    Arguments<(ins AnyMemRef,
-                   AnyMemRef,
-                   AnyMemRef)> {
+    Arguments<(ins AnyMemRef:$matrixA,
+                   AnyMemRef:$matrixB,
+                   AnyMemRef:$matrixC)> {
   let summary = "Threadwise GEMM";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.

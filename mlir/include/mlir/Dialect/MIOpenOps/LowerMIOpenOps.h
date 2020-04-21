@@ -1054,18 +1054,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //     Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
     auto lds2DMatrixAHeight = KPerBlock;
     auto lds2DMatrixAWidth = MPerBlock;
-    auto lds2DMatrixAMemRefType =
-        MemRefType::get({lds2DMatrixAHeight, lds2DMatrixAWidth}, b.getF32Type(), {}, ldsMemorySpace);
 
-    llvm::SmallVector<int64_t, 2> lds2DMatrixADim {lds2DMatrixAHeight, lds2DMatrixAWidth};
-    llvm::SmallVector<NamedAttribute, 8> lds2DMatrixADimAttr {
-        b.getNamedAttr("dimensions", b.getI64ArrayAttr(lds2DMatrixADim)),
-    };
+    //auto lds2DMatrixAMemRefType =
+    //    MemRefType::get({lds2DMatrixAHeight, lds2DMatrixAWidth}, b.getF32Type(), {}, ldsMemorySpace);
+
+    //llvm::SmallVector<int64_t, 2> lds2DMatrixADim {lds2DMatrixAHeight, lds2DMatrixAWidth};
+    //llvm::SmallVector<NamedAttribute, 8> lds2DMatrixADimAttr {
+    //    b.getNamedAttr("dimensions", b.getI64ArrayAttr(lds2DMatrixADim)),
+    //};
  
-    auto lds2DMatrixAEvenSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), lds2DMatrixAMemRefType, ldsBlockAEvenSubviewOp, zeroConstantIndexOp);
-    lds2DMatrixAEvenSubviewOp.setAttrs(lds2DMatrixADimAttr);
-    auto lds2DMatrixAOddSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), lds2DMatrixAMemRefType, ldsBlockAOddSubviewOp, zeroConstantIndexOp);
-    lds2DMatrixAOddSubviewOp.setAttrs(lds2DMatrixADimAttr);
+    //auto lds2DMatrixAEvenSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), lds2DMatrixAMemRefType, ldsBlockAEvenSubviewOp, zeroConstantIndexOp);
+    //lds2DMatrixAEvenSubviewOp.setAttrs(lds2DMatrixADimAttr);
+    //auto lds2DMatrixAOddSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), lds2DMatrixAMemRefType, ldsBlockAOddSubviewOp, zeroConstantIndexOp);
+    //lds2DMatrixAOddSubviewOp.setAttrs(lds2DMatrixADimAttr);
  
 
     // Subviews for Matrix B.
@@ -1096,18 +1097,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //     Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
     auto lds2DMatrixBHeight = KPerBlock;
     auto lds2DMatrixBWidth = NPerBlock;
-    auto lds2DMatrixBMemRefType =
-        MemRefType::get({lds2DMatrixBHeight, lds2DMatrixBWidth}, b.getF32Type(), {}, ldsMemorySpace);
 
-    llvm::SmallVector<int64_t, 2> lds2DMatrixBDim {lds2DMatrixBHeight, lds2DMatrixBWidth};
-    llvm::SmallVector<NamedAttribute, 1> lds2DMatrixBDimAttr {
-        b.getNamedAttr("dimensions", b.getI64ArrayAttr(lds2DMatrixBDim)),
-    };
+    //auto lds2DMatrixBMemRefType =
+    //    MemRefType::get({lds2DMatrixBHeight, lds2DMatrixBWidth}, b.getF32Type(), {}, ldsMemorySpace);
 
-    auto lds2DMatrixBEvenSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), lds2DMatrixBMemRefType, ldsBlockBEvenSubviewOp, zeroConstantIndexOp);
-    lds2DMatrixBEvenSubviewOp.setAttrs(lds2DMatrixBDimAttr);
-    auto lds2DMatrixBOddSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), lds2DMatrixBMemRefType, ldsBlockBOddSubviewOp, zeroConstantIndexOp);
-    lds2DMatrixBOddSubviewOp.setAttrs(lds2DMatrixBDimAttr);
+    //llvm::SmallVector<int64_t, 2> lds2DMatrixBDim {lds2DMatrixBHeight, lds2DMatrixBWidth};
+    //llvm::SmallVector<NamedAttribute, 1> lds2DMatrixBDimAttr {
+    //    b.getNamedAttr("dimensions", b.getI64ArrayAttr(lds2DMatrixBDim)),
+    //};
+
+    //auto lds2DMatrixBEvenSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), lds2DMatrixBMemRefType, ldsBlockBEvenSubviewOp, zeroConstantIndexOp);
+    //lds2DMatrixBEvenSubviewOp.setAttrs(lds2DMatrixBDimAttr);
+    //auto lds2DMatrixBOddSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), lds2DMatrixBMemRefType, ldsBlockBOddSubviewOp, zeroConstantIndexOp);
+    //lds2DMatrixBOddSubviewOp.setAttrs(lds2DMatrixBDimAttr);
 
 
     // Alloc for Matrix C on registers.
@@ -1130,17 +1132,18 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Compute matrix C dimension from attributes.
     auto register2DMatrixCHeight = (GemmMRepeat * MPerThread);
     auto register2DMatrixCWidth = (GemmNRepeat * NPerThread);
-    auto register2DMatrixCMemRefType =
-        MemRefType::get({register2DMatrixCHeight, register2DMatrixCWidth}, b.getF32Type(), {}, registerMemorySpace);
 
-    llvm::SmallVector<int64_t, 2> register2DMatrixCDim {register2DMatrixCHeight, register2DMatrixCWidth};
-    llvm::SmallVector<NamedAttribute, 1> register2DMatrixCDimAttr {
-        b.getNamedAttr("dimensions", b.getI64ArrayAttr(register2DMatrixCDim)),
-    };
+    //auto register2DMatrixCMemRefType =
+    //    MemRefType::get({register2DMatrixCHeight, register2DMatrixCWidth}, b.getF32Type(), {}, registerMemorySpace);
 
-    auto register2DMatrixCSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), register2DMatrixCMemRefType, threadCAllocOp, zeroConstantIndexOp);
-    register2DMatrixCSubviewOp.setAttrs(register2DMatrixCDimAttr);
- 
+    //llvm::SmallVector<int64_t, 2> register2DMatrixCDim {register2DMatrixCHeight, register2DMatrixCWidth};
+    //llvm::SmallVector<NamedAttribute, 1> register2DMatrixCDimAttr {
+    //    b.getNamedAttr("dimensions", b.getI64ArrayAttr(register2DMatrixCDim)),
+    //};
+
+    //auto register2DMatrixCSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), register2DMatrixCMemRefType, threadCAllocOp, zeroConstantIndexOp);
+    //register2DMatrixCSubviewOp.setAttrs(register2DMatrixCDimAttr);
+
 
     // Alloc for Matrix A / B on registers.
     // TBD. compute thread A / B on registers from attributes.
@@ -1253,7 +1256,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     blockwiseCopyOpBEven.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
 
     // Emit blockwise GEMM.
-    auto blockwiseGemmEvenOp = lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp, register2DMatrixCSubviewOp);
+    //auto blockwiseGemmEvenOp = lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp, register2DMatrixCSubviewOp);
+    auto blockwiseGemmEvenOp = lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), ldsBlockAEvenSubviewOp, ldsBlockBEvenSubviewOp, threadCAllocOp);
     affixBlockwiseGemmAttributes(blockwiseGemmEvenOp, op);
 
     // Blockwise copy from reigster (naitve tensor) to LDS (naive tensor).
@@ -1272,7 +1276,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     blockwiseCopyOpBOdd.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
 
     // Emit blockwise GEMM.
-    auto blockwiseGemmOddOp = lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp, register2DMatrixCSubviewOp);
+    //auto blockwiseGemmOddOp = lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp, register2DMatrixCSubviewOp);
+    auto blockwiseGemmOddOp = lb.create<miopen::BlockwiseGemmOp>(op.getLoc(), ldsBlockAOddSubviewOp, ldsBlockBOddSubviewOp, threadCAllocOp);
     affixBlockwiseGemmAttributes(blockwiseGemmOddOp, op);
 
     // Blockwise copy from reigster (naitve tensor) to LDS (naive tensor).
@@ -1287,10 +1292,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Emit blockwise GEMM for the loop tail.
     if (loopIteration % 2) {
-      auto blockwiseGemmTailEvenOp = b.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp, register2DMatrixCSubviewOp);
+      //auto blockwiseGemmTailEvenOp = b.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp, register2DMatrixCSubviewOp);
+      auto blockwiseGemmTailEvenOp = b.create<miopen::BlockwiseGemmOp>(op.getLoc(), ldsBlockAEvenSubviewOp, ldsBlockBEvenSubviewOp, threadCAllocOp);
       affixBlockwiseGemmAttributes(blockwiseGemmTailEvenOp, op);
     } else {
-      auto blockwiseGemmTailOddOp = b.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp, register2DMatrixCSubviewOp);
+      //auto blockwiseGemmTailOddOp = b.create<miopen::BlockwiseGemmOp>(op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp, register2DMatrixCSubviewOp);
+      auto blockwiseGemmTailOddOp = b.create<miopen::BlockwiseGemmOp>(op.getLoc(), ldsBlockAOddSubviewOp, ldsBlockBOddSubviewOp, threadCAllocOp);
       affixBlockwiseGemmAttributes(blockwiseGemmTailOddOp, op);
     }
 
@@ -1312,7 +1319,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //      n_thread_data_on_global / N1,
     //      n_thread_data_on_global % N1})
     //     .Run(p_c_thread, p_c_global);
-    b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), register2DMatrixCSubviewOp, op.getOperand(2));
+    //b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), register2DMatrixCSubviewOp, op.getOperand(2));
+    b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), threadCAllocOp, op.getOperand(2));
 
     op.erase();
 

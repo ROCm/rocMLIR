@@ -98,15 +98,9 @@ void LowerMIOpenOpsToStdPass::runOnModule() {
       OpBuilder b(op.getContext());
       b.setInsertionPoint(op);
 
-      if (outputShape.size() == 2) {
-        auto viewOp = b.create<ViewOp>(loc, op.output().getType(), op.input(), ArrayRef<Value>{});
-        op.replaceAllUsesWith(viewOp.getResult());
-        op.erase();
-      } else {
-        auto subviewOp = b.create<SubViewOp>(loc, op.output().getType(), op.input());
-        op.replaceAllUsesWith(subviewOp.getResult());
-        op.erase();
-      }
+      auto subviewOp = b.create<SubViewOp>(loc, op.output().getType(), op.input());
+      op.replaceAllUsesWith(subviewOp.getResult());
+      op.erase();
     });
 
     func.walk([&](miopen::LdsBarrierOp op) {
