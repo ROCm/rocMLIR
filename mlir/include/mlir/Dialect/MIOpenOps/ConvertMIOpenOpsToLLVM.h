@@ -29,7 +29,7 @@ void populateMIOpenOpsToLLVMConversionPatterns(LLVMTypeConverter &converter,
 namespace miopen {
 
 /// Create a pass to convert MIOpen operations to LLVM operations.
-std::unique_ptr<OpPassBase<FuncOp>> createLowerMIOpenOpsToLLVMPass();
+std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsToLLVMPass();
 
 } // namespace miopen
 } // namespace mlir
