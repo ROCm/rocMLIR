@@ -69,11 +69,6 @@ void LowerMIOpenOpsToLLVMPass::runOnFunction() {
     op.erase();
   });
 
-  func.walk([&](miopen::SubviewOp op) {
-    op.replaceAllUsesWith(op.input());
-    op.erase();
-  });
-
   func.walk([&](miopen::ThreadwiseGemmOp op) {
     op.erase();
   });
@@ -114,6 +109,39 @@ void LowerMIOpenOpsToLLVMPass::runOnFunction() {
       auto addrOfOp = b.create<LLVM::AddressOfOp>(loc, globalOp);
       op.replaceAllUsesWith(addrOfOp.res());
     }
+    op.erase();
+  });
+
+  func.walk([&](miopen::SubviewOp op) {
+    OpBuilder b(op.getContext());
+    b.setInsertionPoint(op);
+    auto *llvmDialect = b.getContext()->getRegisteredDialect<LLVM::LLVMDialect>();
+
+    auto loc = op.getLoc();
+    auto type = op.input().getType();
+    auto llvmType = type.cast<LLVM::LLVMType>();
+
+    auto int32Ty = LLVM::LLVMType::getInt32Ty(llvmDialect);
+    auto offset = op.offset().getDefiningOp()->getAttr("value").dyn_cast<IntegerAttr>().getInt();
+    Value offsetValue = b.create<LLVM::ConstantOp>(loc, int32Ty, b.getI32IntegerAttr(offset));
+
+    // inputType would have been converted to LLVMType already.
+    auto inputType = op.input().getType().cast<LLVM::LLVMType>();
+    auto inputAddrSpace = dyn_cast<llvm::PointerType>(inputType.getUnderlyingType())->getAddressSpace();
+
+    auto gepOp = b.create<LLVM::GEPOp>(loc, inputType, ArrayRef<Value>({offsetValue}));
+
+    auto outputType = op.output().getType().cast<MemRefType>();
+    auto outputElementType = converter.convertType(outputType.getElementType()).cast<LLVM::LLVMType>();
+    
+    auto outputShape = outputType.getShape();
+    LLVM::LLVMType outputLLVMType = outputElementType;
+    for (int i = outputShape.size() - 1; i >= 0; --i) { 
+      outputLLVMType = LLVM::LLVMType::getArrayTy(outputLLVMType, outputShape[i]);
+    }
+    auto bitcastOp = b.create<LLVM::BitcastOp>(loc, outputLLVMType.getPointerTo(inputAddrSpace), gepOp);
+
+    op.replaceAllUsesWith(bitcastOp.res());
     op.erase();
   });
 }
