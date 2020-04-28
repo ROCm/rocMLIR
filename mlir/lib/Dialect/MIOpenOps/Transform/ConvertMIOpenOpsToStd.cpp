@@ -77,45 +77,53 @@ void LowerMIOpenOpsToStdPass::runOnModule() {
       auto loc = op.getLoc();
       auto type = op.output().getType().cast<MemRefType>();
 
+      // XXX, always use memory space 0 for LLVM output.
+      auto zeroedOutputType = MemRefType::get(type.getShape(), type.getElementType(),
+                                              type.getAffineMaps(), 0);
+
       OpBuilder b(op.getContext());
       b.setInsertionPoint(op);
       if (type.getMemorySpace() == 5) {
         // TBD. rebase with latest MLIR and switch to std.alloca.
-        auto allocated = b.create<AllocOp>(loc, type);
+        //auto allocated = b.create<AllocOp>(loc, type);
+        auto allocated = b.create<AllocOp>(loc, zeroedOutputType);
         op.replaceAllUsesWith(allocated.getResult());
       } else if (type.getMemorySpace() == 3) {
-        auto allocated = b.create<AllocOp>(loc, type);
+        //auto allocated = b.create<AllocOp>(loc, type);
+        auto allocated = b.create<AllocOp>(loc, zeroedOutputType);
         op.replaceAllUsesWith(allocated.getResult());
       }
       op.erase();
     });
 
     func.walk([&](miopen::SubviewOp op) {
-      OpBuilder b(op.getContext());
-      b.setInsertionPoint(op);
+      // XXX std.subview lowering to LLVM seems buggy.
+      //OpBuilder b(op.getContext());
+      //b.setInsertionPoint(op);
 
-      auto loc = op.getLoc();
-      auto outputType = op.output().getType().cast<MemRefType>();
-      auto outputShape = outputType.getShape();
-      auto inputType = op.input().getType().cast<MemRefType>();
-      auto inputShape = inputType.getShape();
-      auto inputAffineMaps = inputType.getAffineMaps();
+      //auto loc = op.getLoc();
+      //auto outputType = op.output().getType().cast<MemRefType>();
+      //auto outputShape = outputType.getShape();
+      //auto inputType = op.input().getType().cast<MemRefType>();
+      //auto inputShape = inputType.getShape();
+      //auto inputAffineMaps = inputType.getAffineMaps();
 
-      auto offset = op.offset().getDefiningOp()->getAttr("value").dyn_cast<IntegerAttr>().getInt();
-      auto expr = getAffineDimExpr(0, op.getContext()) + getAffineConstantExpr(offset, op.getContext());
-      AffineMap transformAffineMap = AffineMap::get(1, 0, ArrayRef<AffineExpr>{expr});
-      AffineMap outputAffineMap;
-      if (inputAffineMaps.size() != 0) {
-        auto inputAffineMap = inputAffineMaps[0];
-        outputAffineMap = inputAffineMap.compose(transformAffineMap);
-      } else {
-        outputAffineMap = transformAffineMap;
-      }
+      //auto offset = op.offset().getDefiningOp()->getAttr("value").dyn_cast<IntegerAttr>().getInt();
+      //auto expr = getAffineDimExpr(0, op.getContext()) + getAffineConstantExpr(offset, op.getContext());
+      //AffineMap transformAffineMap = AffineMap::get(1, 0, ArrayRef<AffineExpr>{expr});
+      //AffineMap outputAffineMap;
+      //if (inputAffineMaps.size() != 0) {
+      //  auto inputAffineMap = inputAffineMaps[0];
+      //  outputAffineMap = inputAffineMap.compose(transformAffineMap);
+      //} else {
+      //  outputAffineMap = transformAffineMap;
+      //}
 
-      auto transformedOutputType = MemRefType::get(outputShape, outputType.getElementType(),
-                                                   {outputAffineMap}, outputType.getMemorySpace());
-      auto subviewOp = b.create<SubViewOp>(loc, transformedOutputType, op.input());
-      op.replaceAllUsesWith(subviewOp.getResult());
+      //auto transformedOutputType = MemRefType::get(outputShape, outputType.getElementType(),
+      //                                             {outputAffineMap}, outputType.getMemorySpace());
+      //auto subviewOp = b.create<SubViewOp>(loc, transformedOutputType, op.input());
+      //op.replaceAllUsesWith(subviewOp.getResult());
+      op.replaceAllUsesWith(op.input());
       op.erase();
     });
 
