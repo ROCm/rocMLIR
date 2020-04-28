@@ -174,3 +174,13 @@ llvm.func @rocdl.mubuf(%rsrc : vector<4xi32>, %vindex : i32,
   llvm.return
 }
 
+// CHECK-LABEL: @alloca_non_zero_addrspace
+llvm.func @alloca_non_zero_addrspace(%size : !llvm.i64) {
+  // Alignment automatically set by the LLVM IR builder when alignment attribute
+  // is 0.
+  //  CHECK: alloca {{.*}} align 4, addrspace(5)
+  llvm.alloca %size x !llvm.i32 {alignment = 0} : (!llvm.i64) -> (!llvm<"i32 addrspace(5)*">)
+  // CHECK-NEXT: alloca {{.*}} align 8, addrspace(5)
+  llvm.alloca %size x !llvm.i32 {alignment = 8} : (!llvm.i64) -> (!llvm<"i32 addrspace(5)*">)
+  llvm.return
+}

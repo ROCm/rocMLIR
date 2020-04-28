@@ -1221,6 +1221,12 @@ std::unique_ptr<llvm::Module> ModuleTranslation::prepareLLVMModule(
           m->getAttr(LLVM::LLVMDialect::getTargetTripleAttrName()))
     llvmModule->setTargetTriple(targetTripleAttr.cast<StringAttr>().getValue());
 
+  // Set target triple string.
+  llvmModule->setTargetTriple(triple);
+
+  // Set data layout string.
+  llvmModule->setDataLayout(dataLayout);
+
   // Inject declarations for `malloc` and `free` functions that can be used in
   // memref allocation/deallocation coming from standard ops lowering.
   llvm::IRBuilder<> builder(llvmContext);

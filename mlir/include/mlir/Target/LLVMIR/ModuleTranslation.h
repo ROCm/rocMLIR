@@ -49,6 +49,13 @@ class LLVMFuncOp;
 /// needs to look up block and function mappings.
 class ModuleTranslation {
 public:
+  // TODO: Currently there is no way to specify target triple and data layout
+  // in Std -> LLVM dialect conversion yet, this interface exposes a way to
+  // inject custom target triple and data layout when translating from LLVM
+  // dialect to LLVM IR.
+  //
+  // Once Std -> LLVM dialect conversion honors target triple and data
+  // layout this interface shall be revised.
   template <typename T = ModuleTranslation>
   static std::unique_ptr<llvm::Module>
   translateModule(Operation *m, llvm::LLVMContext &llvmContext,
