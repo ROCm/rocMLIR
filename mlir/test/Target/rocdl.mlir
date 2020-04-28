@@ -1,5 +1,8 @@
 // RUN: mlir-translate -mlir-to-rocdlir %s | FileCheck %s
 
+// CHECK: target datalayout = "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-ni:7"
+// CHECK-NEXT: target triple = "amdgcn-amd-amdhsa"
+
 llvm.func @rocdl_special_regs() -> !llvm.i32 {
   // CHECK-LABEL: rocdl_special_regs
   // CHECK: call i32 @llvm.amdgcn.workitem.id.x()
@@ -174,3 +177,13 @@ llvm.func @rocdl.mubuf(%rsrc : !llvm<"<4 x i32>">, %vindex : !llvm.i32,
   llvm.return
 }
 
+// CHECK-LABEL: @alloca_non_zero_addrspace
+llvm.func @alloca_non_zero_addrspace(%size : !llvm.i64) {
+  // Alignment automatically set by the LLVM IR builder when alignment attribute
+  // is 0.
+  //  CHECK: alloca {{.*}} align 4, addrspace(5)
+  llvm.alloca %size x !llvm.i32 {alignment = 0} : (!llvm.i64) -> (!llvm<"i32 addrspace(5)*">)
+  // CHECK-NEXT: alloca {{.*}} align 8, addrspace(5)
+  llvm.alloca %size x !llvm.i32 {alignment = 8} : (!llvm.i64) -> (!llvm<"i32 addrspace(5)*">)
+  llvm.return
+}

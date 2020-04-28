@@ -220,8 +220,10 @@ def LLVM_AllocaOp :
     LLVM_OneResultOp<"alloca">,
     Arguments<(ins LLVM_Type:$arraySize, OptionalAttr<I64Attr>:$alignment)> {
   string llvmBuilder = [{
+    llvm::Module *module = builder.GetInsertBlock()->getModule();
+    auto allocaAddrSpace = module->getDataLayout().getAllocaAddrSpace();
     auto *alloca = builder.CreateAlloca(
-      $_resultType->getPointerElementType(), $arraySize);
+      $_resultType->getPointerElementType(), allocaAddrSpace, $arraySize);
     if ($alignment.hasValue()) {
       auto align = $alignment.getValue().getZExtValue();
       if (align != 0)

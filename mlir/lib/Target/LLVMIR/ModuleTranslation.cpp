@@ -812,7 +812,8 @@ ModuleTranslation::lookupValues(ValueRange values) {
 }
 
 std::unique_ptr<llvm::Module>
-ModuleTranslation::prepareLLVMModule(Operation *m) {
+ModuleTranslation::prepareLLVMModule(Operation *m, StringRef triple,
+                                     StringRef dataLayout) {
   auto *dialect = m->getContext()->getRegisteredDialect<LLVM::LLVMDialect>();
   assert(dialect && "LLVM dialect must be registered");
   // Lock the LLVM context as we might create new types here.
@@ -824,6 +825,12 @@ ModuleTranslation::prepareLLVMModule(Operation *m) {
 
   llvm::LLVMContext &llvmContext = llvmModule->getContext();
   llvm::IRBuilder<> builder(llvmContext);
+
+  // Set target triple string.
+  llvmModule->setTargetTriple(triple);
+
+  // Set data layout string.
+  llvmModule->setDataLayout(dataLayout);
 
   // Inject declarations for `malloc` and `free` functions that can be used in
   // memref allocation/deallocation coming from standard ops lowering.
