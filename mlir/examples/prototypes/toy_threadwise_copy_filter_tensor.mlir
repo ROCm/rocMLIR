@@ -1,27 +1,27 @@
-#map0 = (d_gemmK, d_gemmM) -> (d_gemmM, d_gemmK floordiv 9, (d_gemmK mod 9) floordiv 3, (d_gemmK mod 9) mod 3)
+#map0 = affine_map<(d_gemmK, d_gemmM) -> (d_gemmM, d_gemmK floordiv 9, (d_gemmK mod 9) floordiv 3, (d_gemmK mod 9) mod 3)>
 
 // diff map on gemmK dimension with delta 1
-#map_gemmK_delta1_carry_000 = (d2, d3, d4) -> (d2, d3, d4 + 1)
-#map_gemmK_delta1_carry_001 = (d2, d3, d4) -> (d2, d3 + 1, d4 + 1 - 3)
-#map_gemmK_delta1_carry_011 = (d2, d3, d4) -> (d2 + 1, d3 + 1 - 3, d4 + 1 - 3)
-#map_gemmK_delta1_carry_generic = (d2, d3, d4) -> (
+#map_gemmK_delta1_carry_000 = affine_map<(d2, d3, d4) -> (d2, d3, d4 + 1)>
+#map_gemmK_delta1_carry_001 = affine_map<(d2, d3, d4) -> (d2, d3 + 1, d4 + 1 - 3)>
+#map_gemmK_delta1_carry_011 = affine_map<(d2, d3, d4) -> (d2 + 1, d3 + 1 - 3, d4 + 1 - 3)>
+#map_gemmK_delta1_carry_generic = affine_map<(d2, d3, d4) -> (
                                                    d2 + (d3 + (d4 + 1) floordiv 3) floordiv 3,
                                                    (d3 + (d4 + 1) floordiv 3) mod 3,
                                                    (d4 + 1) mod 3
-                                                  )
+                                                  )>
 
 // NOTE: this map is actually invalid as it's NOT possible for d4 to not carry while d3 carries.
-#map_gemmK_delta1_carry_010 = (d2, d3, d4) -> (d2 + 1, d3 + 1 - 3, d4 + 1)
+#map_gemmK_delta1_carry_010 = affine_map<(d2, d3, d4) -> (d2 + 1, d3 + 1 - 3, d4 + 1)>
 
 
 
 // diff map on gemmK dimension with delta 8 -> (0, 2, 2)
-#map_gemmK_delta8_carry_000 = (d2, d3, d4) -> (d2, d3 + 2, d4 + 2)
-#map_gemmK_delta8_carry_011 = (d2, d3, d4) -> (d2 + 1, d3, d4 - 1)
-#map_gemmK_delta8_carry_010 = (d2, d3, d4) -> (d2 + 1, d3 - 1, d4 + 2)
+#map_gemmK_delta8_carry_000 = affine_map<(d2, d3, d4) -> (d2, d3 + 2, d4 + 2)>
+#map_gemmK_delta8_carry_011 = affine_map<(d2, d3, d4) -> (d2 + 1, d3, d4 - 1)>
+#map_gemmK_delta8_carry_010 = affine_map<(d2, d3, d4) -> (d2 + 1, d3 - 1, d4 + 2)>
 
 // NOTE: this map is actually invalid as it's NOT possible for d4 to carry while d4 NOT carry.
-#map_gemmK_delta8_carry_001 = (d2, d3, d4) -> (d2, d3 + 3, d4 - 1)
+#map_gemmK_delta8_carry_001 = affine_map<(d2, d3, d4) -> (d2, d3 + 3, d4 - 1)>
 
 
 module {
