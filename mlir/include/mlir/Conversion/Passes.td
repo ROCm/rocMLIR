@@ -519,4 +519,14 @@ def ConvertVectorToSPIRV : Pass<"convert-vector-to-spirv", "ModuleOp"> {
   let dependentDialects = ["spirv::SPIRVDialect"];
 }
 
+//===----------------------------------------------------------------------===//
+// MIOpenToGPU
+//===----------------------------------------------------------------------===//
+
+def ConvertMIOpenToGPU : Pass<"convert-miopen-to-gpu", "ModuleOp"> {
+  let summary = "Lower the operations from the MIOpen dialect into the GPU "
+                "dialect";
+  let constructor = "mlir::createLowerMIOpenOpsToGPUPass()";
+}
+
 #endif // MLIR_CONVERSION_PASSES

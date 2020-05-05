@@ -19,16 +19,12 @@
 
 namespace mlir {
 class LLVMTypeConverter;
-class FuncOp;
-class ModuleOp;
-template <typename T> class OpPassBase;
-
-namespace miopen {
+class TypeConverter;
+class Pass;
 
 /// Create a pass to convert MIOpen operations to std operations.
-std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsToStdPass();
+std::unique_ptr<Pass> createLowerMIOpenOpsToGPUPass();
 
-} // namespace miopen
 } // namespace mlir
 
 #endif // MLIR_DIALECT_MIOPEN_CONVERT_MIOPEN_OPS_TO_LLVM_H

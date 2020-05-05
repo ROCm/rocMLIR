@@ -17,29 +17,27 @@
 #include "llvm/ADT/ArrayRef.h"
 
 namespace mlir {
-class FuncOp;
-class ModuleOp;
-template <typename T> class OpPassBase;
+class Pass;
 
 namespace miopen {
 
 /// Create a pass to convert MIOpen conv2d operations to transform and
 /// gridwise_gemm operations.
-std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsStep1Pass();
+std::unique_ptr<Pass> createLowerMIOpenOpsStep1Pass();
 
 /// Create a pass to convert MIOpen gridwise_gemm operations to blockwise
 /// operations.
-std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsStep2Pass();
+std::unique_ptr<Pass> createLowerMIOpenOpsStep2Pass();
 
 /// Create a pass to convert MIOpen blockwise operations to threadwise
 /// operations.
-std::unique_ptr<OpPassBase<ModuleOp>> createLowerMIOpenOpsStep3Pass();
+std::unique_ptr<Pass> createLowerMIOpenOpsStep3Pass();
 
 /// Create a pass to convert transform operations to affine maps.
-std::unique_ptr<OpPassBase<FuncOp>> createAffineTransformPass();
+std::unique_ptr<Pass> createAffineTransformPass();
 
 /// Create a pass to affix tuning parameters to gridwise gemm ops.
-std::unique_ptr<OpPassBase<FuncOp>> createAffixTuningParametersPass();
+std::unique_ptr<Pass> createAffixTuningParametersPass();
 
 } // namespace miopen
 } // namespace mlir

@@ -134,3 +134,5 @@ add_mlir_translation_library(MLIRTargetROCDLIR
   MLIRROCDLIR
   MLIRTargetLLVMIRModuleTranslation
   )
+
+add_subdirectory(CppOutput)

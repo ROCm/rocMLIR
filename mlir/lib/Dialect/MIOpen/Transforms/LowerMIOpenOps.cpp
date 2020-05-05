@@ -20,11 +20,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/MIOpenOps/LowerMIOpenOps.h"
+#include "PassDetail.h"
+#include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 
-#include "mlir/Dialect/MIOpenOps/MIOpenOps.h"
-#include "mlir/Dialect/MIOpenOps/Passes.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
@@ -45,60 +46,48 @@
 using namespace mlir;
 
 namespace {
-struct LowerMIOpenOpsStep1Pass : public ModulePass<LowerMIOpenOpsStep1Pass> {
-  void runOnModule() override;
+struct LowerMIOpenOpsStep1Pass : public MIOpenOpsStep1PassBase<LowerMIOpenOpsStep1Pass> {
+  void runOnOperation() override;
 };
 
-struct LowerMIOpenOpsStep2Pass : public ModulePass<LowerMIOpenOpsStep1Pass> {
-  void runOnModule() override;
+struct LowerMIOpenOpsStep2Pass : public MIOpenOpsStep2PassBase<LowerMIOpenOpsStep2Pass> {
+  void runOnOperation() override;
 };
 
-struct LowerMIOpenOpsStep3Pass : public ModulePass<LowerMIOpenOpsStep1Pass> {
-  void runOnModule() override;
+struct LowerMIOpenOpsStep3Pass : public MIOpenOpsStep3PassBase<LowerMIOpenOpsStep3Pass> {
+  void runOnOperation() override;
 };
 } // end anonymous namespace
 
-void LowerMIOpenOpsStep1Pass::runOnModule() {
+void LowerMIOpenOpsStep1Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DOp>>(&getContext());
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(&getContext());
-  applyPatternsGreedily(getModule(), patterns);
+  applyPatternsAndFoldGreedily(getOperation(), patterns);
 }
 
-void LowerMIOpenOpsStep2Pass::runOnModule() {
+void LowerMIOpenOpsStep2Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<GridwiseGemmRewritePattern>(&getContext());
-  applyPatternsGreedily(getModule(), patterns);
+  applyPatternsAndFoldGreedily(getOperation(), patterns);
 }
 
-void LowerMIOpenOpsStep3Pass::runOnModule() {
+void LowerMIOpenOpsStep3Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<FillRewritePattern>(&getContext());
   patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
   patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
-  applyPatternsGreedily(getModule(), patterns);
+  applyPatternsAndFoldGreedily(getOperation(), patterns);
 }
 
-std::unique_ptr<OpPassBase<ModuleOp>> mlir::miopen::createLowerMIOpenOpsStep1Pass() {
+std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep1Pass() {
   return std::make_unique<LowerMIOpenOpsStep1Pass>();
 }
 
-std::unique_ptr<OpPassBase<ModuleOp>> mlir::miopen::createLowerMIOpenOpsStep2Pass() {
+std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep2Pass() {
   return std::make_unique<LowerMIOpenOpsStep2Pass>();
 }
 
-std::unique_ptr<OpPassBase<ModuleOp>> mlir::miopen::createLowerMIOpenOpsStep3Pass() {
+std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep3Pass() {
   return std::make_unique<LowerMIOpenOpsStep3Pass>();
 }
-
-static PassRegistration<LowerMIOpenOpsStep1Pass>
-    lowerMIOpenOpsStep1Pass("miopen-lowering",
-                       "Lower MIOpen conv2d into transform and gridwise_gemm.");
-
-static PassRegistration<LowerMIOpenOpsStep2Pass>
-    lowerMIOpenOpsStep2Pass("miopen-lowering-step2",
-                       "Lower MIOpen gridwise_gemm into blockwise ops.");
-
-static PassRegistration<LowerMIOpenOpsStep3Pass>
-    lowerMIOpenOpsStep3Pass("miopen-lowering-step3",
-                       "Lower MIOpen blockwise ops into threadwise ops.");

@@ -1,5 +1,7 @@
-#include "mlir/Dialect/MIOpenOps/MIOpenOps.h"
-#include "mlir/Dialect/MIOpenOps/Passes.h"
+#include "PassDetail.h"
+
+#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/StandardTypes.h"
@@ -11,7 +13,7 @@
 using namespace mlir;
 
 namespace {
-struct AffixTuningParameters : public FunctionPass<AffixTuningParameters> {
+struct AffixTuningParameters : public MIOpenOpsAffixTuningParametersPassBase<AffixTuningParameters> {
   void runOnFunction() override;
 };
 } // anonymous namespace
@@ -51,10 +53,6 @@ void AffixTuningParameters::runOnFunction() {
   });
 }
 
-std::unique_ptr<OpPassBase<FuncOp>> mlir::miopen::createAffixTuningParametersPass() {
+std::unique_ptr<Pass> mlir::miopen::createAffixTuningParametersPass() {
   return std::make_unique<AffixTuningParameters>();
 }
-
-static PassRegistration<AffixTuningParameters>
-  pass("miopen-affix-params", "Affix tuning parameters to miopen.gridwise_gemm operations");
-

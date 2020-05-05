@@ -19,21 +19,16 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
-#include "mlir/Transforms/LoopLikeInterface.h"
 
 namespace mlir {
 namespace miopen {
 
 enum ConvOpType { Conv2DOpType, Conv2DBwdDataOpType, Conv2DBwdWeightOpType };
 
-class MIOpenOpsDialect : public Dialect {
-public:
-  MIOpenOpsDialect(MLIRContext *context);
-  static StringRef getDialectNamespace() { return "miopen"; }
-};
+#include "mlir/Dialect/MIOpen/MIOpenOpsDialect.h.inc"
 
 #define GET_OP_CLASSES
-#include "mlir/Dialect/MIOpenOps/MIOpenOps.h.inc"
+#include "mlir/Dialect/MIOpen/MIOpenOps.h.inc"
 
 } // end namespace miopen
 } // end namespace mlir

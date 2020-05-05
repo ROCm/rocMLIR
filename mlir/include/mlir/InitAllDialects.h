@@ -29,6 +29,7 @@
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Dialect/OpenACC/OpenACC.h"
+#include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/Dialect/PDL/IR/PDL.h"
 #include "mlir/Dialect/PDLInterp/IR/PDLInterp.h"
@@ -62,6 +63,7 @@ inline void registerAllDialects(DialectRegistry &registry) {
                   linalg::LinalgDialect,
                   scf::SCFDialect,
                   omp::OpenMPDialect,
+                  miopen::MIOpenDialect,
                   pdl::PDLDialect,
                   pdl_interp::PDLInterpDialect,
                   quant::QuantizationDialect,

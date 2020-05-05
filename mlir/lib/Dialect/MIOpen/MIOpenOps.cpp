@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/MIOpenOps/MIOpenOps.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Matchers.h"
@@ -17,28 +17,26 @@
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/MathExtras.h"
-#include "mlir/Support/STLExtras.h"
-#include "mlir/Transforms/SideEffectsInterface.h"
 
 using namespace mlir;
 using namespace mlir::miopen;
 
 //===----------------------------------------------------------------------===//
-// MIOpenOpsDialect Interfaces
+// MIOpenDialect Interfaces
 //===----------------------------------------------------------------------===//
 namespace {
 
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// MIOpenOpsDialect
+// MIOpenDialect
 //===----------------------------------------------------------------------===//
 
-MIOpenOpsDialect::MIOpenOpsDialect(MLIRContext *context)
+MIOpenDialect::MIOpenDialect(MLIRContext *context)
     : Dialect(getDialectNamespace(), context) {
   addOperations<
 #define GET_OP_LIST
-#include "mlir/Dialect/MIOpenOps/MIOpenOps.cpp.inc"
+#include "mlir/Dialect/MIOpen/MIOpenOps.cpp.inc"
       >();
 }
 
@@ -111,7 +109,7 @@ static ParseResult parseTransformOp(OpAsmParser &parser, OperationState &result)
 static void print(OpAsmPrinter &p, TransformOp op) {
   p << op.getOperationName() << "(" << op.getOperand() << ")";
   p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperand()->getType() << " to " << op.getType();
+  p << " : " << op.getOperand().getType() << " to " << op.getType();
 }
 
 static LogicalResult verify(TransformOp op) {
@@ -217,7 +215,7 @@ static ParseResult parseSubviewOp(OpAsmParser &parser, OperationState &result) {
 static void print(OpAsmPrinter &p, miopen::SubviewOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperands()[0]->getType() << " to " << op.getType();
+  p << " : " << op.getOperands()[0].getType() << " to " << op.getType();
 }
 
 static LogicalResult verify(miopen::SubviewOp op) {
@@ -245,7 +243,7 @@ static ParseResult parseFillOp(OpAsmParser &parser, OperationState &result) {
 
 static void print(OpAsmPrinter &p, FillOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p << " : " << op.getOperands()[0]->getType();
+  p << " : " << op.getOperands()[0].getType();
 }
 
 static LogicalResult verify(FillOp op) {
@@ -369,4 +367,4 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
 //===----------------------------------------------------------------------===//
 
 #define GET_OP_CLASSES
-#include "mlir/Dialect/MIOpenOps/MIOpenOps.cpp.inc"
+#include "mlir/Dialect/MIOpen/MIOpenOps.cpp.inc"

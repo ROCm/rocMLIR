@@ -1,21 +1,26 @@
-add_llvm_library(MLIRMIOpenTransforms
+add_mlir_dialect_library(MLIRMIOpenTransforms
   AffixTuningParameters.cpp
   AffineTransforms.cpp
-  ConvertMIOpenOpsToStd.cpp
+  LowerMIOpenOps.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Transforms
-)
 
-add_dependencies(MLIRMIOpenTransforms
-  MLIRMIOpenOpsIncGen
+  DEPENDS
+  MLIRMIOpenPassIncGen
   MLIRStandardOps
   MLIRLoopToStandard
-  )
+)
 
 target_link_libraries(MLIRMIOpenTransforms
-  MLIRAnalysis
+  PUBLIC
+  MLIRIR
+  MLIRLoopOps
+  MLIRLLVMIR
   MLIRMIOpenOps
   MLIRPass
+  MLIRStandardOps
+  MLIRSupport
   MLIRTransformUtils
+  LLVMSupport
   )

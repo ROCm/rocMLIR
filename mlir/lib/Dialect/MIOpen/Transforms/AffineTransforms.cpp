@@ -1,5 +1,7 @@
-#include "mlir/Dialect/MIOpenOps/MIOpenOps.h"
-#include "mlir/Dialect/MIOpenOps/Passes.h"
+#include "PassDetail.h"
+
+#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Function.h"
@@ -14,7 +16,7 @@
 using namespace mlir;
 
 namespace {
-struct AffineTransforms : public FunctionPass<AffineTransforms> {
+struct AffineTransforms : public MIOpenOpsAffineTransformPassBase<AffineTransforms> {
   void runOnFunction() override;
 
 private:
@@ -128,7 +130,7 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
     affExprsVec.push_back(affExprsMap[i]);
   }
 
-  auto transformAffineMap = AffineMap::get(outputLayoutAttr.size(), 0, affExprsVec);
+  auto transformAffineMap = AffineMap::get(outputLayoutAttr.size(), 0, affExprsVec, op.getContext());
   AffineMap outputAffineMap;
 
   if (inputAffineMaps.size() != 0) {
@@ -162,10 +164,7 @@ void AffineTransforms::runOnFunction() {
   });
 }
 
-std::unique_ptr<OpPassBase<FuncOp>> mlir::miopen::createAffineTransformPass() {
+std::unique_ptr<Pass> mlir::miopen::createAffineTransformPass() {
   return std::make_unique<AffineTransforms>();
 }
-
-static PassRegistration<AffineTransforms>
-  pass("miopen-affine-transform", "Build affine maps from miopen.transform operations");
 

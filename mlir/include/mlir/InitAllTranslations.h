@@ -25,6 +25,7 @@ void registerToROCDLIRTranslation();
 void registerArmNeonToLLVMIRTranslation();
 void registerAVX512ToLLVMIRTranslation();
 void registerArmSVEToLLVMIRTranslation();
+void registerToMIOpenCPPTranslation();
 
 // This function should be called before creating any MLIRContext if one
 // expects all the possible translations to be made available to the context
@@ -40,6 +41,7 @@ inline void registerAllTranslations() {
     registerArmNeonToLLVMIRTranslation();
     registerAVX512ToLLVMIRTranslation();
     registerArmSVEToLLVMIRTranslation();
+    registerToMIOpenCPPTranslation();
     return true;
   }();
   (void)initOnce;

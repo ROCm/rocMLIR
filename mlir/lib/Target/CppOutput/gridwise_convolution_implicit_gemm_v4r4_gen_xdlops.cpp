@@ -10,12 +10,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/MIOpenOps/MIOpenCPP.h"
-#include "mlir/Dialect/MIOpenOps/MIOpenOps.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Target/MIOpenCPP.h"
+#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
-#include "mlir/Support/STLExtras.h"
 #include "mlir/Translation.h"
 
 #include "llvm/ADT/DenseMap.h"

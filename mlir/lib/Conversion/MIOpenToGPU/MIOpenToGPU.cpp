@@ -1,4 +1,4 @@
-//===- ConvertMIOpenOpsToStd.cpp - MLIR MIOpen ops lowering passes ---------------===//
+//===- MIOpenToGPU.cpp - MLIR MIOpen ops lowering passes ---------------===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -19,14 +19,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/MIOpenOps/ConvertMIOpenOpsToStd.h"
+
+#include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
+#include "../PassDetail.h"
 
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/MIOpenOps/MIOpenOps.h"
-#include "mlir/Dialect/MIOpenOps/Passes.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
@@ -49,13 +51,13 @@
 using namespace mlir;
 
 namespace {
-struct LowerMIOpenOpsToStdPass : public ModulePass<LowerMIOpenOpsToStdPass> {
-  void runOnModule() override;
+struct LowerMIOpenOpsToGPUPass : public ConvertMIOpenToGPUBase<LowerMIOpenOpsToGPUPass> {
+  void runOnOperation() override;
 };
 } // end anonymous namespace
 
-void LowerMIOpenOpsToStdPass::runOnModule() {
-  auto m = getModule();
+void LowerMIOpenOpsToGPUPass::runOnOperation() {
+  auto m = getOperation();
 
   for (auto func : m.getOps<FuncOp>()) {
     LLVMTypeConverter converter(&getContext());
@@ -130,14 +132,15 @@ void LowerMIOpenOpsToStdPass::runOnModule() {
     func.walk([&](miopen::LdsBarrierOp op) {
       OpBuilder b(op.getContext());
       auto loc = op.getLoc();
-      if (!getModule().lookupSymbol<FuncOp>("lds_barrier")) {
+      auto module = op.getParentOfType<ModuleOp>();
+      if (!module.lookupSymbol<FuncOp>("lds_barrier")) {
         auto funcType = b.getFunctionType({}, {});
 
         StringRef funcName = "lds_barrier";
-        b.setInsertionPoint(getModule().getBody(), getModule().getBody()->begin());
+        b.setInsertionPoint(module.getBody(), module.getBody()->begin());
         auto func = b.create<FuncOp>(loc, funcName, funcType, ArrayRef<NamedAttribute>{});
       }
-      auto barrierFunc = getModule().lookupSymbol<FuncOp>("lds_barrier");
+      auto barrierFunc = module.lookupSymbol<FuncOp>("lds_barrier");
       b.setInsertionPoint(op);
       b.create<CallOp>(loc, ArrayRef<Type>{},
                        b.getSymbolRefAttr(barrierFunc),
@@ -147,10 +150,6 @@ void LowerMIOpenOpsToStdPass::runOnModule() {
   }
 }
 
-std::unique_ptr<OpPassBase<ModuleOp>> mlir::miopen::createLowerMIOpenOpsToStdPass() {
-  return std::make_unique<LowerMIOpenOpsToStdPass>();
+std::unique_ptr<Pass> mlir::createLowerMIOpenOpsToGPUPass() {
+  return std::make_unique<LowerMIOpenOpsToGPUPass>();
 }
-
-static PassRegistration<LowerMIOpenOpsToStdPass>
-    lowerMIOpenOpsToStdPass("miopen-lowering-step4",
-                       "Lower MIOpen ops to std dialect.");
