@@ -10,12 +10,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/MIOpenOps/MIOpenCPP.h"
-#include "mlir/Dialect/MIOpenOps/MIOpenOps.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Target/MIOpenCPP.h"
+#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
-#include "mlir/Support/STLExtras.h"
 #include "mlir/Translation.h"
 
 #include "llvm/ADT/DenseMap.h"
@@ -270,9 +269,9 @@ void EmitCppPreamble(llvm::raw_ostream &output, miopen::ConvOpType opType) {
 void EmitCppInterlude(llvm::raw_ostream &output, miopen::ConvOpType opType) {
   std::string gemmNameABlockCopySrcDataPerRead;
   if (opType == miopen::ConvOpType::Conv2DOpType) {
-    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[0];
+    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[0].str();
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
-    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[1];
+    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[1].str();
   }
   output << llvm::format(kCppInterludeFormat.data(),
                          gemmNameABlockCopySrcDataPerRead.c_str(),
@@ -307,9 +306,9 @@ void EmitCppEpilogue(llvm::raw_ostream &output,
 
   std::string gemmNameABlockCopySrcDataPerRead;
   if (opType == miopen::ConvOpType::Conv2DOpType) {
-    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[0];
+    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[0].str();
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
-    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[1];
+    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[1].str();
   }
   output << llvm::format(kCppEpiloguePart2Format.data(),
                          gemmNameABlockCopySrcDataPerRead.c_str(),
@@ -464,12 +463,12 @@ void EmitHeaderPreamble(llvm::raw_ostream &output,
     headerIncludeGuard = "IMPLICIT_GEMM_V4R4";
     commentGemmM = "K";
     commentGemmK = "C * Y * X";
-    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[0];
+    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[0].str();
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
     headerIncludeGuard = "BACKWARD_DATA_IMPLICIT_GEMM_V1R1";
     commentGemmM = "C * Y * X";
     commentGemmK = "K";
-    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[1];
+    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[1].str();
   }
   output << llvm::format(kHeaderPreamblePart1Format.data(),
                          headerIncludeGuard.c_str(), headerIncludeGuard.c_str(),
@@ -541,10 +540,10 @@ void EmitHeaderEpilogue(llvm::raw_ostream &output,
   std::string gemmNameABlockCopySrcDataPerRead;
   std::string gemmHeaderEpiloguePart3Sequence;
   if (opType == miopen::ConvOpType::Conv2DOpType) {
-    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[0];
+    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[0].str();
     gemmHeaderEpiloguePart3Sequence = "Sequence<0, 1>";
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
-    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[1];
+    gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[1].str();
     gemmHeaderEpiloguePart3Sequence = "Sequence<1, 0>";
   }
   output << llvm::format(kHeaderEpiloguePart3Format.data(),

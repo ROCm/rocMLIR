@@ -11,9 +11,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LoopOps/LoopOps.h"
-#include "mlir/Dialect/MIOpenOps/MIOpenOps.h"
-#include "mlir/Dialect/MIOpenOps/Passes.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
@@ -49,7 +49,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   const static miopen::ConvOpType convOpType;
   using OpRewritePattern<T>::OpRewritePattern;
 
-  PatternMatchResult matchAndRewrite(T op, PatternRewriter &b) const override {
+  LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
     auto filterLayoutAttr =
         op.template getAttrOfType<ArrayAttr>("filter_layout");
     auto inputLayoutAttr = op.template getAttrOfType<ArrayAttr>("input_layout");
@@ -61,7 +61,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto paddingAttr = op.template getAttrOfType<ArrayAttr>("padding");
 
     // Get shape of output tensor.
-    auto outputType = op.output().getType().dyn_cast<MemRefType>();
+    auto outputType = op.output().getType().template dyn_cast<MemRefType>();
     auto outputShape = outputType.getShape();
     // HO/WO dimension for output tensor.
     int64_t outputHDim, outputWDim;
@@ -70,7 +70,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // transforming input tensor.
     for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
       if (auto strAttr =
-              outputLayoutAttr.getValue()[i].dyn_cast<StringAttr>()) {
+              outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
         if (strAttr.getValue() == "ho") {
           outputHDim = i;
         } else if (strAttr.getValue() == "wo") {
@@ -80,7 +80,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     }
 
     // Transform filter tensor.
-    auto filterType = op.filter().getType().dyn_cast<MemRefType>();
+    auto filterType = op.filter().getType().template dyn_cast<MemRefType>();
     auto filterShape = filterType.getShape();
     auto filterElementType = filterType.getElementType();
     // Y/X dimension for filter tensor.
@@ -114,7 +114,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       StringAttr kDimName;
       for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
         if (auto strAttr =
-                filterLayoutAttr.getValue()[i].dyn_cast<StringAttr>()) {
+                filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
           if (strAttr.getValue() == "k") {
             kDim = b.getI32IntegerAttr(i);
             kDimName = strAttr;
@@ -221,7 +221,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Transform input tensor.
     // Input tensor step 1: padded input.
-    auto inputType = op.input().getType().dyn_cast<MemRefType>();
+    auto inputType = op.input().getType().template dyn_cast<MemRefType>();
     auto inputShape = inputType.getShape();
     auto inputElementType = inputType.getElementType();
 
@@ -247,7 +247,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       llvm::SmallVector<StringAttr, 2> hwDimNames;
       for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
         if (auto strAttr =
-                inputLayoutAttr.getValue()[i].dyn_cast<StringAttr>()) {
+                inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
           if (strAttr.getValue() == "ni") {
             nDim = b.getI32IntegerAttr(i);
             nDimName = strAttr;
@@ -663,7 +663,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       StringAttr kDimName;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
         if (auto strAttr =
-                outputLayoutAttr.getValue()[i].dyn_cast<StringAttr>()) {
+                outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
           if (strAttr.getValue() == "ko") {
             kDim = b.getI32IntegerAttr(i);
             kDimName = strAttr;
@@ -736,22 +736,22 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                       op.output(), transformedOutputAttrs);
 
     // compute right padding parameters.
-    auto leftPadH = paddingAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
-    auto leftPadW = paddingAttr.getValue()[1].dyn_cast<IntegerAttr>().getInt();
+    auto leftPadH = paddingAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+    auto leftPadW = paddingAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
     auto dilationH =
-        dilationsAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+        dilationsAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
     auto dilationW =
-        dilationsAttr.getValue()[1].dyn_cast<IntegerAttr>().getInt();
-    auto strideH = stridesAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
-    auto strideW = stridesAttr.getValue()[1].dyn_cast<IntegerAttr>().getInt();
+        dilationsAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+    auto strideH = stridesAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+    auto strideW = stridesAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
 
     // get y, x, ho, wo, hi, wi
     int64_t y, x, ho, wo, hi, wi;
     y = x = ho = wo = hi = wi = 0;
     for (unsigned i = 0; i < 4; ++i) {
-      auto filterAttr = filterLayoutAttr.getValue()[i].dyn_cast<StringAttr>();
-      auto inputAttr = inputLayoutAttr.getValue()[i].dyn_cast<StringAttr>();
-      auto outputAttr = outputLayoutAttr.getValue()[i].dyn_cast<StringAttr>();
+      auto filterAttr = filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+      auto inputAttr = inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+      auto outputAttr = outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
 
       if (filterAttr.getValue() == "y") {
         y = filterShape[i];
@@ -815,7 +815,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // Finally, erase the original Conv2D op.
     op.erase();
 
-    return this->matchSuccess();
+    return success();
   }
 };
 
@@ -915,19 +915,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   using OpRewritePattern<miopen::GridwiseGemmOp>::OpRewritePattern;
 
   std::tuple<int64_t, int64_t, int64_t> computeLDSBlockByteSizes(miopen::GridwiseGemmOp op) const {
-     int64_t ABlockCopyDstDataPerWrite_M = op.getAttr("matrix_a_dest_data_per_write_dim_m").dyn_cast<IntegerAttr>().getInt();
-     int64_t BBlockCopyDstDataPerWrite_N = op.getAttr("matrix_b_dest_data_per_write_dim_n").dyn_cast<IntegerAttr>().getInt();
-     int64_t ThreadGemmAThreadCopySrcDataPerRead_M = op.getAttr("m_per_thread").dyn_cast<IntegerAttr>().getInt();
-     int64_t ThreadGemmBThreadCopySrcDataPerRead_N = op.getAttr("n_per_thread").dyn_cast<IntegerAttr>().getInt();
+     int64_t ABlockCopyDstDataPerWrite_M = op.getAttr("matrix_a_dest_data_per_write_dim_m").template dyn_cast<IntegerAttr>().getInt();
+     int64_t BBlockCopyDstDataPerWrite_N = op.getAttr("matrix_b_dest_data_per_write_dim_n").template dyn_cast<IntegerAttr>().getInt();
+     int64_t ThreadGemmAThreadCopySrcDataPerRead_M = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+     int64_t ThreadGemmBThreadCopySrcDataPerRead_N = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
 
      int64_t max_lds_align = math::lcm(ABlockCopyDstDataPerWrite_M,
                                     BBlockCopyDstDataPerWrite_N,
                                     ThreadGemmAThreadCopySrcDataPerRead_M,
                                     ThreadGemmBThreadCopySrcDataPerRead_N);
 
-     int64_t KPerBlock = op.getAttr("k_per_block").dyn_cast<IntegerAttr>().getInt();
-     int64_t MPerBlock = op.getAttr("m_per_block").dyn_cast<IntegerAttr>().getInt();
-     int64_t NPerBlock = op.getAttr("n_per_block").dyn_cast<IntegerAttr>().getInt();
+     int64_t KPerBlock = op.getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
+     int64_t MPerBlock = op.getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+     int64_t NPerBlock = op.getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
 
      int64_t AlignedNPerBlock = max_lds_align * math::integer_divide_ceil<int64_t>(NPerBlock, max_lds_align);
 
@@ -950,7 +950,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
      //    math::integer_least_multiple(b_k_n_block_desc.GetElementSpace(), max_lds_align);
      int64_t b_block_space = math::integer_least_multiple(KPerBlock * AlignedNPerBlock, max_lds_align);
 
-     FloatType opElementType = op.getOperand(0).getType().dyn_cast<MemRefType>().getElementType().dyn_cast<FloatType>();
+     FloatType opElementType = op.getOperand(0).getType().template dyn_cast<MemRefType>().getElementType().template dyn_cast<FloatType>();
      unsigned opElementTypeWidthInByte = opElementType.getWidth() / 8;
 
      return std::make_tuple<int64_t, int64_t, int64_t>(
@@ -989,7 +989,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     bop.setAttr("matrix_b_source_data_per_read", gop.getAttr("matrix_b_source_data_per_read"));
   }
 
-  PatternMatchResult matchAndRewrite(miopen::GridwiseGemmOp op, PatternRewriter &b) const override {
+  LogicalResult matchAndRewrite(miopen::GridwiseGemmOp op, PatternRewriter &b) const override {
     // Prepare some useful constants.
     auto zeroConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 0);
     auto oneConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 1);
@@ -1001,20 +1001,20 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto registerMemorySpaceConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), registerMemorySpace);
 
     // Obtain critical matrix dimensions.
-    int64_t K = op.getOperand(0).getType().dyn_cast<MemRefType>().getShape()[0];
-    int64_t M = op.getOperand(0).getType().dyn_cast<MemRefType>().getShape()[1];
-    int64_t N = op.getOperand(1).getType().dyn_cast<MemRefType>().getShape()[1];
+    int64_t K = op.getOperand(0).getType().template dyn_cast<MemRefType>().getShape()[0];
+    int64_t M = op.getOperand(0).getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t N = op.getOperand(1).getType().template dyn_cast<MemRefType>().getShape()[1];
 
     // Obtain critical tuning parameters.
-    int64_t KPerBlock = op.getAttr("k_per_block").dyn_cast<IntegerAttr>().getInt();
-    int64_t MPerBlock = op.getAttr("m_per_block").dyn_cast<IntegerAttr>().getInt();
-    int64_t NPerBlock = op.getAttr("n_per_block").dyn_cast<IntegerAttr>().getInt();
-    int64_t MPerThread = op.getAttr("m_per_thread").dyn_cast<IntegerAttr>().getInt();
-    int64_t NPerThread = op.getAttr("n_per_thread").dyn_cast<IntegerAttr>().getInt();
-    int64_t MLevel0Cluster = op.getAttr("m_level0_cluster").dyn_cast<IntegerAttr>().getInt();
-    int64_t MLevel1Cluster = op.getAttr("m_level1_cluster").dyn_cast<IntegerAttr>().getInt();
-    int64_t NLevel0Cluster = op.getAttr("n_level0_cluster").dyn_cast<IntegerAttr>().getInt();
-    int64_t NLevel1Cluster = op.getAttr("n_level1_cluster").dyn_cast<IntegerAttr>().getInt();
+    int64_t KPerBlock = op.getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MPerBlock = op.getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerBlock = op.getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MPerThread = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerThread = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MLevel0Cluster = op.getAttr("m_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MLevel1Cluster = op.getAttr("m_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NLevel0Cluster = op.getAttr("n_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NLevel1Cluster = op.getAttr("n_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
 
     // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
@@ -1243,7 +1243,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto loopOp = b.create<loop::ForOp>(op.getLoc(), zeroConstantIndexOp, loopIterationConstantIndexOp, oneConstantIndexOp);
 
     // inside the loop.
-    auto lb = loopOp.getBodyBuilder();
+    auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
+
     // LDS barrier.
     lb.create<miopen::LdsBarrierOp>(op.getLoc());
 
@@ -1324,7 +1325,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     op.erase();
 
-    return matchSuccess();
+    return success();
   }
 };
 
@@ -1335,7 +1336,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGemmOp> {
   using OpRewritePattern<miopen::BlockwiseGemmOp>::OpRewritePattern;
 
-  PatternMatchResult naiveRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const {
+  LogicalResult naiveRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const {
     // Prepare some useful constants.
     auto zeroConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 0);
     auto oneConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 1);
@@ -1365,7 +1366,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     auto loopOp = b.create<loop::ForOp>(op.getLoc(), zeroConstantIndexOp, loopIterationConstantIndexOp, oneConstantIndexOp);
 
     // inside the main loop.
-    auto lb = loopOp.getBodyBuilder();
+    auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
  
     // read matrix A loop.
     // TBD. compute loop iterations from attributes.
@@ -1374,7 +1375,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     auto loopReadMatrixAOp = lb.create<loop::ForOp>(op.getLoc(), zeroConstantIndexOp, loopReadMatrixAIterationConstantIndexOp, oneConstantIndexOp);
 
     // inside read matrix A loop.
-    auto lab = loopReadMatrixAOp.getBodyBuilder();
+    auto lab = OpBuilder::atBlockTerminator(loopReadMatrixAOp.getBody());
 
     // Threadwise copy from LDS (naive tensor) to register (generic tensor).
     // TBD. add attribute from C++ template arguments.
@@ -1392,7 +1393,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     auto loopReadMatrixBOp = lb.create<loop::ForOp>(op.getLoc(), zeroConstantIndexOp, loopReadMatrixBIterationConstantIndexOp, oneConstantIndexOp);
 
     // inside read matrix A loop.
-    auto lbb = loopReadMatrixBOp.getBodyBuilder();
+    auto lbb = OpBuilder::atBlockTerminator(loopReadMatrixBOp.getBody());
 
     // Threadwise copy from LDS (naive tensor) to register (generic tensor).
     // TBD. add attribute from C++ template arguments.
@@ -1412,16 +1413,16 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     lb.create<miopen::ThreadwiseGemmOp>(op.getLoc(), threadAAllocOp, threadBAllocOp, op.getOperand(2));
 
     op.erase();
-    return matchSuccess();
+    return success();
   }
 
-  PatternMatchResult twoByTwoPipelinedRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const {
+  LogicalResult twoByTwoPipelinedRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const {
     // TBD implement 2x2 pipelined version.
     op.erase();
-    return matchSuccess();
+    return success();
   }
 
-  PatternMatchResult matchAndRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const override {
+  LogicalResult matchAndRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const override {
     // TBD condition upon attributes.
     if (true) {
       return naiveRewrite(op, b);
@@ -1438,13 +1439,13 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCopyOp> {
   using OpRewritePattern<miopen::BlockwiseCopyOp>::OpRewritePattern;
 
-  PatternMatchResult matchAndRewrite(miopen::BlockwiseCopyOp op, PatternRewriter &b) const override {
+  LogicalResult matchAndRewrite(miopen::BlockwiseCopyOp op, PatternRewriter &b) const override {
     bool rewritten = true;
 
     auto source = op.getOperand(0);
-    auto sourceType = source.getType().dyn_cast<MemRefType>();
+    auto sourceType = source.getType().template dyn_cast<MemRefType>();
     auto dest = op.getOperand(1);
-    auto destType = dest.getType().dyn_cast<MemRefType>();
+    auto destType = dest.getType().template dyn_cast<MemRefType>();
 
     // Check the address spaces of source and destination values and determine
     // lowering logic.
@@ -1567,7 +1568,7 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
 
     if (rewritten)
       op.erase();
-    return matchSuccess();
+    return success();
   }
 }; 
 
@@ -1578,12 +1579,12 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
 struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
   using OpRewritePattern<miopen::FillOp>::OpRewritePattern;
 
-  PatternMatchResult matchAndRewrite(miopen::FillOp op, PatternRewriter &b) const override {
+  LogicalResult matchAndRewrite(miopen::FillOp op, PatternRewriter &b) const override {
     auto loc = op.getLoc();
     auto inputType = op.input().getType().cast<MemRefType>();
     auto inputShape = inputType.getShape();
 
-    auto value = op.value().getDefiningOp()->getAttr("value").dyn_cast<IntegerAttr>().getInt();
+    auto value = op.value().getDefiningOp()->getAttr("value").template dyn_cast<IntegerAttr>().getInt();
     auto valueOp = b.create<ConstantIntOp>(loc, value, 8);
 
     auto zero = b.create<ConstantIndexOp>(loc, 0);
@@ -1592,7 +1593,7 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
     auto loopOp = b.create<loop::ForOp>(loc, zero, loopIteration, one);
 
     // inside loop.
-    auto lb = loopOp.getBodyBuilder();
+    auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
 
     for (unsigned i = 0; i < inputShape[0]; ++i) {
       auto iter = b.create<ConstantIndexOp>(loc, i);
@@ -1600,7 +1601,7 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
     }
 
     op.erase();
-    return matchSuccess();
+    return success();
   }
 };
  

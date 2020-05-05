@@ -292,4 +292,14 @@ def ConvertVectorToLLVM : Pass<"convert-vector-to-llvm", "ModuleOp"> {
   let constructor = "mlir::createConvertVectorToLLVMPass()";
 }
 
+//===----------------------------------------------------------------------===//
+// MIOpenToGPU
+//===----------------------------------------------------------------------===//
+
+def ConvertMIOpenToGPU : Pass<"convert-miopen-to-gpu", "ModuleOp"> {
+  let summary = "Lower the operations from the MIOpen dialect into the GPU "
+                "dialect";
+  let constructor = "mlir::createLowerMIOpenOpsToGPUPass()";
+}
+
 #endif // MLIR_CONVERSION_PASSES

@@ -13,7 +13,7 @@
 #ifndef MLIR_TARGET_MIOPEN_CPP_H
 #define MLIR_TARGET_MIOPEN_CPP_H
 
-#include "mlir/Dialect/MIOpenOps/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Value.h"
@@ -149,13 +149,13 @@ public:
     yin >> params;
   }
   int operator[](llvm::StringRef str) {
-    if (params.find(str) != params.end()) {
-      return params[str];
+    if (params.find(str.str()) != params.end()) {
+      return params[str.str()];
     }
     return 0;
   }
   void setValue(llvm::StringRef str, int value) {
-    params[str] = value;
+    params[str.str()] = value;
   }
 protected:
   std::map<std::string, int> params;
