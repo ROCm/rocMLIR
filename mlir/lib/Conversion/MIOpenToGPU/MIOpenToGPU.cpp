@@ -25,6 +25,8 @@
 
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
+#include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/GPU/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
@@ -32,12 +34,14 @@
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
+#include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/StandardTypes.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -45,6 +49,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
+#include "mlir/Transforms/RegionUtils.h"
 
 #include "llvm/ADT/SmallVector.h"
 
@@ -57,95 +62,137 @@ struct LowerMIOpenOpsToGPUPass : public ConvertMIOpenToGPUBase<LowerMIOpenOpsToG
 } // end anonymous namespace
 
 void LowerMIOpenOpsToGPUPass::runOnOperation() {
-  auto m = getOperation();
+  auto op = getOperation();
+  OpBuilder b(op.getContext());
+  auto loc = op.getLoc();
 
-  for (auto func : m.getOps<FuncOp>()) {
-    LLVMTypeConverter converter(&getContext());
+  // create a GPUModuleOp.
+  OperationState state(loc, gpu::GPUModuleOp::getOperationName());
+  gpu::GPUModuleOp::build(b, state, "miopen_module");
+  auto gpuModule = cast<gpu::GPUModuleOp>(Operation::create(state));
+  SymbolTable gpuModuleSymbolTable(gpuModule);
 
-    func.walk([&](miopen::TransformOp op) {
-      op.replaceAllUsesWith(op.input());
-      op.erase();
-    });
+  // add the GPUModuleOp into the symbol table.
+  SymbolTable symbolTable(op);
+  symbolTable.insert(gpuModule);
 
-    func.walk([&](miopen::ThreadwiseGemmOp op) {
-      op.erase();
-    });
+  for (auto func : op.getOps<FuncOp>()) {
+    // create a GPUFuncOp.
+    FunctionType gpuFuncType = func.getType();
+    auto gpuFunc = b.create<gpu::GPUFuncOp>(loc, func.getName(), gpuFuncType);
 
-    func.walk([&](miopen::ThreadwiseCopyOp op) {
-      op.erase();
-    });
+    // TBD: set kernel attribute.
+    // gpuFunc.setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
+    //                b.getUnitAttr());
 
-    func.walk([&](miopen::GpuAllocOp op) {
-      auto loc = op.getLoc();
-      auto type = op.output().getType().cast<MemRefType>();
+    // associate arguments for newly created GPUFuncOp.
+    BlockAndValueMapping map;
+    for (unsigned idx = 0; idx < func.getNumArguments(); ++idx) {
+      auto arg = func.getArgument(idx);
+      auto gpuFuncArg = gpuFunc.getArgument(idx);
 
-      // XXX, always use memory space 0 for LLVM output.
-      auto zeroedOutputType = MemRefType::get(type.getShape(), type.getElementType(),
-                                              type.getAffineMaps(), 0);
+      map.map(arg, gpuFuncArg);
+    }
 
-      OpBuilder b(op.getContext());
-      b.setInsertionPoint(op);
-      if (type.getMemorySpace() == 5) {
-        // TBD. rebase with latest MLIR and switch to std.alloca.
-        //auto allocated = b.create<AllocOp>(loc, type);
-        auto allocated = b.create<AllocOp>(loc, zeroedOutputType);
-        op.replaceAllUsesWith(allocated.getResult());
-      } else if (type.getMemorySpace() == 3) {
-        //auto allocated = b.create<AllocOp>(loc, type);
-        auto allocated = b.create<AllocOp>(loc, zeroedOutputType);
-        op.replaceAllUsesWith(allocated.getResult());
-      }
-      op.erase();
-    });
+    // clone function body into newly created GPUFuncOp.
+    Region &gpuFuncBody = gpuFunc.body();
+    Region &funcBody = func.getBody();
+    funcBody.cloneInto(&gpuFuncBody, map);
 
-    func.walk([&](miopen::SubviewOp op) {
-      // XXX std.subview lowering to LLVM seems buggy.
-      //OpBuilder b(op.getContext());
-      //b.setInsertionPoint(op);
+    // add a branch op to the cloned region.
+    Block &funcEntry = funcBody.front();
+    Block *clonedFuncEntry = map.lookup(&funcEntry);
+    Block &gpuFuncEntry = gpuFuncBody.front();
+    b.setInsertionPointToEnd(&gpuFuncEntry);
+    b.create<BranchOp>(loc, clonedFuncEntry);
 
-      //auto loc = op.getLoc();
-      //auto outputType = op.output().getType().cast<MemRefType>();
-      //auto outputShape = outputType.getShape();
-      //auto inputType = op.input().getType().cast<MemRefType>();
-      //auto inputShape = inputType.getShape();
-      //auto inputAffineMaps = inputType.getAffineMaps();
+    // remove std.return ops.
+    gpuFunc.walk([&](ReturnOp op) { op.erase(); });
 
-      //auto offset = op.offset().getDefiningOp()->getAttr("value").dyn_cast<IntegerAttr>().getInt();
-      //auto expr = getAffineDimExpr(0, op.getContext()) + getAffineConstantExpr(offset, op.getContext());
-      //AffineMap transformAffineMap = AffineMap::get(1, 0, ArrayRef<AffineExpr>{expr});
-      //AffineMap outputAffineMap;
-      //if (inputAffineMaps.size() != 0) {
-      //  auto inputAffineMap = inputAffineMaps[0];
-      //  outputAffineMap = inputAffineMap.compose(transformAffineMap);
-      //} else {
-      //  outputAffineMap = transformAffineMap;
-      //}
+    // create a GPU ReturnOp inside the GPUFuncOp.
+    b.setInsertionPointToEnd(&gpuFuncBody.back());
+    b.create<gpu::ReturnOp>(loc);
 
-      //auto transformedOutputType = MemRefType::get(outputShape, outputType.getElementType(),
-      //                                             {outputAffineMap}, outputType.getMemorySpace());
-      //auto subviewOp = b.create<SubViewOp>(loc, transformedOutputType, op.input());
-      //op.replaceAllUsesWith(subviewOp.getResult());
-      op.replaceAllUsesWith(op.input());
-      op.erase();
-    });
+    // insert the GPUFuncOp into GPUModuleOp.
+    gpuModuleSymbolTable.insert(gpuFunc);
+  }
 
-    func.walk([&](miopen::LdsBarrierOp op) {
-      OpBuilder b(op.getContext());
-      auto loc = op.getLoc();
-      auto module = op.getParentOfType<ModuleOp>();
-      if (!module.lookupSymbol<FuncOp>("lds_barrier")) {
-        auto funcType = b.getFunctionType({}, {});
+  // TBD: erase the old function.
 
-        StringRef funcName = "lds_barrier";
-        b.setInsertionPoint(module.getBody(), module.getBody()->begin());
-        auto func = b.create<FuncOp>(loc, funcName, funcType, ArrayRef<NamedAttribute>{});
-      }
-      auto barrierFunc = module.lookupSymbol<FuncOp>("lds_barrier");
-      b.setInsertionPoint(op);
-      b.create<CallOp>(loc, ArrayRef<Type>{},
-                       b.getSymbolRefAttr(barrierFunc),
-                       ArrayRef<Value>{});
-      op.erase();
+  for (auto module : op.getOps<gpu::GPUModuleOp>()) {
+    module.walk([&](gpu::GPUFuncOp func) {
+      func.walk([&](miopen::TransformOp op) {
+        op.replaceAllUsesWith(op.input());
+        op.erase();
+      });
+
+      func.walk([&](miopen::ThreadwiseGemmOp op) { op.erase(); });
+
+      func.walk([&](miopen::ThreadwiseCopyOp op) { op.erase(); });
+
+      func.walk([&](miopen::GpuAllocOp op) {
+        auto loc = op.getLoc();
+        auto type = op.output().getType().cast<MemRefType>();
+
+        if (type.getMemorySpace() == 3) {
+          Value attribution = func.addWorkgroupAttribution(
+              type.getShape(), type.getElementType());
+          op.replaceAllUsesWith(attribution);
+        } else if (type.getMemorySpace() == 5) {
+          Value attribution = func.addPrivateAttribution(type.getShape(),
+                                                         type.getElementType());
+          op.replaceAllUsesWith(attribution);
+        } else {
+          // TBD: return failure.
+          llvm::errs() << "unsupported addrspace!\n";
+        }
+        op.erase();
+      });
+
+      func.walk([&](miopen::SubviewOp op) {
+        OpBuilder b(op.getContext());
+        b.setInsertionPoint(op);
+
+        auto loc = op.getLoc();
+        auto outputType = op.output().getType().cast<MemRefType>();
+        auto outputShape = outputType.getShape();
+        auto inputType = op.input().getType().cast<MemRefType>();
+        auto inputShape = inputType.getShape();
+        auto inputAffineMaps = inputType.getAffineMaps();
+
+        auto offset = op.offset()
+                          .getDefiningOp()
+                          ->getAttr("value")
+                          .dyn_cast<IntegerAttr>()
+                          .getInt();
+        auto expr = getAffineDimExpr(0, op.getContext()) +
+                    getAffineConstantExpr(offset, op.getContext());
+        AffineMap transformAffineMap =
+            AffineMap::get(1, 0, ArrayRef<AffineExpr>{expr}, op.getContext());
+        AffineMap outputAffineMap;
+        if (inputAffineMaps.size() != 0) {
+          auto inputAffineMap = inputAffineMaps[0];
+          outputAffineMap = inputAffineMap.compose(transformAffineMap);
+        } else {
+          outputAffineMap = transformAffineMap;
+        }
+
+        auto transformedOutputType =
+            MemRefType::get(outputShape, outputType.getElementType(),
+                            {outputAffineMap}, outputType.getMemorySpace());
+        auto subviewOp =
+            b.create<SubViewOp>(loc, transformedOutputType, op.input());
+        op.replaceAllUsesWith(subviewOp.getResult());
+        op.erase();
+      });
+
+      func.walk([&](miopen::LdsBarrierOp op) {
+        auto loc = op.getLoc();
+        OpBuilder b(op.getContext());
+        b.setInsertionPoint(op);
+        b.create<gpu::BarrierOp>(loc);
+        op.erase();
+      });
     });
   }
 }
