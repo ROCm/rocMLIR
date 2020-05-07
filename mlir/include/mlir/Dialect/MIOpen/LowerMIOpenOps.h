@@ -1649,3 +1649,42 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
     return success();
   }
 };
+
+//===----------------------------------------------------------------------===//
+// Transform lowering.
+//===----------------------------------------------------------------------===//
+
+struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
+  using OpRewritePattern<miopen::TransformOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::TransformOp op,
+                                PatternRewriter &b) const override {
+    auto loc = op.getLoc();
+    auto inputType = op.input().getType().cast<MemRefType>();
+    auto outputType = op.output().getType().cast<MemRefType>();
+
+    // Pass the output affine map to users of this op.
+    for (auto user = op.output().user_begin(); user != op.output().user_end(); ++user) {
+      auto coordTransformAttrs = user->getAttr("coord_transforms");
+      if (!coordTransformAttrs)
+        user->setAttr("coord_transforms", b.getArrayAttr({
+                               b.getAffineMapArrayAttr(outputType.getAffineMaps())
+                             }));
+      else {
+        auto fooArrayAttr = coordTransformAttrs.dyn_cast<ArrayAttr>();
+        llvm::SmallVector<Attribute, 4> augmentedArrayAttr;
+        for (unsigned idx = 0; idx < fooArrayAttr.size(); ++idx) {
+          augmentedArrayAttr.push_back(fooArrayAttr[idx]);
+        }
+        augmentedArrayAttr.push_back(b.getAffineMapArrayAttr(outputType.getAffineMaps()));
+        user->setAttr("coord_transforms", b.getArrayAttr(augmentedArrayAttr));
+      }
+    }
+
+    // Pass the input to uses of this op.
+    op.replaceAllUsesWith(op.input());
+
+    op.erase();
+    return success();
+  }
+};
