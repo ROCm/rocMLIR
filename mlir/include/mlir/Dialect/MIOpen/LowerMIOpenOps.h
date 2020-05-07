@@ -1166,7 +1166,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto threadCRegisterSize = (GemmMRepeat * MPerThread) * (GemmNRepeat * NPerThread);
     auto threadCRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadCRegisterSize);
     auto threadCRegisterMemRefType =
-        MemRefType::get({threadCRegisterSize}, elementType, {}, registerMemorySpace);
+        MemRefType::get({GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, elementType, {}, registerMemorySpace);
     auto threadCAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadCRegisterMemRefType);
 
     // Subviews for Matrix C.
@@ -1629,15 +1629,42 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
 
     auto zero = b.create<ConstantIndexOp>(loc, 0);
     auto one = b.create<ConstantIndexOp>(loc, 1);
-    auto loopIteration = b.create<ConstantIndexOp>(loc, inputShape[0]);
-    auto loopOp = b.create<loop::ForOp>(loc, zero, loopIteration, one);
 
-    // inside loop.
-    auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
+    if (inputShape.size() == 1) {
+      // Rank 1 loop.
+      auto loopIteration = b.create<ConstantIndexOp>(loc, inputShape[0]);
+      auto loopOp = b.create<loop::ForOp>(loc, zero, loopIteration, one);
 
-    for (unsigned i = 0; i < inputShape[0]; ++i) {
-      auto iter = b.create<ConstantIndexOp>(loc, i);
-      auto storeOp = lb.create<StoreOp>(loc, op.value(), op.input(), ValueRange{iter});
+      // inside loop.
+      auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
+
+      for (unsigned i = 0; i < inputShape[0]; ++i) {
+        auto iter = b.create<ConstantIndexOp>(loc, i);
+        auto storeOp = lb.create<StoreOp>(loc, op.value(), op.input(), ValueRange{iter});
+      }
+    } else if (inputShape.size() == 2) {
+      // Rank 2 loop.
+      auto loop0Iteration = b.create<ConstantIndexOp>(loc, inputShape[0]);
+      auto loop0Op = b.create<loop::ForOp>(loc, zero, loop0Iteration, one);
+
+      // inside outer loop.
+      auto l0b = OpBuilder::atBlockTerminator(loop0Op.getBody());
+
+      for (unsigned i = 0; i < inputShape[0]; ++i) {
+        auto iter0 = b.create<ConstantIndexOp>(loc, i);
+
+        auto loop1Iteration = b.create<ConstantIndexOp>(loc, inputShape[1]);
+        auto loop1Op = l0b.create<loop::ForOp>(loc, zero, loop1Iteration, one);
+
+        // inside inner loop.
+        auto l1b = OpBuilder::atBlockTerminator(loop1Op.getBody());
+
+        for (unsigned j = 0; j < inputShape[1]; ++j) {
+          auto iter1 = b.create<ConstantIndexOp>(loc, j);
+
+          auto storeOp = l1b.create<StoreOp>(loc, op.value(), op.input(), ValueRange{iter0, iter1});
+        }
+      }
     }
 
     op.erase();
