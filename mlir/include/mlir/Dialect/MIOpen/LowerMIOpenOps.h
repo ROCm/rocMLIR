@@ -1704,7 +1704,7 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
     auto outputType = op.output().getType().cast<MemRefType>();
 
     // Pass the output affine map to users of this op.
-    for (auto user = op.output().user_begin(); user != op.output().user_end(); ++user) {
+    for (auto user : op.output().getUsers()) {
       auto coordTransformAttrs = user->getAttr("global_coord_transforms");
       if (!coordTransformAttrs)
         user->setAttr("global_coord_transforms", b.getArrayAttr({
