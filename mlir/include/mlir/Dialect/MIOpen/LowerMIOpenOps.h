@@ -1010,6 +1010,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
   LogicalResult matchAndRewrite(miopen::GridwiseGemmOp op, PatternRewriter &b) const override {
     // Prepare some useful constants.
+    auto zeroConstantFloatOp = b.create<ConstantFloatOp>(op.getLoc(), APFloat(0.0f), b.getF32Type());
+
     auto zeroConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 0);
     auto oneConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 1);
     auto twoConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 2);
@@ -1164,7 +1166,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto threadCRegisterSize = (GemmMRepeat * MPerThread) * (GemmNRepeat * NPerThread);
     auto threadCRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadCRegisterSize);
     auto threadCRegisterMemRefType =
-        MemRefType::get({threadCRegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
+        MemRefType::get({threadCRegisterSize}, elementType, {}, registerMemorySpace);
     auto threadCAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadCRegisterMemRefType);
 
     // Subviews for Matrix C.
@@ -1189,19 +1191,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto threadARegisterSize = 1024;
     auto threadARegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadARegisterSize);
     auto threadARegisterMemRefType =
-        MemRefType::get({threadARegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
+        MemRefType::get({threadARegisterSize}, elementType, {}, registerMemorySpace);
     auto threadAEvenAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType);
     auto threadAOddAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType);
 
     auto threadBRegisterSize = 1024;
     auto threadBRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadBRegisterSize);
     auto threadBRegisterMemRefType =
-        MemRefType::get({threadBRegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
+        MemRefType::get({threadBRegisterSize}, elementType, {}, registerMemorySpace);
     auto threadBEvenAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType);
     auto threadBOddAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType);
 
     // Zero init Matrix C on registers.
-    b.create<miopen::FillOp>(op.getLoc(), threadCAllocOp, zeroConstantIndexOp);
+    b.create<miopen::FillOp>(op.getLoc(), threadCAllocOp, zeroConstantFloatOp);
 
     // Blockwise copies before the loop.
     // Blockwise copy from global (generic tensor) to LDS (naive tensor).
@@ -1384,18 +1386,20 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     auto registerMemorySpace = 5;
     auto registerMemorySpaceConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), registerMemorySpace);
 
+    auto elementType = op.matrixC().getType().cast<MemRefType>().getElementType();
+
     // Alloc register for thread_a and thread_b.
     // TBD compute actual size from attributes.
     auto threadARegisterSize = 1024;
     auto threadARegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadARegisterSize);
     auto threadARegisterMemRefType =
-        MemRefType::get({threadARegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
+        MemRefType::get({threadARegisterSize}, elementType, {}, registerMemorySpace);
     auto threadAAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType);
 
     auto threadBRegisterSize = 1024;
     auto threadBRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadBRegisterSize);
     auto threadBRegisterMemRefType =
-        MemRefType::get({threadARegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
+        MemRefType::get({threadARegisterSize}, elementType, {}, registerMemorySpace);
     auto threadBAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType);
 
     // Main loop.
@@ -1481,10 +1485,10 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
   LogicalResult matchAndRewrite(miopen::BlockwiseCopyOp op, PatternRewriter &b) const override {
     bool rewritten = true;
 
-    auto source = op.getOperand(0);
-    auto sourceType = source.getType().template dyn_cast<MemRefType>();
-    auto dest = op.getOperand(1);
-    auto destType = dest.getType().template dyn_cast<MemRefType>();
+    auto sourceType = op.source().getType().cast<MemRefType>();
+    auto destType = op.dest().getType().cast<MemRefType>();
+
+    auto elementType = destType.getElementType();
 
     // Check the address spaces of source and destination values and determine
     // lowering logic.
@@ -1498,7 +1502,7 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       auto threadRegisterSize = 1024;
       auto threadRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadRegisterSize);
       auto threadRegisterMemRefType =
-          MemRefType::get({threadRegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
+          MemRefType::get({threadRegisterSize}, elementType, {}, registerMemorySpace);
       auto threadAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadRegisterMemRefType);
 
       // Threadwise copy from global (generic tensor) to register (naive tensor).
@@ -1523,7 +1527,7 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       // const auto thread_data_id_begin = thread_cluster_id * ThreadSliceLengths{};
       // mThreadwiseLoad.SetSrcSliceOrigin(src_block_slice_origin + thread_data_id_begin);
       // mThreadwiseLoad.SetDstSliceOrigin(make_zero_array<index_t, nDim>());
-      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), source, threadAllocOp);
+      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.source(), threadAllocOp);
 
       // Threadwise copy from register (naive tensor) to LDS (naive tensor).
       // TBD add attributes from C++ template arguments and ctor arguments.
@@ -1547,7 +1551,7 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       // const auto thread_data_id_begin = thread_cluster_id * ThreadSliceLengths{};
       // mThreadwiseStore.SetSrcSliceOrigin(make_zero_array<index_t, nDim>());
       // mThreadwiseStore.SetDstSliceOrigin(dst_block_slice_origin + thread_data_id_begin);
-      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), threadAllocOp, dest);
+      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), threadAllocOp, op.dest());
     } else if (sourceType.getMemorySpace() == 0 && destType.getMemorySpace() == 5) {
       // Threadwise copy from global (generic tensor) to register (naive tensor).
       // TBD add attributes from C++ template arguments and ctor arguments.
@@ -1571,7 +1575,7 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       // const auto thread_data_id_begin = thread_cluster_id * ThreadSliceLengths{};
       // mThreadwiseLoad.SetSrcSliceOrigin(src_block_slice_origin + thread_data_id_begin);
       // mThreadwiseLoad.SetDstSliceOrigin(make_zero_array<index_t, nDim>());
-      auto threadwiseCopyOp = b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), source, dest);
+      auto threadwiseCopyOp = b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.source(), op.dest());
       // Pass blockwise-level attribute to threadwise op.
       if (op.getAttr("move_source_slice_window")) {
         threadwiseCopyOp.setAttr("move_source_slice_window", op.getAttr("move_source_slice_window"));
@@ -1599,7 +1603,7 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       // const auto thread_data_id_begin = thread_cluster_id * ThreadSliceLengths{};
       // mThreadwiseStore.SetSrcSliceOrigin(make_zero_array<index_t, nDim>());
       // mThreadwiseStore.SetDstSliceOrigin(dst_block_slice_origin + thread_data_id_begin);
-      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), source, dest);
+      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.source(), op.dest());
     } else {
       llvm::errs() << "UNSUPPORTED ThreadwiseCopyOp\n";
       rewritten = false;
@@ -1623,9 +1627,6 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
     auto inputType = op.input().getType().cast<MemRefType>();
     auto inputShape = inputType.getShape();
 
-    auto value = op.value().getDefiningOp()->getAttr("value").template dyn_cast<IntegerAttr>().getInt();
-    auto valueOp = b.create<ConstantIntOp>(loc, value, 8);
-
     auto zero = b.create<ConstantIndexOp>(loc, 0);
     auto one = b.create<ConstantIndexOp>(loc, 1);
     auto loopIteration = b.create<ConstantIndexOp>(loc, inputShape[0]);
@@ -1636,7 +1637,7 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
 
     for (unsigned i = 0; i < inputShape[0]; ++i) {
       auto iter = b.create<ConstantIndexOp>(loc, i);
-      auto storeOp = lb.create<StoreOp>(loc, valueOp, op.input(), ValueRange{iter});
+      auto storeOp = lb.create<StoreOp>(loc, op.value(), op.input(), ValueRange{iter});
     }
 
     op.erase();

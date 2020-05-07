@@ -132,7 +132,7 @@ def MIOpen_SubviewOp:
 def MIOpen_FillOp:
     MIOpen_Op<"fill">,
     Arguments<(ins AnyMemRef:$input,
-                   Index:$value)> {
+                   AnyFloat:$value)> {
   let summary = "Fill memory with constant value on GPU";
   let description = [{
     The `miopen.fill` op fills a memref on GPU with a constant value.
