@@ -237,7 +237,7 @@ static ParseResult parseFillOp(OpAsmParser &parser, OperationState &result) {
       parser.parseRParen() ||
       parser.parseColonType(srcType) ||
       parser.resolveOperand(src, srcType, result.operands) ||
-      parser.resolveOperand(constantValue, parser.getBuilder().getIndexType(), result.operands));
+      parser.resolveOperand(constantValue, srcType.cast<MemRefType>().getElementType(), result.operands));
 }
 
 static void print(OpAsmPrinter &p, FillOp op) {
