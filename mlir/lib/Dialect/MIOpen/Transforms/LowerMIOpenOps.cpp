@@ -75,6 +75,7 @@ void LowerMIOpenOpsStep2Pass::runOnOperation() {
 void LowerMIOpenOpsStep3Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<FillRewritePattern>(&getContext());
+  patterns.insert<SubviewRewritePattern>(&getContext());
   patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
   patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
