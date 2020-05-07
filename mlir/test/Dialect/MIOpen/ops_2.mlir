@@ -21,19 +21,14 @@ func @miopen_gridwise_gemm_ex(%A : memref<?x?xf32>, %B : memref<?x?xf32>, %C : m
 //  CHECK-NEXT: miopen.gridwise_gemm_ex
 
 func @miopen_gpu_alloc() {
-  %size = constant 1024 : index
-  %c0 = constant 0 : index
-  %c3 = constant 3 : index
-  %c5 = constant 5 : index
-
   // allocation on global.
-  %buffer_global = miopen.gpu_alloc(%size, %c0) : memref<1024xi8>
+  %buffer_global = miopen.gpu_alloc() : memref<1024xi8>
 
   // allocation on LDS.
-  %buffer_lds = miopen.gpu_alloc(%size, %c3) : memref<1024xi8, 3>
+  %buffer_lds = miopen.gpu_alloc() : memref<1024xi8, 3>
 
   // allocation on register (VGPR).
-  %buffer_register = miopen.gpu_alloc(%size, %c5) : memref<1024xi8, 5>
+  %buffer_register = miopen.gpu_alloc() : memref<1024xi8, 5>
 
   return
 }
@@ -77,9 +72,12 @@ func @miopen_subview(%buffer : memref<1024xi8>) {
 //   CHECK-NEXT: miopen.subview
 
 
-func @miopen_fill(%buffer : memref<1024xf32, 5>) {
-  %c0 = constant 0 : index
-  miopen.fill(%buffer, %c0) : memref<1024xf32, 5>
+func @miopen_fill(%buffer_f32 : memref<1024xf32, 5>, %buffer_i32 : memref<2xi32, 5>) {
+  %cst = constant 0.0 : f32
+  miopen.fill(%buffer_f32, %cst) : memref<1024xf32, 5>
+
+  %c0 = constant 0 : i32
+  miopen.fill(%buffer_i32, %c0) : memref<2xi32, 5>
   return
 }
 
@@ -114,9 +112,9 @@ func @miopen_blockwise_gemm(%A : memref<?x?xf32, 3>, %B : memref<?x?xf32, 3>, %C
 // CHECK-LABEL: func @miopen_blockwise_gemm
 //  CHECK-NEXT: miopen.blockwise_gemm
 
-func @miopen_blockwise_copy(%source : memref<?x?xf32>, %dest : memref<?x?xf32, 3>) {
-  miopen.blockwise_copy(%source, %dest) : memref<?x?xf32>, memref<?x?xf32, 3>
-  miopen.blockwise_copy(%source, %dest) { move_source_offset = 16 } : memref<?x?xf32>, memref<?x?xf32, 3>
+func @miopen_blockwise_copy(%source : memref<?x?xf32>, %dest : memref<?x?xf32, 3>, %source_coord : memref<2xi32>, %dest_coord : memref<2xi32>) {
+  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) : memref<?x?xf32>, memref<?x?xf32, 3>, memref<2xi32>, memref<2xi32>
+  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) { move_source_offset = 16 } : memref<?x?xf32>, memref<?x?xf32, 3>, memref<2xi32>, memref<2xi32>
   return
 }
 
