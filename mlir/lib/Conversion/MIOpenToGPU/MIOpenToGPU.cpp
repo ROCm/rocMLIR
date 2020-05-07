@@ -131,12 +131,10 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         auto type = op.output().getType().cast<MemRefType>();
 
         if (type.getMemorySpace() == 3) {
-          Value attribution = func.addWorkgroupAttribution(
-              type.getShape(), type.getElementType());
+          Value attribution = func.addWorkgroupAttribution(type);
           op.replaceAllUsesWith(attribution);
         } else if (type.getMemorySpace() == 5) {
-          Value attribution = func.addPrivateAttribution(type.getShape(),
-                                                         type.getElementType());
+          Value attribution = func.addPrivateAttribution(type);
           op.replaceAllUsesWith(attribution);
         } else {
           // TBD: return failure.
