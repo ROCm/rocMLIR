@@ -72,9 +72,9 @@ def MIOpen_TransformOp :
 
 def MIOpen_GridwiseGemmOp :
     MIOpen_Op<"gridwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32], [2]>,
-                   MemRefRankOf<[F32], [2]>,
-                   MemRefRankOf<[F32], [2]>)> {
+    Arguments<(ins MemRefRankOf<[F32], [2]>:$filter,
+                   MemRefRankOf<[F32], [2]>:$input,
+                   MemRefRankOf<[F32], [2]>:$output)> {
   let summary = "Gridwise GEMM";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM.
@@ -102,8 +102,7 @@ def MIOpen_GridwiseGemmExOp:
 // TBD: eventually replace this with std.alloc.
 def MIOpen_GpuAllocOp:
     MIOpen_Op<"gpu_alloc">,
-    Arguments<(ins Index:$sizeBytes, Index:$memorySpace)>,
-    Results<(outs MemRefRankOf<[I8], [1]>:$output)> {
+    Results<(outs AnyMemRef:$output)> {
   let summary = "Memory allocation on GPU";
   let description = [{
     The `miopen.gpu_alloc` op allocates memory on GPU.

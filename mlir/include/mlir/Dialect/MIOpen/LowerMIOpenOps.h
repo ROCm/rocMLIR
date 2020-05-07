@@ -915,7 +915,7 @@ auto integer_least_multiple(X x, Y y)
 struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemmOp> {
   using OpRewritePattern<miopen::GridwiseGemmOp>::OpRewritePattern;
 
-  std::tuple<int64_t, int64_t, int64_t> computeLDSBlockByteSizes(miopen::GridwiseGemmOp op) const {
+  void computeLDSBlockSizes(miopen::GridwiseGemmOp op, int64_t &a_block_space, int64_t &b_block_space, int64_t &double_block_space) const {
      int64_t ABlockCopyDstDataPerWrite_M = op.getAttr("matrix_a_dest_data_per_write_dim_m").template dyn_cast<IntegerAttr>().getInt();
      int64_t BBlockCopyDstDataPerWrite_N = op.getAttr("matrix_b_dest_data_per_write_dim_n").template dyn_cast<IntegerAttr>().getInt();
      int64_t ThreadGemmAThreadCopySrcDataPerRead_M = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
@@ -940,7 +940,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
      //constexpr index_t a_block_space =
      //    math::integer_least_multiple(a_k_m_block_desc.GetElementSpace(), max_lds_align);
      int64_t AlignedMPerBlock = max_lds_align * math::integer_divide_ceil<int64_t>(MPerBlock, max_lds_align);
-     int64_t a_block_space = math::integer_least_multiple(KPerBlock * AlignedMPerBlock, max_lds_align);
+     a_block_space = math::integer_least_multiple(KPerBlock * AlignedMPerBlock, max_lds_align);
 
      // B matrix in LDS memory, dst of blockwise copy
      //   be careful of LDS alignment
@@ -949,15 +949,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
      //    Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
      //constexpr index_t b_block_space =
      //    math::integer_least_multiple(b_k_n_block_desc.GetElementSpace(), max_lds_align);
-     int64_t b_block_space = math::integer_least_multiple(KPerBlock * AlignedNPerBlock, max_lds_align);
+     b_block_space = math::integer_least_multiple(KPerBlock * AlignedNPerBlock, max_lds_align);
 
-     FloatType opElementType = op.getOperand(0).getType().template dyn_cast<MemRefType>().getElementType().template dyn_cast<FloatType>();
-     unsigned opElementTypeWidthInByte = opElementType.getWidth() / 8;
-
-     return std::make_tuple<int64_t, int64_t, int64_t>(
-       a_block_space * opElementTypeWidthInByte,
-       b_block_space * opElementTypeWidthInByte,
-       2 * (a_block_space + b_block_space) * opElementTypeWidthInByte);
+     double_block_space = 2 * (a_block_space + b_block_space);
   }
 
   void affixBlockwiseGemmAttributes(miopen::BlockwiseGemmOp bop, miopen::GridwiseGemmOp gop) const {
@@ -1043,13 +1037,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
-    std::tie(ldsBlockASize, ldsBlockBSize, ldsBlockSize) = computeLDSBlockByteSizes(op);
+    computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize);
+
+    auto elementType = op.output().getType().cast<MemRefType>().getElementType();
 
     // Allocate LDS.
     auto ldsBlockSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockSize);
     auto ldsMemRefType =
-        MemRefType::get({ldsBlockSize}, b.getIntegerType(8), {}, ldsMemorySpace);
-    auto ldsGpuAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), ldsMemRefType, ldsBlockSizeConstantIndexOp, ldsMemorySpaceConstantIndexOp);
+        MemRefType::get({ldsBlockSize}, elementType, {}, ldsMemorySpace);
+    auto ldsGpuAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), ldsMemRefType);
 
     // Subviews for Matrix A.
     auto ldsBlockADoubleSize = ldsBlockASize * 2;
@@ -1058,14 +1054,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto ldsBlockAOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockAOffset);
     auto ldsBlockADoubleMemRefType =
         computeSubviewResultType(op, ldsMemRefType, ldsBlockAOffset,
-                                 {ldsBlockADoubleSize}, b.getIntegerType(8));
+                                 {ldsBlockADoubleSize}, elementType);
     auto ldsBlockADoubleSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockADoubleMemRefType, ldsGpuAllocOp, ldsBlockAOffsetConstantIndexOp);
 
     auto ldsBlockAEvenOffset = 0;
     auto ldsBlockAEvenOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockAEvenOffset);
     auto ldsBlockAEvenMemRefType = computeSubviewResultType(
         op, ldsBlockADoubleMemRefType, ldsBlockAEvenOffset, {ldsBlockASize},
-        b.getIntegerType(8));
+        elementType);
     auto ldsBlockAEvenSubviewOp = b.create<miopen::SubviewOp>(
         op.getLoc(), ldsBlockAEvenMemRefType, ldsBlockADoubleSubviewOp,
         ldsBlockAEvenOffsetConstantIndexOp);
@@ -1074,7 +1070,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto ldsBlockAOddOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockAOddOffset);
     auto ldsBlockAOddMemRefType = computeSubviewResultType(
         op, ldsBlockADoubleMemRefType, ldsBlockAOddOffset, {ldsBlockASize},
-        b.getIntegerType(8));
+        elementType);
     auto ldsBlockAOddSubviewOp = b.create<miopen::SubviewOp>(
         op.getLoc(), ldsBlockAOddMemRefType, ldsBlockADoubleSubviewOp,
         ldsBlockAOddOffsetConstantIndexOp);
@@ -1110,14 +1106,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto ldsBlockBOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockBOffset);
     auto ldsBlockBDoubleMemRefType =
         computeSubviewResultType(op, ldsMemRefType, ldsBlockBOffset,
-                                 {ldsBlockBDoubleSize}, b.getIntegerType(8));
+                                 {ldsBlockBDoubleSize}, elementType);
     auto ldsBlockBDoubleSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockBDoubleMemRefType, ldsGpuAllocOp, ldsBlockBOffsetConstantIndexOp);
 
     auto ldsBlockBEvenOffset = 0;
     auto ldsBlockBEvenOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockBEvenOffset);
     auto ldsBlockBEvenMemRefType = computeSubviewResultType(
         op, ldsBlockBDoubleMemRefType, ldsBlockBEvenOffset, {ldsBlockBSize},
-        b.getIntegerType(8));
+        elementType);
     auto ldsBlockBEvenSubviewOp = b.create<miopen::SubviewOp>(
         op.getLoc(), ldsBlockBEvenMemRefType, ldsBlockBDoubleSubviewOp,
         ldsBlockBEvenOffsetConstantIndexOp);
@@ -1126,7 +1122,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto ldsBlockBOddOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockBOddOffset);
     auto ldsBlockBOddMemRefType = computeSubviewResultType(
         op, ldsBlockBDoubleMemRefType, ldsBlockBOddOffset, {ldsBlockBSize},
-        b.getIntegerType(8));
+        elementType);
     auto ldsBlockBOddSubviewOp = b.create<miopen::SubviewOp>(
         op.getLoc(), ldsBlockBOddMemRefType, ldsBlockBDoubleSubviewOp,
         ldsBlockBOddOffsetConstantIndexOp);
@@ -1169,7 +1165,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto threadCRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadCRegisterSize);
     auto threadCRegisterMemRefType =
         MemRefType::get({threadCRegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
-    auto threadCAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadCRegisterMemRefType, threadCRegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
+    auto threadCAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadCRegisterMemRefType);
 
     // Subviews for Matrix C.
     // Compute matrix C dimension from attributes.
@@ -1194,15 +1190,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto threadARegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadARegisterSize);
     auto threadARegisterMemRefType =
         MemRefType::get({threadARegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
-    auto threadAEvenAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType, threadARegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
-    auto threadAOddAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType, threadARegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
+    auto threadAEvenAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType);
+    auto threadAOddAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType);
 
     auto threadBRegisterSize = 1024;
     auto threadBRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadBRegisterSize);
     auto threadBRegisterMemRefType =
         MemRefType::get({threadBRegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
-    auto threadBEvenAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType, threadBRegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
-    auto threadBOddAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType, threadBRegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
+    auto threadBEvenAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType);
+    auto threadBOddAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType);
 
     // Zero init Matrix C on registers.
     b.create<miopen::FillOp>(op.getLoc(), threadCAllocOp, zeroConstantIndexOp);
@@ -1394,13 +1390,13 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     auto threadARegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadARegisterSize);
     auto threadARegisterMemRefType =
         MemRefType::get({threadARegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
-    auto threadAAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType, threadARegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
+    auto threadAAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType);
 
     auto threadBRegisterSize = 1024;
     auto threadBRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadBRegisterSize);
     auto threadBRegisterMemRefType =
         MemRefType::get({threadARegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
-    auto threadBAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType, threadBRegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
+    auto threadBAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType);
 
     // Main loop.
     // TBD. compute loop iterations from attributes.
@@ -1503,7 +1499,7 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       auto threadRegisterSizeConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), threadRegisterSize);
       auto threadRegisterMemRefType =
           MemRefType::get({threadRegisterSize}, b.getIntegerType(8), {}, registerMemorySpace);
-      auto threadAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadRegisterMemRefType, threadRegisterSizeConstantIndexOp, registerMemorySpaceConstantIndexOp);
+      auto threadAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadRegisterMemRefType);
 
       // Threadwise copy from global (generic tensor) to register (naive tensor).
       // TBD add attributes from C++ template arguments and ctor arguments.

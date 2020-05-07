@@ -169,19 +169,18 @@ static LogicalResult verify(GridwiseGemmExOp op) {
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseGpuAllocOp(OpAsmParser &parser, OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 2> ops;
   Type allocatedType;
 
   return failure(
-      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseLParen() ||
+      parser.parseRParen() ||
       parser.parseOptionalAttrDict(result.attributes) ||
       parser.parseColonType(allocatedType) ||
-      parser.resolveOperands(ops, {parser.getBuilder().getIndexType(), parser.getBuilder().getIndexType()}, parser.getNameLoc(), result.operands) ||
       parser.addTypeToList(allocatedType, result.types));
 }
 
 static void print(OpAsmPrinter &p, GpuAllocOp op) {
-  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p << op.getOperationName() << "()";
   p.printOptionalAttrDict(op.getAttrs());
   p << " : " << op.getType();
 }
