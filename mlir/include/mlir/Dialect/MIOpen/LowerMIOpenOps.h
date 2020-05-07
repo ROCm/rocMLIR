@@ -15,6 +15,7 @@
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
+#include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
@@ -1604,4 +1605,47 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
     return success();
   }
 };
- 
+
+//===----------------------------------------------------------------------===//
+// Subview lowering.
+//===----------------------------------------------------------------------===//
+
+struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
+  using OpRewritePattern<miopen::SubviewOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::SubviewOp op,
+                                PatternRewriter &b) const override {
+    auto loc = op.getLoc();
+    auto outputType = op.output().getType().cast<MemRefType>();
+    auto outputShape = outputType.getShape();
+    auto inputType = op.input().getType().cast<MemRefType>();
+    auto inputShape = inputType.getShape();
+    auto inputAffineMaps = inputType.getAffineMaps();
+
+    auto offset = op.offset()
+                      .getDefiningOp()
+                      ->getAttr("value")
+                      .dyn_cast<IntegerAttr>()
+                      .getInt();
+    auto expr = getAffineDimExpr(0, op.getContext()) +
+                getAffineConstantExpr(offset, op.getContext());
+    AffineMap transformAffineMap =
+        AffineMap::get(1, 0, ArrayRef<AffineExpr>{expr}, op.getContext());
+    AffineMap outputAffineMap;
+    if (inputAffineMaps.size() != 0) {
+      auto inputAffineMap = inputAffineMaps[0];
+      outputAffineMap = inputAffineMap.compose(transformAffineMap);
+    } else {
+      outputAffineMap = transformAffineMap;
+    }
+
+    auto transformedOutputType =
+        MemRefType::get(outputShape, outputType.getElementType(),
+                        {outputAffineMap}, outputType.getMemorySpace());
+    auto subviewOp =
+        b.create<SubViewOp>(loc, transformedOutputType, op.input());
+    op.replaceAllUsesWith(subviewOp.getResult());
+    op.erase();
+    return success();
+  }
+};
