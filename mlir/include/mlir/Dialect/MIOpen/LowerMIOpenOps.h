@@ -1658,35 +1658,20 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
   LogicalResult matchAndRewrite(miopen::SubviewOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
-    auto outputType = op.output().getType().cast<MemRefType>();
-    auto outputShape = outputType.getShape();
     auto inputType = op.input().getType().cast<MemRefType>();
-    auto inputShape = inputType.getShape();
-    auto inputAffineMaps = inputType.getAffineMaps();
+    auto outputType = op.output().getType().cast<MemRefType>();
 
-    auto offset = op.offset()
-                      .getDefiningOp()
-                      ->getAttr("value")
-                      .dyn_cast<IntegerAttr>()
-                      .getInt();
-    auto expr = getAffineDimExpr(0, op.getContext()) +
-                getAffineConstantExpr(offset, op.getContext());
-    AffineMap transformAffineMap =
-        AffineMap::get(1, 0, ArrayRef<AffineExpr>{expr}, op.getContext());
-    AffineMap outputAffineMap;
-    if (inputAffineMaps.size() != 0) {
-      auto inputAffineMap = inputAffineMaps[0];
-      outputAffineMap = inputAffineMap.compose(transformAffineMap);
-    } else {
-      outputAffineMap = transformAffineMap;
+    // Pass the output affine map to users of this op.
+    for (auto user : op.output().getUsers()) {
+      auto coordTransformAttrs = user->getAttr("naive_coord_transform");
+      if (!coordTransformAttrs)
+        user->setAttr("naive_coord_transform",
+                      b.getAffineMapArrayAttr(outputType.getAffineMaps()));
     }
 
-    auto transformedOutputType =
-        MemRefType::get(outputShape, outputType.getElementType(),
-                        {outputAffineMap}, outputType.getMemorySpace());
-    auto subviewOp =
-        b.create<SubViewOp>(loc, transformedOutputType, op.input());
-    op.replaceAllUsesWith(subviewOp.getResult());
+    // Pass the input to uses of this op.
+    op.replaceAllUsesWith(op.input());
+
     op.erase();
     return success();
   }
@@ -1707,9 +1692,9 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
 
     // Pass the output affine map to users of this op.
     for (auto user = op.output().user_begin(); user != op.output().user_end(); ++user) {
-      auto coordTransformAttrs = user->getAttr("coord_transforms");
+      auto coordTransformAttrs = user->getAttr("global_coord_transforms");
       if (!coordTransformAttrs)
-        user->setAttr("coord_transforms", b.getArrayAttr({
+        user->setAttr("global_coord_transforms", b.getArrayAttr({
                                b.getAffineMapArrayAttr(outputType.getAffineMaps())
                              }));
       else {
@@ -1719,7 +1704,7 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
           augmentedArrayAttr.push_back(fooArrayAttr[idx]);
         }
         augmentedArrayAttr.push_back(b.getAffineMapArrayAttr(outputType.getAffineMaps()));
-        user->setAttr("coord_transforms", b.getArrayAttr(augmentedArrayAttr));
+        user->setAttr("global_coord_transforms", b.getArrayAttr(augmentedArrayAttr));
       }
     }
 
