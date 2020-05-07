@@ -1019,6 +1019,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   LogicalResult matchAndRewrite(miopen::GridwiseGemmOp op, PatternRewriter &b) const override {
     // Prepare some useful constants.
     auto zeroConstantFloatOp = b.create<ConstantFloatOp>(op.getLoc(), APFloat(0.0f), b.getF32Type());
+    auto zeroConstantI32Op = b.create<ConstantIntOp>(op.getLoc(), 0, b.getIntegerType(32));
 
     auto zeroConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 0);
     auto oneConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 1);
@@ -1267,6 +1268,20 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //                                       AddressSpace::Lds,
     //                                       InMemoryDataOperation::Set>(
     //        {0, n_block_data_on_global}, {0, 0});
+    auto blockwiseCopyType =
+              MemRefType::get({2}, b.getIntegerType(32), {}, registerMemorySpace);
+
+    auto blockwiseCopyASrc = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyType);
+    // TBD compute m_block_data_on_global. Use (0, 0) for now.
+    b.create<miopen::FillOp>(op.getLoc(), blockwiseCopyASrc, zeroConstantI32Op);
+
+    auto blockwiseCopyBSrc = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyType);
+    // TBD compute n_block_data_on_global. Use (0, 0) for now.
+    b.create<miopen::FillOp>(op.getLoc(), blockwiseCopyBSrc, zeroConstantI32Op);
+
+    auto blockwiseCopyZero = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyType);
+    b.create<miopen::FillOp>(op.getLoc(), blockwiseCopyZero, zeroConstantI32Op);
+
     b.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0),
                                       lds2DMatrixAEvenSubviewOp);
     b.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1),
