@@ -990,6 +990,30 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     bop.setAttr("matrix_b_source_data_per_read", gop.getAttr("matrix_b_source_data_per_read"));
   }
 
+  template <typename T>
+  MemRefType computeSubviewResultType(T op, MemRefType inputType,
+                                      unsigned offset,
+                                      ArrayRef<int64_t> outputShape,
+                                      Type outputElementType) const {
+    auto inputAffineMaps = inputType.getAffineMaps();
+
+    auto expr = getAffineDimExpr(0, op.getContext()) +
+                getAffineConstantExpr(offset, op.getContext());
+    AffineMap transformAffineMap =
+        AffineMap::get(1, 0, ArrayRef<AffineExpr>{expr}, op.getContext());
+    AffineMap outputAffineMap;
+    if (inputAffineMaps.size() != 0) {
+      auto inputAffineMap = inputAffineMaps[0];
+      outputAffineMap = inputAffineMap.compose(transformAffineMap);
+    } else {
+      outputAffineMap = transformAffineMap;
+    }
+    auto transformedOutputType =
+        MemRefType::get(outputShape, outputElementType, {outputAffineMap},
+                        inputType.getMemorySpace());
+    return transformedOutputType;
+  }
+
   LogicalResult matchAndRewrite(miopen::GridwiseGemmOp op, PatternRewriter &b) const override {
     // Prepare some useful constants.
     auto zeroConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 0);
@@ -1033,18 +1057,27 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     auto ldsBlockAOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockAOffset);
     auto ldsBlockADoubleMemRefType =
-        MemRefType::get({ldsBlockADoubleSize}, b.getIntegerType(8), {}, ldsMemorySpace);
+        computeSubviewResultType(op, ldsMemRefType, ldsBlockAOffset,
+                                 {ldsBlockADoubleSize}, b.getIntegerType(8));
     auto ldsBlockADoubleSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockADoubleMemRefType, ldsGpuAllocOp, ldsBlockAOffsetConstantIndexOp);
 
     auto ldsBlockAEvenOffset = 0;
-    auto ldsBlockAOddOffset = ldsBlockADoubleSize / 2;
-
     auto ldsBlockAEvenOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockAEvenOffset);
+    auto ldsBlockAEvenMemRefType = computeSubviewResultType(
+        op, ldsBlockADoubleMemRefType, ldsBlockAEvenOffset, {ldsBlockASize},
+        b.getIntegerType(8));
+    auto ldsBlockAEvenSubviewOp = b.create<miopen::SubviewOp>(
+        op.getLoc(), ldsBlockAEvenMemRefType, ldsBlockADoubleSubviewOp,
+        ldsBlockAEvenOffsetConstantIndexOp);
+
+    auto ldsBlockAOddOffset = ldsBlockADoubleSize / 2;
     auto ldsBlockAOddOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockAOddOffset);
-    auto ldsBlockAMemRefType =
-        MemRefType::get({ldsBlockASize}, b.getIntegerType(8), {}, ldsMemorySpace);
-    auto ldsBlockAEvenSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockAMemRefType, ldsBlockADoubleSubviewOp, ldsBlockAEvenOffsetConstantIndexOp);
-    auto ldsBlockAOddSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockAMemRefType, ldsBlockADoubleSubviewOp, ldsBlockAOddOffsetConstantIndexOp);
+    auto ldsBlockAOddMemRefType = computeSubviewResultType(
+        op, ldsBlockADoubleMemRefType, ldsBlockAOddOffset, {ldsBlockASize},
+        b.getIntegerType(8));
+    auto ldsBlockAOddSubviewOp = b.create<miopen::SubviewOp>(
+        op.getLoc(), ldsBlockAOddMemRefType, ldsBlockADoubleSubviewOp,
+        ldsBlockAOddOffsetConstantIndexOp);
 
     // Get 2D subviews.
     // Compute matrix A dimension from attributes.
@@ -1076,18 +1109,27 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     auto ldsBlockBOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockBOffset);
     auto ldsBlockBDoubleMemRefType =
-        MemRefType::get({ldsBlockBDoubleSize}, b.getIntegerType(8), {}, ldsMemorySpace);
+        computeSubviewResultType(op, ldsMemRefType, ldsBlockBOffset,
+                                 {ldsBlockBDoubleSize}, b.getIntegerType(8));
     auto ldsBlockBDoubleSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockBDoubleMemRefType, ldsGpuAllocOp, ldsBlockBOffsetConstantIndexOp);
 
     auto ldsBlockBEvenOffset = 0;
-    auto ldsBlockBOddOffset = ldsBlockBDoubleSize / 2;
-
     auto ldsBlockBEvenOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockBEvenOffset);
+    auto ldsBlockBEvenMemRefType = computeSubviewResultType(
+        op, ldsBlockBDoubleMemRefType, ldsBlockBEvenOffset, {ldsBlockBSize},
+        b.getIntegerType(8));
+    auto ldsBlockBEvenSubviewOp = b.create<miopen::SubviewOp>(
+        op.getLoc(), ldsBlockBEvenMemRefType, ldsBlockBDoubleSubviewOp,
+        ldsBlockBEvenOffsetConstantIndexOp);
+
+    auto ldsBlockBOddOffset = ldsBlockBDoubleSize / 2;
     auto ldsBlockBOddOffsetConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), ldsBlockBOddOffset);
-    auto ldsBlockBMemRefType =
-        MemRefType::get({ldsBlockBSize}, b.getIntegerType(8), {}, ldsMemorySpace);
-    auto ldsBlockBEvenSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockBMemRefType, ldsBlockBDoubleSubviewOp, ldsBlockBEvenOffsetConstantIndexOp);
-    auto ldsBlockBOddSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), ldsBlockBMemRefType, ldsBlockBDoubleSubviewOp, ldsBlockBOddOffsetConstantIndexOp);
+    auto ldsBlockBOddMemRefType = computeSubviewResultType(
+        op, ldsBlockBDoubleMemRefType, ldsBlockBOddOffset, {ldsBlockBSize},
+        b.getIntegerType(8));
+    auto ldsBlockBOddSubviewOp = b.create<miopen::SubviewOp>(
+        op.getLoc(), ldsBlockBOddMemRefType, ldsBlockBDoubleSubviewOp,
+        ldsBlockBOddOffsetConstantIndexOp);
 
     // Get 2D subviews.
     // Compute matrix B dimension from attributes.
