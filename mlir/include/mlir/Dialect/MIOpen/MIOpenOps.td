@@ -152,7 +152,9 @@ def MIOpen_LdsBarrierOp:
 def MIOpen_BlockwiseCopyOp:
     MIOpen_Op<"blockwise_copy">,
     Arguments<(ins AnyMemRef:$source,
-                   AnyMemRef:$dest)> {
+                   AnyMemRef:$dest,
+                   AnyMemRef:$sourceCoord,
+                   AnyMemRef:$destCoord)> {
   let summary = "Blockwise GPU data movement";
   let description = [{
     The `miopen.blockwise` op moves data on GPU. Following movements are

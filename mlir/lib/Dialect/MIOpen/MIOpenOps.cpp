@@ -318,8 +318,8 @@ static LogicalResult verify(ThreadwiseGemmOp op) {
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseBlockwiseCopyOp(OpAsmParser &parser, OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 2> ops;
-  SmallVector<Type, 2> types;
+  SmallVector<OpAsmParser::OperandType, 4> ops;
+  SmallVector<Type, 4> types;
   return failure(
       parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
       parser.parseOptionalAttrDict(result.attributes) ||

@@ -1283,9 +1283,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     b.create<miopen::FillOp>(op.getLoc(), blockwiseCopyZero, zeroConstantI32Op);
 
     b.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0),
-                                      lds2DMatrixAEvenSubviewOp);
+                                      lds2DMatrixAEvenSubviewOp, blockwiseCopyASrc, blockwiseCopyZero);
     b.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1),
-                                      lds2DMatrixBEvenSubviewOp);
+                                      lds2DMatrixBEvenSubviewOp, blockwiseCopyBSrc, blockwiseCopyZero);
 
     // Emit loop.
     // Compute loop iterations from attributes.
@@ -1299,13 +1299,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // LDS barrier.
     lb.create<miopen::LdsBarrierOp>(op.getLoc());
 
-    // Blockwise copy from global (generic tensor) to register (naive tensor).
-    auto blockwiseCopyOpAEven = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAEvenAllocOp);
-    // Compute block_slice_copy_steps and set in the attribute.
-    blockwiseCopyOpAEven.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
-    auto blockwiseCopyOpBEven = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBEvenAllocOp);
-    // Compute block_slice_copy_steps and set in the attribute.
-    blockwiseCopyOpBEven.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
+    // TBD add move_pos op.
+    // TBD move blockwiseCopyASrc by (KPerBlock, 0).
+    // TBD move blockwiseCopyBSrc by (KPerBlock, 0).
+    // TBD revive blockwise_copy commands.
+    // // Blockwise copy from global (generic tensor) to register (naive tensor).
+    // auto blockwiseCopyOpAEven = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAEvenAllocOp);
+    // // Compute block_slice_copy_steps and set in the attribute.
+    // blockwiseCopyOpAEven.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
+    // auto blockwiseCopyOpBEven = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBEvenAllocOp);
+    // // Compute block_slice_copy_steps and set in the attribute.
+    // blockwiseCopyOpBEven.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
 
     // Emit blockwise GEMM.
     auto blockwiseGemmEvenOp = lb.create<miopen::BlockwiseGemmOp>(
@@ -1313,22 +1317,26 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         threadCAllocOp);
     affixBlockwiseGemmAttributes(blockwiseGemmEvenOp, op);
 
-    // Blockwise copy from reigster (naitve tensor) to LDS (naive tensor).
+    // Blockwise copy from register (naive tensor) to LDS (naive tensor).
     lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadAEvenAllocOp,
-                                       lds2DMatrixAOddSubviewOp);
+                                       lds2DMatrixAOddSubviewOp, blockwiseCopyASrc, blockwiseCopyZero);
     lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadBEvenAllocOp,
-                                       lds2DMatrixBOddSubviewOp);
+                                       lds2DMatrixBOddSubviewOp, blockwiseCopyBSrc, blockwiseCopyZero);
 
     // LDS barrier.
     lb.create<miopen::LdsBarrierOp>(op.getLoc());
 
-    // Blockwise copy from global (generic tensor) to register (naive tensor).
-    auto blockwiseCopyOpAOdd = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAOddAllocOp);
-    // Compute block_slice_copy_steps and set in the attribute.
-    blockwiseCopyOpAOdd.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
-    auto blockwiseCopyOpBOdd = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBOddAllocOp);
-    // Compute block_slice_copy_steps and set in the attribute.
-    blockwiseCopyOpBOdd.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
+    // TBD add move_pos op.
+    // TBD move blockwiseCopyASrc by (KPerBlock, 0).
+    // TBD move blockwiseCopyBSrc by (KPerBlock, 0).
+    // TBD revive blockwise_copy commands.
+    // // Blockwise copy from global (generic tensor) to register (naive tensor).
+    // auto blockwiseCopyOpAOdd = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAOddAllocOp);
+    // // Compute block_slice_copy_steps and set in the attribute.
+    // blockwiseCopyOpAOdd.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
+    // auto blockwiseCopyOpBOdd = lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBOddAllocOp);
+    // // Compute block_slice_copy_steps and set in the attribute.
+    // blockwiseCopyOpBOdd.setAttr("move_source_slice_window", b.getI32IntegerAttr(KPerBlock));
 
     // Emit blockwise GEMM.
     auto blockwiseGemmOddOp = lb.create<miopen::BlockwiseGemmOp>(
@@ -1336,11 +1344,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         threadCAllocOp);
     affixBlockwiseGemmAttributes(blockwiseGemmOddOp, op);
 
-    // Blockwise copy from reigster (naitve tensor) to LDS (naive tensor).
+    // Blockwise copy from register (naive tensor) to LDS (naive tensor).
     lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadAOddAllocOp,
-                                       lds2DMatrixAEvenSubviewOp);
+                                       lds2DMatrixAEvenSubviewOp, blockwiseCopyZero, blockwiseCopyZero);
     lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadBOddAllocOp,
-                                       lds2DMatrixBEvenSubviewOp);
+                                       lds2DMatrixBEvenSubviewOp, blockwiseCopyZero, blockwiseCopyZero);
 
     // outside the loop.
 
