@@ -80,6 +80,7 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
   patterns.insert<TransformRewritePattern>(&getContext());
   patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
   patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
+  patterns.insert<ThreadwiseGemmRewritePattern>(&getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
 }
 
