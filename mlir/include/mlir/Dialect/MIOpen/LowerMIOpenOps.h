@@ -1703,6 +1703,36 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// MovePos lowering.
+//===----------------------------------------------------------------------===//
+
+struct MovePosRewritePattern : public OpRewritePattern<miopen::MovePosOp> {
+  using OpRewritePattern<miopen::MovePosOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::MovePosOp op,
+                                PatternRewriter &b) const override {
+    auto loc = op.getLoc();
+    auto memrefType = op.memref().getType().cast<MemRefType>();
+    for (unsigned i = 0; i < memrefType.getShape()[0]; ++i) {
+      auto iter = b.create<ConstantIndexOp>(loc, i);
+      // load
+      auto load = b.create<LoadOp>(loc, op.memref(), ValueRange{iter});
+      // add
+      Value add;
+      if (memrefType.getElementType().isa<IntegerType>()) {
+        add = b.create<AddIOp>(loc, load, op.getOperand(1 + i));
+      } else {
+        add = b.create<AddFOp>(loc, load, op.getOperand(1 + i));
+      }
+      // store
+      auto store = b.create<StoreOp>(loc, add, op.memref(), ValueRange{iter});
+    }
+    op.erase();
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // Subview lowering.
 //===----------------------------------------------------------------------===//
 
