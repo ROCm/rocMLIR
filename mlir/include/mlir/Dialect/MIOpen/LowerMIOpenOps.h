@@ -1162,24 +1162,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     auto threadCRegisterMemRefType =
         MemRefType::get({GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, elementType, {}, registerMemorySpace);
-    auto threadCAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadCRegisterMemRefType);
-
-    // Subviews for Matrix C.
-    // Compute matrix C dimension from attributes.
-    auto register2DMatrixCHeight = (GemmMRepeat * MPerThread);
-    auto register2DMatrixCWidth = (GemmNRepeat * NPerThread);
-
-    //auto register2DMatrixCMemRefType =
-    //    MemRefType::get({register2DMatrixCHeight, register2DMatrixCWidth}, b.getF32Type(), {}, registerMemorySpace);
-
-    //llvm::SmallVector<int64_t, 2> register2DMatrixCDim {register2DMatrixCHeight, register2DMatrixCWidth};
-    //llvm::SmallVector<NamedAttribute, 1> register2DMatrixCDimAttr {
-    //    b.getNamedAttr("dimensions", b.getI64ArrayAttr(register2DMatrixCDim)),
-    //};
-
-    //auto register2DMatrixCSubviewOp = b.create<miopen::SubviewOp>(op.getLoc(), register2DMatrixCMemRefType, threadCAllocOp, zeroConstantIndexOp);
-    //register2DMatrixCSubviewOp.setAttrs(register2DMatrixCDimAttr);
-
+    auto register2DMatrixCAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadCRegisterMemRefType);
 
     // Alloc for Matrix A / B on registers.
     // TBD. compute thread A / B on registers from attributes.
@@ -1197,7 +1180,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto threadBOddAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType);
 
     // Zero init Matrix C on registers.
-    b.create<miopen::FillOp>(op.getLoc(), threadCAllocOp, zeroConstantFloatOp);
+    b.create<miopen::FillOp>(op.getLoc(), register2DMatrixCAllocOp, zeroConstantFloatOp);
 
     // Blockwise copies before the loop.
     // Blockwise copy from global (generic tensor) to LDS (naive tensor).
@@ -1319,7 +1302,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise GEMM.
     auto blockwiseGemmEvenOp = lb.create<miopen::BlockwiseGemmOp>(
         op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
-        threadCAllocOp);
+        register2DMatrixCAllocOp);
     affixBlockwiseGemmAttributes(blockwiseGemmEvenOp, op);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
@@ -1348,7 +1331,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise GEMM.
     auto blockwiseGemmOddOp = lb.create<miopen::BlockwiseGemmOp>(
         op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
-        threadCAllocOp);
+        register2DMatrixCAllocOp);
     affixBlockwiseGemmAttributes(blockwiseGemmOddOp, op);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
@@ -1367,12 +1350,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     if (loopIteration % 2) {
       auto blockwiseGemmTailEvenOp = b.create<miopen::BlockwiseGemmOp>(
           op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
-          threadCAllocOp);
+          register2DMatrixCAllocOp);
       affixBlockwiseGemmAttributes(blockwiseGemmTailEvenOp, op);
     } else {
       auto blockwiseGemmTailOddOp = b.create<miopen::BlockwiseGemmOp>(
           op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
-          threadCAllocOp);
+          register2DMatrixCAllocOp);
       affixBlockwiseGemmAttributes(blockwiseGemmTailOddOp, op);
     }
 
@@ -1394,8 +1377,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //      n_thread_data_on_global / N1,
     //      n_thread_data_on_global % N1})
     //     .Run(p_c_thread, p_c_global);
-    //b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), register2DMatrixCSubviewOp, op.getOperand(2));
-    b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), threadCAllocOp, op.getOperand(2));
+    b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), register2DMatrixCAllocOp, op.getOperand(2));
 
     op.erase();
 
