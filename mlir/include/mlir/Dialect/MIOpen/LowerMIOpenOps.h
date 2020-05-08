@@ -1588,10 +1588,6 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       // mThreadwiseLoad.SetSrcSliceOrigin(src_block_slice_origin + thread_data_id_begin);
       // mThreadwiseLoad.SetDstSliceOrigin(make_zero_array<index_t, nDim>());
       auto threadwiseCopyOp = b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.source(), op.dest());
-      // Pass blockwise-level attribute to threadwise op.
-      if (op.getAttr("move_source_slice_window")) {
-        threadwiseCopyOp.setAttr("move_source_slice_window", op.getAttr("move_source_slice_window"));
-      }
     } else if (sourceType.getMemorySpace() == 5 && destType.getMemorySpace() == 3) {
       // Threadwise copy from register (naive tensor) to LDS (naive tensor).
       // TBD add attributes from C++ template arguments and ctor arguments.
