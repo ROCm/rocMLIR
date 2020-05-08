@@ -396,8 +396,8 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
   auto coords = op.sourceAndDestCoord();
   auto sourceType = op.source().getType().cast<MemRefType>();
   auto destType = op.dest().getType().cast<MemRefType>();
-  auto sourceRank = sourceType.getShape().size();
-  auto destRank = destType.getShape().size();
+  auto sourceRank = sourceType.getRank();
+  auto destRank = destType.getRank();
   auto sourceAffineMaps = sourceType.getAffineMaps();
   auto destAffineMaps = destType.getAffineMaps();
 
