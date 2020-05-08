@@ -110,4 +110,28 @@ module {
 
     return
   }
+
+  func @test_vector_load_store_7(%input_4d : memref<128x8x32x32xf32>, %output_2d : memref<8x16xf32>) {
+    %c0 = constant 0 : index
+    %c4 = constant 4 : index
+    %c7 = constant 7 : index
+    %c8 = constant 8 : index
+    %c24 = constant 24 : index
+    %c28 = constant 28 : index
+    %c32 = constant 32 : index
+    %c124 = constant 124 : index
+
+    %f0 = constant 0.0 : f32
+
+    // loop over the fastest changing dimension
+    loop.for %iter = %c0 to %c32 step %c4 {
+      // load from a constant offset with vector.transfer_read
+      %input_vector = vector.transfer_read %input_4d[%c124, %c7, %c28, %iter], %f0 {permutation_map = affine_map<(d0, d1, d2, d3) -> (d3)>} : memref<128x8x32x32xf32>, vector<4xf32>
+
+      // store to a memref with constant offset with vector.transfer_write
+      vector.transfer_write %input_vector, %output_2d[%c7, %c8] {permutation_map = affine_map<(d0, d1) -> (d1)>} : vector<4xf32>, memref<8x16xf32>
+    }
+
+    return
+  }
 }

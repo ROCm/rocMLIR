@@ -15,6 +15,7 @@
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Vector/VectorOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
@@ -1857,7 +1858,7 @@ struct ThreadwiseGemmRewritePattern
 };
 
 //===----------------------------------------------------------------------===//
-// ThreadwiseGemm lowering.
+// ThreadwiseCopy lowering.
 //===----------------------------------------------------------------------===//
 
 struct ThreadwiseCopyRewritePattern
@@ -1866,6 +1867,44 @@ struct ThreadwiseCopyRewritePattern
 
   LogicalResult matchAndRewrite(miopen::ThreadwiseCopyOp op,
                                 PatternRewriter &b) const override {
+    auto loc = op.getLoc();
+
+    auto sourceType = op.source().getType().cast<MemRefType>();
+    auto destType = op.dest().getType().cast<MemRefType>();
+
+    auto zeroConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 0);
+    auto zeroConstantFloatOp =
+        b.create<ConstantFloatOp>(op.getLoc(), APFloat(0.0f), b.getF32Type());
+    auto vectorType = VectorType::get(4, sourceType.getElementType());
+    SmallVector<Value, 4> srcIndices;
+    SmallVector<Value, 4> dstIndices;
+
+    // TBD compute the actual indices following attached affine map, or
+    // coordinate.
+    for (unsigned i = 0; i < sourceType.getRank(); ++i) {
+      srcIndices.push_back(zeroConstantIndexOp);
+    }
+
+    // TBD improve logic here to adhere original C++ implementation.
+    auto srcExpr = getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
+    auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
+    auto srcProjectionAttr = AffineMapAttr::get(srcProjection);
+    auto vectorValue = b.create<vector::TransferReadOp>(
+        loc, vectorType, op.source(), srcIndices, srcProjectionAttr,
+        zeroConstantFloatOp);
+
+    // TBD compute the actual indices following attached affine map, or
+    // coordinate.
+    for (unsigned i = 0; i < destType.getRank(); ++i) {
+      dstIndices.push_back(zeroConstantIndexOp);
+    }
+
+    auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
+    auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
+    auto dstProjectionAttr = AffineMapAttr::get(dstProjection);
+    b.create<vector::TransferWriteOp>(loc, vectorValue, op.dest(), dstIndices,
+                                      dstProjectionAttr);
+
     op.erase();
     return success();
   }
