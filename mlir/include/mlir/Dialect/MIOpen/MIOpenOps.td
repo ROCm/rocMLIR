@@ -139,6 +139,16 @@ def MIOpen_FillOp:
   }];
 }
 
+def MIOpen_MovePosOp:
+    MIOpen_Op<"move_pos">,
+    Arguments<(ins AnyMemRef:$memref,
+                   Variadic<AnyTypeOf<[AnyInteger, AnyFloat]>>:$values)> {
+    let summary = "Add values to indices within the memref.";
+    let description = [{
+      The `miopen.fill` op adds values to indices within the memref.
+    }];
+}
+
 // TBD: eventually replace this with the op in GPU dialect?
 def MIOpen_LdsBarrierOp:
     MIOpen_Op<"lds_barrier"> {
