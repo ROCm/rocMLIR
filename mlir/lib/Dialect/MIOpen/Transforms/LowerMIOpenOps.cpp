@@ -23,6 +23,8 @@
 #include "PassDetail.h"
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Conversion/LoopToStandard/ConvertLoopToStandard.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -57,6 +59,11 @@ struct LowerMIOpenOpsStep2Pass : public MIOpenOpsStep2PassBase<LowerMIOpenOpsSte
 struct LowerMIOpenOpsStep3Pass : public MIOpenOpsStep3PassBase<LowerMIOpenOpsStep3Pass> {
   void runOnOperation() override;
 };
+
+struct LowerMIOpenOpsStep4Pass
+    : public MIOpenOpsStep4PassBase<LowerMIOpenOpsStep4Pass> {
+  void runOnOperation() override;
+};
 } // end anonymous namespace
 
 void LowerMIOpenOpsStep1Pass::runOnOperation() {
@@ -80,7 +87,15 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
   patterns.insert<TransformRewritePattern>(&getContext());
   patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
   patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
+  applyPatternsAndFoldGreedily(getOperation(), patterns);
+}
+
+void LowerMIOpenOpsStep4Pass::runOnOperation() {
+  OwningRewritePatternList patterns;
   patterns.insert<ThreadwiseGemmRewritePattern>(&getContext());
+
+  populateAffineToStdConversionPatterns(patterns, &getContext());
+  populateLoopToStdConversionPatterns(patterns, &getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
 }
 
@@ -94,4 +109,8 @@ std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep2Pass() {
 
 std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep3Pass() {
   return std::make_unique<LowerMIOpenOpsStep3Pass>();
+}
+
+std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep4Pass() {
+  return std::make_unique<LowerMIOpenOpsStep4Pass>();
 }

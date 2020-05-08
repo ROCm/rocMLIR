@@ -122,8 +122,6 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   for (auto module : op.getOps<gpu::GPUModuleOp>()) {
     module.walk([&](gpu::GPUFuncOp func) {
 
-      func.walk([&](miopen::ThreadwiseGemmOp op) { op.erase(); });
-
       func.walk([&](miopen::ThreadwiseCopyOp op) { op.erase(); });
 
       func.walk([&](miopen::GpuAllocOp op) {
