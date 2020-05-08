@@ -1857,22 +1857,56 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
     auto outputType = op.output().getType().cast<MemRefType>();
 
     // Pass the output affine map to users of this op.
-    for (auto user : op.output().getUsers()) {
-      auto coordTransformAttrs = user->getAttr("global_coord_transforms");
-      if (!coordTransformAttrs)
-        user->setAttr("global_coord_transforms", b.getArrayAttr({
-                               b.getAffineMapArrayAttr(outputType.getAffineMaps())
-                             }));
-      else {
-        auto fooArrayAttr = coordTransformAttrs.dyn_cast<ArrayAttr>();
-        llvm::SmallVector<Attribute, 4> augmentedArrayAttr;
-        for (unsigned idx = 0; idx < fooArrayAttr.size(); ++idx) {
-          augmentedArrayAttr.push_back(fooArrayAttr[idx]);
+    if (outputType.getAffineMaps().size() > 0)
+      for (auto user : op.output().getUsers()) {
+        unsigned userOperandIndex = 0;
+        for (userOperandIndex = 0; userOperandIndex < user->getNumOperands();
+             ++userOperandIndex)
+          if (user->getOperand(userOperandIndex) == op.output())
+            break;
+
+        auto coordTransformAttrs = user->getAttr("coord_transforms");
+        if (!coordTransformAttrs)
+          user->setAttr(
+              "coord_transforms",
+              b.getArrayAttr({b.getDictionaryAttr(
+                  {b.getNamedAttr("operand",
+                                  b.getI32IntegerAttr(userOperandIndex)),
+                   b.getNamedAttr("transforms",
+                                  b.getAffineMapArrayAttr(
+                                      outputType.getAffineMaps()))})}));
+        else {
+          // create a deep-copy of existing attributes, and amend the new one.
+          // need to figure out if there's a better way than this.
+          auto arrayAttr = coordTransformAttrs.cast<ArrayAttr>();
+          llvm::SmallVector<Attribute, 2> augmentedArrayAttr;
+
+          for (unsigned idx = 0; idx < arrayAttr.size(); ++idx) {
+            auto dictAttr = arrayAttr.getValue()[idx].cast<DictionaryAttr>();
+            auto operandIndex =
+                dictAttr.get("operand").cast<IntegerAttr>().getInt();
+
+            if (operandIndex != userOperandIndex) {
+              augmentedArrayAttr.push_back(dictAttr);
+            } else {
+              auto existingTransforms =
+                  dictAttr.get("transforms").cast<ArrayAttr>();
+              llvm::SmallVector<Attribute, 4> augmentedTransforms;
+              augmentedTransforms.append(existingTransforms.begin(),
+                                         existingTransforms.end());
+              augmentedTransforms.push_back(
+                  AffineMapAttr::get(outputType.getAffineMaps()[0]));
+
+              augmentedArrayAttr.push_back(b.getDictionaryAttr(
+                  {b.getNamedAttr("operand",
+                                  b.getI32IntegerAttr(userOperandIndex)),
+                   b.getNamedAttr("transforms",
+                                  b.getArrayAttr(augmentedTransforms))}));
+            }
+          }
+          user->setAttr("coord_transforms", b.getArrayAttr(augmentedArrayAttr));
         }
-        augmentedArrayAttr.push_back(b.getAffineMapArrayAttr(outputType.getAffineMaps()));
-        user->setAttr("global_coord_transforms", b.getArrayAttr(augmentedArrayAttr));
       }
-    }
 
     // Pass the input to uses of this op.
     op.replaceAllUsesWith(op.input());
