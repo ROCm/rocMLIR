@@ -36,4 +36,8 @@ def MIOpenOpsStep3Pass : Pass<"miopen-lowering-step3", "ModuleOp"> {
   let constructor = "mlir::miopen::createLowerMIOpenOpsStep3Pass()";
 }
 
+def MIOpenOpsStep4Pass : Pass<"miopen-lowering-step4", "ModuleOp"> {
+  let summary = "expand threadwise copy and threadwise gemm to all other dialects. Notice GPU dialect will explicitly NOT be used in this pass";
+  let constructor = "mlir::miopen::createLowerMIOpenOpsStep4Pass()";
+}
 #endif // MLIR_DIALECT_MIOPEN_PASSES

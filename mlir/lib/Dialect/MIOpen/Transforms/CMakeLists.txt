@@ -14,8 +14,10 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
 
 target_link_libraries(MLIRMIOpenTransforms
   PUBLIC
+  MLIRAffineToStandard
   MLIRIR
   MLIRLoopOps
+  MLIRLoopToStandard
   MLIRLLVMIR
   MLIRMIOpenOps
   MLIRPass
