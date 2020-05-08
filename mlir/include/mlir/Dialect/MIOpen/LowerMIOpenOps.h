@@ -1384,7 +1384,18 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //      n_thread_data_on_global / N1,
     //      n_thread_data_on_global % N1})
     //     .Run(p_c_thread, p_c_global);
-    b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), register2DMatrixCAllocOp, op.getOperand(2));
+    // TBD use all 0 coordinates now. need to revisit this following original
+    // C++ implementation.
+    SmallVector<Value, 6> matrixCThreadwiseCopySourceAndDestCoords;
+    for (unsigned i = 0; i < threadCRegisterMemRefType.getShape().size(); ++i)
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+    for (unsigned i = 0;
+         i < op.getOperand(2).getType().cast<MemRefType>().getShape().size();
+         ++i)
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+    b.create<miopen::ThreadwiseCopyOp>(
+        op.getLoc(), register2DMatrixCAllocOp, op.getOperand(2),
+        matrixCThreadwiseCopySourceAndDestCoords);
 
     op.erase();
 
@@ -1401,6 +1412,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
   LogicalResult naiveRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const {
     // Prepare some useful constants.
+    auto zeroConstantI32Op =
+        b.create<ConstantIntOp>(op.getLoc(), 0, b.getIntegerType(32));
     auto zeroConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 0);
     auto oneConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 1);
 
@@ -1441,12 +1454,23 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     // Threadwise copy from LDS (naive tensor) to register (generic tensor).
     // TBD. add attribute from C++ template arguments.
-    //constexpr auto a_thread_copy = ThreadwiseMatrixSliceCopy<BlockMatrixA,
+    // constexpr auto a_thread_copy = ThreadwiseMatrixSliceCopy<BlockMatrixA,
     //                                                         decltype(a_thread_mtx),
     //                                                         KPerThreadLoop,
     //                                                         MPerThreadSubC,
     //                                                         ThreadGemmADataPerRead_M>{};
-    lab.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.getOperand(0), threadAAllocOp);
+    // TBD use all 0 coordinates now. need to revisit this following original
+    // C++ implementation.
+    SmallVector<Value, 6> matrixAThreadwiseCopySourceAndDestCoords;
+    for (unsigned i = 0;
+         i < op.getOperand(0).getType().cast<MemRefType>().getShape().size();
+         ++i)
+      matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+    for (unsigned i = 0; i < threadARegisterMemRefType.getShape().size(); ++i)
+      matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+    lab.create<miopen::ThreadwiseCopyOp>(
+        op.getLoc(), op.getOperand(0), threadAAllocOp,
+        matrixAThreadwiseCopySourceAndDestCoords);
 
     // read matrix B loop.
     // TBD. compute loop iterations from attributes.
@@ -1459,12 +1483,23 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     // Threadwise copy from LDS (naive tensor) to register (generic tensor).
     // TBD. add attribute from C++ template arguments.
-    //constexpr auto b_thread_copy = ThreadwiseMatrixSliceCopy<BlockMatrixB,
+    // constexpr auto b_thread_copy = ThreadwiseMatrixSliceCopy<BlockMatrixB,
     //                                                         decltype(b_thread_mtx),
     //                                                         KPerThreadLoop,
     //                                                         NPerThreadSubC,
     //                                                         ThreadGemmBDataPerRead_N>{};
-    lbb.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.getOperand(1), threadBAllocOp);
+    // TBD use all 0 coordinates now. need to revisit this following original
+    // C++ implementation.
+    SmallVector<Value, 6> matrixBThreadwiseCopySourceAndDestCoords;
+    for (unsigned i = 0;
+         i < op.getOperand(1).getType().cast<MemRefType>().getShape().size();
+         ++i)
+      matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+    for (unsigned i = 0; i < threadBRegisterMemRefType.getShape().size(); ++i)
+      matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+    lbb.create<miopen::ThreadwiseCopyOp>(
+        op.getLoc(), op.getOperand(1), threadBAllocOp,
+        matrixBThreadwiseCopySourceAndDestCoords);
 
     // Emit threadwise GEMM.
     // TBD add attributes.
@@ -1509,6 +1544,10 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
 
     auto elementType = destType.getElementType();
 
+    // Prepare some useful constants.
+    auto zeroConstantI32Op =
+        b.create<ConstantIntOp>(op.getLoc(), 0, b.getIntegerType(32));
+
     // Check the address spaces of source and destination values and determine
     // lowering logic.
     // - 0 (global) -> 3 (LDS) : load + store
@@ -1524,11 +1563,13 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
           MemRefType::get({ThreadSliceRow, ThreadSliceCol}, elementType, {}, registerMemorySpace);
       auto threadAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadRegisterMemRefType);
 
-      // Threadwise copy from global (generic tensor) to register (naive tensor).
-      // TBD add attributes from C++ template arguments and ctor arguments.
-      // using ThreadBufferDesc = decltype(make_native_tensor_descriptor_packed(ThreadSliceLengths{}));
+      // Threadwise copy from global (generic tensor) to register (naive
+      // tensor). TBD add attributes from C++ template arguments and ctor
+      // arguments. using ThreadBufferDesc =
+      // decltype(make_native_tensor_descriptor_packed(ThreadSliceLengths{}));
       //
-      // using ThreadwiseLoad = ThreadwiseGenericTensorSliceCopy_v4r2<BlockSrcDesc,
+      // using ThreadwiseLoad =
+      // ThreadwiseGenericTensorSliceCopy_v4r2<BlockSrcDesc,
       //                                                              ThreadBufferDesc,
       //                                                              ThreadSliceLengths,
       //                                                              SrcDimAccessOrder,
@@ -1540,19 +1581,34 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       //                                                              InMemoryDataOperation::Set>;
       //
       // constexpr auto thread_cluster_desc =
-      //     make_cluster_descriptor(ThreadClusterLengths{}, ThreadClusterArrangeOrder{});
+      //     make_cluster_descriptor(ThreadClusterLengths{},
+      //     ThreadClusterArrangeOrder{});
       // const auto thread_cluster_id =
       //     thread_cluster_desc.CalculateClusterIndex(get_thread_local_1d_id());
-      // const auto thread_data_id_begin = thread_cluster_id * ThreadSliceLengths{};
-      // mThreadwiseLoad.SetSrcSliceOrigin(src_block_slice_origin + thread_data_id_begin);
+      // const auto thread_data_id_begin = thread_cluster_id *
+      // ThreadSliceLengths{};
+      // mThreadwiseLoad.SetSrcSliceOrigin(src_block_slice_origin +
+      // thread_data_id_begin);
       // mThreadwiseLoad.SetDstSliceOrigin(make_zero_array<index_t, nDim>());
-      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.source(), threadAllocOp);
+      // TBD use all 0 coordinates now. need to revisit this following original
+      // C++ implementation.
+      SmallVector<Value, 4> ThreadwiseCopySourceAndDestCoords;
+      for (unsigned i = 0;
+           i < op.source().getType().cast<MemRefType>().getShape().size(); ++i)
+        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+      for (unsigned i = 0; i < threadRegisterMemRefType.getShape().size(); ++i)
+        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.source(),
+                                         threadAllocOp,
+                                         ThreadwiseCopySourceAndDestCoords);
 
       // Threadwise copy from register (naive tensor) to LDS (naive tensor).
       // TBD add attributes from C++ template arguments and ctor arguments.
-      // using ThreadBufferDesc = decltype(make_native_tensor_descriptor_packed(ThreadSliceLengths{}));
+      // using ThreadBufferDesc =
+      // decltype(make_native_tensor_descriptor_packed(ThreadSliceLengths{}));
       //
-      // using ThreadwiseStore = ThreadwiseGenericTensorSliceCopy_v4r2<ThreadBufferDesc,
+      // using ThreadwiseStore =
+      // ThreadwiseGenericTensorSliceCopy_v4r2<ThreadBufferDesc,
       //                                                               BlockDstDesc,
       //                                                               ThreadSliceLengths,
       //                                                               DstDimAccessOrder,
@@ -1564,19 +1620,32 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       //                                                               DstInMemOp>;
       //
       // constexpr auto thread_cluster_desc =
-      //     make_cluster_descriptor(ThreadClusterLengths{}, ThreadClusterArrangeOrder{});
+      //     make_cluster_descriptor(ThreadClusterLengths{},
+      //     ThreadClusterArrangeOrder{});
       // const auto thread_cluster_id =
       //     thread_cluster_desc.CalculateClusterIndex(get_thread_local_1d_id());
-      // const auto thread_data_id_begin = thread_cluster_id * ThreadSliceLengths{};
+      // const auto thread_data_id_begin = thread_cluster_id *
+      // ThreadSliceLengths{};
       // mThreadwiseStore.SetSrcSliceOrigin(make_zero_array<index_t, nDim>());
-      // mThreadwiseStore.SetDstSliceOrigin(dst_block_slice_origin + thread_data_id_begin);
-      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), threadAllocOp, op.dest());
+      // mThreadwiseStore.SetDstSliceOrigin(dst_block_slice_origin +
+      // thread_data_id_begin); TBD use all 0 coordinates now. need to revisit
+      // this following original C++ implementation.
+      ThreadwiseCopySourceAndDestCoords.clear();
+      for (unsigned i = 0;
+           i < op.source().getType().cast<MemRefType>().getShape().size(); ++i)
+        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+      for (unsigned i = 0; i < threadRegisterMemRefType.getShape().size(); ++i)
+        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), threadAllocOp, op.dest(),
+                                         ThreadwiseCopySourceAndDestCoords);
     } else if (sourceType.getMemorySpace() == 0 && destType.getMemorySpace() == 5) {
-      // Threadwise copy from global (generic tensor) to register (naive tensor).
-      // TBD add attributes from C++ template arguments and ctor arguments.
-      // using ThreadBufferDesc = decltype(make_native_tensor_descriptor_packed(ThreadSliceLengths{}));
+      // Threadwise copy from global (generic tensor) to register (naive
+      // tensor). TBD add attributes from C++ template arguments and ctor
+      // arguments. using ThreadBufferDesc =
+      // decltype(make_native_tensor_descriptor_packed(ThreadSliceLengths{}));
       //
-      // using ThreadwiseLoad = ThreadwiseGenericTensorSliceCopy_v4r2<BlockSrcDesc,
+      // using ThreadwiseLoad =
+      // ThreadwiseGenericTensorSliceCopy_v4r2<BlockSrcDesc,
       //                                                              ThreadBufferDesc,
       //                                                              ThreadSliceLengths,
       //                                                              SrcDimAccessOrder,
@@ -1588,13 +1657,27 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       //                                                              InMemoryDataOperation::Set>;
       //
       // constexpr auto thread_cluster_desc =
-      //     make_cluster_descriptor(ThreadClusterLengths{}, ThreadClusterArrangeOrder{});
+      //     make_cluster_descriptor(ThreadClusterLengths{},
+      //     ThreadClusterArrangeOrder{});
       // const auto thread_cluster_id =
       //     thread_cluster_desc.CalculateClusterIndex(get_thread_local_1d_id());
-      // const auto thread_data_id_begin = thread_cluster_id * ThreadSliceLengths{};
-      // mThreadwiseLoad.SetSrcSliceOrigin(src_block_slice_origin + thread_data_id_begin);
+      // const auto thread_data_id_begin = thread_cluster_id *
+      // ThreadSliceLengths{};
+      // mThreadwiseLoad.SetSrcSliceOrigin(src_block_slice_origin +
+      // thread_data_id_begin);
       // mThreadwiseLoad.SetDstSliceOrigin(make_zero_array<index_t, nDim>());
-      auto threadwiseCopyOp = b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.source(), op.dest());
+      // TBD use all 0 coordinates now. need to revisit this following original
+      // C++ implementation.
+      SmallVector<Value, 4> ThreadwiseCopySourceAndDestCoords;
+      for (unsigned i = 0;
+           i < op.source().getType().cast<MemRefType>().getShape().size(); ++i)
+        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+      for (unsigned i = 0;
+           i < op.dest().getType().cast<MemRefType>().getShape().size(); ++i)
+        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+      auto threadwiseCopyOp = b.create<miopen::ThreadwiseCopyOp>(
+          op.getLoc(), op.source(), op.dest(),
+          ThreadwiseCopySourceAndDestCoords);
     } else if (sourceType.getMemorySpace() == 5 && destType.getMemorySpace() == 3) {
       // Threadwise copy from register (naive tensor) to LDS (naive tensor).
       // TBD add attributes from C++ template arguments and ctor arguments.
@@ -1618,7 +1701,15 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       // const auto thread_data_id_begin = thread_cluster_id * ThreadSliceLengths{};
       // mThreadwiseStore.SetSrcSliceOrigin(make_zero_array<index_t, nDim>());
       // mThreadwiseStore.SetDstSliceOrigin(dst_block_slice_origin + thread_data_id_begin);
-      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.source(), op.dest());
+      SmallVector<Value, 4> ThreadwiseCopySourceAndDestCoords;
+      for (unsigned i = 0;
+           i < op.source().getType().cast<MemRefType>().getShape().size(); ++i)
+        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+      for (unsigned i = 0;
+           i < op.dest().getType().cast<MemRefType>().getShape().size(); ++i)
+        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+      b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.source(), op.dest(),
+                                         ThreadwiseCopySourceAndDestCoords);
     } else {
       llvm::errs() << "UNSUPPORTED ThreadwiseCopyOp\n";
       rewritten = false;
