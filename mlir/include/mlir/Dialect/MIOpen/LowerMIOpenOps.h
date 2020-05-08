@@ -10,12 +10,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/IR/Attributes.h"
 #include "mlir/IR/AffineMap.h"
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
@@ -1501,13 +1502,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
         op.getLoc(), op.getOperand(1), threadBAllocOp,
         matrixBThreadwiseCopySourceAndDestCoords);
 
-    // Emit threadwise GEMM.
-    // TBD add attributes.
-    // constexpr auto threadwise_gemm =
-    //     ThreadwiseGemmTransANormalBNormalC<decltype(a_thread_mtx),
-    //                                        decltype(b_thread_mtx),
-    //                                        decltype(c_thread_mtx)>{};
-    lb.create<miopen::ThreadwiseGemmOp>(op.getLoc(), threadAAllocOp, threadBAllocOp, op.getOperand(2));
+    lb.create<miopen::ThreadwiseGemmOp>(op.getLoc(), threadAAllocOp,
+                                        threadBAllocOp, op.getOperand(2));
 
     op.erase();
     return success();
@@ -1803,6 +1799,109 @@ struct MovePosRewritePattern : public OpRewritePattern<miopen::MovePosOp> {
       // store
       auto store = b.create<StoreOp>(loc, add, op.memref(), ValueRange{iter});
     }
+    op.erase();
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// threadwiseGemm lowering.
+//===----------------------------------------------------------------------===//
+
+struct ThreadwiseGemmRewritePattern
+    : public OpRewritePattern<miopen::ThreadwiseGemmOp> {
+  using OpRewritePattern<miopen::ThreadwiseGemmOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::ThreadwiseGemmOp op,
+                                PatternRewriter &b) const override {
+    // Step one: Create CallOp where PatternRewritter currently is
+    auto operandGemmA = op.getOperand(0);
+    auto operandGemmB = op.getOperand(1);
+    auto operandGemmC = op.getOperand(2);
+
+    ArrayRef<int64_t> gemmAShape =
+        operandGemmA.getType().dyn_cast<MemRefType>().getShape();
+    ArrayRef<int64_t> gemmBShape =
+        operandGemmB.getType().dyn_cast<MemRefType>().getShape();
+
+    // TODO serialize other type information to function name
+    std::string threadwisegemmFnName = "gemm";
+    threadwisegemmFnName += "K" + std::to_string(gemmAShape[0]) + "M" +
+                            std::to_string(gemmAShape[1]) + "N" +
+                            std::to_string(gemmBShape[1]);
+    SmallVector<Value, 3> inputOps;
+    inputOps.push_back(operandGemmA);
+    inputOps.push_back(operandGemmB);
+    inputOps.push_back(operandGemmC);
+
+    b.create<CallOp>(op.getLoc(), ArrayRef<Type>{}, threadwisegemmFnName,
+                     inputOps);
+
+    // Step two: Create FuncOp at beginning of the current module
+    ModuleOp module = op.getParentOfType<ModuleOp>();
+    auto *context = module.getContext();
+    if (module.lookupSymbol<FuncOp>(threadwisegemmFnName)) {
+      op.erase();
+      return success();
+    }
+
+    SmallVector<Type, 3> inputTypes;
+    inputTypes.push_back(operandGemmA.getType());
+    inputTypes.push_back(operandGemmB.getType());
+    inputTypes.push_back(operandGemmC.getType());
+    auto threadwisegemmFnType =
+        FunctionType::get(inputTypes, {}, b.getContext());
+
+    b.setInsertionPointToStart(module.getBody());
+    auto threadwisegemmFunc =
+        b.create<FuncOp>(module.getLoc(), threadwisegemmFnName,
+                         threadwisegemmFnType, ArrayRef<NamedAttribute>{});
+    auto &entryBlock = *threadwisegemmFunc.addEntryBlock();
+    b.setInsertionPointToStart(&entryBlock);
+
+    auto loopK =
+        b.create<AffineForOp>(threadwisegemmFunc.getLoc(), 0, gemmAShape[0], 1);
+    auto lbK = loopK.getBody();
+    b.setInsertionPointToStart(lbK);
+
+    auto loopM = b.create<AffineForOp>(loopK.getLoc(), 0, gemmAShape[1], 1);
+    auto lbM = loopM.getBody();
+    b.setInsertionPointToStart(lbM);
+
+    auto loopN =
+        b.create<AffineForOp>(threadwisegemmFunc.getLoc(), 0, gemmBShape[1], 1);
+    auto lbN = loopN.getBody();
+    b.setInsertionPointToStart(lbN);
+
+    auto gemmA = threadwisegemmFunc.getArgument(0);
+    auto gemmB = threadwisegemmFunc.getArgument(1);
+    auto gemmC = threadwisegemmFunc.getArgument(2);
+
+    SmallVector<Value, 2> memIndicesKM;
+    extractForInductionVars({loopK, loopM}, &memIndicesKM);
+    auto gemmAKM = b.create<AffineLoadOp>(threadwisegemmFunc.getLoc(), gemmA,
+                                          memIndicesKM);
+
+    SmallVector<Value, 2> memIndicesKN;
+    extractForInductionVars({loopK, loopN}, &memIndicesKN);
+    auto gemmBKN = b.create<AffineLoadOp>(threadwisegemmFunc.getLoc(), gemmB,
+                                          memIndicesKN);
+    auto mul = b.create<MulFOp>(threadwisegemmFunc.getLoc(), b.getF32Type(),
+                                gemmAKM, gemmBKN);
+
+    SmallVector<Value, 2> memIndicesMN;
+    extractForInductionVars({loopM, loopN}, &memIndicesMN);
+    auto gemmCMN = b.create<AffineLoadOp>(threadwisegemmFunc.getLoc(), gemmC,
+                                          memIndicesMN);
+
+    auto add = b.create<AddFOp>(threadwisegemmFunc.getLoc(), b.getF32Type(),
+                                mul, gemmCMN);
+    auto store = b.create<AffineStoreOp>(threadwisegemmFunc.getLoc(), add,
+                                         gemmC, memIndicesMN);
+
+    b.setInsertionPointAfter(loopK);
+    auto ret = b.create<ReturnOp>(threadwisegemmFunc.getLoc());
+
     op.erase();
     return success();
   }
