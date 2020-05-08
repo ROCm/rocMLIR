@@ -1388,10 +1388,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // TBD use all 0 coordinates now. need to revisit this following original
     // C++ implementation.
     SmallVector<Value, 6> matrixCThreadwiseCopySourceAndDestCoords;
-    for (unsigned i = 0; i < threadCRegisterMemRefType.getShape().size(); ++i)
+    for (unsigned i = 0; i < threadCRegisterMemRefType.getRank(); ++i)
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     for (unsigned i = 0;
-         i < op.getOperand(2).getType().cast<MemRefType>().getShape().size();
+         i < op.getOperand(2).getType().cast<MemRefType>().getRank();
          ++i)
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     b.create<miopen::ThreadwiseCopyOp>(
@@ -1464,10 +1464,10 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     // C++ implementation.
     SmallVector<Value, 6> matrixAThreadwiseCopySourceAndDestCoords;
     for (unsigned i = 0;
-         i < op.getOperand(0).getType().cast<MemRefType>().getShape().size();
+         i < op.getOperand(0).getType().cast<MemRefType>().getRank();
          ++i)
       matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-    for (unsigned i = 0; i < threadARegisterMemRefType.getShape().size(); ++i)
+    for (unsigned i = 0; i < threadARegisterMemRefType.getRank(); ++i)
       matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     lab.create<miopen::ThreadwiseCopyOp>(
         op.getLoc(), op.getOperand(0), threadAAllocOp,
@@ -1493,10 +1493,10 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     // C++ implementation.
     SmallVector<Value, 6> matrixBThreadwiseCopySourceAndDestCoords;
     for (unsigned i = 0;
-         i < op.getOperand(1).getType().cast<MemRefType>().getShape().size();
+         i < op.getOperand(1).getType().cast<MemRefType>().getRank();
          ++i)
       matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-    for (unsigned i = 0; i < threadBRegisterMemRefType.getShape().size(); ++i)
+    for (unsigned i = 0; i < threadBRegisterMemRefType.getRank(); ++i)
       matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     lbb.create<miopen::ThreadwiseCopyOp>(
         op.getLoc(), op.getOperand(1), threadBAllocOp,
@@ -1590,9 +1590,9 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       // C++ implementation.
       SmallVector<Value, 4> ThreadwiseCopySourceAndDestCoords;
       for (unsigned i = 0;
-           i < op.source().getType().cast<MemRefType>().getShape().size(); ++i)
+           i < op.source().getType().cast<MemRefType>().getRank(); ++i)
         ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-      for (unsigned i = 0; i < threadRegisterMemRefType.getShape().size(); ++i)
+      for (unsigned i = 0; i < threadRegisterMemRefType.getRank(); ++i)
         ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.source(),
                                          threadAllocOp,
@@ -1628,9 +1628,9 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       // this following original C++ implementation.
       ThreadwiseCopySourceAndDestCoords.clear();
       for (unsigned i = 0;
-           i < op.source().getType().cast<MemRefType>().getShape().size(); ++i)
+           i < op.source().getType().cast<MemRefType>().getRank(); ++i)
         ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-      for (unsigned i = 0; i < threadRegisterMemRefType.getShape().size(); ++i)
+      for (unsigned i = 0; i < threadRegisterMemRefType.getRank(); ++i)
         ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), threadAllocOp, op.dest(),
                                          ThreadwiseCopySourceAndDestCoords);
@@ -1666,10 +1666,10 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       // C++ implementation.
       SmallVector<Value, 4> ThreadwiseCopySourceAndDestCoords;
       for (unsigned i = 0;
-           i < op.source().getType().cast<MemRefType>().getShape().size(); ++i)
+           i < op.source().getType().cast<MemRefType>().getRank(); ++i)
         ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       for (unsigned i = 0;
-           i < op.dest().getType().cast<MemRefType>().getShape().size(); ++i)
+           i < op.dest().getType().cast<MemRefType>().getRank(); ++i)
         ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       auto threadwiseCopyOp = b.create<miopen::ThreadwiseCopyOp>(
           op.getLoc(), op.source(), op.dest(),
@@ -1699,10 +1699,10 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       // mThreadwiseStore.SetDstSliceOrigin(dst_block_slice_origin + thread_data_id_begin);
       SmallVector<Value, 4> ThreadwiseCopySourceAndDestCoords;
       for (unsigned i = 0;
-           i < op.source().getType().cast<MemRefType>().getShape().size(); ++i)
+           i < op.source().getType().cast<MemRefType>().getRank(); ++i)
         ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       for (unsigned i = 0;
-           i < op.dest().getType().cast<MemRefType>().getShape().size(); ++i)
+           i < op.dest().getType().cast<MemRefType>().getRank(); ++i)
         ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.source(), op.dest(),
                                          ThreadwiseCopySourceAndDestCoords);
