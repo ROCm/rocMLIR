@@ -1821,10 +1821,20 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
 
     // Pass the output affine map to users of this op.
     for (auto user : op.output().getUsers()) {
-      auto coordTransformAttrs = user->getAttr("naive_coord_transform");
+      unsigned userOperandIndex = 0;
+      for (userOperandIndex = 0; userOperandIndex < user->getNumOperands(); ++userOperandIndex)
+        if (user->getOperand(userOperandIndex) == op.output())
+          break;
+
+      auto coordTransformAttrs = user->getAttr("coord_transforms");
       if (!coordTransformAttrs)
-        user->setAttr("naive_coord_transform",
-                      b.getAffineMapArrayAttr(outputType.getAffineMaps()));
+        user->setAttr("coord_transforms",
+                      b.getArrayAttr({
+                        b.getDictionaryAttr({
+                          b.getNamedAttr("operand", b.getI32IntegerAttr(userOperandIndex)),
+                          b.getNamedAttr("transforms", b.getAffineMapArrayAttr(outputType.getAffineMaps()))
+                        })
+                      }));
     }
 
     // Pass the input to uses of this op.

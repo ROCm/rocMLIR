@@ -77,7 +77,7 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
   patterns.insert<FillRewritePattern>(&getContext());
   patterns.insert<MovePosRewritePattern>(&getContext());
   patterns.insert<SubviewRewritePattern>(&getContext());
-  patterns.insert<TransformRewritePattern>(&getContext());
+  //patterns.insert<TransformRewritePattern>(&getContext());
   patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
   patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
