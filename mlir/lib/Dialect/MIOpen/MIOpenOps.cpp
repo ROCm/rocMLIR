@@ -8,6 +8,7 @@
 
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Matchers.h"
@@ -368,22 +369,83 @@ static LogicalResult verify(BlockwiseCopyOp op) {
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseThreadwiseCopyOp(OpAsmParser &parser, OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<OpAsmParser::OperandType, 6> ops;
   SmallVector<Type, 2> types;
-  return failure(
-      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
-      parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonTypeList(types) ||
-      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+
+  auto ret = parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+             parser.parseOptionalAttrDict(result.attributes) ||
+             parser.parseColonTypeList(types) ||
+             parser.resolveOperand(ops[0], types[0], result.operands) ||
+             parser.resolveOperand(ops[1], types[1], result.operands);
+
+  for (unsigned i = 2; i < ops.size(); ++i) {
+    ret &= succeeded(parser.resolveOperand(
+        ops[i], parser.getBuilder().getIntegerType(32), result.operands));
+  }
+  return failure(ret);
 }
 
 static void print(OpAsmPrinter &p, ThreadwiseCopyOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperandTypes();
+  p << " : " << op.getOperands()[0].getType() << ", "
+    << op.getOperands()[1].getType();
 }
 
 static LogicalResult verify(ThreadwiseCopyOp op) {
+  auto coords = op.sourceAndDestCoord();
+  auto sourceType = op.source().getType().cast<MemRefType>();
+  auto destType = op.dest().getType().cast<MemRefType>();
+  auto sourceRank = sourceType.getShape().size();
+  auto destRank = destType.getShape().size();
+  auto sourceAffineMaps = sourceType.getAffineMaps();
+  auto destAffineMaps = destType.getAffineMaps();
+
+  unsigned expectedSourceCoords = sourceRank;
+  unsigned expectedDestCoords = destRank;
+
+  // check if memrefs have embedded affine maps.
+  if (sourceAffineMaps.size() != 0)
+    expectedSourceCoords = sourceAffineMaps[0].getNumInputs();
+  if (destAffineMaps.size() != 0)
+    expectedDestCoords = destAffineMaps[0].getNumInputs();
+
+  // check if memrefs have externally defined affine maps.
+  auto coordTransformAttrs = op.getAttr("coord_transforms");
+  if (coordTransformAttrs) {
+    for (auto coordTransformAttr :
+         coordTransformAttrs.cast<ArrayAttr>().getValue()) {
+      auto coordTransformDictAttr = coordTransformAttr.cast<DictionaryAttr>();
+      auto operandIndex =
+          coordTransformDictAttr.get("operand").cast<IntegerAttr>().getInt();
+      auto transform = coordTransformDictAttr.get("transforms")
+                           .cast<ArrayAttr>()
+                           .getValue()[0]
+                           .cast<AffineMapAttr>()
+                           .getValue();
+
+      if (operandIndex == 0) {
+        if (transform.getNumResults() != sourceRank)
+          return op.emitError(
+              "Number of coordindates in externally defined affine map doesn't "
+              "match the rank of the source memref");
+
+        expectedSourceCoords = transform.getNumInputs();
+      } else if (operandIndex == 1) {
+        if (transform.getNumResults() != destRank)
+          return op.emitError(
+              "Number of coordindates in externally defined affine map doesn't "
+              "match the rank of the destination memref");
+
+        expectedDestCoords = transform.getNumInputs();
+      }
+    }
+  }
+
+  if (coords.size() != expectedSourceCoords + expectedDestCoords)
+    return op.emitError(
+        "Number of coordinates supplied doesn't match the rank, or affine maps "
+        "of source and destination memrefs");
   return success();
 }
 

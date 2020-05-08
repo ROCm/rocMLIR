@@ -179,13 +179,16 @@ def MIOpen_BlockwiseCopyOp:
 def MIOpen_ThreadwiseCopyOp:
     MIOpen_Op<"threadwise_copy">,
     Arguments<(ins AnyMemRef:$source,
-                   AnyMemRef:$dest)> {
+                   AnyMemRef:$dest,
+                   Variadic<I32>:$sourceAndDestCoord)> {
   let summary = "Threadwise GPU data movement";
   let description = [{
     The `miopen.threadwise` op moves data on GPU. Following movements are
     allowed:
-    - Register (naive tensor) to global (generic tensor).
+    - Global (generic tensor) to register (naive tensor).
+    - Register (naive tensor) to LDS (naive tensor).
     - LDS (naive tensor) to register (naive tensor).
+    - Register (naive tensor) to global (generic tensor).
   }];
 }
 
