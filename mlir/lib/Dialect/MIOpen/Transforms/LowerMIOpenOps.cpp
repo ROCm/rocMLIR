@@ -93,6 +93,7 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
 void LowerMIOpenOpsStep4Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<ThreadwiseGemmRewritePattern>(&getContext());
+  patterns.insert<ThreadwiseCopyRewritePattern>(&getContext());
 
   populateAffineToStdConversionPatterns(patterns, &getContext());
   populateLoopToStdConversionPatterns(patterns, &getContext());
