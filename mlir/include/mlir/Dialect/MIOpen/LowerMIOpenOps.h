@@ -1805,7 +1805,7 @@ struct MovePosRewritePattern : public OpRewritePattern<miopen::MovePosOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// threadwiseGemm lowering.
+// ThreadwiseGemm lowering.
 //===----------------------------------------------------------------------===//
 
 struct ThreadwiseGemmRewritePattern
@@ -1851,6 +1851,21 @@ struct ThreadwiseGemmRewritePattern
     auto add = b.create<AddFOp>(op.getLoc(), b.getF32Type(), mul, gemmCMN);
     auto store = b.create<AffineStoreOp>(op.getLoc(), add, gemmC, memIndicesMN);
 
+    op.erase();
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// ThreadwiseGemm lowering.
+//===----------------------------------------------------------------------===//
+
+struct ThreadwiseCopyRewritePattern
+    : public OpRewritePattern<miopen::ThreadwiseCopyOp> {
+  using OpRewritePattern<miopen::ThreadwiseCopyOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::ThreadwiseCopyOp op,
+                                PatternRewriter &b) const override {
     op.erase();
     return success();
   }
