@@ -100,13 +100,13 @@ func @miopen_move_pos(%buffer_f32 : memref<2xf32, 5>, %buffer_i32 : memref<2xi32
 //   CHECK: miopen.move_pos
 //   CHECK: miopen.move_pos
 
-func @miopen_lds_barrier() {
-  miopen.lds_barrier
+func @miopen_workgroup_barrier() {
+  miopen.workgroup_barrier
   return
 }
 
-// CHECK-LABEL: func @miopen_lds_barrier
-//   CHECK-NEXT: miopen.lds_barrier
+// CHECK-LABEL: func @miopen_workgroup_barrier
+//   CHECK-NEXT: miopen.workgroup_barrier
  
 func @miopen_blockwise_gemm(%A : memref<?x?xf32, 3>, %B : memref<?x?xf32, 3>, %C : memref<?x?xf32, 5>) {
   miopen.blockwise_gemm(%A, %B, %C) {

@@ -99,7 +99,6 @@ def MIOpen_GridwiseGemmExOp:
 }
 
 // Memory allocation on GPU memory hierachy.
-// TBD: eventually replace this with std.alloc.
 def MIOpen_GpuAllocOp:
     MIOpen_Op<"gpu_alloc">,
     Results<(outs AnyMemRef:$output)> {
@@ -114,7 +113,6 @@ def MIOpen_GpuAllocOp:
 }
 
 // subview provides a subsection view of a memref.
-// TBD: eventually replace this with std.view and/or std.subview.
 def MIOpen_SubviewOp:
     MIOpen_Op<"subview">,
     Arguments<(ins AnyMemRef:$input,
@@ -149,12 +147,11 @@ def MIOpen_MovePosOp:
     }];
 }
 
-// TBD: eventually replace this with the op in GPU dialect?
-def MIOpen_LdsBarrierOp:
-    MIOpen_Op<"lds_barrier"> {
+def MIOpen_WorkgroupBarrierOp:
+    MIOpen_Op<"workgroup_barrier"> {
   let summary = "Setup an LDS barrier";
   let description = [{
-    The `miopen.lds_barrier` op sets up a barrier on LDS.
+    The `miopen.workgroup_barrier` op sets up a barrier on LDS.
   }];
 }
 

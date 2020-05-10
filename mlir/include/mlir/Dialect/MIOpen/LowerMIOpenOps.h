@@ -1289,7 +1289,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
 
     // LDS barrier.
-    lb.create<miopen::LdsBarrierOp>(op.getLoc());
+    lb.create<miopen::WorkgroupBarrierOp>(op.getLoc());
 
     auto KPerBlockConstantI32Op =
         b.create<ConstantIntOp>(op.getLoc(), KPerBlock, b.getIntegerType(32));
@@ -1321,7 +1321,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                        lds2DMatrixBOddSubviewOp, blockwiseCopyBSrc, blockwiseCopyBDst);
 
     // LDS barrier.
-    lb.create<miopen::LdsBarrierOp>(op.getLoc());
+    lb.create<miopen::WorkgroupBarrierOp>(op.getLoc());
 
     // Blockwise copy from global (generic tensor) to register (naive tensor).
     lb.create<miopen::MovePosOp>(
@@ -1353,7 +1353,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     
     // LDS barrier.
-    b.create<miopen::LdsBarrierOp>(op.getLoc());
+    b.create<miopen::WorkgroupBarrierOp>(op.getLoc());
 
     // Emit blockwise GEMM for the loop tail.
     if (loopIteration % 2) {

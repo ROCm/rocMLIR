@@ -138,7 +138,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         op.erase();
       });
 
-      func.walk([&](miopen::LdsBarrierOp op) {
+      func.walk([&](miopen::WorkgroupBarrierOp op) {
         auto loc = op.getLoc();
         OpBuilder b(op.getContext());
         b.setInsertionPoint(op);
