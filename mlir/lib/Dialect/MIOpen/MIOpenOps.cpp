@@ -292,6 +292,42 @@ static void print(OpAsmPrinter &p, WorkgroupBarrierOp op) {
 static LogicalResult verify(WorkgroupBarrierOp op) { return success(); }
 
 //===----------------------------------------------------------------------===//
+// WorkgroupIdOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseWorkgroupIdOp(OpAsmParser &parser,
+                                           OperationState &result) {
+  Type retType;
+  return failure(
+    parser.parseColonType(retType) ||
+    parser.addTypeToList(retType, result.types));
+}
+
+static void print(OpAsmPrinter &p, WorkgroupIdOp op) {
+  p << op.getOperationName() << " : " << op.getType();
+}
+
+static LogicalResult verify(WorkgroupIdOp op) { return success(); }
+
+//===----------------------------------------------------------------------===//
+// WorktemIdOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseWorkitemIdOp(OpAsmParser &parser,
+                                           OperationState &result) {
+  Type retType;
+  return failure(
+    parser.parseColonType(retType) ||
+    parser.addTypeToList(retType, result.types));
+}
+
+static void print(OpAsmPrinter &p, WorkitemIdOp op) {
+  p << op.getOperationName() << " : " << op.getType();
+}
+
+static LogicalResult verify(WorkitemIdOp op) { return success(); }
+
+//===----------------------------------------------------------------------===//
 // BlockwiseGemmOp
 //===----------------------------------------------------------------------===//
 

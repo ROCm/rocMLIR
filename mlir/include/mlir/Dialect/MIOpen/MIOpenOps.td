@@ -149,9 +149,27 @@ def MIOpen_MovePosOp:
 
 def MIOpen_WorkgroupBarrierOp:
     MIOpen_Op<"workgroup_barrier"> {
-  let summary = "Setup an LDS barrier";
+  let summary = "Setup an workgroup barrier";
   let description = [{
-    The `miopen.workgroup_barrier` op sets up a barrier on LDS.
+    The `miopen.workgroup_barrier` op sets up a workgroup-level barrier.
+  }];
+}
+
+def MIOpen_WorkgroupIdOp:
+    MIOpen_Op<"workgroup_id">,
+    Results<(outs Index:$id)> {
+  let summary = "Get current workgroup ID";
+  let description = [{
+    The `miopen.workgroup_id` op gets the current workgroup ID.
+  }];
+}
+
+def MIOpen_WorkitemIdOp:
+    MIOpen_Op<"workitem_id">,
+    Results<(outs Index:$id)> {
+  let summary = "Get current workitem ID";
+  let description = [{
+    The `miopen.workgroup_id` op gets the current workitem ID.
   }];
 }
 

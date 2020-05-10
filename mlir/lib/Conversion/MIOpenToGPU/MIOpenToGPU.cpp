@@ -138,6 +138,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         op.erase();
       });
 
+      // TBD see if these patterns could be re-written using tablgen.
       func.walk([&](miopen::WorkgroupBarrierOp op) {
         auto loc = op.getLoc();
         OpBuilder b(op.getContext());

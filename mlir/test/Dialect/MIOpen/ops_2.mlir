@@ -107,6 +107,16 @@ func @miopen_workgroup_barrier() {
 
 // CHECK-LABEL: func @miopen_workgroup_barrier
 //   CHECK-NEXT: miopen.workgroup_barrier
+
+func @miopen_indexing() {
+  %0 = miopen.workgroup_id : index
+  %1 = miopen.workitem_id : index
+  return
+}
+
+// CHECK-LABEL: func @miopen_indexing
+//   CHECK-NEXT: miopen.workgroup_id
+//   CHECK-NEXT: miopen.workitem_id
  
 func @miopen_blockwise_gemm(%A : memref<?x?xf32, 3>, %B : memref<?x?xf32, 3>, %C : memref<?x?xf32, 5>) {
   miopen.blockwise_gemm(%A, %B, %C) {
