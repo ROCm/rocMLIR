@@ -296,7 +296,7 @@ static LogicalResult verify(WorkgroupBarrierOp op) { return success(); }
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseWorkgroupIdOp(OpAsmParser &parser,
-                                           OperationState &result) {
+                                      OperationState &result) {
   Type retType;
   return failure(
     parser.parseColonType(retType) ||
@@ -314,7 +314,7 @@ static LogicalResult verify(WorkgroupIdOp op) { return success(); }
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseWorkitemIdOp(OpAsmParser &parser,
-                                           OperationState &result) {
+                                     OperationState &result) {
   Type retType;
   return failure(
     parser.parseColonType(retType) ||
