@@ -277,20 +277,19 @@ static void print(OpAsmPrinter &p, MovePosOp op) {
 static LogicalResult verify(MovePosOp op) { return success(); }
 
 //===----------------------------------------------------------------------===//
-// LdsBarrierOp
+// WorkgroupBarrierOp
 //===----------------------------------------------------------------------===//
 
-static ParseResult parseLdsBarrierOp(OpAsmParser &parser, OperationState &result) {
+static ParseResult parseWorkgroupBarrierOp(OpAsmParser &parser,
+                                           OperationState &result) {
   return success();
 }
 
-static void print(OpAsmPrinter &p, LdsBarrierOp op) {
+static void print(OpAsmPrinter &p, WorkgroupBarrierOp op) {
   p << op.getOperationName();
 }
 
-static LogicalResult verify(LdsBarrierOp op) {
-  return success();
-}
+static LogicalResult verify(WorkgroupBarrierOp op) { return success(); }
 
 //===----------------------------------------------------------------------===//
 // BlockwiseGemmOp
