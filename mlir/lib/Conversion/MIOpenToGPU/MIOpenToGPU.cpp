@@ -146,6 +146,24 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         b.create<gpu::BarrierOp>(loc);
         op.erase();
       });
+
+      func.walk([&](miopen::WorkgroupIdOp op) {
+        auto loc = op.getLoc();
+        OpBuilder b(op.getContext());
+        b.setInsertionPoint(op);
+        Value bid = b.create<gpu::BlockIdOp>(loc, b.getIndexType(), "x");
+        op.replaceAllUsesWith(bid);
+        op.erase();
+      });
+
+      func.walk([&](miopen::WorkitemIdOp op) {
+        auto loc = op.getLoc();
+        OpBuilder b(op.getContext());
+        b.setInsertionPoint(op);
+        Value tid = b.create<gpu::ThreadIdOp>(loc, b.getIndexType(), "x");
+        op.replaceAllUsesWith(tid);
+        op.erase();
+      });
     });
   }
 }
