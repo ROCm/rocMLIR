@@ -960,50 +960,49 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                     miopen::GridwiseGemmOp gop) const {
     // Add attributes from C++ template arguments and ctor arguments.
     // a_blockwise_copy:
-    // BlockSize
-    // a_k_m_global_desc
-    // a_k_m_block_desc
-    // a_k_m_block_desc.getLengths()
-    // ABlockCopyThreadSliceLengths_K_M
-    // ABlockCopyThreadClusterLengths_K_M
-    // ABlockCopyThreadClusterArrangeOrder
-    // ABlockCopySrcAccessOrder
-    // Sequence<0, 1>
-    // ABlockCopySrcVectorReadDim
-    // 1
-    // ABlockCopySrcDataPerRead
-    // ABlockCopyDstDataPerWrite_M
+    // BlockSize                           - block_size attribute
+    // a_k_m_global_desc                   - source memref
+    // a_k_m_block_desc                    - dest memref
+    // a_k_m_block_desc.getLengths()       - dest memref
+    // ABlockCopyThreadSliceLengths_K_M    - logic specified in -miopen-affix-params pass
+    // ABlockCopyThreadClusterLengths_K_M  - logic specified in -miopen-affix-params pass
+    // ABlockCopyThreadClusterArrangeOrder - Sequence<1, 0>
+    // ABlockCopySrcAccessOrder            - Sequence<1, 0>
+    // Sequence<0, 1>                      - Sequence<0, 1>
+    // ABlockCopySrcVectorReadDim          - matrix_a_source_vector_read_dim attribute
+    // 1                                   - 1
+    // ABlockCopySrcDataPerRead            - matrix_a_source_data_per_read attribute
+    // ABlockCopyDstDataPerWrite_M         - matrix_a_dest_data_per_write_dim_m attribute
 
     // b_blockwise_copy:
-    // BlockSize
-    // b_k_n_global_desc
-    // b_k_n_block_desc
-    // b_k_n_block_desc.getLengths()
-    // BBlockCopyThreadSliceLengths_K_N
-    // BBlockCopyThreadClusterLengths_K_N
-    // BBlockCopyThreadClusterArrangeOrder
-    // BBlockCopySrcAccessOrder
-    // Sequence<0, 1>
-    // BBlockCopySrcVectorReadDim
-    // 1
-    // BBlockCopySrcDataPerRead
-    // BBlockCopyDstDataPerWrite_N
+    // BlockSize                           - block_size attribute
+    // b_k_n_global_desc                   - source memref
+    // b_k_n_block_desc                    - dest memref
+    // b_k_n_block_desc.getLengths()       - dest memref
+    // BBlockCopyThreadSliceLengths_K_N    - logic specified in -miopen-affix-params pass
+    // BBlockCopyThreadClusterLengths_K_N  - logic specified in -miopen-affix-params pass
+    // BBlockCopyThreadClusterArrangeOrder - Sequence<1, 0>
+    // BBlockCopySrcAccessOrder            - Sequence<1, 0>
+    // Sequence<0, 1>                      - Seuquence<0, 1>
+    // BBlockCopySrcVectorReadDim          - matrix_b_source_read_dim attribute
+    // 1                                   - 1
+    // BBlockCopySrcDataPerRead            - matrix_b_source_data_per_read attribute
+    // BBlockCopyDstDataPerWrite_N         - matrix_b_dest_data_per_write_dim_n attribute
     bop.setAttr("block_size", gop.getAttr("block_size"));
-    // bop.setAttr("m_per_thread", gop.getAttr("m_per_thread"));
-    // bop.setAttr("n_per_thread", gop.getAttr("n_per_thread"));
-    // bop.setAttr("k_per_thread", gop.getAttr("k_per_thread"));
-    // bop.setAttr("m_level0_cluster", gop.getAttr("m_level0_cluster"));
-    // bop.setAttr("m_level1_cluster", gop.getAttr("m_level1_cluster"));
-    // bop.setAttr("n_level0_cluster", gop.getAttr("n_level0_cluster"));
-    // bop.setAttr("n_level0_cluster", gop.getAttr("n_level1_cluster"));
+
     bop.setAttr("matrix_a_source_vector_read_dim",
                 gop.getAttr("matrix_a_source_vector_read_dim"));
-    bop.setAttr("matrix_b_source_vector_read_dim",
-                gop.getAttr("matrix_b_source_vector_read_dim"));
     bop.setAttr("matrix_a_source_data_per_read",
                 gop.getAttr("matrix_a_source_data_per_read"));
+    bop.setAttr("matrix_a_dest_data_per_write_dim_m",
+                gop.getAttr("matrix_a_dest_data_per_write_dim_m"));
+
+    bop.setAttr("matrix_b_source_vector_read_dim",
+                gop.getAttr("matrix_b_source_vector_read_dim"));
     bop.setAttr("matrix_b_source_data_per_read",
                 gop.getAttr("matrix_b_source_data_per_read"));
+    bop.setAttr("matrix_b_dest_data_per_write_dim_n",
+                gop.getAttr("matrix_b_dest_data_per_write_dim_n"));
   }
 
   void affixBlockwiseGemmAttributes(miopen::BlockwiseGemmOp bop, miopen::GridwiseGemmOp gop) const {
