@@ -956,6 +956,56 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
      double_block_space = 2 * (a_block_space + b_block_space);
   }
 
+  void affixBlockwiseCopyAttributes(miopen::BlockwiseCopyOp bop,
+                                    miopen::GridwiseGemmOp gop) const {
+    // Add attributes from C++ template arguments and ctor arguments.
+    // a_blockwise_copy:
+    // BlockSize
+    // a_k_m_global_desc
+    // a_k_m_block_desc
+    // a_k_m_block_desc.getLengths()
+    // ABlockCopyThreadSliceLengths_K_M
+    // ABlockCopyThreadClusterLengths_K_M
+    // ABlockCopyThreadClusterArrangeOrder
+    // ABlockCopySrcAccessOrder
+    // Sequence<0, 1>
+    // ABlockCopySrcVectorReadDim
+    // 1
+    // ABlockCopySrcDataPerRead
+    // ABlockCopyDstDataPerWrite_M
+
+    // b_blockwise_copy:
+    // BlockSize
+    // b_k_n_global_desc
+    // b_k_n_block_desc
+    // b_k_n_block_desc.getLengths()
+    // BBlockCopyThreadSliceLengths_K_N
+    // BBlockCopyThreadClusterLengths_K_N
+    // BBlockCopyThreadClusterArrangeOrder
+    // BBlockCopySrcAccessOrder
+    // Sequence<0, 1>
+    // BBlockCopySrcVectorReadDim
+    // 1
+    // BBlockCopySrcDataPerRead
+    // BBlockCopyDstDataPerWrite_N
+    bop.setAttr("block_size", gop.getAttr("block_size"));
+    // bop.setAttr("m_per_thread", gop.getAttr("m_per_thread"));
+    // bop.setAttr("n_per_thread", gop.getAttr("n_per_thread"));
+    // bop.setAttr("k_per_thread", gop.getAttr("k_per_thread"));
+    // bop.setAttr("m_level0_cluster", gop.getAttr("m_level0_cluster"));
+    // bop.setAttr("m_level1_cluster", gop.getAttr("m_level1_cluster"));
+    // bop.setAttr("n_level0_cluster", gop.getAttr("n_level0_cluster"));
+    // bop.setAttr("n_level0_cluster", gop.getAttr("n_level1_cluster"));
+    bop.setAttr("matrix_a_source_vector_read_dim",
+                gop.getAttr("matrix_a_source_vector_read_dim"));
+    bop.setAttr("matrix_b_source_vector_read_dim",
+                gop.getAttr("matrix_b_source_vector_read_dim"));
+    bop.setAttr("matrix_a_source_data_per_read",
+                gop.getAttr("matrix_a_source_data_per_read"));
+    bop.setAttr("matrix_b_source_data_per_read",
+                gop.getAttr("matrix_b_source_data_per_read"));
+  }
+
   void affixBlockwiseGemmAttributes(miopen::BlockwiseGemmOp bop, miopen::GridwiseGemmOp gop) const {
     // Add attributes from C++ template arguments and ctor arguments.
     //const auto blockwise_gemm = BlockwiseGemmBlockABlockBThreadCTransANormalBNormalC_v2<
@@ -1274,10 +1324,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // TBD add thread_data_id_begin.
     b.create<miopen::FillOp>(op.getLoc(), blockwiseCopyBDst, zeroConstantI32Op);
 
-    b.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0),
-                                      lds2DMatrixAEvenSubviewOp, blockwiseCopyASrc, blockwiseCopyADst);
-    b.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1),
-                                      lds2DMatrixBEvenSubviewOp, blockwiseCopyBSrc, blockwiseCopyBDst);
+    auto blockwiseCopyA = b.create<miopen::BlockwiseCopyOp>(
+        op.getLoc(), op.getOperand(0), lds2DMatrixAEvenSubviewOp,
+        blockwiseCopyASrc, blockwiseCopyADst);
+    affixBlockwiseCopyAttributes(blockwiseCopyA, op);
+    auto blockwiseCopyB = b.create<miopen::BlockwiseCopyOp>(
+        op.getLoc(), op.getOperand(1), lds2DMatrixBEvenSubviewOp,
+        blockwiseCopyBSrc, blockwiseCopyBDst);
+    affixBlockwiseCopyAttributes(blockwiseCopyB, op);
 
     // Emit loop.
     // Compute loop iterations from attributes.
@@ -1301,12 +1355,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto blockwiseCopyOpAEven = lb.create<miopen::BlockwiseCopyOp>(
         op.getLoc(), op.getOperand(0), threadAEvenAllocOp, blockwiseCopyASrc,
         blockwiseCopyADst);
+    affixBlockwiseCopyAttributes(blockwiseCopyOpAEven, op);
     lb.create<miopen::MovePosOp>(
         op.getLoc(), blockwiseCopyBSrc,
         ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpBEven = lb.create<miopen::BlockwiseCopyOp>(
         op.getLoc(), op.getOperand(1), threadBEvenAllocOp, blockwiseCopyBSrc,
         blockwiseCopyBDst);
+    affixBlockwiseCopyAttributes(blockwiseCopyOpBEven, op);
 
     // Emit blockwise GEMM.
     auto blockwiseGemmEvenOp = lb.create<miopen::BlockwiseGemmOp>(
@@ -1315,10 +1371,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     affixBlockwiseGemmAttributes(blockwiseGemmEvenOp, op);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
-    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadAEvenAllocOp,
-                                       lds2DMatrixAOddSubviewOp, blockwiseCopyASrc, blockwiseCopyADst);
-    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadBEvenAllocOp,
-                                       lds2DMatrixBOddSubviewOp, blockwiseCopyBSrc, blockwiseCopyBDst);
+    auto blockwiseCopyOpAOdd = lb.create<miopen::BlockwiseCopyOp>(
+        op.getLoc(), threadAEvenAllocOp, lds2DMatrixAOddSubviewOp,
+        blockwiseCopyASrc, blockwiseCopyADst);
+    affixBlockwiseCopyAttributes(blockwiseCopyOpAOdd, op);
+    auto blockwiseCopyOpBOdd = lb.create<miopen::BlockwiseCopyOp>(
+        op.getLoc(), threadBEvenAllocOp, lds2DMatrixBOddSubviewOp,
+        blockwiseCopyBSrc, blockwiseCopyBDst);
+    affixBlockwiseCopyAttributes(blockwiseCopyOpBOdd, op);
 
     // LDS barrier.
     lb.create<miopen::WorkgroupBarrierOp>(op.getLoc());
@@ -1327,15 +1387,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     lb.create<miopen::MovePosOp>(
         op.getLoc(), blockwiseCopyASrc,
         ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
-    auto blockwiseCopyOpAOdd = lb.create<miopen::BlockwiseCopyOp>(
-        op.getLoc(), op.getOperand(0), threadAOddAllocOp, blockwiseCopyASrc,
-        blockwiseCopyADst);
+    auto blockwiseCopyOpAOddSecondIteration =
+        lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0),
+                                           threadAOddAllocOp, blockwiseCopyASrc,
+                                           blockwiseCopyADst);
+    affixBlockwiseCopyAttributes(blockwiseCopyOpAOddSecondIteration, op);
     lb.create<miopen::MovePosOp>(
         op.getLoc(), blockwiseCopyBSrc,
         ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
-    auto blockwiseCopyOpBOdd = lb.create<miopen::BlockwiseCopyOp>(
-        op.getLoc(), op.getOperand(1), threadBOddAllocOp, blockwiseCopyBSrc,
-        blockwiseCopyBDst);
+    auto blockwiseCopyOpBOddSecondIteration =
+        lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1),
+                                           threadBOddAllocOp, blockwiseCopyBSrc,
+                                           blockwiseCopyBDst);
+    affixBlockwiseCopyAttributes(blockwiseCopyOpBOddSecondIteration, op);
 
     // Emit blockwise GEMM.
     auto blockwiseGemmOddOp = lb.create<miopen::BlockwiseGemmOp>(
@@ -1344,10 +1408,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     affixBlockwiseGemmAttributes(blockwiseGemmOddOp, op);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
-    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadAOddAllocOp,
-                                       lds2DMatrixAEvenSubviewOp, blockwiseCopyASrc, blockwiseCopyADst);
-    lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), threadBOddAllocOp,
-                                       lds2DMatrixBEvenSubviewOp, blockwiseCopyBSrc, blockwiseCopyBDst);
+    auto blockwiseCopyAEvenSecondIteration = lb.create<miopen::BlockwiseCopyOp>(
+        op.getLoc(), threadAOddAllocOp, lds2DMatrixAEvenSubviewOp,
+        blockwiseCopyASrc, blockwiseCopyADst);
+    affixBlockwiseCopyAttributes(blockwiseCopyAEvenSecondIteration, op);
+    auto blockwiseCopyBEvenSecondIteration = lb.create<miopen::BlockwiseCopyOp>(
+        op.getLoc(), threadBOddAllocOp, lds2DMatrixBEvenSubviewOp,
+        blockwiseCopyBSrc, blockwiseCopyBDst);
+    affixBlockwiseCopyAttributes(blockwiseCopyBEvenSecondIteration, op);
 
     // outside the loop.
 
