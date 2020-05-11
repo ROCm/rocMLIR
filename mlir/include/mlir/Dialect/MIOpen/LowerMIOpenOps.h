@@ -1008,19 +1008,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   void affixBlockwiseGemmAttributes(miopen::BlockwiseGemmOp bop, miopen::GridwiseGemmOp gop) const {
     // Add attributes from C++ template arguments and ctor arguments.
     //const auto blockwise_gemm = BlockwiseGemmBlockABlockBThreadCTransANormalBNormalC_v2<
-    //    BlockSize,
-    //    decltype(a_k_m_block_mtx_desc),
-    //    decltype(b_k_n_block_mtx_desc),
-    //    decltype(c_m0m1_n0n1_thread_mtx_desc),
-    //    MPerThread,
-    //    NPerThread,
-    //    MLevel0Cluster,
-    //    NLevel0Cluster,
-    //    MLevel1Cluster,
-    //    NLevel1Cluster,
-    //    KPerThread,
-    //    ThreadGemmAThreadCopySrcDataPerRead_M,
-    //    ThreadGemmBThreadCopySrcDataPerRead_N>{};
+    //    BlockSize,                                - block_size attribute
+    //    decltype(a_k_m_block_mtx_desc),           - matrixA memref
+    //    decltype(b_k_n_block_mtx_desc),           - matrixB memref
+    //    decltype(c_m0m1_n0n1_thread_mtx_desc),    - matrixC memref
+    //    MPerThread,                               - m_per_thread attribute
+    //    NPerThread,                               - n_per_thread attribute
+    //    MLevel0Cluster,                           - m_level0_cluster attribute
+    //    NLevel0Cluster,                           - n_level0_cluster attribute
+    //    MLevel1Cluster,                           - m_level1_cluster attribute
+    //    NLevel1Cluster,                           - n_level1_cluster attribute
+    //    KPerThread,                               - k_per_thread attribute
+    //    ThreadGemmAThreadCopySrcDataPerRead_M,    - m_per_thread attribute
+    //    ThreadGemmBThreadCopySrcDataPerRead_N>{}; - n_per_thread attribute
     bop.setAttr("block_size", gop.getAttr("block_size"));
     bop.setAttr("m_per_thread", gop.getAttr("m_per_thread"));
     bop.setAttr("n_per_thread", gop.getAttr("n_per_thread"));
@@ -1029,10 +1029,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     bop.setAttr("m_level1_cluster", gop.getAttr("m_level1_cluster"));
     bop.setAttr("n_level0_cluster", gop.getAttr("n_level0_cluster"));
     bop.setAttr("n_level0_cluster", gop.getAttr("n_level1_cluster"));
-    bop.setAttr("matrix_a_source_vector_read_dim", gop.getAttr("matrix_a_source_vector_read_dim"));
-    bop.setAttr("matrix_b_source_vector_read_dim", gop.getAttr("matrix_b_source_vector_read_dim"));
-    bop.setAttr("matrix_a_source_data_per_read", gop.getAttr("matrix_a_source_data_per_read"));
-    bop.setAttr("matrix_b_source_data_per_read", gop.getAttr("matrix_b_source_data_per_read"));
   }
 
   template <typename T>
