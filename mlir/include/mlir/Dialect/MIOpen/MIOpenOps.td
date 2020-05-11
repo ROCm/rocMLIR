@@ -100,11 +100,11 @@ def MIOpen_GridwiseGemmExOp:
 
 // Memory allocation on GPU memory hierachy.
 def MIOpen_GpuAllocOp:
-    MIOpen_Op<"gpu_alloc">,
+    MIOpen_Op<"alloc">,
     Results<(outs AnyMemRef:$output)> {
   let summary = "Memory allocation on GPU";
   let description = [{
-    The `miopen.gpu_alloc` op allocates memory on GPU.
+    The `miopen.alloc` op allocates memory on GPU.
     - Address space 0 : global.
     - Address space 3 : LDS.
     - Address space 5 : private (VGPR).

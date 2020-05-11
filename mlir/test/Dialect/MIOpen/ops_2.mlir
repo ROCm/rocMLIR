@@ -20,23 +20,23 @@ func @miopen_gridwise_gemm_ex(%A : memref<?x?xf32>, %B : memref<?x?xf32>, %C : m
 // CHECK-LABEL: func @miopen_gridwise_gemm_ex
 //  CHECK-NEXT: miopen.gridwise_gemm_ex
 
-func @miopen_gpu_alloc() {
+func @miopen_alloc() {
   // allocation on global.
-  %buffer_global = miopen.gpu_alloc() : memref<1024xi8>
+  %buffer_global = miopen.alloc() : memref<1024xi8>
 
   // allocation on LDS.
-  %buffer_lds = miopen.gpu_alloc() : memref<1024xi8, 3>
+  %buffer_lds = miopen.alloc() : memref<1024xi8, 3>
 
   // allocation on register (VGPR).
-  %buffer_register = miopen.gpu_alloc() : memref<1024xi8, 5>
+  %buffer_register = miopen.alloc() : memref<1024xi8, 5>
 
   return
 }
 
-// CHECK-LABEL: func @miopen_gpu_alloc
-//   CHECK: miopen.gpu_alloc
-//   CHECK-NEXT: miopen.gpu_alloc
-//   CHECK-NEXT: miopen.gpu_alloc
+// CHECK-LABEL: func @miopen_alloc
+//   CHECK: miopen.alloc
+//   CHECK-NEXT: miopen.alloc
+//   CHECK-NEXT: miopen.alloc
 
 func @miopen_subview(%buffer : memref<1024xi8>) {
   %c0 = constant 0 : index
