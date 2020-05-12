@@ -1090,6 +1090,26 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t NLevel0Cluster = op.getAttr("n_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
     int64_t NLevel1Cluster = op.getAttr("n_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
 
+    int64_t MBlockWork = M / MPerBlock;
+    int64_t NBlockWork = N / NPerBlock;
+    auto MBlockWorkConstantOp =
+        b.create<ConstantIndexOp>(op.getLoc(), MBlockWork);
+    auto NBlockWorkConstantOp =
+        b.create<ConstantIndexOp>(op.getLoc(), NBlockWork);
+    auto bid = b.create<miopen::WorkgroupIdOp>(op.getLoc(), b.getIndexType());
+    auto block_work_id_m =
+        b.create<SignedDivIOp>(op.getLoc(), bid, NBlockWorkConstantOp);
+    auto block_work_id_n =
+        b.create<SignedRemIOp>(op.getLoc(), bid, NBlockWorkConstantOp);
+    auto m_block_data_on_global =
+        b.create<MulIOp>(op.getLoc(), block_work_id_m, MBlockWorkConstantOp);
+    auto n_block_data_on_global =
+        b.create<MulIOp>(op.getLoc(), block_work_id_n, NBlockWorkConstantOp);
+    auto m_block_data_on_global_i32 = b.create<IndexCastOp>(
+        op.getLoc(), m_block_data_on_global, b.getIntegerType(32));
+    auto n_block_data_on_global_i32 = b.create<IndexCastOp>(
+        op.getLoc(), n_block_data_on_global, b.getIntegerType(32));
+
     // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
     computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize);
@@ -1302,18 +1322,24 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
               MemRefType::get({2}, b.getIntegerType(32), {}, registerMemorySpace);
 
     auto blockwiseCopyASrc = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyCoordType);
-    // TBD compute m_block_data_on_global. Use (0, 0) for now.
+    // set starting location as (m_block_data_on_global_i32, 0)
+    b.create<StoreOp>(op.getLoc(), m_block_data_on_global_i32,
+                      blockwiseCopyASrc, ValueRange{zeroConstantIndexOp});
+    b.create<StoreOp>(op.getLoc(), zeroConstantI32Op, blockwiseCopyASrc,
+                      ValueRange{oneConstantIndexOp});
     // TBD add thread_data_id_begin.
-    b.create<miopen::FillOp>(op.getLoc(), blockwiseCopyASrc, zeroConstantI32Op);
 
     auto blockwiseCopyADst = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyCoordType);
     // TBD add thread_data_id_begin.
     b.create<miopen::FillOp>(op.getLoc(), blockwiseCopyADst, zeroConstantI32Op);
 
     auto blockwiseCopyBSrc = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyCoordType);
-    // TBD compute n_block_data_on_global. Use (0, 0) for now.
+    // set starting location as (n_block_data_on_global_i32, 0)
+    b.create<StoreOp>(op.getLoc(), n_block_data_on_global_i32,
+                      blockwiseCopyBSrc, ValueRange{zeroConstantIndexOp});
+    b.create<StoreOp>(op.getLoc(), zeroConstantI32Op, blockwiseCopyBSrc,
+                      ValueRange{oneConstantIndexOp});
     // TBD add thread_data_id_begin.
-    b.create<miopen::FillOp>(op.getLoc(), blockwiseCopyBSrc, zeroConstantI32Op);
 
     auto blockwiseCopyBDst = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyCoordType);
     // TBD add thread_data_id_begin.
