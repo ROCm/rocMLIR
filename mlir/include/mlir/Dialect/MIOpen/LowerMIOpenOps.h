@@ -1252,75 +1252,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Blockwise copies before the loop.
     // Blockwise copy from global (generic tensor) to LDS (naive tensor).
 
-    // TBD add attributes from C++ template arguments and ctor arguments.
-    //// A matrix blockwise copy
-    //auto a_blockwise_copy =
-    //    BlockwiseGenericTensorSliceCopy_v4<BlockSize,
-    //                                       decltype(a_k_m_global_desc),
-    //                                       decltype(a_k_m_block_desc),
-    //                                       decltype(a_k_m_block_desc.GetLengths()),
-    //                                       ABlockCopyThreadSliceLengths_K_M,
-    //                                       -> GemmABlockCopyThreadSliceLengths_GemmK_GemmM
-    //                                       -> Sequence<GemmABlockCopyThreadSliceLengths_GemmK, GemmABlockCopyThreadSliceLengths_GemmM>
-    //                                          -> GemmKPerBlock / GemmABlockCopyClusterLengths_GemmK
-    //                                          -> GemmKPerBlock / (GemmKPerBlock / matrix_a_source_data_per_read)
-    //                                          -> GemmMPerBlock / GemmABlockCopyClusterLengths_GemmM
-    //                                          -> GemmMPerBlock / (GemmMPerBlock / (MPerBlock * KPerBlock / BlockSize) / matrix_a_source_data_per_read)
-
-    //                                       ABlockCopyThreadClusterLengths_K_M,
-    //                                       -> GemmABlockCopyThreadClusterLengths_GemmK_GemmM
-    //                                       -> Sequence<GemmABlockCopyClusterLengths_GemmK, GemmABlockCopyClusterLengths_GemmM>
-    //                                          -> GemmKPerBlock / matrix_a_source_data_per_read
-    //                                          -> GemmMPerBlock / (MPerBlock * KPerBlock / BlockSize) / matrix_a_source_data_per_read)
-
-    //                                       ABlockCopyThreadClusterArrangeOrder,
-    //                                       -> Sequence<1, 0>
-
-    //                                       ABlockCopySrcAccessOrder,
-    //                                       -> Sequence<1, 0>
-
-    //                                       Sequence<0, 1>,
-
-    //                                       ABlockCopySrcVectorReadDim,
-    //                                       -> from op attribute
-
-    //                                       1,
-
-    //                                       ABlockCopySrcDataPerRead,
-    //                                       -> from op attribute
-
-    //                                       ABlockCopyDstDataPerWrite_M,
-    //                                       -> from op attribute
-
-    //                                       AddressSpace::Global,
-    //                                       AddressSpace::Vgpr,
-    //                                       AddressSpace::Lds,
-    //                                       InMemoryDataOperation::Set>(
-    //        {0, m_block_data_on_global}, {0, 0});
-
-    //// B matrix blockwise copy
-    //auto b_blockwise_copy =
-    //    BlockwiseGenericTensorSliceCopy_v4<BlockSize,
-    //                                       decltype(b_k_n_global_desc),
-    //                                       decltype(b_k_n_block_desc),
-    //                                       decltype(b_k_n_block_desc.GetLengths()),
-    //                                       BBlockCopyThreadSliceLengths_K_N,
-    //                                       BBlockCopyThreadClusterLengths_K_N,
-    //                                       BBlockCopyThreadClusterArrangeOrder,
-    //                                       BBlockCopySrcAccessOrder,
-    //                                       Sequence<0, 1>,
-    //                                       BBlockCopySrcVectorReadDim,
-    //                                       1,
-    //                                       BBlockCopySrcDataPerRead,
-    //                                       BBlockCopyDstDataPerWrite_N,
-    //                                       AddressSpace::Global,
-    //                                       AddressSpace::Vgpr,
-    //                                       AddressSpace::Lds,
-    //                                       InMemoryDataOperation::Set>(
-    //        {0, n_block_data_on_global}, {0, 0});
+    // Compute source and destination coordinates for BlockwiseCopy ops.
     auto blockwiseCopyCoordType =
               MemRefType::get({2}, b.getIntegerType(32), {}, registerMemorySpace);
 
+    // Matrix A: {0, m_block_data_on_global}, {0, 0}
     auto blockwiseCopyASrc = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyCoordType);
     // set starting location as (m_block_data_on_global_i32, 0)
     b.create<StoreOp>(op.getLoc(), m_block_data_on_global_i32,
@@ -1333,6 +1269,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // TBD add thread_data_id_begin.
     b.create<miopen::FillOp>(op.getLoc(), blockwiseCopyADst, zeroConstantI32Op);
 
+    // Matrix B: {0, n_block_data_on_global}, {0, 0}
     auto blockwiseCopyBSrc = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyCoordType);
     // set starting location as (n_block_data_on_global_i32, 0)
     b.create<StoreOp>(op.getLoc(), n_block_data_on_global_i32,
@@ -1345,6 +1282,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // TBD add thread_data_id_begin.
     b.create<miopen::FillOp>(op.getLoc(), blockwiseCopyBDst, zeroConstantI32Op);
 
+    // Emit BlockwiseCopy ops.
+    // Add attributes from template arguments and ctor arguments from original
+    // C++ codes.
     auto blockwiseCopyA = b.create<miopen::BlockwiseCopyOp>(
         op.getLoc(), op.getOperand(0), lds2DMatrixAEvenSubviewOp,
         blockwiseCopyASrc, blockwiseCopyADst);
