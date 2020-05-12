@@ -117,8 +117,19 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     gpuModuleSymbolTable.insert(gpuFunc);
   }
 
-  // TBD: erase the old function.
+  // Erase old FuncOp instances.
+  auto *block = op.getBody();
+  auto o = block->begin();
+  do {
+    if (auto func = dyn_cast<FuncOp>(o)) {
+      o->erase();
+      o = block->begin();
+    } else {
+      ++o;
+    }
+  } while(o != block->end());
 
+  // Convert GPU-specific ops to GPU dialect.
   for (auto module : op.getOps<gpu::GPUModuleOp>()) {
     module.walk([&](gpu::GPUFuncOp func) {
       func.walk([&](miopen::GpuAllocOp op) {
