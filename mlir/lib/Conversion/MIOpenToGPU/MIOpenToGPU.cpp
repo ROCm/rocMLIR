@@ -81,9 +81,9 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     FunctionType gpuFuncType = func.getType();
     auto gpuFunc = b.create<gpu::GPUFuncOp>(loc, func.getName(), gpuFuncType);
 
-    // TBD: set kernel attribute.
-    // gpuFunc.setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
-    //                b.getUnitAttr());
+    // Set kernel attribute.
+    gpuFunc.setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
+                    b.getUnitAttr());
 
     // associate arguments for newly created GPUFuncOp.
     BlockAndValueMapping map;
