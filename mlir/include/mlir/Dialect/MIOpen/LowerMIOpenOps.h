@@ -1202,9 +1202,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto registerMemorySpace = 5;
 
     // Obtain critical matrix dimensions.
-    int64_t K = op.getOperand(0).getType().template dyn_cast<MemRefType>().getShape()[0];
-    int64_t M = op.getOperand(0).getType().template dyn_cast<MemRefType>().getShape()[1];
-    int64_t N = op.getOperand(1).getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t K = op.filter().getType().template dyn_cast<MemRefType>().getShape()[0];
+    int64_t M = op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t N = op.input().getType().template dyn_cast<MemRefType>().getShape()[1];
 
     // Obtain critical tuning parameters.
     int64_t BlockSize =
@@ -1578,11 +1578,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Emit BlockwiseCopy ops.
     auto blockwiseCopyA = b.create<miopen::BlockwiseCopyOp>(
-        op.getLoc(), op.getOperand(0), lds2DMatrixAEvenSubviewOp,
+        op.getLoc(), op.filter(), lds2DMatrixAEvenSubviewOp,
         blockwiseCopyASrc, blockwiseCopyADst, threadAOddAllocOp);
     affixBlockwiseCopyAttributes(blockwiseCopyA, op, b, /*isMatrixA=*/true);
     auto blockwiseCopyB = b.create<miopen::BlockwiseCopyOp>(
-        op.getLoc(), op.getOperand(1), lds2DMatrixBEvenSubviewOp,
+        op.getLoc(), op.input(), lds2DMatrixBEvenSubviewOp,
         blockwiseCopyBSrc, blockwiseCopyBDst, threadBOddAllocOp);
     affixBlockwiseCopyAttributes(blockwiseCopyB, op, b, /*isMatrixA=*/false);
 
@@ -1606,7 +1606,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         op.getLoc(), blockwiseCopyASrc,
         ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpAEven = lb.create<miopen::BlockwiseCopyOp>(
-        op.getLoc(), op.getOperand(0), threadAEvenAllocOp, blockwiseCopyASrc,
+        op.getLoc(), op.filter(), threadAEvenAllocOp, blockwiseCopyASrc,
         blockwiseCopyADst, /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyOpAEven, op, b,
                                  /*isMatrixA=*/true);
@@ -1614,7 +1614,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         op.getLoc(), blockwiseCopyBSrc,
         ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpBEven = lb.create<miopen::BlockwiseCopyOp>(
-        op.getLoc(), op.getOperand(1), threadBEvenAllocOp, blockwiseCopyBSrc,
+        op.getLoc(), op.input(), threadBEvenAllocOp, blockwiseCopyBSrc,
         blockwiseCopyBDst, /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyOpBEven, op, b,
                                  /*isMatrixA=*/false);
@@ -1647,7 +1647,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpAOddSecondIteration =
         lb.create<miopen::BlockwiseCopyOp>(
-            op.getLoc(), op.getOperand(0), threadAOddAllocOp, blockwiseCopyASrc,
+            op.getLoc(), op.filter(), threadAOddAllocOp, blockwiseCopyASrc,
             blockwiseCopyADst, /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyOpAOddSecondIteration, op, b,
                                  /*isMatrixA=*/true);
@@ -1656,7 +1656,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpBOddSecondIteration =
         lb.create<miopen::BlockwiseCopyOp>(
-            op.getLoc(), op.getOperand(1), threadBOddAllocOp, blockwiseCopyBSrc,
+            op.getLoc(), op.input(), threadBOddAllocOp, blockwiseCopyBSrc,
             blockwiseCopyBDst, /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyOpBOddSecondIteration, op, b,
                                  /*isMatrixA=*/false);
@@ -2127,9 +2127,9 @@ struct ThreadwiseGemmRewritePattern
 
   LogicalResult matchAndRewrite(miopen::ThreadwiseGemmOp op,
                                 PatternRewriter &b) const override {
-    auto gemmA = op.getOperand(0);
-    auto gemmB = op.getOperand(1);
-    auto gemmC = op.getOperand(2);
+    auto gemmA = op.matrixA();
+    auto gemmB = op.matrixB();
+    auto gemmC = op.matrixC();
 
     ArrayRef<int64_t> gemmAShape =
         gemmA.getType().dyn_cast<MemRefType>().getShape();
