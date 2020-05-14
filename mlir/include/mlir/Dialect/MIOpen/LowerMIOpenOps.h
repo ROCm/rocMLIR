@@ -1483,11 +1483,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit BlockwiseCopy ops.
     auto blockwiseCopyA = b.create<miopen::BlockwiseCopyOp>(
         op.getLoc(), op.getOperand(0), lds2DMatrixAEvenSubviewOp,
-        blockwiseCopyASrc, blockwiseCopyADst);
+        blockwiseCopyASrc, blockwiseCopyADst, threadAOddAllocOp);
     affixBlockwiseCopyAttributes(blockwiseCopyA, op);
     auto blockwiseCopyB = b.create<miopen::BlockwiseCopyOp>(
         op.getLoc(), op.getOperand(1), lds2DMatrixBEvenSubviewOp,
-        blockwiseCopyBSrc, blockwiseCopyBDst);
+        blockwiseCopyBSrc, blockwiseCopyBDst, threadBOddAllocOp);
     affixBlockwiseCopyAttributes(blockwiseCopyB, op);
 
     // Emit loop.
@@ -1511,14 +1511,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpAEven = lb.create<miopen::BlockwiseCopyOp>(
         op.getLoc(), op.getOperand(0), threadAEvenAllocOp, blockwiseCopyASrc,
-        blockwiseCopyADst);
+        blockwiseCopyADst, /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyOpAEven, op);
     lb.create<miopen::MovePosOp>(
         op.getLoc(), blockwiseCopyBSrc,
         ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpBEven = lb.create<miopen::BlockwiseCopyOp>(
         op.getLoc(), op.getOperand(1), threadBEvenAllocOp, blockwiseCopyBSrc,
-        blockwiseCopyBDst);
+        blockwiseCopyBDst, /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyOpBEven, op);
 
     // Emit blockwise GEMM.
@@ -1530,11 +1530,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
     auto blockwiseCopyOpAOdd = lb.create<miopen::BlockwiseCopyOp>(
         op.getLoc(), threadAEvenAllocOp, lds2DMatrixAOddSubviewOp,
-        blockwiseCopyASrc, blockwiseCopyADst);
+        blockwiseCopyASrc, blockwiseCopyADst, /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyOpAOdd, op);
     auto blockwiseCopyOpBOdd = lb.create<miopen::BlockwiseCopyOp>(
         op.getLoc(), threadBEvenAllocOp, lds2DMatrixBOddSubviewOp,
-        blockwiseCopyBSrc, blockwiseCopyBDst);
+        blockwiseCopyBSrc, blockwiseCopyBDst, /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyOpBOdd, op);
 
     // LDS barrier.
@@ -1545,17 +1545,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         op.getLoc(), blockwiseCopyASrc,
         ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpAOddSecondIteration =
-        lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(0),
-                                           threadAOddAllocOp, blockwiseCopyASrc,
-                                           blockwiseCopyADst);
+        lb.create<miopen::BlockwiseCopyOp>(
+            op.getLoc(), op.getOperand(0), threadAOddAllocOp, blockwiseCopyASrc,
+            blockwiseCopyADst, /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyOpAOddSecondIteration, op);
     lb.create<miopen::MovePosOp>(
         op.getLoc(), blockwiseCopyBSrc,
         ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpBOddSecondIteration =
-        lb.create<miopen::BlockwiseCopyOp>(op.getLoc(), op.getOperand(1),
-                                           threadBOddAllocOp, blockwiseCopyBSrc,
-                                           blockwiseCopyBDst);
+        lb.create<miopen::BlockwiseCopyOp>(
+            op.getLoc(), op.getOperand(1), threadBOddAllocOp, blockwiseCopyBSrc,
+            blockwiseCopyBDst, /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyOpBOddSecondIteration, op);
 
     // Emit blockwise GEMM.
@@ -1567,11 +1567,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
     auto blockwiseCopyAEvenSecondIteration = lb.create<miopen::BlockwiseCopyOp>(
         op.getLoc(), threadAOddAllocOp, lds2DMatrixAEvenSubviewOp,
-        blockwiseCopyASrc, blockwiseCopyADst);
+        blockwiseCopyASrc, blockwiseCopyADst, /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyAEvenSecondIteration, op);
     auto blockwiseCopyBEvenSecondIteration = lb.create<miopen::BlockwiseCopyOp>(
         op.getLoc(), threadBOddAllocOp, lds2DMatrixBEvenSubviewOp,
-        blockwiseCopyBSrc, blockwiseCopyBDst);
+        blockwiseCopyBSrc, blockwiseCopyBDst, /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyBEvenSecondIteration, op);
 
     // outside the loop.
@@ -1768,8 +1768,11 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
   LogicalResult matchAndRewrite(miopen::BlockwiseCopyOp op, PatternRewriter &b) const override {
     bool rewritten = true;
 
-    auto sourceType = op.source().getType().cast<MemRefType>();
-    auto destType = op.dest().getType().cast<MemRefType>();
+    MemRefType sourceType = op.source().getType().cast<MemRefType>();
+    MemRefType destType = op.dest().getType().cast<MemRefType>();
+    MemRefType bufferType;
+    if (op.buffer())
+      bufferType = op.buffer().getType().cast<MemRefType>();
 
     auto elementType = destType.getElementType();
 
@@ -1783,67 +1786,70 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
     // - 0 (global) -> 5 (register) : load 
     // - 5 (register) -> 3 (LDS) : store
     if (sourceType.getMemorySpace() == 0 && destType.getMemorySpace() == 3) {
-      // TBD. compute register size from attributes and operands.
-      auto registerMemorySpace = 5;
-
-      int64_t ThreadSliceRow = 8;
-      int64_t ThreadSliceCol = 8;
-      auto threadRegisterMemRefType =
-          MemRefType::get({ThreadSliceRow, ThreadSliceCol}, elementType, {}, registerMemorySpace);
-      auto threadAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadRegisterMemRefType);
-
       // Threadwise copy from global (generic tensor) to register (naive
       // tensor).
-      // TBD use source and dest coordinates in the operands.
-      SmallVector<Value, 4> ThreadwiseCopySourceAndDestCoords;
-      for (unsigned i = 0;
-           i < op.source().getType().cast<MemRefType>().getRank(); ++i)
-        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-      for (unsigned i = 0; i < threadRegisterMemRefType.getRank(); ++i)
-        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-      auto threadwiseCopyLoadOp = b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.source(),
-                                         threadAllocOp,
-                                         ThreadwiseCopySourceAndDestCoords);
+      SmallVector<Value, 4> ThreadwiseCopySourceAndBufferCoords;
+      for (unsigned i = 0; i < sourceType.getRank(); ++i) {
+        auto indexConstantOp = b.create<ConstantIndexOp>(op.getLoc(), i);
+        auto coord = b.create<LoadOp>(op.getLoc(), op.sourceCoord(),
+                                      ValueRange{indexConstantOp});
+        ThreadwiseCopySourceAndBufferCoords.push_back(coord);
+      }
+      for (unsigned i = 0; i < bufferType.getRank(); ++i)
+        ThreadwiseCopySourceAndBufferCoords.push_back(zeroConstantI32Op);
+
+      auto threadwiseCopyLoadOp = b.create<miopen::ThreadwiseCopyOp>(
+          op.getLoc(), op.source(), op.buffer(),
+          ThreadwiseCopySourceAndBufferCoords);
       affixThreadwiseCopyAttributes(threadwiseCopyLoadOp, op, b);
 
       // Threadwise copy from register (naive tensor) to LDS (naive tensor).
-      // TBD use source and dest coordinates in the operands.
-      ThreadwiseCopySourceAndDestCoords.clear();
-      for (unsigned i = 0;
-           i < op.source().getType().cast<MemRefType>().getRank(); ++i)
-        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-      for (unsigned i = 0; i < threadRegisterMemRefType.getRank(); ++i)
-        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-      auto threadwiseCopyStoreOp = b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), threadAllocOp, op.dest(),
-                                         ThreadwiseCopySourceAndDestCoords);
+      SmallVector<Value, 4> ThreadwiseCopyBufferAndDestCoords;
+      for (unsigned i = 0; i < bufferType.getRank(); ++i)
+        ThreadwiseCopyBufferAndDestCoords.push_back(zeroConstantI32Op);
+      for (unsigned i = 0; i < destType.getRank(); ++i) {
+        auto indexConstantOp = b.create<ConstantIndexOp>(op.getLoc(), i);
+        auto coord = b.create<LoadOp>(op.getLoc(), op.destCoord(),
+                                      ValueRange{indexConstantOp});
+        ThreadwiseCopyBufferAndDestCoords.push_back(coord);
+      }
+
+      auto threadwiseCopyStoreOp = b.create<miopen::ThreadwiseCopyOp>(
+          op.getLoc(), op.buffer(), op.dest(),
+          ThreadwiseCopyBufferAndDestCoords);
       affixThreadwiseCopyAttributes(threadwiseCopyStoreOp, op, b);
     } else if (sourceType.getMemorySpace() == 0 && destType.getMemorySpace() == 5) {
       // Threadwise copy from global (generic tensor) to register (naive
       // tensor).
-      // TBD use source and dest coordinates in the operands.
       SmallVector<Value, 4> ThreadwiseCopySourceAndDestCoords;
-      for (unsigned i = 0;
-           i < op.source().getType().cast<MemRefType>().getRank(); ++i)
+      for (unsigned i = 0; i < sourceType.getRank(); ++i) {
+        auto indexConstantOp = b.create<ConstantIndexOp>(op.getLoc(), i);
+        auto coord = b.create<LoadOp>(op.getLoc(), op.sourceCoord(),
+                                      ValueRange{indexConstantOp});
+        ThreadwiseCopySourceAndDestCoords.push_back(coord);
+      }
+      for (unsigned i = 0; i < destType.getRank(); ++i)
         ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-      for (unsigned i = 0;
-           i < op.dest().getType().cast<MemRefType>().getRank(); ++i)
-        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+
       auto threadwiseCopyLoadOp = b.create<miopen::ThreadwiseCopyOp>(
           op.getLoc(), op.source(), op.dest(),
           ThreadwiseCopySourceAndDestCoords);
       affixThreadwiseCopyAttributes(threadwiseCopyLoadOp, op, b);
     } else if (sourceType.getMemorySpace() == 5 && destType.getMemorySpace() == 3) {
       // Threadwise copy from register (naive tensor) to LDS (naive tensor).
-      // TBD use source and dest coordinates in the operands.
       SmallVector<Value, 4> ThreadwiseCopySourceAndDestCoords;
-      for (unsigned i = 0;
-           i < op.source().getType().cast<MemRefType>().getRank(); ++i)
+      for (unsigned i = 0; i < sourceType.getRank(); ++i)
         ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-      for (unsigned i = 0;
-           i < op.dest().getType().cast<MemRefType>().getRank(); ++i)
-        ThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-      auto threadwiseCopyStoreOp = b.create<miopen::ThreadwiseCopyOp>(op.getLoc(), op.source(), op.dest(),
-                                         ThreadwiseCopySourceAndDestCoords);
+      for (unsigned i = 0; i < destType.getRank(); ++i) {
+        auto indexConstantOp = b.create<ConstantIndexOp>(op.getLoc(), i);
+        auto coord = b.create<LoadOp>(op.getLoc(), op.destCoord(),
+                                      ValueRange{indexConstantOp});
+        ThreadwiseCopySourceAndDestCoords.push_back(coord);
+      }
+
+      auto threadwiseCopyStoreOp = b.create<miopen::ThreadwiseCopyOp>(
+          op.getLoc(), op.source(), op.dest(),
+          ThreadwiseCopySourceAndDestCoords);
       affixThreadwiseCopyAttributes(threadwiseCopyStoreOp, op, b);
     } else {
       llvm::errs() << "UNSUPPORTED ThreadwiseCopyOp\n";
