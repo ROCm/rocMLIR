@@ -1228,8 +1228,85 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Get current workitem ID.
     auto tid = b.create<miopen::WorkitemIdOp>(op.getLoc(), b.getIndexType());
 
-    // TBD compute thread_data_id_begin for Matrix A.
-    // TBD compute thread_data_id_begin for Matrix B.
+    // Compute thread_data_id_begin for Matrix A.
+    // ClusterArrangeOrder for Matrix A is <1, 0>.
+    // So divide by GemmABlockCopyClusterLengths_GemmK.
+    auto GemmABlockCopyClusterLengths_GemmKConstantOp =
+        b.create<ConstantIndexOp>(op.getLoc(),
+                                  GemmABlockCopyClusterLengths_GemmK);
+    auto GemmABlockCopyClusterLengths_GemmMConstantOp =
+        b.create<ConstantIndexOp>(op.getLoc(),
+                                  GemmABlockCopyClusterLengths_GemmM);
+    auto GemmABlockCopyThreadSliceLengths_GemmKConstantOp =
+        b.create<ConstantIndexOp>(op.getLoc(),
+                                  GemmABlockCopyThreadSliceLengths_GemmK);
+    auto GemmABlockCopyThreadSliceLengths_GemmMConstantOp =
+        b.create<ConstantIndexOp>(op.getLoc(),
+                                  GemmABlockCopyThreadSliceLengths_GemmM);
+
+    auto GemmABlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
+        op.getLoc(), tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
+    auto GemmABlockCopyThreadClusterId_X = b.create<SignedRemIOp>(
+        op.getLoc(), tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
+    auto GemmAThreadDataIdBegin_Y =
+        b.create<MulIOp>(op.getLoc(), GemmABlockCopyThreadClusterId_Y,
+                         GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
+    auto GemmAThreadDataIdBegin_X =
+        b.create<MulIOp>(op.getLoc(), GemmABlockCopyThreadClusterId_X,
+                         GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
+    auto GemmAThreadDataIdBegin_Y_i32 = b.create<IndexCastOp>(
+        op.getLoc(), GemmAThreadDataIdBegin_Y, b.getIntegerType(32));
+    auto GemmAThreadDataIdBegin_X_i32 = b.create<IndexCastOp>(
+        op.getLoc(), GemmAThreadDataIdBegin_X, b.getIntegerType(32));
+
+    auto GemmABlockCopySourceCoord_Y_i32 = b.create<AddIOp>(
+        op.getLoc(), zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
+    auto GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
+        op.getLoc(), m_block_data_on_global_i32, GemmAThreadDataIdBegin_X_i32);
+    auto GemmABlockCopyDestCoord_Y_i32 = b.create<AddIOp>(
+        op.getLoc(), zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
+    auto GemmABlockCopyDestCoord_X_i32 = b.create<AddIOp>(
+        op.getLoc(), zeroConstantI32Op, GemmAThreadDataIdBegin_X_i32);
+
+    // Compute thread_data_id_begin for Matrix B.
+    // ClusterArrangeOrder for Matrix B is <0, 1>
+    // So divide by GemmBBlockCopyClusterLengths_GemmN.
+    auto GemmBBlockCopyClusterLengths_GemmKConstantOp =
+        b.create<ConstantIndexOp>(op.getLoc(),
+                                  GemmBBlockCopyClusterLengths_GemmK);
+    auto GemmBBlockCopyClusterLengths_GemmNConstantOp =
+        b.create<ConstantIndexOp>(op.getLoc(),
+                                  GemmBBlockCopyClusterLengths_GemmN);
+    auto GemmBBlockCopyThreadSliceLengths_GemmKConstantOp =
+        b.create<ConstantIndexOp>(op.getLoc(),
+                                  GemmBBlockCopyThreadSliceLengths_GemmK);
+    auto GemmBBlockCopyThreadSliceLengths_GemmNConstantOp =
+        b.create<ConstantIndexOp>(op.getLoc(),
+                                  GemmBBlockCopyThreadSliceLengths_GemmN);
+
+    auto GemmBBlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
+        op.getLoc(), tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
+    auto GemmBBlockCopyThreadClusterId_X = b.create<SignedRemIOp>(
+        op.getLoc(), tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
+    auto GemmBThreadDataIdBegin_Y =
+        b.create<MulIOp>(op.getLoc(), GemmBBlockCopyThreadClusterId_Y,
+                         GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
+    auto GemmBThreadDataIdBegin_X =
+        b.create<MulIOp>(op.getLoc(), GemmBBlockCopyThreadClusterId_X,
+                         GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
+    auto GemmBThreadDataIdBegin_Y_i32 = b.create<IndexCastOp>(
+        op.getLoc(), GemmBThreadDataIdBegin_Y, b.getIntegerType(32));
+    auto GemmBThreadDataIdBegin_X_i32 = b.create<IndexCastOp>(
+        op.getLoc(), GemmBThreadDataIdBegin_X, b.getIntegerType(32));
+
+    auto GemmBBlockCopySourceCoord_Y_i32 = b.create<AddIOp>(
+        op.getLoc(), zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
+    auto GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
+        op.getLoc(), n_block_data_on_global_i32, GemmBThreadDataIdBegin_X_i32);
+    auto GemmBBlockCopyDestCoord_Y_i32 = b.create<AddIOp>(
+        op.getLoc(), zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
+    auto GemmBBlockCopyDestCoord_X_i32 = b.create<AddIOp>(
+        op.getLoc(), zeroConstantI32Op, GemmBThreadDataIdBegin_X_i32);
 
     // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
@@ -1377,37 +1454,33 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto blockwiseCopyCoordType =
               MemRefType::get({2}, b.getIntegerType(32), {}, registerMemorySpace);
 
-
     // Matrix A: {0, m_block_data_on_global}, {0, 0}
     auto blockwiseCopyASrc = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyCoordType);
-    // set starting location as (m_block_data_on_global_i32, 0)
-    b.create<StoreOp>(op.getLoc(), m_block_data_on_global_i32,
+    b.create<StoreOp>(op.getLoc(), GemmABlockCopySourceCoord_Y_i32,
                       blockwiseCopyASrc, ValueRange{zeroConstantIndexOp});
-    b.create<StoreOp>(op.getLoc(), zeroConstantI32Op, blockwiseCopyASrc,
-                      ValueRange{oneConstantIndexOp});
-    // TBD add thread_data_id_begin for Matrix A.
+    b.create<StoreOp>(op.getLoc(), GemmABlockCopySourceCoord_X_i32,
+                      blockwiseCopyASrc, ValueRange{oneConstantIndexOp});
 
     auto blockwiseCopyADst = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyCoordType);
-    // TBD add thread_data_id_begin for Matrix A.
-    b.create<miopen::FillOp>(op.getLoc(), blockwiseCopyADst, zeroConstantI32Op);
-
+    b.create<StoreOp>(op.getLoc(), GemmABlockCopyDestCoord_Y_i32,
+                      blockwiseCopyADst, ValueRange{zeroConstantIndexOp});
+    b.create<StoreOp>(op.getLoc(), GemmABlockCopyDestCoord_X_i32,
+                      blockwiseCopyADst, ValueRange{oneConstantIndexOp});
 
     // Matrix B: {0, n_block_data_on_global}, {0, 0}
     auto blockwiseCopyBSrc = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyCoordType);
-    // set starting location as (n_block_data_on_global_i32, 0)
-    b.create<StoreOp>(op.getLoc(), n_block_data_on_global_i32,
+    b.create<StoreOp>(op.getLoc(), GemmBBlockCopySourceCoord_Y_i32,
                       blockwiseCopyBSrc, ValueRange{zeroConstantIndexOp});
-    b.create<StoreOp>(op.getLoc(), zeroConstantI32Op, blockwiseCopyBSrc,
-                      ValueRange{oneConstantIndexOp});
-    // TBD add thread_data_id_begin for Matrix B.
+    b.create<StoreOp>(op.getLoc(), GemmBBlockCopySourceCoord_X_i32,
+                      blockwiseCopyBSrc, ValueRange{oneConstantIndexOp});
 
     auto blockwiseCopyBDst = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyCoordType);
-    // TBD add thread_data_id_begin for Matrix B.
-    b.create<miopen::FillOp>(op.getLoc(), blockwiseCopyBDst, zeroConstantI32Op);
+    b.create<StoreOp>(op.getLoc(), GemmBBlockCopyDestCoord_Y_i32,
+                      blockwiseCopyBDst, ValueRange{zeroConstantIndexOp});
+    b.create<StoreOp>(op.getLoc(), GemmBBlockCopyDestCoord_X_i32,
+                      blockwiseCopyBDst, ValueRange{oneConstantIndexOp});
 
     // Emit BlockwiseCopy ops.
-    // Add attributes from template arguments and ctor arguments from original
-    // C++ codes.
     auto blockwiseCopyA = b.create<miopen::BlockwiseCopyOp>(
         op.getLoc(), op.getOperand(0), lds2DMatrixAEvenSubviewOp,
         blockwiseCopyASrc, blockwiseCopyADst);
