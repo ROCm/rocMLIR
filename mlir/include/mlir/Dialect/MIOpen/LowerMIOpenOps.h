@@ -869,6 +869,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
   //                                       AddressSpace::Vgpr,                               - addrspace on source memref
   //                                       AddressSpace::Global,                             - addrspace on dest memref
   //                                       CGlobalMemoryDataOperation>(                      - NOT USED
+
   top.setAttr("source_vector_read_dim", gop.getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top.setAttr("source_data_per_read", b.getI32IntegerAttr(1));
   top.setAttr("dest_data_per_write", gop.getAttr("matrix_c_dest_data_per_write"));
@@ -924,6 +925,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
   //                                                          KPerThreadLoop,                - k_per_thread attribute
   //                                                          NPerThreadSubC,                - n_per_thread attribute
   //                                                          ThreadGemmBDataPerRead_N>{};   - n_per_thread attribute
+
   top.setAttr("k_per_thread", bop.getAttr("k_per_thread"));
   top.setAttr("m_per_thread", bop.getAttr("m_per_thread"));
   top.setAttr("n_per_thread", bop.getAttr("n_per_thread"));
@@ -1106,7 +1108,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     bop.setAttr("m_level0_cluster", gop.getAttr("m_level0_cluster"));
     bop.setAttr("m_level1_cluster", gop.getAttr("m_level1_cluster"));
     bop.setAttr("n_level0_cluster", gop.getAttr("n_level0_cluster"));
-    bop.setAttr("n_level0_cluster", gop.getAttr("n_level1_cluster"));
+    bop.setAttr("n_level1_cluster", gop.getAttr("n_level1_cluster"));
   }
 
   template <typename T>
