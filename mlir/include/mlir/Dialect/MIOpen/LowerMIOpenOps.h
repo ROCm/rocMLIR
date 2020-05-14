@@ -870,11 +870,10 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
   //                                       AddressSpace::Global,                             - addrspace on dest memref
   //                                       CGlobalMemoryDataOperation>(                      - NOT USED
 
+  // XXX. we only use 2D coordinates in storing VGPR to global VRAM now.
   top.setAttr("dim_access_order", b.getArrayAttr({
                                       b.getI32IntegerAttr(0),
                                       b.getI32IntegerAttr(1),
-                                      b.getI32IntegerAttr(2),
-                                      b.getI32IntegerAttr(3),
                                   }));
   top.setAttr("vector_read_write_dim",
               gop.getAttr("matrix_c_source_dest_vector_read_write_dim"));
