@@ -1214,10 +1214,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t NPerBlock = op.getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
     int64_t MPerThread = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerThread = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    auto MPerThreadConstantIndexOp =
+        b.create<ConstantIndexOp>(op.getLoc(), MPerThread);
+    auto NPerThreadConstantIndexOp =
+        b.create<ConstantIndexOp>(op.getLoc(), NPerThread);
+
     int64_t MLevel0Cluster = op.getAttr("m_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
     int64_t MLevel1Cluster = op.getAttr("m_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
     int64_t NLevel0Cluster = op.getAttr("n_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
     int64_t NLevel1Cluster = op.getAttr("n_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
+    auto NLevel0ClusterConstantIndexOp =
+        b.create<ConstantIndexOp>(op.getLoc(), NLevel0Cluster);
+    auto NLevel1ClusterConstantIndexOp =
+        b.create<ConstantIndexOp>(op.getLoc(), NLevel1Cluster);
 
     int64_t matrix_a_source_data_per_read =
         op.getAttr("matrix_a_source_data_per_read")
@@ -1529,6 +1538,46 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     b.create<StoreOp>(op.getLoc(), GemmBBlockCopyDestCoord_X_i32,
                       blockwiseCopyBDst, ValueRange{oneConstantIndexOp});
 
+    // Compute c_thread_mtx_index for Matrix C.
+    int64_t ThreadPerLevel0Cluster = MLevel0Cluster * NLevel0Cluster;
+    auto ThreadPerLevel0ClusterConstantIndexOp =
+        b.create<ConstantIndexOp>(op.getLoc(), ThreadPerLevel0Cluster);
+    auto level1_id = b.create<SignedDivIOp>(
+        op.getLoc(), tid, ThreadPerLevel0ClusterConstantIndexOp);
+    auto level1_m_id = b.create<SignedDivIOp>(op.getLoc(), level1_id,
+                                              NLevel1ClusterConstantIndexOp);
+    auto level1_n_id = b.create<SignedRemIOp>(op.getLoc(), level1_id,
+                                              NLevel1ClusterConstantIndexOp);
+
+    auto level0_id = b.create<SignedRemIOp>(
+        op.getLoc(), tid, ThreadPerLevel0ClusterConstantIndexOp);
+    auto level0_m_id = b.create<SignedDivIOp>(op.getLoc(), level0_id,
+                                              NLevel1ClusterConstantIndexOp);
+    auto level0_n_id = b.create<SignedRemIOp>(op.getLoc(), level0_id,
+                                              NLevel1ClusterConstantIndexOp);
+
+    int64_t MPerLevel0Cluster = MPerThread * MLevel0Cluster;
+    int64_t NPerLevel0Cluster = NPerThread * NLevel0Cluster;
+    auto MPerLevel0ClusterConstantIndexOp =
+        b.create<ConstantIndexOp>(op.getLoc(), MPerLevel0Cluster);
+    auto NPerLevel0ClusterConstantIndexOp =
+        b.create<ConstantIndexOp>(op.getLoc(), NPerLevel0Cluster);
+
+    // mMyThreadOffsetA = BlockMatrixA::GetOffsetFromMultiIndex{0,
+    // c_thread_mtx_index.row} = c_thread_mtx_index_row
+    auto c_thread_mtx_index_row = b.create<AddIOp>(
+        op.getLoc(),
+        b.create<MulIOp>(op.getLoc(), level1_m_id,
+                         MPerLevel0ClusterConstantIndexOp),
+        b.create<MulIOp>(op.getLoc(), level0_m_id, MPerThreadConstantIndexOp));
+    // mMyThreadOffsetB = BlockMatrixB::GetOffsetFromMultiIndex{0,
+    // c_thread_mtx_index.col} = c_thread_mtx_index_col
+    auto c_thread_mtx_index_col = b.create<AddIOp>(
+        op.getLoc(),
+        b.create<MulIOp>(op.getLoc(), level1_n_id,
+                         NPerLevel0ClusterConstantIndexOp),
+        b.create<MulIOp>(op.getLoc(), level0_n_id, NPerThreadConstantIndexOp));
+
     // Emit BlockwiseCopy ops.
     auto blockwiseCopyA = b.create<miopen::BlockwiseCopyOp>(
         op.getLoc(), op.getOperand(0), lds2DMatrixAEvenSubviewOp,
@@ -1575,7 +1624,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise GEMM.
     auto blockwiseGemmEvenOp = lb.create<miopen::BlockwiseGemmOp>(
         op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
-        register2DMatrixCAllocOp);
+        register2DMatrixCAllocOp, c_thread_mtx_index_row,
+        c_thread_mtx_index_col);
     affixBlockwiseGemmAttributes(blockwiseGemmEvenOp, op);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
@@ -1616,7 +1666,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise GEMM.
     auto blockwiseGemmOddOp = lb.create<miopen::BlockwiseGemmOp>(
         op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
-        register2DMatrixCAllocOp);
+        register2DMatrixCAllocOp, c_thread_mtx_index_row,
+        c_thread_mtx_index_col);
     affixBlockwiseGemmAttributes(blockwiseGemmOddOp, op);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
@@ -1640,12 +1691,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     if (loopIteration % 2) {
       auto blockwiseGemmTailEvenOp = b.create<miopen::BlockwiseGemmOp>(
           op.getLoc(), lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
-          register2DMatrixCAllocOp);
+          register2DMatrixCAllocOp, c_thread_mtx_index_row,
+          c_thread_mtx_index_col);
       affixBlockwiseGemmAttributes(blockwiseGemmTailEvenOp, op);
     } else {
       auto blockwiseGemmTailOddOp = b.create<miopen::BlockwiseGemmOp>(
           op.getLoc(), lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
-          register2DMatrixCAllocOp);
+          register2DMatrixCAllocOp, c_thread_mtx_index_row,
+          c_thread_mtx_index_col);
       affixBlockwiseGemmAttributes(blockwiseGemmTailOddOp, op);
     }
 

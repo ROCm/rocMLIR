@@ -119,7 +119,8 @@ func @miopen_indexing() {
 //   CHECK-NEXT: miopen.workitem_id
  
 func @miopen_blockwise_gemm(%A : memref<?x?xf32, 3>, %B : memref<?x?xf32, 3>, %C : memref<?x?xf32, 5>) {
-  miopen.blockwise_gemm(%A, %B, %C) {
+  %c0 = constant 0 : index
+  miopen.blockwise_gemm(%A, %B, %C, %c0, %c0) {
     m_per_thread = 64,
     n_per_thread = 64,
     k_per_thread = 16,
@@ -131,12 +132,12 @@ func @miopen_blockwise_gemm(%A : memref<?x?xf32, 3>, %B : memref<?x?xf32, 3>, %C
 
     matrix_a_source_data_per_read = 4,
     matrix_b_source_data_per_read = 4
-  } : memref<?x?xf32, 3>, memref<?x?xf32, 3>, memref<?x?xf32, 5>
+  } : memref<?x?xf32, 3>, memref<?x?xf32, 3>, memref<?x?xf32, 5>, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_gemm
-//  CHECK-NEXT: miopen.blockwise_gemm
+//  CHECK: miopen.blockwise_gemm
 
 func @miopen_blockwise_copy(%source : memref<?x?xf32>, %dest : memref<?x?xf32, 3>, %source_coord : memref<2xi32>, %dest_coord : memref<2xi32>) {
   miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) : memref<?x?xf32>, memref<?x?xf32, 3>, memref<2xi32>, memref<2xi32>
