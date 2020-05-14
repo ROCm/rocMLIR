@@ -213,7 +213,9 @@ def MIOpen_BlockwiseGemmOp:
     MIOpen_Op<"blockwise_gemm">,
     Arguments<(ins MemRefRankOf<[F32], [2]>:$matrixA,
                    MemRefRankOf<[F32], [2]>:$matrixB,
-                   MemRefRankOf<[F32], [2]>:$matrixC)> {
+                   MemRefRankOf<[F32], [2]>:$matrixC,
+                   Index:$threadOffsetA,
+                   Index:$threadOffsetB)> {
   let summary = "Blockwise GEMM";
   let description = [{
     The `miopen.block_gemm` op does GEMM at workgroup (block) level.

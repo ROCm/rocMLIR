@@ -332,8 +332,8 @@ static LogicalResult verify(WorkitemIdOp op) { return success(); }
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseBlockwiseGemmOp(OpAsmParser &parser, OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 3> ops;
-  SmallVector<Type, 3> types;
+  SmallVector<OpAsmParser::OperandType, 5> ops;
+  SmallVector<Type, 5> types;
   return failure(
       parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
       parser.parseOptionalAttrDict(result.attributes) ||
