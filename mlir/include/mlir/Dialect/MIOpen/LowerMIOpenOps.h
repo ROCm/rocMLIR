@@ -1563,15 +1563,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto NPerLevel0ClusterConstantIndexOp =
         b.create<ConstantIndexOp>(op.getLoc(), NPerLevel0Cluster);
 
-    // mMyThreadOffsetA = BlockMatrixA::GetOffsetFromMultiIndex{0,
-    // c_thread_mtx_index.row} = c_thread_mtx_index_row
+    // mMyThreadOffsetA = BlockMatrixA::GetOffsetFromMultiIndex{0, c_thread_mtx_index.row} = c_thread_mtx_index_row
     auto c_thread_mtx_index_row = b.create<AddIOp>(
         op.getLoc(),
         b.create<MulIOp>(op.getLoc(), level1_m_id,
                          MPerLevel0ClusterConstantIndexOp),
         b.create<MulIOp>(op.getLoc(), level0_m_id, MPerThreadConstantIndexOp));
-    // mMyThreadOffsetB = BlockMatrixB::GetOffsetFromMultiIndex{0,
-    // c_thread_mtx_index.col} = c_thread_mtx_index_col
+    // mMyThreadOffsetB = BlockMatrixB::GetOffsetFromMultiIndex{0, c_thread_mtx_index.col} = c_thread_mtx_index_col
     auto c_thread_mtx_index_col = b.create<AddIOp>(
         op.getLoc(),
         b.create<MulIOp>(op.getLoc(), level1_n_id,
@@ -1756,19 +1754,28 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     auto registerMemorySpace = 5;
 
+    auto blockAType = op.matrixA().getType().cast<MemRefType>();
+    auto blockBType = op.matrixA().getType().cast<MemRefType>();
+
     auto elementType = op.matrixC().getType().cast<MemRefType>().getElementType();
 
     // Obtain critical matrix dimensions.
-    int64_t K = op.getOperand(0).getType().template dyn_cast<MemRefType>().getShape()[0];
-    int64_t M = op.getOperand(0).getType().template dyn_cast<MemRefType>().getShape()[1];
-    int64_t N = op.getOperand(1).getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t K = blockAType.getShape()[0];
+    int64_t M = blockAType.getShape()[1];
+    int64_t N = blockBType.getShape()[1];
 
     // Obtain critical attributes.
     int64_t KPerThread = op.getAttr("k_per_thread").template dyn_cast<IntegerAttr>().getInt();
-    int64_t MPerThread = op.getOperand(2).getType().template dyn_cast<MemRefType>().getShape()[0];
-    int64_t NPerThread = op.getOperand(2).getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t MPerThread =
+        op.matrixC().getType().template dyn_cast<MemRefType>().getShape()[0];
+    int64_t NPerThread =
+        op.matrixC().getType().template dyn_cast<MemRefType>().getShape()[1];
     int64_t MPerThreadSubC = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerThreadSubC = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    auto MPerThreadSubCConstantI32Op = b.create<ConstantIntOp>(
+        op.getLoc(), MPerThreadSubC, b.getIntegerType(32));
+    auto NPerThreadSubCConstantI32Op = b.create<ConstantIntOp>(
+        op.getLoc(), NPerThreadSubC, b.getIntegerType(32));
 
     int64_t MLevel0Cluster = op.getAttr("m_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
     int64_t MLevel1Cluster = op.getAttr("m_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
@@ -1777,9 +1784,17 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     int64_t MPerLevel1Cluster = MPerThread * MLevel0Cluster * MLevel1Cluster;
     int64_t NPerLevel1Cluster = NPerThread * NLevel0Cluster * NLevel1Cluster;
+    auto MPerLevel1ClusterConstantI32Op = b.create<ConstantIntOp>(
+        op.getLoc(), MPerLevel1Cluster, b.getIntegerType(32));
+    auto NPerLevel1ClusterConstantI32Op = b.create<ConstantIntOp>(
+        op.getLoc(), NPerLevel1Cluster, b.getIntegerType(32));
 
     int64_t MRepeat = MPerThread / MPerThreadSubC;
     int64_t NRepeat = NPerThread / NPerThreadSubC;
+    auto MRepeatConstantI32Op =
+        b.create<ConstantIntOp>(op.getLoc(), MRepeat, b.getIntegerType(32));
+    auto NRepeatConstantI32Op =
+        b.create<ConstantIntOp>(op.getLoc(), NRepeat, b.getIntegerType(32));
 
     // Alloc register for thread_a and thread_b.
     auto threadARegisterMemRefType =
@@ -1797,7 +1812,11 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     // inside the main loop.
     auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
- 
+
+    auto iv = loopOp.getInductionVar();
+    auto iv_i32 =
+        lb.create<IndexCastOp>(op.getLoc(), iv, lb.getIntegerType(32));
+
     // read matrix A loop.
     auto loopReadMatrixAIteration = MRepeat;
     auto loopReadMatrixAIterationConstantIndexOp = lb.create<ConstantIndexOp>(op.getLoc(), loopReadMatrixAIteration);
@@ -1806,18 +1825,35 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     // inside read matrix A loop.
     auto lab = OpBuilder::atBlockTerminator(loopReadMatrixAOp.getBody());
 
+    auto iva = loopReadMatrixAOp.getInductionVar();
+    auto iva_i32 =
+        lab.create<IndexCastOp>(op.getLoc(), iva, lab.getIntegerType(32));
+
     // Threadwise copy from LDS (naive tensor) to register (generic tensor).
-    // TBD use all 0 coordinates now. need to revisit this following original
-    // C++ implementation.
-    SmallVector<Value, 6> matrixAThreadwiseCopySourceAndDestCoords;
-    for (unsigned i = 0;
-         i < op.getOperand(0).getType().cast<MemRefType>().getRank();
-         ++i)
-      matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-    for (unsigned i = 0; i < threadARegisterMemRefType.getRank(); ++i)
-      matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+
+    // Set copy sorce and dest coordinate acoording to original C++ logic:
+    SmallVector<Value, 4> matrixAThreadwiseCopySourceAndDestCoords;
+    // a_thread_copy.Run(
+    //   p_a_block + a_block_mtx.CalculateOffset(k_begin, m_repeat *
+    //   MPerLevel1Cluster) + mMyThreadOffsetA),
+    // mMyThreadOffsetA = BlockMatrixA::GetOffsetFromMultiIndex{0,
+    // c_thread_mtx_index.row} = c_thread_mtx_index_row
+    matrixAThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
+    matrixAThreadwiseCopySourceAndDestCoords.push_back(lab.create<AddIOp>(
+        op.getLoc(),
+        lab.create<MulIOp>(op.getLoc(), iva_i32,
+                           MPerLevel1ClusterConstantI32Op),
+        lab.create<IndexCastOp>(op.getLoc(), op.threadOffsetA(),
+                                lab.getIntegerType(32))));
+
+    //   p_a_thread + a_thread_mtx.CalculateOffset(0, m_repeat * MPerThreadSubC));
+    matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+    matrixAThreadwiseCopySourceAndDestCoords.push_back(
+        lab.create<MulIOp>(op.getLoc(), iva_i32, MPerThreadSubCConstantI32Op));
+
+    // Emit threadwise_copy.
     auto threadwiseCopyAMatrixOp = lab.create<miopen::ThreadwiseCopyOp>(
-        op.getLoc(), op.getOperand(0), threadAAllocOp,
+        op.getLoc(), op.matrixA(), threadAAllocOp,
         matrixAThreadwiseCopySourceAndDestCoords);
     affixThreadwiseCopyAttributes(threadwiseCopyAMatrixOp, op, b,
                                   /*isMatrixA=*/true);
@@ -1830,24 +1866,41 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     // inside read matrix A loop.
     auto lbb = OpBuilder::atBlockTerminator(loopReadMatrixBOp.getBody());
 
+    auto ivb = loopReadMatrixBOp.getInductionVar();
+    auto ivb_i32 =
+        lbb.create<IndexCastOp>(op.getLoc(), ivb, lbb.getIntegerType(32));
+
     // Threadwise copy from LDS (naive tensor) to register (generic tensor).
-    // TBD use all 0 coordinates now. need to revisit this following original
-    // C++ implementation.
-    SmallVector<Value, 6> matrixBThreadwiseCopySourceAndDestCoords;
-    for (unsigned i = 0;
-         i < op.getOperand(1).getType().cast<MemRefType>().getRank();
-         ++i)
-      matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-    for (unsigned i = 0; i < threadBRegisterMemRefType.getRank(); ++i)
-      matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+
+    // Set copy sorce and dest coordinate acoording to original C++ logic:
+    SmallVector<Value, 4> matrixBThreadwiseCopySourceAndDestCoords;
+    // b_thread_copy.Run(
+    //   p_b_block + b_block_mtx.CalculateOffset(k_begin, n_repeat *
+    //   NPerLevel1Cluster) + mMyThreadOffsetB),
+    // mMyThreadOffsetB = BlockMatrixB::GetOffsetFromMultiIndex{0,
+    // c_thread_mtx_index.col} = c_thread_mtx_index_col
+    matrixBThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
+    matrixBThreadwiseCopySourceAndDestCoords.push_back(lbb.create<AddIOp>(
+        op.getLoc(),
+        lbb.create<MulIOp>(op.getLoc(), ivb_i32,
+                           NPerLevel1ClusterConstantI32Op),
+        lbb.create<IndexCastOp>(op.getLoc(), op.threadOffsetB(),
+                                lbb.getIntegerType(32))));
+
+    //   p_b_thread + b_thread_mtx.CalculateOffset(0, n_repeat * NPerThreadSubC));
+    matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+    matrixBThreadwiseCopySourceAndDestCoords.push_back(
+        lbb.create<MulIOp>(op.getLoc(), ivb_i32, NPerThreadSubCConstantI32Op));
+
+    // Emit threadwise_copy.
     auto threadwiseCopyBMatrixOp = lbb.create<miopen::ThreadwiseCopyOp>(
-        op.getLoc(), op.getOperand(1), threadBAllocOp,
+        op.getLoc(), op.matrixB(), threadBAllocOp,
         matrixBThreadwiseCopySourceAndDestCoords);
     affixThreadwiseCopyAttributes(threadwiseCopyBMatrixOp, op, b,
                                   /*isMatrixA=*/false);
 
     lb.create<miopen::ThreadwiseGemmOp>(op.getLoc(), threadAAllocOp,
-                                        threadBAllocOp, op.getOperand(2));
+                                        threadBAllocOp, op.matrixC());
 
     op.erase();
     return success();
