@@ -893,10 +893,10 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
   //
   // using ThreadwiseLoad = ThreadwiseGenericTensorSliceCopy_v4r2<BlockSrcDesc,              - source memref
   //                                                              ThreadBufferDesc,          - dest memref
-  //                                                              ThreadSliceLengths,        - source memref / TBD attribute
+  //                                                              ThreadSliceLengths,        - source memref
   //                                                              SrcDimAccessOrder,         - Sequence<1, 0>
-  //                                                              SrcVectoReadDim,           - matrix_a/b_source_vector_read_dim
-  //                                                              SrcDataPerRead,            - matrix_a/b_source_data_per_read attribute
+  //                                                              SrcVectoReadDim,           - source_vector_read_dim attribute
+  //                                                              SrcDataPerRead,            - source_data_per_read attribute
   //                                                              1,                         - 1
   //                                                              SrcAddressSpace,           - addrspace on source memref
   //                                                              ThreadBufferAddressSpace,  - addrspace on dest memref
@@ -904,11 +904,11 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
   //
   // using ThreadwiseStore = ThreadwiseGenericTensorSliceCopy_v4r2<ThreadBufferDesc,         - source memref
   //                                                               BlockDstDesc,             - dest memref
-  //                                                               ThreadSliceLengths,       - source memref / TBD attributes
-  //                                                               DstDimAccessOrder,        - TBD
-  //                                                               DstVectorWriteDim,        - TBD attribute
+  //                                                               ThreadSliceLengths,       - source memref
+  //                                                               DstDimAccessOrder,        - Sequence<0, 1>
+  //                                                               DstVectorWriteDim,        - dest_vector_write_dim attribute
   //                                                               1,                        - 1
-  //                                                               DstDataPerWrite,          - TBD attribute
+  //                                                               DstDataPerWrite,          - dest_data_per_write attribute
   //                                                               ThreadBufferAddressSpace, - addrspace of source memref
   //                                                               DstAddressSpace,          - addrspace of dest memref
   //                                                               DstInMemOp>;              - NOT USE
