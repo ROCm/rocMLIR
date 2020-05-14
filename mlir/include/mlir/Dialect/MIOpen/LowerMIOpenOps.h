@@ -1158,6 +1158,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t N = op.getOperand(1).getType().template dyn_cast<MemRefType>().getShape()[1];
 
     // Obtain critical tuning parameters.
+    int64_t BlockSize =
+        op.getAttr("block_size").template dyn_cast<IntegerAttr>().getInt();
     int64_t KPerBlock = op.getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
     int64_t MPerBlock = op.getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerBlock = op.getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
@@ -1168,13 +1170,24 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t NLevel0Cluster = op.getAttr("n_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
     int64_t NLevel1Cluster = op.getAttr("n_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
 
+    int64_t matrix_a_source_data_per_read =
+        op.getAttr("matrix_a_source_data_per_read")
+            .template dyn_cast<IntegerAttr>()
+            .getInt();
+    int64_t matrix_b_source_data_per_read =
+        op.getAttr("matrix_b_source_data_per_read")
+            .template dyn_cast<IntegerAttr>()
+            .getInt();
+
+    // Get current workgroup ID.
+    auto bid = b.create<miopen::WorkgroupIdOp>(op.getLoc(), b.getIndexType());
+
     int64_t MBlockWork = M / MPerBlock;
     int64_t NBlockWork = N / NPerBlock;
     auto MBlockWorkConstantOp =
         b.create<ConstantIndexOp>(op.getLoc(), MBlockWork);
     auto NBlockWorkConstantOp =
         b.create<ConstantIndexOp>(op.getLoc(), NBlockWork);
-    auto bid = b.create<miopen::WorkgroupIdOp>(op.getLoc(), b.getIndexType());
     auto block_work_id_m =
         b.create<SignedDivIOp>(op.getLoc(), bid, NBlockWorkConstantOp);
     auto block_work_id_n =
@@ -1187,6 +1200,36 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         op.getLoc(), m_block_data_on_global, b.getIntegerType(32));
     auto n_block_data_on_global_i32 = b.create<IndexCastOp>(
         op.getLoc(), n_block_data_on_global, b.getIntegerType(32));
+
+    // Compute ThreadClusterLengths for Matrix A.
+    int64_t GemmABlockCopyClusterLengths_GemmK =
+        KPerBlock / matrix_a_source_data_per_read;
+    int64_t GemmABlockCopyClusterLengths_GemmM =
+        MPerBlock /
+        ((MPerBlock * KPerBlock / BlockSize) / matrix_a_source_data_per_read);
+    // Compute ThreadSliceLengths for Matrix A.
+    int64_t GemmABlockCopyThreadSliceLengths_GemmK =
+        KPerBlock / GemmABlockCopyClusterLengths_GemmK;
+    int64_t GemmABlockCopyThreadSliceLengths_GemmM =
+        MPerBlock / GemmABlockCopyClusterLengths_GemmM;
+
+    // Compute ThreadClusterLengths for Matrix B.
+    int64_t GemmBBlockCopyClusterLengths_GemmK =
+        KPerBlock /
+        ((NPerBlock * KPerBlock / BlockSize) / matrix_b_source_data_per_read);
+    int64_t GemmBBlockCopyClusterLengths_GemmN =
+        NPerBlock / matrix_b_source_data_per_read;
+    // Compute ThreadSliceLengths for Matrix B.
+    int64_t GemmBBlockCopyThreadSliceLengths_GemmK =
+        KPerBlock / GemmBBlockCopyClusterLengths_GemmK;
+    int64_t GemmBBlockCopyThreadSliceLengths_GemmN =
+        NPerBlock / GemmBBlockCopyClusterLengths_GemmN;
+
+    // Get current workitem ID.
+    auto tid = b.create<miopen::WorkitemIdOp>(op.getLoc(), b.getIndexType());
+
+    // TBD compute thread_data_id_begin for Matrix A.
+    // TBD compute thread_data_id_begin for Matrix B.
 
     // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
@@ -1310,17 +1353,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto register2DMatrixCAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadCRegisterMemRefType);
 
     // Alloc for Matrix A / B on registers.
-    // TBD. compute thread slice lengths from attributes.
-    int64_t ThreadSliceK = 8;
-    int64_t ThreadSliceM = 8;
-    int64_t ThreadSliceN = 8;
     auto threadARegisterMemRefType =
-        MemRefType::get({ThreadSliceK, ThreadSliceM}, elementType, {}, registerMemorySpace);
+        MemRefType::get({GemmABlockCopyThreadSliceLengths_GemmK,
+                         GemmABlockCopyThreadSliceLengths_GemmM},
+                        elementType, {}, registerMemorySpace);
     auto threadAEvenAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType);
     auto threadAOddAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadARegisterMemRefType);
 
     auto threadBRegisterMemRefType =
-        MemRefType::get({ThreadSliceK, ThreadSliceN}, elementType, {}, registerMemorySpace);
+        MemRefType::get({GemmBBlockCopyThreadSliceLengths_GemmK,
+                         GemmBBlockCopyThreadSliceLengths_GemmN},
+                        elementType, {}, registerMemorySpace);
     auto threadBEvenAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType);
     auto threadBOddAllocOp = b.create<miopen::GpuAllocOp>(op.getLoc(), threadBRegisterMemRefType);
 
@@ -1335,12 +1378,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
               MemRefType::get({2}, b.getIntegerType(32), {}, registerMemorySpace);
 
 
-    // Get current workitem ID.
-    auto tid = b.create<miopen::WorkitemIdOp>(op.getLoc(), b.getIndexType());
-
-    // TBD compute ThreadClusterLengths for Matrix A.
-    // TBD compute thread_data_id_begin for Matrix A.
-
     // Matrix A: {0, m_block_data_on_global}, {0, 0}
     auto blockwiseCopyASrc = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyCoordType);
     // set starting location as (m_block_data_on_global_i32, 0)
@@ -1354,9 +1391,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // TBD add thread_data_id_begin for Matrix A.
     b.create<miopen::FillOp>(op.getLoc(), blockwiseCopyADst, zeroConstantI32Op);
 
-
-    // TBD compute ThreadClusterLengths for Matrix B.
-    // TBD compute thread_data_id_begin for Matrix B.
 
     // Matrix B: {0, n_block_data_on_global}, {0, 0}
     auto blockwiseCopyBSrc = b.create<miopen::GpuAllocOp>(op.getLoc(), blockwiseCopyCoordType);
