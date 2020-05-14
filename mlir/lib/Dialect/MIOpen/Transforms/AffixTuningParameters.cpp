@@ -122,7 +122,8 @@ void AffixTuningParameters::runOnFunction() {
     op.setAttr("matrix_b_source_data_per_read", b.getI32IntegerAttr(4));
     op.setAttr("matrix_b_dest_data_per_write_dim_n", b.getI32IntegerAttr(4));
 
-    op.setAttr("matrix_c_source_dest_vector_read_write_dim", b.getI32IntegerAttr(3));
+    // XXX. We only use 2D coordinates when storing VGPR to global VRAM.
+    op.setAttr("matrix_c_source_dest_vector_read_write_dim", b.getI32IntegerAttr(1));
     op.setAttr("matrix_c_dest_data_per_write", b.getI32IntegerAttr(1));
   });
 }
