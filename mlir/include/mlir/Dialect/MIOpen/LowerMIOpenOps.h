@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
@@ -2208,41 +2209,251 @@ struct ThreadwiseCopyRewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
+    auto zeroConstantFloatOp =
+        b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
+    auto zeroConstantIndexOp = b.create<ConstantIndexOp>(loc, 0);
+    auto oneConstantIndexOp = b.create<ConstantIndexOp>(loc, 1);
+
     auto sourceType = op.source().getType().cast<MemRefType>();
     auto destType = op.dest().getType().cast<MemRefType>();
 
-    auto zeroConstantIndexOp = b.create<ConstantIndexOp>(op.getLoc(), 0);
-    auto zeroConstantFloatOp =
-        b.create<ConstantFloatOp>(op.getLoc(), APFloat(0.0f), b.getF32Type());
-    auto vectorType = VectorType::get(4, sourceType.getElementType());
-    SmallVector<Value, 4> srcIndices;
-    SmallVector<Value, 4> dstIndices;
+    // Get source and dest coordinates.
+    //
+    // 1. For memrefs with no externally defined affine maps in coord_transforms
+    //    attribute, or embedded affine maps. Use its rank.
+    // 2. For memrefs with externally defined maps, use its input rank.
+    // 3. For memrefs with embedded maps, use its input rank.
+    auto sourceAndDestCoord = op.sourceAndDestCoord();
+    auto sourceTypeAffineMaps = sourceType.getAffineMaps();
+    auto destTypeAffineMaps = destType.getAffineMaps();
+    auto coordTransformsAttr =
+        op.getAttr("coord_transforms").template cast<ArrayAttr>();
 
-    // TBD compute the actual indices following attached affine map, or
-    // coordinate.
-    for (unsigned i = 0; i < sourceType.getRank(); ++i) {
-      srcIndices.push_back(zeroConstantIndexOp);
+    unsigned sourceCoordLength = sourceType.getRank();
+    unsigned destCoordLength = destType.getRank();
+
+    bool sourceEmbeddedTransform = false;
+    bool destEmbeddedTransform = false;
+    bool sourceExternalTransform = false;
+    bool destExternalTransform = false;
+    AffineMap sourceTransform;
+    AffineMap destTransform;
+
+    if (sourceTypeAffineMaps.size()) {
+      // Use the first affine map in the attribute array.
+      sourceCoordLength = sourceTypeAffineMaps[0].getNumInputs();
+      sourceEmbeddedTransform = true;
+      sourceTransform = sourceTypeAffineMaps[0];
+    }
+    if (destTypeAffineMaps.size()) {
+      // Use the first affine map in the attribute array.
+      destCoordLength = destTypeAffineMaps[0].getNumInputs();
+      destEmbeddedTransform = true;
+      destTransform = destTypeAffineMaps[0];
+    }
+    if (coordTransformsAttr) {
+      for (auto attr : coordTransformsAttr) {
+        auto dictAttr = attr.template cast<DictionaryAttr>();
+        auto operandIndex =
+            dictAttr.get("operand").template cast<IntegerAttr>().getInt();
+        auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
+        // Use the first affine map in the transforms array.
+        auto affineMap = transforms[0].template cast<AffineMapAttr>();
+        if (operandIndex == 0) {
+          sourceCoordLength = affineMap.getValue().getNumInputs();
+          sourceExternalTransform = true;
+          sourceTransform = affineMap.getValue();
+        } else {
+          destCoordLength = affineMap.getValue().getNumInputs();
+          destExternalTransform = true;
+          destTransform = affineMap.getValue();
+        }
+      }
     }
 
-    // TBD improve logic here to adhere original C++ implementation.
-    auto srcExpr = getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
-    auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
-    auto srcProjectionAttr = AffineMapAttr::get(srcProjection);
-    auto vectorValue = b.create<vector::TransferReadOp>(
-        loc, vectorType, op.source(), srcIndices, srcProjectionAttr,
-        zeroConstantFloatOp);
-
-    // TBD compute the actual indices following attached affine map, or
-    // coordinate.
-    for (unsigned i = 0; i < destType.getRank(); ++i) {
-      dstIndices.push_back(zeroConstantIndexOp);
+    if (sourceCoordLength + destCoordLength != sourceAndDestCoord.size()) {
+      llvm::errs() << "INCORRECT source and dest coordinates assigned!";
+      return failure();
     }
 
-    auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
-    auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
-    auto dstProjectionAttr = AffineMapAttr::get(dstProjection);
-    b.create<vector::TransferWriteOp>(loc, vectorValue, op.dest(), dstIndices,
-                                      dstProjectionAttr);
+    llvm::SmallVector<Value, 2> sourceCoord;
+    llvm::SmallVector<Value, 2> destCoord;
+    for (unsigned i = 0; i < sourceCoordLength; ++i) {
+      sourceCoord.push_back(sourceAndDestCoord[i]);
+    }
+    for (unsigned i = sourceCoordLength;
+         i < sourceCoordLength + destCoordLength; ++i) {
+      destCoord.push_back(sourceAndDestCoord[i]);
+    }
+
+    // Distinguish between generic <-> naive v naive <-> naive tensors.
+    //
+    // In cases where attributes n_slice_row/n_slice_col/data_per_access are
+    // specified, source and dest memrefs are all on LDS or VGPR, use the
+    // simpler algorithm because they are all naive tensors.
+    //
+    // Otherwise, employ the more elaborated algorithm.
+    auto NSliceRowAttr = op.getAttr("n_slice_row");
+    auto NSliceColAttr = op.getAttr("n_slice_col");
+    auto DataPerAccessAttr = op.getAttr("data_per_access");
+    if (NSliceRowAttr && NSliceColAttr && DataPerAccessAttr) {
+      auto NSliceRow = NSliceRowAttr.template cast<IntegerAttr>().getInt();
+      auto NSliceCol = NSliceColAttr.template cast<IntegerAttr>().getInt();
+      auto DataPerAccess =
+          DataPerAccessAttr.template cast<IntegerAttr>().getInt();
+
+      // Original C++ logic:
+      // template <typename SrcMatrix,
+      //           typename DstMatrix,
+      //           index_t NSliceRow,
+      //           index_t NSliceCol,
+      //           index_t DataPerAccess>
+      // struct ThreadwiseMatrixSliceCopy
+      // {
+      //     __device__ constexpr ThreadwiseMatrixSliceCopy()
+      //     {
+      //         static_assert(SrcMatrix::RowStride() % DataPerAccess == 0 &&
+      //                           DstMatrix::RowStride() % DataPerAccess == 0,
+      //                       "wrong! wrong alignment");
+      //         static_assert(NSliceCol % DataPerAccess == 0,
+      //                       "wrong! should be NSliceCol % DataPerAccess ==
+      //                       0");
+      //     }
+      //
+      //     template <typename Data>
+      //     __device__ static void Run(const Data* p_src, Data* p_dst)
+      //     {
+      //         using vector_t = typename vector_type<Data,
+      //         DataPerAccess>::MemoryType;
+      //
+      //         for(index_t i = 0; i < NSliceRow; ++i)
+      //         {
+      //             for(index_t j = 0; j < NSliceCol; j += DataPerAccess)
+      //             {
+      //                 const index_t src_index = SrcMatrix::CalculateOffset(i,
+      //                 j); const index_t dst_index =
+      //                 DstMatrix::CalculateOffset(i, j);
+      //
+      //                 *reinterpret_cast<vector_t*>(&p_dst[dst_index]) =
+      //                     *reinterpret_cast<const
+      //                     vector_t*>(&p_src[src_index]);
+      //             }
+      //         }
+      //     }
+      // };
+      auto NSliceRowConstantIndexOp = b.create<ConstantIndexOp>(loc, NSliceRow);
+      auto NSliceColConstantIndexOp = b.create<ConstantIndexOp>(loc, NSliceCol);
+      auto DataPerAccessConstantIndexOp =
+          b.create<ConstantIndexOp>(loc, DataPerAccess);
+
+      // outer loop.
+      auto outerLoopOp =
+          b.create<loop::ForOp>(loc, zeroConstantIndexOp,
+                                NSliceRowConstantIndexOp, oneConstantIndexOp);
+
+      // inside the outer loop.
+      auto lob = OpBuilder::atBlockTerminator(outerLoopOp.getBody());
+      auto ivo = outerLoopOp.getInductionVar();
+      auto ivo_i32 = lob.create<IndexCastOp>(loc, ivo, b.getIntegerType(32));
+
+      // inner loop
+      auto innerLoopOp = lob.create<loop::ForOp>(loc, zeroConstantIndexOp,
+                                                 NSliceColConstantIndexOp,
+                                                 DataPerAccessConstantIndexOp);
+
+      // inside the inner loop.
+      auto lib = OpBuilder::atBlockTerminator(innerLoopOp.getBody());
+      auto ivi = innerLoopOp.getInductionVar();
+      auto ivi_i32 = lib.create<IndexCastOp>(loc, ivi, b.getIntegerType(32));
+
+      // Compute high-level coordinate for source memref.
+      // src_index = (ivo_i32, ivi_i32) + sourceCoord
+      SmallVector<Value, 8> srcUpperIndices;
+      srcUpperIndices.push_back(lib.create<IndexCastOp>(
+          loc, lib.create<AddIOp>(loc, ivo_i32, sourceCoord[0]),
+          b.getIndexType()));
+      srcUpperIndices.push_back(lib.create<IndexCastOp>(
+          loc, lib.create<AddIOp>(loc, ivi_i32, sourceCoord[1]),
+          b.getIndexType()));
+
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 8> srcLowerIndices;
+      if (sourceExternalTransform || sourceEmbeddedTransform)
+        srcLowerIndices =
+            expandAffineMap(lib, loc, sourceTransform, srcUpperIndices)
+                .getValue();
+      else
+        srcLowerIndices = srcUpperIndices;
+
+      // Load from source.
+      auto vectorType =
+          VectorType::get(DataPerAccess, sourceType.getElementType());
+      auto srcExpr =
+          getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
+      auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
+      auto srcProjectionAttr = AffineMapAttr::get(srcProjection);
+      auto vectorValue = lib.create<vector::TransferReadOp>(
+          loc, vectorType, op.source(), srcLowerIndices, srcProjectionAttr,
+          zeroConstantFloatOp);
+
+      // Compute high-level coordinate for dest memref.
+      // dst_index = (ivo_i32, ivi_i32) + destCoord
+      SmallVector<Value, 8> destUpperIndices;
+      destUpperIndices.push_back(lib.create<IndexCastOp>(
+          loc, lib.create<AddIOp>(loc, ivo_i32, destCoord[0]),
+          b.getIndexType()));
+      destUpperIndices.push_back(lib.create<IndexCastOp>(
+          loc, lib.create<AddIOp>(loc, ivi_i32, destCoord[1]),
+          b.getIndexType()));
+
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 8> destLowerIndices;
+      if (destExternalTransform || destEmbeddedTransform)
+        destLowerIndices =
+            expandAffineMap(lib, loc, destTransform, destUpperIndices)
+                .getValue();
+      else
+        destLowerIndices = destUpperIndices;
+
+      // Store to dest.
+      auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
+      auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
+      auto dstProjectionAttr = AffineMapAttr::get(dstProjection);
+      lib.create<vector::TransferWriteOp>(loc, vectorValue, op.dest(),
+                                          destLowerIndices, dstProjectionAttr);
+
+    } else {
+      auto vectorType = VectorType::get(4, sourceType.getElementType());
+      SmallVector<Value, 4> srcIndices;
+      SmallVector<Value, 4> dstIndices;
+
+      // TBD compute the actual indices following attached affine map, or
+      // coordinate.
+      for (unsigned i = 0; i < sourceType.getRank(); ++i) {
+        srcIndices.push_back(zeroConstantIndexOp);
+      }
+
+      // TBD improve logic here to adhere original C++ implementation.
+      auto srcExpr =
+          getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
+      auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
+      auto srcProjectionAttr = AffineMapAttr::get(srcProjection);
+      auto vectorValue = b.create<vector::TransferReadOp>(
+          loc, vectorType, op.source(), srcIndices, srcProjectionAttr,
+          zeroConstantFloatOp);
+
+      // TBD compute the actual indices following attached affine map, or
+      // coordinate.
+      for (unsigned i = 0; i < destType.getRank(); ++i) {
+        dstIndices.push_back(zeroConstantIndexOp);
+      }
+
+      auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
+      auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
+      auto dstProjectionAttr = AffineMapAttr::get(dstProjection);
+      b.create<vector::TransferWriteOp>(loc, vectorValue, op.dest(), dstIndices,
+                                        dstProjectionAttr);
+    }
 
     op.erase();
     return success();
