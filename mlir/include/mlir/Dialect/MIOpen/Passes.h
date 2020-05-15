@@ -36,6 +36,9 @@ std::unique_ptr<Pass> createLowerMIOpenOpsStep3Pass();
 /// Create a pass to convert MIOpen threadwise operations to other dialects.
 std::unique_ptr<Pass> createLowerMIOpenOpsStep4Pass();
 
+/// Create a pass to convert affine / loop to std dialect.
+std::unique_ptr<Pass> createLowerMIOpenOpsStep5Pass();
+
 /// Create a pass to convert transform operations to affine maps.
 std::unique_ptr<Pass> createAffineTransformPass();
 

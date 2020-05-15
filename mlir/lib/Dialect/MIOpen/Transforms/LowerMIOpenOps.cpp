@@ -64,6 +64,11 @@ struct LowerMIOpenOpsStep4Pass
     : public MIOpenOpsStep4PassBase<LowerMIOpenOpsStep4Pass> {
   void runOnOperation() override;
 };
+
+struct LowerMIOpenOpsStep5Pass
+    : public MIOpenOpsStep5PassBase<LowerMIOpenOpsStep5Pass> {
+  void runOnOperation() override;
+};
 } // end anonymous namespace
 
 void LowerMIOpenOpsStep1Pass::runOnOperation() {
@@ -94,7 +99,11 @@ void LowerMIOpenOpsStep4Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<ThreadwiseGemmRewritePattern>(&getContext());
   patterns.insert<ThreadwiseCopyRewritePattern>(&getContext());
+  applyPatternsAndFoldGreedily(getOperation(), patterns);
+}
 
+void LowerMIOpenOpsStep5Pass::runOnOperation() {
+  OwningRewritePatternList patterns;
   populateAffineToStdConversionPatterns(patterns, &getContext());
   populateLoopToStdConversionPatterns(patterns, &getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
@@ -114,4 +123,8 @@ std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep3Pass() {
 
 std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep4Pass() {
   return std::make_unique<LowerMIOpenOpsStep4Pass>();
+}
+
+std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep5Pass() {
+  return std::make_unique<LowerMIOpenOpsStep5Pass>();
 }
