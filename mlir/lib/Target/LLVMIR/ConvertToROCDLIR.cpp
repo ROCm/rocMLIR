@@ -77,13 +77,14 @@ protected:
 
 std::unique_ptr<llvm::Module> mlir::translateModuleToROCDLIR(Operation *m) {
   // Locate a GPU module within a Module. Use it if we find one.
-  auto module = cast<ModuleOp>(m);
-  auto *block = module.getBody();
-  for (auto op = block->begin(); op != block->end(); ++op)
-    if (auto gpuModule = dyn_cast<gpu::GPUModuleOp>(op)) {
-      m = gpuModule;
-      break;
-    }
+  if (auto module = dyn_cast<ModuleOp>(m)) {
+    auto *block = module.getBody();
+    for (auto op = block->begin(); op != block->end(); ++op)
+      if (auto gpuModule = dyn_cast<gpu::GPUModuleOp>(op)) {
+        m = gpuModule;
+        break;
+      }
+  }
 
   // lower MLIR (with RODL Dialect) to LLVM IR (with ROCDL intrinsics)
   auto llvmModule =
