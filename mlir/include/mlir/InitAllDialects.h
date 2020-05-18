@@ -22,7 +22,6 @@
 #include "mlir/Dialect/LLVMIR/NVVMDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
-#include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/Dialect/Quant/QuantOps.h"
