@@ -38,12 +38,8 @@ add_mlir_library(MLIRTransforms
   MLIRCopyOpInterface
   MLIRLinalg
   MLIRLoopLikeInterface
-<<<<<<< HEAD
-  MLIRSCF
-=======
-  MLIRLoopOps
   MLIRMIOpenOps
->>>>>>> 60114561518... Rebase to LLVM/MLIR tip.
+  MLIRSCF
   MLIRPass
   MLIRTransformUtils
   MLIRVector

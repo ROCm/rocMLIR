@@ -5,8 +5,14 @@ add_mlir_translation_library(MLIRTargetMIOpenCppTranslation
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Target
-  )
-target_link_libraries(MLIRTargetMIOpenCppTranslation
+
+  DEPENDS
+  intrinsics_gen
+
+  LINK_COMPONENTS
+  Core
+
+  LINK_LIBS PUBLIC
   LLVMSupport
   MLIRIR
   MLIRMIOpenOps

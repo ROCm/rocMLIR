@@ -12,9 +12,9 @@
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Vector/VectorOps.h"
 #include "mlir/IR/AffineMap.h"
@@ -1631,8 +1631,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto loopIterationConstantIndexOp =
         b.create<ConstantIndexOp>(loc, loopIteration);
     auto loopOp =
-        b.create<loop::ForOp>(loc, zeroConstantIndexOp,
-                              loopIterationConstantIndexOp, oneConstantIndexOp);
+        b.create<scf::ForOp>(loc, zeroConstantIndexOp,
+                             loopIterationConstantIndexOp, oneConstantIndexOp);
 
     // inside the loop.
     auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
@@ -1855,8 +1855,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     auto loopIterationConstantIndexOp =
         b.create<ConstantIndexOp>(loc, loopIteration);
     auto loopOp =
-        b.create<loop::ForOp>(loc, zeroConstantIndexOp,
-                              loopIterationConstantIndexOp, oneConstantIndexOp);
+        b.create<scf::ForOp>(loc, zeroConstantIndexOp,
+                             loopIterationConstantIndexOp, oneConstantIndexOp);
 
     // inside the main loop.
     auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
@@ -1868,7 +1868,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     auto loopReadMatrixAIteration = MRepeat;
     auto loopReadMatrixAIterationConstantIndexOp =
         lb.create<ConstantIndexOp>(loc, loopReadMatrixAIteration);
-    auto loopReadMatrixAOp = lb.create<loop::ForOp>(
+    auto loopReadMatrixAOp = lb.create<scf::ForOp>(
         loc, zeroConstantIndexOp, loopReadMatrixAIterationConstantIndexOp,
         oneConstantIndexOp);
 
@@ -1909,7 +1909,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     auto loopReadMatrixBIteration = NRepeat;
     auto loopReadMatrixBIterationConstantIndexOp =
         lb.create<ConstantIndexOp>(loc, loopReadMatrixBIteration);
-    auto loopReadMatrixBOp = lb.create<loop::ForOp>(
+    auto loopReadMatrixBOp = lb.create<scf::ForOp>(
         loc, zeroConstantIndexOp, loopReadMatrixBIterationConstantIndexOp,
         oneConstantIndexOp);
 
@@ -2093,7 +2093,7 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
     if (inputShape.size() == 1) {
       // Rank 1 loop.
       auto loopIteration = b.create<ConstantIndexOp>(loc, inputShape[0]);
-      auto loopOp = b.create<loop::ForOp>(loc, zero, loopIteration, one);
+      auto loopOp = b.create<scf::ForOp>(loc, zero, loopIteration, one);
 
       // inside loop.
       auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
@@ -2105,7 +2105,7 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
     } else if (inputShape.size() == 2) {
       // Rank 2 loop.
       auto loop0Iteration = b.create<ConstantIndexOp>(loc, inputShape[0]);
-      auto loop0Op = b.create<loop::ForOp>(loc, zero, loop0Iteration, one);
+      auto loop0Op = b.create<scf::ForOp>(loc, zero, loop0Iteration, one);
 
       // inside outer loop.
       auto l0b = OpBuilder::atBlockTerminator(loop0Op.getBody());
@@ -2114,7 +2114,7 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
         auto iter0 = b.create<ConstantIndexOp>(loc, i);
 
         auto loop1Iteration = b.create<ConstantIndexOp>(loc, inputShape[1]);
-        auto loop1Op = l0b.create<loop::ForOp>(loc, zero, loop1Iteration, one);
+        auto loop1Op = l0b.create<scf::ForOp>(loc, zero, loop1Iteration, one);
 
         // inside inner loop.
         auto l1b = OpBuilder::atBlockTerminator(loop1Op.getBody());
@@ -2367,8 +2367,8 @@ struct ThreadwiseCopyRewritePattern
 
       // outer loop.
       auto outerLoopOp =
-          b.create<loop::ForOp>(loc, zeroConstantIndexOp,
-                                NSliceRowConstantIndexOp, oneConstantIndexOp);
+          b.create<scf::ForOp>(loc, zeroConstantIndexOp,
+                               NSliceRowConstantIndexOp, oneConstantIndexOp);
 
       // inside the outer loop.
       auto lob = OpBuilder::atBlockTerminator(outerLoopOp.getBody());
@@ -2376,9 +2376,9 @@ struct ThreadwiseCopyRewritePattern
       auto ivo_i32 = lob.create<IndexCastOp>(loc, ivo, b.getIntegerType(32));
 
       // inner loop
-      auto innerLoopOp = lob.create<loop::ForOp>(loc, zeroConstantIndexOp,
-                                                 NSliceColConstantIndexOp,
-                                                 DataPerAccessConstantIndexOp);
+      auto innerLoopOp = lob.create<scf::ForOp>(loc, zeroConstantIndexOp,
+                                                NSliceColConstantIndexOp,
+                                                DataPerAccessConstantIndexOp);
 
       // inside the inner loop.
       auto lib = OpBuilder::atBlockTerminator(innerLoopOp.getBody());
@@ -2510,7 +2510,7 @@ struct ThreadwiseCopyRewritePattern
       // llvm::errs() << "\n";
 
       // Emit loops for vector loads / stores.
-      SmallVector<loop::ForOp, 2> loopOps;
+      SmallVector<scf::ForOp, 2> loopOps;
       SmallVector<OpBuilder, 2> loopBuilders;
       SmallVector<Value, 2> loopIVs;
       SmallVector<Value, 2> loopIV_i32s;
@@ -2518,7 +2518,7 @@ struct ThreadwiseCopyRewritePattern
         auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
         auto loopBuilder = (iter == 0) ? b : loopBuilders[iter - 1];
 
-        auto loopOp = loopBuilder.create<loop::ForOp>(
+        auto loopOp = loopBuilder.create<scf::ForOp>(
             loc, zeroConstantIndexOp, loopBounds[dim], oneConstantIndexOp);
         loopOps.push_back(loopOp);
         auto loopOpBuilder = OpBuilder::atBlockTerminator(loopOp.getBody());

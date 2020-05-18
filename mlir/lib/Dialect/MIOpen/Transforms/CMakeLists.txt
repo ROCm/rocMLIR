@@ -8,19 +8,18 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
 
   DEPENDS
   MLIRMIOpenPassIncGen
+  MLIRSCFToStandard
   MLIRStandardOps
-  MLIRLoopToStandard
 )
 
 target_link_libraries(MLIRMIOpenTransforms
   PUBLIC
   MLIRAffineToStandard
   MLIRIR
-  MLIRLoopOps
-  MLIRLoopToStandard
   MLIRLLVMIR
   MLIRMIOpenOps
   MLIRPass
+  MLIRSCFToStandard
   MLIRStandardOps
   MLIRSupport
   MLIRTransformUtils
