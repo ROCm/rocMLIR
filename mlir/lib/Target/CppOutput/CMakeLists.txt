@@ -11,9 +11,9 @@ add_mlir_translation_library(MLIRTargetMIOpenCppTranslation
 
   LINK_COMPONENTS
   Core
+  Support
 
   LINK_LIBS PUBLIC
-  LLVMSupport
   MLIRIR
   MLIRMIOpenOps
   MLIRStandardOps
