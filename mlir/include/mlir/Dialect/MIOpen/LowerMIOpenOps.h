@@ -2410,10 +2410,8 @@ struct ThreadwiseCopyRewritePattern
       auto srcExpr =
           getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
       auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
-      auto srcProjectionAttr = AffineMapAttr::get(srcProjection);
       auto vectorValue = lib.create<vector::TransferReadOp>(
-          loc, vectorType, op.source(), srcLowerIndices, srcProjectionAttr,
-          zeroConstantFloatOp);
+          loc, vectorType, op.source(), srcLowerIndices, srcProjection);
 
       // Compute high-level coordinate for dest memref.
       // dst_index = (ivo_i32, ivi_i32) + destCoord
@@ -2437,9 +2435,8 @@ struct ThreadwiseCopyRewritePattern
       // Store to dest.
       auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
       auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
-      auto dstProjectionAttr = AffineMapAttr::get(dstProjection);
       lib.create<vector::TransferWriteOp>(loc, vectorValue, op.dest(),
-                                          destLowerIndices, dstProjectionAttr);
+                                          destLowerIndices, dstProjection);
 
     } else {
       // The more elaborated algorithm.
@@ -2558,10 +2555,8 @@ struct ThreadwiseCopyRewritePattern
       auto srcExpr =
           getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
       auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
-      auto srcProjectionAttr = AffineMapAttr::get(srcProjection);
       auto vectorValue = innerLoopBuilder.create<vector::TransferReadOp>(
-          loc, sourceVectorType, op.source(), srcLowerIndices,
-          srcProjectionAttr, zeroConstantFloatOp);
+          loc, sourceVectorType, op.source(), srcLowerIndices, srcProjection);
 
       // Compute high-level coordinate for dest memref.
       // dst_index = (iv_0, iv_1, ...) + destCoord
@@ -2585,9 +2580,8 @@ struct ThreadwiseCopyRewritePattern
       // Store to dest.
       auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
       auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
-      auto dstProjectionAttr = AffineMapAttr::get(dstProjection);
       innerLoopBuilder.create<vector::TransferWriteOp>(
-          loc, vectorValue, op.dest(), destLowerIndices, dstProjectionAttr);
+          loc, vectorValue, op.dest(), destLowerIndices, dstProjection);
     }
 
     op.erase();
