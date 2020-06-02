@@ -141,3 +141,34 @@ mgpuMemGetDeviceMemRef1dInt32(int32_t *allocated, int32_t *aligned,
   mgpuMemGetDevicePointer(aligned, &devicePtr);
   return {devicePtr, devicePtr, offset, {size}, {stride}};
 }
+
+extern "C" void mcpuMemset(float *allocated, float *aligned, int64_t offset,
+                           int64_t size, int64_t stride, float value) {
+  for (unsigned i = 0; i < size; ++i) {
+    aligned[i] = value;
+  }
+}
+
+extern "C" StridedMemRefType<float, 1>
+mgpuMemAlloc(float *allocated, float *aligned, int64_t offset, int64_t size,
+             int64_t stride) {
+  float *gpuPtr;
+  hipMalloc((void**)&gpuPtr, size * sizeof(float));
+  return {gpuPtr, gpuPtr, offset, {size}, {stride}};
+}
+
+extern "C" void mgpuMemDealloc(float *allocated, float *aligned,
+                               int64_t offset, int64_t size, int64_t stride) {
+  hipFree(aligned);
+}
+
+extern "C" void mgpuMemCopy(float *sourceAllocated, float *sourceAligned,
+                            int64_t sourceOffset, int64_t sourceSize,
+                            int64_t sourceStride,
+                            float *destAllocated, float *destAligned,
+                            int64_t destOffset, int64_t destSize,
+                            int64_t destStride,
+                            unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned, sourceSize * sizeof(float),
+            static_cast<hipMemcpyKind>(copyDirection));
+}
