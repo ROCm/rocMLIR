@@ -23,6 +23,9 @@
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/InitAllDialects.h"
+#include "mlir/InitAllPasses.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 
@@ -275,9 +278,23 @@ static LogicalResult populateModule(ModuleOp &module, OpBuilder &builder,
   return success();
 }
 
+static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser &passPipeline) {
+  PassManager pm(module.getContext());
+  applyPassManagerCLOptions(pm);
+  if (failed(passPipeline.addToPipeline(pm)))
+      return failure();
+
+  return pm.run(module);
+}
+
 int main(int argc, char **argv) {
   mlir::registerAllDialects();
+  mlir::registerAllPasses();
   InitLLVM y(argc, argv);
+
+  // Register any pass manager command line options.
+  mlir::registerPassManagerCLOptions();
+  mlir::PassPipelineCLParser passPipeline("", "compiler passes to run");
 
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
@@ -290,6 +307,12 @@ int main(int argc, char **argv) {
   // Populate the module.
   if (failed(populateModule(module, builder, context))) {
     llvm::errs() << "Module population failed\n";
+    exit(1);
+  }
+
+  // Apply passes.
+  if (failed(runMLIRPasses(module, passPipeline))) {
+    llvm::errs() << "Lowering failed\n";
     exit(1);
   }
 
