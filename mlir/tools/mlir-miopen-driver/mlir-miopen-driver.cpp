@@ -160,8 +160,73 @@ static cl::opt<bool> useHostHarness(
     "host", cl::desc("To use host harness"),
     cl::value_desc("To use host harness"), cl::init(false));
 
-static LogicalResult populateModule(ModuleOp &module, OpBuilder &builder,
-                                    MLIRContext &context) {
+static LogicalResult populateHostLogic(ModuleOp &module, OpBuilder &builder,
+                                       MLIRContext &context,
+                                       StringRef kernelName) {
+  // Check if populate entry point exist.
+  FuncOp theFunc;
+  bool entryPointExist = false;
+  module.walk([&](FuncOp funcOp) -> WalkResult {
+    if (funcOp.getName() == populateEntryPoint.getValue()) {
+      entryPointExist = true;
+      theFunc = funcOp;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+
+  if (!entryPointExist) {
+    // do not fail for now. silent exit.
+    // return failure();
+    return success();
+  }
+
+  // Check if kernel to be launched exist.
+  gpu::GPUFuncOp theGpuFunc;
+  bool gpuKernelExist = false;
+  module.walk([&](gpu::GPUModuleOp gpuModule) -> WalkResult {
+    module.walk([&](gpu::GPUFuncOp gpuFunc) -> WalkResult {
+      if (gpuFunc.getName() == kernelName) {
+        gpuKernelExist = true;
+        theGpuFunc = gpuFunc;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+    if (gpuKernelExist)
+      return WalkResult::interrupt();
+    return WalkResult::advance();
+  });
+
+  if (!gpuKernelExist) {
+    // do not fail for now. silent exit.
+    // return failure();
+    return success();
+  }
+
+  // Populate a gpu.launch_func statement.
+  // TBD: add proper grid/block logic.
+  Block *block = &(theFunc.getBody().front());
+  block->clear();
+
+  auto cst = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
+  block->push_back(cst);
+
+  auto gpuLaunchFuncOp = builder.create<gpu::LaunchFuncOp>(
+      builder.getUnknownLoc(), theGpuFunc, cst, cst, cst, cst, cst, cst,
+      ValueRange{theFunc.getArgument(0), theFunc.getArgument(1),
+                 theFunc.getArgument(2)});
+  block->push_back(gpuLaunchFuncOp);
+
+  auto returnOp = builder.create<ReturnOp>(builder.getUnknownLoc());
+  block->push_back(returnOp);
+
+  return success();
+}
+
+static LogicalResult populateConvolution(ModuleOp &module, OpBuilder &builder,
+                                         MLIRContext &context,
+                                         SmallString<128> &kernelName) {
   // Populate default parameters if necessary.
   if (populateDefaultValues.getValue() == true) {
     batchSize.setValue(128);
@@ -221,50 +286,28 @@ static LogicalResult populateModule(ModuleOp &module, OpBuilder &builder,
     }
   }
 
-  FuncOp func;
-  Block *block = nullptr;
+  // Construct a new FuncOp.
+  auto filterArgType = MemRefType::get(
+      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
+      builder.getF32Type());
+  auto inputArgType = MemRefType::get(
+      ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
+      builder.getF32Type());
+  auto outputArgType = MemRefType::get(
+      ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
+      builder.getF32Type());
+  auto funcType =
+      builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
 
-  // Check if populate entry point exist.
-  bool entryPointExist = false;
-  module.walk([&](FuncOp funcOp) -> WalkResult {
-    if (funcOp.getName() == populateEntryPoint.getValue()) {
-      // Locate gpu.launch op inside the entry point function.
-      funcOp.walk([&](gpu::LaunchOp launchOp) -> WalkResult {
-        entryPointExist = true;
-        block = &(launchOp.body().front());
-        func = funcOp;
-        return WalkResult::interrupt();
-      });
-      if (entryPointExist)
-        return WalkResult::interrupt();
-      return WalkResult::advance();
-    }
-    return WalkResult::advance();
-  });
+  // Determine kernel name.
+  kernelName = "miopen_" + operation.getValue() + "_" + filterLayout + "_" +
+               inputLayout + "_" + outputLayout;
 
-  if (!entryPointExist) {
-    // Construct a new FuncOp.
-    auto filterArgType = MemRefType::get(
-        ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
-        builder.getF32Type());
-    auto inputArgType = MemRefType::get(
-        ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
-        builder.getF32Type());
-    auto outputArgType = MemRefType::get(
-        ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
-        builder.getF32Type());
-    auto funcType = builder.getFunctionType(
-        {filterArgType, inputArgType, outputArgType}, {});
-    func =
-        FuncOp::create(builder.getUnknownLoc(),
-                       "miopen_" + operation.getValue() + "_" + filterLayout +
-                           "_" + inputLayout + "_" + outputLayout,
-                       funcType);
-    module.push_back(func);
+  auto func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType);
+  module.push_back(func);
 
-    // Construct a new Block.
-    block = func.addEntryBlock();
-  }
+  // Construct a new Block.
+  Block *block = func.addEntryBlock();
 
   // Construct a new Conv2DOp.
   llvm::SmallVector<StringAttr, 4> filterLayoutSpec;
@@ -322,12 +365,9 @@ static LogicalResult populateModule(ModuleOp &module, OpBuilder &builder,
     block->push_front(convOp);
   }
 
-  if (!entryPointExist) {
-    // Construct a new ReturnOp in case we construct a Block anew.
-    auto returnOp =
-        builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
-    block->push_back(returnOp);
-  }
+  auto returnOp =
+      builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
+  block->push_back(returnOp);
 
   return success();
 }
@@ -346,7 +386,6 @@ static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser 
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
     pm.addPass(mlir::createLowerMIOpenOpsToGPUPass());
-    pm.addPass(mlir::createLowerGpuOpsToROCDLOpsPass());
   } else {
     // Use lowering pipeline specified at command line.
     if (failed(passPipeline.addToPipeline(pm)))
@@ -397,7 +436,8 @@ int main(int argc, char **argv) {
   }
 
   // Populate the module.
-  if (failed(populateModule(module, builder, context))) {
+  SmallString<128> kernelName;
+  if (failed(populateConvolution(module, builder, context, kernelName))) {
     llvm::errs() << "Module population failed.\n";
     exit(1);
   }
@@ -406,6 +446,14 @@ int main(int argc, char **argv) {
   if (failed(runMLIRPasses(module, passPipeline))) {
     llvm::errs() << "Lowering failed.\n";
     exit(1);
+  }
+
+  // populate host launch logic.
+  if (useHostHarness.getValue()) {
+    if (failed(populateHostLogic(module, builder, context, kernelName))) {
+      llvm::errs() << "Host logic populated failed.\n";
+      exit(1);
+    }
   }
 
   // Set up the output file.
