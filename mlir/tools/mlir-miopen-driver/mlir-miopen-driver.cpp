@@ -372,7 +372,7 @@ static LogicalResult populateConvolution(ModuleOp &module, OpBuilder &builder,
   return success();
 }
 
-static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser &passPipeline) {
+static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser &passPipeline, StringRef kernelName) {
   PassManager pm(module.getContext());
   applyPassManagerCLOptions(pm);
 
@@ -385,7 +385,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser 
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
-    pm.addPass(mlir::createLowerMIOpenOpsToGPUPass());
+    pm.addPass(mlir::createLowerMIOpenOpsToGPUPass(kernelName));
   } else {
     // Use lowering pipeline specified at command line.
     if (failed(passPipeline.addToPipeline(pm)))
@@ -443,7 +443,7 @@ int main(int argc, char **argv) {
   }
 
   // Apply passes.
-  if (failed(runMLIRPasses(module, passPipeline))) {
+  if (failed(runMLIRPasses(module, passPipeline, kernelName))) {
     llvm::errs() << "Lowering failed.\n";
     exit(1);
   }
