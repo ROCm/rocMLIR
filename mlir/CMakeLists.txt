@@ -77,6 +77,9 @@ set(MLIR_ROCM_RUNNER_ENABLED 0 CACHE BOOL "Enable building the mlir ROCm runner"
 set(MLIR_SPIRV_CPU_RUNNER_ENABLED 0 CACHE BOOL "Enable building the mlir SPIR-V cpu runner")
 set(MLIR_VULKAN_RUNNER_ENABLED 0 CACHE BOOL "Enable building the mlir Vulkan runner")
 
+# MIOpen dialect.
+set(MLIR_MIOPEN_DRIVER_ENABLED 0 CACHE BOOL "Enable build MIOpen driver")
+
 option(MLIR_INCLUDE_TESTS
        "Generate build targets for the MLIR unit tests."
        ${LLVM_INCLUDE_TESTS})

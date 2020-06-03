@@ -106,6 +106,16 @@ if(MLIR_BINDINGS_PYTHON_ENABLED)
     MLIRTransformsBindingsPythonExtension
   )
 endif()
+  
+# MIOpen dialect tools.
+if(MLIR_MIOPEN_DRIVER_ENABLED)
+  list(APPEND MLIR_TEST_DEPENDS
+    mlir-miopen-driver
+    mlir-translate
+    opt
+    llc
+    )
+endif()
 
 add_lit_testsuite(check-mlir "Running the MLIR regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}

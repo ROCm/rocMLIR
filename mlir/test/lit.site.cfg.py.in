@@ -43,6 +43,7 @@ config.rocm_wrapper_library_dir = "@MLIR_ROCM_WRAPPER_LIBRARY_DIR@"
 config.enable_rocm_runner = @MLIR_ROCM_RUNNER_ENABLED@
 config.spirv_wrapper_library_dir = "@MLIR_SPIRV_WRAPPER_LIBRARY_DIR@"
 config.enable_spirv_cpu_runner = @MLIR_SPIRV_CPU_RUNNER_ENABLED@
+config.enable_miopen_driver = @MLIR_MIOPEN_DRIVER_ENABLED@
 config.vulkan_wrapper_library_dir = "@MLIR_VULKAN_WRAPPER_LIBRARY_DIR@"
 config.enable_vulkan_runner = @MLIR_VULKAN_RUNNER_ENABLED@
 config.enable_bindings_python = @MLIR_BINDINGS_PYTHON_ENABLED@
