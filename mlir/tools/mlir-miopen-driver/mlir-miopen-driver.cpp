@@ -139,6 +139,11 @@ static cl::opt<bool> populateDefaultValues("p", cl::desc("To populate default va
                                                 cl::value_desc("To populate default values"),
                                                 cl::init(false));
 
+// lowering pipeline setup.
+static cl::opt<bool> loweringWithDefaultPipeline(
+    "c", cl::desc("To lower with default pipeline"),
+    cl::value_desc("To lower with default pipeline"), cl::init(false));
+
 static LogicalResult populateModule(ModuleOp &module, OpBuilder &builder,
                                     MLIRContext &context) {
   // Populate default parameters if necessary.
@@ -281,8 +286,23 @@ static LogicalResult populateModule(ModuleOp &module, OpBuilder &builder,
 static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser &passPipeline) {
   PassManager pm(module.getContext());
   applyPassManagerCLOptions(pm);
-  if (failed(passPipeline.addToPipeline(pm)))
+
+  if (loweringWithDefaultPipeline.getValue()) {
+    // Use fixed lowering pipeline.
+    pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
+    pm.addPass(mlir::miopen::createAffineTransformPass());
+    pm.addPass(mlir::miopen::createAffixTuningParametersPass());
+    pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
+    pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
+    pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
+    pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
+    pm.addPass(mlir::createLowerMIOpenOpsToGPUPass());
+    pm.addPass(mlir::createLowerGpuOpsToROCDLOpsPass());
+  } else {
+    // Use lowering pipeline specified at command line.
+    if (failed(passPipeline.addToPipeline(pm)))
       return failure();
+  }
 
   return pm.run(module);
 }
