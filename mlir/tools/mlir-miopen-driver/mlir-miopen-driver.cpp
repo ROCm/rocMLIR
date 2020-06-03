@@ -24,6 +24,7 @@
 #include "mlir/IR/Types.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
@@ -37,6 +38,10 @@
 
 using namespace llvm;
 using namespace mlir;
+
+static cl::opt<std::string> inputFilename(llvm::cl::Positional,
+                                          llvm::cl::desc("<input file>"),
+                                          llvm::cl::init("-"));
 
 static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"),
@@ -143,6 +148,11 @@ static cl::opt<bool> populateDefaultValues("p", cl::desc("To populate default va
 static cl::opt<bool> loweringWithDefaultPipeline(
     "c", cl::desc("To lower with default pipeline"),
     cl::value_desc("To lower with default pipeline"), cl::init(false));
+
+// use host harness program.
+static cl::opt<bool> useHostHarness(
+    "host", cl::desc("To use host harness"),
+    cl::value_desc("To use host harness"), cl::init(false));
 
 static LogicalResult populateModule(ModuleOp &module, OpBuilder &builder,
                                     MLIRContext &context) {
@@ -319,25 +329,47 @@ int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
 
-  // Construct a new ModuleOp.
   MLIRContext context;
   OpBuilder builder(&context);
-  ModuleOp module = ModuleOp::create(builder.getUnknownLoc());
+  ModuleOp module;
+
+  std::string errorMessage;
+  SourceMgr sourceMgr;
+  OwningModuleRef moduleRef;
+  if (useHostHarness.getValue()) {
+    // Set up the input file.
+    auto file = openInputFile(inputFilename, &errorMessage);
+    if (!file) {
+      llvm::errs() << errorMessage << "\n";
+      exit(1);
+    }
+
+    // Parse the input file.
+    sourceMgr.AddNewSourceBuffer(std::move(file), SMLoc());
+    moduleRef = parseSourceFile(sourceMgr, &context);
+    if (!moduleRef) {
+      llvm::errs() << "Parse host harness " << inputFilename << " failed.\n";
+      exit(1);
+    }
+    module = moduleRef.get();
+  } else {
+    // Construct a new ModuleOp.
+    module = ModuleOp::create(builder.getUnknownLoc());
+  }
 
   // Populate the module.
   if (failed(populateModule(module, builder, context))) {
-    llvm::errs() << "Module population failed\n";
+    llvm::errs() << "Module population failed.\n";
     exit(1);
   }
 
   // Apply passes.
   if (failed(runMLIRPasses(module, passPipeline))) {
-    llvm::errs() << "Lowering failed\n";
+    llvm::errs() << "Lowering failed.\n";
     exit(1);
   }
 
   // Set up the output file.
-  std::string errorMessage;
   auto output = openOutputFile(outputFilename, &errorMessage);
   if (!output) {
     llvm::errs() << errorMessage << "\n";
