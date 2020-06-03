@@ -23,7 +23,7 @@ class TypeConverter;
 class Pass;
 
 /// Create a pass to convert MIOpen operations to std operations.
-std::unique_ptr<Pass> createLowerMIOpenOpsToGPUPass();
+std::unique_ptr<Pass> createLowerMIOpenOpsToGPUPass(StringRef kernelName = "miopen_conv2d_kcyx_nchw_nkhw");
 
 } // namespace mlir
 
