@@ -6,3 +6,6 @@ add_subdirectory(mlir-rocm-runner)
 add_subdirectory(mlir-translate)
 add_subdirectory(mlir-vulkan-runner)
 add_subdirectory(mlir-shlib)
+
+# MIOpen dialect specific.
+add_subdirectory(mlir-miopen-driver)
