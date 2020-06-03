@@ -77,6 +77,16 @@ if(MLIR_VULKAN_RUNNER_ENABLED)
   )
 endif()
 
+# MIOpen dialect tools.
+if(MLIR_MIOPEN_DRIVER_ENABLED)
+  list(APPEND MLIR_TEST_DEPENDS
+    mlir-miopen-driver
+    mlir-translate
+    opt
+    llc
+  )
+endif()
+
 add_lit_testsuite(check-mlir "Running the MLIR regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}
   DEPENDS ${MLIR_TEST_DEPENDS}
