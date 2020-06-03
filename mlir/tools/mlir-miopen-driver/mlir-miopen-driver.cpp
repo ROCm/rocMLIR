@@ -142,7 +142,7 @@ static cl::opt<int> paddingWidth("padding_w", cl::desc("Padding width"),
 // populate default values
 static cl::opt<bool> populateDefaultValues("p", cl::desc("To populate default values"),
                                                 cl::value_desc("To populate default values"),
-                                                cl::init(false));
+                                                cl::init(true));
 
 // populate entry point
 static cl::opt<std::string>
