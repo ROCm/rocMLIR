@@ -22,7 +22,9 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
+#include "mlir/InitAllDialects.h"
 #include "mlir/Support/FileUtilities.h"
+
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
@@ -134,6 +136,7 @@ static cl::opt<bool> populateDefaultValues("p", cl::desc("To populate default va
                                                 cl::init(false));
 
 int main(int argc, char **argv) {
+  mlir::registerAllDialects();
   InitLLVM y(argc, argv);
 
   // Parse pass names in main to ensure static initialization completed.
@@ -218,7 +221,7 @@ int main(int argc, char **argv) {
   // Construct a new Block.
   auto *block = func.addEntryBlock();
 
-  // Construct a new Con2DOp.
+  // Construct a new Conv2DOp.
   llvm::SmallVector<StringAttr, 4> filterLayoutSpec;
   llvm::SmallVector<StringAttr, 4> inputLayoutSpec;
   llvm::SmallVector<StringAttr, 4> outputLayoutSpec;
@@ -231,15 +234,15 @@ int main(int argc, char **argv) {
   std::vector<NamedAttribute> attributes{
       builder.getNamedAttr(
           "filter_layout",
-          builder.getArrayAttr(ArrayRef<Attribute>(filterLayoutSpec.begin(),
-                                                   filterLayoutSpec.end()))),
+          builder.getArrayAttr(ArrayRef<mlir::Attribute>(
+              filterLayoutSpec.begin(), filterLayoutSpec.end()))),
       builder.getNamedAttr(
-          "input_layout", builder.getArrayAttr(ArrayRef<Attribute>(
+          "input_layout", builder.getArrayAttr(ArrayRef<mlir::Attribute>(
                               inputLayoutSpec.begin(), inputLayoutSpec.end()))),
       builder.getNamedAttr(
           "output_layout",
-          builder.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
-                                                   outputLayoutSpec.end()))),
+          builder.getArrayAttr(ArrayRef<mlir::Attribute>(
+              outputLayoutSpec.begin(), outputLayoutSpec.end()))),
 
       builder.getNamedAttr(
           "dilations", builder.getArrayAttr({
@@ -260,14 +263,14 @@ int main(int argc, char **argv) {
 
   if (operation.getValue().compare("conv2d") == 0) {
     auto convOp = builder.create<miopen::Conv2DOp>(
-        builder.getUnknownLoc(), ArrayRef<Type>({}),
+        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{block->getArgument(0), block->getArgument(1),
                    block->getArgument(2)},
         attributes);
     block->push_back(convOp);
   } else if (operation.getValue().compare("conv2d_bwd_data") == 0) {
     auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
-        builder.getUnknownLoc(), ArrayRef<Type>({}),
+        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{block->getArgument(0), block->getArgument(1),
                    block->getArgument(2)},
         attributes);
