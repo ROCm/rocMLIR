@@ -144,6 +144,12 @@ static cl::opt<bool> populateDefaultValues("p", cl::desc("To populate default va
                                                 cl::value_desc("To populate default values"),
                                                 cl::init(false));
 
+// populate entry point
+static cl::opt<std::string>
+    populateEntryPoint("entry-point", cl::desc("Populate entry point function"),
+                       cl::value_desc("Populate entry point function"),
+                       cl::init("conv2d"));
+
 // lowering pipeline setup.
 static cl::opt<bool> loweringWithDefaultPipeline(
     "c", cl::desc("To lower with default pipeline"),
@@ -215,20 +221,50 @@ static LogicalResult populateModule(ModuleOp &module, OpBuilder &builder,
     }
   }
 
-  // Construct a new FuncOp.
-  auto filterArgType = MemRefType::get(ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()), builder.getF32Type());
-  auto inputArgType = MemRefType::get(ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()), builder.getF32Type());
-  auto outputArgType = MemRefType::get(ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()), builder.getF32Type());
-  auto funcType = builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
-  auto func =
-      FuncOp::create(builder.getUnknownLoc(),
-                     "miopen_" + operation.getValue() + "_" + filterLayout +
-                         "_" + inputLayout + "_" + outputLayout,
-                     funcType);
-  module.push_back(func);
+  FuncOp func;
+  Block *block = nullptr;
 
-  // Construct a new Block.
-  auto *block = func.addEntryBlock();
+  // Check if populate entry point exist.
+  bool entryPointExist = false;
+  module.walk([&](FuncOp funcOp) -> WalkResult {
+    if (funcOp.getName() == populateEntryPoint.getValue()) {
+      // Locate gpu.launch op inside the entry point function.
+      funcOp.walk([&](gpu::LaunchOp launchOp) -> WalkResult {
+        entryPointExist = true;
+        block = &(launchOp.body().front());
+        func = funcOp;
+        return WalkResult::interrupt();
+      });
+      if (entryPointExist)
+        return WalkResult::interrupt();
+      return WalkResult::advance();
+    }
+    return WalkResult::advance();
+  });
+
+  if (!entryPointExist) {
+    // Construct a new FuncOp.
+    auto filterArgType = MemRefType::get(
+        ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
+        builder.getF32Type());
+    auto inputArgType = MemRefType::get(
+        ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
+        builder.getF32Type());
+    auto outputArgType = MemRefType::get(
+        ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
+        builder.getF32Type());
+    auto funcType = builder.getFunctionType(
+        {filterArgType, inputArgType, outputArgType}, {});
+    func =
+        FuncOp::create(builder.getUnknownLoc(),
+                       "miopen_" + operation.getValue() + "_" + filterLayout +
+                           "_" + inputLayout + "_" + outputLayout,
+                       funcType);
+    module.push_back(func);
+
+    // Construct a new Block.
+    block = func.addEntryBlock();
+  }
 
   // Construct a new Conv2DOp.
   llvm::SmallVector<StringAttr, 4> filterLayoutSpec;
@@ -273,22 +309,25 @@ static LogicalResult populateModule(ModuleOp &module, OpBuilder &builder,
   if (operation.getValue().compare("conv2d") == 0) {
     auto convOp = builder.create<miopen::Conv2DOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{block->getArgument(0), block->getArgument(1),
-                   block->getArgument(2)},
+        ValueRange{func.getArgument(0), func.getArgument(1),
+                   func.getArgument(2)},
         attributes);
-    block->push_back(convOp);
+    block->push_front(convOp);
   } else if (operation.getValue().compare("conv2d_bwd_data") == 0) {
     auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{block->getArgument(0), block->getArgument(1),
-                   block->getArgument(2)},
+        ValueRange{func.getArgument(0), func.getArgument(1),
+                   func.getArgument(2)},
         attributes);
-    block->push_back(convOp);
+    block->push_front(convOp);
   }
 
-  // Construct a new ReturnOp.
-  auto returnOp = builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
-  block->push_back(returnOp);
+  if (!entryPointExist) {
+    // Construct a new ReturnOp in case we construct a Block anew.
+    auto returnOp =
+        builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
+    block->push_back(returnOp);
+  }
 
   return success();
 }
