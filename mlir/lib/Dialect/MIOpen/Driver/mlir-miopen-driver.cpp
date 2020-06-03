@@ -24,6 +24,7 @@
 #include "mlir/IR/Types.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/Support/FileUtilities.h"
+#include "mlir/Support/LogicalResult.h"
 
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
@@ -135,13 +136,8 @@ static cl::opt<bool> populateDefaultValues("p", cl::desc("To populate default va
                                                 cl::value_desc("To populate default values"),
                                                 cl::init(false));
 
-int main(int argc, char **argv) {
-  mlir::registerAllDialects();
-  InitLLVM y(argc, argv);
-
-  // Parse pass names in main to ensure static initialization completed.
-  cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
-
+static LogicalResult populateModule(ModuleOp &module, OpBuilder &builder,
+                                    MLIRContext &context) {
   // Populate default parameters if necessary.
   if (populateDefaultValues.getValue() == true) {
     batchSize.setValue(128);
@@ -160,11 +156,6 @@ int main(int argc, char **argv) {
     paddingHeight.setValue(0);
     paddingWidth.setValue(0);
   }
-
-  // Construct a new ModuleOp.
-  MLIRContext context;
-  OpBuilder builder(&context);
-  auto module = ModuleOp::create(builder.getUnknownLoc());
 
   // Determine dimensions.
   llvm::SmallVector<int64_t, 4> filterDimension;
@@ -281,6 +272,27 @@ int main(int argc, char **argv) {
   auto returnOp = builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
   block->push_back(returnOp);
 
+  return success();
+}
+
+int main(int argc, char **argv) {
+  mlir::registerAllDialects();
+  InitLLVM y(argc, argv);
+
+  // Parse pass names in main to ensure static initialization completed.
+  cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
+
+  // Construct a new ModuleOp.
+  MLIRContext context;
+  OpBuilder builder(&context);
+  ModuleOp module = ModuleOp::create(builder.getUnknownLoc());
+
+  // Populate the module.
+  if (failed(populateModule(module, builder, context))) {
+    llvm::errs() << "Module population failed\n";
+    exit(1);
+  }
+
   // Set up the output file.
   std::string errorMessage;
   auto output = openOutputFile(outputFilename, &errorMessage);
@@ -291,6 +303,5 @@ int main(int argc, char **argv) {
 
   module.print(output->os());
   output->keep();
-
   return 0;
 }
