@@ -66,9 +66,13 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   OpBuilder b(op.getContext());
   auto loc = op.getLoc();
 
+  // Annotate this module as a container module.
+  op.setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
+             UnitAttr::get(op.getContext()));
+
   // create a GPUModuleOp.
   OperationState state(loc, gpu::GPUModuleOp::getOperationName());
-  gpu::GPUModuleOp::build(b, state, "miopen_module");
+  gpu::GPUModuleOp::build(b, state, "miopen_kernel_module");
   auto gpuModule = cast<gpu::GPUModuleOp>(Operation::create(state));
   SymbolTable gpuModuleSymbolTable(gpuModule);
 
@@ -76,71 +80,75 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   SymbolTable symbolTable(op);
   symbolTable.insert(gpuModule);
 
+  bool theFuncExist = false;
+  FuncOp theFunc;
   for (auto func : op.getOps<FuncOp>()) {
-    // create a GPUFuncOp.
-    FunctionType gpuFuncType = func.getType();
-    auto gpuFunc = b.create<gpu::GPUFuncOp>(loc, func.getName(), gpuFuncType);
-
-    // Set kernel attribute.
-    gpuFunc.setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
-                    b.getUnitAttr());
-
-    // associate arguments for newly created GPUFuncOp.
-    BlockAndValueMapping map;
-    for (unsigned idx = 0; idx < func.getNumArguments(); ++idx) {
-      auto arg = func.getArgument(idx);
-      auto gpuFuncArg = gpuFunc.getArgument(idx);
-
-      map.map(arg, gpuFuncArg);
+    if (func.getName() == "miopen_conv2d_kcyx_nchw_nkhw") {
+      theFuncExist = true;
+      theFunc = func;
+      break;
     }
-
-    // clone function body into newly created GPUFuncOp.
-    Region &gpuFuncBody = gpuFunc.body();
-    Region &funcBody = func.getBody();
-    funcBody.cloneInto(&gpuFuncBody, map);
-
-    // add a branch op to the cloned region.
-    Block &funcEntry = funcBody.front();
-    Block *clonedFuncEntry = map.lookup(&funcEntry);
-    Block &gpuFuncEntry = gpuFuncBody.front();
-    b.setInsertionPointToEnd(&gpuFuncEntry);
-    b.create<BranchOp>(loc, clonedFuncEntry);
-
-    // remove std.return ops.
-    gpuFunc.walk([&](ReturnOp op) { op.erase(); });
-
-    // create a GPU ReturnOp inside the GPUFuncOp.
-    b.setInsertionPointToEnd(&gpuFuncBody.back());
-    b.create<gpu::ReturnOp>(loc);
-
-    // insert the GPUFuncOp into GPUModuleOp.
-    gpuModuleSymbolTable.insert(gpuFunc);
   }
 
-  // Erase old FuncOp instances.
-  auto *block = op.getBody();
-  auto o = block->begin();
-  do {
-    if (auto func = dyn_cast<FuncOp>(o)) {
-      o->erase();
-      o = block->begin();
-    } else {
-      ++o;
-    }
-  } while(o != block->end());
+  // Early exit if the function to be rewritten does not exist.
+  if (!theFuncExist)
+    return;
+
+  // create a GPUFuncOp.
+  FunctionType gpuFuncType = theFunc.getType();
+  auto gpuFunc = b.create<gpu::GPUFuncOp>(loc, theFunc.getName(), gpuFuncType);
+
+  // Set kernel attribute.
+  gpuFunc.setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
+
+  // associate arguments for newly created GPUFuncOp.
+  BlockAndValueMapping map;
+  for (unsigned idx = 0; idx < theFunc.getNumArguments(); ++idx) {
+    auto arg = theFunc.getArgument(idx);
+    auto gpuFuncArg = gpuFunc.getArgument(idx);
+
+    map.map(arg, gpuFuncArg);
+  }
+
+  // clone function body into newly created GPUFuncOp.
+  Region &gpuFuncBody = gpuFunc.body();
+  Region &funcBody = theFunc.getBody();
+  funcBody.cloneInto(&gpuFuncBody, map);
+
+  // add a branch op to the cloned region.
+  Block &funcEntry = funcBody.front();
+  Block *clonedFuncEntry = map.lookup(&funcEntry);
+  Block &gpuFuncEntry = gpuFuncBody.front();
+  b.setInsertionPointToEnd(&gpuFuncEntry);
+  b.create<BranchOp>(loc, clonedFuncEntry);
+
+  // remove std.return ops.
+  gpuFunc.walk([&](ReturnOp op) { op.erase(); });
+
+  // create a GPU ReturnOp inside the GPUFuncOp.
+  b.setInsertionPointToEnd(&gpuFuncBody.back());
+  b.create<gpu::ReturnOp>(loc);
+
+  // insert the GPUFuncOp into GPUModuleOp.
+  gpuModuleSymbolTable.insert(gpuFunc);
+
+  // Erase old FuncOp instance.
+  theFunc.erase();
 
   // Convert GPU-specific ops to GPU dialect.
   for (auto module : op.getOps<gpu::GPUModuleOp>()) {
-    module.walk([&](gpu::GPUFuncOp func) {
-      func.walk([&](miopen::GpuAllocOp op) {
+    module.walk([&](gpu::GPUFuncOp gpuFunc) {
+      gpuFunc.walk([&](miopen::GpuAllocOp op) {
         auto loc = op.getLoc();
         auto type = op.output().getType().cast<MemRefType>();
 
-        if (type.getMemorySpace() == 3) {
-          Value attribution = func.addWorkgroupAttribution(type);
+        if (type.getMemorySpace() ==
+            gpu::GPUDialect::getWorkgroupAddressSpace()) {
+          Value attribution = gpuFunc.addWorkgroupAttribution(type);
           op.replaceAllUsesWith(attribution);
-        } else if (type.getMemorySpace() == 5) {
-          Value attribution = func.addPrivateAttribution(type);
+        } else if (type.getMemorySpace() ==
+                   gpu::GPUDialect::getPrivateAddressSpace()) {
+          Value attribution = gpuFunc.addPrivateAttribution(type);
           op.replaceAllUsesWith(attribution);
         } else {
           // TBD: return failure.
@@ -150,7 +158,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
       });
 
       // TBD see if these patterns could be re-written using tablgen.
-      func.walk([&](miopen::WorkgroupBarrierOp op) {
+      gpuFunc.walk([&](miopen::WorkgroupBarrierOp op) {
         auto loc = op.getLoc();
         OpBuilder b(op.getContext());
         b.setInsertionPoint(op);
@@ -158,7 +166,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         op.erase();
       });
 
-      func.walk([&](miopen::WorkgroupIdOp op) {
+      gpuFunc.walk([&](miopen::WorkgroupIdOp op) {
         auto loc = op.getLoc();
         OpBuilder b(op.getContext());
         b.setInsertionPoint(op);
@@ -167,7 +175,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         op.erase();
       });
 
-      func.walk([&](miopen::WorkitemIdOp op) {
+      gpuFunc.walk([&](miopen::WorkitemIdOp op) {
         auto loc = op.getLoc();
         OpBuilder b(op.getContext());
         b.setInsertionPoint(op);

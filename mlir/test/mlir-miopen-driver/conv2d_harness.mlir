@@ -1,23 +1,17 @@
 // RUN: mlir-miopen-driver -p --host %s | FileCheck %s --check-prefix=HARNESS
 
+// TBD. lowering test.
+// TBD: mlir-miopen-driver -pc --host %s | FileCheck %s --check-prefix=LOWERING
+
 // TBD. e2e exuction test.
 // TBD: mlir-rocm-runner %s --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
 func @conv2d(%filter : memref<128x8x3x3xf32>, %input : memref<128x8x32x32xf32>, %output : memref<128x128x30x30xf32>) {
-  // TBD. properly set block / threads config.
-  %cst = constant 1 : index
-  %cst2 = dim %filter, 0 : memref<128x8x3x3xf32>
-  gpu.launch blocks(%bx, %by, %bz) in (%grid_x = %cst, %grid_y = %cst, %grid_z = %cst)
-             threads(%tx, %ty, %tz) in (%block_x = %cst2, %block_y = %cst, %block_z = %cst) {
-    // Convolution logic would be populated here.
-    gpu.terminator
-  }
-  // HARNESS: func @conv2d([[FILTER_MEMREF:%.*]]: memref<128x8x3x3xf32>, [[INPUT_MEMREF:%.*]]: memref<128x8x32x32xf32>, [[OUTPUT_MEMREF:%.*]]: memref<128x128x30x30xf32>)
-  // HARNESS: gpu.launch
-  // HARNESS-NEXT: miopen.conv2d([[FILTER_MEMREF]], [[INPUT_MEMREF]], [[OUTPUT_MEMREF]]) {dilations = [1 : i32, 1 : i32], filter_layout = ["k", "c", "y", "x"], input_layout = ["ni", "ci", "hi", "wi"], output_layout = ["no", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]} : memref<128x8x3x3xf32>, memref<128x8x32x32xf32>, memref<128x128x30x30xf32>
-  // HARNESS-NEXT: gpu.terminator
+  // Convolution host-side logic would be populated here.
   return
 }
+// HARNESS: module
+// HARNESS: func @conv2d([[FILTER_MEMREF:%.*]]: memref<128x8x3x3xf32>, [[INPUT_MEMREF:%.*]]: memref<128x8x32x32xf32>, [[OUTPUT_MEMREF:%.*]]: memref<128x128x30x30xf32>)
 
 func @main() {
   // allocate CPU memory.
