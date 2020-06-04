@@ -1,8 +1,6 @@
 // RUN: mlir-miopen-driver -p --host %s | FileCheck %s --check-prefix=HARNESS
 // RUN: mlir-miopen-driver -pc --host %s | FileCheck %s --check-prefix=LOWERING
-
-// TBD. e2e exuction test.
-// TBD: mlir-rocm-runner %s --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: mlir-miopen-driver -pc --host %s | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
 func @conv2d(%filter : memref<128x8x3x3xf32>, %input : memref<128x8x32x32xf32>, %output : memref<128x128x30x30xf32>) {
   // Convolution host-side logic would be populated here.
@@ -43,6 +41,7 @@ func @main() {
   // transfer data CPU -> GPU.
   call @mgpuMemCopy4DFloat(%3, %6, %cst_h2d) : (memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, i32) -> ()
   call @mgpuMemCopy4DFloat(%4, %7, %cst_h2d) : (memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, i32) -> ()
+  call @mgpuMemCopy4DFloat(%5, %8, %cst_h2d) : (memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, i32) -> ()
 
   // launch kernel.
   %filter = memref_cast %6 : memref<?x?x?x?xf32> to memref<128x8x3x3xf32>
@@ -54,7 +53,9 @@ func @main() {
   call @mgpuMemCopy4DFloat(%8, %5, %cst_d2h) : (memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, i32) -> ()
 
   // verify result.
-  // TBD.
+  // TBD. print filter tensor for now.
+  %9 = memref_cast %3 : memref<?x?x?x?xf32> to memref<*xf32>
+  call @print_memref_f32(%9) : (memref<*xf32>) -> ()
 
   // dellocate GPU memory.
   call @mgpuMemDealloc4DFloat(%6) : (memref<?x?x?x?xf32>) -> ()
@@ -73,5 +74,8 @@ func @mcpuMemset4DFloat(%ptr : memref<?x?x?x?xf32>, %value: f32) -> ()
 func @mgpuMemAlloc4DFloat(%ptr : memref<?x?x?x?xf32>) -> (memref<?x?x?x?xf32>)
 func @mgpuMemDealloc4DFloat(%ptr : memref<?x?x?x?xf32>) -> ()
 func @mgpuMemCopy4DFloat(%src : memref<?x?x?x?xf32>, %dst : memref<?x?x?x?xf32>, %dir : i32) -> ()
+func @print_memref_f32(%ptr : memref<*xf32>)
 // LOWERING: gpu.module @miopen_kernel_module
 // LOWERING: gpu.func @miopen_conv2d_kcyx_nchw_nkhw
+// TBD. check filter tensor for now.
+// E2E: Unranked Memref base@ = 0x{{.*}} rank = 4 offset = 0 sizes = [128, 8, 3, 3] strides = [72, 9, 3, 1] data =
