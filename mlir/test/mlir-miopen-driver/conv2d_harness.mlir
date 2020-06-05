@@ -1,6 +1,6 @@
 // RUN: mlir-miopen-driver -p --host %s | FileCheck %s --check-prefix=HARNESS
 // RUN: mlir-miopen-driver -pc --host %s | FileCheck %s --check-prefix=LOWERING
-// RUN: mlir-miopen-driver -pc --host %s | mlir-rocm-runner --target=gfx908 --feature=+code-object-v3 --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
+// RUN: mlir-miopen-driver -pc --host %s | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
 func @conv2d(%filter : memref<128x8x3x3xf32>, %input : memref<128x8x32x32xf32>, %output : memref<128x128x30x30xf32>) {
   // Convolution host-side logic would be populated here.
