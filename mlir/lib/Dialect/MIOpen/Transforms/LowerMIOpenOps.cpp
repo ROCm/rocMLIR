@@ -75,6 +75,8 @@ void LowerMIOpenOpsStep1Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DOp>>(&getContext());
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(&getContext());
+  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>>(
+      &getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
 }
 
