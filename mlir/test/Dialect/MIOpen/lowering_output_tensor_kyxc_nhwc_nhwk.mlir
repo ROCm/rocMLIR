@@ -40,3 +40,22 @@ func @miopen_conv2d_bwd_data_kyxc_nhwc_nhwk(%filter : memref<?x?x?x?xf32>, %inpu
 // CHECK:       names = ["gemmN"]
 // CHECK:       source_names = ["no", "ho", "wo"]
 // CHECK:       miopen.gridwise_gemm
+
+func @miopen_conv2d_bwd_weight_kyxc_nhwc_nhwk(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
+  miopen.conv2d_bwd_weight(%filter, %input, %output) {
+    filter_layout = ["k", "y", "x", "c"],
+    input_layout = ["ni", "hi", "wi", "ci"],
+    output_layout = ["no", "ho", "wo", "ko"],
+    dilations = [1, 1],
+    strides = [1, 1],
+    padding = [0, 0]
+  } : memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, memref<?x?x?x?xf32>
+  return
+}
+// CHECK-LABEL: func @miopen_conv2d_bwd_weight
+// CHECK:       miopen.transform(%arg2)
+// CHECK:       names = ["gemmK"]
+// CHECK:       source_names = ["no", "ho", "wo"]
+// CHECK:       names = ["gemmM"]
+// CHECK:       source_names = ["ko"]
+// CHECK:       miopen.gridwise_gemm
