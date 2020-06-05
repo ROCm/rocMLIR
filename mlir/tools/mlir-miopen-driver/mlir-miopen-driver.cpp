@@ -365,7 +365,7 @@ static LogicalResult populateConvolution(ModuleOp &module, OpBuilder &builder,
     block->push_front(convOp);
   } else if (operation.getValue().compare("conv2d_bwd_weight") == 0) {
     auto convOp = builder.create<miopen::Conv2DBwdWeightOp>(
-        builder.getUnknownLoc(), ArrayRef<Type>({}),
+        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{block->getArgument(0), block->getArgument(1),
                    block->getArgument(2)},
         attributes);
