@@ -49,7 +49,7 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
 
 static cl::opt<std::string>
     operation("operation",
-              cl::desc("Convolution operation, eg: conv2d, conv2d_bwd_data..."),
+              cl::desc("Convolution operation, eg: conv2d, conv2d_bwd_data, conv2d_bwd_weight..."),
               cl::value_desc("convolution flavor string"), cl::init("conv2d"));
 
 static cl::opt<std::string> filterLayout("fil_layout", cl::desc("Filter layout"),
@@ -363,6 +363,13 @@ static LogicalResult populateConvolution(ModuleOp &module, OpBuilder &builder,
                    func.getArgument(2)},
         attributes);
     block->push_front(convOp);
+  } else if (operation.getValue().compare("conv2d_bwd_weight") == 0) {
+    auto convOp = builder.create<miopen::Conv2DBwdWeightOp>(
+        builder.getUnknownLoc(), ArrayRef<Type>({}),
+        ValueRange{block->getArgument(0), block->getArgument(1),
+                   block->getArgument(2)},
+        attributes);
+    block->push_back(convOp);
   }
 
   auto returnOp =

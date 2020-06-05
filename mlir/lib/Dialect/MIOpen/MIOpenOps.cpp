@@ -89,6 +89,29 @@ static void print(OpAsmPrinter &p, Conv2DBwdDataOp op) {
 static LogicalResult verify(Conv2DBwdDataOp op) { return success(); }
 
 //===----------------------------------------------------------------------===//
+// Conv2DBwdWeightOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseConv2DBwdWeightOp(OpAsmParser &parser,
+                                        OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 3> ops;
+  SmallVector<Type, 3> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, Conv2DBwdWeightOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(Conv2DBwdWeightOp op) { return success(); }
+
+//===----------------------------------------------------------------------===//
 // TransformOp
 //===----------------------------------------------------------------------===//
 

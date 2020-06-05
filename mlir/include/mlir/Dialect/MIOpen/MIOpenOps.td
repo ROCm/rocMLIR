@@ -60,6 +60,17 @@ def MIOpen_Conv2DBwdDataOp :
   }];
 }
 
+def MIOpen_Conv2DBwdWeightOp :
+    MIOpen_Op<"conv2d_bwd_weight">,
+    Arguments<(ins MemRefRankOf<[F32], [4]>:$filter,
+                   MemRefRankOf<[F32], [4]>:$input,
+                   MemRefRankOf<[F32], [4]>:$output)> {
+  let summary = "2D convolution backward weight";
+  let description = [{
+    The `miopen.conv2d` op computes 2D convolution backward weight.
+  }];
+}
+
 def MIOpen_TransformOp :
     MIOpen_Op<"transform">,
     Arguments<(ins AnyMemRef:$input)>,
