@@ -53,8 +53,8 @@ func @main() {
   call @mgpuMemCopy4DFloat(%8, %5, %cst_d2h) : (memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, i32) -> ()
 
   // verify result.
-  // TBD. print filter tensor for now.
-  %9 = memref_cast %3 : memref<?x?x?x?xf32> to memref<*xf32>
+  // TBD. Add more verifying logic.
+  %9 = memref_cast %5 : memref<?x?x?x?xf32> to memref<*xf32>
   call @print_memref_f32(%9) : (memref<*xf32>) -> ()
 
   // dellocate GPU memory.
@@ -77,5 +77,5 @@ func @mgpuMemCopy4DFloat(%src : memref<?x?x?x?xf32>, %dst : memref<?x?x?x?xf32>,
 func @print_memref_f32(%ptr : memref<*xf32>)
 // LOWERING: gpu.module @miopen_kernel_module
 // LOWERING: gpu.func @miopen_conv2d_kcyx_nchw_nkhw
-// TBD. check filter tensor for now.
-// E2E: Unranked Memref base@ = 0x{{.*}} rank = 4 offset = 0 sizes = [128, 8, 3, 3] strides = [72, 9, 3, 1] data =
+// TBD. Add more verifying logic.
+// E2E: Unranked Memref base@ = 0x{{.*}} rank = 4 offset = 0 sizes = [128, 128, 30, 30] strides = [115200, 900, 30, 1] data =
