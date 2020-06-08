@@ -160,6 +160,12 @@ static cl::opt<bool> useHostHarness(
     "host", cl::desc("To use host harness"),
     cl::value_desc("To use host harness"), cl::init(false));
 
+static cl::opt<int> blockSize("block_size", cl::desc("Block size"),
+                              cl::value_desc("Block size"), cl::init(1));
+
+static cl::opt<int> gridSize("grid_size", cl::desc("Grid size"),
+                             cl::value_desc("Grid size"), cl::init(1));
+
 static LogicalResult populateHostLogic(ModuleOp &module, OpBuilder &builder,
                                        MLIRContext &context,
                                        StringRef kernelName) {
@@ -205,15 +211,25 @@ static LogicalResult populateHostLogic(ModuleOp &module, OpBuilder &builder,
   }
 
   // Populate a gpu.launch_func statement.
-  // TBD: add proper grid/block logic.
+  // - blockSize: from tuning parameter block_size.
+  // - gridSize: (gemm_m / m_per_block) * (gemm_n / n_per_block) * block_size.
+  // TBD. Be able to retrive relevant parameters and memref dimensions from
+  // earlier passes.
   Block *block = &(theFunc.getBody().front());
   block->clear();
 
-  auto cst = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
-  block->push_back(cst);
+  auto cstOne = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
+  auto cstBlockSize =
+      builder.create<ConstantIndexOp>(builder.getUnknownLoc(), blockSize);
+  auto cstGridSize =
+      builder.create<ConstantIndexOp>(builder.getUnknownLoc(), gridSize);
+  block->push_back(cstOne);
+  block->push_back(cstBlockSize);
+  block->push_back(cstGridSize);
 
   auto gpuLaunchFuncOp = builder.create<gpu::LaunchFuncOp>(
-      builder.getUnknownLoc(), theGpuFunc, cst, cst, cst, cst, cst, cst,
+      builder.getUnknownLoc(), theGpuFunc, cstGridSize, cstOne, cstOne,
+      cstBlockSize, cstOne, cstOne,
       ValueRange{theFunc.getArgument(0), theFunc.getArgument(1),
                  theFunc.getArgument(2)});
   block->push_back(gpuLaunchFuncOp);
