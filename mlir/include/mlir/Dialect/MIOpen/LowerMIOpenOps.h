@@ -1349,16 +1349,24 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     int64_t MBlockWork = M / MPerBlock;
     int64_t NBlockWork = N / NPerBlock;
+
+    // llvm::errs() << "M / MPerBlock: " << M << " / " << MPerBlock << "\n";
+    // llvm::errs() << "N / NPerBlock: " << N << " / " << NPerBlock << "\n";
+    // llvm::errs() << "MBlockWork: " << MBlockWork << "\n";
+    // llvm::errs() << "NBlockWork: " << NBlockWork << "\n";
+
     auto MBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, MBlockWork);
     auto NBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, NBlockWork);
     auto block_work_id_m =
         b.create<SignedDivIOp>(loc, bid, NBlockWorkConstantOp);
     auto block_work_id_n =
         b.create<SignedRemIOp>(loc, bid, NBlockWorkConstantOp);
+    auto MPerBlockConstantOp = b.create<ConstantIndexOp>(loc, MPerBlock);
+    auto NPerBlockConstantOp = b.create<ConstantIndexOp>(loc, NPerBlock);
     auto m_block_data_on_global =
-        b.create<MulIOp>(loc, block_work_id_m, MBlockWorkConstantOp);
+        b.create<MulIOp>(loc, block_work_id_m, MPerBlockConstantOp);
     auto n_block_data_on_global =
-        b.create<MulIOp>(loc, block_work_id_n, NBlockWorkConstantOp);
+        b.create<MulIOp>(loc, block_work_id_n, NPerBlockConstantOp);
     auto m_block_data_on_global_i32 = b.create<IndexCastOp>(
         loc, m_block_data_on_global, b.getIntegerType(32));
     auto n_block_data_on_global_i32 = b.create<IndexCastOp>(
