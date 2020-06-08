@@ -12,6 +12,7 @@
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/SCF/SCF.h"
@@ -1309,9 +1310,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto zeroConstantIndexOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantIndexOp = b.create<ConstantIndexOp>(loc, 1);
 
-    auto ldsMemorySpace = 3;
-    auto registerMemorySpace = 5;
-
     // Obtain critical matrix dimensions.
     int64_t K = op.filter().getType().template dyn_cast<MemRefType>().getShape()[0];
     int64_t M = op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
@@ -1489,7 +1487,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Allocate LDS.
     auto ldsMemRefType =
-        MemRefType::get({ldsBlockSize}, elementType, {}, ldsMemorySpace);
+        MemRefType::get({ldsBlockSize}, elementType, {},
+                        gpu::GPUDialect::getWorkgroupAddressSpace());
     auto ldsGpuAllocOp = b.create<miopen::GpuAllocOp>(loc, ldsMemRefType);
 
     // Subviews for Matrix A.
@@ -1608,25 +1607,26 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t GemmMRepeat = MPerBlock / (MPerThread * MLevel0Cluster * MLevel1Cluster);
     int64_t GemmNRepeat = NPerBlock / (NPerThread * NLevel0Cluster * NLevel1Cluster);
 
-    auto threadCRegisterMemRefType =
-        MemRefType::get({GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, elementType, {}, registerMemorySpace);
+    auto threadCRegisterMemRefType = MemRefType::get(
+        {GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, elementType, {},
+        gpu::GPUDialect::getPrivateAddressSpace());
     auto register2DMatrixCAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadCRegisterMemRefType);
 
     // Alloc for Matrix A / B on registers.
-    auto threadARegisterMemRefType =
-        MemRefType::get({GemmABlockCopyThreadSliceLengths_GemmK,
-                         GemmABlockCopyThreadSliceLengths_GemmM},
-                        elementType, {}, registerMemorySpace);
+    auto threadARegisterMemRefType = MemRefType::get(
+        {GemmABlockCopyThreadSliceLengths_GemmK,
+         GemmABlockCopyThreadSliceLengths_GemmM},
+        elementType, {}, gpu::GPUDialect::getPrivateAddressSpace());
     auto threadAEvenAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadARegisterMemRefType);
     auto threadAOddAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadARegisterMemRefType);
 
-    auto threadBRegisterMemRefType =
-        MemRefType::get({GemmBBlockCopyThreadSliceLengths_GemmK,
-                         GemmBBlockCopyThreadSliceLengths_GemmN},
-                        elementType, {}, registerMemorySpace);
+    auto threadBRegisterMemRefType = MemRefType::get(
+        {GemmBBlockCopyThreadSliceLengths_GemmK,
+         GemmBBlockCopyThreadSliceLengths_GemmN},
+        elementType, {}, gpu::GPUDialect::getPrivateAddressSpace());
     auto threadBEvenAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadBRegisterMemRefType);
     auto threadBOddAllocOp =
@@ -1641,7 +1641,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Compute source and destination coordinates for BlockwiseCopy ops.
     auto blockwiseCopyCoordType =
-              MemRefType::get({2}, b.getIntegerType(32), {}, registerMemorySpace);
+        MemRefType::get({2}, b.getIntegerType(32), {},
+                        gpu::GPUDialect::getPrivateAddressSpace());
 
     // Matrix A: {0, m_block_data_on_global}, {0, 0}
     auto blockwiseCopyASrc =
@@ -1899,8 +1900,6 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     auto zeroConstantIndexOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantIndexOp = b.create<ConstantIndexOp>(loc, 1);
 
-    auto registerMemorySpace = 5;
-
     auto blockAType = op.matrixA().getType().cast<MemRefType>();
     auto blockBType = op.matrixA().getType().cast<MemRefType>();
 
@@ -1945,12 +1944,14 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     // Alloc register for thread_a and thread_b.
     auto threadARegisterMemRefType =
-        MemRefType::get({KPerThread, MPerThread}, elementType, {}, registerMemorySpace);
+        MemRefType::get({KPerThread, MPerThread}, elementType, {},
+                        gpu::GPUDialect::getPrivateAddressSpace());
     auto threadAAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadARegisterMemRefType);
 
     auto threadBRegisterMemRefType =
-        MemRefType::get({KPerThread, NPerThread}, elementType, {}, registerMemorySpace);
+        MemRefType::get({KPerThread, NPerThread}, elementType, {},
+                        gpu::GPUDialect::getPrivateAddressSpace());
     auto threadBAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadBRegisterMemRefType);
 
