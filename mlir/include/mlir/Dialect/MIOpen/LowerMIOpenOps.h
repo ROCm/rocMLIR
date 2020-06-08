@@ -1696,9 +1696,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto level0_id =
         b.create<SignedRemIOp>(loc, tid, ThreadPerLevel0ClusterConstantIndexOp);
     auto level0_m_id =
-        b.create<SignedDivIOp>(loc, level0_id, NLevel1ClusterConstantIndexOp);
+        b.create<SignedDivIOp>(loc, level0_id, NLevel0ClusterConstantIndexOp);
     auto level0_n_id =
-        b.create<SignedRemIOp>(loc, level0_id, NLevel1ClusterConstantIndexOp);
+        b.create<SignedRemIOp>(loc, level0_id, NLevel0ClusterConstantIndexOp);
 
     int64_t MPerLevel0Cluster = MPerThread * MLevel0Cluster;
     int64_t NPerLevel0Cluster = NPerThread * NLevel0Cluster;
