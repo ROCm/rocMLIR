@@ -1375,10 +1375,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
     // llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
     // llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
-    // llvm::errs() << "matrix_a_source_data_per_read: " <<
-    // matrix_a_source_data_per_read << "\n"; llvm::errs() <<
-    // "matrix_b_source_data_per_read: " << matrix_b_source_data_per_read <<
-    // "\n";
+    // llvm::errs() << "matrix_a_source_data_per_read: " << matrix_a_source_data_per_read << "\n";
+    // llvm::errs() << "matrix_b_source_data_per_read: " << matrix_b_source_data_per_read << "\n";
 
     // Compute ThreadClusterLengths for Matrix A.
     int64_t GemmABlockCopyClusterLengths_GemmK =
@@ -1386,6 +1384,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t GemmABlockCopyClusterLengths_GemmM =
         MPerBlock /
         ((MPerBlock * KPerBlock / BlockSize) / matrix_a_source_data_per_read);
+
+    // llvm::errs() << "thread cluster lengths for Matrix A\n";
+    // llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
+    // llvm::errs() << GemmABlockCopyClusterLengths_GemmM << "\n";
+
     // Compute ThreadSliceLengths for Matrix A.
     int64_t GemmABlockCopyThreadSliceLengths_GemmK =
         KPerBlock / GemmABlockCopyClusterLengths_GemmK;
@@ -1402,13 +1405,18 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         ((NPerBlock * KPerBlock / BlockSize) / matrix_b_source_data_per_read);
     int64_t GemmBBlockCopyClusterLengths_GemmN =
         NPerBlock / matrix_b_source_data_per_read;
+
+    // llvm::errs() << "thread cluster lengths for Matrix B\n";
+    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
+    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << "\n";
+
     // Compute ThreadSliceLengths for Matrix B.
     int64_t GemmBBlockCopyThreadSliceLengths_GemmK =
         KPerBlock / GemmBBlockCopyClusterLengths_GemmK;
     int64_t GemmBBlockCopyThreadSliceLengths_GemmN =
         NPerBlock / GemmBBlockCopyClusterLengths_GemmN;
 
-    // llvm::errs() << "slice lengths for Matrix B\n";
+    // llvm::errs() << "thread slice lengths for Matrix B\n";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
 
@@ -1612,8 +1620,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // constexpr index_t GemmNRepeat = NPerBlock / (NPerThread * NLevel0Cluster * NLevel1Cluster);
     // constexpr auto c_m0m1_n0n1_thread_mtx_desc = make_ConstantMatrixDescriptor_packed(
     //     Number<GemmMRepeat * MPerThread>{}, Number<GemmNRepeat * NPerThread>{});
+
+    // llvm::errs() << "MPerThread: " << MPerThread << "\n";
+    // llvm::errs() << "NPerThread: " << NPerThread << "\n";
+
     int64_t GemmMRepeat = MPerBlock / (MPerThread * MLevel0Cluster * MLevel1Cluster);
     int64_t GemmNRepeat = NPerBlock / (NPerThread * NLevel0Cluster * NLevel1Cluster);
+
+    // llvm::errs() << "GemmMRepeat: " << GemmMRepeat << "\n";
+    // llvm::errs() << "GemmNRepeat: " << GemmNRepeat << "\n";
 
     auto threadCRegisterMemRefType = MemRefType::get(
         {GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, elementType, {},
@@ -1926,6 +1941,12 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
         op.matrixC().getType().template dyn_cast<MemRefType>().getShape()[1];
     int64_t MPerThreadSubC = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerThreadSubC = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+
+    // llvm::errs() << "MPerThread: " << MPerThread << "\n";
+    // llvm::errs() << "MPerThreadSubC: " << MPerThreadSubC << "\n";
+    // llvm::errs() << "NPerThread: " << NPerThread << "\n";
+    // llvm::errs() << "NPerThreadSubC: " << NPerThreadSubC << "\n";
+
     auto MPerThreadSubCConstantI32Op =
         b.create<ConstantIntOp>(loc, MPerThreadSubC, b.getIntegerType(32));
     auto NPerThreadSubCConstantI32Op =
@@ -1936,6 +1957,9 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     int64_t NLevel0Cluster = op.getAttr("n_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
     int64_t NLevel1Cluster = op.getAttr("n_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
 
+    // TBD: logic here might not be correct. May need to change to
+    // int64_t MPerLevel1Cluster = MPerThreadSubC * MLevel0Cluster * MLevel1Cluster;
+    // int64_t NPerLevel1Cluster = NPerThreadSubC * NLevel0Cluster * NLevel1Cluster;
     int64_t MPerLevel1Cluster = MPerThread * MLevel0Cluster * MLevel1Cluster;
     int64_t NPerLevel1Cluster = NPerThread * NLevel0Cluster * NLevel1Cluster;
     auto MPerLevel1ClusterConstantI32Op =
@@ -1996,10 +2020,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     // Set copy sorce and dest coordinate acoording to original C++ logic:
     SmallVector<Value, 4> matrixAThreadwiseCopySourceAndDestCoords;
     // a_thread_copy.Run(
-    //   p_a_block + a_block_mtx.CalculateOffset(k_begin, m_repeat *
-    //   MPerLevel1Cluster) + mMyThreadOffsetA),
-    // mMyThreadOffsetA = BlockMatrixA::GetOffsetFromMultiIndex{0,
-    // c_thread_mtx_index.row} = c_thread_mtx_index_row
+    //   p_a_block + a_block_mtx.CalculateOffset(k_begin, m_repeat *  MPerLevel1Cluster) + mMyThreadOffsetA),
+    // mMyThreadOffsetA = BlockMatrixA::GetOffsetFromMultiIndex{0, c_thread_mtx_index.row} = c_thread_mtx_index_row
     matrixAThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(lab.create<AddIOp>(
         loc, lab.create<MulIOp>(loc, iva_i32, MPerLevel1ClusterConstantI32Op),
@@ -2037,10 +2059,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     // Set copy sorce and dest coordinate acoording to original C++ logic:
     SmallVector<Value, 4> matrixBThreadwiseCopySourceAndDestCoords;
     // b_thread_copy.Run(
-    //   p_b_block + b_block_mtx.CalculateOffset(k_begin, n_repeat *
-    //   NPerLevel1Cluster) + mMyThreadOffsetB),
-    // mMyThreadOffsetB = BlockMatrixB::GetOffsetFromMultiIndex{0,
-    // c_thread_mtx_index.col} = c_thread_mtx_index_col
+    //   p_b_block + b_block_mtx.CalculateOffset(k_begin, n_repeat * NPerLevel1Cluster) + mMyThreadOffsetB),
+    // mMyThreadOffsetB = BlockMatrixB::GetOffsetFromMultiIndex{0, c_thread_mtx_index.col} = c_thread_mtx_index_col
     matrixBThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(lbb.create<AddIOp>(
         loc, lbb.create<MulIOp>(loc, ivb_i32, NPerLevel1ClusterConstantI32Op),
