@@ -58,10 +58,11 @@ using namespace mlir;
 namespace {
 struct LowerMIOpenOpsToGPUPass : public ConvertMIOpenToGPUBase<LowerMIOpenOpsToGPUPass> {
 public:
-  LowerMIOpenOpsToGPUPass(StringRef kernelName) : kernelName(kernelName) {}
+  LowerMIOpenOpsToGPUPass() = default;
+  LowerMIOpenOpsToGPUPass(StringRef kernelName) {
+    this->kernelName = kernelName.str();
+  }
   void runOnOperation() override;
-private:
-  StringRef kernelName;
 };
 } // end anonymous namespace
 
@@ -191,6 +192,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   }
 }
 
-std::unique_ptr<Pass> mlir::createLowerMIOpenOpsToGPUPass(StringRef kernelName) {
+std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
+mlir::createLowerMIOpenOpsToGPUPass(StringRef kernelName) {
   return std::make_unique<LowerMIOpenOpsToGPUPass>(kernelName);
 }

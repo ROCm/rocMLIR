@@ -22,8 +22,12 @@ class LLVMTypeConverter;
 class TypeConverter;
 class Pass;
 
+template <typename T>
+class OperationPass;
+
 /// Create a pass to convert MIOpen operations to std operations.
-std::unique_ptr<Pass> createLowerMIOpenOpsToGPUPass(StringRef kernelName = "miopen_conv2d_kcyx_nchw_nkhw");
+std::unique_ptr<OperationPass<ModuleOp>>
+createLowerMIOpenOpsToGPUPass(StringRef kernelName = "");
 
 } // namespace mlir
 
