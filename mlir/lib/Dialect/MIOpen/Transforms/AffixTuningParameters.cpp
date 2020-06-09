@@ -107,7 +107,7 @@ void AffixTuningParameters::runOnFunction() {
 
     op.setAttr("m_per_thread", b.getI32IntegerAttr(4));
     op.setAttr("n_per_thread", b.getI32IntegerAttr(4));
-    op.setAttr("k_per_thread", b.getI32IntegerAttr(4));
+    op.setAttr("k_per_thread", b.getI32IntegerAttr(1));
 
     op.setAttr("m_level0_cluster", b.getI32IntegerAttr(4));
     op.setAttr("n_level0_cluster", b.getI32IntegerAttr(4));

@@ -1957,11 +1957,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     int64_t NLevel0Cluster = op.getAttr("n_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
     int64_t NLevel1Cluster = op.getAttr("n_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
 
-    // TBD: logic here might not be correct. May need to change to
-    // int64_t MPerLevel1Cluster = MPerThreadSubC * MLevel0Cluster * MLevel1Cluster;
-    // int64_t NPerLevel1Cluster = NPerThreadSubC * NLevel0Cluster * NLevel1Cluster;
-    int64_t MPerLevel1Cluster = MPerThread * MLevel0Cluster * MLevel1Cluster;
-    int64_t NPerLevel1Cluster = NPerThread * NLevel0Cluster * NLevel1Cluster;
+    int64_t MPerLevel1Cluster = MPerThreadSubC * MLevel0Cluster * MLevel1Cluster;
+    int64_t NPerLevel1Cluster = NPerThreadSubC * NLevel0Cluster * NLevel1Cluster;
     auto MPerLevel1ClusterConstantI32Op =
         b.create<ConstantIntOp>(loc, MPerLevel1Cluster, b.getIntegerType(32));
     auto NPerLevel1ClusterConstantI32Op =
