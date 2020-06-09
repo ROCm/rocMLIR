@@ -2026,7 +2026,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
         loc, zeroConstantIndexOp, loopReadMatrixBIterationConstantIndexOp,
         oneConstantIndexOp);
 
-    // inside read matrix A loop.
+    // inside read matrix B loop.
     auto lbb = OpBuilder::atBlockTerminator(loopReadMatrixBOp.getBody());
 
     auto ivb = loopReadMatrixBOp.getInductionVar();
