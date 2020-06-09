@@ -212,7 +212,7 @@ static LogicalResult populateHostLogic(ModuleOp &module, OpBuilder &builder,
 
   // Populate a gpu.launch_func statement.
   // - blockSize: from tuning parameter block_size.
-  // - gridSize: (gemm_m / m_per_block) * (gemm_n / n_per_block) * block_size.
+  // - gridSize: (gemm_m / m_per_block) * (gemm_n / n_per_block).
   // TBD. Be able to retrive relevant parameters and memref dimensions from
   // earlier passes.
   Block *block = &(theFunc.getBody().front());
