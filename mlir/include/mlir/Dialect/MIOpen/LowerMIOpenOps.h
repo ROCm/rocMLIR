@@ -2445,7 +2445,7 @@ struct ThreadwiseCopyRewritePattern
       //     __device__ constexpr ThreadwiseMatrixSliceCopy()
       //     {
       //         static_assert(SrcMatrix::RowStride() % DataPerAccess == 0 &&
-      //                           DstMatrix::RowStride() % DataPerAccess == 0,
+      //                       DstMatrix::RowStride() % DataPerAccess == 0,
       //                       "wrong! wrong alignment");
       //         static_assert(NSliceCol % DataPerAccess == 0,
       //                       "wrong! should be NSliceCol % DataPerAccess ==
@@ -2455,20 +2455,17 @@ struct ThreadwiseCopyRewritePattern
       //     template <typename Data>
       //     __device__ static void Run(const Data* p_src, Data* p_dst)
       //     {
-      //         using vector_t = typename vector_type<Data,
-      //         DataPerAccess>::MemoryType;
+      //         using vector_t = typename vector_type<Data, DataPerAccess>::MemoryType;
       //
       //         for(index_t i = 0; i < NSliceRow; ++i)
       //         {
       //             for(index_t j = 0; j < NSliceCol; j += DataPerAccess)
       //             {
-      //                 const index_t src_index = SrcMatrix::CalculateOffset(i,
-      //                 j); const index_t dst_index =
-      //                 DstMatrix::CalculateOffset(i, j);
+      //                 const index_t src_index = SrcMatrix::CalculateOffset(i, j);
+      //                 const index_t dst_index = DstMatrix::CalculateOffset(i, j);
       //
       //                 *reinterpret_cast<vector_t*>(&p_dst[dst_index]) =
-      //                     *reinterpret_cast<const
-      //                     vector_t*>(&p_src[src_index]);
+      //                     *reinterpret_cast<const vector_t*>(&p_src[src_index]);
       //             }
       //         }
       //     }
