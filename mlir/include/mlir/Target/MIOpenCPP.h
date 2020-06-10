@@ -91,51 +91,325 @@ T integer_least_multiple(T x, T y)
 }
 
 struct ConvolutionContext {
-    int64_t k, c, y, x;
-    int64_t n, hi, wi;
-    int64_t ho, wo;
-    int64_t strideH, strideW;
-    int64_t dilationH, dilationW;
-    int64_t paddingHL, paddingHR, paddingWL, paddingWR;
-
-    size_t dimKF, dimCF, dimYF, dimXF;
-    size_t dimNO, dimKO, dimHO, dimWO;
-    size_t dimNI, dimCI, dimHI, dimWI;
+  mlir::miopen::ConvOpType opType;
+  llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
+  llvm::SmallVector<int64_t, 0> strideVal;
+  llvm::SmallVector<int64_t, 0> dilationVal;
+  llvm::SmallVector<int64_t, 0> paddingVal;
 };
 
-class TunableParametersBase {
+class PopulateParamsBase {
 public:
-  TunableParametersBase(llvm::StringRef &&yamlFileName) : params(), configFileName(yamlFileName), ctx() {}
-  TunableParametersBase() : TunableParametersBase("tunable.yaml") {}
+  struct InitParams {
+    int64_t gemmMPerBlock;
+    int64_t gemmNPerBlock;
+    int64_t gemmKPerBlock;
+  };
+  struct GemmSize {
+    int64_t gemmM;
+    int64_t gemmN;
+    int64_t gemmK;
+  };
+  struct DerivedParams {
+    int64_t srcDataPerRead;
+    int64_t dstDataPerWrite;
+    int64_t clusterLenGemmPos1;
+    int64_t clusterLenGemmPos2;
+    DerivedParams()
+        : srcDataPerRead(1), dstDataPerWrite(1), clusterLenGemmPos1(0),
+          clusterLenGemmPos2(0) {}
+  };
 
-  void init() {
-    auto yaml = mlir::openInputFile(configFileName);
-    if (!yaml) {
-      customInit();
-    } else {
-      loadYAML(yaml->getBuffer());
+  static void obtainGemmADimKVectorizable(
+      mlir::miopen::ConvOpType opType,
+      llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+      bool &input1GemmKVectorizable) {
+    // Vectorizable flag is opposite between forwad and bwd_data
+    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+      // When K is not the fastest changing dimension,
+      // gemmK dimension is vectorizable, gemmM is not, and vice versa.
+      // Vectorization width depending on which among C, Y, X be the fastest
+      // changing dimension.
+      if (dimIndexVal["k"].first == 3) {
+        input1GemmKVectorizable = false;
+      } else {
+        input1GemmKVectorizable = true;
+      }
+    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+      // When K is the fastest changing dimension(3),
+      // gemmK dimension is vectorizable, gemmM is not, and vice versa.
+      // Vectorization width depending on length of K.
+      if (dimIndexVal["k"].first == 3) {
+        input1GemmKVectorizable = true;
+      } else {
+        input1GemmKVectorizable = false;
+      }
     }
   }
 
-  void initWithContext(ConvolutionContext &ctx) {
-    this->ctx = ctx;
-    init();
+  static void
+  obtainGemmAVecLen(mlir::miopen::ConvOpType opType,
+                    llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+                    int64_t &vecLen) {
+    // Vectorization length logic is the same for forward and bwd_data
+    if (dimIndexVal["k"].first == 3) {
+      vecLen = dimIndexVal["k"].second;
+    } else if (dimIndexVal["k"].first == 0) {
+      // dimKF is the lowest changing dimension, which means dimC/dimY/dimX
+      vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second *
+               dimIndexVal["x"].second;
+    } else if (dimIndexVal["k"].first == 1) {
+      // K's position is at 1, vectorization legnth is last two dimension
+      if (dimIndexVal["c"].first == 0) {
+        vecLen = dimIndexVal["y"].second * dimIndexVal["x"].second;
+      } else if (dimIndexVal["y"].first == 0) {
+        vecLen = dimIndexVal["c"].second * dimIndexVal["x"].second;
+      } else {
+        vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second;
+      }
+    } else {
+      // K's position is 2, vectorization legnth is last dimension
+      if (dimIndexVal["c"].first == 3) {
+        vecLen = dimIndexVal["c"].second;
+      } else if (dimIndexVal["y"].first == 3) {
+        vecLen = dimIndexVal["y"].second;
+      } else {
+        vecLen = dimIndexVal["x"].second;
+      }
+    }
   }
 
-  virtual void customInit() = 0;
+  static void obtainGemmBDimKVectorizable(
+      mlir::miopen::ConvOpType opType,
+      llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+      bool &input2GemmKVectorizable) {
+    // Vectorizable flag is opposite between forwad and bwd_data
+    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+      // For input tensor.
+      // When C is the fastest changing dimension,
+      // gemmK dimension is vectorizable, gemmN is not, and vice versa.
+      // Vectorization width depending on length of C.
+      if (dimIndexVal["ci"].first == 3) {
+        input2GemmKVectorizable = true;
+      } else {
+        input2GemmKVectorizable = false;
+      }
+    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+      // For output tensor.
+      // When K is the fastest changing dimension(3),
+      // gemmK dimension is vectorizable, gemmN is not, and vice versa.
+      // Vectorization width depending on length of K.
+      if (dimIndexVal["ko"].first == 3) {
+        input2GemmKVectorizable = true;
+      } else {
+        input2GemmKVectorizable = false;
+      }
+    }
+  }
+
+  static void
+  obtainInputVecLen(llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+                    int64_t &vecLen) {
+    if (dimIndexVal["ni"].first == 3) {
+      vecLen = dimIndexVal["ni"].second;
+    } else if (dimIndexVal["ci"].first == 3) {
+      vecLen = dimIndexVal["ci"].second;
+    } else {
+      // Not vectorizable
+      // TODO(optimize): For 1x1, stride 1, pad 0 conv, vecLen is hi * wi
+      vecLen = 1;
+    }
+  }
+  static void
+  obtainOutputVecLen(llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+                     int64_t &vecLen) {
+    if (dimIndexVal["ko"].first == 3) {
+      vecLen = dimIndexVal["ko"].second;
+    } else if (dimIndexVal["ko"].first == 0) {
+      // dimKO is the lowest changing dimension, which means dimN/dimHo/dimWo
+      vecLen = dimIndexVal["no"].second * dimIndexVal["ho"].second *
+               dimIndexVal["wo"].second;
+    } else if (dimIndexVal["ko"].first == 1) {
+      // Ko's position is at 1, vectorization legnth is last two dimensions
+      if (dimIndexVal["no"].first == 0) {
+        vecLen = dimIndexVal["ho"].second * dimIndexVal["wo"].second;
+      } else if (dimIndexVal["ho"].first == 0) {
+        vecLen = dimIndexVal["no"].second * dimIndexVal["wo"].second;
+      } else {
+        vecLen = dimIndexVal["no"].second * dimIndexVal["ho"].second;
+      }
+    } else {
+      // K's position is 2, vectorization legnth is last dimension
+      if (dimIndexVal["no"].first == 3) {
+        vecLen = dimIndexVal["no"].second;
+      } else if (dimIndexVal["ho"].first == 3) {
+        vecLen = dimIndexVal["ho"].second;
+      } else {
+        vecLen = dimIndexVal["wo"].second;
+      }
+    }
+  }
+
+  static void
+  obtainGemmBVecLen(mlir::miopen::ConvOpType opType,
+                    llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+                    int64_t &vecLen) {
+    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+      obtainInputVecLen(dimIndexVal, vecLen);
+    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+      obtainOutputVecLen(dimIndexVal, vecLen);
+    }
+  }
+
+  static void
+  obtainGemmCVecLen(mlir::miopen::ConvOpType opType,
+                    llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+                    int64_t &vecLen) {
+    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+      obtainOutputVecLen(dimIndexVal, vecLen);
+    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+      obtainInputVecLen(dimIndexVal, vecLen);
+    }
+  }
+
+protected:
+  mlir::LogicalResult calculateInputDerivedParams(InitParams *param,
+                                                  int64_t blockSize,
+                                                  ConvolutionContext &ctx,
+                                                  bool isGemmA,
+                                                  DerivedParams &derived) {
+
+    bool gemmPos1Vectorizable = false;
+    int64_t vectorizableLength = 0;
+    if (isGemmA) {
+      obtainGemmADimKVectorizable(ctx.opType, ctx.dimIndexVal,
+                                  gemmPos1Vectorizable);
+      obtainGemmAVecLen(ctx.opType, ctx.dimIndexVal, vectorizableLength);
+    } else {
+      obtainGemmBDimKVectorizable(ctx.opType, ctx.dimIndexVal,
+                                  gemmPos1Vectorizable);
+      obtainGemmBVecLen(ctx.opType, ctx.dimIndexVal, vectorizableLength);
+    }
+
+    // calculate threadwise copy size
+    int64_t dataPerThreadCopy = 0;
+    if (isGemmA) {
+      dataPerThreadCopy =
+          (param->gemmKPerBlock * param->gemmMPerBlock) / blockSize;
+    } else {
+      dataPerThreadCopy =
+          (param->gemmKPerBlock * param->gemmNPerBlock) / blockSize;
+    }
+
+    if (!(dataPerThreadCopy > 0))
+      return mlir::failure();
+
+    // srcDataPerRead bounded by size of threadwise copy
+    const int64_t vectorizationSize = 4;
+    if ((vectorizableLength > 0) && (vectorizableLength % 4 == 0)) {
+      derived.srcDataPerRead = gcd(vectorizationSize, dataPerThreadCopy);
+    }
+
+    // decide threadwise copy lengths
+    const auto dataPerThreadCopyGemmVectorized = derived.srcDataPerRead;
+    const auto dataPerThreadCopyGemmNonvectorized =
+        dataPerThreadCopy / dataPerThreadCopyGemmVectorized;
+
+    int64_t dataPerThreadCopyGemmPos1 = 0;
+    int64_t dataPerThreadCopyGemmPos2 = 0;
+    if (gemmPos1Vectorizable) {
+      dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmVectorized;
+      dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmNonvectorized;
+    } else {
+      dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmNonvectorized;
+      dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmVectorized;
+    }
+
+    // dstDataPerWrite also bounded by size of threadwise copy
+    derived.dstDataPerWrite = gcd(vectorizationSize, dataPerThreadCopyGemmPos2);
+
+    // calculate blockwise copy thread cluster lengths
+    if (isGemmA) {
+      derived.clusterLenGemmPos1 =
+          param->gemmKPerBlock / dataPerThreadCopyGemmPos1;
+      derived.clusterLenGemmPos2 =
+          param->gemmMPerBlock / dataPerThreadCopyGemmPos2;
+    } else {
+      derived.clusterLenGemmPos1 =
+          param->gemmKPerBlock / dataPerThreadCopyGemmPos1;
+      derived.clusterLenGemmPos2 =
+          param->gemmNPerBlock / dataPerThreadCopyGemmPos2;
+    }
+
+    if (!(derived.clusterLenGemmPos1 > 0 && derived.clusterLenGemmPos2 > 0))
+      return mlir::failure();
+
+    return mlir::success();
+  }
+
+  void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
+    if (ctx.opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+      gemmSize.gemmM = ctx.dimIndexVal["k"].second;
+      gemmSize.gemmN = ctx.dimIndexVal["no"].second *
+                       ctx.dimIndexVal["ho"].second *
+                       ctx.dimIndexVal["wo"].second;
+      gemmSize.gemmK = ctx.dimIndexVal["c"].second *
+                       ctx.dimIndexVal["y"].second *
+                       ctx.dimIndexVal["x"].second;
+    } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+      gemmSize.gemmM = ctx.dimIndexVal["c"].second *
+                       ctx.dimIndexVal["y"].second *
+                       ctx.dimIndexVal["x"].second;
+      gemmSize.gemmN = ctx.dimIndexVal["no"].second *
+                       ctx.dimIndexVal["ho"].second *
+                       ctx.dimIndexVal["wo"].second;
+      gemmSize.gemmK = ctx.dimIndexVal["k"].second;
+    }
+  }
+
+  int64_t obtainGridSize(GemmSize &gemmSize, InitParams *param) {
+    return (gemmSize.gemmM / param->gemmMPerBlock) *
+           (gemmSize.gemmN / param->gemmNPerBlock);
+  }
+
+  mlir::LogicalResult isValidGemm(InitParams *param, GemmSize &gemmSize) {
+    if (!(gemmSize.gemmM % param->gemmMPerBlock == 0 &&
+          gemmSize.gemmN % param->gemmNPerBlock == 0 &&
+          gemmSize.gemmK % param->gemmKPerBlock == 0)) {
+      return mlir::failure();
+    }
+    return mlir::success();
+  }
+};
+
+class TunableParameters {
+public:
+  // Default constructor: empty map of params
+  TunableParameters() {}
+
+  // params constructor: populate with existing values
+  TunableParameters(std::map<std::string, int> parameters)
+      : params(parameters) {}
+
+  // yaml constrcutor: Use YAML to capture all parameters
+  TunableParameters(llvm::StringRef &&yamlFileName) {
+    auto yaml = mlir::openInputFile(yamlFileName);
+    assert(yaml != nullptr);
+    loadYAML(yaml->getBuffer());
+  }
 
   void print(llvm::raw_ostream &os) {
     for (auto kv : params) {
       os << " -D" << kv.first << "=" << kv.second;
     }
   }
-  void dump() {
-    auto outputYAMLFile = mlir::openOutputFile(configFileName);
+  void dump(llvm::StringRef &&yamlFileName) {
+    auto outputYAMLFile = mlir::openOutputFile(yamlFileName);
     if (outputYAMLFile) {
       printYAML(outputYAMLFile->os());
       outputYAMLFile->keep();
     } else {
-      llvm::errs() << "\nOpen output file failed: " << configFileName << "\n";
+      llvm::errs() << "\nOpen output file failed: " << yamlFileName << "\n";
     }
   }
   void printYAML(llvm::raw_ostream &os) {
@@ -159,8 +433,6 @@ public:
   }
 protected:
   std::map<std::string, int> params;
-  llvm::StringRef configFileName;
-  ConvolutionContext ctx;
 };
 
 namespace llvm {
