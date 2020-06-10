@@ -10,11 +10,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Target/MIOpenCPP.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/gridwise_convolution_implicit_gemm_util.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
+#include "mlir/Target/MIOpenCPP.h"
 #include "mlir/Translation.h"
 
 #include "llvm/ADT/DenseMap.h"
@@ -226,10 +227,6 @@ public:
         gemmBDerivedParam.dstDataPerWrite;
   }
 };
-
-static constexpr StringLiteral kVarName[3] = {"weight", "input", "output"};
-
-static constexpr int kConv2DTensorDimension = 4;
 
 static constexpr StringLiteral kCppPreamblePart1 = R"(
 #include "common_header.hpp"
@@ -569,18 +566,6 @@ void EmitHeaderEpilogue(llvm::raw_ostream &output, llvm::SmallDenseMap<int64_t, 
   output << kHeaderEpiloguePart4;
 }
 
-void EmitLayoutString(llvm::raw_ostream &output, llvm::ArrayRef<mlir::Attribute> &layoutArrayAttr, llvm::StringRef prefix, llvm::StringRef suffix, llvm::StringRef delimiter = "") {
-  for (int i = 0; i < kConv2DTensorDimension; ++i) {
-    auto attr = layoutArrayAttr[i];
-    if (auto strAttr = attr.dyn_cast<StringAttr>()) {
-      output << prefix << strAttr.getValue() << suffix;
-    }
-    if (i < kConv2DTensorDimension - 1) {
-      output << delimiter;
-    }
-  }
-}
-
 void EmitHeaderDimensionLengths(llvm::raw_ostream &output, llvm::ArrayRef<mlir::Attribute> &layoutArrayAttr, llvm::StringRef tensorDesc) {
   for (int i = 0; i < kConv2DTensorDimension; ++i) {
     auto attr = layoutArrayAttr[i];
@@ -650,21 +635,6 @@ void EmitInterleaveAsteriskArrayAttr(llvm::raw_ostream &os, mlir::ArrayAttr &arr
   EmitInterleaveArrayAttrWithSeparator<T>(os, arrayAttr, " * ");
 }
 
-void ObtainConvDirection(FuncOp &f, miopen::ConvOpType &opType) {
-  f.walk([&opType](miopen::GridwiseGemmOp op) {
-    auto kernel_algorithm = op.getAttrOfType<StringAttr>("kernel_algorithm");
-    if (kernel_algorithm.getValue().find(StringRef("backward_data")) !=
-        StringRef::npos) {
-      opType = miopen::ConvOpType::Conv2DBwdDataOpType;
-    } else if (kernel_algorithm.getValue().find(StringRef("backward_weight")) !=
-               StringRef::npos) {
-      opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
-    } else {
-      opType = miopen::ConvOpType::Conv2DOpType;
-    }
-  });
-}
-
 void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std::string, 3> &tensorDescs) {
   // (TBD verifiying logic) The Module could contain multiple FuncOp, and inside each FuncOp there
   // should be exactly:
@@ -703,38 +673,6 @@ void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std
       }
     });
     los.flush();
-  }
-}
-
-void populateDimVal(const ArrayAttr &layoutAttr, const ArrayAttr &dimAttr,
-                    llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal) {
-  assert(layoutAttr.size() == dimAttr.size());
-  size_t dimValSize = layoutAttr.size();
-  for (size_t i = 0; i < dimValSize; ++i) {
-    auto key = layoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
-    auto value = dimAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
-    dimIndexVal[key] = std::make_pair(i, value);
-  }
-}
-
-void populateSeqVal(const ArrayAttr &seqAttr,
-                    llvm::SmallVector<int64_t, 0> &seqVal) {
-  size_t seqValSize = seqAttr.size();
-  for (size_t i = 0; i < seqValSize; ++i) {
-    // Not nested array, push back the value and be done
-    if (seqAttr.getValue()[i].dyn_cast<ArrayAttr>() == nullptr) {
-      seqVal.push_back(seqAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt());
-      continue;
-    }
-    // There is nested values, continue to populate those
-    for (size_t j = 0; j < seqAttr.getValue()[i].dyn_cast<ArrayAttr>().size();
-         ++j) {
-      seqVal.push_back(seqAttr.getValue()[i]
-                           .dyn_cast<ArrayAttr>()
-                           .getValue()[j]
-                           .dyn_cast<IntegerAttr>()
-                           .getInt());
-    }
   }
 }
 
