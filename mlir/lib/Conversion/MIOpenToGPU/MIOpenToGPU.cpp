@@ -82,15 +82,29 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   if (gpuModuleName.empty())
     gpuModuleName = "miopen_kernel_module";
 
-  // create a GPUModuleOp.
-  OperationState state(loc, gpu::GPUModuleOp::getOperationName());
-  gpu::GPUModuleOp::build(b, state, gpuModuleName);
-  auto gpuModule = cast<gpu::GPUModuleOp>(Operation::create(state));
-  SymbolTable gpuModuleSymbolTable(gpuModule);
+  bool theGpuModuleExist = false;
+  gpu::GPUModuleOp theGpuModule;
+  for (auto gpuModule : op.getOps<gpu::GPUModuleOp>()) {
+    llvm::errs() << "gpu module name: " << gpuModule.getName();
+    if (gpuModule.getName() == gpuModuleName) {
+      theGpuModuleExist = true;
+      theGpuModule = gpuModule;
+      break;
+    }
+  }
 
-  // add the GPUModuleOp into the symbol table.
-  SymbolTable symbolTable(op);
-  symbolTable.insert(gpuModule);
+  if (!theGpuModuleExist) {
+    // create a GPUModuleOp in case the GPU module specified does not exist.
+    OperationState state(loc, gpu::GPUModuleOp::getOperationName());
+    gpu::GPUModuleOp::build(b, state, gpuModuleName);
+    theGpuModule = cast<gpu::GPUModuleOp>(Operation::create(state));
+
+    // add the GPUModuleOp into the symbol table.
+    SymbolTable symbolTable(op);
+    symbolTable.insert(theGpuModule);
+  }
+
+  SymbolTable gpuModuleSymbolTable(theGpuModule);
 
   bool theFuncExist = false;
   FuncOp theFunc;
