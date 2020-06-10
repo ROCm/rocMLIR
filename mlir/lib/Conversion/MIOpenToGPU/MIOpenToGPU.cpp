@@ -59,8 +59,9 @@ namespace {
 struct LowerMIOpenOpsToGPUPass : public ConvertMIOpenToGPUBase<LowerMIOpenOpsToGPUPass> {
 public:
   LowerMIOpenOpsToGPUPass() = default;
-  LowerMIOpenOpsToGPUPass(StringRef kernelName) {
+  LowerMIOpenOpsToGPUPass(StringRef kernelName, StringRef gpuModuleName) {
     this->kernelName = kernelName.str();
+    this->gpuModuleName = gpuModuleName.str();
   }
   void runOnOperation() override;
 };
@@ -75,9 +76,15 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   op.setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
              UnitAttr::get(op.getContext()));
 
+  // Check parameters and populate default values if necessary.
+  if (kernelName.empty())
+    kernelName = "miopen_conv2d_kcyx_nchw_nkhw";
+  if (gpuModuleName.empty())
+    gpuModuleName = "miopen_kernel_module";
+
   // create a GPUModuleOp.
   OperationState state(loc, gpu::GPUModuleOp::getOperationName());
-  gpu::GPUModuleOp::build(b, state, "miopen_kernel_module");
+  gpu::GPUModuleOp::build(b, state, gpuModuleName);
   auto gpuModule = cast<gpu::GPUModuleOp>(Operation::create(state));
   SymbolTable gpuModuleSymbolTable(gpuModule);
 
@@ -144,7 +151,6 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   for (auto module : op.getOps<gpu::GPUModuleOp>()) {
     module.walk([&](gpu::GPUFuncOp gpuFunc) {
       gpuFunc.walk([&](miopen::GpuAllocOp op) {
-        auto loc = op.getLoc();
         auto type = op.output().getType().cast<MemRefType>();
 
         if (type.getMemorySpace() ==
@@ -193,6 +199,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
 }
 
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
-mlir::createLowerMIOpenOpsToGPUPass(StringRef kernelName) {
-  return std::make_unique<LowerMIOpenOpsToGPUPass>(kernelName);
+mlir::createLowerMIOpenOpsToGPUPass(StringRef kernelName,
+                                    StringRef gpuModuleName) {
+  return std::make_unique<LowerMIOpenOpsToGPUPass>(kernelName, gpuModuleName);
 }

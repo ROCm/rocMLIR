@@ -304,6 +304,9 @@ def ConvertMIOpenToGPU : Pass<"convert-miopen-to-gpu", "ModuleOp"> {
     Option<"kernelName", "kernel-name", "std::string",
            "\"miopen_conv2d_kcyx_nchw_nkhw\"",
            "kernel name to be lowered">,
+    Option<"gpuModuleName", "gpu-module-name", "std::string",
+           "\"miopen_kernel_module\"",
+           "GPU kernel module name to be lowered">,
   ];
 }
 

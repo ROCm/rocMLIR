@@ -27,7 +27,8 @@ class OperationPass;
 
 /// Create a pass to convert MIOpen operations to std operations.
 std::unique_ptr<OperationPass<ModuleOp>>
-createLowerMIOpenOpsToGPUPass(StringRef kernelName = "");
+createLowerMIOpenOpsToGPUPass(StringRef kernelName = "",
+                              StringRef gpuModuleName = "");
 
 } // namespace mlir
 
