@@ -209,3 +209,11 @@ func @miopen_threadwise_copy(%source_coord : memref<2xi32, 5>, %dest_coord : mem
 
 // CHECK-LABEL: func @miopen_threadwise_copy
 //  CHECK: miopen.threadwise_copy
+
+func @miopen_threadwise_gemm(%lhs : memref<4x8xf32>, %rhs : memref<4x8xf32>, %output : memref<8x8xf32>) {
+  miopen.threadwise_gemm(%lhs, %rhs, %output) : memref<4x8xf32>, memref<4x8xf32>, memref<8x8xf32>
+  return
+}
+ 
+// CHECK-LABEL: func @miopen_threadwise_gemm
+//  CHECK: miopen.threadwise_gemm
