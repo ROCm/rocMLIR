@@ -45,4 +45,5 @@ def MIOpenOpsStep5Pass : Pass<"miopen-lowering-step5", "ModuleOp"> {
   let summary = "expand loop / affine dialects to std. Notice GPU dialect will explicitly NOT be used in this pass";
   let constructor = "mlir::miopen::createLowerMIOpenOpsStep5Pass()";
 }
+
 #endif // MLIR_DIALECT_MIOPEN_PASSES

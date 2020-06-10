@@ -9,10 +9,12 @@ add_mlir_conversion_library(MLIRMIOpenToGPU
 )
 target_link_libraries(MLIRMIOpenToGPU
   PUBLIC
+  MLIRAffineToStandard
   MLIRGPU
   MLIRLLVMIR
   MLIRIR
   MLIRPass
+  MLIRSCFToStandard
   MLIRStandardOps
   MLIRStandardToLLVM
   MLIRSupport

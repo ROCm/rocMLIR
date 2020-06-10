@@ -23,11 +23,14 @@
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "../PassDetail.h"
 
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -63,6 +66,12 @@ public:
     this->kernelName = kernelName.str();
     this->gpuModuleName = gpuModuleName.str();
   }
+  void runOnOperation() override;
+};
+
+struct LowerMIOpenOpsWithinGPUModulePass
+    : public ConvertMIOpenWithinGPUModuleBase<
+          LowerMIOpenOpsWithinGPUModulePass> {
   void runOnOperation() override;
 };
 } // end anonymous namespace
@@ -230,8 +239,47 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   }
 }
 
+void LowerMIOpenOpsWithinGPUModulePass::runOnOperation() {
+  OwningRewritePatternList patterns;
+
+  // miopen-lowering
+  patterns.insert<Conv2DRewritePattern<miopen::Conv2DOp>>(&getContext());
+  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(&getContext());
+  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>>(
+      &getContext());
+
+  // TBD: miopen-affine-transform
+  // TBD: miopen-affix-params
+
+  // miopen-lowering-step2
+  patterns.insert<GridwiseGemmRewritePattern>(&getContext());
+
+  // miopen-lowering-step3
+  patterns.insert<FillRewritePattern>(&getContext());
+  patterns.insert<MovePosRewritePattern>(&getContext());
+  patterns.insert<SubviewRewritePattern>(&getContext());
+  patterns.insert<TransformRewritePattern>(&getContext());
+  patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
+  patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
+
+  // miopen-lowering-step4
+  patterns.insert<ThreadwiseGemmRewritePattern>(&getContext());
+  patterns.insert<ThreadwiseCopyRewritePattern>(&getContext());
+
+  // miopen-lowering-step5
+  populateAffineToStdConversionPatterns(patterns, &getContext());
+  populateLoopToStdConversionPatterns(patterns, &getContext());
+
+  applyPatternsAndFoldGreedily(getOperation(), patterns);
+}
+
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 mlir::createLowerMIOpenOpsToGPUPass(StringRef kernelName,
                                     StringRef gpuModuleName) {
   return std::make_unique<LowerMIOpenOpsToGPUPass>(kernelName, gpuModuleName);
+}
+
+std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
+mlir::createLowerMIOpenOpsWithinGPUModulePass() {
+  return std::make_unique<LowerMIOpenOpsWithinGPUModulePass>();
 }
