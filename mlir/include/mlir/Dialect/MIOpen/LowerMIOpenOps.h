@@ -1388,10 +1388,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Compute ThreadClusterLengths for Matrix A.
     int64_t GemmABlockCopyClusterLengths_GemmK =
-        KPerBlock / matrix_a_source_data_per_read;
-    int64_t GemmABlockCopyClusterLengths_GemmM =
-        MPerBlock /
+        KPerBlock /
         ((MPerBlock * KPerBlock / BlockSize) / matrix_a_source_data_per_read);
+    int64_t GemmABlockCopyClusterLengths_GemmM =
+        MPerBlock / matrix_a_source_data_per_read;
 
     // llvm::errs() << "thread cluster lengths for Matrix A\n";
     // llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
@@ -1443,9 +1443,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto GemmABlockCopyThreadSliceLengths_GemmMConstantOp =
         b.create<ConstantIndexOp>(loc, GemmABlockCopyThreadSliceLengths_GemmM);
 
-    auto GemmABlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
+    auto GemmABlockCopyThreadClusterId_Y = b.create<SignedRemIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
-    auto GemmABlockCopyThreadClusterId_X = b.create<SignedRemIOp>(
+    auto GemmABlockCopyThreadClusterId_X = b.create<SignedDivIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
     auto GemmAThreadDataIdBegin_Y =
         b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
