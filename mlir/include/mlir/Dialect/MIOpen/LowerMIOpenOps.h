@@ -2720,8 +2720,12 @@ struct ThreadwiseCopyRewritePattern
       for (unsigned iter = 0; iter < loopIV_i32s.size(); ++iter)
         destUpperIndices.push_back(innerLoopBuilder.create<IndexCastOp>(
             loc,
-            innerLoopBuilder.create<AddIOp>(loc, loopIV_i32s[iter],
-                                            destCoord[iter]),
+            innerLoopBuilder.create<AddIOp>(
+                loc,
+                loopIV_i32s[dimAccessOrder[iter]
+                                .template cast<IntegerAttr>()
+                                .getInt()],
+                destCoord[iter]),
             b.getIndexType()));
 
       // Apply affine transformations to compute the low-level coordinate.
