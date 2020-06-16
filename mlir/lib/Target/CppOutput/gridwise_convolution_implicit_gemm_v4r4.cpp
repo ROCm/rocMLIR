@@ -981,6 +981,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
   llvm::raw_string_ostream output(resultStr);
 
   for (auto f : m.getOps<FuncOp>()) {
+    output << f.getName() << "\n";
     miopen::ConvOpType opType;
     ObtainConvDirection(f, opType);
 
@@ -1104,6 +1105,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
 
       output << " -std=c++14";
       output << " -D__HIP_PLATFORM_HCC__=1";
+      output << "\n";
     });
   }
  
