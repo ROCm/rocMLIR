@@ -976,10 +976,11 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
   //                                       AddressSpace::Global,                             - addrspace on dest memref
   //                                       CGlobalMemoryDataOperation>(                      - NOT USED
 
-  // XXX. we only use 2D coordinates in storing VGPR to global VRAM now.
   top.setAttr("dim_access_order", b.getArrayAttr({
                                       b.getI32IntegerAttr(0),
                                       b.getI32IntegerAttr(1),
+                                      b.getI32IntegerAttr(2),
+                                      b.getI32IntegerAttr(3),
                                   }));
   top.setAttr("vector_read_write_dim",
               gop.getAttr("matrix_c_source_dest_vector_read_write_dim"));
@@ -1879,7 +1880,37 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     }
 
     // Threadwise copy from register (naive tensor) to global (generic tensor).
-    // Add attributes from C++ template arguments and ctor arguments.
+    // Original C++ logic:
+    //
+    // constexpr index_t M1 = MPerThread * MLevel0Cluster * MLevel1Cluster;
+    // constexpr index_t M0 = M / M1;
+    //
+    // constexpr index_t N1 = NPerThread * NLevel0Cluster * NLevel1Cluster;
+    // constexpr index_t N0 = N / N1;
+    //
+    // // define input tensor descriptor for threadwise copy
+    // //     thread input tensor, src of threadwise copy
+    // constexpr auto c_m0_m1_n0_n1_thread_desc =
+    // make_native_tensor_descriptor_packed(
+    //     Sequence<GemmMRepeat, MPerThread, GemmNRepeat, NPerThread>{});
+    //
+    // constexpr auto c_m0_m1_n0_n1_global_desc = transform_tensor_descriptor(
+    //     c_m_n_global_desc,
+    //     make_tuple(UnMerge<Sequence<M0, M1>>{}, UnMerge<Sequence<N0, N1>>{}),
+    //     make_tuple(Sequence<0>{}, Sequence<1>{}),
+    //     make_tuple(Sequence<0, 1>{}, Sequence<2, 3>{}));
+    //
+    // // calculate origin of thread input tensor on global memory
+    // //     blockwise GEMM c matrix starting index
+    // const auto c_thread_mtx_on_block =
+    //     blockwise_gemm.GetBeginOfThreadMatrixC(get_thread_local_1d_id());
+    //
+    // const index_t m_thread_data_on_global =
+    //     m_block_data_on_global + c_thread_mtx_on_block.row;
+    //
+    // const index_t n_thread_data_on_global =
+    //     n_block_data_on_global + c_thread_mtx_on_block.col;
+    //
     // ThreadwiseGenericTensorSliceCopy_v4r2<decltype(c_m0_m1_n0_n1_thread_desc),
     //                                       decltype(c_m0_m1_n0_n1_global_desc),
     //                                       decltype(c_m0_m1_n0_n1_thread_desc.GetLengths()),
@@ -1896,16 +1927,80 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //      n_thread_data_on_global / N1,
     //      n_thread_data_on_global % N1})
     //     .Run(p_c_thread, p_c_global);
-    // XXX. Use 2D coordinate only.
-    SmallVector<Value, 4> matrixCThreadwiseCopySourceAndDestCoords;
+
+    int64_t M1 = MPerThread * MLevel0Cluster * MLevel1Cluster;
+    int64_t M0 = M / M1;
+    int64_t N1 = NPerThread * NLevel0Cluster * NLevel1Cluster;
+    int64_t N0 = N / N1;
+
+    auto M0ConstantI32Op =
+        b.create<ConstantIntOp>(loc, M0, b.getIntegerType(32));
+    auto M1ConstantI32Op =
+        b.create<ConstantIntOp>(loc, M1, b.getIntegerType(32));
+    auto N0ConstantI32Op =
+        b.create<ConstantIntOp>(loc, N0, b.getIntegerType(32));
+    auto N1ConstantI32Op =
+        b.create<ConstantIntOp>(loc, N1, b.getIntegerType(32));
+
+    // build affine expression:
+    // (d0, d1, d2, d3) -> (d0 * M1 + d1, d2 * N1 + d3)
+    auto affineMap4to2 =
+        AffineMap::get(4, 0,
+                       {getAffineDimExpr(1, op.getContext()) +
+                            getAffineDimExpr(0, op.getContext()) *
+                                getAffineConstantExpr(M1, op.getContext()),
+                        getAffineDimExpr(3, op.getContext()) +
+                            getAffineDimExpr(2, op.getContext()) *
+                                getAffineConstantExpr(N1, op.getContext())},
+                       op.getContext());
+
+    // compose with output tensor affine map.
+    auto outputType = op.output().getType().template dyn_cast<MemRefType>();
+    auto outputAffineMap2to4 = outputType.getAffineMaps()[0];
+    auto affineMap4to2to4 = outputAffineMap2to4.compose(affineMap4to2);
+
+    // emit TransformOp for output tensor.
+    auto newOutputType = MemRefType::get(
+        {M0, M1, N0, N1}, outputType.getElementType(), {affineMap4to2to4});
+    auto newOutputTransformOp =
+        b.create<miopen::TransformOp>(loc, newOutputType, op.output());
+
+    // build affine expression:
+    // (d0, d1, d2, d3) -> (d0 * MPerThread + d1, d2 * NPerThread + d3)
+    auto matrixCAffineMap4to2 = AffineMap::get(
+        4, 0,
+        {getAffineDimExpr(1, op.getContext()) +
+             getAffineDimExpr(0, op.getContext()) *
+                 getAffineConstantExpr(MPerThread, op.getContext()),
+         getAffineDimExpr(3, op.getContext()) +
+             getAffineDimExpr(2, op.getContext()) *
+                 getAffineConstantExpr(MPerThread, op.getContext())},
+        op.getContext());
+
+    // emit TransformOp for Matrix C on VGPR.
+    auto register4DMatrixCType = MemRefType::get(
+        {GemmMRepeat, MPerThread, GemmNRepeat, NPerThread}, elementType,
+        {matrixCAffineMap4to2}, gpu::GPUDialect::getPrivateAddressSpace());
+    auto matrixCTransformOp = b.create<miopen::TransformOp>(
+        loc, register4DMatrixCType, register2DMatrixCAllocOp);
+
+    SmallVector<Value, 8> matrixCThreadwiseCopySourceAndDestCoords;
     matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-    matrixCThreadwiseCopySourceAndDestCoords.push_back(
-        m_thread_data_on_global_i32);
-    matrixCThreadwiseCopySourceAndDestCoords.push_back(
-        n_thread_data_on_global_i32);
+    matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+    matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+
+    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<SignedDivIOp>(
+        loc, m_thread_data_on_global_i32, M1ConstantI32Op));
+    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<SignedRemIOp>(
+        loc, m_thread_data_on_global_i32, M1ConstantI32Op));
+    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<SignedDivIOp>(
+        loc, n_thread_data_on_global_i32, N1ConstantI32Op));
+    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<SignedRemIOp>(
+        loc, n_thread_data_on_global_i32, N1ConstantI32Op));
+
     auto threadwiseCopyCMatrixOp = b.create<miopen::ThreadwiseCopyOp>(
-        loc, register2DMatrixCAllocOp, op.output(),
+        loc, matrixCTransformOp, newOutputTransformOp,
         matrixCThreadwiseCopySourceAndDestCoords);
     affixThreadwiseCopyAttributes(threadwiseCopyCMatrixOp, op, b);
 
@@ -2616,12 +2711,22 @@ struct ThreadwiseCopyRewritePattern
 
       // Figure out which memref is the one without affine transformations.
       SmallVector<int64_t, 2> sliceLengths;
+
       if (sourceExternalTransform || sourceEmbeddedTransform) {
         if (destExternalTransform || destEmbeddedTransform) {
-          // Couldn't happen.
-          llvm::errs()
-              << "Unsupported case: both memrefs have affine transforms!\n";
-          return failure();
+          // Use domain attribute from source memref.
+          for (auto attr : coordTransformsAttr) {
+            auto dictAttr = attr.template cast<DictionaryAttr>();
+            auto operandIndex =
+                dictAttr.get("operand").template cast<IntegerAttr>().getInt();
+            if (operandIndex == 0) {
+              auto domainAttr =
+                  dictAttr.get("domain").template cast<ArrayAttr>();
+              for (unsigned i = 0; i < domainAttr.size(); ++i)
+                sliceLengths.push_back(
+                    domainAttr[i].template cast<IntegerAttr>().getInt());
+            }
+          }
         } else {
           for (auto dim : destType.getShape())
             sliceLengths.push_back(dim);
@@ -2802,10 +2907,30 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
   LogicalResult matchAndRewrite(miopen::TransformOp op,
                                 PatternRewriter &b) const override {
     auto outputType = op.output().getType().cast<MemRefType>();
+    auto outputShape = outputType.getShape();
+
+    // determine output shape and track it in an attribute.
+    llvm::SmallVector<Attribute, 4> shapeAttrVec;
+    for (unsigned i = 0; i < outputShape.size(); ++i) {
+      shapeAttrVec.push_back(b.getI32IntegerAttr(outputShape[i]));
+    }
+
+    // auto attr = b.getNamedAttr("domain",
+    //               b.getArrayAttr(shapeAttrVec));
+    // llvm::errs() << "\n\ndomain attr:\n";
+    // attr.second.dump();
+    // llvm::errs() << "\n";
+    // llvm::errs() << "\n========\nTransformOp:\n";
+    // op.dump();
 
     // Pass the output affine map to users of this op.
     if (outputType.getAffineMaps().size() > 0)
       for (auto user : op.output().getUsers()) {
+        // llvm::errs() << "\n========\nTransformOp user:\n";
+        // user->dump();
+
+        // determine user domain
+
         unsigned userOperandIndex = 0;
         for (userOperandIndex = 0; userOperandIndex < user->getNumOperands();
              ++userOperandIndex)
@@ -2819,15 +2944,17 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
               b.getArrayAttr({b.getDictionaryAttr(
                   {b.getNamedAttr("operand",
                                   b.getI32IntegerAttr(userOperandIndex)),
-                   b.getNamedAttr("transforms",
-                                  b.getAffineMapArrayAttr(
-                                      outputType.getAffineMaps()))})}));
+                   b.getNamedAttr(
+                       "transforms",
+                       b.getAffineMapArrayAttr(outputType.getAffineMaps())),
+                   b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec))})}));
         else {
           // create a deep-copy of existing attributes, and amend the new one.
           // need to figure out if there's a better way than this.
           auto arrayAttr = coordTransformAttrs.cast<ArrayAttr>();
           llvm::SmallVector<Attribute, 2> augmentedArrayAttr;
 
+          bool augmented = false;
           for (unsigned idx = 0; idx < arrayAttr.size(); ++idx) {
             auto dictAttr = arrayAttr.getValue()[idx].cast<DictionaryAttr>();
             auto operandIndex =
@@ -2844,15 +2971,30 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
               augmentedTransforms.push_back(
                   AffineMapAttr::get(outputType.getAffineMaps()[0]));
 
+              auto existingDomain = dictAttr.get("domain").cast<ArrayAttr>();
+
               augmentedArrayAttr.push_back(b.getDictionaryAttr(
                   {b.getNamedAttr("operand",
                                   b.getI32IntegerAttr(userOperandIndex)),
                    b.getNamedAttr("transforms",
-                                  b.getArrayAttr(augmentedTransforms))}));
+                                  b.getArrayAttr(augmentedTransforms)),
+                   b.getNamedAttr("domain", existingDomain)}));
+              augmented = true;
             }
           }
+          if (!augmented)
+            augmentedArrayAttr.push_back(b.getDictionaryAttr(
+                {b.getNamedAttr("operand",
+                                b.getI32IntegerAttr(userOperandIndex)),
+                 b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
+                                                  outputType.getAffineMaps())),
+                 b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec))}));
           user->setAttr("coord_transforms", b.getArrayAttr(augmentedArrayAttr));
         }
+
+        // llvm::errs() << "\n========\nTransformOp updated user:\n";
+        // user->dump();
+        // llvm::errs() << "\n";
       }
 
     // Pass the input to uses of this op.
