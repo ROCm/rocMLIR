@@ -468,7 +468,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                   b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                   // TBD: padding parmeters.
                   b.getNamedAttr("parameters", b.getArrayAttr({
-                                                   b.getI32IntegerAttr(2),
+                                                   b.getI32IntegerAttr(1),
                                                    b.getI32IntegerAttr(1),
                                                    b.getI32IntegerAttr(1),
                                                    b.getI32IntegerAttr(0),
@@ -490,7 +490,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                   b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                   // TBD: embed parmeters.
                   b.getNamedAttr("parameters", b.getArrayAttr({
-                                                   b.getI32IntegerAttr(2),
+                                                   b.getI32IntegerAttr(1),
                                                    b.getI32IntegerAttr(1),
                                                    b.getI32IntegerAttr(1),
                                                    b.getI32IntegerAttr(0),
