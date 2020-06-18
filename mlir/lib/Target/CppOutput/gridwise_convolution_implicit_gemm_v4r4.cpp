@@ -31,116 +31,6 @@ namespace {
 // result string to keep C++ source / header / flags emission.
 std::string resultStr;
 
-class PopulateParams : public PopulateParamsBase {
-private:
-  struct InitParamsNonXDL : InitParams {
-    InitParamsNonXDL(int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
-                     int64_t mPerThread, int64_t nPerThread, int64_t bSize)
-        : InitParams{mPerBlock, nPerBlock, kPerBlock},
-          gemmMPerThread(mPerThread), gemmNPerThread(nPerThread),
-          blockSize(bSize) {}
-    int64_t gemmMPerThread;
-    int64_t gemmNPerThread;
-    int64_t blockSize;
-  };
-
-  llvm::SmallVector<InitParamsNonXDL, 4> initParameters = {
-      // M/block N/block K/block M/thread N/thread blockSize
-      {128, 128, 8, 4, 4, 256},
-      {128, 64, 8, 4, 4, 128},
-      {64, 128, 4, 4, 4, 128},
-      {32, 32, 4, 2, 2, 64},
-  };
-
-  LogicalResult
-  calculateGemmABlockCopyPerformanceParameters(InitParamsNonXDL *param,
-                                               ConvolutionContext &ctx,
-                                               DerivedParams &derived) {
-    return calculateInputDerivedParams(param, param->blockSize, ctx, true,
-                                       derived);
-  }
-
-  LogicalResult
-  calculateGemmBBlockCopyPerformanceParameters(InitParamsNonXDL *param,
-                                               ConvolutionContext &ctx,
-                                               DerivedParams &derived) {
-
-    return calculateInputDerivedParams(param, param->blockSize, ctx, false,
-                                       derived);
-  }
-
-public:
-  void paramsFromCtx(ConvolutionContext &ctx,
-                     std::map<std::string, int> &params) {
-    LogicalResult res(LogicalResult::Failure);
-    InitParamsNonXDL validParams{0, 0, 0, 0, 0, 0};
-    DerivedParams gemmADerivedParam;
-    DerivedParams gemmBDerivedParam;
-
-    GemmSize gemmSize;
-    obtainGemmSize(ctx, gemmSize);
-
-    for (auto &params : initParameters) {
-
-      res = isValidGemm(&params, gemmSize);
-      if (failed(res)) {
-        continue;
-      }
-
-      res = calculateGemmABlockCopyPerformanceParameters(&params, ctx,
-                                                         gemmADerivedParam);
-      if (failed(res)) {
-        continue;
-      }
-
-      res = calculateGemmBBlockCopyPerformanceParameters(&params, ctx,
-                                                         gemmBDerivedParam);
-
-      if (failed(res)) {
-        continue;
-      }
-
-      validParams = params;
-      break;
-    }
-
-    if (failed(res)) {
-      // All initParameters have failed, shouldn't happen
-      llvm_unreachable("FATAL ERROR! COULD NOT FIND VALID TUNING PARAMETERS!");
-    }
-
-    // parameters truly tunable.
-    params["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"] = validParams.gemmMPerBlock;
-    params["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"] = validParams.gemmNPerBlock;
-    params["CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"] = validParams.gemmKPerBlock;
-    params["CK_PARAM_TUNABLE_GEMM_M_PER_THREAD"] = validParams.gemmMPerThread;
-    params["CK_PARAM_TUNABLE_GEMM_N_PER_THREAD"] = validParams.gemmNPerThread;
-
-    // parameters derivable from tunable parameters.
-    params["CK_PARAM_TUNABLE_BLOCK_SIZE"] = validParams.blockSize;
-    params["CK_PARAM_DEPENDENT_GRID_SIZE"] =
-        obtainGridSize(gemmSize, &validParams);
-
-    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] =
-        gemmADerivedParam.clusterLenGemmPos1;
-    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M"] =
-        gemmADerivedParam.clusterLenGemmPos2;
-    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM"] =
-        gemmADerivedParam.srcDataPerRead;
-    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M"] =
-        gemmADerivedParam.dstDataPerWrite;
-
-    params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] =
-        gemmBDerivedParam.clusterLenGemmPos1;
-    params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N"] =
-        gemmBDerivedParam.clusterLenGemmPos2;
-    params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM"] =
-        gemmBDerivedParam.srcDataPerRead;
-    params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N"] =
-        gemmBDerivedParam.dstDataPerWrite;
-  }
-};
-
 static constexpr StringLiteral kVarArgName[3] = {"p_wei_global", "p_in_global",
                                                  "p_out_global"};
 
@@ -786,7 +676,9 @@ static void ObtainModuleInfo(ModuleOp &m,
     });
 
     // Second iteration. Determine convolution direction.
-    ObtainConvDirection(f, opType);
+    f.walk([&opType](miopen::GridwiseGemmOp op) {
+      opType = ObtainConvDirection(op);
+    });
   }
 }
 
@@ -1028,10 +920,10 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
 
   for (auto f : m.getOps<FuncOp>()) {
     output << f.getName() << "\n";
-    miopen::ConvOpType opType;
-    ObtainConvDirection(f, opType);
 
-    f.walk([&output, opType](miopen::GridwiseGemmOp op) {
+    f.walk([&output](miopen::GridwiseGemmOp op) {
+      miopen::ConvOpType opType = ObtainConvDirection(op);
+
       llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
       // Filter
       auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
@@ -1092,9 +984,58 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
 
       ConvolutionContext convContext{opType, dimIndexVal, strideVal,
                                      dilationVal, paddingVal};
-      std::map<std::string, int> parameters;
+      InitParamsNonXDL validParams{0, 0, 0, 0, 0, 0};
+      GemmSize gemmSize;
+      DerivedParams gemmADerivedParam;
+      DerivedParams gemmBDerivedParam;
+      int64_t gemmCDstPerWrite;
+      int64_t gridSize;
+
       PopulateParams populateParams;
-      populateParams.paramsFromCtx(convContext, parameters);
+      populateParams.paramsFromCtx(convContext, validParams, gemmSize,
+                                   gemmADerivedParam, gemmBDerivedParam,
+                                   gemmCDstPerWrite, gridSize);
+
+      std::map<std::string, int> parameters;
+      // parameters truly tunable.
+      parameters["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"] =
+          validParams.gemmMPerBlock;
+      parameters["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"] =
+          validParams.gemmNPerBlock;
+      parameters["CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"] =
+          validParams.gemmKPerBlock;
+      parameters["CK_PARAM_TUNABLE_GEMM_M_PER_THREAD"] =
+          validParams.gemmMPerThread;
+      parameters["CK_PARAM_TUNABLE_GEMM_N_PER_THREAD"] =
+          validParams.gemmNPerThread;
+
+      // parameters derivable from tunable parameters.
+      parameters["CK_PARAM_TUNABLE_BLOCK_SIZE"] = validParams.blockSize;
+      parameters["CK_PARAM_DEPENDENT_GRID_SIZE"] = gridSize;
+
+      parameters["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] =
+          gemmADerivedParam.clusterLenGemmPos1;
+      parameters["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M"] =
+          gemmADerivedParam.clusterLenGemmPos2;
+      parameters["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM"] =
+          gemmADerivedParam.srcDataPerRead;
+      parameters
+          ["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M"] =
+              gemmADerivedParam.dstDataPerWrite;
+
+      parameters["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] =
+          gemmBDerivedParam.clusterLenGemmPos1;
+      parameters["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N"] =
+          gemmBDerivedParam.clusterLenGemmPos2;
+      parameters["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM"] =
+          gemmBDerivedParam.srcDataPerRead;
+      parameters
+          ["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N"] =
+              gemmBDerivedParam.dstDataPerWrite;
+
+      parameters
+          ["CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1"] =
+              gemmCDstPerWrite;
 
       // parameters fixed.
       parameters["CK_PARAM_TUNABLE_GEMM_M_LEVEL0_CLUSTER"] = 4;
@@ -1102,36 +1043,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
       parameters["CK_PARAM_TUNABLE_GEMM_M_LEVEL1_CLUSTER"] = 4;
       parameters["CK_PARAM_TUNABLE_GEMM_N_LEVEL1_CLUSTER"] = 4;
 
-      // paeterrameters varies depend on layout but set as fixed now
-      parameters
-          ["CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1"] =
-              1;
-
       TunableParameters params(parameters);
-
-      // Output tensor.
-      int64_t outputVecLen = 0;
-      if ((opType == miopen::ConvOpType::Conv2DOpType) &&
-          (dimIndexVal["ko"].first == 3)) {
-        // gemmM vectorizable. However, there is no parameters for vectorizing
-        // gemmM dimension for matrix C. Do nothing here.
-      } else if ((opType == miopen::ConvOpType::Conv2DBwdDataOpType) &&
-                 (dimIndexVal["ci"].first == 3)) {
-        // gemmM vectorizable. However, there is no parameters for vectorizing
-        // gemmM dimension for matrix C. Do nothing here.
-      } else {
-        PopulateParams::obtainGemmCVecLen(convContext, outputVecLen);
-      }
-
-      if ((outputVecLen > 0) && (outputVecLen % 4 == 0)) {
-        params.setValue(
-            "CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1",
-            4);
-      } else if ((outputVecLen > 0) && (outputVecLen % 2 == 0)) {
-        params.setValue(
-            "CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1",
-            2);
-      }
 
       // Print out the tunable parameters.
       params.print(output);

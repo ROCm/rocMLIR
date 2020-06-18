@@ -98,28 +98,30 @@ struct ConvolutionContext {
   llvm::SmallVector<int64_t, 0> paddingVal;
 };
 
+struct InitParams {
+  int64_t gemmMPerBlock;
+  int64_t gemmNPerBlock;
+  int64_t gemmKPerBlock;
+};
+
+struct GemmSize {
+  int64_t gemmM;
+  int64_t gemmN;
+  int64_t gemmK;
+};
+
+struct DerivedParams {
+  int64_t srcDataPerRead;
+  int64_t dstDataPerWrite;
+  int64_t clusterLenGemmPos1;
+  int64_t clusterLenGemmPos2;
+  DerivedParams()
+      : srcDataPerRead(1), dstDataPerWrite(1), clusterLenGemmPos1(0),
+        clusterLenGemmPos2(0) {}
+};
+
 class PopulateParamsBase {
 public:
-  struct InitParams {
-    int64_t gemmMPerBlock;
-    int64_t gemmNPerBlock;
-    int64_t gemmKPerBlock;
-  };
-  struct GemmSize {
-    int64_t gemmM;
-    int64_t gemmN;
-    int64_t gemmK;
-  };
-  struct DerivedParams {
-    int64_t srcDataPerRead;
-    int64_t dstDataPerWrite;
-    int64_t clusterLenGemmPos1;
-    int64_t clusterLenGemmPos2;
-    DerivedParams()
-        : srcDataPerRead(1), dstDataPerWrite(1), clusterLenGemmPos1(0),
-          clusterLenGemmPos2(0) {}
-  };
-
   static void obtainGemmADimKVectorizable(
       mlir::miopen::ConvOpType opType,
       llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
