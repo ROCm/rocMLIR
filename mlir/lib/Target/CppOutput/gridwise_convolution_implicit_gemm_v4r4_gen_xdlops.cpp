@@ -984,10 +984,9 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
   llvm::raw_string_ostream output(resultStr);
 
   for (auto f : m.getOps<FuncOp>()) {
-    miopen::ConvOpType opType;
-    ObtainConvDirection(f, opType);
+    f.walk([&output](miopen::GridwiseGemmOp op) {
+      miopen::ConvOpType opType = ObtainConvDirection(op);
 
-    f.walk([&output, opType](miopen::GridwiseGemmOp op) {
       llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
       // Filter
       auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");

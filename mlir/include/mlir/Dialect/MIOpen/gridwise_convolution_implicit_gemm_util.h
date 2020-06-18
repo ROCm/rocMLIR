@@ -1,5 +1,6 @@
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Function.h"
+#include "mlir/Target/MIOpenCPP.h"
 
 using namespace mlir;
 
@@ -21,19 +22,19 @@ static void EmitLayoutString(llvm::raw_ostream &output,
   }
 }
 
-static void ObtainConvDirection(FuncOp &f, miopen::ConvOpType &opType) {
-  f.walk([&opType](miopen::GridwiseGemmOp op) {
-    auto kernel_algorithm = op.getAttrOfType<StringAttr>("kernel_algorithm");
-    if (kernel_algorithm.getValue().find(StringRef("backward_data")) !=
-        StringRef::npos) {
-      opType = miopen::ConvOpType::Conv2DBwdDataOpType;
-    } else if (kernel_algorithm.getValue().find(StringRef("backward_weight")) !=
-               StringRef::npos) {
-      opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
-    } else {
-      opType = miopen::ConvOpType::Conv2DOpType;
-    }
-  });
+static miopen::ConvOpType ObtainConvDirection(miopen::GridwiseGemmOp &op) {
+  miopen::ConvOpType opType;
+  auto kernel_algorithm = op.getAttrOfType<StringAttr>("kernel_algorithm");
+  if (kernel_algorithm.getValue().find(StringRef("backward_data")) !=
+      StringRef::npos) {
+    opType = miopen::ConvOpType::Conv2DBwdDataOpType;
+  } else if (kernel_algorithm.getValue().find(StringRef("backward_weight")) !=
+             StringRef::npos) {
+    opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
+  } else {
+    opType = miopen::ConvOpType::Conv2DOpType;
+  }
+  return opType;
 }
 
 static void
@@ -68,3 +69,139 @@ static void populateSeqVal(const ArrayAttr &seqAttr,
     }
   }
 }
+
+static ConvolutionContext populateConvContext(miopen::GridwiseGemmOp &op) {
+  miopen::ConvOpType opType = ObtainConvDirection(op);
+
+  llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
+
+  auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
+  auto filterDimensionAttr = op.getAttrOfType<ArrayAttr>("filter_dimension");
+  populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
+  auto inputLayoutAttr = op.getAttrOfType<ArrayAttr>("input_layout");
+  auto inputDimensionAttr = op.getAttrOfType<ArrayAttr>("input_dimension");
+  populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
+  auto outputLayoutAttr = op.getAttrOfType<ArrayAttr>("output_layout");
+  auto outputDimensionAttr = op.getAttrOfType<ArrayAttr>("output_dimension");
+  populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
+
+  auto strideAttr = op.getAttrOfType<ArrayAttr>("strides");
+  llvm::SmallVector<int64_t, 0> strideVal;
+  populateSeqVal(strideAttr, strideVal);
+
+  auto dilationAttr = op.getAttrOfType<ArrayAttr>("dilations");
+  llvm::SmallVector<int64_t, 0> dilationVal;
+  populateSeqVal(dilationAttr, dilationVal);
+
+  auto paddingAttr = op.getAttrOfType<ArrayAttr>("padding");
+  llvm::SmallVector<int64_t, 0> paddingVal;
+  populateSeqVal(paddingAttr, paddingVal);
+
+  return {opType, dimIndexVal, strideVal, dilationVal, paddingVal};
+}
+
+struct InitParamsNonXDL : InitParams {
+  InitParamsNonXDL(int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
+                   int64_t mPerThread, int64_t nPerThread, int64_t bSize)
+      : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerThread(mPerThread),
+        gemmNPerThread(nPerThread), blockSize(bSize) {}
+  int64_t gemmMPerThread;
+  int64_t gemmNPerThread;
+  int64_t blockSize;
+};
+
+class PopulateParams : public PopulateParamsBase {
+private:
+  llvm::SmallVector<InitParamsNonXDL, 4> initParameters = {
+      // M/block N/block K/block M/thread N/thread blockSize
+      {128, 128, 8, 4, 4, 256},
+      {128, 64, 8, 4, 4, 128},
+      {64, 128, 4, 4, 4, 128},
+      {32, 32, 4, 2, 2, 64},
+  };
+
+  LogicalResult
+  calculateGemmABlockCopyPerformanceParameters(InitParamsNonXDL *param,
+                                               ConvolutionContext &ctx,
+                                               DerivedParams &derived) {
+    return calculateInputDerivedParams(param, param->blockSize, ctx, true,
+                                       derived);
+  }
+
+  LogicalResult
+  calculateGemmBBlockCopyPerformanceParameters(InitParamsNonXDL *param,
+                                               ConvolutionContext &ctx,
+                                               DerivedParams &derived) {
+
+    return calculateInputDerivedParams(param, param->blockSize, ctx, false,
+                                       derived);
+  }
+
+  int64_t calculateGemmCDestDataPerWrite(ConvolutionContext &ctx) {
+    int64_t outputVecLen = 0;
+    if ((ctx.opType == miopen::ConvOpType::Conv2DOpType) &&
+        (ctx.dimIndexVal["ko"].first == 3)) {
+      // gemmM vectorizable. However, there is no parameters for vectorizing
+      // gemmM dimension for matrix C. Do nothing here.
+    } else if ((ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) &&
+               (ctx.dimIndexVal["ci"].first == 3)) {
+      // gemmM vectorizable. However, there is no parameters for vectorizing
+      // gemmM dimension for matrix C. Do nothing here.
+    } else {
+      obtainGemmCVecLen(ctx, outputVecLen);
+    }
+
+    if ((outputVecLen > 0) && (outputVecLen % 4 == 0)) {
+      return 4;
+    } else if ((outputVecLen > 0) && (outputVecLen % 2 == 0)) {
+      return 2;
+    }
+
+    return 1;
+  }
+
+public:
+  void paramsFromCtx(ConvolutionContext &ctx, InitParamsNonXDL &validParams,
+                     GemmSize &gemmSize, DerivedParams &gemmADerivedParam,
+                     DerivedParams &gemmBDerivedParam,
+                     int64_t &gemmCDstPerWrite, int64_t &gridSize) {
+    LogicalResult res(LogicalResult::Failure);
+
+    obtainGemmSize(ctx, gemmSize);
+
+    for (auto &params : initParameters) {
+
+      res = isValidGemm(&params, gemmSize);
+      if (failed(res)) {
+        llvm::outs() << "invlid gemm\n";
+        continue;
+      }
+
+      res = calculateGemmABlockCopyPerformanceParameters(&params, ctx,
+                                                         gemmADerivedParam);
+      if (failed(res)) {
+        llvm::outs() << "invlid gemmA\n";
+        continue;
+      }
+
+      res = calculateGemmBBlockCopyPerformanceParameters(&params, ctx,
+                                                         gemmBDerivedParam);
+
+      if (failed(res)) {
+        llvm::outs() << "invlid gemmB\n";
+        continue;
+      }
+
+      validParams = params;
+      break;
+    }
+
+    if (failed(res)) {
+      // All initParameters have failed, shouldn't happen
+      llvm_unreachable("FATAL ERROR! COULD NOT FIND VALID TUNING PARAMETERS!");
+    }
+
+    gridSize = obtainGridSize(gemmSize, &validParams);
+    gemmCDstPerWrite = calculateGemmCDestDataPerWrite(ctx);
+  }
+};
