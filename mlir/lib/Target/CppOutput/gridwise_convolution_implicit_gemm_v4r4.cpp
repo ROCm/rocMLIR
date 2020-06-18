@@ -681,6 +681,9 @@ void EmitHeaderEpilogue(llvm::raw_ostream &output,
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
     output << llvm::format(kHeaderEpiloguePart4.data(), argPWeiGlobal.c_str(),
                            argPOutGlobal.c_str(), argPInGlobal.c_str());
+  } else if (opType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    output << llvm::format(kHeaderEpiloguePart4.data(), argPOutGlobal.c_str(),
+                           argPInGlobal.c_str(), argPWeiGlobal.c_str());
   }
 }
 
