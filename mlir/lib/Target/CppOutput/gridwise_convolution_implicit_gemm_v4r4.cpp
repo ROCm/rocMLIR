@@ -1120,7 +1120,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
         // gemmM vectorizable. However, there is no parameters for vectorizing
         // gemmM dimension for matrix C. Do nothing here.
       } else {
-        PopulateParams::obtainGemmCVecLen(opType, dimIndexVal, outputVecLen);
+        PopulateParams::obtainGemmCVecLen(convContext, outputVecLen);
       }
 
       if ((outputVecLen > 0) && (outputVecLen % 4 == 0)) {

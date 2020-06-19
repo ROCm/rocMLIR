@@ -184,14 +184,21 @@ public:
       }
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       // For input tensor
-      // currently, fix that GemmK (NHiWi) is always vectorizable
-      input2GemmKVectorizable = false;
+      // When C is the fastest changing dimension,
+      // gemmN dimension is vectorizable, gemmK is not, and vice versa.
+      // Vectorization width depending on length of C.
+      if (dimIndexVal["ci"].first == 3) {
+        input2GemmKVectorizable = false;
+      } else {
+        input2GemmKVectorizable = true;
+      }
     }
   }
 
   static void
-  obtainFilterVecLen(llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+  obtainFilterVecLen(ConvolutionContext &ctx,
                     int64_t &vecLen) {
+    auto dimIndexVal = ctx.dimIndexVal;
     // Vectorization length logic is the same for forward and bwd_data
     if (dimIndexVal["k"].first == 3) {
       vecLen = dimIndexVal["k"].second;
@@ -221,21 +228,24 @@ public:
   }
 
   static void
-  obtainInputVecLen(llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+  obtainInputVecLen(ConvolutionContext &ctx,
                     int64_t &vecLen) {
+    auto dimIndexVal = ctx.dimIndexVal;
     if (dimIndexVal["ni"].first == 3) {
       vecLen = dimIndexVal["ni"].second;
     } else if (dimIndexVal["ci"].first == 3) {
       vecLen = dimIndexVal["ci"].second;
     } else {
-      // Not vectorizable
-      // TODO(optimize): For 1x1, stride 1, pad 0 conv, vecLen is hi * wi
-      vecLen = 1;
+      if(ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 && ctx.paddingVal[0] == 0 && ctx.paddingVal[1] == 0)
+          vecLen = dimIndexVal["hi"].second * dimIndexVal["wi"].second;
+      else
+          vecLen = 1;
     }
   }
   static void
-  obtainOutputVecLen(llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+  obtainOutputVecLen(ConvolutionContext &ctx,
                      int64_t &vecLen) {
+    auto dimIndexVal = ctx.dimIndexVal;
     if (dimIndexVal["ko"].first == 3) {
       vecLen = dimIndexVal["ko"].second;
     } else if (dimIndexVal["ko"].first == 0) {
@@ -264,41 +274,41 @@ public:
   }
 
   static void
-  obtainGemmAVecLen(mlir::miopen::ConvOpType opType,
-                    llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+  obtainGemmAVecLen(ConvolutionContext &ctx,
                     int64_t &vecLen) {
+    auto opType = ctx.opType;
     if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
-      obtainFilterVecLen(dimIndexVal, vecLen);
+      obtainFilterVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      obtainFilterVecLen(dimIndexVal, vecLen);
+      obtainFilterVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
-      obtainOutputVecLen(dimIndexVal, vecLen);
+      obtainOutputVecLen(ctx, vecLen);
     }
   }
 
   static void
-  obtainGemmBVecLen(mlir::miopen::ConvOpType opType,
-                    llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+  obtainGemmBVecLen(ConvolutionContext &ctx,
                     int64_t &vecLen) {
+    auto opType = ctx.opType;
     if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
-      obtainInputVecLen(dimIndexVal, vecLen);
+      obtainInputVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      obtainOutputVecLen(dimIndexVal, vecLen);
+      obtainOutputVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
-      obtainInputVecLen(dimIndexVal, vecLen);
+      obtainInputVecLen(ctx, vecLen);
     }
   }
 
   static void
-  obtainGemmCVecLen(mlir::miopen::ConvOpType opType,
-                    llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+  obtainGemmCVecLen(ConvolutionContext &ctx,
                     int64_t &vecLen) {
+    auto opType = ctx.opType;
     if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
-      obtainOutputVecLen(dimIndexVal, vecLen);
+      obtainOutputVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      obtainInputVecLen(dimIndexVal, vecLen);
+      obtainInputVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
-      obtainInputVecLen(dimIndexVal, vecLen);
+      obtainInputVecLen(ctx, vecLen);
     }
   }
 
@@ -314,11 +324,11 @@ protected:
     if (isGemmA) {
       obtainGemmADimKVectorizable(ctx.opType, ctx.dimIndexVal,
                                   gemmPos1Vectorizable);
-      obtainGemmAVecLen(ctx.opType, ctx.dimIndexVal, vectorizableLength);
+      obtainGemmAVecLen(ctx, vectorizableLength);
     } else {
       obtainGemmBDimKVectorizable(ctx.opType, ctx.dimIndexVal,
                                   gemmPos1Vectorizable);
-      obtainGemmBVecLen(ctx.opType, ctx.dimIndexVal, vectorizableLength);
+      obtainGemmBVecLen(ctx, vectorizableLength);
     }
 
     // calculate threadwise copy size
