@@ -236,7 +236,9 @@ public:
     } else if (dimIndexVal["ci"].first == 3) {
       vecLen = dimIndexVal["ci"].second;
     } else {
-      if(ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 && ctx.paddingVal[0] == 0 && ctx.paddingVal[1] == 0)
+      if(ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 &&
+              ctx.paddingVal[0] == 0 && ctx.paddingVal[1] == 0 &&
+              ctx.paddingVal[2] == 0 && ctx.paddingVal[3] == 0)
           vecLen = dimIndexVal["hi"].second * dimIndexVal["wi"].second;
       else
           vecLen = 1;
@@ -308,7 +310,7 @@ public:
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
       obtainInputVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
-      obtainInputVecLen(ctx, vecLen);
+      obtainFilterVecLen(ctx, vecLen);
     }
   }
 
