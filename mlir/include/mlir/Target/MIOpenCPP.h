@@ -184,8 +184,14 @@ public:
       }
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       // For input tensor
-      // currently, fix that GemmK (NHiWi) is always vectorizable
-      input2GemmKVectorizable = false;
+      // When C is the fastest changing dimension,
+      // gemmN dimension is vectorizable, gemmK is not, and vice versa.
+      // Vectorization width depending on length of C.
+      if (dimIndexVal["ci"].first == 3) {
+        input2GemmKVectorizable = false;
+      } else {
+        input2GemmKVectorizable = true;
+      }
     }
   }
 
