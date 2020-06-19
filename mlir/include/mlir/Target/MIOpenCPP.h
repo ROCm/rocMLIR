@@ -144,37 +144,15 @@ public:
       } else {
         input1GemmKVectorizable = false;
       }
-    }
-  }
-
-  static void
-  obtainGemmAVecLen(mlir::miopen::ConvOpType opType,
-                    llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
-                    int64_t &vecLen) {
-    // Vectorization length logic is the same for forward and bwd_data
-    if (dimIndexVal["k"].first == 3) {
-      vecLen = dimIndexVal["k"].second;
-    } else if (dimIndexVal["k"].first == 0) {
-      // dimKF is the lowest changing dimension, which means dimC/dimY/dimX
-      vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second *
-               dimIndexVal["x"].second;
-    } else if (dimIndexVal["k"].first == 1) {
-      // K's position is at 1, vectorization legnth is last two dimension
-      if (dimIndexVal["c"].first == 0) {
-        vecLen = dimIndexVal["y"].second * dimIndexVal["x"].second;
-      } else if (dimIndexVal["y"].first == 0) {
-        vecLen = dimIndexVal["c"].second * dimIndexVal["x"].second;
+    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+      // When K is the fastest changing dimension,
+      // gemmM dimension is vectorizable, gemmK is not, and vice versa.
+      // Vectorization width depending on which among N, and HoWo be the fastest
+      // changing dimension.
+      if (dimIndexVal["k"].first == 3) {
+        input1GemmKVectorizable = false;
       } else {
-        vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second;
-      }
-    } else {
-      // K's position is 2, vectorization legnth is last dimension
-      if (dimIndexVal["c"].first == 3) {
-        vecLen = dimIndexVal["c"].second;
-      } else if (dimIndexVal["y"].first == 3) {
-        vecLen = dimIndexVal["y"].second;
-      } else {
-        vecLen = dimIndexVal["x"].second;
+        input1GemmKVectorizable = true;
       }
     }
   }
@@ -203,6 +181,41 @@ public:
         input2GemmKVectorizable = true;
       } else {
         input2GemmKVectorizable = false;
+      }
+    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+      // For input tensor
+      // currently, fix that GemmK (NHiWi) is always vectorizable
+      input2GemmKVectorizable = false;
+    }
+  }
+
+  static void
+  obtainFilterVecLen(llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+                    int64_t &vecLen) {
+    // Vectorization length logic is the same for forward and bwd_data
+    if (dimIndexVal["k"].first == 3) {
+      vecLen = dimIndexVal["k"].second;
+    } else if (dimIndexVal["k"].first == 0) {
+      // dimKF is the lowest changing dimension, which means dimC/dimY/dimX
+      vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second *
+               dimIndexVal["x"].second;
+    } else if (dimIndexVal["k"].first == 1) {
+      // K's position is at 1, vectorization legnth is last two dimension
+      if (dimIndexVal["c"].first == 0) {
+        vecLen = dimIndexVal["y"].second * dimIndexVal["x"].second;
+      } else if (dimIndexVal["y"].first == 0) {
+        vecLen = dimIndexVal["c"].second * dimIndexVal["x"].second;
+      } else {
+        vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second;
+      }
+    } else {
+      // K's position is 2, vectorization legnth is last dimension
+      if (dimIndexVal["c"].first == 3) {
+        vecLen = dimIndexVal["c"].second;
+      } else if (dimIndexVal["y"].first == 3) {
+        vecLen = dimIndexVal["y"].second;
+      } else {
+        vecLen = dimIndexVal["x"].second;
       }
     }
   }
@@ -251,6 +264,19 @@ public:
   }
 
   static void
+  obtainGemmAVecLen(mlir::miopen::ConvOpType opType,
+                    llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
+                    int64_t &vecLen) {
+    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+      obtainFilterVecLen(dimIndexVal, vecLen);
+    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+      obtainFilterVecLen(dimIndexVal, vecLen);
+    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+      obtainOutputVecLen(dimIndexVal, vecLen);
+    }
+  }
+
+  static void
   obtainGemmBVecLen(mlir::miopen::ConvOpType opType,
                     llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
                     int64_t &vecLen) {
@@ -258,6 +284,8 @@ public:
       obtainInputVecLen(dimIndexVal, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
       obtainOutputVecLen(dimIndexVal, vecLen);
+    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+      obtainInputVecLen(dimIndexVal, vecLen);
     }
   }
 
@@ -268,6 +296,8 @@ public:
     if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
       obtainOutputVecLen(dimIndexVal, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+      obtainInputVecLen(dimIndexVal, vecLen);
+    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       obtainInputVecLen(dimIndexVal, vecLen);
     }
   }
@@ -364,6 +394,14 @@ protected:
                        ctx.dimIndexVal["ho"].second *
                        ctx.dimIndexVal["wo"].second;
       gemmSize.gemmK = ctx.dimIndexVal["k"].second;
+    } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+      gemmSize.gemmM = ctx.dimIndexVal["k"].second;
+      gemmSize.gemmK = ctx.dimIndexVal["no"].second *
+                       ctx.dimIndexVal["ho"].second *
+                       ctx.dimIndexVal["wo"].second;
+      gemmSize.gemmN = ctx.dimIndexVal["c"].second *
+                       ctx.dimIndexVal["y"].second *
+                       ctx.dimIndexVal["x"].second;
     }
   }
 
