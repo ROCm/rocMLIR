@@ -922,68 +922,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
     output << f.getName() << "\n";
 
     f.walk([&output](miopen::GridwiseGemmOp op) {
-      miopen::ConvOpType opType = ObtainConvDirection(op);
-
-      llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
-      // Filter
-      auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
-      auto filterDimensionAttr =
-          op.getAttrOfType<ArrayAttr>("filter_dimension");
-      populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
-      output << " -DCK_PARAM_PROBLEM_K=" << dimIndexVal["k"].second;
-      output << " -DCK_PARAM_PROBLEM_C=" << dimIndexVal["c"].second;
-      output << " -DCK_PARAM_PROBLEM_Y=" << dimIndexVal["y"].second;
-      output << " -DCK_PARAM_PROBLEM_X=" << dimIndexVal["x"].second;
-      // Input
-      auto inputLayoutAttr = op.getAttrOfType<ArrayAttr>("input_layout");
-      auto inputDimensionAttr = op.getAttrOfType<ArrayAttr>("input_dimension");
-      populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
-      output << " -DCK_PARAM_PROBLEM_N=" << dimIndexVal["ni"].second;
-      output << " -DCK_PARAM_PROBLEM_HI=" << dimIndexVal["hi"].second;
-      output << " -DCK_PARAM_PROBLEM_WI=" << dimIndexVal["wi"].second;
-      // Output
-      auto outputLayoutAttr = op.getAttrOfType<ArrayAttr>("output_layout");
-      auto outputDimensionAttr = op.getAttrOfType<ArrayAttr>("output_dimension");
-      populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
-      output << " -DCK_PARAM_PROBLEM_HO=" << dimIndexVal["ho"].second;
-      output << " -DCK_PARAM_PROBLEM_WO=" << dimIndexVal["wo"].second;
-
-      // Stride
-      auto strideAttr = op.getAttrOfType<ArrayAttr>("strides");
-      llvm::SmallVector<int64_t, 0> strideVal;
-      populateSeqVal(strideAttr, strideVal);
-      output << " -DCK_PARAM_PROBLEM_CONV_STRIDE_H=" << strideVal[0];
-      output << " -DCK_PARAM_PROBLEM_CONV_STRIDE_W=" << strideVal[1];
-
-      // Dilation
-      auto dilationAttr = op.getAttrOfType<ArrayAttr>("dilations");
-      llvm::SmallVector<int64_t, 0> dilationVal;
-      populateSeqVal(dilationAttr, dilationVal);
-      output << " -DCK_PARAM_PROBLEM_CONV_DILATION_H=" << dilationVal[0];
-      output << " -DCK_PARAM_PROBLEM_CONV_DILATION_W=" << dilationVal[1];
-
-      // Padding
-      auto paddingAttr = op.getAttrOfType<ArrayAttr>("padding");
-      llvm::SmallVector<int64_t, 0> paddingVal;
-      populateSeqVal(paddingAttr, paddingVal);
-      output << " -DCK_PARAM_PROBLEM_IN_LEFT_PAD_H=" << paddingVal[0];
-      output << " -DCK_PARAM_PROBLEM_IN_LEFT_PAD_W=" << paddingVal[1];
-      output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_H=" << paddingVal[2];
-      output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_W=" << paddingVal[3];
-
-      // TBD: be able to set data type.
-      output << " -DMIOPEN_USE_FP32=1 -DMIOPEN_USE_FP16=0 -DMIOPEN_USE_BFP16=0";
-
-      // This is only needed in forward, since its kernel has the ability
-      // to run in more than one directions.
-      if (opType == miopen::ConvOpType::Conv2DOpType) {
-        output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_FORWARD=1";
-        output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_DATA=0";
-        output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_WEIGHT=0";
-      }
-
-      ConvolutionContext convContext{opType, dimIndexVal, strideVal,
-                                     dilationVal, paddingVal};
+      ConvolutionContext ctx = populateConvContext(op);
       InitParamsNonXDL validParams{0, 0, 0, 0, 0, 0};
       GemmSize gemmSize;
       DerivedParams gemmADerivedParam;
@@ -992,11 +931,48 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
       int64_t gridSize;
 
       PopulateParams populateParams;
-      populateParams.paramsFromCtx(convContext, validParams, gemmSize,
+      populateParams.paramsFromCtx(ctx, validParams, gemmSize,
                                    gemmADerivedParam, gemmBDerivedParam,
                                    gemmCDstPerWrite, gridSize);
 
       std::map<std::string, int> parameters;
+
+      // Filter
+      parameters["CK_PARAM_PROBLEM_K"] = ctx.dimIndexVal["k"].second;
+      parameters["CK_PARAM_PROBLEM_C"] = ctx.dimIndexVal["c"].second;
+      parameters["CK_PARAM_PROBLEM_Y"] = ctx.dimIndexVal["y"].second;
+      parameters["CK_PARAM_PROBLEM_X"] = ctx.dimIndexVal["x"].second;
+      // Input
+      parameters["CK_PARAM_PROBLEM_N"] = ctx.dimIndexVal["ni"].second;
+      parameters["CK_PARAM_PROBLEM_HI"] = ctx.dimIndexVal["hi"].second;
+      parameters["CK_PARAM_PROBLEM_WI"] = ctx.dimIndexVal["wi"].second;
+      // Output
+      parameters["CK_PARAM_PROBLEM_HO"] = ctx.dimIndexVal["ho"].second;
+      parameters["CK_PARAM_PROBLEM_WO"] = ctx.dimIndexVal["wo"].second;
+      // Stride
+      parameters["CK_PARAM_PROBLEM_CONV_STRIDE_H"] = ctx.strideVal[0];
+      parameters["CK_PARAM_PROBLEM_CONV_STRIDE_W"] = ctx.strideVal[1];
+      // Dilation
+      parameters["CK_PARAM_PROBLEM_CONV_DILATION_H"] = ctx.dilationVal[0];
+      parameters["CK_PARAM_PROBLEM_CONV_DILATION_W"] = ctx.dilationVal[1];
+      // Padding
+      parameters["CK_PARAM_PROBLEM_IN_LEFT_PAD_H"] = ctx.paddingVal[0];
+      parameters["CK_PARAM_PROBLEM_IN_LEFT_PAD_W"] = ctx.paddingVal[1];
+      parameters["CK_PARAM_PROBLEM_IN_RIGHT_PAD_H"] = ctx.paddingVal[2];
+      parameters["CK_PARAM_PROBLEM_IN_RIGHT_PAD_W"] = ctx.paddingVal[3];
+      // Data type
+      parameters["MIOPEN_USE_FP32"] = 1;
+      parameters["MIOPEN_USE_FP16"] = 0;
+      parameters["MIOPEN_USE_BFP16"] = 0;
+      // This is only needed in forward, since its kernel has the ability
+      // to run in more than one directions.
+      miopen::ConvOpType opType = ObtainConvDirection(op);
+      if (opType == miopen::ConvOpType::Conv2DOpType) {
+        parameters["CK_PARAM_PROBLEM_CONV_DIRECTION_FORWARD"] = 1;
+        parameters["CK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_DATA"] = 0;
+        parameters["CK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_WEIGHT"] = 0;
+      }
+
       // parameters truly tunable.
       parameters["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"] =
           validParams.gemmMPerBlock;
@@ -1043,6 +1019,17 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
       parameters["CK_PARAM_TUNABLE_GEMM_M_LEVEL1_CLUSTER"] = 4;
       parameters["CK_PARAM_TUNABLE_GEMM_N_LEVEL1_CLUSTER"] = 4;
 
+      // Emit code-gen related macros.
+      parameters["CK_THREADWISE_GEMM_USE_AMD_INLINE_ASM"] = 1;
+
+      // Setting flag to 1 means using inline ASM to do atomic add
+      // This is not supported in gfx906, disabling it now
+      if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+        parameters["CK_USE_AMD_BUFFER_ATOMIC_ADD"] = 0;
+      }
+
+      parameters["__HIP_PLATFORM_HCC__"] = 1;
+
       TunableParameters params(parameters);
 
       // Print out the tunable parameters.
@@ -1052,17 +1039,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
         params.dump("tunable.yaml");
       }
 
-      // Emit code-gen related macros.
-      output << " -DCK_THREADWISE_GEMM_USE_AMD_INLINE_ASM=1";
-
-      // Setting flag to 1 means using inline ASM to do atomic add
-      // This is not supported in gfx906, disabling it now
-      if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
-        output << " -DCK_USE_AMD_BUFFER_ATOMIC_ADD=0";
-      }
-
       output << " -std=c++14";
-      output << " -D__HIP_PLATFORM_HCC__=1";
       output << "\n";
     });
   }

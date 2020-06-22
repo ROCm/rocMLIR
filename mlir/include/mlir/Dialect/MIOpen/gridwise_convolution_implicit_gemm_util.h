@@ -2,6 +2,8 @@
 #include "mlir/IR/Function.h"
 #include "mlir/Target/MIOpenCPP.h"
 
+#define DEBUG_TYPE "miopen-tuning-parameter"
+
 using namespace mlir;
 
 static constexpr int kConv2DTensorDimension = 4;
@@ -161,10 +163,11 @@ private:
   }
 
 public:
-  void paramsFromCtx(ConvolutionContext &ctx, InitParamsNonXDL &validParams,
-                     GemmSize &gemmSize, DerivedParams &gemmADerivedParam,
-                     DerivedParams &gemmBDerivedParam,
-                     int64_t &gemmCDstPerWrite, int64_t &gridSize) {
+  LogicalResult paramsFromCtx(ConvolutionContext &ctx,
+                              InitParamsNonXDL &validParams, GemmSize &gemmSize,
+                              DerivedParams &gemmADerivedParam,
+                              DerivedParams &gemmBDerivedParam,
+                              int64_t &gemmCDstPerWrite, int64_t &gridSize) {
     LogicalResult res(LogicalResult::Failure);
 
     obtainGemmSize(ctx, gemmSize);
@@ -173,14 +176,16 @@ public:
 
       res = isValidGemm(&params, gemmSize);
       if (failed(res)) {
-        llvm::outs() << "invlid gemm\n";
+        LLVM_DEBUG(llvm::dbgs() << "Gemm size and gemm/block "
+                                << "size does not divide exactly.\n");
         continue;
       }
 
       res = calculateGemmABlockCopyPerformanceParameters(&params, ctx,
                                                          gemmADerivedParam);
       if (failed(res)) {
-        llvm::outs() << "invlid gemmA\n";
+        LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmA tuning parameter "
+                                << " size.\n");
         continue;
       }
 
@@ -188,7 +193,8 @@ public:
                                                          gemmBDerivedParam);
 
       if (failed(res)) {
-        llvm::outs() << "invlid gemmB\n";
+        LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmB tuning parameter "
+                                << " size.\n");
         continue;
       }
 
@@ -198,10 +204,12 @@ public:
 
     if (failed(res)) {
       // All initParameters have failed, shouldn't happen
-      llvm_unreachable("FATAL ERROR! COULD NOT FIND VALID TUNING PARAMETERS!");
+      llvm::errs() << "FATAL ERROR! COULD NOT FIND VALID TUNING PARAMETERS!\n";
+      return res;
     }
 
     gridSize = obtainGridSize(gemmSize, &validParams);
     gemmCDstPerWrite = calculateGemmCDestDataPerWrite(ctx);
+    return res;
   }
 };
