@@ -115,9 +115,12 @@ void AffixTuningParameters::runOnFunction() {
     int64_t gridSize;
 
     PopulateParams populateParams;
-    populateParams.paramsFromCtx(convContext, validParams, gemmSize,
-                                 gemmADerivedParam, gemmBDerivedParam,
-                                 gemmCDstPerWrite, gridSize);
+    LogicalResult status = populateParams.paramsFromCtx(
+        convContext, validParams, gemmSize, gemmADerivedParam,
+        gemmBDerivedParam, gemmCDstPerWrite, gridSize);
+    if (failed(status)) {
+      signalPassFailure();
+    }
 
     // TODO: Override the block size and grid size before populating params.
     // The way it is implemented now cannot guarantee cohereancy of tuning
@@ -149,7 +152,6 @@ void AffixTuningParameters::runOnFunction() {
                b.getI32IntegerAttr(gemmBDerivedParam.dstDataPerWrite));
 
     // Derived parameters for gemmC.
-    // XXX. We only use 2D coordinates when storing VGPR to global VRAM.
     op.setAttr("matrix_c_dest_data_per_write",
                b.getI32IntegerAttr(gemmCDstPerWrite));
 

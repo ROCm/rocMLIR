@@ -391,7 +391,7 @@ protected:
     return mlir::success();
   }
 
-  void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
+  static void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
     if (ctx.opType == mlir::miopen::ConvOpType::Conv2DOpType) {
       gemmSize.gemmM = ctx.dimIndexVal["k"].second;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second *
