@@ -161,10 +161,10 @@ static cl::opt<bool> useHostHarness(
     cl::value_desc("To use host harness"), cl::init(false));
 
 static cl::opt<int> blockSize("block_size", cl::desc("Block size"),
-                              cl::value_desc("Block size"), cl::init(1));
+                              cl::value_desc("Block size"), cl::init(0));
 
 static cl::opt<int> gridSize("grid_size", cl::desc("Grid size"),
-                             cl::value_desc("Grid size"), cl::init(1));
+                             cl::value_desc("Grid size"), cl::init(0));
 
 static LogicalResult populateHostLogic(ModuleOp &module, OpBuilder &builder,
                                        MLIRContext &context,
@@ -210,11 +210,6 @@ static LogicalResult populateHostLogic(ModuleOp &module, OpBuilder &builder,
     return success();
   }
 
-  // Populate a gpu.launch_func statement.
-  // - blockSize: from tuning parameter block_size.
-  // - gridSize: (gemm_m / m_per_block) * (gemm_n / n_per_block).
-  // TBD. Be able to retrive relevant parameters and memref dimensions from
-  // earlier passes.
   Block *block = &(theFunc.getBody().front());
   block->clear();
 
@@ -403,7 +398,15 @@ static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser 
     // Use fixed lowering pipeline.
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
     pm.addPass(mlir::miopen::createAffineTransformPass());
-    pm.addPass(mlir::miopen::createAffixTuningParametersPass());
+    pm.addPass(mlir::miopen::createAffixTuningParametersPass(
+        [&](int64_t computedBlockSize, int64_t computedGridSize) {
+          // Use computed block size and grid size in case they are not
+          // specified from command line.
+          if (blockSize == 0)
+            blockSize = computedBlockSize;
+          if (gridSize == 0)
+            gridSize = computedGridSize;
+        }));
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());

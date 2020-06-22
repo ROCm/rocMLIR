@@ -14,7 +14,13 @@ using namespace mlir;
 
 namespace {
 struct AffixTuningParameters : public MIOpenOpsAffixTuningParametersPassBase<AffixTuningParameters> {
+public:
+  AffixTuningParameters(LaunchDimensionCallback launchDimCallback)
+      : launchDimCallback(launchDimCallback) {}
   void runOnFunction() override;
+
+private:
+  LaunchDimensionCallback launchDimCallback;
 };
 } // anonymous namespace
 
@@ -124,9 +130,24 @@ void AffixTuningParameters::runOnFunction() {
 
     op.setAttr("matrix_c_source_dest_vector_read_write_dim", b.getI32IntegerAttr(3));
     op.setAttr("matrix_c_dest_data_per_write", b.getI32IntegerAttr(1));
+
+    auto filterType = op.filter().getType().template cast<MemRefType>();
+    auto inputType = op.input().getType().template cast<MemRefType>();
+    auto filterShape = filterType.getShape();
+    auto inputShape = inputType.getShape();
+    int64_t M = filterShape[1];
+    int64_t N = inputShape[1];
+    int64_t m_per_block = 128;
+    int64_t n_per_block = 128;
+    int64_t grid_size = (M / m_per_block) * (N / n_per_block);
+    int64_t block_size = 256;
+    if (launchDimCallback) {
+      launchDimCallback(block_size, grid_size);
+    }
   });
 }
 
-std::unique_ptr<Pass> mlir::miopen::createAffixTuningParametersPass() {
-  return std::make_unique<AffixTuningParameters>();
+std::unique_ptr<Pass> mlir::miopen::createAffixTuningParametersPass(
+    LaunchDimensionCallback launchDimCallback) {
+  return std::make_unique<AffixTuningParameters>(launchDimCallback);
 }
