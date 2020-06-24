@@ -46,6 +46,7 @@ std::unique_ptr<Pass> createAffineTransformPass();
 
 /// Create a pass to affix tuning parameters to gridwise gemm ops.
 std::unique_ptr<Pass> createAffixTuningParametersPass(
+    int64_t blockSizeOverride = 0,
     LaunchDimensionCallback launchDimCallback = nullptr);
 
 } // namespace miopen

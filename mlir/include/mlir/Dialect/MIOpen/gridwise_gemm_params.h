@@ -565,13 +565,17 @@ struct InitParamsNonXDL : InitParams {
 
 class PopulateParams : public PopulateParamsBase {
 private:
+  // clang-format off
   llvm::SmallVector<InitParamsNonXDL, 4> initParameters = {
       // M/block N/block K/block M/thread N/thread blockSize
       {128, 128, 8, 4, 4, 256},
       {128, 64, 8, 4, 4, 128},
       {64, 128, 4, 4, 4, 128},
+      {64, 64, 16, 4, 4, 64},
+      {32, 64, 16, 2, 4, 64},
       {32, 32, 4, 2, 2, 64},
   };
+  // clang-format on
 
   LogicalResult
   calculateGemmABlockCopyPerformanceParameters(InitParamsNonXDL *param,
@@ -624,6 +628,12 @@ public:
     obtainGemmSize(ctx, gemmSize);
 
     for (auto &params : initParameters) {
+      // We have an override on the blockSize, only loop through the
+      // initParameters with the same blockSize
+      if ((validParams.blockSize != 0) &&
+          (validParams.blockSize != params.blockSize)) {
+        continue;
+      }
 
       res = isValidGemm(&params, gemmSize);
       if (failed(res)) {
