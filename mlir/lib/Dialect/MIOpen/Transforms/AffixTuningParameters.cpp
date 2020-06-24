@@ -152,8 +152,11 @@ void AffixTuningParameters::runOnFunction() {
                b.getI32IntegerAttr(gemmBDerivedParam.dstDataPerWrite));
 
     // Derived parameters for gemmC.
-    op.setAttr("matrix_c_dest_data_per_write",
-               b.getI32IntegerAttr(gemmCDstPerWrite));
+    // TODO: Pending fix from
+    // https://github.com/whchung/llvm-project/pull/26/files#r444968168
+    // op.setAttr("matrix_c_dest_data_per_write",
+    //           b.getI32IntegerAttr(gemmCDstPerWrite));
+    op.setAttr("matrix_c_dest_data_per_write", b.getI32IntegerAttr(1));
 
     // Hard coded parameters, will change in a different pass. Please visit
     // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
