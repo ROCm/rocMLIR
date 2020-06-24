@@ -17,12 +17,26 @@ using namespace mlir;
 namespace {
 struct AffixTuningParameters : public MIOpenOpsAffixTuningParametersPassBase<AffixTuningParameters> {
 public:
-  AffixTuningParameters(LaunchDimensionCallback launchDimCallback)
-      : launchDimCallback(launchDimCallback) {}
+  AffixTuningParameters(int64_t blockSizeOverride,
+                        LaunchDimensionCallback launchDimCallback)
+      : launchDimCallback(launchDimCallback),
+        blockSizeOverride(blockSizeOverride) {}
   void runOnFunction() override;
 
 private:
   LaunchDimensionCallback launchDimCallback;
+  // Block size can be set in two ways:
+  // * Through the MLIR lowering pass:
+  //   At this case, blockSizeOverride will be initialized to zero. Then
+  //   the affix tuning parameters pass will decide on a block size.
+  //   Finally, block size will be hinted back to mlir-miopen-driver.
+  // * Through cmd option "block_size":
+  //   At this case, mlir-miopen-driver assigns a blockSizeOverride. As
+  //   a result, affix tuning parameters pass should make its decisions
+  //   to generate tuning parameters based on this blockSizeOverride.
+  //   This guarantess that affix tuning parameters pass generate
+  //   coherent tuning parameters with the pre-set block size.
+  int64_t blockSizeOverride;
 };
 } // anonymous namespace
 
@@ -107,7 +121,7 @@ void AffixTuningParameters::runOnFunction() {
     OpBuilder b(op.getContext());
 
     ConvolutionContext convContext = populateConvContext(op);
-    InitParamsNonXDL validParams{0, 0, 0, 0, 0, 0};
+    InitParamsNonXDL validParams{0, 0, 0, 0, 0, blockSizeOverride};
     GemmSize gemmSize;
     DerivedParams gemmADerivedParam;
     DerivedParams gemmBDerivedParam;
@@ -122,17 +136,12 @@ void AffixTuningParameters::runOnFunction() {
       signalPassFailure();
     }
 
-    // TODO: Override the block size and grid size before populating params.
-    // The way it is implemented now cannot guarantee cohereancy of tuning
-    // parameters
-    int64_t grid_size = gridSize;
-    int64_t block_size = validParams.blockSize;
     if (launchDimCallback) {
-      launchDimCallback(block_size, grid_size);
+      launchDimCallback(validParams.blockSize, gridSize);
     }
 
     // Tunable parameters.
-    op.setAttr("block_size", b.getI32IntegerAttr(block_size));
+    op.setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
     op.setAttr("m_per_block", b.getI32IntegerAttr(validParams.gemmMPerBlock));
     op.setAttr("n_per_block", b.getI32IntegerAttr(validParams.gemmNPerBlock));
     op.setAttr("k_per_block", b.getI32IntegerAttr(validParams.gemmKPerBlock));
@@ -173,6 +182,7 @@ void AffixTuningParameters::runOnFunction() {
 }
 
 std::unique_ptr<Pass> mlir::miopen::createAffixTuningParametersPass(
-    LaunchDimensionCallback launchDimCallback) {
-  return std::make_unique<AffixTuningParameters>(launchDimCallback);
+    int64_t blockSizeOverride, LaunchDimensionCallback launchDimCallback) {
+  return std::make_unique<AffixTuningParameters>(blockSizeOverride,
+                                                 launchDimCallback);
 }

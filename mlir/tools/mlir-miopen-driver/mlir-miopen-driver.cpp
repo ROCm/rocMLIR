@@ -636,7 +636,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser 
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
     pm.addPass(mlir::miopen::createAffineTransformPass());
     pm.addPass(mlir::miopen::createAffixTuningParametersPass(
-        [&](int64_t computedBlockSize, int64_t computedGridSize) {
+        blockSize, [&](int64_t computedBlockSize, int64_t computedGridSize) {
           // Use computed block size and grid size in case they are not
           // specified from command line.
           if (blockSize == 0)
