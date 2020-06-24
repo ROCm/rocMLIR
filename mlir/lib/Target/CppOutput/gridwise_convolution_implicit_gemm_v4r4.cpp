@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
-#include "mlir/Dialect/MIOpen/gridwise_convolution_implicit_gemm_util.h"
+#include "mlir/Dialect/MIOpen/gridwise_gemm_params.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
@@ -30,116 +30,6 @@ using namespace mlir;
 namespace {
 // result string to keep C++ source / header / flags emission.
 std::string resultStr;
-
-class PopulateParams : public PopulateParamsBase {
-private:
-  struct InitParamsNonXDL : InitParams {
-    InitParamsNonXDL(int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
-                     int64_t mPerThread, int64_t nPerThread, int64_t bSize)
-        : InitParams{mPerBlock, nPerBlock, kPerBlock},
-          gemmMPerThread(mPerThread), gemmNPerThread(nPerThread),
-          blockSize(bSize) {}
-    int64_t gemmMPerThread;
-    int64_t gemmNPerThread;
-    int64_t blockSize;
-  };
-
-  llvm::SmallVector<InitParamsNonXDL, 4> initParameters = {
-      // M/block N/block K/block M/thread N/thread blockSize
-      {128, 128, 8, 4, 4, 256},
-      {128, 64, 8, 4, 4, 128},
-      {64, 128, 4, 4, 4, 128},
-      {32, 32, 4, 2, 2, 64},
-  };
-
-  LogicalResult
-  calculateGemmABlockCopyPerformanceParameters(InitParamsNonXDL *param,
-                                               ConvolutionContext &ctx,
-                                               DerivedParams &derived) {
-    return calculateInputDerivedParams(param, param->blockSize, ctx, true,
-                                       derived);
-  }
-
-  LogicalResult
-  calculateGemmBBlockCopyPerformanceParameters(InitParamsNonXDL *param,
-                                               ConvolutionContext &ctx,
-                                               DerivedParams &derived) {
-
-    return calculateInputDerivedParams(param, param->blockSize, ctx, false,
-                                       derived);
-  }
-
-public:
-  void paramsFromCtx(ConvolutionContext &ctx,
-                     std::map<std::string, int> &params) {
-    LogicalResult res(LogicalResult::Failure);
-    InitParamsNonXDL validParams{0, 0, 0, 0, 0, 0};
-    DerivedParams gemmADerivedParam;
-    DerivedParams gemmBDerivedParam;
-
-    GemmSize gemmSize;
-    obtainGemmSize(ctx, gemmSize);
-
-    for (auto &params : initParameters) {
-
-      res = isValidGemm(&params, gemmSize);
-      if (failed(res)) {
-        continue;
-      }
-
-      res = calculateGemmABlockCopyPerformanceParameters(&params, ctx,
-                                                         gemmADerivedParam);
-      if (failed(res)) {
-        continue;
-      }
-
-      res = calculateGemmBBlockCopyPerformanceParameters(&params, ctx,
-                                                         gemmBDerivedParam);
-
-      if (failed(res)) {
-        continue;
-      }
-
-      validParams = params;
-      break;
-    }
-
-    if (failed(res)) {
-      // All initParameters have failed, shouldn't happen
-      llvm_unreachable("FATAL ERROR! COULD NOT FIND VALID TUNING PARAMETERS!");
-    }
-
-    // parameters truly tunable.
-    params["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"] = validParams.gemmMPerBlock;
-    params["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"] = validParams.gemmNPerBlock;
-    params["CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"] = validParams.gemmKPerBlock;
-    params["CK_PARAM_TUNABLE_GEMM_M_PER_THREAD"] = validParams.gemmMPerThread;
-    params["CK_PARAM_TUNABLE_GEMM_N_PER_THREAD"] = validParams.gemmNPerThread;
-
-    // parameters derivable from tunable parameters.
-    params["CK_PARAM_TUNABLE_BLOCK_SIZE"] = validParams.blockSize;
-    params["CK_PARAM_DEPENDENT_GRID_SIZE"] =
-        obtainGridSize(gemmSize, &validParams);
-
-    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] =
-        gemmADerivedParam.clusterLenGemmPos1;
-    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M"] =
-        gemmADerivedParam.clusterLenGemmPos2;
-    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM"] =
-        gemmADerivedParam.srcDataPerRead;
-    params["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M"] =
-        gemmADerivedParam.dstDataPerWrite;
-
-    params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] =
-        gemmBDerivedParam.clusterLenGemmPos1;
-    params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N"] =
-        gemmBDerivedParam.clusterLenGemmPos2;
-    params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM"] =
-        gemmBDerivedParam.srcDataPerRead;
-    params["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N"] =
-        gemmBDerivedParam.dstDataPerWrite;
-  }
-};
 
 static constexpr StringLiteral kVarArgName[3] = {"p_wei_global", "p_in_global",
                                                  "p_out_global"};
@@ -786,7 +676,9 @@ static void ObtainModuleInfo(ModuleOp &m,
     });
 
     // Second iteration. Determine convolution direction.
-    ObtainConvDirection(f, opType);
+    f.walk([&opType](miopen::GridwiseGemmOp op) {
+      opType = ObtainConvDirection(op);
+    });
   }
 }
 
@@ -1028,73 +920,98 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
 
   for (auto f : m.getOps<FuncOp>()) {
     output << f.getName() << "\n";
-    miopen::ConvOpType opType;
-    ObtainConvDirection(f, opType);
 
-    f.walk([&output, opType](miopen::GridwiseGemmOp op) {
-      llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
+    f.walk([&output](miopen::GridwiseGemmOp op) {
+      ConvolutionContext ctx = populateConvContext(op);
+      InitParamsNonXDL validParams{0, 0, 0, 0, 0, 0};
+      GemmSize gemmSize;
+      DerivedParams gemmADerivedParam;
+      DerivedParams gemmBDerivedParam;
+      int64_t gemmCDstPerWrite;
+      int64_t gridSize;
+
+      PopulateParams populateParams;
+      populateParams.paramsFromCtx(ctx, validParams, gemmSize,
+                                   gemmADerivedParam, gemmBDerivedParam,
+                                   gemmCDstPerWrite, gridSize);
+
+      std::map<std::string, int> parameters;
+
       // Filter
-      auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
-      auto filterDimensionAttr =
-          op.getAttrOfType<ArrayAttr>("filter_dimension");
-      populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
-      output << " -DCK_PARAM_PROBLEM_K=" << dimIndexVal["k"].second;
-      output << " -DCK_PARAM_PROBLEM_C=" << dimIndexVal["c"].second;
-      output << " -DCK_PARAM_PROBLEM_Y=" << dimIndexVal["y"].second;
-      output << " -DCK_PARAM_PROBLEM_X=" << dimIndexVal["x"].second;
+      parameters["CK_PARAM_PROBLEM_K"] = ctx.dimIndexVal["k"].second;
+      parameters["CK_PARAM_PROBLEM_C"] = ctx.dimIndexVal["c"].second;
+      parameters["CK_PARAM_PROBLEM_Y"] = ctx.dimIndexVal["y"].second;
+      parameters["CK_PARAM_PROBLEM_X"] = ctx.dimIndexVal["x"].second;
       // Input
-      auto inputLayoutAttr = op.getAttrOfType<ArrayAttr>("input_layout");
-      auto inputDimensionAttr = op.getAttrOfType<ArrayAttr>("input_dimension");
-      populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
-      output << " -DCK_PARAM_PROBLEM_N=" << dimIndexVal["ni"].second;
-      output << " -DCK_PARAM_PROBLEM_HI=" << dimIndexVal["hi"].second;
-      output << " -DCK_PARAM_PROBLEM_WI=" << dimIndexVal["wi"].second;
+      parameters["CK_PARAM_PROBLEM_N"] = ctx.dimIndexVal["ni"].second;
+      parameters["CK_PARAM_PROBLEM_HI"] = ctx.dimIndexVal["hi"].second;
+      parameters["CK_PARAM_PROBLEM_WI"] = ctx.dimIndexVal["wi"].second;
       // Output
-      auto outputLayoutAttr = op.getAttrOfType<ArrayAttr>("output_layout");
-      auto outputDimensionAttr = op.getAttrOfType<ArrayAttr>("output_dimension");
-      populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
-      output << " -DCK_PARAM_PROBLEM_HO=" << dimIndexVal["ho"].second;
-      output << " -DCK_PARAM_PROBLEM_WO=" << dimIndexVal["wo"].second;
-
+      parameters["CK_PARAM_PROBLEM_HO"] = ctx.dimIndexVal["ho"].second;
+      parameters["CK_PARAM_PROBLEM_WO"] = ctx.dimIndexVal["wo"].second;
       // Stride
-      auto strideAttr = op.getAttrOfType<ArrayAttr>("strides");
-      llvm::SmallVector<int64_t, 0> strideVal;
-      populateSeqVal(strideAttr, strideVal);
-      output << " -DCK_PARAM_PROBLEM_CONV_STRIDE_H=" << strideVal[0];
-      output << " -DCK_PARAM_PROBLEM_CONV_STRIDE_W=" << strideVal[1];
-
+      parameters["CK_PARAM_PROBLEM_CONV_STRIDE_H"] = ctx.strideVal[0];
+      parameters["CK_PARAM_PROBLEM_CONV_STRIDE_W"] = ctx.strideVal[1];
       // Dilation
-      auto dilationAttr = op.getAttrOfType<ArrayAttr>("dilations");
-      llvm::SmallVector<int64_t, 0> dilationVal;
-      populateSeqVal(dilationAttr, dilationVal);
-      output << " -DCK_PARAM_PROBLEM_CONV_DILATION_H=" << dilationVal[0];
-      output << " -DCK_PARAM_PROBLEM_CONV_DILATION_W=" << dilationVal[1];
-
+      parameters["CK_PARAM_PROBLEM_CONV_DILATION_H"] = ctx.dilationVal[0];
+      parameters["CK_PARAM_PROBLEM_CONV_DILATION_W"] = ctx.dilationVal[1];
       // Padding
-      auto paddingAttr = op.getAttrOfType<ArrayAttr>("padding");
-      llvm::SmallVector<int64_t, 0> paddingVal;
-      populateSeqVal(paddingAttr, paddingVal);
-      output << " -DCK_PARAM_PROBLEM_IN_LEFT_PAD_H=" << paddingVal[0];
-      output << " -DCK_PARAM_PROBLEM_IN_LEFT_PAD_W=" << paddingVal[1];
-      output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_H=" << paddingVal[2];
-      output << " -DCK_PARAM_PROBLEM_IN_RIGHT_PAD_W=" << paddingVal[3];
-
-      // TBD: be able to set data type.
-      output << " -DMIOPEN_USE_FP32=1 -DMIOPEN_USE_FP16=0 -DMIOPEN_USE_BFP16=0";
-
+      parameters["CK_PARAM_PROBLEM_IN_LEFT_PAD_H"] = ctx.paddingVal[0];
+      parameters["CK_PARAM_PROBLEM_IN_LEFT_PAD_W"] = ctx.paddingVal[1];
+      parameters["CK_PARAM_PROBLEM_IN_RIGHT_PAD_H"] = ctx.paddingVal[2];
+      parameters["CK_PARAM_PROBLEM_IN_RIGHT_PAD_W"] = ctx.paddingVal[3];
+      // Data type
+      parameters["MIOPEN_USE_FP32"] = 1;
+      parameters["MIOPEN_USE_FP16"] = 0;
+      parameters["MIOPEN_USE_BFP16"] = 0;
       // This is only needed in forward, since its kernel has the ability
       // to run in more than one directions.
+      miopen::ConvOpType opType = ObtainConvDirection(op);
       if (opType == miopen::ConvOpType::Conv2DOpType) {
-        output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_FORWARD=1";
-        output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_DATA=0";
-        output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_WEIGHT=0";
+        parameters["CK_PARAM_PROBLEM_CONV_DIRECTION_FORWARD"] = 1;
+        parameters["CK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_DATA"] = 0;
+        parameters["CK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_WEIGHT"] = 0;
       }
 
-      ConvolutionContext convContext{opType, dimIndexVal, strideVal,
-                                     dilationVal, paddingVal};
-      std::map<std::string, int> parameters;
-      PopulateParams populateParams;
-      populateParams.paramsFromCtx(convContext, parameters);
+      // parameters truly tunable.
+      parameters["CK_PARAM_TUNABLE_GEMM_M_PER_BLOCK"] =
+          validParams.gemmMPerBlock;
+      parameters["CK_PARAM_TUNABLE_GEMM_N_PER_BLOCK"] =
+          validParams.gemmNPerBlock;
+      parameters["CK_PARAM_TUNABLE_GEMM_K_PER_BLOCK"] =
+          validParams.gemmKPerBlock;
+      parameters["CK_PARAM_TUNABLE_GEMM_M_PER_THREAD"] =
+          validParams.gemmMPerThread;
+      parameters["CK_PARAM_TUNABLE_GEMM_N_PER_THREAD"] =
+          validParams.gemmNPerThread;
+
+      // parameters derivable from tunable parameters.
+      parameters["CK_PARAM_TUNABLE_BLOCK_SIZE"] = validParams.blockSize;
+      parameters["CK_PARAM_DEPENDENT_GRID_SIZE"] = gridSize;
+
+      parameters["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] =
+          gemmADerivedParam.clusterLenGemmPos1;
+      parameters["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M"] =
+          gemmADerivedParam.clusterLenGemmPos2;
+      parameters["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM"] =
+          gemmADerivedParam.srcDataPerRead;
+      parameters
+          ["CK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M"] =
+              gemmADerivedParam.dstDataPerWrite;
+
+      parameters["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K"] =
+          gemmBDerivedParam.clusterLenGemmPos1;
+      parameters["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N"] =
+          gemmBDerivedParam.clusterLenGemmPos2;
+      parameters["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM"] =
+          gemmBDerivedParam.srcDataPerRead;
+      parameters
+          ["CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N"] =
+              gemmBDerivedParam.dstDataPerWrite;
+
+      parameters
+          ["CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1"] =
+              gemmCDstPerWrite;
 
       // parameters fixed.
       parameters["CK_PARAM_TUNABLE_GEMM_M_LEVEL0_CLUSTER"] = 4;
@@ -1102,36 +1019,18 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
       parameters["CK_PARAM_TUNABLE_GEMM_M_LEVEL1_CLUSTER"] = 4;
       parameters["CK_PARAM_TUNABLE_GEMM_N_LEVEL1_CLUSTER"] = 4;
 
-      // paeterrameters varies depend on layout but set as fixed now
-      parameters
-          ["CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1"] =
-              1;
+      // Emit code-gen related macros.
+      parameters["CK_THREADWISE_GEMM_USE_AMD_INLINE_ASM"] = 1;
+
+      // Setting flag to 1 means using inline ASM to do atomic add
+      // This is not supported in gfx906, disabling it now
+      if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+        parameters["CK_USE_AMD_BUFFER_ATOMIC_ADD"] = 0;
+      }
+
+      parameters["__HIP_PLATFORM_HCC__"] = 1;
 
       TunableParameters params(parameters);
-
-      // Output tensor.
-      int64_t outputVecLen = 0;
-      if ((opType == miopen::ConvOpType::Conv2DOpType) &&
-          (dimIndexVal["ko"].first == 3)) {
-        // gemmM vectorizable. However, there is no parameters for vectorizing
-        // gemmM dimension for matrix C. Do nothing here.
-      } else if ((opType == miopen::ConvOpType::Conv2DBwdDataOpType) &&
-                 (dimIndexVal["ci"].first == 3)) {
-        // gemmM vectorizable. However, there is no parameters for vectorizing
-        // gemmM dimension for matrix C. Do nothing here.
-      } else {
-        PopulateParams::obtainGemmCVecLen(convContext, outputVecLen);
-      }
-
-      if ((outputVecLen > 0) && (outputVecLen % 4 == 0)) {
-        params.setValue(
-            "CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1",
-            4);
-      } else if ((outputVecLen > 0) && (outputVecLen % 2 == 0)) {
-        params.setValue(
-            "CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1",
-            2);
-      }
 
       // Print out the tunable parameters.
       params.print(output);
@@ -1140,17 +1039,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
         params.dump("tunable.yaml");
       }
 
-      // Emit code-gen related macros.
-      output << " -DCK_THREADWISE_GEMM_USE_AMD_INLINE_ASM=1";
-
-      // Setting flag to 1 means using inline ASM to do atomic add
-      // This is not supported in gfx906, disabling it now
-      if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
-        output << " -DCK_USE_AMD_BUFFER_ATOMIC_ADD=0";
-      }
-
       output << " -std=c++14";
-      output << " -D__HIP_PLATFORM_HCC__=1";
       output << "\n";
     });
   }

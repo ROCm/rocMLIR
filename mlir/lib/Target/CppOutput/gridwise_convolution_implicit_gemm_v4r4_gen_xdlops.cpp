@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
-#include "mlir/Dialect/MIOpen/gridwise_convolution_implicit_gemm_util.h"
+#include "mlir/Dialect/MIOpen/gridwise_gemm_params.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
@@ -984,10 +984,9 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
   llvm::raw_string_ostream output(resultStr);
 
   for (auto f : m.getOps<FuncOp>()) {
-    miopen::ConvOpType opType;
-    ObtainConvDirection(f, opType);
+    f.walk([&output](miopen::GridwiseGemmOp op) {
+      miopen::ConvOpType opType = ObtainConvDirection(op);
 
-    f.walk([&output, opType](miopen::GridwiseGemmOp op) {
       llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
       // Filter
       auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
