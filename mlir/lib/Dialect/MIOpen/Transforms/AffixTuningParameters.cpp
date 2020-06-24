@@ -25,6 +25,17 @@ public:
 
 private:
   LaunchDimensionCallback launchDimCallback;
+  // Block size can be set in two ways:
+  // * Through the MLIR lowering pass:
+  //   At this case, blockSizeOverride will be initialized to zero. Then
+  //   the affix tuning parameters pass will decide on a block size.
+  //   Finally, block size will be hinted back to mlir-miopen-driver.
+  // * Through cmd option "block_size":
+  //   At this case, mlir-miopen-driver assigns a blockSizeOverride. As
+  //   a result, affix tuning parameters pass should make its decisions
+  //   to generate tuning parameters based on this blockSizeOverride.
+  //   This guarantess that affix tuning parameters pass generate
+  //   coherent tuning parameters with the pre-set block size.
   int64_t blockSizeOverride;
 };
 } // anonymous namespace
