@@ -160,15 +160,35 @@ static cl::opt<bool> useHostHarness(
     "host", cl::desc("To use host harness"),
     cl::value_desc("To use host harness"), cl::init(false));
 
+static cl::opt<bool> populateHostHarness(
+    "ph", cl::desc("To populate host harness logic"),
+    cl::value_desc("To populate host harness logic"), cl::init(false));
+
 static cl::opt<int> blockSize("block_size", cl::desc("Block size"),
                               cl::value_desc("Block size"), cl::init(0));
 
 static cl::opt<int> gridSize("grid_size", cl::desc("Grid size"),
                              cl::value_desc("Grid size"), cl::init(0));
 
-static LogicalResult populateHostLogic(ModuleOp &module, OpBuilder &builder,
-                                       MLIRContext &context,
-                                       StringRef kernelName) {
+static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &builder,
+                                              MLIRContext &context) {
+  // Construct main function.
+  auto func = FuncOp::create(builder.getUnknownLoc(), "main", builder.getFunctionType({}, {}));
+  module.push_back(func);
+
+  // Construct a new Block.
+  Block *block = func.addEntryBlock();
+
+  auto returnOp =
+      builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
+  block->push_back(returnOp);
+
+  return success();
+}
+
+static LogicalResult populateHostKernelLaunchLogic(ModuleOp &module, OpBuilder &builder,
+                                                   MLIRContext &context,
+                                                   StringRef kernelName) {
   // Check if populate entry point exist.
   FuncOp theFunc;
   bool entryPointExist = false;
@@ -476,7 +496,13 @@ int main(int argc, char **argv) {
 
   // populate host launch logic.
   if (useHostHarness.getValue()) {
-    if (failed(populateHostLogic(module, builder, context, kernelName))) {
+    if (failed(populateHostKernelLaunchLogic(module, builder, context, kernelName))) {
+      llvm::errs() << "Host kernel launch logic populated failed.\n";
+      exit(1);
+    }
+  } else if (populateHostHarness.getValue()) {
+    if (failed(populateHostHarnessLogic(module, builder, context)) ||
+        failed(populateHostKernelLaunchLogic(module, builder, context, kernelName))) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);
     }
