@@ -1,9 +1,10 @@
 // mlir-opt -convert-linalg-to-loops -lower-affine -convert-scf-to-std -convert-std-to-llvm conv2d.mlir
-func @conv2d(%arg0: memref<?x?x?x?xf32>,
-             %arg1: memref<?x?x?x?xf32>,
-             %arg2: memref<?x?x?x?xf32>) {
-  linalg.conv(%arg0, %arg1, %arg2) {filter=[1,1], dilations=[1,1], padding=dense<0> : tensor<2x2xi64>} : memref<?x?x?x?xf32>,
-                                     memref<?x?x?x?xf32>,
-                                     memref<?x?x?x?xf32>
+// filter: YXCK
+// input : NHWC
+// output: NHWK
+func @conv2d(%filter: memref<3x3x8x128xf32>,
+             %input : memref<128x32x32x8xf32>,
+             %output: memref<128x30x30x128xf32>) {
+  linalg.conv(%filter, %input, %output) {strides=[1,1], dilations=[1,1], padding=dense<0> : tensor<2x2xi64>} : memref<3x3x8x128xf32>, memref<128x32x32x8xf32>, memref<128x30x30x128xf32>
   return
 }
