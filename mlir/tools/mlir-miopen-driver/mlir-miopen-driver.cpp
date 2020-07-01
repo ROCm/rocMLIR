@@ -633,6 +633,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser 
 
   if (loweringWithDefaultPipeline.getValue()) {
     // Use fixed lowering pipeline.
+
+    // Passes for lowering MIOpen dialect.
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
     pm.addPass(mlir::miopen::createAffineTransformPass());
     pm.addPass(mlir::miopen::createAffixTuningParametersPass(
@@ -649,6 +651,11 @@ static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser 
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
     pm.addPass(mlir::createLowerMIOpenOpsToGPUPass(kernelName));
+
+    // Passes for lowering linalg dialect.
+    pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+    pm.addPass(mlir::createLowerAffinePass());
+    pm.addPass(mlir::createLowerToCFGPass());
   } else {
     // Use lowering pipeline specified at command line.
     if (failed(passPipeline.addToPipeline(pm)))
