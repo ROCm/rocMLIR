@@ -143,4 +143,18 @@ module attributes {gpu.container_module} {
       "gpu.return"() : () -> ()
     } ) {gpu.kernel, sym_name = "kernel_1", type = (f32, memref<?xf32>) -> (), workgroup_attributions = 1: i64} : () -> ()
   }
+
+  gpu.module @mfma {
+    // CHECK-LABEL: func @mfma
+    //   CHECK: gpu.mfma
+    //   CHECK-NEXT: gpu.mfma
+    gpu.func @mfma(%a : f32, %b : f32, %c : vector<32xf32>) {
+      %c0 = constant 0 : i32
+      %c1 = constant 1 : i32
+      gpu.mfma(%a, %b, %c, %c0, %c0, %c1) : vector<32xf32>
+      %d = gpu.mfma(%a, %b, %c, %c0, %c0, %c1) : vector<32xf32>
+    
+      gpu.return
+    }
+  }
 }
