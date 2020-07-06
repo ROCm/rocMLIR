@@ -909,4 +909,21 @@ def GPU_MemcpyOp : GPU_Op<"memcpy", [GPU_AsyncOpInterface]> {
   let verifier = [{ return ::verify(*this); }];
 }
 
+// mfma
+def GPU_MFMAOp:
+    GPU_Op<"mfma">,
+    Arguments<(ins F32: $sourceA,
+                   F32: $sourceB,
+                   VectorOfRankAndType<[1], [F32]>: $destC,
+                   I32: $cbsz,
+                   I32: $abid,
+                   I32: $blgp)>,
+    Results<(outs VectorOfRankAndType<[1], [F32]>: $destD)> {
+  let summary = "XDLOPS MFMA";
+  let description = [{
+    The `gpu.mfma` op is an abstraction of XDLOPS.
+  }];
+  let parser = [{ return parseMFMAOp(parser, result); }];
+}
+
 #endif // GPU_OPS

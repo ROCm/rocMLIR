@@ -194,4 +194,18 @@ module attributes {gpu.container_module} {
     %1 = gpu.memcpy async [%0] %dst, %src : memref<3x7xf32>, memref<3x7xf32, 1>
     return
   }
+  
+  gpu.module @mfma {
+    // CHECK-LABEL: func @mfma
+    //   CHECK: gpu.mfma
+    //   CHECK-NEXT: gpu.mfma
+    gpu.func @mfma(%a : f32, %b : f32, %c : vector<32xf32>) {
+      %c0 = constant 0 : i32
+      %c1 = constant 1 : i32
+      gpu.mfma(%a, %b, %c, %c0, %c0, %c1) : vector<32xf32>
+      %d = gpu.mfma(%a, %b, %c, %c0, %c0, %c1) : vector<32xf32>
+    
+      gpu.return
+    }
+  }
 }
