@@ -194,3 +194,20 @@ gpu.module @test_module {
     std.return %result32, %result64 : f32, f64
   }
 }
+
+// -----
+
+gpu.module @test_module {
+  func @mfma_minimal(%arg0: f32, %arg1: f32, %arg2: memref<32xf32, 5>) {
+    %0 = vector.type_cast %arg2 : memref<32xf32, 5> to memref<vector<32xf32>, 5>
+    %1 = load %0[] : memref<vector<32xf32>, 5>
+    %c0_i32 = constant 0 : i32
+    %c1_i32 = constant 1 : i32
+
+    // CHECK: %{{.*}} = rocdl.mfma.f32.32x32x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : (!llvm.float, !llvm.float, !llvm<"<32 x float>">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"<32 x float>">
+    %2 = gpu.mfma(%arg0, %arg1, %1, %c1_i32, %c0_i32, %c0_i32) : vector<32xf32>
+
+    store %1, %0[] : memref<vector<32xf32>, 5>
+    return
+  }
+}

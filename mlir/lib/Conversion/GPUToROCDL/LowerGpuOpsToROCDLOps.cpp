@@ -72,6 +72,29 @@ public:
 
 } // anonymous namespace
 
+namespace mlir {
+struct MFMAOpLowering : ConvertToLLVMPattern {
+  explicit MFMAOpLowering(MLIRContext *context,
+                          LLVMTypeConverter &typeConverter)
+      : ConvertToLLVMPattern(gpu::MFMAOp::getOperationName(), context,
+                             typeConverter) {}
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto mfmaOp = cast<gpu::MFMAOp>(op);
+    auto adaptor = gpu::MFMAOpOperandAdaptor(operands);
+
+    // TBD, use different intrinsic based on supplied attributes.
+    rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x1f32>(
+        op, adaptor.destC().getType(),
+        ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
+                   adaptor.cbsz(), adaptor.abid(), adaptor.blgp()});
+    return success();
+  }
+};
+} // namespace mlir
+
 void mlir::populateGpuToROCDLConversionPatterns(
     LLVMTypeConverter &converter, OwningRewritePatternList &patterns) {
   populateWithGenerated(converter.getDialect()->getContext(), &patterns);
@@ -101,6 +124,9 @@ void mlir::populateGpuToROCDLConversionPatterns(
                                                 "__ocml_log2_f64");
   patterns.insert<OpToFuncCallLowering<TanhOp>>(converter, "__ocml_tanh_f32",
                                                 "__ocml_tanh_f64");
+
+  patterns.insert<MFMAOpLowering>(converter.getDialect()->getContext(),
+                                  converter);
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
