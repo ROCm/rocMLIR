@@ -754,5 +754,8 @@ def GPU_MFMAOp:
     The `gpu.mfma` op is an abstraction of XDLOPS.
   }];
   let parser = [{ return parseMFMAOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
 }
+
 #endif // GPU_OPS
