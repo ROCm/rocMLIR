@@ -784,15 +784,12 @@ static void print(OpAsmPrinter &p, GPUModuleOp op) {
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseMFMAOp(OpAsmParser &parser, OperationState &result) {
-  OpAsmParser::OperandType sourceA, sourceB, destC, cbsz, abid, blgp;
+  OpAsmParser::OperandType sourceA, sourceB, destC;
   Type destType;
   return failure(
       parser.parseLParen() || parser.parseOperand(sourceA) ||
       parser.parseComma() || parser.parseOperand(sourceB) ||
-      parser.parseComma() || parser.parseOperand(destC) ||
-      parser.parseComma() || parser.parseOperand(cbsz) || parser.parseComma() ||
-      parser.parseOperand(abid) || parser.parseComma() ||
-      parser.parseOperand(blgp) || parser.parseRParen() ||
+      parser.parseComma() || parser.parseOperand(destC) || parser.parseRParen() ||
       parser.parseOptionalAttrDict(result.attributes) ||
       parser.parseColonType(destType) ||
       parser.resolveOperand(sourceA, parser.getBuilder().getF32Type(),
@@ -800,12 +797,6 @@ static ParseResult parseMFMAOp(OpAsmParser &parser, OperationState &result) {
       parser.resolveOperand(sourceB, parser.getBuilder().getF32Type(),
                             result.operands) ||
       parser.resolveOperand(destC, destType, result.operands) ||
-      parser.resolveOperand(cbsz, parser.getBuilder().getI32Type(),
-                            result.operands) ||
-      parser.resolveOperand(abid, parser.getBuilder().getI32Type(),
-                            result.operands) ||
-      parser.resolveOperand(blgp, parser.getBuilder().getI32Type(),
-                            result.operands) ||
       parser.addTypeToList(destType, result.types));
   return success();
 }

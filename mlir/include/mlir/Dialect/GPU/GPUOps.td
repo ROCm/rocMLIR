@@ -747,10 +747,7 @@ def GPU_MFMAOp:
     GPU_Op<"mfma">,
     Arguments<(ins F32: $sourceA,
                    F32: $sourceB,
-                   VectorOfRankAndType<[1], [F32]>: $destC,
-                   I32: $cbsz,
-                   I32: $abid,
-                   I32: $blgp)>,
+                   VectorOfRankAndType<[1], [F32]>: $destC)>,
     Results<(outs VectorOfRankAndType<[1], [F32]>: $destD)> {
   let summary = "XDLOPS MFMA";
   let description = [{
