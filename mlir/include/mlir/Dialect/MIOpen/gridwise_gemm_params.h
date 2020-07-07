@@ -563,17 +563,24 @@ struct InitParamsNonXDL : InitParams {
   int64_t blockSize;
 };
 
+// block gemm tuning params that sepcific the layout of thread-wise gemm in a
+// workgroup
+struct DerivedBlockGemmParams {
+	int64_t gemmMLevel0Cluster;
+	int64_t gemmNLevel0Cluster;
+	int64_t gemmMLevel1Cluster;
+	int64_t gemmNLevel1Cluster;
+};
+
 class PopulateParams : public PopulateParamsBase {
 private:
   // clang-format off
   llvm::SmallVector<InitParamsNonXDL, 4> initParameters = {
       // M/block N/block K/block M/thread N/thread blockSize
-      {128, 128, 8, 4, 4, 256},
-      {128, 64, 8, 4, 4, 128},
-      {64, 128, 4, 4, 4, 128},
-      {64, 64, 16, 4, 4, 64},
-      {32, 64, 16, 2, 4, 64},
-      {32, 32, 4, 2, 2, 64},
+	  {128, 128, 8, 4, 4, 256}, {128, 64, 8, 4, 4, 128},
+	  {64, 128, 4, 4, 4, 128},  {64, 64, 16, 4, 4, 64},
+	  {32, 64, 16, 2, 4, 64},   {64, 32, 16, 4, 2, 64},
+	  {32, 32, 4, 2, 2, 64}
   };
   // clang-format on
 
@@ -594,7 +601,7 @@ private:
                                        derived);
   }
 
-  int64_t calculateGemmCDestDataPerWrite(ConvolutionContext &ctx) {
+  int64_t calculateGemmCDestDataPerWrite(InitParamsNonXDL *param, ConvolutionContext &ctx) {
     int64_t outputVecLen = 0;
     if ((ctx.opType == miopen::ConvOpType::Conv2DOpType) &&
         (ctx.dimIndexVal["ko"].first == 3)) {
@@ -608,6 +615,8 @@ private:
       obtainGemmCVecLen(ctx, outputVecLen);
     }
 
+    outputVecLen = std::__gcd(outputVecLen, param->gemmNPerThread);
+
     if ((outputVecLen > 0) && (outputVecLen % 4 == 0)) {
       return 4;
     } else if ((outputVecLen > 0) && (outputVecLen % 2 == 0)) {
@@ -617,11 +626,96 @@ private:
     return 1;
   }
 
+  LogicalResult
+  CalculateBlockGemmPerformanceParameters(InitParamsNonXDL *param,
+                                          ConvolutionContext &ctx,
+                                          DerivedBlockGemmParams &derived) {
+
+    derived.gemmMLevel0Cluster = 0;
+    derived.gemmNLevel0Cluster = 0;
+    derived.gemmMLevel1Cluster = 0;
+    derived.gemmNLevel1Cluster = 0;
+
+    if (param->blockSize == 64) {
+      derived.gemmMLevel0Cluster = 4;
+      derived.gemmNLevel0Cluster = 4;
+      derived.gemmMLevel1Cluster = 2;
+      derived.gemmNLevel1Cluster = 2;
+    } else if (param->blockSize == 128) {
+      derived.gemmMLevel0Cluster = 4;
+      derived.gemmNLevel0Cluster = 4;
+      derived.gemmMLevel1Cluster = 4;
+      derived.gemmNLevel1Cluster = 2;
+    } else if (param->blockSize == 256) {
+      derived.gemmMLevel0Cluster = 4;
+      derived.gemmNLevel0Cluster = 4;
+      derived.gemmMLevel1Cluster = 4;
+      derived.gemmNLevel1Cluster = 4;
+    } else {
+      return failure();
+    }
+
+    if (!(param->gemmMPerThread >= 2 && param->gemmMPerThread <= 4))
+      return failure();
+
+    if (!(param->gemmNPerThread >= 2 && param->gemmNPerThread <= 4))
+      return failure();
+
+    if (!(param->gemmMPerBlock % param->gemmMPerThread == 0 &&
+          param->gemmNPerBlock % param->gemmNPerThread == 0))
+      return failure();
+
+    const auto threadGemmMPerBlock =
+        param->gemmMPerBlock / param->gemmMPerThread;
+    const auto threadGemmNPerBlock =
+        param->gemmNPerBlock / param->gemmNPerThread;
+
+    const auto threadGemmMPerCluster =
+        derived.gemmMLevel0Cluster * derived.gemmMLevel1Cluster;
+    const auto threadGemmNPerCluster =
+        derived.gemmNLevel0Cluster * derived.gemmNLevel1Cluster;
+
+    if (!(threadGemmMPerBlock % threadGemmMPerCluster == 0) &&
+        (threadGemmNPerBlock % threadGemmNPerCluster == 0))
+      return failure();
+
+    const auto clusterMPerBlock = threadGemmMPerBlock / threadGemmMPerCluster;
+    const auto clusterNPerBlock = threadGemmNPerBlock / threadGemmNPerCluster;
+
+    // inline asm only support clusterMPerBlock = 2 andclusterNPerBlock =
+    // 2
+    if (!(clusterMPerBlock == 2 && clusterNPerBlock == 2))
+      return failure();
+
+    return success();
+  }
+
+  void obtainGemmCWriteVecLen(ConvolutionContext &ctx, InitParamsNonXDL &params,
+                              int64_t &vecLen) {
+    // Output tensor.
+    int64_t outputVecLen = 1;
+
+    if ((ctx.opType == miopen::ConvOpType::Conv2DOpType) &&
+        (ctx.dimIndexVal["ko"].first == 3)) {
+      // gemmM vectorizable. However, there is no parameters for vectorizing
+      // gemmM dimension for matrix C. Do nothing here.
+    } else if ((ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) &&
+               (ctx.dimIndexVal["ci"].first == 3)) {
+      // gemmM vectorizable. However, there is no parameters for vectorizing
+      // gemmM dimension for matrix C. Do nothing here.
+    } else {
+      obtainGemmCVecLen(ctx, outputVecLen);
+    }
+
+    vecLen = std::__gcd(outputVecLen, params.gemmNPerThread);
+  }
+
 public:
   LogicalResult paramsFromCtx(ConvolutionContext &ctx,
                               InitParamsNonXDL &validParams, GemmSize &gemmSize,
                               DerivedParams &gemmADerivedParam,
                               DerivedParams &gemmBDerivedParam,
+                              DerivedBlockGemmParams &blockGemmDerivedParam,
                               int64_t &gemmCDstPerWrite, int64_t &gridSize) {
     LogicalResult res(LogicalResult::Failure);
 
@@ -653,8 +747,18 @@ public:
       res = calculateGemmBBlockCopyPerformanceParameters(&params, ctx,
                                                          gemmBDerivedParam);
 
+
       if (failed(res)) {
         LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmB tuning parameter "
+                                << " size.\n");
+        continue;
+      }
+
+      res = CalculateBlockGemmPerformanceParameters(&params, ctx,
+                                                    blockGemmDerivedParam);
+
+      if (failed(res)) {
+        LLVM_DEBUG(llvm::dbgs() << "Incoherent blockGemm tuning parameter "
                                 << " size.\n");
         continue;
       }
@@ -670,7 +774,7 @@ public:
     }
 
     gridSize = obtainGridSize(gemmSize, &validParams);
-    gemmCDstPerWrite = calculateGemmCDestDataPerWrite(ctx);
+    gemmCDstPerWrite = calculateGemmCDestDataPerWrite(&validParams, ctx);
     return res;
   }
 };

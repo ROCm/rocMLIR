@@ -125,13 +125,14 @@ void AffixTuningParameters::runOnFunction() {
     GemmSize gemmSize;
     DerivedParams gemmADerivedParam;
     DerivedParams gemmBDerivedParam;
+    DerivedBlockGemmParams blockGemmDerivedParam;
     int64_t gemmCDstPerWrite;
     int64_t gridSize;
 
     PopulateParams populateParams;
     LogicalResult status = populateParams.paramsFromCtx(
         convContext, validParams, gemmSize, gemmADerivedParam,
-        gemmBDerivedParam, gemmCDstPerWrite, gridSize);
+        gemmBDerivedParam, blockGemmDerivedParam, gemmCDstPerWrite, gridSize);
     if (failed(status)) {
       signalPassFailure();
     }
