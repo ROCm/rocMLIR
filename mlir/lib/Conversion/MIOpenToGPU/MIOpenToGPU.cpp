@@ -242,7 +242,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         b.setInsertionPoint(op);
         Value newOp =
             b.create<gpu::MFMAOp>(loc, op.getType(), op.sourceA(), op.sourceB(),
-                                  op.destC(), op.cbsz(), op.abid(), op.blgp());
+                                  op.destC());
         auto gpuMfmaOp = cast<gpu::MFMAOp>(newOp.getDefiningOp());
         if (op.getAttr("m_per_wave"))
           gpuMfmaOp.setAttr("m_per_wave", op.getAttr("m_per_wave"));
