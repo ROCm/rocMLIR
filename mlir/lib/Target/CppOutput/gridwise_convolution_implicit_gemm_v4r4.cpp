@@ -927,12 +927,13 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
       GemmSize gemmSize;
       DerivedParams gemmADerivedParam;
       DerivedParams gemmBDerivedParam;
+      DerivedBlockGemmParams blockGemmDerivedParam;
       int64_t gemmCDstPerWrite;
       int64_t gridSize;
 
       PopulateParams populateParams;
       populateParams.paramsFromCtx(ctx, validParams, gemmSize,
-                                   gemmADerivedParam, gemmBDerivedParam,
+                                   gemmADerivedParam, gemmBDerivedParam, blockGemmDerivedParam,
                                    gemmCDstPerWrite, gridSize);
 
       std::map<std::string, int> parameters;
@@ -1013,11 +1014,14 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
           ["CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1"] =
               gemmCDstPerWrite;
 
-      // parameters fixed.
-      parameters["CK_PARAM_TUNABLE_GEMM_M_LEVEL0_CLUSTER"] = 4;
-      parameters["CK_PARAM_TUNABLE_GEMM_N_LEVEL0_CLUSTER"] = 4;
-      parameters["CK_PARAM_TUNABLE_GEMM_M_LEVEL1_CLUSTER"] = 4;
-      parameters["CK_PARAM_TUNABLE_GEMM_N_LEVEL1_CLUSTER"] = 4;
+      parameters["CK_PARAM_TUNABLE_GEMM_M_LEVEL0_CLUSTER"] =
+          blockGemmDerivedParam.gemmMLevel0Cluster;
+      parameters["CK_PARAM_TUNABLE_GEMM_N_LEVEL0_CLUSTER"] =
+          blockGemmDerivedParam.gemmNLevel0Cluster;
+      parameters["CK_PARAM_TUNABLE_GEMM_M_LEVEL1_CLUSTER"] =
+          blockGemmDerivedParam.gemmMLevel1Cluster;
+      parameters["CK_PARAM_TUNABLE_GEMM_N_LEVEL1_CLUSTER"] =
+          blockGemmDerivedParam.gemmNLevel1Cluster;
 
       // Emit code-gen related macros.
       parameters["CK_THREADWISE_GEMM_USE_AMD_INLINE_ASM"] = 1;
