@@ -434,14 +434,81 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
           }
         } else if (sourceElementType == b.getBF16Type()) {
           if (MPerWave == 64 && NPerWave == 64) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_32x32x2bf16<64, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float32_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x2bf16(reg_a, reg_b, reg_c[0], 1, 0, 0);
+            //   reg_c[1] = llvm_intrin_amdgcn_mfma_f32_32x32x2bf16(reg_a, reg_b, reg_c[1], 1, 1, 0);
+            mfmaInstr = "mfma_f32_32x32x2bf16";
+            vectorLength = 32;
+            mfmaInstrLength = 2;
+            imms.push_back({ 1, 0, 0 });
+            imms.push_back({ 1, 1, 0 });
           } else if (MPerWave == 32 && NPerWave == 64) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_32x32x2bf16<32, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float32_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x2bf16(reg_a, reg_b, reg_c[0], 1, 0, 0);
+            mfmaInstr = "mfma_f32_32x32x2bf16";
+            vectorLength = 32;
+            mfmaInstrLength = 1;
+            imms.push_back({ 1, 0, 0 });
           } else if (MPerWave == 64 && NPerWave == 32) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_32x32x2bf16<64, 32>(const ushort2_t& reg_a, const ushort2_t& reg_b, float32_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x2bf16(reg_a, reg_b, reg_c[0], 0, 0, 1);
+            mfmaInstr = "mfma_f32_32x32x2bf16";
+            vectorLength = 32;
+            mfmaInstrLength = 1;
+            imms.push_back({ 0, 0, 1 });
           } else if (MPerWave == 32 && NPerWave == 32) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_32x32x4bf16(const ushort2_t& reg_a, const ushort2_t& reg_b, float16_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x4bf16(reg_a, reg_b, reg_c[0], 0, 0, 0);
+            mfmaInstr = "mfma_f32_32x32x4bf16";
+            vectorLength = 16;
+            mfmaInstrLength = 1;
+            imms.push_back({ 0, 0, 0 });
           } else if (MPerWave == 16 && NPerWave == 16) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_16x16x8bf16(const ushort2_t& reg_a, const ushort2_t& reg_b, float4_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x8bf16(reg_a, reg_b, reg_c[0], 0, 0, 0);
+            mfmaInstr = "mfma_f32_16x16x8bf16";
+            vectorLength = 4;
+            mfmaInstrLength = 1;
+            imms.push_back({ 0, 0, 0 });
           } else if (MPerWave == 16 && NPerWave == 64) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_16x16x2bf16<16, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float16_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x2bf16(reg_a, reg_b, reg_c[0], 2, 0, 0);
+            mfmaInstr = "mfma_f32_16x16x2bf16";
+            vectorLength = 16;
+            mfmaInstrLength = 1;
+            imms.push_back({ 2, 0, 0 });
           } else if (MPerWave == 64 && NPerWave == 16) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_16x16x2bf16<64, 16>(const ushort2_t& reg_a, const ushort2_t& reg_b, float16_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x2bf16(reg_a, reg_b, reg_c[0], 0, 0, 4);
+            mfmaInstr = "mfma_f32_16x16x2bf16";
+            vectorLength = 16;
+            mfmaInstrLength = 1;
+            imms.push_back({ 0, 0, 4 });
           } else if (MPerWave == 4 && NPerWave == 64) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_4x4x2bf16<4, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float4_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x2bf16(reg_a, reg_b, reg_c[0], 4, 0, 0);
+            mfmaInstr = "mfma_f32_4x4x2bf16";
+            vectorLength = 4;
+            mfmaInstrLength = 1;
+            imms.push_back({ 4, 0, 0 });
           } else if (MPerWave == 8 && NPerWave == 64) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_4x4x2bf16<8, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float4_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x2bf16(reg_a, reg_b, reg_c[0], 4, 0, 0);
+            //   reg_c[1] = llvm_intrin_amdgcn_mfma_f32_4x4x2bf16(reg_a, reg_b, reg_c[1], 4, 1, 0);
+            mfmaInstr = "mfma_f32_4x4x2bf16";
+            vectorLength = 4;
+            mfmaInstrLength = 2;
+            imms.push_back({ 4, 0, 0 });
+            imms.push_back({ 4, 1, 0 });
           } else {
             // Unhandled cases for BF16.
           }
