@@ -512,29 +512,19 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseMFMAOp(OpAsmParser &parser, OperationState &result) {
-  OpAsmParser::OperandType sourceA, sourceB, destC;
-  Type destType;
+  SmallVector<OpAsmParser::OperandType, 3> ops;
+  SmallVector<Type, 3> types;
   return failure(
-      parser.parseLParen() ||
-      parser.parseOperand(sourceA) ||
-      parser.parseComma() ||
-      parser.parseOperand(sourceB) ||
-      parser.parseComma() ||
-      parser.parseOperand(destC) ||
-      parser.parseRParen() ||
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
       parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonType(destType) ||
-      parser.resolveOperand(sourceA, parser.getBuilder().getF32Type(), result.operands) ||
-      parser.resolveOperand(sourceB, parser.getBuilder().getF32Type(), result.operands) ||
-      parser.resolveOperand(destC, destType, result.operands) ||
-      parser.addTypeToList(destType, result.types));
-  return success();
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
 }
 
-static void print(OpAsmPrinter &p, miopen::MFMAOp op) {
+static void print(OpAsmPrinter &p, MFMAOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getType();
+  p << " : " << op.getOperandTypes();
 }
 
 static LogicalResult verify(miopen::MFMAOp op) {
