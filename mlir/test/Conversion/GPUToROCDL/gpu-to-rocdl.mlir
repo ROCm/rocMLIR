@@ -206,7 +206,7 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (!llvm.float, !llvm.float, !llvm<"<32 x float>">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"<32 x float>">
-    %2 = gpu.mfma(%arg0, %arg1, %1) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : vector<32xf32>
+    %2 = gpu.mfma(%arg0, %arg1, %1) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : f32, vector<32xf32>
     store %2, %0[%c0] : memref<2xvector<32xf32>>
     %c1 = constant 1 : index
     %3 = load %0[%c1] : memref<2xvector<32xf32>>
@@ -214,7 +214,7 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(1 : i32) : !llvm.i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (!llvm.float, !llvm.float, !llvm<"<32 x float>">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"<32 x float>">
-    %4 = gpu.mfma(%arg0, %arg1, %3) {imm = [1 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : vector<32xf32>
+    %4 = gpu.mfma(%arg0, %arg1, %3) {imm = [1 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : f32, vector<32xf32>
     store %4, %0[%c1] : memref<2xvector<32xf32>>
 
     // ----
@@ -226,7 +226,7 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (!llvm.float, !llvm.float, !llvm<"<32 x float>">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"<32 x float>">
-    %7 = gpu.mfma(%arg0, %arg1, %6) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : vector<32xf32>
+    %7 = gpu.mfma(%arg0, %arg1, %6) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : f32, vector<32xf32>
     store %7, %5[%c0_0] : memref<2xvector<32xf32>>
 
     // ----
@@ -238,7 +238,7 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(1 : i32) : !llvm.i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (!llvm.float, !llvm.float, !llvm<"<32 x float>">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"<32 x float>">
-    %10 = gpu.mfma(%arg0, %arg1, %9) {imm = [0 : i32, 0 : i32, 1 : i32], instr = "mfma_f32_32x32x1f32"} : vector<32xf32>
+    %10 = gpu.mfma(%arg0, %arg1, %9) {imm = [0 : i32, 0 : i32, 1 : i32], instr = "mfma_f32_32x32x1f32"} : f32, vector<32xf32>
     store %10, %8[%c0_1] : memref<2xvector<32xf32>>
 
     // ----
@@ -250,7 +250,7 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x2f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (!llvm.float, !llvm.float, !llvm<"<16 x float>">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"<16 x float>">
-    %13 = gpu.mfma(%arg0, %arg1, %12) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x2f32"} : vector<16xf32>
+    %13 = gpu.mfma(%arg0, %arg1, %12) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x2f32"} : f32, vector<16xf32>
     store %13, %11[%c0_2] : memref<4xvector<16xf32>>
 
     // ----
@@ -262,7 +262,7 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.16x16x4f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (!llvm.float, !llvm.float, !llvm<"<4 x float>">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"<4 x float>">
-    %16 = gpu.mfma(%arg0, %arg1, %15) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x4f32"} : vector<4xf32>
+    %16 = gpu.mfma(%arg0, %arg1, %15) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x4f32"} : f32, vector<4xf32>
     store %16, %14[%c0_3] : memref<16xvector<4xf32>>
 
     // ----
@@ -274,7 +274,7 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.16x16x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (!llvm.float, !llvm.float, !llvm<"<16 x float>">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"<16 x float>">
-    %19 = gpu.mfma(%arg0, %arg1, %18) {imm = [2 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x1f32"} : vector<16xf32>
+    %19 = gpu.mfma(%arg0, %arg1, %18) {imm = [2 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x1f32"} : f32, vector<16xf32>
     store %19, %17[%c0_4] : memref<4xvector<16xf32>>
 
     // ----
@@ -286,7 +286,7 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(4 : i32) : !llvm.i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.16x16x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (!llvm.float, !llvm.float, !llvm<"<16 x float>">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"<16 x float>">
-    %22 = gpu.mfma(%arg0, %arg1, %21) {imm = [0 : i32, 0 : i32, 4 : i32], instr = "mfma_f32_16x16x1f32"} : vector<16xf32>
+    %22 = gpu.mfma(%arg0, %arg1, %21) {imm = [0 : i32, 0 : i32, 4 : i32], instr = "mfma_f32_16x16x1f32"} : f32, vector<16xf32>
     store %22, %20[%c0_5] : memref<4xvector<16xf32>>
 
     // ----
@@ -298,7 +298,7 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.4x4x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (!llvm.float, !llvm.float, !llvm<"<4 x float>">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"<4 x float>">
-    %25 = gpu.mfma(%arg0, %arg1, %24) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : vector<4xf32>
+    %25 = gpu.mfma(%arg0, %arg1, %24) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : f32, vector<4xf32>
     store %25, %23[%c0_6] : memref<16xvector<4xf32>>
 
     // ----
@@ -310,7 +310,7 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.4x4x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (!llvm.float, !llvm.float, !llvm<"<4 x float>">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"<4 x float>">
-    %28 = gpu.mfma(%arg0, %arg1, %27) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : vector<4xf32>
+    %28 = gpu.mfma(%arg0, %arg1, %27) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : f32, vector<4xf32>
     store %28, %26[%c0_7] : memref<16xvector<4xf32>>
     %c1_8 = constant 1 : index
     %29 = load %26[%c1_8] : memref<16xvector<4xf32>>
@@ -318,7 +318,7 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(1 : i32) : !llvm.i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.4x4x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (!llvm.float, !llvm.float, !llvm<"<4 x float>">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"<4 x float>">
-    %30 = gpu.mfma(%arg0, %arg1, %29) {imm = [4 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : vector<4xf32>
+    %30 = gpu.mfma(%arg0, %arg1, %29) {imm = [4 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : f32, vector<4xf32>
     store %30, %26[%c1_8] : memref<16xvector<4xf32>>
     return
   }

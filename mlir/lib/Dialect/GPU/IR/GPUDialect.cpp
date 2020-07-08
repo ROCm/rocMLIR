@@ -785,26 +785,24 @@ static void print(OpAsmPrinter &p, GPUModuleOp op) {
 
 static ParseResult parseMFMAOp(OpAsmParser &parser, OperationState &result) {
   OpAsmParser::OperandType sourceA, sourceB, destC;
-  Type destType;
+  SmallVector<Type, 2> types;
   return failure(
       parser.parseLParen() || parser.parseOperand(sourceA) ||
       parser.parseComma() || parser.parseOperand(sourceB) ||
       parser.parseComma() || parser.parseOperand(destC) || parser.parseRParen() ||
       parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonType(destType) ||
-      parser.resolveOperand(sourceA, parser.getBuilder().getF32Type(),
-                            result.operands) ||
-      parser.resolveOperand(sourceB, parser.getBuilder().getF32Type(),
-                            result.operands) ||
-      parser.resolveOperand(destC, destType, result.operands) ||
-      parser.addTypeToList(destType, result.types));
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperand(sourceA, types[0], result.operands) ||
+      parser.resolveOperand(sourceB, types[0], result.operands) ||
+      parser.resolveOperand(destC, types[1], result.operands) ||
+      parser.addTypeToList(types[1], result.types));
   return success();
 }
 
 static void print(OpAsmPrinter &p, gpu::MFMAOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getType();
+  p << " : " << op.getOperand(0).getType() << ", " << op.getOperand(2).getType();
 }
 
 static LogicalResult verify(gpu::MFMAOp op) { return success(); }
