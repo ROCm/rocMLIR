@@ -69,7 +69,7 @@ module {
 
     // ----
 
-    miopen.mfma(%a, %b, %c) { m_per_wave = 8, n_per_wave = 64 }: f32, f32, memref<64xf32>
+    miopen.mfma(%a, %b, %c) { m_per_wave = 4, n_per_wave = 64 }: f32, f32, memref<64xf32>
     // CHECK:      %[[MV:.*]] = vector.type_cast %{{.*}} : memref<64xf32> to memref<16xvector<4xf32>>
     // CHECK-NEXT: %[[IT:.*]] = constant 0 : index
     // CHECK-NEXT: %[[LD:.*]] = load %[[MV]][%[[IT]]] : memref<16xvector<4xf32>>
@@ -78,7 +78,7 @@ module {
 
     // ----
 
-    miopen.mfma(%a, %b, %c) { m_per_wave = 4, n_per_wave = 64 }: f32, f32, memref<64xf32>
+    miopen.mfma(%a, %b, %c) { m_per_wave = 8, n_per_wave = 64 }: f32, f32, memref<64xf32>
     // CHECK:      %[[MV:.*]] = vector.type_cast %{{.*}} : memref<64xf32> to memref<16xvector<4xf32>>
     // CHECK-NEXT: %[[IT0:.*]] = constant 0 : index
     // CHECK-NEXT: %[[LD0:.*]] = load %[[MV]][%[[IT0]]] : memref<16xvector<4xf32>>
