@@ -513,18 +513,20 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
 
 static ParseResult parseMFMAOp(OpAsmParser &parser, OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 3> ops;
-  SmallVector<Type, 3> types;
+  SmallVector<Type, 2> types;
   return failure(
       parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
       parser.parseOptionalAttrDict(result.attributes) ||
       parser.parseColonTypeList(types) ||
-      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+      parser.resolveOperand(ops[0], types[0], result.operands) ||
+      parser.resolveOperand(ops[1], types[0], result.operands) ||
+      parser.resolveOperand(ops[2], types[1], result.operands));
 }
 
 static void print(OpAsmPrinter &p, MFMAOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperandTypes();
+  p << " : " << op.getOperand(0).getType() << ", " << op.getOperand(2).getType();
 }
 
 static LogicalResult verify(miopen::MFMAOp op) {

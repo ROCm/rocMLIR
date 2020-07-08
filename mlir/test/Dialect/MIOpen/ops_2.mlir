@@ -219,7 +219,7 @@ func @miopen_threadwise_gemm(%lhs : memref<4x8xf32>, %rhs : memref<4x8xf32>, %ou
 //  CHECK: miopen.threadwise_gemm
 
 func @miopen_mfma(%a : f32, %b : f32, %c : memref<64xf32>) {
-  miopen.mfma(%a, %b, %c) { m_per_wave = 64, n_per_wave = 64 } : f32, f32, memref<64xf32>
+  miopen.mfma(%a, %b, %c) { m_per_wave = 64, n_per_wave = 64 } : f32, memref<64xf32>
   return
 }
 
