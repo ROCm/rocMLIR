@@ -745,10 +745,10 @@ def GPU_ModuleEndOp : GPU_Op<"module_end", [
 // mfma
 def GPU_MFMAOp:
     GPU_Op<"mfma">,
-    Arguments<(ins F32: $sourceA,
-                   F32: $sourceB,
-                   VectorOfRankAndType<[1], [F32]>: $destC)>,
-    Results<(outs VectorOfRankAndType<[1], [F32]>: $destD)> {
+    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceA,
+                   AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceB,
+                   VectorOfRankAndType<[1], [F32, F16, BF16]>: $destC)>,
+    Results<(outs VectorOfRankAndType<[1], [F32, F16, BF16]>: $destD)> {
   let summary = "XDLOPS MFMA";
   let description = [{
     The `gpu.mfma` op is an abstraction of XDLOPS.
