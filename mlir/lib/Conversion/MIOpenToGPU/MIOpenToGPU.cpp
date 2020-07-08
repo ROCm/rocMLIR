@@ -242,9 +242,15 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         b.setInsertionPoint(op);
 
         // Obtain the data type of matrix A/B, shape of matrix C, and attributes.
-        auto dataType = op.sourceA().getType();
+        auto sourceType = op.sourceA().getType();
+        Type sourceElementType;
+        if (sourceType.isa<VectorType>())
+          sourceElementType = sourceType.cast<VectorType>().getElementType();
+        else
+          sourceElementType = sourceType;
         auto memRefType = op.destC().getType().cast<MemRefType>();
         auto shape = memRefType.getShape();
+        auto destElementType = memRefType.getElementType();
 
         int64_t MPerWave = 64;
         int64_t NPerWave = 64;
@@ -263,7 +269,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         unsigned mfmaInstrLength = 1;
         SmallVector<SmallVector<unsigned, 3>, 2> imms;
 
-        if (dataType == b.getF32Type()) {
+        if (sourceElementType == b.getF32Type()) {
           if (MPerWave == 64 && NPerWave == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_32x32x1f32<64, 64>(const float& reg_a, const float& reg_b, float32_t* reg_c)
@@ -344,11 +350,104 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             imms.push_back({ 4, 0, 0 });
             imms.push_back({ 4, 1, 0 });
           } else {
-            // Unhandled cases.
+            // Unhandled cases for F32.
+          }
+        } else if (sourceElementType == b.getF16Type()) {
+          if (MPerWave == 64 && NPerWave == 64) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_32x32x4f16<64, 64>(const half4_t& reg_a, const half4_t& reg_b, float32_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x4f16(reg_a, reg_b, reg_c[0], 1, 0, 0);
+            //   reg_c[1] = llvm_intrin_amdgcn_mfma_f32_32x32x4f16(reg_a, reg_b, reg_c[1], 1, 1, 0);
+            mfmaInstr = "mfma_f32_32x32x4f16";
+            vectorLength = 32;
+            mfmaInstrLength = 2;
+            imms.push_back({ 1, 0, 0 });
+            imms.push_back({ 1, 1, 0 });
+          } else if (MPerWave == 32 && NPerWave == 64) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_32x32x4f16<32, 64>(const half4_t& reg_a, const half4_t& reg_b, float32_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x4f16(reg_a, reg_b, reg_c[0], 1, 0, 0);
+            mfmaInstr = "mfma_f32_32x32x4f16";
+            vectorLength = 32;
+            mfmaInstrLength = 1;
+            imms.push_back({ 1, 0, 0 });
+          } else if (MPerWave == 64 && NPerWave == 32) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_32x32x4f16<64, 32>(const half4_t& reg_a, const half4_t& reg_b, float32_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x4f16(reg_a, reg_b, reg_c[0], 0, 0, 1);
+            mfmaInstr = "mfma_f32_32x32x4f16";
+            vectorLength = 32;
+            mfmaInstrLength = 1;
+            imms.push_back({ 0, 0, 1 });
+          } else if (MPerWave == 32 && NPerWave == 32) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_32x32x8f16(const half4_t& reg_a, const half4_t& reg_b, float16_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x8f16(reg_a, reg_b, reg_c[0], 0, 0, 0);
+            mfmaInstr = "mfma_f32_32x32x8f16";
+            vectorLength = 16;
+            mfmaInstrLength = 1;
+            imms.push_back({ 0, 0, 0 });
+          } else if (MPerWave == 16 && NPerWave == 16) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_16x16x16f16(const half4_t& reg_a, const half4_t& reg_b, float4_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x16f16(reg_a, reg_b, reg_c[0], 0, 0, 0);
+            mfmaInstr = "mfma_f32_16x16x16f16";
+            vectorLength = 4;
+            mfmaInstrLength = 1;
+            imms.push_back({ 0, 0, 0 });
+          } else if (MPerWave == 16 && NPerWave == 64) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_16x16x4f16<16, 64>(const half4_t& reg_a, const half4_t& reg_b, float16_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x4f16(reg_a, reg_b, reg_c[0], 2, 0, 0);
+            mfmaInstr = "mfma_f32_16x16x4f16";
+            vectorLength = 16;
+            mfmaInstrLength = 1;
+            imms.push_back({ 2, 0, 0 });
+          } else if (MPerWave == 64 && NPerWave == 16) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_16x16x4f16<64, 16>(const half4_t& reg_a, const half4_t& reg_b, float16_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x4f16(reg_a, reg_b, reg_c[0], 0, 0, 4);
+            mfmaInstr = "mfma_f32_16x16x4f16";
+            vectorLength = 16;
+            mfmaInstrLength = 1;
+            imms.push_back({ 0, 0, 4 });
+          } else if (MPerWave == 4 && NPerWave == 64) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_4x4x4f16<4, 64>(const half4_t& reg_a, const half4_t& reg_b, float4_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x4f16(reg_a, reg_b, reg_c[0], 4, 0, 0);
+            mfmaInstr = "mfma_f32_4x4x4f16";
+            vectorLength = 4;
+            mfmaInstrLength = 1;
+            imms.push_back({ 4, 0, 0 });
+          } else if (MPerWave == 8 && NPerWave == 64) {
+            // Original C++ logic:
+            // __device__ void gcnasm_mfma_f32_4x4x4f16<8, 64>(const half4_t& reg_a, const half4_t& reg_b, float4_t* reg_c)
+            //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x4f16(reg_a, reg_b, reg_c[0], 4, 0, 0);
+            //   reg_c[1] = llvm_intrin_amdgcn_mfma_f32_4x4x4f16(reg_a, reg_b, reg_c[1], 4, 1, 0);
+            mfmaInstr = "mfma_f32_4x4x4f16";
+            vectorLength = 4;
+            mfmaInstrLength = 2;
+            imms.push_back({ 4, 0, 0 });
+            imms.push_back({ 4, 1, 0 });
+          } else {
+            // Unhandled cases for F16.
+          }
+        } else if (sourceElementType == b.getBF16Type()) {
+          if (MPerWave == 64 && NPerWave == 64) {
+          } else if (MPerWave == 32 && NPerWave == 64) {
+          } else if (MPerWave == 64 && NPerWave == 32) {
+          } else if (MPerWave == 32 && NPerWave == 32) {
+          } else if (MPerWave == 16 && NPerWave == 16) {
+          } else if (MPerWave == 16 && NPerWave == 64) {
+          } else if (MPerWave == 64 && NPerWave == 16) {
+          } else if (MPerWave == 4 && NPerWave == 64) {
+          } else if (MPerWave == 8 && NPerWave == 64) {
+          } else {
+            // Unhandled cases for BF16.
           }
         }
 
-        auto vfloatType = VectorType::get({vectorLength}, dataType);
+        auto vfloatType = VectorType::get({vectorLength}, destElementType);
         auto resultMemRefType = MemRefType::get({shape[0] / vectorLength}, vfloatType);
         auto vectorTypeCast = b.create<vector::TypeCastOp>(loc, resultMemRefType, op.destC());
 
