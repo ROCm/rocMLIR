@@ -1755,10 +1755,11 @@ static LogicalResult verify(TypeCastOp op) {
     return op.emitOpError(
                "expects result and operand with same underlying scalar type: ")
            << resultType;
-  if (extractShape(sourceType) != extractShape(resultType))
-    return op.emitOpError(
-               "expects concatenated result and operand shapes to be equal: ")
-           << resultType;
+  // XXX. Disable for now. Will evaluate how to upstream this.
+  // if (extractShape(sourceType) != extractShape(resultType))
+  //   return op.emitOpError(
+  //              "expects concatenated result and operand shapes to be equal: ")
+  //          << resultType;
   return success();
 }
 
