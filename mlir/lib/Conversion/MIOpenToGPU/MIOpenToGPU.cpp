@@ -236,21 +236,21 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         op.erase();
       });
 
-      gpuFunc.walk([&](miopen::MFMAOp op) {
-        auto loc = op.getLoc();
-        OpBuilder b(op.getContext());
-        b.setInsertionPoint(op);
-        Value newOp =
-            b.create<gpu::MFMAOp>(loc, op.getType(), op.sourceA(), op.sourceB(),
-                                  op.destC());
-        auto gpuMfmaOp = cast<gpu::MFMAOp>(newOp.getDefiningOp());
-        if (op.getAttr("m_per_wave"))
-          gpuMfmaOp.setAttr("m_per_wave", op.getAttr("m_per_wave"));
-        if (op.getAttr("n_per_wave"))
-          gpuMfmaOp.setAttr("n_per_wave", op.getAttr("n_per_wave"));
-        op.replaceAllUsesWith(newOp);
-        op.erase();
-      });
+      //gpuFunc.walk([&](miopen::MFMAOp op) {
+      //  auto loc = op.getLoc();
+      //  OpBuilder b(op.getContext());
+      //  b.setInsertionPoint(op);
+      //  Value newOp =
+      //      b.create<gpu::MFMAOp>(loc, op.getType(), op.sourceA(), op.sourceB(),
+      //                            op.destC());
+      //  auto gpuMfmaOp = cast<gpu::MFMAOp>(newOp.getDefiningOp());
+      //  if (op.getAttr("m_per_wave"))
+      //    gpuMfmaOp.setAttr("m_per_wave", op.getAttr("m_per_wave"));
+      //  if (op.getAttr("n_per_wave"))
+      //    gpuMfmaOp.setAttr("n_per_wave", op.getAttr("n_per_wave"));
+      //  op.replaceAllUsesWith(newOp);
+      //  op.erase();
+      //});
     });
   }
 }
