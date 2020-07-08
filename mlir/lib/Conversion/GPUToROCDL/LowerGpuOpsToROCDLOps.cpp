@@ -86,126 +86,52 @@ struct MFMAOpLowering : ConvertToLLVMPattern {
     auto adaptor = gpu::MFMAOpOperandAdaptor(operands);
     auto loc = mfmaOp.getLoc();
 
-    // Retrieve data_type.
-    auto dataType = mfmaOp.sourceA().getType();
+    // Obtain MFMA instruction be used.
+    StringRef mfmaInstr = "mfma_f32_32x32x1f32";
+    if (mfmaOp.getAttr("instr"))
+      mfmaInstr = mfmaOp.getAttr("instr").cast<StringAttr>().getValue();
 
-    // Retrieve m_per_wave and n_per_wave attribute.
-    int64_t MPerWave = 64;
-    int64_t NPerWave = 64;
-    if (mfmaOp.getAttr("m_per_wave"))
-      MPerWave = mfmaOp.getAttr("m_per_wave").cast<IntegerAttr>().getInt();
-    if (mfmaOp.getAttr("n_per_wave"))
-      NPerWave = mfmaOp.getAttr("n_per_wave").cast<IntegerAttr>().getInt();
+    // Obtain immediate values be used.
+    ArrayAttr immArrayAttr = rewriter.getArrayAttr({
+        rewriter.getI32IntegerAttr(0),
+        rewriter.getI32IntegerAttr(0),
+        rewriter.getI32IntegerAttr(0),
+    });
+    if (mfmaOp.getAttr("imm"))
+      immArrayAttr = mfmaOp.getAttr("imm").cast<ArrayAttr>();
 
-    auto i32Zero = rewriter.create<LLVM::ConstantOp>(
-      loc, typeConverter.convertType(rewriter.getIntegerType(32)),
-      rewriter.getI32IntegerAttr(0));
-    auto i32One = rewriter.create<LLVM::ConstantOp>(
-      loc, typeConverter.convertType(rewriter.getIntegerType(32)),
-      rewriter.getI32IntegerAttr(1));
-    auto i32Two = rewriter.create<LLVM::ConstantOp>(
-      loc, typeConverter.convertType(rewriter.getIntegerType(32)),
-      rewriter.getI32IntegerAttr(2));
-    auto i32Four = rewriter.create<LLVM::ConstantOp>(
-      loc, typeConverter.convertType(rewriter.getIntegerType(32)),
-      rewriter.getI32IntegerAttr(4));
+    SmallVector<Value, 3> immValues;
+    for (unsigned iter = 0; iter < immArrayAttr.size(); ++iter)
+      immValues.push_back(rewriter.create<LLVM::ConstantOp>(
+          loc, typeConverter.convertType(rewriter.getIntegerType(32)),
+          immArrayAttr[iter]));
 
-    if (dataType == rewriter.getF32Type()) {
-      if (MPerWave == 64 && NPerWave == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x1f32<64, 64>(const float& reg_a, const float& reg_b, float32_t* reg_c)
-        //  reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[0], 1, 0, 0);
-        //  reg_c[1] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[1], 1, 1, 0);
+    if (mfmaInstr == "mfma_f32_32x32x1f32")
+      rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x1f32>(
+          op, adaptor.destC().getType(),
+          ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
+                     immValues[0], immValues[1], immValues[2]});
+    else if (mfmaInstr == "mfma_f32_32x32x2f32")
+      rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x2f32>(
+          op, adaptor.destC().getType(),
+          ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
+                     immValues[0], immValues[1], immValues[2]});
+    else if (mfmaInstr == "mfma_f32_16x16x4f32")
+      rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x4f32>(
+          op, adaptor.destC().getType(),
+          ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
+                     immValues[0], immValues[1], immValues[2]});
+    else if (mfmaInstr == "mfma_f32_16x16x1f32")
+      rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x1f32>(
+          op, adaptor.destC().getType(),
+          ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
+                     immValues[0], immValues[1], immValues[2]});
+    else if (mfmaInstr == "mfma_f32_4x4x1f32")
+      rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_4x4x1f32>(
+          op, adaptor.destC().getType(),
+          ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
+                     immValues[0], immValues[1], immValues[2]});
 
-        // reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[0], 1, 0, 0);
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x1f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(), i32One, i32Zero, i32Zero});
-        // TBD: figure out how to do reg_c[1].
-        // reg_c[1] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[1], 1, 1, 0);
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x1f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(), i32One, i32One, i32Zero});
-      } else if (MPerWave == 32 && NPerWave == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x1f32<32, 64>(const float& reg_a, const float& reg_b, float32_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[0], 1, 0, 0);
-
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[0], 1, 0, 0);
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x1f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(), i32One, i32Zero, i32Zero});
-      } else if (MPerWave == 64 && NPerWave == 32) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x1f32<64, 32>(const float& reg_a, const float& reg_b, float32_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[0], 0, 0, 1);
-
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[0], 0, 0, 1);
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x1f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(), i32Zero, i32Zero, i32One});
-      } else if (MPerWave == 32 && NPerWave == 32) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x2f32(const float& reg_a, const float& reg_b, float16_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x2f32(reg_a, reg_b, reg_c[0], 0, 0, 0);
-
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x2f32(reg_a, reg_b, reg_c[0], 0, 0, 0);
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x2f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(), i32Zero, i32Zero, i32Zero});
-      } else if (MPerWave == 16 && NPerWave == 16) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_16x16x4f32(const float& reg_a, const float& reg_b, float4_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x4f32(reg_a, reg_b, reg_c[0], 0, 0, 0);
-
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x4f32(reg_a, reg_b, reg_c[0], 0, 0, 0);
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x4f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(), i32Zero, i32Zero, i32Zero});
-      } else if (MPerWave == 16 && NPerWave == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_16x16x1f32<16, 64>(const float& reg_a, const float& reg_b, float16_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x1f32(reg_a, reg_b, reg_c[0], 2, 0, 0);
-
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x1f32(reg_a, reg_b, reg_c[0], 2, 0, 0);
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x1f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(), i32Two, i32Zero, i32Zero});
-      } else if (MPerWave == 64 && NPerWave == 16) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_16x16x1f32<64, 16>(const float& reg_a, const float& reg_b, float16_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x1f32(reg_a, reg_b, reg_c[0], 0, 0, 4);
-
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x1f32(reg_a, reg_b, reg_c[0], 0, 0, 4);
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x1f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(), i32Zero, i32Zero, i32Four});
-      } else if (MPerWave == 8 && NPerWave == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_4x4x1f32<4, 64>(const float& reg_a, const float& reg_b, float4_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x1f32(reg_a, reg_b, reg_c[0], 4, 0, 0);
-
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x1f32(reg_a, reg_b, reg_c[0], 4, 0, 0);
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_4x4x1f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(), i32Four, i32Zero, i32Zero});
-      } else if (MPerWave == 4 && NPerWave == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_4x4x1f32<8, 64>(const float& reg_a, const float& reg_b, float4_t* reg_c)
-        //     reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x1f32(reg_a, reg_b, reg_c[0], 4, 0, 0);
-        //     reg_c[1] = llvm_intrin_amdgcn_mfma_f32_4x4x1f32(reg_a, reg_b, reg_c[1], 4, 1, 0);
-
-        //     reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x1f32(reg_a, reg_b, reg_c[0], 4, 0, 0);
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_4x4x1f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(), i32Four, i32Zero, i32Zero});
-        // TBD: figure out how to do reg_c[1].
-        //     reg_c[1] = llvm_intrin_amdgcn_mfma_f32_4x4x1f32(reg_a, reg_b, reg_c[1], 4, 1, 0);
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_4x4x1f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(), i32Four, i32One, i32Zero});
-      }
-    }
     return success();
   }
 };
