@@ -162,6 +162,34 @@ struct MFMAOpLowering : ConvertToLLVMPattern {
           ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
                      immValues[0], immValues[1], immValues[2]});
 
+    // BF16.
+
+    else if (mfmaInstr == "mfma_f32_32x32x2bf16")
+      rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x2bf16>(
+          op, adaptor.destC().getType(),
+          ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
+                     immValues[0], immValues[1], immValues[2]});
+    else if (mfmaInstr == "mfma_f32_32x32x4bf16")
+      rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x4bf16>(
+          op, adaptor.destC().getType(),
+          ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
+                     immValues[0], immValues[1], immValues[2]});
+    else if (mfmaInstr == "mfma_f32_16x16x8bf16")
+      rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x8bf16>(
+          op, adaptor.destC().getType(),
+          ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
+                     immValues[0], immValues[1], immValues[2]});
+    else if (mfmaInstr == "mfma_f32_16x16x2bf16")
+      rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x2bf16>(
+          op, adaptor.destC().getType(),
+          ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
+                     immValues[0], immValues[1], immValues[2]});
+    else if (mfmaInstr == "mfma_f32_4x4x2bf16")
+      rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_4x4x2bf16>(
+          op, adaptor.destC().getType(),
+          ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
+                     immValues[0], immValues[1], immValues[2]});
+
     return success();
   }
 };
