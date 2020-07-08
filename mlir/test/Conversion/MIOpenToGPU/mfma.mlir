@@ -6,11 +6,11 @@ module {
     // CHECK:      %[[MV:.*]] = vector.type_cast %{{.*}} : memref<64xf32> to memref<2xvector<32xf32>>
     // CHECK-NEXT: %[[IT0:.*]] = constant 0 : index
     // CHECK-NEXT: %[[LD0:.*]] = load %[[MV]][%[[IT0]]] : memref<2xvector<32xf32>>
-    // CHECK-NEXT: %[[MFMA0:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD0]]) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : vector<32xf32>
+    // CHECK-NEXT: %[[MFMA0:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD0]]) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : f32, vector<32xf32>
     // CHECK-NEXT: store %[[MFMA0]], %[[MV]][%[[IT0]]] : memref<2xvector<32xf32>>
     // CHECK-NEXT: %[[IT1:.*]] = constant 1 : index
     // CHECK-NEXT: %[[LD1:.*]] = load %[[MV]][%[[IT1]]] : memref<2xvector<32xf32>>
-    // CHECK-NEXT: %[[MFMA1:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD1]]) {imm = [1 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : vector<32xf32>
+    // CHECK-NEXT: %[[MFMA1:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD1]]) {imm = [1 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : f32, vector<32xf32>
     // CHECK-NEXT: store %[[MFMA1]], %[[MV]][%[[IT1]]] : memref<2xvector<32xf32>>
 
     // ----
@@ -19,7 +19,7 @@ module {
     // CHECK:      %[[MV:.*]] = vector.type_cast %{{.*}} : memref<64xf32> to memref<2xvector<32xf32>>
     // CHECK-NEXT: %[[IT:.*]] = constant 0 : index
     // CHECK-NEXT: %[[LD:.*]] = load %[[MV]][%[[IT]]] : memref<2xvector<32xf32>>
-    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : vector<32xf32>
+    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : f32, vector<32xf32>
     // CHECK-NEXT: store %[[MFMA]], %[[MV]][%[[IT]]] : memref<2xvector<32xf32>>
 
     // ----
@@ -28,7 +28,7 @@ module {
     // CHECK:      %[[MV:.*]] = vector.type_cast %{{.*}} : memref<64xf32> to memref<2xvector<32xf32>>
     // CHECK-NEXT: %[[IT:.*]] = constant 0 : index
     // CHECK-NEXT: %[[LD:.*]] = load %[[MV]][%[[IT]]] : memref<2xvector<32xf32>>
-    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [0 : i32, 0 : i32, 1 : i32], instr = "mfma_f32_32x32x1f32"} : vector<32xf32>
+    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [0 : i32, 0 : i32, 1 : i32], instr = "mfma_f32_32x32x1f32"} : f32, vector<32xf32>
     // CHECK-NEXT: store %[[MFMA]], %[[MV]][%[[IT]]] : memref<2xvector<32xf32>>
 
     // ----
@@ -37,7 +37,7 @@ module {
     // CHECK:      %[[MV:.*]] = vector.type_cast %{{.*}} : memref<64xf32> to memref<4xvector<16xf32>>
     // CHECK-NEXT: %[[IT:.*]] = constant 0 : index
     // CHECK-NEXT: %[[LD:.*]] = load %[[MV]][%[[IT]]] : memref<4xvector<16xf32>>
-    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x2f32"} : vector<16xf32>
+    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x2f32"} : f32, vector<16xf32>
     // CHECK-NEXT: store %[[MFMA]], %[[MV]][%[[IT]]] : memref<4xvector<16xf32>>
 
     // ----
@@ -46,7 +46,7 @@ module {
     // CHECK:      %[[MV:.*]] = vector.type_cast %{{.*}} : memref<64xf32> to memref<16xvector<4xf32>>
     // CHECK-NEXT: %[[IT:.*]] = constant 0 : index
     // CHECK-NEXT: %[[LD:.*]] = load %[[MV]][%[[IT]]] : memref<16xvector<4xf32>>
-    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x4f32"} : vector<4xf32>
+    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x4f32"} : f32, vector<4xf32>
     // CHECK-NEXT: store %[[MFMA]], %[[MV]][%[[IT]]] : memref<16xvector<4xf32>>
 
     // ----
@@ -55,7 +55,7 @@ module {
     // CHECK:      %[[MV:.*]] = vector.type_cast %{{.*}} : memref<64xf32> to memref<4xvector<16xf32>>
     // CHECK-NEXT: %[[IT:.*]] = constant 0 : index
     // CHECK-NEXT: %[[LD:.*]] = load %[[MV]][%[[IT]]] : memref<4xvector<16xf32>>
-    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [2 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x1f32"} : vector<16xf32>
+    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [2 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x1f32"} : f32, vector<16xf32>
     // CHECK-NEXT: store %[[MFMA]], %[[MV]][%[[IT]]] : memref<4xvector<16xf32>>
 
     // ----
@@ -64,7 +64,7 @@ module {
     // CHECK:      %[[MV:.*]] = vector.type_cast %{{.*}} : memref<64xf32> to memref<4xvector<16xf32>>
     // CHECK-NEXT: %[[IT:.*]] = constant 0 : index
     // CHECK-NEXT: %[[LD:.*]] = load %[[MV]][%[[IT]]] : memref<4xvector<16xf32>>
-    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [0 : i32, 0 : i32, 4 : i32], instr = "mfma_f32_16x16x1f32"} : vector<16xf32>
+    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [0 : i32, 0 : i32, 4 : i32], instr = "mfma_f32_16x16x1f32"} : f32, vector<16xf32>
     // CHECK-NEXT: store %[[MFMA]], %[[MV]][%[[IT]]] : memref<4xvector<16xf32>>
 
     // ----
@@ -73,7 +73,7 @@ module {
     // CHECK:      %[[MV:.*]] = vector.type_cast %{{.*}} : memref<64xf32> to memref<16xvector<4xf32>>
     // CHECK-NEXT: %[[IT:.*]] = constant 0 : index
     // CHECK-NEXT: %[[LD:.*]] = load %[[MV]][%[[IT]]] : memref<16xvector<4xf32>>
-    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : vector<4xf32>
+    // CHECK-NEXT: %[[MFMA:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD]]) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : f32, vector<4xf32>
     // CHECK-NEXT: store %[[MFMA]], %[[MV]][%[[IT]]] : memref<16xvector<4xf32>>
 
     // ----
@@ -82,11 +82,11 @@ module {
     // CHECK:      %[[MV:.*]] = vector.type_cast %{{.*}} : memref<64xf32> to memref<16xvector<4xf32>>
     // CHECK-NEXT: %[[IT0:.*]] = constant 0 : index
     // CHECK-NEXT: %[[LD0:.*]] = load %[[MV]][%[[IT0]]] : memref<16xvector<4xf32>>
-    // CHECK-NEXT: %[[MFMA0:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD0]]) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : vector<4xf32>
+    // CHECK-NEXT: %[[MFMA0:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD0]]) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : f32, vector<4xf32>
     // CHECK-NEXT: store %[[MFMA0]], %[[MV]][%[[IT0]]] : memref<16xvector<4xf32>>
     // CHECK-NEXT: %[[IT1:.*]] = constant 1 : index
     // CHECK-NEXT: %[[LD1:.*]] = load %[[MV]][%[[IT1]]] : memref<16xvector<4xf32>>
-    // CHECK-NEXT: %[[MFMA1:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD1]]) {imm = [4 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : vector<4xf32>
+    // CHECK-NEXT: %[[MFMA1:.*]] = gpu.mfma(%{{.*}}, %{{.*}}, %[[LD1]]) {imm = [4 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : f32, vector<4xf32>
     // CHECK-NEXT: store %[[MFMA1]], %[[MV]][%[[IT1]]] : memref<16xvector<4xf32>>
 
     return
