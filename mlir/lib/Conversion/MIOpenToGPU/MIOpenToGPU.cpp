@@ -325,7 +325,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 16;
             mfmaInstrLength = 1;
             imms.push_back({ 0, 0, 4 });
-          } else if (MPerWave == 8 && NPerWave == 64) {
+          } else if (MPerWave == 4 && NPerWave == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_4x4x1f32<4, 64>(const float& reg_a, const float& reg_b, float4_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x1f32(reg_a, reg_b, reg_c[0], 4, 0, 0);
@@ -333,7 +333,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 4;
             mfmaInstrLength = 1;
             imms.push_back({ 4, 0, 0 });
-          } else if (MPerWave == 4 && NPerWave == 64) {
+          } else if (MPerWave == 8 && NPerWave == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_4x4x1f32<8, 64>(const float& reg_a, const float& reg_b, float4_t* reg_c)
             //     reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x1f32(reg_a, reg_b, reg_c[0], 4, 0, 0);
