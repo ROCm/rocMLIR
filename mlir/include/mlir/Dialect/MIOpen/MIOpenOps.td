@@ -252,8 +252,8 @@ def MIOpen_ThreadwiseGemmOp:
 // mfma
 def MIOpen_MFMAOp:
     MIOpen_Op<"mfma">,
-    Arguments<(ins F32: $sourceA,
-                   F32: $sourceB,
+    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceA,
+                   AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceB,
                    MemRefRankOf<[F32], [1]>: $destC)> {
   let summary = "XDLOPS MFMA";
   let description = [{
