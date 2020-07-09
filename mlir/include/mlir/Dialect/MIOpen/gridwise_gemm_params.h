@@ -566,10 +566,10 @@ struct InitParamsNonXDL : InitParams {
 // block gemm tuning params that sepcific the layout of thread-wise gemm in a
 // workgroup
 struct DerivedBlockGemmParams {
-	int64_t gemmMLevel0Cluster;
-	int64_t gemmNLevel0Cluster;
-	int64_t gemmMLevel1Cluster;
-	int64_t gemmNLevel1Cluster;
+  int64_t gemmMLevel0Cluster;
+  int64_t gemmNLevel0Cluster;
+  int64_t gemmMLevel1Cluster;
+  int64_t gemmNLevel1Cluster;
 };
 
 class PopulateParams : public PopulateParamsBase {
@@ -577,9 +577,12 @@ private:
   // clang-format off
   llvm::SmallVector<InitParamsNonXDL, 4> initParameters = {
       // M/block N/block K/block M/thread N/thread blockSize
-	  {128, 128, 8, 4, 4, 256}, {128, 64, 8, 4, 4, 128},
-	  {64, 128, 4, 4, 4, 128},  {64, 64, 16, 4, 4, 64},
-	  {32, 64, 16, 2, 4, 64},   {64, 32, 16, 4, 2, 64},
+	  {128, 128, 8, 4, 4, 256},
+      {128, 64, 8, 4, 4, 128},
+	  {64, 128, 4, 4, 4, 128},
+      {64, 64, 16, 4, 4, 64},
+	  {32, 64, 16, 2, 4, 64},
+      {64, 32, 16, 4, 2, 64},
 	  {32, 32, 4, 2, 2, 64}
   };
   // clang-format on
@@ -601,7 +604,8 @@ private:
                                        derived);
   }
 
-  int64_t calculateGemmCDestDataPerWrite(InitParamsNonXDL *param, ConvolutionContext &ctx) {
+  int64_t calculateGemmCDestDataPerWrite(const InitParamsNonXDL *param,
+                                         const ConvolutionContext &ctx) {
     int64_t outputVecLen = 0;
     if ((ctx.opType == miopen::ConvOpType::Conv2DOpType) &&
         (ctx.dimIndexVal["ko"].first == 3)) {
@@ -615,7 +619,7 @@ private:
       obtainGemmCVecLen(ctx, outputVecLen);
     }
 
-    outputVecLen = std::__gcd(outputVecLen, param->gemmNPerThread);
+    outputVecLen = gcd(outputVecLen, param->gemmNPerThread);
 
     if ((outputVecLen > 0) && (outputVecLen % 4 == 0)) {
       return 4;
@@ -627,8 +631,8 @@ private:
   }
 
   LogicalResult
-  CalculateBlockGemmPerformanceParameters(InitParamsNonXDL *param,
-                                          ConvolutionContext &ctx,
+  CalculateBlockGemmPerformanceParameters(const InitParamsNonXDL *param,
+                                          const ConvolutionContext &ctx,
                                           DerivedBlockGemmParams &derived) {
 
     derived.gemmMLevel0Cluster = 0;
@@ -690,26 +694,6 @@ private:
     return success();
   }
 
-  void obtainGemmCWriteVecLen(ConvolutionContext &ctx, InitParamsNonXDL &params,
-                              int64_t &vecLen) {
-    // Output tensor.
-    int64_t outputVecLen = 1;
-
-    if ((ctx.opType == miopen::ConvOpType::Conv2DOpType) &&
-        (ctx.dimIndexVal["ko"].first == 3)) {
-      // gemmM vectorizable. However, there is no parameters for vectorizing
-      // gemmM dimension for matrix C. Do nothing here.
-    } else if ((ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) &&
-               (ctx.dimIndexVal["ci"].first == 3)) {
-      // gemmM vectorizable. However, there is no parameters for vectorizing
-      // gemmM dimension for matrix C. Do nothing here.
-    } else {
-      obtainGemmCVecLen(ctx, outputVecLen);
-    }
-
-    vecLen = std::__gcd(outputVecLen, params.gemmNPerThread);
-  }
-
 public:
   LogicalResult paramsFromCtx(ConvolutionContext &ctx,
                               InitParamsNonXDL &validParams, GemmSize &gemmSize,
@@ -746,7 +730,6 @@ public:
 
       res = calculateGemmBBlockCopyPerformanceParameters(&params, ctx,
                                                          gemmBDerivedParam);
-
 
       if (failed(res)) {
         LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmB tuning parameter "
