@@ -932,9 +932,9 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
       int64_t gridSize;
 
       PopulateParams populateParams;
-      populateParams.paramsFromCtx(ctx, validParams, gemmSize,
-                                   gemmADerivedParam, gemmBDerivedParam, blockGemmDerivedParam,
-                                   gemmCDstPerWrite, gridSize);
+      populateParams.paramsFromCtx(
+          ctx, validParams, gemmSize, gemmADerivedParam, gemmBDerivedParam,
+          blockGemmDerivedParam, gemmCDstPerWrite, gridSize);
 
       std::map<std::string, int> parameters;
 
