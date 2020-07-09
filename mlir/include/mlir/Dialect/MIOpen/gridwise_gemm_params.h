@@ -576,7 +576,7 @@ class PopulateParams : public PopulateParamsBase {
 private:
   // clang-format off
   llvm::SmallVector<InitParamsNonXDL, 4> initParameters = {
-      // M/block N/block K/block M/thread N/thread blockSize
+    // M/block N/block K/block M/thread N/thread blockSize
     {128, 128, 8, 4, 4, 256},
     {128, 64, 8, 4, 4, 128},
     {64, 128, 4, 4, 4, 128},
@@ -604,8 +604,8 @@ private:
                                        derived);
   }
 
-  int64_t calculateGemmCDestDataPerWrite(const InitParamsNonXDL *param,
-                                         const ConvolutionContext &ctx) {
+  int64_t calculateGemmCDestDataPerWrite(const InitParamsNonXDL &param,
+                                         ConvolutionContext &ctx) {
     int64_t outputVecLen = 0;
     if ((ctx.opType == miopen::ConvOpType::Conv2DOpType) &&
         (ctx.dimIndexVal["ko"].first == 3)) {
@@ -619,7 +619,7 @@ private:
       obtainGemmCVecLen(ctx, outputVecLen);
     }
 
-    outputVecLen = gcd(outputVecLen, param->gemmNPerThread);
+    outputVecLen = gcd(outputVecLen, param.gemmNPerThread);
 
     if ((outputVecLen > 0) && (outputVecLen % 4 == 0)) {
       return 4;
@@ -631,7 +631,7 @@ private:
   }
 
   LogicalResult
-  CalculateBlockGemmPerformanceParameters(const InitParamsNonXDL *param,
+  CalculateBlockGemmPerformanceParameters(const InitParamsNonXDL &param,
                                           const ConvolutionContext &ctx,
                                           DerivedBlockGemmParams &derived) {
 
@@ -640,17 +640,17 @@ private:
     derived.gemmMLevel1Cluster = 0;
     derived.gemmNLevel1Cluster = 0;
 
-    if (param->blockSize == 64) {
+    if (param.blockSize == 64) {
       derived.gemmMLevel0Cluster = 4;
       derived.gemmNLevel0Cluster = 4;
       derived.gemmMLevel1Cluster = 2;
       derived.gemmNLevel1Cluster = 2;
-    } else if (param->blockSize == 128) {
+    } else if (param.blockSize == 128) {
       derived.gemmMLevel0Cluster = 4;
       derived.gemmNLevel0Cluster = 4;
       derived.gemmMLevel1Cluster = 4;
       derived.gemmNLevel1Cluster = 2;
-    } else if (param->blockSize == 256) {
+    } else if (param.blockSize == 256) {
       derived.gemmMLevel0Cluster = 4;
       derived.gemmNLevel0Cluster = 4;
       derived.gemmMLevel1Cluster = 4;
@@ -659,20 +659,20 @@ private:
       return failure();
     }
 
-    if (!(param->gemmMPerThread >= 2 && param->gemmMPerThread <= 4))
+    if (!(param.gemmMPerThread >= 2 && param.gemmMPerThread <= 4))
       return failure();
 
-    if (!(param->gemmNPerThread >= 2 && param->gemmNPerThread <= 4))
+    if (!(param.gemmNPerThread >= 2 && param.gemmNPerThread <= 4))
       return failure();
 
-    if (!(param->gemmMPerBlock % param->gemmMPerThread == 0 &&
-          param->gemmNPerBlock % param->gemmNPerThread == 0))
+    if (!(param.gemmMPerBlock % param.gemmMPerThread == 0 &&
+          param.gemmNPerBlock % param.gemmNPerThread == 0))
       return failure();
 
     const auto threadGemmMPerBlock =
-        param->gemmMPerBlock / param->gemmMPerThread;
+        param.gemmMPerBlock / param.gemmMPerThread;
     const auto threadGemmNPerBlock =
-        param->gemmNPerBlock / param->gemmNPerThread;
+        param.gemmNPerBlock / param.gemmNPerThread;
 
     const auto threadGemmMPerCluster =
         derived.gemmMLevel0Cluster * derived.gemmMLevel1Cluster;
@@ -737,7 +737,7 @@ public:
         continue;
       }
 
-      res = CalculateBlockGemmPerformanceParameters(&params, ctx,
+      res = CalculateBlockGemmPerformanceParameters(params, ctx,
                                                     blockGemmDerivedParam);
 
       if (failed(res)) {
@@ -757,7 +757,7 @@ public:
     }
 
     gridSize = obtainGridSize(gemmSize, &validParams);
-    gemmCDstPerWrite = calculateGemmCDestDataPerWrite(&validParams, ctx);
+    gemmCDstPerWrite = calculateGemmCDestDataPerWrite(validParams, ctx);
     return res;
   }
 };
