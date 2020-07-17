@@ -1276,11 +1276,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     bop.setAttr("block_size", gop.getAttr("block_size"));
     bop.setAttr("m_per_thread", gop.getAttr("m_per_thread"));
     bop.setAttr("n_per_thread", gop.getAttr("n_per_thread"));
-    bop.setAttr("k_per_thread", gop.getAttr("k_per_thread"));
-    bop.setAttr("m_level0_cluster", gop.getAttr("m_level0_cluster"));
-    bop.setAttr("m_level1_cluster", gop.getAttr("m_level1_cluster"));
-    bop.setAttr("n_level0_cluster", gop.getAttr("n_level0_cluster"));
-    bop.setAttr("n_level1_cluster", gop.getAttr("n_level1_cluster"));
 
     // xdlops.
     auto xdlopsAttr = gop.template getAttrOfType<BoolAttr>("xdlops");
@@ -1298,6 +1293,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
       bop.setAttr("m_waves", b.getI32IntegerAttr(MWaves));
       bop.setAttr("n_waves", b.getI32IntegerAttr(NWaves));
+    } else {
+      // Attributes used in non-xdlops lowering path.
+      bop.setAttr("k_per_thread", gop.getAttr("k_per_thread"));
+      bop.setAttr("m_level0_cluster", gop.getAttr("m_level0_cluster"));
+      bop.setAttr("m_level1_cluster", gop.getAttr("m_level1_cluster"));
+      bop.setAttr("n_level0_cluster", gop.getAttr("n_level0_cluster"));
+      bop.setAttr("n_level1_cluster", gop.getAttr("n_level1_cluster"));
     }
   }
 
