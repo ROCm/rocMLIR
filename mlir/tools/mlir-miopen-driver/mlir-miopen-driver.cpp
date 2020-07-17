@@ -170,6 +170,11 @@ static cl::opt<int> blockSize("block_size", cl::desc("Block size"),
 static cl::opt<int> gridSize("grid_size", cl::desc("Grid size"),
                              cl::value_desc("Grid size"), cl::init(0));
 
+// use XDLOPS
+static cl::opt<bool> xdlops("x", cl::desc("To use XDLOPS lowering pipeline"),
+                            cl::value_desc("To use XDLOPS lowering pipeline"),
+                            cl::init(false));
+
 static LogicalResult
 populateConvolutionConfiguration(SmallVector<int64_t, 4> &filterDimension,
                                  SmallVector<int64_t, 4> &inputDimension,
@@ -596,6 +601,11 @@ static LogicalResult populateConvolutionLogic(ModuleOp &module,
                          builder.getI32IntegerAttr(paddingWidth.getValue()),
                      })),
   };
+
+  // xdlops.
+  if (xdlops.getValue() == true)
+    attributes.push_back(
+        builder.getNamedAttr("xdlops", builder.getBoolAttr(true)));
 
   if (operation.getValue().compare("conv2d") == 0) {
     auto convOp = builder.create<miopen::Conv2DOp>(
