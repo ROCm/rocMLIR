@@ -888,6 +888,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 {paddingAttr, b.getI32ArrayAttr({rightPadH, rightPadW})})),
     };
 
+    // xdlops.
+    auto xdlopsAttr = op.template getAttrOfType<BoolAttr>("xdlops");
+    if (xdlopsAttr && xdlopsAttr.getValue() == true)
+      gridwiseGemmAttrs.push_back(
+          b.getNamedAttr("xdlops", b.getBoolAttr(true)));
+
     if (convOpType == miopen::ConvOpType::Conv2DBwdDataOpType) {
       gridwiseGemmAttrs.push_back(b.getNamedAttr(
           "kernel_algorithm", b.getStringAttr("backward_data_v1r1")));
