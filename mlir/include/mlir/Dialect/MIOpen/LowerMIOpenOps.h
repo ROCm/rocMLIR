@@ -1293,6 +1293,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
       bop.setAttr("m_waves", b.getI32IntegerAttr(MWaves));
       bop.setAttr("n_waves", b.getI32IntegerAttr(NWaves));
+
+      bop.setAttr("xdlops", b.getBoolAttr(true));
     } else {
       // Attributes used in non-xdlops lowering path.
       bop.setAttr("k_per_thread", gop.getAttr("k_per_thread"));
