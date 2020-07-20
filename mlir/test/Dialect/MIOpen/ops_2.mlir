@@ -241,3 +241,17 @@ func @miopen_mfma_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : memref<64x
 
 // CHECK-LABEL: func @miopen_mfma_bf16
 //   CHECK: miopen.mfma
+
+func @miopen_xdlops_gemm(%A : memref<?x?xf32, 3>, %B : memref<?x?xf32, 3>, %C : memref<?x?xf32, 5>) {
+  %c0 = constant 0 : index
+  miopen.xdlops_gemm(%A, %B, %C, %c0, %c0, %c0) {
+    m_per_thread = 64,
+    n_per_thread = 64,
+    m_per_wave = 64,
+    n_per_wave = 64
+  } : memref<?x?xf32, 3>, memref<?x?xf32, 3>, memref<?x?xf32, 5>, index, index, index
+  return
+}
+
+// CHECK-LABEL: func @miopen_xdlops_gemm
+//  CHECK: miopen.xdlops_gemm
