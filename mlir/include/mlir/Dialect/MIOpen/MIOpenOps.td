@@ -261,4 +261,20 @@ def MIOpen_MFMAOp:
   }];
 }
 
+// xdlops_gemm
+def MIOpen_XdlopsGemmOp:
+    MIOpen_Op<"xdlops_gemm">,
+    Arguments<(ins AnyMemRef:$matrixA,
+                   AnyMemRef:$matrixB,
+                   AnyMemRef:$matrixC,
+                   Index:$threadOffsetA,
+                   Index:$threadOffsetB,
+                   Index:$threadOffsetC)> {
+  let summary = "XDLOPS GEMM";
+  let description = [{
+    The `miopen.xdlops_gemm` op is an abstraction of doing GEMM based on XDLOPS.
+    It would employ a series of `miopen.mfma` operations.
+  }];
+}
+
 #endif // MIOPEN_OPS
