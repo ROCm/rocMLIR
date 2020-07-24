@@ -2966,7 +2966,7 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
           break;
 
       auto coordTransformAttrs = user->getAttr("coord_transforms");
-      if (!coordTransformAttrs)
+      if (!coordTransformAttrs) {
         user->setAttr("coord_transforms",
                       b.getArrayAttr({
                         b.getDictionaryAttr({
@@ -2974,6 +2974,62 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
                           b.getNamedAttr("transforms", b.getAffineMapArrayAttr(outputType.getAffineMaps()))
                         })
                       }));
+      } else {
+        // XXX. Only do this for miopen.xdlops_gemm operation.
+        // miopen.threadwise_copy will NOT be affected.
+        if (user->getName().getStringRef() == miopen::XdlopsGemmOp::getOperationName()) {
+
+          // create a deep-copy of existing attributes, and amend the new one.
+          // need to figure out if there's a better way than this.
+          auto arrayAttr = coordTransformAttrs.cast<ArrayAttr>();
+          llvm::SmallVector<Attribute, 2> augmentedArrayAttr;
+
+          //llvm::errs() << "\nexisting transforms:\n";
+          //coordTransformAttrs.dump();
+          //llvm::errs() << "\ntransform to be added:\n";
+          //llvm::errs() << "operand: " << userOperandIndex << "\n";
+          //if (outputType.getAffineMaps().size() > 0) {
+          //  llvm::errs() << "transforms: " << outputType.getAffineMaps()[0] << "\n";
+          //}
+
+          bool augmented = false;
+          for (unsigned idx = 0; idx < arrayAttr.size(); ++idx) {
+            auto dictAttr = arrayAttr.getValue()[idx].cast<DictionaryAttr>();
+            auto operandIndex =
+                dictAttr.get("operand").cast<IntegerAttr>().getInt();
+
+            if (operandIndex != userOperandIndex) {
+              augmentedArrayAttr.push_back(dictAttr);
+            } else {
+              //auto existingTransforms =
+              //    dictAttr.get("transforms").cast<ArrayAttr>();
+              llvm::SmallVector<Attribute, 4> augmentedTransforms;
+              //augmentedTransforms.append(existingTransforms.begin(),
+              //                           existingTransforms.end());
+              if (outputType.getAffineMaps().size() > 0)
+                augmentedTransforms.push_back(
+                    AffineMapAttr::get(outputType.getAffineMaps()[0]));
+
+              augmentedArrayAttr.push_back(b.getDictionaryAttr(
+                  {b.getNamedAttr("operand",
+                                  b.getI32IntegerAttr(userOperandIndex)),
+                   b.getNamedAttr("transforms",
+                                  b.getArrayAttr(augmentedTransforms))}));
+              augmented = true;
+            }
+          }
+          if (!augmented)
+            augmentedArrayAttr.push_back(b.getDictionaryAttr(
+                {b.getNamedAttr("operand",
+                                b.getI32IntegerAttr(userOperandIndex)),
+                 b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
+                                                  outputType.getAffineMaps()))}));
+
+          //llvm::errs() << "\naugmented transforms:\n";
+          //b.getArrayAttr(augmentedArrayAttr).dump();
+          user->setAttr("coord_transforms", b.getArrayAttr(augmentedArrayAttr));
+        }
+      }
     }
 
     // Pass the input to uses of this op.
