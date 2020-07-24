@@ -2101,7 +2101,6 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
       // const index_t waveId_n = waveId % GemmNWaves;
       // mMyWaveOffsetA = waveId_m * GemmMPerWave;
       // mMyWaveOffsetB = waveId_n * GemmNPerWave;
-      // constexpr auto reg_size_xdlops = MPerXdlops * NPerXdlops / WaveSize;
 
       auto tid = b.create<miopen::WorkitemIdOp>(loc, b.getIndexType());
       auto waveId = b.create<SignedDivIOp>(loc, tid, waveSizeConstantOp);
@@ -2111,47 +2110,14 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
       auto mMyWaveOffsetA = b.create<MulIOp>(loc, waveId_m, MPerWaveConstantOp);
       auto mMyWaveOffsetB = b.create<MulIOp>(loc, waveId_n, NPerWaveConstantOp);
 
-      int64_t regSizeXdlops = MPerXdlops * NPerXdlops / WaveSize;
-
-      auto regSizeXdlopsConstantOp = b.create<ConstantIndexOp>(loc, regSizeXdlops);
-
       // Original C++ logic:
       // static constexpr auto XdlopsGemm =
       //     XdlopsGemm_t<Float, MPerXdlops, NPerXdlops, GemmDataPerReadA, GemmDataPerReadB>{};
-      //  for(index_t m = 0; m < MRepeats; m++)
-      //  {
-      //      for(index_t n = 0; n < NRepeats; n++)
-      //      {
-      //          XdlopsGemm.template Run<M, N, K>(&p_a_block[mMyWaveOffsetA + MPerXdlops * m],
-      //                                           &p_b_block[mMyWaveOffsetB + NPerXdlops * n],
-      //                                           p_c_thread + (NRepeats * m + n) * reg_size_xdlops);
-      //      }
-      //  }
+      // XdlopsGemm.template Run<M, N, K>(&p_a_block[mMyWaveOffsetA],
+      //                                  &p_b_block[mMyWaveOffsetB],
+      //                                  p_c_thread);
 
-      // Main loop.
-      auto outerLoopOp =
-          b.create<scf::ForOp>(loc, zeroConstantIndexOp, MRepeatsConstantOp, oneConstantIndexOp);
-
-      // inside the outer loop.
-      auto olb = OpBuilder::atBlockTerminator(outerLoopOp.getBody());
-      auto oiv = outerLoopOp.getInductionVar(); // m.
-
-      // Inner loop.
-      auto innerLoopOp =
-          olb.create<scf::ForOp>(loc, zeroConstantIndexOp, NRepeatsConstantOp, oneConstantIndexOp);
-
-      // inside the inner loop.
-      auto ilb = OpBuilder::atBlockTerminator(innerLoopOp.getBody());
-      auto iiv = innerLoopOp.getInductionVar(); // n.
-
-      // XdlopsGemm.template Run<M, N, K>(&p_a_block[mMyWaveOffsetA + MPerXdlops * m],
-      //                                  &p_b_block[mMyWaveOffsetB + NPerXdlops * n],
-      //                                  p_c_thread + (NRepeats * m + n) * reg_size_xdlops);
-      auto threadOffsetA = ilb.create<AddIOp>(loc, mMyWaveOffsetA, ilb.create<MulIOp>(loc, MPerXdlopsConstantOp, oiv));
-      auto threadOffsetB = ilb.create<AddIOp>(loc, mMyWaveOffsetB, ilb.create<MulIOp>(loc, NPerXdlopsConstantOp, iiv));
-      auto threadOffsetC = ilb.create<MulIOp>(loc, ilb.create<AddIOp>(loc, ilb.create<MulIOp>(loc, NRepeatsConstantOp, oiv), iiv), regSizeXdlopsConstantOp);
-
-      auto xdlopsGemm = ilb.create<miopen::XdlopsGemmOp>(loc, op.matrixA(), op.matrixB(), op.matrixC(), threadOffsetA, threadOffsetB, threadOffsetC);
+      auto xdlopsGemm = b.create<miopen::XdlopsGemmOp>(loc, op.matrixA(), op.matrixB(), op.matrixC(), mMyWaveOffsetA, mMyWaveOffsetB, zeroConstantIndexOp);
 
     } else {
       // Non-xdlops path.
