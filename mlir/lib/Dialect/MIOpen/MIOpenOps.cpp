@@ -538,8 +538,8 @@ static LogicalResult verify(miopen::MFMAOp op) {
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseXdlopsGemmOp(OpAsmParser &parser, OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 6> ops;
-  SmallVector<Type, 6> types;
+  SmallVector<OpAsmParser::OperandType, 5> ops;
+  SmallVector<Type, 5> types;
   return failure(
       parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
       parser.parseOptionalAttrDict(result.attributes) ||

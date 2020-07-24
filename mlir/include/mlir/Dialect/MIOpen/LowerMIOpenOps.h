@@ -2117,7 +2117,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
       //                                  &p_b_block[mMyWaveOffsetB],
       //                                  p_c_thread);
 
-      auto xdlopsGemm = b.create<miopen::XdlopsGemmOp>(loc, op.matrixA(), op.matrixB(), op.matrixC(), mMyWaveOffsetA, mMyWaveOffsetB, zeroConstantIndexOp);
+      auto xdlopsGemm = b.create<miopen::XdlopsGemmOp>(loc, op.matrixA(), op.matrixB(), op.matrixC(), mMyWaveOffsetA, mMyWaveOffsetB);
 
     } else {
       // Non-xdlops path.

@@ -268,8 +268,7 @@ def MIOpen_XdlopsGemmOp:
                    AnyMemRef:$matrixB,
                    AnyMemRef:$matrixC,
                    Index:$threadOffsetA,
-                   Index:$threadOffsetB,
-                   Index:$threadOffsetC)> {
+                   Index:$threadOffsetB)> {
   let summary = "XDLOPS GEMM";
   let description = [{
     The `miopen.xdlops_gemm` op is an abstraction of doing GEMM based on XDLOPS.
