@@ -2082,16 +2082,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
       auto NWavesConstantOp = b.create<ConstantIndexOp>(loc, NWaves);
 
       int64_t WaveSize = 64;
-      int64_t MRepeats = (MPerWave > WaveSize) ? (MPerWave / WaveSize) : 1;
-      int64_t NRepeats = (NPerWave > 64) ? (NPerWave / WaveSize) : 1;
-      int64_t MPerXdlops = (MPerWave > WaveSize) ? WaveSize : MPerWave;
-      int64_t NPerXdlops = (NPerWave > WaveSize) ? WaveSize : NPerWave;
-
       auto waveSizeConstantOp = b.create<ConstantIndexOp>(loc, WaveSize);
-      auto MRepeatsConstantOp = b.create<ConstantIndexOp>(loc, MRepeats);
-      auto NRepeatsConstantOp = b.create<ConstantIndexOp>(loc, NRepeats);
-      auto MPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
-      auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
 
       // Original C++ logic:
       // index_t mMyWaveOffsetA;
@@ -2118,6 +2109,11 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
       //                                  p_c_thread);
 
       auto xdlopsGemm = b.create<miopen::XdlopsGemmOp>(loc, op.matrixA(), op.matrixB(), op.matrixC(), mMyWaveOffsetA, mMyWaveOffsetB);
+      xdlopsGemm.setAttr("m", b.getI32IntegerAttr(M));
+      xdlopsGemm.setAttr("n", b.getI32IntegerAttr(N));
+      xdlopsGemm.setAttr("k", b.getI32IntegerAttr(K));
+      xdlopsGemm.setAttr("m_per_thread", op.getAttr("m_per_thread"));
+      xdlopsGemm.setAttr("n_per_thread", op.getAttr("n_per_thread"));
 
     } else {
       // Non-xdlops path.
@@ -3142,6 +3138,688 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
 
     // Pass the input to uses of this op.
     op.replaceAllUsesWith(op.input());
+
+    op.erase();
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// XdlopsGemm lowering.
+//===----------------------------------------------------------------------===//
+
+struct XdlopsGemmRewritePattern
+    : public OpRewritePattern<miopen::XdlopsGemmOp> {
+  using OpRewritePattern<miopen::XdlopsGemmOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::XdlopsGemmOp op,
+                                PatternRewriter &b) const override {
+    auto loc = op.getLoc();
+
+    // Obtain critical information.
+    int64_t M = op.getAttr("m").template dyn_cast<IntegerAttr>().getInt();
+    int64_t N = op.getAttr("n").template dyn_cast<IntegerAttr>().getInt();
+    int64_t K = op.getAttr("k").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MPerWave = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerWave = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    auto dataType = op.matrixA()
+                        .getType()
+                        .template dyn_cast<MemRefType>()
+                        .getElementType()
+                        .template dyn_cast<FloatType>();
+
+    // Determine which XDLOPS be used.
+    int64_t MPerXdlops = 0, NPerXdlops = 0, MRepeats = 0, NRepeats = 0;
+    StringRef mfmaInstr = "";
+    if (dataType == b.getF32Type()) {
+      if (MPerWave == 128 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 2;
+        NRepeats = 2;
+      } else if (MPerWave == 128 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 128 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 32;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 128 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 64 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 32;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 32 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 32;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x2xf32";
+        MPerXdlops = 32;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 16 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_16x16x1xf32";
+        MPerXdlops = 16;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 16 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_16x16x1xf32";
+        MPerXdlops = 16;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 16 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x4xf32";
+        MPerXdlops = 16;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 8 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_4x4x1xf32";
+        MPerXdlops = 8;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 8 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_4x4x1xf32";
+        MPerXdlops = 8;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 4 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_4x4x1xf32";
+        MPerXdlops = 4;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 4 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_4x4x1xf32";
+        MPerXdlops = 4;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else {
+        llvm::errs() << "Unsupported case:\n";
+        llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
+        llvm::errs() << "MPerWave: " << MPerWave << "\n";
+        llvm::errs() << "NPerWave: " << NPerWave << "\n";
+        llvm::errs() << "dataType: ";
+        dataType.dump();
+        llvm::errs() << "\n";
+      }
+    } else if (dataType == b.getF16Type()) {
+      if (MPerWave == 128 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 2;
+        NRepeats = 2;
+      } else if (MPerWave == 128 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 128 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 32;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 128 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 64 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 32;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 32;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x8f16";
+        MPerXdlops = 32;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 16 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_16x16x4f16";
+        MPerXdlops = 16;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 16 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_16x16x4f16";
+        MPerXdlops = 16;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 16 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x16f16";
+        MPerXdlops = 16;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 8 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_4x4x4f16";
+        MPerXdlops = 8;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 8 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_4x4x4f16";
+        MPerXdlops = 8;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 4 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_4x4x4f16";
+        MPerXdlops = 4;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 4 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_4x4x4f16";
+        MPerXdlops = 4;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else {
+        llvm::errs() << "Unsupported case:\n";
+        llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
+        llvm::errs() << "MPerWave: " << MPerWave << "\n";
+        llvm::errs() << "NPerWave: " << NPerWave << "\n";
+        llvm::errs() << "dataType: ";
+        dataType.dump();
+        llvm::errs() << "\n";
+      }
+    } else if (dataType == b.getBF16Type()) {
+      if (MPerWave == 128 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 2;
+        NRepeats = 2;
+      } else if (MPerWave == 128 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 128 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 32;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 128 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 64 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 32;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 32 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 32;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x4bf16";
+        MPerXdlops = 32;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 16 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_16x16x2bf16";
+        MPerXdlops = 16;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 16 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_16x16x2bf16";
+        MPerXdlops = 16;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 16 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x8bf16";
+        MPerXdlops = 16;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 8 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_4x4x2bf16";
+        MPerXdlops = 8;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 8 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_4x4x2bf16";
+        MPerXdlops = 8;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 4 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_4x4x2bf16";
+        MPerXdlops = 4;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 4 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_4x4x2bf16";
+        MPerXdlops = 4;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else {
+        llvm::errs() << "Unsupported case:\n";
+        llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
+        llvm::errs() << "MPerWave: " << MPerWave << "\n";
+        llvm::errs() << "NPerWave: " << NPerWave << "\n";
+        llvm::errs() << "dataType: ";
+        dataType.dump();
+        llvm::errs() << "\n";
+      }
+    }
+
+    // Obtain properties of MFMA instructions.
+    int64_t group_size, num_groups_blk, num_regs_blk, num_threads_blk, wave_size, num_input_blks, num_output_blks, num_regs_xdlops, m, n, k, cycles, k_base;
+    if (mfmaInstr == "mfma_f32_32x32x1xf32") {
+      group_size      = 4;
+      num_groups_blk  = 4;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 32;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 2;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 32;
+      n               = 32;
+      k               = 1;
+      cycles          = 64;
+      k_base          = 1;
+    } else if (mfmaInstr == "mfma_f32_32x32x2xf32") {
+      group_size      = 4;
+      num_groups_blk  = 4;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 32;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 32;
+      n               = 32;
+      k               = 2;
+      cycles          = 64;
+      k_base          = 1;
+    } else if (mfmaInstr == "mfma_f32_16x16x4xf32") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 16;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 16;
+      n               = 16;
+      k               = 4;
+      cycles          = 32;
+      k_base          = 1;
+    } else if (mfmaInstr == "mfma_f32_16x16x1xf32") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 16;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 4;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 16;
+      n               = 16;
+      k               = 1;
+      cycles          = 32;
+      k_base          = 1;
+    } else if (mfmaInstr == "mfma_f32_4x4x1xf32") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 64;
+      wave_size       = 64;
+      num_input_blks  = 1;
+      num_output_blks = 1;
+      num_regs_xdlops = 4;
+      m               = 4;
+      n               = 64;
+      k               = 1;
+      cycles          = 8;
+      k_base          = 1;
+    } else if (mfmaInstr == "mfma_f32_32x32x4f16") {
+      group_size      = 4;
+      num_groups_blk  = 4;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 32;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 2;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 32;
+      n               = 32;
+      k               = 4;
+      cycles          = 64;
+      k_base          = 4;
+    } else if (mfmaInstr == "mfma_f32_32x32x8f16") {
+      group_size      = 4;
+      num_groups_blk  = 4;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 32;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 32;
+      n               = 32;
+      k               = 8;
+      cycles          = 64;
+      k_base          = 4;
+    } else if (mfmaInstr == "mfma_f32_16x16x16f16") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 16;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 16;
+      n               = 16;
+      k               = 16;
+      cycles          = 32;
+      k_base          = 4;
+    } else if (mfmaInstr == "mfma_f32_16x16x4f16") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 16;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 4;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 16;
+      n               = 16;
+      k               = 4;
+      cycles          = 32;
+      k_base          = 4;
+    } else if (mfmaInstr == "mfma_f32_4x4x4f16") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 64;
+      wave_size       = 64;
+      num_input_blks  = 1;
+      num_output_blks = 1;
+      num_regs_xdlops = 4;
+      m               = 4;
+      n               = 64;
+      k               = 4;
+      cycles          = 8;
+      k_base          = 4;
+    } else if (mfmaInstr == "mfma_f32_32x32x2bf16") {
+      group_size      = 4;
+      num_groups_blk  = 4;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 32;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 2;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 32;
+      n               = 32;
+      k               = 2;
+      cycles          = 64;
+      k_base          = 2;
+    } else if (mfmaInstr == "mfma_f32_32x32x4bf16") {
+      group_size      = 4;
+      num_groups_blk  = 4;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 32;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 32;
+      n               = 32;
+      k               = 4;
+      cycles          = 64;
+      k_base          = 2;
+    } else if (mfmaInstr == "mfma_f32_16x16x8bf16") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 16;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 16;
+      n               = 16;
+      k               = 8;
+      cycles          = 32;
+      k_base          = 2;
+    } else if (mfmaInstr == "mfma_f32_32x32x2xf32") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 16;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 4;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 16;
+      n               = 16;
+      k               = 2;
+      cycles          = 32;
+      k_base          = 2;
+    } else if (mfmaInstr == "mfma_f32_4x4x2bf16") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 64;
+      wave_size       = 64;
+      num_input_blks  = 1;
+      num_output_blks = 1;
+      num_regs_xdlops = 4;
+      m               = 4;
+      n               = 64;
+      k               = 2;
+      cycles          = 8;
+      k_base          = 2;
+    } else {
+      llvm::errs() << "Unsupported case as mfmaInstr not selected!\n";
+    }
+
+    bool IsABroadcast = (NPerXdlops >= MPerXdlops);
+    bool IsKReduction = (num_output_blks == 1) && (num_input_blks > 1);
+
+    // Original C++ logic.
+    // const index_t laneId = get_thread_local_1d_id() % mfma_type.wave_size;
+    // FloatA a[K * MRepeats];
+    // FloatB b[K * NRepeats];
+    // constexpr index_t nxdlops = sizeof(FloatA) / (sizeof(data_type) * mfma_type.k_base);
+
+    auto tid = b.create<miopen::WorkitemIdOp>(loc, b.getIndexType());
+    auto laneId = b.create<SignedRemIOp>(
+        loc, tid, b.create<ConstantIndexOp>(loc, wave_size));
+    auto arrayAType =
+        MemRefType::get({K * MRepeats}, dataType, {},
+                        gpu::GPUDialect::getPrivateAddressSpace());
+    auto arrayA = b.create<miopen::GpuAllocOp>(loc, arrayAType);
+    auto arrayBType =
+        MemRefType::get({K * NRepeats}, dataType, {},
+                        gpu::GPUDialect::getPrivateAddressSpace());
+    auto arrayB = b.create<miopen::GpuAllocOp>(loc, arrayBType);
+    auto nxdlops = b.create<ConstantIndexOp>(
+        loc, dataType.getWidth() / (dataType.getWidth() * k_base));
+
+    llvm::errs() << "MPerXdlops: " << MPerXdlops << "\n";
+    llvm::errs() << "NPerXdlops: " << NPerXdlops << "\n";
+    if (!IsKReduction) {
+      // Original C++ logic.
+      // static_if<!IsKReduction>{}([&](auto) {
+      //     for(index_t m_i = 0; m_i < MRepeats; ++m_i)
+      //         for(index_t k_i      = 0; k_i < K; ++k_i)
+      //             a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops *
+      //             m_i];
+      //     for(index_t n_i = 0; n_i < NRepeats; ++n_i)
+      //         for(index_t k_i      = 0; k_i < K; ++k_i)
+      //             b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops *
+      //             n_i];
+      //     // get pointer of registers
+      //     auto pa = reinterpret_cast<const data_type*>(&a);
+      //     auto pb = reinterpret_cast<const data_type*>(&b);
+      //     for(index_t m_i = 0; m_i < MRepeats; ++m_i) {
+      //         for(index_t n_i = 0; n_i < NRepeats; ++n_i) {
+      //             for(index_t k_i = 0; k_i < K; ++k_i) {
+      //                 for(index_t i = 0; i < nxdlops; ++i)
+      //                     mfma_type.template run<MPerXdlops, NPerXdlops>(
+      //                         &pa[(k_i * nxdlops + i) * mfma_type.k_base +
+      //                             m_i * K * nxdlops * mfma_type.k_base],
+      //                         &pb[(k_i * nxdlops + i) * mfma_type.k_base +
+      //                             n_i * K * nxdlops * mfma_type.k_base],
+      //                         p_c_thread + (NRepeats * m_i + n_i) *
+      //                         GetRegSizePerXdlops());
+      //             }
+      //         }
+      //     }
+
+    } else {
+      // Original C++ logic.
+      // }).Else([&](auto) {
+      //     const index_t blk_id = laneId / mfma_type.num_threads_blk;
+      //     const index_t blk_td = laneId % mfma_type.num_threads_blk;
+      //     // load into registers
+      //     for(index_t k_i = 0; k_i < K; k_i += mfma_type.num_input_blks)
+      //     {
+      //         a[k_i] = p_a_wave[(k_i + blk_id) * M + blk_td];
+      //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
+      //     }
+      //     // get pointer of registers
+      //     auto pa = reinterpret_cast<const data_type*>(&a);
+      //     auto pb = reinterpret_cast<const data_type*>(&b);
+      //     for(index_t k_i = 0; k_i < K; k_i += mfma_type.num_input_blks) {
+      //         for(index_t i = 0; i < nxdlops; ++i)
+      //             mfma_type.template run<MPerXdlops, NPerXdlops>(
+      //                 &pa[(k_i * nxdlops + i) * mfma_type.k_base],
+      //                 &pb[(k_i * nxdlops + i) * mfma_type.k_base],
+      //                 p_c_thread);
+      //     }
+      // });
+    }
 
     op.erase();
     return success();
