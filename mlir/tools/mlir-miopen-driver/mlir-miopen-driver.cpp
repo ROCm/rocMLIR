@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MlirParse.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
@@ -175,12 +176,8 @@ static cl::opt<bool> xdlops("x", cl::desc("To use XDLOPS lowering pipeline"),
                             cl::value_desc("To use XDLOPS lowering pipeline"),
                             cl::init(false));
 
-static LogicalResult
-populateConvolutionConfiguration(SmallVector<int64_t, 4> &filterDimension,
-                                 SmallVector<int64_t, 4> &inputDimension,
-                                 SmallVector<int64_t, 4> &outputDimension) {
-  // Populate default parameters if necessary.
-  if (populateDefaultValues.getValue() == true) {
+static void populateDefaults() {
+  if (populateDefaultValues == true) {
     batchSize.setValue(128);
     inputChannel.setValue(8);
     outputChannel.setValue(128);
@@ -197,45 +194,6 @@ populateConvolutionConfiguration(SmallVector<int64_t, 4> &filterDimension,
     paddingHeight.setValue(0);
     paddingWidth.setValue(0);
   }
-
-  // Determine dimensions.
-  for (size_t i = 0; i < 4; ++i) {
-    auto &filterDim = filterLayout.getValue()[i];
-    auto &inputDim = inputLayout.getValue()[i];
-    auto &outputDim = outputLayout.getValue()[i];
-
-    if (filterDim == 'k') {
-      filterDimension.push_back(outputChannel.getValue());
-    } else if (filterDim == 'c') {
-      filterDimension.push_back(inputChannel.getValue());
-    } else if (filterDim == 'y') {
-      filterDimension.push_back(filterWidth.getValue());
-    } else if (filterDim == 'x') {
-      filterDimension.push_back(filterHeight.getValue());
-    }
-
-    if (inputDim == 'n') {
-      inputDimension.push_back(batchSize.getValue());
-    } else if (inputDim == 'c') {
-      inputDimension.push_back(inputChannel.getValue());
-    } else if (inputDim == 'h') {
-      inputDimension.push_back(inputWidth.getValue());
-    } else if (inputDim == 'w') {
-      inputDimension.push_back(inputHeight.getValue());
-    }
-
-    if (outputDim == 'n') {
-      outputDimension.push_back(batchSize.getValue());
-    } else if (outputDim == 'k') {
-      outputDimension.push_back(outputChannel.getValue());
-    } else if (outputDim == 'h') {
-      outputDimension.push_back(outputWidth.getValue());
-    } else if (outputDim == 'w') {
-      outputDimension.push_back(outputHeight.getValue());
-    }
-  }
-
-  return success();
 }
 
 static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &builder,
@@ -251,8 +209,12 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   SmallVector<int64_t, 4> filterDimension;
   SmallVector<int64_t, 4> inputDimension;
   SmallVector<int64_t, 4> outputDimension;
-  populateConvolutionConfiguration(filterDimension, inputDimension,
-                                   outputDimension);
+  populateConvolutionConfiguration(
+      inputLayout.getValue(), outputLayout.getValue(), filterLayout.getValue(),
+      batchSize.getValue(), inputChannel.getValue(), inputHeight.getValue(),
+      inputWidth.getValue(), outputChannel.getValue(), outputHeight.getValue(),
+      outputWidth.getValue(), filterWidth.getValue(), filterHeight.getValue(),
+      filterDimension, inputDimension, outputDimension);
 
   auto filterMemRefType = MemRefType::get(
       ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
@@ -528,6 +490,7 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
   return success();
 }
 
+<<<<<<< HEAD
 static LogicalResult populateConvolutionLogic(ModuleOp &module,
                                               OpBuilder &builder,
                                               MLIRContext &context,
@@ -637,6 +600,8 @@ static LogicalResult populateConvolutionLogic(ModuleOp &module,
   return success();
 }
 
+=======
+>>>>>>> Adding libMLIRMIOpen.a
 static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser &passPipeline, StringRef kernelName) {
   PassManager pm(module.getContext());
   applyPassManagerCLOptions(pm);
@@ -717,7 +682,18 @@ int main(int argc, char **argv) {
 
   // Populate the module.
   SmallString<128> kernelName;
-  if (failed(populateConvolutionLogic(module, builder, context, kernelName))) {
+  populateDefaults();
+  if (failed(populateConvolutionLogic(
+          operation.getValue(), inputLayout.getValue(), outputLayout.getValue(),
+          filterLayout.getValue(), batchSize.getValue(),
+          inputChannel.getValue(), inputHeight.getValue(),
+          inputWidth.getValue(), outputChannel.getValue(),
+          outputHeight.getValue(), outputWidth.getValue(),
+          filterWidth.getValue(), filterHeight.getValue(),
+          dilationHeight.getValue(), dilationWidth.getValue(),
+          strideHeight.getValue(), strideWidth.getValue(),
+          paddingHeight.getValue(), paddingWidth.getValue(), module, builder,
+          kernelName))) {
     llvm::errs() << "Module population failed.\n";
     exit(1);
   }

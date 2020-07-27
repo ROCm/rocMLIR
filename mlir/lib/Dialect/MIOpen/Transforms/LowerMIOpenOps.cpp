@@ -71,6 +71,43 @@ struct LowerMIOpenOpsStep5Pass
 };
 } // end anonymous namespace
 
+// High level convolution operation always have
+// [filter, input, output]
+// as the convolution argument. The only difference between different
+// hight level convolution operations is the argument sequence. For
+// simplicity, we always arrange the first two arguments to be input
+// and the last argument to be output
+template <>
+const ArgumentFields Conv2DRewritePattern<miopen::Conv2DOp>::fields = {
+    {0, 1, 2},
+    {"KM", "KN", "MN"},
+};
+template <>
+const miopen::ConvOpType Conv2DRewritePattern<miopen::Conv2DOp>::convOpType =
+    miopen::ConvOpType::Conv2DOpType;
+
+template <>
+const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::fields = {
+    {0, 2, 1},
+    {"KM", "MN", "KN"},
+};
+
+template <>
+const miopen::ConvOpType
+    Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::convOpType =
+        miopen::ConvOpType::Conv2DBwdDataOpType;
+
+template <>
+const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>::fields = {
+    {2, 1, 0},
+    {"MN", "KN", "KM"},
+};
+
+template <>
+const miopen::ConvOpType
+    Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>::convOpType =
+        miopen::ConvOpType::Conv2DBwdWeightOpType;
+
 void LowerMIOpenOpsStep1Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DOp>>(&getContext());
