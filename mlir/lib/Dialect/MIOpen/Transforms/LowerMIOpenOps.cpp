@@ -138,6 +138,7 @@ void LowerMIOpenOpsStep4Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<ThreadwiseGemmRewritePattern>(&getContext());
   patterns.insert<ThreadwiseCopyRewritePattern>(&getContext());
+  patterns.insert<XdlopsGemmRewritePattern>(&getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
 }
 
