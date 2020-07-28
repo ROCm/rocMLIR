@@ -3939,19 +3939,22 @@ struct XdlopsGemmRewritePattern
             KConstantIndexOp,
             lib.create<MulIOp>(loc,
               NXDlopsConstantIndexOp, KBaseConstantIndexOp))));
-       // TBD: use vector.type_cast for FP16/BF16 types.
-       auto argA = lib.create<LoadOp>(loc, dataType, arrayA, ValueRange{addressA});
-       auto argB = lib.create<LoadOp>(loc, dataType, arrayB, ValueRange{addressB});
+      // TBD: use vector.type_cast for FP16/BF16 types.
+      auto argA =
+          lib.create<LoadOp>(loc, dataType, arrayA, ValueRange{addressA});
+      auto argB =
+          lib.create<LoadOp>(loc, dataType, arrayB, ValueRange{addressB});
 
-       auto addressC = lib.create<MulIOp>(loc,
-         lib.create<AddIOp>(loc,
-           lib.create<MulIOp>(loc, NRepeatsConstantIndexOp, lmiv),
-           lniv),
-         RegSizePerXdlopsConstantIndexOp);
-       // TBD. use addressC.
-       auto mfma = lib.create<miopen::MFMAOp>(loc, argA, argB, op.matrixC());
-       mfma.setAttr("m_per_wave", lib.getI32IntegerAttr(MPerXdlops));
-       mfma.setAttr("n_per_wave", lib.getI32IntegerAttr(NPerXdlops));
+      auto addressC = lib.create<MulIOp>(
+          loc,
+          lib.create<AddIOp>(
+              loc, lib.create<MulIOp>(loc, NRepeatsConstantIndexOp, lmiv),
+              lniv),
+          RegSizePerXdlopsConstantIndexOp);
+      // TBD. use addressC.
+      auto mfma = lib.create<miopen::MFMAOp>(loc, argA, argB, op.matrixC());
+      mfma.setAttr("m_per_wave", lib.getI32IntegerAttr(MPerXdlops));
+      mfma.setAttr("n_per_wave", lib.getI32IntegerAttr(NPerXdlops));
 
     } else {
       // Original C++ logic.
@@ -3969,15 +3972,42 @@ struct XdlopsGemmRewritePattern
       //         a[k_i] = p_a_wave[(k_i + blk_id) * M + blk_td];
       //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
       //     }
+      // p_a_wave need to be offseted by threadOffsetA.
+      // p_b_wave need to be offseted by threadOffsetB.
 
       auto NumInputBlksConstantIndexOp = b.create<ConstantIndexOp>(loc, num_input_blks);
       auto loopKLoad = b.create<scf::ForOp>(loc, zeroConstantIndexOp, KConstantIndexOp, NumInputBlksConstantIndexOp);
       auto lklb = OpBuilder::atBlockTerminator(loopKLoad.getBody());
+      auto lkliv = loopKLoad.getInductionVar();
 
-      // TBD
+      // TBD. Check if we need to apply coord_transform as well.
       //         a[k_i] = p_a_wave[(k_i + blk_id) * M + blk_td];
       //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
+      // p_a_wave need to be offseted by threadOffsetA.
+      // p_b_wave need to be offseted by threadOffsetB.
+      auto sourceOffsetA = lklb.create<AddIOp>(
+          loc, op.threadOffsetA(),
+          lklb.create<AddIOp>(
+              loc,
+              lklb.create<MulIOp>(loc, lklb.create<AddIOp>(loc, lkliv, blk_id),
+                                  MConstantIndexOp),
+              blk_td));
 
+      auto valueA = lklb.create<LoadOp>(loc, dataType, op.matrixA(),
+                                        ValueRange{sourceOffsetA});
+      lklb.create<StoreOp>(loc, valueA, arrayA, ValueRange{lkliv});
+
+      auto sourceOffsetB = lklb.create<AddIOp>(
+          loc, op.threadOffsetB(),
+          lklb.create<AddIOp>(
+              loc,
+              lklb.create<MulIOp>(loc, lklb.create<AddIOp>(loc, lkliv, blk_id),
+                                  NConstantIndexOp),
+              blk_td));
+
+      auto valueB = lklb.create<LoadOp>(loc, dataType, op.matrixB(),
+                                        ValueRange{sourceOffsetB});
+      lklb.create<StoreOp>(loc, valueB, arrayB, ValueRange{lkliv});
 
       //     // get pointer of registers
       //     auto pa = reinterpret_cast<const data_type*>(&a);
@@ -3987,8 +4017,10 @@ struct XdlopsGemmRewritePattern
 
       auto loopKMFMA = b.create<scf::ForOp>(loc, zeroConstantIndexOp, KConstantIndexOp, NumInputBlksConstantIndexOp);
       auto lkmb = OpBuilder::atBlockTerminator(loopKMFMA.getBody());
+      auto lkmiv = loopKMFMA.getInductionVar();
       auto loopI = lkmb.create<scf::ForOp>(loc, zeroConstantIndexOp, NXDlopsConstantIndexOp, oneConstantIndexOp);
       auto lib = OpBuilder::atBlockTerminator(loopI.getBody());
+      auto liiv = loopI.getInductionVar();
 
       //             mfma_type.template run<MPerXdlops, NPerXdlops>(
       //                 &pa[(k_i * nxdlops + i) * mfma_type.k_base],
@@ -3996,6 +4028,23 @@ struct XdlopsGemmRewritePattern
       //                 p_c_thread);
       //     }
       // });
+
+      auto addressAB = lib.create<MulIOp>(
+          loc,
+          lib.create<AddIOp>(
+              loc, lib.create<MulIOp>(loc, lkmiv, NXDlopsConstantIndexOp),
+              liiv),
+          KBaseConstantIndexOp);
+
+      // TBD: use vector.type_cast for FP16/BF16 types.
+      auto argA =
+          lib.create<LoadOp>(loc, dataType, arrayA, ValueRange{addressAB});
+      auto argB =
+          lib.create<LoadOp>(loc, dataType, arrayB, ValueRange{addressAB});
+
+      auto mfma = lib.create<miopen::MFMAOp>(loc, argA, argB, op.matrixC());
+      mfma.setAttr("m_per_wave", lib.getI32IntegerAttr(MPerXdlops));
+      mfma.setAttr("n_per_wave", lib.getI32IntegerAttr(NPerXdlops));
     }
 
     op.erase();
