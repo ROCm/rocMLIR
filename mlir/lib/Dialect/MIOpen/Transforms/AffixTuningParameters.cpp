@@ -137,6 +137,17 @@ void AffixTuningParameters::runOnFunction() {
       signalPassFailure();
     }
 
+    // XXX. Populate default tuning parameters for XDLOPS.
+    auto xdlopsAttr = op.template getAttrOfType<BoolAttr>("xdlops");
+    if (xdlopsAttr && xdlopsAttr.getValue() == true) {
+      validParams.gemmMPerBlock = 256;
+      validParams.gemmNPerBlock = 128;
+      validParams.gemmKPerBlock = 16;
+      validParams.gemmMPerThread = 128;
+      validParams.gemmNPerThread = 64;
+      validParams.blockSize = 256;
+    }
+
     if (launchDimCallback) {
       launchDimCallback(validParams.blockSize, gridSize);
     }
