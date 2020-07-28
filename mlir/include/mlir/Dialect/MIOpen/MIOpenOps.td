@@ -224,7 +224,7 @@ def MIOpen_BlockwiseGemmOp:
     MIOpen_Op<"blockwise_gemm">,
     Arguments<(ins MemRefRankOf<[F32], [2]>:$matrixA,
                    MemRefRankOf<[F32], [2]>:$matrixB,
-                   MemRefRankOf<[F32], [2]>:$matrixC,
+                   AnyMemRef:$matrixC,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB)> {
   let summary = "Blockwise GEMM";
