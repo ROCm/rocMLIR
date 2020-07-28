@@ -2112,8 +2112,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
       xdlopsGemm.setAttr("m", b.getI32IntegerAttr(M));
       xdlopsGemm.setAttr("n", b.getI32IntegerAttr(N));
       xdlopsGemm.setAttr("k", b.getI32IntegerAttr(K));
-      xdlopsGemm.setAttr("m_per_thread", op.getAttr("m_per_thread"));
-      xdlopsGemm.setAttr("n_per_thread", op.getAttr("n_per_thread"));
+      xdlopsGemm.setAttr("m_per_wave", op.getAttr("m_per_thread"));
+      xdlopsGemm.setAttr("n_per_wave", op.getAttr("n_per_thread"));
 
     } else {
       // Non-xdlops path.
@@ -3160,8 +3160,8 @@ struct XdlopsGemmRewritePattern
     int64_t M = op.getAttr("m").template dyn_cast<IntegerAttr>().getInt();
     int64_t N = op.getAttr("n").template dyn_cast<IntegerAttr>().getInt();
     int64_t K = op.getAttr("k").template dyn_cast<IntegerAttr>().getInt();
-    int64_t MPerWave = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
-    int64_t NPerWave = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MPerWave = op.getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerWave = op.getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
     auto dataType = op.matrixA()
                         .getType()
                         .template dyn_cast<MemRefType>()
@@ -3763,11 +3763,24 @@ struct XdlopsGemmRewritePattern
         MemRefType::get({K * NRepeats}, dataType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
     auto arrayB = b.create<miopen::GpuAllocOp>(loc, arrayBType);
-    auto nxdlops = b.create<ConstantIndexOp>(
+    auto NXDlopsConstantIndexOp = b.create<ConstantIndexOp>(
         loc, dataType.getWidth() / (dataType.getWidth() * k_base));
 
+    llvm::errs() << "mfmaInstr: " << mfmaInstr << "\n";
     llvm::errs() << "MPerXdlops: " << MPerXdlops << "\n";
     llvm::errs() << "NPerXdlops: " << NPerXdlops << "\n";
+    llvm::errs() << "MRepeats: " << MRepeats << "\n";
+    llvm::errs() << "NRepeats: " << NRepeats << "\n";
+    llvm::errs() << "IsABroadcast: " << IsABroadcast << "\n";
+    llvm::errs() << "IsKReduction: " << IsKReduction << "\n";
+
+    auto zeroConstantIndexOp = b.create<ConstantIndexOp>(loc, 0);
+    auto oneConstantIndexOp = b.create<ConstantIndexOp>(loc, 1);
+
+    auto KConstantIndexOp = b.create<ConstantIndexOp>(loc, K);
+    auto MRepeatsConstantIndexOp = b.create<ConstantIndexOp>(loc, MRepeats);
+    auto NRepeatsConstantIndexOp = b.create<ConstantIndexOp>(loc, NRepeats);
+
     if (!IsKReduction) {
       // Original C++ logic.
       // static_if<!IsKReduction>{}([&](auto) {
@@ -3775,10 +3788,33 @@ struct XdlopsGemmRewritePattern
       //         for(index_t k_i      = 0; k_i < K; ++k_i)
       //             a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops *
       //             m_i];
+
+      auto outerLoopM = b.create<scf::ForOp>(loc, zeroConstantIndexOp, MRepeatsConstantIndexOp, oneConstantIndexOp);
+      auto olmb = OpBuilder::atBlockTerminator(outerLoopM.getBody());
+      auto innerLoopMK = olmb.create<scf::ForOp>(loc, zeroConstantIndexOp, KConstantIndexOp, oneConstantIndexOp);
+      auto ilmkb = OpBuilder::atBlockTerminator(innerLoopMK.getBody());
+
+      // TBD
+      //             a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops *
+      //             m_i];
+
+
+      // Original C++ logic.
       //     for(index_t n_i = 0; n_i < NRepeats; ++n_i)
       //         for(index_t k_i      = 0; k_i < K; ++k_i)
       //             b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops *
       //             n_i];
+
+      auto outerLoopN = b.create<scf::ForOp>(loc, zeroConstantIndexOp, NRepeatsConstantIndexOp, oneConstantIndexOp);
+      auto olnb = OpBuilder::atBlockTerminator(outerLoopM.getBody());
+      auto innerLoopNK = olnb.create<scf::ForOp>(loc, zeroConstantIndexOp, KConstantIndexOp, oneConstantIndexOp);
+      auto ilnkb = OpBuilder::atBlockTerminator(innerLoopNK.getBody());
+
+      // TBD
+      //             b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops *
+      //             n_i];
+
+      // Original C++ logic.
       //     // get pointer of registers
       //     auto pa = reinterpret_cast<const data_type*>(&a);
       //     auto pb = reinterpret_cast<const data_type*>(&b);
@@ -3786,6 +3822,17 @@ struct XdlopsGemmRewritePattern
       //         for(index_t n_i = 0; n_i < NRepeats; ++n_i) {
       //             for(index_t k_i = 0; k_i < K; ++k_i) {
       //                 for(index_t i = 0; i < nxdlops; ++i)
+
+      auto loopM = b.create<scf::ForOp>(loc, zeroConstantIndexOp, MRepeatsConstantIndexOp, oneConstantIndexOp);
+      auto lmb = OpBuilder::atBlockTerminator(loopM.getBody());
+      auto loopN = lmb.create<scf::ForOp>(loc, zeroConstantIndexOp, NRepeatsConstantIndexOp, oneConstantIndexOp);
+      auto lnb = OpBuilder::atBlockTerminator(loopN.getBody());
+      auto loopK = lnb.create<scf::ForOp>(loc, zeroConstantIndexOp, KConstantIndexOp, oneConstantIndexOp);
+      auto lkb = OpBuilder::atBlockTerminator(loopK.getBody());
+      auto loopI = lkb.create<scf::ForOp>(loc, zeroConstantIndexOp, NXDlopsConstantIndexOp, oneConstantIndexOp);
+      auto lib = OpBuilder::atBlockTerminator(loopI.getBody());
+
+      // Original C++ logic.
       //                     mfma_type.template run<MPerXdlops, NPerXdlops>(
       //                         &pa[(k_i * nxdlops + i) * mfma_type.k_base +
       //                             m_i * K * nxdlops * mfma_type.k_base],
@@ -3793,26 +3840,44 @@ struct XdlopsGemmRewritePattern
       //                             n_i * K * nxdlops * mfma_type.k_base],
       //                         p_c_thread + (NRepeats * m_i + n_i) *
       //                         GetRegSizePerXdlops());
-      //             }
-      //         }
-      //     }
 
     } else {
       // Original C++ logic.
       // }).Else([&](auto) {
       //     const index_t blk_id = laneId / mfma_type.num_threads_blk;
       //     const index_t blk_td = laneId % mfma_type.num_threads_blk;
+
+      auto NumThreadsBlkConstantIndexOp = b.create<ConstantIndexOp>(loc, num_threads_blk);
+      auto blk_id = b.create<SignedDivIOp>(loc, laneId, NumThreadsBlkConstantIndexOp);
+      auto blk_td = b.create<SignedRemIOp>(loc, laneId, NumThreadsBlkConstantIndexOp);
+
+      // Original C++ logic.
       //     // load into registers
-      //     for(index_t k_i = 0; k_i < K; k_i += mfma_type.num_input_blks)
-      //     {
+      //     for(index_t k_i = 0; k_i < K; k_i += mfma_type.num_input_blks) {
       //         a[k_i] = p_a_wave[(k_i + blk_id) * M + blk_td];
       //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
       //     }
+
+      auto NumInputBlksConstantIndexOp = b.create<ConstantIndexOp>(loc, num_input_blks);
+      auto loopKLoad = b.create<scf::ForOp>(loc, zeroConstantIndexOp, KConstantIndexOp, NumInputBlksConstantIndexOp);
+      auto lklb = OpBuilder::atBlockTerminator(loopKLoad.getBody());
+
+      // TBD
+      //         a[k_i] = p_a_wave[(k_i + blk_id) * M + blk_td];
+      //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
+
+
       //     // get pointer of registers
       //     auto pa = reinterpret_cast<const data_type*>(&a);
       //     auto pb = reinterpret_cast<const data_type*>(&b);
       //     for(index_t k_i = 0; k_i < K; k_i += mfma_type.num_input_blks) {
       //         for(index_t i = 0; i < nxdlops; ++i)
+
+      auto loopKMFMA = b.create<scf::ForOp>(loc, zeroConstantIndexOp, KConstantIndexOp, NumInputBlksConstantIndexOp);
+      auto lkmb = OpBuilder::atBlockTerminator(loopKMFMA.getBody());
+      auto loopI = lkmb.create<scf::ForOp>(loc, zeroConstantIndexOp, NXDlopsConstantIndexOp, oneConstantIndexOp);
+      auto lib = OpBuilder::atBlockTerminator(loopI.getBody());
+
       //             mfma_type.template run<MPerXdlops, NPerXdlops>(
       //                 &pa[(k_i * nxdlops + i) * mfma_type.k_base],
       //                 &pb[(k_i * nxdlops + i) * mfma_type.k_base],
