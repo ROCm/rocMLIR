@@ -181,21 +181,39 @@ populateConvolutionConfiguration(SmallVector<int64_t, 4> &filterDimension,
                                  SmallVector<int64_t, 4> &outputDimension) {
   // Populate default parameters if necessary.
   if (populateDefaultValues.getValue() == true) {
-    batchSize.setValue(128);
-    inputChannel.setValue(8);
-    outputChannel.setValue(128);
-    inputHeight.setValue(32);
-    inputWidth.setValue(32);
-    outputHeight.setValue(30);
-    outputWidth.setValue(30);
-    filterHeight.setValue(3);
-    filterWidth.setValue(3);
-    dilationHeight.setValue(1);
-    dilationWidth.setValue(1);
-    strideHeight.setValue(1);
-    strideWidth.setValue(1);
-    paddingHeight.setValue(0);
-    paddingWidth.setValue(0);
+    if (xdlops.getValue() == false) {
+      batchSize.setValue(128);
+      inputChannel.setValue(8);
+      outputChannel.setValue(128);
+      inputHeight.setValue(32);
+      inputWidth.setValue(32);
+      outputHeight.setValue(30);
+      outputWidth.setValue(30);
+      filterHeight.setValue(3);
+      filterWidth.setValue(3);
+      dilationHeight.setValue(1);
+      dilationWidth.setValue(1);
+      strideHeight.setValue(1);
+      strideWidth.setValue(1);
+      paddingHeight.setValue(0);
+      paddingWidth.setValue(0);
+    } else {
+      batchSize.setValue(128);
+      inputChannel.setValue(1024);
+      outputChannel.setValue(1024);
+      inputHeight.setValue(14);
+      inputWidth.setValue(14);
+      outputHeight.setValue(14);
+      outputWidth.setValue(14);
+      filterHeight.setValue(1);
+      filterWidth.setValue(1);
+      dilationHeight.setValue(0);
+      dilationWidth.setValue(0);
+      strideHeight.setValue(1);
+      strideWidth.setValue(1);
+      paddingHeight.setValue(0);
+      paddingWidth.setValue(0);
+    }
   }
 
   // Determine dimensions.
