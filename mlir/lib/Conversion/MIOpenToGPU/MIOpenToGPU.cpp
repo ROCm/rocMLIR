@@ -515,7 +515,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         }
 
         auto vfloatType = VectorType::get({vectorLength}, destElementType);
-        auto resultMemRefType = MemRefType::get({shape[0] / vectorLength}, vfloatType);
+        auto resultMemRefType = MemRefType::get({shape[0] / vectorLength}, vfloatType, {}, memRefType.getMemorySpace());
         auto vectorTypeCast = b.create<vector::TypeCastOp>(loc, resultMemRefType, op.destC());
 
         for (unsigned iter = 0; iter < mfmaInstrLength; ++iter) {
