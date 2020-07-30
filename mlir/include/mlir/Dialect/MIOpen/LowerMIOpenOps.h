@@ -1932,6 +1932,72 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // TBD. Add XDLOPS-specific logic.
     if (xdlopsAttr && xdlopsAttr.getValue() == true) {
       // XDLOPS.
+      // Threadwise copy from register (naive tensor) to global (generic tensor).
+      // Original C++ logic:
+      //
+      // __device__ static constexpr index_t GetNumBlksPerXdlops() {
+      //     return (MPerXdlops * NPerXdlops) / (mfma_type.m * mfma_type.n);
+      // }
+      //
+      // struct OutputLayout {
+      //     __device__ static constexpr index_t M1() { return mfma_type.num_groups_blk; }
+      //     __device__ static constexpr index_t M0() { return mfma_type.group_size; }
+      //     __device__ static constexpr index_t N1() { return mfma_type.num_input_blks; }
+      //     __device__ static constexpr index_t N0() { return mfma_type.num_threads_blk; }
+      //     __device__ static constexpr index_t GetBlkSize() { return mfma_type.num_regs_blk; }
+      //     __device__ static constexpr index_t GetNumBlks() {
+      //         return GetNumBlksPerXdlops() * MRepeats * NRepeats;
+      //     }
+      // };
+      //
+      // // M1 = num_groups;
+      // // M0 = group_size;
+      // // N1 = num_blks_per_wave;
+      // // N0 = num_threads_per_blks;
+      // constexpr auto CLayout = blockwise_gemm.GetOutputLayout();
+      // constexpr index_t M0   = CLayout.M1();
+      // constexpr index_t M1   = CLayout.N1();
+      // constexpr index_t M2   = CLayout.M0();
+      //
+      // constexpr auto c_m0_m1_m2_n_global_desc = transform_tensor_descriptor(
+      //     c_m_n_global_desc,
+      //     make_tuple(UnMerge<Sequence<M0, M1, M2>>{}, PassThrough<N>{}),
+      //     make_tuple(Sequence<0>{}, Sequence<1>{}),
+      //     make_tuple(Sequence<0, 1, 2>{}, Sequence<3>{}));
+      //
+      // //     src descriptor
+      // constexpr auto c_m0_m1_m2_n_thread_desc =
+      //     make_native_tensor_descriptor_packed(Sequence<M0, 1, M2, 1>{});
+      //
+      // using CThreadCopySliceLengths = Sequence<M0, 1, M2, 1>;
+      // constexpr index_t BlkSize = blockwise_gemm.GetBlkSize();
+      // constexpr index_t NumBlks = blockwise_gemm.GetNumBlks();
+      // for(index_t i = 0; i < NumBlks; ++i)
+      // {
+      //     // calculate origin of thread output tensor on global memory
+      //     //     blockwise GEMM c matrix starting index
+      //     const auto c_thread_mtx_on_block = blockwise_gemm.GetBeginOfThreadMatrixC(i);
+      //     const index_t m_thread_data_on_global =
+      //         m_block_data_on_global + c_thread_mtx_on_block.row;
+      //     const index_t n_thread_data_on_global =
+      //         n_block_data_on_global + c_thread_mtx_on_block.col;
+      //     ThreadwiseGenericTensorSliceCopy_v4r2<decltype(c_m0_m1_m2_n_thread_desc),
+      //                                           decltype(c_m0_m1_m2_n_global_desc),
+      //                                           CThreadCopySliceLengths,
+      //                                           arithmetic_sequence_gen<0, 4, 1>::type,
+      //                                           3,
+      //                                           1,
+      //                                           1,
+      //                                           AddressSpace::Vgpr,
+      //                                           AddressSpace::Global,
+      //                                           CGlobalMemoryDataOperation>(
+      //         {0, 0, 0, 0},
+      //         {m_thread_data_on_global / (M2 * M1),
+      //          m_thread_data_on_global % (M2 * M1) / M2,
+      //          m_thread_data_on_global % M2,
+      //          n_thread_data_on_global})
+      //         .Run(p_c_thread + i * BlkSize, p_c_global);
+      // }
     } else {
       // Threadwise copy from register (naive tensor) to global (generic tensor).
       // Original C++ logic:
