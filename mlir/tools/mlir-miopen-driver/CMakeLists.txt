@@ -31,7 +31,6 @@ add_llvm_executable(mlir-miopen-driver
   ${LIBS}
 )
 
-#llvm_add_library(MLIRMIOpenThin STATIC
 llvm_add_library(MLIRMIOpenThin STATIC
 #add_llvm_executable(MLIRMIOpen
 PARTIAL_SOURCES_INTENDED

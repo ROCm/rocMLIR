@@ -27,17 +27,17 @@ class ModuleOp;
 /// Convert the given MLIR module into MIOpen C++ . In case of error, report it
 /// to the error handler registered with the MLIR context, if any (obtained from
 /// the MLIR module), and return `nullptr`.
-std::unique_ptr<llvm::StringRef> translateModuleToMIOpenCpp(ModuleOp m);
+void translateModuleToMIOpenCpp(ModuleOp m, std::string &source);
 
 /// Convert the given MLIR module into MIOpen C++ Header. In case of error, report it
 /// to the error handler registered with the MLIR context, if any (obtained from
 /// the MLIR module), and return `nullptr`.
-std::unique_ptr<llvm::StringRef> translateModuleToMIOpenHeader(ModuleOp m);
+void translateModuleToMIOpenHeader(ModuleOp m, std::string &header);
 
 /// Convert the given MLIR module into MIOpen C++ compilation flags. In case of error, report it
 /// to the error handler registered with the MLIR context, if any (obtained from
 /// the MLIR module), and return `nullptr`.
-std::unique_ptr<llvm::StringRef> translateModuleToMIOpenCFlags(ModuleOp m);
+void translateModuleToMIOpenCFlags(ModuleOp m, std::string &cflags);
 
 /// Convert the given MLIR module into MIOpen C++ . In case of error, report it
 /// to the error handler registered with the MLIR context, if any (obtained from
