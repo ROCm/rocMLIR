@@ -40,36 +40,33 @@ cl::opt<bool> IsPopulateTunableParameters("populate-tunable-parameters-to-yaml-f
 namespace mlir {
 void registerToMIOpenCPPTranslation() {
   // non-XDLOPS kernel generation.
-  TranslateFromMLIRRegistration
-      toCpp("mlir-to-miopen-cpp", [](ModuleOp module, llvm::raw_ostream &output) {
-        auto sourceCode = mlir::translateModuleToMIOpenCpp(module);
-        if (!sourceCode)
-          return failure();
-  
-        output << *sourceCode;
+  TranslateFromMLIRRegistration toCpp(
+      "mlir-to-miopen-cpp", [](ModuleOp module, llvm::raw_ostream &output) {
+        std::string source;
+        mlir::translateModuleToMIOpenCpp(module, source);
+
+        output << source;
         return success();
       });
-  
-  TranslateFromMLIRRegistration
-      toHeader("mlir-to-miopen-hpp", [](ModuleOp module, llvm::raw_ostream &output) {
-        auto sourceCode = mlir::translateModuleToMIOpenHeader(module);
-        if (!sourceCode)
-          return failure();
-  
-        output << *sourceCode;
+
+  TranslateFromMLIRRegistration toHeader(
+      "mlir-to-miopen-hpp", [](ModuleOp module, llvm::raw_ostream &output) {
+        std::string header;
+        mlir::translateModuleToMIOpenHeader(module, header);
+
+        output << header;
         return success();
       });
-  
-  TranslateFromMLIRRegistration
-      toCFlags("mlir-to-miopen-cflags", [](ModuleOp module, llvm::raw_ostream &output) {
-        auto sourceCode = mlir::translateModuleToMIOpenCFlags(module);
-        if (!sourceCode)
-          return failure();
-  
-        output << *sourceCode;
+
+  TranslateFromMLIRRegistration toCFlags(
+      "mlir-to-miopen-cflags", [](ModuleOp module, llvm::raw_ostream &output) {
+        std::string cflags;
+        mlir::translateModuleToMIOpenCFlags(module, cflags);
+
+        output << cflags;
         return success();
       });
-  
+
   // XDLOPS kernel generation.
   TranslateFromMLIRRegistration
       toCppXDLOPS("mlir-to-miopen-cpp-xdlops", [](ModuleOp module, llvm::raw_ostream &output) {

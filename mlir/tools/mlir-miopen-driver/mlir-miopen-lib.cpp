@@ -17,8 +17,10 @@ struct MlirHandle_s {
     OpBuilder builder(&context);
     module = ModuleOp::create(builder.getUnknownLoc());
   }
+  mlir::ModuleOp getModule() { return module.get(); }
   MLIRContext context;
-  ModuleOp module;
+  mlir::OwningModuleRef module;
+  std::string genTxt;
 };
 
 static void strToTokens(const std::string &arguments,
@@ -58,6 +60,7 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
   };
 
   SmallString<128> kernelName;
+  ModuleOp module = handle->getModule();
   populateConvolutionLogic(
       argMap["operation"], argMap["in_layout"], argMap["out_layout"],
       argMap["fil_layout"], strToLong("batchsize"), strToLong("in_channels"),
@@ -65,12 +68,12 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
       strToLong("out_h"), strToLong("out_w"), strToLong("fil_w"),
       strToLong("fil_h"), strToLong("dilation_h"), strToLong("dilation_w"),
       strToLong("conv_stride_h"), strToLong("conv_stride_w"),
-      strToLong("padding_h"), strToLong("padding_w"), handle->module, builder,
+      strToLong("padding_h"), strToLong("padding_w"), module, builder,
       kernelName);
 
-  PassManager pm(handle->module.getContext());
+  PassManager pm(module.getContext());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
-  pm.run(handle->module);
+  pm.run(module);
 
   return handle;
 }
@@ -82,21 +85,23 @@ extern "C" void DestroyMlirHandle(MlirHandle mlirHandle) {
 
 extern "C" const char *MlirGenIgemmSource(MlirHandle mlirHandle) {
   MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
-  auto sourceCode = translateModuleToMIOpenCpp(handle->module);
-  return sourceCode->data();
-  ;
+  handle->genTxt = "";
+  translateModuleToMIOpenCpp(handle->getModule(), handle->genTxt);
+  return (handle->genTxt).c_str();
 }
 
 extern "C" const char *MlirGenIgemmHeader(MlirHandle mlirHandle) {
   MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
-  auto headerCode = translateModuleToMIOpenHeader(handle->module);
-  return headerCode->data();
+  handle->genTxt = "";
+  translateModuleToMIOpenHeader(handle->getModule(), handle->genTxt);
+  return (handle->genTxt).c_str();
 }
 
 extern "C" const char *MlirGenIgemmCflags(MlirHandle mlirHandle) {
   MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
-  auto cflagsTxt = translateModuleToMIOpenCFlags(handle->module);
-  return cflagsTxt->data();
+  handle->genTxt = "";
+  translateModuleToMIOpenCFlags(handle->getModule(), handle->genTxt);
+  return (handle->genTxt).c_str();
 }
 } // namespace mlir
 
