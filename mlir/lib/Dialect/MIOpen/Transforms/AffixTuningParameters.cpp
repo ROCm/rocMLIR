@@ -171,10 +171,14 @@ void AffixTuningParameters::runOnFunction() {
     // Hard coded parameters, will change in a different pass. Please visit
     // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
     op.setAttr("k_per_thread", b.getI32IntegerAttr(1));
-    op.setAttr("m_level0_cluster", b.getI32IntegerAttr(4));
-    op.setAttr("n_level0_cluster", b.getI32IntegerAttr(4));
-    op.setAttr("m_level1_cluster", b.getI32IntegerAttr(4));
-    op.setAttr("n_level1_cluster", b.getI32IntegerAttr(4));
+    op.setAttr("m_level0_cluster",
+               b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel0Cluster));
+    op.setAttr("n_level0_cluster",
+               b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel0Cluster));
+    op.setAttr("m_level1_cluster",
+               b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel1Cluster));
+    op.setAttr("n_level1_cluster",
+               b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel1Cluster));
     op.setAttr("matrix_a_source_vector_read_dim", b.getI32IntegerAttr(0));
     op.setAttr("matrix_b_source_vector_read_dim", b.getI32IntegerAttr(1));
     op.setAttr("matrix_c_source_dest_vector_read_write_dim",
