@@ -39,6 +39,632 @@
 using namespace mlir;
 
 //===----------------------------------------------------------------------===//
+// XDLOPS code selection logic.
+//===----------------------------------------------------------------------===//
+struct XdlopsCodeSelection {
+  StringRef mfmaInstr;
+  int64_t MPerXdlops;
+  int64_t NPerXdlops;
+  int64_t MRepeats;
+  int64_t NRepeats;
+
+  int64_t group_size;
+  int64_t num_groups_blk;
+  int64_t num_regs_blk;
+  int64_t num_threads_blk;
+  int64_t wave_size;
+  int64_t num_input_blks;
+  int64_t num_output_blks;
+  int64_t num_regs_xdlops;
+  int64_t m;
+  int64_t n;
+  int64_t k;
+  int64_t cycles;
+  int64_t k_base;
+
+  static XdlopsCodeSelection get(FloatType dataType, int64_t MPerWave, int64_t NPerWave, OpBuilder &b) {
+    // Determine which XDLOPS be used.
+    int64_t MPerXdlops = 0, NPerXdlops = 0, MRepeats = 0, NRepeats = 0;
+    StringRef mfmaInstr = "";
+    if (dataType == b.getF32Type()) {
+      if (MPerWave == 128 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 2;
+        NRepeats = 2;
+      } else if (MPerWave == 128 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 128 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 32;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 128 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 64 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 32;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 32 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x1xf32";
+        MPerXdlops = 32;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x2xf32";
+        MPerXdlops = 32;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 16 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_16x16x1xf32";
+        MPerXdlops = 16;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 16 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_16x16x1xf32";
+        MPerXdlops = 16;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 16 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x4xf32";
+        MPerXdlops = 16;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 8 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_4x4x1xf32";
+        MPerXdlops = 8;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 8 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_4x4x1xf32";
+        MPerXdlops = 8;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 4 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_4x4x1xf32";
+        MPerXdlops = 4;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 4 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_4x4x1xf32";
+        MPerXdlops = 4;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else {
+        llvm::errs() << "Unsupported case:\n";
+        //llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
+        llvm::errs() << "MPerWave: " << MPerWave << "\n";
+        llvm::errs() << "NPerWave: " << NPerWave << "\n";
+        llvm::errs() << "dataType: ";
+        dataType.dump();
+        llvm::errs() << "\n";
+      }
+    } else if (dataType == b.getF16Type()) {
+      if (MPerWave == 128 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 2;
+        NRepeats = 2;
+      } else if (MPerWave == 128 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 128 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 32;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 128 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 64 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x4f16";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 32;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x4f16";
+        MPerXdlops = 32;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x8f16";
+        MPerXdlops = 32;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 16 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_16x16x4f16";
+        MPerXdlops = 16;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 16 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_16x16x4f16";
+        MPerXdlops = 16;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 16 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x16f16";
+        MPerXdlops = 16;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 8 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_4x4x4f16";
+        MPerXdlops = 8;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 8 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_4x4x4f16";
+        MPerXdlops = 8;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 4 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_4x4x4f16";
+        MPerXdlops = 4;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 4 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_4x4x4f16";
+        MPerXdlops = 4;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else {
+        llvm::errs() << "Unsupported case:\n";
+        //llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
+        llvm::errs() << "MPerWave: " << MPerWave << "\n";
+        llvm::errs() << "NPerWave: " << NPerWave << "\n";
+        llvm::errs() << "dataType: ";
+        dataType.dump();
+        llvm::errs() << "\n";
+      }
+    } else if (dataType == b.getBF16Type()) {
+      if (MPerWave == 128 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 2;
+        NRepeats = 2;
+      } else if (MPerWave == 128 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 128 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 32;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 128 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
+        MRepeats = 2;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 64 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 64 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 32;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 32 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_32x32x2bf16";
+        MPerXdlops = 32;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 32 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x4bf16";
+        MPerXdlops = 32;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 16 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_16x16x2bf16";
+        MPerXdlops = 16;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 16 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_16x16x2bf16";
+        MPerXdlops = 16;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 16 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x8bf16";
+        MPerXdlops = 16;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 8 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_4x4x2bf16";
+        MPerXdlops = 8;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 8 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_4x4x2bf16";
+        MPerXdlops = 8;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else if (MPerWave == 4 && NPerWave == 128) {
+        mfmaInstr = "mfma_f32_4x4x2bf16";
+        MPerXdlops = 4;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 2;
+      } else if (MPerWave == 4 && NPerWave == 64) {
+        mfmaInstr = "mfma_f32_4x4x2bf16";
+        MPerXdlops = 4;
+        NPerXdlops = 64;
+        MRepeats = 1;
+        NRepeats = 1;
+      } else {
+        llvm::errs() << "Unsupported case:\n";
+        //llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
+        llvm::errs() << "MPerWave: " << MPerWave << "\n";
+        llvm::errs() << "NPerWave: " << NPerWave << "\n";
+        llvm::errs() << "dataType: ";
+        dataType.dump();
+        llvm::errs() << "\n";
+      }
+    }
+
+    // Obtain properties of MFMA instructions.
+    int64_t group_size, num_groups_blk, num_regs_blk, num_threads_blk, wave_size, num_input_blks, num_output_blks, num_regs_xdlops, m, n, k, cycles, k_base;
+    if (mfmaInstr == "mfma_f32_32x32x1xf32") {
+      group_size      = 4;
+      num_groups_blk  = 4;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 32;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 2;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 32;
+      n               = 32;
+      k               = 1;
+      cycles          = 64;
+      k_base          = 1;
+    } else if (mfmaInstr == "mfma_f32_32x32x2xf32") {
+      group_size      = 4;
+      num_groups_blk  = 4;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 32;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 32;
+      n               = 32;
+      k               = 2;
+      cycles          = 64;
+      k_base          = 1;
+    } else if (mfmaInstr == "mfma_f32_16x16x4xf32") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 16;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 16;
+      n               = 16;
+      k               = 4;
+      cycles          = 32;
+      k_base          = 1;
+    } else if (mfmaInstr == "mfma_f32_16x16x1xf32") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 16;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 4;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 16;
+      n               = 16;
+      k               = 1;
+      cycles          = 32;
+      k_base          = 1;
+    } else if (mfmaInstr == "mfma_f32_4x4x1xf32") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 64;
+      wave_size       = 64;
+      num_input_blks  = 1;
+      num_output_blks = 1;
+      num_regs_xdlops = 4;
+      m               = 4;
+      n               = 64;
+      k               = 1;
+      cycles          = 8;
+      k_base          = 1;
+    } else if (mfmaInstr == "mfma_f32_32x32x4f16") {
+      group_size      = 4;
+      num_groups_blk  = 4;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 32;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 2;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 32;
+      n               = 32;
+      k               = 4;
+      cycles          = 64;
+      k_base          = 4;
+    } else if (mfmaInstr == "mfma_f32_32x32x8f16") {
+      group_size      = 4;
+      num_groups_blk  = 4;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 32;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 32;
+      n               = 32;
+      k               = 8;
+      cycles          = 64;
+      k_base          = 4;
+    } else if (mfmaInstr == "mfma_f32_16x16x16f16") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 16;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 16;
+      n               = 16;
+      k               = 16;
+      cycles          = 32;
+      k_base          = 4;
+    } else if (mfmaInstr == "mfma_f32_16x16x4f16") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 16;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 4;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 16;
+      n               = 16;
+      k               = 4;
+      cycles          = 32;
+      k_base          = 4;
+    } else if (mfmaInstr == "mfma_f32_4x4x4f16") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 64;
+      wave_size       = 64;
+      num_input_blks  = 1;
+      num_output_blks = 1;
+      num_regs_xdlops = 4;
+      m               = 4;
+      n               = 64;
+      k               = 4;
+      cycles          = 8;
+      k_base          = 4;
+    } else if (mfmaInstr == "mfma_f32_32x32x2bf16") {
+      group_size      = 4;
+      num_groups_blk  = 4;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 32;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 2;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 32;
+      n               = 32;
+      k               = 2;
+      cycles          = 64;
+      k_base          = 2;
+    } else if (mfmaInstr == "mfma_f32_32x32x4bf16") {
+      group_size      = 4;
+      num_groups_blk  = 4;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 32;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 32;
+      n               = 32;
+      k               = 4;
+      cycles          = 64;
+      k_base          = 2;
+    } else if (mfmaInstr == "mfma_f32_16x16x8bf16") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 16;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 16;
+      n               = 16;
+      k               = 8;
+      cycles          = 32;
+      k_base          = 2;
+    } else if (mfmaInstr == "mfma_f32_32x32x2xf32") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 16;
+      wave_size       = 64;
+      num_input_blks  = wave_size / num_threads_blk;
+      num_output_blks = 4;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m               = 16;
+      n               = 16;
+      k               = 2;
+      cycles          = 32;
+      k_base          = 2;
+    } else if (mfmaInstr == "mfma_f32_4x4x2bf16") {
+      group_size      = 4;
+      num_groups_blk  = 1;
+      num_regs_blk    = group_size * num_groups_blk;
+      num_threads_blk = 64;
+      wave_size       = 64;
+      num_input_blks  = 1;
+      num_output_blks = 1;
+      num_regs_xdlops = 4;
+      m               = 4;
+      n               = 64;
+      k               = 2;
+      cycles          = 8;
+      k_base          = 2;
+    } else {
+      llvm::errs() << "Unsupported case as mfmaInstr not selected!\n";
+    }
+
+    // Populate result.
+    XdlopsCodeSelection result;
+    result.mfmaInstr = mfmaInstr;
+    result.MPerXdlops = MPerXdlops;
+    result.NPerXdlops = NPerXdlops;
+    result.MRepeats = MRepeats;
+    result.NRepeats = NRepeats;
+
+    result.group_size = group_size;
+    result.num_groups_blk = num_groups_blk;
+    result.num_regs_blk = num_regs_blk;
+    result.num_threads_blk = num_threads_blk;
+    result.wave_size = wave_size;
+    result.num_input_blks = num_input_blks;
+    result.num_output_blks = num_output_blks;
+    result.num_regs_xdlops = num_regs_xdlops;
+    result.m = m;
+    result.n = n;
+    result.k = k;
+    result.cycles = cycles;
+    result.k_base = k_base;
+
+    return result;
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // Conv2D (forward, backward) lowering.
 //===----------------------------------------------------------------------===//
 
@@ -966,7 +1592,7 @@ template struct Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>;
 // Assigning attributes.
 //===----------------------------------------------------------------------===//
 
-static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::GridwiseGemmOp gop, PatternRewriter &b) {
+static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::GridwiseGemmOp gop, OpBuilder &b) {
   // Add attributes from C++ template arguments and ctor arguments.
   //
   // in gridwise_gemm:
@@ -997,7 +1623,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
 // XXX: Figure out a way to do away with isThreadwiseLoad parameter.
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
                                           miopen::BlockwiseCopyOp bop,
-                                          PatternRewriter &b,
+                                          OpBuilder &b,
                                           bool isThreadwiseLoad) {
   // Add attributes from C++ template arguments and ctor arguments.
   //
@@ -1048,7 +1674,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
 // XXX: figure out a better way to get rid of isMatrixA parameter.
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
                                           miopen::BlockwiseGemmOp bop,
-                                          PatternRewriter &b, bool isMatrixA) {
+                                          OpBuilder &b, bool isMatrixA) {
   // in blockwise_gemm:
   //
   // constexpr auto a_thread_copy = ThreadwiseMatrixSliceCopy<BlockMatrixA,                  - source memref
@@ -1185,7 +1811,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   // XXX. Figure out a way to do away with isMatrixA parameter.
   void affixBlockwiseCopyAttributes(miopen::BlockwiseCopyOp bop,
                                     miopen::GridwiseGemmOp gop,
-                                    PatternRewriter &b, bool isMatrixA) const {
+                                    OpBuilder &b, bool isMatrixA) const {
     // Add attributes from C++ template arguments and ctor arguments.
     // a_blockwise_copy:
     // BlockSize                           - block_size attribute
@@ -1257,7 +1883,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
   void affixBlockwiseGemmAttributes(miopen::BlockwiseGemmOp bop,
                                     miopen::GridwiseGemmOp gop,
-                                    PatternRewriter &b) const {
+                                    OpBuilder &b) const {
     // Add attributes from C++ template arguments and ctor arguments.
     //const auto blockwise_gemm = BlockwiseGemmBlockABlockBThreadCTransANormalBNormalC_v2<
     //    BlockSize,                                - block_size attribute
@@ -1284,12 +1910,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
           gop.getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
       int64_t NPerBlock =
           gop.getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
-      int64_t MPerThread =
+      int64_t MPerWave =
           gop.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
-      int64_t NPerThread =
+      int64_t NPerWave =
           gop.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
-      int64_t MWaves = MPerBlock / MPerThread;
-      int64_t NWaves = NPerBlock / NPerThread;
+      int64_t MWaves = MPerBlock / MPerWave;
+      int64_t NWaves = NPerBlock / NPerWave;
 
       bop.setAttr("m_waves", b.getI32IntegerAttr(MWaves));
       bop.setAttr("n_waves", b.getI32IntegerAttr(NWaves));
@@ -1382,6 +2008,21 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         op.getAttr("matrix_b_source_data_per_read")
             .template dyn_cast<IntegerAttr>()
             .getInt();
+
+    // XDLOPS.
+    int64_t MPerWave = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerWave = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MWaves = MPerBlock / MPerWave;
+    int64_t NWaves = NPerBlock / NPerWave;
+    auto dataType = op.input().getType().template dyn_cast<MemRefType>().getElementType().template dyn_cast<FloatType>();
+
+    auto MPerWaveConstantIndexOp = b.create<ConstantIndexOp>(loc, MPerWave);
+    auto NPerWaveConstantIndexOp = b.create<ConstantIndexOp>(loc, NPerWave);
+    auto MWavesConstantIndexOp = b.create<ConstantIndexOp>(loc, MWaves);
+    auto NWavesConstantIndexOp = b.create<ConstantIndexOp>(loc, NWaves);
+
+    int64_t WaveSize = 64;
+    auto waveSizeConstantOp = b.create<ConstantIndexOp>(loc, WaveSize);
 
     // Get current workgroup ID.
     auto bid = b.create<miopen::WorkgroupIdOp>(loc, b.getIndexType());
@@ -1660,10 +2301,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     if (xdlopsAttr && xdlopsAttr.getValue() == true) {
       // XDLOPS.
       int64_t WaveSize = 64;
-      // XXX. TBD.
-      // MPerThread is MPerWave.
-      // NPerThread is NPerWave.
-      int64_t TotalRegSize = MPerThread * NPerThread / WaveSize;
+      int64_t TotalRegSize = MPerWave * NPerWave / WaveSize;
       //llvm::errs() << "TotalRegSize: " << TotalRegSize << "\n";
       auto threadCRegisterMemRefType =
           MemRefType::get({TotalRegSize}, elementType, {},
@@ -1756,51 +2394,69 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     b.create<StoreOp>(loc, GemmBBlockCopyDestCoord_X_i32, blockwiseCopyBDst,
                       ValueRange{oneConstantIndexOp});
 
-    // Compute c_thread_mtx_index for Matrix C.
-    int64_t ThreadPerLevel0Cluster = MLevel0Cluster * NLevel0Cluster;
-    auto ThreadPerLevel0ClusterConstantIndexOp =
-        b.create<ConstantIndexOp>(loc, ThreadPerLevel0Cluster);
-    auto level1_id =
-        b.create<SignedDivIOp>(loc, tid, ThreadPerLevel0ClusterConstantIndexOp);
-    auto level1_m_id =
-        b.create<SignedDivIOp>(loc, level1_id, NLevel1ClusterConstantIndexOp);
-    auto level1_n_id =
-        b.create<SignedRemIOp>(loc, level1_id, NLevel1ClusterConstantIndexOp);
+    Value c_thread_mtx_index_row, c_thread_mtx_index_col;
+    Value c_thread_mtx_index_row_i32, c_thread_mtx_index_col_i32;
+    Value m_thread_data_on_global_i32, n_thread_data_on_global_i32;
+    if (xdlopsAttr && xdlopsAttr.getValue() == true) {
+      // XDLOPS path.
 
-    auto level0_id =
-        b.create<SignedRemIOp>(loc, tid, ThreadPerLevel0ClusterConstantIndexOp);
-    auto level0_m_id =
-        b.create<SignedDivIOp>(loc, level0_id, NLevel0ClusterConstantIndexOp);
-    auto level0_n_id =
-        b.create<SignedRemIOp>(loc, level0_id, NLevel0ClusterConstantIndexOp);
+      // c_thread_mtx_index_row(_i32), c_thread_mtx_index_col(_i32)
+      // m_thread_data_on_global_i32, n_thread_data_on_global_i32
+      // are emitted in matrix C writeout logic later in the function
+      // because they are bounded by a loop.
 
-    int64_t MPerLevel0Cluster = MPerThread * MLevel0Cluster;
-    int64_t NPerLevel0Cluster = NPerThread * NLevel0Cluster;
-    auto MPerLevel0ClusterConstantIndexOp =
-        b.create<ConstantIndexOp>(loc, MPerLevel0Cluster);
-    auto NPerLevel0ClusterConstantIndexOp =
-        b.create<ConstantIndexOp>(loc, NPerLevel0Cluster);
+      // TBD. need to review LDS blockwise_copy/blockwise_gemm loop where
+      //      c_thread_mtx_index_row and c_thread_mtx_index_col are used.
 
-    // mMyThreadOffsetA = BlockMatrixA::GetOffsetFromMultiIndex{0, c_thread_mtx_index.row} = c_thread_mtx_index_row
-    auto c_thread_mtx_index_row = b.create<AddIOp>(
-        loc,
-        b.create<MulIOp>(loc, level1_m_id, MPerLevel0ClusterConstantIndexOp),
-        b.create<MulIOp>(loc, level0_m_id, MPerThreadConstantIndexOp));
-    auto c_thread_mtx_index_row_i32 = b.create<IndexCastOp>(
-        loc, c_thread_mtx_index_row, b.getIntegerType(32));
+    } else {
+      // non-XDLOPS path.
 
-    // mMyThreadOffsetB = BlockMatrixB::GetOffsetFromMultiIndex{0, c_thread_mtx_index.col} = c_thread_mtx_index_col
-    auto c_thread_mtx_index_col = b.create<AddIOp>(
-        loc,
-        b.create<MulIOp>(loc, level1_n_id, NPerLevel0ClusterConstantIndexOp),
-        b.create<MulIOp>(loc, level0_n_id, NPerThreadConstantIndexOp));
-    auto c_thread_mtx_index_col_i32 = b.create<IndexCastOp>(
-        loc, c_thread_mtx_index_col, b.getIntegerType(32));
+      // Compute c_thread_mtx_index for Matrix C.
+      int64_t ThreadPerLevel0Cluster = MLevel0Cluster * NLevel0Cluster;
+      auto ThreadPerLevel0ClusterConstantIndexOp =
+          b.create<ConstantIndexOp>(loc, ThreadPerLevel0Cluster);
+      auto level1_id =
+          b.create<SignedDivIOp>(loc, tid, ThreadPerLevel0ClusterConstantIndexOp);
+      auto level1_m_id =
+          b.create<SignedDivIOp>(loc, level1_id, NLevel1ClusterConstantIndexOp);
+      auto level1_n_id =
+          b.create<SignedRemIOp>(loc, level1_id, NLevel1ClusterConstantIndexOp);
 
-    auto m_thread_data_on_global_i32 = b.create<AddIOp>(
-        loc, m_block_data_on_global_i32, c_thread_mtx_index_row_i32);
-    auto n_thread_data_on_global_i32 = b.create<AddIOp>(
-        loc, n_block_data_on_global_i32, c_thread_mtx_index_col_i32);
+      auto level0_id =
+          b.create<SignedRemIOp>(loc, tid, ThreadPerLevel0ClusterConstantIndexOp);
+      auto level0_m_id =
+          b.create<SignedDivIOp>(loc, level0_id, NLevel0ClusterConstantIndexOp);
+      auto level0_n_id =
+          b.create<SignedRemIOp>(loc, level0_id, NLevel0ClusterConstantIndexOp);
+
+      int64_t MPerLevel0Cluster = MPerThread * MLevel0Cluster;
+      int64_t NPerLevel0Cluster = NPerThread * NLevel0Cluster;
+      auto MPerLevel0ClusterConstantIndexOp =
+          b.create<ConstantIndexOp>(loc, MPerLevel0Cluster);
+      auto NPerLevel0ClusterConstantIndexOp =
+          b.create<ConstantIndexOp>(loc, NPerLevel0Cluster);
+
+      // mMyThreadOffsetA = BlockMatrixA::GetOffsetFromMultiIndex{0, c_thread_mtx_index.row} = c_thread_mtx_index_row
+      c_thread_mtx_index_row = b.create<AddIOp>(
+          loc,
+          b.create<MulIOp>(loc, level1_m_id, MPerLevel0ClusterConstantIndexOp),
+          b.create<MulIOp>(loc, level0_m_id, MPerThreadConstantIndexOp));
+      c_thread_mtx_index_row_i32 = b.create<IndexCastOp>(
+          loc, c_thread_mtx_index_row, b.getIntegerType(32));
+
+      // mMyThreadOffsetB = BlockMatrixB::GetOffsetFromMultiIndex{0, c_thread_mtx_index.col} = c_thread_mtx_index_col
+      c_thread_mtx_index_col = b.create<AddIOp>(
+          loc,
+          b.create<MulIOp>(loc, level1_n_id, NPerLevel0ClusterConstantIndexOp),
+          b.create<MulIOp>(loc, level0_n_id, NPerThreadConstantIndexOp));
+      c_thread_mtx_index_col_i32 = b.create<IndexCastOp>(
+          loc, c_thread_mtx_index_col, b.getIntegerType(32));
+
+      m_thread_data_on_global_i32 = b.create<AddIOp>(
+          loc, m_block_data_on_global_i32, c_thread_mtx_index_row_i32);
+      n_thread_data_on_global_i32 = b.create<AddIOp>(
+          loc, n_block_data_on_global_i32, c_thread_mtx_index_col_i32);
+    }
 
     // Emit BlockwiseCopy ops.
     auto blockwiseCopyA = b.create<miopen::BlockwiseCopyOp>(
@@ -1929,8 +2585,43 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       affixBlockwiseGemmAttributes(blockwiseGemmTailOddOp, op, b);
     }
 
-    // TBD. Add XDLOPS-specific logic.
     if (xdlopsAttr && xdlopsAttr.getValue() == true) {
+      // XDLOPS-specific logic.
+      XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
+
+      // Extract values from XdlopsCodeSelection.
+      StringRef mfmaInstr = xcs.mfmaInstr;
+      int64_t MPerXdlops = xcs.MPerXdlops;
+      int64_t NPerXdlops = xcs.NPerXdlops;
+      int64_t MRepeats = xcs.MRepeats;
+      int64_t NRepeats = xcs.NRepeats;
+
+      int64_t group_size = xcs.group_size;
+      int64_t num_groups_blk = xcs.num_groups_blk;
+      int64_t num_regs_blk = xcs.num_regs_blk;
+      int64_t num_threads_blk = xcs.num_threads_blk;
+      int64_t wave_size = xcs.wave_size;
+      int64_t num_input_blks = xcs.num_input_blks;
+      int64_t num_output_blks = xcs.num_output_blks;
+      int64_t num_regs_xdlops = xcs.num_regs_xdlops;
+      int64_t m = xcs.m;
+      int64_t n = xcs.n;
+      int64_t k = xcs.k;
+      int64_t cycles = xcs.cycles;
+      int64_t k_base = xcs.k_base;
+
+      auto MPerXdlopsConstantIndexOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
+      auto NPerXdlopsConstantIndexOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
+      auto MRepeatsConstantIndexOp = b.create<ConstantIndexOp>(loc, MRepeats);
+      auto NRepeatsConstantIndexOp = b.create<ConstantIndexOp>(loc, NRepeats);
+
+      auto group_size_ConstantIndexOp = b.create<ConstantIndexOp>(loc, group_size);
+      auto wave_size_ConstantIndexOp = b.create<ConstantIndexOp>(loc, wave_size);
+      auto num_threads_blk_ConstantIndexOp = b.create<ConstantIndexOp>(loc, num_threads_blk);
+      auto num_output_blks_ConstantIndexOp = b.create<ConstantIndexOp>(loc, num_output_blks);
+      auto m_ConstantIndexOp = b.create<ConstantIndexOp>(loc, m);
+      auto n_ConstantIndexOp = b.create<ConstantIndexOp>(loc, n);
+
       // XDLOPS.
       // Threadwise copy from register (naive tensor) to global (generic tensor).
       // Original C++ logic:
@@ -1958,20 +2649,91 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       // constexpr index_t M0   = CLayout.M1();
       // constexpr index_t M1   = CLayout.N1();
       // constexpr index_t M2   = CLayout.M0();
-      //
+
+      int64_t M0 = num_groups_blk;
+      int64_t M1 = num_input_blks;
+      int64_t M2 = group_size;
+
+      auto M0ConstantI32Op =
+          b.create<ConstantIntOp>(loc, M0, b.getIntegerType(32));
+      auto M1ConstantI32Op =
+          b.create<ConstantIntOp>(loc, M1, b.getIntegerType(32));
+      auto M2ConstantI32Op =
+          b.create<ConstantIntOp>(loc, M2, b.getIntegerType(32));
+      auto NConstantI32Op =
+          b.create<ConstantIntOp>(loc, N, b.getIntegerType(32));
+
       // constexpr auto c_m0_m1_m2_n_global_desc = transform_tensor_descriptor(
       //     c_m_n_global_desc,
       //     make_tuple(UnMerge<Sequence<M0, M1, M2>>{}, PassThrough<N>{}),
       //     make_tuple(Sequence<0>{}, Sequence<1>{}),
       //     make_tuple(Sequence<0, 1, 2>{}, Sequence<3>{}));
-      //
+ 
+      // build affine expression:
+      // (d0, d1, d2, d3) -> (d0 * M1 * M2 + d1 * M2 + d2, d3)
+      auto affineMap4to2 =
+          AffineMap::get(4, 0,
+                         {getAffineDimExpr(0, op.getContext()) *
+                              getAffineConstantExpr(M1, op.getContext()) *
+                              getAffineConstantExpr(M2, op.getContext()) +
+                          getAffineDimExpr(1, op.getContext()) *
+                              getAffineConstantExpr(M2, op.getContext()) +
+                          getAffineDimExpr(2, op.getContext()),
+                          getAffineDimExpr(3, op.getContext())},
+                         op.getContext());
+
+      // compose with output tensor affine map.
+      auto outputType = op.output().getType().template dyn_cast<MemRefType>();
+      auto outputAffineMap2to4 = outputType.getAffineMaps()[0];
+      auto affineMap4to2to4 = outputAffineMap2to4.compose(affineMap4to2);
+
+      // emit TransformOp for output tensor.
+      auto newOutputType = MemRefType::get(
+          {M0, M1, M2, N}, outputType.getElementType(), {affineMap4to2to4});
+      auto newOutputTransformOp =
+          b.create<miopen::TransformOp>(loc, newOutputType, op.output());
+
       // //     src descriptor
       // constexpr auto c_m0_m1_m2_n_thread_desc =
       //     make_native_tensor_descriptor_packed(Sequence<M0, 1, M2, 1>{});
+
+      // build affine expression:
+      // (d0, d1, d2, d3) -> (d0 , d2)
+      auto matrixCAffineMap4to2 = AffineMap::get(
+          4, 0,
+          {getAffineDimExpr(0, op.getContext()),
+           getAffineDimExpr(2, op.getContext())},
+          op.getContext());
+
+      // emit TransformOp for Matrix C on VGPR.
+      auto register4DMatrixCType = MemRefType::get(
+          {M0, 1, M2, 1}, elementType,
+          {matrixCAffineMap4to2}, gpu::GPUDialect::getPrivateAddressSpace());
+      auto matrixCTransformOp = b.create<miopen::TransformOp>(
+          loc, register4DMatrixCType, register2DMatrixCAllocOp);
+
+      // Original C++ logic.
+      // __device__ static constexpr index_t GetNumBlksPerXdlops() {
+      //     return (MPerXdlops * NPerXdlops) / (mfma_type.m * mfma_type.n);
+      // }
       //
+      // struct OutputLayout {
+      //     __device__ static constexpr index_t GetBlkSize() { return mfma_type.num_regs_blk; }
+      //     __device__ static constexpr index_t GetNumBlks() {
+      //         return GetNumBlksPerXdlops() * MRepeats * NRepeats;
+      //     }
+      // };
       // using CThreadCopySliceLengths = Sequence<M0, 1, M2, 1>;
       // constexpr index_t BlkSize = blockwise_gemm.GetBlkSize();
       // constexpr index_t NumBlks = blockwise_gemm.GetNumBlks();
+
+      int BlkSize = num_regs_blk;
+      int NumBlksPerXdlops = (m * n) * MRepeats * NRepeats;
+      int NumBlks = (MPerXdlops * NPerXdlops) / NumBlksPerXdlops;
+      auto BlkSizeConstantI32Op = b.create<ConstantIntOp>(loc, BlkSize, b.getIntegerType(32));
+      auto NumBlksPerXdlopsConstantIndexOp = b.create<ConstantIndexOp>(loc, NumBlksPerXdlops);
+      auto NumBlksConstantIndexOp = b.create<ConstantIndexOp>(loc, NumBlks);
+
       // for(index_t i = 0; i < NumBlks; ++i)
       // {
       //     // calculate origin of thread output tensor on global memory
@@ -1998,7 +2760,150 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       //          n_thread_data_on_global})
       //         .Run(p_c_thread + i * BlkSize, p_c_global);
       // }
+
+      // emit loop.
+      auto loopOp = b.create<scf::ForOp>(loc, zeroConstantIndexOp, NumBlksConstantIndexOp, oneConstantIndexOp);
+
+      // inside the main loop.
+      auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
+      auto iv = loopOp.getInductionVar();
+      auto iv_i32 = lb.create<IndexCastOp>(loc, iv, lb.getIntegerType(32));
+
+      // Original C++ logic.
+      //
+      // In xdlops_gemm.hpp:
+      //
+      // __device__ static constexpr index_t GetNumBlksPerXdlops() {
+      //     return (MPerXdlops * NPerXdlops) / (mfma_type.m * mfma_type.n);
+      // }
+      // static constexpr bool IsABroadcast() { return NPerXdlops >= MPerXdlops; }
+      // __device__ static MatrixIndex GetBeginOfThreadBlk(index_t i) {
+      //     const index_t xdlops_i = i / GetNumBlksPerXdlops();
+      //     const index_t j        = i % GetNumBlksPerXdlops();
+      //     const index_t m_i = xdlops_i / NRepeats;
+      //     const index_t n_i = xdlops_i % NRepeats;
+      //     const index_t laneId = get_thread_local_1d_id() % mfma_type.wave_size;
+      //     const index_t blk_id = laneId / mfma_type.num_threads_blk;
+      //     const index_t blk_td = laneId % mfma_type.num_threads_blk;
+      //     index_t col_blk = j % mfma_type.num_output_blks;
+      //     index_t row_blk = j / mfma_type.num_output_blks;
+      //     static_if<!IsABroadcast>{}([&](auto) {
+      //         col_blk = j / mfma_type.num_output_blks;
+      //         row_blk = j % mfma_type.num_output_blks;
+      //     });
+      //     index_t col = col_blk * mfma_type.n + blk_td + n_i * NPerXdlops;
+      //     index_t row = row_blk * mfma_type.m + blk_id * mfma_type.group_size + m_i * MPerXdlops;
+      //     return MatrixIndex{row, col};
+      // }
+      //
+      // In blockwise_gemm_xdlops.hpp:
+      //
+      // Original C++ logic:
+      // __device__ static MatrixIndex GetBeginOfThreadMatrixC(index_t i) {
+      //     const index_t waveId = get_thread_local_1d_id() / WaveSize;
+      //     const auto thread_mtx_on_blk = XdlopsGemm.GetBeginOfThreadBlk(i);
+      //     const index_t col = (waveId % GemmNWaves) * GemmNPerWave + thread_mtx_on_blk.col;
+      //     const index_t row = (waveId / GemmNWaves) * GemmMPerWave + thread_mtx_on_blk.row;
+      //     return MatrixIndex{row, col};
+      // }
+      //
+      // In gridwise_gemm_xdlops.hpp:
+      //
+      // Original C++ logic:
+      // const auto c_thread_mtx_on_block = blockwise_gemm.GetBeginOfThreadMatrixC(i);
+
+      // compute waveId.
+      auto tid = lb.create<miopen::WorkitemIdOp>(loc, b.getIndexType());
+      auto waveId = lb.create<SignedDivIOp>(loc, tid, waveSizeConstantOp);
+      
+      // compute thread_mtx_on_blk_row and thread_mtx_on_blk_col.
+      auto xdlops_i = lb.create<SignedDivIOp>(loc, iv, NumBlksPerXdlopsConstantIndexOp);
+      auto j = lb.create<SignedRemIOp>(loc, iv, NumBlksPerXdlopsConstantIndexOp);
+      auto m_i = lb.create<SignedDivIOp>(loc, xdlops_i, NRepeatsConstantIndexOp);
+      auto n_i = lb.create<SignedRemIOp>(loc, xdlops_i, NRepeatsConstantIndexOp);
+      auto laneId = lb.create<SignedRemIOp>(loc, tid, wave_size_ConstantIndexOp);
+      auto blk_id = lb.create<SignedDivIOp>(loc, laneId, num_threads_blk_ConstantIndexOp);
+      auto blk_td = lb.create<SignedRemIOp>(loc, laneId, num_threads_blk_ConstantIndexOp);
+      Value col_blk, row_blk;
+      if (NPerXdlops >= MPerXdlops) {
+        // IsABroadcast
+        col_blk = lb.create<SignedRemIOp>(loc, j, num_output_blks_ConstantIndexOp);
+        row_blk = lb.create<SignedDivIOp>(loc, j, num_output_blks_ConstantIndexOp);
+      } else {
+        // !IsABroadcast
+        col_blk = lb.create<SignedDivIOp>(loc, j, num_output_blks_ConstantIndexOp);
+        row_blk = lb.create<SignedRemIOp>(loc, j, num_output_blks_ConstantIndexOp);
+      } 
+      // Original C++ logic.
+      //     index_t col = col_blk * mfma_type.n + blk_td + n_i * NPerXdlops;
+      auto thread_mtx_on_blk_col = lb.create<AddIOp>(loc,
+        lb.create<AddIOp>(loc,                     
+          lb.create<MulIOp>(loc, col_blk, n_ConstantIndexOp),
+          blk_td),
+        lb.create<MulIOp>(loc, n_i, NPerXdlopsConstantIndexOp));
+      // Original C++ logic.
+      //     index_t row = row_blk * mfma_type.m + blk_id * mfma_type.group_size + m_i * MPerXdlops;
+      auto thread_mtx_on_blk_row = lb.create<AddIOp>(loc,
+        lb.create<AddIOp>(loc,
+          lb.create<MulIOp>(loc, row_blk, m_ConstantIndexOp),
+          lb.create<MulIOp>(loc, blk_id, group_size_ConstantIndexOp)),
+        lb.create<MulIOp>(loc, m_i, MPerXdlopsConstantIndexOp));
+
+      // compute c_thread_mtx_index_row, c_thread_mtx_index_col.
+      // compute c_thread_mtx_index_row_i32, c_thread_mtx_index_col_i32.
+
+      // Original C++ logic.
+      // const index_t col = (waveId % GemmNWaves) * GemmNPerWave + thread_mtx_on_blk.col;
+      c_thread_mtx_index_col = lb.create<AddIOp>(loc,
+        lb.create<MulIOp>(loc,
+          lb.create<SignedRemIOp>(loc, waveId, NWavesConstantIndexOp),
+          NPerWaveConstantIndexOp),
+        thread_mtx_on_blk_col);
+      c_thread_mtx_index_col_i32 = lb.create<IndexCastOp>(loc, c_thread_mtx_index_col, lb.getIntegerType(32));
+
+      // Original C++ logic.
+      // const index_t row = (waveId / GemmNWaves) * GemmMPerWave + thread_mtx_on_blk.row;
+      c_thread_mtx_index_row = lb.create<AddIOp>(loc,
+        lb.create<MulIOp>(loc,
+          lb.create<SignedDivIOp>(loc, waveId, NWavesConstantIndexOp),
+          MPerWaveConstantIndexOp),
+        thread_mtx_on_blk_row); 
+      c_thread_mtx_index_row_i32 = lb.create<IndexCastOp>(loc, c_thread_mtx_index_row, lb.getIntegerType(32));
+
+      // Original C++ logic:
+      // const index_t m_thread_data_on_global =
+      //     m_block_data_on_global + c_thread_mtx_on_block.row;
+      // const index_t n_thread_data_on_global =
+      //     n_block_data_on_global + c_thread_mtx_on_block.col;
+
+      m_thread_data_on_global_i32 = lb.create<AddIOp>(
+          loc, m_block_data_on_global_i32, c_thread_mtx_index_row_i32);
+      n_thread_data_on_global_i32 = lb.create<AddIOp>(
+          loc, n_block_data_on_global_i32, c_thread_mtx_index_col_i32);
+ 
+      SmallVector<Value, 8> matrixCThreadwiseCopySourceAndDestCoords;
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(lb.create<SignedDivIOp>(
+          loc, m_thread_data_on_global_i32, lb.create<MulIOp>(loc, M2ConstantI32Op, M1ConstantI32Op)));
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(lb.create<SignedDivIOp>(
+          loc, lb.create<SignedRemIOp>(loc, m_thread_data_on_global_i32, lb.create<MulIOp>(loc, M2ConstantI32Op, M1ConstantI32Op)),
+               M2ConstantI32Op));
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(lb.create<SignedRemIOp>(
+          loc, m_thread_data_on_global_i32, M2ConstantI32Op));
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(n_thread_data_on_global_i32);
+
+      // TBD. emit offset : i * BlkSize.
+      auto threadwiseCopyCMatrixOp = lb.create<miopen::ThreadwiseCopyOp>(
+          loc, matrixCTransformOp, newOutputTransformOp,
+          matrixCThreadwiseCopySourceAndDestCoords);
+      affixThreadwiseCopyAttributes(threadwiseCopyCMatrixOp, op, lb);
     } else {
+      // non-XDLOPS path.
+
       // Threadwise copy from register (naive tensor) to global (generic tensor).
       // Original C++ logic:
       //
@@ -2366,6 +3271,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
   LogicalResult matchAndRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const override {
     // TBD condition upon attributes.
+    //     non-XDLOPS: switch between 2x2 and naive pipeline.
+    //     XDLOPS: always use naive pipeline.
     if (true) {
       return naiveRewrite(op, b);
     } else {
@@ -3233,628 +4140,6 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
   }
 };
 
-struct XdlopsCodeSelection {
-  StringRef mfmaInstr;
-  int64_t MPerXdlops;
-  int64_t NPerXdlops;
-  int64_t MRepeats;
-  int64_t NRepeats;
-
-  int64_t group_size;
-  int64_t num_groups_blk;
-  int64_t num_regs_blk;
-  int64_t num_threads_blk;
-  int64_t wave_size;
-  int64_t num_input_blks;
-  int64_t num_output_blks;
-  int64_t num_regs_xdlops;
-  int64_t m;
-  int64_t n;
-  int64_t k;
-  int64_t cycles;
-  int64_t k_base;
-
-  static XdlopsCodeSelection get(FloatType dataType, int64_t MPerWave, int64_t NPerWave, PatternRewriter &b) {
-    // Determine which XDLOPS be used.
-    int64_t MPerXdlops = 0, NPerXdlops = 0, MRepeats = 0, NRepeats = 0;
-    StringRef mfmaInstr = "";
-    if (dataType == b.getF32Type()) {
-      if (MPerWave == 128 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x1xf32";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 2;
-        NRepeats = 2;
-      } else if (MPerWave == 128 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x1xf32";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 2;
-        NRepeats = 1;
-      } else if (MPerWave == 128 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x1xf32";
-        MPerXdlops = 64;
-        NPerXdlops = 32;
-        MRepeats = 2;
-        NRepeats = 1;
-      } else if (MPerWave == 128 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x1xf32";
-        MPerXdlops = 64;
-        NPerXdlops = 16;
-        MRepeats = 2;
-        NRepeats = 1;
-      } else if (MPerWave == 64 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x1xf32";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 64 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x1xf32";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 64 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x1xf32";
-        MPerXdlops = 64;
-        NPerXdlops = 32;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 64 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x1xf32";
-        MPerXdlops = 64;
-        NPerXdlops = 16;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x1xf32";
-        MPerXdlops = 32;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 32 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x1xf32";
-        MPerXdlops = 32;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x2xf32";
-        MPerXdlops = 32;
-        NPerXdlops = 32;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 16 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_16x16x1xf32";
-        MPerXdlops = 16;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 16 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_16x16x1xf32";
-        MPerXdlops = 16;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 16 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x4xf32";
-        MPerXdlops = 16;
-        NPerXdlops = 16;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 8 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_4x4x1xf32";
-        MPerXdlops = 8;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 8 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_4x4x1xf32";
-        MPerXdlops = 8;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 4 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_4x4x1xf32";
-        MPerXdlops = 4;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 4 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_4x4x1xf32";
-        MPerXdlops = 4;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else {
-        llvm::errs() << "Unsupported case:\n";
-        //llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
-        llvm::errs() << "MPerWave: " << MPerWave << "\n";
-        llvm::errs() << "NPerWave: " << NPerWave << "\n";
-        llvm::errs() << "dataType: ";
-        dataType.dump();
-        llvm::errs() << "\n";
-      }
-    } else if (dataType == b.getF16Type()) {
-      if (MPerWave == 128 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 2;
-        NRepeats = 2;
-      } else if (MPerWave == 128 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 2;
-        NRepeats = 1;
-      } else if (MPerWave == 128 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        MPerXdlops = 64;
-        NPerXdlops = 32;
-        MRepeats = 2;
-        NRepeats = 1;
-      } else if (MPerWave == 128 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x4f16";
-        MPerXdlops = 64;
-        NPerXdlops = 16;
-        MRepeats = 2;
-        NRepeats = 1;
-      } else if (MPerWave == 64 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 64 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 64 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        MPerXdlops = 64;
-        NPerXdlops = 32;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 64 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x4f16";
-        MPerXdlops = 64;
-        NPerXdlops = 16;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        MPerXdlops = 32;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        MPerXdlops = 32;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x8f16";
-        MPerXdlops = 32;
-        NPerXdlops = 32;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 16 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_16x16x4f16";
-        MPerXdlops = 16;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 16 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_16x16x4f16";
-        MPerXdlops = 16;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 16 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x16f16";
-        MPerXdlops = 16;
-        NPerXdlops = 16;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 8 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_4x4x4f16";
-        MPerXdlops = 8;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 8 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_4x4x4f16";
-        MPerXdlops = 8;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 4 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_4x4x4f16";
-        MPerXdlops = 4;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 4 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_4x4x4f16";
-        MPerXdlops = 4;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else {
-        llvm::errs() << "Unsupported case:\n";
-        //llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
-        llvm::errs() << "MPerWave: " << MPerWave << "\n";
-        llvm::errs() << "NPerWave: " << NPerWave << "\n";
-        llvm::errs() << "dataType: ";
-        dataType.dump();
-        llvm::errs() << "\n";
-      }
-    } else if (dataType == b.getBF16Type()) {
-      if (MPerWave == 128 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 2;
-        NRepeats = 2;
-      } else if (MPerWave == 128 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 2;
-        NRepeats = 1;
-      } else if (MPerWave == 128 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        MPerXdlops = 64;
-        NPerXdlops = 32;
-        MRepeats = 2;
-        NRepeats = 1;
-      } else if (MPerWave == 128 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x2bf16";
-        MPerXdlops = 64;
-        NPerXdlops = 16;
-        MRepeats = 2;
-        NRepeats = 1;
-      } else if (MPerWave == 64 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 64 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 64 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        MPerXdlops = 64;
-        NPerXdlops = 32;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 64 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x2bf16";
-        MPerXdlops = 64;
-        NPerXdlops = 16;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        MPerXdlops = 32;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 32 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        MPerXdlops = 32;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x4bf16";
-        MPerXdlops = 32;
-        NPerXdlops = 32;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 16 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_16x16x2bf16";
-        MPerXdlops = 16;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 16 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_16x16x2bf16";
-        MPerXdlops = 16;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 16 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x8bf16";
-        MPerXdlops = 16;
-        NPerXdlops = 16;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 8 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_4x4x2bf16";
-        MPerXdlops = 8;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 8 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_4x4x2bf16";
-        MPerXdlops = 8;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 4 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_4x4x2bf16";
-        MPerXdlops = 4;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
-      } else if (MPerWave == 4 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_4x4x2bf16";
-        MPerXdlops = 4;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else {
-        llvm::errs() << "Unsupported case:\n";
-        //llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
-        llvm::errs() << "MPerWave: " << MPerWave << "\n";
-        llvm::errs() << "NPerWave: " << NPerWave << "\n";
-        llvm::errs() << "dataType: ";
-        dataType.dump();
-        llvm::errs() << "\n";
-      }
-    }
-
-    // Obtain properties of MFMA instructions.
-    int64_t group_size, num_groups_blk, num_regs_blk, num_threads_blk, wave_size, num_input_blks, num_output_blks, num_regs_xdlops, m, n, k, cycles, k_base;
-    if (mfmaInstr == "mfma_f32_32x32x1xf32") {
-      group_size      = 4;
-      num_groups_blk  = 4;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 32;
-      wave_size       = 64;
-      num_input_blks  = wave_size / num_threads_blk;
-      num_output_blks = 2;
-      num_regs_xdlops = num_regs_blk * num_output_blks;
-      m               = 32;
-      n               = 32;
-      k               = 1;
-      cycles          = 64;
-      k_base          = 1;
-    } else if (mfmaInstr == "mfma_f32_32x32x2xf32") {
-      group_size      = 4;
-      num_groups_blk  = 4;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 32;
-      wave_size       = 64;
-      num_input_blks  = wave_size / num_threads_blk;
-      num_output_blks = 1;
-      num_regs_xdlops = num_regs_blk * num_output_blks;
-      m               = 32;
-      n               = 32;
-      k               = 2;
-      cycles          = 64;
-      k_base          = 1;
-    } else if (mfmaInstr == "mfma_f32_16x16x4xf32") {
-      group_size      = 4;
-      num_groups_blk  = 1;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 16;
-      wave_size       = 64;
-      num_input_blks  = wave_size / num_threads_blk;
-      num_output_blks = 1;
-      num_regs_xdlops = num_regs_blk * num_output_blks;
-      m               = 16;
-      n               = 16;
-      k               = 4;
-      cycles          = 32;
-      k_base          = 1;
-    } else if (mfmaInstr == "mfma_f32_16x16x1xf32") {
-      group_size      = 4;
-      num_groups_blk  = 1;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 16;
-      wave_size       = 64;
-      num_input_blks  = wave_size / num_threads_blk;
-      num_output_blks = 4;
-      num_regs_xdlops = num_regs_blk * num_output_blks;
-      m               = 16;
-      n               = 16;
-      k               = 1;
-      cycles          = 32;
-      k_base          = 1;
-    } else if (mfmaInstr == "mfma_f32_4x4x1xf32") {
-      group_size      = 4;
-      num_groups_blk  = 1;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 64;
-      wave_size       = 64;
-      num_input_blks  = 1;
-      num_output_blks = 1;
-      num_regs_xdlops = 4;
-      m               = 4;
-      n               = 64;
-      k               = 1;
-      cycles          = 8;
-      k_base          = 1;
-    } else if (mfmaInstr == "mfma_f32_32x32x4f16") {
-      group_size      = 4;
-      num_groups_blk  = 4;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 32;
-      wave_size       = 64;
-      num_input_blks  = wave_size / num_threads_blk;
-      num_output_blks = 2;
-      num_regs_xdlops = num_regs_blk * num_output_blks;
-      m               = 32;
-      n               = 32;
-      k               = 4;
-      cycles          = 64;
-      k_base          = 4;
-    } else if (mfmaInstr == "mfma_f32_32x32x8f16") {
-      group_size      = 4;
-      num_groups_blk  = 4;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 32;
-      wave_size       = 64;
-      num_input_blks  = wave_size / num_threads_blk;
-      num_output_blks = 1;
-      num_regs_xdlops = num_regs_blk * num_output_blks;
-      m               = 32;
-      n               = 32;
-      k               = 8;
-      cycles          = 64;
-      k_base          = 4;
-    } else if (mfmaInstr == "mfma_f32_16x16x16f16") {
-      group_size      = 4;
-      num_groups_blk  = 1;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 16;
-      wave_size       = 64;
-      num_input_blks  = wave_size / num_threads_blk;
-      num_output_blks = 1;
-      num_regs_xdlops = num_regs_blk * num_output_blks;
-      m               = 16;
-      n               = 16;
-      k               = 16;
-      cycles          = 32;
-      k_base          = 4;
-    } else if (mfmaInstr == "mfma_f32_16x16x4f16") {
-      group_size      = 4;
-      num_groups_blk  = 1;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 16;
-      wave_size       = 64;
-      num_input_blks  = wave_size / num_threads_blk;
-      num_output_blks = 4;
-      num_regs_xdlops = num_regs_blk * num_output_blks;
-      m               = 16;
-      n               = 16;
-      k               = 4;
-      cycles          = 32;
-      k_base          = 4;
-    } else if (mfmaInstr == "mfma_f32_4x4x4f16") {
-      group_size      = 4;
-      num_groups_blk  = 1;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 64;
-      wave_size       = 64;
-      num_input_blks  = 1;
-      num_output_blks = 1;
-      num_regs_xdlops = 4;
-      m               = 4;
-      n               = 64;
-      k               = 4;
-      cycles          = 8;
-      k_base          = 4;
-    } else if (mfmaInstr == "mfma_f32_32x32x2bf16") {
-      group_size      = 4;
-      num_groups_blk  = 4;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 32;
-      wave_size       = 64;
-      num_input_blks  = wave_size / num_threads_blk;
-      num_output_blks = 2;
-      num_regs_xdlops = num_regs_blk * num_output_blks;
-      m               = 32;
-      n               = 32;
-      k               = 2;
-      cycles          = 64;
-      k_base          = 2;
-    } else if (mfmaInstr == "mfma_f32_32x32x4bf16") {
-      group_size      = 4;
-      num_groups_blk  = 4;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 32;
-      wave_size       = 64;
-      num_input_blks  = wave_size / num_threads_blk;
-      num_output_blks = 1;
-      num_regs_xdlops = num_regs_blk * num_output_blks;
-      m               = 32;
-      n               = 32;
-      k               = 4;
-      cycles          = 64;
-      k_base          = 2;
-    } else if (mfmaInstr == "mfma_f32_16x16x8bf16") {
-      group_size      = 4;
-      num_groups_blk  = 1;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 16;
-      wave_size       = 64;
-      num_input_blks  = wave_size / num_threads_blk;
-      num_output_blks = 1;
-      num_regs_xdlops = num_regs_blk * num_output_blks;
-      m               = 16;
-      n               = 16;
-      k               = 8;
-      cycles          = 32;
-      k_base          = 2;
-    } else if (mfmaInstr == "mfma_f32_32x32x2xf32") {
-      group_size      = 4;
-      num_groups_blk  = 1;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 16;
-      wave_size       = 64;
-      num_input_blks  = wave_size / num_threads_blk;
-      num_output_blks = 4;
-      num_regs_xdlops = num_regs_blk * num_output_blks;
-      m               = 16;
-      n               = 16;
-      k               = 2;
-      cycles          = 32;
-      k_base          = 2;
-    } else if (mfmaInstr == "mfma_f32_4x4x2bf16") {
-      group_size      = 4;
-      num_groups_blk  = 1;
-      num_regs_blk    = group_size * num_groups_blk;
-      num_threads_blk = 64;
-      wave_size       = 64;
-      num_input_blks  = 1;
-      num_output_blks = 1;
-      num_regs_xdlops = 4;
-      m               = 4;
-      n               = 64;
-      k               = 2;
-      cycles          = 8;
-      k_base          = 2;
-    } else {
-      llvm::errs() << "Unsupported case as mfmaInstr not selected!\n";
-    }
-
-    // Populate result.
-    XdlopsCodeSelection result;
-    result.mfmaInstr = mfmaInstr;
-    result.MPerXdlops = MPerXdlops;
-    result.NPerXdlops = NPerXdlops;
-    result.MRepeats = MRepeats;
-    result.NRepeats = NRepeats;
-
-    result.group_size = group_size;
-    result.num_groups_blk = num_groups_blk;
-    result.num_regs_blk = num_regs_blk;
-    result.num_threads_blk = num_threads_blk;
-    result.wave_size = wave_size;
-    result.num_input_blks = num_input_blks;
-    result.num_output_blks = num_output_blks;
-    result.num_regs_xdlops = num_regs_xdlops;
-    result.m = m;
-    result.n = n;
-    result.k = k;
-    result.cycles = cycles;
-    result.k_base = k_base;
-
-    return result;
-  }
-};
 
 //===----------------------------------------------------------------------===//
 // XdlopsGemm lowering.
