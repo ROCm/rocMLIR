@@ -154,12 +154,16 @@ void AffixTuningParameters::runOnFunction() {
                b.getI32IntegerAttr(gemmADerivedParam.srcDataPerRead));
     op.setAttr("matrix_a_dest_data_per_write_dim_m",
                b.getI32IntegerAttr(gemmADerivedParam.dstDataPerWrite));
+    op.setAttr("matrix_a_source_vector_read_dim",
+               b.getI32IntegerAttr(gemmADerivedParam.srcVectorReadDim));
 
     // Derived parameters for gemmB.
     op.setAttr("matrix_b_source_data_per_read",
                b.getI32IntegerAttr(gemmBDerivedParam.srcDataPerRead));
     op.setAttr("matrix_b_dest_data_per_write_dim_n",
                b.getI32IntegerAttr(gemmBDerivedParam.dstDataPerWrite));
+    op.setAttr("matrix_b_source_vector_read_dim",
+               b.getI32IntegerAttr(gemmBDerivedParam.srcVectorReadDim));
 
     // Derived parameters for gemmC.
     // TODO: Pending fix from
@@ -167,6 +171,8 @@ void AffixTuningParameters::runOnFunction() {
     // op.setAttr("matrix_c_dest_data_per_write",
     //           b.getI32IntegerAttr(gemmCDstPerWrite));
     op.setAttr("matrix_c_dest_data_per_write", b.getI32IntegerAttr(1));
+    op.setAttr("matrix_c_source_dest_vector_read_write_dim",
+               b.getI32IntegerAttr(3)); 
 
     // Hard coded parameters, will change in a different pass. Please visit
     // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
@@ -179,10 +185,6 @@ void AffixTuningParameters::runOnFunction() {
                b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel1Cluster));
     op.setAttr("n_level1_cluster",
                b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel1Cluster));
-    op.setAttr("matrix_a_source_vector_read_dim", b.getI32IntegerAttr(gemmADerivedParam.srcVectorReadDim));
-    op.setAttr("matrix_b_source_vector_read_dim", b.getI32IntegerAttr(gemmBDerivedParam.srcVectorReadDim));
-    op.setAttr("matrix_c_source_dest_vector_read_write_dim",
-               b.getI32IntegerAttr(3)); 
   });
 }
 
