@@ -101,8 +101,8 @@ struct DerivedParams {
   int64_t clusterLenGemmPos1;
   int64_t clusterLenGemmPos2;
   DerivedParams()
-      : srcVectorReadDim(0), dstVectorWriteDim(0), srcDataPerRead(1), dstDataPerWrite(1), clusterLenGemmPos1(0),
-        clusterLenGemmPos2(0) {}
+      : srcVectorReadDim(0), dstVectorWriteDim(0), srcDataPerRead(1),
+        dstDataPerWrite(1), clusterLenGemmPos1(0), clusterLenGemmPos2(0) {}
 };
 
 static constexpr int kConv2DTensorDimension = 4;
