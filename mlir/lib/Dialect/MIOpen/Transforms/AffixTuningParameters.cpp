@@ -179,8 +179,8 @@ void AffixTuningParameters::runOnFunction() {
                b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel1Cluster));
     op.setAttr("n_level1_cluster",
                b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel1Cluster));
-    op.setAttr("matrix_a_source_vector_read_dim", b.getI32IntegerAttr(0));
-    op.setAttr("matrix_b_source_vector_read_dim", b.getI32IntegerAttr(1));
+    op.setAttr("matrix_a_source_vector_read_dim", b.getI32IntegerAttr(gemmADerivedParam.srcVectorReadDim));
+    op.setAttr("matrix_b_source_vector_read_dim", b.getI32IntegerAttr(gemmBDerivedParam.srcVectorReadDim));
     op.setAttr("matrix_c_source_dest_vector_read_write_dim",
                b.getI32IntegerAttr(3)); 
   });
