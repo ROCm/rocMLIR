@@ -2632,6 +2632,29 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       auto n_ConstantIndexOp = b.create<ConstantIndexOp>(loc, n);
 
       // XDLOPS.
+
+      // Original C++ logic.
+      // __device__ static constexpr index_t GetNumBlksPerXdlops() {
+      //     return (MPerXdlops * NPerXdlops) / (mfma_type.m * mfma_type.n);
+      // }
+      //
+      // struct OutputLayout {
+      //     __device__ static constexpr index_t GetBlkSize() { return mfma_type.num_regs_blk; }
+      //     __device__ static constexpr index_t GetNumBlks() {
+      //         return GetNumBlksPerXdlops() * MRepeats * NRepeats;
+      //     }
+      // };
+      // using CThreadCopySliceLengths = Sequence<M0, 1, M2, 1>;
+      // constexpr index_t BlkSize = blockwise_gemm.GetBlkSize();
+      // constexpr index_t NumBlks = blockwise_gemm.GetNumBlks();
+
+      int BlkSize = num_regs_blk;
+      int NumBlksPerXdlops = (m * n) * MRepeats * NRepeats;
+      int NumBlks = (MPerXdlops * NPerXdlops) / NumBlksPerXdlops;
+      auto BlkSizeConstantI32Op = b.create<ConstantIntOp>(loc, BlkSize, b.getIntegerType(32));
+      auto NumBlksPerXdlopsConstantIndexOp = b.create<ConstantIndexOp>(loc, NumBlksPerXdlops);
+      auto NumBlksConstantIndexOp = b.create<ConstantIndexOp>(loc, NumBlks);
+ 
       // Threadwise copy from register (naive tensor) to global (generic tensor).
       // Original C++ logic:
       //
@@ -2702,46 +2725,31 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       auto newOutputTransformOp =
           b.create<miopen::TransformOp>(loc, newOutputType, op.output());
 
+      // Original C++ logic.
       // //     src descriptor
       // constexpr auto c_m0_m1_m2_n_thread_desc =
       //     make_native_tensor_descriptor_packed(Sequence<M0, 1, M2, 1>{});
+      // 
+      // Note: turns out this layout is not enough to cover the whole matrix C
+      //       on VGPR. It only covers 1/NumBlks of it.
 
-      // build affine expression:
-      // (d0, d1, d2, d3) -> (d0 , d2)
-      auto matrixCAffineMap4to2 = AffineMap::get(
-          4, 0,
-          {getAffineDimExpr(0, op.getContext()),
+      // A layout of Sequence<NumBlks, M0, M2> would cover the whole matrix C
+      // on VGPR.
+      // build affine expression for Sequence<NumBlks, M0, M2>
+      // (d0, d1, d2) -> (d0 * M0 * M2 + d1 * M2 + d2)
+      auto matrixCAffineMap3to1 = AffineMap::get(
+          3, 0,
+          {getAffineDimExpr(0, op.getContext()) * getAffineConstantExpr(M0, op.getContext()) * getAffineConstantExpr(M2, op.getContext()) +
+           getAffineDimExpr(1, op.getContext()) * getAffineConstantExpr(M2, op.getContext()) +
            getAffineDimExpr(2, op.getContext())},
           op.getContext());
 
       // emit TransformOp for Matrix C on VGPR.
-      auto register4DMatrixCType = MemRefType::get(
-          {M0, 1, M2, 1}, elementType,
-          {matrixCAffineMap4to2}, gpu::GPUDialect::getPrivateAddressSpace());
+      auto register3DMatrixCType = MemRefType::get(
+          {NumBlks, M0, M2}, elementType,
+          {matrixCAffineMap3to1}, gpu::GPUDialect::getPrivateAddressSpace());
       auto matrixCTransformOp = b.create<miopen::TransformOp>(
-          loc, register4DMatrixCType, register2DMatrixCAllocOp);
-
-      // Original C++ logic.
-      // __device__ static constexpr index_t GetNumBlksPerXdlops() {
-      //     return (MPerXdlops * NPerXdlops) / (mfma_type.m * mfma_type.n);
-      // }
-      //
-      // struct OutputLayout {
-      //     __device__ static constexpr index_t GetBlkSize() { return mfma_type.num_regs_blk; }
-      //     __device__ static constexpr index_t GetNumBlks() {
-      //         return GetNumBlksPerXdlops() * MRepeats * NRepeats;
-      //     }
-      // };
-      // using CThreadCopySliceLengths = Sequence<M0, 1, M2, 1>;
-      // constexpr index_t BlkSize = blockwise_gemm.GetBlkSize();
-      // constexpr index_t NumBlks = blockwise_gemm.GetNumBlks();
-
-      int BlkSize = num_regs_blk;
-      int NumBlksPerXdlops = (m * n) * MRepeats * NRepeats;
-      int NumBlks = (MPerXdlops * NPerXdlops) / NumBlksPerXdlops;
-      auto BlkSizeConstantI32Op = b.create<ConstantIntOp>(loc, BlkSize, b.getIntegerType(32));
-      auto NumBlksPerXdlopsConstantIndexOp = b.create<ConstantIndexOp>(loc, NumBlksPerXdlops);
-      auto NumBlksConstantIndexOp = b.create<ConstantIndexOp>(loc, NumBlks);
+          loc, register3DMatrixCType, registerMatrixCAllocOp);
 
       // for(index_t i = 0; i < NumBlks; ++i)
       // {
@@ -2891,8 +2899,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
           loc, n_block_data_on_global_i32, c_thread_mtx_index_col_i32);
  
       SmallVector<Value, 8> matrixCThreadwiseCopySourceAndDestCoords;
-      matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
-      matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
 
@@ -2905,7 +2912,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
           loc, m_thread_data_on_global_i32, M2ConstantI32Op));
       matrixCThreadwiseCopySourceAndDestCoords.push_back(n_thread_data_on_global_i32);
 
-      // TBD. emit offset : i * BlkSize.
       auto threadwiseCopyCMatrixOp = lb.create<miopen::ThreadwiseCopyOp>(
           loc, matrixCTransformOp, newOutputTransformOp,
           matrixCThreadwiseCopySourceAndDestCoords);
