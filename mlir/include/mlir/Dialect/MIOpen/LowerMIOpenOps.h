@@ -2299,7 +2299,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Alloc for Matrix C on registers.
     // Compute register size from attributes.
     int64_t GemmMRepeat = 0, GemmNRepeat = 0;
-    Value register2DMatrixCAllocOp;
+    Value registerMatrixCAllocOp;
     auto xdlopsAttr = op.template getAttrOfType<BoolAttr>("xdlops");
     if (xdlopsAttr && xdlopsAttr.getValue() == true) {
       // XDLOPS.
@@ -2309,7 +2309,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       auto threadCRegisterMemRefType =
           MemRefType::get({TotalRegSize}, elementType, {},
                           gpu::GPUDialect::getPrivateAddressSpace());
-      register2DMatrixCAllocOp =
+      registerMatrixCAllocOp =
           b.create<miopen::GpuAllocOp>(loc, threadCRegisterMemRefType);
     } else {
       // Non-XDLOPS.
@@ -2332,7 +2332,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       auto threadCRegisterMemRefType = MemRefType::get(
           {GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, elementType, {},
           gpu::GPUDialect::getPrivateAddressSpace());
-      register2DMatrixCAllocOp =
+      registerMatrixCAllocOp =
           b.create<miopen::GpuAllocOp>(loc, threadCRegisterMemRefType);
     }
 
@@ -2356,7 +2356,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         b.create<miopen::GpuAllocOp>(loc, threadBRegisterMemRefType);
 
     // Zero init Matrix C on registers.
-    b.create<miopen::FillOp>(loc, register2DMatrixCAllocOp,
+    b.create<miopen::FillOp>(loc, registerMatrixCAllocOp,
                              zeroConstantFloatOp);
 
     // Blockwise copies before the loop.
@@ -2523,7 +2523,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise GEMM.
     auto blockwiseGemmEvenOp = lb.create<miopen::BlockwiseGemmOp>(
         loc, lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
-        register2DMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
+        registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
     affixBlockwiseGemmAttributes(blockwiseGemmEvenOp, op, b);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
@@ -2564,7 +2564,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise GEMM.
     auto blockwiseGemmOddOp = lb.create<miopen::BlockwiseGemmOp>(
         loc, lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
-        register2DMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
+        registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
     affixBlockwiseGemmAttributes(blockwiseGemmOddOp, op, b);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
@@ -2588,12 +2588,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     if (loopIteration % 2) {
       auto blockwiseGemmTailEvenOp = b.create<miopen::BlockwiseGemmOp>(
           loc, lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
-          register2DMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
+          registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
       affixBlockwiseGemmAttributes(blockwiseGemmTailEvenOp, op, b);
     } else {
       auto blockwiseGemmTailOddOp = b.create<miopen::BlockwiseGemmOp>(
           loc, lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
-          register2DMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
+          registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
       affixBlockwiseGemmAttributes(blockwiseGemmTailOddOp, op, b);
     }
 
@@ -3019,7 +3019,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
           {GemmMRepeat, MPerThread, GemmNRepeat, NPerThread}, elementType,
           {matrixCAffineMap4to2}, gpu::GPUDialect::getPrivateAddressSpace());
       auto matrixCTransformOp = b.create<miopen::TransformOp>(
-          loc, register4DMatrixCType, register2DMatrixCAllocOp);
+          loc, register4DMatrixCType, registerMatrixCAllocOp);
 
       SmallVector<Value, 8> matrixCThreadwiseCopySourceAndDestCoords;
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
