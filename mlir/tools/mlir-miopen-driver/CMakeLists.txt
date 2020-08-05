@@ -31,22 +31,24 @@ add_llvm_executable(mlir-miopen-driver
   ${LIBS}
 )
 
-llvm_add_library(MLIRMIOpenThin STATIC
-#add_llvm_executable(MLIRMIOpen
-PARTIAL_SOURCES_INTENDED
-
-  mlir-miopen-lib.cpp
-
-  #DEPENDS
-  LINK_LIBS
-  ${LIBS}
-  )
-
 llvm_update_compile_flags(mlir-miopen-driver)
 target_link_libraries(mlir-miopen-driver PRIVATE ${LIBS})
 mlir_check_link_libraries(mlir-miopen-driver)
 
-function(combine_archives output_archive)
+# Static library target, enabled only when building static libs
+if( NOT BUILD_SHARED_LIBS )
+  llvm_add_library(MLIRMIOpenThin STATIC
+  #add_llvm_executable(MLIRMIOpen
+  PARTIAL_SOURCES_INTENDED
+  
+    mlir-miopen-lib.cpp
+  
+    #DEPENDS
+    LINK_LIBS
+    ${LIBS}
+    )
+
+  function(combine_archives output_archive)
     set(mri_file ${CMAKE_CURRENT_BINARY_DIR}/${output_archive}.mri)
     set(full_output_path ${LLVM_LIBRARY_DIR}/lib${output_archive}.a)
     set(output_archive_dummy_file ./${output_archive}.dummy.cpp)
@@ -73,11 +75,12 @@ function(combine_archives output_archive)
                        COMMAND ${CMAKE_AR} -M < ${mri_file}
                        COMMAND ${CMAKE_COMMAND} -E copy ${full_output_path} ${install_path}
                        DEPENDS ${output_archive_dummy_file})
-endfunction(combine_archives)
-
-combine_archives(MLIRMIOpen)
-
-add_custom_target(libMLIRMIOpen ALL
-  DEPENDS
-  MLIRMIOpen
-  )
+  endfunction(combine_archives)
+  
+  combine_archives(MLIRMIOpen)
+  
+  add_custom_target(libMLIRMIOpen ALL
+    DEPENDS
+    MLIRMIOpen
+    )
+endif()
