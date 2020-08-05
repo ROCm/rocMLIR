@@ -2394,6 +2394,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     b.create<StoreOp>(loc, GemmBBlockCopyDestCoord_X_i32, blockwiseCopyBDst,
                       ValueRange{oneConstantIndexOp});
 
+    Value mMyThreadOffsetA, mMyThreadOffsetB;
     Value c_thread_mtx_index_row, c_thread_mtx_index_col;
     Value c_thread_mtx_index_row_i32, c_thread_mtx_index_col_i32;
     Value m_thread_data_on_global_i32, n_thread_data_on_global_i32;
@@ -2405,9 +2406,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       // are emitted in matrix C writeout logic later in the function
       // because they are bounded by a loop.
 
-      // TBD. need to review LDS blockwise_copy/blockwise_gemm loop where
-      //      c_thread_mtx_index_row and c_thread_mtx_index_col are used.
-
+      // Original C++ logic:
+      // index_t mMyWaveOffsetA;
+      // index_t mMyWaveOffsetB;
+      // const index_t waveId   = get_thread_local_1d_id() / WaveSize;
+      // const index_t waveId_m = waveId / GemmNWaves;
+      // const index_t waveId_n = waveId % GemmNWaves;
+      // mMyWaveOffsetA = waveId_m * GemmMPerWave;
+      // mMyWaveOffsetB = waveId_n * GemmNPerWave;
+      auto waveId = b.create<SignedDivIOp>(loc, tid, waveSizeConstantOp);
+      auto waveId_m = b.create<SignedDivIOp>(loc, waveId, NWavesConstantIndexOp);
+      auto waveId_n = b.create<SignedRemIOp>(loc, waveId, NWavesConstantIndexOp);
+      mMyThreadOffsetA = b.create<MulIOp>(loc, waveId_m, MPerWaveConstantIndexOp);
+      mMyThreadOffsetB = b.create<MulIOp>(loc, waveId_n, NPerWaveConstantIndexOp);
     } else {
       // non-XDLOPS path.
 
@@ -2441,6 +2452,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
           loc,
           b.create<MulIOp>(loc, level1_m_id, MPerLevel0ClusterConstantIndexOp),
           b.create<MulIOp>(loc, level0_m_id, MPerThreadConstantIndexOp));
+      mMyThreadOffsetA = c_thread_mtx_index_row;
       c_thread_mtx_index_row_i32 = b.create<IndexCastOp>(
           loc, c_thread_mtx_index_row, b.getIntegerType(32));
 
@@ -2449,6 +2461,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
           loc,
           b.create<MulIOp>(loc, level1_n_id, NPerLevel0ClusterConstantIndexOp),
           b.create<MulIOp>(loc, level0_n_id, NPerThreadConstantIndexOp));
+      mMyThreadOffsetB = c_thread_mtx_index_col;
       c_thread_mtx_index_col_i32 = b.create<IndexCastOp>(
           loc, c_thread_mtx_index_col, b.getIntegerType(32));
 
@@ -2507,8 +2520,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise GEMM.
     auto blockwiseGemmEvenOp = lb.create<miopen::BlockwiseGemmOp>(
         loc, lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
-        register2DMatrixCAllocOp, c_thread_mtx_index_row,
-        c_thread_mtx_index_col);
+        register2DMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
     affixBlockwiseGemmAttributes(blockwiseGemmEvenOp, op, b);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
@@ -2549,8 +2561,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise GEMM.
     auto blockwiseGemmOddOp = lb.create<miopen::BlockwiseGemmOp>(
         loc, lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
-        register2DMatrixCAllocOp, c_thread_mtx_index_row,
-        c_thread_mtx_index_col);
+        register2DMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
     affixBlockwiseGemmAttributes(blockwiseGemmOddOp, op, b);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
@@ -2574,14 +2585,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     if (loopIteration % 2) {
       auto blockwiseGemmTailEvenOp = b.create<miopen::BlockwiseGemmOp>(
           loc, lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
-          register2DMatrixCAllocOp, c_thread_mtx_index_row,
-          c_thread_mtx_index_col);
+          register2DMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
       affixBlockwiseGemmAttributes(blockwiseGemmTailEvenOp, op, b);
     } else {
       auto blockwiseGemmTailOddOp = b.create<miopen::BlockwiseGemmOp>(
           loc, lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
-          register2DMatrixCAllocOp, c_thread_mtx_index_row,
-          c_thread_mtx_index_col);
+          register2DMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
       affixBlockwiseGemmAttributes(blockwiseGemmTailOddOp, op, b);
     }
 
@@ -3065,36 +3074,6 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     // xdlops.
     auto xdlopsAttr = op.template getAttrOfType<BoolAttr>("xdlops");
     if (xdlopsAttr && xdlopsAttr.getValue() == true) {
-      int64_t MPerWave = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
-      int64_t NPerWave = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
-      int64_t MWaves = op.getAttr("m_waves").template dyn_cast<IntegerAttr>().getInt();
-      int64_t NWaves = op.getAttr("n_waves").template dyn_cast<IntegerAttr>().getInt();
-
-      auto MPerWaveConstantOp = b.create<ConstantIndexOp>(loc, MPerWave);
-      auto NPerWaveConstantOp = b.create<ConstantIndexOp>(loc, NPerWave);
-      auto MWavesConstantOp = b.create<ConstantIndexOp>(loc, MWaves);
-      auto NWavesConstantOp = b.create<ConstantIndexOp>(loc, NWaves);
-
-      int64_t WaveSize = 64;
-      auto waveSizeConstantOp = b.create<ConstantIndexOp>(loc, WaveSize);
-
-      // Original C++ logic:
-      // index_t mMyWaveOffsetA;
-      // index_t mMyWaveOffsetB;
-      // const index_t waveId   = get_thread_local_1d_id() / WaveSize;
-      // const index_t waveId_m = waveId / GemmNWaves;
-      // const index_t waveId_n = waveId % GemmNWaves;
-      // mMyWaveOffsetA = waveId_m * GemmMPerWave;
-      // mMyWaveOffsetB = waveId_n * GemmNPerWave;
-
-      auto tid = b.create<miopen::WorkitemIdOp>(loc, b.getIndexType());
-      auto waveId = b.create<SignedDivIOp>(loc, tid, waveSizeConstantOp);
-
-      auto waveId_m = b.create<SignedDivIOp>(loc, waveId, NWavesConstantOp);
-      auto waveId_n = b.create<SignedRemIOp>(loc, waveId, NWavesConstantOp);
-      auto mMyWaveOffsetA = b.create<MulIOp>(loc, waveId_m, MPerWaveConstantOp);
-      auto mMyWaveOffsetB = b.create<MulIOp>(loc, waveId_n, NPerWaveConstantOp);
-
       // Original C++ logic:
       // static constexpr auto XdlopsGemm =
       //     XdlopsGemm_t<Float, MPerXdlops, NPerXdlops, GemmDataPerReadA, GemmDataPerReadB>{};
@@ -3102,7 +3081,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
       //                                  &p_b_block[mMyWaveOffsetB],
       //                                  p_c_thread);
 
-      auto xdlopsGemm = b.create<miopen::XdlopsGemmOp>(loc, op.matrixA(), op.matrixB(), op.matrixC(), mMyWaveOffsetA, mMyWaveOffsetB);
+      auto xdlopsGemm = b.create<miopen::XdlopsGemmOp>(loc, op.matrixA(), op.matrixB(), op.matrixC(), op.threadOffsetA(), op.threadOffsetB());
       xdlopsGemm.setAttr("m", b.getI32IntegerAttr(M));
       xdlopsGemm.setAttr("n", b.getI32IntegerAttr(N));
       xdlopsGemm.setAttr("k", b.getI32IntegerAttr(K));
