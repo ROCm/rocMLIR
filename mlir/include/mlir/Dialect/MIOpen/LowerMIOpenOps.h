@@ -2733,23 +2733,23 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       // Note: turns out this layout is not enough to cover the whole matrix C
       //       on VGPR. It only covers 1/NumBlks of it.
 
-      // A layout of Sequence<NumBlks, M0, M2> would cover the whole matrix C
+      // A layout of Sequence<1, NumBlks, M0, M2> would cover the whole matrix C
       // on VGPR.
-      // build affine expression for Sequence<NumBlks, M0, M2>
-      // (d0, d1, d2) -> (d0 * M0 * M2 + d1 * M2 + d2)
-      auto matrixCAffineMap3to1 = AffineMap::get(
-          3, 0,
-          {getAffineDimExpr(0, op.getContext()) * getAffineConstantExpr(M0, op.getContext()) * getAffineConstantExpr(M2, op.getContext()) +
-           getAffineDimExpr(1, op.getContext()) * getAffineConstantExpr(M2, op.getContext()) +
-           getAffineDimExpr(2, op.getContext())},
+      // build affine expression for Sequence<1, NumBlks, M0, M2>
+      // (d0, d1, d2, d3) -> (d1 * M0 * M2 + d2 * M2 + d3)
+      auto matrixCAffineMap4to1 = AffineMap::get(
+          4, 0,
+          {getAffineDimExpr(1, op.getContext()) * getAffineConstantExpr(M0, op.getContext()) * getAffineConstantExpr(M2, op.getContext()) +
+           getAffineDimExpr(2, op.getContext()) * getAffineConstantExpr(M2, op.getContext()) +
+           getAffineDimExpr(3, op.getContext())},
           op.getContext());
 
       // emit TransformOp for Matrix C on VGPR.
-      auto register3DMatrixCType = MemRefType::get(
-          {NumBlks, M0, M2}, elementType,
-          {matrixCAffineMap3to1}, gpu::GPUDialect::getPrivateAddressSpace());
+      auto register4DMatrixCType = MemRefType::get(
+          {1, NumBlks, M0, M2}, elementType,
+          {matrixCAffineMap4to1}, gpu::GPUDialect::getPrivateAddressSpace());
       auto matrixCTransformOp = b.create<miopen::TransformOp>(
-          loc, register3DMatrixCType, registerMatrixCAllocOp);
+          loc, register4DMatrixCType, registerMatrixCAllocOp);
 
       // for(index_t i = 0; i < NumBlks; ++i)
       // {
@@ -2899,6 +2899,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
           loc, n_block_data_on_global_i32, c_thread_mtx_index_col_i32);
  
       SmallVector<Value, 8> matrixCThreadwiseCopySourceAndDestCoords;
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
