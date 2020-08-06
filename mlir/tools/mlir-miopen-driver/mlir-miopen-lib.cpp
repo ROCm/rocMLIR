@@ -1,3 +1,4 @@
+#include "mlir-miopen-lib.hpp"
 #include "MlirParse.h"
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
@@ -55,25 +56,41 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
   std::map<std::string, std::string> argMap;
   strToTokens(arguments, argMap);
 
-  auto strToLong = [&argMap](std::string argKey) {
-    return std::stoul(argMap[argKey]);
+  auto isValid = [&argMap]() {
+    std::vector<std::string> validKeys = {
+        "operation",     "in_layout",   "out_layout", "fil_layout",
+        "batchsize",     "in_channels", "in_h",       "in_w",
+        "out_channels",  "out_h",       "out_w",      "fil_w",
+        "fil_h",         "dilation_h",  "dilation_w", "conv_stride_h",
+        "conv_stride_w", "padding_h",   "padding_w"};
+    return std::all_of(
+        validKeys.begin(), validKeys.end(),
+        [&argMap](std::string &key) { return argMap.count(key) > 0; });
   };
 
-  SmallString<128> kernelName;
-  ModuleOp module = handle->getModule();
-  populateConvolutionLogic(
-      argMap["operation"], argMap["in_layout"], argMap["out_layout"],
-      argMap["fil_layout"], strToLong("batchsize"), strToLong("in_channels"),
-      strToLong("in_h"), strToLong("in_w"), strToLong("out_channels"),
-      strToLong("out_h"), strToLong("out_w"), strToLong("fil_w"),
-      strToLong("fil_h"), strToLong("dilation_h"), strToLong("dilation_w"),
-      strToLong("conv_stride_h"), strToLong("conv_stride_w"),
-      strToLong("padding_h"), strToLong("padding_w"), module, builder,
-      kernelName);
+  // Proceed only if we have a valid argMap. Otherwise leave the handle to be
+  // empty
+  if (isValid()) {
+    auto strToLong = [&argMap](std::string argKey) {
+      return std::stoul(argMap[argKey]);
+    };
 
-  PassManager pm(module.getContext());
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
-  pm.run(module);
+    SmallString<128> kernelName;
+    ModuleOp module = handle->getModule();
+    populateConvolutionLogic(
+        argMap["operation"], argMap["in_layout"], argMap["out_layout"],
+        argMap["fil_layout"], strToLong("batchsize"), strToLong("in_channels"),
+        strToLong("in_h"), strToLong("in_w"), strToLong("out_channels"),
+        strToLong("out_h"), strToLong("out_w"), strToLong("fil_w"),
+        strToLong("fil_h"), strToLong("dilation_h"), strToLong("dilation_w"),
+        strToLong("conv_stride_h"), strToLong("conv_stride_w"),
+        strToLong("padding_h"), strToLong("padding_w"), module, builder,
+        kernelName);
+
+    PassManager pm(module.getContext());
+    pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
+    pm.run(module);
+  }
 
   return handle;
 }
@@ -104,17 +121,3 @@ extern "C" const char *MlirGenIgemmCflags(MlirHandle mlirHandle) {
   return (handle->genTxt).c_str();
 }
 } // namespace mlir
-
-// int main(){
-//  std::string mimic = R"( --operation conv2d_bwd_weight --fil_layout kcyx )"
-//  R"(--in_layout nchw --out_layout nkhw --batchsize 64 --in_channels 1024 )"
-//  R"(--out_channels 1024 --in_h 14 --in_w 14 --out_h 14 --out_w 14 )"
-//  R"(--fil_h 1 --fil_w 1 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 )"
-//  R"(--conv_stride_w 1 --padding_h 0 --padding_w 0)";
-//  mlir::MlirHandle handle =
-//    mlir::CreateMlirHandle(mimic.c_str());
-//  std::string source = mlir::MlirGenIgemmSource(handle);
-//  std::string header = mlir::MlirGenIgemmHeader(handle);
-//  std::string cflags = mlir::MlirGenIgemmCflags(handle);
-//  mlir::DestroyMlirHandle(handle);
-//}

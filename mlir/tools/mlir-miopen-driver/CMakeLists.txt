@@ -35,19 +35,32 @@ llvm_update_compile_flags(mlir-miopen-driver)
 target_link_libraries(mlir-miopen-driver PRIVATE ${LIBS})
 mlir_check_link_libraries(mlir-miopen-driver)
 
-# Static library target, enabled only when building static libs
-if( NOT BUILD_SHARED_LIBS )
-  llvm_add_library(MLIRMIOpenThin STATIC
-  #add_llvm_executable(MLIRMIOpen
+
+  llvm_add_library(MLIRMIOpenThin
   PARTIAL_SOURCES_INTENDED
   
     mlir-miopen-lib.cpp
   
-    #DEPENDS
     LINK_LIBS
     ${LIBS}
     )
 
+add_llvm_executable(mlir-miopen-lib-test
+  PARTIAL_SOURCES_INTENDED
+
+  mlir-miopen-lib-test.cpp
+
+  DEPENDS
+  MLIRMIOpenThin
+  ${LIBS}
+)
+
+llvm_update_compile_flags(mlir-miopen-lib-test)
+target_link_libraries(mlir-miopen-lib-test PRIVATE MLIRMIOpenThin ${LIBS})
+mlir_check_link_libraries(mlir-miopen-lib-test)
+
+# Static library target, enabled only when building static libs
+if( NOT BUILD_SHARED_LIBS )
   function(combine_archives output_archive)
     set(mri_file ${CMAKE_CURRENT_BINARY_DIR}/${output_archive}.mri)
     set(full_output_path ${LLVM_LIBRARY_DIR}/lib${output_archive}.a)
