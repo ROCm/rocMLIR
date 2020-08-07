@@ -33,6 +33,7 @@
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/XdlopsCodeSelection.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
@@ -250,7 +251,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
           sourceElementType = sourceType;
         auto memRefType = op.destC().getType().cast<MemRefType>();
         auto shape = memRefType.getShape();
-        auto destElementType = memRefType.getElementType();
+        auto destElementType = memRefType.getElementType().template dyn_cast<FloatType>();
 
         int64_t MPerWave = 64;
         int64_t NPerWave = 64;
@@ -518,10 +519,10 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         auto resultMemRefType = MemRefType::get({shape[0] / vectorLength}, vfloatType, {}, memRefType.getMemorySpace());
         auto vectorTypeCast = b.create<vector::TypeCastOp>(loc, resultMemRefType, op.destC());
 
-        // TBD. change c64 based on GetRegSizePerXdlops()
-        // MPerXdlops * NPerXdlops / mfma_type.wave_size.
-        auto c64 = b.create<ConstantIndexOp>(loc, 64);
-        auto loadOffset = b.create<SignedDivIOp>(loc, op.threadOffsetC(), c64);
+        XdlopsCodeSelection xcs = XdlopsCodeSelection::get(destElementType, MPerWave, NPerWave, b);
+        int64_t RegSizePerXdlops = xcs.MPerXdlops * xcs.NPerXdlops / xcs.wave_size;
+        auto RegSizePerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, RegSizePerXdlops);
+        auto loadOffset = b.create<SignedDivIOp>(loc, op.threadOffsetC(), RegSizePerXdlopsConstantOp);
 
         for (unsigned iter = 0; iter < mfmaInstrLength; ++iter) {
           // Emit iteration constant.
