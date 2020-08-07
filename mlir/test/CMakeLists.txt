@@ -81,6 +81,7 @@ endif()
 if(MLIR_MIOPEN_DRIVER_ENABLED)
   list(APPEND MLIR_TEST_DEPENDS
     mlir-miopen-driver
+    mlir-miopen-lib-test
     mlir-translate
     opt
     llc

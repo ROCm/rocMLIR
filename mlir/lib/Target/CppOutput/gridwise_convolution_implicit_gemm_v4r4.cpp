@@ -28,9 +28,6 @@
 using namespace mlir;
 
 namespace {
-// result string to keep C++ source / header / flags emission.
-std::string resultStr;
-
 static constexpr StringLiteral kVarArgName[3] = {"p_wei_global", "p_in_global",
                                                  "p_out_global"};
 
@@ -684,8 +681,8 @@ static void ObtainModuleInfo(ModuleOp &m,
 
 } // namespace
 
-std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m) {
-  llvm::raw_string_ostream output(resultStr);
+void mlir::translateModuleToMIOpenHeader(ModuleOp m, std::string &header) {
+  llvm::raw_string_ostream output(header);
 
   // Enumerate FuncOp instances inside the ModuleOp.
   for (auto f : m.getOps<FuncOp>()) {
@@ -865,11 +862,10 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m)
   }
 
   output.flush();
-  return std::make_unique<llvm::StringRef>(resultStr);
 }
 
-std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
-  llvm::raw_string_ostream output(resultStr);
+void mlir::translateModuleToMIOpenCpp(ModuleOp m, std::string &source) {
+  llvm::raw_string_ostream output(source);
 
   // Enumerate FuncOp instances inside the ModuleOp.
   for (auto f : m.getOps<FuncOp>()) {
@@ -912,11 +908,10 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
   }
 
   output.flush();
-  return std::make_unique<llvm::StringRef>(resultStr);
 }
 
-std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m) {
-  llvm::raw_string_ostream output(resultStr);
+void mlir::translateModuleToMIOpenCFlags(ModuleOp m, std::string &cflags) {
+  llvm::raw_string_ostream output(cflags);
 
   for (auto f : m.getOps<FuncOp>()) {
     output << f.getName() << "\n";
@@ -1049,5 +1044,4 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
   }
  
   output.flush();
-  return std::make_unique<llvm::StringRef>(resultStr);
 }
