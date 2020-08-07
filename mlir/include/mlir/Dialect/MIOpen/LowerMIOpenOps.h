@@ -4359,8 +4359,7 @@ struct XdlopsGemmRewritePattern
               loc, lib.create<MulIOp>(loc, NRepeatsConstantOp, lmiv),
               lniv),
           RegSizePerXdlopsConstantOp);
-      // TBD. use addressC.
-      auto mfma = lib.create<miopen::MFMAOp>(loc, argA, argB, op.matrixC());
+      auto mfma = lib.create<miopen::MFMAOp>(loc, argA, argB, op.matrixC(), addressC);
       mfma.setAttr("m_per_wave", lib.getI32IntegerAttr(MPerXdlops));
       mfma.setAttr("n_per_wave", lib.getI32IntegerAttr(NPerXdlops));
 
@@ -4450,7 +4449,7 @@ struct XdlopsGemmRewritePattern
       auto argB =
           lib.create<LoadOp>(loc, dataType, arrayB, ValueRange{addressAB});
 
-      auto mfma = lib.create<miopen::MFMAOp>(loc, argA, argB, op.matrixC());
+      auto mfma = lib.create<miopen::MFMAOp>(loc, argA, argB, op.matrixC(), zeroConstantOp);
       mfma.setAttr("m_per_wave", lib.getI32IntegerAttr(MPerXdlops));
       mfma.setAttr("n_per_wave", lib.getI32IntegerAttr(NPerXdlops));
     }

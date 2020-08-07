@@ -518,11 +518,17 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         auto resultMemRefType = MemRefType::get({shape[0] / vectorLength}, vfloatType, {}, memRefType.getMemorySpace());
         auto vectorTypeCast = b.create<vector::TypeCastOp>(loc, resultMemRefType, op.destC());
 
+        // TBD. change c64 based on GetRegSizePerXdlops()
+        // MPerXdlops * NPerXdlops / mfma_type.wave_size.
+        auto c64 = b.create<ConstantIndexOp>(loc, 64);
+        auto loadOffset = b.create<SignedDivIOp>(loc, op.threadOffsetC(), c64);
+
         for (unsigned iter = 0; iter < mfmaInstrLength; ++iter) {
           // Emit iteration constant.
           auto iterConstant = b.create<ConstantIndexOp>(loc, iter);
+          auto offset = b.create<AddIOp>(loc, iterConstant, loadOffset);
           // Emit load.
-          auto vectorLoad = b.create<LoadOp>(loc, vfloatType, vectorTypeCast, ValueRange{iterConstant});
+          auto vectorLoad = b.create<LoadOp>(loc, vfloatType, vectorTypeCast, ValueRange{offset});
           // Emit gpu.mfma operation.
           auto gpuMfmaOp = b.create<gpu::MFMAOp>(loc, vfloatType, op.sourceA(), op.sourceB(), vectorLoad);
           gpuMfmaOp.setAttr("instr", b.getStringAttr(mfmaInstr));

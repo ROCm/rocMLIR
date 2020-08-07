@@ -254,7 +254,8 @@ def MIOpen_MFMAOp:
     MIOpen_Op<"mfma">,
     Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceA,
                    AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceB,
-                   MemRefRankOf<[F32], [1]>: $destC)> {
+                   MemRefRankOf<[F32], [1]>: $destC,
+                   Index:$threadOffsetC)> {
   let summary = "XDLOPS MFMA";
   let description = [{
     The `miopen.mfma` op is an abstraction of XDLOPS.
