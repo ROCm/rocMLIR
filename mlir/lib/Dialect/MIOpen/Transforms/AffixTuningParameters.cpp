@@ -146,6 +146,10 @@ void AffixTuningParameters::runOnFunction() {
       validParams.gemmMPerThread = 128;
       validParams.gemmNPerThread = 64;
       validParams.blockSize = 256;
+
+      // XXX. fix gridSize.
+      // need to use (M/MPerBlock)*(N/NPerBlock).
+      gridSize = 784;
     }
 
     if (launchDimCallback) {

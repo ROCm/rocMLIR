@@ -329,7 +329,7 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
                              ValueRange{inputMemRefCastOp, oneConstantFloatOp});
   auto outputCpuMemsetOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mcpuMemset4DFloatFuncOp,
-      ValueRange{outputMemRefCastOp, oneConstantFloatOp});
+      ValueRange{outputMemRefCastOp, zeroConstantFloatOp});
   block->push_back(filterCpuMemsetOp);
   block->push_back(inputCpuMemsetOp);
   block->push_back(outputCpuMemsetOp);
