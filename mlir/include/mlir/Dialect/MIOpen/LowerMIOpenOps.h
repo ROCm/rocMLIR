@@ -1565,8 +1565,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
     computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize);
 
-    auto elementType = op.output().getType().cast<MemRefType>().getElementType();
-
     // Allocate LDS.
     auto ldsMemRefType =
         MemRefType::get({ldsBlockSize}, elementType, {},
@@ -1628,7 +1626,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Subviews for Matrix B.
     auto ldsBlockBDoubleSize = ldsBlockBSize * 2;
-    auto ldsBlockBOffset = ldsBlockSize - ldsBlockADoubleSize;
+    auto ldsBlockBOffset = ldsBlockADoubleSize;
 
     auto ldsBlockBOffsetConstantOp =
         b.create<ConstantIndexOp>(loc, ldsBlockBOffset);
