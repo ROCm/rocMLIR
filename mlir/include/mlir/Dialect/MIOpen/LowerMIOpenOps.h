@@ -1182,6 +1182,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
      b_block_space = math::integer_least_multiple(KPerBlock * AlignedNPerBlock, max_lds_align);
 
      double_block_space = 2 * (a_block_space + b_block_space);
+
+     // llvm::errs() << "a_block_space: " << a_block_space << "\n";
+     // llvm::errs() << "b_block_space: " << b_block_space << "\n";
+     // llvm::errs() << "double_block_space: " << double_block_space << "\n\n";
   }
 
   // XXX. Figure out a way to do away with isMatrixA parameter.
@@ -1260,24 +1264,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   void affixBlockwiseGemmAttributes(miopen::BlockwiseGemmOp bop,
                                     miopen::GridwiseGemmOp gop,
                                     OpBuilder &b) const {
-    // Add attributes from C++ template arguments and ctor arguments.
-    //const auto blockwise_gemm = BlockwiseGemmBlockABlockBThreadCTransANormalBNormalC_v2<
-    //    BlockSize,                                - block_size attribute
-    //    decltype(a_k_m_block_mtx_desc),           - matrixA memref
-    //    decltype(b_k_n_block_mtx_desc),           - matrixB memref
-    //    decltype(c_m0m1_n0n1_thread_mtx_desc),    - matrixC memref
-    //    MPerThread,                               - m_per_thread attribute
-    //    NPerThread,                               - n_per_thread attribute
-    //    MLevel0Cluster,                           - m_level0_cluster attribute
-    //    NLevel0Cluster,                           - n_level0_cluster attribute
-    //    MLevel1Cluster,                           - m_level1_cluster attribute
-    //    NLevel1Cluster,                           - n_level1_cluster attribute
-    //    KPerThread,                               - k_per_thread attribute
-    //    ThreadGemmAThreadCopySrcDataPerRead_M,    - m_per_thread attribute
-    //    ThreadGemmBThreadCopySrcDataPerRead_N>{}; - n_per_thread attribute
     bop.setAttr("block_size", gop.getAttr("block_size"));
-    bop.setAttr("m_per_thread", gop.getAttr("m_per_thread"));
-    bop.setAttr("n_per_thread", gop.getAttr("n_per_thread"));
 
     // xdlops.
     auto xdlopsAttr = gop.template getAttrOfType<BoolAttr>("xdlops");
@@ -1293,12 +1280,32 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       int64_t MWaves = MPerBlock / MPerWave;
       int64_t NWaves = NPerBlock / NPerWave;
 
+      bop.setAttr("m_per_wave", gop.getAttr("m_per_thread"));
+      bop.setAttr("n_per_wave", gop.getAttr("n_per_thread"));
       bop.setAttr("m_waves", b.getI32IntegerAttr(MWaves));
       bop.setAttr("n_waves", b.getI32IntegerAttr(NWaves));
 
       bop.setAttr("xdlops", b.getBoolAttr(true));
     } else {
+      // Add attributes from C++ template arguments and ctor arguments.
+      //const auto blockwise_gemm = BlockwiseGemmBlockABlockBThreadCTransANormalBNormalC_v2<
+      //    BlockSize,                                - block_size attribute
+      //    decltype(a_k_m_block_mtx_desc),           - matrixA memref
+      //    decltype(b_k_n_block_mtx_desc),           - matrixB memref
+      //    decltype(c_m0m1_n0n1_thread_mtx_desc),    - matrixC memref
+      //    MPerThread,                               - m_per_thread attribute
+      //    NPerThread,                               - n_per_thread attribute
+      //    MLevel0Cluster,                           - m_level0_cluster attribute
+      //    NLevel0Cluster,                           - n_level0_cluster attribute
+      //    MLevel1Cluster,                           - m_level1_cluster attribute
+      //    NLevel1Cluster,                           - n_level1_cluster attribute
+      //    KPerThread,                               - k_per_thread attribute
+      //    ThreadGemmAThreadCopySrcDataPerRead_M,    - m_per_thread attribute
+      //    ThreadGemmBThreadCopySrcDataPerRead_N>{}; - n_per_thread attribute
+ 
       // Attributes used in non-xdlops lowering path.
+      bop.setAttr("m_per_thread", gop.getAttr("m_per_thread"));
+      bop.setAttr("n_per_thread", gop.getAttr("n_per_thread"));
       bop.setAttr("k_per_thread", gop.getAttr("k_per_thread"));
       bop.setAttr("m_level0_cluster", gop.getAttr("m_level0_cluster"));
       bop.setAttr("m_level1_cluster", gop.getAttr("m_level1_cluster"));
@@ -1410,16 +1417,18 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t MBlockWork = M / MPerBlock;
     int64_t NBlockWork = N / NPerBlock;
 
-    llvm::errs() << "M: " << M << "\n";
-    llvm::errs() << "N:"  << N << "\n";
-    llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
-    llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
-    llvm::errs() << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n";
-    llvm::errs() << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n";
-    llvm::errs() << "MPerWave: " << MPerWave << "\n";
-    llvm::errs() << "NPerWave: " << NPerWave << "\n";
-    llvm::errs() << "MWaves = MPerBlock / MPerWave: " << MWaves << "\n";
-    llvm::errs() << "NWaves = NPerBlock / NPerWave: " << NWaves << "\n";
+    // llvm::errs() << "M: " << M << "\n";
+    // llvm::errs() << "N: "  << N << "\n";
+    // llvm::errs() << "K: "  << K << "\n";
+    // llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
+    // llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
+    // llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
+    // llvm::errs() << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n";
+    // llvm::errs() << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n";
+    // llvm::errs() << "MPerWave: " << MPerWave << "\n";
+    // llvm::errs() << "NPerWave: " << NPerWave << "\n";
+    // llvm::errs() << "MWaves = MPerBlock / MPerWave: " << MWaves << "\n";
+    // llvm::errs() << "NWaves = NPerBlock / NPerWave: " << NWaves << "\n";
 
     auto MBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, MBlockWork);
     auto NBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, NBlockWork);
@@ -1487,6 +1496,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
 
     // Get current workitem ID.
+
+    // Original logic.
     auto tid = b.create<miopen::WorkitemIdOp>(loc, b.getIndexType());
 
     // Compute thread_data_id_begin for Matrix A.
@@ -1868,7 +1879,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Emit loop.
     // Compute loop iterations from attributes.
-    auto loopIteration = K / (KPerBlock * 2);
+
+    auto KPerBlockConstantI32Op =
+        b.create<ConstantIntOp>(loc, KPerBlock, b.getIntegerType(32));
+
+    int64_t loopIteration;
+    // For XDLOPS path iteration is less by 1.
+    if (xdlopsAttr && xdlopsAttr.getValue() == true) {
+      loopIteration = K / (KPerBlock * 2) - 1;
+    } else {
+      loopIteration = K / (KPerBlock * 2);
+    }
     auto loopIterationConstantOp =
         b.create<ConstantIndexOp>(loc, loopIteration);
     auto loopOp =
@@ -1880,9 +1901,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // LDS barrier.
     lb.create<miopen::WorkgroupBarrierOp>(loc);
-
-    auto KPerBlockConstantI32Op =
-        b.create<ConstantIntOp>(loc, KPerBlock, b.getIntegerType(32));
 
     // Blockwise copy from global (generic tensor) to register (naive tensor).
     lb.create<miopen::MovePosOp>(
@@ -1963,20 +1981,37 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // outside the loop.
 
-    // LDS barrier.
-    b.create<miopen::WorkgroupBarrierOp>(loc);
+    // For XDLOPS path no need to emit loop tail.
+    if (xdlopsAttr && xdlopsAttr.getValue() == true) {
+      // LDS barrier.
+      b.create<miopen::WorkgroupBarrierOp>(loc);
 
-    // Emit blockwise GEMM for the loop tail.
-    if (loopIteration % 2) {
+      // Emit blockwise GEMM for the loop tail.
       auto blockwiseGemmTailEvenOp = b.create<miopen::BlockwiseGemmOp>(
           loc, lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
           registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
       affixBlockwiseGemmAttributes(blockwiseGemmTailEvenOp, op, b);
-    } else {
+
       auto blockwiseGemmTailOddOp = b.create<miopen::BlockwiseGemmOp>(
           loc, lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
           registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
       affixBlockwiseGemmAttributes(blockwiseGemmTailOddOp, op, b);
+    } else {
+      // LDS barrier.
+      b.create<miopen::WorkgroupBarrierOp>(loc);
+
+      // Emit blockwise GEMM for the loop tail.
+      if (loopIteration % 2) {
+        auto blockwiseGemmTailEvenOp = b.create<miopen::BlockwiseGemmOp>(
+            loc, lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
+            registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
+        affixBlockwiseGemmAttributes(blockwiseGemmTailEvenOp, op, b);
+      } else {
+        auto blockwiseGemmTailOddOp = b.create<miopen::BlockwiseGemmOp>(
+            loc, lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
+            registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
+        affixBlockwiseGemmAttributes(blockwiseGemmTailOddOp, op, b);
+      }
     }
 
     if (xdlopsAttr && xdlopsAttr.getValue() == true) {
@@ -2037,19 +2072,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       int NumBlksPerXdlops = (MPerXdlops * NPerXdlops) / (m * n);
       int NumBlks = NumBlksPerXdlops * MRepeats * NRepeats;
 
-      llvm::errs() << "MPerWave: " << MPerWave << "\n";
-      llvm::errs() << "NPerWave: " << NPerWave << "\n\n";
+      // llvm::errs() << "MPerWave: " << MPerWave << "\n";
+      // llvm::errs() << "NPerWave: " << NPerWave << "\n\n";
 
-      llvm::errs() << "MPerXlops: " << MPerXdlops << "\n";
-      llvm::errs() << "NPerXlops: " << NPerXdlops << "\n";
-      llvm::errs() << "m: " << m << "\n";
-      llvm::errs() << "n: " << n << "\n";
-      llvm::errs() << "MRepeat: " << MRepeats << "\n";
-      llvm::errs() << "NRepeat: " << NRepeats << "\n\n";
+      // llvm::errs() << "MPerXlops: " << MPerXdlops << "\n";
+      // llvm::errs() << "NPerXlops: " << NPerXdlops << "\n";
+      // llvm::errs() << "m: " << m << "\n";
+      // llvm::errs() << "n: " << n << "\n";
+      // llvm::errs() << "MRepeat: " << MRepeats << "\n";
+      // llvm::errs() << "NRepeat: " << NRepeats << "\n\n";
 
-      llvm::errs() << "BlkSize: " << BlkSize << "\n";
-      llvm::errs() << "NumBlksPerXdlops: " << NumBlksPerXdlops << "\n";
-      llvm::errs() << "NumBlks: " << NumBlks << "\n\n";
+      // llvm::errs() << "BlkSize: " << BlkSize << "\n";
+      // llvm::errs() << "NumBlksPerXdlops: " << NumBlksPerXdlops << "\n";
+      // llvm::errs() << "NumBlks: " << NumBlks << "\n\n";
 
       auto BlkSizeConstantI32Op = b.create<ConstantIntOp>(loc, BlkSize, b.getIntegerType(32));
       auto NumBlksPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NumBlksPerXdlops);
@@ -2087,10 +2122,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       int64_t M2 = group_size;
       int64_t M0 = M / (M1 * M2);
 
-      llvm::errs() << "M0: " << M0 << "\n";
-      llvm::errs() << "M1: num_input_blks: " << M1 << "\n";
-      llvm::errs() << "M2: group_size: " << M2 << "\n";
-      llvm::errs() << "M3: num_groups_blk: " << M3 << "\n\n";
+      // llvm::errs() << "M0: " << M0 << "\n";
+      // llvm::errs() << "M1: num_input_blks: " << M1 << "\n";
+      // llvm::errs() << "M2: group_size: " << M2 << "\n";
+      // llvm::errs() << "M3: num_groups_blk: " << M3 << "\n\n";
 
       auto M0ConstantI32Op =
           b.create<ConstantIntOp>(loc, M0, b.getIntegerType(32));
@@ -2511,8 +2546,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
       xdlopsGemm.setAttr("m", b.getI32IntegerAttr(M));
       xdlopsGemm.setAttr("n", b.getI32IntegerAttr(N));
       xdlopsGemm.setAttr("k", b.getI32IntegerAttr(K));
-      xdlopsGemm.setAttr("m_per_wave", op.getAttr("m_per_thread"));
-      xdlopsGemm.setAttr("n_per_wave", op.getAttr("n_per_thread"));
+      xdlopsGemm.setAttr("m_per_wave", op.getAttr("m_per_wave"));
+      xdlopsGemm.setAttr("n_per_wave", op.getAttr("n_per_wave"));
 
     } else {
       // Non-xdlops path.
@@ -3648,6 +3683,8 @@ struct XdlopsGemmRewritePattern
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
+    auto oneConstantFloatOp =
+        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
 
     auto MRepeatsConstantOp = b.create<ConstantIndexOp>(loc, MRepeats);
     auto NRepeatsConstantOp = b.create<ConstantIndexOp>(loc, NRepeats);
@@ -3789,9 +3826,26 @@ struct XdlopsGemmRewritePattern
               loc, lib.create<MulIOp>(loc, NRepeatsConstantOp, lmiv),
               lniv),
           RegSizePerXdlopsConstantOp);
-      auto mfma = lib.create<miopen::MFMAOp>(loc, argA, argB, op.matrixC(), addressC);
-      mfma.setAttr("m_per_wave", lib.getI32IntegerAttr(MPerWave));
-      mfma.setAttr("n_per_wave", lib.getI32IntegerAttr(NPerWave));
+
+      // auto mfma = lib.create<miopen::MFMAOp>(loc, argA, argB, op.matrixC(), addressC);
+      // mfma.setAttr("m_per_wave", lib.getI32IntegerAttr(MPerWave));
+      // mfma.setAttr("n_per_wave", lib.getI32IntegerAttr(NPerWave));
+
+      // XXX. directly emit 32 load, add by 1, store.
+      auto thirtyTwoConstantOp = lib.create<ConstantIndexOp>(loc, 32);
+      auto loopHack = lib.create<scf::ForOp>(loc, zeroConstantOp, thirtyTwoConstantOp, oneConstantOp);
+      auto lhb = OpBuilder::atBlockTerminator(loopHack.getBody());
+      auto lhiv = loopHack.getInductionVar();
+ 
+      auto addressFinal = lhb.create<AddIOp>(loc, addressC, lhiv);
+      auto value = lhb.create<LoadOp>(loc, op.matrixC(), ValueRange{addressFinal});
+      auto addByOne = lhb.create<AddFOp>(loc, value, oneConstantFloatOp);
+      lhb.create<StoreOp>(loc, addByOne, op.matrixC(), ValueRange{addressFinal});
+
+      auto addressFinal2 = lhb.create<AddIOp>(loc, addressFinal, thirtyTwoConstantOp);
+      auto value2 = lhb.create<LoadOp>(loc, op.matrixC(), ValueRange{addressFinal2});
+      auto addByOne2 = lhb.create<AddFOp>(loc, value2, oneConstantFloatOp);
+      lhb.create<StoreOp>(loc, addByOne2, op.matrixC(), ValueRange{addressFinal2});
 
     } else {
       // Original C++ logic.
