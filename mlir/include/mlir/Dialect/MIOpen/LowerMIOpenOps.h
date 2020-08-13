@@ -3793,8 +3793,8 @@ struct XdlopsGemmRewritePattern
               lniv),
           RegSizePerXdlopsConstantOp);
       auto mfma = lib.create<miopen::MFMAOp>(loc, argA, argB, op.matrixC(), addressC);
-      mfma.setAttr("m_per_wave", lib.getI32IntegerAttr(MPerXdlops));
-      mfma.setAttr("n_per_wave", lib.getI32IntegerAttr(NPerXdlops));
+      mfma.setAttr("m_per_wave", lib.getI32IntegerAttr(MPerWave));
+      mfma.setAttr("n_per_wave", lib.getI32IntegerAttr(NPerWave));
 
     } else {
       // Original C++ logic.
@@ -3883,8 +3883,8 @@ struct XdlopsGemmRewritePattern
           lib.create<LoadOp>(loc, dataType, arrayB, ValueRange{addressAB});
 
       auto mfma = lib.create<miopen::MFMAOp>(loc, argA, argB, op.matrixC(), zeroConstantOp);
-      mfma.setAttr("m_per_wave", lib.getI32IntegerAttr(MPerXdlops));
-      mfma.setAttr("n_per_wave", lib.getI32IntegerAttr(NPerXdlops));
+      mfma.setAttr("m_per_wave", lib.getI32IntegerAttr(MPerWave));
+      mfma.setAttr("n_per_wave", lib.getI32IntegerAttr(NPerWave));
     }
 
     op.erase();

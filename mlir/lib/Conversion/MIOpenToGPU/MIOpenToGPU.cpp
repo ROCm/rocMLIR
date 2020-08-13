@@ -253,12 +253,14 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         auto shape = memRefType.getShape();
         auto destElementType = memRefType.getElementType().template dyn_cast<FloatType>();
 
-        int64_t MPerWave = 64;
+        int64_t MPerWave = 128;
         int64_t NPerWave = 64;
         if (op.getAttr("m_per_wave"))
           MPerWave = op.getAttr("m_per_wave").cast<IntegerAttr>().getInt();
         if (op.getAttr("n_per_wave"))
           NPerWave = op.getAttr("n_per_wave").cast<IntegerAttr>().getInt();
+
+        XdlopsCodeSelection xcs = XdlopsCodeSelection::get(destElementType, MPerWave, NPerWave, b);
 
         // From the data type and attributes, determine:
         // - Which MFMA instruction be used.
@@ -271,7 +273,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         SmallVector<SmallVector<unsigned, 3>, 2> imms;
 
         if (sourceElementType == b.getF32Type()) {
-          if (MPerWave == 64 && NPerWave == 64) {
+          if (xcs.MPerXdlops == 64 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_32x32x1f32<64, 64>(const float& reg_a, const float& reg_b, float32_t* reg_c)
             //  reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[0], 1, 0, 0);
@@ -284,7 +286,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             mfmaInstrLength = 2;
             imms.push_back({ 1, 0, 0 });
             imms.push_back({ 1, 1, 0 });
-          } else if (MPerWave == 32 && NPerWave == 64) {
+          } else if (xcs.MPerXdlops == 32 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_32x32x1f32<32, 64>(const float& reg_a, const float& reg_b, float32_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[0], 1, 0, 0);
@@ -292,7 +294,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 32;
             mfmaInstrLength = 1;
             imms.push_back({ 1, 0, 0 });
-          } else if (MPerWave == 64 && NPerWave == 32) {
+          } else if (xcs.MPerXdlops == 64 && xcs.NPerXdlops == 32) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_32x32x1f32<64, 32>(const float& reg_a, const float& reg_b, float32_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[0], 0, 0, 1);
@@ -300,7 +302,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 32;
             mfmaInstrLength = 1;
             imms.push_back({ 0, 0, 1 });
-          } else if (MPerWave == 32 && NPerWave == 32) {
+          } else if (xcs.MPerXdlops == 32 && xcs.NPerXdlops == 32) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_32x32x2f32(const float& reg_a, const float& reg_b, float16_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x2f32(reg_a, reg_b, reg_c[0], 0, 0, 0);
@@ -308,7 +310,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 16;
             mfmaInstrLength = 1;
             imms.push_back({ 0, 0, 0 });
-          } else if (MPerWave == 16 && NPerWave == 16) {
+          } else if (xcs.MPerXdlops == 16 && xcs.NPerXdlops == 16) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_16x16x4f32(const float& reg_a, const float& reg_b, float4_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x4f32(reg_a, reg_b, reg_c[0], 0, 0, 0);
@@ -316,7 +318,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 4;
             mfmaInstrLength = 1;
             imms.push_back({ 0, 0, 0 });
-          } else if (MPerWave == 16 && NPerWave == 64) {
+          } else if (xcs.MPerXdlops == 16 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_16x16x1f32<16, 64>(const float& reg_a, const float& reg_b, float16_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x1f32(reg_a, reg_b, reg_c[0], 2, 0, 0);
@@ -324,7 +326,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 16;
             mfmaInstrLength = 1;
             imms.push_back({ 2, 0, 0 });
-          } else if (MPerWave == 64 && NPerWave == 16) {
+          } else if (xcs.MPerXdlops == 64 && xcs.NPerXdlops == 16) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_16x16x1f32<64, 16>(const float& reg_a, const float& reg_b, float16_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x1f32(reg_a, reg_b, reg_c[0], 0, 0, 4);
@@ -332,7 +334,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 16;
             mfmaInstrLength = 1;
             imms.push_back({ 0, 0, 4 });
-          } else if (MPerWave == 4 && NPerWave == 64) {
+          } else if (xcs.MPerXdlops == 4 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_4x4x1f32<4, 64>(const float& reg_a, const float& reg_b, float4_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x1f32(reg_a, reg_b, reg_c[0], 4, 0, 0);
@@ -340,7 +342,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 4;
             mfmaInstrLength = 1;
             imms.push_back({ 4, 0, 0 });
-          } else if (MPerWave == 8 && NPerWave == 64) {
+          } else if (xcs.MPerXdlops == 8 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_4x4x1f32<8, 64>(const float& reg_a, const float& reg_b, float4_t* reg_c)
             //     reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x1f32(reg_a, reg_b, reg_c[0], 4, 0, 0);
@@ -354,7 +356,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             // Unhandled cases for F32.
           }
         } else if (sourceElementType == b.getF16Type()) {
-          if (MPerWave == 64 && NPerWave == 64) {
+          if (xcs.MPerXdlops == 64 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_32x32x4f16<64, 64>(const half4_t& reg_a, const half4_t& reg_b, float32_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x4f16(reg_a, reg_b, reg_c[0], 1, 0, 0);
@@ -364,7 +366,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             mfmaInstrLength = 2;
             imms.push_back({ 1, 0, 0 });
             imms.push_back({ 1, 1, 0 });
-          } else if (MPerWave == 32 && NPerWave == 64) {
+          } else if (xcs.MPerXdlops == 32 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_32x32x4f16<32, 64>(const half4_t& reg_a, const half4_t& reg_b, float32_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x4f16(reg_a, reg_b, reg_c[0], 1, 0, 0);
@@ -372,7 +374,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 32;
             mfmaInstrLength = 1;
             imms.push_back({ 1, 0, 0 });
-          } else if (MPerWave == 64 && NPerWave == 32) {
+          } else if (xcs.MPerXdlops == 64 && xcs.NPerXdlops == 32) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_32x32x4f16<64, 32>(const half4_t& reg_a, const half4_t& reg_b, float32_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x4f16(reg_a, reg_b, reg_c[0], 0, 0, 1);
@@ -380,7 +382,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 32;
             mfmaInstrLength = 1;
             imms.push_back({ 0, 0, 1 });
-          } else if (MPerWave == 32 && NPerWave == 32) {
+          } else if (xcs.MPerXdlops == 32 && xcs.NPerXdlops == 32) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_32x32x8f16(const half4_t& reg_a, const half4_t& reg_b, float16_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x8f16(reg_a, reg_b, reg_c[0], 0, 0, 0);
@@ -388,7 +390,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 16;
             mfmaInstrLength = 1;
             imms.push_back({ 0, 0, 0 });
-          } else if (MPerWave == 16 && NPerWave == 16) {
+          } else if (xcs.MPerXdlops == 16 && xcs.NPerXdlops == 16) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_16x16x16f16(const half4_t& reg_a, const half4_t& reg_b, float4_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x16f16(reg_a, reg_b, reg_c[0], 0, 0, 0);
@@ -396,7 +398,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 4;
             mfmaInstrLength = 1;
             imms.push_back({ 0, 0, 0 });
-          } else if (MPerWave == 16 && NPerWave == 64) {
+          } else if (xcs.MPerXdlops == 16 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_16x16x4f16<16, 64>(const half4_t& reg_a, const half4_t& reg_b, float16_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x4f16(reg_a, reg_b, reg_c[0], 2, 0, 0);
@@ -404,7 +406,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 16;
             mfmaInstrLength = 1;
             imms.push_back({ 2, 0, 0 });
-          } else if (MPerWave == 64 && NPerWave == 16) {
+          } else if (xcs.MPerXdlops == 64 && xcs.NPerXdlops == 16) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_16x16x4f16<64, 16>(const half4_t& reg_a, const half4_t& reg_b, float16_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x4f16(reg_a, reg_b, reg_c[0], 0, 0, 4);
@@ -412,7 +414,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 16;
             mfmaInstrLength = 1;
             imms.push_back({ 0, 0, 4 });
-          } else if (MPerWave == 4 && NPerWave == 64) {
+          } else if (xcs.MPerXdlops == 4 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_4x4x4f16<4, 64>(const half4_t& reg_a, const half4_t& reg_b, float4_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x4f16(reg_a, reg_b, reg_c[0], 4, 0, 0);
@@ -420,7 +422,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 4;
             mfmaInstrLength = 1;
             imms.push_back({ 4, 0, 0 });
-          } else if (MPerWave == 8 && NPerWave == 64) {
+          } else if (xcs.MPerXdlops == 8 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_4x4x4f16<8, 64>(const half4_t& reg_a, const half4_t& reg_b, float4_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x4f16(reg_a, reg_b, reg_c[0], 4, 0, 0);
@@ -434,7 +436,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             // Unhandled cases for F16.
           }
         } else if (sourceElementType == b.getBF16Type()) {
-          if (MPerWave == 64 && NPerWave == 64) {
+          if (xcs.MPerXdlops == 64 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_32x32x2bf16<64, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float32_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x2bf16(reg_a, reg_b, reg_c[0], 1, 0, 0);
@@ -444,7 +446,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             mfmaInstrLength = 2;
             imms.push_back({ 1, 0, 0 });
             imms.push_back({ 1, 1, 0 });
-          } else if (MPerWave == 32 && NPerWave == 64) {
+          } else if (xcs.MPerXdlops == 32 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_32x32x2bf16<32, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float32_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x2bf16(reg_a, reg_b, reg_c[0], 1, 0, 0);
@@ -452,7 +454,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 32;
             mfmaInstrLength = 1;
             imms.push_back({ 1, 0, 0 });
-          } else if (MPerWave == 64 && NPerWave == 32) {
+          } else if (xcs.MPerXdlops == 64 && xcs.NPerXdlops == 32) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_32x32x2bf16<64, 32>(const ushort2_t& reg_a, const ushort2_t& reg_b, float32_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x2bf16(reg_a, reg_b, reg_c[0], 0, 0, 1);
@@ -460,7 +462,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 32;
             mfmaInstrLength = 1;
             imms.push_back({ 0, 0, 1 });
-          } else if (MPerWave == 32 && NPerWave == 32) {
+          } else if (xcs.MPerXdlops == 32 && xcs.NPerXdlops == 32) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_32x32x4bf16(const ushort2_t& reg_a, const ushort2_t& reg_b, float16_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x4bf16(reg_a, reg_b, reg_c[0], 0, 0, 0);
@@ -468,7 +470,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 16;
             mfmaInstrLength = 1;
             imms.push_back({ 0, 0, 0 });
-          } else if (MPerWave == 16 && NPerWave == 16) {
+          } else if (xcs.MPerXdlops == 16 && xcs.NPerXdlops == 16) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_16x16x8bf16(const ushort2_t& reg_a, const ushort2_t& reg_b, float4_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x8bf16(reg_a, reg_b, reg_c[0], 0, 0, 0);
@@ -476,7 +478,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 4;
             mfmaInstrLength = 1;
             imms.push_back({ 0, 0, 0 });
-          } else if (MPerWave == 16 && NPerWave == 64) {
+          } else if (xcs.MPerXdlops == 16 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_16x16x2bf16<16, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float16_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x2bf16(reg_a, reg_b, reg_c[0], 2, 0, 0);
@@ -484,7 +486,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 16;
             mfmaInstrLength = 1;
             imms.push_back({ 2, 0, 0 });
-          } else if (MPerWave == 64 && NPerWave == 16) {
+          } else if (xcs.MPerXdlops == 64 && xcs.NPerXdlops == 16) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_16x16x2bf16<64, 16>(const ushort2_t& reg_a, const ushort2_t& reg_b, float16_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x2bf16(reg_a, reg_b, reg_c[0], 0, 0, 4);
@@ -492,7 +494,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 16;
             mfmaInstrLength = 1;
             imms.push_back({ 0, 0, 4 });
-          } else if (MPerWave == 4 && NPerWave == 64) {
+          } else if (xcs.MPerXdlops == 4 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_4x4x2bf16<4, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float4_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x2bf16(reg_a, reg_b, reg_c[0], 4, 0, 0);
@@ -500,7 +502,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             vectorLength = 4;
             mfmaInstrLength = 1;
             imms.push_back({ 4, 0, 0 });
-          } else if (MPerWave == 8 && NPerWave == 64) {
+          } else if (xcs.MPerXdlops == 8 && xcs.NPerXdlops == 64) {
             // Original C++ logic:
             // __device__ void gcnasm_mfma_f32_4x4x2bf16<8, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float4_t* reg_c)
             //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x2bf16(reg_a, reg_b, reg_c[0], 4, 0, 0);
@@ -519,7 +521,6 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         auto resultMemRefType = MemRefType::get({shape[0] / vectorLength}, vfloatType, {}, memRefType.getMemorySpace());
         auto vectorTypeCast = b.create<vector::TypeCastOp>(loc, resultMemRefType, op.destC());
 
-        XdlopsCodeSelection xcs = XdlopsCodeSelection::get(destElementType, MPerWave, NPerWave, b);
         int64_t RegSizePerXdlops = xcs.MPerXdlops * xcs.NPerXdlops / xcs.wave_size;
         auto RegSizePerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, RegSizePerXdlops);
         auto loadOffset = b.create<SignedDivIOp>(loc, op.threadOffsetC(), RegSizePerXdlopsConstantOp);
