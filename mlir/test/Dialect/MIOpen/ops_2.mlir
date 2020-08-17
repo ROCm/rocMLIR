@@ -276,9 +276,10 @@ func @miopen_mfma_v2_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : vector<
 func @miopen_xdlops_gemm(%A : memref<?x?xf32, 3>, %B : memref<?x?xf32, 3>, %C : memref<?x?xf32, 5>) {
   %c0 = constant 0 : index
   miopen.xdlops_gemm(%A, %B, %C, %c0, %c0) {
-    m_per_thread = 64,
-    n_per_thread = 64,
-    m_per_wave = 64,
+    m = 256,
+    n = 256,
+    k = 16,
+    m_per_wave = 128,
     n_per_wave = 64
   } : memref<?x?xf32, 3>, memref<?x?xf32, 3>, memref<?x?xf32, 5>, index, index
   return
@@ -286,3 +287,24 @@ func @miopen_xdlops_gemm(%A : memref<?x?xf32, 3>, %B : memref<?x?xf32, 3>, %C : 
 
 // CHECK-LABEL: func @miopen_xdlops_gemm
 //  CHECK: miopen.xdlops_gemm
+
+// ----
+
+func @miopen_xdlops_gemm_v2(%A : memref<12288xf32, 3>, %B : memref<12288xf32, 3>, %C : memref<128xf32, 5>) -> vector<32xf32> {
+  %c0 = constant 0 : index
+  %c_32 = constant 32 : index
+  %d = miopen.xdlops_gemm_v2(%A, %B, %C, %c0, %c0, %c_32) {
+    m = 256,
+    n = 256,
+    k = 16,
+    m_per_wave = 128,
+    n_per_wave = 64,
+    instr = "mfma_f32_32x32_1f32",
+    imm = [1, 1, 0],
+    coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
+  } : memref<12288xf32, 3>, memref<12288xf32, 3>, memref<128xf32, 5>, index, index, index, vector<32xf32>
+  return %d : vector<32xf32>
+}
+
+// CHECK-LABEL: func @miopen_xdlops_gemm_v2
+//  CHECK: miopen.xdlops_gemm_v2
