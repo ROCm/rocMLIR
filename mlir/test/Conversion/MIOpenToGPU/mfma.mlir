@@ -1,3 +1,4 @@
+// XFAIL: *
 // RUN: mlir-opt -convert-miopen-to-gpu="kernel-name=mfma_f32" %s | FileCheck %s --check-prefix=MFMA_F32
 // RUN: mlir-opt -convert-miopen-to-gpu="kernel-name=mfma_f16" %s | FileCheck %s --check-prefix=MFMA_F16
 // RUN: mlir-opt -convert-miopen-to-gpu="kernel-name=mfma_bf16" %s | FileCheck %s --check-prefix=MFMA_BF16

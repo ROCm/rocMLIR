@@ -262,6 +262,19 @@ def MIOpen_MFMAOp:
   }];
 }
 
+// mfma_v2
+def MIOpen_MFMAV2Op:
+    MIOpen_Op<"mfma_v2">,
+    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceA,
+                   AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceB,
+                   VectorOfRankAndType<[1], [F32, F16, BF16]>: $destC)>,
+    Results<(outs VectorOfRankAndType<[1], [F32, F16, BF16]>: $destD)> {
+  let summary = "XDLOPS MFMA V2";
+  let description = [{
+    The `miopen.mfma_v2` op is an abstraction of XDLOPS.
+  }];
+}
+
 // xdlops_gemm
 def MIOpen_XdlopsGemmOp:
     MIOpen_Op<"xdlops_gemm">,

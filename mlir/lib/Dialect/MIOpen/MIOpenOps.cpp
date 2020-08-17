@@ -535,6 +535,33 @@ static LogicalResult verify(miopen::MFMAOp op) {
 }
 
 //===----------------------------------------------------------------------===//
+// MFMAV2Op
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseMFMAV2Op(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 4> ops;
+  SmallVector<Type, 2> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperand(ops[0], types[0], result.operands) ||
+      parser.resolveOperand(ops[1], types[0], result.operands) ||
+      parser.resolveOperand(ops[2], types[1], result.operands) ||
+      parser.addTypeToList(types[1], result.types));
+}
+
+static void print(OpAsmPrinter &p, MFMAV2Op op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperand(0).getType() << ", " << op.getType();
+}
+
+static LogicalResult verify(miopen::MFMAV2Op op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // XdlopsGemmOp
 //===----------------------------------------------------------------------===//
 

@@ -245,6 +245,34 @@ func @miopen_mfma_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : memref<64x
 // CHECK-LABEL: func @miopen_mfma_bf16
 //   CHECK: miopen.mfma
 
+// ----
+
+func @miopen_mfma_v2_f32(%a : f32, %b : f32, %c : vector<32xf32>) -> vector<32xf32> {
+  %d = miopen.mfma_v2(%a, %b, %c) { m_per_wave = 64, n_per_wave = 64, instr = "mfma_f32_32x32x1f32", imm = [1, 0, 0] } : f32, vector<32xf32>
+  return %d : vector<32xf32>
+}
+
+// CHECK-LABEL: func @miopen_mfma_v2_f32
+//   CHECK: miopen.mfma_v2
+
+func @miopen_mfma_v2_f16(%a : vector<4xf16>, %b : vector<4xf16>, %c : vector<32xf32>) -> vector<32xf32> {
+  %d = miopen.mfma_v2(%a, %b, %c) { m_per_wave = 64, n_per_wave = 64, instr = "mfma_f32_32x32x4f16", imm = [1, 0, 0] } : vector<4xf16>, vector<32xf32>
+  return %d : vector<32xf32>
+}
+
+// CHECK-LABEL: func @miopen_mfma_v2_f16
+//   CHECK: miopen.mfma_v2
+
+func @miopen_mfma_v2_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : vector<32xf32>) -> vector<32xf32> {
+  %d = miopen.mfma_v2(%a, %b, %c) { m_per_wave = 64, n_per_wave = 64, instr = "mfma_f32_32x32x2bf16", imm = [1, 0, 0] } : vector<2xbf16>, vector<32xf32>
+  return %d : vector<32xf32>
+}
+
+// CHECK-LABEL: func @miopen_mfma_v2_bf16
+//   CHECK: miopen.mfma_v2
+
+// ----
+
 func @miopen_xdlops_gemm(%A : memref<?x?xf32, 3>, %B : memref<?x?xf32, 3>, %C : memref<?x?xf32, 5>) {
   %c0 = constant 0 : index
   miopen.xdlops_gemm(%A, %B, %C, %c0, %c0) {
