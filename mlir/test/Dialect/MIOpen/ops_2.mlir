@@ -248,7 +248,7 @@ func @miopen_mfma_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : memref<64x
 // ----
 
 func @miopen_mfma_v2_f32(%a : f32, %b : f32, %c : vector<32xf32>) -> vector<32xf32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { m_per_wave = 64, n_per_wave = 64, instr = "mfma_f32_32x32x1f32", imm = [1, 0, 0] } : f32, vector<32xf32>
+  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x1f32", imm = [1, 0, 0] } : f32, vector<32xf32>
   return %d : vector<32xf32>
 }
 
@@ -256,7 +256,7 @@ func @miopen_mfma_v2_f32(%a : f32, %b : f32, %c : vector<32xf32>) -> vector<32xf
 //   CHECK: miopen.mfma_v2
 
 func @miopen_mfma_v2_f16(%a : vector<4xf16>, %b : vector<4xf16>, %c : vector<32xf32>) -> vector<32xf32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { m_per_wave = 64, n_per_wave = 64, instr = "mfma_f32_32x32x4f16", imm = [1, 0, 0] } : vector<4xf16>, vector<32xf32>
+  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x4f16", imm = [1, 0, 0] } : vector<4xf16>, vector<32xf32>
   return %d : vector<32xf32>
 }
 
@@ -264,7 +264,7 @@ func @miopen_mfma_v2_f16(%a : vector<4xf16>, %b : vector<4xf16>, %c : vector<32x
 //   CHECK: miopen.mfma_v2
 
 func @miopen_mfma_v2_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : vector<32xf32>) -> vector<32xf32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { m_per_wave = 64, n_per_wave = 64, instr = "mfma_f32_32x32x2bf16", imm = [1, 0, 0] } : vector<2xbf16>, vector<32xf32>
+  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x2bf16", imm = [1, 0, 0] } : vector<2xbf16>, vector<32xf32>
   return %d : vector<32xf32>
 }
 

@@ -545,6 +545,20 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
 
         op.erase();
       });
+
+      gpuFunc.walk([&](miopen::MFMAV2Op op) {
+        auto loc = op.getLoc();
+        OpBuilder b(op.getContext());
+        b.setInsertionPoint(op);
+
+        auto gpuMfmaOp = b.create<gpu::MFMAOp>(loc, op.getType(), op.sourceA(), op.sourceB(), op.destC());
+        gpuMfmaOp.setAttr("instr", op.getAttr("instr"));
+        gpuMfmaOp.setAttr("imm", op.getAttr("imm"));
+
+        op.replaceAllUsesWith(gpuMfmaOp.destD());
+        op.erase();
+      });
+   
     });
   }
 }
