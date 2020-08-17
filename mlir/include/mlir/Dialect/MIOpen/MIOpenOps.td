@@ -290,4 +290,21 @@ def MIOpen_XdlopsGemmOp:
   }];
 }
 
+// xdlops_gemm_V2
+def MIOpen_XdlopsGemmV2Op:
+    MIOpen_Op<"xdlops_gemm_v2">,
+    Arguments<(ins AnyMemRef:$matrixA,
+                   AnyMemRef:$matrixB,
+                   AnyMemRef:$matrixC,
+                   Index:$threadOffsetA,
+                   Index:$threadOffsetB,
+                   Index:$threadOffsetC)>,
+    Results<(outs VectorOfRankAndType<[1], [F32, F16, BF16]>: $destD)> {
+  let summary = "XDLOPS GEMM V2";
+  let description = [{
+    The `miopen.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.
+    It would employ a series of `miopen.mfma` operations.
+  }];
+}
+
 #endif // MIOPEN_OPS

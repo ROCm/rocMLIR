@@ -586,6 +586,36 @@ static LogicalResult verify(XdlopsGemmOp op) {
 }
 
 //===----------------------------------------------------------------------===//
+// XdlopsGemmV2Op
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseXdlopsGemmV2Op(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 6> ops;
+  SmallVector<Type, 7> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperand(ops[0], types[0], result.operands) ||
+      parser.resolveOperand(ops[1], types[1], result.operands) ||
+      parser.resolveOperand(ops[2], types[2], result.operands) ||
+      parser.resolveOperand(ops[3], types[3], result.operands) ||
+      parser.resolveOperand(ops[4], types[4], result.operands) ||
+      parser.resolveOperand(ops[5], types[5], result.operands) ||
+      parser.addTypeToList(types[6], result.types));
+}
+
+static void print(OpAsmPrinter &p, XdlopsGemmV2Op op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes() << ", " << op.getType();
+}
+
+static LogicalResult verify(XdlopsGemmV2Op op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 
