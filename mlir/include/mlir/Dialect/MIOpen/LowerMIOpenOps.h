@@ -4223,8 +4223,10 @@ struct XdlopsGemmV2RewritePattern
                       lniv),
                   RegSizePerXdlopsConstantOp);
 
-              // TBD. obtain vector length from XdlopsCodeSeletion.
-              int64_t vectorLength = 32;
+              // TBD. move XdlopsCodeEmission to gridwise_gemm.
+              XdlopsCodeEmission xce = XdlopsCodeEmission::get(dataType, MPerXdlops, NPerXdlops, b);
+              int64_t vectorLength = xce.vectorLength;
+
               auto vfloatType = VectorType::get({vectorLength}, dataType);
               auto resultMemRefType = MemRefType::get({shape[0] / vectorLength}, vfloatType, {}, destMemRefType.getMemorySpace());
               auto vectorTypeCast = b.create<vector::TypeCastOp>(loc, resultMemRefType, op.matrixC());
