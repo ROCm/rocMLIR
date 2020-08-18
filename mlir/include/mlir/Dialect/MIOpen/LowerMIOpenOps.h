@@ -896,6 +896,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("xdlops", b.getBoolAttr(true)));
 
+    // xdlopsV2.
+    auto xdlopsV2Attr = op.template getAttrOfType<BoolAttr>("xdlopsV2");
+    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
+      gridwiseGemmAttrs.push_back(
+          b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
+
     if (convOpType == miopen::ConvOpType::Conv2DBwdDataOpType) {
       gridwiseGemmAttrs.push_back(b.getNamedAttr(
           "kernel_algorithm", b.getStringAttr("backward_data_v1r1")));
@@ -1258,6 +1264,33 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                   gop.getAttr("matrix_b_source_data_per_read"));
       bop.setAttr("dest_data_per_write",
                   gop.getAttr("matrix_b_dest_data_per_write_dim_n"));
+    }
+  }
+
+  void affixXdlopsGemmV2Attributes(miopen::XdlopsGemmV2Op xop,
+                                   miopen::GridwiseGemmOp gop,
+                                   OpBuilder &b) const {
+    xop.setAttr("block_size", gop.getAttr("block_size"));
+    // xdlopsV2.
+    auto xdlopsV2Attr = gop.template getAttrOfType<BoolAttr>("xdlopsV2");
+    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
+      int64_t MPerBlock =
+          gop.getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+      int64_t NPerBlock =
+          gop.getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+      int64_t MPerWave =
+          gop.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+      int64_t NPerWave =
+          gop.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+      int64_t MWaves = MPerBlock / MPerWave;
+      int64_t NWaves = NPerBlock / NPerWave;
+
+      xop.setAttr("m_per_wave", gop.getAttr("m_per_thread"));
+      xop.setAttr("n_per_wave", gop.getAttr("n_per_thread"));
+      xop.setAttr("m_waves", b.getI32IntegerAttr(MWaves));
+      xop.setAttr("n_waves", b.getI32IntegerAttr(NWaves));
+
+      xop.setAttr("xdlopsV2", b.getBoolAttr(true));
     }
   }
 
@@ -1693,7 +1726,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t GemmMRepeat = 0, GemmNRepeat = 0;
     Value registerMatrixCAllocOp;
     auto xdlopsAttr = op.template getAttrOfType<BoolAttr>("xdlops");
-    if (xdlopsAttr && xdlopsAttr.getValue() == true) {
+    auto xdlopsV2Attr = op.template getAttrOfType<BoolAttr>("xdlopsV2");
+    if ((xdlopsAttr && xdlopsAttr.getValue() == true) ||
+        (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)) {
       // XDLOPS.
       int64_t WaveSize = 64;
       int64_t TotalRegSize = MPerWave * NPerWave / WaveSize;
@@ -1793,7 +1828,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     Value c_thread_mtx_index_row, c_thread_mtx_index_col;
     Value c_thread_mtx_index_row_i32, c_thread_mtx_index_col_i32;
     Value m_thread_data_on_global_i32, n_thread_data_on_global_i32;
-    if (xdlopsAttr && xdlopsAttr.getValue() == true) {
+    if ((xdlopsAttr && xdlopsAttr.getValue() == true) ||
+        (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)) {
       // XDLOPS path.
 
       // c_thread_mtx_index_row(_i32), c_thread_mtx_index_col(_i32)
@@ -1885,7 +1921,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     int64_t loopIteration;
     // For XDLOPS path iteration is less by 1.
-    if (xdlopsAttr && xdlopsAttr.getValue() == true) {
+    if ((xdlopsAttr && xdlopsAttr.getValue() == true) ||
+        (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)) {
       loopIteration = K / (KPerBlock * 2) - 1;
     } else {
       loopIteration = K / (KPerBlock * 2);
@@ -1920,11 +1957,16 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     affixBlockwiseCopyAttributes(blockwiseCopyOpBEven, op, b,
                                  /*isMatrixA=*/false);
 
-    // Emit blockwise GEMM.
-    auto blockwiseGemmEvenOp = lb.create<miopen::BlockwiseGemmOp>(
-        loc, lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
-        registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
-    affixBlockwiseGemmAttributes(blockwiseGemmEvenOp, op, b);
+    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
+      // TBD: Emit xdlops_gemm_v2.
+      // TBD: assign attributes.
+    } else {
+      // Emit blockwise GEMM.
+      auto blockwiseGemmEvenOp = lb.create<miopen::BlockwiseGemmOp>(
+          loc, lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
+          registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
+      affixBlockwiseGemmAttributes(blockwiseGemmEvenOp, op, b);
+    }
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
     auto blockwiseCopyOpAOdd = lb.create<miopen::BlockwiseCopyOp>(
@@ -1961,11 +2003,16 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     affixBlockwiseCopyAttributes(blockwiseCopyOpBOddSecondIteration, op, b,
                                  /*isMatrixA=*/false);
 
-    // Emit blockwise GEMM.
-    auto blockwiseGemmOddOp = lb.create<miopen::BlockwiseGemmOp>(
-        loc, lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
-        registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
-    affixBlockwiseGemmAttributes(blockwiseGemmOddOp, op, b);
+    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
+      // TBD: Emit xdlops_gemm_v2.
+      // TBD: assign attributes.
+    } else {
+      // Emit blockwise GEMM.
+      auto blockwiseGemmOddOp = lb.create<miopen::BlockwiseGemmOp>(
+          loc, lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
+          registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
+      affixBlockwiseGemmAttributes(blockwiseGemmOddOp, op, b);
+    }
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
     auto blockwiseCopyAEvenSecondIteration = lb.create<miopen::BlockwiseCopyOp>(
@@ -1996,6 +2043,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
           loc, lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
           registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
       affixBlockwiseGemmAttributes(blockwiseGemmTailOddOp, op, b);
+    } else if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
+      // TBD. emit read VaccGPR.
     } else {
       // LDS barrier.
       b.create<miopen::WorkgroupBarrierOp>(loc);
@@ -2014,7 +2063,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       }
     }
 
-    if (xdlopsAttr && xdlopsAttr.getValue() == true) {
+    if ((xdlopsAttr && xdlopsAttr.getValue() == true) ||
+        (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)) {
       // XDLOPS-specific logic.
       XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
@@ -2548,7 +2598,6 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
       xdlopsGemm.setAttr("k", b.getI32IntegerAttr(K));
       xdlopsGemm.setAttr("m_per_wave", op.getAttr("m_per_wave"));
       xdlopsGemm.setAttr("n_per_wave", op.getAttr("n_per_wave"));
-
     } else {
       // Non-xdlops path.
  
@@ -3419,8 +3468,10 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
                       }));
       } else {
         // XXX. Only do this for miopen.xdlops_gemm operation.
+        //      and miopen.xdlops_gemm_v2 operation.
         // miopen.threadwise_copy will NOT be affected.
-        if (user->getName().getStringRef() == miopen::XdlopsGemmOp::getOperationName()) {
+        if ((user->getName().getStringRef() == miopen::XdlopsGemmOp::getOperationName()) ||
+            (user->getName().getStringRef() == miopen::XdlopsGemmV2Op::getOperationName())) {
 
           // create a deep-copy of existing attributes, and amend the new one.
           // need to figure out if there's a better way than this.
