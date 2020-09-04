@@ -80,15 +80,22 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
       return std::stoi(argMap[argKey]);
     };
 
+    // MIOpen has NCHW as layout string for all three tensors
+    std::string inLayout = translateLayout(
+        argMap["in_layout"], std::string("NCHW"), std::string("nchw"));
+    std::string filLayout = translateLayout(
+        argMap["fil_layout"], std::string("NCHW"), std::string("kcyx"));
+    std::string outLayout = translateLayout(
+        argMap["out_layout"], std::string("NCHW"), std::string("nkhw"));
+
     SmallString<128> kernelName;
     ModuleOp module = handle->getModule();
     populateConvolutionLogic(
-        argMap["arch"], strToInt("num_cu"), argMap["operation"],
-        argMap["in_layout"], argMap["out_layout"], argMap["fil_layout"],
-        strToLong("batchsize"), strToLong("in_channels"), strToLong("in_h"),
-        strToLong("in_w"), strToLong("out_channels"), strToLong("out_h"),
-        strToLong("out_w"), strToLong("fil_w"), strToLong("fil_h"),
-        strToInt("dilation_h"), strToInt("dilation_w"),
+        argMap["arch"], strToInt("num_cu"), argMap["operation"], inLayout,
+        outLayout, filLayout, strToLong("batchsize"), strToLong("in_channels"),
+        strToLong("in_h"), strToLong("in_w"), strToLong("out_channels"),
+        strToLong("out_h"), strToLong("out_w"), strToLong("fil_w"),
+        strToLong("fil_h"), strToInt("dilation_h"), strToInt("dilation_w"),
         strToInt("conv_stride_h"), strToInt("conv_stride_w"),
         strToInt("padding_h"), strToInt("padding_w"), module, builder,
         kernelName, mlir::FloatType::getF32(&(handle->context)), false);
