@@ -26,6 +26,7 @@ struct XdlopsCodeSelection {
   int64_t NRepeats;
   VectorType vectorType;
   int64_t vectorNumber;
+  SmallVector<SmallVector<unsigned, 3>, 2> imms;
 
   int64_t group_size;
   int64_t num_groups_blk;
@@ -47,6 +48,7 @@ struct XdlopsCodeSelection {
     StringRef mfmaInstr = "";
     VectorType vectorType;
     int64_t vectorNumber;
+    SmallVector<SmallVector<unsigned, 3>, 2> imms;
 
     if (dataType == b.getF32Type()) {
       if (MPerWave == 128 && NPerWave == 64) {
@@ -57,6 +59,10 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 4;
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
       } else if (MPerWave == 64 && NPerWave == 128) {
         mfmaInstr = "mfma_f32_32x32x1xf32";
         MPerXdlops = 64;
@@ -65,6 +71,10 @@ struct XdlopsCodeSelection {
         NRepeats = 2;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 4;
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
       } else if (MPerWave == 64 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x1xf32";
         MPerXdlops = 64;
@@ -73,6 +83,8 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 2;
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
       } else if (MPerWave == 64 && NPerWave == 32) {
         mfmaInstr = "mfma_f32_32x32x1xf32";
         MPerXdlops = 64;
@@ -81,6 +93,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 0, 0, 1 });
       } else if (MPerWave == 32 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x1xf32";
         MPerXdlops = 32;
@@ -89,6 +102,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 1, 0, 0 });
       } else if (MPerWave == 64 && NPerWave == 16) {
         mfmaInstr = "mfma_f32_16x16x1xf32";
         MPerXdlops = 64;
@@ -97,6 +111,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 0, 0, 4 });
       } else if (MPerWave == 16 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_16x16x1xf32";
         MPerXdlops = 16;
@@ -105,6 +120,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 2, 0, 0 });
       } else if (MPerWave == 8 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x1xf32";
         MPerXdlops = 8;
@@ -113,6 +129,8 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 2;
+        imms.push_back({ 4, 0, 0 });
+        imms.push_back({ 4, 1, 0 });
       } else if (MPerWave == 4 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x1xf32";
         MPerXdlops = 4;
@@ -121,6 +139,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 4, 0, 0 });
       } else if (MPerWave == 32 && NPerWave == 32) {
         mfmaInstr = "mfma_f32_32x32x2xf32";
         MPerXdlops = 32;
@@ -129,6 +148,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 0, 0, 0 });
       } else if (MPerWave == 16 && NPerWave == 16) {
         mfmaInstr = "mfma_f32_16x16x4xf32";
         MPerXdlops = 16;
@@ -137,6 +157,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 0, 0, 0 });
       } else {
         llvm::errs() << "Unsupported case:\n";
         //llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
@@ -155,6 +176,10 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 4;
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
       } else if (MPerWave == 64 && NPerWave == 128) {
         mfmaInstr = "mfma_f32_32x32x4f16";
         MPerXdlops = 64;
@@ -163,6 +188,10 @@ struct XdlopsCodeSelection {
         NRepeats = 2;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 4;
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
       } else if (MPerWave == 64 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x4f16";
         MPerXdlops = 64;
@@ -171,6 +200,8 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 2;
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
       } else if (MPerWave == 64 && NPerWave == 32) {
         mfmaInstr = "mfma_f32_32x32x4f16";
         MPerXdlops = 64;
@@ -179,6 +210,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 0, 0, 1 });
       } else if (MPerWave == 64 && NPerWave == 16) {
         mfmaInstr = "mfma_f32_16x16x4f16";
         MPerXdlops = 64;
@@ -187,6 +219,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 0, 0, 4 });
       } else if (MPerWave == 16 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_16x16x4f16";
         MPerXdlops = 16;
@@ -195,6 +228,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 2, 0, 0 });
       } else if (MPerWave == 8 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x4f16";
         MPerXdlops = 8;
@@ -203,6 +237,8 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 2;
+        imms.push_back({ 4, 0, 0 });
+        imms.push_back({ 4, 1, 0 });
       } else if (MPerWave == 4 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x4f16";
         MPerXdlops = 4;
@@ -211,6 +247,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 4, 0, 0 });
       } else if (MPerWave == 32 && NPerWave == 32) {
         mfmaInstr = "mfma_f32_32x32x8f16";
         MPerXdlops = 32;
@@ -219,6 +256,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 0, 0, 0 });
       } else if (MPerWave == 16 && NPerWave == 16) {
         mfmaInstr = "mfma_f32_16x16x16f16";
         MPerXdlops = 16;
@@ -227,6 +265,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 0, 0, 0 });
       } else {
         llvm::errs() << "Unsupported case:\n";
         //llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
@@ -245,6 +284,10 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 4;
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
       } else if (MPerWave == 64 && NPerWave == 128) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 64;
@@ -253,6 +296,10 @@ struct XdlopsCodeSelection {
         NRepeats = 2;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 4;
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
       } else if (MPerWave == 64 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 64;
@@ -261,6 +308,8 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 2;
+        imms.push_back({ 1, 0, 0 });
+        imms.push_back({ 1, 1, 0 });
       } else if (MPerWave == 64 && NPerWave == 32) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 64;
@@ -269,6 +318,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 0, 0, 1 });
       } else if (MPerWave == 32 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 32;
@@ -277,6 +327,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 1, 0, 0 });
       } else if (MPerWave == 64 && NPerWave == 16) {
         mfmaInstr = "mfma_f32_16x16x2bf16";
         MPerXdlops = 64;
@@ -285,6 +336,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 0, 0, 4 });
       } else if (MPerWave == 16 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_16x16x2bf16";
         MPerXdlops = 16;
@@ -293,6 +345,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 2, 0, 0 });
       } else if (MPerWave == 8 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x2bf16";
         MPerXdlops = 8;
@@ -301,6 +354,8 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 2;
+        imms.push_back({ 4, 0, 0 });
+        imms.push_back({ 4, 1, 0 });
       } else if (MPerWave == 4 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x2bf16";
         MPerXdlops = 4;
@@ -309,6 +364,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 4, 0, 0 });
       } else if (MPerWave == 32 && NPerWave == 32) {
         mfmaInstr = "mfma_f32_32x32x4bf16";
         MPerXdlops = 32;
@@ -317,6 +373,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 0, 0, 0 });
       } else if (MPerWave == 16 && NPerWave == 16) {
         mfmaInstr = "mfma_f32_16x16x8bf16";
         MPerXdlops = 16;
@@ -325,6 +382,7 @@ struct XdlopsCodeSelection {
         NRepeats = 1;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
+        imms.push_back({ 0, 0, 0 });
       } else {
         llvm::errs() << "Unsupported case:\n";
         //llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
@@ -561,6 +619,7 @@ struct XdlopsCodeSelection {
     result.NRepeats = NRepeats;
     result.vectorType = vectorType;
     result.vectorNumber = vectorNumber;
+    result.imms = imms;
 
     result.group_size = group_size;
     result.num_groups_blk = num_groups_blk;
@@ -579,281 +638,4 @@ struct XdlopsCodeSelection {
     return result;
   }
 };
-
-struct XdlopsCodeEmission {
-  StringRef mfmaInstr;
-  int64_t vectorLength;
-  int64_t mfmaInstrLength;
-  SmallVector<SmallVector<unsigned, 3>, 2> imms;
-
-  static XdlopsCodeEmission get(FloatType dataType, int64_t MPerXdlops, int64_t NPerXdlops, OpBuilder &b) {
-    // From the data type and attributes, determine:
-    // - Which MFMA instruction be used.
-    // - How many MFMA instructions be used.
-    // - How the input matrix C would be dissected.
-    // - How are immediates of MFMA instructions be specified.
-    StringRef mfmaInstr = "mfma_f32_32x32x1f32";
-    unsigned vectorLength = 32;
-    unsigned mfmaInstrLength = 1;
-    SmallVector<SmallVector<unsigned, 3>, 2> imms;
-
-    if (dataType == b.getF32Type()) {
-      if (MPerXdlops == 64 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x1f32<64, 64>(const float& reg_a, const float& reg_b, float32_t* reg_c)
-        //  reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[0], 1, 0, 0);
-        //  reg_c[1] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[1], 1, 1, 0);
-
-        // Issue 2 mfma_f32_32x32x1f32.
-        // Matrix C will be dissected into 2 vector<32xf32>
-        mfmaInstr = "mfma_f32_32x32x1f32";
-        vectorLength = 32;
-        mfmaInstrLength = 2;
-        imms.push_back({ 1, 0, 0 });
-        imms.push_back({ 1, 1, 0 });
-      } else if (MPerXdlops == 32 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x1f32<32, 64>(const float& reg_a, const float& reg_b, float32_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[0], 1, 0, 0);
-        mfmaInstr = "mfma_f32_32x32x1f32";
-        vectorLength = 32;
-        mfmaInstrLength = 1;
-        imms.push_back({ 1, 0, 0 });
-      } else if (MPerXdlops == 64 && NPerXdlops == 32) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x1f32<64, 32>(const float& reg_a, const float& reg_b, float32_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x1f32(reg_a, reg_b, reg_c[0], 0, 0, 1);
-        mfmaInstr = "mfma_f32_32x32x1f32";
-        vectorLength = 32;
-        mfmaInstrLength = 1;
-        imms.push_back({ 0, 0, 1 });
-      } else if (MPerXdlops == 32 && NPerXdlops == 32) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x2f32(const float& reg_a, const float& reg_b, float16_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x2f32(reg_a, reg_b, reg_c[0], 0, 0, 0);
-        mfmaInstr = "mfma_f32_32x32x2f32";
-        vectorLength = 16;
-        mfmaInstrLength = 1;
-        imms.push_back({ 0, 0, 0 });
-      } else if (MPerXdlops == 16 && NPerXdlops == 16) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_16x16x4f32(const float& reg_a, const float& reg_b, float4_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x4f32(reg_a, reg_b, reg_c[0], 0, 0, 0);
-        mfmaInstr = "mfma_f32_16x16x4f32";
-        vectorLength = 4;
-        mfmaInstrLength = 1;
-        imms.push_back({ 0, 0, 0 });
-      } else if (MPerXdlops == 16 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_16x16x1f32<16, 64>(const float& reg_a, const float& reg_b, float16_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x1f32(reg_a, reg_b, reg_c[0], 2, 0, 0);
-        mfmaInstr = "mfma_f32_16x16x1f32";
-        vectorLength = 16;
-        mfmaInstrLength = 1;
-        imms.push_back({ 2, 0, 0 });
-      } else if (MPerXdlops == 64 && NPerXdlops == 16) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_16x16x1f32<64, 16>(const float& reg_a, const float& reg_b, float16_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x1f32(reg_a, reg_b, reg_c[0], 0, 0, 4);
-        mfmaInstr = "mfma_f32_16x16x1f32";
-        vectorLength = 16;
-        mfmaInstrLength = 1;
-        imms.push_back({ 0, 0, 4 });
-      } else if (MPerXdlops == 4 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_4x4x1f32<4, 64>(const float& reg_a, const float& reg_b, float4_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x1f32(reg_a, reg_b, reg_c[0], 4, 0, 0);
-        mfmaInstr = "mfma_f32_4x4x1f32";
-        vectorLength = 4;
-        mfmaInstrLength = 1;
-        imms.push_back({ 4, 0, 0 });
-      } else if (MPerXdlops == 8 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_4x4x1f32<8, 64>(const float& reg_a, const float& reg_b, float4_t* reg_c)
-        //     reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x1f32(reg_a, reg_b, reg_c[0], 4, 0, 0);
-        //     reg_c[1] = llvm_intrin_amdgcn_mfma_f32_4x4x1f32(reg_a, reg_b, reg_c[1], 4, 1, 0);
-        mfmaInstr = "mfma_f32_4x4x1f32";
-        vectorLength = 4;
-        mfmaInstrLength = 2;
-        imms.push_back({ 4, 0, 0 });
-        imms.push_back({ 4, 1, 0 });
-      } else {
-        // Unhandled cases for F32.
-        llvm::errs() << "Unsupported case as mfmaInstr not selected!\n";
-      }
-    } else if (dataType == b.getF16Type()) {
-      if (MPerXdlops == 64 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x4f16<64, 64>(const half4_t& reg_a, const half4_t& reg_b, float32_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x4f16(reg_a, reg_b, reg_c[0], 1, 0, 0);
-        //   reg_c[1] = llvm_intrin_amdgcn_mfma_f32_32x32x4f16(reg_a, reg_b, reg_c[1], 1, 1, 0);
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        vectorLength = 32;
-        mfmaInstrLength = 2;
-        imms.push_back({ 1, 0, 0 });
-        imms.push_back({ 1, 1, 0 });
-      } else if (MPerXdlops == 32 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x4f16<32, 64>(const half4_t& reg_a, const half4_t& reg_b, float32_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x4f16(reg_a, reg_b, reg_c[0], 1, 0, 0);
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        vectorLength = 32;
-        mfmaInstrLength = 1;
-        imms.push_back({ 1, 0, 0 });
-      } else if (MPerXdlops == 64 && NPerXdlops == 32) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x4f16<64, 32>(const half4_t& reg_a, const half4_t& reg_b, float32_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x4f16(reg_a, reg_b, reg_c[0], 0, 0, 1);
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        vectorLength = 32;
-        mfmaInstrLength = 1;
-        imms.push_back({ 0, 0, 1 });
-      } else if (MPerXdlops == 32 && NPerXdlops == 32) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x8f16(const half4_t& reg_a, const half4_t& reg_b, float16_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x8f16(reg_a, reg_b, reg_c[0], 0, 0, 0);
-        mfmaInstr = "mfma_f32_32x32x8f16";
-        vectorLength = 16;
-        mfmaInstrLength = 1;
-        imms.push_back({ 0, 0, 0 });
-      } else if (MPerXdlops == 16 && NPerXdlops == 16) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_16x16x16f16(const half4_t& reg_a, const half4_t& reg_b, float4_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x16f16(reg_a, reg_b, reg_c[0], 0, 0, 0);
-        mfmaInstr = "mfma_f32_16x16x16f16";
-        vectorLength = 4;
-        mfmaInstrLength = 1;
-        imms.push_back({ 0, 0, 0 });
-       } else if (MPerXdlops == 16 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_16x16x4f16<16, 64>(const half4_t& reg_a, const half4_t& reg_b, float16_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x4f16(reg_a, reg_b, reg_c[0], 2, 0, 0);
-        mfmaInstr = "mfma_f32_16x16x4f16";
-        vectorLength = 16;
-        mfmaInstrLength = 1;
-        imms.push_back({ 2, 0, 0 });
-      } else if (MPerXdlops == 64 && NPerXdlops == 16) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_16x16x4f16<64, 16>(const half4_t& reg_a, const half4_t& reg_b, float16_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x4f16(reg_a, reg_b, reg_c[0], 0, 0, 4);
-        mfmaInstr = "mfma_f32_16x16x4f16";
-        vectorLength = 16;
-        mfmaInstrLength = 1;
-        imms.push_back({ 0, 0, 4 });
-      } else if (MPerXdlops == 4 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_4x4x4f16<4, 64>(const half4_t& reg_a, const half4_t& reg_b, float4_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x4f16(reg_a, reg_b, reg_c[0], 4, 0, 0);
-        mfmaInstr = "mfma_f32_4x4x4f16";
-        vectorLength = 4;
-        mfmaInstrLength = 1;
-        imms.push_back({ 4, 0, 0 });
-      } else if (MPerXdlops == 8 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_4x4x4f16<8, 64>(const half4_t& reg_a, const half4_t& reg_b, float4_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x4f16(reg_a, reg_b, reg_c[0], 4, 0, 0);
-        //   reg_c[1] = llvm_intrin_amdgcn_mfma_f32_4x4x4f16(reg_a, reg_b, reg_c[1], 4, 1, 0);
-        mfmaInstr = "mfma_f32_4x4x4f16";
-        vectorLength = 4;
-        mfmaInstrLength = 2;
-        imms.push_back({ 4, 0, 0 });
-        imms.push_back({ 4, 1, 0 });
-      } else {
-        // Unhandled cases for F16.
-        llvm::errs() << "Unsupported case as mfmaInstr not selected!\n";
-      }
-    } else if (dataType == b.getBF16Type()) {
-      if (MPerXdlops == 64 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x2bf16<64, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float32_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x2bf16(reg_a, reg_b, reg_c[0], 1, 0, 0);
-        //   reg_c[1] = llvm_intrin_amdgcn_mfma_f32_32x32x2bf16(reg_a, reg_b, reg_c[1], 1, 1, 0);
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        vectorLength = 32;
-        mfmaInstrLength = 2;
-        imms.push_back({ 1, 0, 0 });
-        imms.push_back({ 1, 1, 0 });
-      } else if (MPerXdlops == 32 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x2bf16<32, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float32_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x2bf16(reg_a, reg_b, reg_c[0], 1, 0, 0);
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        vectorLength = 32;
-        mfmaInstrLength = 1;
-        imms.push_back({ 1, 0, 0 });
-      } else if (MPerXdlops == 64 && NPerXdlops == 32) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x2bf16<64, 32>(const ushort2_t& reg_a, const ushort2_t& reg_b, float32_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x2bf16(reg_a, reg_b, reg_c[0], 0, 0, 1);
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        vectorLength = 32;
-        mfmaInstrLength = 1;
-        imms.push_back({ 0, 0, 1 });
-      } else if (MPerXdlops == 32 && NPerXdlops == 32) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_32x32x4bf16(const ushort2_t& reg_a, const ushort2_t& reg_b, float16_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_32x32x4bf16(reg_a, reg_b, reg_c[0], 0, 0, 0);
-        mfmaInstr = "mfma_f32_32x32x4bf16";
-        vectorLength = 16;
-        mfmaInstrLength = 1;
-        imms.push_back({ 0, 0, 0 });
-      } else if (MPerXdlops == 16 && NPerXdlops == 16) {
-         // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_16x16x8bf16(const ushort2_t& reg_a, const ushort2_t& reg_b, float4_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x8bf16(reg_a, reg_b, reg_c[0], 0, 0, 0);
-        mfmaInstr = "mfma_f32_16x16x8bf16";
-        vectorLength = 4;
-        mfmaInstrLength = 1;
-        imms.push_back({ 0, 0, 0 });
-      } else if (MPerXdlops == 16 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_16x16x2bf16<16, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float16_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x2bf16(reg_a, reg_b, reg_c[0], 2, 0, 0);
-        mfmaInstr = "mfma_f32_16x16x2bf16";
-        vectorLength = 16;
-        mfmaInstrLength = 1;
-        imms.push_back({ 2, 0, 0 });
-      } else if (MPerXdlops == 64 && NPerXdlops == 16) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_16x16x2bf16<64, 16>(const ushort2_t& reg_a, const ushort2_t& reg_b, float16_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_16x16x2bf16(reg_a, reg_b, reg_c[0], 0, 0, 4);
-        mfmaInstr = "mfma_f32_16x16x2bf16";
-        vectorLength = 16;
-        mfmaInstrLength = 1;
-        imms.push_back({ 0, 0, 4 });
-      } else if (MPerXdlops == 4 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_4x4x2bf16<4, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float4_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x2bf16(reg_a, reg_b, reg_c[0], 4, 0, 0);
-        mfmaInstr = "mfma_f32_4x4x2bf16";
-        vectorLength = 4;
-        mfmaInstrLength = 1;
-        imms.push_back({ 4, 0, 0 });
-      } else if (MPerXdlops == 8 && NPerXdlops == 64) {
-        // Original C++ logic:
-        // __device__ void gcnasm_mfma_f32_4x4x2bf16<8, 64>(const ushort2_t& reg_a, const ushort2_t& reg_b, float4_t* reg_c)
-        //   reg_c[0] = llvm_intrin_amdgcn_mfma_f32_4x4x2bf16(reg_a, reg_b, reg_c[0], 4, 0, 0);
-        //   reg_c[1] = llvm_intrin_amdgcn_mfma_f32_4x4x2bf16(reg_a, reg_b, reg_c[1], 4, 1, 0);
-        mfmaInstr = "mfma_f32_4x4x2bf16";
-        vectorLength = 4;
-        mfmaInstrLength = 2;
-        imms.push_back({ 4, 0, 0 });
-        imms.push_back({ 4, 1, 0 });
-      } else {
-        // Unhandled cases for BF16.
-        llvm::errs() << "Unsupported case as mfmaInstr not selected!\n";
-      }
-    }
-
-    // Populate result.
-    XdlopsCodeEmission result;
-    result.mfmaInstr = mfmaInstr;
-    result.vectorLength = vectorLength;
-    result.mfmaInstrLength = mfmaInstrLength;
-    result.imms = imms;
-
-    return result;
-  }
-}; 
-
 #endif
