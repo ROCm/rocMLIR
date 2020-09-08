@@ -4006,346 +4006,298 @@ struct XdlopsGemmV2RewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
-    // // Obtain critical information.
-    // int64_t M = op.getAttr("m").template dyn_cast<IntegerAttr>().getInt();
-    // int64_t N = op.getAttr("n").template dyn_cast<IntegerAttr>().getInt();
-    // int64_t K = op.getAttr("k").template dyn_cast<IntegerAttr>().getInt();
-    // int64_t MPerWave = op.getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
-    // int64_t NPerWave = op.getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
+    // Obtain critical information.
+    int64_t M = op.getAttr("m").template dyn_cast<IntegerAttr>().getInt();
+    int64_t N = op.getAttr("n").template dyn_cast<IntegerAttr>().getInt();
+    int64_t K = op.getAttr("k").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MPerWave = op.getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerWave = op.getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
 
-    // 
-    // auto dataType = op.matrixA()
-    //                     .getType()
-    //                     .template dyn_cast<MemRefType>()
-    //                     .getElementType()
-    //                     .template dyn_cast<FloatType>();
-    // auto destMemRefType = op.matrixC().getType().template dyn_cast<MemRefType>();
-    // auto shape = destMemRefType.getShape();
+    auto dataType = op.matrixA().getType().template dyn_cast<MemRefType>().getElementType().template dyn_cast<FloatType>();
 
-    // auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
-    // auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
-    // auto KConstantOp = b.create<ConstantIndexOp>(loc, K);
+    auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
+    auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
+    auto KConstantOp = b.create<ConstantIndexOp>(loc, K);
 
-    // XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
+    XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
-    // // Extract values from XdlopsCodeSelection.
-    // int64_t MPerXdlops = xcs.MPerXdlops;
-    // int64_t NPerXdlops = xcs.NPerXdlops;
-    // int64_t MRepeats = xcs.MRepeats;
-    // int64_t NRepeats = xcs.NRepeats;
+    // Extract values from XdlopsCodeSelection.
+    StringRef mfmaInstr = xcs.mfmaInstr;
+    int64_t MPerXdlops = xcs.MPerXdlops;
+    int64_t NPerXdlops = xcs.NPerXdlops;
+    int64_t MRepeats = xcs.MRepeats;
+    int64_t NRepeats = xcs.NRepeats;
+    VectorType vectorType = xcs.vectorType;
+    int64_t vectorNumber = xcs.vectorNumber;
+    SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
 
-    // int64_t group_size = xcs.group_size;
-    // int64_t num_groups_blk = xcs.num_groups_blk;
-    // int64_t num_regs_blk = xcs.num_regs_blk;
-    // int64_t num_threads_blk = xcs.num_threads_blk;
-    // int64_t wave_size = xcs.wave_size;
-    // int64_t num_input_blks = xcs.num_input_blks;
-    // int64_t num_output_blks = xcs.num_output_blks;
-    // int64_t num_regs_xdlops = xcs.num_regs_xdlops;
-    // int64_t m = xcs.m;
-    // int64_t n = xcs.n;
-    // int64_t k = xcs.k;
-    // int64_t cycles = xcs.cycles;
-    // int64_t k_base = xcs.k_base;
+    int64_t group_size = xcs.group_size;
+    int64_t num_groups_blk = xcs.num_groups_blk;
+    int64_t num_regs_blk = xcs.num_regs_blk;
+    int64_t num_threads_blk = xcs.num_threads_blk;
+    int64_t wave_size = xcs.wave_size;
+    int64_t num_input_blks = xcs.num_input_blks;
+    int64_t num_output_blks = xcs.num_output_blks;
+    int64_t num_regs_xdlops = xcs.num_regs_xdlops;
+    int64_t m = xcs.m;
+    int64_t n = xcs.n;
+    int64_t k = xcs.k;
+    int64_t cycles = xcs.cycles;
+    int64_t k_base = xcs.k_base;
 
-    // bool IsABroadcast = (NPerXdlops >= MPerXdlops);
-    // bool IsKReduction = (num_output_blks == 1) && (num_input_blks > 1);
+    bool IsABroadcast = (NPerXdlops >= MPerXdlops);
+    bool IsKReduction = (num_output_blks == 1) && (num_input_blks > 1);
+    
+    // Original C++ logic.
+    // const index_t laneId = get_thread_local_1d_id() % mfma_type.wave_size;
+    // FloatA a[K * MRepeats];
+    // FloatB b[K * NRepeats];
+    // constexpr index_t KRepeats = sizeof(FloatA) / (sizeof(data_type) * mfma_type.k_base);
+    // auto pa = reinterpret_cast<const data_type*>(&a);
+    // auto pb = reinterpret_cast<const data_type*>(&b);
+    // constexpr index_t AStride = K * KRepeats;
+    // constexpr index_t BStride = K * KRepeats;
 
-    // int64_t RegSizePerXdlops = MPerXdlops * NPerXdlops / wave_size;
-    // auto RegSizePerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, RegSizePerXdlops);
+    auto tid = b.create<miopen::WorkitemIdOp>(loc, b.getIndexType());
+    auto laneId = b.create<SignedRemIOp>(
+        loc, tid, b.create<ConstantIndexOp>(loc, wave_size));
 
-    // // Original C++ logic.
-    // // const index_t laneId = get_thread_local_1d_id() % mfma_type.wave_size;
-    // // FloatA a[K * MRepeats];
-    // // FloatB b[K * NRepeats];
-    // // constexpr index_t nxdlops = sizeof(FloatA) / (sizeof(data_type) * mfma_type.k_base);
+    // TBD. FloatA / FloatB could be vectorized via KPack. Ignore this for now.
+    auto arrayAType =
+        MemRefType::get({K * MRepeats}, dataType, {},
+                        gpu::GPUDialect::getPrivateAddressSpace());
+    auto arrayA = b.create<miopen::GpuAllocOp>(loc, arrayAType);
+    auto arrayBType =
+        MemRefType::get({K * NRepeats}, dataType, {},
+                        gpu::GPUDialect::getPrivateAddressSpace());
+    auto arrayB = b.create<miopen::GpuAllocOp>(loc, arrayBType);
 
-    // auto tid = b.create<miopen::WorkitemIdOp>(loc, b.getIndexType());
-    // auto laneId = b.create<SignedRemIOp>(
-    //     loc, tid, b.create<ConstantIndexOp>(loc, wave_size));
-    // auto arrayAType =
-    //     MemRefType::get({K * MRepeats}, dataType, {},
-    //                     gpu::GPUDialect::getPrivateAddressSpace());
-    // auto arrayA = b.create<miopen::GpuAllocOp>(loc, arrayAType);
-    // auto arrayBType =
-    //     MemRefType::get({K * NRepeats}, dataType, {},
-    //                     gpu::GPUDialect::getPrivateAddressSpace());
-    // auto arrayB = b.create<miopen::GpuAllocOp>(loc, arrayBType);
+    // TBD. FloatA / FloatB could be vectorized via KPack tuning parameter. Ignore this for now.
+    // use arrayA as pa for now.
+    // use arrayB as pb for now.
 
-    // int64_t nxdlops = dataType.getWidth() / (dataType.getWidth() * k_base);
-    // auto NXDlopsConstantOp = b.create<ConstantIndexOp>(loc, nxdlops);
+    // TBD. FloatA / FloatB could be vectorized via KPack tuning parameter. Ignore this for now.
+    // This must be fixed when we test fp16 / bf16 data types.
+    int64_t KRepeats = (dataType.getWidth() / 8) / (dataType.getWidth() / 8 * k_base);
+    int64_t AStride = K * KRepeats;
+    int64_t BStride = K * KRepeats;
 
-    // auto MPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
-    // auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
-    // auto KBaseConstantOp = b.create<ConstantIndexOp>(loc, k_base);
+    auto MPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
+    auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
+    auto KBaseConstantOp = b.create<ConstantIndexOp>(loc, k_base);
 
-    // //llvm::errs() << "MPerXdlops: " << MPerXdlops << "\n";
-    // //llvm::errs() << "NPerXdlops: " << NPerXdlops << "\n";
-    // //llvm::errs() << "MRepeats: " << MRepeats << "\n";
-    // //llvm::errs() << "NRepeats: " << NRepeats << "\n";
-    // //llvm::errs() << "IsABroadcast: " << IsABroadcast << "\n";
-    // //llvm::errs() << "IsKReduction: " << IsKReduction << "\n";
+    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
+    auto MRepeatsConstantOp = b.create<ConstantIndexOp>(loc, MRepeats);
+    auto NRepeatsConstantOp = b.create<ConstantIndexOp>(loc, NRepeats);
+    auto KRepeatsConstantOp = b.create<ConstantIndexOp>(loc, KRepeats);
 
-    // auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-    // auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
-    // auto oneConstantFloatOp =
-    //     b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
+    auto oneConstantFloatOp =
+        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
 
-    // auto MRepeatsConstantOp = b.create<ConstantIndexOp>(loc, MRepeats);
-    // auto NRepeatsConstantOp = b.create<ConstantIndexOp>(loc, NRepeats);
+    if (!IsKReduction) {
+      // Original C++ logic.
+      // static_if<!IsKReduction>{}([&](auto) {
+      //     for(index_t m_i = 0; m_i < MRepeats; ++m_i)
+      //         for(index_t k_i      = 0; k_i < K; ++k_i)
+      //             a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
+      // p_a_wave need to be offseted by threadOffsetA.
 
-    // miopen::MFMAV2Op lastMfmaOp = nullptr;
-    // if (!IsKReduction) {
-    //   // Original C++ logic.
-    //   // static_if<!IsKReduction>{}([&](auto) {
-    //   //     for(index_t m_i = 0; m_i < MRepeats; ++m_i)
-    //   //         for(index_t k_i      = 0; k_i < K; ++k_i)
-    //   //             a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
-    //   // p_a_wave need to be offseted by threadOffsetA.
+      auto outerLoopM = b.create<scf::ForOp>(loc, zeroConstantOp, MRepeatsConstantOp, oneConstantOp);
+      auto olmb = OpBuilder::atBlockTerminator(outerLoopM.getBody());
+      auto olmiv = outerLoopM.getInductionVar();
+      auto innerLoopMK = olmb.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, oneConstantOp);
+      auto ilmkb = OpBuilder::atBlockTerminator(innerLoopMK.getBody());
+      auto ilmkiv = innerLoopMK.getInductionVar();
 
-    //   auto outerLoopM = b.create<scf::ForOp>(loc, zeroConstantOp, MRepeatsConstantOp, oneConstantOp);
-    //   auto olmb = OpBuilder::atBlockTerminator(outerLoopM.getBody());
-    //   auto olmiv = outerLoopM.getInductionVar();
-    //   auto innerLoopMK = olmb.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, oneConstantOp);
-    //   auto ilmkb = OpBuilder::atBlockTerminator(innerLoopMK.getBody());
-    //   auto ilmkiv = innerLoopMK.getInductionVar();
+      // TBD. Check if we need to apply coord_transform as well.
+      //             a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
+      // p_a_wave need to be offseted by threadOffsetA.
+      auto sourceOffsetA = ilmkb.create<AddIOp>(
+          loc, op.threadOffsetA(),
+          ilmkb.create<AddIOp>(
+              loc,
+              ilmkb.create<AddIOp>(
+                  loc, ilmkb.create<MulIOp>(loc, ilmkiv, MConstantOp),
+                  laneId),
+              ilmkb.create<MulIOp>(loc, MPerXdlopsConstantOp, olmiv)));
+      auto destOffsetA = ilmkb.create<AddIOp>(
+          loc, ilmkiv, ilmkb.create<MulIOp>(loc, olmiv, KConstantOp));
 
-    //   // TBD. Check if we need to apply coord_transform as well.
-    //   //             a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
-    //   // p_a_wave need to be offseted by threadOffsetA.
-    //   auto sourceOffsetA = ilmkb.create<AddIOp>(
-    //       loc, op.threadOffsetA(),
-    //       ilmkb.create<AddIOp>(
-    //           loc,
-    //           ilmkb.create<AddIOp>(
-    //               loc, ilmkb.create<MulIOp>(loc, ilmkiv, MConstantOp),
-    //               laneId),
-    //           ilmkb.create<MulIOp>(loc, MPerXdlopsConstantOp, olmiv)));
-    //   auto destOffsetA = ilmkb.create<AddIOp>(
-    //       loc, ilmkiv, ilmkb.create<MulIOp>(loc, olmiv, KConstantOp));
+      auto valueA = ilmkb.create<LoadOp>(loc, dataType, op.matrixA(),
+                                         ValueRange{sourceOffsetA});
+      ilmkb.create<StoreOp>(loc, valueA, arrayA, ValueRange{destOffsetA});
 
-    //   auto valueA = ilmkb.create<LoadOp>(loc, dataType, op.matrixA(),
-    //                                      ValueRange{sourceOffsetA});
-    //   ilmkb.create<StoreOp>(loc, valueA, arrayA, ValueRange{destOffsetA});
+      // Original C++ logic.
+      //     for(index_t n_i = 0; n_i < NRepeats; ++n_i)
+      //         for(index_t k_i      = 0; k_i < K; ++k_i)
+      //             b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops * n_i];
+      // p_b_wave need to be offseted by threadOffsetB.
 
-    //   // Original C++ logic.
-    //   //     for(index_t n_i = 0; n_i < NRepeats; ++n_i)
-    //   //         for(index_t k_i      = 0; k_i < K; ++k_i)
-    //   //             b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops * n_i];
-    //   // p_b_wave need to be offseted by threadOffsetB.
+      auto outerLoopN = b.create<scf::ForOp>(loc, zeroConstantOp, NRepeatsConstantOp, oneConstantOp);
+      auto olnb = OpBuilder::atBlockTerminator(outerLoopN.getBody());
+      auto olniv = outerLoopN.getInductionVar();
+      auto innerLoopNK = olnb.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, oneConstantOp);
+      auto ilnkb = OpBuilder::atBlockTerminator(innerLoopNK.getBody());
+      auto ilnkiv = innerLoopNK.getInductionVar();
 
-    //   auto outerLoopN = b.create<scf::ForOp>(loc, zeroConstantOp, NRepeatsConstantOp, oneConstantOp);
-    //   auto olnb = OpBuilder::atBlockTerminator(outerLoopN.getBody());
-    //   auto olniv = outerLoopN.getInductionVar();
-    //   auto innerLoopNK = olnb.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, oneConstantOp);
-    //   auto ilnkb = OpBuilder::atBlockTerminator(innerLoopNK.getBody());
-    //   auto ilnkiv = innerLoopNK.getInductionVar();
+      // TBD. Check if we need to apply coord_transform as well.
+      //             b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops * n_i];
+      // p_b_wave need to be offseted by threadOffsetB.
 
-    //   // TBD. Check if we need to apply coord_transform as well.
-    //   //             b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops * n_i];
-    //   // p_b_wave need to be offseted by threadOffsetB.
+      auto sourceOffsetB = ilnkb.create<AddIOp>(
+          loc, op.threadOffsetB(),
+          ilnkb.create<AddIOp>(
+              loc,
+              ilnkb.create<AddIOp>(
+                  loc, ilnkb.create<MulIOp>(loc, ilnkiv, NConstantOp),
+                  laneId),
+              ilnkb.create<MulIOp>(loc, NPerXdlopsConstantOp, olniv)));
+      auto destOffsetB = ilnkb.create<AddIOp>(
+          loc, ilnkiv, ilnkb.create<MulIOp>(loc, olniv, KConstantOp));
 
-    //   auto sourceOffsetB = ilnkb.create<AddIOp>(
-    //       loc, op.threadOffsetB(),
-    //       ilnkb.create<AddIOp>(
-    //           loc,
-    //           ilnkb.create<AddIOp>(
-    //               loc, ilnkb.create<MulIOp>(loc, ilnkiv, NConstantOp),
-    //               laneId),
-    //           ilnkb.create<MulIOp>(loc, NPerXdlopsConstantOp, olniv)));
-    //   auto destOffsetB = ilnkb.create<AddIOp>(
-    //       loc, ilnkiv, ilnkb.create<MulIOp>(loc, olniv, KConstantOp));
+      auto valueB = ilnkb.create<LoadOp>(loc, dataType, op.matrixB(),
+                                         ValueRange{sourceOffsetB});
+      ilnkb.create<StoreOp>(loc, valueB, arrayB, ValueRange{destOffsetB});
 
-    //   auto valueB = ilnkb.create<LoadOp>(loc, dataType, op.matrixB(),
-    //                                      ValueRange{sourceOffsetB});
-    //   ilnkb.create<StoreOp>(loc, valueB, arrayB, ValueRange{destOffsetB});
+      // Original C++ logic.
+      // for(index_t k_i = 0; k_i < K * KRepeats; ++k_i)
+      // {
+      //     p_c_thread = mfma_type.template run<MPerXdlops * MRepeats,
+      //                                         NPerXdlops * NRepeats,
+      //                                         AStride,
+      //                                         BStride>(
+      //         &pa[k_i * mfma_type.k_base], &pb[k_i * mfma_type.k_base], p_c_thread);
+      // }
 
-    //   // Original C++ logic.
-    //   //     // get pointer of registers
-    //   //     auto pa = reinterpret_cast<const data_type*>(&a);
-    //   //     auto pb = reinterpret_cast<const data_type*>(&b);
-    //   //     for(index_t m_i = 0; m_i < MRepeats; ++m_i) {
-    //   //         for(index_t n_i = 0; n_i < NRepeats; ++n_i) {
-    //   //             for(index_t k_i = 0; k_i < K; ++k_i) {
-    //   //                 for(index_t i = 0; i < nxdlops; ++i)
-    //   for (int64_t m_i = 0; m_i < MRepeats; ++m_i) {
-    //     for (int64_t n_i = 0; n_i < NRepeats; ++n_i) {
-    //       for (int64_t k_i = 0; k_i < K; ++k_i) {
-    //         for (int64_t i = 0; i < nxdlops; ++i) {
-    //           auto lmiv = b.create<ConstantIndexOp>(loc, m_i);
-    //           auto lniv = b.create<ConstantIndexOp>(loc, n_i);
-    //           auto lkiv = b.create<ConstantIndexOp>(loc, k_i);
-    //           auto liiv = b.create<ConstantIndexOp>(loc, i);
+      auto loopIterationConstantOp = b.create<ConstantIndexOp>(loc, K * KRepeats);
+      auto loopK = b.create<scf::ForOp>(loc, zeroConstantOp, loopIterationConstantOp, oneConstantOp, op.vectorCs());
+      auto loopKb = OpBuilder::atBlockBegin(loopK.getBody());
+      auto loopKiv = loopK.getInductionVar();
 
-    //           // Original C++ logic.
-    //           //                     mfma_type.template run<MPerXdlops, NPerXdlops>(
-    //           //                         &pa[(k_i * nxdlops + i) * mfma_type.k_base +
-    //           //                             m_i * K * nxdlops * mfma_type.k_base],
-    //           //                         &pb[(k_i * nxdlops + i) * mfma_type.k_base +
-    //           //                             n_i * K * nxdlops * mfma_type.k_base],
-    //           //                         p_c_thread + (NRepeats * m_i + n_i) *
-    //           //                         GetRegSizePerXdlops());
-    //           auto addressA = b.create<AddIOp>(loc,
-    //             b.create<MulIOp>(loc,
-    //               b.create<AddIOp>(loc,
-    //                 b.create<MulIOp>(loc, lkiv, NXDlopsConstantOp),
-    //                 liiv),
-    //               KBaseConstantOp),
-    //             b.create<MulIOp>(loc,
-    //               lmiv,
-    //               b.create<MulIOp>(loc,
-    //                 KConstantOp,
-    //                 b.create<MulIOp>(loc,
-    //                   NXDlopsConstantOp, KBaseConstantOp))));
-    //           auto addressB = b.create<AddIOp>(loc,
-    //             b.create<MulIOp>(loc,
-    //               b.create<AddIOp>(loc,
-    //                 b.create<MulIOp>(loc, lkiv, NXDlopsConstantOp),
-    //                 liiv),
-    //               KBaseConstantOp),
-    //             b.create<MulIOp>(loc,
-    //               lniv,
-    //               b.create<MulIOp>(loc,
-    //                 KConstantOp,
-    //                 b.create<MulIOp>(loc,
-    //                   NXDlopsConstantOp, KBaseConstantOp))));
-    //           // TBD: use vector.type_cast for FP16/BF16 types.
-    //           auto argA =
-    //               b.create<LoadOp>(loc, dataType, arrayA, ValueRange{addressA});
-    //           auto argB =
-    //               b.create<LoadOp>(loc, dataType, arrayB, ValueRange{addressB});
+      auto offset = loopKb.create<MulIOp>(loc, loopKiv, KBaseConstantOp);
+      auto argA = loopKb.create<LoadOp>(loc, dataType, arrayA, ValueRange{offset});
+      auto argB = loopKb.create<LoadOp>(loc, dataType, arrayB, ValueRange{offset});
 
-    //           // TBD: use addressC.
-    //           auto addressC = b.create<MulIOp>(
-    //               loc,
-    //               b.create<AddIOp>(
-    //                   loc, b.create<MulIOp>(loc, NRepeatsConstantOp, lmiv),
-    //                   lniv),
-    //               RegSizePerXdlopsConstantOp);
+      SmallVector<Value, 4> mfmas;
+      for (int64_t i = 0; i < vectorNumber; ++i) {
+        auto vectorC = loopK.getRegionIterArgs()[i];
+        // TBD: use constant 1.0f for A and B for now.
+        auto mfma = loopKb.create<miopen::MFMAV2Op>(loc, vectorType, oneConstantFloatOp, oneConstantFloatOp, vectorC);
 
-    //           // TBD. move XdlopsCodeEmission to gridwise_gemm.
-    //           XdlopsCodeEmission xce = XdlopsCodeEmission::get(dataType, MPerXdlops, NPerXdlops, b);
-    //           int64_t vectorLength = xce.vectorLength;
+        // TBD: need to consider the case to use argA[AStride] and argB[BStride]
+        //auto mfma = loopKb.create<miopen::MFMAV2Op>(loc, vectorType, argA, argB, vectorC);
 
-    //           auto vfloatType = VectorType::get({vectorLength}, dataType);
-    //           auto resultMemRefType = MemRefType::get({shape[0] / vectorLength}, vfloatType, {}, destMemRefType.getMemorySpace());
-    //           auto vectorTypeCast = b.create<vector::TypeCastOp>(loc, resultMemRefType, op.matrixC());
+        mfma.setAttr("instr", loopKb.getStringAttr(mfmaInstr));
+        mfma.setAttr("imm", loopKb.getArrayAttr({
+                              loopKb.getI32IntegerAttr(imms[i][0]),
+                              loopKb.getI32IntegerAttr(imms[i][1]),
+                              loopKb.getI32IntegerAttr(imms[i][2])
+                            }));
+        mfmas.push_back(mfma);
+      }
+      loopKb.create<scf::YieldOp>(loc, mfmas);
+      op.replaceAllUsesWith(loopK.results());
+      op.erase();
+    } else {
+      // Original C++ logic.
+      //     const index_t blk_id = laneId / mfma_type.num_threads_blk;
+      //     const index_t blk_td = laneId % mfma_type.num_threads_blk;
 
-    //           // TBD. use addressC.
-    //           auto loadOffset = b.create<SignedDivIOp>(loc, op.threadOffsetC(), RegSizePerXdlopsConstantOp);
+      auto NumThreadsBlkConstantOp = b.create<ConstantIndexOp>(loc, num_threads_blk);
+      auto blk_id = b.create<SignedDivIOp>(loc, laneId, NumThreadsBlkConstantOp);
+      auto blk_td = b.create<SignedRemIOp>(loc, laneId, NumThreadsBlkConstantOp);
 
-    //           if (lastMfmaOp == nullptr) {
-    //             // Emit load.
-    //             auto loadOp = b.create<LoadOp>(loc, vfloatType, vectorTypeCast, ValueRange{loadOffset});
-    //             // Emit miopen.mfma operation.
-    //             auto mfma = b.create<miopen::MFMAV2Op>(loc, vfloatType, argA, argB, loadOp);
-    //             mfma.setAttr("instr", op.getAttr("instr"));
-    //             mfma.setAttr("imm", op.getAttr("imm"));
-    //             lastMfmaOp = mfma;
-    //           } else {
-    //             // Emit miopen.mfma operation.
-    //             auto mfma = b.create<miopen::MFMAV2Op>(loc, vfloatType, argA, argB, lastMfmaOp);
-    //             mfma.setAttr("instr", op.getAttr("instr"));
-    //             mfma.setAttr("imm", op.getAttr("imm"));
-    //             lastMfmaOp = mfma;
-    //           }
-    //         } // i
-    //       } // k_i
-    //     } // n_i
-    //   } // m_i
-    // } else {
-    //   // // Original C++ logic.
-    //   // // }).Else([&](auto) {
-    //   // //     const index_t blk_id = laneId / mfma_type.num_threads_blk;
-    //   // //     const index_t blk_td = laneId % mfma_type.num_threads_blk;
+      // Original C++ logic.
+      //     // load into registers
+      //     for(index_t k_i = 0; k_i < K; k_i += mfma_type.num_input_blks) {
+      //         a[k_i] = p_a_wave[(k_i + blk_id) * M + blk_td];
+      //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
+      //     }
+      // p_a_wave need to be offseted by threadOffsetA.
+      // p_b_wave need to be offseted by threadOffsetB.
 
-    //   // auto NumThreadsBlkConstantOp = b.create<ConstantIndexOp>(loc, num_threads_blk);
-    //   // auto blk_id = b.create<SignedDivIOp>(loc, laneId, NumThreadsBlkConstantOp);
-    //   // auto blk_td = b.create<SignedRemIOp>(loc, laneId, NumThreadsBlkConstantOp);
+      auto NumInputBlksConstantOp = b.create<ConstantIndexOp>(loc, num_input_blks);
+      auto loopKLoad = b.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, NumInputBlksConstantOp);
+      auto lklb = OpBuilder::atBlockTerminator(loopKLoad.getBody());
+      auto lkliv = loopKLoad.getInductionVar();
 
-    //   // // Original C++ logic.
-    //   // //     // load into registers
-    //   // //     for(index_t k_i = 0; k_i < K; k_i += mfma_type.num_input_blks) {
-    //   // //         a[k_i] = p_a_wave[(k_i + blk_id) * M + blk_td];
-    //   // //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
-    //   // //     }
-    //   // // p_a_wave need to be offseted by threadOffsetA.
-    //   // // p_b_wave need to be offseted by threadOffsetB.
+      // TBD. Check if we need to apply coord_transform as well.
+      //         a[k_i] = p_a_wave[(k_i + blk_id) * M + blk_td];
+      //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
+      // p_a_wave need to be offseted by threadOffsetA.
+      // p_b_wave need to be offseted by threadOffsetB.
+      auto sourceOffsetA = lklb.create<AddIOp>(
+          loc, op.threadOffsetA(),
+          lklb.create<AddIOp>(
+              loc,
+              lklb.create<MulIOp>(loc, lklb.create<AddIOp>(loc, lkliv, blk_id),
+                                  MConstantOp),
+              blk_td));
 
-    //   // auto NumInputBlksConstantOp = b.create<ConstantIndexOp>(loc, num_input_blks);
-    //   // auto loopKLoad = b.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, NumInputBlksConstantOp);
-    //   // auto lklb = OpBuilder::atBlockTerminator(loopKLoad.getBody());
-    //   // auto lkliv = loopKLoad.getInductionVar();
+      auto valueA = lklb.create<LoadOp>(loc, dataType, op.matrixA(),
+                                        ValueRange{sourceOffsetA});
+      lklb.create<StoreOp>(loc, valueA, arrayA, ValueRange{lkliv});
 
-    //   // // TBD. Check if we need to apply coord_transform as well.
-    //   // //         a[k_i] = p_a_wave[(k_i + blk_id) * M + blk_td];
-    //   // //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
-    //   // // p_a_wave need to be offseted by threadOffsetA.
-    //   // // p_b_wave need to be offseted by threadOffsetB.
-    //   // auto sourceOffsetA = lklb.create<AddIOp>(
-    //   //     loc, op.threadOffsetA(),
-    //   //     lklb.create<AddIOp>(
-    //   //         loc,
-    //   //         lklb.create<MulIOp>(loc, lklb.create<AddIOp>(loc, lkliv, blk_id),
-    //   //                             MConstantOp),
-    //   //         blk_td));
+      auto sourceOffsetB = lklb.create<AddIOp>(
+          loc, op.threadOffsetB(),
+          lklb.create<AddIOp>(
+              loc,
+              lklb.create<MulIOp>(loc, lklb.create<AddIOp>(loc, lkliv, blk_id),
+                                  NConstantOp),
+              blk_td));
 
-    //   // auto valueA = lklb.create<LoadOp>(loc, dataType, op.matrixA(),
-    //   //                                   ValueRange{sourceOffsetA});
-    //   // lklb.create<StoreOp>(loc, valueA, arrayA, ValueRange{lkliv});
+      auto valueB = lklb.create<LoadOp>(loc, dataType, op.matrixB(),
+                                        ValueRange{sourceOffsetB});
+      lklb.create<StoreOp>(loc, valueB, arrayB, ValueRange{lkliv});
 
-    //   // auto sourceOffsetB = lklb.create<AddIOp>(
-    //   //     loc, op.threadOffsetB(),
-    //   //     lklb.create<AddIOp>(
-    //   //         loc,
-    //   //         lklb.create<MulIOp>(loc, lklb.create<AddIOp>(loc, lkliv, blk_id),
-    //   //                             NConstantOp),
-    //   //         blk_td));
+      // Original C++ logic.
+      // for(index_t k_i = 0; k_i < K; k_i += mfma_type.num_input_blks)
+      // {
+      //     for(index_t i = 0; i < KRepeats; ++i)
+      //         p_c_thread = mfma_type.template run<MPerXdlops, NPerXdlops, AStride, BStride>(
+      //             &pa[(k_i * KRepeats + i) * mfma_type.k_base],
+      //             &pb[(k_i * KRepeats + i) * mfma_type.k_base],
+      //             p_c_thread);
+      // }
 
-    //   // auto valueB = lklb.create<LoadOp>(loc, dataType, op.matrixB(),
-    //   //                                   ValueRange{sourceOffsetB});
-    //   // lklb.create<StoreOp>(loc, valueB, arrayB, ValueRange{lkliv});
+      auto outerLoop = b.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, NumInputBlksConstantOp, op.vectorCs());
+      auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
+      auto outerLoopiv = outerLoop.getInductionVar();
 
-    //   // //     // get pointer of registers
-    //   // //     auto pa = reinterpret_cast<const data_type*>(&a);
-    //   // //     auto pb = reinterpret_cast<const data_type*>(&b);
-    //   // //     for(index_t k_i = 0; k_i < K; k_i += mfma_type.num_input_blks) {
-    //   // //         for(index_t i = 0; i < nxdlops; ++i)
+      auto innerLoop = outerLoopb.create<scf::ForOp>(loc, zeroConstantOp, KRepeatsConstantOp, oneConstantOp, outerLoop.getRegionIterArgs());
+      auto innerLoopb = OpBuilder::atBlockBegin(innerLoop.getBody());
+      auto innerLoopiv = innerLoop.getInductionVar();
 
-    //   // auto loopKMFMA = b.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, NumInputBlksConstantOp);
-    //   // auto lkmb = OpBuilder::atBlockTerminator(loopKMFMA.getBody());
-    //   // auto lkmiv = loopKMFMA.getInductionVar();
-    //   // auto loopI = lkmb.create<scf::ForOp>(loc, zeroConstantOp, NXDlopsConstantOp, oneConstantOp);
-    //   // auto lib = OpBuilder::atBlockTerminator(loopI.getBody());
-    //   // auto liiv = loopI.getInductionVar();
+      auto offset = innerLoopb.create<MulIOp>(loc, innerLoopb.create<AddIOp>(loc, innerLoopb.create<MulIOp>(loc, outerLoopiv, KRepeatsConstantOp), innerLoopiv), KBaseConstantOp);
+      auto argA = innerLoopb.create<LoadOp>(loc, dataType, arrayA, ValueRange{offset});
+      auto argB = innerLoopb.create<LoadOp>(loc, dataType, arrayB, ValueRange{offset});
 
-    //   // //             mfma_type.template run<MPerXdlops, NPerXdlops>(
-    //   // //                 &pa[(k_i * nxdlops + i) * mfma_type.k_base],
-    //   // //                 &pb[(k_i * nxdlops + i) * mfma_type.k_base],
-    //   // //                 p_c_thread);
-    //   // //     }
-    //   // // });
+      SmallVector<Value, 4> mfmas;
+      for (int64_t i = 0; i < vectorNumber; ++i) {
+        auto vectorC = innerLoop.getRegionIterArgs()[i];
+        // TBD: use constant 1.0f for A and B for now.
+        auto mfma = innerLoopb.create<miopen::MFMAV2Op>(loc, vectorType, oneConstantFloatOp, oneConstantFloatOp, vectorC);
 
-    //   // auto addressAB = lib.create<MulIOp>(
-    //   //     loc,
-    //   //     lib.create<AddIOp>(
-    //   //         loc, lib.create<MulIOp>(loc, lkmiv, NXDlopsConstantOp),
-    //   //         liiv),
-    //   //     KBaseConstantOp);
+        // TBD: need to consider the case to use argA[AStride] and argB[BStride]
+        //auto mfma = loopKb.create<miopen::MFMAV2Op>(loc, vectorType, argA, argB, vectorC);
 
-    //   // // TBD: use vector.type_cast for FP16/BF16 types.
-    //   // auto argA =
-    //   //     lib.create<LoadOp>(loc, dataType, arrayA, ValueRange{addressAB});
-    //   // auto argB =
-    //   //     lib.create<LoadOp>(loc, dataType, arrayB, ValueRange{addressAB});
+        mfma.setAttr("instr", innerLoopb.getStringAttr(mfmaInstr));
+        mfma.setAttr("imm", innerLoopb.getArrayAttr({
+                              innerLoopb.getI32IntegerAttr(imms[i][0]),
+                              innerLoopb.getI32IntegerAttr(imms[i][1]),
+                              innerLoopb.getI32IntegerAttr(imms[i][2])
+                            }));
+        mfmas.push_back(mfma);
+      }
+      innerLoopb.create<scf::YieldOp>(loc, mfmas);
 
-    //   // mfma = lib.create<miopen::MFMAV2Op>(loc, argA, argB, op.matrixC(), zeroConstantOp);
-    //   // mfma.setAttr("m_per_wave", lib.getI32IntegerAttr(MPerWave));
-    //   // mfma.setAttr("n_per_wave", lib.getI32IntegerAttr(NPerWave));
-    // }
+      outerLoopb.create<scf::YieldOp>(loc, innerLoop.results());
 
-    // op.replaceAllUsesWith(lastMfmaOp.destD());
-    // op.erase();
+      op.replaceAllUsesWith(outerLoop.results());
+      op.erase();
+    }
+
     return success();
   }
 };
