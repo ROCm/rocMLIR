@@ -24,6 +24,8 @@ struct XdlopsCodeSelection {
   int64_t NPerXdlops;
   int64_t MRepeats;
   int64_t NRepeats;
+  VectorType vectorType;
+  int64_t vectorNumber;
 
   int64_t group_size;
   int64_t num_groups_blk;
@@ -43,115 +45,98 @@ struct XdlopsCodeSelection {
     // Determine which XDLOPS be used.
     int64_t MPerXdlops = 0, NPerXdlops = 0, MRepeats = 0, NRepeats = 0;
     StringRef mfmaInstr = "";
+    VectorType vectorType;
+    int64_t vectorNumber;
+
     if (dataType == b.getF32Type()) {
-      if (MPerWave == 128 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x1xf32";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 2;
-        NRepeats = 2;
-      } else if (MPerWave == 128 && NPerWave == 64) {
+      if (MPerWave == 128 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x1xf32";
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 2;
         NRepeats = 1;
-      } else if (MPerWave == 128 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x1xf32";
-        MPerXdlops = 64;
-        NPerXdlops = 32;
-        MRepeats = 2;
-        NRepeats = 1;
-      } else if (MPerWave == 128 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x1xf32";
-        MPerXdlops = 64;
-        NPerXdlops = 16;
-        MRepeats = 2;
-        NRepeats = 1;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 4;
       } else if (MPerWave == 64 && NPerWave == 128) {
         mfmaInstr = "mfma_f32_32x32x1xf32";
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 2;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 4;
       } else if (MPerWave == 64 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x1xf32";
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 2;
       } else if (MPerWave == 64 && NPerWave == 32) {
         mfmaInstr = "mfma_f32_32x32x1xf32";
         MPerXdlops = 64;
         NPerXdlops = 32;
         MRepeats = 1;
         NRepeats = 1;
-      } else if (MPerWave == 64 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x1xf32";
-        MPerXdlops = 64;
-        NPerXdlops = 16;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x1xf32";
-        MPerXdlops = 32;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 1;
       } else if (MPerWave == 32 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x1xf32";
         MPerXdlops = 32;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x2xf32";
-        MPerXdlops = 32;
-        NPerXdlops = 32;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 1;
+      } else if (MPerWave == 64 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x1xf32";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
         MRepeats = 1;
         NRepeats = 1;
-      } else if (MPerWave == 16 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_16x16x1xf32";
-        MPerXdlops = 16;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
+        vectorType = VectorType::get({16}, b.getF32Type());
+        vectorNumber = 1;
       } else if (MPerWave == 16 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_16x16x1xf32";
         MPerXdlops = 16;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
-      } else if (MPerWave == 16 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x4xf32";
-        MPerXdlops = 16;
-        NPerXdlops = 16;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 8 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_4x4x1xf32";
-        MPerXdlops = 8;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
+        vectorType = VectorType::get({16}, b.getF32Type());
+        vectorNumber = 1;
       } else if (MPerWave == 8 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x1xf32";
         MPerXdlops = 8;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
-      } else if (MPerWave == 4 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_4x4x1xf32";
-        MPerXdlops = 4;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
+        vectorType = VectorType::get({4}, b.getF32Type());
+        vectorNumber = 2;
       } else if (MPerWave == 4 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x1xf32";
         MPerXdlops = 4;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        vectorType = VectorType::get({4}, b.getF32Type());
+        vectorNumber = 1;
+      } else if (MPerWave == 32 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x2xf32";
+        MPerXdlops = 32;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+        vectorType = VectorType::get({16}, b.getF32Type());
+        vectorNumber = 1;
+      } else if (MPerWave == 16 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x4xf32";
+        MPerXdlops = 16;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+        vectorType = VectorType::get({4}, b.getF32Type());
+        vectorNumber = 1;
       } else {
         llvm::errs() << "Unsupported case:\n";
         //llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
@@ -162,114 +147,86 @@ struct XdlopsCodeSelection {
         llvm::errs() << "\n";
       }
     } else if (dataType == b.getF16Type()) {
-      if (MPerWave == 128 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 2;
-        NRepeats = 2;
-      } else if (MPerWave == 128 && NPerWave == 64) {
+      if (MPerWave == 128 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x4f16";
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 2;
         NRepeats = 1;
-      } else if (MPerWave == 128 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        MPerXdlops = 64;
-        NPerXdlops = 32;
-        MRepeats = 2;
-        NRepeats = 1;
-      } else if (MPerWave == 128 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x4f16";
-        MPerXdlops = 64;
-        NPerXdlops = 16;
-        MRepeats = 2;
-        NRepeats = 1;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 4;
       } else if (MPerWave == 64 && NPerWave == 128) {
         mfmaInstr = "mfma_f32_32x32x4f16";
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 2;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 4;
       } else if (MPerWave == 64 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x4f16";
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 2;
       } else if (MPerWave == 64 && NPerWave == 32) {
         mfmaInstr = "mfma_f32_32x32x4f16";
         MPerXdlops = 64;
         NPerXdlops = 32;
         MRepeats = 1;
         NRepeats = 1;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 1;
       } else if (MPerWave == 64 && NPerWave == 16) {
         mfmaInstr = "mfma_f32_16x16x4f16";
         MPerXdlops = 64;
         NPerXdlops = 16;
         MRepeats = 1;
         NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        MPerXdlops = 32;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
-        MPerXdlops = 32;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x8f16";
-        MPerXdlops = 32;
-        NPerXdlops = 32;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 16 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_16x16x4f16";
-        MPerXdlops = 16;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
+        vectorType = VectorType::get({16}, b.getF32Type());
+        vectorNumber = 1;
       } else if (MPerWave == 16 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_16x16x4f16";
         MPerXdlops = 16;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
-      } else if (MPerWave == 16 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x16f16";
-        MPerXdlops = 16;
-        NPerXdlops = 16;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 8 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_4x4x4f16";
-        MPerXdlops = 8;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
+        vectorType = VectorType::get({16}, b.getF32Type());
+        vectorNumber = 1;
       } else if (MPerWave == 8 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x4f16";
         MPerXdlops = 8;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
-      } else if (MPerWave == 4 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_4x4x4f16";
-        MPerXdlops = 4;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
+        vectorType = VectorType::get({4}, b.getF32Type());
+        vectorNumber = 2;
       } else if (MPerWave == 4 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x4f16";
         MPerXdlops = 4;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        vectorType = VectorType::get({4}, b.getF32Type());
+        vectorNumber = 1;
+      } else if (MPerWave == 32 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x8f16";
+        MPerXdlops = 32;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+        vectorType = VectorType::get({16}, b.getF32Type());
+        vectorNumber = 1;
+      } else if (MPerWave == 16 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x16f16";
+        MPerXdlops = 16;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+        vectorType = VectorType::get({4}, b.getF32Type());
+        vectorNumber = 1;
       } else {
         llvm::errs() << "Unsupported case:\n";
         //llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
@@ -280,114 +237,94 @@ struct XdlopsCodeSelection {
         llvm::errs() << "\n";
       }
     } else if (dataType == b.getBF16Type()) {
-      if (MPerWave == 128 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        MPerXdlops = 64;
-        NPerXdlops = 64;
-        MRepeats = 2;
-        NRepeats = 2;
-      } else if (MPerWave == 128 && NPerWave == 64) {
+      if (MPerWave == 128 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 2;
         NRepeats = 1;
-      } else if (MPerWave == 128 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        MPerXdlops = 64;
-        NPerXdlops = 32;
-        MRepeats = 2;
-        NRepeats = 1;
-      } else if (MPerWave == 128 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x2bf16";
-        MPerXdlops = 64;
-        NPerXdlops = 16;
-        MRepeats = 2;
-        NRepeats = 1;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 4;
       } else if (MPerWave == 64 && NPerWave == 128) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 2;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 4;
       } else if (MPerWave == 64 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 2;
       } else if (MPerWave == 64 && NPerWave == 32) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 64;
         NPerXdlops = 32;
         MRepeats = 1;
         NRepeats = 1;
-      } else if (MPerWave == 64 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x2bf16";
-        MPerXdlops = 64;
-        NPerXdlops = 16;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
-        MPerXdlops = 32;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 1;
       } else if (MPerWave == 32 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 32;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
-      } else if (MPerWave == 32 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x4bf16";
-        MPerXdlops = 32;
-        NPerXdlops = 32;
+        vectorType = VectorType::get({32}, b.getF32Type());
+        vectorNumber = 1;
+      } else if (MPerWave == 64 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x2bf16";
+        MPerXdlops = 64;
+        NPerXdlops = 16;
         MRepeats = 1;
         NRepeats = 1;
-      } else if (MPerWave == 16 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_16x16x2bf16";
-        MPerXdlops = 16;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
+        vectorType = VectorType::get({16}, b.getF32Type());
+        vectorNumber = 1;
       } else if (MPerWave == 16 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_16x16x2bf16";
         MPerXdlops = 16;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
-      } else if (MPerWave == 16 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x8bf16";
-        MPerXdlops = 16;
-        NPerXdlops = 16;
-        MRepeats = 1;
-        NRepeats = 1;
-      } else if (MPerWave == 8 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_4x4x2bf16";
-        MPerXdlops = 8;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
+        vectorType = VectorType::get({16}, b.getF32Type());
+        vectorNumber = 1;
       } else if (MPerWave == 8 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x2bf16";
         MPerXdlops = 8;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
-      } else if (MPerWave == 4 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_4x4x2bf16";
-        MPerXdlops = 4;
-        NPerXdlops = 64;
-        MRepeats = 1;
-        NRepeats = 2;
+        vectorType = VectorType::get({4}, b.getF32Type());
+        vectorNumber = 2;
       } else if (MPerWave == 4 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x2bf16";
         MPerXdlops = 4;
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        vectorType = VectorType::get({4}, b.getF32Type());
+        vectorNumber = 1;
+      } else if (MPerWave == 32 && NPerWave == 32) {
+        mfmaInstr = "mfma_f32_32x32x4bf16";
+        MPerXdlops = 32;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+        vectorType = VectorType::get({16}, b.getF32Type());
+        vectorNumber = 1;
+      } else if (MPerWave == 16 && NPerWave == 16) {
+        mfmaInstr = "mfma_f32_16x16x8bf16";
+        MPerXdlops = 16;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+        vectorType = VectorType::get({4}, b.getF32Type());
+        vectorNumber = 1;
       } else {
         llvm::errs() << "Unsupported case:\n";
         //llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
@@ -622,6 +559,8 @@ struct XdlopsCodeSelection {
     result.NPerXdlops = NPerXdlops;
     result.MRepeats = MRepeats;
     result.NRepeats = NRepeats;
+    result.vectorType = vectorType;
+    result.vectorNumber = vectorNumber;
 
     result.group_size = group_size;
     result.num_groups_blk = num_groups_blk;
