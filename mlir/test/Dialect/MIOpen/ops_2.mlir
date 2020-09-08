@@ -300,8 +300,6 @@ func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    instr = "mfma_f32_32x32_1f32",
-    imm = [1, 1, 0],
     coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
   } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, vector<32xf32>
   return %vectorD0 : vector<32xf32>
@@ -323,8 +321,6 @@ func @miopen_xdlops_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrix
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    instr = "mfma_f32_32x32_1f32",
-    imm = [1, 1, 0],
     coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
   } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, vector<32xf32>, vector<32xf32>
   return %vectorD0, %vectorD1 : vector<32xf32>, vector<32xf32>
