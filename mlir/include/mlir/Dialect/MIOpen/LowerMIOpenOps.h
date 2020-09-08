@@ -4301,3 +4301,20 @@ struct XdlopsGemmV2RewritePattern
     return success();
   }
 };
+
+//===----------------------------------------------------------------------===//
+// BlockwiseGemmV2 lowering.
+//===----------------------------------------------------------------------===//
+
+struct BlockwiseGemmV2RewritePattern
+    : public OpRewritePattern<miopen::BlockwiseGemmV2Op> {
+  using OpRewritePattern<miopen::BlockwiseGemmV2Op>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::BlockwiseGemmV2Op op,
+                                PatternRewriter &b) const override {
+    auto loc = op.getLoc();
+    //op.erase();
+    return success();
+  }
+};
+
