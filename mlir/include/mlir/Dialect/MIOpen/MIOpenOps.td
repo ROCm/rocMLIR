@@ -227,11 +227,28 @@ def MIOpen_BlockwiseGemmOp:
                    AnyMemRef:$matrixC,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB)> {
-  let summary = "Blockwise GEMM";
+  let summary = "Blockwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.block_gemm` op does GEMM at workgroup (block) level.
     - Matrix A and Matrix B shall reside on LDS (naive tensor).
     - Matrix C shall reside on register (naive tensor).
+  }];
+}
+
+// blockwise_gemm_v2
+def MIOpen_BlockwiseGemmV2Op:
+    MIOpen_Op<"blockwise_gemm_v2">,
+    Arguments<(ins MemRefOf<[F32, F16, BF16]>:$matrixA,
+                   MemRefOf<[F32, F16, BF16]>:$matrixB,
+                   Index:$threadOffsetA,
+                   Index:$threadOffsetB,
+                   Variadic<VectorOfRankAndType<[1], [F32, F16, BF16]>>:$vectorCs)>,
+    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, BF16]>>: $vectorDs)> {
+  let summary = "Blockwise GEMM XDLOPS version";
+  let description = [{
+    The `miopen.block_gemm` op does GEMM at workgroup (block) level.
+    - Matrix A and Matrix B shall reside on LDS (naive tensor).
+    - Matrix C shall be vectors.
   }];
 }
 
@@ -241,7 +258,7 @@ def MIOpen_ThreadwiseGemmOp:
     Arguments<(ins MemRefRankOf<[F32], [2]>:$matrixA,
                    MemRefRankOf<[F32], [2]>:$matrixB,
                    MemRefRankOf<[F32], [2]>:$matrixC)> {
-  let summary = "Threadwise GEMM";
+  let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.
     - Matrix A and Matrix B shall reside on register (naive tensor).
@@ -250,6 +267,7 @@ def MIOpen_ThreadwiseGemmOp:
 }
 
 // mfma
+// ---- this op is slated to be deprecated after mfma_v2 is ready.
 def MIOpen_MFMAOp:
     MIOpen_Op<"mfma">,
     Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceA,
@@ -276,6 +294,7 @@ def MIOpen_MFMAV2Op:
 }
 
 // xdlops_gemm
+// ---- this op is slated to be deprecated after mfma_v2 is ready.
 def MIOpen_XdlopsGemmOp:
     MIOpen_Op<"xdlops_gemm">,
     Arguments<(ins AnyMemRef:$matrixA,
@@ -293,8 +312,8 @@ def MIOpen_XdlopsGemmOp:
 // xdlops_gemm_V2
 def MIOpen_XdlopsGemmV2Op:
     MIOpen_Op<"xdlops_gemm_v2">,
-    Arguments<(ins AnyMemRef:$matrixA,
-                   AnyMemRef:$matrixB,
+    Arguments<(ins MemRefOf<[F32, F16, BF16]>:$matrixA,
+                   MemRefOf<[F32, F16, BF16]>:$matrixB,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB,
                    Variadic<VectorOfRankAndType<[1], [F32, F16, BF16]>>:$vectorCs)>,

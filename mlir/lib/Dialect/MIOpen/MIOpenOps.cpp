@@ -621,6 +621,41 @@ static LogicalResult verify(XdlopsGemmV2Op op) {
 }
 
 //===----------------------------------------------------------------------===//
+// BlockwiseGemmV2Op
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseBlockwiseGemmV2Op(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 6> ops;
+  SmallVector<Type, 4> types;
+
+  auto ret = parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+             parser.parseOptionalAttrDict(result.attributes) ||
+             parser.parseColonTypeList(types) ||
+             parser.resolveOperand(ops[0], types[0], result.operands) ||
+             parser.resolveOperand(ops[1], types[1], result.operands) ||
+             parser.resolveOperand(ops[2], types[2], result.operands) ||
+             parser.resolveOperand(ops[3], types[3], result.operands);
+
+  for (unsigned i = 4; i < ops.size(); ++i) {
+    ret &= succeeded(parser.resolveOperand(ops[i], types[i], result.operands));
+    parser.addTypeToList(types[i], result.types);
+  }
+  return failure(ret);
+}
+
+static void print(OpAsmPrinter &p, BlockwiseGemmV2Op op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+  for (unsigned i = 0; i < op.vectorCs().size(); ++i)
+    p << ", " << op.getType(i);
+}
+
+static LogicalResult verify(BlockwiseGemmV2Op op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 
