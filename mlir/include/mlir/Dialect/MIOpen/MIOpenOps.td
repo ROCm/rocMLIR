@@ -295,11 +295,10 @@ def MIOpen_XdlopsGemmV2Op:
     MIOpen_Op<"xdlops_gemm_v2">,
     Arguments<(ins AnyMemRef:$matrixA,
                    AnyMemRef:$matrixB,
-                   AnyMemRef:$matrixC,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB,
-                   Index:$threadOffsetC)>,
-    Results<(outs VectorOfRankAndType<[1], [F32, F16, BF16]>: $destD)> {
+                   Variadic<VectorOfRankAndType<[1], [F32, F16, BF16]>>:$vectorCs)>,
+    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, BF16]>>: $vectorDs)> {
   let summary = "XDLOPS GEMM V2";
   let description = [{
     The `miopen.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.

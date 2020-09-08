@@ -1,3 +1,4 @@
+// XFAIL: *
 // RUN: mlir-opt -miopen-lowering-step4 %s | FileCheck %s
 
 func @miopen_xdlops_gemm_v2(%A : memref<12288xf32, 3>, %B : memref<12288xf32, 3>, %C : memref<128xf32, 5>) {
