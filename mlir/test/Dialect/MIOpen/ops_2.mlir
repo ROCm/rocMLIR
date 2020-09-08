@@ -290,10 +290,11 @@ func @miopen_xdlops_gemm(%A : memref<?x?xf32, 3>, %B : memref<?x?xf32, 3>, %C : 
 
 // ----
 
-func @miopen_xdlops_gemm_v2(%A : memref<12288xf32, 3>, %B : memref<12288xf32, 3>, %C : memref<128xf32, 5>) -> vector<32xf32> {
+func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>) -> vector<32xf32> {
   %c0 = constant 0 : index
-  %c_32 = constant 32 : index
-  %d = miopen.xdlops_gemm_v2(%A, %B, %C, %c0, %c0, %c_32) {
+  %c0f = constant 0.0 : f32
+  %vectorC0 = splat %c0f : vector<32xf32>
+  %vectorD0 = miopen.xdlops_gemm_v2(%matrixA, %matrixB, %c0, %c0, %vectorC0) {
     m = 256,
     n = 256,
     k = 16,
@@ -302,8 +303,31 @@ func @miopen_xdlops_gemm_v2(%A : memref<12288xf32, 3>, %B : memref<12288xf32, 3>
     instr = "mfma_f32_32x32_1f32",
     imm = [1, 1, 0],
     coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
-  } : memref<12288xf32, 3>, memref<12288xf32, 3>, memref<128xf32, 5>, index, index, index, vector<32xf32>
-  return %d : vector<32xf32>
+  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, vector<32xf32>
+  return %vectorD0 : vector<32xf32>
+}
+
+// CHECK-LABEL: func @miopen_xdlops_gemm_v2
+//  CHECK: miopen.xdlops_gemm_v2
+ 
+// ----
+
+func @miopen_xdlops_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>) -> (vector<32xf32>, vector<32xf32>) {
+  %c0 = constant 0 : index
+  %c0f = constant 0.0 : f32
+  %vectorC0 = splat %c0f : vector<32xf32>
+  %vectorC1 = splat %c0f : vector<32xf32>
+  %vectorD0, %vectorD1 = miopen.xdlops_gemm_v2(%matrixA, %matrixB, %c0, %c0, %vectorC0, %vectorC1) {
+    m = 256,
+    n = 256,
+    k = 16,
+    m_per_wave = 128,
+    n_per_wave = 64,
+    instr = "mfma_f32_32x32_1f32",
+    imm = [1, 1, 0],
+    coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
+  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, vector<32xf32>, vector<32xf32>
+  return %vectorD0, %vectorD1 : vector<32xf32>, vector<32xf32>
 }
 
 // CHECK-LABEL: func @miopen_xdlops_gemm_v2
