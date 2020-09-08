@@ -612,8 +612,6 @@ static void print(OpAsmPrinter &p, XdlopsGemmV2Op op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
   p << " : " << op.getOperandTypes();
-  for (unsigned i = 0; i < op.vectorCs().size(); ++i)
-    p << ", " << op.getType(i);
 }
 
 static LogicalResult verify(XdlopsGemmV2Op op) {
@@ -647,8 +645,6 @@ static void print(OpAsmPrinter &p, BlockwiseGemmV2Op op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
   p << " : " << op.getOperandTypes();
-  for (unsigned i = 0; i < op.vectorCs().size(); ++i)
-    p << ", " << op.getType(i);
 }
 
 static LogicalResult verify(BlockwiseGemmV2Op op) {
