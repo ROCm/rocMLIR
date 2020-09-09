@@ -7,8 +7,7 @@
 // RUN: mlir-opt -miopen-lowering %s | FileCheck %s
 
 func @miopen_gridwise_gemm(%matrix_a : memref<?x?xf32>, %matrix_b : memref<?x?xf32>, %matrix_c : memref<?x?xf32>) {
-  // TBD: replace with gridwise_gemm once the lowering logic is complete.
-  miopen.gridwise_gemm_ex(%matrix_a, %matrix_b, %matrix_c) {
+  miopen.gridwise_gemm(%matrix_a, %matrix_b, %matrix_c) {
     block_size = 256,
 
     m_per_block = 128,

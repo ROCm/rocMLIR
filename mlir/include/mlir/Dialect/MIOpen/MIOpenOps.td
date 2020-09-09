@@ -92,23 +92,6 @@ def MIOpen_GridwiseGemmOp :
   }];
 }
 
-// gridwise_gemm_ex would eventually be replaced with gridwise_gemm
-// keep it as a separate op for now.
-// the difference with gridwise_gemm is gridwise_gemm_ex carries tuning
-// parameters. On the other hand, gridwise_gemm only carries convolution
-// configuration.
-def MIOpen_GridwiseGemmExOp:
-    MIOpen_Op<"gridwise_gemm_ex">,
-    Arguments<(ins MemRefRankOf<[F32], [2]>,
-                   MemRefRankOf<[F32], [2]>,
-                   MemRefRankOf<[F32], [2]>)> {
-  let summary = "Gridwise GEMM extended";
-  let description = [{
-    The `miopen.gridwise_gemm_ex` op computes gridwise GEMM, with tuning
-    parameters supplied in the attributes.
-  }];
-}
-
 // Memory allocation on GPU memory hierachy.
 def MIOpen_GpuAllocOp:
     MIOpen_Op<"alloc">,
