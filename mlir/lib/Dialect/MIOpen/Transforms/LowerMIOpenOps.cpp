@@ -83,6 +83,7 @@ void LowerMIOpenOpsStep1Pass::runOnOperation() {
 void LowerMIOpenOpsStep2Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<GridwiseGemmRewritePattern>(&getContext());
+  patterns.insert<GridwiseGemmV2RewritePattern>(&getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
 }
 
