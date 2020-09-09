@@ -92,6 +92,18 @@ def MIOpen_GridwiseGemmOp :
   }];
 }
 
+// gridwise_gemm_v2
+def MIOpen_GridwiseGemmV2Op :
+    MIOpen_Op<"gridwise_gemm_v2">,
+    Arguments<(ins MemRefRankOf<[F32], [2]>:$filter,
+                   MemRefRankOf<[F32], [2]>:$input,
+                   MemRefRankOf<[F32], [2]>:$output)> {
+  let summary = "Gridwise GEMM V2";
+  let description = [{
+    The `miopen.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
+  }];
+}
+
 // Memory allocation on GPU memory hierachy.
 def MIOpen_GpuAllocOp:
     MIOpen_Op<"alloc">,
