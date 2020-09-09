@@ -220,7 +220,7 @@ def MIOpen_ThreadwiseCopyV2Op:
     Arguments<(ins VectorOfRankAndType<[1], [F32, F16, BF16]>:$source,
                    AnyMemRef:$dest,
                    I32: $sourceOffset,
-                   Variadic<I32>:$destCoord)> {
+                   Variadic<I32>:$sourceAndDestCoord)> {
   let summary = "Threadwise GPU data movement XDLOPS version";
   let description = [{
     The `miopen.threadwise_v2` op moves data on GPU. Following movements are
