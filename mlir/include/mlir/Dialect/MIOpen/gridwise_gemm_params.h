@@ -123,7 +123,23 @@ static void EmitLayoutString(llvm::raw_ostream &output,
   }
 }
 
+// TBD. Merge these 2 functions into one with function template.
 static miopen::ConvOpType ObtainConvDirection(miopen::GridwiseGemmOp &op) {
+  miopen::ConvOpType opType;
+  auto kernel_algorithm = op.getAttrOfType<StringAttr>("kernel_algorithm");
+  if (kernel_algorithm.getValue().find(StringRef("backward_data")) !=
+      StringRef::npos) {
+    opType = miopen::ConvOpType::Conv2DBwdDataOpType;
+  } else if (kernel_algorithm.getValue().find(StringRef("backward_weight")) !=
+             StringRef::npos) {
+    opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
+  } else {
+    opType = miopen::ConvOpType::Conv2DOpType;
+  }
+  return opType;
+}
+
+static miopen::ConvOpType ObtainConvDirection(miopen::GridwiseGemmV2Op &op) {
   miopen::ConvOpType opType;
   auto kernel_algorithm = op.getAttrOfType<StringAttr>("kernel_algorithm");
   if (kernel_algorithm.getValue().find(StringRef("backward_data")) !=
@@ -171,7 +187,38 @@ static void populateSeqVal(const ArrayAttr &seqAttr,
   }
 }
 
+// TBD. Merge these 2 functions into one with function template.
 static ConvolutionContext populateConvContext(miopen::GridwiseGemmOp &op) {
+  miopen::ConvOpType opType = ObtainConvDirection(op);
+
+  llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
+
+  auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
+  auto filterDimensionAttr = op.getAttrOfType<ArrayAttr>("filter_dimension");
+  populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
+  auto inputLayoutAttr = op.getAttrOfType<ArrayAttr>("input_layout");
+  auto inputDimensionAttr = op.getAttrOfType<ArrayAttr>("input_dimension");
+  populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
+  auto outputLayoutAttr = op.getAttrOfType<ArrayAttr>("output_layout");
+  auto outputDimensionAttr = op.getAttrOfType<ArrayAttr>("output_dimension");
+  populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
+
+  auto strideAttr = op.getAttrOfType<ArrayAttr>("strides");
+  llvm::SmallVector<int64_t, 0> strideVal;
+  populateSeqVal(strideAttr, strideVal);
+
+  auto dilationAttr = op.getAttrOfType<ArrayAttr>("dilations");
+  llvm::SmallVector<int64_t, 0> dilationVal;
+  populateSeqVal(dilationAttr, dilationVal);
+
+  auto paddingAttr = op.getAttrOfType<ArrayAttr>("padding");
+  llvm::SmallVector<int64_t, 0> paddingVal;
+  populateSeqVal(paddingAttr, paddingVal);
+
+  return {opType, dimIndexVal, strideVal, dilationVal, paddingVal};
+}
+
+static ConvolutionContext populateConvContext(miopen::GridwiseGemmV2Op &op) {
   miopen::ConvOpType opType = ObtainConvDirection(op);
 
   llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
