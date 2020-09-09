@@ -2,24 +2,6 @@
 // RUN: mlir-opt %s | mlir-opt | FileCheck %s
 // Run: mlir-opt -mlir-print-op-generic %s | mlir-opt | FileCheck %s
 
-func @miopen_gridwise_gemm_ex(%A : memref<?x?xf32>, %B : memref<?x?xf32>, %C : memref<?x?xf32>) {
-  miopen.gridwise_gemm_ex(%A, %B, %C) {
-    filter_layout = ["k", "c", "y", "x"],
-    filter_dimension = [1, 2, 3, 4],
-    input_layout = ["n", "c", "hi", "wi"],
-    input_dimension = [5, 6, 7, 8],
-    output_layout = ["n", "k", "ho", "wo"],
-    output_dimension = [9, 10, 11, 12],
-    strides = [1, 1],
-    dilations = [1, 1],
-    padding = [0, 0]
-  } : memref<?x?xf32>, memref<?x?xf32>, memref<?x?xf32>
-  return
-}
-
-// CHECK-LABEL: func @miopen_gridwise_gemm_ex
-//  CHECK-NEXT: miopen.gridwise_gemm_ex
-
 func @miopen_alloc() {
   // allocation on global.
   %buffer_global = miopen.alloc() : memref<1024xi8>
