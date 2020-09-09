@@ -914,13 +914,24 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     }
 
     // Emit miopen.gridwise_gemm op.
+    // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
     auto arguments = std::array<miopen::TransformOp, 3>{gemmA, gemmB, gemmC};
-    b.create<miopen::GridwiseGemmOp>(
-        loc, ArrayRef<Type>{},
-        ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
-                   arguments[fields.gridwiseGemmArgumentPosition[1]],
-                   arguments[fields.gridwiseGemmArgumentPosition[2]]},
-        gridwiseGemmAttrs);
+
+    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
+      b.create<miopen::GridwiseGemmV2Op>(
+          loc, ArrayRef<Type>{},
+          ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
+                     arguments[fields.gridwiseGemmArgumentPosition[1]],
+                     arguments[fields.gridwiseGemmArgumentPosition[2]]},
+          gridwiseGemmAttrs);
+    } else {
+      b.create<miopen::GridwiseGemmOp>(
+          loc, ArrayRef<Type>{},
+          ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
+                     arguments[fields.gridwiseGemmArgumentPosition[1]],
+                     arguments[fields.gridwiseGemmArgumentPosition[2]]},
+          gridwiseGemmAttrs);
+    }
 
     // Finally, erase the original Conv2D op.
     op.erase();
