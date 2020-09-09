@@ -214,6 +214,23 @@ def MIOpen_ThreadwiseCopyOp:
   }];
 }
 
+// threadwise_copy_v2
+def MIOpen_ThreadwiseCopyV2Op:
+    MIOpen_Op<"threadwise_copy_v2">,
+    Arguments<(ins VectorOfRankAndType<[1], [F32, F16, BF16]>:$source,
+                   AnyMemRef:$dest,
+                   I32: $sourceOffset,
+                   Variadic<I32>:$destCoord)> {
+  let summary = "Threadwise GPU data movement XDLOPS version";
+  let description = [{
+    The `miopen.threadwise_v2` op moves data on GPU. Following movements are
+    allowed:
+    - Register (naive tensor) as vector type to global (generic tensor).
+
+    The op is used to store C matrices, stored as vectors, back to global VMEM.
+  }];
+}
+
 // blockwise_gemm
 def MIOpen_BlockwiseGemmOp:
     MIOpen_Op<"blockwise_gemm">,

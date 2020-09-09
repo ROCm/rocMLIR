@@ -508,6 +508,40 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
 }
 
 //===----------------------------------------------------------------------===//
+// ThreadwiseCopyV2Op
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseThreadwiseCopyV2Op(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 5> ops;
+  SmallVector<Type, 2> types;
+
+  auto ret = parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+             parser.parseOptionalAttrDict(result.attributes) ||
+             parser.parseColonTypeList(types) ||
+             parser.resolveOperand(ops[0], types[0], result.operands) ||
+             parser.resolveOperand(ops[1], types[1], result.operands);
+
+  // resolve source offset.
+  // resolve destination coordinates.
+  for (unsigned i = 2; i < ops.size(); ++i) {
+    ret &= succeeded(parser.resolveOperand(
+        ops[i], parser.getBuilder().getIntegerType(32), result.operands));
+  }
+  return failure(ret);
+}
+
+static void print(OpAsmPrinter &p, ThreadwiseCopyV2Op op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperands()[0].getType() << ", "
+    << op.getOperands()[1].getType();
+}
+
+static LogicalResult verify(ThreadwiseCopyV2Op op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MFMAOp
 //===----------------------------------------------------------------------===//
 
