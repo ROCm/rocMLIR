@@ -105,12 +105,12 @@ void LowerMIOpenOpsStep4Pass::runOnOperation() {
   patterns.insert<ThreadwiseCopyRewritePattern>(&getContext());
   patterns.insert<ThreadwiseCopyV2RewritePattern>(&getContext());
   patterns.insert<XdlopsGemmRewritePattern>(&getContext());
-  patterns.insert<XdlopsGemmV2RewritePattern>(&getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
 }
 
 void LowerMIOpenOpsStep5Pass::runOnOperation() {
   OwningRewritePatternList patterns;
+  patterns.insert<XdlopsGemmV2RewritePattern>(&getContext());
   populateAffineToStdConversionPatterns(patterns, &getContext());
   populateLoopToStdConversionPatterns(patterns, &getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
