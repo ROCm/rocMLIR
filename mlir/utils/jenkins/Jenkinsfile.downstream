@@ -1,8 +1,8 @@
 pipeline {
     agent {
         docker {
-            image 'rocm/dev-ubuntu-18.04:3.5'
-            args '--device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+            image 'rocm/dev-ubuntu-18.04:3.7'
+            args '--user "$(id -u):$(id -g)" -v /etc/passwd:/etc/passwd:ro --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
             label 'rocm'
         }
     }
