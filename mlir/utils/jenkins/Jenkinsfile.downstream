@@ -22,13 +22,9 @@ pipeline {
                 '''
             }
         }
-        stage('Checkout') {
-            steps {
-                git branch: 'miopen-dialect', url: 'https://github.com/whchung/llvm-project'
-            }
-        }
         stage('Test') {
             steps {
+                checkout scm
                 sh '''
                     # make build directory
                     mkdir -p build && cd build
