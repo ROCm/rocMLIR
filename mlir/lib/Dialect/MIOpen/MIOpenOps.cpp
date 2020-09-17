@@ -633,9 +633,11 @@ static ParseResult parseXdlopsGemmV2Op(OpAsmParser &parser, OperationState &resu
              parser.resolveOperand(ops[0], types[0], result.operands) ||
              parser.resolveOperand(ops[1], types[1], result.operands) ||
              parser.resolveOperand(ops[2], types[2], result.operands) ||
-             parser.resolveOperand(ops[3], types[3], result.operands);
+             parser.resolveOperand(ops[3], types[3], result.operands) ||
+             parser.resolveOperand(ops[4], types[4], result.operands) ||
+             parser.resolveOperand(ops[5], types[5], result.operands);
 
-  for (unsigned i = 4; i < ops.size(); ++i) {
+  for (unsigned i = 6; i < ops.size(); ++i) {
     ret &= succeeded(parser.resolveOperand(ops[i], types[i], result.operands));
     parser.addTypeToList(types[i], result.types);
   }
@@ -666,9 +668,11 @@ static ParseResult parseBlockwiseGemmV2Op(OpAsmParser &parser, OperationState &r
              parser.resolveOperand(ops[0], types[0], result.operands) ||
              parser.resolveOperand(ops[1], types[1], result.operands) ||
              parser.resolveOperand(ops[2], types[2], result.operands) ||
-             parser.resolveOperand(ops[3], types[3], result.operands);
+             parser.resolveOperand(ops[3], types[3], result.operands) ||
+             parser.resolveOperand(ops[4], types[4], result.operands) ||
+             parser.resolveOperand(ops[5], types[5], result.operands);
 
-  for (unsigned i = 4; i < ops.size(); ++i) {
+  for (unsigned i = 6; i < ops.size(); ++i) {
     ret &= succeeded(parser.resolveOperand(ops[i], types[i], result.operands));
     parser.addTypeToList(types[i], result.types);
   }
