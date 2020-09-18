@@ -3433,7 +3433,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     int64_t NumBlks = NumBlksPerXdlops * MRepeats * NRepeats;
 
     int64_t iterationsPerVectorC = NumBlks / vectorNumber;
-    int64_t vectorCoffset = vectorType.getShape()[0] / BlkSize;
+    int64_t vectorCoffset = vectorType.getShape()[0] / iterationsPerVectorC;
 
     // llvm::errs() << "MPerWave: " << MPerWave << "\n";
     // llvm::errs() << "NPerWave: " << NPerWave << "\n\n";
