@@ -2615,7 +2615,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGemmV2Op> {
   using OpRewritePattern<miopen::GridwiseGemmV2Op>::OpRewritePattern;
 
-  void computeLDSBlockSizes(miopen::GridwiseGemmV2Op op, int64_t &a_block_space, int64_t &b_block_space, int64_t &double_block_space) const {
+  void computeLDSBlockSizes(miopen::GridwiseGemmV2Op op, int64_t &a_block_space, int64_t &b_block_space, int64_t &total_block_space) const {
      int64_t ABlockCopyDstDataPerWrite_M = op.getAttr("matrix_a_dest_data_per_write_dim_m").template dyn_cast<IntegerAttr>().getInt();
      int64_t BBlockCopyDstDataPerWrite_N = op.getAttr("matrix_b_dest_data_per_write_dim_n").template dyn_cast<IntegerAttr>().getInt();
      int64_t ThreadGemmAThreadCopySrcDataPerRead_M = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
@@ -2651,11 +2651,11 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
      //    math::integer_least_multiple(b_k_n_block_desc.GetElementSpace(), max_lds_align);
      b_block_space = math::integer_least_multiple(KPerBlock * AlignedNPerBlock, max_lds_align);
 
-     double_block_space = 2 * (a_block_space + b_block_space);
+     total_block_space = a_block_space + b_block_space;
 
      // llvm::errs() << "a_block_space: " << a_block_space << "\n";
      // llvm::errs() << "b_block_space: " << b_block_space << "\n";
-     // llvm::errs() << "double_block_space: " << double_block_space << "\n\n";
+     // llvm::errs() << "total_block_space: " << total_block_space << "\n\n";
   }
 
   // XXX. Figure out a way to do away with isMatrixA parameter.
@@ -2825,6 +2825,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
   LogicalResult matchAndRewrite(miopen::GridwiseGemmV2Op op, PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
+    // Obtain data type.
     auto elementType = op.output().getType().cast<MemRefType>().getElementType();
 
     // Prepare some useful constants.
@@ -2854,7 +2855,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     int64_t matrix_a_source_data_per_read = op.getAttr("matrix_a_source_data_per_read") .template dyn_cast<IntegerAttr>().getInt();
     int64_t matrix_b_source_data_per_read = op.getAttr("matrix_b_source_data_per_read") .template dyn_cast<IntegerAttr>().getInt();
 
-    // XDLOPS.
+    // Obtain XDLOPS-related attributes.
     int64_t MPerWave = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerWave = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t MWaves = MPerBlock / MPerWave;
@@ -2901,10 +2902,15 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     auto MPerBlockConstantOp = b.create<ConstantIndexOp>(loc, MPerBlock);
     auto NPerBlockConstantOp = b.create<ConstantIndexOp>(loc, NPerBlock);
+    auto KPerBlockConstantI32Op = b.create<ConstantIntOp>(loc, KPerBlock, b.getIntegerType(32));
     auto MBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, MBlockWork);
     auto NBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, NBlockWork);
     auto MWavePerBlockConstantOp = b.create<ConstantIndexOp>(loc, MWavePerBlock);
     auto NWavePerBlockConstantOp = b.create<ConstantIndexOp>(loc, NWavePerBlock);
+
+    // -----
+
+    // Compute the coordinate for the current workgroup on global memory.
 
     // Original C++ logic:
     // constexpr auto wkgrp_schd_order = NBlock1MBlock0;
@@ -2923,6 +2929,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     auto m_block_data_on_global_i32 = b.create<IndexCastOp>(loc, m_block_data_on_global, b.getIntegerType(32));
     auto n_block_data_on_global_i32 = b.create<IndexCastOp>(loc, n_block_data_on_global, b.getIntegerType(32));
+
+    // -----
+
+    // Logic to prepare parameters for blockwise_copy.
 
     // // Compute ThreadClusterLengths for Matrix A.
     // int64_t GemmABlockCopyClusterLengths_GemmK =
@@ -3049,37 +3059,16 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // auto ldsGpuAllocOp = b.create<miopen::GpuAllocOp>(loc, ldsMemRefType);
 
     // // Subviews for Matrix A.
-    // auto ldsBlockADoubleSize = ldsBlockASize * 2;
     // auto ldsBlockAOffset = 0;
 
     // auto ldsBlockAOffsetConstantOp =
     //     b.create<ConstantIndexOp>(loc, ldsBlockAOffset);
-    // auto ldsBlockADoubleMemRefType =
+    // auto ldsBlockAMemRefType =
     //     computeSubviewResultType(op, ldsMemRefType, ldsBlockAOffset,
-    //                              {ldsBlockADoubleSize}, elementType);
-    // auto ldsBlockADoubleSubviewOp = b.create<miopen::SubviewOp>(
-    //     loc, ldsBlockADoubleMemRefType, ldsGpuAllocOp,
+    //                              {ldsBlockASize}, elementType);
+    // auto ldsBlockASubviewOp = b.create<miopen::SubviewOp>(
+    //     loc, ldsBlockAMemRefType, ldsGpuAllocOp,
     //     ldsBlockAOffsetConstantOp);
-
-    // auto ldsBlockAEvenOffset = 0;
-    // auto ldsBlockAEvenOffsetConstantOp =
-    //     b.create<ConstantIndexOp>(loc, ldsBlockAEvenOffset);
-    // auto ldsBlockAEvenMemRefType = computeSubviewResultType(
-    //     op, ldsBlockADoubleMemRefType, ldsBlockAEvenOffset, {ldsBlockASize},
-    //     elementType);
-    // auto ldsBlockAEvenSubviewOp = b.create<miopen::SubviewOp>(
-    //     loc, ldsBlockAEvenMemRefType, ldsBlockADoubleSubviewOp,
-    //     ldsBlockAEvenOffsetConstantOp);
-
-    // auto ldsBlockAOddOffset = ldsBlockADoubleSize / 2;
-    // auto ldsBlockAOddOffsetConstantOp =
-    //     b.create<ConstantIndexOp>(loc, ldsBlockAOddOffset);
-    // auto ldsBlockAOddMemRefType = computeSubviewResultType(
-    //     op, ldsBlockADoubleMemRefType, ldsBlockAOddOffset, {ldsBlockASize},
-    //     elementType);
-    // auto ldsBlockAOddSubviewOp = b.create<miopen::SubviewOp>(
-    //     loc, ldsBlockAOddMemRefType, ldsBlockADoubleSubviewOp,
-    //     ldsBlockAOddOffsetConstantOp);
 
     // // Get 2D subviews.
     // // Compute matrix A dimension from attributes.
@@ -3088,51 +3077,23 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // // //   be careful of LDS alignment
     // // constexpr auto a_k_m_block_desc = make_native_tensor_descriptor_aligned(
     // //     Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
-    // auto lds2DMatrixAEvenMemRefType = computeSubviewResultType(
-    //     op, ldsBlockAEvenMemRefType, 0, {KPerBlock, MPerBlock}, elementType);
-
-    // auto lds2DMatrixAOddMemRefType = computeSubviewResultType(
-    //     op, ldsBlockAOddMemRefType, 0, {KPerBlock, MPerBlock}, elementType);
-
-    // auto lds2DMatrixAEvenSubviewOp = b.create<miopen::SubviewOp>(
-    //     loc, lds2DMatrixAEvenMemRefType, ldsBlockAEvenSubviewOp,
+    // auto lds2DMatrixAMemRefType = computeSubviewResultType(
+    //     op, ldsBlockAMemRefType, 0, {KPerBlock, MPerBlock}, elementType);
+    // auto lds2DMatrixASubviewOp = b.create<miopen::SubviewOp>(
+    //     loc, lds2DMatrixAMemRefType, ldsBlockASubviewOp,
     //     zeroConstantOp);
-    // auto lds2DMatrixAOddSubviewOp =
-    //     b.create<miopen::SubviewOp>(loc, lds2DMatrixAOddMemRefType,
-    //                                 ldsBlockAOddSubviewOp, zeroConstantOp);
 
     // // Subviews for Matrix B.
-    // auto ldsBlockBDoubleSize = ldsBlockBSize * 2;
-    // auto ldsBlockBOffset = ldsBlockADoubleSize;
+    // auto ldsBlockBOffset = ldsBlockASize;
 
     // auto ldsBlockBOffsetConstantOp =
     //     b.create<ConstantIndexOp>(loc, ldsBlockBOffset);
-    // auto ldsBlockBDoubleMemRefType =
+    // auto ldsBlockBMemRefType =
     //     computeSubviewResultType(op, ldsMemRefType, ldsBlockBOffset,
-    //                              {ldsBlockBDoubleSize}, elementType);
-    // auto ldsBlockBDoubleSubviewOp = b.create<miopen::SubviewOp>(
-    //     loc, ldsBlockBDoubleMemRefType, ldsGpuAllocOp,
+    //                              {ldsBlockBSize}, elementType);
+    // auto ldsBlockBSubviewOp = b.create<miopen::SubviewOp>(
+    //     loc, ldsBlockBMemRefType, ldsGpuAllocOp,
     //     ldsBlockBOffsetConstantOp);
-
-    // auto ldsBlockBEvenOffset = 0;
-    // auto ldsBlockBEvenOffsetConstantOp =
-    //     b.create<ConstantIndexOp>(loc, ldsBlockBEvenOffset);
-    // auto ldsBlockBEvenMemRefType = computeSubviewResultType(
-    //     op, ldsBlockBDoubleMemRefType, ldsBlockBEvenOffset, {ldsBlockBSize},
-    //     elementType);
-    // auto ldsBlockBEvenSubviewOp = b.create<miopen::SubviewOp>(
-    //     loc, ldsBlockBEvenMemRefType, ldsBlockBDoubleSubviewOp,
-    //     ldsBlockBEvenOffsetConstantOp);
-
-    // auto ldsBlockBOddOffset = ldsBlockBDoubleSize / 2;
-    // auto ldsBlockBOddOffsetConstantOp =
-    //     b.create<ConstantIndexOp>(loc, ldsBlockBOddOffset);
-    // auto ldsBlockBOddMemRefType = computeSubviewResultType(
-    //     op, ldsBlockBDoubleMemRefType, ldsBlockBOddOffset, {ldsBlockBSize},
-    //     elementType);
-    // auto ldsBlockBOddSubviewOp = b.create<miopen::SubviewOp>(
-    //     loc, ldsBlockBOddMemRefType, ldsBlockBDoubleSubviewOp,
-    //     ldsBlockBOddOffsetConstantOp);
 
     // // Get 2D subviews.
     // // Compute matrix B dimension from attributes.
@@ -3141,74 +3102,26 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // // //   be careful of LDS alignment
     // // constexpr auto b_k_n_block_desc = make_native_tensor_descriptor_aligned(
     // //     Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
-    // auto lds2DMatrixBEvenMemRefType = computeSubviewResultType(
-    //     op, ldsBlockBEvenMemRefType, 0, {KPerBlock, NPerBlock}, elementType);
-
-    // auto lds2DMatrixBOddMemRefType = computeSubviewResultType(
-    //     op, ldsBlockBOddMemRefType, 0, {KPerBlock, NPerBlock}, elementType);
-
-    // auto lds2DMatrixBEvenSubviewOp = b.create<miopen::SubviewOp>(
-    //     loc, lds2DMatrixBEvenMemRefType, ldsBlockBEvenSubviewOp,
+    // auto lds2DMatrixBMemRefType = computeSubviewResultType(
+    //     op, ldsBlockBMemRefType, 0, {KPerBlock, NPerBlock}, elementType);
+    // auto lds2DMatrixBSubviewOp = b.create<miopen::SubviewOp>(
+    //     loc, lds2DMatrixBMemRefType, ldsBlockBSubviewOp,
     //     zeroConstantOp);
-    // auto lds2DMatrixBOddSubviewOp =
-    //     b.create<miopen::SubviewOp>(loc, lds2DMatrixBOddMemRefType,
-    //                                 ldsBlockBOddSubviewOp, zeroConstantOp);
 
     // // Alloc for Matrix A / B on registers.
     // auto threadARegisterMemRefType = MemRefType::get(
     //     {GemmABlockCopyThreadSliceLengths_GemmK,
     //      GemmABlockCopyThreadSliceLengths_GemmM},
     //     elementType, {}, gpu::GPUDialect::getPrivateAddressSpace());
-    // auto threadAEvenAllocOp =
-    //     b.create<miopen::GpuAllocOp>(loc, threadARegisterMemRefType);
-    // auto threadAOddAllocOp =
+    // auto threadAAllocOp =
     //     b.create<miopen::GpuAllocOp>(loc, threadARegisterMemRefType);
 
     // auto threadBRegisterMemRefType = MemRefType::get(
     //     {GemmBBlockCopyThreadSliceLengths_GemmK,
     //      GemmBBlockCopyThreadSliceLengths_GemmN},
     //     elementType, {}, gpu::GPUDialect::getPrivateAddressSpace());
-    // auto threadBEvenAllocOp =
+    // auto threadBAllocOp =
     //     b.create<miopen::GpuAllocOp>(loc, threadBRegisterMemRefType);
-    // auto threadBOddAllocOp =
-    //     b.create<miopen::GpuAllocOp>(loc, threadBRegisterMemRefType);
-
-    // XDLOPS code selection.
-    XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
-
-    // Extract values from XdlopsCodeSelection.
-    StringRef mfmaInstr = xcs.mfmaInstr;
-    int64_t MPerXdlops = xcs.MPerXdlops;
-    int64_t NPerXdlops = xcs.NPerXdlops;
-    int64_t MRepeats = xcs.MRepeats;
-    int64_t NRepeats = xcs.NRepeats;
-    VectorType vectorType = xcs.vectorType;
-    int64_t vectorNumber = xcs.vectorNumber;
-    SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
-
-    int64_t group_size = xcs.group_size;
-    int64_t num_groups_blk = xcs.num_groups_blk;
-    int64_t num_regs_blk = xcs.num_regs_blk;
-    int64_t num_threads_blk = xcs.num_threads_blk;
-    int64_t wave_size = xcs.wave_size;
-    int64_t num_input_blks = xcs.num_input_blks;
-    int64_t num_output_blks = xcs.num_output_blks;
-    int64_t num_regs_xdlops = xcs.num_regs_xdlops;
-    int64_t m = xcs.m;
-    int64_t n = xcs.n;
-    int64_t k = xcs.k;
-    int64_t cycles = xcs.cycles;
-    int64_t k_base = xcs.k_base;
-
-    // Allocate 0-initialized vectors for C.
-    SmallVector<Value, 4> vectorCs;
-    SmallVector<Type, 4> vectorCTypes;
-    for (int64_t iter = 0; iter < vectorNumber; ++iter) {
-      //auto vectorC = b.create<SplatOp>(loc, zeroConstantFloatOp, vectorType);
-      auto vectorC = b.create<SplatOp>(loc, I024ConstantFloatOp, vectorType);
-      vectorCs.push_back(vectorC);
-      vectorCTypes.push_back(vectorType);
-    }
 
     // // Blockwise copies before the loop.
     // // Blockwise copy from global (generic tensor) to LDS (naive tensor).
@@ -3248,6 +3161,20 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // b.create<StoreOp>(loc, GemmBBlockCopyDestCoord_X_i32, blockwiseCopyBDst,
     //                   ValueRange{oneConstantOp});
 
+    // // Emit BlockwiseCopy ops.
+    // auto blockwiseCopyA = b.create<miopen::BlockwiseCopyOp>(
+    //     loc, op.filter(), lds2DMatrixASubviewOp, blockwiseCopyASrc,
+    //     blockwiseCopyADst, threadAAllocOp);
+    // affixBlockwiseCopyAttributes(blockwiseCopyA, op, b, /*isMatrixA=*/true);
+    // auto blockwiseCopyB = b.create<miopen::BlockwiseCopyOp>(
+    //     loc, op.input(), lds2DMatrixBSubviewOp, blockwiseCopyBSrc,
+    //     blockwiseCopyBDst, threadBAllocOp);
+    // affixBlockwiseCopyAttributes(blockwiseCopyB, op, b, /*isMatrixA=*/false);
+
+    // -----
+
+    // Logic to setup blockwise_gemm_v2 parameters.
+    //
     // Original C++ logic:
     // index_t mMyWaveOffsetA;
     // index_t mMyWaveOffsetB;
@@ -3264,17 +3191,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     mMyThreadOffsetA = b.create<MulIOp>(loc, waveId_m, MPerWaveConstantOp);
     mMyThreadOffsetB = b.create<MulIOp>(loc, waveId_n, NPerWaveConstantOp);
     
-    // // Emit BlockwiseCopy ops.
-    // auto blockwiseCopyA = b.create<miopen::BlockwiseCopyOp>(
-    //     loc, op.filter(), lds2DMatrixAEvenSubviewOp, blockwiseCopyASrc,
-    //     blockwiseCopyADst, threadAOddAllocOp);
-    // affixBlockwiseCopyAttributes(blockwiseCopyA, op, b, /*isMatrixA=*/true);
-    // auto blockwiseCopyB = b.create<miopen::BlockwiseCopyOp>(
-    //     loc, op.input(), lds2DMatrixBEvenSubviewOp, blockwiseCopyBSrc,
-    //     blockwiseCopyBDst, threadBOddAllocOp);
-    // affixBlockwiseCopyAttributes(blockwiseCopyB, op, b, /*isMatrixA=*/false);
-
-    // // ---------------------
+    // Logic to setup buffers for blockwise_gemm_v2.
+    //
     // // TBD. FloatA / FloatB could be vectorized via KPack. Ignore this for now.
     // auto arrayAType =
     //     //MemRefType::get({K * MRepeats}, dataType, {},
@@ -3286,17 +3204,53 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     //     MemRefType::get({KPerBlock * NRepeats}, dataType, {},
     //                     gpu::GPUDialect::getPrivateAddressSpace());
     // auto arrayB = b.create<miopen::GpuAllocOp>(loc, arrayBType);
-    // // ---------------------
+
+    // -----
+
+    // Logic to do XDLOPS code selection.
+    XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
+
+    // Extract values from XdlopsCodeSelection.
+    StringRef mfmaInstr = xcs.mfmaInstr;
+    int64_t MPerXdlops = xcs.MPerXdlops;
+    int64_t NPerXdlops = xcs.NPerXdlops;
+    int64_t MRepeats = xcs.MRepeats;
+    int64_t NRepeats = xcs.NRepeats;
+    VectorType vectorType = xcs.vectorType;
+    int64_t vectorNumber = xcs.vectorNumber;
+    SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
+
+    int64_t group_size = xcs.group_size;
+    int64_t num_groups_blk = xcs.num_groups_blk;
+    int64_t num_regs_blk = xcs.num_regs_blk;
+    int64_t num_threads_blk = xcs.num_threads_blk;
+    int64_t wave_size = xcs.wave_size;
+    int64_t num_input_blks = xcs.num_input_blks;
+    int64_t num_output_blks = xcs.num_output_blks;
+    int64_t num_regs_xdlops = xcs.num_regs_xdlops;
+    int64_t m = xcs.m;
+    int64_t n = xcs.n;
+    int64_t k = xcs.k;
+    int64_t cycles = xcs.cycles;
+    int64_t k_base = xcs.k_base;
+
+    // -----
+
+    // Logic to allocate 0-initialized vectors for C.
+    SmallVector<Value, 4> vectorCs;
+    SmallVector<Type, 4> vectorCTypes;
+    for (int64_t iter = 0; iter < vectorNumber; ++iter) {
+      //auto vectorC = b.create<SplatOp>(loc, zeroConstantFloatOp, vectorType);
+      auto vectorC = b.create<SplatOp>(loc, I024ConstantFloatOp, vectorType);
+      vectorCs.push_back(vectorC);
+      vectorCTypes.push_back(vectorType);
+    }
+ 
+    // -----
 
     // Emit loop.
     // Compute loop iterations from attributes.
-
-    // auto KPerBlockConstantI32Op =
-    //     b.create<ConstantIntOp>(loc, KPerBlock, b.getIntegerType(32));
-
-    // int64_t loopIteration = K / (KPerBlock * 2);
-    // // XXX. loop iteration set to 0.
-    // loopIteration = 0;
+    // int64_t loopIteration = (K - KPerBlock) / KPerBlock;
     // auto loopIterationConstantOp =
     //     b.create<ConstantIndexOp>(loc, loopIteration);
     // auto mfmaLoopOp =
@@ -3306,87 +3260,49 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // // inside the loop.
     // auto mfmalb = OpBuilder::atBlockBegin(mfmaLoopOp.getBody());
 
-    // // LDS barrier.
-    // mfmalb.create<miopen::WorkgroupBarrierOp>(loc);
-
     // // Blockwise copy from global (generic tensor) to register (naive tensor).
     // mfmalb.create<miopen::MovePosOp>(
     //     loc, blockwiseCopyASrc,
     //     ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
-    // auto blockwiseCopyOpAEven = mfmalb.create<miopen::BlockwiseCopyOp>(
-    //     loc, op.filter(), threadAEvenAllocOp, blockwiseCopyASrc,
+    // auto blockwiseCopyOpA = mfmalb.create<miopen::BlockwiseCopyOp>(
+    //     loc, op.filter(), threadAAllocOp, blockwiseCopyASrc,
     //     blockwiseCopyADst, /*buffer=*/nullptr);
-    // affixBlockwiseCopyAttributes(blockwiseCopyOpAEven, op, b,
+    // affixBlockwiseCopyAttributes(blockwiseCopyOpA, op, b,
     //                              /*isMatrixA=*/true);
     // mfmalb.create<miopen::MovePosOp>(
     //     loc, blockwiseCopyBSrc,
     //     ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
     // auto blockwiseCopyOpBEven = mfmalb.create<miopen::BlockwiseCopyOp>(
-    //     loc, op.input(), threadBEvenAllocOp, blockwiseCopyBSrc,
+    //     loc, op.input(), threadBAllocOp, blockwiseCopyBSrc,
     //     blockwiseCopyBDst, /*buffer=*/nullptr);
-    // affixBlockwiseCopyAttributes(blockwiseCopyOpBEven, op, b,
-    //                              /*isMatrixA=*/false);
-
-    // // Emit blockwise V2 GEMM.
-    // auto blockwiseGemmV2EvenOp = mfmalb.create<miopen::BlockwiseGemmV2Op>(
-    //     loc, vectorCTypes, lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
-    //     mMyThreadOffsetA, mMyThreadOffsetB, arrayA, arrayB, mfmaLoopOp.getRegionIterArgs());
-    // affixBlockwiseGemmV2Attributes(blockwiseGemmV2EvenOp, op, b);
- 
-    // // Blockwise copy from register (naive tensor) to LDS (naive tensor).
-    // auto blockwiseCopyOpAOdd = mfmalb.create<miopen::BlockwiseCopyOp>(
-    //     loc, threadAEvenAllocOp, lds2DMatrixAOddSubviewOp, blockwiseCopyASrc,
-    //     blockwiseCopyADst, /*buffer=*/nullptr);
-    // affixBlockwiseCopyAttributes(blockwiseCopyOpAOdd, op, b,
-    //                              /*isMatrixA=*/true);
-    // auto blockwiseCopyOpBOdd = mfmalb.create<miopen::BlockwiseCopyOp>(
-    //     loc, threadBEvenAllocOp, lds2DMatrixBOddSubviewOp, blockwiseCopyBSrc,
-    //     blockwiseCopyBDst, /*buffer=*/nullptr);
-    // affixBlockwiseCopyAttributes(blockwiseCopyOpBOdd, op, b,
+    // affixBlockwiseCopyAttributes(blockwiseCopyOpB, op, b,
     //                              /*isMatrixA=*/false);
 
     // // LDS barrier.
     // mfmalb.create<miopen::WorkgroupBarrierOp>(loc);
 
-    // // Blockwise copy from global (generic tensor) to register (naive tensor).
-    // mfmalb.create<miopen::MovePosOp>(
-    //     loc, blockwiseCopyASrc,
-    //     ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
-    // auto blockwiseCopyOpAOddSecondIteration =
-    //     mfmalb.create<miopen::BlockwiseCopyOp>(loc, op.filter(), threadAOddAllocOp,
-    //                                        blockwiseCopyASrc, blockwiseCopyADst,
-    //                                        /*buffer=*/nullptr);
-    // affixBlockwiseCopyAttributes(blockwiseCopyOpAOddSecondIteration, op, b,
-    //                              /*isMatrixA=*/true);
-    // mfmalb.create<miopen::MovePosOp>(
-    //     loc, blockwiseCopyBSrc,
-    //     ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
-    // auto blockwiseCopyOpBOddSecondIteration =
-    //     mfmalb.create<miopen::BlockwiseCopyOp>(loc, op.input(), threadBOddAllocOp,
-    //                                        blockwiseCopyBSrc, blockwiseCopyBDst,
-    //                                        /*buffer=*/nullptr);
-    // affixBlockwiseCopyAttributes(blockwiseCopyOpBOddSecondIteration, op, b,
-    //                              /*isMatrixA=*/false);
-
     // // Emit blockwise V2 GEMM.
-    // auto blockwiseGemmV2OddOp = mfmalb.create<miopen::BlockwiseGemmV2Op>(
-    //     loc, vectorCTypes, lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
-    //     mMyThreadOffsetA, mMyThreadOffsetB, arrayA, arrayB, blockwiseGemmV2EvenOp.getResults());
-    // affixBlockwiseGemmV2Attributes(blockwiseGemmV2OddOp, op, b);
+    // auto blockwiseGemmV2Op = mfmalb.create<miopen::BlockwiseGemmV2Op>(
+    //     loc, vectorCTypes, lds2DMatrixASubviewOp, lds2DMatrixBSubviewOp,
+    //     mMyThreadOffsetA, mMyThreadOffsetB, arrayA, arrayB, mfmaLoopOp.getRegionIterArgs());
+    // affixBlockwiseGemmV2Attributes(blockwiseGemmV2Op, op, b);
+ 
+    // // LDS barrier.
+    // mfmalb.create<miopen::WorkgroupBarrierOp>(loc);
 
     // // Blockwise copy from register (naive tensor) to LDS (naive tensor).
-    // auto blockwiseCopyAEvenSecondIteration = mfmalb.create<miopen::BlockwiseCopyOp>(
-    //     loc, threadAOddAllocOp, lds2DMatrixAEvenSubviewOp, blockwiseCopyASrc,
+    // auto blockwiseCopyOpA = mfmalb.create<miopen::BlockwiseCopyOp>(
+    //     loc, threadAAllocOp, lds2DMatrixASubviewOp, blockwiseCopyASrc,
     //     blockwiseCopyADst, /*buffer=*/nullptr);
-    // affixBlockwiseCopyAttributes(blockwiseCopyAEvenSecondIteration, op, b,
+    // affixBlockwiseCopyAttributes(blockwiseCopyOpA, op, b,
     //                              /*isMatrixA=*/true);
-    // auto blockwiseCopyBEvenSecondIteration = mfmalb.create<miopen::BlockwiseCopyOp>(
-    //     loc, threadBOddAllocOp, lds2DMatrixBEvenSubviewOp, blockwiseCopyBSrc,
+    // auto blockwiseCopyOpBOdd = mfmalb.create<miopen::BlockwiseCopyOp>(
+    //     loc, threadBAllocOp, lds2DMatrixBSubviewOp, blockwiseCopyBSrc,
     //     blockwiseCopyBDst, /*buffer=*/nullptr);
-    // affixBlockwiseCopyAttributes(blockwiseCopyBEvenSecondIteration, op, b,
+    // affixBlockwiseCopyAttributes(blockwiseCopyOpBOdd, op, b,
     //                              /*isMatrixA=*/false);
 
-    // mfmalb.create<scf::YieldOp>(loc, blockwiseGemmV2OddOp.getResults());
+    // mfmalb.create<scf::YieldOp>(loc, blockwiseGemmV2Op.getResults());
     // // outside the loop.
 
     // // Emit loop tail.
@@ -3395,20 +3311,12 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // b.create<miopen::WorkgroupBarrierOp>(loc);
 
     // // Emit blockwise GEMM for the loop tail.
-    // auto blockwiseGemmV2TailEvenOp = b.create<miopen::BlockwiseGemmV2Op>(
-    //     loc, vectorCTypes, lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
+    // auto blockwiseGemmV2TailOp = b.create<miopen::BlockwiseGemmV2Op>(
+    //     loc, vectorCTypes, lds2DMatrixASubviewOp, lds2DMatrixBSubviewOp,
     //     mMyThreadOffsetA, mMyThreadOffsetB, arrayA, arrayB, mfmaLoopOp.getResults());
     // affixBlockwiseGemmV2Attributes(blockwiseGemmV2TailEvenOp, op, b);
 
-    // auto blockwiseGemmV2TailOddOp = b.create<miopen::BlockwiseGemmV2Op>(
-    //     loc, vectorCTypes, lds2DMatrixAOddSubviewOp, lds2DMatrixBOddSubviewOp,
-    //     mMyThreadOffsetA, mMyThreadOffsetB, arrayA, arrayB, blockwiseGemmV2TailEvenOp.getResults());
-    // affixBlockwiseGemmV2Attributes(blockwiseGemmV2TailOddOp, op, b);
-    
-    // auto blockwiseGemmV2TailEvenOp = b.create<miopen::BlockwiseGemmV2Op>(
-    //     loc, vectorCTypes, lds2DMatrixAEvenSubviewOp, lds2DMatrixBEvenSubviewOp,
-    //     mMyThreadOffsetA, mMyThreadOffsetB, arrayA, arrayB, vectorCs);
-    // affixBlockwiseGemmV2Attributes(blockwiseGemmV2TailEvenOp, op, b);
+    // -----
 
     // Matrix C write out logic.
 
