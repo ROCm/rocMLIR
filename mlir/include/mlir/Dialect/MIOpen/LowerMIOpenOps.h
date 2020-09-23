@@ -2833,8 +2833,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
     auto oneConstantFloatOp =
         b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
-    auto I024ConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1024.0f), b.getF32Type());
     auto zeroConstantI32Op =
         b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
 
@@ -3048,67 +3046,74 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // auto GemmBBlockCopyDestCoord_X_i32 =
     //     b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_X_i32);
 
-    // // Compute required LDS sizes.
-    // int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
-    // computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize);
+    // -----
 
-    // // Allocate LDS.
-    // auto ldsMemRefType =
-    //     MemRefType::get({ldsBlockSize}, elementType, {},
-    //                     gpu::GPUDialect::getWorkgroupAddressSpace());
-    // auto ldsGpuAllocOp = b.create<miopen::GpuAllocOp>(loc, ldsMemRefType);
+    // Alocate LDS and create subviews.
 
-    // // Subviews for Matrix A.
-    // auto ldsBlockAOffset = 0;
+    // Compute required LDS sizes.
+    int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
+    computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize);
 
-    // auto ldsBlockAOffsetConstantOp =
-    //     b.create<ConstantIndexOp>(loc, ldsBlockAOffset);
-    // auto ldsBlockAMemRefType =
-    //     computeSubviewResultType(op, ldsMemRefType, ldsBlockAOffset,
-    //                              {ldsBlockASize}, elementType);
-    // auto ldsBlockASubviewOp = b.create<miopen::SubviewOp>(
-    //     loc, ldsBlockAMemRefType, ldsGpuAllocOp,
-    //     ldsBlockAOffsetConstantOp);
+    // Allocate LDS.
+    auto ldsMemRefType =
+        MemRefType::get({ldsBlockSize}, elementType, {},
+                        gpu::GPUDialect::getWorkgroupAddressSpace());
+    auto ldsGpuAllocOp = b.create<miopen::GpuAllocOp>(loc, ldsMemRefType);
 
-    // // Get 2D subviews.
-    // // Compute matrix A dimension from attributes.
-    // // Original C++ logic.
-    // // // A matrix in LDS memory, dst of blockwise copy
-    // // //   be careful of LDS alignment
-    // // constexpr auto a_k_m_block_desc = make_native_tensor_descriptor_aligned(
-    // //     Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
-    // auto lds2DMatrixAMemRefType = computeSubviewResultType(
-    //     op, ldsBlockAMemRefType, 0, {KPerBlock, MPerBlock}, elementType);
-    // auto lds2DMatrixASubviewOp = b.create<miopen::SubviewOp>(
-    //     loc, lds2DMatrixAMemRefType, ldsBlockASubviewOp,
-    //     zeroConstantOp);
+    // Subviews for Matrix A.
+    auto ldsBlockAOffset = 0;
 
-    // // Subviews for Matrix B.
-    // auto ldsBlockBOffset = ldsBlockASize;
+    auto ldsBlockAOffsetConstantOp =
+        b.create<ConstantIndexOp>(loc, ldsBlockAOffset);
+    auto ldsBlockAMemRefType =
+        computeSubviewResultType(op, ldsMemRefType, ldsBlockAOffset,
+                                 {ldsBlockASize}, elementType);
+    auto ldsBlockASubviewOp = b.create<miopen::SubviewOp>(
+        loc, ldsBlockAMemRefType, ldsGpuAllocOp,
+        ldsBlockAOffsetConstantOp);
 
-    // auto ldsBlockBOffsetConstantOp =
-    //     b.create<ConstantIndexOp>(loc, ldsBlockBOffset);
-    // auto ldsBlockBMemRefType =
-    //     computeSubviewResultType(op, ldsMemRefType, ldsBlockBOffset,
-    //                              {ldsBlockBSize}, elementType);
-    // auto ldsBlockBSubviewOp = b.create<miopen::SubviewOp>(
-    //     loc, ldsBlockBMemRefType, ldsGpuAllocOp,
-    //     ldsBlockBOffsetConstantOp);
+    // Get 2D subviews.
+    // Compute matrix A dimension from attributes.
+    // Original C++ logic.
+    // // A matrix in LDS memory, dst of blockwise copy
+    // //   be careful of LDS alignment
+    // constexpr auto a_k_m_block_desc = make_native_tensor_descriptor_aligned(
+    //     Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
+    auto lds2DMatrixAMemRefType = computeSubviewResultType(
+        op, ldsBlockAMemRefType, 0, {KPerBlock, MPerBlock}, elementType);
+    auto lds2DMatrixASubviewOp = b.create<miopen::SubviewOp>(
+        loc, lds2DMatrixAMemRefType, ldsBlockASubviewOp,
+        zeroConstantOp);
 
-    // // Get 2D subviews.
-    // // Compute matrix B dimension from attributes.
-    // // Original C++ logic.
-    // // // B matrix in LDS memory, dst of blockwise copy
-    // // //   be careful of LDS alignment
-    // // constexpr auto b_k_n_block_desc = make_native_tensor_descriptor_aligned(
-    // //     Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
-    // auto lds2DMatrixBMemRefType = computeSubviewResultType(
-    //     op, ldsBlockBMemRefType, 0, {KPerBlock, NPerBlock}, elementType);
-    // auto lds2DMatrixBSubviewOp = b.create<miopen::SubviewOp>(
-    //     loc, lds2DMatrixBMemRefType, ldsBlockBSubviewOp,
-    //     zeroConstantOp);
+    // Subviews for Matrix B.
+    auto ldsBlockBOffset = ldsBlockASize;
 
-    // // Alloc for Matrix A / B on registers.
+    auto ldsBlockBOffsetConstantOp =
+        b.create<ConstantIndexOp>(loc, ldsBlockBOffset);
+    auto ldsBlockBMemRefType =
+        computeSubviewResultType(op, ldsMemRefType, ldsBlockBOffset,
+                                 {ldsBlockBSize}, elementType);
+    auto ldsBlockBSubviewOp = b.create<miopen::SubviewOp>(
+        loc, ldsBlockBMemRefType, ldsGpuAllocOp,
+        ldsBlockBOffsetConstantOp);
+
+    // Get 2D subviews.
+    // Compute matrix B dimension from attributes.
+    // Original C++ logic.
+    // // B matrix in LDS memory, dst of blockwise copy
+    // //   be careful of LDS alignment
+    // constexpr auto b_k_n_block_desc = make_native_tensor_descriptor_aligned(
+    //     Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
+    auto lds2DMatrixBMemRefType = computeSubviewResultType(
+        op, ldsBlockBMemRefType, 0, {KPerBlock, NPerBlock}, elementType);
+    auto lds2DMatrixBSubviewOp = b.create<miopen::SubviewOp>(
+        loc, lds2DMatrixBMemRefType, ldsBlockBSubviewOp,
+        zeroConstantOp);
+
+    // -----
+
+    // Allocate for Matrix A / B on registers for blockwise_copy.
+
     // auto threadARegisterMemRefType = MemRefType::get(
     //     {GemmABlockCopyThreadSliceLengths_GemmK,
     //      GemmABlockCopyThreadSliceLengths_GemmM},
@@ -3123,10 +3128,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // auto threadBAllocOp =
     //     b.create<miopen::GpuAllocOp>(loc, threadBRegisterMemRefType);
 
-    // // Blockwise copies before the loop.
-    // // Blockwise copy from global (generic tensor) to LDS (naive tensor).
+    // -----
 
-    // // Compute source and destination coordinates for BlockwiseCopy ops.
+    // Compute source and destination coordinates for BlockwiseCopy ops.
+
     // auto blockwiseCopyCoordType =
     //     MemRefType::get({2}, b.getIntegerType(32), {},
     //                     gpu::GPUDialect::getPrivateAddressSpace());
@@ -3161,7 +3166,11 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // b.create<StoreOp>(loc, GemmBBlockCopyDestCoord_X_i32, blockwiseCopyBDst,
     //                   ValueRange{oneConstantOp});
 
-    // // Emit BlockwiseCopy ops.
+    // -----
+
+    // Blockwise copies before the loop.
+    // Blockwise copy from global (generic tensor) to LDS (naive tensor).
+
     // auto blockwiseCopyA = b.create<miopen::BlockwiseCopyOp>(
     //     loc, op.filter(), lds2DMatrixASubviewOp, blockwiseCopyASrc,
     //     blockwiseCopyADst, threadAAllocOp);
@@ -3170,40 +3179,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     //     loc, op.input(), lds2DMatrixBSubviewOp, blockwiseCopyBSrc,
     //     blockwiseCopyBDst, threadBAllocOp);
     // affixBlockwiseCopyAttributes(blockwiseCopyB, op, b, /*isMatrixA=*/false);
-
-    // -----
-
-    // Logic to setup blockwise_gemm_v2 parameters.
-    //
-    // Original C++ logic:
-    // index_t mMyWaveOffsetA;
-    // index_t mMyWaveOffsetB;
-    // const index_t waveId   = get_thread_local_1d_id() / WaveSize;
-    // const index_t waveId_m = waveId / GemmNWaves;
-    // const index_t waveId_n = waveId % GemmNWaves;
-    // mMyWaveOffsetA = waveId_m * GemmMPerWave;
-    // mMyWaveOffsetB = waveId_n * GemmNPerWave;
-    auto waveId = b.create<SignedDivIOp>(loc, tid, waveSizeConstantOp);
-    auto waveId_m = b.create<SignedDivIOp>(loc, waveId, NWavesConstantOp);
-    auto waveId_n = b.create<SignedRemIOp>(loc, waveId, NWavesConstantOp);
-
-    Value mMyThreadOffsetA, mMyThreadOffsetB;
-    mMyThreadOffsetA = b.create<MulIOp>(loc, waveId_m, MPerWaveConstantOp);
-    mMyThreadOffsetB = b.create<MulIOp>(loc, waveId_n, NPerWaveConstantOp);
-    
-    // Logic to setup buffers for blockwise_gemm_v2.
-    //
-    // // TBD. FloatA / FloatB could be vectorized via KPack. Ignore this for now.
-    // auto arrayAType =
-    //     //MemRefType::get({K * MRepeats}, dataType, {},
-    //     MemRefType::get({KPerBlock * MRepeats}, dataType, {},
-    //                     gpu::GPUDialect::getPrivateAddressSpace());
-    // auto arrayA = b.create<miopen::GpuAllocOp>(loc, arrayAType);
-    // auto arrayBType =
-    //     //MemRefType::get({K * NRepeats}, dataType, {},
-    //     MemRefType::get({KPerBlock * NRepeats}, dataType, {},
-    //                     gpu::GPUDialect::getPrivateAddressSpace());
-    // auto arrayB = b.create<miopen::GpuAllocOp>(loc, arrayBType);
 
     // -----
 
@@ -3233,6 +3208,38 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     int64_t k = xcs.k;
     int64_t cycles = xcs.cycles;
     int64_t k_base = xcs.k_base;
+ 
+    // -----
+
+    // Logic to setup blockwise_gemm_v2 parameters.
+    //
+    // Original C++ logic:
+    // index_t mMyWaveOffsetA;
+    // index_t mMyWaveOffsetB;
+    // const index_t waveId   = get_thread_local_1d_id() / WaveSize;
+    // const index_t waveId_m = waveId / GemmNWaves;
+    // const index_t waveId_n = waveId % GemmNWaves;
+    // mMyWaveOffsetA = waveId_m * GemmMPerWave;
+    // mMyWaveOffsetB = waveId_n * GemmNPerWave;
+    auto waveId = b.create<SignedDivIOp>(loc, tid, waveSizeConstantOp);
+    auto waveId_m = b.create<SignedDivIOp>(loc, waveId, NWavesConstantOp);
+    auto waveId_n = b.create<SignedRemIOp>(loc, waveId, NWavesConstantOp);
+
+    Value mMyThreadOffsetA, mMyThreadOffsetB;
+    mMyThreadOffsetA = b.create<MulIOp>(loc, waveId_m, MPerWaveConstantOp);
+    mMyThreadOffsetB = b.create<MulIOp>(loc, waveId_n, NPerWaveConstantOp);
+    
+    // Logic to setup buffers for blockwise_gemm_v2.
+    
+    // TBD. FloatA / FloatB could be vectorized via KPack. Ignore this for now.
+    auto arrayAType =
+        MemRefType::get({KPerBlock * MRepeats}, dataType, {},
+                        gpu::GPUDialect::getPrivateAddressSpace());
+    auto arrayA = b.create<miopen::GpuAllocOp>(loc, arrayAType);
+    auto arrayBType =
+        MemRefType::get({KPerBlock * NRepeats}, dataType, {},
+                        gpu::GPUDialect::getPrivateAddressSpace());
+    auto arrayB = b.create<miopen::GpuAllocOp>(loc, arrayBType);
 
     // -----
 
@@ -3240,8 +3247,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     SmallVector<Value, 4> vectorCs;
     SmallVector<Type, 4> vectorCTypes;
     for (int64_t iter = 0; iter < vectorNumber; ++iter) {
-      //auto vectorC = b.create<SplatOp>(loc, zeroConstantFloatOp, vectorType);
-      auto vectorC = b.create<SplatOp>(loc, I024ConstantFloatOp, vectorType);
+      auto vectorC = b.create<SplatOp>(loc, zeroConstantFloatOp, vectorType);
       vectorCs.push_back(vectorC);
       vectorCTypes.push_back(vectorType);
     }
@@ -3307,14 +3313,15 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // // Emit loop tail.
 
-    // // LDS barrier.
-    // b.create<miopen::WorkgroupBarrierOp>(loc);
+    // LDS barrier.
+    b.create<miopen::WorkgroupBarrierOp>(loc);
 
-    // // Emit blockwise GEMM for the loop tail.
-    // auto blockwiseGemmV2TailOp = b.create<miopen::BlockwiseGemmV2Op>(
-    //     loc, vectorCTypes, lds2DMatrixASubviewOp, lds2DMatrixBSubviewOp,
-    //     mMyThreadOffsetA, mMyThreadOffsetB, arrayA, arrayB, mfmaLoopOp.getResults());
-    // affixBlockwiseGemmV2Attributes(blockwiseGemmV2TailEvenOp, op, b);
+    // Emit blockwise GEMM for the loop tail.
+    auto blockwiseGemmV2TailOp = b.create<miopen::BlockwiseGemmV2Op>(
+        loc, vectorCTypes, lds2DMatrixASubviewOp, lds2DMatrixBSubviewOp,
+        //mMyThreadOffsetA, mMyThreadOffsetB, arrayA, arrayB, mfmaLoopOp.getResults());
+        mMyThreadOffsetA, mMyThreadOffsetB, arrayA, arrayB, vectorCs);
+    affixBlockwiseGemmV2Attributes(blockwiseGemmV2TailOp, op, b);
 
     // -----
 
@@ -3662,10 +3669,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
       int64_t vectorCOffset = vectorCoffset * (iter % iterationsPerVectorC);
       auto vectorCOffsetConstantOp = b.create<ConstantIntOp>(loc, vectorCOffset, b.getIntegerType(32));
 
+      // Emit threadwise_copy_v2.
       auto threadwiseCopyV2CMatrixOp = b.create<miopen::ThreadwiseCopyV2Op>(
-          //loc, blockwiseGemmV2TailOddOp.getResults()[vectorCIndex], newOutputTransformOp,
-          //loc, blockwiseGemmV2TailEvenOp.getResults()[vectorCIndex], newOutputTransformOp,
-          loc, vectorCs[vectorCIndex], newOutputTransformOp,
+          loc, blockwiseGemmV2TailOp.getResults()[vectorCIndex], newOutputTransformOp,
+          //loc, vectorCs[vectorCIndex], newOutputTransformOp,
           vectorCOffsetConstantOp,
           matrixCThreadwiseCopySourceAndDestCoords);
       affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b);
@@ -5468,17 +5475,6 @@ struct XdlopsGemmV2RewritePattern
     auto laneId = b.create<SignedRemIOp>(
         loc, tid, b.create<ConstantIndexOp>(loc, wave_size));
 
-    // // TBD. FloatA / FloatB could be vectorized via KPack. Ignore this for now.
-    // auto arrayAType =
-    //     MemRefType::get({K * MRepeats}, dataType, {},
-    //                     gpu::GPUDialect::getPrivateAddressSpace());
-    // auto arrayA = b.create<miopen::GpuAllocOp>(loc, arrayAType);
-    // auto arrayBType =
-    //     MemRefType::get({K * NRepeats}, dataType, {},
-    //     MemRefType::get({1}, dataType, {},
-    //                     gpu::GPUDialect::getPrivateAddressSpace());
-    // auto arrayB = b.create<miopen::GpuAllocOp>(loc, arrayBType);
-
     // TBD. FloatA / FloatB could be vectorized via KPack tuning parameter. Ignore this for now.
     // use arrayA as pa for now.
     // use arrayB as pb for now.
@@ -5590,32 +5586,23 @@ struct XdlopsGemmV2RewritePattern
       auto argA = loopKb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
       auto argB = loopKb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
 
-      // XXX just add 1.0f.
-      auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
-      auto oneConstantFloatVector32Op = b.create<SplatOp>(loc, oneConstantFloatOp, vectorType);
-
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
         auto vectorC = loopK.getRegionIterArgs()[i];
 
         // issue MFMA logic.
-        // // TBD: use constant 1.0f for A and B for now.
-        // auto mfma = loopKb.create<miopen::MFMAV2Op>(loc, vectorType, oneConstantFloatOp, oneConstantFloatOp, vectorC);
+        // TBD: use constant 1.0f for A and B for now.
+        auto mfma = loopKb.create<miopen::MFMAV2Op>(loc, vectorType, oneConstantFloatOp, oneConstantFloatOp, vectorC);
 
-        // // TBD: need to consider the case to use argA[AStride] and argB[BStride]
-        // //auto mfma = loopKb.create<miopen::MFMAV2Op>(loc, vectorType, argA, argB, vectorC);
+        // TBD: need to consider the case to use argA[AStride] and argB[BStride]
+        //auto mfma = loopKb.create<miopen::MFMAV2Op>(loc, vectorType, argA, argB, vectorC);
 
-        // mfma.setAttr("instr", loopKb.getStringAttr(mfmaInstr));
-        // mfma.setAttr("imm", loopKb.getArrayAttr({
-        //                       loopKb.getI32IntegerAttr(imms[i][0]),
-        //                       loopKb.getI32IntegerAttr(imms[i][1]),
-        //                       loopKb.getI32IntegerAttr(imms[i][2])
-        //                     }));
-        // mfmas.push_back(mfma);
-
-        // XXX just add 1.0f.
-        auto mfma = loopKb.create<AddFOp>(loc, vectorC, oneConstantFloatVector32Op);
+        mfma.setAttr("instr", loopKb.getStringAttr(mfmaInstr));
+        mfma.setAttr("imm", loopKb.getArrayAttr({
+                              loopKb.getI32IntegerAttr(imms[i][0]),
+                              loopKb.getI32IntegerAttr(imms[i][1]),
+                              loopKb.getI32IntegerAttr(imms[i][2])
+                            }));
         mfmas.push_back(mfma);
       }
       loopKb.create<scf::YieldOp>(loc, mfmas);
