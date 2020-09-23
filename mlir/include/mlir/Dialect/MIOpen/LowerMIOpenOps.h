@@ -2662,36 +2662,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
   void affixBlockwiseCopyAttributes(miopen::BlockwiseCopyOp bop,
                                     miopen::GridwiseGemmV2Op gop,
                                     OpBuilder &b, bool isMatrixA) const {
-    // Add attributes from C++ template arguments and ctor arguments.
-    // a_blockwise_copy:
-    // BlockSize                           - block_size attribute
-    // a_k_m_global_desc                   - source memref
-    // a_k_m_block_desc                    - dest memref
-    // a_k_m_block_desc.getLengths()       - dest memref
-    // ABlockCopyThreadSliceLengths_K_M    - logic specified in -miopen-affix-params pass
-    // ABlockCopyThreadClusterLengths_K_M  - logic specified in -miopen-affix-params pass
-    // ABlockCopyThreadClusterArrangeOrder - Sequence<1, 0>
-    // ABlockCopySrcAccessOrder            - Sequence<1, 0>
-    // Sequence<0, 1>                      - Sequence<0, 1>
-    // ABlockCopySrcVectorReadDim          - matrix_a_source_vector_read_dim attribute
-    // 1                                   - 1
-    // ABlockCopySrcDataPerRead            - matrix_a_source_data_per_read attribute
-    // ABlockCopyDstDataPerWrite_M         - matrix_a_dest_data_per_write_dim_m attribute
-
-    // b_blockwise_copy:
-    // BlockSize                           - block_size attribute
-    // b_k_n_global_desc                   - source memref
-    // b_k_n_block_desc                    - dest memref
-    // b_k_n_block_desc.getLengths()       - dest memref
-    // BBlockCopyThreadSliceLengths_K_N    - logic specified in -miopen-affix-params pass
-    // BBlockCopyThreadClusterLengths_K_N  - logic specified in -miopen-affix-params pass
-    // BBlockCopyThreadClusterArrangeOrder - Sequence<1, 0>
-    // BBlockCopySrcAccessOrder            - Sequence<1, 0>
-    // Sequence<0, 1>                      - Seuquence<0, 1>
-    // BBlockCopySrcVectorReadDim          - matrix_b_source_read_dim attribute
-    // 1                                   - 1
-    // BBlockCopySrcDataPerRead            - matrix_b_source_data_per_read attribute
-    // BBlockCopyDstDataPerWrite_N         - matrix_b_dest_data_per_write_dim_n attribute
     bop.setAttr("block_size", gop.getAttr("block_size"));
 
     if (isMatrixA) {
