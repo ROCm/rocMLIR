@@ -136,8 +136,6 @@ OwnedBlob GpuKernelToBlobPass::convertModuleToBlob(llvm::Module &llvmModule,
     }
   }
 
-  // XXX. Do NOT use optimizations for now.
-  targetMachine->setOptLevel(llvm::CodeGenOpt::None);
   llvmModule.setDataLayout(targetMachine->createDataLayout());
 
   auto targetISA = translateModuleToISA(llvmModule, *targetMachine);
