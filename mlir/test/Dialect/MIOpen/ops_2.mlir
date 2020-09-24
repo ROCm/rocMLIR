@@ -243,33 +243,6 @@ func @miopen_threadwise_gemm(%lhs : memref<4x8xf32>, %rhs : memref<4x8xf32>, %ou
 // CHECK-LABEL: func @miopen_threadwise_gemm
 //  CHECK: miopen.threadwise_gemm
 
-func @miopen_mfma_f32(%a : f32, %b : f32, %c : memref<64xf32>) {
-  %c0 = constant 0 : index
-  miopen.mfma(%a, %b, %c, %c0) { m_per_wave = 64, n_per_wave = 64 } : f32, memref<64xf32>, index
-  return
-}
-
-// CHECK-LABEL: func @miopen_mfma_f32
-//   CHECK: miopen.mfma
-
-func @miopen_mfma_f16(%a : vector<4xf16>, %b : vector<4xf16>, %c : memref<64xf32>) {
-  %c0 = constant 0 : index
-  miopen.mfma(%a, %b, %c, %c0) { m_per_wave = 64, n_per_wave = 64 } : vector<4xf16>, memref<64xf32>, index
-  return
-}
-
-// CHECK-LABEL: func @miopen_mfma_f16
-//   CHECK: miopen.mfma
-
-func @miopen_mfma_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : memref<64xf32>) {
-  %c0 = constant 0 : index
-  miopen.mfma(%a, %b, %c, %c0) { m_per_wave = 64, n_per_wave = 64 } : vector<2xbf16>, memref<64xf32>, index
-  return
-}
-
-// CHECK-LABEL: func @miopen_mfma_bf16
-//   CHECK: miopen.mfma
-
 // ----
 
 func @miopen_mfma_v2_f32(%a : f32, %b : f32, %c : vector<32xf32>) -> vector<32xf32> {
