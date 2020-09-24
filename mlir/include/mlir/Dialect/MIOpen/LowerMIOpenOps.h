@@ -1014,21 +1014,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
 }
 
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
-  // Add attributes from C++ template arguments and ctor arguments.
-  //
-  // in gridwise_gemm:
-  //
-  // ThreadwiseGenericTensorSliceCopy_v4r2<decltype(c_m0_m1_n0_n1_thread_desc),              - source memref
-  //                                       decltype(c_m0_m1_n0_n1_global_desc),              - dest memref
-  //                                       decltype(c_m0_m1_n0_n1_thread_desc.GetLengths()), - source memref
-  //                                       CThreadCopySrcDstAccessOrder,                     - Sequence<0, 1, 2, 3>
-  //                                       CThreadCopySrcDstVectorReadWriteDim,              - matrix_c_source_dest_vector_read_write_dim attribute
-  //                                       1,                                                - 1
-  //                                       CThreadCopyDstDataPerWrite,                       - matrix_c_dest_data_per_write attribute
-  //                                       AddressSpace::Vgpr,                               - addrspace on source memref
-  //                                       AddressSpace::Global,                             - addrspace on dest memref
-  //                                       CGlobalMemoryDataOperation>(                      - NOT USED
-
   top.setAttr("dim_access_order", b.getArrayAttr({
                                       b.getI32IntegerAttr(0),
                                       b.getI32IntegerAttr(1),
