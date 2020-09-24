@@ -298,23 +298,6 @@ func @miopen_mfma_v2_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : vector<
 
 // ----
 
-func @miopen_xdlops_gemm(%A : memref<?x?xf32, 3>, %B : memref<?x?xf32, 3>, %C : memref<?x?xf32, 5>) {
-  %c0 = constant 0 : index
-  miopen.xdlops_gemm(%A, %B, %C, %c0, %c0) {
-    m = 256,
-    n = 256,
-    k = 16,
-    m_per_wave = 128,
-    n_per_wave = 64
-  } : memref<?x?xf32, 3>, memref<?x?xf32, 3>, memref<?x?xf32, 5>, index, index
-  return
-}
-
-// CHECK-LABEL: func @miopen_xdlops_gemm
-//  CHECK: miopen.xdlops_gemm
-
-// ----
-
 func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>) -> vector<32xf32> {
   %c0 = constant 0 : index
   %c0f = constant 0.0 : f32

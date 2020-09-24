@@ -596,30 +596,6 @@ static LogicalResult verify(miopen::MFMAV2Op op) {
 }
 
 //===----------------------------------------------------------------------===//
-// XdlopsGemmOp
-//===----------------------------------------------------------------------===//
-
-static ParseResult parseXdlopsGemmOp(OpAsmParser &parser, OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 5> ops;
-  SmallVector<Type, 5> types;
-  return failure(
-      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
-      parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonTypeList(types) ||
-      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
-}
-
-static void print(OpAsmPrinter &p, XdlopsGemmOp op) {
-  p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperandTypes();
-}
-
-static LogicalResult verify(XdlopsGemmOp op) {
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // XdlopsGemmV2Op
 //===----------------------------------------------------------------------===//
 
