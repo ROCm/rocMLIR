@@ -23,6 +23,7 @@ add_mlir_conversion_library(MLIRGPUtoGPURuntimeTransforms
   intrinsics_gen
 
   LINK_COMPONENTS
+  Target
   Core
   MC
   ${AMDGPU_LIBS}
