@@ -4571,7 +4571,7 @@ struct XdlopsGemmV2RewritePattern
         b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
 
     if (!IsKReduction) {
-      // XXX - store bufferA logic.
+      // store bufferA logic.
       
       // Original C++ logic.
       // static_if<!IsKReduction>{}([&](auto) {
@@ -4605,7 +4605,7 @@ struct XdlopsGemmV2RewritePattern
                                          ValueRange{sourceOffsetA});
       ilmkb.create<StoreOp>(loc, valueA, op.bufferA(), ValueRange{destOffsetA});
 
-      // XXX - store bufferB logic.
+      // store bufferB logic.
       
       // Original C++ logic.
       //     for(index_t n_i = 0; n_i < NRepeats; ++n_i)
@@ -4754,11 +4754,7 @@ struct XdlopsGemmV2RewritePattern
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
         auto vectorC = innerLoop.getRegionIterArgs()[i];
-        // TBD: use constant 1.0f for A and B for now.
-        auto mfma = innerLoopb.create<miopen::MFMAV2Op>(loc, vectorType, oneConstantFloatOp, oneConstantFloatOp, vectorC);
-
-        // TBD: need to consider the case to use argA[AStride] and argB[BStride]
-        //auto mfma = loopKb.create<miopen::MFMAV2Op>(loc, vectorType, argA, argB, vectorC);
+        auto mfma = innerLoopb.create<miopen::MFMAV2Op>(loc, vectorType, argA, argB, vectorC);
 
         mfma.setAttr("instr", innerLoopb.getStringAttr(mfmaInstr));
         mfma.setAttr("imm", innerLoopb.getArrayAttr({
