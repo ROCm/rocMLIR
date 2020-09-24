@@ -280,20 +280,6 @@ def MIOpen_ThreadwiseGemmOp:
   }];
 }
 
-// mfma
-// ---- this op is slated to be deprecated after mfma_v2 is ready.
-def MIOpen_MFMAOp:
-    MIOpen_Op<"mfma">,
-    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceA,
-                   AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceB,
-                   MemRefRankOf<[F32], [1]>: $destC,
-                   Index:$threadOffsetC)> {
-  let summary = "XDLOPS MFMA";
-  let description = [{
-    The `miopen.mfma` op is an abstraction of XDLOPS.
-  }];
-}
-
 // mfma_v2
 def MIOpen_MFMAV2Op:
     MIOpen_Op<"mfma_v2">,
