@@ -307,22 +307,6 @@ def MIOpen_MFMAV2Op:
   }];
 }
 
-// xdlops_gemm
-// ---- this op is slated to be deprecated after mfma_v2 is ready.
-def MIOpen_XdlopsGemmOp:
-    MIOpen_Op<"xdlops_gemm">,
-    Arguments<(ins AnyMemRef:$matrixA,
-                   AnyMemRef:$matrixB,
-                   AnyMemRef:$matrixC,
-                   Index:$threadOffsetA,
-                   Index:$threadOffsetB)> {
-  let summary = "XDLOPS GEMM";
-  let description = [{
-    The `miopen.xdlops_gemm` op is an abstraction of doing GEMM based on XDLOPS.
-    It would employ a series of `miopen.mfma` operations.
-  }];
-}
-
 // xdlops_gemm_V2
 def MIOpen_XdlopsGemmV2Op:
     MIOpen_Op<"xdlops_gemm_v2">,
