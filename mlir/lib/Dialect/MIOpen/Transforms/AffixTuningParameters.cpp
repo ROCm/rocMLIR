@@ -164,9 +164,11 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     validParams.gemmNPerThread = 64;
     validParams.blockSize = 256;
 
-    // XXX. fix gridSize.
-    // need to use (M/MPerBlock)*(N/NPerBlock).
-    gridSize = 784;
+    int64_t M = op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t N = op.input().getType().template dyn_cast<MemRefType>().getShape()[1];
+
+    // Compute gridSize.
+    gridSize = (M / validParams.gemmMPerBlock) * (N / validParams.gemmNPerBlock);
   }
 
   if (launchDimCallback) {
