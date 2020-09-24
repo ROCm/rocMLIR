@@ -171,10 +171,6 @@ static cl::opt<int> gridSize("grid_size", cl::desc("Grid size"),
                              cl::value_desc("Grid size"), cl::init(0));
 
 // use XDLOPS
-static cl::opt<bool> xdlops("x", cl::desc("To use XDLOPS lowering pipeline"),
-                            cl::value_desc("To use XDLOPS lowering pipeline"),
-                            cl::init(false));
-
 static cl::opt<bool> xdlopsV2("x2", cl::desc("To use XDLOPS V2 lowering pipeline"),
                              cl::value_desc("To use XDLOPS V2 lowering pipeline"),
                              cl::init(false));
@@ -185,7 +181,7 @@ populateConvolutionConfiguration(SmallVector<int64_t, 4> &filterDimension,
                                  SmallVector<int64_t, 4> &outputDimension) {
   // Populate default parameters if necessary.
   if (populateDefaultValues.getValue() == true) {
-    if (xdlops.getValue() == false && xdlopsV2.getValue() == false) {
+    if (xdlopsV2.getValue() == false) {
       batchSize.setValue(128);
       inputChannel.setValue(8);
       outputChannel.setValue(128);
@@ -623,11 +619,6 @@ static LogicalResult populateConvolutionLogic(ModuleOp &module,
                          builder.getI32IntegerAttr(paddingWidth.getValue()),
                      })),
   };
-
-  // xdlops.
-  if (xdlops.getValue() == true)
-    attributes.push_back(
-        builder.getNamedAttr("xdlops", builder.getBoolAttr(true)));
 
   // xdlops v2.
   if (xdlopsV2.getValue() == true)
