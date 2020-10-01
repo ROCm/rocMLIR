@@ -175,6 +175,11 @@ static cl::opt<bool> xdlopsV2("x2", cl::desc("To use XDLOPS V2 lowering pipeline
                              cl::value_desc("To use XDLOPS V2 lowering pipeline"),
                              cl::init(false));
 
+// data type
+static cl::opt<std::string> tensorDataType("t", cl::desc("Data type for convolution"),
+                                           cl::value_desc("Data type for convolution"),
+                                           cl::init("f32"));
+
 static LogicalResult
 populateConvolutionConfiguration(SmallVector<int64_t, 4> &filterDimension,
                                  SmallVector<int64_t, 4> &inputDimension,
@@ -257,7 +262,7 @@ populateConvolutionConfiguration(SmallVector<int64_t, 4> &filterDimension,
 }
 
 static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &builder,
-                                              MLIRContext &context) {
+                                              MLIRContext &context, mlir::FloatType dataType) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main", builder.getFunctionType({}, {}));
   module.push_back(func);
@@ -273,16 +278,13 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
                                    outputDimension);
 
   auto filterMemRefType = MemRefType::get(
-      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
-      builder.getF32Type());
+      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()), dataType);
   auto inputMemRefType = MemRefType::get(
-      ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
-      builder.getF32Type());
+      ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()), dataType);
   auto outputMemRefType = MemRefType::get(
-      ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
-      builder.getF32Type());
+      ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()), dataType);
   auto fourDimUnknownSizeMemRefType =
-      MemRefType::get({-1, -1, -1, -1}, builder.getF32Type());
+      MemRefType::get({-1, -1, -1, -1}, dataType);
 
   // Emit CPU alloc.
   auto filterHostAllocOp =
@@ -308,9 +310,9 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
 
   // Populate initial values.
   auto oneConstantFloatOp = builder.create<ConstantFloatOp>(
-      builder.getUnknownLoc(), APFloat(1.0f), builder.getF32Type());
+      builder.getUnknownLoc(), APFloat(1.0f), dataType);
   auto zeroConstantFloatOp = builder.create<ConstantFloatOp>(
-      builder.getUnknownLoc(), APFloat(0.0f), builder.getF32Type());
+      builder.getUnknownLoc(), APFloat(0.0f), dataType);
   block->push_back(oneConstantFloatOp);
   block->push_back(zeroConstantFloatOp);
 
@@ -318,7 +320,7 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   auto mcpuMemset4DFloatFuncOp = FuncOp::create(
       builder.getUnknownLoc(), "mcpuMemset4DFloat",
       builder.getFunctionType(
-          {fourDimUnknownSizeMemRefType, builder.getF32Type()}, {}));
+          {fourDimUnknownSizeMemRefType, dataType}, {}));
   module.push_back(mcpuMemset4DFloatFuncOp);
 
   auto filterCpuMemsetOp = builder.create<CallOp>(
@@ -426,16 +428,16 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   block->push_back(outputGpuToCpuCopyOp);
 
   // Emit verification logic.
-  auto unrankedF32MemRefType = UnrankedMemRefType::get(builder.getF32Type(), 0);
+  auto unrankedFloatMemRefType = UnrankedMemRefType::get(dataType, 0);
   auto printMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), outputMemRefCastOp, unrankedF32MemRefType);
-  auto printMemRefF32FuncOp =
+      builder.getUnknownLoc(), outputMemRefCastOp, unrankedFloatMemRefType);
+  auto printMemRefFloatFuncOp =
       FuncOp::create(builder.getUnknownLoc(), "print_memref_f32",
-                     builder.getFunctionType({unrankedF32MemRefType}, {}));
+                     builder.getFunctionType({unrankedFloatMemRefType}, {}));
   auto printMemRefCallOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), printMemRefF32FuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFloatFuncOp,
                              ValueRange{printMemRefCastOp});
-  module.push_back(printMemRefF32FuncOp);
+  module.push_back(printMemRefFloatFuncOp);
   block->push_back(printMemRefCastOp);
   block->push_back(printMemRefCallOp);
 
@@ -549,7 +551,8 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
 static LogicalResult populateConvolutionLogic(ModuleOp &module,
                                               OpBuilder &builder,
                                               MLIRContext &context,
-                                              SmallString<128> &kernelName) {
+                                              SmallString<128> &kernelName,
+                                              mlir::FloatType dataType) {
   // Determine dimensions.
   SmallVector<int64_t, 4> filterDimension;
   SmallVector<int64_t, 4> inputDimension;
@@ -559,14 +562,11 @@ static LogicalResult populateConvolutionLogic(ModuleOp &module,
 
   // Construct a new FuncOp.
   auto filterArgType = MemRefType::get(
-      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
-      builder.getF32Type());
+      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()), dataType);
   auto inputArgType = MemRefType::get(
-      ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
-      builder.getF32Type());
+      ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()), dataType);
   auto outputArgType = MemRefType::get(
-      ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
-      builder.getF32Type());
+      ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()), dataType);
   auto funcType =
       builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
 
@@ -733,9 +733,19 @@ int main(int argc, char **argv) {
     module = ModuleOp::create(builder.getUnknownLoc());
   }
 
+  // Determine data type.
+  mlir::FloatType dataType = builder.getF32Type();
+  if (tensorDataType == "f32") {
+    dataType = builder.getF32Type();
+  } else if (tensorDataType == "f16") {
+    dataType = builder.getF16Type();
+  } else if (tensorDataType == "bf16") {
+    dataType = builder.getBF16Type();
+  }
+
   // Populate the module.
   SmallString<128> kernelName;
-  if (failed(populateConvolutionLogic(module, builder, context, kernelName))) {
+  if (failed(populateConvolutionLogic(module, builder, context, kernelName, dataType))) {
     llvm::errs() << "Module population failed.\n";
     exit(1);
   }
@@ -754,7 +764,7 @@ int main(int argc, char **argv) {
       exit(1);
     }
   } else if (populateHostHarness.getValue()) {
-    if (failed(populateHostHarnessLogic(module, builder, context)) ||
+    if (failed(populateHostHarnessLogic(module, builder, context, dataType)) ||
         failed(
             populateKernelLaunchLogic(module, builder, context, kernelName))) {
       llvm::errs() << "Host logic populated failed.\n";
