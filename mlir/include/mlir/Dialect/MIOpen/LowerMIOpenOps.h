@@ -2641,6 +2641,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     VectorType vectorType = xcs.vectorType;
     int64_t vectorNumber = xcs.vectorNumber;
     SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
+    Type argType = xcs.argType;
 
     int64_t group_size = xcs.group_size;
     int64_t num_groups_blk = xcs.num_groups_blk;
@@ -4515,6 +4516,7 @@ struct XdlopsGemmV2RewritePattern
     VectorType vectorType = xcs.vectorType;
     int64_t vectorNumber = xcs.vectorNumber;
     SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
+    Type argType = xcs.argType;
 
     int64_t group_size = xcs.group_size;
     int64_t num_groups_blk = xcs.num_groups_blk;
