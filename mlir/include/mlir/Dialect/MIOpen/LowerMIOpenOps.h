@@ -4037,6 +4037,7 @@ struct ThreadwiseCopyV2RewritePattern
 
     auto sourceType = op.source().getType().cast<VectorType>();
     auto destType = op.dest().getType().cast<MemRefType>();
+    auto dataType = destType.getElementType();
 
     // Get source offset, and dest coordinates.
     //
@@ -4271,7 +4272,12 @@ struct ThreadwiseCopyV2RewritePattern
       //     loc, vectorValue, op.dest(), destLowerIndices, dstProjection);
     } else {
       // Issue scalar store.
-      innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
+      if (dataType == b.getF32Type()) {
+        innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
+      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+        auto truncValue = innerLoopBuilder.create<FPTruncOp>(loc, scalarValue, dataType);
+        innerLoopBuilder.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
+      }
     }
 
     op.erase();
@@ -4555,7 +4561,16 @@ struct XdlopsGemmV2RewritePattern
 
     // TBD. FloatA / FloatB could be vectorized via KPack tuning parameter. Ignore this for now.
     // This must be fixed when we test fp16 / bf16 data types.
-    int64_t KRepeats = (dataType.getWidth() / 8) / (dataType.getWidth() / 8 * k_base);
+
+    // TBD. Existing logic for fp16/bf16 may still NOT be 100% correct.
+    int64_t KRepeats = 0;
+    if (dataType == b.getF32Type()) {
+      KRepeats = (dataType.getWidth() / 8) / (dataType.getWidth() / 8 * k_base);
+    } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+      VectorType argVectorType = argType.template dyn_cast<VectorType>();
+      KRepeats = (dataType.getWidth() / 8 * argVectorType.getShape()[0]) / (dataType.getWidth() / 8 * k_base);
+    }
+    
     int64_t AStride = K * KRepeats;
     int64_t BStride = K * KRepeats;
 
@@ -4657,8 +4672,15 @@ struct XdlopsGemmV2RewritePattern
       auto loopKiv = loopK.getInductionVar();
 
       auto offset = loopKb.create<MulIOp>(loc, loopKiv, KBaseConstantOp);
-      auto argA = loopKb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
-      auto argB = loopKb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
+
+      Value argA, argB;
+      if (dataType == b.getF32Type()) {
+        argA = loopKb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
+        argB = loopKb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
+      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+        argA = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
+        argB = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
+      }
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
@@ -4750,8 +4772,15 @@ struct XdlopsGemmV2RewritePattern
       auto innerLoopiv = innerLoop.getInductionVar();
 
       auto offset = innerLoopb.create<MulIOp>(loc, innerLoopb.create<AddIOp>(loc, innerLoopb.create<MulIOp>(loc, outerLoopiv, KRepeatsConstantOp), innerLoopiv), KBaseConstantOp);
-      auto argA = innerLoopb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
-      auto argB = innerLoopb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
+
+      Value argA, argB;
+      if (dataType == b.getF32Type()) {
+        argA = innerLoopb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
+        argB = innerLoopb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
+      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+        argA = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
+        argB = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
+      }
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
