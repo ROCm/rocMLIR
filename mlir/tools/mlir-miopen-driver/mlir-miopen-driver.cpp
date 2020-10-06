@@ -50,7 +50,8 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
 
 static cl::opt<std::string>
     operation("operation",
-              cl::desc("Convolution operation, eg: conv2d, conv2d_bwd_data, conv2d_bwd_weight..."),
+              cl::desc("Convolution operation, eg: conv2d, conv2d_bwd_data, "
+                       "conv2d_bwd_weight..."),
               cl::value_desc("convolution flavor string"), cl::init("conv2d"));
 
 static cl::opt<std::string>
@@ -65,97 +66,102 @@ static cl::opt<int>
                     "gfx906(60/64), gfx908(120)"),
            cl::value_desc("compute unit value"), cl::init(64));
 
-static cl::opt<std::string> filterLayout("fil_layout", cl::desc("Filter layout"),
-                                              cl::value_desc("layout string"),
-                                              cl::init("kcyx"));
+static cl::opt<std::string> filterLayout("fil_layout",
+                                         cl::desc("Filter layout"),
+                                         cl::value_desc("layout string"),
+                                         cl::init("kcyx"));
 
 static cl::opt<std::string> inputLayout("in_layout", cl::desc("Input layout"),
-                                              cl::value_desc("layout string"),
-                                              cl::init("nchw"));
+                                        cl::value_desc("layout string"),
+                                        cl::init("nchw"));
 
-static cl::opt<std::string> outputLayout("out_layout", cl::desc("Output layout"),
-                                              cl::value_desc("layout string"),
-                                              cl::init("nkhw"));
+static cl::opt<std::string> outputLayout("out_layout",
+                                         cl::desc("Output layout"),
+                                         cl::value_desc("layout string"),
+                                         cl::init("nkhw"));
 
 // N
 static cl::opt<int64_t> batchSize("batchsize", cl::desc("Batch size"),
-                                              cl::value_desc("dimension value"),
-                                              cl::init(-1));
+                                  cl::value_desc("dimension value"),
+                                  cl::init(-1));
 
 // C
 static cl::opt<int64_t> inputChannel("in_channels", cl::desc("Input channels"),
-                                              cl::value_desc("dimension value"),
-                                              cl::init(-1));
+                                     cl::value_desc("dimension value"),
+                                     cl::init(-1));
 
 // Hi
 static cl::opt<int64_t> inputHeight("in_h", cl::desc("Input height"),
-                                              cl::value_desc("dimension value"),
-                                              cl::init(-1));
+                                    cl::value_desc("dimension value"),
+                                    cl::init(-1));
 
 // Wi
 static cl::opt<int64_t> inputWidth("in_w", cl::desc("Input width"),
-                                              cl::value_desc("dimension value"),
-                                              cl::init(-1));
+                                   cl::value_desc("dimension value"),
+                                   cl::init(-1));
 
 // K
-static cl::opt<int64_t> outputChannel("out_channels", cl::desc("Output channels"),
-                                              cl::value_desc("dimension value"),
-                                              cl::init(-1));
+static cl::opt<int64_t> outputChannel("out_channels",
+                                      cl::desc("Output channels"),
+                                      cl::value_desc("dimension value"),
+                                      cl::init(-1));
 
 // Y
 static cl::opt<int64_t> filterWidth("fil_w", cl::desc("Filter width"),
-                                              cl::value_desc("dimension value"),
-                                              cl::init(-1));
+                                    cl::value_desc("dimension value"),
+                                    cl::init(-1));
 
 // X
 static cl::opt<int64_t> filterHeight("fil_h", cl::desc("Filter height"),
-                                              cl::value_desc("dimension value"),
-                                              cl::init(-1));
+                                     cl::value_desc("dimension value"),
+                                     cl::init(-1));
 
 // Ho
-static cl::opt<int64_t> outputHeight("out_h", cl::desc("Output height"),
-                                              cl::value_desc("dimension value"),
-                                              cl::init(-1));
+static cl::opt<int64_t>
+    outputHeight("out_h", cl::desc("Output height"),
+                 cl::value_desc("ouput dimension value, does not need to set."),
+                 cl::init(-1));
 
 // Wo
-static cl::opt<int64_t> outputWidth("out_w", cl::desc("Output width"),
-                                              cl::value_desc("dimension value"),
-                                              cl::init(-1));
+static cl::opt<int64_t>
+    outputWidth("out_w", cl::desc("Output width"),
+                cl::value_desc("ouput dimension value, does not need to set."),
+                cl::init(-1));
 
 // dilation height
 static cl::opt<int> dilationHeight("dilation_h", cl::desc("Dilation height"),
-                                                     cl::value_desc("attribute value"),
-                                                     cl::init(1));
+                                   cl::value_desc("attribute value"),
+                                   cl::init(1));
 
 // dilation width
 static cl::opt<int> dilationWidth("dilation_w", cl::desc("Dilation width"),
-                                                     cl::value_desc("attribute value"),
-                                                     cl::init(1));
+                                  cl::value_desc("attribute value"),
+                                  cl::init(1));
 
 // stride height
 static cl::opt<int> strideHeight("conv_stride_h", cl::desc("Stride height"),
-                                                     cl::value_desc("attribute value"),
-                                                     cl::init(1));
+                                 cl::value_desc("attribute value"),
+                                 cl::init(1));
 
 // stride width
 static cl::opt<int> strideWidth("conv_stride_w", cl::desc("Stride width"),
-                                                     cl::value_desc("attribute value"),
-                                                     cl::init(1));
+                                cl::value_desc("attribute value"), cl::init(1));
 
 // padding height
 static cl::opt<int> paddingHeight("padding_h", cl::desc("Padding height"),
-                                                     cl::value_desc("attribute value"),
-                                                     cl::init(0));
+                                  cl::value_desc("attribute value"),
+                                  cl::init(0));
 
 // padding width
 static cl::opt<int> paddingWidth("padding_w", cl::desc("Padding width"),
-                                                     cl::value_desc("attribute value"),
-                                                     cl::init(0));
+                                 cl::value_desc("attribute value"),
+                                 cl::init(0));
 
 // populate default values
-static cl::opt<bool> populateDefaultValues("p", cl::desc("To populate default values"),
-                                                cl::value_desc("To populate default values"),
-                                                cl::init(true));
+static cl::opt<bool>
+    populateDefaultValues("p", cl::desc("To populate default values"),
+                          cl::value_desc("To populate default values"),
+                          cl::init(true));
 
 // populate entry point
 static cl::opt<std::string>
@@ -201,8 +207,6 @@ static void populateDefaults() {
       outputChannel.setValue(128);
       inputHeight.setValue(32);
       inputWidth.setValue(32);
-      outputHeight.setValue(30);
-      outputWidth.setValue(30);
       filterHeight.setValue(3);
       filterWidth.setValue(3);
       dilationHeight.setValue(1);
@@ -217,8 +221,6 @@ static void populateDefaults() {
       outputChannel.setValue(1024);
       inputHeight.setValue(14);
       inputWidth.setValue(14);
-      outputHeight.setValue(14);
-      outputWidth.setValue(14);
       filterHeight.setValue(1);
       filterWidth.setValue(1);
       dilationHeight.setValue(0);
@@ -229,6 +231,17 @@ static void populateDefaults() {
       paddingWidth.setValue(0);
     }
   }
+
+  auto getOutputDim = [](int64_t inputLen, int64_t filLen, int padLen,
+                         int strideLen) {
+    return (inputLen + 2 * padLen - filLen) / strideLen + 1;
+  };
+  outputHeight.setValue(
+      getOutputDim(inputHeight.getValue(), filterHeight.getValue(),
+                   paddingHeight.getValue(), strideHeight.getValue()));
+  outputWidth.setValue(
+      getOutputDim(inputWidth.getValue(), filterWidth.getValue(),
+                   paddingWidth.getValue(), strideWidth.getValue()));
 }
 
 static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &builder,

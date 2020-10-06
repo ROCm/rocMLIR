@@ -35,6 +35,14 @@ add_definitions(-DMLIR_CUDA_CONVERSIONS_ENABLED=${MLIR_CUDA_CONVERSIONS_ENABLED}
 # is available
 if ("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
   set(MLIR_ROCM_CONVERSIONS_ENABLED 1)
+  # Configure ROCm support.
+  if (NOT DEFINED ROCM_PATH)
+    if (NOT DEFINED ENV{ROCM_PATH})
+      set(ROCM_PATH "/opt/rocm" CACHE PATH "Path to which ROCm has been installed")
+    else()
+      set(ROCM_PATH $ENV{ROCM_PATH} CACHE PATH "Path to which ROCm has been installed")
+    endif()
+  endif()
 else()
   set(MLIR_ROCM_CONVERSIONS_ENABLED 0)
 endif()
