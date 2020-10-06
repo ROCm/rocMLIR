@@ -316,41 +316,57 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   block->push_back(oneConstantFloatOp);
   block->push_back(zeroConstantFloatOp);
 
-  // Emit mcpuMemset4DFloat function calls.
-  auto mcpuMemset4DFloatFuncOp = FuncOp::create(
-      builder.getUnknownLoc(), "mcpuMemset4DFloat",
+  // Emit CPU memset function calls.
+  StringRef memsetFuncName;
+  if (dataType == builder.getF32Type()) {
+    memsetFuncName = "mcpuMemset4DFloat";
+  } else if (dataType == builder.getF16Type()) {
+    memsetFuncName = "mcpuMemset4DHalf";
+  } else if (dataType == builder.getBF16Type()) {
+    memsetFuncName = "mcpuMemset4DBF16";
+  }
+  auto mcpuMemset4DFuncOp = FuncOp::create(
+      builder.getUnknownLoc(), memsetFuncName,
       builder.getFunctionType(
           {fourDimUnknownSizeMemRefType, dataType}, {}));
-  module.push_back(mcpuMemset4DFloatFuncOp);
+  module.push_back(mcpuMemset4DFuncOp);
 
   auto filterCpuMemsetOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mcpuMemset4DFloatFuncOp,
+      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
       ValueRange{filterMemRefCastOp, oneConstantFloatOp});
   auto inputCpuMemsetOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFloatFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
                              ValueRange{inputMemRefCastOp, oneConstantFloatOp});
   auto outputCpuMemsetOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mcpuMemset4DFloatFuncOp,
+      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
       ValueRange{outputMemRefCastOp, zeroConstantFloatOp});
   block->push_back(filterCpuMemsetOp);
   block->push_back(inputCpuMemsetOp);
   block->push_back(outputCpuMemsetOp);
 
-  // Emit mgpuMemAlloc4DFloat function calls.
-  auto mgpuMemAlloc4DFloatFuncOp =
-      FuncOp::create(builder.getUnknownLoc(), "mgpuMemAlloc4DFloat",
+  // Emit GPU memory allocation function calls.
+  StringRef gpuMemAllocFuncName;
+  if (dataType == builder.getF32Type()) {
+    gpuMemAllocFuncName = "mgpuMemAlloc4DFloat";
+  } else if (dataType == builder.getF16Type()) {
+    gpuMemAllocFuncName = "mgpuMemAlloc4DHalf";
+  } else if (dataType == builder.getBF16Type()) {
+    gpuMemAllocFuncName = "mgpuMemAlloc4DBF16";
+  }
+  auto mgpuMemAlloc4DFuncOp =
+      FuncOp::create(builder.getUnknownLoc(), gpuMemAllocFuncName,
                      builder.getFunctionType({fourDimUnknownSizeMemRefType},
                                              {fourDimUnknownSizeMemRefType}));
-  module.push_back(mgpuMemAlloc4DFloatFuncOp);
+  module.push_back(mgpuMemAlloc4DFuncOp);
 
   auto filterGpuAllocOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFloatFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFuncOp,
                              ValueRange{filterMemRefCastOp});
   auto inputGpuAllocOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFloatFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFuncOp,
                              ValueRange{inputMemRefCastOp});
   auto outputGpuAllocOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFloatFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFuncOp,
                              ValueRange{outputMemRefCastOp});
   block->push_back(filterGpuAllocOp);
   block->push_back(inputGpuAllocOp);
@@ -364,25 +380,33 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   block->push_back(oneConstantI32Op);
   block->push_back(twoConstantI32Op);
 
-  // Emit mgpuMemCopy4DFloat function calls.
-  auto mgpuMemCopy4DFloatFuncOp =
-      FuncOp::create(builder.getUnknownLoc(), "mgpuMemCopy4DFloat",
+  // Emit CPU->GPU memcpy function calls.
+  StringRef gpuMemCopyFuncName;
+  if (dataType == builder.getF32Type()) {
+    gpuMemCopyFuncName = "mgpuMemCopy4DFloat";
+  } else if (dataType == builder.getF16Type()) {
+    gpuMemCopyFuncName = "mgpuMemCopy4DHalf";
+  } else if (dataType == builder.getBF16Type()) {
+    gpuMemCopyFuncName = "mgpuMemCopy4DBF16";
+  }
+  auto mgpuMemCopy4DFuncOp =
+      FuncOp::create(builder.getUnknownLoc(), gpuMemCopyFuncName,
                      builder.getFunctionType({fourDimUnknownSizeMemRefType,
                                               fourDimUnknownSizeMemRefType,
                                               builder.getIntegerType(32)},
                                              {}));
-  module.push_back(mgpuMemCopy4DFloatFuncOp);
+  module.push_back(mgpuMemCopy4DFuncOp);
 
   auto filterCpuToGpuCopyOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemCopy4DFloatFuncOp,
+      builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
       ValueRange{filterMemRefCastOp, filterGpuAllocOp.getResult(0),
                  oneConstantI32Op});
   auto inputCpuToGpuCopyOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemCopy4DFloatFuncOp,
+      builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
       ValueRange{inputMemRefCastOp, inputGpuAllocOp.getResult(0),
                  oneConstantI32Op});
   auto outputCpuToGpuCopyOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemCopy4DFloatFuncOp,
+      builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
       ValueRange{outputMemRefCastOp, outputGpuAllocOp.getResult(0),
                  oneConstantI32Op});
   block->push_back(filterCpuToGpuCopyOp);
@@ -422,7 +446,7 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
 
   // Emit mgpuMemCopy4DFloat function call.
   auto outputGpuToCpuCopyOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemCopy4DFloatFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
                              ValueRange{outputGpuAllocOp.getResult(0),
                                         outputMemRefCastOp, twoConstantI32Op});
   block->push_back(outputGpuToCpuCopyOp);
@@ -431,30 +455,38 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   auto unrankedFloatMemRefType = UnrankedMemRefType::get(dataType, 0);
   auto printMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), outputMemRefCastOp, unrankedFloatMemRefType);
-  auto printMemRefFloatFuncOp =
+  auto printMemRefFuncOp =
       FuncOp::create(builder.getUnknownLoc(), "print_memref_f32",
                      builder.getFunctionType({unrankedFloatMemRefType}, {}));
   auto printMemRefCallOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFloatFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFuncOp,
                              ValueRange{printMemRefCastOp});
-  module.push_back(printMemRefFloatFuncOp);
+  module.push_back(printMemRefFuncOp);
   block->push_back(printMemRefCastOp);
   block->push_back(printMemRefCallOp);
 
-  // Emit mgpuMemDealloc4DFloat function calls.
-  auto mgpuMemDealloc4DFloatFuncOp = FuncOp::create(
-      builder.getUnknownLoc(), "mgpuMemDealloc4DFloat",
+  // Emit GPU memory deallocation function calls.
+  StringRef gpuMemDeallocFuncName;
+  if (dataType == builder.getF32Type()) {
+    gpuMemDeallocFuncName = "mgpuMemDealloc4DFloat";
+  } else if (dataType == builder.getF16Type()) {
+    gpuMemDeallocFuncName = "mgpuMemDealloc4DHalf";
+  } else if (dataType == builder.getBF16Type()) {
+    gpuMemDeallocFuncName = "mgpuMemDealloc4DBF16";
+  }
+  auto mgpuMemDealloc4DFuncOp = FuncOp::create(
+      builder.getUnknownLoc(), gpuMemDeallocFuncName,
       builder.getFunctionType({fourDimUnknownSizeMemRefType}, {}));
-  module.push_back(mgpuMemDealloc4DFloatFuncOp);
+  module.push_back(mgpuMemDealloc4DFuncOp);
 
   auto filterGpuDeallocOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemDealloc4DFloatFuncOp,
+      builder.getUnknownLoc(), mgpuMemDealloc4DFuncOp,
       ValueRange{filterMemRefCastOp});
   auto inputGpuDeallocOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemDealloc4DFloatFuncOp,
+      builder.getUnknownLoc(), mgpuMemDealloc4DFuncOp,
       ValueRange{inputMemRefCastOp});
   auto outputGpuDeallocOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemDealloc4DFloatFuncOp,
+      builder.getUnknownLoc(), mgpuMemDealloc4DFuncOp,
       ValueRange{outputMemRefCastOp});
   block->push_back(filterGpuDeallocOp);
   block->push_back(inputGpuDeallocOp);
