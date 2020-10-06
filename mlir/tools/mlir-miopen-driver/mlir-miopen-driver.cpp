@@ -452,12 +452,20 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   block->push_back(outputGpuToCpuCopyOp);
 
   // Emit verification logic.
-  auto unrankedFloatMemRefType = UnrankedMemRefType::get(dataType, 0);
+  StringRef printMemRefFuncName;
+  if (dataType == builder.getF32Type()) {
+    printMemRefFuncName = "print_memref_f32";
+  } else if (dataType == builder.getF16Type()) {
+    printMemRefFuncName = "print_memref_f16";
+  } else if (dataType == builder.getBF16Type()) {
+    printMemRefFuncName = "print_memref_bf16";
+  }
+  auto unrankedMemRefType = UnrankedMemRefType::get(dataType, 0);
   auto printMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), outputMemRefCastOp, unrankedFloatMemRefType);
+      builder.getUnknownLoc(), outputMemRefCastOp, unrankedMemRefType);
   auto printMemRefFuncOp =
-      FuncOp::create(builder.getUnknownLoc(), "print_memref_f32",
-                     builder.getFunctionType({unrankedFloatMemRefType}, {}));
+      FuncOp::create(builder.getUnknownLoc(), printMemRefFuncName,
+                     builder.getFunctionType({unrankedMemRefType}, {}));
   auto printMemRefCallOp =
       builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFuncOp,
                              ValueRange{printMemRefCastOp});
