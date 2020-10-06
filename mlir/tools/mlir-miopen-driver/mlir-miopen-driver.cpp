@@ -309,10 +309,10 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   block->push_back(outputMemRefCastOp);
 
   // Populate initial values.
-  auto oneConstantFloatOp = builder.create<ConstantFloatOp>(
-      builder.getUnknownLoc(), APFloat(1.0f), dataType);
-  auto zeroConstantFloatOp = builder.create<ConstantFloatOp>(
-      builder.getUnknownLoc(), APFloat(0.0f), dataType);
+  auto oneConstantFloatOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), dataType, builder.getFloatAttr(dataType, 1.0));
+  auto zeroConstantFloatOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), dataType, builder.getFloatAttr(dataType, 0.0));
   block->push_back(oneConstantFloatOp);
   block->push_back(zeroConstantFloatOp);
 
