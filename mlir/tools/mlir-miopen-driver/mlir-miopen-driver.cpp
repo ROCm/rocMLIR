@@ -331,15 +331,29 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
           {fourDimUnknownSizeMemRefType, dataType}, {}));
   module.push_back(mcpuMemset4DFuncOp);
 
+  mlir::Value filterMemsetValue, inputMemsetValue, outputMemsetValue;
+  if (operation.getValue() == "conv2d") {
+    filterMemsetValue = oneConstantFloatOp;
+    inputMemsetValue = oneConstantFloatOp;
+    outputMemsetValue = zeroConstantFloatOp;
+  } else if (operation.getValue() == "conv2d_bwd_data") {
+    filterMemsetValue = oneConstantFloatOp;
+    inputMemsetValue = zeroConstantFloatOp;
+    outputMemsetValue = oneConstantFloatOp;
+  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    filterMemsetValue = zeroConstantFloatOp;
+    inputMemsetValue = oneConstantFloatOp;
+    outputMemsetValue = oneConstantFloatOp;
+  }
   auto filterCpuMemsetOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-      ValueRange{filterMemRefCastOp, oneConstantFloatOp});
+      ValueRange{filterMemRefCastOp, filterMemsetValue});
   auto inputCpuMemsetOp =
       builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-                             ValueRange{inputMemRefCastOp, oneConstantFloatOp});
+                             ValueRange{inputMemRefCastOp, inputMemsetValue});
   auto outputCpuMemsetOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-      ValueRange{outputMemRefCastOp, zeroConstantFloatOp});
+      ValueRange{outputMemRefCastOp, outputMemsetValue});
   block->push_back(filterCpuMemsetOp);
   block->push_back(inputCpuMemsetOp);
   block->push_back(outputCpuMemsetOp);
@@ -445,10 +459,21 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   block->push_back(kernelCallOp);
 
   // Emit mgpuMemCopy4DFloat function call.
+  mlir::Value resultGpuValue, resultCpuValue;
+  if (operation.getValue() == "conv2d") {
+    resultGpuValue = outputGpuAllocOp.getResult(0);
+    resultCpuValue = outputMemRefCastOp;
+  } else if (operation.getValue() == "conv2d_bwd_data") {
+    resultGpuValue = inputGpuAllocOp.getResult(0);
+    resultCpuValue = inputMemRefCastOp;
+  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    resultGpuValue = filterGpuAllocOp.getResult(0);
+    resultCpuValue = filterMemRefCastOp;
+  }
   auto outputGpuToCpuCopyOp =
       builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
-                             ValueRange{outputGpuAllocOp.getResult(0),
-                                        outputMemRefCastOp, twoConstantI32Op});
+                             ValueRange{resultGpuValue, resultCpuValue,
+                                        twoConstantI32Op});
   block->push_back(outputGpuToCpuCopyOp);
 
   // Emit verification logic.
@@ -462,7 +487,7 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   }
   auto unrankedMemRefType = UnrankedMemRefType::get(dataType, 0);
   auto printMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), outputMemRefCastOp, unrankedMemRefType);
+      builder.getUnknownLoc(), resultCpuValue, unrankedMemRefType);
   auto printMemRefFuncOp =
       FuncOp::create(builder.getUnknownLoc(), printMemRefFuncName,
                      builder.getFunctionType({unrankedMemRefType}, {}));
