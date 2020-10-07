@@ -646,8 +646,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 	      }
       }
       
-      transformedInputShape.push_back(embeddedInputShape[cDim.getInt()] * embeddedInputShape[yDim.getInt()] * embeddedInputShape[xDim.getInt()]);
-      transformedInputShape.push_back(embeddedInputShape[hDim.getInt()] * embeddedInputShape[wDim.getInt()] * embeddedInputShape[nDim.getInt()]);
+      if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
+        transformedInputShape.push_back(embeddedInputShape[hDim.getInt()] * embeddedInputShape[wDim.getInt()] * embeddedInputShape[nDim.getInt()]);
+        transformedInputShape.push_back(embeddedInputShape[cDim.getInt()] * embeddedInputShape[yDim.getInt()] * embeddedInputShape[xDim.getInt()]);
+      } else {
+        transformedInputShape.push_back(embeddedInputShape[cDim.getInt()] * embeddedInputShape[yDim.getInt()] * embeddedInputShape[xDim.getInt()]);
+        transformedInputShape.push_back(embeddedInputShape[hDim.getInt()] * embeddedInputShape[wDim.getInt()] * embeddedInputShape[nDim.getInt()]);
+      }
 
       transformedInputAttrs.push_back(b.getNamedAttr(
           "layout",
@@ -751,8 +756,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           nonKDimSize *= outputShape[i];
         }
       }
-      transformedOutputShape.push_back(outputShape[kDim.getInt()]);
-      transformedOutputShape.push_back(nonKDimSize);
+      if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
+        transformedOutputShape.push_back(nonKDimSize);
+        transformedOutputShape.push_back(outputShape[kDim.getInt()]);
+      } else {
+        transformedOutputShape.push_back(outputShape[kDim.getInt()]);
+        transformedOutputShape.push_back(nonKDimSize);
+      }
 
       llvm::SmallVector<NamedAttribute, 3> sourceProbNHoWoDimAttr{
 	      b.getNamedAttr("source_dimensions",
@@ -961,8 +971,8 @@ miopen::ConvOpType::Conv2DBwdDataOpType;
 
 template <>
 const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>::fields = {
-	{2, 1, 0},
-	{"MN", "KN", "KM"},
+    {2, 1, 0},
+    {"MN", "KN", "KM"},
 };
 
 template <>
