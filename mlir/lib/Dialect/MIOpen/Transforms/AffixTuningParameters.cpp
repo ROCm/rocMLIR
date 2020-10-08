@@ -188,12 +188,16 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
              b.getI32IntegerAttr(gemmADerivedParam.srcDataPerRead));
   op.setAttr("matrix_a_dest_data_per_write_dim_m",
              b.getI32IntegerAttr(gemmADerivedParam.dstDataPerWrite));
+  op.setAttr("matrix_a_source_vector_read_dim",
+             b.getI32IntegerAttr(gemmADerivedParam.srcVectorReadDim));
 
   // Derived parameters for gemmB.
   op.setAttr("matrix_b_source_data_per_read",
              b.getI32IntegerAttr(gemmBDerivedParam.srcDataPerRead));
   op.setAttr("matrix_b_dest_data_per_write_dim_n",
              b.getI32IntegerAttr(gemmBDerivedParam.dstDataPerWrite));
+  op.setAttr("matrix_b_source_vector_read_dim",
+             b.getI32IntegerAttr(gemmBDerivedParam.srcVectorReadDim));
 
   // Derived parameters for gemmC.
   // TODO: Pending fix from
@@ -201,18 +205,20 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   // op.setAttr("matrix_c_dest_data_per_write",
   //           b.getI32IntegerAttr(gemmCDstPerWrite));
   op.setAttr("matrix_c_dest_data_per_write", b.getI32IntegerAttr(1));
+  op.setAttr("matrix_c_source_dest_vector_read_write_dim",
+             b.getI32IntegerAttr(3));
 
   // Hard coded parameters, will change in a different pass. Please visit
   // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
   op.setAttr("k_per_thread", b.getI32IntegerAttr(1));
-  op.setAttr("m_level0_cluster", b.getI32IntegerAttr(4));
-  op.setAttr("n_level0_cluster", b.getI32IntegerAttr(4));
-  op.setAttr("m_level1_cluster", b.getI32IntegerAttr(4));
-  op.setAttr("n_level1_cluster", b.getI32IntegerAttr(4));
-  op.setAttr("matrix_a_source_vector_read_dim", b.getI32IntegerAttr(0));
-  op.setAttr("matrix_b_source_vector_read_dim", b.getI32IntegerAttr(1));
-  op.setAttr("matrix_c_source_dest_vector_read_write_dim",
-             b.getI32IntegerAttr(3)); 
+  op.setAttr("m_level0_cluster",
+             b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel0Cluster));
+  op.setAttr("n_level0_cluster",
+             b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel0Cluster));
+  op.setAttr("m_level1_cluster",
+             b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel1Cluster));
+  op.setAttr("n_level1_cluster",
+             b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel1Cluster));
 }
 
 std::unique_ptr<Pass> mlir::miopen::createAffixTuningParametersPass(

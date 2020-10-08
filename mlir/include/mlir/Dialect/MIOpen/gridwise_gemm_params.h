@@ -94,13 +94,15 @@ struct GemmSize {
 };
 
 struct DerivedParams {
+  int64_t srcVectorReadDim;
+  int64_t dstVectorWriteDim;
   int64_t srcDataPerRead;
   int64_t dstDataPerWrite;
   int64_t clusterLenGemmPos1;
   int64_t clusterLenGemmPos2;
   DerivedParams()
-      : srcDataPerRead(1), dstDataPerWrite(1), clusterLenGemmPos1(0),
-        clusterLenGemmPos2(0) {}
+      : srcVectorReadDim(0), dstVectorWriteDim(0), srcDataPerRead(1),
+        dstDataPerWrite(1), clusterLenGemmPos1(0), clusterLenGemmPos2(0) {}
 };
 
 static constexpr int kConv2DTensorDimension = 4;
@@ -478,9 +480,11 @@ protected:
     if (gemmPos1Vectorizable) {
       dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmVectorized;
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmNonvectorized;
+      derived.srcVectorReadDim = 0;
     } else {
       dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmNonvectorized;
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmVectorized;
+      derived.srcVectorReadDim = 1;
     }
 
     // dstDataPerWrite also bounded by size of threadwise copy

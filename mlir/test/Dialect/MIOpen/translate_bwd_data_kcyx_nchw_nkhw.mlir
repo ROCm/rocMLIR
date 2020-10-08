@@ -1,9 +1,9 @@
 // RUN: mlir-translate -mlir-to-miopen-cpp %s | FileCheck -check-prefix=MIOPEN-CPP %s
 // RUN: mlir-translate -mlir-to-miopen-hpp %s | FileCheck -check-prefix=MIOPEN-HPP %s
 
-// MIOPEN-CPP:  __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void gridwise_convolution_backward_data_implicit_gemm_v1r1_mlir
+// MIOPEN-CPP:  __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_v1r1_bwd
 // MIOPEN-CPP:  FLOAT* const __restrict__ p_in_global
-// MIOPEN-HPP: struct GridwiseConvolutionBackwardDataImplicitGemm_v1r1_mlir
+// MIOPEN-HPP: struct MlirGenIgemmConv2dV1r1Bwd
 func @miopen_transformed_conv2d(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
   // filter tensor
   %filter_gemmK_gemmM = miopen.transform(%filter) {
@@ -159,7 +159,7 @@ func @miopen_transformed_conv2d(%filter : memref<?x?x?x?xf32>, %input : memref<?
 // MIOPEN-CPP:    constexpr auto weight_k_c_y_x_desc = make_native_tensor_descriptor(Sequence<k, c, y, x>{}, Sequence<stride_k, stride_c, stride_y, stride_x>{});
 // MIOPEN-CPP:     constexpr auto input_ni_ci_hi_wi_desc = make_native_tensor_descriptor(Sequence<ni, ci, hi, wi>{}, Sequence<stride_ni, stride_ci, stride_hi, stride_wi>{});
 // MIOPEN-CPP:     constexpr auto output_no_ko_ho_wo_desc = make_native_tensor_descriptor(Sequence<no, ko, ho, wo>{}, Sequence<stride_no, stride_ko, stride_ho, stride_wo>{});
-// MIOPEN-CPP:         constexpr auto gridwise_conv = GridwiseConvolutionBackwardDataImplicitGemm_v1r1_mlir
+// MIOPEN-CPP:         constexpr auto gridwise_conv = MlirGenIgemmConv2dV1r1Bwd
 // MIOPEN-CPP:        decltype(input_ni_ci_hi_wi_desc),
 // MIOPEN-CPP:        decltype(weight_k_c_y_x_desc),
 // MIOPEN-CPP:        decltype(output_no_ko_ho_wo_desc),

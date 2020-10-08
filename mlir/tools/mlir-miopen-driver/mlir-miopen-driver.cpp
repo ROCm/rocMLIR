@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MlirParse.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
@@ -180,12 +181,8 @@ static cl::opt<std::string> tensorDataType("t", cl::desc("Data type for convolut
                                            cl::value_desc("Data type for convolution"),
                                            cl::init("f32"));
 
-static LogicalResult
-populateConvolutionConfiguration(SmallVector<int64_t, 4> &filterDimension,
-                                 SmallVector<int64_t, 4> &inputDimension,
-                                 SmallVector<int64_t, 4> &outputDimension) {
-  // Populate default parameters if necessary.
-  if (populateDefaultValues.getValue() == true) {
+static void populateDefaults() {
+  if (populateDefaultValues == true) {
     if (xdlopsV2.getValue() == false) {
       batchSize.setValue(128);
       inputChannel.setValue(8);
@@ -220,45 +217,6 @@ populateConvolutionConfiguration(SmallVector<int64_t, 4> &filterDimension,
       paddingWidth.setValue(0);
     }
   }
-
-  // Determine dimensions.
-  for (size_t i = 0; i < 4; ++i) {
-    auto &filterDim = filterLayout.getValue()[i];
-    auto &inputDim = inputLayout.getValue()[i];
-    auto &outputDim = outputLayout.getValue()[i];
-
-    if (filterDim == 'k') {
-      filterDimension.push_back(outputChannel.getValue());
-    } else if (filterDim == 'c') {
-      filterDimension.push_back(inputChannel.getValue());
-    } else if (filterDim == 'y') {
-      filterDimension.push_back(filterWidth.getValue());
-    } else if (filterDim == 'x') {
-      filterDimension.push_back(filterHeight.getValue());
-    }
-
-    if (inputDim == 'n') {
-      inputDimension.push_back(batchSize.getValue());
-    } else if (inputDim == 'c') {
-      inputDimension.push_back(inputChannel.getValue());
-    } else if (inputDim == 'h') {
-      inputDimension.push_back(inputWidth.getValue());
-    } else if (inputDim == 'w') {
-      inputDimension.push_back(inputHeight.getValue());
-    }
-
-    if (outputDim == 'n') {
-      outputDimension.push_back(batchSize.getValue());
-    } else if (outputDim == 'k') {
-      outputDimension.push_back(outputChannel.getValue());
-    } else if (outputDim == 'h') {
-      outputDimension.push_back(outputWidth.getValue());
-    } else if (outputDim == 'w') {
-      outputDimension.push_back(outputHeight.getValue());
-    }
-  }
-
-  return success();
 }
 
 static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &builder,
@@ -274,8 +232,12 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   SmallVector<int64_t, 4> filterDimension;
   SmallVector<int64_t, 4> inputDimension;
   SmallVector<int64_t, 4> outputDimension;
-  populateConvolutionConfiguration(filterDimension, inputDimension,
-                                   outputDimension);
+  populateConvolutionConfiguration(
+      inputLayout.getValue(), outputLayout.getValue(), filterLayout.getValue(),
+      batchSize.getValue(), inputChannel.getValue(), inputHeight.getValue(),
+      inputWidth.getValue(), outputChannel.getValue(), outputHeight.getValue(),
+      outputWidth.getValue(), filterWidth.getValue(), filterHeight.getValue(),
+      filterDimension, inputDimension, outputDimension);
 
   auto filterMemRefType = MemRefType::get(
       ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()), dataType);
@@ -613,113 +575,6 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
   return success();
 }
 
-static LogicalResult populateConvolutionLogic(ModuleOp &module,
-                                              OpBuilder &builder,
-                                              MLIRContext &context,
-                                              SmallString<128> &kernelName,
-                                              mlir::FloatType dataType) {
-  // Determine dimensions.
-  SmallVector<int64_t, 4> filterDimension;
-  SmallVector<int64_t, 4> inputDimension;
-  SmallVector<int64_t, 4> outputDimension;
-  populateConvolutionConfiguration(filterDimension, inputDimension,
-                                   outputDimension);
-
-  // Construct a new FuncOp.
-  auto filterArgType = MemRefType::get(
-      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()), dataType);
-  auto inputArgType = MemRefType::get(
-      ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()), dataType);
-  auto outputArgType = MemRefType::get(
-      ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()), dataType);
-  auto funcType =
-      builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
-
-  // Determine kernel name.
-  kernelName = "miopen_" + operation.getValue() + "_" + filterLayout + "_" +
-               inputLayout + "_" + outputLayout;
-
-  auto func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType);
-  module.push_back(func);
-
-  // Construct a new Block.
-  Block *block = func.addEntryBlock();
-
-  // Construct a new Conv2DOp.
-  SmallVector<StringAttr, 4> filterLayoutSpec;
-  SmallVector<StringAttr, 4> inputLayoutSpec;
-  SmallVector<StringAttr, 4> outputLayoutSpec;
-  for (size_t i = 0; i < 4; ++i) {
-    filterLayoutSpec.push_back(builder.getStringAttr(StringRef(&filterLayout.getValue()[i], 1)));
-    inputLayoutSpec.push_back(builder.getStringAttr((StringRef(&inputLayout.getValue()[i], 1) + "i").str()));
-    outputLayoutSpec.push_back(builder.getStringAttr((StringRef(&outputLayout.getValue()[i], 1) + "o").str()));
-  }
-
-  std::vector<NamedAttribute> attributes{
-      builder.getNamedAttr(
-          "filter_layout",
-          builder.getArrayAttr(ArrayRef<mlir::Attribute>(
-              filterLayoutSpec.begin(), filterLayoutSpec.end()))),
-      builder.getNamedAttr(
-          "input_layout", builder.getArrayAttr(ArrayRef<mlir::Attribute>(
-                              inputLayoutSpec.begin(), inputLayoutSpec.end()))),
-      builder.getNamedAttr(
-          "output_layout",
-          builder.getArrayAttr(ArrayRef<mlir::Attribute>(
-              outputLayoutSpec.begin(), outputLayoutSpec.end()))),
-
-      builder.getNamedAttr(
-          "dilations", builder.getArrayAttr({
-                           builder.getI32IntegerAttr(dilationHeight.getValue()),
-                           builder.getI32IntegerAttr(dilationWidth.getValue()),
-                       })),
-      builder.getNamedAttr(
-          "strides", builder.getArrayAttr({
-                         builder.getI32IntegerAttr(strideHeight.getValue()),
-                         builder.getI32IntegerAttr(strideWidth.getValue()),
-                     })),
-      builder.getNamedAttr(
-          "padding", builder.getArrayAttr({
-                         builder.getI32IntegerAttr(paddingHeight.getValue()),
-                         builder.getI32IntegerAttr(paddingWidth.getValue()),
-                     })),
-  };
-
-  // xdlops v2.
-  if (xdlopsV2.getValue() == true)
-    attributes.push_back(
-        builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
-
-  if (operation.getValue().compare("conv2d") == 0) {
-    auto convOp = builder.create<miopen::Conv2DOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
-    block->push_front(convOp);
-  } else if (operation.getValue().compare("conv2d_bwd_data") == 0) {
-    auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
-    block->push_front(convOp);
-  } else if (operation.getValue().compare("conv2d_bwd_weight") == 0) {
-    auto convOp = builder.create<miopen::Conv2DBwdWeightOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
-    block->push_back(convOp);
-  }
-
-  auto returnOp =
-      builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
-  block->push_back(returnOp);
-
-  return success();
-}
-
 static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser &passPipeline, StringRef kernelName) {
   PassManager pm(module.getContext());
   applyPassManagerCLOptions(pm);
@@ -810,7 +665,18 @@ int main(int argc, char **argv) {
 
   // Populate the module.
   SmallString<128> kernelName;
-  if (failed(populateConvolutionLogic(module, builder, context, kernelName, dataType))) {
+  populateDefaults();
+  if (failed(populateConvolutionLogic(
+          operation.getValue(), inputLayout.getValue(), outputLayout.getValue(),
+          filterLayout.getValue(), batchSize.getValue(),
+          inputChannel.getValue(), inputHeight.getValue(),
+          inputWidth.getValue(), outputChannel.getValue(),
+          outputHeight.getValue(), outputWidth.getValue(),
+          filterWidth.getValue(), filterHeight.getValue(),
+          dilationHeight.getValue(), dilationWidth.getValue(),
+          strideHeight.getValue(), strideWidth.getValue(),
+          paddingHeight.getValue(), paddingWidth.getValue(), module, builder,
+          kernelName, dataType, xdlopsV2.getValue()))) {
     llvm::errs() << "Module population failed.\n";
     exit(1);
   }

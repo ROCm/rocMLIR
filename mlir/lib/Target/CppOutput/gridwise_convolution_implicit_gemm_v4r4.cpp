@@ -28,9 +28,6 @@
 using namespace mlir;
 
 namespace {
-// result string to keep C++ source / header / flags emission.
-std::string resultStr;
-
 static constexpr StringLiteral kVarArgName[3] = {"p_wei_global", "p_in_global",
                                                  "p_out_global"};
 
@@ -191,34 +188,26 @@ static constexpr StringLiteral kGemmNameABlockCopySrcDataPerRead[] = {
 void EmitCppPreamble(llvm::raw_ostream &output, miopen::ConvOpType opType) {
   output << kCppPreamblePart1;
 // Between Preamble Part 1 and Part 2:
-// #include "gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw.hpp"
   if (opType == miopen::ConvOpType::Conv2DOpType) {
-    output << R"(#include "gridwise_convolution_implicit_gemm_v4r4_)";
+    output << R"(#include "mlir_gen_igemm_conv2d_v4r4_fwd.hpp")";
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
-    output << R"(#include "gridwise_convolution_implicit_gemm_v1r1_)";
+    output << R"(#include "mlir_gen_igemm_conv2d_v1r1_bwd.hpp")";
   } else if (opType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
-    output
-        << R"(#include "gridwise_convolution_backward_weight_implicit_gemm_v4r4_)";
+    output << R"(#include "mlir_gen_igemm_conv2d_v4r4_wrw.hpp")";
   }
-
-  // Change to fixed "mlir".
-  output << "mlir" << R"(.hpp")";
 
   output << kCppPreamblePart2;
 // Between Preamble Part 2 and Par 3:
-//    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw(
   if (opType == miopen::ConvOpType::Conv2DOpType) {
     output << R"(
-    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void gridwise_convolution_implicit_gemm_v4r4_)";
+    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_v4r4_fwd)";
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
     output << R"(
-    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void gridwise_convolution_backward_data_implicit_gemm_v1r1_)";
+    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_v1r1_bwd)";
   } else if (opType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
     output << R"(
-    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void gridwise_convolution_backward_weight_implicit_gemm_v4r4_)";
+    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_v4r4_wrw)";
   }
-  // Change to fixed "mlir".
-  output << "mlir";
 
   std::string argPInGlobal(kVarArgName[1]);
   std::string argPOutGlobal(kVarArgName[2]);
@@ -258,17 +247,14 @@ void EmitCppEpilogue(llvm::raw_ostream &output,
   //    GridwiseConvolutionImplicitGemm_v4r4_nchw_kcyx_nkhw
   if (opType == miopen::ConvOpType::Conv2DOpType) {
     output << R"(
-    constexpr auto gridwise_conv = GridwiseConvolutionImplicitGemm_v4r4_)";
+    constexpr auto gridwise_conv = MlirGenIgemmConv2dV4r4Fwd)";
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
     output << R"(
-    constexpr auto gridwise_conv = GridwiseConvolutionBackwardDataImplicitGemm_v1r1_)";
+    constexpr auto gridwise_conv = MlirGenIgemmConv2dV1r1Bwd)";
   } else if (opType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
     output << R"(
-    constexpr auto gridwise_conv = GridwiseConvolutionBackwardWeightImplicitGemm_v4r4_)";
+    constexpr auto gridwise_conv = MlirGenIgemmConv2dV4r4Wrw)";
   }
-
-  // Change to fixed "mlir".
-  output << "mlir";
 
   output << kCppEpiloguePart1;
   // Between Part1 and Part2:
@@ -446,19 +432,19 @@ void EmitHeaderPreamble(llvm::raw_ostream &output,
   std::string commentGemmK;
   std::string gemmNameABlockCopySrcDataPerRead;
   if (opType == miopen::ConvOpType::Conv2DOpType) {
-    headerIncludeGuard = "IMPLICIT_GEMM_V4R4";
+    headerIncludeGuard = "MLIR_GEN_IGEMM_CONV2D_V4R4_FWD";
     commentGemmM = "K";
     commentGemmN = "N * H * W";
     commentGemmK = "C * Y * X";
     gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[0].str();
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
-    headerIncludeGuard = "BACKWARD_DATA_IMPLICIT_GEMM_V1R1";
+    headerIncludeGuard = "MLIR_GEN_IGEMM_CONV2D_V1R1_BWD";
     commentGemmM = "C * Y * X";
     commentGemmN = "N * H * W";
     commentGemmK = "K";
     gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[1].str();
   } else if (opType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
-    headerIncludeGuard = "BACKWARD_WEIGHT_IMPLICIT_GEMM_V4R4";
+    headerIncludeGuard = "MLIR_GEN_IGEMM_CONV2D_V4R4_WRW";
     commentGemmM = "K";
     commentGemmN = "C * Y * X";
     commentGemmK = "N * H * W";
@@ -470,15 +456,12 @@ void EmitHeaderPreamble(llvm::raw_ostream &output,
       commentGemmK.c_str(), gemmNameABlockCopySrcDataPerRead.c_str());
 
   if (opType == miopen::ConvOpType::Conv2DOpType) {
-    output << R"(struct GridwiseConvolutionImplicitGemm_v4r4_)";
+    output << R"(struct MlirGenIgemmConv2dV4r4Fwd)";
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
-    output << R"(struct GridwiseConvolutionBackwardDataImplicitGemm_v1r1_)";
+    output << R"(struct MlirGenIgemmConv2dV1r1Bwd)";
   } else if (opType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
-    output << R"(struct GridwiseConvolutionBackwardWeightImplicitGemm_v4r4_)";
+    output << R"(struct MlirGenIgemmConv2dV4r4Wrw)";
   }
-
-  // Change to fixed "mlir".
-  output << "mlir";
 
   if (opType == miopen::ConvOpType::Conv2DOpType) {
     output << kHeaderPreamblePart2Forward;
@@ -684,8 +667,8 @@ static void ObtainModuleInfo(ModuleOp &m,
 
 } // namespace
 
-std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m) {
-  llvm::raw_string_ostream output(resultStr);
+void mlir::translateModuleToMIOpenHeader(ModuleOp m, std::string &header) {
+  llvm::raw_string_ostream output(header);
 
   // Enumerate FuncOp instances inside the ModuleOp.
   for (auto f : m.getOps<FuncOp>()) {
@@ -865,11 +848,10 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeader(ModuleOp m)
   }
 
   output.flush();
-  return std::make_unique<llvm::StringRef>(resultStr);
 }
 
-std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
-  llvm::raw_string_ostream output(resultStr);
+void mlir::translateModuleToMIOpenCpp(ModuleOp m, std::string &source) {
+  llvm::raw_string_ostream output(source);
 
   // Enumerate FuncOp instances inside the ModuleOp.
   for (auto f : m.getOps<FuncOp>()) {
@@ -912,11 +894,10 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCpp(ModuleOp m) {
   }
 
   output.flush();
-  return std::make_unique<llvm::StringRef>(resultStr);
 }
 
-std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m) {
-  llvm::raw_string_ostream output(resultStr);
+void mlir::translateModuleToMIOpenCFlags(ModuleOp m, std::string &cflags) {
+  llvm::raw_string_ostream output(cflags);
 
   for (auto f : m.getOps<FuncOp>()) {
     output << f.getName() << "\n";
@@ -1049,5 +1030,4 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlags(ModuleOp m)
   }
  
   output.flush();
-  return std::make_unique<llvm::StringRef>(resultStr);
 }
