@@ -107,7 +107,7 @@ std::unique_ptr<llvm::Module> mlir::translateModuleToROCDLIR(Operation *m) {
 
     llvmFunc->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
 
-    llvmFunc->addFnAttr("amdgpu-flat-work-group-size", "1, 1024");
+    llvmFunc->addFnAttr("amdgpu-flat-work-group-size", "1, 256");
   }
 
   return llvmModule;

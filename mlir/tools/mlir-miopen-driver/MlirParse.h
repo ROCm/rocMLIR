@@ -84,7 +84,7 @@ static LogicalResult populateConvolutionLogic(
     int64_t filterHeight, int64_t dilationHeight, int64_t dilationWidth,
     int64_t strideHeight, int64_t strideWidth, int64_t paddingHeight,
     int64_t paddingWidth, ModuleOp &module, OpBuilder &builder,
-    SmallString<128> &kernelName) {
+    SmallString<128> &kernelName, mlir::FloatType dataType, bool xdlops = false) {
   // Determine dimensions.
   SmallVector<int64_t, 4> filterDimension;
   SmallVector<int64_t, 4> inputDimension;
@@ -98,13 +98,13 @@ static LogicalResult populateConvolutionLogic(
   // Construct a new FuncOp.
   auto filterArgType = MemRefType::get(
       ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
-      builder.getF32Type());
+      dataType);
   auto inputArgType = MemRefType::get(
       ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
-      builder.getF32Type());
+      dataType);
   auto outputArgType = MemRefType::get(
       ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
-      builder.getF32Type());
+      dataType);
   auto funcType =
       builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
 
@@ -160,6 +160,11 @@ static LogicalResult populateConvolutionLogic(
                                builder.getI32IntegerAttr(paddingWidth),
                            })),
   };
+
+  // xdlops v2.
+  if (xdlops)
+    attributes.push_back(
+        builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
 
   if (operation.compare("conv2d") == 0) {
     auto convOp = builder.create<miopen::Conv2DOp>(

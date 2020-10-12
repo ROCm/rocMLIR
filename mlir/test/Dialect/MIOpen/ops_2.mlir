@@ -2,24 +2,6 @@
 // RUN: mlir-opt %s | mlir-opt | FileCheck %s
 // Run: mlir-opt -mlir-print-op-generic %s | mlir-opt | FileCheck %s
 
-func @miopen_gridwise_gemm_ex(%A : memref<?x?xf32>, %B : memref<?x?xf32>, %C : memref<?x?xf32>) {
-  miopen.gridwise_gemm_ex(%A, %B, %C) {
-    filter_layout = ["k", "c", "y", "x"],
-    filter_dimension = [1, 2, 3, 4],
-    input_layout = ["n", "c", "hi", "wi"],
-    input_dimension = [5, 6, 7, 8],
-    output_layout = ["n", "k", "ho", "wo"],
-    output_dimension = [9, 10, 11, 12],
-    strides = [1, 1],
-    dilations = [1, 1],
-    padding = [0, 0]
-  } : memref<?x?xf32>, memref<?x?xf32>, memref<?x?xf32>
-  return
-}
-
-// CHECK-LABEL: func @miopen_gridwise_gemm_ex
-//  CHECK-NEXT: miopen.gridwise_gemm_ex
-
 func @miopen_alloc() {
   // allocation on global.
   %buffer_global = miopen.alloc() : memref<1024xi8>
@@ -210,6 +192,49 @@ func @miopen_threadwise_copy(%source_coord : memref<2xi32, 5>, %dest_coord : mem
 // CHECK-LABEL: func @miopen_threadwise_copy
 //  CHECK: miopen.threadwise_copy
 
+#map11 = affine_map<(d0, d1) -> (d1, d0, d1, d0)>
+
+#map12 = affine_map<(d0, d1) -> (d1, d0 floordiv 9, (d0 mod 9) floordiv 3, (d0 mod 9) mod 3)>
+#map13 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2 * 2 + d3, d4 * 2 + d5)>
+
+func @miopen_threadwise_copy_v2(%source_offset : i32, %source_coord : memref<2xi32, 5>, %dest_coord : memref<2xi32, 5>,
+                                %source : vector<32xf32>, %dest : memref<?x?xf32>,
+                                %dest_with_embedded_affine : memref<?x?xf32, #map11>,
+                                %dest_with_externally_defined_affine : memref<?x?x?x?xf32>) {
+  %c0 = constant 0 : index
+  %c1 = constant 1 : index
+  %c0_i32 = constant 0 : i32
+
+  %source_coord_y = load %source_coord[%c0] : memref<2xi32, 5>
+  %source_coord_x = load %source_coord[%c1] : memref<2xi32, 5>
+  %dest_coord_y = load %dest_coord[%c0] : memref<2xi32, 5>
+  %dest_coord_x = load %dest_coord[%c1] : memref<2xi32, 5>
+
+  // check dest as a vanilla memref.
+  miopen.threadwise_copy_v2(%source, %dest, %source_offset, %c0_i32, %dest_coord_x, %dest_coord_y) : vector<32xf32>, memref<?x?xf32>
+
+  // -----
+
+  // check source with one externally defined affine map.
+  miopen.threadwise_copy_v2(%source, %dest, %source_offset, %source_coord_x, %source_coord_y, %dest_coord_x, %dest_coord_y) { coord_transforms = [ { operand = 0, transforms = [#map12] } ] } : vector<32xf32>, memref<?x?xf32>
+
+  // check source with multiple externally defined affine maps.
+  miopen.threadwise_copy_v2(%source, %dest, %source_offset, %source_coord_x, %source_coord_y, %dest_coord_x, %dest_coord_y) { coord_transforms = [ { operand = 0, transforms = [#map12, #map13] } ] } : vector<32xf32>, memref<?x?xf32>
+
+  // -----
+
+  // check source and destination with one externally defined affine map.
+  miopen.threadwise_copy_v2(%source, %dest_with_externally_defined_affine, %source_offset, %source_coord_x, %source_coord_y, %dest_coord_x, %dest_coord_y) { coord_transforms = [ { operand = 0, transforms = [#map12] }, { operand = 1, transforms = [#map12] } ] } : vector<32xf32>, memref<?x?x?x?xf32>
+
+  // check source and destination with multiple externally defined affine maps.
+  miopen.threadwise_copy_v2(%source, %dest_with_externally_defined_affine, %source_offset, %source_coord_x, %source_coord_y, %dest_coord_x, %dest_coord_y) { coord_transforms = [ { operand = 0, transforms = [#map12, #map13] }, { operand = 1, transforms = [#map12, #map13] } ] } : vector<32xf32>, memref<?x?x?x?xf32>
+
+  return
+}
+ 
+// CHECK-LABEL: func @miopen_threadwise_copy_v2
+//  CHECK: miopen.threadwise_copy_v2
+
 func @miopen_threadwise_gemm(%lhs : memref<4x8xf32>, %rhs : memref<4x8xf32>, %output : memref<8x8xf32>) {
   miopen.threadwise_gemm(%lhs, %rhs, %output) : memref<4x8xf32>, memref<4x8xf32>, memref<8x8xf32>
   return
@@ -218,26 +243,114 @@ func @miopen_threadwise_gemm(%lhs : memref<4x8xf32>, %rhs : memref<4x8xf32>, %ou
 // CHECK-LABEL: func @miopen_threadwise_gemm
 //  CHECK: miopen.threadwise_gemm
 
-func @miopen_mfma_f32(%a : f32, %b : f32, %c : memref<64xf32>) {
-  miopen.mfma(%a, %b, %c) { m_per_wave = 64, n_per_wave = 64 } : f32, memref<64xf32>
-  return
+// ----
+
+func @miopen_mfma_v2_f32(%a : f32, %b : f32, %c : vector<32xf32>) -> vector<32xf32> {
+  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x1f32", imm = [1, 0, 0] } : f32, vector<32xf32>
+  return %d : vector<32xf32>
 }
 
-// CHECK-LABEL: func @miopen_mfma_f32
-//   CHECK: miopen.mfma
+// CHECK-LABEL: func @miopen_mfma_v2_f32
+//   CHECK: miopen.mfma_v2
 
-func @miopen_mfma_f16(%a : vector<4xf16>, %b : vector<4xf16>, %c : memref<64xf32>) {
-  miopen.mfma(%a, %b, %c) { m_per_wave = 64, n_per_wave = 64 } : vector<4xf16>, memref<64xf32>
-  return
+func @miopen_mfma_v2_f16(%a : vector<4xf16>, %b : vector<4xf16>, %c : vector<32xf32>) -> vector<32xf32> {
+  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x4f16", imm = [1, 0, 0] } : vector<4xf16>, vector<32xf32>
+  return %d : vector<32xf32>
 }
 
-// CHECK-LABEL: func @miopen_mfma_f16
-//   CHECK: miopen.mfma
+// CHECK-LABEL: func @miopen_mfma_v2_f16
+//   CHECK: miopen.mfma_v2
 
-func @miopen_mfma_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : memref<64xf32>) {
-  miopen.mfma(%a, %b, %c) { m_per_wave = 64, n_per_wave = 64 } : vector<2xbf16>, memref<64xf32>
-  return
+func @miopen_mfma_v2_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : vector<32xf32>) -> vector<32xf32> {
+  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x2bf16", imm = [1, 0, 0] } : vector<2xbf16>, vector<32xf32>
+  return %d : vector<32xf32>
 }
 
-// CHECK-LABEL: func @miopen_mfma_bf16
-//   CHECK: miopen.mfma
+// CHECK-LABEL: func @miopen_mfma_v2_bf16
+//   CHECK: miopen.mfma_v2
+
+// ----
+
+func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
+                                       %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>) -> vector<32xf32> {
+  %c0 = constant 0 : index
+  %c0f = constant 0.0 : f32
+  %vectorC0 = splat %c0f : vector<32xf32>
+  %vectorD0 = miopen.xdlops_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0) {
+    m = 256,
+    n = 256,
+    k = 16,
+    m_per_wave = 128,
+    n_per_wave = 64,
+    coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
+  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>
+  return %vectorD0 : vector<32xf32>
+}
+
+// CHECK-LABEL: func @miopen_xdlops_gemm_v2_one_result
+//  CHECK: miopen.xdlops_gemm_v2
+ 
+// ----
+
+func @miopen_xdlops_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
+                                        %bufferA : memref<32xf32, 5>, %bufferB: memref<16xf32, 5>) -> (vector<32xf32>, vector<32xf32>) {
+  %c0 = constant 0 : index
+  %c0f = constant 0.0 : f32
+  %vectorC0 = splat %c0f : vector<32xf32>
+  %vectorC1 = splat %c0f : vector<32xf32>
+  %vectorD0, %vectorD1 = miopen.xdlops_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0, %vectorC1) {
+    m = 256,
+    n = 256,
+    k = 16,
+    m_per_wave = 128,
+    n_per_wave = 64,
+    coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
+  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>, vector<32xf32>
+  return %vectorD0, %vectorD1 : vector<32xf32>, vector<32xf32>
+}
+
+// CHECK-LABEL: func @miopen_xdlops_gemm_v2_two_results
+//  CHECK: miopen.xdlops_gemm_v2
+
+// ----
+
+func @miopen_blockwise_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
+                                          %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>) -> vector<32xf32> {
+  %c0 = constant 0 : index
+  %c0f = constant 0.0 : f32
+  %vectorC0 = splat %c0f : vector<32xf32>
+  %vectorD0 = miopen.blockwise_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0) {
+    m = 256,
+    n = 256,
+    k = 16,
+    m_per_wave = 128,
+    n_per_wave = 64,
+    coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
+  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>
+  return %vectorD0 : vector<32xf32>
+}
+
+// CHECK-LABEL: func @miopen_blockwise_gemm_v2_one_result
+//  CHECK: miopen.blockwise_gemm_v2
+
+// ----
+
+func @miopen_blockwise_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
+                                           %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>) -> (vector<32xf32>, vector<32xf32>) {
+  %c0 = constant 0 : index
+  %c0f = constant 0.0 : f32
+  %vectorC0 = splat %c0f : vector<32xf32>
+  %vectorC1 = splat %c0f : vector<32xf32>
+  %vectorD0, %vectorD1 = miopen.blockwise_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0, %vectorC1) {
+    m = 256,
+    n = 256,
+    k = 16,
+    m_per_wave = 128,
+    n_per_wave = 64,
+    coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
+  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>, vector<32xf32>
+  return %vectorD0, %vectorD1 : vector<32xf32>, vector<32xf32>
+}
+
+// CHECK-LABEL: func @miopen_blockwise_gemm_v2_two_results
+//  CHECK: miopen.blockwise_gemm_v2

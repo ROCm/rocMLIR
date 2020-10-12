@@ -40,9 +40,9 @@ class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
 
 def MIOpen_Conv2DOp :
     MIOpen_Op<"conv2d">,
-    Arguments<(ins MemRefRankOf<[F32], [4]>:$filter,
-                   MemRefRankOf<[F32], [4]>:$input,
-                   MemRefRankOf<[F32], [4]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [4]>:$filter,
+                   MemRefRankOf<[F32, F16, BF16], [4]>:$input,
+                   MemRefRankOf<[F32, F16, BF16], [4]>:$output)> {
   let summary = "2D convolution forward";
   let description = [{
     The `miopen.conv2d` op computes 2D convolution forward.
@@ -51,9 +51,9 @@ def MIOpen_Conv2DOp :
 
 def MIOpen_Conv2DBwdDataOp :
     MIOpen_Op<"conv2d_bwd_data">,
-    Arguments<(ins MemRefRankOf<[F32], [4]>:$filter,
-                   MemRefRankOf<[F32], [4]>:$input,
-                   MemRefRankOf<[F32], [4]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [4]>:$filter,
+                   MemRefRankOf<[F32, F16, BF16], [4]>:$input,
+                   MemRefRankOf<[F32, F16, BF16], [4]>:$output)> {
   let summary = "2D convolution backward data";
   let description = [{
     The `miopen.conv2d` op computes 2D convolution backward data.
@@ -62,9 +62,9 @@ def MIOpen_Conv2DBwdDataOp :
 
 def MIOpen_Conv2DBwdWeightOp :
     MIOpen_Op<"conv2d_bwd_weight">,
-    Arguments<(ins MemRefRankOf<[F32], [4]>:$filter,
-                   MemRefRankOf<[F32], [4]>:$input,
-                   MemRefRankOf<[F32], [4]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [4]>:$filter,
+                   MemRefRankOf<[F32, F16, BF16], [4]>:$input,
+                   MemRefRankOf<[F32, F16, BF16], [4]>:$output)> {
   let summary = "2D convolution backward weight";
   let description = [{
     The `miopen.conv2d` op computes 2D convolution backward weight.
@@ -83,29 +83,24 @@ def MIOpen_TransformOp :
 
 def MIOpen_GridwiseGemmOp :
     MIOpen_Op<"gridwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32], [2]>:$filter,
-                   MemRefRankOf<[F32], [2]>:$input,
-                   MemRefRankOf<[F32], [2]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [2]>:$filter,
+                   MemRefRankOf<[F32, F16, BF16], [2]>:$input,
+                   MemRefRankOf<[F32, F16, BF16], [2]>:$output)> {
   let summary = "Gridwise GEMM";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM.
   }];
 }
 
-// gridwise_gemm_ex would eventually be replaced with gridwise_gemm
-// keep it as a separate op for now.
-// the difference with gridwise_gemm is gridwise_gemm_ex carries tuning
-// parameters. On the other hand, gridwise_gemm only carries convolution
-// configuration.
-def MIOpen_GridwiseGemmExOp:
-    MIOpen_Op<"gridwise_gemm_ex">,
-    Arguments<(ins MemRefRankOf<[F32], [2]>,
-                   MemRefRankOf<[F32], [2]>,
-                   MemRefRankOf<[F32], [2]>)> {
-  let summary = "Gridwise GEMM extended";
+// gridwise_gemm_v2
+def MIOpen_GridwiseGemmV2Op :
+    MIOpen_Op<"gridwise_gemm_v2">,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [2]>:$filter,
+                   MemRefRankOf<[F32, F16, BF16], [2]>:$input,
+                   MemRefRankOf<[F32, F16, BF16], [2]>:$output)> {
+  let summary = "Gridwise GEMM V2";
   let description = [{
-    The `miopen.gridwise_gemm_ex` op computes gridwise GEMM, with tuning
-    parameters supplied in the attributes.
+    The `miopen.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
   }];
 }
 
@@ -219,15 +214,32 @@ def MIOpen_ThreadwiseCopyOp:
   }];
 }
 
+// threadwise_copy_v2
+def MIOpen_ThreadwiseCopyV2Op:
+    MIOpen_Op<"threadwise_copy_v2">,
+    Arguments<(ins VectorOfRankAndType<[1], [F32, F16, BF16]>:$source,
+                   AnyMemRef:$dest,
+                   I32: $sourceOffset,
+                   Variadic<I32>:$sourceAndDestCoord)> {
+  let summary = "Threadwise GPU data movement XDLOPS version";
+  let description = [{
+    The `miopen.threadwise_v2` op moves data on GPU. Following movements are
+    allowed:
+    - Register (naive tensor) as vector type to global (generic tensor).
+
+    The op is used to store C matrices, stored as vectors, back to global VMEM.
+  }];
+}
+
 // blockwise_gemm
 def MIOpen_BlockwiseGemmOp:
     MIOpen_Op<"blockwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32], [2]>:$matrixA,
-                   MemRefRankOf<[F32], [2]>:$matrixB,
-                   MemRefRankOf<[F32], [2]>:$matrixC,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [2]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16], [2]>:$matrixB,
+                   AnyMemRef:$matrixC,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB)> {
-  let summary = "Blockwise GEMM";
+  let summary = "Blockwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.block_gemm` op does GEMM at workgroup (block) level.
     - Matrix A and Matrix B shall reside on LDS (naive tensor).
@@ -235,13 +247,32 @@ def MIOpen_BlockwiseGemmOp:
   }];
 }
 
+// blockwise_gemm_v2
+def MIOpen_BlockwiseGemmV2Op:
+    MIOpen_Op<"blockwise_gemm_v2">,
+    Arguments<(ins MemRefOf<[F32, F16, BF16]>:$matrixA,
+                   MemRefOf<[F32, F16, BF16]>:$matrixB,
+                   Index:$threadOffsetA,
+                   Index:$threadOffsetB,
+                   MemRefOf<[F32, F16, BF16]>:$bufferA,
+                   MemRefOf<[F32, F16, BF16]>:$bufferB,
+                   Variadic<VectorOfRankAndType<[1], [F32, F16, BF16]>>:$vectorCs)>,
+    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, BF16]>>: $vectorDs)> {
+  let summary = "Blockwise GEMM XDLOPS version";
+  let description = [{
+    The `miopen.block_gemm` op does GEMM at workgroup (block) level.
+    - Matrix A and Matrix B shall reside on LDS (naive tensor).
+    - Matrix C shall be vectors.
+  }];
+}
+
 // threadwise_gemm
 def MIOpen_ThreadwiseGemmOp:
     MIOpen_Op<"threadwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32], [2]>:$matrixA,
-                   MemRefRankOf<[F32], [2]>:$matrixB,
-                   MemRefRankOf<[F32], [2]>:$matrixC)> {
-  let summary = "Threadwise GEMM";
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [2]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16], [2]>:$matrixB,
+                   MemRefRankOf<[F32, F16, BF16], [2]>:$matrixC)> {
+  let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.
     - Matrix A and Matrix B shall reside on register (naive tensor).
@@ -249,15 +280,34 @@ def MIOpen_ThreadwiseGemmOp:
   }];
 }
 
-// mfma
-def MIOpen_MFMAOp:
-    MIOpen_Op<"mfma">,
+// mfma_v2
+def MIOpen_MFMAV2Op:
+    MIOpen_Op<"mfma_v2">,
     Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceA,
                    AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceB,
-                   MemRefRankOf<[F32], [1]>: $destC)> {
-  let summary = "XDLOPS MFMA";
+                   VectorOfRankAndType<[1], [F32, F16, BF16]>: $destC)>,
+    Results<(outs VectorOfRankAndType<[1], [F32, F16, BF16]>: $destD)> {
+  let summary = "XDLOPS MFMA V2";
   let description = [{
-    The `miopen.mfma` op is an abstraction of XDLOPS.
+    The `miopen.mfma_v2` op is an abstraction of XDLOPS.
+  }];
+}
+
+// xdlops_gemm_V2
+def MIOpen_XdlopsGemmV2Op:
+    MIOpen_Op<"xdlops_gemm_v2">,
+    Arguments<(ins MemRefOf<[F32, F16, BF16]>:$matrixA,
+                   MemRefOf<[F32, F16, BF16]>:$matrixB,
+                   Index:$threadOffsetA,
+                   Index:$threadOffsetB,
+                   MemRefOf<[F32, F16, BF16]>:$bufferA,
+                   MemRefOf<[F32, F16, BF16]>:$bufferB,
+                   Variadic<VectorOfRankAndType<[1], [F32, F16, BF16]>>:$vectorCs)>,
+    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, BF16]>>: $vectorDs)> {
+  let summary = "XDLOPS GEMM V2";
+  let description = [{
+    The `miopen.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.
+    It would employ a series of `miopen.mfma` operations.
   }];
 }
 

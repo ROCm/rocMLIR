@@ -171,28 +171,56 @@ static cl::opt<int> blockSize("block_size", cl::desc("Block size"),
 static cl::opt<int> gridSize("grid_size", cl::desc("Grid size"),
                              cl::value_desc("Grid size"), cl::init(0));
 
+// use XDLOPS
+static cl::opt<bool> xdlopsV2("x2", cl::desc("To use XDLOPS V2 lowering pipeline"),
+                             cl::value_desc("To use XDLOPS V2 lowering pipeline"),
+                             cl::init(false));
+
+// data type
+static cl::opt<std::string> tensorDataType("t", cl::desc("Data type for convolution"),
+                                           cl::value_desc("Data type for convolution"),
+                                           cl::init("f32"));
+
 static void populateDefaults() {
   if (populateDefaultValues == true) {
-    batchSize.setValue(128);
-    inputChannel.setValue(8);
-    outputChannel.setValue(128);
-    inputHeight.setValue(32);
-    inputWidth.setValue(32);
-    outputHeight.setValue(30);
-    outputWidth.setValue(30);
-    filterHeight.setValue(3);
-    filterWidth.setValue(3);
-    dilationHeight.setValue(1);
-    dilationWidth.setValue(1);
-    strideHeight.setValue(1);
-    strideWidth.setValue(1);
-    paddingHeight.setValue(0);
-    paddingWidth.setValue(0);
+    if (xdlopsV2.getValue() == false) {
+      batchSize.setValue(128);
+      inputChannel.setValue(8);
+      outputChannel.setValue(128);
+      inputHeight.setValue(32);
+      inputWidth.setValue(32);
+      outputHeight.setValue(30);
+      outputWidth.setValue(30);
+      filterHeight.setValue(3);
+      filterWidth.setValue(3);
+      dilationHeight.setValue(1);
+      dilationWidth.setValue(1);
+      strideHeight.setValue(1);
+      strideWidth.setValue(1);
+      paddingHeight.setValue(0);
+      paddingWidth.setValue(0);
+    } else {
+      batchSize.setValue(128);
+      inputChannel.setValue(1024);
+      outputChannel.setValue(1024);
+      inputHeight.setValue(14);
+      inputWidth.setValue(14);
+      outputHeight.setValue(14);
+      outputWidth.setValue(14);
+      filterHeight.setValue(1);
+      filterWidth.setValue(1);
+      dilationHeight.setValue(0);
+      dilationWidth.setValue(0);
+      strideHeight.setValue(1);
+      strideWidth.setValue(1);
+      paddingHeight.setValue(0);
+      paddingWidth.setValue(0);
+    }
   }
 }
 
 static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &builder,
-                                              MLIRContext &context) {
+                                              MLIRContext &context, mlir::FloatType dataType) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main", builder.getFunctionType({}, {}));
   module.push_back(func);
@@ -212,16 +240,13 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
       filterDimension, inputDimension, outputDimension);
 
   auto filterMemRefType = MemRefType::get(
-      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
-      builder.getF32Type());
+      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()), dataType);
   auto inputMemRefType = MemRefType::get(
-      ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
-      builder.getF32Type());
+      ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()), dataType);
   auto outputMemRefType = MemRefType::get(
-      ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
-      builder.getF32Type());
+      ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()), dataType);
   auto fourDimUnknownSizeMemRefType =
-      MemRefType::get({-1, -1, -1, -1}, builder.getF32Type());
+      MemRefType::get({-1, -1, -1, -1}, dataType);
 
   // Emit CPU alloc.
   auto filterHostAllocOp =
@@ -246,48 +271,78 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   block->push_back(outputMemRefCastOp);
 
   // Populate initial values.
-  auto oneConstantFloatOp = builder.create<ConstantFloatOp>(
-      builder.getUnknownLoc(), APFloat(1.0f), builder.getF32Type());
-  auto zeroConstantFloatOp = builder.create<ConstantFloatOp>(
-      builder.getUnknownLoc(), APFloat(0.0f), builder.getF32Type());
+  auto oneConstantFloatOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), dataType, builder.getFloatAttr(dataType, 1.0));
+  auto zeroConstantFloatOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), dataType, builder.getFloatAttr(dataType, 0.0));
   block->push_back(oneConstantFloatOp);
   block->push_back(zeroConstantFloatOp);
 
-  // Emit mcpuMemset4DFloat function calls.
-  auto mcpuMemset4DFloatFuncOp = FuncOp::create(
-      builder.getUnknownLoc(), "mcpuMemset4DFloat",
+  // Emit CPU memset function calls.
+  StringRef memsetFuncName;
+  if (dataType == builder.getF32Type()) {
+    memsetFuncName = "mcpuMemset4DFloat";
+  } else if (dataType == builder.getF16Type()) {
+    memsetFuncName = "mcpuMemset4DHalf";
+  } else if (dataType == builder.getBF16Type()) {
+    memsetFuncName = "mcpuMemset4DBF16";
+  }
+  auto mcpuMemset4DFuncOp = FuncOp::create(
+      builder.getUnknownLoc(), memsetFuncName,
       builder.getFunctionType(
-          {fourDimUnknownSizeMemRefType, builder.getF32Type()}, {}));
-  module.push_back(mcpuMemset4DFloatFuncOp);
+          {fourDimUnknownSizeMemRefType, dataType}, {}));
+  module.push_back(mcpuMemset4DFuncOp);
 
+  mlir::Value filterMemsetValue, inputMemsetValue, outputMemsetValue;
+  if (operation.getValue() == "conv2d") {
+    filterMemsetValue = oneConstantFloatOp;
+    inputMemsetValue = oneConstantFloatOp;
+    outputMemsetValue = zeroConstantFloatOp;
+  } else if (operation.getValue() == "conv2d_bwd_data") {
+    filterMemsetValue = oneConstantFloatOp;
+    inputMemsetValue = zeroConstantFloatOp;
+    outputMemsetValue = oneConstantFloatOp;
+  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    filterMemsetValue = zeroConstantFloatOp;
+    inputMemsetValue = oneConstantFloatOp;
+    outputMemsetValue = oneConstantFloatOp;
+  }
   auto filterCpuMemsetOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mcpuMemset4DFloatFuncOp,
-      ValueRange{filterMemRefCastOp, oneConstantFloatOp});
+      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      ValueRange{filterMemRefCastOp, filterMemsetValue});
   auto inputCpuMemsetOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFloatFuncOp,
-                             ValueRange{inputMemRefCastOp, oneConstantFloatOp});
+      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+                             ValueRange{inputMemRefCastOp, inputMemsetValue});
   auto outputCpuMemsetOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mcpuMemset4DFloatFuncOp,
-      ValueRange{outputMemRefCastOp, oneConstantFloatOp});
+      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      ValueRange{outputMemRefCastOp, outputMemsetValue});
   block->push_back(filterCpuMemsetOp);
   block->push_back(inputCpuMemsetOp);
   block->push_back(outputCpuMemsetOp);
 
-  // Emit mgpuMemAlloc4DFloat function calls.
-  auto mgpuMemAlloc4DFloatFuncOp =
-      FuncOp::create(builder.getUnknownLoc(), "mgpuMemAlloc4DFloat",
+  // Emit GPU memory allocation function calls.
+  StringRef gpuMemAllocFuncName;
+  if (dataType == builder.getF32Type()) {
+    gpuMemAllocFuncName = "mgpuMemAlloc4DFloat";
+  } else if (dataType == builder.getF16Type()) {
+    gpuMemAllocFuncName = "mgpuMemAlloc4DHalf";
+  } else if (dataType == builder.getBF16Type()) {
+    gpuMemAllocFuncName = "mgpuMemAlloc4DBF16";
+  }
+  auto mgpuMemAlloc4DFuncOp =
+      FuncOp::create(builder.getUnknownLoc(), gpuMemAllocFuncName,
                      builder.getFunctionType({fourDimUnknownSizeMemRefType},
                                              {fourDimUnknownSizeMemRefType}));
-  module.push_back(mgpuMemAlloc4DFloatFuncOp);
+  module.push_back(mgpuMemAlloc4DFuncOp);
 
   auto filterGpuAllocOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFloatFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFuncOp,
                              ValueRange{filterMemRefCastOp});
   auto inputGpuAllocOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFloatFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFuncOp,
                              ValueRange{inputMemRefCastOp});
   auto outputGpuAllocOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFloatFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFuncOp,
                              ValueRange{outputMemRefCastOp});
   block->push_back(filterGpuAllocOp);
   block->push_back(inputGpuAllocOp);
@@ -301,25 +356,33 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   block->push_back(oneConstantI32Op);
   block->push_back(twoConstantI32Op);
 
-  // Emit mgpuMemCopy4DFloat function calls.
-  auto mgpuMemCopy4DFloatFuncOp =
-      FuncOp::create(builder.getUnknownLoc(), "mgpuMemCopy4DFloat",
+  // Emit CPU->GPU memcpy function calls.
+  StringRef gpuMemCopyFuncName;
+  if (dataType == builder.getF32Type()) {
+    gpuMemCopyFuncName = "mgpuMemCopy4DFloat";
+  } else if (dataType == builder.getF16Type()) {
+    gpuMemCopyFuncName = "mgpuMemCopy4DHalf";
+  } else if (dataType == builder.getBF16Type()) {
+    gpuMemCopyFuncName = "mgpuMemCopy4DBF16";
+  }
+  auto mgpuMemCopy4DFuncOp =
+      FuncOp::create(builder.getUnknownLoc(), gpuMemCopyFuncName,
                      builder.getFunctionType({fourDimUnknownSizeMemRefType,
                                               fourDimUnknownSizeMemRefType,
                                               builder.getIntegerType(32)},
                                              {}));
-  module.push_back(mgpuMemCopy4DFloatFuncOp);
+  module.push_back(mgpuMemCopy4DFuncOp);
 
   auto filterCpuToGpuCopyOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemCopy4DFloatFuncOp,
+      builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
       ValueRange{filterMemRefCastOp, filterGpuAllocOp.getResult(0),
                  oneConstantI32Op});
   auto inputCpuToGpuCopyOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemCopy4DFloatFuncOp,
+      builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
       ValueRange{inputMemRefCastOp, inputGpuAllocOp.getResult(0),
                  oneConstantI32Op});
   auto outputCpuToGpuCopyOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemCopy4DFloatFuncOp,
+      builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
       ValueRange{outputMemRefCastOp, outputGpuAllocOp.getResult(0),
                  oneConstantI32Op});
   block->push_back(filterCpuToGpuCopyOp);
@@ -358,40 +421,67 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   block->push_back(kernelCallOp);
 
   // Emit mgpuMemCopy4DFloat function call.
+  mlir::Value resultGpuValue, resultCpuValue;
+  if (operation.getValue() == "conv2d") {
+    resultGpuValue = outputGpuAllocOp.getResult(0);
+    resultCpuValue = outputMemRefCastOp;
+  } else if (operation.getValue() == "conv2d_bwd_data") {
+    resultGpuValue = inputGpuAllocOp.getResult(0);
+    resultCpuValue = inputMemRefCastOp;
+  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    resultGpuValue = filterGpuAllocOp.getResult(0);
+    resultCpuValue = filterMemRefCastOp;
+  }
   auto outputGpuToCpuCopyOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemCopy4DFloatFuncOp,
-                             ValueRange{outputGpuAllocOp.getResult(0),
-                                        outputMemRefCastOp, twoConstantI32Op});
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
+                             ValueRange{resultGpuValue, resultCpuValue,
+                                        twoConstantI32Op});
   block->push_back(outputGpuToCpuCopyOp);
 
   // Emit verification logic.
-  auto unrankedF32MemRefType = UnrankedMemRefType::get(builder.getF32Type(), 0);
+  StringRef printMemRefFuncName;
+  if (dataType == builder.getF32Type()) {
+    printMemRefFuncName = "print_memref_f32";
+  } else if (dataType == builder.getF16Type()) {
+    printMemRefFuncName = "print_memref_f16";
+  } else if (dataType == builder.getBF16Type()) {
+    printMemRefFuncName = "print_memref_bf16";
+  }
+  auto unrankedMemRefType = UnrankedMemRefType::get(dataType, 0);
   auto printMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), outputMemRefCastOp, unrankedF32MemRefType);
-  auto printMemRefF32FuncOp =
-      FuncOp::create(builder.getUnknownLoc(), "print_memref_f32",
-                     builder.getFunctionType({unrankedF32MemRefType}, {}));
+      builder.getUnknownLoc(), resultCpuValue, unrankedMemRefType);
+  auto printMemRefFuncOp =
+      FuncOp::create(builder.getUnknownLoc(), printMemRefFuncName,
+                     builder.getFunctionType({unrankedMemRefType}, {}));
   auto printMemRefCallOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), printMemRefF32FuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFuncOp,
                              ValueRange{printMemRefCastOp});
-  module.push_back(printMemRefF32FuncOp);
+  module.push_back(printMemRefFuncOp);
   block->push_back(printMemRefCastOp);
   block->push_back(printMemRefCallOp);
 
-  // Emit mgpuMemDealloc4DFloat function calls.
-  auto mgpuMemDealloc4DFloatFuncOp = FuncOp::create(
-      builder.getUnknownLoc(), "mgpuMemDealloc4DFloat",
+  // Emit GPU memory deallocation function calls.
+  StringRef gpuMemDeallocFuncName;
+  if (dataType == builder.getF32Type()) {
+    gpuMemDeallocFuncName = "mgpuMemDealloc4DFloat";
+  } else if (dataType == builder.getF16Type()) {
+    gpuMemDeallocFuncName = "mgpuMemDealloc4DHalf";
+  } else if (dataType == builder.getBF16Type()) {
+    gpuMemDeallocFuncName = "mgpuMemDealloc4DBF16";
+  }
+  auto mgpuMemDealloc4DFuncOp = FuncOp::create(
+      builder.getUnknownLoc(), gpuMemDeallocFuncName,
       builder.getFunctionType({fourDimUnknownSizeMemRefType}, {}));
-  module.push_back(mgpuMemDealloc4DFloatFuncOp);
+  module.push_back(mgpuMemDealloc4DFuncOp);
 
   auto filterGpuDeallocOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemDealloc4DFloatFuncOp,
+      builder.getUnknownLoc(), mgpuMemDealloc4DFuncOp,
       ValueRange{filterMemRefCastOp});
   auto inputGpuDeallocOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemDealloc4DFloatFuncOp,
+      builder.getUnknownLoc(), mgpuMemDealloc4DFuncOp,
       ValueRange{inputMemRefCastOp});
   auto outputGpuDeallocOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemDealloc4DFloatFuncOp,
+      builder.getUnknownLoc(), mgpuMemDealloc4DFuncOp,
       ValueRange{outputMemRefCastOp});
   block->push_back(filterGpuDeallocOp);
   block->push_back(inputGpuDeallocOp);
@@ -563,6 +653,16 @@ int main(int argc, char **argv) {
     module = ModuleOp::create(builder.getUnknownLoc());
   }
 
+  // Determine data type.
+  mlir::FloatType dataType = builder.getF32Type();
+  if (tensorDataType == "f32") {
+    dataType = builder.getF32Type();
+  } else if (tensorDataType == "f16") {
+    dataType = builder.getF16Type();
+  } else if (tensorDataType == "bf16") {
+    dataType = builder.getBF16Type();
+  }
+
   // Populate the module.
   SmallString<128> kernelName;
   populateDefaults();
@@ -576,7 +676,7 @@ int main(int argc, char **argv) {
           dilationHeight.getValue(), dilationWidth.getValue(),
           strideHeight.getValue(), strideWidth.getValue(),
           paddingHeight.getValue(), paddingWidth.getValue(), module, builder,
-          kernelName))) {
+          kernelName, dataType, xdlopsV2.getValue()))) {
     llvm::errs() << "Module population failed.\n";
     exit(1);
   }
@@ -595,7 +695,7 @@ int main(int argc, char **argv) {
       exit(1);
     }
   } else if (populateHostHarness.getValue()) {
-    if (failed(populateHostHarnessLogic(module, builder, context)) ||
+    if (failed(populateHostHarnessLogic(module, builder, context, dataType)) ||
         failed(
             populateKernelLaunchLogic(module, builder, context, kernelName))) {
       llvm::errs() << "Host logic populated failed.\n";

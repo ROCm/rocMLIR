@@ -37,6 +37,10 @@ private:
   //   This guarantess that affix tuning parameters pass generate
   //   coherent tuning parameters with the pre-set block size.
   int64_t blockSizeOverride;
+
+  // Actual implementation.
+  template<typename T>
+  void affixTuningParametersImpl(T &op);
 };
 } // anonymous namespace
 
@@ -118,74 +122,103 @@ void AffixTuningParameters::runOnFunction() {
   //           index_t CThreadCopyDstDataPerWrite>               - matrix_c_dest_data_per_write attribute
 
   func.walk([&](miopen::GridwiseGemmOp op) {
-    OpBuilder b(op.getContext());
-
-    ConvolutionContext convContext = populateConvContext(op);
-    InitParamsNonXDL validParams{0, 0, 0, 0, 0, blockSizeOverride};
-    GemmSize gemmSize;
-    DerivedParams gemmADerivedParam;
-    DerivedParams gemmBDerivedParam;
-    DerivedBlockGemmParams blockGemmDerivedParam;
-    int64_t gemmCDstPerWrite;
-    int64_t gridSize;
-
-    PopulateParams populateParams;
-    LogicalResult status = populateParams.paramsFromCtx(
-        convContext, validParams, gemmSize, gemmADerivedParam,
-        gemmBDerivedParam, blockGemmDerivedParam, gemmCDstPerWrite, gridSize);
-    if (failed(status)) {
-      signalPassFailure();
-    }
-
-    if (launchDimCallback) {
-      launchDimCallback(validParams.blockSize, gridSize);
-    }
-
-    // Tunable parameters.
-    op.setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
-    op.setAttr("m_per_block", b.getI32IntegerAttr(validParams.gemmMPerBlock));
-    op.setAttr("n_per_block", b.getI32IntegerAttr(validParams.gemmNPerBlock));
-    op.setAttr("k_per_block", b.getI32IntegerAttr(validParams.gemmKPerBlock));
-    op.setAttr("m_per_thread", b.getI32IntegerAttr(validParams.gemmMPerThread));
-    op.setAttr("n_per_thread", b.getI32IntegerAttr(validParams.gemmNPerThread));
-
-    // Derived parameters for gemmA.
-    op.setAttr("matrix_a_source_data_per_read",
-               b.getI32IntegerAttr(gemmADerivedParam.srcDataPerRead));
-    op.setAttr("matrix_a_dest_data_per_write_dim_m",
-               b.getI32IntegerAttr(gemmADerivedParam.dstDataPerWrite));
-    op.setAttr("matrix_a_source_vector_read_dim",
-               b.getI32IntegerAttr(gemmADerivedParam.srcVectorReadDim));
-
-    // Derived parameters for gemmB.
-    op.setAttr("matrix_b_source_data_per_read",
-               b.getI32IntegerAttr(gemmBDerivedParam.srcDataPerRead));
-    op.setAttr("matrix_b_dest_data_per_write_dim_n",
-               b.getI32IntegerAttr(gemmBDerivedParam.dstDataPerWrite));
-    op.setAttr("matrix_b_source_vector_read_dim",
-               b.getI32IntegerAttr(gemmBDerivedParam.srcVectorReadDim));
-
-    // Derived parameters for gemmC.
-    // TODO: Pending fix from
-    // https://github.com/whchung/llvm-project/pull/26/files#r444968168
-    // op.setAttr("matrix_c_dest_data_per_write",
-    //           b.getI32IntegerAttr(gemmCDstPerWrite));
-    op.setAttr("matrix_c_dest_data_per_write", b.getI32IntegerAttr(1));
-    op.setAttr("matrix_c_source_dest_vector_read_write_dim",
-               b.getI32IntegerAttr(3));
-
-    // Hard coded parameters, will change in a different pass. Please visit
-    // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
-    op.setAttr("k_per_thread", b.getI32IntegerAttr(1));
-    op.setAttr("m_level0_cluster",
-               b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel0Cluster));
-    op.setAttr("n_level0_cluster",
-               b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel0Cluster));
-    op.setAttr("m_level1_cluster",
-               b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel1Cluster));
-    op.setAttr("n_level1_cluster",
-               b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel1Cluster));
+    affixTuningParametersImpl(op);
   });
+
+  func.walk([&](miopen::GridwiseGemmV2Op op) {
+    affixTuningParametersImpl(op);
+  });
+}
+
+
+template<typename T>
+void AffixTuningParameters::affixTuningParametersImpl(T &op) {
+  OpBuilder b(op.getContext());
+
+  ConvolutionContext convContext = populateConvContext(op);
+  InitParamsNonXDL validParams{0, 0, 0, 0, 0, blockSizeOverride};
+  GemmSize gemmSize;
+  DerivedParams gemmADerivedParam;
+  DerivedParams gemmBDerivedParam;
+  DerivedBlockGemmParams blockGemmDerivedParam;
+  int64_t gemmCDstPerWrite;
+  int64_t gridSize;
+
+  PopulateParams populateParams;
+  LogicalResult status = populateParams.paramsFromCtx(
+      convContext, validParams, gemmSize, gemmADerivedParam,
+      gemmBDerivedParam, blockGemmDerivedParam, gemmCDstPerWrite, gridSize);
+  if (failed(status)) {
+    signalPassFailure();
+  }
+
+  // XXX. Populate default tuning parameters for XDLOPS.
+  auto xdlopsAttr = op.template getAttrOfType<BoolAttr>("xdlops");
+  auto xdlopsV2Attr = op.template getAttrOfType<BoolAttr>("xdlopsV2");
+  if ((xdlopsAttr && xdlopsAttr.getValue() == true) ||
+      (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)) {
+    validParams.gemmMPerBlock = 256;
+    validParams.gemmNPerBlock = 128;
+    validParams.gemmKPerBlock = 16;
+    validParams.gemmMPerThread = 128;
+    validParams.gemmNPerThread = 64;
+    validParams.blockSize = 256;
+
+    int64_t M = op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t N = op.input().getType().template dyn_cast<MemRefType>().getShape()[1];
+
+    // Compute gridSize.
+    gridSize = (M / validParams.gemmMPerBlock) * (N / validParams.gemmNPerBlock);
+  }
+
+  if (launchDimCallback) {
+    launchDimCallback(validParams.blockSize, gridSize);
+  }
+
+  // Tunable parameters.
+  op.setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
+  op.setAttr("m_per_block", b.getI32IntegerAttr(validParams.gemmMPerBlock));
+  op.setAttr("n_per_block", b.getI32IntegerAttr(validParams.gemmNPerBlock));
+  op.setAttr("k_per_block", b.getI32IntegerAttr(validParams.gemmKPerBlock));
+  op.setAttr("m_per_thread", b.getI32IntegerAttr(validParams.gemmMPerThread));
+  op.setAttr("n_per_thread", b.getI32IntegerAttr(validParams.gemmNPerThread));
+
+  // Derived parameters for gemmA.
+  op.setAttr("matrix_a_source_data_per_read",
+             b.getI32IntegerAttr(gemmADerivedParam.srcDataPerRead));
+  op.setAttr("matrix_a_dest_data_per_write_dim_m",
+             b.getI32IntegerAttr(gemmADerivedParam.dstDataPerWrite));
+  op.setAttr("matrix_a_source_vector_read_dim",
+             b.getI32IntegerAttr(gemmADerivedParam.srcVectorReadDim));
+
+  // Derived parameters for gemmB.
+  op.setAttr("matrix_b_source_data_per_read",
+             b.getI32IntegerAttr(gemmBDerivedParam.srcDataPerRead));
+  op.setAttr("matrix_b_dest_data_per_write_dim_n",
+             b.getI32IntegerAttr(gemmBDerivedParam.dstDataPerWrite));
+  op.setAttr("matrix_b_source_vector_read_dim",
+             b.getI32IntegerAttr(gemmBDerivedParam.srcVectorReadDim));
+
+  // Derived parameters for gemmC.
+  // TODO: Pending fix from
+  // https://github.com/whchung/llvm-project/pull/26/files#r444968168
+  // op.setAttr("matrix_c_dest_data_per_write",
+  //           b.getI32IntegerAttr(gemmCDstPerWrite));
+  op.setAttr("matrix_c_dest_data_per_write", b.getI32IntegerAttr(1));
+  op.setAttr("matrix_c_source_dest_vector_read_write_dim",
+             b.getI32IntegerAttr(3));
+
+  // Hard coded parameters, will change in a different pass. Please visit
+  // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
+  op.setAttr("k_per_thread", b.getI32IntegerAttr(1));
+  op.setAttr("m_level0_cluster",
+             b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel0Cluster));
+  op.setAttr("n_level0_cluster",
+             b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel0Cluster));
+  op.setAttr("m_level1_cluster",
+             b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel1Cluster));
+  op.setAttr("n_level1_cluster",
+             b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel1Cluster));
 }
 
 std::unique_ptr<Pass> mlir::miopen::createAffixTuningParametersPass(

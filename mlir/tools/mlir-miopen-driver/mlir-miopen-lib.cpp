@@ -85,7 +85,7 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
         strToLong("fil_h"), strToLong("dilation_h"), strToLong("dilation_w"),
         strToLong("conv_stride_h"), strToLong("conv_stride_w"),
         strToLong("padding_h"), strToLong("padding_w"), module, builder,
-        kernelName);
+        kernelName, mlir::FloatType::getF32(&(handle->context)), false);
 
     PassManager pm(module.getContext());
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());

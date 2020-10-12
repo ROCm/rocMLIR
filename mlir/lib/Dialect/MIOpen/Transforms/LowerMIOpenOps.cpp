@@ -120,6 +120,7 @@ void LowerMIOpenOpsStep1Pass::runOnOperation() {
 void LowerMIOpenOpsStep2Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<GridwiseGemmRewritePattern>(&getContext());
+  patterns.insert<GridwiseGemmV2RewritePattern>(&getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
 }
 
@@ -130,6 +131,7 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
   patterns.insert<SubviewRewritePattern>(&getContext());
   patterns.insert<TransformRewritePattern>(&getContext());
   patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
+  patterns.insert<BlockwiseGemmV2RewritePattern>(&getContext());
   patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
 }
@@ -138,6 +140,8 @@ void LowerMIOpenOpsStep4Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<ThreadwiseGemmRewritePattern>(&getContext());
   patterns.insert<ThreadwiseCopyRewritePattern>(&getContext());
+  patterns.insert<ThreadwiseCopyV2RewritePattern>(&getContext());
+  patterns.insert<XdlopsGemmV2RewritePattern>(&getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
 }
 

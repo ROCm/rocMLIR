@@ -220,11 +220,19 @@ extern "C" MLIR_RUNNERUTILS_EXPORT void
 _mlir_ciface_print_memref_i8(UnrankedMemRefType<int8_t> *M);
 extern "C" MLIR_RUNNERUTILS_EXPORT void
 _mlir_ciface_print_memref_f32(UnrankedMemRefType<float> *M);
+extern "C" MLIR_RUNNERUTILS_EXPORT void
+_mlir_ciface_print_memref_f16(UnrankedMemRefType<unsigned short> *M);
+extern "C" MLIR_RUNNERUTILS_EXPORT void
+_mlir_ciface_print_memref_bf16(UnrankedMemRefType<unsigned short> *M);
 
 extern "C" MLIR_RUNNERUTILS_EXPORT void print_memref_i32(int64_t rank,
                                                          void *ptr);
 extern "C" MLIR_RUNNERUTILS_EXPORT void print_memref_f32(int64_t rank,
                                                          void *ptr);
+extern "C" MLIR_RUNNERUTILS_EXPORT void print_memref_f16(int64_t rank,
+                                                         void *ptr);
+extern "C" MLIR_RUNNERUTILS_EXPORT void print_memref_bf16(int64_t rank,
+                                                          void *ptr);
 
 extern "C" MLIR_RUNNERUTILS_EXPORT void
 _mlir_ciface_print_memref_0d_f32(StridedMemRefType<float, 0> *M);
