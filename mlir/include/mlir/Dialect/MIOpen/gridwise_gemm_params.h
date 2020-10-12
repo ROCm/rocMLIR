@@ -74,6 +74,8 @@ T integer_least_multiple(T x, T y) {
 }
 
 struct ConvolutionContext {
+  llvm::SmallString<6> arch;
+  int num_cu;
   mlir::miopen::ConvOpType opType;
   llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
   llvm::SmallVector<int64_t, 0> strideVal;
@@ -191,6 +193,9 @@ static void populateSeqVal(const ArrayAttr &seqAttr,
 static ConvolutionContext populateConvContext(miopen::GridwiseGemmOp &op) {
   miopen::ConvOpType opType = ObtainConvDirection(op);
 
+  auto archVal = op.getAttrOfType<StringAttr>("arch").getValue();
+  auto numCuVal = op.getAttrOfType<IntegerAttr>("num_cu").getInt();
+
   llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
 
   auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
@@ -215,12 +220,16 @@ static ConvolutionContext populateConvContext(miopen::GridwiseGemmOp &op) {
   llvm::SmallVector<int64_t, 0> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 
-  return {opType, dimIndexVal, strideVal, dilationVal, paddingVal};
+  return {archVal,   numCuVal,    opType,    dimIndexVal,
+          strideVal, dilationVal, paddingVal};
 }
 
 static ConvolutionContext populateConvContext(miopen::GridwiseGemmV2Op &op) {
   miopen::ConvOpType opType = ObtainConvDirection(op);
 
+  auto archVal = op.getAttrOfType<StringAttr>("arch").getValue();
+  auto numCuVal = op.getAttrOfType<IntegerAttr>("num_cu").getInt();
+
   llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
 
   auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
@@ -245,7 +254,8 @@ static ConvolutionContext populateConvContext(miopen::GridwiseGemmV2Op &op) {
   llvm::SmallVector<int64_t, 0> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 
-  return {opType, dimIndexVal, strideVal, dilationVal, paddingVal};
+  return {archVal,   numCuVal,    opType,    dimIndexVal,
+          strideVal, dilationVal, paddingVal};
 }
 
 class PopulateParamsBase {

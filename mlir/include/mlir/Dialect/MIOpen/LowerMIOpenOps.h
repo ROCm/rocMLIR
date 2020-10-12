@@ -62,6 +62,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
+    auto archAttr = op.template getAttrOfType<StringAttr>("arch");
+    auto numCuAttr = op.template getAttrOfType<IntegerAttr>("num_cu");
+
     auto filterLayoutAttr =
         op.template getAttrOfType<ArrayAttr>("filter_layout");
     auto inputLayoutAttr = op.template getAttrOfType<ArrayAttr>("input_layout");
@@ -889,6 +892,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Set attributes for gridwise_gemm op.
     llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
+        b.getNamedAttr("arch", archAttr),
+        b.getNamedAttr("num_cu", numCuAttr),
         b.getNamedAttr("filter_layout", filterLayoutAttr),
         b.getNamedAttr("filter_dimension", b.getI64ArrayAttr(filterShape)),
         b.getNamedAttr("input_layout", inputLayoutAttr),

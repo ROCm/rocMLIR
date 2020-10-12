@@ -6,6 +6,8 @@
 
 func @miopen_conv2d_kcyx_nchw_nkhw(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
   miopen.conv2d(%filter, %input, %output) {
+    arch = "gfx906",
+    num_cu = 64,
     filter_layout = ["k", "c", "y", "x"],
     input_layout = ["ni", "ci", "hi", "wi"],
     output_layout = ["no", "ko", "ho", "wo"],
@@ -25,6 +27,8 @@ func @miopen_conv2d_kcyx_nchw_nkhw(%filter : memref<?x?x?x?xf32>, %input : memre
 
 func @miopen_conv2d_bwd_data_kcyx_nchw_nkhw(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
+    arch = "gfx906",
+    num_cu = 64,
     filter_layout = ["k", "c", "y", "x"],
     input_layout = ["ni", "ci", "hi", "wi"],
     output_layout = ["no", "ko", "ho", "wo"],
@@ -44,6 +48,8 @@ func @miopen_conv2d_bwd_data_kcyx_nchw_nkhw(%filter : memref<?x?x?x?xf32>, %inpu
 
 func @miopen_conv2d_bwd_weight_kcyx_nchw_nkhw(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
+    arch = "gfx906",
+    num_cu = 64,
     filter_layout = ["k", "c", "y", "x"],
     input_layout = ["ni", "ci", "hi", "wi"],
     output_layout = ["no", "ko", "ho", "wo"],

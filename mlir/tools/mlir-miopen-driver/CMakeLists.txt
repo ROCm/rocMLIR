@@ -5,6 +5,38 @@ set(LLVM_LINK_COMPONENTS
 get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 
+# Configure ROCm support.
+if (NOT DEFINED ROCM_PATH)
+  if (NOT DEFINED ENV{ROCM_PATH})
+    set(ROCM_PATH "/opt/rocm" CACHE PATH "Path to which ROCm has been installed")
+  else()
+    set(ROCM_PATH $ENV{ROCM_PATH} CACHE PATH "Path to which ROCm has been installed")
+  endif()
+  set(HIP_PATH "${ROCM_PATH}/hip" CACHE PATH " Path to which HIP has been installed")
+endif()
+set(CMAKE_MODULE_PATH "${HIP_PATH}/cmake" ${CMAKE_MODULE_PATH})
+find_package(HIP)
+if (NOT HIP_FOUND)
+  message(SEND_ERROR "Build the mlir rocm runner requires a working ROCm and HIP install")
+else()
+  message(STATUS "ROCm HIP version: ${HIP_VERSION}")
+endif()
+
+# Set compile-time flags for ROCm path.
+add_definitions(-D__ROCM_PATH__="${ROCM_PATH}")
+
+# Locate HIP runtime library.
+find_library(ROCM_RUNTIME_LIBRARY amdhip64
+             PATHS "${HIP_PATH}/lib")
+if (NOT ROCM_RUNTIME_LIBRARY)
+  message(SEND_ERROR "Could not locate ROCm HIP runtime library")
+else()
+  message(STATUS "ROCm HIP runtime lib: ${ROCM_RUNTIME_LIBRARY}")
+endif()
+
+# Set HIP compile-time flags.
+add_definitions(-D__HIP_PLATFORM_HCC__)
+
 set(LIBS
   ${dialect_libs}
   ${conversion_libs}
@@ -31,16 +63,22 @@ add_llvm_executable(mlir-miopen-driver
   ${LIBS}
 )
 
+target_include_directories(mlir-miopen-driver
+  PRIVATE
+  "${HIP_PATH}/../include"
+  "${HIP_PATH}/include"
+)
+
 llvm_update_compile_flags(mlir-miopen-driver)
-target_link_libraries(mlir-miopen-driver PRIVATE ${LIBS})
+target_link_libraries(mlir-miopen-driver PRIVATE ${LIBS} ${ROCM_RUNTIME_LIBRARY})
 mlir_check_link_libraries(mlir-miopen-driver)
 
 
   llvm_add_library(MLIRMIOpenThin
   PARTIAL_SOURCES_INTENDED
-  
+
     mlir-miopen-lib.cpp
-  
+
     LINK_LIBS
     ${LIBS}
     )
@@ -72,7 +110,7 @@ if( NOT BUILD_SHARED_LIBS )
                        COMMAND if [ -f ${output_archive}.mri ]\; then rm ${output_archive}.mri\; fi
                        COMMAND touch ${output_archive}.mri
                        COMMAND echo "create ${full_output_path}" >> ${output_archive}.mri
-                       COMMAND for archive in ${LLVM_LIBRARY_DIR}/*.a\; 
+                       COMMAND for archive in ${LLVM_LIBRARY_DIR}/*.a\;
                        do echo "addlib $$archive" >> ${output_archive}.mri \; done
                        COMMAND echo "save" >> ${output_archive}.mri
                        COMMAND echo "end" >> ${output_archive}.mri
@@ -89,9 +127,9 @@ if( NOT BUILD_SHARED_LIBS )
                        COMMAND ${CMAKE_COMMAND} -E copy ${full_output_path} ${install_path}
                        DEPENDS ${output_archive_dummy_file})
   endfunction(combine_archives)
-  
+
   combine_archives(MLIRMIOpen)
-  
+
   add_custom_target(libMLIRMIOpen ALL
     DEPENDS
     MLIRMIOpen

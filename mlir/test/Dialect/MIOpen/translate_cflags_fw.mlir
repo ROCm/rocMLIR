@@ -2,6 +2,8 @@
 
 func @basic_parsing(%filter : memref<?x?xf32>, %input : memref<?x?xf32>, %output : memref<?x?xf32>) {
   miopen.gridwise_gemm(%filter, %input, %output) {
+    arch = "gfx906",
+    num_cu = 64,
     kernel_algorithm = "v4r4",
     filter_dimension = [1024, 1024, 1, 1],
     filter_layout = ["k", "c", "y", "x"],
@@ -38,6 +40,8 @@ func @basic_parsing(%filter : memref<?x?xf32>, %input : memref<?x?xf32>, %output
 
 func @all_params(%filter : memref<?x?xf32>, %input : memref<?x?xf32>, %output : memref<?x?xf32>) {
   miopen.gridwise_gemm(%filter, %input, %output) {
+    arch = "gfx906",
+    num_cu = 64,
     kernel_algorithm = "v4r4",
     filter_dimension = [128, 8, 3, 3],
     filter_layout = ["k", "c", "y", "x"],

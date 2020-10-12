@@ -1041,8 +1041,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_DATA=0";
       output << " -DCK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_WEIGHT=0";
 
-      ConvolutionContext convContext{opType, dimIndexVal, strideVal,
-                                     dilationVal, paddingVal};
+      ConvolutionContext convContext = populateConvContext(op);
       std::map<std::string, int> parameters;
       PopulateParamsXDL populateParams;
       populateParams.paramsFromCtx(convContext, parameters);
