@@ -5,38 +5,6 @@ set(LLVM_LINK_COMPONENTS
 get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 
-# Configure ROCm support.
-if (NOT DEFINED ROCM_PATH)
-  if (NOT DEFINED ENV{ROCM_PATH})
-    set(ROCM_PATH "/opt/rocm" CACHE PATH "Path to which ROCm has been installed")
-  else()
-    set(ROCM_PATH $ENV{ROCM_PATH} CACHE PATH "Path to which ROCm has been installed")
-  endif()
-  set(HIP_PATH "${ROCM_PATH}/hip" CACHE PATH " Path to which HIP has been installed")
-endif()
-set(CMAKE_MODULE_PATH "${HIP_PATH}/cmake" ${CMAKE_MODULE_PATH})
-find_package(HIP)
-if (NOT HIP_FOUND)
-  message(SEND_ERROR "Build the mlir rocm runner requires a working ROCm and HIP install")
-else()
-  message(STATUS "ROCm HIP version: ${HIP_VERSION}")
-endif()
-
-# Set compile-time flags for ROCm path.
-add_definitions(-D__ROCM_PATH__="${ROCM_PATH}")
-
-# Locate HIP runtime library.
-find_library(ROCM_RUNTIME_LIBRARY amdhip64
-             PATHS "${HIP_PATH}/lib")
-if (NOT ROCM_RUNTIME_LIBRARY)
-  message(SEND_ERROR "Could not locate ROCm HIP runtime library")
-else()
-  message(STATUS "ROCm HIP runtime lib: ${ROCM_RUNTIME_LIBRARY}")
-endif()
-
-# Set HIP compile-time flags.
-add_definitions(-D__HIP_PLATFORM_HCC__)
-
 set(LIBS
   ${dialect_libs}
   ${conversion_libs}
@@ -63,14 +31,8 @@ add_llvm_executable(mlir-miopen-driver
   ${LIBS}
 )
 
-target_include_directories(mlir-miopen-driver
-  PRIVATE
-  "${HIP_PATH}/../include"
-  "${HIP_PATH}/include"
-)
-
 llvm_update_compile_flags(mlir-miopen-driver)
-target_link_libraries(mlir-miopen-driver PRIVATE ${LIBS} ${ROCM_RUNTIME_LIBRARY})
+target_link_libraries(mlir-miopen-driver PRIVATE ${LIBS})
 mlir_check_link_libraries(mlir-miopen-driver)
 
 
