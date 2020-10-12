@@ -37,8 +37,6 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "hip/hip_runtime.h"
-
 using namespace llvm;
 using namespace mlir;
 
@@ -56,11 +54,16 @@ static cl::opt<std::string>
               cl::value_desc("convolution flavor string"), cl::init("conv2d"));
 
 static cl::opt<std::string>
-    arch("arch", cl::desc("amdgpu architecture, eg: gfx900, gfx906 ..."),
+    arch("arch",
+         cl::desc("amdgpu architecture, eg: gfx803, gfx900, gfx906, gfx908"),
          cl::value_desc("GFX architecture string"), cl::init("gfx906"));
 
-static cl::opt<int> num_cu("num_cu", cl::desc("Number of compute units"),
-                           cl::value_desc("compute unit value"), cl::init(64));
+static cl::opt<int>
+    num_cu("num_cu",
+           cl::desc("Number of compute units, valid combinations include: "
+                    "gfx803(36/64), gfx900(56/64), "
+                    "gfx906(60/64), gfx908(120)"),
+           cl::value_desc("compute unit value"), cl::init(64));
 
 static cl::opt<std::string> filterLayout("fil_layout", cl::desc("Filter layout"),
                                               cl::value_desc("layout string"),
@@ -190,31 +193,6 @@ static cl::opt<std::string> tensorDataType("t", cl::desc("Data type for convolut
                                            cl::value_desc("Data type for convolution"),
                                            cl::init("f32"));
 
-int getDeviceId() // Get default device
-{
-  int device = 0;
-  auto status = hipGetDevice(&device);
-  if (status != hipSuccess)
-    llvm::errs() << "No device found";
-  return device;
-}
-
-std::size_t GetMaxComputeUnits(int device) {
-  int result = 0;
-  auto status = hipDeviceGetAttribute(
-      &result, hipDeviceAttributeMultiprocessorCount, device);
-  if (status != hipSuccess)
-    llvm::errs() << "Failed to get compute units.";
-
-  return result;
-}
-
-std::string GetDeviceName(int device) {
-  hipDeviceProp_t props{};
-  hipGetDeviceProperties(&props, device);
-  return "gfx" + std::to_string(props.gcnArch);
-}
-
 static void populateDefaults() {
   if (populateDefaultValues == true) {
     if (xdlopsV2.getValue() == false) {
@@ -250,9 +228,6 @@ static void populateDefaults() {
       paddingHeight.setValue(0);
       paddingWidth.setValue(0);
     }
-    int device = getDeviceId();
-    arch.setValue(GetDeviceName(device));
-    num_cu.setValue(GetMaxComputeUnits(device));
   }
 }
 
