@@ -77,14 +77,15 @@ static LogicalResult populateConvolutionConfiguration(
 }
 
 static LogicalResult populateConvolutionLogic(
-    std::string &operation, std::string &inputLayout, std::string &outputLayout,
+    std::string &arch, int num_cu, std::string &operation,
+    std::string &inputLayout, std::string &outputLayout,
     std::string &filterLayout, int64_t batchSize, int64_t inputChannel,
     int64_t inputHeight, int64_t inputWidth, int64_t outputChannel,
     int64_t outputHeight, int64_t outputWidth, int64_t filterWidth,
-    int64_t filterHeight, int64_t dilationHeight, int64_t dilationWidth,
-    int64_t strideHeight, int64_t strideWidth, int64_t paddingHeight,
-    int64_t paddingWidth, ModuleOp &module, OpBuilder &builder,
-    SmallString<128> &kernelName, mlir::FloatType dataType, bool xdlops = false) {
+    int64_t filterHeight, int dilationHeight, int dilationWidth,
+    int strideHeight, int strideWidth, int paddingHeight, int paddingWidth,
+    ModuleOp &module, OpBuilder &builder, SmallString<128> &kernelName,
+    mlir::FloatType dataType, bool xdlops = false) {
   // Determine dimensions.
   SmallVector<int64_t, 4> filterDimension;
   SmallVector<int64_t, 4> inputDimension;
@@ -132,6 +133,9 @@ static LogicalResult populateConvolutionLogic(
   }
 
   std::vector<NamedAttribute> attributes{
+      builder.getNamedAttr("arch", builder.getStringAttr(arch)),
+      builder.getNamedAttr("num_cu", builder.getI32IntegerAttr(num_cu)),
+
       builder.getNamedAttr(
           "filter_layout",
           builder.getArrayAttr(ArrayRef<mlir::Attribute>(
