@@ -53,6 +53,18 @@ static cl::opt<std::string>
               cl::desc("Convolution operation, eg: conv2d, conv2d_bwd_data, conv2d_bwd_weight..."),
               cl::value_desc("convolution flavor string"), cl::init("conv2d"));
 
+static cl::opt<std::string>
+    arch("arch",
+         cl::desc("amdgpu architecture, eg: gfx803, gfx900, gfx906, gfx908"),
+         cl::value_desc("GFX architecture string"), cl::init("gfx906"));
+
+static cl::opt<int>
+    num_cu("num_cu",
+           cl::desc("Number of compute units, valid combinations include: "
+                    "gfx803(36/64), gfx900(56/64), "
+                    "gfx906(60/64), gfx908(120)"),
+           cl::value_desc("compute unit value"), cl::init(64));
+
 static cl::opt<std::string> filterLayout("fil_layout", cl::desc("Filter layout"),
                                               cl::value_desc("layout string"),
                                               cl::init("kcyx"));
@@ -667,7 +679,8 @@ int main(int argc, char **argv) {
   SmallString<128> kernelName;
   populateDefaults();
   if (failed(populateConvolutionLogic(
-          operation.getValue(), inputLayout.getValue(), outputLayout.getValue(),
+          arch.getValue(), num_cu.getValue(), operation.getValue(),
+          inputLayout.getValue(), outputLayout.getValue(),
           filterLayout.getValue(), batchSize.getValue(),
           inputChannel.getValue(), inputHeight.getValue(),
           inputWidth.getValue(), outputChannel.getValue(),

@@ -38,9 +38,9 @@ mlir_check_link_libraries(mlir-miopen-driver)
 
   llvm_add_library(MLIRMIOpenThin
   PARTIAL_SOURCES_INTENDED
-  
+
     mlir-miopen-lib.cpp
-  
+
     LINK_LIBS
     ${LIBS}
     )
@@ -72,7 +72,7 @@ if( NOT BUILD_SHARED_LIBS )
                        COMMAND if [ -f ${output_archive}.mri ]\; then rm ${output_archive}.mri\; fi
                        COMMAND touch ${output_archive}.mri
                        COMMAND echo "create ${full_output_path}" >> ${output_archive}.mri
-                       COMMAND for archive in ${LLVM_LIBRARY_DIR}/*.a\; 
+                       COMMAND for archive in ${LLVM_LIBRARY_DIR}/*.a\;
                        do echo "addlib $$archive" >> ${output_archive}.mri \; done
                        COMMAND echo "save" >> ${output_archive}.mri
                        COMMAND echo "end" >> ${output_archive}.mri
@@ -89,9 +89,9 @@ if( NOT BUILD_SHARED_LIBS )
                        COMMAND ${CMAKE_COMMAND} -E copy ${full_output_path} ${install_path}
                        DEPENDS ${output_archive_dummy_file})
   endfunction(combine_archives)
-  
+
   combine_archives(MLIRMIOpen)
-  
+
   add_custom_target(libMLIRMIOpen ALL
     DEPENDS
     MLIRMIOpen

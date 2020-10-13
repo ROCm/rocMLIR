@@ -75,16 +75,21 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
       return std::stoul(argMap[argKey]);
     };
 
+    auto strToInt = [&argMap](std::string argKey) {
+      return std::stoi(argMap[argKey]);
+    };
+
     SmallString<128> kernelName;
     ModuleOp module = handle->getModule();
     populateConvolutionLogic(
-        argMap["operation"], argMap["in_layout"], argMap["out_layout"],
-        argMap["fil_layout"], strToLong("batchsize"), strToLong("in_channels"),
-        strToLong("in_h"), strToLong("in_w"), strToLong("out_channels"),
-        strToLong("out_h"), strToLong("out_w"), strToLong("fil_w"),
-        strToLong("fil_h"), strToLong("dilation_h"), strToLong("dilation_w"),
-        strToLong("conv_stride_h"), strToLong("conv_stride_w"),
-        strToLong("padding_h"), strToLong("padding_w"), module, builder,
+        argMap["arch"], strToInt("num_cu"), argMap["operation"],
+        argMap["in_layout"], argMap["out_layout"], argMap["fil_layout"],
+        strToLong("batchsize"), strToLong("in_channels"), strToLong("in_h"),
+        strToLong("in_w"), strToLong("out_channels"), strToLong("out_h"),
+        strToLong("out_w"), strToLong("fil_w"), strToLong("fil_h"),
+        strToInt("dilation_h"), strToInt("dilation_w"),
+        strToInt("conv_stride_h"), strToInt("conv_stride_w"),
+        strToInt("padding_h"), strToInt("padding_w"), module, builder,
         kernelName, mlir::FloatType::getF32(&(handle->context)), false);
 
     PassManager pm(module.getContext());
