@@ -1,9 +1,9 @@
 add_mlir_dialect_library(MLIRMIOpenTuning
-  sqlite_db.cpp
-  gridwise_gemm_params.cpp
+  SqliteDb.cpp
+  GridwiseGemmParams.cpp
 
   ADDITIONAL_HEADER_DIRS
-  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Tuning
+  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/MIOpen/Tuning
 
   DEPENDS
   MLIRSupport

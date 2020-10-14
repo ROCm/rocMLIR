@@ -1,4 +1,4 @@
-//===------- sqlite_db.h - MLIR sqlite database client ----------===//
+//===------- SqliteDb.h - MLIR sqlite database client ----------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_DIALECT_MIOPEN_SQLITE_DB_H
-#define MLIR_DIALECT_MIOPEN_SQLITE_DB_H
+#ifndef MLIR_DIALECT_MIOPEN_SQLITEDB_H
+#define MLIR_DIALECT_MIOPEN_SQLITEDB_H
 
 #if __MLIR_ENABLE_SQLITE__
 

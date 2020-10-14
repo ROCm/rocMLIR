@@ -1,5 +1,5 @@
-#include "mlir/Dialect/MIOpen/gridwise_gemm_params.h"
-#include "mlir/Dialect/MIOpen/sqlite_db.h"
+#include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/MIOpen/Tuning/SqliteDb.h"
 
 #define DEBUG_TYPE "miopen-tuning-parameter"
 

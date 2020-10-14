@@ -1,6 +1,6 @@
 #if __MLIR_ENABLE_SQLITE__
 
-#include "mlir/Dialect/MIOpen/sqlite_db.h"
+#include "mlir/Dialect/MIOpen/Tuning/SqliteDb.h"
 #include "llvm/Support/Debug.h"
 
 #include <experimental/filesystem>

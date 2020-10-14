@@ -14,7 +14,7 @@
 #define MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
 
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
-#include "mlir/Dialect/MIOpen/serializable.h"
+#include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
 #include "mlir/Support/FileUtilities.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ToolOutputFile.h"
@@ -31,8 +31,7 @@ extern llvm::cl::opt<bool> IsPopulateTunableParameters;
 LLVM_YAML_IS_STRING_MAP(int)
 
 // greatest common divisor, aka highest common factor
-template <typename T>
-T gcd(T x, T y) {
+template <typename T> T gcd(T x, T y) {
   if (x == y || x == 0) {
     return y;
   } else if (y == 0) {
@@ -44,14 +43,12 @@ T gcd(T x, T y) {
   }
 }
 
-template <typename T, typename... Ys>
-T gcd(T x, Ys... ys) {
+template <typename T, typename... Ys> T gcd(T x, Ys... ys) {
   return gcd(x, gcd(ys...));
 }
 
 // least common multiple
-template <typename T>
-T lcm(T x, T y) {
+template <typename T> T lcm(T x, T y) {
   if (x == 0 || y == 0) {
     return 0;
   } else {
@@ -59,18 +56,15 @@ T lcm(T x, T y) {
   }
 }
 
-template <typename T, typename... Ys>
-T lcm(T x, Ys... ys) {
+template <typename T, typename... Ys> T lcm(T x, Ys... ys) {
   return lcm(x, lcm(ys...));
 }
 
-template <typename T>
-T integer_divide_ceil(T x, T y) {
+template <typename T> T integer_divide_ceil(T x, T y) {
   return (x + y - 1) / y;
 }
 
-template <typename T>
-T integer_least_multiple(T x, T y) {
+template <typename T> T integer_least_multiple(T x, T y) {
   return y * integer_divide_ceil(x, y);
 }
 
@@ -800,10 +794,8 @@ private:
           param.gemmNPerBlock % param.gemmNPerThread == 0))
       return failure();
 
-    const auto threadGemmMPerBlock =
-        param.gemmMPerBlock / param.gemmMPerThread;
-    const auto threadGemmNPerBlock =
-        param.gemmNPerBlock / param.gemmNPerThread;
+    const auto threadGemmMPerBlock = param.gemmMPerBlock / param.gemmMPerThread;
+    const auto threadGemmNPerBlock = param.gemmNPerBlock / param.gemmNPerThread;
 
     const auto threadGemmMPerCluster =
         derived.gemmMLevel0Cluster * derived.gemmMLevel1Cluster;

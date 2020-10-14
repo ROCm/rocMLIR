@@ -1,4 +1,4 @@
-//===------- sqlite_db.h - MLIR sqlite database client ----------===//
+//===------- Serializable.h - MLIR serializable targets from perfdb--------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
