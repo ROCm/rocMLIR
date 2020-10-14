@@ -16,9 +16,12 @@ pipeline {
         stage('Setup') {
             steps {
                 sh '''
+                    # Swap to matching 3.7 dependency:
+                    sed -i 's/debian/3.7/g' /etc/apt/sources.list.d/rocm.list
+
                     # install pkg dependencies
                     sudo apt update
-                    sudo apt install -y ninja-build wget git python cmake
+                    sudo apt install -y ninja-build wget git python cmake miopen-hip
                 '''
             }
         }
