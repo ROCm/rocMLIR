@@ -21,7 +21,7 @@ pipeline {
 
                     # install pkg dependencies
                     sudo apt update
-                    sudo apt install -y ninja-build wget git python cmake miopen-hip libsqlite3-dev
+                    sudo apt install -y ninja-build wget git python3.7 cmake  miopen-hip libsqlite3-dev
                 '''
             }
         }
@@ -47,6 +47,13 @@ pipeline {
 
                     # build LLVM / MLR and run tests
                     cmake --build . --target check-mlir
+
+	     	    # premerge checks
+                    cd ..
+                    if [ ! -f ./compile_commands.json ]; then
+                       ln -s build/compile_commands.json compile_commands.json
+                    fi
+		    python3.7 ./mlir/utils/jenkins/premerge-checks.py
                 '''
             }
         }
