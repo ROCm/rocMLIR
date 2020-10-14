@@ -119,9 +119,10 @@ public:
       SQLite::ResultType execRes = sql.exec(select_query);
       DbRecord rec;
       std::for_each(execRes.begin(), execRes.end(), 
-              [&rec](auto row){
-              rec.setValues(row["solver"], row["params"]);});
-      LLVM_DEBUG(llvm::dbgs() << "\n");
+              [&rec, &execRes](auto row){
+              rec.setValues(row["solver"], row["params"]);
+              if (row == execRes.back()) LLVM_DEBUG(llvm::dbgs() << "\n");
+              });
 
       if (rec.getSize() == 0)
         return {};

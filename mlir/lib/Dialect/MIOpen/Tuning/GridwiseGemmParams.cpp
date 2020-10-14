@@ -82,6 +82,9 @@ LogicalResult PopulateParams::paramsFromCtx(
     return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
                            gemmBDerivedParam, blockGemmDerivedParam,
                            gemmCDstPerWrite, gridSize);
+  } else {
+    LLVM_DEBUG(llvm::dbgs()
+               << "DB load failed, falling back to backup path.\n");
   }
 #endif // MLIR_ENABLE_SQLITE
 
