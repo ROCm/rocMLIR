@@ -18,8 +18,7 @@ pipeline {
                 sh '''
                     # install pkg dependencies
                     sudo apt update
-                    sudo apt install -y ninja-build wget git python3.7 cmake python3-pip
-		    /usr/bin/pip3 install pathspec 
+                    sudo apt install -y ninja-build wget git python3.7 cmake
                 '''
             }
         }
