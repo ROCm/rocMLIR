@@ -19,7 +19,7 @@ pipeline {
                     # install pkg dependencies
                     sudo apt update
                     sudo apt install -y ninja-build wget git python3.7 cmake
-		    /usr/bin/pip3 install pathspec 
+		    sudo pip3 install subprocess pathspec 
                 '''
             }
         }
