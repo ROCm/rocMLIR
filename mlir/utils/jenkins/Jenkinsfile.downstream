@@ -18,11 +18,12 @@ pipeline {
                 sh '''
                     # install pkg dependencies
                     sudo apt update
-                    sudo apt install -y ninja-build wget git python cmake
+                    sudo apt install -y ninja-build wget git python3.7 cmake
+		    sudo pip3 install subprocess pathspec 
                 '''
             }
         }
-        stage('Test') {
+        stage('Static Test') {
             steps {
                 checkout scm
                 sh '''
@@ -41,8 +42,28 @@ pipeline {
                         -DMLIR_ROCM_RUNNER_ENABLED=1 \
                         -DMLIR_MIOPEN_DRIVER_ENABLED=1
 
-                    # build LLVM / MLR and run tests
-                    cmake --build . --target check-mlir
+	     	    # premerge checks
+                    cd ..
+                    if [ ! -f ./compile_commands.json ]; then
+                       ln -s build/compile_commands.json compile_commands.json
+                    fi
+		    python3.7 ./mlir/utils/jenkins/premerge-checks.py
+
+		    if [ $? != 0 ]; then
+			exit 1
+		    fi
+
+                '''
+            }
+	}
+
+        stage('Build and Test') {
+	    steps {
+            	sh '''
+		    cd build
+                     # build LLVM / MLR and run tests
+                     cmake --build . --target check-mlir
+
                 '''
             }
         }
