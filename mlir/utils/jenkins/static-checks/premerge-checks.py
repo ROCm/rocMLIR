@@ -1,9 +1,22 @@
 #!/usr/bin/env python3
-import argparse
-import logging
+""" A script to perform static tests for the mlir project.
+
+This script runs clang-format and clang-tidy on the changes before a user 
+merges them to the master branch.
+
+The code was extracted from https://github.com/google/llvm-premerge-checks.
+
+Example usage:
+~/llvm-projuect-mlir#  python3.7 ./mlir/utils/jenkins/static-checks/premerge-checks.py
+"""
+
+
+# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 import os
 import re
-import sys
 import subprocess
 from typing import Tuple, Optional
 import pathspec
@@ -11,7 +24,7 @@ import unidiff
 
 
 def get_diff(base_commit) -> Tuple[bool, str]:
-    r = subprocess.run(f'git-clang-format {base_commit}', shell=True)
+    r = subprocess.run(f'/opt/rocm-3.7.0/llvm/bin/git-clang-format {base_commit}', shell=True)
     if r.returncode != 0:
         r = subprocess.run(f'git checkout -- .', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
         return False, ''
@@ -20,10 +33,12 @@ def get_diff(base_commit) -> Tuple[bool, str]:
     return True, diff_run.stdout.decode()
 
 def run_clang_format(base_commit, ignore_config):
-    """Apply clang-format and return if no issues were found."""
+    """Apply clang-format and return if no issues were found.
+    Extracted from https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang_format_report.py"""
+
     r, patch = get_diff(base_commit)
     if not r:
-        return
+        return False
 
     patches = unidiff.PatchSet(patch)
     ignore_lines = []
@@ -42,6 +57,9 @@ def run_clang_format(base_commit, ignore_config):
 
     if not success:
         print('Please format your changes with clang-format by running `git-clang-format HEAD^` or applying patch.')
+        return False
+
+    return True
 
 def remove_ignored(diff_lines, ignore_patterns_lines):
     ignore = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern, ignore_patterns_lines)
@@ -57,7 +75,9 @@ def remove_ignored(diff_lines, ignore_patterns_lines):
 
 
 def run_clang_tidy(base_commit, ignore_config): 
-    """Apply clang-tidy and return if no issues were found."""
+    """Apply clang-tidy and return if no issues were found.
+    Extracted from https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang_tidy_report.py"""
+
     r = subprocess.run(f'git diff -U0 --no-prefix {base_commit}', shell=True, capture_output=True)
     diff = r.stdout.decode()
     if ignore_config is not None and os.path.exists(ignore_config):
@@ -98,7 +118,13 @@ def run_clang_tidy(base_commit, ignore_config):
     if errors_count + warn_count != 0:
         print('clang-tidy found {} errors and {} warnings.'.format(errors_count, warn_count))
 
+    if errors_count != 0:
+        return False
+
+    return True
+
 
 if __name__ == '__main__':
-    run_clang_format('HEAD~1','./mlir/utils/jenkins/clang-format.ignore')
-    run_clang_tidy('HEAD~1', './mlir/utils/jenkins/clang-tidy.ignore')
+    if  not (   run_clang_format('HEAD~1','./mlir/utils/jenkins/static-checks/clang-format.ignore')
+            and run_clang_tidy('HEAD~1', './mlir/utils/jenkins/static-checks/clang-tidy.ignore') ):
+        exit(1)
