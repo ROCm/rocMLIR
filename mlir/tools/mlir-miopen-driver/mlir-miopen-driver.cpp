@@ -177,6 +177,10 @@ static cl::opt<bool> populateHostHarness(
     "ph", cl::desc("To populate host harness logic"),
     cl::value_desc("To populate host harness logic"), cl::init(false));
 
+static cl::opt<bool> printResultTensor(
+    "pr", cl::desc("To print result tensor for verification"),
+     cl::value_desc("To print result tensor for verification"), cl::init(false));
+
 static cl::opt<int> blockSize("block_size", cl::desc("Block size"),
                               cl::value_desc("Block size"), cl::init(0));
 
@@ -451,26 +455,28 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   block->push_back(outputGpuToCpuCopyOp);
 
   // Emit verification logic.
-  StringRef printMemRefFuncName;
-  if (dataType == builder.getF32Type()) {
-    printMemRefFuncName = "print_memref_f32";
-  } else if (dataType == builder.getF16Type()) {
-    printMemRefFuncName = "print_memref_f16";
-  } else if (dataType == builder.getBF16Type()) {
-    printMemRefFuncName = "print_memref_bf16";
+  if (printResultTensor.getValue()) {
+    StringRef printMemRefFuncName;
+    if (dataType == builder.getF32Type()) {
+      printMemRefFuncName = "print_memref_f32";
+    } else if (dataType == builder.getF16Type()) {
+      printMemRefFuncName = "print_memref_f16";
+    } else if (dataType == builder.getBF16Type()) {
+      printMemRefFuncName = "print_memref_bf16";
+    }
+    auto unrankedMemRefType = UnrankedMemRefType::get(dataType, 0);
+    auto printMemRefCastOp = builder.create<MemRefCastOp>(
+        builder.getUnknownLoc(), resultCpuValue, unrankedMemRefType);
+    auto printMemRefFuncOp =
+        FuncOp::create(builder.getUnknownLoc(), printMemRefFuncName,
+                       builder.getFunctionType({unrankedMemRefType}, {}));
+    auto printMemRefCallOp =
+        builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFuncOp,
+                               ValueRange{printMemRefCastOp});
+    module.push_back(printMemRefFuncOp);
+    block->push_back(printMemRefCastOp);
+    block->push_back(printMemRefCallOp);
   }
-  auto unrankedMemRefType = UnrankedMemRefType::get(dataType, 0);
-  auto printMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), resultCpuValue, unrankedMemRefType);
-  auto printMemRefFuncOp =
-      FuncOp::create(builder.getUnknownLoc(), printMemRefFuncName,
-                     builder.getFunctionType({unrankedMemRefType}, {}));
-  auto printMemRefCallOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFuncOp,
-                             ValueRange{printMemRefCastOp});
-  module.push_back(printMemRefFuncOp);
-  block->push_back(printMemRefCastOp);
-  block->push_back(printMemRefCallOp);
 
   // Emit GPU memory deallocation function calls.
   StringRef gpuMemDeallocFuncName;
