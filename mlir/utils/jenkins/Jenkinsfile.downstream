@@ -24,6 +24,7 @@ pipeline {
                     sudo apt install -y ninja-build wget git python cmake miopen-hip libsqlite3-dev python3-pip
                     pip3 install pathspec unidiff
                 '''
+		# Set the path to the clang-format executable 
                 sh "PATH=$PATH:/opt/rocm/llvm/bin/"
             }
         }
@@ -48,15 +49,12 @@ pipeline {
                         -DMLIR_ENABLE_SQLITE=1
 
 	     	    # premerge checks
+                    # Must be invoked from the root directory
                     cd ..
                     if [ ! -f ./compile_commands.json ]; then
                        ln -s build/compile_commands.json compile_commands.json
                     fi
 		    python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py
-
-		    if [ $? != 0 ]; then
-			exit 1
-		    fi
 
                 '''
             }

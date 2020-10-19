@@ -7,7 +7,8 @@ merges them to the master branch.
 The code was extracted from https://github.com/google/llvm-premerge-checks.
 
 Example usage:
-~/llvm-projuect-mlir#  python3.7 ./mlir/utils/jenkins/static-checks/premerge-checks.py
+~/llvm-project-mlir#  ln -s build/compile_commands.json compile_commands.json
+~/llvm-project-mlir#  python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py
 """
 
 
