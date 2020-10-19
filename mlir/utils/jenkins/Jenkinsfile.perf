@@ -1,0 +1,61 @@
+pipeline {
+    agent {
+        docker {
+            image 'rocm/dev-ubuntu-18.04:3.7'
+            args '--user "$(id -u):$(id -g)" -v /etc/passwd:/etc/passwd:ro --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+            label 'rocm'
+        }
+    }
+    stages {
+        stage('Environment') {
+            steps {
+                sh 'cat /etc/os-release'
+                sh '/opt/rocm/bin/rocm-smi'
+            }
+        }
+        stage('Setup') {
+            steps {
+                sh '''
+                    # install pkg dependencies
+                    sudo apt update
+                    sudo apt install -y ninja-build wget git python cmake
+                '''
+            }
+        }
+        stage('Test') {
+            steps {
+                checkout scm
+                sh '''
+                    # make build directory
+                    mkdir -p build && cd build
+
+                    # config MLIR on ROCm, with MIOpen dialect
+                    cmake -G Ninja ../llvm \
+                        -DLLVM_ENABLE_PROJECTS="mlir;lld" \
+                        -DLLVM_BUILD_EXAMPLES=ON \
+                        -DLLVM_TARGETS_TO_BUILD="X86;NVPTX;AMDGPU" \
+                        -DCMAKE_BUILD_TYPE=Release \
+                        -DLLVM_ENABLE_ASSERTIONS=ON \
+                        -DBUILD_SHARED_LIBS=ON \
+                        -DLLVM_BUILD_LLVM_DYLIB=ON \
+                        -DMLIR_ROCM_RUNNER_ENABLED=1 \
+                        -DMLIR_MIOPEN_DRIVER_ENABLED=1
+
+                    # build LLVM / MLR and run tests
+                    cmake --build . --target check-mlir
+
+                    # run 1 perf benchmark config. more to come.
+                    ./bin/mlir-miopen-driver -p -ph -c | rocprof --hip-trace ./bin/mlir-rocm-runner --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void
+
+                    # dump perf figures.
+                    cat results.stats.csv
+                '''
+            }
+        }
+    }
+    post { 
+        always { 
+            cleanWs()
+        }
+    }
+}
