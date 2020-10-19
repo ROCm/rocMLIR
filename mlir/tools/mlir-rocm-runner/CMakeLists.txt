@@ -17,15 +17,7 @@ if(MLIR_ROCM_RUNNER_ENABLED)
   # lld header files.
   include_directories(${MLIR_SOURCE_DIR}/../lld/include)
 
-  # Configure ROCm support.
-  if (NOT DEFINED ROCM_PATH)
-    if (NOT DEFINED ENV{ROCM_PATH})
-      set(ROCM_PATH "/opt/rocm" CACHE PATH "Path to which ROCm has been installed")
-    else()
-      set(ROCM_PATH $ENV{ROCM_PATH} CACHE PATH "Path to which ROCm has been installed")
-    endif()
-    set(HIP_PATH "${ROCM_PATH}/hip" CACHE PATH " Path to which HIP has been installed")
-  endif()
+  set(HIP_PATH "${ROCM_PATH}/hip" CACHE PATH " Path to which HIP has been installed")
   set(CMAKE_MODULE_PATH "${HIP_PATH}/cmake" ${CMAKE_MODULE_PATH})
   find_package(HIP)
   if (NOT HIP_FOUND)

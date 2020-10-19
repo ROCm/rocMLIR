@@ -2,7 +2,7 @@
 
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
-#include "mlir/Dialect/MIOpen/gridwise_gemm_params.h"
+#include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/StandardTypes.h"
