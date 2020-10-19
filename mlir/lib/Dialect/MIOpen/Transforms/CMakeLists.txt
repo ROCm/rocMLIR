@@ -8,6 +8,7 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
 
   DEPENDS
   MLIRMIOpenPassIncGen
+  MLIRMIOpenTuning
   MLIRSCFToStandard
   MLIRStandardOps
 )
@@ -18,6 +19,7 @@ target_link_libraries(MLIRMIOpenTransforms
   MLIRIR
   MLIRLLVMIR
   MLIRMIOpenOps
+  MLIRMIOpenTuning
   MLIRPass
   MLIRSCFToStandard
   MLIRStandardOps

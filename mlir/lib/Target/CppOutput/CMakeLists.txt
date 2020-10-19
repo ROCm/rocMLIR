@@ -16,6 +16,7 @@ add_mlir_translation_library(MLIRTargetMIOpenCppTranslation
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRMIOpenOps
+  MLIRMIOpenTuning
   MLIRStandardOps
   MLIRTranslation
   )
