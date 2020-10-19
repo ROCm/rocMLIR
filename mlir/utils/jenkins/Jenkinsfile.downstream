@@ -23,8 +23,8 @@ pipeline {
                     sudo apt update
                     sudo apt install -y ninja-build wget git python cmake miopen-hip libsqlite3-dev python3-pip
                     pip3 install pathspec unidiff
-                    PATH=$PATH:/opt/rocm/llvm/bin/
                 '''
+                sh "PATH=$PATH:/opt/rocm/llvm/bin/"
             }
         }
         stage('Static Test') {
