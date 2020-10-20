@@ -102,6 +102,9 @@ LogicalResult PopulateParams::paramsFromCtx(
     res = populateDerived(ctx, params, gemmSize, gemmADerivedParam,
                           gemmBDerivedParam, blockGemmDerivedParam,
                           gemmCDstPerWrite, gridSize);
+    if (failed(res)) {
+      continue;
+    }
 
     validParams = params;
     break;
@@ -113,4 +116,72 @@ LogicalResult PopulateParams::paramsFromCtx(
   }
 
   return res;
+}
+
+LogicalResult PopulateParamsXDL::paramsFromCtx(ConvolutionContext &ctx,
+                                               InitParamsXDL &validParams,
+                                               DerivedParams &gemmADerivedParam,
+                                               DerivedParams &gemmBDerivedParam,
+                                               int64_t &blockSize,
+                                               int64_t &gridSize) {
+
+  GemmSize gemmSize;
+  obtainGemmSize(ctx, gemmSize);
+
+  LogicalResult res(LogicalResult::Failure);
+  for (auto &params : initParameters) {
+    res = isValidGemm(&params, gemmSize);
+    if (failed(res)) {
+      LLVM_DEBUG(llvm::dbgs() << "Gemm sizes, M: " << gemmSize.gemmM
+                              << " N: " << gemmSize.gemmN
+                              << " K: " << gemmSize.gemmK << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "Gemm size and gemm/block "
+                              << "size does not divide exactly.\n");
+      continue;
+    }
+
+    blockSize = obtainBlockSize(params, waveSize);
+
+    res = isValidXDLOPSGemm(&params, blockSize);
+    if (failed(res)) {
+      LLVM_DEBUG(llvm::dbgs() << "Invalid XDLOps gemm.\n");
+      continue;
+    }
+
+    res = calculateGemmABlockCopyPerformanceParameters(&params, ctx,
+                                                       gemmADerivedParam);
+    if (failed(res)) {
+      LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmA tuning parameter "
+                              << " size.\n");
+      continue;
+    }
+
+    res = calculateGemmBBlockCopyPerformanceParameters(&params, ctx,
+                                                       gemmBDerivedParam);
+    if (failed(res)) {
+      LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmB tuning parameter "
+                              << " size.\n");
+      continue;
+    }
+
+    std::size_t ldsSize = 0;
+    res = calculateLdsNumberOfByte(&params, ctx, gemmADerivedParam,
+                                   gemmBDerivedParam, ldsSize);
+
+    if (failed(res)) {
+      LLVM_DEBUG(llvm::dbgs() << "LDS size too large.\n");
+      continue;
+    }
+
+    validParams = params;
+    break;
+  }
+
+  if (failed(res)) {
+    // All initParameters have failed, shouldn't happen
+    llvm::errs() << "FATAL ERROR! COULD NOT FIND VALID TUNING PARAMETERS!\n";
+  }
+
+  // parameters derivable from tunable parameters.
+  gridSize = obtainGridSize(gemmSize, &validParams);
 }
