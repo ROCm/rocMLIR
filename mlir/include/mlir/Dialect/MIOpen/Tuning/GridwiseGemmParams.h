@@ -14,6 +14,7 @@
 #define MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
 
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
 #include "mlir/Support/FileUtilities.h"
 #include "llvm/Support/CommandLine.h"
@@ -67,76 +68,6 @@ template <typename T> T integer_divide_ceil(T x, T y) {
 template <typename T> T integer_least_multiple(T x, T y) {
   return y * integer_divide_ceil(x, y);
 }
-
-struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
-  llvm::SmallString<8> arch;
-  int num_cu;
-  mlir::miopen::ConvOpType opType;
-  llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
-  llvm::SmallVector<int64_t, 0> strideVal;
-  llvm::SmallVector<int64_t, 0> dilationVal;
-  llvm::SmallVector<int64_t, 0> paddingVal;
-
-  ConvolutionContext(const llvm::SmallString<8> &architecture, int numCu,
-                     mlir::miopen::ConvOpType op,
-                     llvm::StringMap<std::pair<size_t, int64_t>> dim,
-                     llvm::SmallVector<int64_t, 0> stride,
-                     llvm::SmallVector<int64_t, 0> dilation,
-                     llvm::SmallVector<int64_t, 0> padding)
-      : arch(architecture), num_cu(numCu), opType(op), dimIndexVal(dim),
-        strideVal(stride), dilationVal(dilation), paddingVal(padding) {}
-
-  llvm::StringMap<std::pair<size_t, int64_t>> getDimIndexVal() const {
-    return dimIndexVal;
-  }
-  llvm::SmallVector<int64_t, 0> getPaddingVal() const { return paddingVal; }
-  llvm::SmallVector<int64_t, 0> getStrideVal() const { return strideVal; }
-  llvm::SmallVector<int64_t, 0> getDilationVal() const { return dilationVal; }
-  mlir::miopen::ConvOpType getOpType() const { return opType; }
-
-  static std::string tableName() { return "config"; }
-
-  // Note: Keep it in sync with miopen/conv/problem_description
-  template <class Self, class F> static void visit(Self &&self, F f) {
-    // Input tensor dimensions
-    f(std::to_string(self.getDimIndexVal()["ni"].second), "batchsize");
-    f(std::to_string(self.getDimIndexVal()["ci"].second), "in_channels");
-    f(std::to_string(self.getDimIndexVal()["hi"].second), "in_h");
-    f(std::to_string(self.getDimIndexVal()["wi"].second), "in_w");
-    // Filter tensor dimensions
-    f(std::to_string(self.getDimIndexVal()["y"].second), "fil_h");
-    f(std::to_string(self.getDimIndexVal()["x"].second), "fil_w");
-    // Output tensor dimensions
-    f(std::to_string(self.getDimIndexVal()["ko"].second), "out_channels");
-    // Padding
-    f(std::to_string(self.getPaddingVal()[0]), "pad_h");
-    f(std::to_string(self.getPaddingVal()[1]), "pad_w");
-    // Strides
-    f(std::to_string(self.getStrideVal()[0]), "conv_stride_h");
-    f(std::to_string(self.getStrideVal()[1]), "conv_stride_w");
-    f(std::to_string(0), "conv_stride_d");
-    f(std::to_string(self.getDilationVal()[0]), "dilation_h");
-    f(std::to_string(self.getDilationVal()[1]), "dilation_w");
-    f(std::to_string(0), "dilation_d");
-    f(std::to_string(0), "bias");
-    f(std::to_string(1), "group_count");
-    // TODO use dimIndexVal to generate layout
-    f("'" + std::string("NCHW") + "'", "layout");
-    f("'" + std::string("FP32") + "'", "data_type");
-
-    switch (self.getOpType()) {
-    case miopen::ConvOpType::Conv2DOpType:
-      f("'F'", "direction");
-      break;
-    case miopen::ConvOpType::Conv2DBwdDataOpType:
-      f("'B'", "direction");
-      break;
-    case miopen::ConvOpType::Conv2DBwdWeightOpType:
-      f("'W'", "direction");
-      break;
-    }
-  }
-};
 
 struct InitParams {
   int64_t gemmMPerBlock;
@@ -617,58 +548,6 @@ protected:
   }
 };
 
-class TunableParameters {
-public:
-  // Default constructor: empty map of params
-  TunableParameters() {}
-
-  // params constructor: populate with existing values
-  TunableParameters(std::map<std::string, int> parameters)
-      : params(parameters) {}
-
-  // yaml constrcutor: Use YAML to capture all parameters
-  TunableParameters(llvm::StringRef &&yamlFileName) {
-    auto yaml = mlir::openInputFile(yamlFileName);
-    assert(yaml != nullptr);
-    loadYAML(yaml->getBuffer());
-  }
-
-  void print(llvm::raw_ostream &os) {
-    for (auto kv : params) {
-      os << " -D" << kv.first << "=" << kv.second;
-    }
-  }
-  void dump(llvm::StringRef &&yamlFileName) {
-    auto outputYAMLFile = mlir::openOutputFile(yamlFileName);
-    if (outputYAMLFile) {
-      printYAML(outputYAMLFile->os());
-      outputYAMLFile->keep();
-    } else {
-      llvm::errs() << "\nOpen output file failed: " << yamlFileName << "\n";
-    }
-  }
-  void printYAML(llvm::raw_ostream &os) {
-    llvm::yaml::Output xout(os, nullptr, 0);
-    xout << params;
-    os.flush();
-  }
-  void loadYAML(llvm::StringRef yaml) {
-    params.clear();
-    llvm::yaml::Input yin(yaml);
-    yin >> params;
-  }
-  int operator[](llvm::StringRef str) {
-    if (params.find(str.str()) != params.end()) {
-      return params[str.str()];
-    }
-    return 0;
-  }
-  void setValue(llvm::StringRef str, int value) { params[str.str()] = value; }
-
-protected:
-  std::map<std::string, int> params;
-};
-
 struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
   InitParamsNonXDL(int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
                    int64_t mPerThread, int64_t nPerThread, int64_t bSize)
@@ -686,6 +565,15 @@ struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
     f(self.gemmMPerThread);
     f(self.gemmNPerThread);
   }
+};
+
+struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
+  InitParamsXDL(int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
+                int64_t mPerWave, int64_t nPerWave)
+      : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
+        gemmNPerWave(nPerWave) {}
+  int64_t gemmMPerWave;
+  int64_t gemmNPerWave;
 };
 
 // block gemm tuning params that sepcific the layout of thread-wise gemm in a
@@ -832,6 +720,107 @@ public:
                               DerivedParams &gemmBDerivedParam,
                               DerivedBlockGemmParams &blockGemmDerivedParam,
                               int64_t &gemmCDstPerWrite, int64_t &gridSize);
+};
+
+class PopulateParamsXDL : public PopulateParamsBase {
+private:
+  llvm::SmallVector<InitParamsXDL, 4> initParameters = {
+      // M/block N/block K/block M/wave N/wave
+      {128, 128, 16, 64, 64},
+      {8, 64, 8, 8, 64},
+      {4, 64, 16, 4, 64},
+      {16, 16, 4, 16, 16},
+  };
+  const int64_t waveSize = 64;
+
+  int64_t obtainBlockSize(InitParamsXDL &params, int64_t waveSize) {
+    return waveSize * params.gemmNPerBlock * params.gemmMPerBlock /
+           (params.gemmMPerWave * params.gemmNPerWave);
+  }
+
+  LogicalResult calculateGemmABlockCopyPerformanceParameters(
+      InitParamsXDL *param, ConvolutionContext &ctx, DerivedParams &derived) {
+    int64_t blockSize = obtainBlockSize(*param, waveSize);
+    return calculateInputDerivedParams(param, blockSize, ctx, true, derived);
+  }
+
+  LogicalResult calculateGemmBBlockCopyPerformanceParameters(
+      InitParamsXDL *param, ConvolutionContext &ctx, DerivedParams &derived) {
+    int64_t blockSize = obtainBlockSize(*param, waveSize);
+    return calculateInputDerivedParams(param, blockSize, ctx, false, derived);
+  }
+
+  LogicalResult calculateLdsNumberOfByte(InitParamsXDL *param,
+                                         const ConvolutionContext &ctx,
+                                         DerivedParams gemmADerived,
+                                         DerivedParams gemmBDerived,
+                                         size_t &ldsSize) {
+
+    int64_t threadGemmDataPerRead_GemmM =
+        param->gemmMPerBlock / gemmADerived.clusterLenGemmPos2;
+    int64_t threadGemmDataPerRead_GemmN =
+        param->gemmNPerBlock / gemmBDerived.clusterLenGemmPos2;
+
+    const auto max_lds_align =
+        lcm(gemmADerived.dstDataPerWrite, gemmBDerived.dstDataPerWrite,
+            threadGemmDataPerRead_GemmM, threadGemmDataPerRead_GemmN);
+
+    const auto a_block_space =
+        param->gemmKPerBlock *
+        integer_least_multiple(param->gemmMPerBlock, max_lds_align);
+    const auto b_block_space =
+        param->gemmKPerBlock *
+        integer_least_multiple(param->gemmNPerBlock, max_lds_align);
+
+    ldsSize = 2 * (a_block_space + b_block_space) * sizeof(float);
+
+    if (ldsSize > 64 * 1024) {
+      return failure();
+    }
+
+    return success();
+  }
+
+  LogicalResult isValidXDLOPSGemm(InitParamsXDL *param, int64_t blockSize) {
+    // TBD: support fp16/bf16
+    const auto gemmKPackedPerBlock = param->gemmKPerBlock;
+
+    // unsupported xdlops-gemm
+    if (param->gemmMPerWave == 16 && param->gemmNPerWave == 32)
+      return failure();
+    if (param->gemmMPerWave == 32 && param->gemmNPerWave == 16)
+      return failure();
+    if (param->gemmMPerWave == 8 && param->gemmNPerWave != 64)
+      return failure();
+    if (param->gemmMPerWave == 4 && param->gemmNPerWave != 64)
+      return failure();
+    if (param->gemmMPerWave == 32 && param->gemmNPerWave == 32 &&
+        gemmKPackedPerBlock % 2 != 0)
+      return failure();
+    if (param->gemmMPerWave == 16 && param->gemmNPerWave == 16 &&
+        gemmKPackedPerBlock % 4 != 0)
+      return failure();
+
+    // fail with blockSize >= 512
+    /// \todo fix the issue with blockSize >= 512
+    if (blockSize < 64 || blockSize > 256)
+      return failure();
+
+    if ((param->gemmMPerBlock % param->gemmMPerWave) != 0)
+      return failure();
+
+    if ((param->gemmNPerBlock % param->gemmNPerWave) != 0)
+      return failure();
+
+    return success();
+  }
+
+public:
+  LogicalResult paramsFromCtx(ConvolutionContext &ctx,
+                              InitParamsXDL &validParams,
+                              DerivedParams &gemmADerivedParam,
+                              DerivedParams &gemmBDerivedParam,
+                              int64_t &blockSize, int64_t &gridSize);
 };
 
 #endif // MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
