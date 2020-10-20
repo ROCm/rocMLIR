@@ -1015,14 +1015,14 @@ void mlir::translateModuleToMIOpenCFlags(ModuleOp m, std::string &cflags) {
 
       parameters["__HIP_PLATFORM_HCC__"] = 1;
 
-      TunableParameters params(parameters);
+      auto printParams = [&parameters](llvm::raw_ostream &os) {
+        for (auto kv : parameters) {
+          os << " -D" << kv.first << "=" << kv.second;
+        }
+      };
 
       // Print out the tunable parameters.
-      params.print(output);
-      if (IsPopulateTunableParameters.getValue()) {
-        // Populate YAML config file.
-        params.dump("tunable.yaml");
-      }
+      printParams(output);
 
       output << " -std=c++14";
       output << "\n";
