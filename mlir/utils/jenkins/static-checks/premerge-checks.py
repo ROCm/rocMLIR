@@ -112,6 +112,7 @@ def run_clang_tidy(base_commit, ignore_config):
         if severity == 'warning':
           warn_count += 1
         if severity == 'error':
+          print('clang-tidy found error:',line)
           errors_count += 1
         if ignore.match_file(file_name):
           print('{} is ignored by pattern and no comment will be added'.format(file_name))

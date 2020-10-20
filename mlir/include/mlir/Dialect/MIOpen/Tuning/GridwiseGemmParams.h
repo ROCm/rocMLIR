@@ -10,6 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+// A dummy line to trigger static checks
+//
 #ifndef MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
 #define MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
 
