@@ -233,6 +233,9 @@ static void populateDefaults() {
       strideWidth.setValue(1);
       paddingHeight.setValue(0);
       paddingWidth.setValue(0);
+
+      arch.setValue("gfx908");
+      num_cu.setValue(120);
     }
   }
 
