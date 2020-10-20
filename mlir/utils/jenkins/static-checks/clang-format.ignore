@@ -1,0 +1,3 @@
+# Reference:  https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang-format.ignore
+# Patterns for clang-format to ignore.
+**/test
