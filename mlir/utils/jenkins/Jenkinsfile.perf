@@ -21,7 +21,7 @@ pipeline {
 
                     # install pkg dependencies
                     sudo apt update
-                    sudo apt install -y ninja-build wget git python cmake miopen-hip libsqlite3-dev
+                    sudo apt install -y ninja-build wget git python cmake miopen-hip libsqlite3-dev rocprofiler-dev
                 '''
             }
         }
