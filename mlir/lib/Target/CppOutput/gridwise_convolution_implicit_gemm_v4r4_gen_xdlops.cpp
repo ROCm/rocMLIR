@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/MIOpen/GridwiseConvCppOutputHelper.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -664,20 +665,18 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
       auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
       auto inputLayoutAttr = op.getAttrOfType<ArrayAttr>("input_layout");
 
-      size_t dimKF, dimCF, dimYF, dimXF;
-      size_t dimNI, dimCI, dimHI, dimWI;
-
+      size_t dimKF, dimNI, dimCI;
       for (size_t i = 0; i < 4; ++i) {
         auto filterDim = filterLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
 
         if (filterDim.str() == "k") {
           dimKF = i;
         } else if (filterDim.str() == "c") {
-          dimCF = i;
+          // dimCF = i;
         } else if (filterDim.str() == "y") {
-          dimYF = i;
+          // dimYF = i;
         } else if (filterDim.str() == "x") {
-          dimXF = i;
+          // dimXF = i;
         }
 
         auto inputDim = inputLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
@@ -686,9 +685,9 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
         } else if (inputDim.str() == "ci") {
           dimCI = i;
         } else if (inputDim.str() == "hi") {
-          dimHI = i;
+          // dimHI = i;
         } else if (inputDim.str() == "wi") {
-          dimWI = i;
+          // dimWI = i;
         }
       }
 
@@ -815,12 +814,12 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       parameters["CK_PARAM_PROBLEM_RIGHT_PAD_W"] = ctx.paddingVal[3];
 
       PopulateParamsXDL populateParams;
-      InitParamsXDL validParams{0, 0, 0, 0, 0};
+      InitParamsXDL validParams;
       DerivedParams gemmADerivedParam;
       DerivedParams gemmBDerivedParam;
       int64_t blockSize = 0;
       int64_t gridSize = 0;
-      populateParams.paramsFromCtx(ctx, validParams, gemmADerivedParam,
+      populateParams.paramsFromCtx(ctx, 0, validParams, gemmADerivedParam,
                                    gemmBDerivedParam, blockSize, gridSize);
 
       parameters["CK_PARAM_TUNABLE_BLOCK_SIZE"] = blockSize;
@@ -861,7 +860,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(Modul
       parameters["MIOPEN_USE_FP16"] = 0;
       parameters["MIOPEN_USE_BFP16"] = 0;
 
-      miopen::ConvOpType opType = ObtainConvDirection(op);
       parameters["CK_PARAM_PROBLEM_CONV_DIRECTION_FORWARD"] = 1;
       parameters["CK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_DATA"] = 0;
       parameters["CK_PARAM_PROBLEM_CONV_DIRECTION_BACKWARD_WEIGHT"] = 0;

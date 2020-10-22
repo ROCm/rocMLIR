@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/MIOpen/GridwiseConvCppOutputHelper.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -904,18 +905,16 @@ void mlir::translateModuleToMIOpenCFlags(ModuleOp m, std::string &cflags) {
 
     f.walk([&output](miopen::GridwiseGemmOp op) {
       ConvolutionContext ctx = populateConvContext(op);
-      InitParamsNonXDL validParams{0, 0, 0, 0, 0, 0};
-      GemmSize gemmSize;
+      InitParamsNonXDL validParams;
       DerivedParams gemmADerivedParam;
       DerivedParams gemmBDerivedParam;
       DerivedBlockGemmParams blockGemmDerivedParam;
       int64_t gemmCDstPerWrite;
       int64_t gridSize;
-
       PopulateParams populateParams;
-      populateParams.paramsFromCtx(
-          ctx, validParams, gemmSize, gemmADerivedParam, gemmBDerivedParam,
-          blockGemmDerivedParam, gemmCDstPerWrite, gridSize);
+      populateParams.paramsFromCtx(ctx, 0, validParams, gemmADerivedParam,
+                                   gemmBDerivedParam, blockGemmDerivedParam,
+                                   gemmCDstPerWrite, gridSize);
 
       std::map<std::string, int> parameters;
 

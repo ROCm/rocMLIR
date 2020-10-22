@@ -1,4 +1,4 @@
-//===- ConvContext.h - MLIR tuning parameter generation --------*-===//
+//===--------- ConvContext.h - MLIR tuning parameter generation ----------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -89,6 +89,94 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
     }
   }
 };
+
+// T is either GriwiseGemmOp or GridwiseGemmV2Op
+template <typename T> static miopen::ConvOpType ObtainConvDirection(T &op) {
+  miopen::ConvOpType opType;
+  auto kernel_algorithm =
+      op.template getAttrOfType<StringAttr>("kernel_algorithm");
+  if (kernel_algorithm.getValue().find(StringRef("backward_data")) !=
+      StringRef::npos) {
+    opType = miopen::ConvOpType::Conv2DBwdDataOpType;
+  } else if (kernel_algorithm.getValue().find(StringRef("backward_weight")) !=
+             StringRef::npos) {
+    opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
+  } else {
+    opType = miopen::ConvOpType::Conv2DOpType;
+  }
+  return opType;
+}
+
+static inline void
+populateDimVal(const ArrayAttr &layoutAttr, const ArrayAttr &dimAttr,
+               llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal) {
+  assert(layoutAttr.size() == dimAttr.size());
+  size_t dimValSize = layoutAttr.size();
+  for (size_t i = 0; i < dimValSize; ++i) {
+    auto key = layoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
+    auto value = dimAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+    dimIndexVal[key] = std::make_pair(i, value);
+  }
+}
+
+static inline void populateSeqVal(const ArrayAttr &seqAttr,
+                                  llvm::SmallVector<int64_t, 0> &seqVal) {
+  size_t seqValSize = seqAttr.size();
+  for (size_t i = 0; i < seqValSize; ++i) {
+    // Not nested array, push back the value and be done
+    if (seqAttr.getValue()[i].dyn_cast<ArrayAttr>() == nullptr) {
+      seqVal.push_back(seqAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt());
+      continue;
+    }
+    // There is nested values, continue to populate those
+    for (size_t j = 0; j < seqAttr.getValue()[i].dyn_cast<ArrayAttr>().size();
+         ++j) {
+      seqVal.push_back(seqAttr.getValue()[i]
+                           .dyn_cast<ArrayAttr>()
+                           .getValue()[j]
+                           .dyn_cast<IntegerAttr>()
+                           .getInt());
+    }
+  }
+}
+
+// T is either GriwiseGemmOp or GridwiseGemmV2Op
+template <typename T> static ConvolutionContext populateConvContext(T &op) {
+  miopen::ConvOpType opType = ObtainConvDirection(op);
+
+  auto archVal = op.template getAttrOfType<StringAttr>("arch").getValue();
+  int numCuVal = op.template getAttrOfType<IntegerAttr>("num_cu").getInt();
+
+  llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
+
+  auto filterLayoutAttr = op.template getAttrOfType<ArrayAttr>("filter_layout");
+  auto filterDimensionAttr =
+      op.template getAttrOfType<ArrayAttr>("filter_dimension");
+  populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
+  auto inputLayoutAttr = op.template getAttrOfType<ArrayAttr>("input_layout");
+  auto inputDimensionAttr =
+      op.template getAttrOfType<ArrayAttr>("input_dimension");
+  populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
+  auto outputLayoutAttr = op.template getAttrOfType<ArrayAttr>("output_layout");
+  auto outputDimensionAttr =
+      op.template getAttrOfType<ArrayAttr>("output_dimension");
+  populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
+
+  auto strideAttr = op.template getAttrOfType<ArrayAttr>("strides");
+  llvm::SmallVector<int64_t, 0> strideVal;
+  populateSeqVal(strideAttr, strideVal);
+
+  auto dilationAttr = op.template getAttrOfType<ArrayAttr>("dilations");
+  llvm::SmallVector<int64_t, 0> dilationVal;
+  populateSeqVal(dilationAttr, dilationVal);
+
+  auto paddingAttr = op.template getAttrOfType<ArrayAttr>("padding");
+  llvm::SmallVector<int64_t, 0> paddingVal;
+  populateSeqVal(paddingAttr, paddingVal);
+
+  return {archVal,   numCuVal,    opType,    dimIndexVal,
+          strideVal, dilationVal, paddingVal};
+}
 
 } // namespace mlir
 #endif // MLIR_DIALECT_MIOPEN_CONVCONTEXT_H

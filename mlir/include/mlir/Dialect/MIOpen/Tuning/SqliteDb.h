@@ -25,8 +25,6 @@
 #include <unordered_map>
 #include <vector>
 
-#define DEBUG_TYPE "miopen-sqlite-db"
-
 namespace mlir {
 
 const auto MIOPEN_SQL_BUSY_TIMEOUT_MS = 60000;
@@ -52,6 +50,8 @@ public:
 };
 
 class DbRecord {
+#define DEBUG_TYPE "miopen-sqlite-dbrecord"
+
 public:
   bool getValues(const std::string &id, std::string &values) const;
   bool setValues(const std::string &id, const std::string &values);
@@ -79,6 +79,8 @@ public:
 private:
   std::string key;
   std::unordered_map<std::string, std::string> map;
+
+#undef DEBUG_TYPE
 };
 
 template <class Vector, class T> void printVector(Vector v) {
@@ -88,6 +90,8 @@ template <class Vector, class T> void printVector(Vector v) {
 }
 
 class SQLitePerfDb {
+#define DEBUG_TYPE "miopen-sqlite-perfdb"
+
 public:
   std::string filename;
   std::string arch;
@@ -141,11 +145,12 @@ public:
             return false;
         return record->getValues(id, values);
     }
+
+#undef DEBUG_TYPE
 };
 
 SQLitePerfDb getDb(const llvm::SmallString<8> &arch, size_t num_cu);
-
-}
+} // namespace MLIR
 
 #endif // MLIR_ENABLE_SQLITE
 #endif // MLIR_DIALECT_MIOPEN_SQLITE_DB_H
