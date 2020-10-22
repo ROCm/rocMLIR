@@ -16,6 +16,9 @@ pipeline {
         stage('Setup') {
             steps {
                 sh '''
+                    # Swap to matching 3.7 dependency:
+                    sed -i 's/debian/3.7/g' /etc/apt/sources.list.d/rocm.list
+
                     # install pkg dependencies
                     sudo apt update
                     sudo apt install -y ninja-build wget git python cmake miopen-hip libsqlite3-dev
@@ -42,7 +45,7 @@ pipeline {
                         -DMLIR_MIOPEN_DRIVER_ENABLED=1 \
                         -DMLIR_ENABLE_SQLITE=1
 
-                    # build LLVM / MLR tools and run tests
+                    # build LLVM / MLIR and run tests
                     cmake --build . --target check-mlir
 
                     # run 1 perf benchmark config. more to come.
