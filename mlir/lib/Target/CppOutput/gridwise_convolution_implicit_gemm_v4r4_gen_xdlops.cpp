@@ -669,14 +669,10 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
       for (size_t i = 0; i < 4; ++i) {
         auto filterDim = filterLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
 
+        // Since XDLOPS cpp backend only supports forward pass so not all
+        // variables are used
         if (filterDim.str() == "k") {
           dimKF = i;
-        } else if (filterDim.str() == "c") {
-          // dimCF = i;
-        } else if (filterDim.str() == "y") {
-          // dimYF = i;
-        } else if (filterDim.str() == "x") {
-          // dimXF = i;
         }
 
         auto inputDim = inputLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
@@ -684,10 +680,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
           dimNI = i;
         } else if (inputDim.str() == "ci") {
           dimCI = i;
-        } else if (inputDim.str() == "hi") {
-          // dimHI = i;
-        } else if (inputDim.str() == "wi") {
-          // dimWI = i;
         }
       }
 
