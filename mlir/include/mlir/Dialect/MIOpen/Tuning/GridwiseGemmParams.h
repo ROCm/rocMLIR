@@ -1,4 +1,4 @@
-//===- gridwise_gemm_params.h - MLIR tuning parameter generation --------*-===//
+//===- GridwiseGemmParams.h - MLIR tuning parameter generation --------*-===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -92,157 +92,6 @@ struct DerivedParams {
       : srcVectorReadDim(0), dstVectorWriteDim(0), srcDataPerRead(1),
         dstDataPerWrite(1), clusterLenGemmPos1(0), clusterLenGemmPos2(0) {}
 };
-
-static constexpr int kConv2DTensorDimension = 4;
-static constexpr StringLiteral kVarName[3] = {"weight", "input", "output"};
-
-static void EmitLayoutString(llvm::raw_ostream &output,
-                             llvm::ArrayRef<mlir::Attribute> &layoutArrayAttr,
-                             llvm::StringRef prefix, llvm::StringRef suffix,
-                             llvm::StringRef delimiter = "") {
-  for (int i = 0; i < kConv2DTensorDimension; ++i) {
-    auto attr = layoutArrayAttr[i];
-    if (auto strAttr = attr.dyn_cast<StringAttr>()) {
-      output << prefix << strAttr.getValue() << suffix;
-    }
-    if (i < kConv2DTensorDimension - 1) {
-      output << delimiter;
-    }
-  }
-}
-
-// TBD. Merge these 2 functions into one with function template.
-static miopen::ConvOpType ObtainConvDirection(miopen::GridwiseGemmOp &op) {
-  miopen::ConvOpType opType;
-  auto kernel_algorithm = op.getAttrOfType<StringAttr>("kernel_algorithm");
-  if (kernel_algorithm.getValue().find(StringRef("backward_data")) !=
-      StringRef::npos) {
-    opType = miopen::ConvOpType::Conv2DBwdDataOpType;
-  } else if (kernel_algorithm.getValue().find(StringRef("backward_weight")) !=
-             StringRef::npos) {
-    opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
-  } else {
-    opType = miopen::ConvOpType::Conv2DOpType;
-  }
-  return opType;
-}
-
-static miopen::ConvOpType ObtainConvDirection(miopen::GridwiseGemmV2Op &op) {
-  miopen::ConvOpType opType;
-  auto kernel_algorithm = op.getAttrOfType<StringAttr>("kernel_algorithm");
-  if (kernel_algorithm.getValue().find(StringRef("backward_data")) !=
-      StringRef::npos) {
-    opType = miopen::ConvOpType::Conv2DBwdDataOpType;
-  } else if (kernel_algorithm.getValue().find(StringRef("backward_weight")) !=
-             StringRef::npos) {
-    opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
-  } else {
-    opType = miopen::ConvOpType::Conv2DOpType;
-  }
-  return opType;
-}
-
-static void
-populateDimVal(const ArrayAttr &layoutAttr, const ArrayAttr &dimAttr,
-               llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal) {
-  assert(layoutAttr.size() == dimAttr.size());
-  size_t dimValSize = layoutAttr.size();
-  for (size_t i = 0; i < dimValSize; ++i) {
-    auto key = layoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
-    auto value = dimAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
-    dimIndexVal[key] = std::make_pair(i, value);
-  }
-}
-
-static void populateSeqVal(const ArrayAttr &seqAttr,
-                           llvm::SmallVector<int64_t, 0> &seqVal) {
-  size_t seqValSize = seqAttr.size();
-  for (size_t i = 0; i < seqValSize; ++i) {
-    // Not nested array, push back the value and be done
-    if (seqAttr.getValue()[i].dyn_cast<ArrayAttr>() == nullptr) {
-      seqVal.push_back(seqAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt());
-      continue;
-    }
-    // There is nested values, continue to populate those
-    for (size_t j = 0; j < seqAttr.getValue()[i].dyn_cast<ArrayAttr>().size();
-         ++j) {
-      seqVal.push_back(seqAttr.getValue()[i]
-                           .dyn_cast<ArrayAttr>()
-                           .getValue()[j]
-                           .dyn_cast<IntegerAttr>()
-                           .getInt());
-    }
-  }
-}
-
-// TBD. Merge these 2 functions into one with function template.
-static ConvolutionContext populateConvContext(miopen::GridwiseGemmOp &op) {
-  miopen::ConvOpType opType = ObtainConvDirection(op);
-
-  auto archVal = op.getAttrOfType<StringAttr>("arch").getValue();
-  auto numCuVal = op.getAttrOfType<IntegerAttr>("num_cu").getInt();
-
-  llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
-
-  auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
-  auto filterDimensionAttr = op.getAttrOfType<ArrayAttr>("filter_dimension");
-  populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
-  auto inputLayoutAttr = op.getAttrOfType<ArrayAttr>("input_layout");
-  auto inputDimensionAttr = op.getAttrOfType<ArrayAttr>("input_dimension");
-  populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
-  auto outputLayoutAttr = op.getAttrOfType<ArrayAttr>("output_layout");
-  auto outputDimensionAttr = op.getAttrOfType<ArrayAttr>("output_dimension");
-  populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
-
-  auto strideAttr = op.getAttrOfType<ArrayAttr>("strides");
-  llvm::SmallVector<int64_t, 0> strideVal;
-  populateSeqVal(strideAttr, strideVal);
-
-  auto dilationAttr = op.getAttrOfType<ArrayAttr>("dilations");
-  llvm::SmallVector<int64_t, 0> dilationVal;
-  populateSeqVal(dilationAttr, dilationVal);
-
-  auto paddingAttr = op.getAttrOfType<ArrayAttr>("padding");
-  llvm::SmallVector<int64_t, 0> paddingVal;
-  populateSeqVal(paddingAttr, paddingVal);
-
-  return {archVal,   numCuVal,    opType,    dimIndexVal,
-          strideVal, dilationVal, paddingVal};
-}
-
-static ConvolutionContext populateConvContext(miopen::GridwiseGemmV2Op &op) {
-  miopen::ConvOpType opType = ObtainConvDirection(op);
-
-  auto archVal = op.getAttrOfType<StringAttr>("arch").getValue();
-  auto numCuVal = op.getAttrOfType<IntegerAttr>("num_cu").getInt();
-
-  llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
-
-  auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
-  auto filterDimensionAttr = op.getAttrOfType<ArrayAttr>("filter_dimension");
-  populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
-  auto inputLayoutAttr = op.getAttrOfType<ArrayAttr>("input_layout");
-  auto inputDimensionAttr = op.getAttrOfType<ArrayAttr>("input_dimension");
-  populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
-  auto outputLayoutAttr = op.getAttrOfType<ArrayAttr>("output_layout");
-  auto outputDimensionAttr = op.getAttrOfType<ArrayAttr>("output_dimension");
-  populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
-
-  auto strideAttr = op.getAttrOfType<ArrayAttr>("strides");
-  llvm::SmallVector<int64_t, 0> strideVal;
-  populateSeqVal(strideAttr, strideVal);
-
-  auto dilationAttr = op.getAttrOfType<ArrayAttr>("dilations");
-  llvm::SmallVector<int64_t, 0> dilationVal;
-  populateSeqVal(dilationAttr, dilationVal);
-
-  auto paddingAttr = op.getAttrOfType<ArrayAttr>("padding");
-  llvm::SmallVector<int64_t, 0> paddingVal;
-  populateSeqVal(paddingAttr, paddingVal);
-
-  return {archVal,   numCuVal,    opType,    dimIndexVal,
-          strideVal, dilationVal, paddingVal};
-}
 
 class PopulateParamsBase {
 public:
@@ -557,6 +406,8 @@ struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
   int64_t gemmNPerThread;
   int64_t blockSize;
 
+  InitParamsNonXDL() : InitParamsNonXDL(0LL, 0LL, 0LL, 0LL, 0LL, 0LL) {}
+
   template <class Self, class F> static void visit(Self &&self, F f) {
     f(self.blockSize);
     f(self.gemmMPerBlock);
@@ -569,11 +420,31 @@ struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
 
 struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
   InitParamsXDL(int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
-                int64_t mPerWave, int64_t nPerWave)
+                int64_t mPerWave, int64_t nPerWave, int64_t kPack,
+                bool aThreadCopyMoreGemmK, bool bThreadCopyMoreGemmKPack)
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
-        gemmNPerWave(nPerWave) {}
+        gemmNPerWave(nPerWave), gemmKPack(kPack),
+        gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
+        gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
+
+  InitParamsXDL() : InitParamsXDL(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, false, false) {}
+
   int64_t gemmMPerWave;
   int64_t gemmNPerWave;
+  int64_t gemmKPack;
+  bool gemmAThreadCopyMoreGemmK;
+  bool gemmBThreadCopyMoreGemmKPack;
+
+  template <class Self, class F> static void visit(Self &&self, F f) {
+    f(self.gemmMPerBlock);
+    f(self.gemmNPerBlock);
+    f(self.gemmKPerBlock);
+    f(self.gemmMPerWave);
+    f(self.gemmNPerWave);
+    f(self.gemmKPack);
+    f(self.gemmAThreadCopyMoreGemmK);
+    f(self.gemmBThreadCopyMoreGemmKPack);
+  }
 };
 
 // block gemm tuning params that sepcific the layout of thread-wise gemm in a
@@ -715,7 +586,8 @@ private:
 
 public:
   LogicalResult paramsFromCtx(ConvolutionContext &ctx,
-                              InitParamsNonXDL &validParams, GemmSize &gemmSize,
+                              int64_t blockSizeOverride,
+                              InitParamsNonXDL &validParams,
                               DerivedParams &gemmADerivedParam,
                               DerivedParams &gemmBDerivedParam,
                               DerivedBlockGemmParams &blockGemmDerivedParam,
@@ -725,11 +597,12 @@ public:
 class PopulateParamsXDL : public PopulateParamsBase {
 private:
   llvm::SmallVector<InitParamsXDL, 4> initParameters = {
-      // M/block N/block K/block M/wave N/wave
-      {128, 128, 16, 64, 64},
-      {8, 64, 8, 8, 64},
-      {4, 64, 16, 4, 64},
-      {16, 16, 4, 16, 16},
+      // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
+      {256, 128, 16, 128, 64, 0, false, false},
+      {128, 128, 16, 64, 64, 0, false, false},
+      {8, 64, 8, 8, 64, 0, false, false},
+      {4, 64, 16, 4, 64, 0, false, false},
+      {16, 16, 4, 16, 16, 0, false, false},
   };
   const int64_t waveSize = 64;
 
@@ -750,29 +623,29 @@ private:
     return calculateInputDerivedParams(param, blockSize, ctx, false, derived);
   }
 
-  LogicalResult calculateLdsNumberOfByte(InitParamsXDL *param,
+  LogicalResult calculateLdsNumberOfByte(InitParamsXDL &param,
                                          const ConvolutionContext &ctx,
                                          DerivedParams gemmADerived,
                                          DerivedParams gemmBDerived,
                                          size_t &ldsSize) {
 
     int64_t threadGemmDataPerRead_GemmM =
-        param->gemmMPerBlock / gemmADerived.clusterLenGemmPos2;
+        param.gemmMPerBlock / gemmADerived.clusterLenGemmPos2;
     int64_t threadGemmDataPerRead_GemmN =
-        param->gemmNPerBlock / gemmBDerived.clusterLenGemmPos2;
+        param.gemmNPerBlock / gemmBDerived.clusterLenGemmPos2;
 
     const auto max_lds_align =
         lcm(gemmADerived.dstDataPerWrite, gemmBDerived.dstDataPerWrite,
             threadGemmDataPerRead_GemmM, threadGemmDataPerRead_GemmN);
 
     const auto a_block_space =
-        param->gemmKPerBlock *
-        integer_least_multiple(param->gemmMPerBlock, max_lds_align);
+        param.gemmKPerBlock *
+        integer_least_multiple(param.gemmMPerBlock, max_lds_align);
     const auto b_block_space =
-        param->gemmKPerBlock *
-        integer_least_multiple(param->gemmNPerBlock, max_lds_align);
+        param.gemmKPerBlock *
+        integer_least_multiple(param.gemmNPerBlock, max_lds_align);
 
-    ldsSize = 2 * (a_block_space + b_block_space) * sizeof(float);
+    ldsSize = (a_block_space + b_block_space) * sizeof(float);
 
     if (ldsSize > 64 * 1024) {
       return failure();
@@ -781,24 +654,35 @@ private:
     return success();
   }
 
-  LogicalResult isValidXDLOPSGemm(InitParamsXDL *param, int64_t blockSize) {
+  LogicalResult isValidblockwisegemmxdlops(InitParamsXDL &param,
+                                           int64_t blockSize) {
     // TBD: support fp16/bf16
-    const auto gemmKPackedPerBlock = param->gemmKPerBlock;
 
-    // unsupported xdlops-gemm
-    if (param->gemmMPerWave == 16 && param->gemmNPerWave == 32)
-      return failure();
-    if (param->gemmMPerWave == 32 && param->gemmNPerWave == 16)
-      return failure();
-    if (param->gemmMPerWave == 8 && param->gemmNPerWave != 64)
-      return failure();
-    if (param->gemmMPerWave == 4 && param->gemmNPerWave != 64)
-      return failure();
-    if (param->gemmMPerWave == 32 && param->gemmNPerWave == 32 &&
-        gemmKPackedPerBlock % 2 != 0)
-      return failure();
-    if (param->gemmMPerWave == 16 && param->gemmNPerWave == 16 &&
-        gemmKPackedPerBlock % 4 != 0)
+    std::vector<std::tuple<int, int, int>> validWaveGemmSize = {
+        // std::make_tuple(128, 128, 1),
+        std::make_tuple(128, 64, 1),
+        // std::make_tuple(128, 32, 1),
+        // std::make_tuple(128, 16, 1),
+        std::make_tuple(64, 128, 1), std::make_tuple(64, 64, 1),
+        std::make_tuple(64, 32, 1), std::make_tuple(64, 16, 1),
+        // std::make_tuple(32, 128, 1),
+        std::make_tuple(32, 64, 1), std::make_tuple(32, 32, 2),
+        // std::make_tuple(16, 128, 1),
+        std::make_tuple(16, 64, 1), std::make_tuple(16, 16, 4),
+        // std::make_tuple(8, 128, 1),
+        std::make_tuple(8, 64, 1),
+        // std::make_tuple(4, 128, 1),
+        std::make_tuple(4, 64, 1)};
+
+    if (!std::any_of(validWaveGemmSize.cbegin(), validWaveGemmSize.cend(),
+                     [param](const auto it) noexcept -> bool {
+                       int validMPerWave, validNPerWave, validKPerWave;
+                       std::tie(validMPerWave, validNPerWave, validKPerWave) =
+                           it;
+                       return (param.gemmMPerWave == validMPerWave) &&
+                              (param.gemmNPerWave == validNPerWave) &&
+                              (param.gemmKPerBlock % validKPerWave == 0);
+                     }))
       return failure();
 
     // fail with blockSize >= 512
@@ -806,17 +690,24 @@ private:
     if (blockSize < 64 || blockSize > 256)
       return failure();
 
-    if ((param->gemmMPerBlock % param->gemmMPerWave) != 0)
+    if ((param.gemmMPerBlock % param.gemmMPerWave) != 0)
       return failure();
 
-    if ((param->gemmNPerBlock % param->gemmNPerWave) != 0)
+    if ((param.gemmNPerBlock % param.gemmNPerWave) != 0)
       return failure();
 
     return success();
   }
 
+  LogicalResult populateDerived(ConvolutionContext &ctx,
+                                InitParamsXDL &validParams, GemmSize &gemmSize,
+                                DerivedParams &gemmADerivedParam,
+                                DerivedParams &gemmBDerivedParam,
+                                int64_t &blockSize, int64_t &gridSize);
+
 public:
   LogicalResult paramsFromCtx(ConvolutionContext &ctx,
+                              int64_t blockSizeOverride,
                               InitParamsXDL &validParams,
                               DerivedParams &gemmADerivedParam,
                               DerivedParams &gemmBDerivedParam,
