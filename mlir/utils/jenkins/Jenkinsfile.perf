@@ -18,7 +18,7 @@ pipeline {
                 sh '''
                     # install pkg dependencies
                     sudo apt update
-                    sudo apt install -y ninja-build wget git python cmake
+                    sudo apt install -y ninja-build wget git python cmake miopen-hip libsqlite3-dev
                 '''
             }
         }
@@ -39,9 +39,10 @@ pipeline {
                         -DBUILD_SHARED_LIBS=ON \
                         -DLLVM_BUILD_LLVM_DYLIB=ON \
                         -DMLIR_ROCM_RUNNER_ENABLED=1 \
-                        -DMLIR_MIOPEN_DRIVER_ENABLED=1
+                        -DMLIR_MIOPEN_DRIVER_ENABLED=1 \
+                        -DMLIR_ENABLE_SQLITE=1
 
-                    # build LLVM / MLR and run tests
+                    # build LLVM / MLR tools and run tests
                     cmake --build . --target check-mlir
 
                     # run 1 perf benchmark config. more to come.
