@@ -227,8 +227,8 @@ static void populateDefaults() {
       inputWidth.setValue(14);
       filterHeight.setValue(1);
       filterWidth.setValue(1);
-      dilationHeight.setValue(0);
-      dilationWidth.setValue(0);
+      dilationHeight.setValue(1);
+      dilationWidth.setValue(1);
       strideHeight.setValue(1);
       strideWidth.setValue(1);
       paddingHeight.setValue(0);

@@ -9,6 +9,8 @@
 using namespace mlir;
 using llvm::dbgs;
 
+#define DEBUG_TYPE "miopen-sqlite-db"
+
 class SQLite::impl {
   struct SQLiteCloser {
     void operator()(sqlite3 *ptr) {
