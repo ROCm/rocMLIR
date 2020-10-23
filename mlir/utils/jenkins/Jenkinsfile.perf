@@ -21,7 +21,7 @@ pipeline {
 
                     # install pkg dependencies
                     sudo apt update
-                    sudo apt install -y ninja-build wget git python cmake miopen-hip libsqlite3-dev rocprofiler-dev
+                    sudo apt install -y ninja-build wget git python cmake miopen-hip libsqlite3-dev rocprofiler-dev rocminfo
                 '''
             }
         }
@@ -49,7 +49,8 @@ pipeline {
                     cmake --build . --target check-mlir
 
                     # run 1 perf benchmark config. more to come.
-                    ./bin/mlir-miopen-driver -p -ph -c | /opt/rocm/bin/rocprof --hip-trace ./bin/mlir-rocm-runner --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void
+                    # ensure rocminfo can be located by rocprof.
+                    ./bin/mlir-miopen-driver -p -ph -c | PATH=/opt/rocm/bin:$PATH /opt/rocm/bin/rocprof --hip-trace ./bin/mlir-rocm-runner --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void
 
                     # dump perf figures.
                     cat results.stats.csv
