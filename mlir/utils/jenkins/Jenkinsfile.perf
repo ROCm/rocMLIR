@@ -49,7 +49,7 @@ pipeline {
                     cmake --build . --target check-mlir
 
                     # run 1 perf benchmark config. more to come.
-                    ./bin/mlir-miopen-driver -p -ph -c | rocprof --hip-trace ./bin/mlir-rocm-runner --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void
+                    ./bin/mlir-miopen-driver -p -ph -c | /opt/rocm/bin/rocprof --hip-trace ./bin/mlir-rocm-runner --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void
 
                     # dump perf figures.
                     cat results.stats.csv
