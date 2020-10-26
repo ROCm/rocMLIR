@@ -120,6 +120,7 @@ void LowerMIOpenOpsStep1Pass::runOnOperation() {
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(&getContext());
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>>(
       &getContext());
+  patterns.insert<LowerIndexDiffRewritePattern>(&getContext());
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }

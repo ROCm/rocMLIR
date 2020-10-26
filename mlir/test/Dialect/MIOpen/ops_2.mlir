@@ -687,3 +687,13 @@ func @miopen_blockwise_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %mat
 
 // CHECK-LABEL: func @miopen_blockwise_gemm_v2_two_results
 //  CHECK: miopen.blockwise_gemm_v2
+
+// ----
+
+func @miopen_lower_index_diff() {
+  %c0 = constant 0 : index
+  %c1 = constant 1 : index
+  %c3 = constant 3 : index
+  %u0, %l0, %l1, %l2 = miopen.lower_index_diff(%c1, %c3, %c1, %c0, %c0, %c0) { map = affine_map<(d0) -> (d0 floordiv 9, (d0 mod 9) floordiv 3, (d0 mod 9) mod 3)> } : index, index
+  return
+}

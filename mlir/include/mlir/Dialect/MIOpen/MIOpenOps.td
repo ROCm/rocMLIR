@@ -409,4 +409,18 @@ def MIOpen_DataConvertOp :
     The `miopen.data_convert` op will convert f32 to bf16, but we use i16 to replace bf16 here.
   }];
 }
+
+// compute lower index diff
+def MIOpen_LowerIndexDiffOp:
+    MIOpen_Op<"lower_index_diff">,
+    Arguments<(ins Index: $upperIndexLength,
+                   Index: $lowerIndexLength,
+                   Variadic<Index>: $upperIndexDiffAndLowerIndexOld)>,
+    Results<(outs Variadic<Index>: $lowerIndexDiff)> {
+  let summary = "lower_index_diff op";
+  let description = [{
+    Given upper index diff, and old lower index, compute diff to lower index.
+  }];
+}
+
 #endif // MIOPEN_OPS

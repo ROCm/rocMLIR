@@ -7332,4 +7332,125 @@ struct BlockwiseGemmV2RewritePattern
   }
 };
 
+//===----------------------------------------------------------------------===//
+// LowerIndexDiff lowering.
+//===----------------------------------------------------------------------===//
+
+struct LowerIndexDiffRewritePattern
+    : public OpRewritePattern<miopen::LowerIndexDiffOp> {
+  using OpRewritePattern<miopen::LowerIndexDiffOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::LowerIndexDiffOp op,
+                                PatternRewriter &b) const override {
+    int64_t upperIndexLength = op.upperIndexLength().getDefiningOp<ConstantIndexOp>().getValue();
+    int64_t lowerIndexLength = op.lowerIndexLength().getDefiningOp<ConstantIndexOp>().getValue();
+    llvm::errs() << "upper index length: " << upperIndexLength << "\nlower index length: " << lowerIndexLength << "\n";
+
+    // Fetch index upper diff
+    SmallVector<Attribute, 2> indexUpperDiff;
+    llvm::errs() << "index upper diff:\n";
+    for (int64_t iter = 0; iter < upperIndexLength; ++iter) {
+      int64_t v = op.upperIndexDiffAndLowerIndexOld()[iter].getDefiningOp<ConstantIndexOp>().getValue();
+      llvm::errs() << v << " ";
+      indexUpperDiff.push_back(b.getI32IntegerAttr(v));
+    }
+    llvm::errs() << "\n";
+
+    // Fetch index lower old
+    SmallVector<int64_t, 4> indexLowerOld;
+    llvm::errs() << "index lower old:\n";
+    for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
+      int64_t v = op.upperIndexDiffAndLowerIndexOld()[iter + upperIndexLength].getDefiningOp<ConstantIndexOp>().getValue();
+      llvm::errs() << v << " ";
+      indexLowerOld.push_back(v);
+    }
+    llvm::errs() << "\n";
+
+    // Apply map to compute index lower diff tmp, from index upper diff
+    // using constantFold.
+    SmallVector<Attribute, 4> indexLowerDiffTmpAttr;
+    SmallVector<int64_t, 4> indexLowerDiffTmp;
+    auto map = op.template getAttrOfType<AffineMapAttr>("map").getValue();
+    llvm::errs() << "affine transform map: ";
+    map.dump();
+    llvm::errs() << "\n";
+    map.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
+    llvm::errs() << "index lower diff tmp:\n";
+    for (auto attr : indexLowerDiffTmpAttr) {
+      int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
+      llvm::errs() << v << " ";
+      indexLowerDiffTmp.push_back(v);
+    }
+    llvm::errs() << "\n";
+
+    // Add: index lower old + index lower diff tmp
+    SmallVector<int64_t, 4> indexLowerNew;
+    llvm::errs() << "index lower new before borrow/carry:\n";
+    for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
+      int64_t v = indexLowerOld[iter] + indexLowerDiffTmp[iter];
+      llvm::errs() << v << " ";
+      indexLowerNew.push_back(v);
+    }
+    llvm::errs() << "\n";
+
+    // Get bounds.
+    SmallVector<int64_t, 4> bound;
+    auto boundAttr = op.template getAttrOfType<ArrayAttr>("bound").getValue();
+    llvm::errs() << "bound:\n";
+    for (auto attr : boundAttr) {
+      int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
+      llvm::errs() << v << " ";
+      bound.push_back(v);
+    }
+    llvm::errs() << "\n";
+
+    // Apply carry / borrow logic to compute index lower new
+    if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
+      bool carry = false;
+      for (int64_t iter = lowerIndexLength - 1; iter >= 0; --iter) {
+        if (carry)
+          ++indexLowerNew[iter];
+  
+        carry = false;
+  
+        if (indexLowerNew[iter] >= bound[iter]) {
+          indexLowerNew[iter] -= bound[iter];
+          carry = true;
+        }
+      }
+    } else {
+      bool borrow = false;
+      for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
+        if (borrow)
+          --indexLowerNew[iter];
+
+        borrow = false;
+
+        if (indexLowerNew[iter] < 0) {
+          indexLowerNew[iter] += bound[iter];
+          borrow = true;
+        }
+      }
+    }
+    llvm::errs() << "index lower new after borrow/carry:\n";
+    for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
+      llvm::errs() << indexLowerNew[iter] << " ";
+    }
+    llvm::errs() << "\n";
+
+    // Subtract: index lower new - index lower old = index lower diff
+    SmallVector<int64_t, 4> indexLowerDiff;
+    llvm::errs() << "index lower diff:\n";
+    for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
+      int64_t v = indexLowerNew[iter] - indexLowerOld[iter];
+      llvm::errs() << v << " ";
+      indexLowerDiff.push_back(v);
+    }
+    llvm::errs() << "\n";
+
+    op.erase();
+    return success();
+  }
+};
+ 
 #endif // MLIR_DIALECT_MIOPEN_LOWERMIOPENOPS_H
