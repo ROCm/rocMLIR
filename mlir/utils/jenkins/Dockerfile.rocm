@@ -1,4 +1,4 @@
-# This Dockerfile provides a the enviornment for a ROCm installation of MLIR
+# This Dockerfile provides the enviornment for a ROCm installation of MLIR
 FROM ubuntu:bionic
 MAINTAINER Zhuoran Yin <zhuoran.yin@amd.com>
 
