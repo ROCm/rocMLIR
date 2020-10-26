@@ -502,8 +502,8 @@ void AffineTransforms::runOnFunction() {
   func.walk([&](miopen::TransformOp op) {
     AffineMap indexAffineMap = buildIndexAffineMap(op);
     AffineMap indexDiffAffineMap = buildIndexDiffAffineMap(op);
-    llvm::errs() << "index affine map: "; indexAffineMap.dump(); llvm::errs() << "\n";
-    llvm::errs() << "index diff affine map: "; indexDiffAffineMap.dump(); llvm::errs() << "\n";
+    // llvm::errs() << "index affine map: "; indexAffineMap.dump(); llvm::errs() << "\n";
+    // llvm::errs() << "index diff affine map: "; indexDiffAffineMap.dump(); llvm::errs() << "\n";
 
     auto outputType = op.output().getType().dyn_cast<MemRefType>();
     auto outputShape = outputType.getShape();
@@ -514,19 +514,19 @@ void AffineTransforms::runOnFunction() {
     auto loc = op.getLoc();
     auto newOp = b.create<miopen::TransformOp>(loc, transformedOutputType, op.input(), op.getAttrs());
 
-    llvm::errs() << "constant fold:\n";
-    SmallVector<Attribute, 1> result;
-    SmallVector<Attribute, 2> operands;
-    for (unsigned i = 0; i < indexAffineMap.getNumDims(); ++i) {
-      if (i == 0)
-        operands.push_back(b.getI32IntegerAttr(8));
-      else
-        operands.push_back(b.getI32IntegerAttr(0));
-    }
-    indexAffineMap.constantFold(operands, result);
-    for (auto attr : result)
-      attr.dump();
-    llvm::errs() << "\n";
+    // llvm::errs() << "constant fold:\n";
+    // SmallVector<Attribute, 1> result;
+    // SmallVector<Attribute, 2> operands;
+    // for (unsigned i = 0; i < indexAffineMap.getNumDims(); ++i) {
+    //   if (i == 0)
+    //     operands.push_back(b.getI32IntegerAttr(8));
+    //   else
+    //     operands.push_back(b.getI32IntegerAttr(0));
+    // }
+    // indexAffineMap.constantFold(operands, result);
+    // for (auto attr : result)
+    //   attr.dump();
+    // llvm::errs() << "\n";
 
     op.output().replaceAllUsesWith(newOp);
     op.erase();
