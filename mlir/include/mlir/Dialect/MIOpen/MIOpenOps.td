@@ -311,4 +311,17 @@ def MIOpen_XdlopsGemmV2Op:
   }];
 }
 
+// compute lower index diff
+def MIOpen_LowerIndexDiffOp:
+    MIOpen_Op<"lower_index_diff">,
+    Arguments<(ins Index: $upperIndexLength,
+                   Index: $lowerIndexLength,
+                   Variadic<Index>: $upperIndexDiffAndLowerIndexOld)>,
+    Results<(outs Variadic<Index>: $lowerIndexDiff)> {
+  let summary = "lower_index_diff op";
+  let description = [{
+    Given upper index diff, and old lower index, compute diff to lower index.
+  }];
+}
+
 #endif // MIOPEN_OPS
