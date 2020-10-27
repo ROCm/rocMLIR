@@ -33,17 +33,14 @@ pipeline {
                         -DMLIR_MIOPEN_DRIVER_ENABLED=1 \
                         -DMLIR_ENABLE_SQLITE=1
 
-                    # build LLVM / MLR and run tests
+                    # build LLVM / MLIR and run tests
                     cmake --build . --target check-mlir
-
-                    # Premerge checks must be invoked from the root directory
-                    cd ..
                 '''
             }
         }
         stage('Static Test') {
             steps {
-                sh """
+                sh '''
                     if [ ! -f ./compile_commands.json ]; then
                        ln -s build/compile_commands.json compile_commands.json
                     fi
@@ -52,7 +49,7 @@ pipeline {
                     PATH=$PATH:/opt/rocm/llvm/bin/
 
                     python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py
-                """
+                '''
             }
         }
     }

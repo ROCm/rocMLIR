@@ -41,7 +41,10 @@ pipeline {
         stage('Benchmark') {
             steps {
                 sh '''
+                    cd build
+
                     # Run 1 perf benchmark config. more to come.
+
                     # Ensure rocminfo can be located by rocprof.
                     ./bin/mlir-miopen-driver -p -ph -c | \
                     PATH=/opt/rocm/bin:$PATH /opt/rocm/bin/rocprof --hip-trace \
