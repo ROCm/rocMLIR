@@ -40,7 +40,7 @@ pipeline {
         }
         stage('Benchmark') {
             steps {
-                sh """
+                sh '''
                     # Run 1 perf benchmark config. more to come.
                     # Ensure rocminfo can be located by rocprof.
                     ./bin/mlir-miopen-driver -p -ph -c | \
