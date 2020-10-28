@@ -7342,6 +7342,8 @@ struct LowerIndexDiffRewritePattern
 
   LogicalResult matchAndRewrite(miopen::LowerIndexDiffOp op,
                                 PatternRewriter &b) const override {
+    auto loc = op.getLoc();
+
     int64_t upperIndexLength = op.upperIndexLength().getDefiningOp<ConstantIndexOp>().getValue();
     int64_t lowerIndexLength = op.lowerIndexLength().getDefiningOp<ConstantIndexOp>().getValue();
     llvm::errs() << "upper index length: " << upperIndexLength << "\nlower index length: " << lowerIndexLength << "\n";
@@ -7357,11 +7359,24 @@ struct LowerIndexDiffRewritePattern
     llvm::errs() << "\n";
 
     // Fetch index lower old
-    SmallVector<int64_t, 4> indexLowerOld;
+
+    // index lower old as constants
+    //
+    // SmallVector<int64_t, 4> indexLowerOld;
+    // llvm::errs() << "index lower old:\n";
+    // for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
+    //   int64_t v = op.upperIndexDiffAndLowerIndexOld()[iter + upperIndexLength].getDefiningOp<ConstantIndexOp>().getValue();
+    //   llvm::errs() << v << " ";
+    //   indexLowerOld.push_back(v);
+    // }
+    // llvm::errs() << "\n";
+
+    // index lower old as Value instances
+    SmallVector<Value, 8> indexLowerOld;
     llvm::errs() << "index lower old:\n";
     for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
-      int64_t v = op.upperIndexDiffAndLowerIndexOld()[iter + upperIndexLength].getDefiningOp<ConstantIndexOp>().getValue();
-      llvm::errs() << v << " ";
+      auto v = op.upperIndexDiffAndLowerIndexOld()[iter + upperIndexLength];
+      v.dump();
       indexLowerOld.push_back(v);
     }
     llvm::errs() << "\n";
@@ -7370,6 +7385,7 @@ struct LowerIndexDiffRewritePattern
     // using constantFold.
     SmallVector<Attribute, 4> indexLowerDiffTmpAttr;
     SmallVector<int64_t, 4> indexLowerDiffTmp;
+    SmallVector<Value, 8> indexLowerDiffTmpOp;
     auto map = op.template getAttrOfType<AffineMapAttr>("map").getValue();
     llvm::errs() << "affine transform map: ";
     map.dump();
@@ -7380,74 +7396,157 @@ struct LowerIndexDiffRewritePattern
       int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
       llvm::errs() << v << " ";
       indexLowerDiffTmp.push_back(v);
+
+      auto cv = b.create<ConstantIndexOp>(loc, v);
+      indexLowerDiffTmpOp.push_back(cv);
     }
     llvm::errs() << "\n";
 
     // Add: index lower old + index lower diff tmp
-    SmallVector<int64_t, 4> indexLowerNew;
+
+    // index lower new as constants.
+    // SmallVector<int64_t, 4> indexLowerNew;
+    // llvm::errs() << "index lower new before borrow/carry:\n";
+    // for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
+    //   int64_t v = indexLowerOld[iter] + indexLowerDiffTmp[iter];
+    //   llvm::errs() << v << " ";
+    //   indexLowerNew.push_back(v);
+    // }
+    // llvm::errs() << "\n";
+
+    // index lower new as Value instances.
+    SmallVector<Value, 8> indexLowerNew;
     llvm::errs() << "index lower new before borrow/carry:\n";
     for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
-      int64_t v = indexLowerOld[iter] + indexLowerDiffTmp[iter];
-      llvm::errs() << v << " ";
+      Value v = b.create<AddIOp>(loc, indexLowerOld[iter], indexLowerDiffTmpOp[iter]);
+      v.dump();
       indexLowerNew.push_back(v);
     }
     llvm::errs() << "\n";
 
     // Get bounds.
     SmallVector<int64_t, 4> bound;
+    SmallVector<Value, 4> boundOp;
     auto boundAttr = op.template getAttrOfType<ArrayAttr>("bound").getValue();
     llvm::errs() << "bound:\n";
     for (auto attr : boundAttr) {
       int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
       llvm::errs() << v << " ";
       bound.push_back(v);
+
+      auto cv = b.create<ConstantIndexOp>(loc, v);
+      boundOp.push_back(cv);
     }
     llvm::errs() << "\n";
 
     // Apply carry / borrow logic to compute index lower new
+
+    // carry / borrow logic on constants.
+    // if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
+    //   bool carry = false;
+    //   for (int64_t iter = lowerIndexLength - 1; iter >= 0; --iter) {
+    //     if (carry)
+    //       ++indexLowerNew[iter];
+    //     carry = false;
+    //     if (indexLowerNew[iter] >= bound[iter]) {
+    //       indexLowerNew[iter] -= bound[iter];
+    //       carry = true;
+    //     }
+    //   }
+    // } else {
+    //   bool borrow = false;
+    //   for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
+    //     if (borrow)
+    //       --indexLowerNew[iter];
+    //     borrow = false;
+    //     if (indexLowerNew[iter] < 0) {
+    //       indexLowerNew[iter] += bound[iter];
+    //       borrow = true;
+    //     }
+    //   }
+    // }
+    // llvm::errs() << "index lower new after borrow/carry:\n";
+    // for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
+    //   llvm::errs() << indexLowerNew[iter] << " ";
+    // }
+    // llvm::errs() << "\n";
+
+    // carry logic on Value instances.
+    SmallVector<Value, 4> indexLowerNewCarried;
+    SmallVector<Value, 4> indexLowerNewUpdated;
+    auto constantZeroOp = b.create<ConstantIndexOp>(loc, 0);
+    auto constantOneOp = b.create<ConstantIndexOp>(loc, 1);
     if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
-      bool carry = false;
+      // setup carryOp for the first iteration
+      Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
       for (int64_t iter = lowerIndexLength - 1; iter >= 0; --iter) {
-        if (carry)
-          ++indexLowerNew[iter];
-  
-        carry = false;
-  
-        if (indexLowerNew[iter] >= bound[iter]) {
-          indexLowerNew[iter] -= bound[iter];
-          carry = true;
-        }
+        // carry logic.
+        auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
+        auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
+        auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], constantOneOp);
+        ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
+        auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
+        carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], constantZeroOp);
+        ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
+
+        ifCarryOp.dump();
+
+        auto carriedResult = ifCarryOp.results()[0];
+        indexLowerNewCarried.push_back(carriedResult);
+
+        // set carry flag for the next digit.
+        carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
+
+        carryOp.dump();
+
+        // overflow logic.
+        auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
+        auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
+        auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
+        ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
+        auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
+        updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, constantZeroOp);
+        ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
+
+        ifOverflowOp.dump();
+
+        auto updatedResult = ifOverflowOp.results()[0];
+        indexLowerNewUpdated.push_back(updatedResult);
       }
     } else {
-      bool borrow = false;
-      for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
-        if (borrow)
-          --indexLowerNew[iter];
-
-        borrow = false;
-
-        if (indexLowerNew[iter] < 0) {
-          indexLowerNew[iter] += bound[iter];
-          borrow = true;
-        }
-      }
+      // TBD borrow logic.
+      // TBD revise per scf_if_v1.mlir
     }
-    llvm::errs() << "index lower new after borrow/carry:\n";
-    for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
-      llvm::errs() << indexLowerNew[iter] << " ";
-    }
-    llvm::errs() << "\n";
+
 
     // Subtract: index lower new - index lower old = index lower diff
-    SmallVector<int64_t, 4> indexLowerDiff;
+
+    // index lower diff as constants.
+    // SmallVector<int64_t, 4> indexLowerDiff;
+    // llvm::errs() << "index lower diff:\n";
+    // for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
+    //   int64_t v = indexLowerNew[iter] - indexLowerOld[iter];
+    //   llvm::errs() << v << " ";
+    //   indexLowerDiff.push_back(v);
+    // }
+    // llvm::errs() << "\n";
+
+    // index lower diff as Value instances.
+    SmallVector<Value, 8> indexLowerDiff;
+    for (int64_t iter = 0; iter < upperIndexLength; ++iter) {
+      indexLowerDiff.push_back(op.upperIndexDiffAndLowerIndexOld()[iter]);
+    }
+
     llvm::errs() << "index lower diff:\n";
     for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
-      int64_t v = indexLowerNew[iter] - indexLowerOld[iter];
-      llvm::errs() << v << " ";
+      Value v = b.create<SubIOp>(loc, indexLowerNewUpdated[iter], indexLowerOld[iter]);
+      v.dump();
       indexLowerDiff.push_back(v);
     }
     llvm::errs() << "\n";
 
+    op.getOperation()->getBlock()->dump();
+    op.replaceAllUsesWith(indexLowerDiff);
     op.erase();
     return success();
   }
