@@ -4658,8 +4658,14 @@ struct XdlopsGemmV2RewritePattern
         argA = loopKb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
         argB = loopKb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
       } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
-        argA = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
-        argB = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
+	VectorType argVectorType = argType.template dyn_cast<VectorType>();
+        auto transferReadA = loopKb.create<vector::TransferReadOp>(loc, argVectorType, op.bufferA(), ValueRange{offset});
+	transferReadA.setAttr("alignment", loopKb.getI32IntegerAttr(argVectorType.getShape()[0] * 2));
+	argA = transferReadA;
+
+        auto transferReadB = loopKb.create<vector::TransferReadOp>(loc, argVectorType, op.bufferB(), ValueRange{offset});
+	transferReadB.setAttr("alignment", loopKb.getI32IntegerAttr(argVectorType.getShape()[0] * 2));
+	argB = transferReadB;
       }
 
       SmallVector<Value, 4> mfmas;
@@ -4758,8 +4764,14 @@ struct XdlopsGemmV2RewritePattern
         argA = innerLoopb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
         argB = innerLoopb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
       } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
-        argA = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
-        argB = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
+	VectorType argVectorType = argType.template dyn_cast<VectorType>();
+        auto transferReadA = innerLoopb.create<vector::TransferReadOp>(loc, argVectorType, op.bufferA(), ValueRange{offset});
+	transferReadA.setAttr("alignment", innerLoopb.getI32IntegerAttr(argVectorType.getShape()[0] * 2));
+	argA = transferReadA;
+
+        auto transferReadB = innerLoopb.create<vector::TransferReadOp>(loc, argVectorType, op.bufferB(), ValueRange{offset});
+	transferReadB.setAttr("alignment", innerLoopb.getI32IntegerAttr(argVectorType.getShape()[0] * 2));
+	argB = transferReadB;
       }
 
       SmallVector<Value, 4> mfmas;
