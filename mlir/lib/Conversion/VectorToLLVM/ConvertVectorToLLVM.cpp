@@ -127,6 +127,13 @@ static SmallVector<int64_t, 4> getI64SubArray(ArrayAttr arrayAttr,
 template <typename TransferOp>
 LogicalResult getVectorTransferAlignment(LLVMTypeConverter &typeConverter,
                                          TransferOp xferOp, unsigned &align) {
+  // Use explicitly set alignment attribute if it's available.
+  IntegerAttr alignmentAttr = xferOp.template getAttrOfType<IntegerAttr>("alignment");
+  if (alignmentAttr) {
+    align = static_cast<unsigned>(alignmentAttr.getInt());
+    return success();
+  }
+
   Type elementTy =
       typeConverter.convertType(xferOp.getMemRefType().getElementType());
   if (!elementTy)
