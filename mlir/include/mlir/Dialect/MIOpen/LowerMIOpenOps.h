@@ -885,10 +885,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto hiPadded = 1 + (y - 1) * dilationH + (ho - 1) * strideH;
     auto wiPadded = 1 + (x - 1) * dilationW + (wo - 1) * strideW;
-    auto rightPadH =
-        hiPadded > (leftPadH + hi) ? hiPadded - (leftPadH + hi) : 0;
-    auto rightPadW =
-        wiPadded > (leftPadW + wi) ? wiPadded - (leftPadW + wi) : 0;
+    int rightPadH = hiPadded > (leftPadH + hi) ? hiPadded - (leftPadH + hi) : 0;
+    int rightPadW = wiPadded > (leftPadW + wi) ? wiPadded - (leftPadW + wi) : 0;
 
     // Set attributes for gridwise_gemm op.
     llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{

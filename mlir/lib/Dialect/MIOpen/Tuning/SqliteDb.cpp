@@ -3,7 +3,6 @@
 #include "mlir/Dialect/MIOpen/Tuning/SqliteDb.h"
 #include "llvm/Support/Debug.h"
 
-#include <experimental/filesystem>
 #include <thread>
 
 using namespace mlir;
@@ -24,14 +23,13 @@ class SQLite::impl {
     }
   };
   using Sqlite3Ptr = std::unique_ptr<sqlite3, SQLiteCloser>;
-  int createFileDb(const std::experimental::filesystem::path &filepath,
-                   bool isSystem) {
+  int createFileDb(const std::string &filepath, bool isSystem) {
     sqlite3 *ptr_tmp = nullptr;
     int rc = 0;
     if (isSystem) {
 
-      rc = sqlite3_open_v2(filepath.string().c_str(), &ptr_tmp,
-                           SQLITE_OPEN_READONLY, nullptr);
+      rc = sqlite3_open_v2(filepath.c_str(), &ptr_tmp, SQLITE_OPEN_READONLY,
+                           nullptr);
     } else {
       llvm::errs() << "FATAL ERROR! Does not support user db"
                    << "\n";
@@ -42,9 +40,8 @@ class SQLite::impl {
 
 public:
   impl(const std::string &filename_, bool isSystem) {
-    std::experimental::filesystem::path filepath(filename_);
     int rc = 0;
-    rc = createFileDb(filepath, isSystem);
+    rc = createFileDb(filename_, isSystem);
     sqlite3_busy_timeout(ptrDb.get(), MIOPEN_SQL_BUSY_TIMEOUT_MS);
     isValid = (rc == 0);
     if (!isValid) {

@@ -35,6 +35,5 @@ target_include_directories(MLIRMIOpenTuning
 target_link_libraries(MLIRMIOpenTuning
   PRIVATE
   MLIRIR
-  stdc++fs
   ${SQLITE3_LIBRARIES}
 )
