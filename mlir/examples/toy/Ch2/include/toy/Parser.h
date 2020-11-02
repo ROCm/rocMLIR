@@ -463,6 +463,8 @@ private:
       return 20;
     case '*':
       return 40;
+    case '&':
+      return 20;
     default:
       return -1;
     }

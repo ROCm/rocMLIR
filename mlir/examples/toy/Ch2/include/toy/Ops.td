@@ -245,5 +245,23 @@ def TransposeOp : Toy_Op<"transpose"> {
   // Invoke a static verify method to verify this transpose operation.
   let verifier = [{ return ::verify(*this); }];
 }
+def MyAndOp : Toy_Op<"myand">{
+  let summary = "element-wise add(&) operation";
+  let description = [{
+    The "letao" operation performs element-wise add(&) between two tensors.
+    The shapes of the tensor operands are expected to match.
+  }];
 
+  let arguments = (ins F64Tensor:$lhs, F64Tensor:$rhs);
+  let results = (outs F64Tensor);
+
+  // Specify a parser and printer method.
+  let parser = [{ return ::parseBinaryOp(parser, result); }];
+  let printer = [{ return ::printBinaryOp(p, *this); }];
+
+  // Allow building an MyAnd with from the two input operands.
+  let builders = [
+    OpBuilderDAG<(ins "Value":$lhs, "Value":$rhs)>
+  ]; 
+}
 #endif // TOY_OPS
