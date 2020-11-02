@@ -1,0 +1,98 @@
+# This Dockerfile provides the enviornment for a ROCm installation of MLIR
+FROM ubuntu:bionic
+MAINTAINER Zhuoran Yin <zhuoran.yin@amd.com>
+
+ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/3.7/
+ARG ROCM_BUILD_NAME=xenial
+ARG ROCM_BUILD_NUM=main
+ARG ROCM_PATH=/opt/rocm-3.7.0
+
+ENV DEBIAN_FRONTEND noninteractive
+ENV HOME /root/
+
+RUN apt-get clean all
+
+# --------------------- Section 1: ported from llvm-premerge-checks -----------------
+# Keep this section up-to-date with the upstream
+# https://github.com/google/llvm-premerge-checks/blob/master/containers/base-debian/Dockerfile
+RUN echo 'intall build dependencies'; \
+    apt-get update ;\
+    apt-get install -y --no-install-recommends \
+        locales openssh-client gnupg ca-certificates  \
+        zip wget git \
+        gdb build-essential  \
+        ninja-build \
+        ccache \
+        python3 python3-psutil \
+        python3-pip python3-setuptools \
+        swig python3-dev libedit-dev libncurses5-dev libxml2-dev liblzma-dev golang rsync jq;
+
+RUN apt-get update ;\
+    apt-get upgrade -y ;\
+    apt-get install -y \
+        clang-10 lld-10 clang-tidy-10 clang-format-10 \
+        ;\
+    apt-get clean
+
+RUN echo 'configure locale'; \
+    sed --in-place '/en_US.UTF-8/s/^#//' /etc/locale.gen ;\
+    locale-gen ;\
+    echo 'make python 3 default'; \
+    rm -f /usr/bin/python && ln -s /usr/bin/python3 /usr/bin/python; \
+    pip3 install wheel
+
+# Configure locale
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US:en
+ENV LC_ALL en_US.UTF-8
+
+# Install python dependencies for the scripts. ADD will check contentents of a file for changes changed.
+# TODO: that should be done during the build as it will pull this repo anyway and will have latest version.
+ADD "https://raw.githubusercontent.com/google/llvm-premerge-checks/master/scripts/requirements.txt" requirements.txt
+RUN pip3 install -r requirements.txt
+
+RUN ln -s /usr/bin/clang-10 /usr/bin/clang;\
+    ln -s /usr/bin/clang++-10 /usr/bin/clang++;\
+    ln -s /usr/bin/clang-tidy-10 /usr/bin/clang-tidy;\
+    ln -s /usr/bin/clang-tidy-diff-10.py /usr/bin/clang-tidy-diff;\
+    ln -s /usr/bin/clang-format-10 /usr/bin/clang-format;\
+    ln -s /usr/bin/git-clang-format-10 /usr/bin/git-clang-format;\
+    ln -s /usr/bin/clang-format-diff-10 /usr/bin/clang-format-diff;\
+    ln -s /usr/bin/lld-10 /usr/bin/lld
+
+# --------------------- Section 2: MIOpen dialect setups -----------------
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  apt-utils \
+  apt-transport-https \
+  curl  \
+  libnuma-dev \
+  software-properties-common
+
+# Add ROCm build distribution
+RUN wget --no-check-certificate -qO - http://repo.radeon.com/rocm/rocm.gpg.key 2>/dev/null | apt-key add -
+RUN echo "deb [arch=amd64] $ROCM_DEB_REPO $ROCM_BUILD_NAME $ROCM_BUILD_NUM" > /etc/apt/sources.list.d/rocm.list
+
+# Install latest cmake
+RUN wget --no-check-certificate -qO - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | apt-key add -
+RUN apt-add-repository 'deb https://apt.kitware.com/ubuntu/ bionic main'
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  rocm-dev \
+  rocminfo \
+  miopen-hip \
+  rocprofiler-dev \
+  libelf1 \
+  sudo \
+  vim \
+  kmod \
+  file \
+  cmake \
+  libsqlite3-dev && \
+  apt-get clean && \
+  rm -rf /var/lib/apt/lists/*
+
+# Manually install the latest perfdb from MIOpen/develop branch
+RUN cd ~ && git clone https://github.com/ROCmSoftwarePlatform/MIOpen.git && \
+  cp ~/MIOpen/src/kernels/miopen.db /opt/rocm/miopen/share/miopen/db/miopen.db && \
+  rm -rf MIOpen

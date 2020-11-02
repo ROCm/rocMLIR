@@ -62,7 +62,8 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
         "batchsize",     "in_channels", "in_h",       "in_w",
         "out_channels",  "out_h",       "out_w",      "fil_w",
         "fil_h",         "dilation_h",  "dilation_w", "conv_stride_h",
-        "conv_stride_w", "padding_h",   "padding_w"};
+        "conv_stride_w", "padding_h",   "padding_w",  "arch",
+        "num_cu"};
     return std::all_of(
         validKeys.begin(), validKeys.end(),
         [&argMap](std::string &key) { return argMap.count(key) > 0; });

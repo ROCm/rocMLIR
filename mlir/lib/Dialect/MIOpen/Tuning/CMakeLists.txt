@@ -16,7 +16,9 @@ if (MLIR_ENABLE_SQLITE)
   find_package(SQLite3)
   if (SQLITE3_FOUND)
     set(MIOPEN_PATH ${ROCM_PATH}/miopen)
-    set(MIOPEN_SYSTEM_DB_PATH "${MIOPEN_PATH}/share/miopen/db/miopen.db")
+    if (NOT MIOPEN_SYSTEM_DB_PATH)
+      set(MIOPEN_SYSTEM_DB_PATH "${MIOPEN_PATH}/share/miopen/db/miopen.db")
+    endif()
     if (EXISTS "${MIOPEN_SYSTEM_DB_PATH}")
       message(STATUS "miopen system perfdb path: ${MIOPEN_SYSTEM_DB_PATH}")
       add_definitions(-D__MLIR_ENABLE_SQLITE__)
@@ -35,6 +37,5 @@ target_include_directories(MLIRMIOpenTuning
 target_link_libraries(MLIRMIOpenTuning
   PRIVATE
   MLIRIR
-  stdc++fs
   ${SQLITE3_LIBRARIES}
 )

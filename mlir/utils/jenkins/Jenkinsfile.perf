@@ -1,8 +1,8 @@
 pipeline {
     agent {
         docker {
-            image 'rocm/dev-ubuntu-18.04:3.7'
-            args '--user "$(id -u):$(id -g)" -v /etc/passwd:/etc/passwd:ro --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+            image 'rocm/mlir:rocm3.7-latest'
+            args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
             label 'rocm'
         }
     }
@@ -13,19 +13,7 @@ pipeline {
                 sh '/opt/rocm/bin/rocm-smi'
             }
         }
-        stage('Setup') {
-            steps {
-                sh '''
-                    # Swap to matching 3.7 dependency:
-                    sed -i 's/debian/3.7/g' /etc/apt/sources.list.d/rocm.list
-
-                    # install pkg dependencies
-                    sudo apt update
-                    sudo apt install -y ninja-build wget git python cmake miopen-hip libsqlite3-dev rocprofiler-dev
-                '''
-            }
-        }
-        stage('Test') {
+        stage('Build and Test') {
             steps {
                 checkout scm
                 sh '''
@@ -47,18 +35,29 @@ pipeline {
 
                     # build LLVM / MLIR and run tests
                     cmake --build . --target check-mlir
+                '''
+            }
+        }
+        stage('Benchmark') {
+            steps {
+                sh '''
+                    cd build
 
-                    # run 1 perf benchmark config. more to come.
-                    ./bin/mlir-miopen-driver -p -ph -c | /opt/rocm/bin/rocprof --hip-trace ./bin/mlir-rocm-runner --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void
+                    # Run 1 perf benchmark config. more to come.
 
-                    # dump perf figures.
+                    # Ensure rocminfo can be located by rocprof.
+                    ./bin/mlir-miopen-driver -p -ph -c | \
+                    PATH=/opt/rocm/bin:$PATH /opt/rocm/bin/rocprof --hip-trace \
+                    ./bin/mlir-rocm-runner --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void
+
+                    # Dump perf figures.
                     cat results.stats.csv
                 '''
             }
         }
     }
-    post { 
-        always { 
+    post {
+        always {
             cleanWs()
         }
     }

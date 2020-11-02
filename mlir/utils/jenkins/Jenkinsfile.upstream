@@ -1,8 +1,8 @@
 pipeline {
     agent {
         docker {
-            image 'rocm/dev-ubuntu-18.04:3.5'
-            args '--device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+            image 'rocm/mlir:rocm3.7-latest'
+            args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
             label 'rocm'
         }
     }
@@ -13,28 +13,16 @@ pipeline {
                 sh '/opt/rocm/bin/rocm-smi'
             }
         }
-        stage('Setup') {
-            steps {
-                sh '''
-                    # install pkg dependencies
-                    sudo apt update
-                    sudo apt install -y ninja-build wget git python cmake
-                '''
-            }
-        }
-        stage('Checkout') {
+        stage('Build and Test') {
             steps {
                 git 'https://github.com/llvm/llvm-project'
-            }
-        }
-        stage('Test') {
-            steps {
                 sh '''
                     # make build directory
                     mkdir -p build && cd build
-                   
+
                     # config MLIR on ROCm
                     cmake -G Ninja ../llvm \
+                        -DLLVM_ENABLE_PROJECTS="mlir;lld" \
                         -DLLVM_BUILD_EXAMPLES=ON \
                         -DLLVM_TARGETS_TO_BUILD="X86;NVPTX;AMDGPU" \
                         -DCMAKE_BUILD_TYPE=Release \
@@ -47,6 +35,11 @@ pipeline {
                     cmake --build . --target check-mlir
                 '''
             }
+        }
+    }
+    post {
+        always {
+            cleanWs()
         }
     }
 }
