@@ -37,6 +37,8 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "mlir/Dialect/SCF/EDSC/Builders.h"
+
 using namespace llvm;
 using namespace mlir;
 
@@ -169,6 +171,13 @@ static cl::opt<std::string>
                        cl::value_desc("Populate entry point function"),
                        cl::init("conv2d"));
 
+// populate cpu convolution entry point
+static cl::opt<std::string> populateCpuEntryPoint(
+    "cpu-entry-point",
+    cl::desc("Populate cpu convolution entry point function"),
+    cl::value_desc("Populate cpu convolution entry point function"),
+    cl::init("conv2d_host"));
+
 // lowering pipeline setup.
 static cl::opt<bool> loweringWithDefaultPipeline(
     "c", cl::desc("To lower with default pipeline"),
@@ -182,6 +191,11 @@ static cl::opt<bool> useHostHarness(
 static cl::opt<bool> populateHostHarness(
     "ph", cl::desc("To populate host harness logic"),
     cl::value_desc("To populate host harness logic"), cl::init(false));
+
+static cl::opt<bool>
+    populateValidation("pv", cl::desc("To populate host validation logic"),
+                       cl::value_desc("To populate host validation logic"),
+                       cl::init(false));
 
 static cl::opt<bool> printResultTensor(
     "pr", cl::desc("To print result tensor for verification"),
@@ -251,8 +265,198 @@ static void populateDefaults() {
                    paddingWidth.getValue(), strideWidth.getValue()));
 }
 
-static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &builder,
-                                              MLIRContext &context, mlir::FloatType dataType) {
+static void populateHostValidationLogic(
+    ModuleOp &module, OpBuilder &builder, MLIRContext &context,
+    mlir::FloatType dataType, Block *block, mlir::Value &ref2MemsetValue,
+    mlir::FuncOp &mcpuMemset4DFuncOp, SmallVector<int64_t, 4> &filterDimension,
+    SmallVector<int64_t, 4> &inputDimension,
+    SmallVector<int64_t, 4> &outputDimension, mlir::AllocOp &filterHostAllocOp,
+    mlir::AllocOp &inputHostAllocOp, mlir::AllocOp &outputHostAllocOp) {
+  // Emit CPU alloc
+  SmallVector<int64_t, 4> ref2Dimension(outputDimension);
+  auto ref2MemRefType = MemRefType::get(
+      ArrayRef<int64_t>(ref2Dimension.begin(), ref2Dimension.end()), dataType);
+  auto ref2HostAllocOp =
+      builder.create<AllocOp>(builder.getUnknownLoc(), ref2MemRefType);
+  block->push_back(ref2HostAllocOp);
+
+  // Emit memref cast
+  auto filterMemRefType = MemRefType::get(
+      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
+      dataType);
+  auto inputMemRefType = MemRefType::get(
+      ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
+      dataType);
+  auto fourDimUnknownSizeMemRefType =
+      MemRefType::get({-1, -1, -1, -1}, dataType);
+  auto ref2MemRefCastOp = builder.create<MemRefCastOp>(
+      builder.getUnknownLoc(), ref2HostAllocOp, fourDimUnknownSizeMemRefType);
+  block->push_back(ref2MemRefCastOp);
+
+  // Populate initial values
+  auto ref2CpuMemsetOp =
+      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+                             ValueRange{ref2MemRefCastOp, ref2MemsetValue});
+  block->push_back(ref2CpuMemsetOp);
+
+  auto cpuConvFuncOp = FuncOp::create(
+      builder.getUnknownLoc(), populateCpuEntryPoint,
+      builder.getFunctionType(
+          {filterMemRefType, inputMemRefType, ref2MemRefType}, {}));
+  module.push_back(cpuConvFuncOp);
+
+  // Construct a new Block.
+  Block *cpuConvFuncOpBlock = cpuConvFuncOp.addEntryBlock();
+
+  // Emit linalog.conv()
+  ArrayAttr strides = builder.getI64ArrayAttr({1, 1});
+  ArrayAttr dilations = builder.getI64ArrayAttr({1, 1});
+  auto elementsType = RankedTensorType::get({2, 2}, builder.getI64Type());
+  DenseIntElementsAttr padding =
+      DenseIntElementsAttr::get(elementsType, ArrayRef<int64_t>{0, 0, 0, 0});
+  auto linalgConvOp = builder.create<linalg::ConvOp>(
+      builder.getUnknownLoc(), cpuConvFuncOpBlock->getArgument(0),
+      cpuConvFuncOpBlock->getArgument(1), cpuConvFuncOpBlock->getArgument(2),
+      strides, dilations, padding);
+  cpuConvFuncOpBlock->push_back(linalgConvOp);
+
+  auto cpuConvFuncOpReturnOp =
+      builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
+  cpuConvFuncOpBlock->push_back(cpuConvFuncOpReturnOp);
+
+  // Emit conv2d_host function call.
+  auto cpuConvCallOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), cpuConvFuncOp,
+      ValueRange{filterHostAllocOp, inputHostAllocOp, ref2HostAllocOp});
+  block->push_back(cpuConvCallOp);
+
+  // Emit verification logic.
+  // %c0 = constant 0: index
+  auto c0IndexOp = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 0);
+  block->push_back(c0IndexOp);
+
+  // %result = alloca() : memref<1xi32>
+  SmallVector<int64_t, 1> oneElementVector({1});
+  auto resultMemRefType = MemRefType::get(
+      ArrayRef<int64_t>(oneElementVector.begin(), oneElementVector.end()),
+      builder.getIntegerType(32));
+  auto cmpResultAllocOp =
+      builder.create<AllocaOp>(builder.getUnknownLoc(), resultMemRefType);
+  block->push_back(cmpResultAllocOp);
+
+  // %c0_i32 = constant 0 : i32
+  // %c1_i32 = constant 1 : i32
+  auto c0ConstantInt32Op = builder.create<ConstantIntOp>(
+      builder.getUnknownLoc(), 0, builder.getIntegerType(32));
+  block->push_back(c0ConstantInt32Op);
+  auto c1ConstantInt32Op = builder.create<ConstantIntOp>(
+      builder.getUnknownLoc(), 1, builder.getIntegerType(32));
+  block->push_back(c1ConstantInt32Op);
+
+  // store %c1_i32, %result[%c0] : memref<1xi32>
+  auto storeOp1 =
+      builder.create<StoreOp>(builder.getUnknownLoc(), c1ConstantInt32Op,
+                              cmpResultAllocOp, ValueRange{c0IndexOp});
+  block->push_back(storeOp1);
+
+  // %%c1 = constant 1 : index
+  auto c1IndexOp = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
+  block->push_back(c1IndexOp);
+
+  // Emit constant index Ops for loop upper bounds
+  auto indexOp0 = builder.create<ConstantIndexOp>(builder.getUnknownLoc(),
+                                                  outputDimension[0]);
+  block->push_back(indexOp0);
+  auto indexOp1 = builder.create<ConstantIndexOp>(builder.getUnknownLoc(),
+                                                  outputDimension[1]);
+  block->push_back(indexOp1);
+  auto indexOp2 = builder.create<ConstantIndexOp>(builder.getUnknownLoc(),
+                                                  outputDimension[2]);
+  block->push_back(indexOp2);
+  auto indexOp3 = builder.create<ConstantIndexOp>(builder.getUnknownLoc(),
+                                                  outputDimension[3]);
+  block->push_back(indexOp3);
+
+  // scf.for %arg0 = %c0 to %c128 step %c1 {
+  //  scf.for %arg1 = %c0 to %c30 step %c1 {
+  //    scf.for %arg2 = %c0 to %c30 step %c1 {
+  //      scf.for %arg3 = %c0 to %c128 step %c1 {
+  //        %cpu_result = load %ref2[%arg0, %arg1, %arg2, %arg3] :
+  //        memref<128x30x30x128xf32> %gpu_result = load %2[%arg0, %arg1, %arg2,
+  //        %arg3] : memref<128x30x30x128xf32> %cmp_result = cmpf "oeq",
+  //        %cpu_result, %gpu_result : f32
+  //
+  //        scf.if %cmp_result {
+  //        } else {
+  //          store %c0_i32, %result[%c0] : memref<1xi32>
+  //        }
+  //      }
+  //    }
+  //  }
+  //}
+  auto loop0 = builder.create<scf::ForOp>(builder.getUnknownLoc(), c0IndexOp,
+                                          indexOp0, c1IndexOp);
+  auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
+  auto iv0 = loop0.getInductionVar();
+
+  auto loop1 = bt0.create<scf::ForOp>(builder.getUnknownLoc(), c0IndexOp,
+                                      indexOp1, c1IndexOp);
+  auto bt1 = OpBuilder::atBlockTerminator(loop1.getBody());
+  auto iv1 = loop1.getInductionVar();
+
+  auto loop2 = bt1.create<scf::ForOp>(builder.getUnknownLoc(), c0IndexOp,
+                                      indexOp2, c1IndexOp);
+  auto bt2 = OpBuilder::atBlockTerminator(loop2.getBody());
+  auto iv2 = loop2.getInductionVar();
+
+  auto loop3 = bt2.create<scf::ForOp>(builder.getUnknownLoc(), c0IndexOp,
+                                      indexOp3, c1IndexOp);
+  auto bt3 = OpBuilder::atBlockTerminator(loop3.getBody());
+  auto iv3 = loop2.getInductionVar();
+
+  auto cpuLoadOp = bt3.create<LoadOp>(builder.getUnknownLoc(), ref2HostAllocOp,
+                                      ValueRange{iv0, iv1, iv2, iv3});
+  auto gpuLoadOp =
+      bt3.create<LoadOp>(builder.getUnknownLoc(), outputHostAllocOp,
+                         ValueRange{iv0, iv1, iv2, iv3});
+  auto cmpOp = bt3.create<CmpFOp>(builder.getUnknownLoc(), CmpFPredicate::OEQ,
+                                  cpuLoadOp, gpuLoadOp);
+  auto ifOp = bt3.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, true);
+  auto elseBody = ifOp.getElseBodyBuilder();
+
+  auto storeOp0 =
+      elseBody.create<StoreOp>(builder.getUnknownLoc(), c0ConstantInt32Op,
+                               cmpResultAllocOp, ValueRange{c0IndexOp});
+
+  block->push_back(loop0);
+
+  // Emit print function call
+  auto unrankedMemRefType =
+      UnrankedMemRefType::get(builder.getIntegerType(32), 0);
+  auto printMemRefCastOp = builder.create<MemRefCastOp>(
+      builder.getUnknownLoc(), cmpResultAllocOp, unrankedMemRefType);
+  auto printMemRefFuncOp =
+      FuncOp::create(builder.getUnknownLoc(), "print_memref_i32",
+                     builder.getFunctionType({unrankedMemRefType}, {}));
+  auto printMemRefCallOp =
+      builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFuncOp,
+                             ValueRange{printMemRefCastOp});
+  module.push_back(printMemRefFuncOp);
+  block->push_back(printMemRefCastOp);
+  block->push_back(printMemRefCallOp);
+
+  // Emit CPU dealloc
+  auto ref2HostDeallocOp =
+      builder.create<DeallocOp>(builder.getUnknownLoc(), ref2HostAllocOp);
+  block->push_back(ref2HostDeallocOp);
+
+  return;
+}
+
+static LogicalResult populateHostHarnessLogic(ModuleOp &module,
+                                              OpBuilder &builder,
+                                              MLIRContext &context,
+                                              mlir::FloatType dataType) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main", builder.getFunctionType({}, {}));
   module.push_back(func);
@@ -319,25 +523,30 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   } else if (dataType == builder.getBF16Type()) {
     memsetFuncName = "mcpuMemset4DBF16";
   }
+
   auto mcpuMemset4DFuncOp = FuncOp::create(
       builder.getUnknownLoc(), memsetFuncName,
       builder.getFunctionType(
           {fourDimUnknownSizeMemRefType, dataType}, {}));
   module.push_back(mcpuMemset4DFuncOp);
 
-  mlir::Value filterMemsetValue, inputMemsetValue, outputMemsetValue;
+  mlir::Value filterMemsetValue, inputMemsetValue, outputMemsetValue,
+      ref2MemsetValue;
   if (operation.getValue() == "conv2d") {
     filterMemsetValue = oneConstantFloatOp;
     inputMemsetValue = oneConstantFloatOp;
     outputMemsetValue = zeroConstantFloatOp;
+    ref2MemsetValue = zeroConstantFloatOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
     filterMemsetValue = oneConstantFloatOp;
     inputMemsetValue = zeroConstantFloatOp;
     outputMemsetValue = oneConstantFloatOp;
+    ref2MemsetValue = oneConstantFloatOp;
   } else if (operation.getValue() == "conv2d_bwd_weight") {
     filterMemsetValue = zeroConstantFloatOp;
     inputMemsetValue = oneConstantFloatOp;
     outputMemsetValue = oneConstantFloatOp;
+    ref2MemsetValue = oneConstantFloatOp;
   }
   auto filterCpuMemsetOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mcpuMemset4DFuncOp,
@@ -470,7 +679,6 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
                                         twoConstantI32Op});
   block->push_back(outputGpuToCpuCopyOp);
 
-  // Emit verification logic.
   if (printResultTensor.getValue()) {
     StringRef printMemRefFuncName;
     if (dataType == builder.getF32Type()) {
@@ -492,6 +700,14 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
     module.push_back(printMemRefFuncOp);
     block->push_back(printMemRefCastOp);
     block->push_back(printMemRefCallOp);
+  }
+
+  // Populate host validation logic
+  if (populateValidation.getValue()) {
+    populateHostValidationLogic(
+        module, builder, context, dataType, block, ref2MemsetValue,
+        mcpuMemset4DFuncOp, filterDimension, inputDimension, outputDimension,
+        filterHostAllocOp, inputHostAllocOp, outputHostAllocOp);
   }
 
   // Emit GPU memory deallocation function calls.
@@ -659,6 +875,13 @@ int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
 
+  // Reset layouts to those supported by host validation
+  if (populateValidation.getValue()) {
+    inputLayout.setValue("nhwc");
+    outputLayout.setValue("nhwk");
+    filterLayout.setValue("yxck");
+  }
+
   MLIRContext context;
   OpBuilder builder(&context);
   ModuleOp module;
@@ -716,6 +939,14 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
+  // populate host harness and host validation.
+  if (populateValidation.getValue()) {
+    if (failed(populateHostHarnessLogic(module, builder, context, dataType))) {
+      llvm::errs() << "Host validation populated failed.\n";
+      exit(1);
+    }
+  }
+
   // Apply passes.
   if (failed(runMLIRPasses(module, passPipeline, kernelName))) {
     llvm::errs() << "Lowering failed.\n";
@@ -723,7 +954,7 @@ int main(int argc, char **argv) {
   }
 
   // populate host launch logic.
-  if (useHostHarness.getValue()) {
+  if (useHostHarness.getValue() || populateValidation.getValue()) {
     if (failed(
             populateKernelLaunchLogic(module, builder, context, kernelName))) {
       llvm::errs() << "Host kernel launch logic populated failed.\n";
