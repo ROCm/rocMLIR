@@ -4141,111 +4141,113 @@ struct ThreadwiseCopyV2RewritePattern
     //   llvm::errs() << sliceLengths[i] << " ";
     // llvm::errs() << "\n";
 
-    // Emit loops for vector loads / stores.
-    SmallVector<scf::ForOp, 2> loopOps;
-    SmallVector<OpBuilder, 2> loopBuilders;
-    SmallVector<Value, 2> loopIVs;
-    SmallVector<Value, 2> loopIV_i32s;
+    // Emit fully unrolled loops for vector loads / stores.
+    SmallVector<int64_t, 2> loopIVsPerAccessOrder;
+    SmallVector<int64_t, 2> loopBoundsPerAccessOrder;
     for (unsigned iter = 0; iter < dimAccessOrder.size(); ++iter) {
       auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-      auto loopBuilder = (iter == 0) ? b : loopBuilders[iter - 1];
-
-      auto loopOp = loopBuilder.create<scf::ForOp>(
-          loc, zeroConstantOp, loopBounds[dim], oneConstantOp);
-      loopOps.push_back(loopOp);
-      auto loopOpBuilder = OpBuilder::atBlockTerminator(loopOp.getBody());
-      loopBuilders.push_back(loopOpBuilder);
-      auto loopIV = loopOp.getInductionVar();
-      loopIVs.push_back(loopIV);
-      auto loopIV_i32 = loopOpBuilder.create<IndexCastOp>(
-          loc, loopIV, b.getIntegerType(32));
-      loopIV_i32s.push_back(loopIV_i32);
+      loopIVsPerAccessOrder.push_back(0);
+      loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
     }
-
-    // Emit loop body.
-    auto innerLoopBuilder = loopBuilders[loopBuilders.size() - 1];
-
-    // Compute high-level coordinate for source memref.
-    // src_index = (iv_0, iv_1, ...) + sourceCoord
-    SmallVector<Value, 8> srcUpperIndices;
-    for (unsigned iter = 0; iter < loopIV_i32s.size(); ++iter)
-      srcUpperIndices.push_back(innerLoopBuilder.create<IndexCastOp>(
-          loc,
-          innerLoopBuilder.create<AddIOp>(loc, loopIV_i32s[iter],
-                                          sourceCoord[iter]),
-          b.getIndexType()));
-
-    // Apply affine transformations to compute the low-level coordinate.
-    SmallVector<Value, 8> srcLowerIndices;
-    if (sourceExternalTransform || sourceEmbeddedTransform)
-      srcLowerIndices = expandAffineMap(innerLoopBuilder, loc,
-                                        sourceTransform, srcUpperIndices)
-                            .getValue();
-    else
-      srcLowerIndices = srcUpperIndices;
-
-    // Add sourceOffset to derive the position in the vector.
-    auto srcPosition = innerLoopBuilder.create<AddIOp>(loc,
-                          innerLoopBuilder.create<IndexCastOp>(loc, srcLowerIndices[0], b.getIntegerType(32)),
-                          op.sourceOffset());
-
-    // Load from source.
-    // TBD. Issue vector load.
-    // Value vectorValue;
-    Value scalarValue;
-    if (srcDataPerRead > 1) {
-      // TBD. Issue vector load.
-      // auto sourceVectorType =
-      //     VectorType::get(srcDataPerRead, sourceType.getElementType());
-      // auto srcExpr =
-      //     getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
-      // auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
-      // vectorValue = innerLoopBuilder.create<vector::TransferReadOp>(
-      //     loc, sourceVectorType, op.source(), srcLowerIndices, srcProjection);
-    } else {
-      // Issue scalar load.
-      scalarValue = innerLoopBuilder.create<vector::ExtractElementOp>(loc, sourceType.getElementType(), op.source(), srcPosition);
-    }
-    
-    // Compute high-level coordinate for dest memref.
-    // dst_index = (iv_0, iv_1, ...) + destCoord
-    SmallVector<Value, 8> destUpperIndices;
-    for (unsigned iter = 0; iter < loopIV_i32s.size(); ++iter)
-      destUpperIndices.push_back(innerLoopBuilder.create<IndexCastOp>(
-          loc,
-          innerLoopBuilder.create<AddIOp>(
-              loc,
-              loopIV_i32s[dimAccessOrder[iter]
-                              .template cast<IntegerAttr>()
-                              .getInt()],
-              destCoord[iter]),
-          b.getIndexType()));
-
-    // Apply affine transformations to compute the low-level coordinate.
-    SmallVector<Value, 8> destLowerIndices;
-    if (destExternalTransform || destEmbeddedTransform)
-      destLowerIndices = expandAffineMap(innerLoopBuilder, loc, destTransform,
-                                         destUpperIndices)
-                             .getValue();
-    else
-      destLowerIndices = destUpperIndices;
-
-    // Store to dest.
-    if (destDataPerWrite > 1) {
-      // TBD. Issue vector store.
-      // auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
-      // auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
-      // innerLoopBuilder.create<vector::TransferWriteOp>(
-      //     loc, vectorValue, op.dest(), destLowerIndices, dstProjection);
-    } else {
-      // Issue scalar store.
-      if (dataType == b.getF32Type()) {
-        innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
-      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
-        auto truncValue = innerLoopBuilder.create<FPTruncOp>(loc, scalarValue, dataType);
-        innerLoopBuilder.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
+    bool toExit = false;
+    do {
+      // Compute high-level coordinate for source memref.
+      // src_index = (iv_0, iv_1, ...) + sourceCoord
+      SmallVector<Value, 8> srcUpperIndices;
+      for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
+        auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32));
+        srcUpperIndices.push_back(b.create<IndexCastOp>(
+            loc,
+            b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
+            b.getIndexType()));
       }
-    }
+
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 8> srcLowerIndices;
+      if (sourceExternalTransform || sourceEmbeddedTransform)
+        srcLowerIndices = expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
+                              .getValue();
+      else
+        srcLowerIndices = srcUpperIndices;
+
+      // Add sourceOffset to derive the position in the vector.
+      auto srcPosition = b.create<AddIOp>(loc,
+                            b.create<IndexCastOp>(loc, srcLowerIndices[0], b.getIntegerType(32)),
+                            op.sourceOffset());
+
+      // Load from source.
+      // TBD. Issue vector load.
+      // Value vectorValue;
+      Value scalarValue;
+      if (srcDataPerRead > 1) {
+        // TBD. Issue vector load.
+        // auto sourceVectorType =
+        //     VectorType::get(srcDataPerRead, sourceType.getElementType());
+        // auto srcExpr =
+        //     getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
+        // auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
+        // vectorValue = b.create<vector::TransferReadOp>(
+        //     loc, sourceVectorType, op.source(), srcLowerIndices, srcProjection);
+      } else {
+        // Issue scalar load.
+        scalarValue = b.create<vector::ExtractElementOp>(loc, sourceType.getElementType(), op.source(), srcPosition);
+      }
+      
+      // Compute high-level coordinate for dest memref.
+      // dst_index = (iv_0, iv_1, ...) + destCoord
+      SmallVector<Value, 8> destUpperIndices;
+      for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
+        auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+        auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim], b.getIntegerType(32));
+        destUpperIndices.push_back(b.create<IndexCastOp>(
+            loc,
+            b.create<AddIOp>(loc, loopIV, destCoord[iter]),
+            b.getIndexType()));
+      }
+
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 8> destLowerIndices;
+      if (destExternalTransform || destEmbeddedTransform)
+        destLowerIndices = expandAffineMap(b, loc, destTransform,
+                                           destUpperIndices)
+                               .getValue();
+      else
+        destLowerIndices = destUpperIndices;
+
+      // Store to dest.
+      if (destDataPerWrite > 1) {
+        // TBD. Issue vector store.
+        // auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
+        // auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
+        // b.create<vector::TransferWriteOp>(
+        //     loc, vectorValue, op.dest(), destLowerIndices, dstProjection);
+      } else {
+        // Issue scalar store.
+        if (dataType == b.getF32Type()) {
+          b.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
+        } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+          auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
+          b.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
+        }
+      }
+
+      // increase IVs
+      bool toIncreaseNextDigit = true;
+      int iter = loopIVsPerAccessOrder.size() - 1;
+      for (; toIncreaseNextDigit && iter >= 0; --iter) {
+        if (++loopIVsPerAccessOrder[iter] == loopBoundsPerAccessOrder[iter]) {
+          loopIVsPerAccessOrder[iter] = 0;
+          toIncreaseNextDigit = true;
+        } else {
+          toIncreaseNextDigit = false;
+        }
+      }
+
+      // check if need to exit
+      if (iter < 0 && toIncreaseNextDigit == true) {
+        toExit = true;
+      }
+    } while(!toExit);
 
     op.erase();
     return success();
