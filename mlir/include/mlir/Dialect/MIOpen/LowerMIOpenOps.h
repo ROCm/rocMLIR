@@ -3713,96 +3713,81 @@ struct ThreadwiseCopyRewritePattern
       //         }
       //     }
       // };
-      auto NSliceRowConstantOp = b.create<ConstantIndexOp>(loc, NSliceRow);
-      auto NSliceColConstantOp = b.create<ConstantIndexOp>(loc, NSliceCol);
-      auto DataPerAccessConstantOp =
-          b.create<ConstantIndexOp>(loc, DataPerAccess);
 
-      // outer loop.
-      auto outerLoopOp =
-          b.create<scf::ForOp>(loc, zeroConstantOp,
-                               NSliceRowConstantOp, oneConstantOp);
+      // Emit fully-unrolled loops.
+      for (unsigned ivo = 0; ivo < NSliceRow; ++ivo) {
+        auto ivo_i32 = b.create<ConstantIntOp>(loc, ivo, b.getIntegerType(32));
+        for (unsigned ivi = 0; ivi < NSliceCol; ivi += DataPerAccess) {
+          auto ivi_i32 = b.create<ConstantIntOp>(loc, ivi, b.getIntegerType(32));
 
-      // inside the outer loop.
-      auto lob = OpBuilder::atBlockTerminator(outerLoopOp.getBody());
-      auto ivo = outerLoopOp.getInductionVar();
-      auto ivo_i32 = lob.create<IndexCastOp>(loc, ivo, b.getIntegerType(32));
+          // Compute high-level coordinate for source memref.
+          // src_index = (ivo_i32, ivi_i32) + sourceCoord
+          SmallVector<Value, 8> srcUpperIndices;
+          srcUpperIndices.push_back(b.create<IndexCastOp>(
+              loc, b.create<AddIOp>(loc, ivo_i32, sourceCoord[0]),
+              b.getIndexType()));
+          srcUpperIndices.push_back(b.create<IndexCastOp>(
+              loc, b.create<AddIOp>(loc, ivi_i32, sourceCoord[1]),
+              b.getIndexType()));
 
-      // inner loop
-      auto innerLoopOp = lob.create<scf::ForOp>(loc, zeroConstantOp,
-                                                NSliceColConstantOp,
-                                                DataPerAccessConstantOp);
+          // Apply affine transformations to compute the low-level coordinate.
+          SmallVector<Value, 8> srcLowerIndices;
+          if (sourceExternalTransform || sourceEmbeddedTransform)
+            srcLowerIndices =
+                expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
+                    .getValue();
+          else
+            srcLowerIndices = srcUpperIndices;
 
-      // inside the inner loop.
-      auto lib = OpBuilder::atBlockTerminator(innerLoopOp.getBody());
-      auto ivi = innerLoopOp.getInductionVar();
-      auto ivi_i32 = lib.create<IndexCastOp>(loc, ivi, b.getIntegerType(32));
+          Value vectorValue;
+          Value scalarValue;
+          // Load from source.
+          if (DataPerAccess > 1) {
+            // Issue vector load.
+            auto vectorType =
+                VectorType::get(DataPerAccess, sourceType.getElementType());
+            auto srcExpr =
+                getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
+            auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
+            vectorValue = b.create<vector::TransferReadOp>(
+                loc, vectorType, op.source(), srcLowerIndices, srcProjection);
+          } else {
+            // Issue scalar load.
+            scalarValue = b.create<LoadOp>(loc, sourceType.getElementType(), op.source(), srcLowerIndices);
+          }
 
-      // Compute high-level coordinate for source memref.
-      // src_index = (ivo_i32, ivi_i32) + sourceCoord
-      SmallVector<Value, 8> srcUpperIndices;
-      srcUpperIndices.push_back(lib.create<IndexCastOp>(
-          loc, lib.create<AddIOp>(loc, ivo_i32, sourceCoord[0]),
-          b.getIndexType()));
-      srcUpperIndices.push_back(lib.create<IndexCastOp>(
-          loc, lib.create<AddIOp>(loc, ivi_i32, sourceCoord[1]),
-          b.getIndexType()));
+          // Compute high-level coordinate for dest memref.
+          // dst_index = (ivo_i32, ivi_i32) + destCoord
+          SmallVector<Value, 8> destUpperIndices;
+          destUpperIndices.push_back(b.create<IndexCastOp>(
+              loc, b.create<AddIOp>(loc, ivo_i32, destCoord[0]),
+              b.getIndexType()));
+          destUpperIndices.push_back(b.create<IndexCastOp>(
+              loc, b.create<AddIOp>(loc, ivi_i32, destCoord[1]),
+              b.getIndexType()));
 
-      // Apply affine transformations to compute the low-level coordinate.
-      SmallVector<Value, 8> srcLowerIndices;
-      if (sourceExternalTransform || sourceEmbeddedTransform)
-        srcLowerIndices =
-            expandAffineMap(lib, loc, sourceTransform, srcUpperIndices)
-                .getValue();
-      else
-        srcLowerIndices = srcUpperIndices;
+          // Apply affine transformations to compute the low-level coordinate.
+          SmallVector<Value, 8> destLowerIndices;
+          if (destExternalTransform || destEmbeddedTransform)
+            destLowerIndices =
+                expandAffineMap(b, loc, destTransform, destUpperIndices)
+                    .getValue();
+          else
+            destLowerIndices = destUpperIndices;
 
-      Value vectorValue;
-      Value scalarValue;
-      // Load from source.
-      if (DataPerAccess > 1) {
-        // Issue vector load.
-        auto vectorType =
-            VectorType::get(DataPerAccess, sourceType.getElementType());
-        auto srcExpr =
-            getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
-        auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
-        vectorValue = lib.create<vector::TransferReadOp>(
-            loc, vectorType, op.source(), srcLowerIndices, srcProjection);
-      } else {
-        // Issue scalar load.
-        scalarValue = lib.create<LoadOp>(loc, sourceType.getElementType(), op.source(), srcLowerIndices);
-      }
+          // Store to dest.
+          if (DataPerAccess > 1) {
+            auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
+            auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
+            b.create<vector::TransferWriteOp>(loc, vectorValue, op.dest(),
+                                                destLowerIndices, dstProjection);
+          } else {
+            // Issue scalar store.
+            b.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
+          }
 
-      // Compute high-level coordinate for dest memref.
-      // dst_index = (ivo_i32, ivi_i32) + destCoord
-      SmallVector<Value, 8> destUpperIndices;
-      destUpperIndices.push_back(lib.create<IndexCastOp>(
-          loc, lib.create<AddIOp>(loc, ivo_i32, destCoord[0]),
-          b.getIndexType()));
-      destUpperIndices.push_back(lib.create<IndexCastOp>(
-          loc, lib.create<AddIOp>(loc, ivi_i32, destCoord[1]),
-          b.getIndexType()));
-
-      // Apply affine transformations to compute the low-level coordinate.
-      SmallVector<Value, 8> destLowerIndices;
-      if (destExternalTransform || destEmbeddedTransform)
-        destLowerIndices =
-            expandAffineMap(lib, loc, destTransform, destUpperIndices)
-                .getValue();
-      else
-        destLowerIndices = destUpperIndices;
-
-      // Store to dest.
-      if (DataPerAccess > 1) {
-        auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
-        auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
-        lib.create<vector::TransferWriteOp>(loc, vectorValue, op.dest(),
-                                            destLowerIndices, dstProjection);
-      } else {
-        // Issue scalar store.
-        lib.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
-      }
+        } // ivi
+      } // ivo
 
     } else {
       // The more elaborated algorithm.
