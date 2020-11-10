@@ -76,6 +76,30 @@ static LogicalResult populateConvolutionConfiguration(
   return success();
 }
 
+template <typename Vector>
+std::vector<int64_t> layoutPermutation(const Vector &src,
+                                       const Vector &srcSpec) {
+  std::vector<int64_t> permutation(srcSpec.size(), 0);
+  std::transform(src.begin(), src.end(), permutation.begin(),
+                 [&srcSpec](const char &s) {
+                   auto it = std::find(srcSpec.begin(), srcSpec.end(), s);
+                   return it - srcSpec.begin();
+                 });
+  return permutation;
+}
+
+template <typename Vector>
+std::string translateLayout(const Vector &src, const Vector &srcSpec,
+                            const Vector &targetSpec) {
+  auto permutation = layoutPermutation(src, srcSpec);
+
+  std::string targetLayout;
+  std::transform(permutation.begin(), permutation.end(),
+                 std::back_inserter(targetLayout),
+                 [&targetSpec](int64_t p) { return targetSpec[p]; });
+  return targetLayout;
+}
+
 static LogicalResult populateConvolutionLogic(
     std::string &arch, int num_cu, std::string &operation,
     std::string &inputLayout, std::string &outputLayout,
