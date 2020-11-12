@@ -1,0 +1,39 @@
+//===- LetaoOps.td - Letao operation definitions ---------*- tablegen -*-===//
+//
+// Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// Defines MLIR Letao operations.
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef LETAO_OPS
+#define LETAO_OPS
+
+include "mlir/IR/OpBase.td"
+
+def Letao_Dialect : Dialect {
+  let name = "letao";
+  let cppNamespace = "letao";
+}
+
+// Base class for Letao dialect ops.
+class Letao_Op<string mnemonic, list<OpTrait> traits = []> :
+    Op<Letao_Dialect, mnemonic, traits> {
+}
+
+def DotOp: Letao_Op<"dot">{
+  let summary = "element-wise multiplication and sum operation";
+  let description = [{
+    The "mul" operation performs element-wise multiplication and sum between two
+    tensors. The shapes of the tensor operands are expected to match.
+  }];
+
+  let arguments = (ins F64Tensor:$first, F64Tensor:$second);
+  let results = (outs F64Tensor);
+}
+#endif
+
