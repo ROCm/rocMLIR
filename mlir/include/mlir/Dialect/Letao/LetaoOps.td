@@ -23,6 +23,8 @@ def Letao_Dialect : Dialect {
 // Base class for Letao dialect ops.
 class Letao_Op<string mnemonic, list<OpTrait> traits = []> :
     Op<Letao_Dialect, mnemonic, traits> {
+
+    let parser = [{ return ::parse$cppClass(parser, result); }];
 }
 
 def DotOp: Letao_Op<"dot">{
@@ -34,6 +36,17 @@ def DotOp: Letao_Op<"dot">{
 
   let arguments = (ins F64Tensor:$first, F64Tensor:$second);
   let results = (outs F64Tensor);
+}
+
+def Letao_Conv2DOp :
+    Letao_Op<"conv2d">,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [4]>:$filter,
+                   MemRefRankOf<[F32, F16, BF16], [4]>:$input,
+                   MemRefRankOf<[F32, F16, BF16], [4]>:$output)> {
+  let summary = "2D convolution forward";
+  let description = [{
+    The `miopen.conv2d` op computes 2D convolution forward.
+  }];
 }
 #endif
 

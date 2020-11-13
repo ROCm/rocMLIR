@@ -21,7 +21,7 @@
 #include "mlir/IR/Types.h"
 
 namespace mlir {
-namespace letao {
+//namespace letao {
 
 
 #include "mlir/Dialect/Letao/LetaoOpsDialect.h.inc"
@@ -29,6 +29,6 @@ namespace letao {
 #define GET_OP_CLASSES
 #include "mlir/Dialect/Letao/LetaoOps.h.inc"
 
-} // end namespace miopen
+//} // end namespace miopen
 } // end namespace mlir
 #endif // MLIR_MIOPENOPS_OPS_H_
