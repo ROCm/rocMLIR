@@ -35,6 +35,7 @@
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Vector/VectorOps.h"
 #include "mlir/IR/Dialect.h"
+#include "mlir/Dialect/Letao/LetaoOps.h"
 
 namespace mlir {
 
@@ -59,6 +60,7 @@ inline void registerAllDialects(DialectRegistry &registry) {
                   vector::VectorDialect,
                   NVVM::NVVMDialect,
                   ROCDL::ROCDLDialect,
+                  letao::LetaoDialect,
                   SDBMDialect,
                   shape::ShapeDialect>();
   // clang-format on
