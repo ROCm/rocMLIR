@@ -4534,7 +4534,11 @@ struct ThreadwiseCopyV2RewritePattern
         // llvm::errs() << "source affine transform map: ";
         // sourceTransform.dump();
         // llvm::errs() << "\n";
-        sourceTransform.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
+        if (!sourceTransform) {
+          indexLowerDiffTmpAttr.assign(indexUpperDiff.begin(), indexUpperDiff.end());
+        } else {
+          sourceTransform.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
+        }
         // llvm::errs() << "source index lower diff tmp:\n";
         for (auto attr : indexLowerDiffTmpAttr) {
           int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
@@ -4664,7 +4668,11 @@ struct ThreadwiseCopyV2RewritePattern
         // llvm::errs() << "dest affine transform map: ";
         // destTransform.dump();
         // llvm::errs() << "\n";
-        destTransform.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
+        if (!destTransform) {
+          indexLowerDiffTmpAttr.assign(indexUpperDiff.begin(), indexUpperDiff.end());
+        } else {
+          destTransform.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
+        }
         // llvm::errs() << "dest index lower diff tmp:\n";
         for (auto attr : indexLowerDiffTmpAttr) {
           int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
