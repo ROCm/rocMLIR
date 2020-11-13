@@ -985,6 +985,9 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
               gop.getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top.setAttr("source_data_per_read", b.getI32IntegerAttr(1));
   top.setAttr("dest_data_per_write", gop.getAttr("matrix_c_dest_data_per_write"));
+
+  top.setAttr("legacyLoad", b.getBoolAttr(true));
+  top.setAttr("legacyStore", b.getBoolAttr(true));
 }
 
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
@@ -1062,6 +1065,9 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
     //top.setAttr("dest_data_per_write", bop.getAttr("dest_data_per_write"));
     top.setAttr("dest_data_per_write", b.getI32IntegerAttr(1));
   }
+
+  top.setAttr("legacyLoad", b.getBoolAttr(true));
+  top.setAttr("legacyStore", b.getBoolAttr(true));
 }
 
 // XXX: figure out a better way to get rid of isMatrixA parameter.
@@ -1094,6 +1100,9 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
     //top.setAttr("data_per_access", bop.getAttr("n_per_thread"));
     top.setAttr("data_per_access", b.getI32IntegerAttr(1));
   }
+
+  top.setAttr("legacyLoad", b.getBoolAttr(true));
+  top.setAttr("legacyStore", b.getBoolAttr(true));
 }
 
 //===----------------------------------------------------------------------===//
@@ -3593,6 +3602,9 @@ struct ThreadwiseCopyRewritePattern
     auto destType = op.dest().getType().cast<MemRefType>();
     auto dataType = destType.getElementType();
 
+    auto legacyLoadAttr = op.getAttr("legacyLoad");
+    auto legacyStoreAttr = op.getAttr("legacyStore");
+
     // Get source and dest coordinates.
     //
     // 1. For memrefs with no externally defined affine maps in coord_transforms
@@ -3881,32 +3893,36 @@ struct ThreadwiseCopyRewritePattern
       // New logic begin.
       // -----------------------
 
-      // Compute low-level coordinate for source memref from sourceCoord.
-      // Apply affine transformations to compute the low-level coordinate.
       SmallVector<Value, 8> srcUpperCoord;
-      for (unsigned i = 0; i < sourceCoordLength; ++i) {
-        srcUpperCoord.push_back(b.create<IndexCastOp>(loc, sourceAndDestCoord[i], b.getIndexType()));
-      }
       SmallVector<Value, 8> srcLowerCoord;
-      if (sourceExternalTransform || sourceEmbeddedTransform)
-        srcLowerCoord = expandAffineMap(b, loc, sourceTransform, srcUpperCoord)
-                              .getValue();
-      else
-        srcLowerCoord.assign(srcUpperCoord.begin(), srcUpperCoord.end());
-
-      // Compute low-level coordinate for source memref from sourceCoord.
-      // Apply affine transformations to compute the low-level coordinate.
-      SmallVector<Value, 8> destUpperCoord;
-      for (unsigned i = sourceCoordLength;
-           i < sourceCoordLength + destCoordLength; ++i) {
-        destUpperCoord.push_back(b.create<IndexCastOp>(loc, sourceAndDestCoord[i], b.getIndexType()));
+      if (!legacyLoadAttr || !legacyLoadAttr.template cast<BoolAttr>().getValue()) {
+        // Compute low-level coordinate for source memref from sourceCoord.
+        // Apply affine transformations to compute the low-level coordinate.
+        for (unsigned i = 0; i < sourceCoordLength; ++i) {
+          srcUpperCoord.push_back(b.create<IndexCastOp>(loc, sourceAndDestCoord[i], b.getIndexType()));
+        }
+        if (sourceExternalTransform || sourceEmbeddedTransform)
+          srcLowerCoord = expandAffineMap(b, loc, sourceTransform, srcUpperCoord)
+                                .getValue();
+        else
+          srcLowerCoord.assign(srcUpperCoord.begin(), srcUpperCoord.end());
       }
+
+      SmallVector<Value, 8> destUpperCoord;
       SmallVector<Value, 8> destLowerCoord;
-      if (destExternalTransform || destEmbeddedTransform)
-        destLowerCoord = expandAffineMap(b, loc, destTransform, destUpperCoord)
-                              .getValue();
-      else
-        destLowerCoord.assign(destUpperCoord.begin(), destUpperCoord.end());
+      if (!legacyStoreAttr || !legacyStoreAttr.template cast<BoolAttr>().getValue()) {
+        // Compute low-level coordinate for source memref from sourceCoord.
+        // Apply affine transformations to compute the low-level coordinate.
+        for (unsigned i = sourceCoordLength;
+             i < sourceCoordLength + destCoordLength; ++i) {
+          destUpperCoord.push_back(b.create<IndexCastOp>(loc, sourceAndDestCoord[i], b.getIndexType()));
+        }
+        if (destExternalTransform || destEmbeddedTransform)
+          destLowerCoord = expandAffineMap(b, loc, destTransform, destUpperCoord)
+                                .getValue();
+        else
+          destLowerCoord.assign(destUpperCoord.begin(), destUpperCoord.end());
+      }
 
       // -----------------------
       // New logic end.
@@ -3922,346 +3938,349 @@ struct ThreadwiseCopyRewritePattern
       }
       bool toExit = false;
       do {
-        // -----------------------
-        // New logic.
-        // -----------------------
-
-        // Load from source vector.
-        SmallVector<Value, 4> srcIndexLowerNewUpdated;
-        {
-          // llvm::errs() << "source upper index old:\n";
-          // for (auto& v : srcUpperCoord) {
-          //   v.dump();
-          // }
-          // llvm::errs() << "source lower index old:\n";
-          // for (auto& v : srcLowerCoord) {
-          //   v.dump();
-          // }
-          // llvm::errs() << "source upper index diff:\n";
-          // for (auto& v : loopIVsPerAccessOrder) {
-          //   llvm::errs() << v << " ";
-          // }
-          // llvm::errs() << "\n";
-
-          SmallVector<Attribute, 2> indexUpperDiff;
-          for (auto& v : loopIVsPerAccessOrder) {
-            indexUpperDiff.push_back(b.getI32IntegerAttr(v));
-          }
-
-          // Apply map to compute index lower diff tmp, from index upper diff
-          // using constantFold.
-          SmallVector<Attribute, 4> indexLowerDiffTmpAttr;
-          SmallVector<int64_t, 4> indexLowerDiffTmp;
-          SmallVector<Value, 8> indexLowerDiffTmpOp;
-          // llvm::errs() << "source affine transform map: ";
-          // sourceTransform.dump();
-          // llvm::errs() << "\n";
-          if (!sourceTransform) {
-            indexLowerDiffTmpAttr.assign(indexUpperDiff.begin(), indexUpperDiff.end());
-          } else {
-            sourceTransform.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
-          }
-          // llvm::errs() << "source index lower diff tmp:\n";
-          for (auto attr : indexLowerDiffTmpAttr) {
-            int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
-            // llvm::errs() << v << " ";
-            indexLowerDiffTmp.push_back(v);
-
-            auto cv = b.create<ConstantIndexOp>(loc, v);
-            indexLowerDiffTmpOp.push_back(cv);
-          }
-          // llvm::errs() << "\n";
-
-          // Add: index lower old + index lower diff tmp
-          SmallVector<Value, 8> indexLowerNew;
-          // llvm::errs() << "index lower new before borrow/carry:\n";
-          for (int64_t iter = 0; iter < sourceType.getShape().size(); ++iter) {
-            Value v = b.create<AddIOp>(loc, srcLowerCoord[iter], indexLowerDiffTmpOp[iter]);
-            // v.dump();
-            indexLowerNew.push_back(v);
-          }
-          // llvm::errs() << "\n";
-
-          // Get bounds for source memref.
-          SmallVector<int64_t, 4> bound;
-          SmallVector<Value, 4> boundOp;
-          // llvm::errs() << "bound:\n";
-          for (auto v : sourceType.getShape()) {
-            // llvm::errs() << v << " ";
-            bound.push_back(v);
-
-            auto cv = b.create<ConstantIndexOp>(loc, v);
-            boundOp.push_back(cv);
-          }
-          // llvm::errs() << "\n";
-
-          // Apply carry / borrow logic to compute index lower new
-          // carry logic on Value instances.
-          SmallVector<Value, 4> indexLowerNewCarried;
-          if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
-            // setup carryOp for the first iteration
-            Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
-            for (int64_t iter = sourceType.getShape().size() - 1; iter >= 0; --iter) {
-              // carry logic.
-              auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
-              auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
-              auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], oneConstantOp);
-              ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
-              auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
-              carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], zeroConstantOp);
-              ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
-  
-              //ifCarryOp.dump();
-  
-              auto carriedResult = ifCarryOp.results()[0];
-              indexLowerNewCarried.push_back(carriedResult);
-  
-              // set carry flag for the next digit.
-              carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
-  
-              //carryOp.dump();
-  
-              // overflow logic.
-              auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
-              auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
-              auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
-              ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
-              auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
-              updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, zeroConstantOp);
-              ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
-  
-              //ifOverflowOp.dump();
-  
-              auto updatedResult = ifOverflowOp.results()[0];
-              srcIndexLowerNewUpdated.push_back(updatedResult);
-            }
-          } else {
-            // TBD borrow logic.
-            // TBD revise per scf_if_v1.mlir
-          }
-        }
-  
-        // Load from source.
-        // TBD. Issue vector load.
-        // Value vectorValue;
+        Value vectorValue;
         Value scalarValue;
-        if (srcDataPerRead > 1) {
-          // TBD. Issue vector load.
-          // auto sourceVectorType =
-          //     VectorType::get(srcDataPerRead, sourceType.getElementType());
-          // auto srcExpr =
-          //     getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
-          // auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
-          // vectorValue = b.create<vector::TransferReadOp>(
-          //     loc, sourceVectorType, op.source(), srcLowerIndices, srcProjection);
-        } else {
-          // Issue scalar load.
-          scalarValue = b.create<LoadOp>(loc, sourceType.getElementType(), op.source(), srcIndexLowerNewUpdated);
-        }
 
-        // Store to dest memref.
-        SmallVector<Value, 4> destIndexLowerNewUpdated;
-        {
-          // llvm::errs() << "dest upper index old:\n";
-          // for (auto& v : destUpperCoord) {
-          //   v.dump();
-          // }
-          // llvm::errs() << "dest lower index old:\n";
-          // for (auto& v : destLowerCoord) {
-          //   v.dump();
-          // }
-          // llvm::errs() << "dest upper index diff:\n";
-          // for (auto& v : loopIVsPerAccessOrder) {
-          //   llvm::errs() << v << " ";
-          // }
-          // llvm::errs() << "\n";
+        if (!legacyLoadAttr || (legacyLoadAttr && !legacyLoadAttr.template cast<BoolAttr>().getValue())) {
+          // -----------------------
+          // New logic.
+          // -----------------------
 
-          SmallVector<Attribute, 2> indexUpperDiff;
-          for (auto& v : loopIVsPerAccessOrder) {
-            indexUpperDiff.push_back(b.getI32IntegerAttr(v));
-          }
-
-          // Apply map to compute index lower diff tmp, from index upper diff
-          // using constantFold.
-          SmallVector<Attribute, 4> indexLowerDiffTmpAttr;
-          SmallVector<int64_t, 4> indexLowerDiffTmp;
-          SmallVector<Value, 8> indexLowerDiffTmpOp;
-          if (!destTransform) {
-            indexLowerDiffTmpAttr.assign(indexUpperDiff.begin(), indexUpperDiff.end());
-          } else {
-            // llvm::errs() << "dest affine transform map: ";
-            // destTransform.dump();
+          // Load from source vector.
+          SmallVector<Value, 4> srcIndexLowerNewUpdated;
+          {
+            // llvm::errs() << "source upper index old:\n";
+            // for (auto& v : srcUpperCoord) {
+            //   v.dump();
+            // }
+            // llvm::errs() << "source lower index old:\n";
+            // for (auto& v : srcLowerCoord) {
+            //   v.dump();
+            // }
+            // llvm::errs() << "source upper index diff:\n";
+            // for (auto& v : loopIVsPerAccessOrder) {
+            //   llvm::errs() << v << " ";
+            // }
             // llvm::errs() << "\n";
-            destTransform.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
-          }
-          // llvm::errs() << "dest index lower diff tmp:\n";
-          for (auto attr : indexLowerDiffTmpAttr) {
-            int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
-            // llvm::errs() << v << " ";
-            indexLowerDiffTmp.push_back(v);
 
-            auto cv = b.create<ConstantIndexOp>(loc, v);
-            indexLowerDiffTmpOp.push_back(cv);
-          }
-          // llvm::errs() << "\n";
-
-          // Add: index lower old + index lower diff tmp
-          SmallVector<Value, 8> indexLowerNew;
-          // llvm::errs() << "index lower new before borrow/carry:\n";
-          for (int64_t iter = 0; iter < destType.getShape().size(); ++iter) {
-            Value v = b.create<AddIOp>(loc, destLowerCoord[iter], indexLowerDiffTmpOp[iter]);
-            // v.dump();
-            indexLowerNew.push_back(v);
-          }
-          // llvm::errs() << "\n";
-          // Get bounds for dest memref.
-          SmallVector<int64_t, 4> bound;
-          SmallVector<Value, 4> boundOp;
-          // llvm::errs() << "bound:\n";
-          for (auto v : destType.getShape()) {
-            // llvm::errs() << v << " ";
-            bound.push_back(v);
-
-            auto cv = b.create<ConstantIndexOp>(loc, v);
-            boundOp.push_back(cv);
-          }
-          // llvm::errs() << "\n";
-
-          // Apply carry / borrow logic to compute index lower new
-          // carry logic on Value instances.
-          SmallVector<Value, 4> indexLowerNewCarried;
-          if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
-            // setup carryOp for the first iteration
-            Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
-            for (int64_t iter = destType.getShape().size() - 1; iter >= 0; --iter) {
-              // carry logic.
-              auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
-              auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
-              auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], oneConstantOp);
-              ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
-              auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
-              carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], zeroConstantOp);
-              ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
-
-              //ifCarryOp.dump();
-
-              auto carriedResult = ifCarryOp.results()[0];
-              indexLowerNewCarried.push_back(carriedResult);
-
-              // set carry flag for the next digit.
-              carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
-
-              //carryOp.dump();
-
-              // overflow logic.
-              auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
-              auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
-              auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
-              ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
-              auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
-              updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, zeroConstantOp);
-              ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
-
-              //ifOverflowOp.dump();
-
-              auto updatedResult = ifOverflowOp.results()[0];
-              destIndexLowerNewUpdated.push_back(updatedResult);
+            SmallVector<Attribute, 2> indexUpperDiff;
+            for (auto& v : loopIVsPerAccessOrder) {
+              indexUpperDiff.push_back(b.getI32IntegerAttr(v));
             }
+
+            // Apply map to compute index lower diff tmp, from index upper diff
+            // using constantFold.
+            SmallVector<Attribute, 4> indexLowerDiffTmpAttr;
+            SmallVector<int64_t, 4> indexLowerDiffTmp;
+            SmallVector<Value, 8> indexLowerDiffTmpOp;
+            // llvm::errs() << "source affine transform map: ";
+            // sourceTransform.dump();
+            // llvm::errs() << "\n";
+            if (!sourceTransform) {
+              indexLowerDiffTmpAttr.assign(indexUpperDiff.begin(), indexUpperDiff.end());
+            } else {
+              sourceTransform.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
+            }
+            // llvm::errs() << "source index lower diff tmp:\n";
+            for (auto attr : indexLowerDiffTmpAttr) {
+              int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
+              // llvm::errs() << v << " ";
+              indexLowerDiffTmp.push_back(v);
+
+              auto cv = b.create<ConstantIndexOp>(loc, v);
+              indexLowerDiffTmpOp.push_back(cv);
+            }
+            // llvm::errs() << "\n";
+
+            // Add: index lower old + index lower diff tmp
+            SmallVector<Value, 8> indexLowerNew;
+            // llvm::errs() << "index lower new before borrow/carry:\n";
+            for (int64_t iter = 0; iter < sourceType.getShape().size(); ++iter) {
+              Value v = b.create<AddIOp>(loc, srcLowerCoord[iter], indexLowerDiffTmpOp[iter]);
+              // v.dump();
+              indexLowerNew.push_back(v);
+            }
+            // llvm::errs() << "\n";
+
+            // Get bounds for source memref.
+            SmallVector<int64_t, 4> bound;
+            SmallVector<Value, 4> boundOp;
+            // llvm::errs() << "bound:\n";
+            for (auto v : sourceType.getShape()) {
+              // llvm::errs() << v << " ";
+              bound.push_back(v);
+
+              auto cv = b.create<ConstantIndexOp>(loc, v);
+              boundOp.push_back(cv);
+            }
+            // llvm::errs() << "\n";
+
+            // Apply carry / borrow logic to compute index lower new
+            // carry logic on Value instances.
+            SmallVector<Value, 4> indexLowerNewCarried;
+            if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
+              // setup carryOp for the first iteration
+              Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
+              for (int64_t iter = sourceType.getShape().size() - 1; iter >= 0; --iter) {
+                // carry logic.
+                auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
+                auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
+                auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], oneConstantOp);
+                ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
+                auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
+                carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], zeroConstantOp);
+                ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
+  
+                //ifCarryOp.dump();
+  
+                auto carriedResult = ifCarryOp.results()[0];
+                indexLowerNewCarried.push_back(carriedResult);
+  
+                // set carry flag for the next digit.
+                carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
+  
+                //carryOp.dump();
+  
+                // overflow logic.
+                auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
+                auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
+                auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
+                ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
+                auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
+                updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, zeroConstantOp);
+                ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
+  
+                //ifOverflowOp.dump();
+  
+                auto updatedResult = ifOverflowOp.results()[0];
+                srcIndexLowerNewUpdated.push_back(updatedResult);
+              }
+            } else {
+              // TBD borrow logic.
+              // TBD revise per scf_if_v1.mlir
+            }
+          }
+  
+          // Load from source.
+          // TBD. Issue vector load.
+          if (srcDataPerRead > 1) {
+            // TBD. Issue vector load.
+            // auto sourceVectorType =
+            //     VectorType::get(srcDataPerRead, sourceType.getElementType());
+            // auto srcExpr =
+            //     getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
+            // auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
+            // vectorValue = b.create<vector::TransferReadOp>(
+            //     loc, sourceVectorType, op.source(), srcLowerIndices, srcProjection);
           } else {
-            // TBD borrow logic.
-            // TBD revise per scf_if_v1.mlir
+            // Issue scalar load.
+            scalarValue = b.create<LoadOp>(loc, sourceType.getElementType(), op.source(), srcIndexLowerNewUpdated);
           }
-        }
-
-        // Store to dest.
-        if (destDataPerWrite > 1) {
-          // TBD. Issue vector store.
-          // auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
-          // auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
-          // b.create<vector::TransferWriteOp>(
-          //     loc, vectorValue, op.dest(), destLowerIndices, dstProjection);
-        } else {
-          // Issue scalar store.
-          if (dataType == b.getF32Type()) {
-            b.create<StoreOp>(loc, scalarValue, op.dest(), destIndexLowerNewUpdated);
-          } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
-            auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
-            b.create<StoreOp>(loc, truncValue, op.dest(), destIndexLowerNewUpdated);
+        } // if (!legacyLoadAttr || !legacyLoadAttr.template cast<BoolAttr>().getValue()) {
+   
+        if (legacyLoadAttr && legacyLoadAttr.template cast<BoolAttr>().getValue()) {
+          // Compute high-level coordinate for source memref.
+          // src_index = (iv_0, iv_1, ...) + sourceCoord
+          SmallVector<Value, 8> srcUpperIndices;
+          for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
+            auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32));
+            srcUpperIndices.push_back(b.create<IndexCastOp>(
+                loc,
+                b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
+                b.getIndexType()));
           }
-        }
 
-        // -----------------------
-        // Existing working logic.
-        // -----------------------
+          // Apply affine transformations to compute the low-level coordinate.
+          SmallVector<Value, 8> srcLowerIndices;
+          if (sourceExternalTransform || sourceEmbeddedTransform)
+            srcLowerIndices = expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
+                                  .getValue();
+          else
+            srcLowerIndices = srcUpperIndices;
 
-        // // Compute high-level coordinate for source memref.
-        // // src_index = (iv_0, iv_1, ...) + sourceCoord
-        // SmallVector<Value, 8> srcUpperIndices;
-        // for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-        //   auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32));
-        //   srcUpperIndices.push_back(b.create<IndexCastOp>(
-        //       loc,
-        //       b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
-        //       b.getIndexType()));
-        // }
+          // Load from source.
+          if (srcDataPerRead > 1) {
+            // Issue vector load.
+            auto sourceVectorType =
+                VectorType::get(srcDataPerRead, sourceType.getElementType());
+            auto srcExpr =
+                getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
+            auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
+            vectorValue = b.create<vector::TransferReadOp>(
+                loc, sourceVectorType, op.source(), srcLowerIndices, srcProjection);
+          } else {
+            // Issue scalar load.
+            scalarValue = b.create<LoadOp>(loc, sourceType.getElementType(), op.source(), srcLowerIndices);
+          }
+        } // if (legacyLoadAttr && legacyLoadAttr.template cast<BoolAttr>().getValue()) {
 
-        // // Apply affine transformations to compute the low-level coordinate.
-        // SmallVector<Value, 8> srcLowerIndices;
-        // if (sourceExternalTransform || sourceEmbeddedTransform)
-        //   srcLowerIndices = expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
-        //                         .getValue();
-        // else
-        //   srcLowerIndices = srcUpperIndices;
+        if (!legacyStoreAttr || (legacyStoreAttr && !legacyStoreAttr.template cast<BoolAttr>().getValue())) {
+          // Store to dest memref.
+          SmallVector<Value, 4> destIndexLowerNewUpdated;
+          {
+            // llvm::errs() << "dest upper index old:\n";
+            // for (auto& v : destUpperCoord) {
+            //   v.dump();
+            // }
+            // llvm::errs() << "dest lower index old:\n";
+            // for (auto& v : destLowerCoord) {
+            //   v.dump();
+            // }
+            // llvm::errs() << "dest upper index diff:\n";
+            // for (auto& v : loopIVsPerAccessOrder) {
+            //   llvm::errs() << v << " ";
+            // }
+            // llvm::errs() << "\n";
 
-        // // Load from source.
-        // Value vectorValue;
-        // Value scalarValue;
-        // if (srcDataPerRead > 1) {
-        //   // Issue vector load.
-        //   auto sourceVectorType =
-        //       VectorType::get(srcDataPerRead, sourceType.getElementType());
-        //   auto srcExpr =
-        //       getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
-        //   auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
-        //   vectorValue = b.create<vector::TransferReadOp>(
-        //       loc, sourceVectorType, op.source(), srcLowerIndices, srcProjection);
-        // } else {
-        //   // Issue scalar load.
-        //   scalarValue = b.create<LoadOp>(loc, sourceType.getElementType(), op.source(), srcLowerIndices);
-        // }
+            SmallVector<Attribute, 2> indexUpperDiff;
+            for (auto& v : loopIVsPerAccessOrder) {
+              indexUpperDiff.push_back(b.getI32IntegerAttr(v));
+            }
 
-        // // Compute high-level coordinate for dest memref.
-        // // dst_index = (iv_0, iv_1, ...) + destCoord
-        // SmallVector<Value, 8> destUpperIndices;
-        // for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-        //   auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-        //   auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim], b.getIntegerType(32));
-        //   destUpperIndices.push_back(b.create<IndexCastOp>(
-        //       loc,
-        //       b.create<AddIOp>(loc, loopIV, destCoord[iter]),
-        //       b.getIndexType()));
-        // }
+            // Apply map to compute index lower diff tmp, from index upper diff
+            // using constantFold.
+            SmallVector<Attribute, 4> indexLowerDiffTmpAttr;
+            SmallVector<int64_t, 4> indexLowerDiffTmp;
+            SmallVector<Value, 8> indexLowerDiffTmpOp;
+            if (!destTransform) {
+              indexLowerDiffTmpAttr.assign(indexUpperDiff.begin(), indexUpperDiff.end());
+            } else {
+              // llvm::errs() << "dest affine transform map: ";
+              // destTransform.dump();
+              // llvm::errs() << "\n";
+              destTransform.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
+            }
+            // llvm::errs() << "dest index lower diff tmp:\n";
+            for (auto attr : indexLowerDiffTmpAttr) {
+              int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
+              // llvm::errs() << v << " ";
+              indexLowerDiffTmp.push_back(v);
 
-        // // Apply affine transformations to compute the low-level coordinate.
-        // SmallVector<Value, 8> destLowerIndices;
-        // if (destExternalTransform || destEmbeddedTransform)
-        //   destLowerIndices = expandAffineMap(b, loc, destTransform,
-        //                                      destUpperIndices)
-        //                          .getValue();
-        // else
-        //   destLowerIndices = destUpperIndices;
+              auto cv = b.create<ConstantIndexOp>(loc, v);
+              indexLowerDiffTmpOp.push_back(cv);
+            }
+            // llvm::errs() << "\n";
 
-        // // Store to dest.
-        // if (destDataPerWrite > 1) {
-        //   // // Issue vector store.
-        //   // auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
-        //   // auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
-        //   // b.create<vector::TransferWriteOp>(
-        //   //     loc, vectorValue, op.dest(), destLowerIndices, dstProjection);
-        // } else {
-        //   // Issue scalar store.
-        //   b.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
-        // }
+            // Add: index lower old + index lower diff tmp
+            SmallVector<Value, 8> indexLowerNew;
+            // llvm::errs() << "index lower new before borrow/carry:\n";
+            for (int64_t iter = 0; iter < destType.getShape().size(); ++iter) {
+              Value v = b.create<AddIOp>(loc, destLowerCoord[iter], indexLowerDiffTmpOp[iter]);
+              // v.dump();
+              indexLowerNew.push_back(v);
+            }
+            // llvm::errs() << "\n";
+            // Get bounds for dest memref.
+            SmallVector<int64_t, 4> bound;
+            SmallVector<Value, 4> boundOp;
+            // llvm::errs() << "bound:\n";
+            for (auto v : destType.getShape()) {
+              // llvm::errs() << v << " ";
+              bound.push_back(v);
+
+              auto cv = b.create<ConstantIndexOp>(loc, v);
+              boundOp.push_back(cv);
+            }
+            // llvm::errs() << "\n";
+
+            // Apply carry / borrow logic to compute index lower new
+            // carry logic on Value instances.
+            SmallVector<Value, 4> indexLowerNewCarried;
+            if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
+              // setup carryOp for the first iteration
+              Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
+              for (int64_t iter = destType.getShape().size() - 1; iter >= 0; --iter) {
+                // carry logic.
+                auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
+                auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
+                auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], oneConstantOp);
+                ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
+                auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
+                carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], zeroConstantOp);
+                ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
+
+                //ifCarryOp.dump();
+
+                auto carriedResult = ifCarryOp.results()[0];
+                indexLowerNewCarried.push_back(carriedResult);
+
+                // set carry flag for the next digit.
+                carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
+
+                //carryOp.dump();
+
+                // overflow logic.
+                auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
+                auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
+                auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
+                ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
+                auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
+                updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, zeroConstantOp);
+                ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
+
+                //ifOverflowOp.dump();
+
+                auto updatedResult = ifOverflowOp.results()[0];
+                destIndexLowerNewUpdated.push_back(updatedResult);
+              }
+            } else {
+              // TBD borrow logic.
+              // TBD revise per scf_if_v1.mlir
+            }
+          }
+
+          // Store to dest.
+          if (destDataPerWrite > 1) {
+            // TBD. Issue vector store.
+            // auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
+            // auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
+            // b.create<vector::TransferWriteOp>(
+            //     loc, vectorValue, op.dest(), destLowerIndices, dstProjection);
+          } else {
+            // Issue scalar store.
+            if (dataType == b.getF32Type()) {
+              b.create<StoreOp>(loc, scalarValue, op.dest(), destIndexLowerNewUpdated);
+            } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+              auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
+              b.create<StoreOp>(loc, truncValue, op.dest(), destIndexLowerNewUpdated);
+            }
+          }
+        } // if (!legacyStoreAttr || !legacyStoreAttr.template cast<BoolAttr>().getValue()) {
+
+        if (legacyStoreAttr && legacyStoreAttr.template cast<BoolAttr>().getValue()) {
+          // Compute high-level coordinate for dest memref.
+          // dst_index = (iv_0, iv_1, ...) + destCoord
+          SmallVector<Value, 8> destUpperIndices;
+          for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
+            auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+            auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim], b.getIntegerType(32));
+            destUpperIndices.push_back(b.create<IndexCastOp>(
+                loc,
+                b.create<AddIOp>(loc, loopIV, destCoord[iter]),
+                b.getIndexType()));
+          }
+
+          // Apply affine transformations to compute the low-level coordinate.
+          SmallVector<Value, 8> destLowerIndices;
+          if (destExternalTransform || destEmbeddedTransform)
+            destLowerIndices = expandAffineMap(b, loc, destTransform,
+                                               destUpperIndices)
+                                   .getValue();
+          else
+            destLowerIndices = destUpperIndices;
+
+          // Store to dest.
+          if (destDataPerWrite > 1) {
+            // // Issue vector store.
+            // auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
+            // auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
+            // b.create<vector::TransferWriteOp>(
+            //     loc, vectorValue, op.dest(), destLowerIndices, dstProjection);
+          } else {
+            // Issue scalar store.
+            b.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
+          }
+        } // if (legacyStoreAttr && legacyStoreAttr.template cast<BoolAttr>().getValue()) {
 
         // increase IVs
         bool toIncreaseNextDigit = true;
