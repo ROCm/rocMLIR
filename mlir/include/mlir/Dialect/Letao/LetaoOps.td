@@ -24,9 +24,10 @@ def Letao_Dialect : Dialect {
 class Letao_Op<string mnemonic, list<OpTrait> traits = []> :
     Op<Letao_Dialect, mnemonic, traits> {
 
+    let printer = [{ return ::print(p, *this); }];
     let parser = [{ return ::parse$cppClass(parser, result); }];
 }
-
+/*
 def DotOp: Letao_Op<"dot">{
   let summary = "element-wise multiplication and sum operation";
   let description = [{
@@ -37,7 +38,7 @@ def DotOp: Letao_Op<"dot">{
   let arguments = (ins F64Tensor:$first, F64Tensor:$second);
   let results = (outs F64Tensor);
 }
-
+*/
 def Letao_Conv2DOp :
     Letao_Op<"conv2d">,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16], [4]>:$filter,

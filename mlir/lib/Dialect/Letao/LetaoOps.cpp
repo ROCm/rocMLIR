@@ -37,10 +37,11 @@ void LetaoDialect::initialize() {
 
 
 using namespace mlir;
+using namespace mlir::letao;
 //===----------------------------------------------------------------------===//
 // DotOp
 //===----------------------------------------------------------------------===//
-static ParseResult parseDotOp(OpAsmParser &parser, OperationState &result) {
+/*static ParseResult parseDotOp(OpAsmParser &parser, OperationState &result) {
     SmallVector<OpAsmParser::OperandType, 2> ops;
     SmallVector<Type, 2> types;
     return failure(
@@ -49,7 +50,7 @@ static ParseResult parseDotOp(OpAsmParser &parser, OperationState &result) {
       parser.parseColonTypeList(types) ||
       parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
 }
-
+*/
 //===----------------------------------------------------------------------===//
 // Conv2DOp
 //===----------------------------------------------------------------------===//
@@ -64,6 +65,11 @@ static ParseResult parseConv2DOp(OpAsmParser &parser, OperationState &result) {
       parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
 }
 
+static void print(OpAsmPrinter &p, Conv2DOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
 
 namespace mlir{
 //===----------------------------------------------------------------------===//
