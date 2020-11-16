@@ -71,6 +71,44 @@ static void print(OpAsmPrinter &p, Conv2DOp op) {
   p << " : " << op.getOperandTypes();
 }
 
+static LogicalResult verify(Conv2DOp op) {
+  return success();
+}
+
+
+
+//===----------------------------------------------------------------------===//
+// MovePosOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseMovePosOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 3> ops;
+  Type srcType;
+
+  auto ret = parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+             parser.parseColonType(srcType) ||
+             parser.resolveOperand(ops[0], srcType, result.operands);
+
+  for (unsigned i = 1; i < ops.size(); ++i) {
+    ret &= succeeded(parser.resolveOperand(
+        ops[i], srcType.cast<MemRefType>().getElementType(), result.operands));
+  }
+  return failure(ret);
+}
+
+static void print(OpAsmPrinter &p, MovePosOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p << " : " << op.getOperands()[0].getType();
+}
+
+static LogicalResult verify(MovePosOp op) {
+  auto firstType = op.getOperands()[0].getType();
+  
+  return success();
+}
+
+
+
 namespace mlir{
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions

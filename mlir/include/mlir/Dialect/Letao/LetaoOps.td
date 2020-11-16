@@ -26,6 +26,7 @@ class Letao_Op<string mnemonic, list<OpTrait> traits = []> :
 
     let printer = [{ return ::print(p, *this); }];
     let parser = [{ return ::parse$cppClass(parser, result); }];
+    let verifier = [{ return ::verify(*this); }];
 }
 /*
 def DotOp: Letao_Op<"dot">{
@@ -48,6 +49,16 @@ def Letao_Conv2DOp :
   let description = [{
     The `miopen.conv2d` op computes 2D convolution forward.
   }];
+}
+
+def letao_MovePosOp:
+    Letao_Op<"movepos">,
+    Arguments<(ins AnyMemRef:$memref,
+                   Variadic<AnyTypeOf<[AnyInteger, AnyFloat]>>:$values)> {
+    let summary = "Add values to indices within the memref.";
+    let description = [{
+      The `miopen.fill` op adds values to indices within the memref.
+    }];
 }
 #endif
 
