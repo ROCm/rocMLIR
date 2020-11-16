@@ -875,13 +875,6 @@ int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
 
-  // Reset layouts to those supported by host validation
-  if (populateValidation.getValue()) {
-    inputLayout.setValue("nhwc");
-    outputLayout.setValue("nhwk");
-    filterLayout.setValue("yxck");
-  }
-
   MLIRContext context;
   OpBuilder builder(&context);
   ModuleOp module;
