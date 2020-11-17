@@ -99,11 +99,14 @@ static ParseResult parseMovePosOp(OpAsmParser &parser, OperationState &result) {
 static void print(OpAsmPrinter &p, MovePosOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p << " : " << op.getOperands()[0].getType();
+  //p << " : " << op.getOperandTypes();
 }
 
 static LogicalResult verify(MovePosOp op) {
-  auto firstType = op.getOperands()[0].getType();
-  
+  auto operands = op.getOperands();
+  if(operands.size() < 3)
+    return success(false);
+
   return success();
 }
 
