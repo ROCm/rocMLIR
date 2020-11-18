@@ -4054,7 +4054,7 @@ struct ThreadwiseCopyRewritePattern
                 //ifOverflowOp.dump();
   
                 auto updatedResult = ifOverflowOp.results()[0];
-                srcIndexLowerNewUpdated.push_back(updatedResult);
+                srcIndexLowerNewUpdated.insert(srcIndexLowerNewUpdated.begin(), updatedResult);
               }
             } else {
               // TBD borrow logic.
@@ -4222,7 +4222,7 @@ struct ThreadwiseCopyRewritePattern
                 //ifOverflowOp.dump();
 
                 auto updatedResult = ifOverflowOp.results()[0];
-                destIndexLowerNewUpdated.push_back(updatedResult);
+                destIndexLowerNewUpdated.insert(destIndexLowerNewUpdated.begin(), updatedResult);
               }
             } else {
               // TBD borrow logic.
@@ -4637,7 +4637,7 @@ struct ThreadwiseCopyV2RewritePattern
             //ifOverflowOp.dump();
 
             auto updatedResult = ifOverflowOp.results()[0];
-            srcIndexLowerNewUpdated.push_back(updatedResult);
+            srcIndexLowerNewUpdated.insert(srcIndexLowerNewUpdated.begin(), updatedResult);
           }
         } else {
           // TBD borrow logic.
@@ -4770,7 +4770,7 @@ struct ThreadwiseCopyV2RewritePattern
             //ifOverflowOp.dump();
 
             auto updatedResult = ifOverflowOp.results()[0];
-            destIndexLowerNewUpdated.push_back(b.create<IndexCastOp>(loc, updatedResult, b.getIndexType()));
+            destIndexLowerNewUpdated.insert(destIndexLowerNewUpdated.begin(), b.create<IndexCastOp>(loc, updatedResult, b.getIndexType()));
           }
         } else {
           // TBD borrow logic.
