@@ -3604,6 +3604,7 @@ struct ThreadwiseCopyRewritePattern
 
     auto legacyLoadAttr = op.getAttr("legacyLoad");
     auto legacyStoreAttr = op.getAttr("legacyStore");
+    auto oneItemAttr = op.getAttr("oneItem");
 
     // Get source and dest coordinates.
     //
@@ -4296,6 +4297,11 @@ struct ThreadwiseCopyRewritePattern
 
         // check if need to exit
         if (iter < 0 && toIncreaseNextDigit == true) {
+          toExit = true;
+        }
+
+        // exit if oneItemAttr exists.
+        if (oneItemAttr) {
           toExit = true;
         }
       } while(!toExit);
