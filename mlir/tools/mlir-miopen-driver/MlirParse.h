@@ -32,8 +32,8 @@ static LogicalResult populateConvolutionConfiguration(
     std::string &inputLayout, std::string &outputLayout,
     std::string &filterLayout, int64_t batchSize, int64_t inputChannel,
     int64_t inputHeight, int64_t inputWidth, int64_t outputChannel,
-    int64_t outputHeight, int64_t outputWidth, int64_t filterWidth,
-    int64_t filterHeight, SmallVector<int64_t, 4> &filterDimension,
+    int64_t outputHeight, int64_t outputWidth, int64_t filterHeight,
+    int64_t filterWidth, SmallVector<int64_t, 4> &filterDimension,
     SmallVector<int64_t, 4> &inputDimension,
     SmallVector<int64_t, 4> &outputDimension) {
   // Determine dimensions.
@@ -47,9 +47,9 @@ static LogicalResult populateConvolutionConfiguration(
     } else if (filterDim == 'c') {
       filterDimension.push_back(inputChannel);
     } else if (filterDim == 'y') {
-      filterDimension.push_back(filterWidth);
-    } else if (filterDim == 'x') {
       filterDimension.push_back(filterHeight);
+    } else if (filterDim == 'x') {
+      filterDimension.push_back(filterWidth);
     }
 
     if (inputDim == 'n') {
@@ -57,9 +57,9 @@ static LogicalResult populateConvolutionConfiguration(
     } else if (inputDim == 'c') {
       inputDimension.push_back(inputChannel);
     } else if (inputDim == 'h') {
-      inputDimension.push_back(inputWidth);
-    } else if (inputDim == 'w') {
       inputDimension.push_back(inputHeight);
+    } else if (inputDim == 'w') {
+      inputDimension.push_back(inputWidth);
     }
 
     if (outputDim == 'n') {
@@ -67,9 +67,9 @@ static LogicalResult populateConvolutionConfiguration(
     } else if (outputDim == 'k') {
       outputDimension.push_back(outputChannel);
     } else if (outputDim == 'h') {
-      outputDimension.push_back(outputWidth);
-    } else if (outputDim == 'w') {
       outputDimension.push_back(outputHeight);
+    } else if (outputDim == 'w') {
+      outputDimension.push_back(outputWidth);
     }
   }
 

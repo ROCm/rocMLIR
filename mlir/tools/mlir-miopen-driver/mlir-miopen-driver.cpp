@@ -161,7 +161,7 @@ static cl::opt<int> paddingWidth("padding_w", cl::desc("Padding width"),
 static cl::opt<bool>
     populateDefaultValues("p", cl::desc("To populate default values"),
                           cl::value_desc("To populate default values"),
-                          cl::init(true));
+                          cl::init(false));
 
 // populate entry point
 static cl::opt<std::string>
@@ -268,7 +268,7 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
       inputLayout.getValue(), outputLayout.getValue(), filterLayout.getValue(),
       batchSize.getValue(), inputChannel.getValue(), inputHeight.getValue(),
       inputWidth.getValue(), outputChannel.getValue(), outputHeight.getValue(),
-      outputWidth.getValue(), filterWidth.getValue(), filterHeight.getValue(),
+      outputWidth.getValue(), filterHeight.getValue(), filterWidth.getValue(),
       filterDimension, inputDimension, outputDimension);
 
   auto filterMemRefType = MemRefType::get(
