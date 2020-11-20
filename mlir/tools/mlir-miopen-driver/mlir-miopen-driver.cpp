@@ -258,11 +258,11 @@ static void populateDefaults() {
                    paddingWidth.getValue(), strideWidth.getValue()));
 }
 
-static void launchCPUConvolution(
-    ModuleOp &module, OpBuilder &builder, Block *block,
-    mlir::MemRefType &filterMemRefType, mlir::MemRefType &inputMemRefType,
-    mlir::MemRefType &cpuOutputMemRefType, mlir::AllocOp &filterHostAllocOp,
-    mlir::AllocOp &inputHostAllocOp, mlir::AllocOp &cpuOutputHostAllocOp) {
+static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
+                                   mlir::MemRefType &filterMemRefType,
+                                   mlir::MemRefType &inputMemRefType,
+                                   mlir::MemRefType &cpuOutputMemRefType) {
+  // Create conv2d_host function
   auto cpuConvFuncOp = FuncOp::create(
       builder.getUnknownLoc(), StringRef("conv2d_host"),
       builder.getFunctionType(
@@ -288,33 +288,20 @@ static void launchCPUConvolution(
       builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
   cpuConvFuncOpBlock->push_back(cpuConvFuncOpReturnOp);
 
-  // Emit conv2d_host function call.
-  auto cpuConvCallOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), cpuConvFuncOp,
-      ValueRange{filterHostAllocOp, inputHostAllocOp, cpuOutputHostAllocOp});
-  block->push_back(cpuConvCallOp);
-
-  return;
+  return cpuConvFuncOp;
 }
 
-static void launchVerification(ModuleOp &module, OpBuilder &builder,
-                               Block *block, mlir::FloatType dataType,
-                               SmallVector<int64_t, 4> &outputDimension,
-                               mlir::AllocOp &cpuAllocOp,
-                               mlir::AllocOp &gpuAllocOp) {
+static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
+                                 SmallVector<int64_t, 4> &outputDimension,
+                                 mlir::AllocOp &cpuAllocOp,
+                                 mlir::AllocOp &gpuAllocOp) {
   // Emit verify_results function call
-  auto outputMemRefType = MemRefType::get(
-      ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
-      dataType);
+  auto outputMemRefType = cpuAllocOp.getType();
+
   auto verifyFuncOp = FuncOp::create(
       builder.getUnknownLoc(), StringRef("verify_results"),
       builder.getFunctionType({outputMemRefType, outputMemRefType}, {}));
   module.push_back(verifyFuncOp);
-
-  auto verifyCallOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), verifyFuncOp,
-                             ValueRange{cpuAllocOp, gpuAllocOp});
-  block->push_back(verifyCallOp);
 
   // Emit verification logic.
   // Create a new block
@@ -439,29 +426,23 @@ static void launchVerification(ModuleOp &module, OpBuilder &builder,
       builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
   verifyResultsBlock->push_back(returnOp);
 
-  return;
+  return verifyFuncOp;
 }
 
-static void launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
-                                 mlir::FloatType dataType, Block *block,
-                                 mlir::AllocOp &filterHostAllocOp,
-                                 mlir::AllocOp &inputHostAllocOp,
-                                 mlir::AllocOp &outputHostAllocOp,
-                                 mlir::MemRefType &filterMemRefType,
-                                 mlir::MemRefType &inputMemRefType,
-                                 mlir::MemRefType &outputMemRefType) {
-  // Emit gpu_conv function call
+static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
+                                   mlir::FloatType dataType,
+                                   mlir::AllocOp &filterHostAllocOp,
+                                   mlir::AllocOp &inputHostAllocOp,
+                                   mlir::AllocOp &outputHostAllocOp) {
+  auto filterMemRefType = filterHostAllocOp.getType();
+  auto inputMemRefType = inputHostAllocOp.getType();
+  auto outputMemRefType = outputHostAllocOp.getType();
+  // Create gpu_conv function
   auto gpuConvFuncOp = FuncOp::create(
       builder.getUnknownLoc(), StringRef("gpu_conv"),
       builder.getFunctionType(
           {filterMemRefType, inputMemRefType, outputMemRefType}, {}));
   module.push_back(gpuConvFuncOp);
-
-  auto gpuConvCallOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), gpuConvFuncOp,
-      ValueRange{filterHostAllocOp, inputHostAllocOp, outputHostAllocOp});
-  block->push_back(gpuConvCallOp);
-
   // Emit gpu convolution logic.
   // Create a new block
   Block *gpuConvBlock = gpuConvFuncOp.addEntryBlock();
@@ -553,6 +534,7 @@ static void launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   gpuConvBlock->push_back(outputCpuToGpuCopyOp);
 
   // Emit memref_cast.
+
   auto filterGpuMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), filterGpuAllocOp.getResult(0), filterMemRefType);
   auto inputGpuMemRefCastOp = builder.create<MemRefCastOp>(
@@ -632,7 +614,7 @@ static void launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
       builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
   gpuConvBlock->push_back(returnOp);
 
-  return;
+  return gpuConvFuncOp;
 }
 
 static LogicalResult populateHostHarnessLogic(ModuleOp &module,
@@ -743,9 +725,14 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module,
   block->push_back(outputCpuMemsetOp);
 
   // launch gpu_conv
-  launchGPUConvolution(module, builder, dataType, block, filterHostAllocOp,
-                       inputHostAllocOp, outputHostAllocOp, filterMemRefType,
-                       inputMemRefType, outputMemRefType);
+  auto gpuConvFuncOp =
+      launchGPUConvolution(module, builder, dataType, filterHostAllocOp,
+                           inputHostAllocOp, outputHostAllocOp);
+
+  auto gpuConvCallOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), gpuConvFuncOp,
+      ValueRange{filterHostAllocOp, inputHostAllocOp, outputHostAllocOp});
+  block->push_back(gpuConvCallOp);
 
   mlir::Value resultCpuValue;
   if (operation.getValue() == "conv2d") {
@@ -909,9 +896,14 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
   block->push_back(outputCpuMemsetOp);
 
   // Populate host harness logic
-  launchGPUConvolution(module, builder, dataType, block, filterHostAllocOp,
-                       inputHostAllocOp, outputHostAllocOp, filterMemRefType,
-                       inputMemRefType, outputMemRefType);
+  auto gpuConvFuncOp =
+      launchGPUConvolution(module, builder, dataType, filterHostAllocOp,
+                           inputHostAllocOp, outputHostAllocOp);
+
+  auto gpuConvCallOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), gpuConvFuncOp,
+      ValueRange{filterHostAllocOp, inputHostAllocOp, outputHostAllocOp});
+  block->push_back(gpuConvCallOp);
 
   mlir::AllocOp gpuResults;
   if (operation.getValue() == "conv2d") {
@@ -950,9 +942,14 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
   block->push_back(cpuOutputCpuMemsetOp);
 
   // Populate host validation logic
-  launchCPUConvolution(module, builder, block, filterMemRefType,
-                       inputMemRefType, outputMemRefType, filterHostAllocOp,
-                       inputHostAllocOp, cpuOutputHostAllocOp);
+  auto cpuConvFuncOp = createCPUConvolution(module, builder, filterMemRefType,
+                                            inputMemRefType, outputMemRefType);
+
+  // Emit conv2d_host function call.
+  auto cpuConvCallOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), cpuConvFuncOp,
+      ValueRange{filterHostAllocOp, inputHostAllocOp, cpuOutputHostAllocOp});
+  block->push_back(cpuConvCallOp);
 
   mlir::AllocOp cpuResults;
   if (operation.getValue() == "conv2d") {
@@ -964,8 +961,13 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
   }
 
   // Compare the results
-  launchVerification(module, builder, block, dataType, outputDimension,
-                     cpuResults, gpuResults);
+  auto verifyFuncOp = createVerifyFuncOp(module, builder, outputDimension,
+                                         cpuResults, gpuResults);
+
+  auto verifyCallOp =
+      builder.create<CallOp>(builder.getUnknownLoc(), verifyFuncOp,
+                             ValueRange{cpuResults, gpuResults});
+  block->push_back(verifyCallOp);
 
   // Emit CPU dealloc.
   auto filterHostDeallocOp =
@@ -1179,21 +1181,17 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  // populate host launch logic.
-  if (useHostHarness.getValue()) {
-    if (failed(
-            populateKernelLaunchLogic(module, builder, context, kernelName))) {
-      llvm::errs() << "Host kernel launch logic populated failed.\n";
-      exit(1);
-    }
-  } else if (populateHostHarness.getValue()) {
-    if (failed(populateHostHarnessLogic(module, builder, context, dataType)) ||
-        failed(
-            populateKernelLaunchLogic(module, builder, context, kernelName))) {
+  // populate host logic.
+  if (populateHostHarness.getValue()) {
+    if (failed(populateHostHarnessLogic(module, builder, context, dataType))) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);
     }
-  } else if (populateValidation.getValue()) {
+  }
+
+  // populate host launch logic.
+  if (useHostHarness.getValue() || populateHostHarness.getValue() ||
+      populateValidation.getValue()) {
     if (failed(
             populateKernelLaunchLogic(module, builder, context, kernelName))) {
       llvm::errs() << "Host kernel launch logic populated failed.\n";
