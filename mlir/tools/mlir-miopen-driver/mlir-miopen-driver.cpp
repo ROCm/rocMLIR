@@ -396,13 +396,13 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   auto gpuLoadOp = bt3.create<LoadOp>(builder.getUnknownLoc(),
                                       verifyResultsBlock->getArgument(1),
                                       ValueRange{iv0, iv1, iv2, iv3});
-  auto cmpOp = bt3.create<CmpFOp>(builder.getUnknownLoc(), CmpFPredicate::OEQ,
+  auto cmpOp = bt3.create<CmpFOp>(builder.getUnknownLoc(), CmpFPredicate::UNE,
                                   cpuLoadOp, gpuLoadOp);
-  auto ifOp = bt3.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, true);
-  auto elseBody = ifOp.getElseBodyBuilder();
+  auto ifOp = bt3.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
+  auto thenBody = ifOp.getThenBodyBuilder();
 
   auto storeOp0 =
-      elseBody.create<StoreOp>(builder.getUnknownLoc(), c0ConstantInt32Op,
+      thenBody.create<StoreOp>(builder.getUnknownLoc(), c0ConstantInt32Op,
                                cmpResultAllocOp, ValueRange{c0IndexOp});
 
   verifyResultsBlock->push_back(loop0);

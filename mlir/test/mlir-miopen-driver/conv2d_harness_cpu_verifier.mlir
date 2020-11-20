@@ -111,9 +111,8 @@ module {
           scf.for %arg5 = %c0 to %c128_1 step %c1 {
             %2 = load %arg0[%arg2, %arg3, %arg4, %arg5] : memref<128x30x30x128xf32>
             %3 = load %arg1[%arg2, %arg3, %arg4, %arg5] : memref<128x30x30x128xf32>
-            %4 = cmpf "oeq", %2, %3 : f32
+            %4 = cmpf "une", %2, %3 : f32
             scf.if %4 {
-            } else {
               store %c0_i32, %0[%c0] : memref<1xi32>
             }
           }
