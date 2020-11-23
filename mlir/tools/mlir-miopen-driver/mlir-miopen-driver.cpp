@@ -185,6 +185,9 @@ static cl::opt<bool> populateHostHarness(
     "ph", cl::desc("To populate host harness logic"),
     cl::value_desc("To populate host harness logic"), cl::init(false));
 
+// populate host validation logic. 
+// Currently only supports -fil_layout=yxck -in_layout=nhwc -out_layout=nhwk
+// -conv_stride_h/w =1 -dilation_h/w=1 -padding_h/w=0
 static cl::opt<bool>
     populateValidation("pv", cl::desc("To populate host validation logic"),
                        cl::value_desc("To populate host validation logic"),
