@@ -185,9 +185,9 @@ static cl::opt<bool> populateHostHarness(
     "ph", cl::desc("To populate host harness logic"),
     cl::value_desc("To populate host harness logic"), cl::init(false));
 
-// populate host validation logic. 
+// populate host validation logic.
 // Currently only supports -fil_layout=yxck -in_layout=nhwc -out_layout=nhwk
-// -conv_stride_h/w =1 -dilation_h/w=1 -padding_h/w=0
+// and default values of strides, dilations and paddings
 static cl::opt<bool>
     populateValidation("pv", cl::desc("To populate host validation logic"),
                        cl::value_desc("To populate host validation logic"),
@@ -276,11 +276,15 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   Block *cpuConvFuncOpBlock = cpuConvFuncOp.addEntryBlock();
 
   // Emit linalog.conv()
-  ArrayAttr strides = builder.getI64ArrayAttr({1, 1});
-  ArrayAttr dilations = builder.getI64ArrayAttr({1, 1});
+  ArrayAttr strides = builder.getI64ArrayAttr(
+      {strideHeight.getValue(), strideWidth.getValue()});
+  ArrayAttr dilations = builder.getI64ArrayAttr(
+      {dilationHeight.getValue(), dilationWidth.getValue()});
   auto elementsType = RankedTensorType::get({2, 2}, builder.getI64Type());
-  DenseIntElementsAttr padding =
-      DenseIntElementsAttr::get(elementsType, ArrayRef<int64_t>{0, 0, 0, 0});
+  DenseIntElementsAttr padding = DenseIntElementsAttr::get(
+      elementsType,
+      ArrayRef<int64_t>{paddingHeight.getValue(), paddingHeight.getValue(),
+                        paddingWidth.getValue(), paddingWidth.getValue()});
   auto linalgConvOp = builder.create<linalg::ConvOp>(
       builder.getUnknownLoc(), cpuConvFuncOpBlock->getArgument(0),
       cpuConvFuncOpBlock->getArgument(1), cpuConvFuncOpBlock->getArgument(2),
