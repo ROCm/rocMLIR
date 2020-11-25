@@ -186,10 +186,11 @@ static cl::opt<bool> populateHostHarness(
     cl::value_desc("To populate host harness logic"), cl::init(false));
 
 // populate host validation logic.
-// Currently only supports -fil_layout=yxck -in_layout=nhwc -out_layout=nhwk
-// and default values of strides, dilations and paddings
 static cl::opt<bool>
-    populateValidation("pv", cl::desc("To populate host validation logic"),
+    populateValidation("pv",
+                       cl::desc("To populate host validation logic for conv2d "
+                                "forward on specific layouts: "
+                                "filter(yxck), input(nhwc) and output(nhwk)"),
                        cl::value_desc("To populate host validation logic"),
                        cl::init(false));
 
