@@ -46,7 +46,9 @@ public:
   void runOnOperation() override {
     gpu::GPUModuleOp m = getOperation();
 
-    LLVMTypeConverter converter(m.getContext());
+    LLVMTypeConverterCustomization customs;
+    customs.indexBitwidth = 32;
+    LLVMTypeConverter converter(m.getContext(), customs);
 
     OwningRewritePatternList patterns;
 
