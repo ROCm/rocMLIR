@@ -598,6 +598,7 @@ class PopulateParamsXDL : public PopulateParamsBase {
 private:
   llvm::SmallVector<InitParamsXDL, 4> initParameters = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
+      {128, 128, 4, 64, 128, 4, false, false},
       {256, 128, 16, 128, 64, 0, false, false},
       {128, 128, 16, 64, 64, 0, false, false},
       {8, 64, 8, 8, 64, 0, false, false},
