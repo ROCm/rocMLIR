@@ -350,3 +350,125 @@ extern "C" void mgpuMemCopy4DBF16(unsigned short *sourceAllocated, unsigned shor
   hipMemcpy(destAligned, sourceAligned, sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 * sizeof(unsigned short),
             static_cast<hipMemcpyKind>(copyDirection));
 }
+
+// A generic forward convolution function that supports random layouts,
+// dimensions, strides, paddings, and dilations.
+
+extern "C" void
+mcpuConv2d(float *filterAllocated, float *filterAligned, int64_t filterOffset,
+           int64_t filterSize0, int64_t filterSize1, int64_t filterSize2,
+           int64_t filterSize3, int64_t filterStride0, int64_t filterStride1,
+           int64_t filterStride2, int64_t filterStride3, float *inputAllocated,
+           float *inputAligned, int64_t inputOffset, int64_t inputSize0,
+           int64_t inputSize1, int64_t inputSize2, int64_t inputSize3,
+           int64_t inputStride0, int64_t inputStride1, int64_t inputStride2,
+           int64_t inputStride3, float *outputAllocated, float *outputAligned,
+           int64_t outputOffset, int64_t outputSize0, int64_t outputSize1,
+           int64_t outputSize2, int64_t outputSize3, int64_t outputStride0,
+           int64_t outputStride1, int64_t outputStride2, int64_t outputStride3,
+           int *layouts, int *layoutsAlligned, int64_t layoutOffset,
+           int64_t layoutSize, int64_t layoutStride, int32_t stride_h,
+           int32_t stride_w, int32_t padding_h, int32_t padding_w,
+           int32_t dilation_h, int32_t dilation_w) {
+
+  llvm::SmallVector<int64_t, 4> filterSizes(
+      {filterSize0, filterSize1, filterSize2, filterSize3});
+  llvm::SmallVector<int64_t, 4> filterStrides(
+      {filterStride0, filterStride1, filterStride2, filterStride3});
+  llvm::SmallVector<int64_t, 4> inputSizes(
+      {inputSize0, inputSize1, inputSize2, inputSize3});
+  llvm::SmallVector<int64_t, 4> inputStrides(
+      {inputStride0, inputStride1, inputStride2, inputStride3});
+  llvm::SmallVector<int64_t, 4> outputSizes(
+      {outputSize0, outputSize1, outputSize2, outputSize3});
+  llvm::SmallVector<int64_t, 4> outputStrides(
+      {outputStride0, outputStride1, outputStride2, outputStride3});
+
+  int batchSize, outChannelSize, inChannelSize;
+  int outHeightSize, outWidthSize;
+  int inHeightSize, inWidthSize;
+  int filterHeightSize, filterWidthSize;
+  int inBatchStride, inChannelStride, inHeightStride, inWidthStride;
+  int outBatchStride, outChannelStride, outHeightStride, outWidthStride;
+  int filterOutChanStride, filterInChanStride, filterHeightStride,
+      filterWidthStride;
+
+  // layouts[0..3]: filter layout
+  // layouts[4..7]: input layout
+  // layouts[8..11]: output layout
+  int *filterLayout = layouts;
+  int *inputLayout = layouts + 4;
+  int *outputLayout = layouts + 8;
+
+  // Extract proper tensor sizes and strides based on layouts
+  for (size_t i = 0; i < 4; i++) {
+    if (filterLayout[i] == 'k') {
+      filterOutChanStride = filterStrides[i];
+    } else if (filterLayout[i] == 'c') {
+      filterInChanStride = filterStrides[i];
+    } else if (filterLayout[i] == 'y') {
+      filterHeightSize = filterSizes[i];
+      filterHeightStride = filterStrides[i];
+    } else if (filterLayout[i] == 'x') {
+      filterWidthSize = filterSizes[i];
+      filterWidthStride = filterStrides[i];
+    }
+
+    if (inputLayout[i] == 'n') {
+      inBatchStride = inputStrides[i];
+    } else if (inputLayout[i] == 'c') {
+      inChannelSize = inputSizes[i];
+      inChannelStride = inputStrides[i];
+    } else if (inputLayout[i] == 'h') {
+      inHeightSize = inputSizes[i];
+      inHeightStride = inputStrides[i];
+    } else if (inputLayout[i] == 'w') {
+      inWidthSize = inputSizes[i];
+      inWidthStride = inputStrides[i];
+    }
+
+    if (outputLayout[i] == 'n') {
+      batchSize = outputSizes[i];
+      outBatchStride = outputStrides[i];
+    } else if (outputLayout[i] == 'k') {
+      outChannelSize = outputSizes[i];
+      outChannelStride = outputStrides[i];
+    } else if (outputLayout[i] == 'h') {
+      outHeightSize = outputSizes[i];
+      outHeightStride = outputStrides[i];
+    } else if (outputLayout[i] == 'w') {
+      outWidthSize = outputSizes[i];
+      outWidthStride = outputStrides[i];
+    }
+  }
+
+  // Perform forward convolution
+  for (int n = 0; n < batchSize; n++)
+    for (int k = 0; k < outChannelSize; k++)
+      for (int out_h = 0; out_h < outHeightSize; out_h++)
+        for (int out_w = 0; out_w < outWidthSize; out_w++)
+          for (int c = 0; c < inChannelSize; c++)
+            for (int fil_h = 0; fil_h < filterHeightSize; fil_h++)
+              for (int fil_w = 0; fil_w < filterWidthSize; fil_w++) {
+                float input;
+                int in_h = out_h * stride_h + fil_h * dilation_h - padding_h;
+                int in_w = out_w * stride_w + fil_w * dilation_w - padding_w;
+
+                if (in_h < 0 || in_h >= inHeightSize || in_w < 0 ||
+                    in_w >= inWidthSize)
+                  input = 0.0;
+                else
+                  input =
+                      inputAllocated[n * inBatchStride + c * inChannelStride +
+                                     in_h * inHeightStride +
+                                     in_w * inWidthStride];
+
+                outputAllocated[n * outBatchStride + k * outChannelStride +
+                                out_h * outHeightStride +
+                                out_w * outWidthStride] +=
+                    input * filterAllocated[k * filterOutChanStride +
+                                            c * filterInChanStride +
+                                            fil_h * filterHeightStride +
+                                            fil_w * filterWidthStride];
+              }
+}
