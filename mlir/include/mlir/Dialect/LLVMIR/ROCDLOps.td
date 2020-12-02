@@ -103,6 +103,25 @@ def ROCDL_BarrierOp : ROCDL_Op<"barrier"> {
   let assemblyFormat = "attr-dict";
 }
 
+def ROCDL_LDSBarrierOp : ROCDL_Op<"lds_barrier"> {
+  string llvmBuilder = [{
+    llvm::LLVMContext &llvmContext = builder.getContext();
+    llvm::FunctionType *function_type = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(llvmContext), // return type.
+        false);                             // no variadic arguments.
+    llvm::Value *inlineAsm = llvm::InlineAsm::get(
+        function_type,                       // FunctionType *Ty,
+        "s_waitcnt lgkmcnt(1) \n s_barrier", // const std::string &AsmString,
+        "",                                  // const std::string &Constraints,
+        false,                               // bool hasSideEffects,
+        false,                               // bool isAlignStack,
+        llvm::InlineAsm::AD_ATT              // AsmDialect asmDialect
+        );
+    builder.CreateCall(function_type, inlineAsm);
+  }];
+  let assemblyFormat = "attr-dict";
+}
+
 //===---------------------------------------------------------------------===//
 // Xdlops intrinsics
 
