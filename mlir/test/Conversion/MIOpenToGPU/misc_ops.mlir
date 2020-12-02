@@ -8,6 +8,9 @@ module {
     // CHECK: gpu.barrier
     miopen.workgroup_barrier
 
+    // CHECK: gpu.lds_barrier
+    miopen.lds_barrier
+
     // CHECK: %{{.*}} = "gpu.block_id"() {dimension = "x"} : () -> index
     %bid = miopen.workgroup_id : index
 
