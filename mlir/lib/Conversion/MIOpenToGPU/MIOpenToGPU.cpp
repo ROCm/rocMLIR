@@ -233,6 +233,15 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         op.erase();
       });
 
+      // TBD see if these patterns could be re-written using tablgen.
+      gpuFunc.walk([&](miopen::LDSBarrierOp op) {
+        auto loc = op.getLoc();
+        OpBuilder b(op.getContext());
+        b.setInsertionPoint(op);
+        b.create<gpu::LDSBarrierOp>(loc);
+        op.erase();
+      });
+
       gpuFunc.walk([&](miopen::WorkgroupIdOp op) {
         auto loc = op.getLoc();
         OpBuilder b(op.getContext());

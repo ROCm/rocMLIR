@@ -161,6 +161,14 @@ def MIOpen_WorkgroupBarrierOp:
   }];
 }
 
+def MIOpen_LDSBarrierOp:
+    MIOpen_Op<"lds_barrier"> {
+  let summary = "Setup an LDS barrier";
+  let description = [{
+    The `miopen.lds_barrier` op sets up a workgroup-level barrier on LDS activities.
+  }];
+}
+
 def MIOpen_WorkgroupIdOp:
     MIOpen_Op<"workgroup_id">,
     Results<(outs Index:$id)> {
