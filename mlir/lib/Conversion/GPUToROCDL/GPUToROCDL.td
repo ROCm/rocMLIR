@@ -17,5 +17,6 @@ include "mlir/Dialect/GPU/GPUOps.td"
 include "mlir/Dialect/LLVMIR/ROCDLOps.td"
 
 def : Pat<(GPU_BarrierOp), (ROCDL_BarrierOp)>;
+def : Pat<(GPU_LDSBarrierOp), (ROCDL_LDSBarrierOp)>;
 
 #endif // MLIR_CONVERSION_GPUTOROCDL_TD

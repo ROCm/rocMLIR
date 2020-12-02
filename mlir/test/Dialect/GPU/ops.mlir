@@ -58,6 +58,8 @@ module attributes {gpu.container_module} {
 
       "gpu.barrier"() : () -> ()
 
+      "gpu.lds_barrier"() : () -> ()
+
       "some_op"(%bIdX, %tIdX) : (index, index) -> ()
       %42 = load %arg1[%bIdX] : memref<?xf32, 1>
       gpu.return

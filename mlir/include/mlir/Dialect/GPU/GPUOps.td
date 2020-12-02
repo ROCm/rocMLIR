@@ -693,6 +693,15 @@ def GPU_BarrierOp : GPU_Op<"barrier"> {
   let printer = [{ p << getOperationName(); }];
 }
 
+def GPU_LDSBarrierOp : GPU_Op<"lds_barrier"> {
+  let summary = "Synchronizes all LDS activities.";
+  let description = [{
+    The "lds_barrier" op synchronizes all LDS activities of a workgroup.
+  }];
+  let parser = [{ return success(); }];
+  let printer = [{ p << getOperationName(); }];
+}
+
 def GPU_GPUModuleOp : GPU_Op<"module", [
   IsolatedFromAbove, SymbolTable, Symbol,
   SingleBlockImplicitTerminator<"ModuleEndOp">
