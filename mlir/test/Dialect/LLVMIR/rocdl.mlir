@@ -35,6 +35,12 @@ func @rocdl.barrier() {
   llvm.return
 }
 
+func @rocdl.lds_barrier() {
+  // CHECK: rocdl.lds_barrier
+  rocdl.lds_barrier
+  llvm.return
+}
+
 func @rocdl.xdlops(%arg0 : !llvm.float, %arg1 : !llvm.float,
                    %arg2 : !llvm<"<32 x float>">, %arg3 : !llvm.i32,
                    %arg4 : !llvm<"<16 x float>">, %arg5 : !llvm<"<4 x float>">,
