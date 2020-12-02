@@ -251,15 +251,15 @@ static void populateDefaults() {
   }
 
   auto getOutputDim = [](int64_t inputLen, int64_t filLen, int padLen,
-                         int strideLen) {
-    return (inputLen + 2 * padLen - filLen) / strideLen + 1;
+                         int strideLen, int dilLen) {
+    return (inputLen + 2 * padLen - (filLen - 1) * dilLen - 1) / strideLen + 1;
   };
-  outputHeight.setValue(
-      getOutputDim(inputHeight.getValue(), filterHeight.getValue(),
-                   paddingHeight.getValue(), strideHeight.getValue()));
-  outputWidth.setValue(
-      getOutputDim(inputWidth.getValue(), filterWidth.getValue(),
-                   paddingWidth.getValue(), strideWidth.getValue()));
+  outputHeight.setValue(getOutputDim(
+      inputHeight.getValue(), filterHeight.getValue(), paddingHeight.getValue(),
+      strideHeight.getValue(), dilationHeight.getValue()));
+  outputWidth.setValue(getOutputDim(
+      inputWidth.getValue(), filterWidth.getValue(), paddingWidth.getValue(),
+      strideWidth.getValue(), dilationWidth.getValue()));
 }
 
 static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
