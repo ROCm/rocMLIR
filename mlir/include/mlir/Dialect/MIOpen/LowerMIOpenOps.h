@@ -985,9 +985,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
               gop.getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top.setAttr("source_data_per_read", b.getI32IntegerAttr(1));
   top.setAttr("dest_data_per_write", gop.getAttr("matrix_c_dest_data_per_write"));
-
-  top.setAttr("legacyLoad", b.getBoolAttr(true));
-  top.setAttr("legacyStore", b.getBoolAttr(true));
 }
 
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
@@ -1065,9 +1062,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
     //top.setAttr("dest_data_per_write", bop.getAttr("dest_data_per_write"));
     top.setAttr("dest_data_per_write", b.getI32IntegerAttr(1));
   }
-
-  top.setAttr("legacyLoad", b.getBoolAttr(true));
-  top.setAttr("legacyStore", b.getBoolAttr(true));
 }
 
 // XXX: figure out a better way to get rid of isMatrixA parameter.
@@ -1100,9 +1094,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
     //top.setAttr("data_per_access", bop.getAttr("n_per_thread"));
     top.setAttr("data_per_access", b.getI32IntegerAttr(1));
   }
-
-  top.setAttr("legacyLoad", b.getBoolAttr(true));
-  top.setAttr("legacyStore", b.getBoolAttr(true));
 }
 
 //===----------------------------------------------------------------------===//
@@ -4016,50 +4007,56 @@ struct ThreadwiseCopyRewritePattern
             }
             // llvm::errs() << "\n";
 
-            // Apply carry / borrow logic to compute index lower new
-            // carry logic on Value instances.
-            SmallVector<Value, 4> indexLowerNewCarried;
-            if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
-              // setup carryOp for the first iteration
-              Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
-              for (int64_t iter = sourceType.getShape().size() - 1; iter >= 0; --iter) {
-                // carry logic.
-                auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
-                auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
-                auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], oneConstantOp);
-                ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
-                auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
-                carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], zeroConstantOp);
-                ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
+	    // TBD. Use more sophisticated logic to determine if carry / borrow check logic is needed.
+	    if (false) {
+              // Apply carry / borrow logic to compute index lower new
+              // carry logic on Value instances.
+              SmallVector<Value, 4> indexLowerNewCarried;
+              if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
+                // setup carryOp for the first iteration
+                Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
+                for (int64_t iter = sourceType.getShape().size() - 1; iter >= 0; --iter) {
+                  // carry logic.
+                  auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
+                  auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
+                  auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], oneConstantOp);
+                  ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
+                  auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
+                  carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], zeroConstantOp);
+                  ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
   
-                //ifCarryOp.dump();
+                  //ifCarryOp.dump();
   
-                auto carriedResult = ifCarryOp.results()[0];
-                indexLowerNewCarried.push_back(carriedResult);
+                  auto carriedResult = ifCarryOp.results()[0];
+                  indexLowerNewCarried.push_back(carriedResult);
   
-                // set carry flag for the next digit.
-                carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
+                  // set carry flag for the next digit.
+                  carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
   
-                //carryOp.dump();
+                  //carryOp.dump();
   
-                // overflow logic.
-                auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
-                auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
-                auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
-                ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
-                auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
-                updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, zeroConstantOp);
-                ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
+                  // overflow logic.
+                  auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
+                  auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
+                  auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
+                  ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
+                  auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
+                  updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, zeroConstantOp);
+                  ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
   
-                //ifOverflowOp.dump();
+                  //ifOverflowOp.dump();
   
-                auto updatedResult = ifOverflowOp.results()[0];
-                srcIndexLowerNewUpdated.insert(srcIndexLowerNewUpdated.begin(), updatedResult);
+                  auto updatedResult = ifOverflowOp.results()[0];
+                  srcIndexLowerNewUpdated.insert(srcIndexLowerNewUpdated.begin(), updatedResult);
+                }
+              } else {
+                // TBD borrow logic.
+                // TBD revise per scf_if_v1.mlir
               }
-            } else {
-              // TBD borrow logic.
-              // TBD revise per scf_if_v1.mlir
-            }
+	    } else {
+              // Skip carry / borrow logic.
+	      srcIndexLowerNewUpdated.assign(indexLowerNew.begin(), indexLowerNew.end());
+	    }
           }
   
           // Load from source.
@@ -4184,50 +4181,56 @@ struct ThreadwiseCopyRewritePattern
             }
             // llvm::errs() << "\n";
 
-            // Apply carry / borrow logic to compute index lower new
-            // carry logic on Value instances.
-            SmallVector<Value, 4> indexLowerNewCarried;
-            if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
-              // setup carryOp for the first iteration
-              Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
-              for (int64_t iter = destType.getShape().size() - 1; iter >= 0; --iter) {
-                // carry logic.
-                auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
-                auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
-                auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], oneConstantOp);
-                ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
-                auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
-                carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], zeroConstantOp);
-                ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
+	    // TBD. Use more sophisticated logic to determine if carry / borrow check logic is needed.
+	    if (false) {
+              // Apply carry / borrow logic to compute index lower new
+              // carry logic on Value instances.
+              SmallVector<Value, 4> indexLowerNewCarried;
+              if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
+                // setup carryOp for the first iteration
+                Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
+                for (int64_t iter = destType.getShape().size() - 1; iter >= 0; --iter) {
+                  // carry logic.
+                  auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
+                  auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
+                  auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], oneConstantOp);
+                  ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
+                  auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
+                  carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], zeroConstantOp);
+                  ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
 
-                //ifCarryOp.dump();
+                  //ifCarryOp.dump();
 
-                auto carriedResult = ifCarryOp.results()[0];
-                indexLowerNewCarried.push_back(carriedResult);
+                  auto carriedResult = ifCarryOp.results()[0];
+                  indexLowerNewCarried.push_back(carriedResult);
 
-                // set carry flag for the next digit.
-                carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
+                  // set carry flag for the next digit.
+                  carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
 
-                //carryOp.dump();
+                  //carryOp.dump();
 
-                // overflow logic.
-                auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
-                auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
-                auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
-                ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
-                auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
-                updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, zeroConstantOp);
-                ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
+                  // overflow logic.
+                  auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
+                  auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
+                  auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
+                  ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
+                  auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
+                  updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, zeroConstantOp);
+                  ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
 
-                //ifOverflowOp.dump();
+                  //ifOverflowOp.dump();
 
-                auto updatedResult = ifOverflowOp.results()[0];
-                destIndexLowerNewUpdated.insert(destIndexLowerNewUpdated.begin(), updatedResult);
+                  auto updatedResult = ifOverflowOp.results()[0];
+                  destIndexLowerNewUpdated.insert(destIndexLowerNewUpdated.begin(), updatedResult);
+                }
+              } else {
+                // TBD borrow logic.
+                // TBD revise per scf_if_v1.mlir
               }
-            } else {
-              // TBD borrow logic.
-              // TBD revise per scf_if_v1.mlir
-            }
+	    } else {
+              // Skip carry / borrow logic.
+  	      destIndexLowerNewUpdated.assign(indexLowerNew.begin(), indexLowerNew.end());
+	    }
           }
 
           // Store to dest.
@@ -4599,50 +4602,56 @@ struct ThreadwiseCopyV2RewritePattern
         }
         // llvm::errs() << "\n";
 
-        // Apply carry / borrow logic to compute index lower new
-        // carry logic on Value instances.
-        SmallVector<Value, 4> indexLowerNewCarried;
-        if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
-          // setup carryOp for the first iteration
-          Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
-          for (int64_t iter = sourceType.getShape().size() - 1; iter >= 0; --iter) {
-            // carry logic.
-            auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
-            auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
-            auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], oneConstantI32Op);
-            ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
-            auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
-            carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], zeroConstantI32Op);
-            ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
+	// TBD. Use more sophisticated logic to determine if carry / borrow check logic is needed.
+	if (false) {
+          // Apply carry / borrow logic to compute index lower new
+          // carry logic on Value instances.
+          SmallVector<Value, 4> indexLowerNewCarried;
+          if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
+            // setup carryOp for the first iteration
+            Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
+            for (int64_t iter = sourceType.getShape().size() - 1; iter >= 0; --iter) {
+              // carry logic.
+              auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
+              auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
+              auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], oneConstantI32Op);
+              ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
+              auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
+              carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], zeroConstantI32Op);
+              ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
 
-            //ifCarryOp.dump();
+              //ifCarryOp.dump();
 
-            auto carriedResult = ifCarryOp.results()[0];
-            indexLowerNewCarried.push_back(carriedResult);
+              auto carriedResult = ifCarryOp.results()[0];
+              indexLowerNewCarried.push_back(carriedResult);
 
-            // set carry flag for the next digit.
-            carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
+              // set carry flag for the next digit.
+              carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
 
-            //carryOp.dump();
+              //carryOp.dump();
 
-            // overflow logic.
-            auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
-            auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
-            auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
-            ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
-            auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
-            updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, zeroConstantI32Op);
-            ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
+              // overflow logic.
+              auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
+              auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
+              auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
+              ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
+              auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
+              updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, zeroConstantI32Op);
+              ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
 
-            //ifOverflowOp.dump();
+              //ifOverflowOp.dump();
 
-            auto updatedResult = ifOverflowOp.results()[0];
-            srcIndexLowerNewUpdated.insert(srcIndexLowerNewUpdated.begin(), updatedResult);
+              auto updatedResult = ifOverflowOp.results()[0];
+              srcIndexLowerNewUpdated.insert(srcIndexLowerNewUpdated.begin(), updatedResult);
+            }
+          } else {
+            // TBD borrow logic.
+            // TBD revise per scf_if_v1.mlir
           }
-        } else {
-          // TBD borrow logic.
-          // TBD revise per scf_if_v1.mlir
-        }
+	} else {
+	  // Skip carry / borrow logic.
+  	  srcIndexLowerNewUpdated.assign(indexLowerNew.begin(), indexLowerNew.end());
+	}
       }
 
       // Load from source.
@@ -4732,50 +4741,58 @@ struct ThreadwiseCopyV2RewritePattern
         }
         // llvm::errs() << "\n";
 
-        // Apply carry / borrow logic to compute index lower new
-        // carry logic on Value instances.
-        SmallVector<Value, 4> indexLowerNewCarried;
-        if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
-          // setup carryOp for the first iteration
-          Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
-          for (int64_t iter = destType.getShape().size() - 1; iter >= 0; --iter) {
-            // carry logic.
-            auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
-            auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
-            auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], oneConstantI32Op);
-            ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
-            auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
-            carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], zeroConstantI32Op);
-            ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
+	// TBD. Use more sophisticated logic to determine if carry / borrow check logic is needed.
+	if (false) {
+          // Apply carry / borrow logic to compute index lower new
+          // carry logic on Value instances.
+          SmallVector<Value, 4> indexLowerNewCarried;
+          if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >= 0) {
+            // setup carryOp for the first iteration
+            Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
+            for (int64_t iter = destType.getShape().size() - 1; iter >= 0; --iter) {
+              // carry logic.
+              auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
+              auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
+              auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], oneConstantI32Op);
+              ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
+              auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
+              carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], zeroConstantI32Op);
+              ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
 
-            //ifCarryOp.dump();
+              //ifCarryOp.dump();
 
-            auto carriedResult = ifCarryOp.results()[0];
-            indexLowerNewCarried.push_back(carriedResult);
+              auto carriedResult = ifCarryOp.results()[0];
+              indexLowerNewCarried.push_back(carriedResult);
 
-            // set carry flag for the next digit.
-            carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
+              // set carry flag for the next digit.
+              carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
 
-            //carryOp.dump();
+              //carryOp.dump();
 
-            // overflow logic.
-            auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
-            auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
-            auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
-            ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
-            auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
-            updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, zeroConstantI32Op);
-            ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
+              // overflow logic.
+              auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
+              auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
+              auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
+              ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
+              auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
+              updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, zeroConstantI32Op);
+              ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
 
-            //ifOverflowOp.dump();
+              //ifOverflowOp.dump();
 
-            auto updatedResult = ifOverflowOp.results()[0];
-            destIndexLowerNewUpdated.insert(destIndexLowerNewUpdated.begin(), b.create<IndexCastOp>(loc, updatedResult, b.getIndexType()));
+              auto updatedResult = ifOverflowOp.results()[0];
+              destIndexLowerNewUpdated.insert(destIndexLowerNewUpdated.begin(), b.create<IndexCastOp>(loc, updatedResult, b.getIndexType()));
+            }
+          } else {
+            // TBD borrow logic.
+            // TBD revise per scf_if_v1.mlir
           }
-        } else {
-          // TBD borrow logic.
-          // TBD revise per scf_if_v1.mlir
-        }
+	} else {
+          // Skip carry / borrow logic.
+	  for (int64_t iter = 0; iter < destType.getShape().size(); ++iter) {
+            destIndexLowerNewUpdated.push_back(b.create<IndexCastOp>(loc, indexLowerNew[iter], b.getIndexType()));
+	  }
+	}
       }
 
       // Store to dest.
