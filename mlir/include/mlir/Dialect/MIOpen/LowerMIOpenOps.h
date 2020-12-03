@@ -2819,7 +2819,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Emit loop tail.
 
     // LDS barrier.
-    b.create<miopen::WorkgroupBarrierOp>(loc);
+    b.create<miopen::LDSBarrierOp>(loc);
 
     // Emit blockwise GEMM for the loop tail.
     auto blockwiseGemmV2TailOp = b.create<miopen::BlockwiseGemmV2Op>(
