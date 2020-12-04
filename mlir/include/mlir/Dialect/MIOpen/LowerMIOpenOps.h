@@ -43,6 +43,26 @@
 
 using namespace mlir;
 
+
+//===----------------------------------------------------------------------===//
+// Check if an AffineMap has division or remainder inside.
+//===----------------------------------------------------------------------===//
+bool hasDivisionOrRemainder(AffineMap map) {
+  bool ret = false;
+  if (!map) return false;
+  map.walkExprs([&ret](AffineExpr expr) {
+    if (expr.getKind() == AffineExprKind::Mod ||
+        expr.getKind() == AffineExprKind::FloorDiv ||
+	expr.getKind() == AffineExprKind::CeilDiv)
+      ret = true;
+  });
+
+  // XXX. hack. always return false for now for performance reason.
+  // May need more sophisticated checks to determine if we would truly go OOB.
+  //return ret;
+  return false;
+}
+
 //===----------------------------------------------------------------------===//
 // Conv2D (forward, backward) lowering.
 //===----------------------------------------------------------------------===//
@@ -4007,8 +4027,8 @@ struct ThreadwiseCopyRewritePattern
             }
             // llvm::errs() << "\n";
 
-	    // TBD. Use more sophisticated logic to determine if carry / borrow check logic is needed.
-	    if (false) {
+            // Only use carry / borrow check logic if needed.
+            if (sourceTransform && hasDivisionOrRemainder(sourceTransform)) {
               // Apply carry / borrow logic to compute index lower new
               // carry logic on Value instances.
               SmallVector<Value, 4> indexLowerNewCarried;
@@ -4181,8 +4201,8 @@ struct ThreadwiseCopyRewritePattern
             }
             // llvm::errs() << "\n";
 
-	    // TBD. Use more sophisticated logic to determine if carry / borrow check logic is needed.
-	    if (false) {
+            // Only use carry / borrow check logic if needed.
+            if (destTransform && hasDivisionOrRemainder(destTransform)) {
               // Apply carry / borrow logic to compute index lower new
               // carry logic on Value instances.
               SmallVector<Value, 4> indexLowerNewCarried;
@@ -4602,8 +4622,8 @@ struct ThreadwiseCopyV2RewritePattern
         }
         // llvm::errs() << "\n";
 
-	// TBD. Use more sophisticated logic to determine if carry / borrow check logic is needed.
-	if (false) {
+        // Only use carry / borrow check logic if needed.
+        if (sourceTransform && hasDivisionOrRemainder(sourceTransform)) {
           // Apply carry / borrow logic to compute index lower new
           // carry logic on Value instances.
           SmallVector<Value, 4> indexLowerNewCarried;
@@ -4741,8 +4761,8 @@ struct ThreadwiseCopyV2RewritePattern
         }
         // llvm::errs() << "\n";
 
-	// TBD. Use more sophisticated logic to determine if carry / borrow check logic is needed.
-	if (false) {
+        // Only use carry / borrow check logic if needed.
+        if (destTransform && hasDivisionOrRemainder(destTransform)) {
           // Apply carry / borrow logic to compute index lower new
           // carry logic on Value instances.
           SmallVector<Value, 4> indexLowerNewCarried;
