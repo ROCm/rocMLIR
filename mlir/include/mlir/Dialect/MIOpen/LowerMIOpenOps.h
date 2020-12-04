@@ -162,36 +162,36 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       transformedFilterShape.push_back(filterShape[kDim.getInt()]);
 
       llvm::SmallVector<NamedAttribute, 2> sourceProbCYXDimAttr{
-	      b.getNamedAttr("source_dimensions",
-			      b.getArrayAttr(ArrayRef<Attribute>(nonKDims.begin(),
-					      nonKDims.end()))),
-		      b.getNamedAttr("source_names",
-				      b.getArrayAttr(ArrayRef<Attribute>(
-						      nonKDimNames.begin(), nonKDimNames.end())))};
+        b.getNamedAttr("source_dimensions",
+            b.getArrayAttr(ArrayRef<Attribute>(nonKDims.begin(),
+                nonKDims.end()))),
+          b.getNamedAttr("source_names",
+              b.getArrayAttr(ArrayRef<Attribute>(
+                  nonKDimNames.begin(), nonKDimNames.end())))};
       if (kDim.getInt() != 0 && kDim.getInt() != 3) {
-	      sourceProbCYXDimAttr.push_back(
-			      b.getNamedAttr("transformation", b.getStringAttr("Merge")));
+        sourceProbCYXDimAttr.push_back(
+            b.getNamedAttr("transformation", b.getStringAttr("Merge")));
       } else {
-	      sourceProbCYXDimAttr.push_back(
-			      b.getNamedAttr("transformation", b.getStringAttr("Unfold")));
+        sourceProbCYXDimAttr.push_back(
+            b.getNamedAttr("transformation", b.getStringAttr("Unfold")));
       }
 
       llvm::SmallVector<NamedAttribute, 3> sourceProbKDimAttr{
-	      b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
-		      b.getNamedAttr("source_dimensions", b.getArrayAttr({kDim})),
-		      b.getNamedAttr("source_names", b.getArrayAttr({kDimName}))};
+        b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+          b.getNamedAttr("source_dimensions", b.getArrayAttr({kDim})),
+          b.getNamedAttr("source_names", b.getArrayAttr({kDimName}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemm0DimAttr{
-	      b.getNamedAttr("dimensions",
-			      b.getArrayAttr({b.getI32IntegerAttr(0)})),
-		      b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
-						      arg0TargetLayoutName0)}))};
+        b.getNamedAttr("dimensions",
+            b.getArrayAttr({b.getI32IntegerAttr(0)})),
+          b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+                  arg0TargetLayoutName0)}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemm1DimAttr{
-	      b.getNamedAttr("dimensions",
-			      b.getArrayAttr({b.getI32IntegerAttr(1)})),
-		      b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
-						      arg0TargetLayoutName1)}))};
+        b.getNamedAttr("dimensions",
+            b.getArrayAttr({b.getI32IntegerAttr(1)})),
+          b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+                  arg0TargetLayoutName1)}))};
 
       llvm::SmallVector<NamedAttribute, 0> layoutAttr0;
       llvm::SmallVector<NamedAttribute, 0> layoutAttr1;
@@ -578,78 +578,78 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       llvm::SmallVector<IntegerAttr, 3> mergedPart1Dims;
 
       if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
-	      // Assume hDim is always less than wDim.
-	      if (nDim.getInt() < hDim.getInt()) {
-		      mergedPart1DimNames.push_back(nDimName);
-		      mergedPart1DimNames.push_back(hDimName);
-		      mergedPart1DimNames.push_back(wDimName);
-		      mergedPart1Dims.push_back(nDim);
-		      mergedPart1Dims.push_back(hDim);
-		      mergedPart1Dims.push_back(wDim);
-	      } else {
-		      mergedPart1DimNames.push_back(hDimName);
-		      mergedPart1DimNames.push_back(wDimName);
-		      mergedPart1DimNames.push_back(nDimName);
-		      mergedPart1Dims.push_back(hDim);
-		      mergedPart1Dims.push_back(wDim);
-		      mergedPart1Dims.push_back(nDim);
-	      }
+        // Assume hDim is always less than wDim.
+        if (nDim.getInt() < hDim.getInt()) {
+          mergedPart1DimNames.push_back(nDimName);
+          mergedPart1DimNames.push_back(hDimName);
+          mergedPart1DimNames.push_back(wDimName);
+          mergedPart1Dims.push_back(nDim);
+          mergedPart1Dims.push_back(hDim);
+          mergedPart1Dims.push_back(wDim);
+        } else {
+          mergedPart1DimNames.push_back(hDimName);
+          mergedPart1DimNames.push_back(wDimName);
+          mergedPart1DimNames.push_back(nDimName);
+          mergedPart1Dims.push_back(hDim);
+          mergedPart1Dims.push_back(wDim);
+          mergedPart1Dims.push_back(nDim);
+        }
       } else {
-	      // Assume yDim is always less than xDim.
-	      if (cDim.getInt() < yDim.getInt()) {
-		      mergedPart1DimNames.push_back(cDimName);
-		      mergedPart1DimNames.push_back(yDimName);
-		      mergedPart1DimNames.push_back(xDimName);
-		      mergedPart1Dims.push_back(cDim);
-		      mergedPart1Dims.push_back(yDim);
-		      mergedPart1Dims.push_back(xDim);
-	      } else {
-		      mergedPart1DimNames.push_back(yDimName);
-		      mergedPart1DimNames.push_back(xDimName);
-		      mergedPart1DimNames.push_back(cDimName);
-		      mergedPart1Dims.push_back(yDim);
-		      mergedPart1Dims.push_back(xDim);
-		      mergedPart1Dims.push_back(cDim);
-	      }
+        // Assume yDim is always less than xDim.
+        if (cDim.getInt() < yDim.getInt()) {
+          mergedPart1DimNames.push_back(cDimName);
+          mergedPart1DimNames.push_back(yDimName);
+          mergedPart1DimNames.push_back(xDimName);
+          mergedPart1Dims.push_back(cDim);
+          mergedPart1Dims.push_back(yDim);
+          mergedPart1Dims.push_back(xDim);
+        } else {
+          mergedPart1DimNames.push_back(yDimName);
+          mergedPart1DimNames.push_back(xDimName);
+          mergedPart1DimNames.push_back(cDimName);
+          mergedPart1Dims.push_back(yDim);
+          mergedPart1Dims.push_back(xDim);
+          mergedPart1Dims.push_back(cDim);
+        }
       }
 
       llvm::SmallVector<StringAttr, 3> mergedPart2DimNames;
       llvm::SmallVector<IntegerAttr, 3> mergedPart2Dims;
 
       if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
-	      // Assume yDim is always less than xDim.
-	      if (cDim.getInt() < yDim.getInt()) {
-		      mergedPart2DimNames.push_back(cDimName);
-		      mergedPart2DimNames.push_back(yDimName);
-		      mergedPart2DimNames.push_back(xDimName);
-		      mergedPart2Dims.push_back(cDim);
-		      mergedPart2Dims.push_back(yDim);
-		      mergedPart2Dims.push_back(xDim);
-	      } else {
-		      mergedPart2DimNames.push_back(yDimName);
-		      mergedPart2DimNames.push_back(xDimName);
-		      mergedPart2DimNames.push_back(cDimName);
-		      mergedPart2Dims.push_back(yDim);
-		      mergedPart2Dims.push_back(xDim);
-		      mergedPart2Dims.push_back(cDim);
-	      }
+        // Assume yDim is always less than xDim.
+        if (cDim.getInt() < yDim.getInt()) {
+          mergedPart2DimNames.push_back(cDimName);
+          mergedPart2DimNames.push_back(yDimName);
+          mergedPart2DimNames.push_back(xDimName);
+          mergedPart2Dims.push_back(cDim);
+          mergedPart2Dims.push_back(yDim);
+          mergedPart2Dims.push_back(xDim);
+        } else {
+          mergedPart2DimNames.push_back(yDimName);
+          mergedPart2DimNames.push_back(xDimName);
+          mergedPart2DimNames.push_back(cDimName);
+          mergedPart2Dims.push_back(yDim);
+          mergedPart2Dims.push_back(xDim);
+          mergedPart2Dims.push_back(cDim);
+        }
       } else {
-	      // Assume hDim is always less than wDim.
-	      if (nDim.getInt() < hDim.getInt()) {
-		      mergedPart2DimNames.push_back(nDimName);
-		      mergedPart2DimNames.push_back(hDimName);
-		      mergedPart2DimNames.push_back(wDimName);
-		      mergedPart2Dims.push_back(nDim);
-		      mergedPart2Dims.push_back(hDim);
-		      mergedPart2Dims.push_back(wDim);
-	      } else {
-		      mergedPart2DimNames.push_back(hDimName);
-		      mergedPart2DimNames.push_back(wDimName);
-		      mergedPart2DimNames.push_back(nDimName);
-		      mergedPart2Dims.push_back(hDim);
-		      mergedPart2Dims.push_back(wDim);
-		      mergedPart2Dims.push_back(nDim);
-	      }
+        // Assume hDim is always less than wDim.
+        if (nDim.getInt() < hDim.getInt()) {
+          mergedPart2DimNames.push_back(nDimName);
+          mergedPart2DimNames.push_back(hDimName);
+          mergedPart2DimNames.push_back(wDimName);
+          mergedPart2Dims.push_back(nDim);
+          mergedPart2Dims.push_back(hDim);
+          mergedPart2Dims.push_back(wDim);
+        } else {
+          mergedPart2DimNames.push_back(hDimName);
+          mergedPart2DimNames.push_back(wDimName);
+          mergedPart2DimNames.push_back(nDimName);
+          mergedPart2Dims.push_back(hDim);
+          mergedPart2Dims.push_back(wDim);
+          mergedPart2Dims.push_back(nDim);
+        }
       }
       
       if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
@@ -771,52 +771,52 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       }
 
       llvm::SmallVector<NamedAttribute, 3> sourceProbNHoWoDimAttr{
-	      b.getNamedAttr("source_dimensions",
-			      b.getArrayAttr(ArrayRef<Attribute>(nonKDims.begin(),
-					      nonKDims.end()))),
-		      b.getNamedAttr("source_names",
-				      b.getArrayAttr(ArrayRef<Attribute>(
-						      nonKDimNames.begin(), nonKDimNames.end()))),
-		      b.getNamedAttr("transformation", b.getStringAttr("Merge"))};
+        b.getNamedAttr("source_dimensions",
+            b.getArrayAttr(ArrayRef<Attribute>(nonKDims.begin(),
+                nonKDims.end()))),
+          b.getNamedAttr("source_names",
+              b.getArrayAttr(ArrayRef<Attribute>(
+                  nonKDimNames.begin(), nonKDimNames.end()))),
+          b.getNamedAttr("transformation", b.getStringAttr("Merge"))};
 
       llvm::SmallVector<NamedAttribute, 3> sourceProbKDimAttr{
-	      b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
-		      b.getNamedAttr("source_dimensions", b.getArrayAttr({kDim})),
-		      b.getNamedAttr("source_names", b.getArrayAttr({kDimName}))};
+        b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+          b.getNamedAttr("source_dimensions", b.getArrayAttr({kDim})),
+          b.getNamedAttr("source_names", b.getArrayAttr({kDimName}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemm0DimAttr{
-	      b.getNamedAttr("dimensions",
-			      b.getArrayAttr({b.getI32IntegerAttr(0)})),
-		      b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
-						      arg2TargetLayoutName0)}))};
+        b.getNamedAttr("dimensions",
+            b.getArrayAttr({b.getI32IntegerAttr(0)})),
+          b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+                  arg2TargetLayoutName0)}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemm1DimAttr{
-	      b.getNamedAttr("dimensions",
-			      b.getArrayAttr({b.getI32IntegerAttr(1)})),
-		      b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
-						      arg2TargetLayoutName1)}))};
+        b.getNamedAttr("dimensions",
+            b.getArrayAttr({b.getI32IntegerAttr(1)})),
+          b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+                  arg2TargetLayoutName1)}))};
 
       llvm::SmallVector<NamedAttribute, 0> layoutAttr0;
       llvm::SmallVector<NamedAttribute, 0> layoutAttr1;
 
       if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
-	      layoutAttr0.append(targetGemm0DimAttr.begin(),
-			      targetGemm0DimAttr.end());
-	      layoutAttr0.append(sourceProbNHoWoDimAttr.begin(),
-			      sourceProbNHoWoDimAttr.end());
-	      layoutAttr1.append(targetGemm1DimAttr.begin(),
-			      targetGemm1DimAttr.end());
-	      layoutAttr1.append(sourceProbKDimAttr.begin(),
-			      sourceProbKDimAttr.end());
+        layoutAttr0.append(targetGemm0DimAttr.begin(),
+            targetGemm0DimAttr.end());
+        layoutAttr0.append(sourceProbNHoWoDimAttr.begin(),
+            sourceProbNHoWoDimAttr.end());
+        layoutAttr1.append(targetGemm1DimAttr.begin(),
+            targetGemm1DimAttr.end());
+        layoutAttr1.append(sourceProbKDimAttr.begin(),
+            sourceProbKDimAttr.end());
       } else {
-	      layoutAttr0.append(targetGemm0DimAttr.begin(),
-			      targetGemm0DimAttr.end());
-	      layoutAttr0.append(sourceProbKDimAttr.begin(),
-			      sourceProbKDimAttr.end());
-	      layoutAttr1.append(targetGemm1DimAttr.begin(),
-			      targetGemm1DimAttr.end());
-	      layoutAttr1.append(sourceProbNHoWoDimAttr.begin(),
-			      sourceProbNHoWoDimAttr.end());
+        layoutAttr0.append(targetGemm0DimAttr.begin(),
+            targetGemm0DimAttr.end());
+        layoutAttr0.append(sourceProbKDimAttr.begin(),
+            sourceProbKDimAttr.end());
+        layoutAttr1.append(targetGemm1DimAttr.begin(),
+            targetGemm1DimAttr.end());
+        layoutAttr1.append(sourceProbNHoWoDimAttr.begin(),
+            sourceProbNHoWoDimAttr.end());
       }
  
       transformedOutputAttrs.push_back(b.getNamedAttr(
@@ -4053,10 +4053,10 @@ struct ThreadwiseCopyRewritePattern
                 // TBD borrow logic.
                 // TBD revise per scf_if_v1.mlir
               }
-	    } else {
+            } else {
               // Skip carry / borrow logic.
-	      srcIndexLowerNewUpdated.assign(indexLowerNew.begin(), indexLowerNew.end());
-	    }
+              srcIndexLowerNewUpdated.assign(indexLowerNew.begin(), indexLowerNew.end());
+            }
           }
   
           // Load from source.
@@ -4227,10 +4227,10 @@ struct ThreadwiseCopyRewritePattern
                 // TBD borrow logic.
                 // TBD revise per scf_if_v1.mlir
               }
-	    } else {
+            } else {
               // Skip carry / borrow logic.
-  	      destIndexLowerNewUpdated.assign(indexLowerNew.begin(), indexLowerNew.end());
-	    }
+              destIndexLowerNewUpdated.assign(indexLowerNew.begin(), indexLowerNew.end());
+            }
           }
 
           // Store to dest.
@@ -4648,10 +4648,10 @@ struct ThreadwiseCopyV2RewritePattern
             // TBD borrow logic.
             // TBD revise per scf_if_v1.mlir
           }
-	} else {
-	  // Skip carry / borrow logic.
-  	  srcIndexLowerNewUpdated.assign(indexLowerNew.begin(), indexLowerNew.end());
-	}
+        } else {
+          // Skip carry / borrow logic.
+          srcIndexLowerNewUpdated.assign(indexLowerNew.begin(), indexLowerNew.end());
+        }
       }
 
       // Load from source.
@@ -4787,12 +4787,12 @@ struct ThreadwiseCopyV2RewritePattern
             // TBD borrow logic.
             // TBD revise per scf_if_v1.mlir
           }
-	} else {
+        } else {
           // Skip carry / borrow logic.
-	  for (int64_t iter = 0; iter < destType.getShape().size(); ++iter) {
+          for (int64_t iter = 0; iter < destType.getShape().size(); ++iter) {
             destIndexLowerNewUpdated.push_back(b.create<IndexCastOp>(loc, indexLowerNew[iter], b.getIndexType()));
-	  }
-	}
+          }
+        }
       }
 
       // Store to dest.
