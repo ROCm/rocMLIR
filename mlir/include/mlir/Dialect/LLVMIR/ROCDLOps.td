@@ -113,7 +113,7 @@ def ROCDL_LDSBarrierOp : ROCDL_Op<"lds_barrier"> {
         function_type,                       // FunctionType *Ty,
         "s_waitcnt lgkmcnt(0) \n s_barrier", // const std::string &AsmString,
         "",                                  // const std::string &Constraints,
-        false,                               // bool hasSideEffects,
+        true,                                // bool hasSideEffects,
         false,                               // bool isAlignStack,
         llvm::InlineAsm::AD_ATT              // AsmDialect asmDialect
         );
