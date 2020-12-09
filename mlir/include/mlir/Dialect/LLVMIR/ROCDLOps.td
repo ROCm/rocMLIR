@@ -111,7 +111,7 @@ def ROCDL_LDSBarrierOp : ROCDL_Op<"lds_barrier"> {
         false);                             // no variadic arguments.
     llvm::Value *inlineAsm = llvm::InlineAsm::get(
         function_type,                       // FunctionType *Ty,
-        "s_waitcnt lgkmcnt(1) \n s_barrier", // const std::string &AsmString,
+        "s_waitcnt lgkmcnt(0) \n s_barrier", // const std::string &AsmString,
         "",                                  // const std::string &Constraints,
         false,                               // bool hasSideEffects,
         false,                               // bool isAlignStack,
