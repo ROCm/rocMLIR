@@ -1005,10 +1005,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
               gop.getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top.setAttr("source_data_per_read", b.getI32IntegerAttr(1));
   top.setAttr("dest_data_per_write", gop.getAttr("matrix_c_dest_data_per_write"));
-
-  // XXX. use slow but proven load / store logic.
-  top.setAttr("legacyLoad", b.getBoolAttr(true));
-  top.setAttr("legacyStore", b.getBoolAttr(true));
 }
 
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
@@ -1022,10 +1018,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
               gop.getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top.setAttr("source_data_per_read", b.getI32IntegerAttr(1));
   top.setAttr("dest_data_per_write", gop.getAttr("matrix_c_dest_data_per_write"));
-  
-  // XXX. use slow but proven load / store logic.
-  top.setAttr("legacyLoad", b.getBoolAttr(true));
-  top.setAttr("legacyStore", b.getBoolAttr(true));
 }
 
 static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
@@ -1090,10 +1082,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
     //top.setAttr("dest_data_per_write", bop.getAttr("dest_data_per_write"));
     top.setAttr("dest_data_per_write", b.getI32IntegerAttr(1));
   }
-
-  // XXX. use slow but proven load / store logic.
-  top.setAttr("legacyLoad", b.getBoolAttr(true));
-  top.setAttr("legacyStore", b.getBoolAttr(true));
 }
 
 // XXX: figure out a better way to get rid of isMatrixA parameter.
@@ -1126,10 +1114,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
     //top.setAttr("data_per_access", bop.getAttr("n_per_thread"));
     top.setAttr("data_per_access", b.getI32IntegerAttr(1));
   }
-  
-  // XXX. use slow but proven load / store logic.
-  top.setAttr("legacyLoad", b.getBoolAttr(true));
-  top.setAttr("legacyStore", b.getBoolAttr(true));
 }
 
 //===----------------------------------------------------------------------===//
