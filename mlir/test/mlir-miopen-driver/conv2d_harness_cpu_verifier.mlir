@@ -94,6 +94,10 @@ module {
     %1 = memref_cast %arg1 : memref<128x32x32x8xf32> to memref<?x?x?x?xf32>
     %2 = memref_cast %arg2 : memref<128x30x30x128xf32> to memref<?x?x?x?xf32>
 
+    %3 = memref_cast %0 : memref<?x?x?x?xf32> to memref<*xf32>
+    %4 = memref_cast %1 : memref<?x?x?x?xf32> to memref<*xf32>
+    %5 = memref_cast %2 : memref<?x?x?x?xf32> to memref<*xf32>
+
     // set up strides, paddings and dilations
     %c1_i32 = constant 1 : i32
     %c1_i32_0 = constant 1 : i32
@@ -107,44 +111,44 @@ module {
     %c1 = constant 1 : index
     %c2 = constant 2 : index
     %c3 = constant 3 : index
-    %c4 = constant 4 : index
-    %c5 = constant 5 : index
-    %c6 = constant 6 : index
-    %c7 = constant 7 : index
-    %c8 = constant 8 : index
-    %c9 = constant 9 : index
-    %c10 = constant 10 : index
-    %c11 = constant 11 : index
     
-    // set up constants for layout letters
-    %k = constant 107 : i32
-    %c = constant 99 : i32
-    %y = constant 121 : i32
-    %x = constant 120 : i32
-    %n = constant 110 : i32
-    %h = constant 104 : i32
-    %w = constant 119 : i32
+    // set up constants (ascii code) for layout letters
+    %k = constant 107 : i8
+    %c = constant 99 : i8
+    %y = constant 121 : i8
+    %x = constant 120 : i8
+    %n = constant 110 : i8
+    %h = constant 104 : i8
+    %w = constant 119 : i8
  
     // allocate memory for layouts 
-    %3 = alloca() : memref<12xi32>
+    %6 = alloca() : memref<4xi8>
+    %7 = alloca() : memref<4xi8>
+    %8 = alloca() : memref<4xi8>
 
     // store layouts
-    store %y, %3[%c0] : memref<12xi32>
-    store %x, %3[%c1] : memref<12xi32>
-    store %c, %3[%c2] : memref<12xi32>
-    store %k, %3[%c3] : memref<12xi32>
-    store %n, %3[%c4] : memref<12xi32>
-    store %h, %3[%c5] : memref<12xi32>
-    store %w, %3[%c6] : memref<12xi32>
-    store %c, %3[%c7] : memref<12xi32>
-    store %n, %3[%c8] : memref<12xi32>
-    store %h, %3[%c9] : memref<12xi32>
-    store %w, %3[%c10] : memref<12xi32>
-    store %k, %3[%c11] : memref<12xi32>
-    call @mcpuConv2d(%0, %1, %2, %3, %c1_i32, %c1_i32_0, %c0_i32, %c0_i32_1, %c1_i32_2, %c1_i32_3) : (memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, memref<12xi32>, i32, i32, i32, i32, i32, i32) -> ()
+    store %y, %6[%c0] : memref<4xi8>
+    store %x, %6[%c1] : memref<4xi8>
+    store %c, %6[%c2] : memref<4xi8>
+    store %k, %6[%c3] : memref<4xi8>
+    store %n, %7[%c0] : memref<4xi8>
+    store %h, %7[%c1] : memref<4xi8>
+    store %w, %7[%c2] : memref<4xi8>
+    store %c, %7[%c3] : memref<4xi8>
+    store %n, %8[%c0] : memref<4xi8>
+    store %h, %8[%c1] : memref<4xi8>
+    store %w, %8[%c2] : memref<4xi8>
+    store %k, %8[%c3] : memref<4xi8>
+
+    %9 = memref_cast %6 : memref<4xi8> to memref<*xi8>
+    %10 = memref_cast %7 : memref<4xi8> to memref<*xi8>
+    %11 = memref_cast %8 : memref<4xi8> to memref<*xi8>
+    call @mcpuConv2d(%3, %4, %5, %9, %10, %11, %c1_i32, %c1_i32_0, %c0_i32, %c0_i32_1, %c1_i32_2, %c1_i32_3) : 
+                    ( memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32) -> ()
+    
     return
   }
-  func @mcpuConv2d(memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, memref<12xi32>, i32, i32, i32, i32, i32, i32)
+  func @mcpuConv2d(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32)
 
   func @verify_results(%arg0: memref<128x30x30x128xf32>, %arg1: memref<128x30x30x128xf32>) {
     %c0 = constant 0 : index
