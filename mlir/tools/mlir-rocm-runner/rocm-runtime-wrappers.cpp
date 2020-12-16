@@ -387,9 +387,9 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
   auto *outputLayout = layout3->data + layout3->offset;
 
   // Extract proper tensor sizes and strides based on layouts
-  std::unordered_map<char, std::pair<int, int>> filterSizeStride;
-  std::unordered_map<char, std::pair<int, int>> inputSizeStride;
-  std::unordered_map<char, std::pair<int, int>> outputSizeStride;
+  std::unordered_map<char, std::pair<int64_t, int64_t>> filterSizeStride;
+  std::unordered_map<char, std::pair<int64_t, int64_t>> inputSizeStride;
+  std::unordered_map<char, std::pair<int64_t, int64_t>> outputSizeStride;
   for (size_t i = 0; i < 4; i++) {
     filterSizeStride[filterLayout[i]] =
         std::make_pair(filterSizes[i], filterStrides[i]);
@@ -400,17 +400,20 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
   }
 
   // Perform forward convolution
-  for (int n = 0; n < outputSizeStride['n'].first; n++)
-    for (int k = 0; k < outputSizeStride['k'].first; k++)
-      for (int out_h = 0; out_h < outputSizeStride['h'].first; out_h++)
-        for (int out_w = 0; out_w < outputSizeStride['w'].first; out_w++)
-          for (int c = 0; c < inputSizeStride['c'].first; c++)
-            for (int fil_h = 0; fil_h < filterSizeStride['y'].first; fil_h++)
-              for (int fil_w = 0; fil_w < filterSizeStride['x'].first;
+  for (int64_t n = 0; n < outputSizeStride['n'].first; n++)
+    for (int64_t k = 0; k < outputSizeStride['k'].first; k++)
+      for (int64_t out_h = 0; out_h < outputSizeStride['h'].first; out_h++)
+        for (int64_t out_w = 0; out_w < outputSizeStride['w'].first; out_w++)
+          for (int64_t c = 0; c < inputSizeStride['c'].first; c++)
+            for (int64_t fil_h = 0; fil_h < filterSizeStride['y'].first;
+                 fil_h++)
+              for (int64_t fil_w = 0; fil_w < filterSizeStride['x'].first;
                    fil_w++) {
                 float input;
-                int in_h = out_h * stride_h + fil_h * dilation_h - padding_h;
-                int in_w = out_w * stride_w + fil_w * dilation_w - padding_w;
+                int64_t in_h =
+                    out_h * stride_h + fil_h * dilation_h - padding_h;
+                int64_t in_w =
+                    out_w * stride_w + fil_w * dilation_w - padding_w;
 
                 if (in_h < 0 || in_h >= inputSizeStride['h'].first ||
                     in_w < 0 || in_w >= inputSizeStride['w'].first)
