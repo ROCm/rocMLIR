@@ -1219,11 +1219,15 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
   Block *block = &(theFunc.getBody().front());
   block->clear();
 
+  auto blockSizeAttr = 
+      theGpuFunc.getAttr("block_size").template dyn_cast<IntegerAttr>().getInt();
+  auto gridSizeAttr = 
+      theGpuFunc.getAttr("grid_size").template dyn_cast<IntegerAttr>().getInt();
   auto cstOne = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
   auto cstBlockSize =
-      builder.create<ConstantIndexOp>(builder.getUnknownLoc(), blockSize);
+      builder.create<ConstantIndexOp>(builder.getUnknownLoc(), blockSizeAttr);
   auto cstGridSize =
-      builder.create<ConstantIndexOp>(builder.getUnknownLoc(), gridSize);
+      builder.create<ConstantIndexOp>(builder.getUnknownLoc(), gridSizeAttr);
   block->push_back(cstOne);
   block->push_back(cstBlockSize);
   block->push_back(cstGridSize);
@@ -1251,15 +1255,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser 
     // Passes for lowering MIOpen dialect.
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
     pm.addPass(mlir::miopen::createAffineTransformPass());
-    pm.addPass(mlir::miopen::createAffixTuningParametersPass(
-        blockSize, [&](int64_t computedBlockSize, int64_t computedGridSize) {
-          // Use computed block size and grid size in case they are not
-          // specified from command line.
-          if (blockSize == 0)
-            blockSize = computedBlockSize;
-          if (gridSize == 0)
-            gridSize = computedGridSize;
-        }));
+    pm.addPass(mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());

@@ -16,8 +16,6 @@
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
 
-using LaunchDimensionCallback = std::function<void(int64_t, int64_t)>;
-
 namespace mlir {
 class Pass;
 
@@ -47,7 +45,7 @@ std::unique_ptr<Pass> createAffineTransformPass();
 /// Create a pass to affix tuning parameters to gridwise gemm ops.
 std::unique_ptr<Pass> createAffixTuningParametersPass(
     int64_t blockSizeOverride = 0,
-    LaunchDimensionCallback launchDimCallback = nullptr);
+    int64_t gridSizeOverride = 0);
 
 } // namespace miopen
 } // namespace mlir

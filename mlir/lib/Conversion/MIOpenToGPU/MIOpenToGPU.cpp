@@ -123,6 +123,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
       // Set kernel attribute.
       gpuFunc.setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
                       b.getUnitAttr());
+
       break;
     }
   }
@@ -153,6 +154,8 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
 
     // Set kernel attribute.
     gpuFunc.setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
+    gpuFunc.setAttr("block_size", theFunc.getAttr("block_size"));
+    gpuFunc.setAttr("grid_size", theFunc.getAttr("grid_size"));
 
     // associate arguments for newly created GPUFuncOp.
     BlockAndValueMapping map;
