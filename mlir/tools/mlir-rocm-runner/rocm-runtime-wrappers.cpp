@@ -403,12 +403,15 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
   for (int64_t n = 0; n < outputSizeStride['n'].first; n++)
     for (int64_t k = 0; k < outputSizeStride['k'].first; k++)
       for (int64_t out_h = 0; out_h < outputSizeStride['h'].first; out_h++)
-        for (int64_t out_w = 0; out_w < outputSizeStride['w'].first; out_w++)
+        for (int64_t out_w = 0; out_w < outputSizeStride['w'].first; out_w++) {
+
+          float acc = 0.0;
           for (int64_t c = 0; c < inputSizeStride['c'].first; c++)
             for (int64_t fil_h = 0; fil_h < filterSizeStride['y'].first;
                  fil_h++)
               for (int64_t fil_w = 0; fil_w < filterSizeStride['x'].first;
                    fil_w++) {
+
                 float input;
                 int64_t in_h =
                     out_h * stride_h + fil_h * dilation_h - padding_h;
@@ -424,14 +427,16 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
                                          in_h * inputSizeStride['h'].second +
                                          in_w * inputSizeStride['w'].second];
 
-                outputAllocated[n * outputSizeStride['n'].second +
-                                k * outputSizeStride['k'].second +
-                                out_h * outputSizeStride['h'].second +
-                                out_w * outputSizeStride['w'].second] +=
-                    input *
-                    filterAllocated[k * filterSizeStride['k'].second +
-                                    c * filterSizeStride['c'].second +
-                                    fil_h * filterSizeStride['y'].second +
-                                    fil_w * filterSizeStride['x'].second];
+                acc += input *
+                       filterAllocated[k * filterSizeStride['k'].second +
+                                       c * filterSizeStride['c'].second +
+                                       fil_h * filterSizeStride['y'].second +
+                                       fil_w * filterSizeStride['x'].second];
               }
+
+          outputAllocated[n * outputSizeStride['n'].second +
+                          k * outputSizeStride['k'].second +
+                          out_h * outputSizeStride['h'].second +
+                          out_w * outputSizeStride['w'].second] = acc;
+        }
 }
