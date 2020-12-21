@@ -38,6 +38,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include "mlir/Dialect/SCF/EDSC/Builders.h"
+#include <unordered_map>
 
 using namespace llvm;
 using namespace mlir;
@@ -274,27 +275,199 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   module.push_back(cpuConvFuncOp);
 
   // Construct a new Block.
-  Block *cpuConvFuncOpBlock = cpuConvFuncOp.addEntryBlock();
+  Block *cpuConvBlock = cpuConvFuncOp.addEntryBlock();
 
-  // Emit linalog.conv()
-  ArrayAttr strides = builder.getI64ArrayAttr(
-      {strideHeight.getValue(), strideWidth.getValue()});
-  ArrayAttr dilations = builder.getI64ArrayAttr(
-      {dilationHeight.getValue(), dilationWidth.getValue()});
-  auto elementsType = RankedTensorType::get({2, 2}, builder.getI64Type());
-  DenseIntElementsAttr padding = DenseIntElementsAttr::get(
-      elementsType,
-      ArrayRef<int64_t>{paddingHeight.getValue(), paddingHeight.getValue(),
-                        paddingWidth.getValue(), paddingWidth.getValue()});
-  auto linalgConvOp = builder.create<linalg::ConvOp>(
-      builder.getUnknownLoc(), cpuConvFuncOpBlock->getArgument(0),
-      cpuConvFuncOpBlock->getArgument(1), cpuConvFuncOpBlock->getArgument(2),
-      strides, dilations, padding);
-  cpuConvFuncOpBlock->push_back(linalgConvOp);
+  // Emit memref_cast.
+  // %a0 = memref_cast %arg0 : memref<128x8x3x3xf32> to memref<*xf32>
+  // %a1 = memref_cast %arg1 : memref<128x8x32x32xf32> to memref<*xf32>
+  // %a2 = memref_cast %arg2 : memref<128x128x30x30xf32> to memref<*xf32>
+  auto unrankedMemRefType =
+      UnrankedMemRefType::get(filterMemRefType.getElementType(), 0);
 
+  auto filterMemRefCastOp = builder.create<MemRefCastOp>(
+      builder.getUnknownLoc(), cpuConvBlock->getArgument(0),
+      unrankedMemRefType);
+  auto inputMemRefCastOp = builder.create<MemRefCastOp>(
+      builder.getUnknownLoc(), cpuConvBlock->getArgument(1),
+      unrankedMemRefType);
+  auto outputMemRefCastOp = builder.create<MemRefCastOp>(
+      builder.getUnknownLoc(), cpuConvBlock->getArgument(2),
+      unrankedMemRefType);
+  cpuConvBlock->push_back(filterMemRefCastOp);
+  cpuConvBlock->push_back(inputMemRefCastOp);
+  cpuConvBlock->push_back(outputMemRefCastOp);
+
+  // Emit ConstantOps to be used for strides, paddings and dilations
+  auto intType = builder.getIntegerType(32);
+
+  auto strideHeightConstantOp = builder.create<ConstantIntOp>(
+      builder.getUnknownLoc(), strideHeight.getValue(), intType);
+
+  auto strideWidthConstantOp = builder.create<ConstantIntOp>(
+      builder.getUnknownLoc(), strideWidth.getValue(), intType);
+
+  auto paddingHeightConstantOp = builder.create<ConstantIntOp>(
+      builder.getUnknownLoc(), paddingHeight.getValue(), intType);
+
+  auto paddingWidthConstantOp = builder.create<ConstantIntOp>(
+      builder.getUnknownLoc(), paddingWidth.getValue(), intType);
+
+  auto dilationHeightConstantOp = builder.create<ConstantIntOp>(
+      builder.getUnknownLoc(), dilationHeight.getValue(), intType);
+
+  auto dilationWidthConstantOp = builder.create<ConstantIntOp>(
+      builder.getUnknownLoc(), dilationWidth.getValue(), intType);
+
+  cpuConvBlock->push_back(strideHeightConstantOp);
+  cpuConvBlock->push_back(strideWidthConstantOp);
+  cpuConvBlock->push_back(paddingHeightConstantOp);
+  cpuConvBlock->push_back(paddingWidthConstantOp);
+  cpuConvBlock->push_back(dilationHeightConstantOp);
+  cpuConvBlock->push_back(dilationWidthConstantOp);
+
+  // Emit ConstantIndex ops
+  // %c_0 = constant 0 : index
+  // %c_1 = constant 1 : index
+  // %c_2 = constant 2 : index
+  // %c_3 = constant 3 : index
+  std::vector<ConstantIndexOp> indexOpVec;
+  for (int i = 0; i < 4; i++) {
+    auto indexOp = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), i);
+    cpuConvBlock->push_back(indexOp);
+    indexOpVec.push_back(indexOp);
+  }
+
+  auto charType = builder.getIntegerType(8);
+  // Emit Constant ops for letters used in layouts
+  //  %k = constant 107 : i8
+  //  %c = constant 99 : i8
+  //  %y = constant 121 : i8
+  //  %x = constant 120 : i8
+  //  %n = constant 110 : i8
+  //  %h = constant 104 : i8
+  //  %w = constant 119 : i8
+  auto kConstantOp =
+      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'k', charType);
+
+  auto cConstantOp =
+      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'c', charType);
+
+  auto yConstantOp =
+      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'y', charType);
+
+  auto xConstantOp =
+      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'x', charType);
+
+  auto nConstantOp =
+      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'n', charType);
+
+  auto hConstantOp =
+      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'h', charType);
+
+  auto wConstantOp =
+      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'w', charType);
+
+  cpuConvBlock->push_back(kConstantOp);
+  cpuConvBlock->push_back(cConstantOp);
+  cpuConvBlock->push_back(yConstantOp);
+  cpuConvBlock->push_back(xConstantOp);
+  cpuConvBlock->push_back(nConstantOp);
+  cpuConvBlock->push_back(hConstantOp);
+  cpuConvBlock->push_back(wConstantOp);
+
+  std::unordered_map<char, mlir::ConstantOp> layoutConstOps;
+  layoutConstOps['k'] = kConstantOp;
+  layoutConstOps['c'] = cConstantOp;
+  layoutConstOps['y'] = yConstantOp;
+  layoutConstOps['x'] = xConstantOp;
+  layoutConstOps['n'] = nConstantOp;
+  layoutConstOps['h'] = hConstantOp;
+  layoutConstOps['w'] = wConstantOp;
+
+  // %3   = alloca() : memref<4xi8>
+  // %4   = alloca() : memref<4xi8>
+  // %5   = alloca() : memref<4xi8>
+  SmallVector<int64_t, 4> layoutVector({4});
+  auto layoutMemRefType = MemRefType::get(
+      ArrayRef<int64_t>(layoutVector.begin(), layoutVector.end()), charType);
+  auto filLayoutAllocOp =
+      builder.create<AllocaOp>(builder.getUnknownLoc(), layoutMemRefType);
+  auto inLayoutAllocOp =
+      builder.create<AllocaOp>(builder.getUnknownLoc(), layoutMemRefType);
+  auto outLayoutAllocOp =
+      builder.create<AllocaOp>(builder.getUnknownLoc(), layoutMemRefType);
+  cpuConvBlock->push_back(filLayoutAllocOp);
+  cpuConvBlock->push_back(inLayoutAllocOp);
+  cpuConvBlock->push_back(outLayoutAllocOp);
+
+  // Store layouts into layoutAllocOp
+  // store %k, %3[%c_0]: memref<4xi32>
+  std::string fil_layout = filterLayout.getValue();
+  std::string in_layout = inputLayout.getValue();
+  std::string out_layout = outputLayout.getValue();
+  for (int i = 0; i < 4; i++) {
+    auto storeOp = builder.create<StoreOp>(
+        builder.getUnknownLoc(), layoutConstOps[fil_layout[i]],
+        filLayoutAllocOp, ValueRange{indexOpVec[i]});
+    cpuConvBlock->push_back(storeOp);
+  }
+
+  for (int i = 0; i < 4; i++) {
+    auto storeOp = builder.create<StoreOp>(
+        builder.getUnknownLoc(), layoutConstOps[in_layout[i]], inLayoutAllocOp,
+        ValueRange{indexOpVec[i]});
+    cpuConvBlock->push_back(storeOp);
+  }
+
+  for (int i = 0; i < 4; i++) {
+    auto storeOp = builder.create<StoreOp>(
+        builder.getUnknownLoc(), layoutConstOps[out_layout[i]],
+        outLayoutAllocOp, ValueRange{indexOpVec[i]});
+    cpuConvBlock->push_back(storeOp);
+  }
+
+  // Emit memref_cast
+  // %6 = memref_cast %3 : memref<4xi8> to memref<*xi8>
+  // %7 = memref_cast %4 : memref<4xi8> to memref<*xi8>
+  // %8 = memref_cast %5 : memref<4xi8> to memref<*xi8>
+  auto unrankedLayoutMemRefType = UnrankedMemRefType::get(charType, 0);
+  auto filLayoutMemRefCastOp = builder.create<MemRefCastOp>(
+      builder.getUnknownLoc(), filLayoutAllocOp, unrankedLayoutMemRefType);
+  auto inLayoutMemRefCastOp = builder.create<MemRefCastOp>(
+      builder.getUnknownLoc(), inLayoutAllocOp, unrankedLayoutMemRefType);
+  auto outLayoutMemRefCastOp = builder.create<MemRefCastOp>(
+      builder.getUnknownLoc(), outLayoutAllocOp, unrankedLayoutMemRefType);
+
+  cpuConvBlock->push_back(filLayoutMemRefCastOp);
+  cpuConvBlock->push_back(inLayoutMemRefCastOp);
+  cpuConvBlock->push_back(outLayoutMemRefCastOp);
+
+  // Emit cpu convolution function call op
+  auto mcpuConv2dFuncOp =
+      FuncOp::create(builder.getUnknownLoc(), "mcpuConv2d",
+                     builder.getFunctionType(
+                         {unrankedMemRefType, unrankedMemRefType,
+                          unrankedMemRefType, unrankedLayoutMemRefType,
+                          unrankedLayoutMemRefType, unrankedLayoutMemRefType,
+                          intType, intType, intType, intType, intType, intType},
+                         {}));
+
+  auto mcpuConv2dCallOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), mcpuConv2dFuncOp,
+      ValueRange{filterMemRefCastOp, inputMemRefCastOp, outputMemRefCastOp,
+                 filLayoutMemRefCastOp, inLayoutMemRefCastOp,
+                 outLayoutMemRefCastOp, strideHeightConstantOp,
+                 strideWidthConstantOp, paddingHeightConstantOp,
+                 paddingWidthConstantOp, dilationHeightConstantOp,
+                 dilationWidthConstantOp});
+
+  module.push_back(mcpuConv2dFuncOp);
+  cpuConvBlock->push_back(mcpuConv2dCallOp);
+
+  // Emit return op
   auto cpuConvFuncOpReturnOp =
       builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
-  cpuConvFuncOpBlock->push_back(cpuConvFuncOpReturnOp);
+  cpuConvBlock->push_back(cpuConvFuncOpReturnOp);
 
   return cpuConvFuncOp;
 }

@@ -20,6 +20,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include "hip/hip_runtime.h"
+#include <unordered_map>
 
 namespace {
 int32_t reportErrorIfAny(hipError_t result, const char *where) {
@@ -349,4 +350,93 @@ extern "C" void mgpuMemCopy4DBF16(unsigned short *sourceAllocated, unsigned shor
                                   unsigned copyDirection) {
   hipMemcpy(destAligned, sourceAligned, sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 * sizeof(unsigned short),
             static_cast<hipMemcpyKind>(copyDirection));
+}
+
+// A generic forward convolution function that supports random layouts,
+// dimensions, strides, paddings, and dilations.
+extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
+                           void *i_ptr, int64_t rank3, void *o_ptr,
+                           int64_t rank4, void *f_layout, int64_t rank5,
+                           void *i_layout, int64_t rank6, void *o_layout,
+                           int32_t stride_h, int32_t stride_w,
+                           int32_t padding_h, int32_t padding_w,
+                           int32_t dilation_h, int32_t dilation_w) {
+
+  auto *filter = static_cast<StridedMemRefType<float, 4> *>(f_ptr);
+  auto *filterAllocated = filter->data + filter->offset;
+  auto filterSizes = llvm::ArrayRef<int64_t>(filter->sizes, rank1);
+  auto filterStrides = llvm::ArrayRef<int64_t>(filter->strides, rank1);
+
+  auto *input = static_cast<StridedMemRefType<float, 4> *>(i_ptr);
+  auto *inputAllocated = input->data + input->offset;
+  auto inputSizes = llvm::ArrayRef<int64_t>(input->sizes, rank2);
+  auto inputStrides = llvm::ArrayRef<int64_t>(input->strides, rank2);
+
+  auto *output = static_cast<StridedMemRefType<float, 4> *>(o_ptr);
+  auto *outputAllocated = output->data + output->offset;
+  auto outputSizes = llvm::ArrayRef<int64_t>(output->sizes, rank3);
+  auto outputStrides = llvm::ArrayRef<int64_t>(output->strides, rank3);
+
+  auto *layout1 = static_cast<StridedMemRefType<char, 1> *>(f_layout);
+  auto *filterLayout = layout1->data + layout1->offset;
+
+  auto *layout2 = static_cast<StridedMemRefType<char, 1> *>(i_layout);
+  auto *inputLayout = layout2->data + layout2->offset;
+
+  auto *layout3 = static_cast<StridedMemRefType<char, 1> *>(o_layout);
+  auto *outputLayout = layout3->data + layout3->offset;
+
+  // Extract proper tensor sizes and strides based on layouts
+  std::unordered_map<char, std::pair<int64_t, int64_t>> filterSizeStride;
+  std::unordered_map<char, std::pair<int64_t, int64_t>> inputSizeStride;
+  std::unordered_map<char, std::pair<int64_t, int64_t>> outputSizeStride;
+  for (size_t i = 0; i < 4; i++) {
+    filterSizeStride[filterLayout[i]] =
+        std::make_pair(filterSizes[i], filterStrides[i]);
+    inputSizeStride[inputLayout[i]] =
+        std::make_pair(inputSizes[i], inputStrides[i]);
+    outputSizeStride[outputLayout[i]] =
+        std::make_pair(outputSizes[i], outputStrides[i]);
+  }
+
+  // Perform forward convolution
+  for (int64_t n = 0; n < outputSizeStride['n'].first; n++)
+    for (int64_t k = 0; k < outputSizeStride['k'].first; k++)
+      for (int64_t out_h = 0; out_h < outputSizeStride['h'].first; out_h++)
+        for (int64_t out_w = 0; out_w < outputSizeStride['w'].first; out_w++) {
+
+          float acc = 0.0;
+          for (int64_t c = 0; c < inputSizeStride['c'].first; c++)
+            for (int64_t fil_h = 0; fil_h < filterSizeStride['y'].first;
+                 fil_h++)
+              for (int64_t fil_w = 0; fil_w < filterSizeStride['x'].first;
+                   fil_w++) {
+
+                float input;
+                int64_t in_h =
+                    out_h * stride_h + fil_h * dilation_h - padding_h;
+                int64_t in_w =
+                    out_w * stride_w + fil_w * dilation_w - padding_w;
+
+                if (in_h < 0 || in_h >= inputSizeStride['h'].first ||
+                    in_w < 0 || in_w >= inputSizeStride['w'].first)
+                  input = 0.0;
+                else
+                  input = inputAllocated[n * inputSizeStride['n'].second +
+                                         c * inputSizeStride['c'].second +
+                                         in_h * inputSizeStride['h'].second +
+                                         in_w * inputSizeStride['w'].second];
+
+                acc += input *
+                       filterAllocated[k * filterSizeStride['k'].second +
+                                       c * filterSizeStride['c'].second +
+                                       fil_h * filterSizeStride['y'].second +
+                                       fil_w * filterSizeStride['x'].second];
+              }
+
+          outputAllocated[n * outputSizeStride['n'].second +
+                          k * outputSizeStride['k'].second +
+                          out_h * outputSizeStride['h'].second +
+                          out_w * outputSizeStride['w'].second] = acc;
+        }
 }
