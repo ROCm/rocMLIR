@@ -90,9 +90,65 @@ module {
   func @mgpuMemDealloc4DFloat(memref<?x?x?x?xf32>)
 
   func @conv2d_host(%arg0: memref<3x3x8x128xf32>, %arg1: memref<128x32x32x8xf32>, %arg2: memref<128x30x30x128xf32>) {
-    linalg.conv(%arg0, %arg1, %arg2) {dilations = [1, 1], padding = dense<0> : tensor<2x2xi64>, strides = [1, 1]} : memref<3x3x8x128xf32>, memref<128x32x32x8xf32>, memref<128x30x30x128xf32>
+    %0 = memref_cast %arg0 : memref<3x3x8x128xf32> to memref<?x?x?x?xf32>
+    %1 = memref_cast %arg1 : memref<128x32x32x8xf32> to memref<?x?x?x?xf32>
+    %2 = memref_cast %arg2 : memref<128x30x30x128xf32> to memref<?x?x?x?xf32>
+
+    %3 = memref_cast %0 : memref<?x?x?x?xf32> to memref<*xf32>
+    %4 = memref_cast %1 : memref<?x?x?x?xf32> to memref<*xf32>
+    %5 = memref_cast %2 : memref<?x?x?x?xf32> to memref<*xf32>
+
+    // set up strides, paddings and dilations
+    %c1_i32 = constant 1 : i32
+    %c1_i32_0 = constant 1 : i32
+    %c0_i32 = constant 0 : i32
+    %c0_i32_1 = constant 0 : i32
+    %c1_i32_2 = constant 1 : i32
+    %c1_i32_3 = constant 1 : i32
+
+    // set up constant indices
+    %c0 = constant 0 : index
+    %c1 = constant 1 : index
+    %c2 = constant 2 : index
+    %c3 = constant 3 : index
+    
+    // set up constants (ascii code) for layout letters
+    %k = constant 107 : i8
+    %c = constant 99 : i8
+    %y = constant 121 : i8
+    %x = constant 120 : i8
+    %n = constant 110 : i8
+    %h = constant 104 : i8
+    %w = constant 119 : i8
+ 
+    // allocate memory for layouts 
+    %6 = alloca() : memref<4xi8>
+    %7 = alloca() : memref<4xi8>
+    %8 = alloca() : memref<4xi8>
+
+    // store layouts
+    store %y, %6[%c0] : memref<4xi8>
+    store %x, %6[%c1] : memref<4xi8>
+    store %c, %6[%c2] : memref<4xi8>
+    store %k, %6[%c3] : memref<4xi8>
+    store %n, %7[%c0] : memref<4xi8>
+    store %h, %7[%c1] : memref<4xi8>
+    store %w, %7[%c2] : memref<4xi8>
+    store %c, %7[%c3] : memref<4xi8>
+    store %n, %8[%c0] : memref<4xi8>
+    store %h, %8[%c1] : memref<4xi8>
+    store %w, %8[%c2] : memref<4xi8>
+    store %k, %8[%c3] : memref<4xi8>
+
+    %9 = memref_cast %6 : memref<4xi8> to memref<*xi8>
+    %10 = memref_cast %7 : memref<4xi8> to memref<*xi8>
+    %11 = memref_cast %8 : memref<4xi8> to memref<*xi8>
+    call @mcpuConv2d(%3, %4, %5, %9, %10, %11, %c1_i32, %c1_i32_0, %c0_i32, %c0_i32_1, %c1_i32_2, %c1_i32_3) : 
+                    ( memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32) -> ()
+    
     return
   }
+  func @mcpuConv2d(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32)
 
   func @verify_results(%arg0: memref<128x30x30x128xf32>, %arg1: memref<128x30x30x128xf32>) {
     %c0 = constant 0 : index
