@@ -177,6 +177,28 @@ llvm.func @rocdl.mubuf(%rsrc : !llvm<"<4 x i32>">, %vindex : !llvm.i32,
   llvm.return
 }
 
+llvm.func @rocdl.rawbuf(%rsrc : !llvm<"<4 x i32>">,
+                        %offset : !llvm.i32, %soffset : !llvm.i32,
+                        %aux : !llvm.i32, %vdata1 : !llvm<"<1 x float>">,
+                        %vdata2 : !llvm<"<2 x float>">, %vdata4 : !llvm<"<4 x float>">) {
+  // CHECK-LABEL: rocdl.rawbuf
+  // CHECK: call <1 x float> @llvm.amdgcn.raw.buffer.load.v1f32(<4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 %{{.*}})
+  %r1 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : !llvm<"<1 x float>">
+  // CHECK: call <2 x float> @llvm.amdgcn.raw.buffer.load.v2f32(<4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 %{{.*}})
+  %r2 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : !llvm<"<2 x float>">
+  // CHECK: call <4 x float> @llvm.amdgcn.raw.buffer.load.v4f32(<4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 %{{.*}})
+  %r4 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : !llvm<"<4 x float>">
+
+  // CHECK: call void @llvm.amdgcn.raw.buffer.store.v1f32(<1 x float> %{{.*}}, <4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 %{{.*}})
+  rocdl.raw.buffer.store %vdata1, %rsrc, %offset, %soffset, %aux : !llvm<"<1 x float>">
+  // CHECK: call void @llvm.amdgcn.raw.buffer.store.v2f32(<2 x float> %{{.*}}, <4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 %{{.*}})
+  rocdl.raw.buffer.store %vdata2, %rsrc, %offset, %soffset, %aux : !llvm<"<2 x float>">
+  // CHECK: call void @llvm.amdgcn.raw.buffer.store.v4f32(<4 x float> %{{.*}}, <4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 %{{.*}})
+  rocdl.raw.buffer.store %vdata4, %rsrc, %offset, %soffset, %aux : !llvm<"<4 x float>">
+
+  llvm.return
+}
+
 // CHECK-LABEL: @alloca_non_zero_addrspace
 llvm.func @alloca_non_zero_addrspace(%size : !llvm.i64) {
   // Alignment automatically set by the LLVM IR builder when alignment attribute

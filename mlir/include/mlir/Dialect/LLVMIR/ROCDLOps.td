@@ -182,4 +182,49 @@ def ROCDL_MubufStoreOp :
   }];
 }
 
+//===---------------------------------------------------------------------===//
+// Vector Raw buffer load/store intrinsics
+
+def ROCDL_RawbufLoadOp :
+  ROCDL_Op<"raw.buffer.load">, 
+  Results<(outs LLVM_Type:$res)>,
+  Arguments<(ins LLVM_Type:$rsrc,
+                 LLVM_Type:$offset,
+                 LLVM_Type:$soffset,
+                 LLVM_Type:$aux)>{
+  string llvmBuilder = [{
+      $res = createIntrinsicCall(builder,
+          llvm::Intrinsic::amdgcn_raw_buffer_load, {$rsrc, $offset, $soffset, 
+          $aux}, {$_resultType});
+  }];
+  let parser = [{ return parseROCDLRawbufLoadOp(parser, result); }];
+  let printer = [{ 
+    Operation *op = this->getOperation();
+    p << op->getName() << " " << op->getOperands()
+      << " : " << op->getResultTypes();
+  }];
+}
+
+def ROCDL_RawbufStoreOp :
+  ROCDL_Op<"raw.buffer.store">, 
+  Arguments<(ins LLVM_Type:$vdata,
+                 LLVM_Type:$rsrc,
+                 LLVM_Type:$offset,
+                 LLVM_Type:$soffset,
+                 LLVM_Type:$aux)>{
+  string llvmBuilder = [{
+    auto vdataType = op.vdata().getType().cast<LLVM::LLVMType>()
+                       .getUnderlyingType();
+    createIntrinsicCall(builder,
+          llvm::Intrinsic::amdgcn_raw_buffer_store, {$vdata, $rsrc, $offset, 
+          $soffset, $aux}, {vdataType});
+  }];
+  let parser = [{ return parseROCDLRawbufStoreOp(parser, result); }];
+  let printer = [{ 
+    Operation *op = this->getOperation();
+    p << op->getName() << " " << op->getOperands()
+      << " : " << vdata().getType();
+  }];
+}
+
 #endif // ROCDLIR_OPS
