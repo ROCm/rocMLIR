@@ -37,9 +37,6 @@ private:
   int64_t blockSizeOverride;
   int64_t gridSizeOverride;
 
-  // Current function
-  FuncOp func;
-
   // Actual implementation.
   template<typename T>
   void affixTuningParametersImpl(T &op);
@@ -47,7 +44,7 @@ private:
 } // anonymous namespace
 
 void AffixTuningParameters::runOnFunction() {
-  func = getFunction();
+  FuncOp func = getFunction();
 
   // In the original C++ implementation, template arguments used by GridwiseGemmOp are:
   // template <index_t GridSize,                                 - NOT USED
@@ -163,8 +160,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op.setAttr("n_per_thread", b.getI32IntegerAttr(validParams.gemmNPerWave));
     op.setAttr("block_size", b.getI32IntegerAttr(blockSize));
 
-    func.setAttr("block_size", b.getI32IntegerAttr(blockSize));
-    func.setAttr("grid_size", b.getI32IntegerAttr(gridSizeOverride ? gridSizeOverride : gridSize));
+    getFunction().setAttr("block_size", b.getI32IntegerAttr(blockSize));
+    getFunction().setAttr("grid_size", b.getI32IntegerAttr(gridSizeOverride ? gridSizeOverride : gridSize));
 
     op.setAttr("m_per_block", b.getI32IntegerAttr(validParams.gemmMPerBlock));
     op.setAttr("n_per_block", b.getI32IntegerAttr(validParams.gemmNPerBlock));
@@ -207,8 +204,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op.setAttr("n_per_thread", b.getI32IntegerAttr(validParams.gemmNPerThread));
     op.setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
 
-    func.setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
-    func.setAttr("grid_size", b.getI32IntegerAttr(gridSizeOverride ? gridSizeOverride : gridSize));
+    getFunction().setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
+    getFunction().setAttr("grid_size", b.getI32IntegerAttr(gridSizeOverride ? gridSizeOverride : gridSize));
 
     op.setAttr("m_per_block", b.getI32IntegerAttr(validParams.gemmMPerBlock));
     op.setAttr("n_per_block", b.getI32IntegerAttr(validParams.gemmNPerBlock));
