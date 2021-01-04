@@ -84,7 +84,7 @@ static ParseResult parseROCDLMubufStoreOp(OpAsmParser &parser,
 //     `llvm.amdgcn.raw.buffer.load.* %rsrc, %offset, %soffset, %aux :
 //     result_type`
 static ParseResult parseROCDLRawbufLoadOp(OpAsmParser &parser,
-					  OperationState &result) {
+                                          OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 8> ops;
   Type type;
   if (parser.parseOperandList(ops, 4) || parser.parseColonType(type) ||
@@ -93,8 +93,7 @@ static ParseResult parseROCDLRawbufLoadOp(OpAsmParser &parser,
 
   auto int32Ty = LLVM::LLVMType::getInt32Ty(getLlvmDialect(parser));
   auto i32x4Ty = LLVM::LLVMType::getVectorTy(int32Ty, 4);
-  return parser.resolveOperands(ops,
-                                {i32x4Ty, int32Ty, int32Ty, int32Ty},
+  return parser.resolveOperands(ops, {i32x4Ty, int32Ty, int32Ty, int32Ty},
                                 parser.getNameLoc(), result.operands);
 }
 
@@ -102,7 +101,7 @@ static ParseResult parseROCDLRawbufLoadOp(OpAsmParser &parser,
 //     `llvm.amdgcn.raw.buffer.store.* %vdata, %rsrc, %offset, %soffset, %aux :
 //     result_type`
 static ParseResult parseROCDLRawbufStoreOp(OpAsmParser &parser,
-					   OperationState &result) {
+                                           OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 8> ops;
   Type type;
   if (parser.parseOperandList(ops, 5) || parser.parseColonType(type))
@@ -111,8 +110,7 @@ static ParseResult parseROCDLRawbufStoreOp(OpAsmParser &parser,
   auto int32Ty = LLVM::LLVMType::getInt32Ty(getLlvmDialect(parser));
   auto i32x4Ty = LLVM::LLVMType::getVectorTy(int32Ty, 4);
 
-  if (parser.resolveOperands(ops,
-                             {type, i32x4Ty, int32Ty, int32Ty, int32Ty},
+  if (parser.resolveOperands(ops, {type, i32x4Ty, int32Ty, int32Ty, int32Ty},
                              parser.getNameLoc(), result.operands))
     return failure();
   return success();
