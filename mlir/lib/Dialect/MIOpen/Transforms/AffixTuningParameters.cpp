@@ -161,7 +161,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op.setAttr("block_size", b.getI32IntegerAttr(blockSize));
 
     getFunction().setAttr("block_size", b.getI32IntegerAttr(blockSize));
-    getFunction().setAttr("grid_size", b.getI32IntegerAttr(gridSizeOverride ? gridSizeOverride : gridSize));
+    getFunction().setAttr(
+        "grid_size",
+        b.getI32IntegerAttr(gridSizeOverride ? gridSizeOverride : gridSize));
 
     op.setAttr("m_per_block", b.getI32IntegerAttr(validParams.gemmMPerBlock));
     op.setAttr("n_per_block", b.getI32IntegerAttr(validParams.gemmNPerBlock));
@@ -204,8 +206,11 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op.setAttr("n_per_thread", b.getI32IntegerAttr(validParams.gemmNPerThread));
     op.setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
 
-    getFunction().setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
-    getFunction().setAttr("grid_size", b.getI32IntegerAttr(gridSizeOverride ? gridSizeOverride : gridSize));
+    getFunction().setAttr("block_size",
+                          b.getI32IntegerAttr(validParams.blockSize));
+    getFunction().setAttr(
+        "grid_size",
+        b.getI32IntegerAttr(gridSizeOverride ? gridSizeOverride : gridSize));
 
     op.setAttr("m_per_block", b.getI32IntegerAttr(validParams.gemmMPerBlock));
     op.setAttr("n_per_block", b.getI32IntegerAttr(validParams.gemmNPerBlock));
