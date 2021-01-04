@@ -255,8 +255,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
              b.getI32IntegerAttr(3));
 }
 
-std::unique_ptr<Pass> mlir::miopen::createAffixTuningParametersPass(
-    int64_t blockSizeOverride, int64_t gridSizeOverride) {
+std::unique_ptr<Pass>
+mlir::miopen::createAffixTuningParametersPass(int64_t blockSizeOverride,
+                                              int64_t gridSizeOverride) {
   return std::make_unique<AffixTuningParameters>(blockSizeOverride,
                                                  gridSizeOverride);
 }

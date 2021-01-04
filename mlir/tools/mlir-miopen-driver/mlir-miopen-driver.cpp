@@ -1219,9 +1219,10 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
   Block *block = &(theFunc.getBody().front());
   block->clear();
 
-  auto blockSizeAttr = 
-      theGpuFunc.getAttr("block_size").template dyn_cast<IntegerAttr>().getInt();
-  auto gridSizeAttr = 
+  auto blockSizeAttr = theGpuFunc.getAttr("block_size")
+                           .template dyn_cast<IntegerAttr>()
+                           .getInt();
+  auto gridSizeAttr =
       theGpuFunc.getAttr("grid_size").template dyn_cast<IntegerAttr>().getInt();
   auto cstOne = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
   auto cstBlockSize =
@@ -1255,7 +1256,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser 
     // Passes for lowering MIOpen dialect.
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
     pm.addPass(mlir::miopen::createAffineTransformPass());
-    pm.addPass(mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
+    pm.addPass(
+        mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
     pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());

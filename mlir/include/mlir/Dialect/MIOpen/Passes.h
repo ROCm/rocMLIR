@@ -43,9 +43,9 @@ std::unique_ptr<Pass> createLowerMIOpenOpsStep5Pass();
 std::unique_ptr<Pass> createAffineTransformPass();
 
 /// Create a pass to affix tuning parameters to gridwise gemm ops.
-std::unique_ptr<Pass> createAffixTuningParametersPass(
-    int64_t blockSizeOverride = 0,
-    int64_t gridSizeOverride = 0);
+std::unique_ptr<Pass>
+createAffixTuningParametersPass(int64_t blockSizeOverride = 0,
+                                int64_t gridSizeOverride = 0);
 
 } // namespace miopen
 } // namespace mlir
