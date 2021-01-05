@@ -153,6 +153,10 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
 
     // Set kernel attribute.
     gpuFunc.setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
+    if (auto attr = theFunc.getAttr("block_size"))
+      gpuFunc.setAttr("block_size", attr);
+    if (auto attr = theFunc.getAttr("grid_size"))
+      gpuFunc.setAttr("grid_size", attr);
 
     // associate arguments for newly created GPUFuncOp.
     BlockAndValueMapping map;
