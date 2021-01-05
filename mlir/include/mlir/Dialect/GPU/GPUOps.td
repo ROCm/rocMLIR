@@ -767,4 +767,23 @@ def GPU_MFMAOp:
   let verifier = [{ return ::verify(*this); }];
 }
 
+// buffer load
+def GPU_MubufLoadOp :
+    GPU_Op<"buffer_load">,
+    Arguments<(ins AnyMemRef:$memref,
+                   Variadic<I32>:$indices)>,
+    Results<(outs AnyTypeOf<[F32, VectorOfLengthAndType<[2], [F32]>, VectorOfLengthAndType<[4], [F32]>,
+                             F16, VectorOfLengthAndType<[2], [F16]>, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[8], [F16]>,
+                             BF16, VectorOfLengthAndType<[2], [BF16]>, VectorOfLengthAndType<[4], [BF16]>, VectorOfLengthAndType<[8], [BF16]>]>:$result)> {
+  let summary = "AMD GPU Buffer Load";
+  let description = [{
+    The `gpu.buffer_load` op is an abstraction of AMD GPU buffer load intrinsics.
+    `vector.transfer_read` is too tightly coupled with masked load which is not
+    supported well on AMD GPU.
+  }];
+  let parser = [{ return parseMubufLoadOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
+
 #endif // GPU_OPS

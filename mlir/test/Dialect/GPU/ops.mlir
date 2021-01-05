@@ -177,4 +177,34 @@ module attributes {gpu.container_module} {
       gpu.return
     }
   }
+
+  gpu.module @mubuf {
+    // CHECK-LABEL: gpu.func @buffer_load_from_rank_1_to_f32
+    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}) : memref<128xf32>, f32
+    gpu.func @buffer_load_from_rank_1_to_f32(%src : memref<128xf32>, %offset0 : i32) -> f32 {
+      %result = gpu.buffer_load(%src, %offset0) : memref<128xf32>, f32
+      gpu.return %result : f32
+    }
+
+    // CHECK-LABEL: gpu.func @buffer_load_from_rank_4_to_f32
+    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<128x64x32x16xf32>, f32
+    gpu.func @buffer_load_from_rank_4_to_f32(%src : memref<128x64x32x16xf32>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> f32 {
+      %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xf32>, f32
+      gpu.return %result : f32
+    }
+
+    // CHECK-LABEL: gpu.func @buffer_load_from_rank_1_to_4xf32
+    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}) : memref<128xf32>, vector<4xf32>
+    gpu.func @buffer_load_from_rank_1_to_4xf32(%src : memref<128xf32>, %offset0 : i32) -> vector<4xf32> {
+      %result = gpu.buffer_load(%src, %offset0) : memref<128xf32>, vector<4xf32>
+      gpu.return %result : vector<4xf32>
+    }
+
+    // CHECK-LABEL: gpu.func @buffer_load_from_rank_4_to_4xf32
+    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<128x64x32x16xf32>, vector<4xf32>
+    gpu.func @buffer_load_from_rank_4_to_4xf32(%src : memref<128x64x32x16xf32>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<4xf32> {
+      %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xf32>, vector<4xf32>
+      gpu.return %result : vector<4xf32>
+    }
+  }
 }
