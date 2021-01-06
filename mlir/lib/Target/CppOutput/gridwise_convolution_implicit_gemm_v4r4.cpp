@@ -190,24 +190,24 @@ void EmitCppPreamble(llvm::raw_ostream &output, miopen::ConvOpType opType) {
   output << kCppPreamblePart1;
 // Between Preamble Part 1 and Part 2:
   if (opType == miopen::ConvOpType::Conv2DOpType) {
-    output << R"(#include "mlir_gen_igemm_conv2d_v4r4_fwd.hpp")";
+    output << R"(#include "mlir_gen_igemm_conv2d_cpp_v4r4_fwd.hpp")";
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
-    output << R"(#include "mlir_gen_igemm_conv2d_v1r1_bwd.hpp")";
+    output << R"(#include "mlir_gen_igemm_conv2d_cpp_v1r1_bwd.hpp")";
   } else if (opType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
-    output << R"(#include "mlir_gen_igemm_conv2d_v4r4_wrw.hpp")";
+    output << R"(#include "mlir_gen_igemm_conv2d_cpp_v4r4_wrw.hpp")";
   }
 
   output << kCppPreamblePart2;
 // Between Preamble Part 2 and Par 3:
   if (opType == miopen::ConvOpType::Conv2DOpType) {
     output << R"(
-    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_v4r4_fwd)";
+    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_cpp_v4r4_fwd)";
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
     output << R"(
-    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_v1r1_bwd)";
+    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_cpp_v1r1_bwd)";
   } else if (opType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
     output << R"(
-    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_v4r4_wrw)";
+    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_cpp_v4r4_wrw)";
   }
 
   std::string argPInGlobal(kVarArgName[1]);
@@ -433,19 +433,19 @@ void EmitHeaderPreamble(llvm::raw_ostream &output,
   std::string commentGemmK;
   std::string gemmNameABlockCopySrcDataPerRead;
   if (opType == miopen::ConvOpType::Conv2DOpType) {
-    headerIncludeGuard = "MLIR_GEN_IGEMM_CONV2D_V4R4_FWD";
+    headerIncludeGuard = "MLIR_GEN_IGEMM_CONV2D_CPP_V4R4_FWD";
     commentGemmM = "K";
     commentGemmN = "N * H * W";
     commentGemmK = "C * Y * X";
     gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[0].str();
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
-    headerIncludeGuard = "MLIR_GEN_IGEMM_CONV2D_V1R1_BWD";
+    headerIncludeGuard = "MLIR_GEN_IGEMM_CONV2D_CPP_V1R1_BWD";
     commentGemmM = "C * Y * X";
     commentGemmN = "N * H * W";
     commentGemmK = "K";
     gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[1].str();
   } else if (opType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
-    headerIncludeGuard = "MLIR_GEN_IGEMM_CONV2D_V4R4_WRW";
+    headerIncludeGuard = "MLIR_GEN_IGEMM_CONV2D_CPP_V4R4_WRW";
     commentGemmM = "K";
     commentGemmN = "C * Y * X";
     commentGemmK = "N * H * W";
