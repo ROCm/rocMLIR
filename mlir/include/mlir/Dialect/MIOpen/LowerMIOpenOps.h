@@ -3444,42 +3444,24 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
     auto zero = b.create<ConstantIndexOp>(loc, 0);
     auto one = b.create<ConstantIndexOp>(loc, 1);
 
-    if (inputShape.size() == 1) {
+    scf::ForOp currentLoop;
+    OpBuilder currentScope = b;
+    std::vector<mlir::Value> range;
+    
+    for (unsigned i = 0; i < inputShape.size(); ++i) {
       // Rank 1 loop.
-      auto loopIteration = b.create<ConstantIndexOp>(loc, inputShape[0]);
-      auto loopOp = b.create<scf::ForOp>(loc, zero, loopIteration, one);
+      auto loopIterCount = currentScope.create<ConstantIndexOp>(loc, inputShape[i]);
+      currentLoop = currentScope.create<scf::ForOp>(loc, zero, loopIterCount, one);
 
+      // collect current loop induction var for store indexes
+      range.push_back(currentLoop.getInductionVar());
+      
       // inside loop.
-      auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
-
-      for (unsigned i = 0; i < inputShape[0]; ++i) {
-        auto iter = b.create<ConstantIndexOp>(loc, i);
-        lb.create<StoreOp>(loc, op.value(), op.input(), ValueRange{iter});
-      }
-    } else if (inputShape.size() == 2) {
-      // Rank 2 loop.
-      auto loop0Iteration = b.create<ConstantIndexOp>(loc, inputShape[0]);
-      auto loop0Op = b.create<scf::ForOp>(loc, zero, loop0Iteration, one);
-
-      // inside outer loop.
-      auto l0b = OpBuilder::atBlockTerminator(loop0Op.getBody());
-
-      for (unsigned i = 0; i < inputShape[0]; ++i) {
-        auto iter0 = b.create<ConstantIndexOp>(loc, i);
-
-        auto loop1Iteration = b.create<ConstantIndexOp>(loc, inputShape[1]);
-        auto loop1Op = l0b.create<scf::ForOp>(loc, zero, loop1Iteration, one);
-
-        // inside inner loop.
-        auto l1b = OpBuilder::atBlockTerminator(loop1Op.getBody());
-
-        for (unsigned j = 0; j < inputShape[1]; ++j) {
-          auto iter1 = b.create<ConstantIndexOp>(loc, j);
-
-          l1b.create<StoreOp>(loc, op.value(), op.input(), ValueRange{iter0, iter1});
-        }
-      }
+      currentScope = OpBuilder::atBlockTerminator(currentLoop.getBody());
     }
+
+    // Store fill value
+    currentScope.create<StoreOp>(loc, op.value(), op.input(), range);
 
     op.erase();
     return success();
