@@ -99,7 +99,7 @@ std::string translateLayout(const Vector &src, const Vector &srcSpec,
                  [&targetSpec](int64_t p) { return targetSpec[p]; });
   return targetLayout;
 }
-
+template<class DataType>
 static LogicalResult populateConvolutionLogic(
     std::string &arch, int num_cu, std::string &operation,
     std::string &inputLayout, std::string &outputLayout,
@@ -109,7 +109,7 @@ static LogicalResult populateConvolutionLogic(
     int64_t filterHeight, int dilationHeight, int dilationWidth,
     int strideHeight, int strideWidth, int paddingHeight, int paddingWidth,
     ModuleOp &module, OpBuilder &builder, SmallString<128> &kernelName,
-    mlir::FloatType dataType, bool xdlops = false) {
+    const DataType& dataType, bool xdlops = false) {
   // Determine dimensions.
   SmallVector<int64_t, 4> filterDimension;
   SmallVector<int64_t, 4> inputDimension;

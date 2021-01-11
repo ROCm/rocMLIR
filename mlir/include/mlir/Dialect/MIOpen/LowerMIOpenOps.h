@@ -4261,6 +4261,10 @@ struct ThreadwiseCopyV2RewritePattern
         auto truncValue = innerLoopBuilder.create<FPTruncOp>(loc, scalarValue, dataType);
         innerLoopBuilder.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
       }
+      else if (dataType == b.getIntegerType(16)){
+        auto convertValue = innerLoopBuilder.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
+        innerLoopBuilder.create<StoreOp>(loc, convertValue, op.dest(), destLowerIndices);
+      }
     }
 
     op.erase();
