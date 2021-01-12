@@ -14,6 +14,7 @@
 #define MIOPEN_OPS
 
 include "mlir/IR/OpBase.td"
+include "mlir/Dialect/LLVMIR/LLVMOpBase.td"
 //include "mlir/Transforms/LoopLikeInterface.td"
 
 def MIOpen_Dialect : Dialect {
@@ -313,8 +314,8 @@ def MIOpen_XdlopsGemmV2Op:
 
 def MIOpen_DataConvertOp :
     MIOpen_Op<"data_convert">,
-    Arguments<(ins F32:$in)>,
-    Results<(outs I16:$out)> {
+    Arguments<(ins AnyTypeOf<[F32, I16]>:$in)>,
+    Results<(outs AnyTypeOf<[BF16, I16]>:$out)> {
   let summary = "from data type to another";
   let description = [{
     The `miopen.data_convert` op transforms some data type.
