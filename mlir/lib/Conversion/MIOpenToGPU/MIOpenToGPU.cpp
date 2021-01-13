@@ -210,6 +210,14 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         op.erase();
       });
 
+      gpuFunc.walk([&](miopen::DataConvertOp op) {
+        auto loc = op.getLoc();
+	OpBuilder b(op.getContext());
+	b.setInsertionPoint(op);
+	Value cast = b.create<gpu::BFConvertOp>(loc, op.out().getType(),op.in() );
+	op.replaceAllUsesWith(cast);
+	op.erase();
+      });
       // TBD see if these patterns could be re-written using tablgen.
       gpuFunc.walk([&](miopen::WorkgroupBarrierOp op) {
         auto loc = op.getLoc();
