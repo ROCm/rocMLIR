@@ -4,6 +4,8 @@ add_public_tablegen_target(MLIRGPUToROCDLIncGen)
 
 add_mlir_conversion_library(MLIRGPUtoROCDLTransforms
   LowerGpuOpsToROCDLOps.cpp
+  ConvertMIOpenToLLVM.cpp
+
 
   DEPENDS
   MLIRConversionPassIncGen

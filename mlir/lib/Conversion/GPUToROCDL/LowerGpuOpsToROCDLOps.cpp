@@ -15,6 +15,7 @@
 
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
+#include "mlir/Conversion/GPUToROCDL/ConvertMIOpenToLLVM.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
@@ -54,8 +55,10 @@ public:
     applyPatternsAndFoldGreedily(m, patterns);
     patterns.clear();
 
+    populateMIOpenToLLVMConversionPatterns(converter,patterns);
     populateVectorToLLVMConversionPatterns(converter, patterns);
     populateStdToLLVMConversionPatterns(converter, patterns);
+    
     populateGpuToROCDLConversionPatterns(converter, patterns);
     LLVMConversionTarget target(getContext());
     target.addIllegalDialect<gpu::GPUDialect>();
