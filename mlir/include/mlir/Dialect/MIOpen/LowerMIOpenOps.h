@@ -2285,10 +2285,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     int64_t NPerWave = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
-
-    auto dataType = op.input().getType().template dyn_cast<MemRefType>().getElementType();
-    // simulate bf16
-    //dataType = b.getIntegerType(16);
+    auto dataType = op.input().getType().template dyn_cast<MemRefType>().getElementType().template dyn_cast<FloatType>();
 
     auto MPerWaveConstantOp = b.create<ConstantIndexOp>(loc, MPerWave);
     auto NPerWaveConstantOp = b.create<ConstantIndexOp>(loc, NPerWave);
@@ -4487,18 +4484,8 @@ struct XdlopsGemmV2RewritePattern
     int64_t K = op.getAttr("k").template dyn_cast<IntegerAttr>().getInt();
     int64_t MPerWave = op.getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerWave = op.getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
-//simulate bf16
-/*
-    auto  kevinMatrixType = MemRefType::get({6144}, b.getIntegerType(16), {}, 3);
 
-    op.matrixA().setType(kevinMatrixType);
-    op.matrixB().setType(kevinMatrixType);
-
-    auto  kevinType = MemRefType::get({32}, b.getIntegerType(16), {}, 5);
-    op.bufferA().setType(kevinType);
-    op.bufferB().setType(kevinType);
-*/
-    auto dataType = op.matrixA().getType().template dyn_cast<MemRefType>().getElementType();
+    auto dataType = op.matrixA().getType().template dyn_cast<MemRefType>().getElementType().template dyn_cast<FloatType>();
 
     auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
     auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
@@ -4558,13 +4545,10 @@ struct XdlopsGemmV2RewritePattern
     // TBD. Existing logic for fp16/bf16 may still NOT be 100% correct.
     int64_t KRepeats = 0;
     if (dataType == b.getF32Type()) {
-      KRepeats = (dataType.template dyn_cast<FloatType>().getWidth() / 8) / (dataType.template dyn_cast<FloatType>().getWidth() / 8 * k_base);
+      KRepeats = (dataType.getWidth() / 8) / (dataType.getWidth() / 8 * k_base);
     } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
       VectorType argVectorType = argType.template dyn_cast<VectorType>();
-      KRepeats = (dataType.template dyn_cast<FloatType>().getWidth() / 8 * argVectorType.getShape()[0]) / (dataType.template dyn_cast<FloatType>().getWidth() / 8 * k_base);
-    } else if (dataType == b.getIntegerType(16)) {
-      VectorType argVectorType = argType.template dyn_cast<VectorType>();
-      KRepeats = (dataType.template dyn_cast<IntegerType>().getWidth() / 8 * argVectorType.getShape()[0]) / (dataType.template dyn_cast<IntegerType>().getWidth() / 8 * k_base);
+      KRepeats = (dataType.getWidth() / 8 * argVectorType.getShape()[0]) / (dataType.getWidth() / 8 * k_base);
     }
     
     int64_t AStride = K * KRepeats;
@@ -4591,8 +4575,8 @@ struct XdlopsGemmV2RewritePattern
       //     for(index_t m_i = 0; m_i < MRepeats; ++m_i)
       //         for(index_t k_i      = 0; k_i < K; ++k_i)
       //             a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
-
       // p_a_wave need to be offseted by threadOffsetA.
+
       auto outerLoopM = b.create<scf::ForOp>(loc, zeroConstantOp, MRepeatsConstantOp, oneConstantOp);
       auto olmb = OpBuilder::atBlockTerminator(outerLoopM.getBody());
       auto olmiv = outerLoopM.getInductionVar();
@@ -4673,7 +4657,7 @@ struct XdlopsGemmV2RewritePattern
       if (dataType == b.getF32Type()) {
         argA = loopKb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
         argB = loopKb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
-      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type() || dataType == b.getIntegerType(16)) {
+      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
         argA = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
         argB = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
       }
@@ -4681,6 +4665,7 @@ struct XdlopsGemmV2RewritePattern
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
         auto vectorC = loopK.getRegionIterArgs()[i];
+
         // issue MFMA logic.
         // TBD: need to consider the case to use argA[AStride] and argB[BStride]
         auto mfma = loopKb.create<miopen::MFMAV2Op>(loc, vectorType, argA, argB, vectorC);
@@ -4772,7 +4757,7 @@ struct XdlopsGemmV2RewritePattern
       if (dataType == b.getF32Type()) {
         argA = innerLoopb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
         argB = innerLoopb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
-      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type() || b.getIntegerType(16)) {
+      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
         argA = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
         argB = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
       }
