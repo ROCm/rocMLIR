@@ -234,8 +234,8 @@ def MIOpen_ThreadwiseCopyV2Op:
 // blockwise_gemm
 def MIOpen_BlockwiseGemmOp:
     MIOpen_Op<"blockwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I16], [2]>:$matrixA,
-                   MemRefRankOf<[F32, F16, BF16, I16], [2]>:$matrixB,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [2]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16], [2]>:$matrixB,
                    AnyMemRef:$matrixC,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB)> {
@@ -250,14 +250,14 @@ def MIOpen_BlockwiseGemmOp:
 // blockwise_gemm_v2
 def MIOpen_BlockwiseGemmV2Op:
     MIOpen_Op<"blockwise_gemm_v2">,
-    Arguments<(ins MemRefOf<[F32, F16, BF16, I16]>:$matrixA,
-                   MemRefOf<[F32, F16, BF16, I16]>:$matrixB,
+    Arguments<(ins MemRefOf<[F32, F16, BF16]>:$matrixA,
+                   MemRefOf<[F32, F16, BF16]>:$matrixB,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB,
-                   MemRefOf<[F32, F16, BF16, I16]>:$bufferA,
-                   MemRefOf<[F32, F16, BF16, I16]>:$bufferB,
-                   Variadic<VectorOfRankAndType<[1], [F32, F16, BF16, I16]>>:$vectorCs)>,
-    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, BF16, I16]>>: $vectorDs)> {
+                   MemRefOf<[F32, F16, BF16]>:$bufferA,
+                   MemRefOf<[F32, F16, BF16]>:$bufferB,
+                   Variadic<VectorOfRankAndType<[1], [F32, F16, BF16]>>:$vectorCs)>,
+    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, BF16]>>: $vectorDs)> {
   let summary = "Blockwise GEMM XDLOPS version";
   let description = [{
     The `miopen.block_gemm` op does GEMM at workgroup (block) level.
@@ -269,9 +269,9 @@ def MIOpen_BlockwiseGemmV2Op:
 // threadwise_gemm
 def MIOpen_ThreadwiseGemmOp:
     MIOpen_Op<"threadwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I16], [2]>:$matrixA,
-                   MemRefRankOf<[F32, F16, BF16, I16], [2]>:$matrixB,
-                   MemRefRankOf<[F32, F16, BF16, I16], [2]>:$matrixC)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [2]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16], [2]>:$matrixB,
+                   MemRefRankOf<[F32, F16, BF16], [2]>:$matrixC)> {
   let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.
@@ -283,10 +283,10 @@ def MIOpen_ThreadwiseGemmOp:
 // mfma_v2
 def MIOpen_MFMAV2Op:
     MIOpen_Op<"mfma_v2">,
-    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>, VectorOfLengthAndType<[2], [I16]>]>: $sourceA,
-                   AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>, VectorOfLengthAndType<[2], [I16]>]>: $sourceB,
-                   VectorOfRankAndType<[1], [F32, F16, BF16, I16]>: $destC)>,
-    Results<(outs VectorOfRankAndType<[1], [F32, F16, BF16, I16]>: $destD)> {
+    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceA,
+                   AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceB,
+                   VectorOfRankAndType<[1], [F32, F16, BF16]>: $destC)>,
+    Results<(outs VectorOfRankAndType<[1], [F32, F16, BF16]>: $destD)> {
   let summary = "XDLOPS MFMA V2";
   let description = [{
     The `miopen.mfma_v2` op is an abstraction of XDLOPS.
@@ -296,14 +296,14 @@ def MIOpen_MFMAV2Op:
 // xdlops_gemm_V2
 def MIOpen_XdlopsGemmV2Op:
     MIOpen_Op<"xdlops_gemm_v2">,
-    Arguments<(ins MemRefOf<[F32, F16, BF16, I16]>:$matrixA,
-                   MemRefOf<[F32, F16, BF16, I16]>:$matrixB,
+    Arguments<(ins MemRefOf<[F32, F16, BF16]>:$matrixA,
+                   MemRefOf<[F32, F16, BF16]>:$matrixB,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB,
-                   MemRefOf<[F32, F16, BF16, I16]>:$bufferA,
-                   MemRefOf<[F32, F16, BF16, I16]>:$bufferB,
-                   Variadic<VectorOfRankAndType<[1], [F32, F16, BF16, I16]>>:$vectorCs)>,
-    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, BF16, I16]>>: $vectorDs)> {
+                   MemRefOf<[F32, F16, BF16]>:$bufferA,
+                   MemRefOf<[F32, F16, BF16]>:$bufferB,
+                   Variadic<VectorOfRankAndType<[1], [F32, F16, BF16]>>:$vectorCs)>,
+    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, BF16]>>: $vectorDs)> {
   let summary = "XDLOPS GEMM V2";
   let description = [{
     The `miopen.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.
