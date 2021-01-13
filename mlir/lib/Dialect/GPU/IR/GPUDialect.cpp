@@ -807,6 +807,32 @@ static void print(OpAsmPrinter &p, gpu::MFMAOp op) {
 
 static LogicalResult verify(gpu::MFMAOp op) { return success(); }
 
+//===----------------------------------------------------------------------===//
+// BFConvertOp
+//===----------------------------------------------------------------------===//
+static ParseResult parseBFConvertOp(OpAsmParser &parser, OperationState &result) {
+  OpAsmParser::OperandType ops;
+  Type type;
+  Type retType;
+  auto ret = parser.parseOperand(ops) ||
+             parser.parseColonType(type) ||
+             parser.resolveOperand(ops, type, result.operands)||
+             parser.parseKeywordType("to", retType) ||
+             parser.addTypeToList(retType, result.types);
+
+  return failure(ret);
+}
+
+static void print(OpAsmPrinter &p, BFConvertOp op) {
+  p << op.getOperationName() << " " << op.getOperand() << " ";
+  p << " : " << op.getOperand().getType();
+  p << " to " << op.getType();
+}
+
+static LogicalResult verify(BFConvertOp op) {
+  return success();
+}
+
 // Namespace avoids ambiguous ReturnOpOperandAdaptor.
 namespace mlir {
 namespace gpu {

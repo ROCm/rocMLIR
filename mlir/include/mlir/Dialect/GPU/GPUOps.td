@@ -758,4 +758,16 @@ def GPU_MFMAOp:
   let verifier = [{ return ::verify(*this); }];
 }
 
+def GPU_BFConvertOp :
+    GPU_Op<"bf_convert">,
+    Arguments<(ins F32:$in)>,
+    Results<(outs I16:$out)> {
+  let summary = "from fp32 to bf16";
+  let description = [{
+    The `gpu.bf_convert` op change fp32 to bf16, but we store with i16.
+  }];
+  let parser = [{ return parseBFConvertOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
 #endif // GPU_OPS

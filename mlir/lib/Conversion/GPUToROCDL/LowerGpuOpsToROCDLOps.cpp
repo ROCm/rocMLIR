@@ -198,6 +198,47 @@ struct MFMAOpLowering : ConvertToLLVMPattern {
     return success();
   }
 };
+
+struct BFOpLowering : ConvertToLLVMPattern {
+  explicit BFOpLowering(MLIRContext *context,
+                          LLVMTypeConverter &typeConverter)
+      : ConvertToLLVMPattern(gpu::BFConvertOp::getOperationName(), context,
+                             typeConverter) {}
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto bfOp = cast<gpu::BFConvertOp>(op);
+    auto adaptor = gpu::BFConvertOpOperandAdaptor(operands);
+    auto loc = bfOp.getLoc();
+
+    Type castedI32Type = rewriter.getIntegerType(32);
+    Type castedI16Type = rewriter.getIntegerType(16);
+    Type llvmI32Type = typeConverter.convertType(castedI32Type);
+    Type llvmI16Type = typeConverter.convertType(castedI16Type);
+
+    auto bitcastop = rewriter.create<LLVM::BitcastOp>(loc, llvmI32Type, adaptor.in());
+    auto constantSixteen = rewriter.create<LLVM::ConstantOp>(loc,
+                           llvmI32Type,rewriter.getIntegerAttr(castedI32Type, 16));
+    auto ShiftValue = rewriter.create<LLVM::LShrOp>(loc, llvmI32Type, bitcastop, constantSixteen);
+
+    auto constantOne = rewriter.create<LLVM::ConstantOp>(loc,
+                           llvmI32Type,rewriter.getIntegerAttr(castedI32Type, 1));
+    auto andValue = rewriter.create<LLVM::AndOp>(loc, ShiftValue, constantOne);
+
+    auto constantBig = rewriter.create<LLVM::ConstantOp>(loc,
+                           llvmI32Type,rewriter.getIntegerAttr(castedI32Type, 32767));
+    auto addBigValue = rewriter.create<LLVM::AddOp>(loc, bitcastop, constantBig);
+    auto addValue = rewriter.create<LLVM::AddOp>(loc, andValue, addBigValue);
+
+    auto ShiftBeforeTruncValue = rewriter.create<LLVM::LShrOp>(loc, llvmI32Type, addValue, constantSixteen);
+    auto truncValue = rewriter.create<LLVM::TruncOp>(loc,  llvmI16Type  , ShiftBeforeTruncValue);
+    rewriter.replaceOp(op, {truncValue});
+    return success();
+  }
+};
+
+
 } // namespace mlir
 
 void mlir::populateGpuToROCDLConversionPatterns(
@@ -231,6 +272,8 @@ void mlir::populateGpuToROCDLConversionPatterns(
                                                 "__ocml_tanh_f64");
 
   patterns.insert<MFMAOpLowering>(converter.getDialect()->getContext(),
+                                  converter);
+  patterns.insert<BFOpLowering>(converter.getDialect()->getContext(),
                                   converter);
 }
 
