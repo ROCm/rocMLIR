@@ -109,7 +109,7 @@ static LogicalResult populateConvolutionLogic(
     int64_t filterHeight, int dilationHeight, int dilationWidth,
     int strideHeight, int strideWidth, int paddingHeight, int paddingWidth,
     ModuleOp &module, OpBuilder &builder, SmallString<128> &kernelName,
-    mlir::FloatType dataType, bool xdlops = false) {
+    mlir::Type dataType, bool xdlops = false) {
   // Determine dimensions.
   SmallVector<int64_t, 4> filterDimension;
   SmallVector<int64_t, 4> inputDimension;

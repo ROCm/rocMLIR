@@ -611,7 +611,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
 }
 
 static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
-                                   mlir::FloatType dataType,
+                                   mlir::Type dataType,
                                    mlir::AllocOp &filterHostAllocOp,
                                    mlir::AllocOp &inputHostAllocOp,
                                    mlir::AllocOp &outputHostAllocOp) {
@@ -801,7 +801,7 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
 static LogicalResult populateHostHarnessLogic(ModuleOp &module,
                                               OpBuilder &builder,
                                               MLIRContext &context,
-                                              mlir::FloatType dataType) {
+                                              mlir::Type dataType) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -968,7 +968,7 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module,
 static LogicalResult populateValidationLogic(ModuleOp &module,
                                              OpBuilder &builder,
                                              MLIRContext &context,
-                                             mlir::FloatType dataType) {
+                                             mlir::Type dataType) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -1035,7 +1035,7 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
     memsetFuncName = "mcpuMemset4DFloat";
   } else if (dataType == builder.getF16Type()) {
     memsetFuncName = "mcpuMemset4DHalf";
-  } else if (dataType == builder.getBF16Type()) {
+  } else if (dataType == builder.getIntegerType(16)) {
     memsetFuncName = "mcpuMemset4DBF16";
   }
 
@@ -1320,13 +1320,13 @@ int main(int argc, char **argv) {
   }
 
   // Determine data type.
-  mlir::FloatType dataType = builder.getF32Type();
+  mlir::Type dataType = builder.getF32Type();
   if (tensorDataType == "f32") {
     dataType = builder.getF32Type();
   } else if (tensorDataType == "f16") {
     dataType = builder.getF16Type();
   } else if (tensorDataType == "bf16") {
-    dataType = builder.getBF16Type();
+    dataType = builder.getIntegerType(16);
   }
 
   // Populate the module.
@@ -1390,4 +1390,5 @@ int main(int argc, char **argv) {
   module.print(output->os());
   output->keep();
   return 0;
+
 }

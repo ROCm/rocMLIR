@@ -2285,7 +2285,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     int64_t NPerWave = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
-    auto dataType = op.input().getType().template dyn_cast<MemRefType>().getElementType().template dyn_cast<FloatType>();
+    auto dataType = op.input().getType().template dyn_cast<MemRefType>().getElementType();//.template dyn_cast<FloatType>();
 
     auto MPerWaveConstantOp = b.create<ConstantIndexOp>(loc, MPerWave);
     auto NPerWaveConstantOp = b.create<ConstantIndexOp>(loc, NPerWave);
@@ -4257,6 +4257,9 @@ struct ThreadwiseCopyV2RewritePattern
       } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
         auto truncValue = innerLoopBuilder.create<FPTruncOp>(loc, scalarValue, dataType);
         innerLoopBuilder.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
+      } else if (dataType == b.getIntegerType(16)){
+        auto convertValue = innerLoopBuilder.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
+	innerLoopBuilder.create<StoreOp>(loc, convertValue, op.dest(), destLowerIndices);
       }
     }
 
@@ -4485,7 +4488,7 @@ struct XdlopsGemmV2RewritePattern
     int64_t MPerWave = op.getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerWave = op.getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
 
-    auto dataType = op.matrixA().getType().template dyn_cast<MemRefType>().getElementType().template dyn_cast<FloatType>();
+    auto dataType = op.matrixA().getType().template dyn_cast<MemRefType>().getElementType();//.template dyn_cast<FloatType>();
 
     auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
     auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
@@ -4545,10 +4548,13 @@ struct XdlopsGemmV2RewritePattern
     // TBD. Existing logic for fp16/bf16 may still NOT be 100% correct.
     int64_t KRepeats = 0;
     if (dataType == b.getF32Type()) {
-      KRepeats = (dataType.getWidth() / 8) / (dataType.getWidth() / 8 * k_base);
+      KRepeats = (dataType.template dyn_cast<FloatType>().getWidth() / 8) / (dataType.template dyn_cast<FloatType>().getWidth() / 8 * k_base);
     } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
       VectorType argVectorType = argType.template dyn_cast<VectorType>();
-      KRepeats = (dataType.getWidth() / 8 * argVectorType.getShape()[0]) / (dataType.getWidth() / 8 * k_base);
+      KRepeats = (dataType.template dyn_cast<FloatType>().getWidth() / 8 * argVectorType.getShape()[0]) / (dataType.template dyn_cast<FloatType>().getWidth() / 8 * k_base);
+    } else if (dataType == b.getIntegerType(16)) {
+      VectorType argVectorType = argType.template dyn_cast<VectorType>();
+      KRepeats = (dataType.template dyn_cast<IntegerType>().getWidth() / 8 * argVectorType.getShape()[0]) / (dataType.template dyn_cast<IntegerType>().getWidth() / 8 * k_base);
     }
     
     int64_t AStride = K * KRepeats;
@@ -4660,6 +4666,9 @@ struct XdlopsGemmV2RewritePattern
       } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
         argA = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
         argB = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
+      } else if (dataType == b.getIntegerType(16)) {
+        argA = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
+        argB = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
       }
 
       SmallVector<Value, 4> mfmas;
@@ -4681,6 +4690,7 @@ struct XdlopsGemmV2RewritePattern
       loopKb.create<scf::YieldOp>(loc, mfmas);
       op.replaceAllUsesWith(loopK.results());
       op.erase();
+      
     } else {
       // Original C++ logic.
       //     const index_t blk_id = laneId / mfma_type.num_threads_blk;

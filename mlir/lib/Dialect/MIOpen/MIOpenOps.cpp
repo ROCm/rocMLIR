@@ -639,6 +639,34 @@ static LogicalResult verify(BlockwiseGemmV2Op op) {
 }
 
 //===----------------------------------------------------------------------===//
+// DataConverOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseDataConvertOp(OpAsmParser &parser, OperationState &result) {
+  OpAsmParser::OperandType ops;
+  Type type;
+  Type retType;
+  auto ret = parser.parseOperand(ops) || 
+             parser.parseColonType(type) ||
+             parser.resolveOperand(ops, type, result.operands)||
+             parser.parseKeywordType("to", retType) ||
+             parser.addTypeToList(retType, result.types);
+
+  return failure(ret);
+}
+
+static void print(OpAsmPrinter &p, DataConvertOp op) {
+  p << op.getOperationName() << " " << op.getOperand() << " ";
+  p << " : " << op.getOperand().getType();
+  p << " to " << op.getType();
+}
+
+static LogicalResult verify(DataConvertOp op) {
+  return success();
+}
+
+
+//===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 
