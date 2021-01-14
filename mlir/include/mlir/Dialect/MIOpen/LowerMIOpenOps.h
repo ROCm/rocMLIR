@@ -3447,15 +3447,17 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
     scf::ForOp currentLoop;
     OpBuilder currentScope = b;
     std::vector<mlir::Value> range;
-    
+
     for (unsigned i = 0; i < inputShape.size(); ++i) {
       // Rank 1 loop.
-      auto loopIterCount = currentScope.create<ConstantIndexOp>(loc, inputShape[i]);
-      currentLoop = currentScope.create<scf::ForOp>(loc, zero, loopIterCount, one);
+      auto loopIterCount =
+          currentScope.create<ConstantIndexOp>(loc, inputShape[i]);
+      currentLoop =
+          currentScope.create<scf::ForOp>(loc, zero, loopIterCount, one);
 
       // collect current loop induction var for store indexes
       range.push_back(currentLoop.getInductionVar());
-      
+
       // inside loop.
       currentScope = OpBuilder::atBlockTerminator(currentLoop.getBody());
     }
