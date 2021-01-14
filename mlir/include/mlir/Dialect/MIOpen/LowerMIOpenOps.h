@@ -2285,7 +2285,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     int64_t NPerWave = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
-    auto dataType = op.input().getType().template dyn_cast<MemRefType>().getElementType();//.template dyn_cast<FloatType>();
+    auto dataType = op.input().getType().template dyn_cast<MemRefType>().getElementType();
 
     auto MPerWaveConstantOp = b.create<ConstantIndexOp>(loc, MPerWave);
     auto NPerWaveConstantOp = b.create<ConstantIndexOp>(loc, NPerWave);
@@ -4488,7 +4488,7 @@ struct XdlopsGemmV2RewritePattern
     int64_t MPerWave = op.getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerWave = op.getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
 
-    auto dataType = op.matrixA().getType().template dyn_cast<MemRefType>().getElementType();//.template dyn_cast<FloatType>();
+    auto dataType = op.matrixA().getType().template dyn_cast<MemRefType>().getElementType();
 
     auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
     auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
