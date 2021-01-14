@@ -646,7 +646,7 @@ static ParseResult parseDataConvertOp(OpAsmParser &parser, OperationState &resul
   OpAsmParser::OperandType ops;
   Type type;
   Type retType;
-  auto ret = parser.parseOperand(ops) || 
+  auto ret = parser.parseOperand(ops) ||
              parser.parseColonType(type) ||
              parser.resolveOperand(ops, type, result.operands)||
              parser.parseKeywordType("to", retType) ||

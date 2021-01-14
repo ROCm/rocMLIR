@@ -194,3 +194,11 @@ func @miopen_gridwise_gemm_v2(%A : memref<?x?xf32>, %B : memref<?x?xf32>, %C : m
 
 // CHECK-LABEL: func @miopen_gridwise_gemm_v2
 //  CHECK-NEXT: miopen.gridwise_gemm_v2
+
+func @miopen_data_convert() {
+    %0 = constant 3.2 : f32
+    %1 = miopen.data_convert %0  : f32 to i16
+    return
+}
+// CHECK-LABEL: func @miopen_data_convert
+// CHECK: miopen.data_convert

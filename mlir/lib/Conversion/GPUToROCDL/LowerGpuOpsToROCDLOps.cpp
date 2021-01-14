@@ -162,36 +162,30 @@ struct MFMAOpLowering : ConvertToLLVMPattern {
                        immValues[0], immValues[1], immValues[2]});
     } else if (mfmaInstr.endswith("bf16")) {
       // BF16.
-      Type castedVectorType = VectorType::get({2}, rewriter.getIntegerType(16));
-      Type castedLLVMVectorType = typeConverter.convertType(castedVectorType);
-      Value castedSourceA = rewriter.create<LLVM::BitcastOp>(
-          op->getLoc(), castedLLVMVectorType, adaptor.sourceA());
-      Value castedSourceB = rewriter.create<LLVM::BitcastOp>(
-          op->getLoc(), castedLLVMVectorType, adaptor.sourceB());
       if (mfmaInstr == "mfma_f32_32x32x2bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x2bf16>(
             op, adaptor.destC().getType(),
-            ValueRange{castedSourceA, castedSourceB, adaptor.destC(),
+            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
                        immValues[0], immValues[1], immValues[2]});
       else if (mfmaInstr == "mfma_f32_32x32x4bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x4bf16>(
             op, adaptor.destC().getType(),
-            ValueRange{castedSourceA, castedSourceB, adaptor.destC(),
+            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
                        immValues[0], immValues[1], immValues[2]});
       else if (mfmaInstr == "mfma_f32_16x16x8bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x8bf16>(
             op, adaptor.destC().getType(),
-            ValueRange{castedSourceA, castedSourceB, adaptor.destC(),
+            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
                        immValues[0], immValues[1], immValues[2]});
       else if (mfmaInstr == "mfma_f32_16x16x2bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x2bf16>(
             op, adaptor.destC().getType(),
-            ValueRange{castedSourceA, castedSourceB, adaptor.destC(),
+            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
                        immValues[0], immValues[1], immValues[2]});
       else if (mfmaInstr == "mfma_f32_4x4x2bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_4x4x2bf16>(
             op, adaptor.destC().getType(),
-            ValueRange{castedSourceA, castedSourceB, adaptor.destC(),
+            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
                        immValues[0], immValues[1], immValues[2]});
     }
 
