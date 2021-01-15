@@ -352,28 +352,22 @@ extern "C" void mgpuMemCopy4DBF16(unsigned short *sourceAllocated, unsigned shor
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
-// A generic forward convolution function that supports random layouts,
-// dimensions, strides, paddings, and dilations.
-extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
-                           void *i_ptr, int64_t rank3, void *o_ptr,
-                           int64_t rank4, void *f_layout, int64_t rank5,
-                           void *i_layout, int64_t rank6, void *o_layout,
-                           int32_t stride_h, int32_t stride_w,
-                           int32_t padding_h, int32_t padding_w,
-                           int32_t dilation_h, int32_t dilation_w) {
+typedef std::unordered_map<char, std::pair<int64_t, int64_t>> TensorDim;
 
-  auto *filter = static_cast<StridedMemRefType<float, 4> *>(f_ptr);
-  auto *filterAllocated = filter->data + filter->offset;
+// Extract proper tensor sizes and strides based on layouts
+static void
+getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 4> *filter,
+                   int64_t rank2, StridedMemRefType<float, 4> *input,
+                   int64_t rank3, StridedMemRefType<float, 4> *output,
+                   void *f_layout, void *i_layout, void *o_layout,
+                   TensorDim &filterSizeStride, TensorDim &inputSizeStride,
+                   TensorDim &outputSizeStride) {
   auto filterSizes = llvm::ArrayRef<int64_t>(filter->sizes, rank1);
   auto filterStrides = llvm::ArrayRef<int64_t>(filter->strides, rank1);
 
-  auto *input = static_cast<StridedMemRefType<float, 4> *>(i_ptr);
-  auto *inputAllocated = input->data + input->offset;
   auto inputSizes = llvm::ArrayRef<int64_t>(input->sizes, rank2);
   auto inputStrides = llvm::ArrayRef<int64_t>(input->strides, rank2);
 
-  auto *output = static_cast<StridedMemRefType<float, 4> *>(o_ptr);
-  auto *outputAllocated = output->data + output->offset;
   auto outputSizes = llvm::ArrayRef<int64_t>(output->sizes, rank3);
   auto outputStrides = llvm::ArrayRef<int64_t>(output->strides, rank3);
 
@@ -386,10 +380,6 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
   auto *layout3 = static_cast<StridedMemRefType<char, 1> *>(o_layout);
   auto *outputLayout = layout3->data + layout3->offset;
 
-  // Extract proper tensor sizes and strides based on layouts
-  std::unordered_map<char, std::pair<int64_t, int64_t>> filterSizeStride;
-  std::unordered_map<char, std::pair<int64_t, int64_t>> inputSizeStride;
-  std::unordered_map<char, std::pair<int64_t, int64_t>> outputSizeStride;
   for (size_t i = 0; i < 4; i++) {
     filterSizeStride[filterLayout[i]] =
         std::make_pair(filterSizes[i], filterStrides[i]);
@@ -398,6 +388,33 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
     outputSizeStride[outputLayout[i]] =
         std::make_pair(outputSizes[i], outputStrides[i]);
   }
+  return;
+}
+
+// A generic forward convolution function that supports random layouts,
+// dimensions, strides, paddings, and dilations.
+extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
+                           void *i_ptr, int64_t rank3, void *o_ptr,
+                           int64_t rank4, void *f_layout, int64_t rank5,
+                           void *i_layout, int64_t rank6, void *o_layout,
+                           int32_t stride_h, int32_t stride_w,
+                           int32_t padding_h, int32_t padding_w,
+                           int32_t dilation_h, int32_t dilation_w) {
+
+  auto *filter = static_cast<StridedMemRefType<float, 4> *>(f_ptr);
+  auto *filterAllocated = filter->data + filter->offset;
+
+  auto *input = static_cast<StridedMemRefType<float, 4> *>(i_ptr);
+  auto *inputAllocated = input->data + input->offset;
+
+  auto *output = static_cast<StridedMemRefType<float, 4> *>(o_ptr);
+  auto *outputAllocated = output->data + output->offset;
+
+  // Extract proper tensor sizes and strides based on layouts
+  TensorDim filterSizeStride, inputSizeStride, outputSizeStride;
+  getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
+                     i_layout, o_layout, filterSizeStride, inputSizeStride,
+                     outputSizeStride);
 
   // Perform forward convolution
   for (int64_t n = 0; n < outputSizeStride['n'].first; n++)
@@ -438,5 +455,121 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
                           k * outputSizeStride['k'].second +
                           out_h * outputSizeStride['h'].second +
                           out_w * outputSizeStride['w'].second] = acc;
+        }
+}
+
+// A generic backward-weight convolution function that supports random layouts,
+// dimensions, strides, paddings, and dilations.
+extern "C" void mcpuConv2dBwdWeight(int64_t rank1, void *f_ptr, int64_t rank2,
+                                    void *i_ptr, int64_t rank3, void *o_ptr,
+                                    int64_t rank4, void *f_layout,
+                                    int64_t rank5, void *i_layout,
+                                    int64_t rank6, void *o_layout,
+                                    int32_t stride_h, int32_t stride_w,
+                                    int32_t padding_h, int32_t padding_w,
+                                    int32_t dilation_h, int32_t dilation_w) {
+
+  auto *filter = static_cast<StridedMemRefType<float, 4> *>(f_ptr);
+  auto *filterAllocated = filter->data + filter->offset;
+
+  auto *input = static_cast<StridedMemRefType<float, 4> *>(i_ptr);
+  auto *inputAllocated = input->data + input->offset;
+
+  auto *output = static_cast<StridedMemRefType<float, 4> *>(o_ptr);
+  auto *outputAllocated = output->data + output->offset;
+
+  // Extract proper tensor sizes and strides based on layouts
+  TensorDim filterSizeStride, inputSizeStride, outputSizeStride;
+  getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
+                     i_layout, o_layout, filterSizeStride, inputSizeStride,
+                     outputSizeStride);
+
+  // Perform bwd_weight convolution
+  for (int64_t k = 0; k < filterSizeStride['k'].first; k++)
+    for (int64_t c = 0; c < filterSizeStride['c'].first; c++)
+      for (int64_t y = 0; y < filterSizeStride['y'].first; y++)
+        for (int64_t x = 0; x < filterSizeStride['x'].first; x++) {
+
+          float acc = 0.0;
+          for (int64_t n = 0; n < outputSizeStride['n'].first; n++)
+            for (int64_t out_h = 0; out_h < outputSizeStride['h'].first;
+                 out_h++)
+              for (int64_t out_w = 0; out_w < outputSizeStride['w'].first;
+                   out_w++) {
+                int64_t in_h = out_h * stride_h + y * dilation_h - padding_h;
+                int64_t in_w = out_w * stride_w + x * dilation_w - padding_w;
+                if (in_h >= 0 && in_h < inputSizeStride['h'].first &&
+                    in_w >= 0 && in_w < inputSizeStride['w'].first)
+                  acc += inputAllocated[n * inputSizeStride['n'].second +
+                                        c * inputSizeStride['c'].second +
+                                        in_h * inputSizeStride['h'].second +
+                                        in_w * inputSizeStride['w'].second] *
+                         outputAllocated[n * outputSizeStride['n'].second +
+                                         k * outputSizeStride['k'].second +
+                                         out_h * outputSizeStride['h'].second +
+                                         out_w * outputSizeStride['w'].second];
+              }
+          filterAllocated[k * filterSizeStride['k'].second +
+                          c * filterSizeStride['c'].second +
+                          y * filterSizeStride['y'].second +
+                          x * filterSizeStride['x'].second] = acc;
+        }
+}
+
+// A generic backward-data convolution function that supports random layouts,
+// dimensions, strides, paddings, and dilations.
+extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
+                                  void *i_ptr, int64_t rank3, void *o_ptr,
+                                  int64_t rank4, void *f_layout, int64_t rank5,
+                                  void *i_layout, int64_t rank6, void *o_layout,
+                                  int32_t stride_h, int32_t stride_w,
+                                  int32_t padding_h, int32_t padding_w,
+                                  int32_t dilation_h, int32_t dilation_w) {
+
+  auto *filter = static_cast<StridedMemRefType<float, 4> *>(f_ptr);
+  auto *filterAllocated = filter->data + filter->offset;
+
+  auto *input = static_cast<StridedMemRefType<float, 4> *>(i_ptr);
+  auto *inputAllocated = input->data + input->offset;
+
+  auto *output = static_cast<StridedMemRefType<float, 4> *>(o_ptr);
+  auto *outputAllocated = output->data + output->offset;
+
+  // Extract proper tensor sizes and strides based on layouts
+  TensorDim filterSizeStride, inputSizeStride, outputSizeStride;
+  getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
+                     i_layout, o_layout, filterSizeStride, inputSizeStride,
+                     outputSizeStride);
+
+  // Perform bwd_data convolution
+  for (int64_t n = 0; n < inputSizeStride['n'].first; n++)
+    for (int64_t c = 0; c < inputSizeStride['c'].first; c++)
+      for (int64_t in_h = 0; in_h < inputSizeStride['h'].first; in_h++)
+        for (int64_t in_w = 0; in_w < inputSizeStride['w'].first; in_w++) {
+
+          float acc = 0.0;
+          for (int64_t k = 0; k < filterSizeStride['k'].first; k++)
+            for (int64_t y = 0; y < filterSizeStride['y'].first; y++)
+              for (int64_t x = 0; x < filterSizeStride['x'].first; x++) {
+                int64_t out_h_tmp = in_h + padding_h - y * dilation_h;
+                int64_t out_w_tmp = in_w + padding_w - x * dilation_w;
+                int64_t out_h = out_h_tmp / stride_h;
+                int64_t out_w = out_w_tmp / stride_w;
+                if (out_h_tmp % stride_h == 0 && out_w_tmp % stride_w == 0 &&
+                    out_h >= 0 && out_h < outputSizeStride['h'].first &&
+                    out_w >= 0 && out_w < outputSizeStride['w'].first)
+                  acc += filterAllocated[k * filterSizeStride['k'].second +
+                                         c * filterSizeStride['c'].second +
+                                         y * filterSizeStride['y'].second +
+                                         x * filterSizeStride['x'].second] *
+                         outputAllocated[n * outputSizeStride['n'].second +
+                                         k * outputSizeStride['k'].second +
+                                         out_h * outputSizeStride['h'].second +
+                                         out_w * outputSizeStride['w'].second];
+              }
+          inputAllocated[n * inputSizeStride['n'].second +
+                         c * inputSizeStride['c'].second +
+                         in_h * inputSizeStride['h'].second +
+                         in_w * inputSizeStride['w'].second] = acc;
         }
 }
