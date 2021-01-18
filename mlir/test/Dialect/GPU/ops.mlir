@@ -166,11 +166,11 @@ module attributes {gpu.container_module} {
     }
 
     // CHECK-LABEL: gpu.func @mfma_bf16
-    //   CHECK:      gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xbf16>, vector<32xf32>
-    //   CHECK-NEXT: gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xbf16>, vector<32xf32>
-    gpu.func @mfma_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : vector<32xf32>) {
-      gpu.mfma(%a, %b, %c) : vector<2xbf16>, vector<32xf32>
-      %d = gpu.mfma(%a, %b, %c) : vector<2xbf16>, vector<32xf32>
+    //   CHECK:      gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xi16>, vector<32xf32>
+    //   CHECK-NEXT: gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xi16>, vector<32xf32>
+    gpu.func @mfma_bf16(%a : vector<2xi16>, %b : vector<2xi16>, %c : vector<32xf32>) {
+      gpu.mfma(%a, %b, %c) : vector<2xi16>, vector<32xf32>
+      %d = gpu.mfma(%a, %b, %c) : vector<2xi16>, vector<32xf32>
 
       gpu.return
     }
