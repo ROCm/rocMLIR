@@ -261,8 +261,8 @@ func @miopen_mfma_v2_f16(%a : vector<4xf16>, %b : vector<4xf16>, %c : vector<32x
 // CHECK-LABEL: func @miopen_mfma_v2_f16
 //   CHECK: miopen.mfma_v2
 
-func @miopen_mfma_v2_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : vector<32xf32>) -> vector<32xf32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x2bf16", imm = [1, 0, 0] } : vector<2xbf16>, vector<32xf32>
+func @miopen_mfma_v2_bf16(%a : vector<2xi16>, %b : vector<2xi16>, %c : vector<32xf32>) -> vector<32xf32> {
+  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x2bf16", imm = [1, 0, 0] } : vector<2xi16>, vector<32xf32>
   return %d : vector<32xf32>
 }
 
