@@ -541,7 +541,7 @@ def Shape_AssumingYieldOp : Shape_Op<"assuming_yield",
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
 }
 
-def Shape_CstrBroadcastableOp : Shape_Op<"cstr_broadcastable", [Commutative]> {
+def Shape_CstrBroadcastableOp : Shape_Op<"cstr_broadcastable", []> {
   let summary = "Determines if 2 shapes can be successfully broadcasted";
   let description = [{
     Given 2 input shapes, return a witness specifying if they are broadcastable.
@@ -560,12 +560,9 @@ def Shape_CstrBroadcastableOp : Shape_Op<"cstr_broadcastable", [Commutative]> {
   let results = (outs Shape_WitnessType:$result);
 
   let assemblyFormat = "$lhs `,` $rhs attr-dict";
-
-  let hasCanonicalizer = 1;
-  let hasFolder = 1;
 }
 
-def Shape_CstrEqOp : Shape_Op<"cstr_eq", [Commutative]> {
+def Shape_CstrEqOp : Shape_Op<"cstr_eq", []> {
   let summary = "Determines if all input shapes are equal";
   let description = [{
     Given 1 or more input shapes, determine if all shapes are the exact same.
@@ -582,9 +579,6 @@ def Shape_CstrEqOp : Shape_Op<"cstr_eq", [Commutative]> {
   let results = (outs Shape_WitnessType:$result);
 
   let assemblyFormat = "$inputs attr-dict";
-
-  let hasCanonicalizer = 1;
-  let hasFolder = 1;
 }
 
 def Shape_ConstWitnessOp : Shape_Op<"const_witness", [ConstantLike, NoSideEffect]> {
