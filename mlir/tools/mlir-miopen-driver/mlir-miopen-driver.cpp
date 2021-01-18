@@ -39,6 +39,7 @@
 
 #include "mlir/Dialect/SCF/EDSC/Builders.h"
 #include <unordered_map>
+#include "bf16convert.hpp"
 
 using namespace llvm;
 using namespace mlir;
@@ -858,8 +859,9 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module,
   auto getOneConstOp = [&](){
     if (dataType == builder.getIntegerType(16))
     {
+      const ushort one = float_to_bfloat16(1.0);
       return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
-                                 builder.getI16IntegerAttr(1));
+                                 builder.getI16IntegerAttr(one));
     } else {
       return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
                                  builder.getFloatAttr(dataType, 1.0));
@@ -868,8 +870,9 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module,
   auto getZeroConstOp = [&](){
     if (dataType == builder.getIntegerType(16))
     {
+      const ushort zero = float_to_bfloat16(0.0);
       return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
-                                 builder.getI16IntegerAttr(0));
+                                 builder.getI16IntegerAttr(zero));
     } else {
       return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
                                  builder.getFloatAttr(dataType, 0.0));
