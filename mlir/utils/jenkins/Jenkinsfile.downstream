@@ -17,10 +17,8 @@ pipeline {
             steps {
                 checkout scm
                 sh '''
-                    # make build directory
                     mkdir -p build && cd build
 
-                    # config MLIR on ROCm, with MIOpen dialect
                     cmake -G Ninja ../llvm \
                         -DLLVM_ENABLE_PROJECTS="mlir;lld" \
                         -DLLVM_BUILD_EXAMPLES=ON \
@@ -33,7 +31,7 @@ pipeline {
                         -DMLIR_MIOPEN_DRIVER_ENABLED=1 \
                         -DMLIR_ENABLE_SQLITE=1
 
-                    # build LLVM / MLIR and run tests
+                    # Build LLVM / MLIR and run tests
                     cmake --build . --target check-mlir
                 '''
             }
@@ -49,6 +47,28 @@ pipeline {
                     PATH=$PATH:/opt/rocm/llvm/bin/
 
                     python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py
+
+                    # Clean up build directory
+                    rm -rf build
+                '''
+            }
+        }
+        stage('Igemm Build') {
+            steps {
+                sh '''
+                    mkdir -p build && cd build
+
+                    cmake -G "Unix Makefiles" ../llvm \
+                        -DLLVM_ENABLE_PROJECTS="mlir" \
+                        -DCMAKE_BUILD_TYPE=Release \
+                        -DBUILD_SHARED_LIBS=OFF \
+                        -DLLVM_BUILD_LLVM_DYLIB=OFF \
+                        -DLLVM_ENABLE_TERMINFO=OFF
+
+                    make -j libMLIRMIOpen
+
+                    # Clean up build directory
+                    rm -rf build
                 '''
             }
         }
