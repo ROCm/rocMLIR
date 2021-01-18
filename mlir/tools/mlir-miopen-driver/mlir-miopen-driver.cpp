@@ -651,7 +651,7 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
     gpuMemAllocFuncName = "mgpuMemAlloc4DFloat";
   } else if (dataType == builder.getF16Type()) {
     gpuMemAllocFuncName = "mgpuMemAlloc4DHalf";
-  } else if (dataType == builder.getBF16Type()) {
+  } else if (dataType == builder.getIntegerType(16)) {
     gpuMemAllocFuncName = "mgpuMemAlloc4DBF16";
   }
   auto mgpuMemAlloc4DFuncOp =
@@ -687,7 +687,7 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
     gpuMemCopyFuncName = "mgpuMemCopy4DFloat";
   } else if (dataType == builder.getF16Type()) {
     gpuMemCopyFuncName = "mgpuMemCopy4DHalf";
-  } else if (dataType == builder.getBF16Type()) {
+  } else if (dataType == builder.getIntegerType(16)) {
     gpuMemCopyFuncName = "mgpuMemCopy4DBF16";
   }
   auto mgpuMemCopy4DFuncOp =
@@ -770,7 +770,7 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
     gpuMemDeallocFuncName = "mgpuMemDealloc4DFloat";
   } else if (dataType == builder.getF16Type()) {
     gpuMemDeallocFuncName = "mgpuMemDealloc4DHalf";
-  } else if (dataType == builder.getBF16Type()) {
+  } else if (dataType == builder.getIntegerType(16)) {
     gpuMemDeallocFuncName = "mgpuMemDealloc4DBF16";
   }
   auto mgpuMemDealloc4DFuncOp = FuncOp::create(
@@ -855,10 +855,28 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module,
   block->push_back(inputMemRefCastOp);
   block->push_back(outputMemRefCastOp);
 
-  auto oneConstantFloatOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), dataType, builder.getFloatAttr(dataType, 1.0));
-  auto zeroConstantFloatOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), dataType, builder.getFloatAttr(dataType, 0.0));
+  auto getOneConstOp = [&](){
+    if (dataType == builder.getIntegerType(16))
+    {
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                 builder.getI16IntegerAttr(1));
+    } else {
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                 builder.getFloatAttr(dataType, 1.0));
+    }
+  };
+  auto getZeroConstOp = [&](){
+    if (dataType == builder.getIntegerType(16))
+    {
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                 builder.getI16IntegerAttr(0));
+    } else {
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                 builder.getFloatAttr(dataType, 0.0));
+    }
+  };
+  auto oneConstantFloatOp = getOneConstOp();
+  auto zeroConstantFloatOp = getZeroConstOp();
   block->push_back(oneConstantFloatOp);
   block->push_back(zeroConstantFloatOp);
 
@@ -868,7 +886,7 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module,
     memsetFuncName = "mcpuMemset4DFloat";
   } else if (dataType == builder.getF16Type()) {
     memsetFuncName = "mcpuMemset4DHalf";
-  } else if (dataType == builder.getBF16Type()) {
+  } else if (dataType == builder.getIntegerType(16)) {
     memsetFuncName = "mcpuMemset4DBF16";
   }
 
@@ -930,7 +948,7 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module,
       printMemRefFuncName = "print_memref_f32";
     } else if (dataType == builder.getF16Type()) {
       printMemRefFuncName = "print_memref_f16";
-    } else if (dataType == builder.getBF16Type()) {
+    } else if (dataType == builder.getIntegerType(16)) {
       printMemRefFuncName = "print_memref_bf16";
     }
     auto unrankedMemRefType = UnrankedMemRefType::get(dataType, 0);
