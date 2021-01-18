@@ -42,7 +42,7 @@ def MIOpen_Conv2DOp :
     MIOpen_Op<"conv2d">,
     Arguments<(ins MemRefRankOf<[F32, F16, I16], [4]>:$filter,
                    MemRefRankOf<[F32, F16, I16], [4]>:$input,
-                   MemRefRankOf<[F32, F16], [4]>:$output)> {
+                   MemRefRankOf<[F32, F16, I16], [4]>:$output)> {
   let summary = "2D convolution forward";
   let description = [{
     The `miopen.conv2d` op computes 2D convolution forward.
@@ -53,7 +53,7 @@ def MIOpen_Conv2DBwdDataOp :
     MIOpen_Op<"conv2d_bwd_data">,
     Arguments<(ins MemRefRankOf<[F32, F16, I16], [4]>:$filter,
                    MemRefRankOf<[F32, F16, I16], [4]>:$input,
-                   MemRefRankOf<[F32, F16], [4]>:$output)> {
+                   MemRefRankOf<[F32, F16, I16], [4]>:$output)> {
   let summary = "2D convolution backward data";
   let description = [{
     The `miopen.conv2d` op computes 2D convolution backward data.
@@ -64,7 +64,7 @@ def MIOpen_Conv2DBwdWeightOp :
     MIOpen_Op<"conv2d_bwd_weight">,
     Arguments<(ins MemRefRankOf<[F32, F16, I16], [4]>:$filter,
                    MemRefRankOf<[F32, F16, I16], [4]>:$input,
-                   MemRefRankOf<[F32, F16], [4]>:$output)> {
+                   MemRefRankOf<[F32, F16, I16], [4]>:$output)> {
   let summary = "2D convolution backward weight";
   let description = [{
     The `miopen.conv2d` op computes 2D convolution backward weight.
