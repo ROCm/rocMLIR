@@ -46,7 +46,7 @@ llvm.func @rocdl.barrier() {
 }
 
 llvm.func @rocdl.lds_barrier() {
-  // CHECK: call void asm "s_waitcnt lgkmcnt(1) \0A s_barrier", ""()
+  // CHECK: call void asm sideeffect "s_waitcnt lgkmcnt(0) \0A s_barrier", ""()
   rocdl.lds_barrier
   llvm.return
 }
