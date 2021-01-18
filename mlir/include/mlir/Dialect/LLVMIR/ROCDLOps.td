@@ -201,4 +201,29 @@ def ROCDL_MubufStoreOp :
   }];
 }
 
+//===---------------------------------------------------------------------===//
+// Float atomic add intrinsic
+
+def ROCDL_AtomicFAddOp :
+  ROCDL_Op<"atomic.fadd">,
+  Arguments<(ins LLVM_Type:$vdata,
+                 LLVM_Type:$rsrc,
+                 LLVM_Type:$vindex,
+                 LLVM_Type:$offset,
+                 LLVM_Type:$slc)>{
+  string llvmBuilder = [{
+      auto vdataType = op.vdata().getType().cast<LLVM::LLVMType>()
+                         .getUnderlyingType();
+      createIntrinsicCall(builder,
+          llvm::Intrinsic::amdgcn_buffer_atomic_fadd, {$vdata, $rsrc, $vindex, $offset,
+            $slc}, {vdataType});
+  }];
+  let parser = [{ return parseROCDLAtomicFAddOp(parser, result); }];
+  let printer = [{
+    Operation *op = this->getOperation();
+    p << op->getName() << " " << op->getOperands()
+      << " : " << vdata().getType();
+  }];
+}
+
 #endif // ROCDLIR_OPS

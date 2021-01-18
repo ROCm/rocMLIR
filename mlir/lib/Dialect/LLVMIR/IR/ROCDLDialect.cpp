@@ -80,6 +80,26 @@ static ParseResult parseROCDLMubufStoreOp(OpAsmParser &parser,
   return success();
 }
 
+// <operation> ::=
+//     `llvm.amdgcn.buffer.atomic.fadd.* %vdata, %rsrc, %vindex, %offset, %slc :
+//     result_type`
+static ParseResult parseROCDLAtomicFAddOp(OpAsmParser &parser,
+                                          OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 5> ops;
+  Type type;
+  if (parser.parseOperandList(ops, 5) || parser.parseColonType(type))
+    return failure();
+
+  auto int32Ty = LLVM::LLVMType::getInt32Ty(getLlvmDialect(parser));
+  auto int1Ty = LLVM::LLVMType::getInt1Ty(getLlvmDialect(parser));
+  auto i32x4Ty = LLVM::LLVMType::getVectorTy(int32Ty, 4);
+
+  if (parser.resolveOperands(ops,
+                             {type, i32x4Ty, int32Ty, int32Ty, int1Ty},
+                             parser.getNameLoc(), result.operands))
+    return failure();
+  return success();
+}
 //===----------------------------------------------------------------------===//
 // ROCDLDialect initialization, type parsing, and registration.
 //===----------------------------------------------------------------------===//
