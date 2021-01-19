@@ -301,7 +301,7 @@ void LowerMIOpenOpsWithinGPUModulePass::runOnOperation() {
 
   // miopen-lowering-step3
   patterns.insert<FillRewritePattern>(&getContext());
-  patterns.insert<MovePosRewritePattern>(&getContext());
+  patterns.insert<MovePosV2RewritePattern>(&getContext());
   patterns.insert<SubviewRewritePattern>(&getContext());
   patterns.insert<TransformRewritePattern>(&getContext());
   patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
