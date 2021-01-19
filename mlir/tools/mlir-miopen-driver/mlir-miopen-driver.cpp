@@ -263,6 +263,34 @@ static void populateDefaults() {
       strideWidth.getValue(), dilationWidth.getValue()));
 }
 
+static AllocOp initializeCPUConvResult(OpBuilder &builder, Block *block,
+                                       mlir::FloatType dataType,
+                                       mlir::FuncOp &mcpuMemset4DFuncOp,
+                                       mlir::MemRefType &resultMemRefType,
+                                       mlir::Value &resultMemsetValue) {
+  auto fourDimUnknownSizeMemRefType =
+      MemRefType::get({-1, -1, -1, -1}, dataType);
+
+  // Emit CPU alloc for the result tensor
+  auto cpuResultHostAllocOp =
+      builder.create<AllocOp>(builder.getUnknownLoc(), resultMemRefType);
+  block->push_back(cpuResultHostAllocOp);
+
+  // Emit memref cast
+  auto cpuResultMemRefCastOp = builder.create<MemRefCastOp>(
+      builder.getUnknownLoc(), cpuResultHostAllocOp,
+      fourDimUnknownSizeMemRefType);
+  block->push_back(cpuResultMemRefCastOp);
+
+  // Populate initial values of the output tensor
+  auto cpuResultMemsetOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      ValueRange{cpuResultMemRefCastOp, resultMemsetValue});
+  block->push_back(cpuResultMemsetOp);
+
+  return cpuResultHostAllocOp;
+}
+
 static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
                                    mlir::MemRefType &filterMemRefType,
                                    mlir::MemRefType &inputMemRefType,
@@ -1104,62 +1132,21 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
   if (operation.getValue() == "conv2d") {
     cpuFilterHostAllocOp = filterHostAllocOp;
     cpuInputHostAllocOp = inputHostAllocOp;
-    // Emit CPU alloc for the output tensor
     cpuOutputHostAllocOp =
-        builder.create<AllocOp>(builder.getUnknownLoc(), outputMemRefType);
-    block->push_back(cpuOutputHostAllocOp);
-
-    // Emit memref cast
-    auto cpuOutputMemRefCastOp = builder.create<MemRefCastOp>(
-        builder.getUnknownLoc(), cpuOutputHostAllocOp,
-        fourDimUnknownSizeMemRefType);
-    block->push_back(cpuOutputMemRefCastOp);
-
-    // Populate initial values of the output tensor
-    auto cpuOutputMemsetOp = builder.create<CallOp>(
-        builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-        ValueRange{cpuOutputMemRefCastOp, outputMemsetValue});
-    block->push_back(cpuOutputMemsetOp);
-
+        initializeCPUConvResult(builder, block, dataType, mcpuMemset4DFuncOp,
+                                outputMemRefType, outputMemsetValue);
   } else if (operation.getValue() == "conv2d_bwd_data") {
     cpuFilterHostAllocOp = filterHostAllocOp;
     cpuOutputHostAllocOp = outputHostAllocOp;
-    // Emit CPU alloc for the input tensor
     cpuInputHostAllocOp =
-        builder.create<AllocOp>(builder.getUnknownLoc(), inputMemRefType);
-    block->push_back(cpuInputHostAllocOp);
-
-    // Emit memref cast
-    auto cpuInputMemRefCastOp = builder.create<MemRefCastOp>(
-        builder.getUnknownLoc(), cpuInputHostAllocOp,
-        fourDimUnknownSizeMemRefType);
-    block->push_back(cpuInputMemRefCastOp);
-
-    // Populate initial values of the input tensor
-    auto cpuInputMemsetOp = builder.create<CallOp>(
-        builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-        ValueRange{cpuInputMemRefCastOp, inputMemsetValue});
-    block->push_back(cpuInputMemsetOp);
-
+        initializeCPUConvResult(builder, block, dataType, mcpuMemset4DFuncOp,
+                                inputMemRefType, inputMemsetValue);
   } else if (operation.getValue() == "conv2d_bwd_weight") {
     cpuInputHostAllocOp = inputHostAllocOp;
     cpuOutputHostAllocOp = outputHostAllocOp;
-    // Emit CPU alloc for the filter tensor
     cpuFilterHostAllocOp =
-        builder.create<AllocOp>(builder.getUnknownLoc(), filterMemRefType);
-    block->push_back(cpuFilterHostAllocOp);
-
-    // Emit memref cast
-    auto cpuFilterMemRefCastOp = builder.create<MemRefCastOp>(
-        builder.getUnknownLoc(), cpuFilterHostAllocOp,
-        fourDimUnknownSizeMemRefType);
-    block->push_back(cpuFilterMemRefCastOp);
-
-    // Populate initial values of the filter tensor
-    auto cpuFilterMemsetOp = builder.create<CallOp>(
-        builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-        ValueRange{cpuFilterMemRefCastOp, filterMemsetValue});
-    block->push_back(cpuFilterMemsetOp);
+        initializeCPUConvResult(builder, block, dataType, mcpuMemset4DFuncOp,
+                                filterMemRefType, filterMemsetValue);
   }
 
   // Populate host validation logic
