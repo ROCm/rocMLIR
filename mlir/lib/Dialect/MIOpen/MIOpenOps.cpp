@@ -292,13 +292,6 @@ static ParseResult parseMovePosOp(OpAsmParser &parser, OperationState &result) {
   return failure(ret);
 }
 
-static void print(OpAsmPrinter &p, MovePosOp op) {
-  p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p << " : " << op.getOperands()[0].getType();
-}
-
-static LogicalResult verify(MovePosOp op) { return success(); }
-
 //===----------------------------------------------------------------------===//
 // MovePosV2Op
 //===----------------------------------------------------------------------===//
