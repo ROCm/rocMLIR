@@ -486,6 +486,34 @@ static LogicalResult verify(BlockwiseLoadOp op) {
 }
 
 //===----------------------------------------------------------------------===//
+// BlockwiseStoreOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseBlockwiseStoreOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  VectorType coordVectorType = VectorType::get(2,
+		  parser.getBuilder().getIntegerType(32));
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperand(ops[0], types[0], result.operands) ||
+      parser.resolveOperand(ops[1], types[1], result.operands) ||
+      parser.resolveOperand(ops[2], coordVectorType, result.operands));
+}
+
+static void print(OpAsmPrinter &p, BlockwiseStoreOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperand(0).getType() << ", " << op.getOperand(1).getType();
+}
+
+static LogicalResult verify(BlockwiseStoreOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ThreadwiseCopyOp
 //===----------------------------------------------------------------------===//
 
