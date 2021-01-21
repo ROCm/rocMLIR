@@ -1043,10 +1043,31 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
   block->push_back(inputMemRefCastOp);
   block->push_back(outputMemRefCastOp);
 
-  auto oneConstantFloatOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), dataType, builder.getFloatAttr(dataType, 1.0));
-  auto zeroConstantFloatOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), dataType, builder.getFloatAttr(dataType, 0.0));
+  auto getOneConstOp = [&](){
+    if (dataType == builder.getIntegerType(16))
+    {
+      const ushort one = float_to_bfloat16(1.0);
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                 builder.getI16IntegerAttr(one));
+    } else {
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                 builder.getFloatAttr(dataType, 1.0));
+    }
+  };
+  auto getZeroConstOp = [&](){
+    if (dataType == builder.getIntegerType(16))
+    {
+      const ushort zero = float_to_bfloat16(0.0);
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                 builder.getI16IntegerAttr(zero));
+    } else {
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                 builder.getFloatAttr(dataType, 0.0));
+    }
+  };
+
+  auto oneConstantFloatOp = getOneConstOp();
+  auto zeroConstantFloatOp = getZeroConstOp();
   block->push_back(oneConstantFloatOp);
   block->push_back(zeroConstantFloatOp);
 
