@@ -21,7 +21,6 @@
 
 #include "hip/hip_runtime.h"
 #include <unordered_map>
-#include "bf16convert.hpp"
 
 namespace {
 int32_t reportErrorIfAny(hipError_t result, const char *where) {
@@ -31,6 +30,21 @@ int32_t reportErrorIfAny(hipError_t result, const char *where) {
   return result;
 }
 } // anonymous namespace
+
+typedef union bf16_fp32_cvt
+{
+    uint u32;
+    unsigned short ushortvec[2];
+    float f32;
+} bf16_fp32_cvt_t;
+
+static float bfloat16_to_float(ushort src_val)
+{
+    bf16_fp32_cvt_t target_val;
+    target_val.ushortvec[1] = src_val;
+    return target_val.f32;
+}
+
 
 extern "C" int32_t mgpuModuleLoad(void **module, void *data) {
   int32_t err = reportErrorIfAny(
@@ -175,15 +189,15 @@ extern "C" void mgpuMemCopy(float *sourceAllocated, float *sourceAligned,
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
-extern "C" void mcpuMemFloatConvertBf16(float *sourceAllocated, float *sourceAligned,
+extern "C" void mcpuMemBf16ConvertFloat(ushort *sourceAllocated, ushort *sourceAligned,
                             int64_t sourceOffset, int64_t sourceSize,
                             int64_t sourceStride,
-                            ushort *destAllocated, ushort *destAligned,
+                            float *destAllocated, float *destAligned,
                             int64_t destOffset, int64_t destSize,
                             int64_t destStride) {
   assert(sourceSize == destSize);
   for( int64_t i =0; i < destSize; i++){
-    destAligned[i] = float_to_bfloat16(sourceAligned[i]); 
+    destAligned[i] = bfloat16_to_float(sourceAligned[i]); 
   }
 }
 
