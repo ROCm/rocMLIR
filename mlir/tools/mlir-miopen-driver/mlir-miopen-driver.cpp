@@ -1128,9 +1128,41 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
       ValueRange{filterHostAllocOp, inputHostAllocOp, outputHostAllocOp});
   block->push_back(gpuConvCallOp);
 
+  auto getFloatDataFromBF16 = [&](mlir::AllocOp& memRefCastOp) {
+    // alloc new memory for verify function
+    auto floatType = builder.getF32Type();
+    auto verifyMemRefType = MemRefType::get(
+        ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
+        floatType);
+
+    auto verifyHostAllocOp =
+        builder.create<AllocOp>(builder.getUnknownLoc(), verifyMemRefType);
+    block->push_back(verifyHostAllocOp);
+
+    auto unknownSizeMemRefFloatType =
+        MemRefType::get({-1, -1, -1, -1}, floatType);
+
+    auto verifyUnkownSizeMemRefCastOp = builder.create<MemRefCastOp>(
+        builder.getUnknownLoc(), verifyHostAllocOp, unknownSizeMemRefFloatType);
+    block->push_back(verifyUnkownSizeMemRefCastOp);
+
+    auto cpuMemConvertOp = FuncOp::create(
+        builder.getUnknownLoc(), StringRef("mcpuMemBF16ConvertFloat"),
+        builder.getFunctionType(
+            {fourDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {}));
+
+    auto verifyMemConvertCallOp = builder.create<CallOp>(
+        builder.getUnknownLoc(), cpuMemConvertOp,
+        ValueRange{memRefCastOp, verifyUnkownSizeMemRefCastOp});
+    block->push_back(verifyMemConvertCallOp);
+    return verifyHostAllocOp;
+  };
   mlir::AllocOp gpuResults;
   if (operation.getValue() == "conv2d") {
-    gpuResults = outputHostAllocOp;
+    if (builder.getIntegerType(16) == dataType) {
+      gpuResults = getFloatDataFromBF16(outputHostAllocOp);
+    } else
+      gpuResults = outputHostAllocOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
     gpuResults = inputHostAllocOp;
     // Reset the input tensor
@@ -1184,6 +1216,7 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
   }
 
   // Compare the results
+
   auto verifyFuncOp = createVerifyFuncOp(module, builder, outputDimension,
                                          cpuResults, gpuResults);
 
