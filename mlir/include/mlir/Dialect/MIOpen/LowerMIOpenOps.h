@@ -4767,7 +4767,7 @@ struct XdlopsGemmV2RewritePattern
       if (dataType == b.getF32Type()) {
         argA = innerLoopb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
         argB = innerLoopb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
-      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+      } else if (dataType == b.getF16Type() || dataType == b.getIntegerType(16)) {
         argA = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
         argB = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
       }
