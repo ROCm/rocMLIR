@@ -1150,7 +1150,7 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
         builder.getUnknownLoc(), StringRef("mcpuMemBF16ConvertFloat"),
         builder.getFunctionType(
             {fourDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {}));
-
+    block->push_back(cpuMemConvertOp);
     auto verifyMemConvertCallOp = builder.create<CallOp>(
         builder.getUnknownLoc(), cpuMemConvertOp,
         ValueRange{memRefCastOp, verifyUnkownSizeMemRefCastOp});
