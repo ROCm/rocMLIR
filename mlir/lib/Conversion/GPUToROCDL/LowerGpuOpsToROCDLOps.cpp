@@ -97,13 +97,31 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
     Type resultType = mubufLoadOp.result().getType();
     Type LLVMResultType = typeConverter.convertType(resultType);
 
-    // use standard load for loading scalar f16 and i16 (bf16).
+    // use standard load for:
+    // 1) loading scalar f16 and i16 (bf16) from global (addrspace 0).
     if ((srcElementType == rewriter.getIntegerType(16) || srcElementType == rewriter.getF16Type()) &&
-        !resultType.isa<VectorType>()) {
+        (srcMemRefType.getMemorySpace() == 0 && !resultType.isa<VectorType>())) {
       Value dataPtr = getDataPtr(op->getLoc(), srcMemRefType, adaptor.memref(),
                                  adaptor.indices(), rewriter, getModule());
       rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtr);
       return success();
+    }
+
+    // use standard load for:
+    // 2) loading scalar and vector f16 and i16 (bf16) from LDS (addrspace 3).
+    if (srcMemRefType.getMemorySpace() == 3) {
+      Value dataPtr = getDataPtr(op->getLoc(), srcMemRefType, adaptor.memref(),
+                                 adaptor.indices(), rewriter, getModule());
+      if (!resultType.isa<VectorType>()) {
+        rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtr);
+	return success();
+      } else {
+        // bitcast in case the result type is a vector.
+	LLVM::LLVMType LLVMResultPointerType = LLVMResultType.cast<LLVM::LLVMType>().getPointerTo(srcMemRefType.getMemorySpace());
+        Value dataPtrBitcasted = rewriter.create<LLVM::BitcastOp>(loc, LLVMResultPointerType, dataPtr);
+        rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtrBitcasted);
+	return success();
+      }
     }
 
     // for all other cases, use rocdl.mubuf_load.
