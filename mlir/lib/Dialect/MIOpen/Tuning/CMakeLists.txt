@@ -1,6 +1,8 @@
 add_mlir_dialect_library(MLIRMIOpenTuning
   SqliteDb.cpp
   GridwiseGemmParams.cpp
+  conv_hip_implicit_gemm.cpp
+  conv_hip_implicit_gemm_xdl.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/MIOpen/Tuning

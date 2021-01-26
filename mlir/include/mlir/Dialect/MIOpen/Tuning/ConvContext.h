@@ -28,15 +28,17 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallVector<int64_t, 0> strideVal;
   llvm::SmallVector<int64_t, 0> dilationVal;
   llvm::SmallVector<int64_t, 0> paddingVal;
+  bool isXdlOp;
 
   ConvolutionContext(const llvm::SmallString<8> &architecture, int numCu,
                      miopen::ConvOpType op,
                      llvm::StringMap<std::pair<size_t, int64_t>> dim,
                      llvm::SmallVector<int64_t, 0> stride,
                      llvm::SmallVector<int64_t, 0> dilation,
-                     llvm::SmallVector<int64_t, 0> padding)
+                     llvm::SmallVector<int64_t, 0> padding, bool xdl)
       : arch(architecture), num_cu(numCu), opType(op), dimIndexVal(dim),
-        strideVal(stride), dilationVal(dilation), paddingVal(padding) {}
+        strideVal(stride), dilationVal(dilation), paddingVal(padding),
+        isXdlOp(xdl) {}
 
   llvm::StringMap<std::pair<size_t, int64_t>> getDimIndexVal() const {
     return dimIndexVal;
@@ -174,8 +176,15 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
   llvm::SmallVector<int64_t, 0> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 
-  return {archVal,   numCuVal,    opType,    dimIndexVal,
-          strideVal, dilationVal, paddingVal};
+  auto xdl = false;
+  auto xdlopsAttr = op.template getAttrOfType<BoolAttr>("xdlops");
+  auto xdlopsV2Attr = op.template getAttrOfType<BoolAttr>("xdlopsV2");
+  if ((xdlopsAttr && xdlopsAttr.getValue() == true) ||
+      (xdlopsV2Attr && xdlopsV2Attr.getValue() == true))
+    xdl = true;
+
+  return {archVal,   numCuVal,    opType,     dimIndexVal,
+          strideVal, dilationVal, paddingVal, xdl};
 }
 
 } // namespace mlir

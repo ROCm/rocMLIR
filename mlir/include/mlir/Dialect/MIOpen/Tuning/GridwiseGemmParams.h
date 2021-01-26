@@ -16,6 +16,8 @@
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
+#include "mlir/Dialect/MIOpen/Tuning/SqliteDb.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Support/FileUtilities.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ToolOutputFile.h"
@@ -69,29 +71,119 @@ template <typename T> T integer_least_multiple(T x, T y) {
   return y * integer_divide_ceil(x, y);
 }
 
-struct InitParams {
-  int64_t gemmMPerBlock;
-  int64_t gemmNPerBlock;
-  int64_t gemmKPerBlock;
-};
+template <int64_t L, int64_t H> inline static bool IsTwoPower(const int64_t v) {
+  static_assert(L <= H, "L <= H");
+  if (((v - 1) & v) != 0)
+    return false;
+  return L <= v && v <= H;
+}
 
-struct GemmSize {
-  int64_t gemmM;
-  int64_t gemmN;
-  int64_t gemmK;
-};
+template <int64_t L, int64_t H>
+inline static bool PreviousTwoPower(int64_t &v) {
+  static_assert((((L - 1) & L) == 0), "L is not power of 2");
+  static_assert((((H - 1) & H) == 0), "H is not power of 2");
+  assert((IsTwoPower<L, H>(v)));
+  if (v == L) {
+    v = H;
+    return true;
+  }
+  v /= 2;
+  return false;
+}
 
-struct DerivedParams {
-  int64_t srcVectorReadDim;
-  int64_t dstVectorWriteDim;
-  int64_t srcDataPerRead;
-  int64_t dstDataPerWrite;
-  int64_t clusterLenGemmPos1;
-  int64_t clusterLenGemmPos2;
-  DerivedParams()
-      : srcVectorReadDim(0), dstVectorWriteDim(0), srcDataPerRead(1),
-        dstDataPerWrite(1), clusterLenGemmPos1(0), clusterLenGemmPos2(0) {}
-};
+constexpr std::size_t get_lds_max_number_of_byte() { return 65536; }
+
+inline static uint32_t GetEPackLength(const ConvolutionContext &ctx,
+                                      bool isXdlopsInvoked) {
+  // Based on data type, Es are packed
+  int64_t EPACK = 1;
+  /*
+      if(ctx.IsFp16()) // for fp16, either 2 or 4 Es could be packed
+      {
+          if(IsXdlopsSupport(ctx) && isXdlopsInvoked) // in xdlops, 4 fp16s are
+     packed EPACK = 4; else // for fp16, either 2 or 4 Es could be packed in
+     non-xdlops scenarios.
+              // EPACK = (C * Y * X % 32) == 0 ? 4 : 2;
+              EPACK = 2;
+      }
+      else if(ctx.IsBfp16()) // for bfp16, only 2 Es could be packed
+      {
+          EPACK = 2;
+      }
+  */
+  return EPACK;
+}
+
+static inline LogicalResult IsValidBlockwiseGemmXdlops(
+    const ConvolutionContext &ctx, const int64_t GemmMPerBlock,
+    const int64_t GemmNPerBlock, const int64_t GemmKPerBlock,
+    const int64_t GemmMPerWave, const int64_t GemmNPerWave,
+    const int64_t GemmKPack) {
+  // check M, N and K
+  std::vector<std::tuple<int64_t, int64_t, int64_t>> validWaveGemmSize = {
+      // std::make_tuple(128, 128, 1),
+      std::make_tuple(128, 64, 1),
+      // std::make_tuple(128, 32, 1),
+      // std::make_tuple(128, 16, 1),
+      std::make_tuple(64, 128, 1), std::make_tuple(64, 64, 1),
+      std::make_tuple(64, 32, 1), std::make_tuple(64, 16, 1),
+      // std::make_tuple(32, 128, 1),
+      std::make_tuple(32, 64, 1), std::make_tuple(32, 32, 2),
+      // std::make_tuple(16, 128, 1),
+      std::make_tuple(16, 64, 1), std::make_tuple(16, 16, 4),
+      // std::make_tuple(8, 128, 1),
+      std::make_tuple(8, 64, 1),
+      // std::make_tuple(4, 128, 1),
+      std::make_tuple(4, 64, 1)};
+
+  if (!std::any_of(validWaveGemmSize.cbegin(), validWaveGemmSize.cend(),
+                   [GemmMPerWave, GemmNPerWave,
+                    GemmKPerBlock](const auto it) noexcept -> bool {
+                     int64_t validMPerWave, validNPerWave, validKPerWave;
+                     std::tie(validMPerWave, validNPerWave, validKPerWave) = it;
+                     return (GemmMPerWave == validMPerWave) &&
+                            (GemmNPerWave == validNPerWave) &&
+                            (GemmKPerBlock % validKPerWave == 0);
+                   }))
+    return failure();
+
+  const auto WaveSize = 64;
+  const auto BlockSize = (GemmNPerBlock * GemmMPerBlock) /
+                         (GemmMPerWave * GemmNPerWave) * WaveSize;
+
+  if (BlockSize < 64 || BlockSize > 256)
+    return failure();
+
+  if ((GemmMPerBlock % GemmMPerWave) == 0 &&
+      (GemmNPerBlock % GemmNPerWave) == 0)
+    return success();
+
+  return failure();
+}
+
+static inline LogicalResult IsValidGridGemmXdlops(const std::size_t GemmM,
+                                                  const std::size_t GemmN,
+                                                  const std::size_t GemmK) {
+  // unsupported xdlops-gemm
+  if (GemmM % 16 != 0 && GemmN % 64 != 0)
+    return failure();
+
+  const auto WaveSize = 64;
+
+  if ((GemmM * GemmN) % 256 == 0 && (GemmK * GemmM) % WaveSize == 0 &&
+      (GemmK * GemmN) % WaveSize == 0 && GemmN % 16 == 0 && GemmM % 4 == 0 &&
+      GemmK % 4 == 0)
+    return success();
+
+  return failure();
+}
+
+template <typename PerformanceImplicitGemm_t>
+inline static auto GetPerformanceConfigBase(const ConvolutionContext &ctx) {
+  PerformanceImplicitGemm_t pp;
+  pp.EuristicInit(ctx);
+  return pp;
+}
 
 class PopulateParamsBase {
 public:
@@ -169,549 +261,472 @@ public:
       }
     }
   }
-
-  static void obtainFilterVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
-    auto dimIndexVal = ctx.dimIndexVal;
-    // Vectorization length logic is the same for forward and bwd_data
-    if (dimIndexVal["k"].first == 3) {
-      vecLen = dimIndexVal["k"].second;
-    } else if (dimIndexVal["k"].first == 0) {
-      // dimKF is the lowest changing dimension, which means dimC/dimY/dimX
-      vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second *
-               dimIndexVal["x"].second;
-    } else if (dimIndexVal["k"].first == 1) {
-      // K's position is at 1, vectorization legnth is last two dimension
-      if (dimIndexVal["c"].first == 0) {
-        vecLen = dimIndexVal["y"].second * dimIndexVal["x"].second;
-      } else if (dimIndexVal["y"].first == 0) {
-        vecLen = dimIndexVal["c"].second * dimIndexVal["x"].second;
-      } else {
-        vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second;
-      }
-    } else {
-      // K's position is 2, vectorization legnth is last dimension
-      if (dimIndexVal["c"].first == 3) {
-        vecLen = dimIndexVal["c"].second;
-      } else if (dimIndexVal["y"].first == 3) {
-        vecLen = dimIndexVal["y"].second;
-      } else {
-        vecLen = dimIndexVal["x"].second;
-      }
-    }
-  }
-
-  static void obtainInputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
-    auto dimIndexVal = ctx.dimIndexVal;
-    if (dimIndexVal["ni"].first == 3) {
-      vecLen = dimIndexVal["ni"].second;
-    } else if (dimIndexVal["ci"].first == 3) {
-      vecLen = dimIndexVal["ci"].second;
-    } else {
-      if (ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 &&
-          ctx.paddingVal[0] == 0 && ctx.paddingVal[1] == 0 &&
-          ctx.paddingVal[2] == 0 && ctx.paddingVal[3] == 0)
-        vecLen = dimIndexVal["hi"].second * dimIndexVal["wi"].second;
-      else
-        vecLen = 1;
-    }
-  }
-  static void obtainOutputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
-    auto dimIndexVal = ctx.dimIndexVal;
-    if (dimIndexVal["ko"].first == 3) {
-      vecLen = dimIndexVal["ko"].second;
-    } else if (dimIndexVal["ko"].first == 0) {
-      // dimKO is the lowest changing dimension, which means dimN/dimHo/dimWo
-      vecLen = dimIndexVal["no"].second * dimIndexVal["ho"].second *
-               dimIndexVal["wo"].second;
-    } else if (dimIndexVal["ko"].first == 1) {
-      // Ko's position is at 1, vectorization legnth is last two dimensions
-      if (dimIndexVal["no"].first == 0) {
-        vecLen = dimIndexVal["ho"].second * dimIndexVal["wo"].second;
-      } else if (dimIndexVal["ho"].first == 0) {
-        vecLen = dimIndexVal["no"].second * dimIndexVal["wo"].second;
-      } else {
-        vecLen = dimIndexVal["no"].second * dimIndexVal["ho"].second;
-      }
-    } else {
-      // K's position is 2, vectorization legnth is last dimension
-      if (dimIndexVal["no"].first == 3) {
-        vecLen = dimIndexVal["no"].second;
-      } else if (dimIndexVal["ho"].first == 3) {
-        vecLen = dimIndexVal["ho"].second;
-      } else {
-        vecLen = dimIndexVal["wo"].second;
-      }
-    }
-  }
-
-  static void obtainGemmAVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
-    auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
-      obtainFilterVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      obtainFilterVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
-      obtainOutputVecLen(ctx, vecLen);
-    }
-  }
-
-  static void obtainGemmBVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
-    auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
-      obtainInputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      obtainOutputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
-      obtainInputVecLen(ctx, vecLen);
-    }
-  }
-
-  static void obtainGemmCVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
-    auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
-      obtainOutputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      obtainInputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
-      obtainFilterVecLen(ctx, vecLen);
-    }
-  }
-
-protected:
-  mlir::LogicalResult calculateInputDerivedParams(InitParams *param,
-                                                  int64_t blockSize,
-                                                  ConvolutionContext &ctx,
-                                                  bool isGemmA,
-                                                  DerivedParams &derived) {
-
-    bool gemmPos1Vectorizable = false;
-    int64_t vectorizableLength = 0;
-    if (isGemmA) {
-      obtainGemmADimKVectorizable(ctx.opType, ctx.dimIndexVal,
-                                  gemmPos1Vectorizable);
-      obtainGemmAVecLen(ctx, vectorizableLength);
-    } else {
-      obtainGemmBDimKVectorizable(ctx.opType, ctx.dimIndexVal,
-                                  gemmPos1Vectorizable);
-      obtainGemmBVecLen(ctx, vectorizableLength);
-    }
-
-    // calculate threadwise copy size
-    int64_t dataPerThreadCopy = 0;
-    if (isGemmA) {
-      dataPerThreadCopy =
-          (param->gemmKPerBlock * param->gemmMPerBlock) / blockSize;
-    } else {
-      dataPerThreadCopy =
-          (param->gemmKPerBlock * param->gemmNPerBlock) / blockSize;
-    }
-
-    if (!(dataPerThreadCopy > 0))
-      return mlir::failure();
-
-    // srcDataPerRead bounded by size of threadwise copy
-    const int64_t vectorizationSize = 4;
-    if ((vectorizableLength > 0) && (vectorizableLength % 4 == 0)) {
-      derived.srcDataPerRead = gcd(vectorizationSize, dataPerThreadCopy);
-    }
-
-    // decide threadwise copy lengths
-    const auto dataPerThreadCopyGemmVectorized = derived.srcDataPerRead;
-    const auto dataPerThreadCopyGemmNonvectorized =
-        dataPerThreadCopy / dataPerThreadCopyGemmVectorized;
-
-    int64_t dataPerThreadCopyGemmPos1 = 0;
-    int64_t dataPerThreadCopyGemmPos2 = 0;
-    if (gemmPos1Vectorizable) {
-      dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmVectorized;
-      dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmNonvectorized;
-      derived.srcVectorReadDim = 0;
-    } else {
-      dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmNonvectorized;
-      dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmVectorized;
-      derived.srcVectorReadDim = 1;
-    }
-
-    // dstDataPerWrite also bounded by size of threadwise copy
-    derived.dstDataPerWrite = gcd(vectorizationSize, dataPerThreadCopyGemmPos2);
-
-    // calculate blockwise copy thread cluster lengths
-    if (isGemmA) {
-      derived.clusterLenGemmPos1 =
-          param->gemmKPerBlock / dataPerThreadCopyGemmPos1;
-      derived.clusterLenGemmPos2 =
-          param->gemmMPerBlock / dataPerThreadCopyGemmPos2;
-    } else {
-      derived.clusterLenGemmPos1 =
-          param->gemmKPerBlock / dataPerThreadCopyGemmPos1;
-      derived.clusterLenGemmPos2 =
-          param->gemmNPerBlock / dataPerThreadCopyGemmPos2;
-    }
-
-    if (!(derived.clusterLenGemmPos1 > 0 && derived.clusterLenGemmPos2 > 0))
-      return mlir::failure();
-
-    return mlir::success();
-  }
-
-  static void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
-    if (ctx.opType == mlir::miopen::ConvOpType::Conv2DOpType) {
-      gemmSize.gemmM = ctx.dimIndexVal["k"].second;
-      gemmSize.gemmN = ctx.dimIndexVal["no"].second *
-                       ctx.dimIndexVal["ho"].second *
-                       ctx.dimIndexVal["wo"].second;
-      gemmSize.gemmK = ctx.dimIndexVal["c"].second *
-                       ctx.dimIndexVal["y"].second *
-                       ctx.dimIndexVal["x"].second;
-    } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      gemmSize.gemmM = ctx.dimIndexVal["c"].second *
-                       ctx.dimIndexVal["y"].second *
-                       ctx.dimIndexVal["x"].second;
-      gemmSize.gemmN = ctx.dimIndexVal["no"].second *
-                       ctx.dimIndexVal["ho"].second *
-                       ctx.dimIndexVal["wo"].second;
-      gemmSize.gemmK = ctx.dimIndexVal["k"].second;
-    } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
-      gemmSize.gemmM = ctx.dimIndexVal["k"].second;
-      gemmSize.gemmK = ctx.dimIndexVal["no"].second *
-                       ctx.dimIndexVal["ho"].second *
-                       ctx.dimIndexVal["wo"].second;
-      gemmSize.gemmN = ctx.dimIndexVal["c"].second *
-                       ctx.dimIndexVal["y"].second *
-                       ctx.dimIndexVal["x"].second;
-    }
-  }
-
-  int64_t obtainGridSize(GemmSize &gemmSize, InitParams *param) {
-    return (gemmSize.gemmM / param->gemmMPerBlock) *
-           (gemmSize.gemmN / param->gemmNPerBlock);
-  }
-
-  mlir::LogicalResult isValidGemm(InitParams *param, GemmSize &gemmSize) {
-    if (!(gemmSize.gemmM % param->gemmMPerBlock == 0 &&
-          gemmSize.gemmN % param->gemmNPerBlock == 0 &&
-          gemmSize.gemmK % param->gemmKPerBlock == 0)) {
-      return mlir::failure();
-    }
-    return mlir::success();
-  }
 };
 
-struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
-  InitParamsNonXDL(int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
-                   int64_t mPerThread, int64_t nPerThread, int64_t bSize)
-      : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerThread(mPerThread),
-        gemmNPerThread(nPerThread), blockSize(bSize) {}
-  int64_t gemmMPerThread;
-  int64_t gemmNPerThread;
-  int64_t blockSize;
+struct PerformanceImplicitGemmV4R4Fwd
+    : Serializable<PerformanceImplicitGemmV4R4Fwd> {
+  int64_t BlockSize;
 
-  InitParamsNonXDL() : InitParamsNonXDL(0LL, 0LL, 0LL, 0LL, 0LL, 0LL) {}
+  int64_t GemmMPerBlock;
+  int64_t GemmNPerBlock;
+  int64_t GemmKPerBlock;
+
+  int64_t GemmMPerThread;
+  int64_t GemmNPerThread;
+
+  PerformanceImplicitGemmV4R4Fwd(int64_t, int64_t, int64_t, int64_t, int64_t,
+                                 int64_t);
+
+  PerformanceImplicitGemmV4R4Fwd()
+      : PerformanceImplicitGemmV4R4Fwd(-1, -1, -1, -1, -1, -1) {}
+
+  bool operator==(const PerformanceImplicitGemmV4R4Fwd &other) const;
 
   template <class Self, class F> static void visit(Self &&self, F f) {
-    f(self.blockSize);
-    f(self.gemmMPerBlock);
-    f(self.gemmNPerBlock);
-    f(self.gemmKPerBlock);
-    f(self.gemmMPerThread);
-    f(self.gemmNPerThread);
+    f(self.BlockSize, "BlockSize");
+    f(self.GemmMPerBlock, "GemmMPerBlock");
+    f(self.GemmNPerBlock, "GemmNPerBlock");
+    f(self.GemmKPerBlock, "GemmKPerBlock");
+    f(self.GemmMPerThread, "GemmMPerThread");
+    f(self.GemmNPerThread, "GemmNPerThread");
   }
+
+  std::tuple<int64_t, LogicalResult>
+  CalculateGridSize(const ConvolutionContext &ctx) const;
+
+  std::tuple<int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateBlockGemmPerformanceParameters(const ConvolutionContext &ctx) const;
+
+  std::tuple<int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateGemmABlockCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+
+  std::tuple<int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateGemmBBlockCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+
+  std::tuple<int64_t, LogicalResult>
+  CalculateGemmCThreadCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+
+  std::tuple<std::size_t, LogicalResult>
+  CalculateLdsNumberOfByte(const ConvolutionContext &ctx) const;
+
+  int64_t CalculateGemmASrcVectorReadDim(const ConvolutionContext &ctx) const;
+  int64_t CalculateGemmBSrcVectorReadDim(const ConvolutionContext &ctx) const;
+
+  LogicalResult IsValidValue() const;
+  LogicalResult IsValid(const ConvolutionContext &ctx) const;
+  LogicalResult EuristicInit(const ConvolutionContext &ctx);
 };
 
-struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
-  InitParamsXDL(int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
-                int64_t mPerWave, int64_t nPerWave, int64_t kPack,
-                bool aThreadCopyMoreGemmK, bool bThreadCopyMoreGemmKPack)
-      : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
-        gemmNPerWave(nPerWave), gemmKPack(kPack),
-        gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
-        gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
+struct PerformanceImplicitGemmV4R4WrW
+    : Serializable<PerformanceImplicitGemmV4R4WrW> {
+  int64_t BlockSize;
 
-  InitParamsXDL() : InitParamsXDL(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, false, false) {}
+  int64_t GemmMPerBlock;
+  int64_t GemmNPerBlock;
+  int64_t GemmKPerBlock;
 
-  int64_t gemmMPerWave;
-  int64_t gemmNPerWave;
-  int64_t gemmKPack;
-  bool gemmAThreadCopyMoreGemmK;
-  bool gemmBThreadCopyMoreGemmKPack;
+  int64_t GemmMPerThread;
+  int64_t GemmNPerThread;
+
+  int64_t srcVectorReadDim;
+
+  PerformanceImplicitGemmV4R4WrW(int64_t, int64_t, int64_t, int64_t, int64_t,
+                                 int64_t);
+
+  PerformanceImplicitGemmV4R4WrW()
+      : PerformanceImplicitGemmV4R4WrW(-1, -1, -1, -1, -1, -1) {}
+
+  bool operator==(const PerformanceImplicitGemmV4R4WrW &other) const;
 
   template <class Self, class F> static void visit(Self &&self, F f) {
-    f(self.gemmMPerBlock);
-    f(self.gemmNPerBlock);
-    f(self.gemmKPerBlock);
-    f(self.gemmMPerWave);
-    f(self.gemmNPerWave);
-    f(self.gemmKPack);
-    f(self.gemmAThreadCopyMoreGemmK);
-    f(self.gemmBThreadCopyMoreGemmKPack);
+    f(self.BlockSize, "BlockSize");
+    f(self.GemmMPerBlock, "GemmMPerBlock");
+    f(self.GemmNPerBlock, "GemmNPerBlock");
+    f(self.GemmKPerBlock, "GemmKPerBlock");
+    f(self.GemmMPerThread, "GemmMPerThread");
+    f(self.GemmNPerThread, "GemmNPerThread");
   }
+
+  std::tuple<int64_t, LogicalResult>
+  CalculateGridSize(const ConvolutionContext &ctx) const;
+
+  std::tuple<int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateBlockGemmPerformanceParameters(const ConvolutionContext &ctx) const;
+
+  std::tuple<int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateGemmABlockCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+
+  std::tuple<int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateGemmBBlockCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+
+  std::tuple<int64_t, LogicalResult>
+  CalculateGemmCThreadCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+
+  std::tuple<std::size_t, LogicalResult>
+  CalculateLdsNumberOfByte(const ConvolutionContext &ctx) const;
+
+  int64_t CalculateGemmASrcVectorReadDim(const ConvolutionContext &ctx) const;
+  int64_t CalculateGemmBSrcVectorReadDim(const ConvolutionContext &ctx) const;
+
+  LogicalResult IsValidValue() const;
+  LogicalResult IsValid(const ConvolutionContext &ctx) const;
+  LogicalResult EuristicInit(const ConvolutionContext &ctx);
 };
 
-// block gemm tuning params that sepcific the layout of thread-wise gemm in a
-// workgroup
-struct DerivedBlockGemmParams {
-  int64_t gemmMLevel0Cluster;
-  int64_t gemmNLevel0Cluster;
-  int64_t gemmMLevel1Cluster;
-  int64_t gemmNLevel1Cluster;
+struct PerformanceImplicitGemmBwdDataV1R1
+    : Serializable<PerformanceImplicitGemmBwdDataV1R1> {
+  int64_t BlockSize;
+
+  int64_t GemmMPerBlock;
+  int64_t GemmNPerBlock;
+  int64_t GemmKPerBlock;
+
+  int64_t GemmMPerThread;
+  int64_t GemmNPerThread;
+
+  int64_t srcVectorReadDim;
+  PerformanceImplicitGemmBwdDataV1R1(int64_t, int64_t, int64_t, int64_t,
+                                     int64_t, int64_t);
+
+  PerformanceImplicitGemmBwdDataV1R1()
+      : PerformanceImplicitGemmBwdDataV1R1(-1, -1, -1, -1, -1, -1) {}
+
+  bool operator==(const PerformanceImplicitGemmBwdDataV1R1 &other) const;
+
+  template <class Self, class F> static void visit(Self &&self, F f) {
+    f(self.BlockSize, "BlockSize");
+    f(self.GemmMPerBlock, "GemmMPerBlock");
+    f(self.GemmNPerBlock, "GemmNPerBlock");
+    f(self.GemmKPerBlock, "GemmKPerBlock");
+    f(self.GemmMPerThread, "GemmMPerThread");
+    f(self.GemmNPerThread, "GemmNPerThread");
+  }
+
+  std::tuple<int64_t, LogicalResult>
+  CalculateGridSize(const ConvolutionContext &ctx) const;
+
+  std::tuple<int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateBlockGemmPerformanceParameters(const ConvolutionContext &ctx) const;
+
+  std::tuple<int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateGemmABlockCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+
+  std::tuple<int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateGemmBBlockCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+
+  std::tuple<int64_t, LogicalResult>
+  CalculateGemmCThreadCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+
+  std::tuple<std::size_t, mlir::LogicalResult>
+  CalculateLdsNumberOfByte(const ConvolutionContext &ctx) const;
+
+  int64_t CalculateGemmASrcVectorReadDim(const ConvolutionContext &ctx) const;
+  int64_t CalculateGemmBSrcVectorReadDim(const ConvolutionContext &ctx) const;
+
+  LogicalResult IsValidValue() const;
+  LogicalResult IsValid(const ConvolutionContext &ctx) const;
+  LogicalResult EuristicInit(const ConvolutionContext &ctx);
 };
 
-class PopulateParams : public PopulateParamsBase {
-private:
-  // clang-format off
-  llvm::SmallVector<InitParamsNonXDL, 8> initParameters = {
-    // M/block N/block K/block M/thread N/thread blockSize
-    {128, 128, 8, 4, 4, 256},
-    {128, 64, 8, 4, 4, 128},
-    {64, 128, 4, 4, 4, 128},
-    {64, 64, 16, 4, 4, 64},
-    {32, 64, 16, 2, 4, 64},
-    {64, 32, 16, 4, 2, 64},
-    {32, 32, 4, 2, 2, 64}
-  };
-  // clang-format on
+struct PerformanceImplicitGemmForwardV4R4Xdlops
+    : Serializable<PerformanceImplicitGemmForwardV4R4Xdlops> {
+  int64_t GemmMPerBlock;
+  int64_t GemmNPerBlock;
+  int64_t GemmKPerBlock;
+  int64_t GemmMPerWave;
+  int64_t GemmNPerWave;
+  int64_t GemmKPack;
+  bool GemmAThreadCopyMoreGemmK;
+  bool GemmBThreadCopyMoreGemmKPack;
+  int64_t GemmBThreadDataPerRead_GemmN;
+  int64_t srcVectorReadDim;
+
+  PerformanceImplicitGemmForwardV4R4Xdlops(int64_t, int64_t, int64_t, int64_t,
+                                           int64_t, int64_t, bool, bool,
+                                           int64_t);
+  PerformanceImplicitGemmForwardV4R4Xdlops();
+
+  template <class Self, class F> static void visit(Self &&self, F f) {
+    f(self.GemmMPerBlock, "GemmMPerBlock");
+    f(self.GemmNPerBlock, "GemmNPerBlock");
+    f(self.GemmKPerBlock, "GemmKPerBlock");
+    f(self.GemmMPerWave, "GemmMPerWave");
+    f(self.GemmNPerWave, "GemmNPerWave");
+    f(self.GemmKPack, "GemmKPack");
+    f(self.GemmAThreadCopyMoreGemmK, "GemmAThreadCopyMoreGemmK");
+    f(self.GemmBThreadCopyMoreGemmKPack, "GemmBThreadCopyMoreGemmKPack");
+    f(self.GemmBThreadDataPerRead_GemmN, "GemmBThreadDataPerRead_GemmN");
+  }
+
+  bool operator==(const PerformanceImplicitGemmForwardV4R4Xdlops &other) const;
+  std::string ToString() const;
+
+  LogicalResult EuristicInit(const ConvolutionContext &ctx);
+  LogicalResult IsValidValue() const;
+  LogicalResult IsReallyValid(const ConvolutionContext &ctx) const;
+
+  std::tuple<int64_t, LogicalResult> CalculateBlockSize() const;
+  std::tuple<int64_t, LogicalResult>
+  CalculateGridSize(const ConvolutionContext &ctx) const;
+  std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateGemmABlockCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+  std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateGemmBBlockCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+  std::tuple<std::size_t, LogicalResult>
+  CalculateLdsNumberOfByte(const ConvolutionContext &ctx) const;
+
+  int64_t CalculateGemmASrcVectorReadDim(const ConvolutionContext &ctx) const;
+  int64_t CalculateGemmBSrcVectorReadDim(const ConvolutionContext &ctx) const;
+};
+
+struct PerformanceImplicitGemmBwdDataV4R1Xdlops
+    : Serializable<PerformanceImplicitGemmBwdDataV4R1Xdlops> {
+  int64_t GemmNPerBlock; // 2^n[8..16]
+  int64_t GemmMPerBlock; // 2^n[32..128]
+  int64_t GemmKPerBlock; // 2^n[4..16]
+
+  int64_t GemmKPACKSize; // 2^[1..4]
+
+  int64_t GemmMPerWave;
+  int64_t GemmNPerWave;
+  int64_t srcVectorReadDim;
+
+  // GemmAThreadCopyMoreGemmK is currently a fix value, is untunable
+  bool GemmAThreadCopyMoreGemmK;
+  bool GemmBThreadCopyMoreGemmKPack;
+
+  PerformanceImplicitGemmBwdDataV4R1Xdlops(int64_t, int64_t, int64_t, int64_t,
+                                           int64_t, int64_t, bool, bool);
+
+  PerformanceImplicitGemmBwdDataV4R1Xdlops();
+
+  bool operator==(const PerformanceImplicitGemmBwdDataV4R1Xdlops &other) const;
+
+  template <class Self, class F> static void visit(Self &&self, F f) {
+    f(self.GemmNPerBlock, "GemmNPerBlock");
+    f(self.GemmMPerBlock, "GemmMPerBlock");
+    f(self.GemmKPerBlock, "GemmKPerBlock");
+    f(self.GemmKPACKSize, "GemmKPACKSize");
+    f(self.GemmMPerWave, "GemmMPerWave");
+    f(self.GemmNPerWave, "GemmNPerWave");
+    f(self.GemmAThreadCopyMoreGemmK, "GemmAThreadCopyMoreGemmK");
+    f(self.GemmBThreadCopyMoreGemmKPack, "GemmBThreadCopyMoreGemmKPack");
+  }
+
+  std::tuple<int64_t, LogicalResult>
+  CalculateGridSize(const ConvolutionContext &ctx) const;
+  std::tuple<std::size_t, LogicalResult>
+  CalculateLdsNumberOfByte(const ConvolutionContext &ctx) const;
+  std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateGemmABlockCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+  std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateGemmBBlockCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+  LogicalResult IsValidValue() const;
+
+  int64_t CalculateGemmASrcVectorReadDim(const ConvolutionContext &ctx) const;
+  int64_t CalculateGemmBSrcVectorReadDim(const ConvolutionContext &ctx) const;
+  // bool IsValid(const ConvolutionContext& ctx) const;
+  LogicalResult IsReallyValid(const ConvolutionContext &ctx) const;
+  // bool IsFastToBeUsedForTuning(const ConvolutionContext& ctx) const;
+  LogicalResult EuristicInit(const ConvolutionContext &ctx);
+};
+
+struct PerformanceImplicitGemmWrwV4R4Xdlops
+    : Serializable<PerformanceImplicitGemmWrwV4R4Xdlops> {
+  int64_t GemmMPerBlock;
+  int64_t GemmNPerBlock;
+  int64_t GemmKPerBlock;
+  int64_t GemmMPerWave;
+  int64_t GemmNPerWave;
+  int64_t GemmKPack;
+  bool GemmAThreadCopyMoreGemmK;
+  bool GemmBThreadCopyMoreGemmK;
+  int64_t srcVectorReadDim;
+
+  PerformanceImplicitGemmWrwV4R4Xdlops(int64_t, int64_t, int64_t, int64_t,
+                                       int64_t, int64_t, bool, bool);
+  PerformanceImplicitGemmWrwV4R4Xdlops();
+
+  template <class Self, class F> static void visit(Self &&self, F f) {
+    f(self.GemmMPerBlock, "GemmMPerBlock");
+    f(self.GemmNPerBlock, "GemmNPerBlock");
+    f(self.GemmKPerBlock, "GemmKPerBlock");
+    f(self.GemmMPerWave, "GemmMPerWave");
+    f(self.GemmNPerWave, "GemmNPerWave");
+    f(self.GemmKPack, "GemmKPack");
+    f(self.GemmAThreadCopyMoreGemmK, "GemmAThreadCopyMoreGemmK");
+    f(self.GemmBThreadCopyMoreGemmK, "GemmBThreadCopyMoreGemmK");
+  }
+
+  bool operator==(const PerformanceImplicitGemmWrwV4R4Xdlops &other) const;
+  std::string ToString() const;
+
+  LogicalResult EuristicInit(const ConvolutionContext &ctx);
+  LogicalResult IsValidValue() const;
+  // LogicalResult IsValid(const ConvolutionContext& ctx) const;
+  LogicalResult IsReallyValid(const ConvolutionContext &ctx) const;
+  // LogicalResult IsFastToBeUsedForTuning(const ConvolutionContext& ctx) const;
+
+  std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateGemmSizeAndGemmKBlock(const ConvolutionContext &ctx) const;
+  std::tuple<int64_t, LogicalResult> CalculateBlockSize() const;
+  std::tuple<int64_t, LogicalResult>
+  CalculateGridSize(const ConvolutionContext &ctx) const;
+  std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateGemmABlockCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+  std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, LogicalResult>
+  CalculateGemmBBlockCopyPerformanceParameters(
+      const ConvolutionContext &ctx) const;
+  std::tuple<std::size_t, LogicalResult>
+  CalculateLdsNumberOfByte(const ConvolutionContext &ctx) const;
+
+  int64_t CalculateGemmASrcVectorReadDim(const ConvolutionContext &ctx) const;
+  int64_t CalculateGemmBSrcVectorReadDim(const ConvolutionContext &ctx) const;
+};
+
+struct SolverBase {
+  virtual LogicalResult IsApplicable(const ConvolutionContext &ctx) const = 0;
+};
+
+struct ConvHipImplicitGemmV4R4Fwd : SolverBase {
+  static std::tuple<int64_t, int64_t, int64_t>
+  CalculateGemmSize(const ConvolutionContext &ctx);
+
+  LogicalResult IsApplicable(const ConvolutionContext &ctx) const;
+
+  PerformanceImplicitGemmV4R4Fwd
+  GetPerformanceConfig(const ConvolutionContext &ctx) const;
 
   LogicalResult
-  calculateGemmABlockCopyPerformanceParameters(InitParamsNonXDL *param,
-                                               ConvolutionContext &ctx,
-                                               DerivedParams &derived) {
-    return calculateInputDerivedParams(param, param->blockSize, ctx, true,
-                                       derived);
-  }
+  IsValidPerformanceConfig(const ConvolutionContext &ctx,
+                           const PerformanceImplicitGemmV4R4Fwd &config) const;
 
-  LogicalResult
-  calculateGemmBBlockCopyPerformanceParameters(InitParamsNonXDL *param,
-                                               ConvolutionContext &ctx,
-                                               DerivedParams &derived) {
+  llvm::StringMap<int64_t>
+  GetSolution(const ConvolutionContext &ctx,
+              const PerformanceImplicitGemmV4R4Fwd &config) const;
 
-    return calculateInputDerivedParams(param, param->blockSize, ctx, false,
-                                       derived);
-  }
-
-  int64_t calculateGemmCDestDataPerWrite(const InitParamsNonXDL &param,
-                                         ConvolutionContext &ctx) {
-    int64_t outputVecLen = 0;
-    if ((ctx.opType == miopen::ConvOpType::Conv2DOpType) &&
-        (ctx.dimIndexVal["ko"].first == 3)) {
-      // gemmM vectorizable. However, there is no parameters for vectorizing
-      // gemmM dimension for matrix C. Do nothing here.
-    } else if ((ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) &&
-               (ctx.dimIndexVal["ci"].first == 3)) {
-      // gemmM vectorizable. However, there is no parameters for vectorizing
-      // gemmM dimension for matrix C. Do nothing here.
-    } else {
-      obtainGemmCVecLen(ctx, outputVecLen);
-    }
-
-    outputVecLen = gcd(outputVecLen, param.gemmNPerThread);
-
-    if ((outputVecLen > 0) && (outputVecLen % 4 == 0)) {
-      return 4;
-    } else if ((outputVecLen > 0) && (outputVecLen % 2 == 0)) {
-      return 2;
-    }
-
-    return 1;
-  }
-
-  LogicalResult
-  CalculateBlockGemmPerformanceParameters(const InitParamsNonXDL &param,
-                                          const ConvolutionContext &ctx,
-                                          DerivedBlockGemmParams &derived) {
-
-    derived.gemmMLevel0Cluster = 0;
-    derived.gemmNLevel0Cluster = 0;
-    derived.gemmMLevel1Cluster = 0;
-    derived.gemmNLevel1Cluster = 0;
-
-    if (param.blockSize == 64) {
-      derived.gemmMLevel0Cluster = 4;
-      derived.gemmNLevel0Cluster = 4;
-      derived.gemmMLevel1Cluster = 2;
-      derived.gemmNLevel1Cluster = 2;
-    } else if (param.blockSize == 128) {
-      derived.gemmMLevel0Cluster = 4;
-      derived.gemmNLevel0Cluster = 4;
-      derived.gemmMLevel1Cluster = 4;
-      derived.gemmNLevel1Cluster = 2;
-    } else if (param.blockSize == 256) {
-      derived.gemmMLevel0Cluster = 4;
-      derived.gemmNLevel0Cluster = 4;
-      derived.gemmMLevel1Cluster = 4;
-      derived.gemmNLevel1Cluster = 4;
-    } else {
-      return failure();
-    }
-
-    if (!(param.gemmMPerThread >= 2 && param.gemmMPerThread <= 4))
-      return failure();
-
-    if (!(param.gemmNPerThread >= 2 && param.gemmNPerThread <= 4))
-      return failure();
-
-    if (!(param.gemmMPerBlock % param.gemmMPerThread == 0 &&
-          param.gemmNPerBlock % param.gemmNPerThread == 0))
-      return failure();
-
-    const auto threadGemmMPerBlock = param.gemmMPerBlock / param.gemmMPerThread;
-    const auto threadGemmNPerBlock = param.gemmNPerBlock / param.gemmNPerThread;
-
-    const auto threadGemmMPerCluster =
-        derived.gemmMLevel0Cluster * derived.gemmMLevel1Cluster;
-    const auto threadGemmNPerCluster =
-        derived.gemmNLevel0Cluster * derived.gemmNLevel1Cluster;
-
-    if (!(threadGemmMPerBlock % threadGemmMPerCluster == 0) &&
-        (threadGemmNPerBlock % threadGemmNPerCluster == 0))
-      return failure();
-
-    const auto clusterMPerBlock = threadGemmMPerBlock / threadGemmMPerCluster;
-    const auto clusterNPerBlock = threadGemmNPerBlock / threadGemmNPerCluster;
-
-    // inline asm only support clusterMPerBlock = 2 andclusterNPerBlock =
-    // 2
-    if (!(clusterMPerBlock == 2 && clusterNPerBlock == 2))
-      return failure();
-
-    return success();
-  }
-
-  LogicalResult populateDerived(ConvolutionContext &ctx,
-                                InitParamsNonXDL &validParams,
-                                GemmSize &gemmSize,
-                                DerivedParams &gemmADerivedParam,
-                                DerivedParams &gemmBDerivedParam,
-                                DerivedBlockGemmParams &blockGemmDerivedParam,
-                                int64_t &gemmCDstPerWrite, int64_t &gridSize);
-
-public:
-  LogicalResult paramsFromCtx(ConvolutionContext &ctx,
-                              int64_t blockSizeOverride,
-                              InitParamsNonXDL &validParams,
-                              DerivedParams &gemmADerivedParam,
-                              DerivedParams &gemmBDerivedParam,
-                              DerivedBlockGemmParams &blockGemmDerivedParam,
-                              int64_t &gemmCDstPerWrite, int64_t &gridSize);
+  std::string getId() { return "ConvHipImplicitGemmV4R4Fwd"; }
 };
 
-class PopulateParamsXDL : public PopulateParamsBase {
-private:
-  llvm::SmallVector<InitParamsXDL, 4> initParameters = {
-      // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      {256, 128, 16, 128, 64, 0, false, false},
-      {128, 128, 16, 64, 64, 0, false, false},
-      {8, 64, 8, 8, 64, 0, false, false},
-      {4, 64, 16, 4, 64, 0, false, false},
-      {16, 16, 4, 16, 16, 0, false, false},
-  };
-  const int64_t waveSize = 64;
+struct ConvHipImplicitGemmV4R4WrW : SolverBase {
+  static std::tuple<int64_t, int64_t, int64_t>
 
-  int64_t obtainBlockSize(InitParamsXDL &params, int64_t waveSize) {
-    return waveSize * params.gemmNPerBlock * params.gemmMPerBlock /
-           (params.gemmMPerWave * params.gemmNPerWave);
-  }
+  CalculateGemmSize(const ConvolutionContext &ctx);
 
-  LogicalResult calculateGemmABlockCopyPerformanceParameters(
-      InitParamsXDL *param, ConvolutionContext &ctx, DerivedParams &derived) {
-    int64_t blockSize = obtainBlockSize(*param, waveSize);
-    return calculateInputDerivedParams(param, blockSize, ctx, true, derived);
-  }
+  LogicalResult IsApplicable(const ConvolutionContext &ctx) const;
 
-  LogicalResult calculateGemmBBlockCopyPerformanceParameters(
-      InitParamsXDL *param, ConvolutionContext &ctx, DerivedParams &derived) {
-    int64_t blockSize = obtainBlockSize(*param, waveSize);
-    return calculateInputDerivedParams(param, blockSize, ctx, false, derived);
-  }
+  PerformanceImplicitGemmV4R4WrW
+  GetPerformanceConfig(const ConvolutionContext &ctx) const;
 
-  LogicalResult calculateLdsNumberOfByte(InitParamsXDL &param,
-                                         const ConvolutionContext &ctx,
-                                         DerivedParams gemmADerived,
-                                         DerivedParams gemmBDerived,
-                                         size_t &ldsSize) {
+  LogicalResult
+  IsValidPerformanceConfig(const ConvolutionContext &ctx,
+                           const PerformanceImplicitGemmV4R4WrW &config) const;
 
-    int64_t threadGemmDataPerRead_GemmM =
-        param.gemmMPerBlock / gemmADerived.clusterLenGemmPos2;
-    int64_t threadGemmDataPerRead_GemmN =
-        param.gemmNPerBlock / gemmBDerived.clusterLenGemmPos2;
+  llvm::StringMap<int64_t>
+  GetSolution(const ConvolutionContext &ctx,
+              const PerformanceImplicitGemmV4R4WrW &config) const;
 
-    const auto max_lds_align =
-        lcm(gemmADerived.dstDataPerWrite, gemmBDerived.dstDataPerWrite,
-            threadGemmDataPerRead_GemmM, threadGemmDataPerRead_GemmN);
-
-    const auto a_block_space =
-        param.gemmKPerBlock *
-        integer_least_multiple(param.gemmMPerBlock, max_lds_align);
-    const auto b_block_space =
-        param.gemmKPerBlock *
-        integer_least_multiple(param.gemmNPerBlock, max_lds_align);
-
-    ldsSize = (a_block_space + b_block_space) * sizeof(float);
-
-    if (ldsSize > 64 * 1024) {
-      return failure();
-    }
-
-    return success();
-  }
-
-  LogicalResult isValidblockwisegemmxdlops(InitParamsXDL &param,
-                                           int64_t blockSize) {
-    // TBD: support fp16/bf16
-
-    std::vector<std::tuple<int, int, int>> validWaveGemmSize = {
-        // std::make_tuple(128, 128, 1),
-        std::make_tuple(128, 64, 1),
-        // std::make_tuple(128, 32, 1),
-        // std::make_tuple(128, 16, 1),
-        std::make_tuple(64, 128, 1), std::make_tuple(64, 64, 1),
-        std::make_tuple(64, 32, 1), std::make_tuple(64, 16, 1),
-        // std::make_tuple(32, 128, 1),
-        std::make_tuple(32, 64, 1), std::make_tuple(32, 32, 2),
-        // std::make_tuple(16, 128, 1),
-        std::make_tuple(16, 64, 1), std::make_tuple(16, 16, 4),
-        // std::make_tuple(8, 128, 1),
-        std::make_tuple(8, 64, 1),
-        // std::make_tuple(4, 128, 1),
-        std::make_tuple(4, 64, 1)};
-
-    if (!std::any_of(validWaveGemmSize.cbegin(), validWaveGemmSize.cend(),
-                     [param](const auto it) noexcept -> bool {
-                       int validMPerWave, validNPerWave, validKPerWave;
-                       std::tie(validMPerWave, validNPerWave, validKPerWave) =
-                           it;
-                       return (param.gemmMPerWave == validMPerWave) &&
-                              (param.gemmNPerWave == validNPerWave) &&
-                              (param.gemmKPerBlock % validKPerWave == 0);
-                     }))
-      return failure();
-
-    // fail with blockSize >= 512
-    /// \todo fix the issue with blockSize >= 512
-    if (blockSize < 64 || blockSize > 256)
-      return failure();
-
-    if ((param.gemmMPerBlock % param.gemmMPerWave) != 0)
-      return failure();
-
-    if ((param.gemmNPerBlock % param.gemmNPerWave) != 0)
-      return failure();
-
-    return success();
-  }
-
-  LogicalResult populateDerived(ConvolutionContext &ctx,
-                                InitParamsXDL &validParams, GemmSize &gemmSize,
-                                DerivedParams &gemmADerivedParam,
-                                DerivedParams &gemmBDerivedParam,
-                                int64_t &blockSize, int64_t &gridSize);
-
-public:
-  LogicalResult paramsFromCtx(ConvolutionContext &ctx,
-                              int64_t blockSizeOverride,
-                              InitParamsXDL &validParams,
-                              DerivedParams &gemmADerivedParam,
-                              DerivedParams &gemmBDerivedParam,
-                              int64_t &blockSize, int64_t &gridSize);
+  std::string getId() { return "ConvHipImplicitGemmV4R4WrW"; }
 };
 
-#endif // MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
+struct ConvHipImplicitGemmBwdDataV1R1 : SolverBase {
+  static std::tuple<int64_t, int64_t, int64_t>
+  CalculateGemmSize(const ConvolutionContext &ctx);
+
+  LogicalResult IsApplicable(const ConvolutionContext &ctx) const;
+
+  PerformanceImplicitGemmBwdDataV1R1
+  GetPerformanceConfig(const ConvolutionContext &ctx) const;
+
+  LogicalResult IsValidPerformanceConfig(
+      const ConvolutionContext &ctx,
+      const PerformanceImplicitGemmBwdDataV1R1 &config) const;
+
+  llvm::StringMap<int64_t>
+  GetSolution(const ConvolutionContext &ctx,
+              const PerformanceImplicitGemmBwdDataV1R1 &config) const;
+
+  std::string getId() { return "ConvHipImplicitGemmBwdDataV1R1"; }
+};
+
+struct ConvHipImplicitGemmForwardV4R4Xdlops : SolverBase {
+  static std::tuple<int64_t, int64_t, int64_t, int64_t>
+  CalculateGemmSize(const ConvolutionContext &ctx);
+
+  PerformanceImplicitGemmForwardV4R4Xdlops
+  GetPerformanceConfig(const ConvolutionContext &ctx) const;
+
+  LogicalResult IsValidPerformanceConfig(
+      const ConvolutionContext &ctx,
+      const PerformanceImplicitGemmForwardV4R4Xdlops &c) const;
+
+  LogicalResult IsApplicable(const ConvolutionContext &ctx) const;
+
+  llvm::StringMap<int64_t>
+  GetSolution(const ConvolutionContext &ctx,
+              const PerformanceImplicitGemmForwardV4R4Xdlops &config) const;
+
+  std::string getId() { return "ConvHipImplicitGemmForwardV4R4Xdlops"; }
+};
+
+struct ConvHipImplicitGemmBwdDataV4R1Xdlops : SolverBase {
+  static int64_t CalculateNumberOfGemm(const ConvolutionContext &ctx);
+
+  static std::tuple<int64_t, int64_t, int64_t, int64_t>
+  CalculateGemmSize(const ConvolutionContext &ctx, int64_t gemm_id);
+
+  PerformanceImplicitGemmBwdDataV4R1Xdlops
+  GetPerformanceConfig(const ConvolutionContext &ctx) const;
+
+  LogicalResult IsValidPerformanceConfig(
+      const ConvolutionContext &ctx,
+      const PerformanceImplicitGemmBwdDataV4R1Xdlops &c) const;
+
+  LogicalResult IsApplicable(const ConvolutionContext &ctx) const;
+
+  llvm::StringMap<int64_t>
+  GetSolution(const ConvolutionContext &ctx,
+              const PerformanceImplicitGemmBwdDataV4R1Xdlops &config) const;
+
+  std::string getId() { return "ConvHipImplicitGemmBwdDataV4R1Xdlops"; }
+};
+
+struct ConvHipImplicitGemmWrwV4R4Xdlops : SolverBase {
+  PerformanceImplicitGemmWrwV4R4Xdlops
+  GetPerformanceConfig(const ConvolutionContext &ctx) const;
+
+  LogicalResult
+  IsValidPerformanceConfig(const ConvolutionContext &ctx,
+                           const PerformanceImplicitGemmWrwV4R4Xdlops &c) const;
+
+  LogicalResult IsApplicable(const ConvolutionContext &ctx) const;
+
+  llvm::StringMap<int64_t>
+  GetSolution(const ConvolutionContext &ctx,
+              const PerformanceImplicitGemmWrwV4R4Xdlops &config) const;
+  std::string getId() { return "ConvHipImplicitGemmWrwV4R4Xdlops"; }
+};
+
+template <class... Solvers> struct SolverContainer {
+  std::tuple<llvm::StringMap<int64_t>, LogicalResult>
+  SearchForConfigParameters(const ConvolutionContext &ctx);
+};
+
+std::tuple<llvm::StringMap<int64_t>, LogicalResult>
+GetConfigParameters(const ConvolutionContext &ctx);
+
+#endif // MLIR_DIALECT_lMIOPEN_GRIDWISE_GEMM_PARAMS_H
