@@ -7677,9 +7677,9 @@ struct ThreadwiseLoadRewritePattern
     // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
     // C++ implementation.
 
-    llvm::errs() << "\nthreadwise_load op:\n";
-    op.dump();
-    llvm::errs() << "\n";
+    // llvm::errs() << "\nthreadwise_load op:\n";
+    // op.dump();
+    // llvm::errs() << "\n";
 
     auto dimAccessOrder =
         op.getAttr("dim_access_order").template cast<ArrayAttr>();
@@ -7694,10 +7694,10 @@ struct ThreadwiseLoadRewritePattern
 
     auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
 
-    llvm::errs() << "vector_read_write_dim: " << vectorAccessDim << "\n";
-    llvm::errs() << "source_data_per_read: " << srcDataPerRead << "\n";
-    llvm::errs() << "dest_data_per_write: " << destDataPerWrite << "\n";
-    llvm::errs() << "longVectorSize: " << longVectorSize << "\n";
+    // llvm::errs() << "vector_read_write_dim: " << vectorAccessDim << "\n";
+    // llvm::errs() << "source_data_per_read: " << srcDataPerRead << "\n";
+    // llvm::errs() << "dest_data_per_write: " << destDataPerWrite << "\n";
+    // llvm::errs() << "longVectorSize: " << longVectorSize << "\n";
 
     // Figure out which memref is the one without affine transformations.
     SmallVector<int64_t, 2> sliceLengths;
@@ -7727,10 +7727,10 @@ struct ThreadwiseLoadRewritePattern
       for (auto dim : sourceType.getShape())
         sliceLengths.push_back(dim);
     }
-    llvm::errs() << "slice lengths: ";
-    for (unsigned i = 0; i < sliceLengths.size(); ++i)
-      llvm::errs() << sliceLengths[i] << " ";
-    llvm::errs() << "\n";
+    // llvm::errs() << "slice lengths: ";
+    // for (unsigned i = 0; i < sliceLengths.size(); ++i)
+    //   llvm::errs() << sliceLengths[i] << " ";
+    // llvm::errs() << "\n";
 
     // Modify slice lenths per vector access dim.
     sliceLengths[vectorAccessDim] =
@@ -7739,10 +7739,10 @@ struct ThreadwiseLoadRewritePattern
     for (unsigned iter = 0; iter < sliceLengths.size(); ++iter)
       loopBounds.push_back(b.create<ConstantIndexOp>(loc, sliceLengths[iter]));
 
-    llvm::errs() << "modified slice lengths: ";
-    for (unsigned i = 0; i < sliceLengths.size(); ++i)
-      llvm::errs() << sliceLengths[i] << " ";
-    llvm::errs() << "\n";
+    // llvm::errs() << "modified slice lengths: ";
+    // for (unsigned i = 0; i < sliceLengths.size(); ++i)
+    //   llvm::errs() << sliceLengths[i] << " ";
+    // llvm::errs() << "\n";
 
     SmallVector<Value, 8> srcUpperCoord;
     SmallVector<Value, 8> srcLowerCoord;
@@ -7773,19 +7773,19 @@ struct ThreadwiseLoadRewritePattern
       // Load from source vector.
       SmallVector<Value, 4> srcIndexLowerNewUpdated;
       {
-        llvm::errs() << "source upper index old:\n";
-        for (auto &v : srcUpperCoord) {
-          v.dump();
-        }
-        llvm::errs() << "source lower index old:\n";
-        for (auto &v : srcLowerCoord) {
-          v.dump();
-        }
-        llvm::errs() << "source upper index diff:\n";
-        for (auto &v : loopIVsPerAccessOrder) {
-          llvm::errs() << v << " ";
-        }
-        llvm::errs() << "\n";
+        // llvm::errs() << "source upper index old:\n";
+        // for (auto& v : srcUpperCoord) {
+        //   v.dump();
+        // }
+        // llvm::errs() << "source lower index old:\n";
+        // for (auto& v : srcLowerCoord) {
+        //   v.dump();
+        // }
+        // llvm::errs() << "source upper index diff:\n";
+        // for (auto& v : loopIVsPerAccessOrder) {
+        //   llvm::errs() << v << " ";
+        // }
+        // llvm::errs() << "\n";
 
         SmallVector<Attribute, 2> indexUpperDiff;
         for (auto &v : loopIVsPerAccessOrder) {
@@ -7797,49 +7797,49 @@ struct ThreadwiseLoadRewritePattern
         SmallVector<Attribute, 4> indexLowerDiffTmpAttr;
         SmallVector<int64_t, 4> indexLowerDiffTmp;
         SmallVector<Value, 8> indexLowerDiffTmpOp;
-        llvm::errs() << "source affine transform map: ";
-        sourceTransform.dump();
-        llvm::errs() << "\n";
+        // llvm::errs() << "source affine transform map: ";
+        // sourceTransform.dump();
+        // llvm::errs() << "\n";
         if (!sourceTransform) {
           indexLowerDiffTmpAttr.assign(indexUpperDiff.begin(),
                                        indexUpperDiff.end());
         } else {
           sourceTransform.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
         }
-        llvm::errs() << "source index lower diff tmp:\n";
+        // llvm::errs() << "source index lower diff tmp:\n";
         for (auto attr : indexLowerDiffTmpAttr) {
           int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
-          llvm::errs() << v << " ";
+          // llvm::errs() << v << " ";
           indexLowerDiffTmp.push_back(v);
 
           auto cv = b.create<ConstantIndexOp>(loc, v);
           indexLowerDiffTmpOp.push_back(cv);
         }
-        llvm::errs() << "\n";
+        // llvm::errs() << "\n";
 
         // Add: index lower old + index lower diff tmp
         SmallVector<Value, 8> indexLowerNew;
-        llvm::errs() << "index lower new before borrow/carry:\n";
+        // llvm::errs() << "index lower new before borrow/carry:\n";
         for (int64_t iter = 0; iter < sourceType.getShape().size(); ++iter) {
           Value v = b.create<AddIOp>(loc, srcLowerCoord[iter],
                                      indexLowerDiffTmpOp[iter]);
-          v.dump();
+          // v.dump();
           indexLowerNew.push_back(v);
         }
-        llvm::errs() << "\n";
+        // llvm::errs() << "\n";
 
         // Get bounds for source memref.
         SmallVector<int64_t, 4> bound;
         SmallVector<Value, 4> boundOp;
-        llvm::errs() << "bound:\n";
+        // llvm::errs() << "bound:\n";
         for (auto v : sourceType.getShape()) {
-          llvm::errs() << v << " ";
+          // llvm::errs() << v << " ";
           bound.push_back(v);
 
           auto cv = b.create<ConstantIndexOp>(loc, v);
           boundOp.push_back(cv);
         }
-        llvm::errs() << "\n";
+        // llvm::errs() << "\n";
 
         // Only use carry / borrow check logic if needed.
         if (sourceTransform && hasDivisionOrRemainder(sourceTransform)) {
