@@ -3474,19 +3474,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     return success();
   }
 
-  LogicalResult twoByTwoPipelinedRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const {
-    // TBD implement 2x2 pipelined version.
-    op.erase();
-    return success();
-  }
-
   LogicalResult matchAndRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const override {
-    // TBD switch between 2x2 and naive pipeline.
-    if (true) {
-      return naiveRewrite(op, b);
-    } else {
-      return twoByTwoPipelinedRewrite(op, b);
-    }
+    return naiveRewrite(op, b);
   }
 };
 
