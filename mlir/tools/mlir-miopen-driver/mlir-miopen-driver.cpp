@@ -1177,7 +1177,7 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
     auto verifyUnkownSizeMemRefCastOp = builder.create<MemRefCastOp>(
         builder.getUnknownLoc(), verifyHostAllocOp, unknownSizeMemRefFloatType);
     block->push_back(verifyUnkownSizeMemRefCastOp);
-//care ,you should extract size instead of outputMemRefType
+
     auto cpuMemConvertOp = FuncOp::create(
         builder.getUnknownLoc(), "mcpuMemBF16ConvertFloat",
         builder.getFunctionType(
@@ -1214,7 +1214,9 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
     block->push_back(filterCpuMemsetOp);
   }
  
- //kevin start
+
+  mlir::AllocOp cpuResults;
+
   if (dataType == builder.getIntegerType(16)) {
     mlir::Type dataTypeForBf16 = builder.getF32Type();
     auto fourDimUnknownSizeMemRefForBf16Type =
@@ -1322,7 +1324,6 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
       ValueRange{filterHostForBf16AllocOp, inputHostForBf16AllocOp, cpuOutputHostForBf16AllocOp});
     block->push_back(cpuConvForBf16CallOp);
 
-    mlir::AllocOp cpuResults;
     if (operation.getValue() == "conv2d") {
       cpuResults = cpuOutputHostForBf16AllocOp;
     } else if (operation.getValue() == "conv2d_bwd_data") {
@@ -1330,70 +1331,93 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
     } else if (operation.getValue() == "conv2d_bwd_weight") {
       cpuResults = filterHostForBf16AllocOp;
     }
-  }
-//kevin end
 
-/*
-  // Emit CPU alloc for CPU convolution
-  auto cpuOutputHostAllocOp =
-      builder.create<AllocOp>(builder.getUnknownLoc(), outputMemRefType);
-  block->push_back(cpuOutputHostAllocOp);
+  // Compare the results
+    auto verifyFuncOp = createVerifyFuncOp(module, builder, outputDimension,
+                                         cpuResults, gpuResults);
+    auto verifyCallOp =
+      builder.create<CallOp>(builder.getUnknownLoc(), verifyFuncOp,
+                             ValueRange{cpuResults, gpuResults});
+    block->push_back(verifyCallOp);
+
+    auto filterHostDeallocOp =
+        builder.create<DeallocOp>(builder.getUnknownLoc(), filterHostAllocOp);
+    auto inputHostDeallocOp =
+        builder.create<DeallocOp>(builder.getUnknownLoc(), inputHostAllocOp);
+    auto outputHostDeallocOp =
+        builder.create<DeallocOp>(builder.getUnknownLoc(), outputHostAllocOp);
+
+    auto filterHostForBf16DeallocOp =
+        builder.create<DeallocOp>(builder.getUnknownLoc(), filterHostForBf16AllocOp);
+    auto inputHostForBf16DeallocOp =
+        builder.create<DeallocOp>(builder.getUnknownLoc(), inputHostForBf16AllocOp);
+    auto cpuOutputHostForBf16DeallocOp =
+       builder.create<DeallocOp>(builder.getUnknownLoc(), cpuOutputHostForBf16AllocOp);
+
+    block->push_back(filterHostDeallocOp);
+    block->push_back(inputHostDeallocOp);
+    block->push_back(outputHostDeallocOp);
+    block->push_back(filterHostForBf16DeallocOp);
+    block->push_back(inputHostForBf16DeallocOp);
+    block->push_back(cpuOutputHostForBf16DeallocOp);
+
+  } else {//not bf 16
+   // Emit CPU alloc for CPU convolution
+    auto cpuOutputHostAllocOp =
+        builder.create<AllocOp>(builder.getUnknownLoc(), outputMemRefType);
+    block->push_back(cpuOutputHostAllocOp);
 
   // Emit memref cast
-  auto cpuOutputMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), cpuOutputHostAllocOp,
-      fourDimUnknownSizeMemRefType);
-  block->push_back(cpuOutputMemRefCastOp);
+    auto cpuOutputMemRefCastOp = builder.create<MemRefCastOp>(
+        builder.getUnknownLoc(), cpuOutputHostAllocOp,
+        fourDimUnknownSizeMemRefType);
+    block->push_back(cpuOutputMemRefCastOp);
 
   // Populate initial values
-  auto cpuOutputCpuMemsetOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-      ValueRange{cpuOutputMemRefCastOp, cpuOutputMemsetValue});
-  block->push_back(cpuOutputCpuMemsetOp);
+    auto cpuOutputCpuMemsetOp = builder.create<CallOp>(
+        builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+        ValueRange{cpuOutputMemRefCastOp, cpuOutputMemsetValue});
+    block->push_back(cpuOutputCpuMemsetOp);
 
   // Populate host validation logic
-  auto cpuConvFuncOp = createCPUConvolution(module, builder, filterMemRefType,
+    auto cpuConvFuncOp = createCPUConvolution(module, builder, filterMemRefType,
                                             inputMemRefType, outputMemRefType);
 
   // Emit conv2d_host function call.
-  auto cpuConvCallOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), cpuConvFuncOp,
-      ValueRange{filterHostAllocOp, inputHostAllocOp, cpuOutputHostAllocOp});
-  block->push_back(cpuConvCallOp);
+    auto cpuConvCallOp = builder.create<CallOp>(
+        builder.getUnknownLoc(), cpuConvFuncOp,
+        ValueRange{filterHostAllocOp, inputHostAllocOp, cpuOutputHostAllocOp});
+    block->push_back(cpuConvCallOp);
 
-  mlir::AllocOp cpuResults;
-  if (operation.getValue() == "conv2d") {
-    cpuResults = cpuOutputHostAllocOp;
-  } else if (operation.getValue() == "conv2d_bwd_data") {
-    cpuResults = inputHostAllocOp;
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
-    cpuResults = filterHostAllocOp;
-  }
+    if (operation.getValue() == "conv2d") {
+      cpuResults = cpuOutputHostAllocOp;
+    } else if (operation.getValue() == "conv2d_bwd_data") {
+      cpuResults = inputHostAllocOp;
+    } else if (operation.getValue() == "conv2d_bwd_weight") {
+      cpuResults = filterHostAllocOp;
+    }
 
-  // Compare the results
-
-  auto verifyFuncOp = createVerifyFuncOp(module, builder, outputDimension,
+   // Compare the results
+    auto verifyFuncOp = createVerifyFuncOp(module, builder, outputDimension,
                                          cpuResults, gpuResults);
-
-  auto verifyCallOp =
+    auto verifyCallOp =
       builder.create<CallOp>(builder.getUnknownLoc(), verifyFuncOp,
                              ValueRange{cpuResults, gpuResults});
-  block->push_back(verifyCallOp);
+    block->push_back(verifyCallOp);
+    auto filterHostDeallocOp =
+        builder.create<DeallocOp>(builder.getUnknownLoc(), filterHostAllocOp);
+    auto inputHostDeallocOp =
+        builder.create<DeallocOp>(builder.getUnknownLoc(), inputHostAllocOp);
+    auto outputHostDeallocOp =
+        builder.create<DeallocOp>(builder.getUnknownLoc(), outputHostAllocOp);
+    auto cpuOutputHostDeallocOp =
+        builder.create<DeallocOp>(builder.getUnknownLoc(), cpuOutputHostAllocOp);
+    block->push_back(filterHostDeallocOp);
+    block->push_back(inputHostDeallocOp);
+    block->push_back(outputHostDeallocOp);
+    block->push_back(cpuOutputHostDeallocOp);
+  }
 
-  // Emit CPU dealloc.
-  auto filterHostDeallocOp =
-      builder.create<DeallocOp>(builder.getUnknownLoc(), filterHostAllocOp);
-  auto inputHostDeallocOp =
-      builder.create<DeallocOp>(builder.getUnknownLoc(), inputHostAllocOp);
-  auto outputHostDeallocOp =
-      builder.create<DeallocOp>(builder.getUnknownLoc(), outputHostAllocOp);
-  auto cpuOutputHostDeallocOp =
-      builder.create<DeallocOp>(builder.getUnknownLoc(), cpuOutputHostAllocOp);
-  block->push_back(filterHostDeallocOp);
-  block->push_back(inputHostDeallocOp);
-  block->push_back(outputHostDeallocOp);
-  block->push_back(cpuOutputHostDeallocOp);
-*/
   auto returnOp =
       builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
   block->push_back(returnOp);
