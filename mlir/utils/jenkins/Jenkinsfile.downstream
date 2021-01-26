@@ -59,7 +59,7 @@ pipeline {
                     mkdir -p build && cd build
 
                     cmake -G "Unix Makefiles" ../llvm \
-                        -DLLVM_ENABLE_PROJECTS="mlir" \
+                        -DLLVM_ENABLE_PROJECTS="mlir;lld" \
                         -DCMAKE_BUILD_TYPE=Release \
                         -DBUILD_SHARED_LIBS=OFF \
                         -DLLVM_BUILD_LLVM_DYLIB=OFF \
