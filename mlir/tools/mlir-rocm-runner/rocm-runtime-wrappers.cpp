@@ -189,19 +189,17 @@ extern "C" void mgpuMemCopy(float *sourceAllocated, float *sourceAligned,
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
-extern "C" void mcpuMemBF16ConvertFloat(int16_t *sourceAllocated, int16_t *sourceAligned,
-                            int64_t sourceOffset,
-			    int64_t size0, int64_t size1, int64_t size2, int64_t size3,
-                            int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
-                            float *destAllocated, float *destAligned,
-                            int64_t destOffset,
-			    int64_t size4, int64_t size5, int64_t size6, int64_t size7,
-                            int64_t stride4, int64_t stride5, int64_t stride6, int64_t stride7) {
-  assert(size0*size1*size2*size3 == size4*size5*size6*size7);
-  for( int64_t i =0; i < size0*size1*size2*size3; i++){
+extern "C" void mcpuMemFloatConvertBf16(unsigned short *sourceAllocated, unsigned short *sourceAligned,
+                             int64_t sourceOffset, int64_t sourceSize,
+                             int64_t sourceStride,
+                             float *destAllocated, float *destAligned,
+                             int64_t destOffset, int64_t destSize,
+                             int64_t destStride) {
+   assert(sourceSize == destSize);
+   for( int64_t i =0; i < destSize; i++){
     destAligned[i] = bfloat16_to_float(sourceAligned[i]); 
-  }
-}
+   }
+ }
 
 // 2D float memref utility routines.
 

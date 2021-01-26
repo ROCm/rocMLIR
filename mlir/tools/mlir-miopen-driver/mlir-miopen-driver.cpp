@@ -1149,8 +1149,8 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
       builder.getUnknownLoc(), gpuConvFuncOp,
       ValueRange{filterHostAllocOp, inputHostAllocOp, outputHostAllocOp});
   block->push_back(gpuConvCallOp);
-
-  auto getFloatDataFromBF16 = [&](mlir::AllocOp& memRefCastOp) {
+  //create f32 data
+  auto getFloatDataFromBF16 = [&](mlir::MemRefCastOp& memRefCastOp) {
     // alloc new memory for verify function
     auto floatType = builder.getF32Type();
     auto verifyMemRefType = MemRefType::get(
@@ -1181,7 +1181,7 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
     auto cpuMemConvertOp = FuncOp::create(
         builder.getUnknownLoc(), "mcpuMemBF16ConvertFloat",
         builder.getFunctionType(
-            {outputMemRefType, unknownSizeMemRefFloatType}, {}));
+            {fourDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {}));
     module.push_back(cpuMemConvertOp);
 
     auto verifyMemConvertCallOp = builder.create<CallOp>(
@@ -1189,15 +1189,13 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
         ValueRange{memRefCastOp, verifyUnkownSizeMemRefCastOp});
     block->push_back(verifyMemConvertCallOp);
 
-
-    return verifyMemConvertCallOp;
+    return verifyHostAllocOp;
   };
 
   mlir::AllocOp gpuResults;
-  mlir::CallOp gpuResultsBf16;
   if (operation.getValue() == "conv2d") {
     if (builder.getIntegerType(16) == dataType) {
-      gpuResultsBf16 = getFloatDataFromBF16(outputHostAllocOp);
+      gpuResults = getFloatDataFromBF16(outputMemRefCastOp);
     } else
       gpuResults = outputHostAllocOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
