@@ -109,7 +109,8 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
 
     // use standard load for:
     // 2) loading scalar and vector f16 and i16 (bf16) from LDS (addrspace 3).
-    if (srcMemRefType.getMemorySpace() == 3) {
+    // 3) loading scalar and vector f16 and i16 (bf16) from VGPR (addrspace 5).
+    if (srcMemRefType.getMemorySpace() == 3 || srcMemRefType.getMemorySpace() == 5) {
       Value dataPtr = getDataPtr(op->getLoc(), srcMemRefType, adaptor.memref(),
                                  adaptor.indices(), rewriter, getModule());
       if (!resultType.isa<VectorType>()) {
