@@ -189,18 +189,6 @@ extern "C" void mgpuMemCopy(float *sourceAllocated, float *sourceAligned,
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
-extern "C" void mcpuMemBF16ConvertFloat(unsigned short *sourceAllocated, unsigned short *sourceAligned,
-                             int64_t sourceOffset, int64_t sourceSize,
-                             int64_t sourceStride,
-                             float *destAllocated, float *destAligned,
-                             int64_t destOffset, int64_t destSize,
-                             int64_t destStride) {
-   assert(sourceSize == destSize);
-   for( int64_t i =0; i < destSize; i++){
-    destAligned[i] = bfloat16_to_float(sourceAligned[i]); 
-   }
- }
-
 // 2D float memref utility routines.
 
 extern "C" void mcpuMemset2DFloat(float *allocated, float *aligned,
@@ -298,6 +286,32 @@ extern "C" void mcpuMemset4DHalf(unsigned short *allocated, unsigned short *alig
       for (unsigned k = 0; k < size2; ++k)
         for (unsigned l = 0; l < size3; ++l)
           aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] = value;
+}
+
+/*extern "C" void mcpuMemBF16ConvertFloat(unsigned short *sourceAllocated, unsigned short *sourceAligned,
+                             int64_t sourceOffset, int64_t sourceSize,
+                             int64_t sourceStride,
+                             float *destAllocated, float *destAligned,
+                             int64_t destOffset, int64_t destSize,
+                             int64_t destStride) {
+   assert(sourceSize == destSize);
+   for( int64_t i =0; i < destSize; i++){
+    destAligned[i] = bfloat16_to_float(sourceAligned[i]); 
+   }
+ }
+*/
+extern "C" void mcpuMemBF16ConvertFloat(
+                            unsigned short *sourceAllocated, unsigned short *sourceAligned, int64_t sourceOffset,
+                            int64_t size0, int64_t size1, int64_t size2, int64_t size3,
+                            int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
+                            float *destAllocated, float *destAligned, int64_t destOffset,
+                            int64_t size4, int64_t size5, int64_t size6, int64_t size7,
+                            int64_t stride4, int64_t stride5, int64_t stride6, int64_t stride7) {
+    assert(size0 * size1 * size2 * size3 == size4 * size5 * size6 * size7);
+    int64_t dataSize = size0 * size1 * size2 * size3;
+    for (int64_t i = 0; i < dataSize; i++) {
+        destAligned[i] = bfloat16_to_float(sourceAligned[i]);
+   }
 }
 
 extern "C" StridedMemRefType<unsigned short, 4>
