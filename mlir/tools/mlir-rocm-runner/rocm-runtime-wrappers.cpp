@@ -189,7 +189,7 @@ extern "C" void mgpuMemCopy(float *sourceAllocated, float *sourceAligned,
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
-extern "C" void mcpuMemFloatConvertBf16(unsigned short *sourceAllocated, unsigned short *sourceAligned,
+extern "C" void mcpuMemBF16ConvertFloat(unsigned short *sourceAllocated, unsigned short *sourceAligned,
                              int64_t sourceOffset, int64_t sourceSize,
                              int64_t sourceStride,
                              float *destAllocated, float *destAligned,
