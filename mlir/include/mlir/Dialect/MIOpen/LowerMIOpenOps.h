@@ -2785,13 +2785,23 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     
     // Logic to setup buffers for blockwise_gemm_v2.
     
-    // TBD. FloatA / FloatB could be vectorized via KPack. Ignore this for now.
+    // FloatA / FloatB could be vectorized via KPack.
+    int64_t KPACK = 1;
+    Type registerFloatABType;
+    if (elementType == b.getF16Type() || elementType == b.getIntegerType(16)) {
+      // TBD. Fix KPACK as 4 for now.
+      KPACK = 4;
+      registerFloatABType = VectorType::get(KPACK, elementType);
+    } else {
+      registerFloatABType = elementType;
+    }
+
     auto arrayAType =
-        MemRefType::get({KPerBlock * MRepeats}, dataType, {},
+        MemRefType::get({KPerBlock * MRepeats / KPACK}, registerFloatABType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
     auto arrayA = b.create<miopen::GpuAllocOp>(loc, arrayAType);
     auto arrayBType =
-        MemRefType::get({KPerBlock * NRepeats}, dataType, {},
+        MemRefType::get({KPerBlock * NRepeats / KPACK}, registerFloatABType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
     auto arrayB = b.create<miopen::GpuAllocOp>(loc, arrayBType);
 
