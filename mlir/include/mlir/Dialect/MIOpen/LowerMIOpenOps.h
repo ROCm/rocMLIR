@@ -1371,8 +1371,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Prepare some useful constants.
     auto zeroConstantFloatOp =
         b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
     auto zeroConstantI32Op =
         b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
     auto oneConstantI32Op =
@@ -2345,8 +2343,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Prepare some useful constants.
     auto zeroConstantFloatOp =
         b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
     auto zeroConstantI32Op =
         b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
     auto oneConstantI32Op =
@@ -3822,8 +3818,6 @@ struct ThreadwiseCopyRewritePattern
 
     auto zeroConstantFloatOp =
         b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
@@ -4567,8 +4561,6 @@ struct ThreadwiseLoadRewritePattern
 
     auto zeroConstantFloatOp =
         b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
@@ -4900,8 +4892,6 @@ struct ThreadwiseStoreRewritePattern
 
     auto zeroConstantFloatOp =
         b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
@@ -5218,8 +5208,6 @@ struct ThreadwiseCopyV2RewritePattern
 
     auto zeroConstantFloatOp =
         b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
     auto zeroConstantI32Op =
@@ -6110,9 +6098,6 @@ struct XdlopsGemmV2RewritePattern
     auto MRepeatsConstantOp = b.create<ConstantIndexOp>(loc, MRepeats);
     auto NRepeatsConstantOp = b.create<ConstantIndexOp>(loc, NRepeats);
     auto KRepeatsConstantOp = b.create<ConstantIndexOp>(loc, KRepeats);
-
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
 
     if (!IsKReduction) {
       // store bufferA logic.
