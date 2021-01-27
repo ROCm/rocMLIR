@@ -2816,7 +2816,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Emit loop.
 
-    int64_t loopIteration = (K - KPerBlock) / KPerBlock;
+    // TBD: Take KPACK into consideration.
+    int64_t loopIteration = (K - KPerBlock) / KPerBlock / KPACK;
     auto loopIterationConstantOp =
         b.create<ConstantIndexOp>(loc, loopIteration);
 
@@ -6025,6 +6026,11 @@ struct XdlopsGemmV2RewritePattern
     auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
     auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
     auto KConstantOp = b.create<ConstantIndexOp>(loc, K);
+    // TBD adopt KPACK from upper level ops.
+    int64_t KPACK = 1;
+    if (dataType == b.getF16Type() || dataType == b.getIntegerType(16))
+      KPACK = 4;
+    auto KConstantDividedByKPackOp = b.create<ConstantIndexOp>(loc, K / KPACK);
 
     XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
@@ -6112,7 +6118,8 @@ struct XdlopsGemmV2RewritePattern
       auto outerLoopM = b.create<scf::ForOp>(loc, zeroConstantOp, MRepeatsConstantOp, oneConstantOp);
       auto olmb = OpBuilder::atBlockTerminator(outerLoopM.getBody());
       auto olmiv = outerLoopM.getInductionVar();
-      auto innerLoopMK = olmb.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, oneConstantOp);
+      // TBD. Take KPack into consideration.
+      auto innerLoopMK = olmb.create<scf::ForOp>(loc, zeroConstantOp, KConstantDividedByKPackOp, oneConstantOp);
       auto ilmkb = OpBuilder::atBlockTerminator(innerLoopMK.getBody());
       auto ilmkiv = innerLoopMK.getInductionVar();
 
@@ -6127,11 +6134,12 @@ struct XdlopsGemmV2RewritePattern
                   loc, ilmkb.create<MulIOp>(loc, ilmkiv, MConstantOp),
                   laneId),
               ilmkb.create<MulIOp>(loc, MPerXdlopsConstantOp, olmiv)));
+      // TBD. Take KPack into consideration.
       auto destOffsetA = ilmkb.create<AddIOp>(
-          loc, ilmkiv, ilmkb.create<MulIOp>(loc, olmiv, KConstantOp));
+          loc, ilmkiv, ilmkb.create<MulIOp>(loc, olmiv, KConstantDividedByKPackOp));
 
-      auto valueA = ilmkb.create<LoadOp>(loc, dataType, op.matrixA(),
-                                         ValueRange{sourceOffsetA});
+      auto sourceOffsetAI32 = ilmkb.create<IndexCastOp>(loc, sourceOffsetA, ilmkb.getIntegerType(32));
+      auto valueA = ilmkb.create<gpu::MubufLoadOp>(loc, argType, op.matrixA(), ValueRange{sourceOffsetAI32});
       ilmkb.create<StoreOp>(loc, valueA, op.bufferA(), ValueRange{destOffsetA});
 
       // store bufferB logic.
@@ -6145,7 +6153,8 @@ struct XdlopsGemmV2RewritePattern
       auto outerLoopN = b.create<scf::ForOp>(loc, zeroConstantOp, NRepeatsConstantOp, oneConstantOp);
       auto olnb = OpBuilder::atBlockTerminator(outerLoopN.getBody());
       auto olniv = outerLoopN.getInductionVar();
-      auto innerLoopNK = olnb.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, oneConstantOp);
+      // TBD. Take KPack into consideration.
+      auto innerLoopNK = olnb.create<scf::ForOp>(loc, zeroConstantOp, KConstantDividedByKPackOp, oneConstantOp);
       auto ilnkb = OpBuilder::atBlockTerminator(innerLoopNK.getBody());
       auto ilnkiv = innerLoopNK.getInductionVar();
 
@@ -6161,11 +6170,12 @@ struct XdlopsGemmV2RewritePattern
                   loc, ilnkb.create<MulIOp>(loc, ilnkiv, NConstantOp),
                   laneId),
               ilnkb.create<MulIOp>(loc, NPerXdlopsConstantOp, olniv)));
+      // TBD. Take KPack into consideration.
       auto destOffsetB = ilnkb.create<AddIOp>(
-          loc, ilnkiv, ilnkb.create<MulIOp>(loc, olniv, KConstantOp));
+          loc, ilnkiv, ilnkb.create<MulIOp>(loc, olniv, KConstantDividedByKPackOp));
 
-      auto valueB = ilnkb.create<LoadOp>(loc, dataType, op.matrixB(),
-                                         ValueRange{sourceOffsetB});
+      auto sourceOffsetBI32 = ilnkb.create<IndexCastOp>(loc, sourceOffsetB, ilnkb.getIntegerType(32));
+      auto valueB = ilnkb.create<gpu::MubufLoadOp>(loc, argType, op.matrixB(), ValueRange{sourceOffsetBI32});
       ilnkb.create<StoreOp>(loc, valueB, op.bufferB(), ValueRange{destOffsetB});
 
       // Original C++ logic.
@@ -6184,14 +6194,15 @@ struct XdlopsGemmV2RewritePattern
       auto loopKiv = loopK.getInductionVar();
 
       auto offset = loopKb.create<MulIOp>(loc, loopKiv, KBaseConstantOp);
+      auto offsetI32 = loopKb.create<IndexCastOp>(loc, offset, loopKb.getIntegerType(32));
 
       Value argA, argB;
       if (dataType == b.getF32Type()) {
         argA = loopKb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
         argB = loopKb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
       } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
-        argA = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
-        argB = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
+	argA = loopKb.create<gpu::MubufLoadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offsetI32});
+	argB = loopKb.create<gpu::MubufLoadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offsetI32});
       }
 
       SmallVector<Value, 4> mfmas;
@@ -6232,7 +6243,8 @@ struct XdlopsGemmV2RewritePattern
       // p_b_wave need to be offseted by threadOffsetB.
 
       auto NumInputBlksConstantOp = b.create<ConstantIndexOp>(loc, num_input_blks);
-      auto loopKLoad = b.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, NumInputBlksConstantOp);
+      // TBD. Take KPack into consideration.
+      auto loopKLoad = b.create<scf::ForOp>(loc, zeroConstantOp, KConstantDividedByKPackOp, NumInputBlksConstantOp);
       auto lklb = OpBuilder::atBlockTerminator(loopKLoad.getBody());
       auto lkliv = loopKLoad.getInductionVar();
 
@@ -6249,8 +6261,8 @@ struct XdlopsGemmV2RewritePattern
                                   MConstantOp),
               blk_td));
 
-      auto valueA = lklb.create<LoadOp>(loc, dataType, op.matrixA(),
-                                        ValueRange{sourceOffsetA});
+      auto sourceOffsetAI32 = lklb.create<IndexCastOp>(loc, sourceOffsetA, lklb.getIntegerType(32));
+      auto valueA = lklb.create<gpu::MubufLoadOp>(loc, argType, op.matrixA(), ValueRange{sourceOffsetAI32});
       lklb.create<StoreOp>(loc, valueA, op.bufferA(), ValueRange{lkliv});
 
       auto sourceOffsetB = lklb.create<AddIOp>(
@@ -6261,8 +6273,8 @@ struct XdlopsGemmV2RewritePattern
                                   NConstantOp),
               blk_td));
 
-      auto valueB = lklb.create<LoadOp>(loc, dataType, op.matrixB(),
-                                        ValueRange{sourceOffsetB});
+      auto sourceOffsetBI32 = lklb.create<IndexCastOp>(loc, sourceOffsetB, lklb.getIntegerType(32));
+      auto valueB = lklb.create<LoadOp>(loc, dataType, op.matrixB(), ValueRange{sourceOffsetBI32});
       lklb.create<StoreOp>(loc, valueB, op.bufferB(), ValueRange{lkliv});
 
       // Original C++ logic.
@@ -6284,14 +6296,15 @@ struct XdlopsGemmV2RewritePattern
       auto innerLoopiv = innerLoop.getInductionVar();
 
       auto offset = innerLoopb.create<MulIOp>(loc, innerLoopb.create<AddIOp>(loc, innerLoopb.create<MulIOp>(loc, outerLoopiv, KRepeatsConstantOp), innerLoopiv), KBaseConstantOp);
+      auto offsetI32 = innerLoopb.create<IndexCastOp>(loc, offset, innerLoopb.getIntegerType(32));
 
       Value argA, argB;
       if (dataType == b.getF32Type()) {
         argA = innerLoopb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
         argB = innerLoopb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
       } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
-        argA = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
-        argB = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
+	argA = innerLoopb.create<gpu::MubufLoadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offsetI32});
+	argB = innerLoopb.create<gpu::MubufLoadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offsetI32});
       }
 
       SmallVector<Value, 4> mfmas;
