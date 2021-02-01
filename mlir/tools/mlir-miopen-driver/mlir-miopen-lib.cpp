@@ -4,7 +4,18 @@
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Module.h"
+#include "mlir/InitAllPasses.h"
 #include "mlir/Target/MIOpenCPP.h"
+
+#include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
+#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
+#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
+#include "mlir/ExecutionEngine/OptUtils.h"
+#include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
+#include "mlir/InitAllDialects.h"
+#include "llvm/Support/TargetSelect.h"
+
+#include "llvm/Support/raw_ostream.h"
 
 #include <iostream>
 #include <map>
@@ -47,8 +58,8 @@ static void strToTokens(const std::string &arguments,
 typedef void *MlirHandle;
 
 extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
-  registerDialect<miopen::MIOpenDialect>();
-  registerDialect<StandardOpsDialect>();
+  mlir::registerAllDialects();
+  mlir::registerAllPasses();
 
   MlirHandle_s *handle = new MlirHandle_s();
   OpBuilder builder(&(handle->context));
@@ -63,7 +74,7 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
         "out_channels",  "out_h",       "out_w",      "fil_w",
         "fil_h",         "dilation_h",  "dilation_w", "conv_stride_h",
         "conv_stride_w", "padding_h",   "padding_w",  "arch",
-        "num_cu"};
+        "num_cu",        "kernel_name"};
     return std::all_of(
         validKeys.begin(), validKeys.end(),
         [&argMap](std::string &key) { return argMap.count(key) > 0; });
@@ -88,7 +99,6 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
     std::string outLayout = translateLayout(
         argMap["out_layout"], std::string("NCHW"), std::string("nkhw"));
 
-    SmallString<128> kernelName;
     ModuleOp module = handle->getModule();
     populateConvolutionLogic(
         argMap["arch"], strToInt("num_cu"), argMap["operation"], inLayout,
@@ -98,14 +108,20 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
         strToLong("fil_h"), strToInt("dilation_h"), strToInt("dilation_w"),
         strToInt("conv_stride_h"), strToInt("conv_stride_w"),
         strToInt("padding_h"), strToInt("padding_w"), module, builder,
-        kernelName, mlir::FloatType::getF32(&(handle->context)), false);
-
-    PassManager pm(module.getContext());
-    pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
-    pm.run(module);
+        argMap["kernel_name"], mlir::FloatType::getF32(&(handle->context)),
+        false);
   }
 
   return handle;
+}
+
+extern "C" void MlirLowerCpp(MlirHandle mlirHandle) {
+  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+  ModuleOp module = handle->getModule();
+
+  PassManager pm(module.getContext());
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
+  pm.run(module);
 }
 
 extern "C" void DestroyMlirHandle(MlirHandle mlirHandle) {
@@ -132,5 +148,80 @@ extern "C" const char *MlirGenIgemmCflags(MlirHandle mlirHandle) {
   handle->genTxt = "";
   translateModuleToMIOpenCFlags(handle->getModule(), handle->genTxt);
   return (handle->genTxt).c_str();
+}
+
+extern "C" void MlirLowerBin(MlirHandle mlirHandle) {
+  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+  ModuleOp module = handle->getModule();
+
+  llvm::InitializeAllTargetInfos();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllAsmParsers();
+
+  // Initialize LLVM AMDGPU backend.
+  LLVMInitializeAMDGPUTarget();
+  LLVMInitializeAMDGPUTargetInfo();
+  LLVMInitializeAMDGPUTargetMC();
+  LLVMInitializeAMDGPUAsmPrinter();
+  mlir::initializeLLVMPasses();
+
+  PassManager pm(module.getContext());
+
+  BackendUtils utils;
+
+  // Retrieve name of FuncOp from the incoming module and set it
+  // as the GpuFuncOps's kernel name
+  StringRef kernelName;
+  for (auto func : module.getOps<FuncOp>()) {
+    kernelName = func.getName();
+  }
+
+  // Passes for lowering MIOpen dialect.
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
+  pm.addPass(mlir::miopen::createAffineTransformPass());
+  pm.addPass(mlir::miopen::createAffixTuningParametersPass(0, 0));
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
+  pm.addPass(mlir::createLowerMIOpenOpsToGPUPass(kernelName));
+
+  // Passes for lowering linalg dialect.
+  pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+  pm.addPass(mlir::createLowerAffinePass());
+  pm.addPass(mlir::createLowerToCFGPass());
+
+  // Passes for lowering ROCDL dialect
+  pm.addPass(createGpuKernelOutliningPass());
+  pm.addPass(createStripDebugInfoPass());
+  pm.addPass(createLowerGpuOpsToROCDLOpsPass());
+  pm.addPass(createConvertGPUKernelToBlobPass(
+      [&utils](Operation *m) { return utils.compileModuleToROCDLIR(m); },
+      [&utils](const std::string isa, Location loc, StringRef name) {
+        return utils.compileISAToHsaco(isa, loc, name);
+      },
+      utils.getTriple(), utils.getChip(), utils.getFeatures(),
+      /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
+
+  pm.run(module);
+}
+
+extern "C" void MlirGenIgemmBin(MlirHandle mlirHandle, char **buffer,
+                                size_t *size) {
+  if ((buffer == nullptr) || (size == nullptr))
+    return;
+
+  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+  ModuleOp module = handle->getModule();
+
+  module.walk([&](gpu::GPUModuleOp gpuModule) -> WalkResult {
+    auto hsaco = gpuModule.getAttrOfType<StringAttr>("rocdl.hsaco");
+    if (hsaco) {
+      handle->genTxt = hsaco.getValue().str();
+      *buffer = &(handle->genTxt[0]);
+      *size = hsaco.getValue().size();
+    }
+    return success();
+  });
 }
 } // namespace mlir
