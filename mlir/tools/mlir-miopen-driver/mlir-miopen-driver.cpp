@@ -1361,7 +1361,7 @@ int main(int argc, char **argv) {
   }
 
   // Populate the module.
-  SmallString<128> kernelName;
+  std::string kernelName;
   populateDefaults();
   if (failed(populateConvolutionLogic(
           arch.getValue(), num_cu.getValue(), operation.getValue(),

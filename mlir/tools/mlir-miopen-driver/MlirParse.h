@@ -108,7 +108,7 @@ static LogicalResult populateConvolutionLogic(
     int64_t outputHeight, int64_t outputWidth, int64_t filterWidth,
     int64_t filterHeight, int dilationHeight, int dilationWidth,
     int strideHeight, int strideWidth, int paddingHeight, int paddingWidth,
-    ModuleOp &module, OpBuilder &builder, SmallString<128> &kernelName,
+    ModuleOp &module, OpBuilder &builder, std::string &kernelName,
     mlir::FloatType dataType, bool xdlops = false) {
   // Determine dimensions.
   SmallVector<int64_t, 4> filterDimension;
@@ -133,9 +133,11 @@ static LogicalResult populateConvolutionLogic(
   auto funcType =
       builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
 
-  // Determine kernel name.
-  kernelName = "miopen_" + operation + "_" + filterLayout + "_" + inputLayout +
-               "_" + outputLayout;
+  // Determine kernel name, if there isn't one.
+  if (kernelName.size() == 0) {
+    kernelName = "miopen_" + operation + "_" + filterLayout + "_" +
+                 inputLayout + "_" + outputLayout;
+  }
 
   auto func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType);
   module.push_back(func);

@@ -74,7 +74,7 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
         "out_channels",  "out_h",       "out_w",      "fil_w",
         "fil_h",         "dilation_h",  "dilation_w", "conv_stride_h",
         "conv_stride_w", "padding_h",   "padding_w",  "arch",
-        "num_cu"};
+        "num_cu",        "kernel_name"};
     return std::all_of(
         validKeys.begin(), validKeys.end(),
         [&argMap](std::string &key) { return argMap.count(key) > 0; });
@@ -99,7 +99,6 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
     std::string outLayout = translateLayout(
         argMap["out_layout"], std::string("NCHW"), std::string("nkhw"));
 
-    SmallString<128> kernelName;
     ModuleOp module = handle->getModule();
     populateConvolutionLogic(
         argMap["arch"], strToInt("num_cu"), argMap["operation"], inLayout,
@@ -109,7 +108,8 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
         strToLong("fil_h"), strToInt("dilation_h"), strToInt("dilation_w"),
         strToInt("conv_stride_h"), strToInt("conv_stride_w"),
         strToInt("padding_h"), strToInt("padding_w"), module, builder,
-        kernelName, mlir::FloatType::getF32(&(handle->context)), false);
+        argMap["kernel_name"], mlir::FloatType::getF32(&(handle->context)),
+        false);
   }
 
   return handle;
@@ -169,6 +169,13 @@ extern "C" void MlirLowerBin(MlirHandle mlirHandle) {
 
   BackendUtils utils;
 
+  // Retrieve name of FuncOp from the incoming module and set it
+  // as the GpuFuncOps's kernel name
+  StringRef kernelName;
+  for (auto func : module.getOps<FuncOp>()) {
+    kernelName = func.getName();
+  }
+
   // Passes for lowering MIOpen dialect.
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(mlir::miopen::createAffineTransformPass());
@@ -177,8 +184,7 @@ extern "C" void MlirLowerBin(MlirHandle mlirHandle) {
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
-  pm.addPass(
-      mlir::createLowerMIOpenOpsToGPUPass("miopen_conv2d_kcyx_nchw_nkhw"));
+  pm.addPass(mlir::createLowerMIOpenOpsToGPUPass(kernelName));
 
   // Passes for lowering linalg dialect.
   pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
