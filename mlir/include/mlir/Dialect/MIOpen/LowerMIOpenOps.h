@@ -2347,7 +2347,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Result block_work_desc is <NBlockWorkd, MBlockWork>
 
     auto block_work_id_m = b.create<SignedRemIOp>(loc, bid, MBlockWorkConstantOp);
-    auto block_work_id_n = b.create<SignedDivIOp>(loc, bid, MBlockWorkConstantOp);
+    auto block_work_id_n = b.create<SignedDivIOp>(loc, bid, NBlockWorkConstantOp);
 
     auto m_block_data_on_global = b.create<MulIOp>(loc, block_work_id_m, MPerBlockConstantOp);
     auto n_block_data_on_global = b.create<MulIOp>(loc, block_work_id_n, NPerBlockConstantOp);
