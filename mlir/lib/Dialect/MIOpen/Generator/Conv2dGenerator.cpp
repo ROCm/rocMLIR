@@ -1,19 +1,4 @@
-//===- MlirParse.h - MLIR to C++ option parsing ---------------===//
-//
-// Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-//
-//===----------------------------------------------------------------------===//
-//
-// This file declares mlir convolution option parsing logic
-//
-//===----------------------------------------------------------------------===//
-
-#ifndef MLIR_TOOLS_MLIR_MIOPEN_DRIVER_MLIRPARSE_H_
-#define MLIR_TOOLS_MLIR_MIOPEN_DRIVER_MLIRPARSE_H_
-
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
@@ -24,11 +9,10 @@
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Support/LogicalResult.h"
 
-namespace mlir {
+using namespace mlir;
 
-static LogicalResult populateConvolutionConfiguration(
+LogicalResult Conv2dGenerator::parseConvDims(
     std::string &inputLayout, std::string &outputLayout,
     std::string &filterLayout, int64_t batchSize, int64_t inputChannel,
     int64_t inputHeight, int64_t inputWidth, int64_t outputChannel,
@@ -76,49 +60,15 @@ static LogicalResult populateConvolutionConfiguration(
   return success();
 }
 
-template <typename Vector>
-std::vector<int64_t> layoutPermutation(const Vector &src,
-                                       const Vector &srcSpec) {
-  std::vector<int64_t> permutation(srcSpec.size(), 0);
-  std::transform(src.begin(), src.end(), permutation.begin(),
-                 [&srcSpec](const char &s) {
-                   auto it = std::find(srcSpec.begin(), srcSpec.end(), s);
-                   return it - srcSpec.begin();
-                 });
-  return permutation;
-}
-
-template <typename Vector>
-std::string translateLayout(const Vector &src, const Vector &srcSpec,
-                            const Vector &targetSpec) {
-  auto permutation = layoutPermutation(src, srcSpec);
-
-  std::string targetLayout;
-  std::transform(permutation.begin(), permutation.end(),
-                 std::back_inserter(targetLayout),
-                 [&targetSpec](int64_t p) { return targetSpec[p]; });
-  return targetLayout;
-}
-
-static LogicalResult populateConvolutionLogic(
+LogicalResult Conv2dGenerator::genConvModule(
     std::string &arch, int num_cu, std::string &operation,
     std::string &inputLayout, std::string &outputLayout,
-    std::string &filterLayout, int64_t batchSize, int64_t inputChannel,
-    int64_t inputHeight, int64_t inputWidth, int64_t outputChannel,
-    int64_t outputHeight, int64_t outputWidth, int64_t filterWidth,
-    int64_t filterHeight, int dilationHeight, int dilationWidth,
-    int strideHeight, int strideWidth, int paddingHeight, int paddingWidth,
-    ModuleOp &module, OpBuilder &builder, std::string &kernelName,
-    mlir::FloatType dataType, bool xdlops = false) {
-  // Determine dimensions.
-  SmallVector<int64_t, 4> filterDimension;
-  SmallVector<int64_t, 4> inputDimension;
-  SmallVector<int64_t, 4> outputDimension;
-  populateConvolutionConfiguration(
-      inputLayout, outputLayout, filterLayout, batchSize, inputChannel,
-      inputHeight, inputWidth, outputChannel, outputHeight, outputWidth,
-      filterWidth, filterHeight, filterDimension, inputDimension,
-      outputDimension);
+    std::string &filterLayout, const SmallVector<int64_t, 4> &filterDimension,
+    const SmallVector<int64_t, 4> &inputDimension,
+    const SmallVector<int64_t, 4> &outputDimension, int dilationHeight,
+    int dilationWidth, int strideHeight, int strideWidth, int paddingHeight,
+    int paddingWidth, ModuleOp &module, OpBuilder &builder,
+    std::string &kernelName, mlir::FloatType dataType, bool xdlops) {
 
   // Construct a new FuncOp.
   auto filterArgType = MemRefType::get(
@@ -225,6 +175,3 @@ static LogicalResult populateConvolutionLogic(
 
   return success();
 }
-
-} // namespace mlir
-#endif // MLIR_TOOLS_MLIR_MIOPEN_DRIVER_MLIRPARSE_H_
