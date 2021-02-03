@@ -805,4 +805,19 @@ def GPU_MubufStoreOp :
   let verifier = [{ return ::verify(*this); }];
 }
 
+// atomic add
+def GPU_AtomicFAddOp :
+    GPU_Op<"atomic_fadd">,
+    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[2, 4], [F32]>]>:$value,
+                   AnyMemRef:$memref,
+                   Variadic<I32>:$indices)> {
+  let summary = "AMD GPU Atomic Floating Point Add";
+  let description = [{
+    The `gpu.atomic_add` op is an abstraction of AMD GPU atomic floating point add
+    intrinsics.
+  }];
+  let parser = [{ return parseAtomicFAddOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
 #endif // GPU_OPS

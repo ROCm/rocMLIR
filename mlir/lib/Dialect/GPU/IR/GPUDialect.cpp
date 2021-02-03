@@ -866,6 +866,36 @@ static void print(OpAsmPrinter &p, gpu::MubufStoreOp op) {
 
 static LogicalResult verify(gpu::MubufStoreOp op) { return success(); }
 
+//===----------------------------------------------------------------------===//
+// AtomicFAddOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseAtomicFAddOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 5> ops;
+  SmallVector<Type, 5> types;
+
+  auto ret = parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+             parser.parseOptionalAttrDict(result.attributes) ||
+             parser.parseColonTypeList(types) ||
+             parser.resolveOperand(ops[0], types[0], result.operands) ||
+             parser.resolveOperand(ops[1], types[1], result.operands);
+
+  // resolve source coorindates.
+  for (unsigned i = 2; i < ops.size(); ++i) {
+    ret &= succeeded(parser.resolveOperand(ops[i], parser.getBuilder().getIntegerType(32), result.operands));
+  }
+
+  return failure(ret);
+}
+
+static void print(OpAsmPrinter &p, gpu::AtomicFAddOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.value().getType() << ", " << op.memref().getType();
+}
+
+static LogicalResult verify(gpu::AtomicFAddOp op) { return success(); }
+
 // Namespace avoids ambiguous ReturnOpOperandAdaptor.
 namespace mlir {
 namespace gpu {
