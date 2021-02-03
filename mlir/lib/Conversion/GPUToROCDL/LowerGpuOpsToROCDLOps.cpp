@@ -341,6 +341,160 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
   }
 };
 
+struct AtomicFAddOpLowering : ConvertToLLVMPattern {
+  explicit AtomicFAddOpLowering(MLIRContext *context,
+                                LLVMTypeConverter &typeConverter)
+      : ConvertToLLVMPattern(gpu::AtomicFAddOp::getOperationName(), context,
+                             typeConverter) {}
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto atomicAddOp = cast<gpu::AtomicFAddOp>(op);
+    auto adaptor = gpu::AtomicFAddOpOperandAdaptor(operands);
+    auto loc = atomicAddOp.getLoc();
+
+    MemRefType dstMemRefType =
+        atomicAddOp.memref().getType().cast<MemRefType>();
+    Type dstElementType = dstMemRefType.getElementType();
+    auto dstShape = dstMemRefType.getShape();
+    auto adaptorIndices = adaptor.indices();
+    auto adaptorValue = adaptor.value();
+
+    Type valueType = atomicAddOp.value().getType();
+    Type LLVMValueType = typeConverter.convertType(valueType);
+
+    // use rocdl.atomic_add.
+
+    Type I1Type = rewriter.getI1Type();
+    Type LLVMI1Type = typeConverter.convertType(I1Type);
+
+    Type I32Type = rewriter.getIntegerType(32);
+    Type LLVMI32Type = typeConverter.convertType(I32Type);
+
+    Type I64Type = rewriter.getIntegerType(64);
+    Type LLVMI64Type = typeConverter.convertType(I64Type);
+
+    Type rsrcVectorType = VectorType::get({4}, I32Type);
+    Type LLVMRsrcVectorType = typeConverter.convertType(rsrcVectorType);
+
+    Type I32x2Type = VectorType::get({2}, I32Type);
+    Type LLVMI32x2Type = typeConverter.convertType(I32x2Type);
+
+    // word 0-1: pointer to memref.
+    MemRefDescriptor memrefDescriptor(adaptor.memref());
+    Value ptr = memrefDescriptor.alignedPtr(rewriter, loc);
+    Value ptrToInt = rewriter.create<LLVM::PtrToIntOp>(loc, LLVMI64Type, ptr);
+
+    // word 0-1: pointer to memref.
+    Value ptrBitcasted =
+        rewriter.create<LLVM::BitcastOp>(loc, LLVMI32x2Type, ptrToInt);
+    Value rsrcUndefTwoItems =
+        rewriter.create<LLVM::UndefOp>(loc, LLVMI32x2Type);
+    Value rsrcFirstTwoItems = rewriter.create<LLVM::ShuffleVectorOp>(
+        loc, ptrBitcasted, rsrcUndefTwoItems,
+        rewriter.getI32ArrayAttr({0, 1, -1, -1}));
+
+    Value rsrcUndef = rewriter.create<LLVM::UndefOp>(loc, LLVMRsrcVectorType);
+    // word 2: fixed as -1 .
+    Value constant2 = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(2));
+    Value minusOne = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(-1));
+    Value rsrc2 = rewriter.create<LLVM::InsertElementOp>(
+        loc, LLVMRsrcVectorType, rsrcUndef, minusOne, constant2);
+
+    // word 3: fixed as 0x00027000 .
+    Value constant3 = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(3));
+    Value bufferLoadConstant = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(0x00027000));
+    Value rsrcLastTwoItems = rewriter.create<LLVM::InsertElementOp>(
+        loc, LLVMRsrcVectorType, rsrc2, bufferLoadConstant, constant3);
+
+    Value rsrc = rewriter.create<LLVM::ShuffleVectorOp>(
+        loc, rsrcFirstTwoItems, rsrcLastTwoItems,
+        rewriter.getI32ArrayAttr({0, 1, 6, 7}));
+
+    // populate vindex : fixed as 0 of type i32.
+    Value vindex = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(0));
+
+    // populate slc : fixed as 0 of type i1.
+    Value slc = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
+
+    if (valueType.isa<VectorType>()) {
+      // Iteratively do floating point atomic add for each element of the
+      // vector.
+      VectorType valueVectorType = valueType.template cast<VectorType>();
+      Type valueElementType = valueVectorType.getElementType();
+      Type LLVMValueElementType = typeConverter.convertType(valueElementType);
+
+      for (unsigned iter = 0; iter < valueVectorType.getShape()[0]; ++iter) {
+        auto iterConstant = rewriter.create<LLVM::ConstantOp>(
+            loc, LLVMI32Type, rewriter.getI32IntegerAttr(iter));
+        auto element = rewriter.create<LLVM::ExtractElementOp>(
+            loc, LLVMValueElementType, adaptorValue, iterConstant);
+
+        // populate voffset.
+        SmallVector<Value, 4> indices;
+        SmallVector<Value, 4> allocSizes;
+        for (unsigned i = 0; i < dstShape.size(); ++i) {
+          indices.push_back(adaptorIndices[i]);
+          allocSizes.push_back(rewriter.create<LLVM::ConstantOp>(
+              loc, LLVMI32Type, rewriter.getI32IntegerAttr(dstShape[i])));
+        }
+        Value voffsetElements = linearizeSubscripts(
+            rewriter, loc, ArrayRef<Value>{indices.begin(), indices.end()},
+            ArrayRef<Value>{allocSizes.begin(), allocSizes.end()});
+
+        // vindex is counted in bytes. Times size of element type.
+        Value elementBytes = rewriter.create<LLVM::ConstantOp>(
+            loc, LLVMI32Type,
+            rewriter.getI32IntegerAttr(dstMemRefType.getElementTypeBitWidth() /
+                                       8));
+        Value voffset = rewriter.create<LLVM::MulOp>(
+            loc, LLVMI32Type, ArrayRef<Value>{voffsetElements, elementBytes});
+
+        // voffset is added with the iter * size of element type.
+        Value elementOffset = rewriter.create<LLVM::MulOp>(
+            loc, LLVMI32Type, ArrayRef<Value>{iterConstant, elementBytes});
+        Value voffsetUpdated = rewriter.create<LLVM::AddOp>(
+            loc, LLVMI32Type, voffset, elementOffset);
+
+        rewriter.replaceOpWithNewOp<ROCDL::AtomicFAddOp>(
+            op, element, rsrc, vindex, voffsetUpdated, slc);
+      }
+    } else {
+      // populate voffset.
+      SmallVector<Value, 4> indices;
+      SmallVector<Value, 4> allocSizes;
+      for (unsigned i = 0; i < dstShape.size(); ++i) {
+        indices.push_back(adaptorIndices[i]);
+        allocSizes.push_back(rewriter.create<LLVM::ConstantOp>(
+            loc, LLVMI32Type, rewriter.getI32IntegerAttr(dstShape[i])));
+      }
+      Value voffsetElements = linearizeSubscripts(
+          rewriter, loc, ArrayRef<Value>{indices.begin(), indices.end()},
+          ArrayRef<Value>{allocSizes.begin(), allocSizes.end()});
+
+      // vindex is counted in bytes. Times size of element type.
+      Value elementBytes = rewriter.create<LLVM::ConstantOp>(
+          loc, LLVMI32Type,
+          rewriter.getI32IntegerAttr(dstMemRefType.getElementTypeBitWidth() /
+                                     8));
+      Value voffset = rewriter.create<LLVM::MulOp>(
+          loc, LLVMI32Type, ArrayRef<Value>{voffsetElements, elementBytes});
+
+      rewriter.replaceOpWithNewOp<ROCDL::AtomicFAddOp>(op, adaptorValue, rsrc,
+                                                       vindex, voffset, slc);
+    }
+
+    return success();
+  }
+};
+
 struct MFMAOpLowering : ConvertToLLVMPattern {
   explicit MFMAOpLowering(MLIRContext *context,
                           LLVMTypeConverter &typeConverter)
@@ -504,6 +658,8 @@ void mlir::populateGpuToROCDLConversionPatterns(
   patterns.insert<MubufLoadOpLowering>(converter.getDialect()->getContext(),
                                        converter);
   patterns.insert<MubufStoreOpLowering>(converter.getDialect()->getContext(),
+                                        converter);
+  patterns.insert<AtomicFAddOpLowering>(converter.getDialect()->getContext(),
                                         converter);
 }
 
