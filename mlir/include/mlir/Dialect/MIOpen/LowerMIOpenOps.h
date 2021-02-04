@@ -2267,6 +2267,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     // Obtain critical matrix dimensions.
+    int64_t G = 1;
     int64_t K = op.filter().getType().template dyn_cast<MemRefType>().getShape()[0];
     int64_t M = op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
     int64_t N = op.input().getType().template dyn_cast<MemRefType>().getShape()[1];
@@ -2303,6 +2304,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     int64_t MBlockWork = M / MPerBlock;
     int64_t NBlockWork = N / NPerBlock;
+    int64_t GStride = MBlockWork * NBlockWork;
 
     int64_t MWavePerBlock = MPerBlock / MPerWave;
     int64_t NWavePerBlock = NPerBlock / NPerWave;
@@ -2313,8 +2315,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
     // llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
     // llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
-    // llvm::errs() << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n";
-    // llvm::errs() << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n";
+    //llvm::errs() << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n";
+    //llvm::errs() << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n";
+    //llvm::errs() << "GStrid = " << GStride << "\n";
     // llvm::errs() << "MPerWave: " << MPerWave << "\n";
     // llvm::errs() << "NPerWave: " << NPerWave << "\n";
     // llvm::errs() << "MWaves = MPerBlock / MPerWave: " << MWaves << "\n";
@@ -2324,6 +2327,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // llvm::errs() << "matrix_a_source_data_per_read: " << matrix_a_source_data_per_read << "\n";
     // llvm::errs() << "matrix_b_source_data_per_read: " << matrix_b_source_data_per_read << "\n";
+ 
+    //return success();
 
     auto MPerBlockConstantOp = b.create<ConstantIndexOp>(loc, MPerBlock);
     auto NPerBlockConstantOp = b.create<ConstantIndexOp>(loc, NPerBlock);
@@ -2332,6 +2337,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto NBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, NBlockWork);
     auto MWavePerBlockConstantOp = b.create<ConstantIndexOp>(loc, MWavePerBlock);
     auto NWavePerBlockConstantOp = b.create<ConstantIndexOp>(loc, NWavePerBlock);
+    auto GStridOp = b.create<ConstantIndexOp>(loc, GStride);
 
     // -----
 
@@ -2345,9 +2351,11 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // const auto block_work_id = block_work_desc.CalculateClusterIndex(get_block_1d_id());
 
     // Result block_work_desc is <NBlockWorkd, MBlockWork>
-
-    auto block_work_id_m = b.create<SignedRemIOp>(loc, bid, MBlockWorkConstantOp);
-    auto block_work_id_n = b.create<SignedDivIOp>(loc, bid, MBlockWorkConstantOp);
+    
+    auto block_work_id_g = b.create<SignedDivIOp>(loc, bid, GStridOp);
+    auto block_work_rem  = b.create<SignedRemIOp>(loc, bid, GStridOp);
+    auto block_work_id_m = b.create<SignedRemIOp>(loc, block_work_rem, MBlockWorkConstantOp);
+    auto block_work_id_n = b.create<SignedDivIOp>(loc, block_work_rem, MBlockWorkConstantOp);
 
     auto m_block_data_on_global = b.create<MulIOp>(loc, block_work_id_m, MPerBlockConstantOp);
     auto n_block_data_on_global = b.create<MulIOp>(loc, block_work_id_n, NPerBlockConstantOp);
