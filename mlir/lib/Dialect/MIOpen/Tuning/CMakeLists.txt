@@ -38,4 +38,5 @@ target_link_libraries(MLIRMIOpenTuning
   PRIVATE
   MLIRIR
   ${SQLITE3_LIBRARIES}
+  ${CMAKE_DL_LIBS}
 )

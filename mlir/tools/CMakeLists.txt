@@ -9,3 +9,4 @@ add_subdirectory(mlir-shlib)
 
 # MIOpen dialect specific.
 add_subdirectory(mlir-miopen-driver)
+add_subdirectory(mlir-miopen-lib)
