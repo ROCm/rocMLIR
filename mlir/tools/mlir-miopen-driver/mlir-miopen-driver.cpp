@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "MlirParse.h"
+#include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
@@ -861,10 +861,11 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   return gpuConvFuncOp;
 }
 
-static LogicalResult populateHostHarnessLogic(ModuleOp &module,
-                                              OpBuilder &builder,
-                                              MLIRContext &context,
-                                              mlir::FloatType dataType) {
+static LogicalResult populateHostHarnessLogic(
+    ModuleOp &module, OpBuilder &builder, MLIRContext &context,
+    const SmallVector<int64_t, 4> &filterDimension,
+    const SmallVector<int64_t, 4> &inputDimension,
+    const SmallVector<int64_t, 4> &outputDimension, mlir::FloatType dataType) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -872,17 +873,6 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module,
 
   // Construct a new Block.
   Block *block = func.addEntryBlock();
-
-  // Determine dimensions.
-  SmallVector<int64_t, 4> filterDimension;
-  SmallVector<int64_t, 4> inputDimension;
-  SmallVector<int64_t, 4> outputDimension;
-  populateConvolutionConfiguration(
-      inputLayout.getValue(), outputLayout.getValue(), filterLayout.getValue(),
-      batchSize.getValue(), inputChannel.getValue(), inputHeight.getValue(),
-      inputWidth.getValue(), outputChannel.getValue(), outputHeight.getValue(),
-      outputWidth.getValue(), filterHeight.getValue(), filterWidth.getValue(),
-      filterDimension, inputDimension, outputDimension);
 
   auto filterMemRefType = MemRefType::get(
       ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
@@ -1028,10 +1018,11 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module,
   return success();
 }
 
-static LogicalResult populateValidationLogic(ModuleOp &module,
-                                             OpBuilder &builder,
-                                             MLIRContext &context,
-                                             mlir::FloatType dataType) {
+static LogicalResult populateValidationLogic(
+    ModuleOp &module, OpBuilder &builder, MLIRContext &context,
+    SmallVector<int64_t, 4> &filterDimension,
+    SmallVector<int64_t, 4> &inputDimension,
+    SmallVector<int64_t, 4> &outputDimension, mlir::FloatType dataType) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -1039,17 +1030,6 @@ static LogicalResult populateValidationLogic(ModuleOp &module,
 
   // Construct a new Block.
   Block *block = func.addEntryBlock();
-
-  // Determine dimensions.
-  SmallVector<int64_t, 4> filterDimension;
-  SmallVector<int64_t, 4> inputDimension;
-  SmallVector<int64_t, 4> outputDimension;
-  populateConvolutionConfiguration(
-      inputLayout.getValue(), outputLayout.getValue(), filterLayout.getValue(),
-      batchSize.getValue(), inputChannel.getValue(), inputHeight.getValue(),
-      inputWidth.getValue(), outputChannel.getValue(), outputHeight.getValue(),
-      outputWidth.getValue(), filterWidth.getValue(), filterHeight.getValue(),
-      filterDimension, inputDimension, outputDimension);
 
   auto filterMemRefType = MemRefType::get(
       ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
@@ -1492,6 +1472,19 @@ int main(int argc, char **argv) {
     dataType = builder.getBF16Type();
   }
 
+  populateDefaults();
+
+  Conv2dGenerator conv2dGenerator;
+  // Determine dimensions.
+  SmallVector<int64_t, 4> filterDimension;
+  SmallVector<int64_t, 4> inputDimension;
+  SmallVector<int64_t, 4> outputDimension;
+  conv2dGenerator.parseConvDims(
+      inputLayout, outputLayout, filterLayout, batchSize, inputChannel,
+      inputHeight, inputWidth, outputChannel, outputHeight, outputWidth,
+      filterWidth, filterHeight, filterDimension, inputDimension,
+      outputDimension);
+
   // Populate the module.
   SmallString<128> kernelName;
   if (failed(populateConvolutionLogic(module, builder, context, kernelName, dataType))) {
@@ -1501,7 +1494,9 @@ int main(int argc, char **argv) {
 
   // populate host harness and host validation.
   if (populateValidation.getValue()) {
-    if (failed(populateValidationLogic(module, builder, context, dataType))) {
+    if (failed(populateValidationLogic(module, builder, context,
+                                       filterDimension, inputDimension,
+                                       outputDimension, dataType))) {
       llvm::errs() << "Host validation populated failed.\n";
       exit(1);
     }
@@ -1515,7 +1510,9 @@ int main(int argc, char **argv) {
 
   // populate host logic.
   if (populateHostHarness.getValue()) {
-    if (failed(populateHostHarnessLogic(module, builder, context, dataType))) {
+    if (failed(populateHostHarnessLogic(module, builder, context,
+                                        filterDimension, inputDimension,
+                                        outputDimension, dataType))) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);
     }

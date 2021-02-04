@@ -12,7 +12,8 @@ typedef void *MlirHandle;
  */
 extern "C" MlirHandle CreateMlirHandle(const char *options);
 
-/*! @brief Lower the MLIR module to c++ code * @param handle MLIR handle
+/*! @brief Lower the MLIR module to c++ code
+ *  @param handle MLIR handle
  */
 extern "C" void MlirLowerCpp(MlirHandle handle);
 
@@ -34,7 +35,8 @@ extern "C" const char *MlirGenIgemmHeader(MlirHandle handle);
  */
 extern "C" const char *MlirGenIgemmCflags(MlirHandle handle);
 
-/*! @brief Lower the MLIR module to binary code * @param handle MLIR handle
+/*! @brief Lower the MLIR module to binary code
+ *  @param handle MLIR handle
  */
 extern "C" void MlirLowerBin(MlirHandle handle);
 
@@ -46,7 +48,8 @@ extern "C" void MlirLowerBin(MlirHandle handle);
 extern "C" void MlirGenIgemmBin(MlirHandle mlirHandle, char **buffer,
                                 size_t *size);
 
-/*! @brief Destroy MLIR handle * @param handle MLIR handle
+/*! @brief Destroy MLIR handle
+ *  @param handle MLIR handle
  */
 extern "C" void DestroyMlirHandle(MlirHandle handle);
 

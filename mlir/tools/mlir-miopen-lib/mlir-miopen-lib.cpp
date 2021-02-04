@@ -1,5 +1,5 @@
 #include "mlir-miopen-lib.hpp"
-#include "MlirParse.h"
+#include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/IR/Builders.h"
@@ -91,21 +91,31 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
       return std::stoi(argMap[argKey]);
     };
 
+    Conv2dGenerator conv2dGenerator;
     // MIOpen has NCHW as layout string for all three tensors
-    std::string inLayout = translateLayout(
+    std::string inLayout = conv2dGenerator.translateLayout(
         argMap["in_layout"], std::string("NCHW"), std::string("nchw"));
-    std::string filLayout = translateLayout(
+    std::string filLayout = conv2dGenerator.translateLayout(
         argMap["fil_layout"], std::string("NCHW"), std::string("kcyx"));
-    std::string outLayout = translateLayout(
+    std::string outLayout = conv2dGenerator.translateLayout(
         argMap["out_layout"], std::string("NCHW"), std::string("nkhw"));
 
     ModuleOp module = handle->getModule();
-    populateConvolutionLogic(
+    // Determine dimensions.
+    SmallVector<int64_t, 4> filterDimension;
+    SmallVector<int64_t, 4> inputDimension;
+    SmallVector<int64_t, 4> outputDimension;
+    conv2dGenerator.parseConvDims(
+        inLayout, outLayout, filLayout, strToLong("batchsize"),
+        strToLong("in_channels"), strToLong("in_h"), strToLong("in_w"),
+        strToLong("out_channels"), strToLong("out_h"), strToLong("out_w"),
+        strToLong("fil_w"), strToLong("fil_h"), filterDimension, inputDimension,
+        outputDimension);
+
+    conv2dGenerator.genConvModule(
         argMap["arch"], strToInt("num_cu"), argMap["operation"], inLayout,
-        outLayout, filLayout, strToLong("batchsize"), strToLong("in_channels"),
-        strToLong("in_h"), strToLong("in_w"), strToLong("out_channels"),
-        strToLong("out_h"), strToLong("out_w"), strToLong("fil_w"),
-        strToLong("fil_h"), strToInt("dilation_h"), strToInt("dilation_w"),
+        outLayout, filLayout, filterDimension, inputDimension, outputDimension,
+        strToInt("dilation_h"), strToInt("dilation_w"),
         strToInt("conv_stride_h"), strToInt("conv_stride_w"),
         strToInt("padding_h"), strToInt("padding_w"), module, builder,
         argMap["kernel_name"], mlir::FloatType::getF32(&(handle->context)),
