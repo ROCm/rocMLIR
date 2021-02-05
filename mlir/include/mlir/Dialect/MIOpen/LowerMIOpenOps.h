@@ -2265,12 +2265,13 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
+    auto twoConstantOp = b.create<ConstantIndexOp>(loc, 2);
 
     // Obtain critical matrix dimensions.
-    int64_t G = 1;
-    int64_t K = op.filter().getType().template dyn_cast<MemRefType>().getShape()[0];
-    int64_t M = op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
-    int64_t N = op.input().getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t G = op.filter().getType().template dyn_cast<MemRefType>().getShape()[0];
+    int64_t K = op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t M = op.filter().getType().template dyn_cast<MemRefType>().getShape()[2];
+    int64_t N = op.input().getType().template dyn_cast<MemRefType>().getShape()[2];
 
     // Obtain critical tuning parameters.
     int64_t BlockSize = op.getAttr("block_size").template dyn_cast<IntegerAttr>().getInt();
@@ -2352,7 +2353,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Result block_work_desc is <NBlockWorkd, MBlockWork>
     
-    auto block_work_id_g = b.create<SignedDivIOp>(loc, bid, GStridOp);
+    auto block_work_id_g = b.create<SignedDivIOp>(loc, bid, GStridOp);  //id_g of coordinate
     auto block_work_rem  = b.create<SignedRemIOp>(loc, bid, GStridOp);
     auto block_work_id_m = b.create<SignedRemIOp>(loc, block_work_rem, MBlockWorkConstantOp);
     auto block_work_id_n = b.create<SignedDivIOp>(loc, block_work_rem, MBlockWorkConstantOp);
@@ -2568,7 +2569,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Compute source and destination coordinates for BlockwiseCopy ops.
 
     auto blockwiseCopyCoordType =
-        MemRefType::get({2}, b.getIntegerType(32), {},
+        MemRefType::get({3}, b.getIntegerType(32), {},
                         gpu::GPUDialect::getPrivateAddressSpace());
 
     // Matrix A: {0, m_block_data_on_global}, {0, 0}
@@ -2872,14 +2873,15 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // build affine expression:
     // (d0, d1, d2, d3) -> (d0 * M1 * M2 + d1 * M2 + d2, d3)
     auto affineMap4to2 =
-        AffineMap::get(4, 0,
-                       {getAffineDimExpr(0, op.getContext()) *
+        AffineMap::get(5, 0,
+                       {getAffineDimExpr(0, op.getContext()),
+                         getAffineDimExpr(1, op.getContext()) *
                             getAffineConstantExpr(M1, op.getContext()) *
                             getAffineConstantExpr(M2, op.getContext()) +
-                        getAffineDimExpr(1, op.getContext()) *
+                        getAffineDimExpr(2, op.getContext()) *
                             getAffineConstantExpr(M2, op.getContext()) +
-                        getAffineDimExpr(2, op.getContext()),
-                        getAffineDimExpr(3, op.getContext())},
+                        getAffineDimExpr(3, op.getContext()),
+                        getAffineDimExpr(4, op.getContext())},
                        op.getContext());
 
     // compose with output tensor affine map.
@@ -2889,7 +2891,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // emit TransformOp for output tensor.
     auto newOutputType = MemRefType::get(
-        {M0, M1, M2, N}, outputType.getElementType(), {affineMap4to2to4});
+        {G, M0, M1, M2, N}, outputType.getElementType(), {affineMap4to2to4});
     auto newOutputTransformOp =
         b.create<miopen::TransformOp>(loc, newOutputType, op.output());
 
