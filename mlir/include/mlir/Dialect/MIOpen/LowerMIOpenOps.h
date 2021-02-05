@@ -2482,6 +2482,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto GemmBBlockCopyDestCoord_X_i32 =
         b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_X_i32);
 
+    auto GemmDataIdBegin_G_i32 = b.create<IndexCastOp>(
+        loc, block_work_id_g, b.getIntegerType(32));
+    auto GemmBlockCoord_G_i32 =
+        b.create<AddIOp>(loc, zeroConstantI32Op, GemmDataIdBegin_G_i32);
     // -----
 
     // Alocate LDS and create subviews.
@@ -2572,13 +2576,15 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         MemRefType::get({3}, b.getIntegerType(32), {},
                         gpu::GPUDialect::getPrivateAddressSpace());
 
-    // Matrix A: {0, m_block_data_on_global}, {0, 0}
+    // Matrix A: {g,0, m_block_data_on_global}, {0, 0}
     auto blockwiseCopyASrc =
         b.create<miopen::GpuAllocOp>(loc, blockwiseCopyCoordType);
-    b.create<StoreOp>(loc, GemmABlockCopySourceCoord_Y_i32, blockwiseCopyASrc,
+    b.create<StoreOp>(loc, GemmBlockCoord_G_i32, blockwiseCopyASrc,
                       ValueRange{zeroConstantOp});
-    b.create<StoreOp>(loc, GemmABlockCopySourceCoord_X_i32, blockwiseCopyASrc,
+    b.create<StoreOp>(loc, GemmABlockCopySourceCoord_Y_i32, blockwiseCopyASrc,
                       ValueRange{oneConstantOp});
+    b.create<StoreOp>(loc, GemmABlockCopySourceCoord_X_i32, blockwiseCopyASrc,
+                      ValueRange{twoConstantOp});
 
     auto blockwiseCopyADst =
         b.create<miopen::GpuAllocOp>(loc, blockwiseCopyCoordType);
@@ -2590,10 +2596,12 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Matrix B: {0, n_block_data_on_global}, {0, 0}
     auto blockwiseCopyBSrc =
         b.create<miopen::GpuAllocOp>(loc, blockwiseCopyCoordType);
-    b.create<StoreOp>(loc, GemmBBlockCopySourceCoord_Y_i32, blockwiseCopyBSrc,
+    b.create<StoreOp>(loc, GemmBlockCoord_G_i32, blockwiseCopyBSrc,
                       ValueRange{zeroConstantOp});
-    b.create<StoreOp>(loc, GemmBBlockCopySourceCoord_X_i32, blockwiseCopyBSrc,
+    b.create<StoreOp>(loc, GemmBBlockCopySourceCoord_Y_i32, blockwiseCopyBSrc,
                       ValueRange{oneConstantOp});
+    b.create<StoreOp>(loc, GemmBBlockCopySourceCoord_X_i32, blockwiseCopyBSrc,
+                      ValueRange{twoConstantOp});
 
     auto blockwiseCopyBDst =
         b.create<miopen::GpuAllocOp>(loc, blockwiseCopyCoordType);
