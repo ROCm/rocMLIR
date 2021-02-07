@@ -2575,6 +2575,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto blockwiseCopyCoordType =
         MemRefType::get({3}, b.getIntegerType(32), {},
                         gpu::GPUDialect::getPrivateAddressSpace());
+    auto blockwiseCopyLocalCoordType =
+        MemRefType::get({2}, b.getIntegerType(32), {},
+                        gpu::GPUDialect::getPrivateAddressSpace());
 
     // Matrix A: {g,0, m_block_data_on_global}, {0, 0}
     auto blockwiseCopyASrc =
@@ -2587,7 +2590,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                       ValueRange{twoConstantOp});
 
     auto blockwiseCopyADst =
-        b.create<miopen::GpuAllocOp>(loc, blockwiseCopyCoordType);
+        b.create<miopen::GpuAllocOp>(loc, blockwiseCopyLocalCoordType);
     b.create<StoreOp>(loc, GemmABlockCopyDestCoord_Y_i32, blockwiseCopyADst,
                       ValueRange{zeroConstantOp});
     b.create<StoreOp>(loc, GemmABlockCopyDestCoord_X_i32, blockwiseCopyADst,
@@ -2604,7 +2607,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                       ValueRange{twoConstantOp});
 
     auto blockwiseCopyBDst =
-        b.create<miopen::GpuAllocOp>(loc, blockwiseCopyCoordType);
+        b.create<miopen::GpuAllocOp>(loc, blockwiseCopyLocalCoordType);
     b.create<StoreOp>(loc, GemmBBlockCopyDestCoord_Y_i32, blockwiseCopyBDst,
                       ValueRange{zeroConstantOp});
     b.create<StoreOp>(loc, GemmBBlockCopyDestCoord_X_i32, blockwiseCopyBDst,
@@ -2714,7 +2717,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Blockwise copy from global (generic tensor) to register (naive tensor).
     mfmalb.create<miopen::MovePosOp>(
         loc, blockwiseCopyASrc,
-        ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
+        ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpATop = mfmalb.create<miopen::BlockwiseCopyOp>(
         loc, op.filter(), threadAAllocOp, blockwiseCopyASrc,
         blockwiseCopyADst, /*buffer=*/nullptr);
@@ -2722,7 +2725,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                  /*isMatrixA=*/true);
     mfmalb.create<miopen::MovePosOp>(
         loc, blockwiseCopyBSrc,
-        ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
+        ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpBTop = mfmalb.create<miopen::BlockwiseCopyOp>(
         loc, op.input(), threadBAllocOp, blockwiseCopyBSrc,
         blockwiseCopyBDst, /*buffer=*/nullptr);
