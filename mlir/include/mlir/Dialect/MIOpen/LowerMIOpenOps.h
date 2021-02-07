@@ -2724,6 +2724,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     affixBlockwiseCopyAttributes(blockwiseCopyOpATop, op, b,
                                  /*isMatrixA=*/true);
     mfmalb.create<miopen::MovePosOp>(
+
         loc, blockwiseCopyBSrc,
         ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpBTop = mfmalb.create<miopen::BlockwiseCopyOp>(
@@ -2882,8 +2883,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     //     make_tuple(Sequence<0, 1, 2>{}, Sequence<3>{}));
  
     // build affine expression:
-    // (d0, d1, d2, d3) -> (d0 * M1 * M2 + d1 * M2 + d2, d3)
-    auto affineMap4to2 =
+    // (g, d0, d1, d2, d3) -> (g, d0 * M1 * M2 + d1 * M2 + d2, d3)
+    auto affineMap5to3 =
         AffineMap::get(5, 0,
                        {getAffineDimExpr(0, op.getContext()),
                          getAffineDimExpr(1, op.getContext()) *
@@ -2897,12 +2898,12 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // compose with output tensor affine map.
     auto outputType = op.output().getType().template dyn_cast<MemRefType>();
-    auto outputAffineMap2to4 = outputType.getAffineMaps()[0];
-    auto affineMap4to2to4 = outputAffineMap2to4.compose(affineMap4to2);
+    auto outputAffineMap3to5 = outputType.getAffineMaps()[0];
+    auto affineMap5to3to5 = outputAffineMap3to5.compose(affineMap5to3);
 
     // emit TransformOp for output tensor.
     auto newOutputType = MemRefType::get(
-        {G, M0, M1, M2, N}, outputType.getElementType(), {affineMap4to2to4});
+        {G, M0, M1, M2, N}, outputType.getElementType(), {affineMap5to3to5});
     auto newOutputTransformOp =
         b.create<miopen::TransformOp>(loc, newOutputType, op.output());
 
@@ -2912,11 +2913,13 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     //     make_native_tensor_descriptor_packed(Sequence<M0, 1, M2, 1>{});
 
     // Build affine expression for Sequence<M0, 1, M2, 1>
-    // (d0, d1, d2, d3) -> (d0 * M2 + d2)
-    auto matrixCAffineMap4to1 = AffineMap::get(
-        4, 0,
-        {getAffineDimExpr(0, op.getContext()) * getAffineConstantExpr(M2, op.getContext()) +
-         getAffineDimExpr(2, op.getContext())},
+    // (d0, d1, d2, d3) -> (d0 * M2 + d2)  -->(d0, d1, d2, d3, d4) -> (d1 * M2 + d3)
+    // constexpr auto c_g_m0_m1_m2_n_thread_desc =
+    //            make_native_tensor_descriptor_packed(Sequence<1, M0, 1, M2, 1>{});
+    auto matrixCAffineMap5to1 = AffineMap::get(
+        5, 0,
+        {getAffineDimExpr(1, op.getContext()) * getAffineConstantExpr(M2, op.getContext()) +
+         getAffineDimExpr(3, op.getContext())},
         op.getContext());
 
     // Original C++ logic.
@@ -3130,7 +3133,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                     b.getArrayAttr({
                                       b.getDictionaryAttr({
                                         b.getNamedAttr("operand", b.getI32IntegerAttr(0)),
-                                        b.getNamedAttr("transforms", b.getAffineMapArrayAttr(matrixCAffineMap4to1))
+                                        b.getNamedAttr("transforms", b.getAffineMapArrayAttr(matrixCAffineMap5to1))
                                       })
                                     }));
  
