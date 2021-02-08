@@ -70,7 +70,7 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
   auto isValid = [&argMap]() {
     std::vector<std::string> validKeys = {
         "operation",     "in_layout",   "out_layout", "fil_layout",
-        "batchsize",     "in_channels", "in_h",       "in_w",
+        "groupsize",    "batchsize",     "in_channels", "in_h",       "in_w",
         "out_channels",  "out_h",       "out_w",      "fil_w",
         "fil_h",         "dilation_h",  "dilation_w", "conv_stride_h",
         "conv_stride_w", "padding_h",   "padding_w",  "arch",
@@ -94,19 +94,19 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
     Conv2dGenerator conv2dGenerator;
     // MIOpen has NCHW as layout string for all three tensors
     std::string inLayout = conv2dGenerator.translateLayout(
-        argMap["in_layout"], std::string("NCHW"), std::string("nchw"));
+        argMap["in_layout"], std::string("GNCHW"), std::string("gnchw"));
     std::string filLayout = conv2dGenerator.translateLayout(
-        argMap["fil_layout"], std::string("NCHW"), std::string("kcyx"));
+        argMap["fil_layout"], std::string("GNCHW"), std::string("gkcyx"));
     std::string outLayout = conv2dGenerator.translateLayout(
-        argMap["out_layout"], std::string("NCHW"), std::string("nkhw"));
+        argMap["out_layout"], std::string("GNCHW"), std::string("gnkhw"));
 
     ModuleOp module = handle->getModule();
     // Determine dimensions.
-    SmallVector<int64_t, 4> filterDimension;
-    SmallVector<int64_t, 4> inputDimension;
-    SmallVector<int64_t, 4> outputDimension;
+    SmallVector<int64_t, 5> filterDimension;
+    SmallVector<int64_t, 5> inputDimension;
+    SmallVector<int64_t, 5> outputDimension;
     conv2dGenerator.parseConvDims(
-        inLayout, outLayout, filLayout, strToLong("batchsize"),
+        inLayout, outLayout, filLayout, strToLong("groupsize"), strToLong("batchsize"),
         strToLong("in_channels"), strToLong("in_h"), strToLong("in_w"),
         strToLong("out_channels"), strToLong("out_h"), strToLong("out_w"),
         strToLong("fil_w"), strToLong("fil_h"), filterDimension, inputDimension,
