@@ -3098,7 +3098,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
 
+      // g index
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(GemmDataIdBegin_G_i32);
       // m_thread_data_on_global / (M2 * M1)
       matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<SignedDivIOp>(
           loc, m_thread_data_on_global_i32, M2TimesM1I32Op));
