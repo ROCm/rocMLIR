@@ -25,10 +25,9 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/Module.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -62,18 +61,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
-    auto archAttr = op.template getAttrOfType<StringAttr>("arch");
-    auto numCuAttr = op.template getAttrOfType<IntegerAttr>("num_cu");
+    auto archAttr = op->template getAttrOfType<StringAttr>("arch");
+    auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
 
     auto filterLayoutAttr =
-        op.template getAttrOfType<ArrayAttr>("filter_layout");
-    auto inputLayoutAttr = op.template getAttrOfType<ArrayAttr>("input_layout");
+        op->template getAttrOfType<ArrayAttr>("filter_layout");
+    auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
     auto outputLayoutAttr =
-        op.template getAttrOfType<ArrayAttr>("output_layout");
+        op->template getAttrOfType<ArrayAttr>("output_layout");
 
-    auto dilationsAttr = op.template getAttrOfType<ArrayAttr>("dilations");
-    auto stridesAttr = op.template getAttrOfType<ArrayAttr>("strides");
-    auto paddingAttr = op.template getAttrOfType<ArrayAttr>("padding");
+    auto dilationsAttr = op->template getAttrOfType<ArrayAttr>("dilations");
+    auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
+    auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
 
     // Get shape of output tensor.
     auto outputType = op.output().getType().template dyn_cast<MemRefType>();
@@ -907,7 +906,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     // xdlopsV2.
-    auto xdlopsV2Attr = op.template getAttrOfType<BoolAttr>("xdlopsV2");
+    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
@@ -950,42 +949,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   }
 };
 
-// High level convolution operation always have
-// [filter, input, output]
-// as the convolution argument. The only difference between different
-// hight level convolution operations is the argument sequence. For
-// simplicity, we always arrange the first two arguments to be input
-// and the last argument to be output
-template <>
-const ArgumentFields Conv2DRewritePattern<miopen::Conv2DOp>::fields = {
-    {0, 1, 2},
-    {"KM", "KN", "MN"},
-};
-template <>
-const miopen::ConvOpType Conv2DRewritePattern<miopen::Conv2DOp>::convOpType =
-    miopen::ConvOpType::Conv2DOpType;
-
-template <>
-const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::fields = {
-    {0, 2, 1},
-    {"KM", "MN", "KN"},
-};
-
-template <>
-const miopen::ConvOpType Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::convOpType =
-miopen::ConvOpType::Conv2DBwdDataOpType;
-
-template <>
-const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>::fields = {
-    {2, 1, 0},
-    {"MN", "KN", "KM"},
-};
-
-template <>
-const miopen::ConvOpType Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>::convOpType =
-miopen::ConvOpType::Conv2DBwdWeightOpType;
-
-
 // Explicitly instantiate the template to operation type
 template struct Conv2DRewritePattern<miopen::Conv2DOp>;
 template struct Conv2DRewritePattern<miopen::Conv2DBwdDataOp>;
@@ -1011,42 +974,42 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
   //                                       AddressSpace::Global,                             - addrspace on dest memref
   //                                       CGlobalMemoryDataOperation>(                      - NOT USED
 
-  top.setAttr("dim_access_order", b.getArrayAttr({
+  top->setAttr("dim_access_order", b.getArrayAttr({
                                       b.getI32IntegerAttr(0),
                                       b.getI32IntegerAttr(1),
                                       b.getI32IntegerAttr(2),
                                       b.getI32IntegerAttr(3),
                                   }));
-  top.setAttr("vector_read_write_dim",
-              gop.getAttr("matrix_c_source_dest_vector_read_write_dim"));
-  top.setAttr("source_data_per_read", b.getI32IntegerAttr(1));
-  top.setAttr("dest_data_per_write", gop.getAttr("matrix_c_dest_data_per_write"));
+  top->setAttr("vector_read_write_dim",
+              gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
+  top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
+  top->setAttr("dest_data_per_write", gop->getAttr("matrix_c_dest_data_per_write"));
 }
 
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
-  top.setAttr("dim_access_order", b.getArrayAttr({
+  top->setAttr("dim_access_order", b.getArrayAttr({
                                       b.getI32IntegerAttr(0),
                                       b.getI32IntegerAttr(1),
                                       b.getI32IntegerAttr(2),
                                       b.getI32IntegerAttr(3),
                                   }));
-  top.setAttr("vector_read_write_dim",
-              gop.getAttr("matrix_c_source_dest_vector_read_write_dim"));
-  top.setAttr("source_data_per_read", b.getI32IntegerAttr(1));
-  top.setAttr("dest_data_per_write", gop.getAttr("matrix_c_dest_data_per_write"));
+  top->setAttr("vector_read_write_dim",
+              gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
+  top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
+  top->setAttr("dest_data_per_write", gop->getAttr("matrix_c_dest_data_per_write"));
 }
 
 static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
-  top.setAttr("dim_access_order", b.getArrayAttr({
+  top->setAttr("dim_access_order", b.getArrayAttr({
                                       b.getI32IntegerAttr(0),
                                       b.getI32IntegerAttr(1),
                                       b.getI32IntegerAttr(2),
                                       b.getI32IntegerAttr(3),
                                   }));
-  top.setAttr("vector_read_write_dim",
-              gop.getAttr("matrix_c_source_dest_vector_read_write_dim"));
-  top.setAttr("source_data_per_read", b.getI32IntegerAttr(1));
-  top.setAttr("dest_data_per_write", gop.getAttr("matrix_c_dest_data_per_write"));
+  top->setAttr("vector_read_write_dim",
+              gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
+  top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
+  top->setAttr("dest_data_per_write", gop->getAttr("matrix_c_dest_data_per_write"));
 }
 
 // XXX: Figure out a way to do away with isThreadwiseLoad parameter.
@@ -1081,22 +1044,22 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
   //                                                               DstInMemOp>;              - NOT USE
 
   if (isThreadwiseLoad) {
-    top.setAttr("dim_access_order", bop.getAttr("source_dim_access_order"));
-    top.setAttr("vector_read_write_dim", bop.getAttr("source_vector_read_dim"));
+    top->setAttr("dim_access_order", bop->getAttr("source_dim_access_order"));
+    top->setAttr("vector_read_write_dim", bop->getAttr("source_vector_read_dim"));
     // XXX: TBD review how vector load/store attributes are passed down.
-    //top.setAttr("source_data_per_read", bop.getAttr("source_data_per_read"));
-    top.setAttr("source_data_per_read", b.getI32IntegerAttr(1));
-    top.setAttr("dest_data_per_write", b.getI32IntegerAttr(1));
+    //top->setAttr("source_data_per_read", bop->getAttr("source_data_per_read"));
+    top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
+    top->setAttr("dest_data_per_write", b.getI32IntegerAttr(1));
   } else {
-    top.setAttr("dim_access_order", bop.getAttr("dest_dim_access_order"));
+    top->setAttr("dim_access_order", bop->getAttr("dest_dim_access_order"));
     // XXX. Figure this out. Symmetry is somehow lost here.
-    // top.setAttr("vector_read_write_dim",
-    // bop.getAttr("dest_vector_write_dim"));
-    top.setAttr("vector_read_write_dim", bop.getAttr("source_vector_read_dim"));
-    top.setAttr("source_data_per_read", b.getI32IntegerAttr(1));
+    // top->setAttr("vector_read_write_dim",
+    // bop->getAttr("dest_vector_write_dim"));
+    top->setAttr("vector_read_write_dim", bop->getAttr("source_vector_read_dim"));
+    top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
     // XXX: TBD review how vector load/store attributes are passed down.
-    //top.setAttr("dest_data_per_write", bop.getAttr("dest_data_per_write"));
-    top.setAttr("dest_data_per_write", b.getI32IntegerAttr(1));
+    //top->setAttr("dest_data_per_write", bop->getAttr("dest_data_per_write"));
+    top->setAttr("dest_data_per_write", b.getI32IntegerAttr(1));
   }
 }
 
@@ -1118,17 +1081,17 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
   //                                                          ThreadGemmBDataPerRead_N>{};   - n_per_thread attribute
 
   if (isMatrixA) {
-    top.setAttr("n_slice_row", bop.getAttr("k_per_thread"));
-    top.setAttr("n_slice_col", bop.getAttr("m_per_thread"));
+    top->setAttr("n_slice_row", bop->getAttr("k_per_thread"));
+    top->setAttr("n_slice_col", bop->getAttr("m_per_thread"));
     // XXX: TBD review how vector load/store attributes are passed down.
-    //top.setAttr("data_per_access", bop.getAttr("m_per_thread"));
-    top.setAttr("data_per_access", b.getI32IntegerAttr(1));
+    //top->setAttr("data_per_access", bop->getAttr("m_per_thread"));
+    top->setAttr("data_per_access", b.getI32IntegerAttr(1));
   } else {
-    top.setAttr("n_slice_row", bop.getAttr("k_per_thread"));
-    top.setAttr("n_slice_col", bop.getAttr("n_per_thread"));
+    top->setAttr("n_slice_row", bop->getAttr("k_per_thread"));
+    top->setAttr("n_slice_col", bop->getAttr("n_per_thread"));
     // XXX: TBD review how vector load/store attributes are passed down.
-    //top.setAttr("data_per_access", bop.getAttr("n_per_thread"));
-    top.setAttr("data_per_access", b.getI32IntegerAttr(1));
+    //top->setAttr("data_per_access", bop->getAttr("n_per_thread"));
+    top->setAttr("data_per_access", b.getI32IntegerAttr(1));
   }
 }
 
@@ -1199,19 +1162,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   using OpRewritePattern<miopen::GridwiseGemmOp>::OpRewritePattern;
 
   void computeLDSBlockSizes(miopen::GridwiseGemmOp op, int64_t &a_block_space, int64_t &b_block_space, int64_t &double_block_space) const {
-     int64_t ABlockCopyDstDataPerWrite_M = op.getAttr("matrix_a_dest_data_per_write_dim_m").template dyn_cast<IntegerAttr>().getInt();
-     int64_t BBlockCopyDstDataPerWrite_N = op.getAttr("matrix_b_dest_data_per_write_dim_n").template dyn_cast<IntegerAttr>().getInt();
-     int64_t ThreadGemmAThreadCopySrcDataPerRead_M = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
-     int64_t ThreadGemmBThreadCopySrcDataPerRead_N = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+     int64_t ABlockCopyDstDataPerWrite_M = op->getAttr("matrix_a_dest_data_per_write_dim_m").template dyn_cast<IntegerAttr>().getInt();
+     int64_t BBlockCopyDstDataPerWrite_N = op->getAttr("matrix_b_dest_data_per_write_dim_n").template dyn_cast<IntegerAttr>().getInt();
+     int64_t ThreadGemmAThreadCopySrcDataPerRead_M = op->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+     int64_t ThreadGemmBThreadCopySrcDataPerRead_N = op->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
 
      int64_t max_lds_align = math::lcm(ABlockCopyDstDataPerWrite_M,
                                     BBlockCopyDstDataPerWrite_N,
                                     ThreadGemmAThreadCopySrcDataPerRead_M,
                                     ThreadGemmBThreadCopySrcDataPerRead_N);
 
-     int64_t KPerBlock = op.getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
-     int64_t MPerBlock = op.getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
-     int64_t NPerBlock = op.getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+     int64_t KPerBlock = op->getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
+     int64_t MPerBlock = op->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+     int64_t NPerBlock = op->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
 
      int64_t AlignedNPerBlock = max_lds_align * math::integer_divide_ceil<int64_t>(NPerBlock, max_lds_align);
 
@@ -1275,49 +1238,49 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // 1                                   - 1
     // BBlockCopySrcDataPerRead            - matrix_b_source_data_per_read attribute
     // BBlockCopyDstDataPerWrite_N         - matrix_b_dest_data_per_write_dim_n attribute
-    bop.setAttr("block_size", gop.getAttr("block_size"));
+    bop->setAttr("block_size", gop->getAttr("block_size"));
 
     if (isMatrixA) {
-      bop.setAttr("source_dim_access_order", b.getArrayAttr({
+      bop->setAttr("source_dim_access_order", b.getArrayAttr({
                                                  b.getI32IntegerAttr(1),
                                                  b.getI32IntegerAttr(0),
                                              }));
-      bop.setAttr("dest_dim_access_order", b.getArrayAttr({
+      bop->setAttr("dest_dim_access_order", b.getArrayAttr({
                                                b.getI32IntegerAttr(0),
                                                b.getI32IntegerAttr(1),
                                            }));
-      bop.setAttr("source_vector_read_dim",
-                  gop.getAttr("matrix_a_source_vector_read_dim"));
-      bop.setAttr("dest_vector_write_dim", b.getI32IntegerAttr(1));
+      bop->setAttr("source_vector_read_dim",
+                  gop->getAttr("matrix_a_source_vector_read_dim"));
+      bop->setAttr("dest_vector_write_dim", b.getI32IntegerAttr(1));
 
-      bop.setAttr("source_data_per_read",
-                  gop.getAttr("matrix_a_source_data_per_read"));
-      bop.setAttr("dest_data_per_write",
-                  gop.getAttr("matrix_a_dest_data_per_write_dim_m"));
+      bop->setAttr("source_data_per_read",
+                  gop->getAttr("matrix_a_source_data_per_read"));
+      bop->setAttr("dest_data_per_write",
+                  gop->getAttr("matrix_a_dest_data_per_write_dim_m"));
     } else {
-      bop.setAttr("source_dim_access_order", b.getArrayAttr({
+      bop->setAttr("source_dim_access_order", b.getArrayAttr({
                                                  b.getI32IntegerAttr(0),
                                                  b.getI32IntegerAttr(1),
                                              }));
-      bop.setAttr("dest_dim_access_order", b.getArrayAttr({
+      bop->setAttr("dest_dim_access_order", b.getArrayAttr({
                                                b.getI32IntegerAttr(0),
                                                b.getI32IntegerAttr(1),
                                            }));
-      bop.setAttr("source_vector_read_dim",
-                  gop.getAttr("matrix_b_source_vector_read_dim"));
-      bop.setAttr("dest_vector_write_dim", b.getI32IntegerAttr(1));
+      bop->setAttr("source_vector_read_dim",
+                  gop->getAttr("matrix_b_source_vector_read_dim"));
+      bop->setAttr("dest_vector_write_dim", b.getI32IntegerAttr(1));
 
-      bop.setAttr("source_data_per_read",
-                  gop.getAttr("matrix_b_source_data_per_read"));
-      bop.setAttr("dest_data_per_write",
-                  gop.getAttr("matrix_b_dest_data_per_write_dim_n"));
+      bop->setAttr("source_data_per_read",
+                  gop->getAttr("matrix_b_source_data_per_read"));
+      bop->setAttr("dest_data_per_write",
+                  gop->getAttr("matrix_b_dest_data_per_write_dim_n"));
     }
   }
 
   void affixBlockwiseGemmAttributes(miopen::BlockwiseGemmOp bop,
                                     miopen::GridwiseGemmOp gop,
                                     OpBuilder &b) const {
-    bop.setAttr("block_size", gop.getAttr("block_size"));
+    bop->setAttr("block_size", gop->getAttr("block_size"));
 
     // Add attributes from C++ template arguments and ctor arguments.
     //const auto blockwise_gemm = BlockwiseGemmBlockABlockBThreadCTransANormalBNormalC_v2<
@@ -1336,13 +1299,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //    ThreadGemmBThreadCopySrcDataPerRead_N>{}; - n_per_thread attribute
  
     // Attributes used in non-xdlops lowering path.
-    bop.setAttr("m_per_thread", gop.getAttr("m_per_thread"));
-    bop.setAttr("n_per_thread", gop.getAttr("n_per_thread"));
-    bop.setAttr("k_per_thread", gop.getAttr("k_per_thread"));
-    bop.setAttr("m_level0_cluster", gop.getAttr("m_level0_cluster"));
-    bop.setAttr("m_level1_cluster", gop.getAttr("m_level1_cluster"));
-    bop.setAttr("n_level0_cluster", gop.getAttr("n_level0_cluster"));
-    bop.setAttr("n_level1_cluster", gop.getAttr("n_level1_cluster"));
+    bop->setAttr("m_per_thread", gop->getAttr("m_per_thread"));
+    bop->setAttr("n_per_thread", gop->getAttr("n_per_thread"));
+    bop->setAttr("k_per_thread", gop->getAttr("k_per_thread"));
+    bop->setAttr("m_level0_cluster", gop->getAttr("m_level0_cluster"));
+    bop->setAttr("m_level1_cluster", gop->getAttr("m_level1_cluster"));
+    bop->setAttr("n_level0_cluster", gop->getAttr("n_level0_cluster"));
+    bop->setAttr("n_level1_cluster", gop->getAttr("n_level1_cluster"));
   }
 
   template <typename T>
@@ -1400,30 +1363,30 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Obtain critical tuning parameters.
     int64_t BlockSize =
-        op.getAttr("block_size").template dyn_cast<IntegerAttr>().getInt();
-    int64_t KPerBlock = op.getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
-    int64_t MPerBlock = op.getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
-    int64_t NPerBlock = op.getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
-    int64_t MPerThread = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
-    int64_t NPerThread = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("block_size").template dyn_cast<IntegerAttr>().getInt();
+    int64_t KPerBlock = op->getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MPerBlock = op->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerBlock = op->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MPerThread = op->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerThread = op->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
     auto MPerThreadConstantOp = b.create<ConstantIndexOp>(loc, MPerThread);
     auto NPerThreadConstantOp = b.create<ConstantIndexOp>(loc, NPerThread);
 
-    int64_t MLevel0Cluster = op.getAttr("m_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
-    int64_t MLevel1Cluster = op.getAttr("m_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
-    int64_t NLevel0Cluster = op.getAttr("n_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
-    int64_t NLevel1Cluster = op.getAttr("n_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MLevel0Cluster = op->getAttr("m_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MLevel1Cluster = op->getAttr("m_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NLevel0Cluster = op->getAttr("n_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NLevel1Cluster = op->getAttr("n_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
     auto NLevel0ClusterConstantOp =
         b.create<ConstantIndexOp>(loc, NLevel0Cluster);
     auto NLevel1ClusterConstantOp =
         b.create<ConstantIndexOp>(loc, NLevel1Cluster);
 
     int64_t matrix_a_source_data_per_read =
-        op.getAttr("matrix_a_source_data_per_read")
+        op->getAttr("matrix_a_source_data_per_read")
             .template dyn_cast<IntegerAttr>()
             .getInt();
     int64_t matrix_b_source_data_per_read =
-        op.getAttr("matrix_b_source_data_per_read")
+        op->getAttr("matrix_b_source_data_per_read")
             .template dyn_cast<IntegerAttr>()
             .getInt();
 
@@ -2109,19 +2072,19 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
   using OpRewritePattern<miopen::GridwiseGemmV2Op>::OpRewritePattern;
 
   void computeLDSBlockSizes(miopen::GridwiseGemmV2Op op, int64_t &a_block_space, int64_t &b_block_space, int64_t &total_block_space) const {
-     int64_t ABlockCopyDstDataPerWrite_M = op.getAttr("matrix_a_dest_data_per_write_dim_m").template dyn_cast<IntegerAttr>().getInt();
-     int64_t BBlockCopyDstDataPerWrite_N = op.getAttr("matrix_b_dest_data_per_write_dim_n").template dyn_cast<IntegerAttr>().getInt();
-     int64_t ThreadGemmAThreadCopySrcDataPerRead_M = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
-     int64_t ThreadGemmBThreadCopySrcDataPerRead_N = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+     int64_t ABlockCopyDstDataPerWrite_M = op->getAttr("matrix_a_dest_data_per_write_dim_m").template dyn_cast<IntegerAttr>().getInt();
+     int64_t BBlockCopyDstDataPerWrite_N = op->getAttr("matrix_b_dest_data_per_write_dim_n").template dyn_cast<IntegerAttr>().getInt();
+     int64_t ThreadGemmAThreadCopySrcDataPerRead_M = op->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+     int64_t ThreadGemmBThreadCopySrcDataPerRead_N = op->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
 
      int64_t max_lds_align = math::lcm(ABlockCopyDstDataPerWrite_M,
                                     BBlockCopyDstDataPerWrite_N,
                                     ThreadGemmAThreadCopySrcDataPerRead_M,
                                     ThreadGemmBThreadCopySrcDataPerRead_N);
 
-     int64_t KPerBlock = op.getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
-     int64_t MPerBlock = op.getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
-     int64_t NPerBlock = op.getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+     int64_t KPerBlock = op->getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
+     int64_t MPerBlock = op->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+     int64_t NPerBlock = op->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
 
      int64_t AlignedNPerBlock = max_lds_align * math::integer_divide_ceil<int64_t>(NPerBlock, max_lds_align);
 
@@ -2155,102 +2118,102 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
   void affixBlockwiseCopyAttributes(miopen::BlockwiseCopyOp bop,
                                     miopen::GridwiseGemmV2Op gop,
                                     OpBuilder &b, bool isMatrixA) const {
-    bop.setAttr("block_size", gop.getAttr("block_size"));
+    bop->setAttr("block_size", gop->getAttr("block_size"));
 
     if (isMatrixA) {
-      bop.setAttr("source_dim_access_order", b.getArrayAttr({
+      bop->setAttr("source_dim_access_order", b.getArrayAttr({
                                                  b.getI32IntegerAttr(1),
                                                  b.getI32IntegerAttr(0),
                                              }));
-      bop.setAttr("dest_dim_access_order", b.getArrayAttr({
+      bop->setAttr("dest_dim_access_order", b.getArrayAttr({
                                                b.getI32IntegerAttr(0),
                                                b.getI32IntegerAttr(1),
                                            }));
-      bop.setAttr("source_vector_read_dim",
-                  gop.getAttr("matrix_a_source_vector_read_dim"));
-      bop.setAttr("dest_vector_write_dim", b.getI32IntegerAttr(1));
+      bop->setAttr("source_vector_read_dim",
+                  gop->getAttr("matrix_a_source_vector_read_dim"));
+      bop->setAttr("dest_vector_write_dim", b.getI32IntegerAttr(1));
 
-      bop.setAttr("source_data_per_read",
-                  gop.getAttr("matrix_a_source_data_per_read"));
-      bop.setAttr("dest_data_per_write",
-                  gop.getAttr("matrix_a_dest_data_per_write_dim_m"));
+      bop->setAttr("source_data_per_read",
+                  gop->getAttr("matrix_a_source_data_per_read"));
+      bop->setAttr("dest_data_per_write",
+                  gop->getAttr("matrix_a_dest_data_per_write_dim_m"));
     } else {
-      bop.setAttr("source_dim_access_order", b.getArrayAttr({
+      bop->setAttr("source_dim_access_order", b.getArrayAttr({
                                                  b.getI32IntegerAttr(0),
                                                  b.getI32IntegerAttr(1),
                                              }));
-      bop.setAttr("dest_dim_access_order", b.getArrayAttr({
+      bop->setAttr("dest_dim_access_order", b.getArrayAttr({
                                                b.getI32IntegerAttr(0),
                                                b.getI32IntegerAttr(1),
                                            }));
-      bop.setAttr("source_vector_read_dim",
-                  gop.getAttr("matrix_b_source_vector_read_dim"));
-      bop.setAttr("dest_vector_write_dim", b.getI32IntegerAttr(1));
+      bop->setAttr("source_vector_read_dim",
+                  gop->getAttr("matrix_b_source_vector_read_dim"));
+      bop->setAttr("dest_vector_write_dim", b.getI32IntegerAttr(1));
 
-      bop.setAttr("source_data_per_read",
-                  gop.getAttr("matrix_b_source_data_per_read"));
-      bop.setAttr("dest_data_per_write",
-                  gop.getAttr("matrix_b_dest_data_per_write_dim_n"));
+      bop->setAttr("source_data_per_read",
+                  gop->getAttr("matrix_b_source_data_per_read"));
+      bop->setAttr("dest_data_per_write",
+                  gop->getAttr("matrix_b_dest_data_per_write_dim_n"));
     }
   }
 
   void affixXdlopsGemmV2Attributes(miopen::XdlopsGemmV2Op xop,
                                    miopen::GridwiseGemmV2Op gop,
                                    OpBuilder &b) const {
-    xop.setAttr("block_size", gop.getAttr("block_size"));
+    xop->setAttr("block_size", gop->getAttr("block_size"));
     // xdlopsV2.
-    auto xdlopsV2Attr = gop.template getAttrOfType<BoolAttr>("xdlopsV2");
+    auto xdlopsV2Attr = gop->template getAttrOfType<BoolAttr>("xdlopsV2");
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
       int64_t MPerBlock =
-          gop.getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+          gop->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
       int64_t NPerBlock =
-          gop.getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+          gop->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
       int64_t MPerWave =
-          gop.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+          gop->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
       int64_t NPerWave =
-          gop.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+          gop->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
       int64_t MWaves = MPerBlock / MPerWave;
       int64_t NWaves = NPerBlock / NPerWave;
 
-      xop.setAttr("m_per_wave", gop.getAttr("m_per_thread"));
-      xop.setAttr("n_per_wave", gop.getAttr("n_per_thread"));
-      xop.setAttr("m_waves", b.getI32IntegerAttr(MWaves));
-      xop.setAttr("n_waves", b.getI32IntegerAttr(NWaves));
+      xop->setAttr("m_per_wave", gop->getAttr("m_per_thread"));
+      xop->setAttr("n_per_wave", gop->getAttr("n_per_thread"));
+      xop->setAttr("m_waves", b.getI32IntegerAttr(MWaves));
+      xop->setAttr("n_waves", b.getI32IntegerAttr(NWaves));
 
-      xop.setAttr("xdlopsV2", b.getBoolAttr(true));
+      xop->setAttr("xdlopsV2", b.getBoolAttr(true));
     }
   }
 
   void affixBlockwiseGemmV2Attributes(miopen::BlockwiseGemmV2Op bop,
                                       miopen::GridwiseGemmV2Op gop,
                                       OpBuilder &b) const {
-    bop.setAttr("block_size", gop.getAttr("block_size"));
+    bop->setAttr("block_size", gop->getAttr("block_size"));
 
     int64_t MPerBlock =
-        gop.getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+        gop->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerBlock =
-        gop.getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+        gop->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
     int64_t MPerWave =
-        gop.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        gop->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerWave =
-        gop.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        gop->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
 
-    bop.setAttr("m_per_wave", gop.getAttr("m_per_thread"));
-    bop.setAttr("n_per_wave", gop.getAttr("n_per_thread"));
-    bop.setAttr("m_waves", b.getI32IntegerAttr(MWaves));
-    bop.setAttr("n_waves", b.getI32IntegerAttr(NWaves));
+    bop->setAttr("m_per_wave", gop->getAttr("m_per_thread"));
+    bop->setAttr("n_per_wave", gop->getAttr("n_per_thread"));
+    bop->setAttr("m_waves", b.getI32IntegerAttr(MWaves));
+    bop->setAttr("n_waves", b.getI32IntegerAttr(NWaves));
 
     int64_t M = bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[1];
     int64_t N = bop.matrixB().getType().template dyn_cast<MemRefType>().getShape()[1];
     int64_t K = bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[0];
 
-    bop.setAttr("m", b.getI32IntegerAttr(M));
-    bop.setAttr("n", b.getI32IntegerAttr(N));
-    bop.setAttr("k", b.getI32IntegerAttr(K));
+    bop->setAttr("m", b.getI32IntegerAttr(M));
+    bop->setAttr("n", b.getI32IntegerAttr(N));
+    bop->setAttr("k", b.getI32IntegerAttr(K));
 
-    bop.setAttr("coord_transforms", b.getArrayAttr({}));
+    bop->setAttr("coord_transforms", b.getArrayAttr({}));
   }
 
   template <typename T>
@@ -2308,17 +2271,17 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     int64_t N = op.input().getType().template dyn_cast<MemRefType>().getShape()[1];
 
     // Obtain critical tuning parameters.
-    int64_t BlockSize = op.getAttr("block_size").template dyn_cast<IntegerAttr>().getInt();
-    int64_t KPerBlock = op.getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
-    int64_t MPerBlock = op.getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
-    int64_t NPerBlock = op.getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+    int64_t BlockSize = op->getAttr("block_size").template dyn_cast<IntegerAttr>().getInt();
+    int64_t KPerBlock = op->getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MPerBlock = op->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerBlock = op->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
 
-    int64_t matrix_a_source_data_per_read = op.getAttr("matrix_a_source_data_per_read") .template dyn_cast<IntegerAttr>().getInt();
-    int64_t matrix_b_source_data_per_read = op.getAttr("matrix_b_source_data_per_read") .template dyn_cast<IntegerAttr>().getInt();
+    int64_t matrix_a_source_data_per_read = op->getAttr("matrix_a_source_data_per_read") .template dyn_cast<IntegerAttr>().getInt();
+    int64_t matrix_b_source_data_per_read = op->getAttr("matrix_b_source_data_per_read") .template dyn_cast<IntegerAttr>().getInt();
 
     // Obtain XDLOPS-related attributes.
-    int64_t MPerWave = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
-    int64_t NPerWave = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MPerWave = op->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerWave = op->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
     auto dataType = op.input().getType().template dyn_cast<MemRefType>().getElementType().template dyn_cast<FloatType>();
@@ -3141,7 +3104,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
       affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b);
 
       // affix coord_transforms attributes.
-      threadwiseCopyV2CMatrixOp.setAttr("coord_transforms",
+      threadwiseCopyV2CMatrixOp->setAttr("coord_transforms",
                                     b.getArrayAttr({
                                       b.getDictionaryAttr({
                                         b.getNamedAttr("operand", b.getI32IntegerAttr(0)),
@@ -3150,7 +3113,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                     }));
  
       // affix bound attributes.
-      threadwiseCopyV2CMatrixOp.setAttr("bound",
+      threadwiseCopyV2CMatrixOp->setAttr("bound",
                                     b.getArrayAttr({
                                      b.getI32IntegerAttr(M3),
                                      b.getI32IntegerAttr(1),
@@ -3194,13 +3157,13 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     // Non-xdlops path.
  
     // Obtain critical attributes.
-    int64_t KPerThread = op.getAttr("k_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    int64_t KPerThread = op->getAttr("k_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t MPerThread =
         op.matrixC().getType().template dyn_cast<MemRefType>().getShape()[0];
     int64_t NPerThread =
         op.matrixC().getType().template dyn_cast<MemRefType>().getShape()[1];
-    int64_t MPerThreadSubC = op.getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
-    int64_t NPerThreadSubC = op.getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MPerThreadSubC = op->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerThreadSubC = op->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
 
     // llvm::errs() << "MPerThread: " << MPerThread << "\n";
     // llvm::errs() << "MPerThreadSubC: " << MPerThreadSubC << "\n";
@@ -3212,10 +3175,10 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     auto NPerThreadSubCConstantI32Op =
         b.create<ConstantIntOp>(loc, NPerThreadSubC, b.getIntegerType(32));
 
-    int64_t MLevel0Cluster = op.getAttr("m_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
-    int64_t MLevel1Cluster = op.getAttr("m_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
-    int64_t NLevel0Cluster = op.getAttr("n_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
-    int64_t NLevel1Cluster = op.getAttr("n_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MLevel0Cluster = op->getAttr("m_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MLevel1Cluster = op->getAttr("m_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NLevel0Cluster = op->getAttr("n_level0_cluster").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NLevel1Cluster = op->getAttr("n_level1_cluster").template dyn_cast<IntegerAttr>().getInt();
 
     int64_t MPerLevel1Cluster = MPerThreadSubC * MLevel0Cluster * MLevel1Cluster;
     int64_t NPerLevel1Cluster = NPerThreadSubC * NLevel0Cluster * NLevel1Cluster;
@@ -3622,7 +3585,7 @@ struct ThreadwiseCopyRewritePattern
     auto sourceTypeAffineMaps = sourceType.getAffineMaps();
     auto destTypeAffineMaps = destType.getAffineMaps();
     auto coordTransformsAttr =
-        op.getAttr("coord_transforms").template cast<ArrayAttr>();
+        op->getAttr("coord_transforms").template cast<ArrayAttr>();
 
     unsigned sourceCoordLength = sourceType.getRank();
     unsigned destCoordLength = destType.getRank();
@@ -3688,9 +3651,9 @@ struct ThreadwiseCopyRewritePattern
     // simpler algorithm because they are all naive tensors.
     //
     // Otherwise, employ the more elaborated algorithm.
-    auto NSliceRowAttr = op.getAttr("n_slice_row");
-    auto NSliceColAttr = op.getAttr("n_slice_col");
-    auto DataPerAccessAttr = op.getAttr("data_per_access");
+    auto NSliceRowAttr = op->getAttr("n_slice_row");
+    auto NSliceColAttr = op->getAttr("n_slice_col");
+    auto DataPerAccessAttr = op->getAttr("data_per_access");
     if (NSliceRowAttr && NSliceColAttr && DataPerAccessAttr) {
       auto NSliceRow = NSliceRowAttr.template cast<IntegerAttr>().getInt();
       auto NSliceCol = NSliceColAttr.template cast<IntegerAttr>().getInt();
@@ -3834,14 +3797,14 @@ struct ThreadwiseCopyRewritePattern
       // llvm::errs() << "\n";
 
       auto dimAccessOrder =
-          op.getAttr("dim_access_order").template cast<ArrayAttr>();
-      auto vectorAccessDim = op.getAttr("vector_read_write_dim")
+          op->getAttr("dim_access_order").template cast<ArrayAttr>();
+      auto vectorAccessDim = op->getAttr("vector_read_write_dim")
                                  .template cast<IntegerAttr>()
                                  .getInt();
-      auto srcDataPerRead = op.getAttr("source_data_per_read")
+      auto srcDataPerRead = op->getAttr("source_data_per_read")
                                 .template cast<IntegerAttr>()
                                 .getInt();
-      auto destDataPerWrite = op.getAttr("dest_data_per_write")
+      auto destDataPerWrite = op->getAttr("dest_data_per_write")
                                   .template cast<IntegerAttr>()
                                   .getInt();
 
@@ -3864,9 +3827,9 @@ struct ThreadwiseCopyRewritePattern
                 dictAttr.get("operand").template cast<IntegerAttr>().getInt();
             if (operandIndex == 0) {
               // bound attribute take precendence over domain attribute.
-              if (op.getAttr("bound")) {
+              if (op->getAttr("bound")) {
                 auto boundAttr =
-                    op.getAttr("bound").template cast<ArrayAttr>();
+                    op->getAttr("bound").template cast<ArrayAttr>();
                 for (unsigned i = 0; i < boundAttr.size(); ++i)
                   sliceLengths.push_back(
                       boundAttr[i].template cast<IntegerAttr>().getInt());
@@ -4047,7 +4010,7 @@ struct ThreadwiseCopyV2RewritePattern
     // 3. For memrefs with embedded maps, use its input rank.
     auto sourceAndDestCoord = op.sourceAndDestCoord();
     auto destTypeAffineMaps = destType.getAffineMaps();
-    auto coordTransformsAttr = op.getAttr("coord_transforms");
+    auto coordTransformsAttr = op->getAttr("coord_transforms");
 
     unsigned sourceCoordLength = sourceType.getRank();
     unsigned destCoordLength = destType.getRank();
@@ -4108,14 +4071,14 @@ struct ThreadwiseCopyV2RewritePattern
     // llvm::errs() << "\n";
 
     auto dimAccessOrder =
-        op.getAttr("dim_access_order").template cast<ArrayAttr>();
-    auto vectorAccessDim = op.getAttr("vector_read_write_dim")
+        op->getAttr("dim_access_order").template cast<ArrayAttr>();
+    auto vectorAccessDim = op->getAttr("vector_read_write_dim")
                                .template cast<IntegerAttr>()
                                .getInt();
-    auto srcDataPerRead = op.getAttr("source_data_per_read")
+    auto srcDataPerRead = op->getAttr("source_data_per_read")
                               .template cast<IntegerAttr>()
                               .getInt();
-    auto destDataPerWrite = op.getAttr("dest_data_per_write")
+    auto destDataPerWrite = op->getAttr("dest_data_per_write")
                                 .template cast<IntegerAttr>()
                                 .getInt();
 
@@ -4137,9 +4100,9 @@ struct ThreadwiseCopyV2RewritePattern
             dictAttr.get("operand").template cast<IntegerAttr>().getInt();
         if (operandIndex == 0) {
           // bound attribute take precendence over domain attribute.
-          if (op.getAttr("bound")) {
+          if (op->getAttr("bound")) {
             auto boundAttr =
-                op.getAttr("bound").template cast<ArrayAttr>();
+                op->getAttr("bound").template cast<ArrayAttr>();
             for (unsigned i = 0; i < boundAttr.size(); ++i)
               sliceLengths.push_back(
                   boundAttr[i].template cast<IntegerAttr>().getInt());
@@ -4499,11 +4462,11 @@ struct XdlopsGemmV2RewritePattern
     auto loc = op.getLoc();
 
     // Obtain critical information.
-    int64_t M = op.getAttr("m").template dyn_cast<IntegerAttr>().getInt();
-    int64_t N = op.getAttr("n").template dyn_cast<IntegerAttr>().getInt();
-    int64_t K = op.getAttr("k").template dyn_cast<IntegerAttr>().getInt();
-    int64_t MPerWave = op.getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
-    int64_t NPerWave = op.getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
+    int64_t M = op->getAttr("m").template dyn_cast<IntegerAttr>().getInt();
+    int64_t N = op->getAttr("n").template dyn_cast<IntegerAttr>().getInt();
+    int64_t K = op->getAttr("k").template dyn_cast<IntegerAttr>().getInt();
+    int64_t MPerWave = op->getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
+    int64_t NPerWave = op->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
 
     auto dataType = op.matrixA().getType().template dyn_cast<MemRefType>().getElementType().template dyn_cast<FloatType>();
 
@@ -4690,8 +4653,8 @@ struct XdlopsGemmV2RewritePattern
         // TBD: need to consider the case to use argA[AStride] and argB[BStride]
         auto mfma = loopKb.create<miopen::MFMAV2Op>(loc, vectorType, argA, argB, vectorC);
 
-        mfma.setAttr("instr", loopKb.getStringAttr(mfmaInstr));
-        mfma.setAttr("imm", loopKb.getArrayAttr({
+        mfma->setAttr("instr", loopKb.getStringAttr(mfmaInstr));
+        mfma->setAttr("imm", loopKb.getArrayAttr({
                               loopKb.getI32IntegerAttr(imms[i][0]),
                               loopKb.getI32IntegerAttr(imms[i][1]),
                               loopKb.getI32IntegerAttr(imms[i][2])
@@ -4787,8 +4750,8 @@ struct XdlopsGemmV2RewritePattern
         auto vectorC = innerLoop.getRegionIterArgs()[i];
         auto mfma = innerLoopb.create<miopen::MFMAV2Op>(loc, vectorType, argA, argB, vectorC);
 
-        mfma.setAttr("instr", innerLoopb.getStringAttr(mfmaInstr));
-        mfma.setAttr("imm", innerLoopb.getArrayAttr({
+        mfma->setAttr("instr", innerLoopb.getStringAttr(mfmaInstr));
+        mfma->setAttr("imm", innerLoopb.getArrayAttr({
                               innerLoopb.getI32IntegerAttr(imms[i][0]),
                               innerLoopb.getI32IntegerAttr(imms[i][1]),
                               innerLoopb.getI32IntegerAttr(imms[i][2])
@@ -4820,9 +4783,9 @@ struct BlockwiseGemmV2RewritePattern
     auto loc = op.getLoc();
 
     int64_t MPerWave =
-        op.getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerWave =
-        op.getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
 
     auto dataType = op.matrixA()
                         .getType()
@@ -4852,13 +4815,13 @@ struct BlockwiseGemmV2RewritePattern
           loc, resultTypes, op.matrixA(), op.matrixB(), op.threadOffsetA(),
           op.threadOffsetB(), op.bufferA(), op.bufferB(), op.vectorCs());
 
-      xdlopsGemmV2Op.setAttr("m", op.getAttr("m"));
-      xdlopsGemmV2Op.setAttr("n", op.getAttr("n"));
-      xdlopsGemmV2Op.setAttr("k", op.getAttr("k"));
-      xdlopsGemmV2Op.setAttr("m_per_wave", op.getAttr("m_per_wave"));
-      xdlopsGemmV2Op.setAttr("n_per_wave", op.getAttr("n_per_wave"));
-      xdlopsGemmV2Op.setAttr("coord_transforms",
-                             op.getAttr("coord_transforms"));
+      xdlopsGemmV2Op->setAttr("m", op->getAttr("m"));
+      xdlopsGemmV2Op->setAttr("n", op->getAttr("n"));
+      xdlopsGemmV2Op->setAttr("k", op->getAttr("k"));
+      xdlopsGemmV2Op->setAttr("m_per_wave", op->getAttr("m_per_wave"));
+      xdlopsGemmV2Op->setAttr("n_per_wave", op->getAttr("n_per_wave"));
+      xdlopsGemmV2Op->setAttr("coord_transforms",
+                             op->getAttr("coord_transforms"));
 
       op.replaceAllUsesWith(xdlopsGemmV2Op.vectorDs());
       op.erase();
@@ -4875,15 +4838,15 @@ struct BlockwiseGemmV2RewritePattern
           loc, resultTypes0, op.matrixA(), op.matrixB(), op.threadOffsetA(),
           op.threadOffsetB(), op.bufferA(), op.bufferB(), ValueRange{op.vectorCs()[0], op.vectorCs()[1]});
 
-      xdlopsGemmV2Op0.setAttr("m", op.getAttr("m"));
-      xdlopsGemmV2Op0.setAttr("n", op.getAttr("n"));
-      xdlopsGemmV2Op0.setAttr("k", op.getAttr("k"));
+      xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
+      xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
+      xdlopsGemmV2Op0->setAttr("k", op->getAttr("k"));
       // TBD. hard-coded as 64 for now.
-      xdlopsGemmV2Op0.setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      //xdlopsGemmV2Op0.setAttr("m_per_wave", op.getAttr("m_per_wave"));
-      xdlopsGemmV2Op0.setAttr("n_per_wave", op.getAttr("n_per_wave"));
-      xdlopsGemmV2Op0.setAttr("coord_transforms",
-                              op.getAttr("coord_transforms"));
+      xdlopsGemmV2Op0->setAttr("m_per_wave", b.getI32IntegerAttr(64));
+      //xdlopsGemmV2Op0->setAttr("m_per_wave", op->getAttr("m_per_wave"));
+      xdlopsGemmV2Op0->setAttr("n_per_wave", op->getAttr("n_per_wave"));
+      xdlopsGemmV2Op0->setAttr("coord_transforms",
+                              op->getAttr("coord_transforms"));
 
       SmallVector<Type, 2> resultTypes1;
       resultTypes1.push_back(op.vectorDs()[2].getType());
@@ -4895,15 +4858,15 @@ struct BlockwiseGemmV2RewritePattern
           b.create<AddIOp>(loc, op.threadOffsetA(), MPerXdlopsConstantOp),
           op.threadOffsetB(), op.bufferA(), op.bufferB(), ValueRange{op.vectorCs()[2], op.vectorCs()[3]});
 
-      xdlopsGemmV2Op1.setAttr("m", op.getAttr("m"));
-      xdlopsGemmV2Op1.setAttr("n", op.getAttr("n"));
-      xdlopsGemmV2Op1.setAttr("k", op.getAttr("k"));
+      xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
+      xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
+      xdlopsGemmV2Op1->setAttr("k", op->getAttr("k"));
       // TBD. hard-coded as 64 for now.
-      xdlopsGemmV2Op1.setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      //xdlopsGemmV2Op1.setAttr("m_per_wave", op.getAttr("m_per_wave"));
-      xdlopsGemmV2Op1.setAttr("n_per_wave", op.getAttr("n_per_wave"));
-      xdlopsGemmV2Op1.setAttr("coord_transforms",
-                              op.getAttr("coord_transforms"));
+      xdlopsGemmV2Op1->setAttr("m_per_wave", b.getI32IntegerAttr(64));
+      //xdlopsGemmV2Op1->setAttr("m_per_wave", op->getAttr("m_per_wave"));
+      xdlopsGemmV2Op1->setAttr("n_per_wave", op->getAttr("n_per_wave"));
+      xdlopsGemmV2Op1->setAttr("coord_transforms",
+                              op->getAttr("coord_transforms"));
 
       op.replaceAllUsesWith(ValueRange{
           xdlopsGemmV2Op0.vectorDs()[0], xdlopsGemmV2Op0.vectorDs()[1],
@@ -4922,15 +4885,15 @@ struct BlockwiseGemmV2RewritePattern
           loc, resultTypes0, op.matrixA(), op.matrixB(), op.threadOffsetA(),
           op.threadOffsetB(), op.bufferA(), op.bufferB(), ValueRange{op.vectorCs()[0], op.vectorCs()[1]});
 
-      xdlopsGemmV2Op0.setAttr("m", op.getAttr("m"));
-      xdlopsGemmV2Op0.setAttr("n", op.getAttr("n"));
-      xdlopsGemmV2Op0.setAttr("k", op.getAttr("k"));
+      xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
+      xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
+      xdlopsGemmV2Op0->setAttr("k", op->getAttr("k"));
       // TBD. hard-coded as 64 for now.
-      xdlopsGemmV2Op0.setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      //xdlopsGemmV2Op0.setAttr("m_per_wave", op.getAttr("m_per_wave"));
-      xdlopsGemmV2Op0.setAttr("n_per_wave", op.getAttr("n_per_wave"));
-      xdlopsGemmV2Op0.setAttr("coord_transforms",
-                              op.getAttr("coord_transforms"));
+      xdlopsGemmV2Op0->setAttr("m_per_wave", b.getI32IntegerAttr(64));
+      //xdlopsGemmV2Op0->setAttr("m_per_wave", op->getAttr("m_per_wave"));
+      xdlopsGemmV2Op0->setAttr("n_per_wave", op->getAttr("n_per_wave"));
+      xdlopsGemmV2Op0->setAttr("coord_transforms",
+                              op->getAttr("coord_transforms"));
 
       SmallVector<Type, 2> resultTypes1;
       resultTypes1.push_back(op.vectorDs()[2].getType());
@@ -4943,15 +4906,15 @@ struct BlockwiseGemmV2RewritePattern
           op.bufferA(), op.bufferB(),
           ValueRange{op.vectorCs()[2], op.vectorCs()[3]});
 
-      xdlopsGemmV2Op1.setAttr("m", op.getAttr("m"));
-      xdlopsGemmV2Op1.setAttr("n", op.getAttr("n"));
-      xdlopsGemmV2Op1.setAttr("k", op.getAttr("k"));
+      xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
+      xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
+      xdlopsGemmV2Op1->setAttr("k", op->getAttr("k"));
       // TBD. hard-coded as 64 for now.
-      xdlopsGemmV2Op1.setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      //xdlopsGemmV2Op1.setAttr("m_per_wave", op.getAttr("m_per_wave"));
-      xdlopsGemmV2Op1.setAttr("n_per_wave", op.getAttr("n_per_wave"));
-      xdlopsGemmV2Op1.setAttr("coord_transforms",
-                              op.getAttr("coord_transforms"));
+      xdlopsGemmV2Op1->setAttr("m_per_wave", b.getI32IntegerAttr(64));
+      //xdlopsGemmV2Op1->setAttr("m_per_wave", op->getAttr("m_per_wave"));
+      xdlopsGemmV2Op1->setAttr("n_per_wave", op->getAttr("n_per_wave"));
+      xdlopsGemmV2Op1->setAttr("coord_transforms",
+                              op->getAttr("coord_transforms"));
 
       op.replaceAllUsesWith(ValueRange{
           xdlopsGemmV2Op0.vectorDs()[0], xdlopsGemmV2Op0.vectorDs()[1],

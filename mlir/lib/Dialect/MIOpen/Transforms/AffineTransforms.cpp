@@ -4,9 +4,8 @@
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
-#include "mlir/IR/Function.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Operation.h"
-#include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/Pass.h"
 
@@ -31,12 +30,12 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
   auto inputElementType = inputType.getElementType();
   auto inputAffineMaps = inputType.getAffineMaps();
 
-  auto layoutAttr = op.template getAttrOfType<ArrayAttr>("layout");
+  auto layoutAttr = op->template getAttrOfType<ArrayAttr>("layout");
 
-  auto sourceLayoutAttr = op.template getAttrOfType<ArrayAttr>("source_layout");
+  auto sourceLayoutAttr = op->template getAttrOfType<ArrayAttr>("source_layout");
   if (!sourceLayoutAttr)
-    sourceLayoutAttr = op.template getAttrOfType<ArrayAttr>("intermediate_layout");
-  auto outputLayoutAttr = op.template getAttrOfType<ArrayAttr>("output_layout");
+    sourceLayoutAttr = op->template getAttrOfType<ArrayAttr>("intermediate_layout");
+  auto outputLayoutAttr = op->template getAttrOfType<ArrayAttr>("output_layout");
 
   llvm::SmallMapVector<int64_t, AffineExpr, 8> affExprsMap;
   for (unsigned i = 0; i < layoutAttr.size(); ++i) {

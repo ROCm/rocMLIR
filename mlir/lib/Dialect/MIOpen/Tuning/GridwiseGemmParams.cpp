@@ -9,7 +9,7 @@ LogicalResult PopulateParams::populateDerived(
     DerivedBlockGemmParams &blockGemmDerivedParam, int64_t &gemmCDstPerWrite,
     int64_t &gridSize) {
 
-  LogicalResult res(LogicalResult::Failure);
+  LogicalResult res = failure();
   res = isValidGemm(&params, gemmSize);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs()
@@ -92,7 +92,7 @@ LogicalResult PopulateParams::paramsFromCtx(
 #endif // MLIR_ENABLE_SQLITE
 
   // Backup path: Use the set of default tuning parameters
-  LogicalResult res(LogicalResult::Failure);
+  LogicalResult res = failure();
 
   for (auto &params : initParameters) {
     // We have an override on the blockSize, only loop through the
@@ -215,7 +215,7 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
   }
 #endif // MLIR_ENABLE_SQLITE
 
-  LogicalResult res(LogicalResult::Failure);
+  LogicalResult res = failure();
   for (auto &params : initParameters) {
     blockSize = obtainBlockSize(params, waveSize);
     // We have an override on the blockSize, only loop through the

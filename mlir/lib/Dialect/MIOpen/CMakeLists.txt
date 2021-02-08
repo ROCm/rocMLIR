@@ -20,7 +20,6 @@ add_mlir_dialect_library(MLIRMIOpenOps
 target_link_libraries(MLIRMIOpenOps
   PUBLIC
   MLIRIR
-  MLIRStandardOps
   LLVMSupport
   )
 

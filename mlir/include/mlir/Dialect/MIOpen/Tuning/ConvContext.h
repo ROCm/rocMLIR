@@ -93,12 +93,11 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
 // T is either GriwiseGemmOp or GridwiseGemmV2Op
 template <typename T> static miopen::ConvOpType ObtainConvDirection(T &op) {
   miopen::ConvOpType opType;
-  auto kernel_algorithm =
-      op.template getAttrOfType<StringAttr>("kernel_algorithm");
-  if (kernel_algorithm.getValue().find(StringRef("backward_data")) !=
+  auto kernel_algorithm = op->template getAttrOfType<StringAttr>("kernel_algorithm").getValue();
+  if (kernel_algorithm.find(StringRef("backward_data")) !=
       StringRef::npos) {
     opType = miopen::ConvOpType::Conv2DBwdDataOpType;
-  } else if (kernel_algorithm.getValue().find(StringRef("backward_weight")) !=
+  } else if (kernel_algorithm.find(StringRef("backward_weight")) !=
              StringRef::npos) {
     opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
   } else {
@@ -144,33 +143,33 @@ static inline void populateSeqVal(const ArrayAttr &seqAttr,
 template <typename T> static ConvolutionContext populateConvContext(T &op) {
   miopen::ConvOpType opType = ObtainConvDirection(op);
 
-  auto archVal = op.template getAttrOfType<StringAttr>("arch").getValue();
-  int numCuVal = op.template getAttrOfType<IntegerAttr>("num_cu").getInt();
+  auto archVal = op->template getAttrOfType<StringAttr>("arch").getValue();
+  int numCuVal = op->template getAttrOfType<IntegerAttr>("num_cu").getInt();
 
   llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
 
-  auto filterLayoutAttr = op.template getAttrOfType<ArrayAttr>("filter_layout");
+  auto filterLayoutAttr = op->template getAttrOfType<ArrayAttr>("filter_layout");
   auto filterDimensionAttr =
-      op.template getAttrOfType<ArrayAttr>("filter_dimension");
+      op->template getAttrOfType<ArrayAttr>("filter_dimension");
   populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
-  auto inputLayoutAttr = op.template getAttrOfType<ArrayAttr>("input_layout");
+  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
   auto inputDimensionAttr =
-      op.template getAttrOfType<ArrayAttr>("input_dimension");
+      op->template getAttrOfType<ArrayAttr>("input_dimension");
   populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
-  auto outputLayoutAttr = op.template getAttrOfType<ArrayAttr>("output_layout");
+  auto outputLayoutAttr = op->template getAttrOfType<ArrayAttr>("output_layout");
   auto outputDimensionAttr =
-      op.template getAttrOfType<ArrayAttr>("output_dimension");
+      op->template getAttrOfType<ArrayAttr>("output_dimension");
   populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
 
-  auto strideAttr = op.template getAttrOfType<ArrayAttr>("strides");
+  auto strideAttr = op->template getAttrOfType<ArrayAttr>("strides");
   llvm::SmallVector<int64_t, 0> strideVal;
   populateSeqVal(strideAttr, strideVal);
 
-  auto dilationAttr = op.template getAttrOfType<ArrayAttr>("dilations");
+  auto dilationAttr = op->template getAttrOfType<ArrayAttr>("dilations");
   llvm::SmallVector<int64_t, 0> dilationVal;
   populateSeqVal(dilationAttr, dilationVal);
 
-  auto paddingAttr = op.template getAttrOfType<ArrayAttr>("padding");
+  auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
   llvm::SmallVector<int64_t, 0> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 

@@ -62,7 +62,7 @@ struct LowerGpuOpsToROCDLOpsPass
     OwningRewritePatternList patterns, llvmPatterns;
 
     populateGpuRewritePatterns(m.getContext(), patterns);
-    (void)applyPatternsAndFoldGreedily(m, std::move(patterns));
+    applyPatternsAndFoldGreedily(m, std::move(patterns));
 
     populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
     populateVectorToROCDLConversionPatterns(converter, llvmPatterns);
@@ -80,7 +80,7 @@ struct LowerGpuOpsToROCDLOpsPass
 void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
   target.addIllegalOp<FuncOp>();
   target.addLegalDialect<::mlir::LLVM::LLVMDialect>();
-  target.addLegalDialect<ROCDL::ROCDLDialect>();
+  target.addLegalDialect<::mlir::ROCDL::ROCDLDialect>();
   target.addIllegalDialect<gpu::GPUDialect>();
   target.addIllegalOp<LLVM::CosOp, LLVM::ExpOp, LLVM::FAbsOp, LLVM::FCeilOp,
                       LLVM::FFloorOp, LLVM::LogOp, LLVM::Log10Op, LLVM::Log2Op,
@@ -101,13 +101,13 @@ struct MFMAOpLowering : ConvertToLLVMPattern {
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto mfmaOp = cast<gpu::MFMAOp>(op);
-    auto adaptor = gpu::MFMAOpOperandAdaptor(operands);
+    auto adaptor = gpu::MFMAOpAdaptor(operands);
     auto loc = mfmaOp.getLoc();
 
     // Obtain MFMA instruction be used.
     StringRef mfmaInstr = "mfma_f32_32x32x1f32";
-    if (mfmaOp.getAttr("instr"))
-      mfmaInstr = mfmaOp.getAttr("instr").cast<StringAttr>().getValue();
+    if (mfmaOp->getAttr("instr"))
+      mfmaInstr = mfmaOp->getAttr("instr").cast<StringAttr>().getValue();
 
     // Obtain immediate values be used.
     ArrayAttr immArrayAttr = rewriter.getArrayAttr({
@@ -115,13 +115,13 @@ struct MFMAOpLowering : ConvertToLLVMPattern {
         rewriter.getI32IntegerAttr(0),
         rewriter.getI32IntegerAttr(0),
     });
-    if (mfmaOp.getAttr("imm"))
-      immArrayAttr = mfmaOp.getAttr("imm").cast<ArrayAttr>();
+    if (mfmaOp->getAttr("imm"))
+      immArrayAttr = mfmaOp->getAttr("imm").cast<ArrayAttr>();
 
     SmallVector<Value, 3> immValues;
     for (unsigned iter = 0; iter < immArrayAttr.size(); ++iter)
       immValues.push_back(rewriter.create<LLVM::ConstantOp>(
-          loc, typeConverter.convertType(rewriter.getIntegerType(32)),
+          loc, typeConverter->convertType(rewriter.getIntegerType(32)),
           immArrayAttr[iter]));
 
     if (mfmaInstr.endswith("f32")) {
@@ -181,7 +181,7 @@ struct MFMAOpLowering : ConvertToLLVMPattern {
     } else if (mfmaInstr.endswith("bf16")) {
       // BF16.
       Type castedVectorType = VectorType::get({2}, rewriter.getIntegerType(16));
-      Type castedLLVMVectorType = typeConverter.convertType(castedVectorType);
+      Type castedLLVMVectorType = typeConverter->convertType(castedVectorType);
       Value castedSourceA = rewriter.create<LLVM::BitcastOp>(
           op->getLoc(), castedLLVMVectorType, adaptor.sourceA());
       Value castedSourceB = rewriter.create<LLVM::BitcastOp>(

@@ -3,10 +3,8 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/Function.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
-#include "mlir/IR/Module.h"
-#include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/PassManager.h"
 
@@ -73,13 +71,13 @@ LogicalResult Conv2dGenerator::genConvModule(
   // Construct a new FuncOp.
   auto filterArgType = MemRefType::get(
       ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
-      builder.getF32Type());
+      dataType);
   auto inputArgType = MemRefType::get(
       ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
-      builder.getF32Type());
+      dataType);
   auto outputArgType = MemRefType::get(
       ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
-      builder.getF32Type());
+      dataType);
   auto funcType =
       builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
 
@@ -140,6 +138,11 @@ LogicalResult Conv2dGenerator::genConvModule(
                                builder.getI32IntegerAttr(paddingWidth),
                            })),
   };
+
+  // xdlops v2.
+  if (xdlops)
+    attributes.push_back(
+        builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
 
   if (operation.compare("conv2d") == 0) {
     auto convOp = builder.create<miopen::Conv2DOp>(

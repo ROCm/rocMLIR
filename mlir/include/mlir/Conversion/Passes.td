@@ -535,6 +535,10 @@ def ConvertMIOpenToGPU : Pass<"convert-miopen-to-gpu", "ModuleOp"> {
            "\"miopen_kernel_module\"",
            "GPU kernel module name to be lowered">,
   ];
+  let dependentDialects = [
+    "miopen::MIOpenDialect",
+    "gpu::GPUDialect"
+  ];
 }
 
 //===----------------------------------------------------------------------===//
@@ -545,6 +549,10 @@ def ConvertMIOpenWithinGPUModule : Pass<"test-miopen-lowering-gpu-module", "gpu:
   let summary = "Lower the operations from the MIOpen dialect within an "
                 "existing GPU module";
   let constructor = "mlir::createLowerMIOpenOpsWithinGPUModulePass()";
+  let dependentDialects = [
+    "miopen::MIOpenDialect",
+    "gpu::GPUDialect"
+  ];
 }
 
 #endif // MLIR_CONVERSION_PASSES

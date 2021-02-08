@@ -57,15 +57,15 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   kernelPm.addPass(createStripDebugInfoPass());
   kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass());
   kernelPm.addPass(createConvertGPUKernelToBlobPass(
-      [&utils](Operation *m) { return utils.compileModuleToROCDLIR(m); },
+      [&utils](Operation *m, llvm::LLVMContext&, llvm::StringRef) { return utils.compileModuleToROCDLIR(m); },
       [&utils](const std::string isa, Location loc, StringRef name) {
         return utils.compileISAToHsaco(isa, loc, name);
       },
       utils.getTriple(), utils.getChip(), utils.getFeatures(),
       /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
   pm.addPass(createLowerToLLVMPass());
-  pm.addPass(createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
-      /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
+  //  pm.addPass(createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
+  //      /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
 
   return pm.run(m);
 }
@@ -84,5 +84,9 @@ int main(int argc, char **argv) {
   LLVMInitializeAMDGPUAsmPrinter();
 
   mlir::initializeLLVMPasses();
-  return mlir::JitRunnerMain(argc, argv, runMLIRPasses);
+
+  mlir::JitRunnerConfig jitRunnerConfig;
+  jitRunnerConfig.mlirTransformer = runMLIRPasses;
+
+  return mlir::JitRunnerMain(argc, argv, jitRunnerConfig);
 }

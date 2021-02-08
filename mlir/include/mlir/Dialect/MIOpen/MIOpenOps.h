@@ -17,19 +17,20 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
-#include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
 
 namespace mlir {
+
 namespace miopen {
 
 enum ConvOpType { Conv2DOpType, Conv2DBwdDataOpType, Conv2DBwdWeightOpType };
+} // end namespace miopen
 
 #include "mlir/Dialect/MIOpen/MIOpenOpsDialect.h.inc"
 
 #define GET_OP_CLASSES
 #include "mlir/Dialect/MIOpen/MIOpenOps.h.inc"
 
-} // end namespace miopen
 } // end namespace mlir
+
 #endif // MLIR_MIOPENOPS_OPS_H_

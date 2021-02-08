@@ -35,6 +35,10 @@ class LLVMAVX512Dialect;
 class LLVMDialect;
 } // end namespace LLVM
 
+namespace miopen {
+class MIOpenDialect;
+} // end namespace NVVM
+
 namespace NVVM {
 class NVVMDialect;
 } // end namespace NVVM

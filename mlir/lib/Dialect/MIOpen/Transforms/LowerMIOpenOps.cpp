@@ -30,17 +30,17 @@
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/Module.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -114,14 +114,14 @@ void LowerMIOpenOpsStep1Pass::runOnOperation() {
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(&getContext());
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>>(
       &getContext());
-  applyPatternsAndFoldGreedily(getOperation(), patterns);
+  applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
 }
 
 void LowerMIOpenOpsStep2Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<GridwiseGemmRewritePattern>(&getContext());
   patterns.insert<GridwiseGemmV2RewritePattern>(&getContext());
-  applyPatternsAndFoldGreedily(getOperation(), patterns);
+  applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
 }
 
 void LowerMIOpenOpsStep3Pass::runOnOperation() {
@@ -133,7 +133,7 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
   patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
   patterns.insert<BlockwiseGemmV2RewritePattern>(&getContext());
   patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
-  applyPatternsAndFoldGreedily(getOperation(), patterns);
+  applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
 }
 
 void LowerMIOpenOpsStep4Pass::runOnOperation() {
@@ -142,14 +142,14 @@ void LowerMIOpenOpsStep4Pass::runOnOperation() {
   patterns.insert<ThreadwiseCopyRewritePattern>(&getContext());
   patterns.insert<ThreadwiseCopyV2RewritePattern>(&getContext());
   patterns.insert<XdlopsGemmV2RewritePattern>(&getContext());
-  applyPatternsAndFoldGreedily(getOperation(), patterns);
+  applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
 }
 
 void LowerMIOpenOpsStep5Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   populateAffineToStdConversionPatterns(patterns, &getContext());
   populateLoopToStdConversionPatterns(patterns, &getContext());
-  applyPatternsAndFoldGreedily(getOperation(), patterns);
+  applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
 }
 
 std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep1Pass() {

@@ -14,8 +14,7 @@
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/IR/Function.h"
-#include "mlir/IR/Module.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Target/MIOpenCPP.h"
 #include "mlir/Translation.h"
 
@@ -456,7 +455,7 @@ void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std
     // First iteration. Construct tensor descriptor names.
     f.walk([&srcLayoutAttrCtr, &tensorDescs, &los](miopen::TransformOp op) {
       // get source_layout attribute.
-      auto srcLayoutAttr = op.getAttrOfType<ArrayAttr>("source_layout");
+      auto srcLayoutAttr = op->getAttrOfType<ArrayAttr>("source_layout");
       if (srcLayoutAttr) {
         auto srcLayout = srcLayoutAttr.getValue();
 
@@ -481,7 +480,7 @@ void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std
 
 } // anontmous namespace
 
-std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(ModuleOp m) {
+std::unique_ptr<llvm::StringRef> mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
   llvm::raw_string_ostream output(resultStr);
 
   // Enumerate FuncOp instances inside the ModuleOp.
@@ -501,7 +500,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
     // First iteration. Output source dimensions.
     f.walk([&output, &srcLayoutAttrCtr, &tensorDescs](miopen::TransformOp op) {
       // get source_layout attribute.
-      auto srcLayoutAttr = op.getAttrOfType<ArrayAttr>("source_layout");
+      auto srcLayoutAttr = op->getAttrOfType<ArrayAttr>("source_layout");
       if (srcLayoutAttr) {
         auto srcLayout = srcLayoutAttr.getValue();
         output << "\n        // ";
@@ -517,10 +516,10 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
     // Second iteration. Output the rest.
     f.walk([&output, &srcLayoutAttrCtr, &tensorDescs, &gridwiseGemmArguments](miopen::TransformOp op) {
       // get source_layout attribute.
-      auto srcLayoutAttr = op.getAttrOfType<ArrayAttr>("source_layout");
+      auto srcLayoutAttr = op->getAttrOfType<ArrayAttr>("source_layout");
 
       // get layout attribute.
-      auto layoutAttr = op.getAttrOfType<ArrayAttr>("layout");
+      auto layoutAttr = op->getAttrOfType<ArrayAttr>("layout");
       std::string inputTensorName;
       std::string transformedInputTensorName;
       std::string outputTensorName;
@@ -535,8 +534,8 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
       llvm::raw_string_ostream dsts(dstDimSpec);
 
       // determine input and output tensor name.
-      auto immLayoutAttr = op.getAttrOfType<ArrayAttr>("intermediate_layout");
-      auto outputLayoutAttr = op.getAttrOfType<ArrayAttr>("output_layout");
+      auto immLayoutAttr = op->getAttrOfType<ArrayAttr>("intermediate_layout");
+      auto outputLayoutAttr = op->getAttrOfType<ArrayAttr>("output_layout");
       if (srcLayoutAttr) {
         inputTensorName = tensorDescs[srcLayoutAttrCtr];
         outs << kVarName[srcLayoutAttrCtr] << "_";
@@ -558,7 +557,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
       outs.flush();
 
       // determine gridwise GEMM arguments.
-      auto gridwiseGemmArgPosAttr = op.getAttrOfType<IntegerAttr>("gridwise_gemm_argument_position");
+      auto gridwiseGemmArgPosAttr = op->getAttrOfType<IntegerAttr>("gridwise_gemm_argument_position");
       if (gridwiseGemmArgPosAttr) {
         gridwiseGemmArguments[gridwiseGemmArgPosAttr.getInt()] = outputTensorName;
       }
@@ -662,8 +661,8 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
 
     bool filterGemmKVectorizable = false, inputGemmKVectorizable = false;
     f.walk([&filterGemmKVectorizable, &inputGemmKVectorizable](miopen::GridwiseGemmOp op) {
-      auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
-      auto inputLayoutAttr = op.getAttrOfType<ArrayAttr>("input_layout");
+      auto filterLayoutAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
+      auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
 
       size_t dimKF, dimNI, dimCI;
       for (size_t i = 0; i < 4; ++i) {
@@ -726,7 +725,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenHeaderXDLOPS(Modul
   return std::make_unique<llvm::StringRef>(resultStr);
 }
 
-std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCppXDLOPS(ModuleOp m) {
+std::unique_ptr<llvm::StringRef> mlir::translateModuleFromMIOpenToCppXDLOPS(ModuleOp m) {
   llvm::raw_string_ostream output(resultStr);
 
   // Enumerate FuncOp instances inside the ModuleOp.
@@ -744,7 +743,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCppXDLOPS(ModuleOp
 
     f.walk([&output, &srcLayoutAttrCtr, &tensorDescs](miopen::TransformOp op) {
       // get source_layout attribute.
-      auto srcLayoutAttr = op.getAttrOfType<ArrayAttr>("source_layout");
+      auto srcLayoutAttr = op->getAttrOfType<ArrayAttr>("source_layout");
       if (srcLayoutAttr) {
         auto srcLayout = srcLayoutAttr.getValue();
         output << "    // ";
@@ -773,7 +772,7 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCppXDLOPS(ModuleOp
   return std::make_unique<llvm::StringRef>(resultStr);
 }
 
-std::unique_ptr<llvm::StringRef> mlir::translateModuleToMIOpenCFlagsXDLOPS(ModuleOp m) {
+std::unique_ptr<llvm::StringRef> mlir::translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m) {
   llvm::raw_string_ostream output(resultStr);
 
   for (auto f : m.getOps<FuncOp>()) {

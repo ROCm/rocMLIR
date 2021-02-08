@@ -14,6 +14,7 @@
 #define MLIR_DIALECT_MIOPEN_CONV2DGENERATOR_H_
 
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
 
 namespace mlir {

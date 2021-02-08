@@ -87,8 +87,9 @@ static ParseResult parseROCDLRawbufLoadOp(OpAsmParser &parser,
       parser.addTypeToList(type, result.types))
     return failure();
 
-  auto int32Ty = LLVM::LLVMType::getInt32Ty(getLlvmDialect(parser));
-  auto i32x4Ty = LLVM::LLVMType::getVectorTy(int32Ty, 4);
+  auto bldr = parser.getBuilder();
+  auto int32Ty = bldr.getI32Type();
+  auto i32x4Ty = VectorType::get({4}, int32Ty);
   return parser.resolveOperands(ops, {i32x4Ty, int32Ty, int32Ty, int32Ty},
                                 parser.getNameLoc(), result.operands);
 }
@@ -103,8 +104,9 @@ static ParseResult parseROCDLRawbufStoreOp(OpAsmParser &parser,
   if (parser.parseOperandList(ops, 5) || parser.parseColonType(type))
     return failure();
 
-  auto int32Ty = LLVM::LLVMType::getInt32Ty(getLlvmDialect(parser));
-  auto i32x4Ty = LLVM::LLVMType::getVectorTy(int32Ty, 4);
+  auto bldr = parser.getBuilder();
+  auto int32Ty = bldr.getI32Type();
+  auto i32x4Ty = VectorType::get({4}, int32Ty);
 
   if (parser.resolveOperands(ops, {type, i32x4Ty, int32Ty, int32Ty, int32Ty},
                              parser.getNameLoc(), result.operands))

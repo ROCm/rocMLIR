@@ -15,10 +15,9 @@
 
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "mlir/Pass/Pass.h"
 
 namespace mlir {
-class Pass;
-
 namespace miopen {
 
 /// Create a pass to convert MIOpen conv2d operations to transform and
@@ -46,6 +45,9 @@ std::unique_ptr<Pass> createAffineTransformPass();
 std::unique_ptr<Pass>
 createAffixTuningParametersPass(int64_t blockSizeOverride = 0,
                                 int64_t gridSizeOverride = 0);
+
+#define GEN_PASS_REGISTRATION
+#include "mlir/Dialect/MIOpen/Passes.h.inc"
 
 } // namespace miopen
 } // namespace mlir

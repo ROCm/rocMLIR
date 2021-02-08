@@ -16,12 +16,10 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/Function.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/Module.h"
 #include "mlir/IR/Operation.h"
-#include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
@@ -214,31 +212,6 @@ static cl::opt<bool> xdlopsV2("x2", cl::desc("To use XDLOPS V2 lowering pipeline
 static cl::opt<std::string> tensorDataType("t", cl::desc("Data type for convolution"),
                                            cl::value_desc("Data type for convolution"),
                                            cl::init("f32"));
-
-int getDeviceId() // Get default device
-{
-  int device = 0;
-  auto status = hipGetDevice(&device);
-  if (status != hipSuccess)
-    llvm::errs() << "No device found";
-  return device;
-}
-
-std::size_t GetMaxComputeUnits(int device) {
-  int result = 0;
-  auto status = hipDeviceGetAttribute(
-      &result, hipDeviceAttributeMultiprocessorCount, device);
-  if (status != hipSuccess)
-    llvm::errs() << "Failed to get compute units.";
-
-  return result;
-}
-
-std::string GetDeviceName(int device) {
-  hipDeviceProp_t props{};
-  hipGetDeviceProperties(&props, device);
-  return "gfx" + std::to_string(props.gcnArch);
-}
 
 static void populateDefaults() {
   if (populateDefaultValues == true) {
@@ -1257,11 +1230,11 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
   Block *block = &(theFunc.getBody().front());
   block->clear();
 
-  auto blockSizeAttr = theGpuFunc.getAttr("block_size")
+  auto blockSizeAttr = theGpuFunc->getAttr("block_size")
                            .template dyn_cast<IntegerAttr>()
                            .getInt();
   auto gridSizeAttr =
-      theGpuFunc.getAttr("grid_size").template dyn_cast<IntegerAttr>().getInt();
+      theGpuFunc->getAttr("grid_size").template dyn_cast<IntegerAttr>().getInt();
   auto cstOne = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
   auto cstBlockSize =
       builder.create<ConstantIndexOp>(builder.getUnknownLoc(), blockSizeAttr);
@@ -1272,120 +1245,14 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
   block->push_back(cstGridSize);
 
   auto gpuLaunchFuncOp = builder.create<gpu::LaunchFuncOp>(
-      builder.getUnknownLoc(), theGpuFunc, cstGridSize, cstOne, cstOne,
-      cstBlockSize, cstOne, cstOne,
+      builder.getUnknownLoc(), theGpuFunc,
+      gpu::KernelDim3{cstGridSize, cstOne, cstOne},
+      gpu::KernelDim3{cstBlockSize, cstOne, cstOne},
       ValueRange{theFunc.getArgument(0), theFunc.getArgument(1),
                  theFunc.getArgument(2)});
   block->push_back(gpuLaunchFuncOp);
 
   auto returnOp = builder.create<ReturnOp>(builder.getUnknownLoc());
-  block->push_back(returnOp);
-
-  return success();
-}
-
-static LogicalResult populateConvolutionLogic(ModuleOp &module,
-                                              OpBuilder &builder,
-                                              MLIRContext &context,
-                                              SmallString<128> &kernelName,
-                                              mlir::FloatType dataType) {
-  // Determine dimensions.
-  SmallVector<int64_t, 4> filterDimension;
-  SmallVector<int64_t, 4> inputDimension;
-  SmallVector<int64_t, 4> outputDimension;
-  populateConvolutionConfiguration(filterDimension, inputDimension,
-                                   outputDimension);
-
-  // Construct a new FuncOp.
-  auto filterArgType = MemRefType::get(
-      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()), dataType);
-  auto inputArgType = MemRefType::get(
-      ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()), dataType);
-  auto outputArgType = MemRefType::get(
-      ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()), dataType);
-  auto funcType =
-      builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
-
-  // Determine kernel name.
-  kernelName = "miopen_" + operation.getValue() + "_" + filterLayout + "_" +
-               inputLayout + "_" + outputLayout;
-
-  auto func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType);
-  module.push_back(func);
-
-  // Construct a new Block.
-  Block *block = func.addEntryBlock();
-
-  // Construct a new Conv2DOp.
-  SmallVector<StringAttr, 4> filterLayoutSpec;
-  SmallVector<StringAttr, 4> inputLayoutSpec;
-  SmallVector<StringAttr, 4> outputLayoutSpec;
-  for (size_t i = 0; i < 4; ++i) {
-    filterLayoutSpec.push_back(builder.getStringAttr(StringRef(&filterLayout.getValue()[i], 1)));
-    inputLayoutSpec.push_back(builder.getStringAttr((StringRef(&inputLayout.getValue()[i], 1) + "i").str()));
-    outputLayoutSpec.push_back(builder.getStringAttr((StringRef(&outputLayout.getValue()[i], 1) + "o").str()));
-  }
-
-  std::vector<NamedAttribute> attributes{
-      builder.getNamedAttr(
-          "filter_layout",
-          builder.getArrayAttr(ArrayRef<mlir::Attribute>(
-              filterLayoutSpec.begin(), filterLayoutSpec.end()))),
-      builder.getNamedAttr(
-          "input_layout", builder.getArrayAttr(ArrayRef<mlir::Attribute>(
-                              inputLayoutSpec.begin(), inputLayoutSpec.end()))),
-      builder.getNamedAttr(
-          "output_layout",
-          builder.getArrayAttr(ArrayRef<mlir::Attribute>(
-              outputLayoutSpec.begin(), outputLayoutSpec.end()))),
-
-      builder.getNamedAttr(
-          "dilations", builder.getArrayAttr({
-                           builder.getI32IntegerAttr(dilationHeight.getValue()),
-                           builder.getI32IntegerAttr(dilationWidth.getValue()),
-                       })),
-      builder.getNamedAttr(
-          "strides", builder.getArrayAttr({
-                         builder.getI32IntegerAttr(strideHeight.getValue()),
-                         builder.getI32IntegerAttr(strideWidth.getValue()),
-                     })),
-      builder.getNamedAttr(
-          "padding", builder.getArrayAttr({
-                         builder.getI32IntegerAttr(paddingHeight.getValue()),
-                         builder.getI32IntegerAttr(paddingWidth.getValue()),
-                     })),
-  };
-
-  // xdlops v2.
-  if (xdlopsV2.getValue() == true)
-    attributes.push_back(
-        builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
-
-  if (operation.getValue().compare("conv2d") == 0) {
-    auto convOp = builder.create<miopen::Conv2DOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
-    block->push_front(convOp);
-  } else if (operation.getValue().compare("conv2d_bwd_data") == 0) {
-    auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
-    block->push_front(convOp);
-  } else if (operation.getValue().compare("conv2d_bwd_weight") == 0) {
-    auto convOp = builder.create<miopen::Conv2DBwdWeightOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
-    block->push_back(convOp);
-  }
-
-  auto returnOp =
-      builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
   block->push_back(returnOp);
 
   return success();
@@ -1414,8 +1281,13 @@ static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser 
     pm.addPass(mlir::createLowerAffinePass());
     pm.addPass(mlir::createLowerToCFGPass());
   } else {
+    auto errorHandler = [&](const Twine &msg) {
+      emitError(UnknownLoc::get(module.getContext())) << msg;
+      return failure();
+    };
+
     // Use lowering pipeline specified at command line.
-    if (failed(passPipeline.addToPipeline(pm)))
+    if (failed(passPipeline.addToPipeline(pm, errorHandler)))
       return failure();
   }
 
@@ -1423,7 +1295,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser 
 }
 
 int main(int argc, char **argv) {
-  mlir::registerAllDialects();
+  DialectRegistry registry;
+  mlir::registerAllDialects(registry);
   mlir::registerAllPasses();
   InitLLVM y(argc, argv);
 
@@ -1486,8 +1359,14 @@ int main(int argc, char **argv) {
       outputDimension);
 
   // Populate the module.
-  SmallString<128> kernelName;
-  if (failed(populateConvolutionLogic(module, builder, context, kernelName, dataType))) {
+  std::string kernelName;
+  if (failed(conv2dGenerator.genConvModule(
+          arch.getValue(), num_cu.getValue(), operation.getValue(), inputLayout,
+          outputLayout, filterLayout, filterDimension, inputDimension,
+          outputDimension, dilationHeight.getValue(), dilationWidth.getValue(),
+          strideHeight.getValue(), strideWidth.getValue(),
+          paddingHeight.getValue(), paddingWidth.getValue(), module, builder,
+          kernelName, dataType, xdlopsV2.getValue()))) {
     llvm::errs() << "Module population failed.\n";
     exit(1);
   }

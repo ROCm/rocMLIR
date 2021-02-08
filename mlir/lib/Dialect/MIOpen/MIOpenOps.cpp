@@ -10,12 +10,10 @@
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/Function.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Matchers.h"
-#include "mlir/IR/Module.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/MathExtras.h"
 
@@ -33,8 +31,7 @@ namespace {
 // MIOpenDialect
 //===----------------------------------------------------------------------===//
 
-MIOpenDialect::MIOpenDialect(MLIRContext *context)
-    : Dialect(getDialectNamespace(), context) {
+void MIOpenDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
 #include "mlir/Dialect/MIOpen/MIOpenOps.cpp.inc"
@@ -469,7 +466,7 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
     expectedDestCoords = destAffineMaps[0].getNumInputs();
 
   // check if memrefs have externally defined affine maps.
-  auto coordTransformAttrs = op.getAttr("coord_transforms");
+  auto coordTransformAttrs = op->getAttr("coord_transforms");
   if (coordTransformAttrs) {
     for (auto coordTransformAttr :
          coordTransformAttrs.cast<ArrayAttr>().getValue()) {
@@ -642,5 +639,9 @@ static LogicalResult verify(BlockwiseGemmV2Op op) {
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 
+namespace mlir {
+
 #define GET_OP_CLASSES
 #include "mlir/Dialect/MIOpen/MIOpenOps.cpp.inc"
+
+} // namespace mlir

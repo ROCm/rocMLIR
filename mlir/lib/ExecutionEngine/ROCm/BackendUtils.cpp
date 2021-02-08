@@ -195,7 +195,8 @@ OwnedBlob BackendUtils::compileISAToHsaco(const std::string isa, Location loc,
 
 std::unique_ptr<llvm::Module>
 BackendUtils::compileModuleToROCDLIR(Operation *m) {
-  auto llvmModule = translateModuleToROCDLIR(m);
+  llvm::LLVMContext llvmContext;
+  auto llvmModule = translateModuleToROCDLIR(m, llvmContext);
   // TODO(whchung): Link with ROCm-Device-Libs in case needed (ex: the Module
   // depends on math functions).
   return llvmModule;

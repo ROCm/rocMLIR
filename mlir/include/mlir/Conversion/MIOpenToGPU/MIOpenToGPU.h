@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_DIALECT_MIOPEN_CONVERT_MIOPEN_OPS_TO_LLVM_H_
-#define MLIR_DIALECT_MIOPEN_CONVERT_MIOPEN_OPS_TO_LLVM_H_
+#ifndef MLIR_DIALECT_MIOPEN_CONVERT_MIOPEN_TO_GPU_H_
+#define MLIR_DIALECT_MIOPEN_CONVERT_MIOPEN_TO_GPU_H_
 
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -41,4 +41,4 @@ createLowerMIOpenOpsWithinGPUModulePass();
 
 } // namespace mlir
 
-#endif // MLIR_DIALECT_MIOPEN_CONVERT_MIOPEN_OPS_TO_LLVM_H
+#endif // MLIR_DIALECT_MIOPEN_CONVERT_MIOPEN_TO_GPU_H_

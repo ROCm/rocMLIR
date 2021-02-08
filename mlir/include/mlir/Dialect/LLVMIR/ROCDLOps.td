@@ -213,8 +213,7 @@ def ROCDL_RawbufStoreOp :
                  LLVM_Type:$soffset,
                  LLVM_Type:$aux)>{
   string llvmBuilder = [{
-    auto vdataType = op.vdata().getType().cast<LLVM::LLVMType>()
-                       .getUnderlyingType();
+    auto vdataType = convertType(op.vdata().getType());
     createIntrinsicCall(builder,
           llvm::Intrinsic::amdgcn_raw_buffer_store, {$vdata, $rsrc, $offset, 
           $soffset, $aux}, {vdataType});

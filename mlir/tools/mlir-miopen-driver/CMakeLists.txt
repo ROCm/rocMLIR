@@ -19,7 +19,6 @@ set(LIBS
   MLIRQuant
   MLIRShape
   MLIRSDBM
-  MLIRStandardOps
   MLIRTransforms
   MLIRSupport
   MLIRIR

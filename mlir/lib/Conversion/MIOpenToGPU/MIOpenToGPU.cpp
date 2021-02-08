@@ -41,10 +41,9 @@
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/Module.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/Pass.h"
@@ -54,6 +53,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/RegionUtils.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/SmallVector.h"
 
@@ -83,8 +83,8 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   auto loc = op.getLoc();
 
   // Annotate this module as a container module.
-  op.setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
-             UnitAttr::get(op.getContext()));
+  op->setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
+              UnitAttr::get(op.getContext()));
 
   // Check parameters and populate default values if necessary.
   if (kernelName.empty())
@@ -121,8 +121,8 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
       theGpuFunc = gpuFunc;
 
       // Set kernel attribute.
-      gpuFunc.setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
-                      b.getUnitAttr());
+      gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
+                       b.getUnitAttr());
       break;
     }
   }
@@ -152,11 +152,11 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         b.create<gpu::GPUFuncOp>(loc, theFunc.getName(), gpuFuncType);
 
     // Set kernel attribute.
-    gpuFunc.setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
-    if (auto attr = theFunc.getAttr("block_size"))
-      gpuFunc.setAttr("block_size", attr);
-    if (auto attr = theFunc.getAttr("grid_size"))
-      gpuFunc.setAttr("grid_size", attr);
+    gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
+    if (auto attr = theFunc->getAttr("block_size"))
+      gpuFunc->setAttr("block_size", attr);
+    if (auto attr = theFunc->getAttr("grid_size"))
+      gpuFunc->setAttr("grid_size", attr);
 
     // associate arguments for newly created GPUFuncOp.
     BlockAndValueMapping map;
@@ -247,8 +247,8 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         b.setInsertionPoint(op);
 
         auto gpuMfmaOp = b.create<gpu::MFMAOp>(loc, op.getType(), op.sourceA(), op.sourceB(), op.destC());
-        gpuMfmaOp.setAttr("instr", op.getAttr("instr"));
-        gpuMfmaOp.setAttr("imm", op.getAttr("imm"));
+        gpuMfmaOp->setAttr("instr", op->getAttr("instr"));
+        gpuMfmaOp->setAttr("imm", op->getAttr("imm"));
 
         op.replaceAllUsesWith(gpuMfmaOp.destD());
         op.erase();
@@ -289,7 +289,7 @@ void LowerMIOpenOpsWithinGPUModulePass::runOnOperation() {
   populateAffineToStdConversionPatterns(patterns, &getContext());
   populateLoopToStdConversionPatterns(patterns, &getContext());
 
-  applyPatternsAndFoldGreedily(getOperation(), patterns);
+  applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
 }
 
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>

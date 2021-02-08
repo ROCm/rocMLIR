@@ -13,6 +13,21 @@
 
 namespace mlir {
 
+namespace miopen {
+class MIOpenDialect;
+} // end namespace linalg
+
+namespace vector {
+class VectorDialect;
+} // end namespace linalg
+
+namespace scf {
+class SCFDialect;
+} // end namespace linalg
+
+class AffineDialect;
+class StandardOpsDialect;
+
 #define GEN_PASS_CLASSES
 #include "mlir/Dialect/MIOpen/Passes.h.inc"
 

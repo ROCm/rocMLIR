@@ -16,7 +16,6 @@ target_link_libraries(MLIRMIOpenToGPU
   MLIRIR
   MLIRPass
   MLIRSCFToStandard
-  MLIRStandardOps
   MLIRStandardToLLVM
   MLIRSupport
   MLIRTransforms

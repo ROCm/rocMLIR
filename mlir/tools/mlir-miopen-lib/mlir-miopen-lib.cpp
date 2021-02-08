@@ -3,7 +3,7 @@
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/Module.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Target/MIOpenCPP.h"
 
@@ -58,7 +58,8 @@ static void strToTokens(const std::string &arguments,
 typedef void *MlirHandle;
 
 extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
-  mlir::registerAllDialects();
+  DialectRegistry registry;
+  mlir::registerAllDialects(registry);
   mlir::registerAllPasses();
 
   MlirHandle_s *handle = new MlirHandle_s();
@@ -206,7 +207,7 @@ extern "C" void MlirLowerBin(MlirHandle mlirHandle) {
   pm.addPass(createStripDebugInfoPass());
   pm.addPass(createLowerGpuOpsToROCDLOpsPass());
   pm.addPass(createConvertGPUKernelToBlobPass(
-      [&utils](Operation *m) { return utils.compileModuleToROCDLIR(m); },
+      [&utils](Operation *m, llvm::LLVMContext&, llvm::StringRef) { return utils.compileModuleToROCDLIR(m); },
       [&utils](const std::string isa, Location loc, StringRef name) {
         return utils.compileISAToHsaco(isa, loc, name);
       },
@@ -225,7 +226,7 @@ extern "C" void MlirGenIgemmBin(MlirHandle mlirHandle, char **buffer,
   ModuleOp module = handle->getModule();
 
   module.walk([&](gpu::GPUModuleOp gpuModule) -> WalkResult {
-    auto hsaco = gpuModule.getAttrOfType<StringAttr>("rocdl.hsaco");
+    auto hsaco = gpuModule->getAttrOfType<StringAttr>("rocdl.hsaco");
     if (hsaco) {
       handle->genTxt = hsaco.getValue().str();
       *buffer = &(handle->genTxt[0]);

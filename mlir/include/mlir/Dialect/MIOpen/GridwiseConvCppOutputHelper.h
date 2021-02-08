@@ -14,7 +14,7 @@
 #ifndef MLIR_DIALECT_MIOPEN_GRIDWISECONVCPPOUTPUTHELPER_H
 #define MLIR_DIALECT_MIOPEN_GRIDWISECONVCPPOUTPUTHELPER_H
 
-#include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinOps.h"
 
 using namespace mlir;
 

@@ -14,8 +14,7 @@
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/IR/Function.h"
-#include "mlir/IR/Module.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Target/MIOpenCPP.h"
 #include "mlir/Translation.h"
 
@@ -644,7 +643,7 @@ static void ObtainModuleInfo(ModuleOp &m,
     // First iteration. Construct tensor descriptor names.
     f.walk([&srcLayoutAttrCtr, &tensorDescs](miopen::TransformOp op) {
       // get source_layout attribute.
-      auto srcLayoutAttr = op.getAttrOfType<ArrayAttr>("source_layout");
+      auto srcLayoutAttr = op->getAttrOfType<ArrayAttr>("source_layout");
       if (srcLayoutAttr) {
         auto srcLayout = srcLayoutAttr.getValue();
 
@@ -668,7 +667,7 @@ static void ObtainModuleInfo(ModuleOp &m,
 
 } // namespace
 
-void mlir::translateModuleToMIOpenHeader(ModuleOp m, std::string &header) {
+void mlir::translateModuleFromMIOpenToHeader(ModuleOp m, std::string &header) {
   llvm::raw_string_ostream output(header);
 
   // Enumerate FuncOp instances inside the ModuleOp.
@@ -688,7 +687,7 @@ void mlir::translateModuleToMIOpenHeader(ModuleOp m, std::string &header) {
     // First iteration. Output source dimensions.
     f.walk([&output, &srcLayoutAttrCtr, &tensorDescs](miopen::TransformOp op) {
       // get source_layout attribute.
-      auto srcLayoutAttr = op.getAttrOfType<ArrayAttr>("source_layout");
+      auto srcLayoutAttr = op->getAttrOfType<ArrayAttr>("source_layout");
       if (srcLayoutAttr) {
         auto srcLayout = srcLayoutAttr.getValue();
         output << "\n        // ";
@@ -704,10 +703,10 @@ void mlir::translateModuleToMIOpenHeader(ModuleOp m, std::string &header) {
     // Second iteration. Output the rest.
     f.walk([&output, &srcLayoutAttrCtr, &tensorDescs, &gridwiseGemmArguments](miopen::TransformOp op) {
       // get source_layout attribute.
-      auto srcLayoutAttr = op.getAttrOfType<ArrayAttr>("source_layout");
+      auto srcLayoutAttr = op->getAttrOfType<ArrayAttr>("source_layout");
 
       // get layout attribute.
-      auto layoutAttr = op.getAttrOfType<ArrayAttr>("layout");
+      auto layoutAttr = op->getAttrOfType<ArrayAttr>("layout");
       std::string inputTensorName;
       std::string outputTensorName;
       std::string operationSpec;
@@ -720,8 +719,8 @@ void mlir::translateModuleToMIOpenHeader(ModuleOp m, std::string &header) {
       llvm::raw_string_ostream dsts(dstDimSpec);
 
       // determine input and output tensor name.
-      auto immLayoutAttr = op.getAttrOfType<ArrayAttr>("intermediate_layout");
-      auto outputLayoutAttr = op.getAttrOfType<ArrayAttr>("output_layout");
+      auto immLayoutAttr = op->getAttrOfType<ArrayAttr>("intermediate_layout");
+      auto outputLayoutAttr = op->getAttrOfType<ArrayAttr>("output_layout");
       if (srcLayoutAttr) {
         inputTensorName = tensorDescs[srcLayoutAttrCtr];
         outs << kVarName[srcLayoutAttrCtr] << "_";
@@ -743,7 +742,7 @@ void mlir::translateModuleToMIOpenHeader(ModuleOp m, std::string &header) {
       outs.flush();
 
       // determine gridwise GEMM arguments.
-      auto gridwiseGemmArgPosAttr = op.getAttrOfType<IntegerAttr>("gridwise_gemm_argument_position");
+      auto gridwiseGemmArgPosAttr = op->getAttrOfType<IntegerAttr>("gridwise_gemm_argument_position");
       if (gridwiseGemmArgPosAttr) {
         gridwiseGemmArguments[gridwiseGemmArgPosAttr.getInt()] = outputTensorName;
       }  
@@ -824,18 +823,18 @@ void mlir::translateModuleToMIOpenHeader(ModuleOp m, std::string &header) {
             opType](miopen::GridwiseGemmOp op) {
       llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
 
-      auto inputLayoutAttr = op.getAttrOfType<ArrayAttr>("input_layout");
-      auto inputDimensionAttr = op.getAttrOfType<ArrayAttr>("input_dimension");
+      auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
+      auto inputDimensionAttr = op->getAttrOfType<ArrayAttr>("input_dimension");
       populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
 
-      auto outputLayoutAttr = op.getAttrOfType<ArrayAttr>("output_layout");
+      auto outputLayoutAttr = op->getAttrOfType<ArrayAttr>("output_layout");
       auto outputDimensionAttr =
-          op.getAttrOfType<ArrayAttr>("output_dimension");
+          op->getAttrOfType<ArrayAttr>("output_dimension");
       populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
 
-      auto filterLayoutAttr = op.getAttrOfType<ArrayAttr>("filter_layout");
+      auto filterLayoutAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
       auto filterDimensionAttr =
-          op.getAttrOfType<ArrayAttr>("filter_dimension");
+          op->getAttrOfType<ArrayAttr>("filter_dimension");
       populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
 
       PopulateParamsBase::obtainGemmADimKVectorizable(opType, dimIndexVal,
@@ -851,7 +850,7 @@ void mlir::translateModuleToMIOpenHeader(ModuleOp m, std::string &header) {
   output.flush();
 }
 
-void mlir::translateModuleToMIOpenCpp(ModuleOp m, std::string &source) {
+void mlir::translateModuleFromMIOpenToCpp(ModuleOp m, std::string &source) {
   llvm::raw_string_ostream output(source);
 
   // Enumerate FuncOp instances inside the ModuleOp.
@@ -869,7 +868,7 @@ void mlir::translateModuleToMIOpenCpp(ModuleOp m, std::string &source) {
 
     f.walk([&output, &srcLayoutAttrCtr, &tensorDescs](miopen::TransformOp op) {
       // get source_layout attribute.
-      auto srcLayoutAttr = op.getAttrOfType<ArrayAttr>("source_layout");
+      auto srcLayoutAttr = op->getAttrOfType<ArrayAttr>("source_layout");
       if (srcLayoutAttr) {
         auto srcLayout = srcLayoutAttr.getValue();
         output << "    // ";
@@ -897,7 +896,7 @@ void mlir::translateModuleToMIOpenCpp(ModuleOp m, std::string &source) {
   output.flush();
 }
 
-void mlir::translateModuleToMIOpenCFlags(ModuleOp m, std::string &cflags) {
+void mlir::translateModuleFromMIOpenToCFlags(ModuleOp m, std::string &cflags) {
   llvm::raw_string_ostream output(cflags);
 
   for (auto f : m.getOps<FuncOp>()) {

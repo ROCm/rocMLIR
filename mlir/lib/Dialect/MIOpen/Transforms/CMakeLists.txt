@@ -10,7 +10,6 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   MLIRMIOpenPassIncGen
   MLIRMIOpenTuning
   MLIRSCFToStandard
-  MLIRStandardOps
 )
 
 target_link_libraries(MLIRMIOpenTransforms
@@ -22,7 +21,6 @@ target_link_libraries(MLIRMIOpenTransforms
   MLIRMIOpenTuning
   MLIRPass
   MLIRSCFToStandard
-  MLIRStandardOps
   MLIRSupport
   MLIRTransformUtils
   LLVMSupport
