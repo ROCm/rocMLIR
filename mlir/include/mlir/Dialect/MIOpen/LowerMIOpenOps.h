@@ -993,6 +993,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
                                       b.getI32IntegerAttr(1),
                                       b.getI32IntegerAttr(2),
                                       b.getI32IntegerAttr(3),
+                                      b.getI32IntegerAttr(4),
                                   }));
   top.setAttr("vector_read_write_dim",
               gop.getAttr("matrix_c_source_dest_vector_read_write_dim"));
@@ -2124,6 +2125,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     if (isMatrixA) {
       bop.setAttr("source_dim_access_order", b.getArrayAttr({
+                                                 b.getI32IntegerAttr(2),
                                                  b.getI32IntegerAttr(1),
                                                  b.getI32IntegerAttr(0),
                                              }));
@@ -2141,6 +2143,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                   gop.getAttr("matrix_a_dest_data_per_write_dim_m"));
     } else {
       bop.setAttr("source_dim_access_order", b.getArrayAttr({
+                                                 b.getI32IntegerAttr(2),
                                                  b.getI32IntegerAttr(0),
                                                  b.getI32IntegerAttr(1),
                                              }));
@@ -3144,6 +3147,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
       // affix bound attributes.
       threadwiseCopyV2CMatrixOp.setAttr("bound",
                                     b.getArrayAttr({
+                                     b.getI32IntegerAttr(1),
                                      b.getI32IntegerAttr(M3),
                                      b.getI32IntegerAttr(1),
                                      b.getI32IntegerAttr(M2),
