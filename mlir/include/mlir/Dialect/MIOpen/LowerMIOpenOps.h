@@ -1006,6 +1006,7 @@ static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top, miop
                                       b.getI32IntegerAttr(1),
                                       b.getI32IntegerAttr(2),
                                       b.getI32IntegerAttr(3),
+                                      b.getI32IntegerAttr(4),
                                   }));
   top.setAttr("vector_read_write_dim",
               gop.getAttr("matrix_c_source_dest_vector_read_write_dim"));
@@ -3093,7 +3094,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
       n_thread_data_on_global_i32 = b.create<AddIOp>(
           loc, n_block_data_on_global_i32, c_thread_mtx_index_col_i32);
  
-      SmallVector<Value, 8> matrixCThreadwiseCopySourceAndDestCoords;
+      SmallVector<Value, 10> matrixCThreadwiseCopySourceAndDestCoords;
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
@@ -4021,8 +4022,8 @@ struct ThreadwiseCopyV2RewritePattern
         b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
-    auto zeroConstantI32Op =
-        b.create<ConstantIntOp>(loc, 1, b.getIntegerType(32));
+   // auto zeroConstantI32Op =
+   //     b.create<ConstantIntOp>(loc, 1, b.getIntegerType(32));
     auto oneConstantI32Op =
         b.create<ConstantIntOp>(loc, 1, b.getIntegerType(32));
 
