@@ -233,10 +233,12 @@ static void populateDefaults() {
       strideWidth.setValue(1);
       paddingHeight.setValue(0);
       paddingWidth.setValue(0);
-
-      arch.setValue("gfx908");
-      num_cu.setValue(120);
     }
+  }
+
+  if (xdlopsV2.getValue() == true) {
+    arch.setValue("gfx908");
+    num_cu.setValue(120);
   }
 
   auto getOutputDim = [](int64_t inputLen, int64_t filLen, int padLen,
