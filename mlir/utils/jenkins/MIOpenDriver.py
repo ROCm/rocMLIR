@@ -2,10 +2,15 @@
 
 import csv
 import getopt
+import os
 import subprocess
 import sys
 
 # global variables.
+mlirBuildDir = './bin'
+mlirMIOpenDriver = 'mlir-miopen-driver'
+mlirROCmRunner = 'mlir-rocm-runner'
+rocprof = '/opt/rocm/bin/rocprof'
 benchmarkingResultFileName = 'results.stats.csv'
 roundDigits = 2
 
@@ -207,16 +212,19 @@ def getNanoSeconds(fileName):
 def computeTFlops(config, nanoSeconds):
     return round((2.0 * config.n * config.c * config.k * config.ho * config.wo * config.y * config.x) / (float(nanoSeconds) * 1e-9) / 1e12, roundDigits)
 
-config = ConvConfiguration(sys.argv)
-commandLineOptions = config.generateMlirDriverCommandLine()
 
-mlirMIOpenDriverCommand = './bin/mlir-miopen-driver -ph -c ' + commandLineOptions
-profilerCommand = '/opt/rocm/bin/rocprof --hip-trace ./bin/mlir-rocm-runner --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void'
-
-p1 = subprocess.Popen(mlirMIOpenDriverCommand.split(), stdout=subprocess.PIPE)
-p2 = subprocess.Popen(profilerCommand.split(), stdin=p1.stdout, stdout=subprocess.PIPE)
-p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
-p2.communicate()
-
-nanoSeconds = getNanoSeconds(benchmarkingResultFileName)
-print('TFlops:', computeTFlops(config, nanoSeconds))
+# Main function.
+if __name__ == '__main__':
+    config = ConvConfiguration(sys.argv)
+    commandLineOptions = config.generateMlirDriverCommandLine()
+    
+    mlirMIOpenDriverCommand = mlirBuildDir + os.sep + mlirMIOpenDriver + ' -ph -c ' + commandLineOptions
+    profilerCommand = rocprof + ' --hip-trace ' + mlirBuildDir + os.sep + mlirROCmRunner + ' --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void'
+    
+    p1 = subprocess.Popen(mlirMIOpenDriverCommand.split(), stdout=subprocess.PIPE)
+    p2 = subprocess.Popen(profilerCommand.split(), stdin=p1.stdout, stdout=subprocess.PIPE)
+    p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
+    p2.communicate()
+    
+    nanoSeconds = getNanoSeconds(benchmarkingResultFileName)
+    print('TFlops:', computeTFlops(config, nanoSeconds))
