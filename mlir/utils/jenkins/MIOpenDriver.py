@@ -364,11 +364,12 @@ def benchmark(commandLine):
 
 # Main function.
 if __name__ == '__main__':
-    print(ConvConfiguration.generateCSVHeader())
-    if sys.argv[1] == '-b':
-        # CSV batch benchmarking mode.
-        for testVector in globalTestVector.split(sep='\n'):
-            if len(testVector) > 0:
-                benchmark(testVector.split(sep=' '))
-    else:
-        benchmark(sys.argv[1:])
+    if len(sys.argv) > 1:
+        print(ConvConfiguration.generateCSVHeader())
+        if sys.argv[1] == '-b':
+            # CSV batch benchmarking mode.
+            for testVector in globalTestVector.split(sep='\n'):
+                if len(testVector) > 0:
+                    benchmark(testVector.split(sep=' '))
+        else:
+            benchmark(sys.argv[1:])
