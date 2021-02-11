@@ -14,6 +14,56 @@ rocprof = '/opt/rocm/bin/rocprof'
 benchmarkingResultFileName = 'results.stats.csv'
 roundDigits = 2
 
+# Test vectors.
+globalTestVector = '''
+conv -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 128 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 128 -H 58 -W 58 -k 128 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 2048 -H 7 -W 7 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 256 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 256 -H 30 -W 30 -k 256 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 256 -H 56 -W 56 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 256 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 512 -H 16 -W 16 -k 512 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 512 -H 28 -W 28 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 512 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 64 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+conv -n 256 -c 3 -H 230 -W 230 -k 64 -y 7 -x 7 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 128 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 128 -H 58 -W 58 -k 128 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 2048 -H 7 -W 7 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 256 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 256 -H 30 -W 30 -k 256 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 256 -H 56 -W 56 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 256 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 512 -H 16 -W 16 -k 512 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 512 -H 28 -W 28 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 512 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 64 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
+convfp16 -n 256 -c 3 -H 230 -W 230 -k 64 -y 7 -x 7 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+'''
+
 # utility functions.
 def getNanoSeconds(fileName):
     with open(fileName, 'r') as csv_file:
@@ -24,12 +74,13 @@ def getNanoSeconds(fileName):
         csv_file.close()
         return result
 
+# convolution configurations.
 class ConvConfiguration:
     def computeTFlops(self, ns):
         return round((2.0 * self.n * self.c * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12, roundDigits)
 
-# convolution configurations.
-    def generateCSVHeader(self):
+    @classmethod
+    def generateCSVHeader(cls):
         result = ''
         # print operation.
         result = result + 'Direction' + ','
@@ -195,19 +246,18 @@ class ConvConfiguration:
         self.group = 1
 
         # determine dataType from argv[1]
-        if len(argv) > 1:
-            if argv[1] == 'conv':
-                self.dataType = 'f32'
-            elif argv[1] == 'convfp16':
-                self.dataType = 'f16'
-            elif argv[1] == 'convbfp16':
-                self.dataType = 'bf16'
+        if argv[0] == 'conv':
+            self.dataType = 'f32'
+        elif argv[0] == 'convfp16':
+            self.dataType = 'f16'
+        elif argv[0] == 'convbfp16':
+            self.dataType = 'bf16'
 
         try:
             # TBD:
             # implement -m ?
             # implement -t ?
-            opts, args = getopt.getopt(argv[2:], "hX:F:f:I:O:n:c:H:W:k:y:x:p:q:l:j:u:v:g:m:t:")
+            opts, args = getopt.getopt(argv[1:], "hX:F:f:I:O:n:c:H:W:k:y:x:p:q:l:j:u:v:g:m:t:")
         except getopt.GetOptError:
             print('getopt error')
             sys.exit(-1)
@@ -290,20 +340,35 @@ class ConvConfiguration:
         self.ho = (self.hi + self.paddingH * 2 - self.y) / self.convStrideH + 1
         self.wo = (self.wi + self.paddingW * 2 - self.x) / self.convStrideW + 1
 
-
-# Main function.
-if __name__ == '__main__':
-    config = ConvConfiguration(sys.argv)
+def runConfig(commandLine):
+    config = ConvConfiguration(commandLine)
     commandLineOptions = config.generateMlirDriverCommandLine()
-    
     mlirMIOpenDriverCommand = mlirBuildDir + os.sep + mlirMIOpenDriver + ' -ph -c ' + commandLineOptions
     profilerCommand = rocprof + ' --hip-trace ' + mlirBuildDir + os.sep + mlirROCmRunner + ' --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void'
     
-    p1 = subprocess.Popen(mlirMIOpenDriverCommand.split(), stdout=subprocess.PIPE)
-    p2 = subprocess.Popen(profilerCommand.split(), stdin=p1.stdout, stdout=subprocess.PIPE)
+    # invoke mlir-miopen-driver.
+    p1 = subprocess.Popen(mlirMIOpenDriverCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    # pipe to rocprof + mlir-rocm-runner.
+    p2 = subprocess.Popen(profilerCommand.split(), stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
+    # get output.
     p2.communicate()
+    return config
     
+# Benchmarking function.
+def benchmark(commandLine):
+    config = runConfig(commandLine)
+    # get nanoseconds from rocprof output.
     nanoSeconds = getNanoSeconds(benchmarkingResultFileName)
-    print(config.generateCSVHeader())
     print(config.generateCSVContent(nanoSeconds))
+
+# Main function.
+if __name__ == '__main__':
+    print(ConvConfiguration.generateCSVHeader())
+    if sys.argv[1] == '-b':
+        # CSV batch benchmarking mode.
+        for testVector in globalTestVector.split(sep='\n'):
+            if len(testVector) > 0:
+                benchmark(testVector.split(sep=' '))
+    else:
+        benchmark(sys.argv[1:])
