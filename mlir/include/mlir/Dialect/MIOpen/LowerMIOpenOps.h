@@ -4254,7 +4254,7 @@ struct ThreadwiseCopyV2RewritePattern
       // Issue scalar store.
       if (dataType == b.getF32Type()) {
         innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
-      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+      } else if (dataType == b.getF16Type()) {
         auto truncValue = innerLoopBuilder.create<FPTruncOp>(loc, scalarValue, dataType);
         innerLoopBuilder.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
       } else if (dataType == b.getIntegerType(16)){
@@ -4549,7 +4549,7 @@ struct XdlopsGemmV2RewritePattern
     int64_t KRepeats = 0;
     if (dataType == b.getF32Type()) {
       KRepeats = (dataType.template dyn_cast<FloatType>().getWidth() / 8) / (dataType.template dyn_cast<FloatType>().getWidth() / 8 * k_base);
-    } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+    } else if (dataType == b.getF16Type()) {
       VectorType argVectorType = argType.template dyn_cast<VectorType>();
       KRepeats = (dataType.template dyn_cast<FloatType>().getWidth() / 8 * argVectorType.getShape()[0]) / (dataType.template dyn_cast<FloatType>().getWidth() / 8 * k_base);
     } else if (dataType == b.getIntegerType(16)) {
@@ -4663,7 +4663,7 @@ struct XdlopsGemmV2RewritePattern
       if (dataType == b.getF32Type()) {
         argA = loopKb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
         argB = loopKb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
-      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+      } else if (dataType == b.getF16Type()) {
         argA = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
         argB = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
       } else if (dataType == b.getIntegerType(16)) {

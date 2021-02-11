@@ -473,28 +473,6 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   return cpuConvFuncOp;
 }
 
-static FuncOp createVerifyKevinFuncOp(ModuleOp &module, OpBuilder &builder,
-                                 SmallVector<int64_t, 4> &outputDimension,
-                                 mlir::CallOp &cpuAllocOp,
-                                 mlir::AllocOp &gpuAllocOp) {
-  auto outputMemRefType = gpuAllocOp.getType();
-
-  auto verifyFuncOp = FuncOp::create(
-      builder.getUnknownLoc(), StringRef("verify_results"),
-      builder.getFunctionType({outputMemRefType, outputMemRefType}, {}));
-  module.push_back(verifyFuncOp);
-
-  // Emit verification logic.
-  // Create a new block
-  Block *verifyResultsBlock = verifyFuncOp.addEntryBlock();
- 
-  auto returnOp =
-      builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
-  verifyResultsBlock->push_back(returnOp);
-
-  return verifyFuncOp;
-}
-
 static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
                                  SmallVector<int64_t, 4> &outputDimension,
                                  mlir::AllocOp &cpuAllocOp,
