@@ -451,7 +451,6 @@ llvm::StringMap<int64_t> ConvHipImplicitGemmV4R4Fwd::GetSolution(
     const ConvolutionContext &ctx,
     const PerformanceImplicitGemmV4R4Fwd &config) const {
   llvm::StringMap<int64_t> result;
-  llvm::errs() << "MLIR_ENABLE_SQLITE=" << __MLIR_ENABLE_SQLITE__ << "\n";
   int64_t grid_size = 0;
 
   std::tie(grid_size, std::ignore) = config.CalculateGridSize(ctx);
