@@ -2,7 +2,8 @@
 
 func @vecadd(%arg0 : memref<?xf32>, %arg1 : memref<?xf32>, %arg2 : memref<?xf32>) {
   %cst = constant 1 : index
-  %cst2 = dim %arg0, 0 : memref<?xf32>
+  %cst0 = constant 0 : index
+  %cst2 = dim %arg0, %cst0 : memref<?xf32>
   gpu.launch blocks(%bx, %by, %bz) in (%grid_x = %cst, %grid_y = %cst, %grid_z = %cst)
              threads(%tx, %ty, %tz) in (%block_x = %cst2, %block_y = %cst, %block_z = %cst) {
     %a = load %arg0[%tx] : memref<?xf32>
@@ -10,7 +11,7 @@ func @vecadd(%arg0 : memref<?xf32>, %arg1 : memref<?xf32>, %arg2 : memref<?xf32>
     %c = addf %a, %b : f32
     store %c, %arg2[%tx] : memref<?xf32>
     gpu.terminator
-  }
+  } {operand_segment_sizes = dense<[1,1,1, 1,1,1, 1,1,1]> : vector<9xi32>}
   return
 }
 
@@ -68,8 +69,8 @@ func @main() {
   return
 }
 
-func @mcpuMemset(%ptr : memref<?xf32>, %value: f32) -> ()
-func @mgpuMemAlloc(%ptr : memref<?xf32>) -> (memref<?xf32>)
-func @mgpuMemDealloc(%ptr : memref<?xf32>) -> ()
-func @mgpuMemCopy(%src : memref<?xf32>, %dst : memref<?xf32>, %dir : i32) -> ()
-func @print_memref_f32(%ptr : memref<*xf32>) -> ()
+func private @mcpuMemset(%ptr : memref<?xf32>, %value: f32) -> ()
+func private @mgpuMemAlloc(%ptr : memref<?xf32>) -> (memref<?xf32>)
+func private @mgpuMemDealloc(%ptr : memref<?xf32>) -> ()
+func private @mgpuMemCopy(%src : memref<?xf32>, %dst : memref<?xf32>, %dir : i32) -> ()
+func private @print_memref_f32(%ptr : memref<*xf32>) -> ()

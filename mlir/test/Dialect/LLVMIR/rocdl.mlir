@@ -167,24 +167,24 @@ llvm.func @rocdl.mubuf(%rsrc : vector<4xi32>, %vindex : i32,
   llvm.return
 }
 
-llvm.func @rocdl.rawbuf(%rsrc : !llvm<"<4 x i32>">,
-                       %offset : !llvm.i32, %soffset : !llvm.i32,
-                       %aux : !llvm.i32, %vdata1 : !llvm<"<1 x float>">,
-                       %vdata2 : !llvm<"<2 x float>">, %vdata4 : !llvm<"<4 x float>">) {
+llvm.func @rocdl.rawbuf(%rsrc : vector<4xi32>,
+                       %offset : i32, %soffset : i32,
+                       %aux : i32, %vdata1 : vector<1xf32>,
+                       %vdata2 : vector<2xf32>, %vdata4 : vector<4xf32>) {
   // CHECK-LABEL: rocdl.rawbuf
-  // CHECK: %{{.*}} = rocdl.raw.buffer.load %{{.*}} %{{.*}} %{{.*}} %{{.*}} : !llvm<"<1 x float>">
-  %r1 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : !llvm<"<1 x float>">
-  // CHECK: %{{.*}} = rocdl.raw.buffer.load %{{.*}} %{{.*}} %{{.*}} %{{.*}} : !llvm<"<2 x float>">
-  %r2 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : !llvm<"<2 x float>">
-  // CHECK: %{{.*}} = rocdl.raw.buffer.load %{{.*}} %{{.*}} %{{.*}} %{{.*}} : !llvm<"<4 x float>">
-  %r4 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : !llvm<"<4 x float>">
+  // CHECK: %{{.*}} = rocdl.raw.buffer.load %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<1xf32>
+  %r1 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<1xf32>
+  // CHECK: %{{.*}} = rocdl.raw.buffer.load %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<2xf32>
+  %r2 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<2xf32>
+  // CHECK: %{{.*}} = rocdl.raw.buffer.load %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<4xf32>
+  %r4 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<4xf32>
 
-  // CHECK: rocdl.raw.buffer.store %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : !llvm<"<1 x float>">
-  rocdl.raw.buffer.store %vdata1, %rsrc, %offset, %soffset, %aux : !llvm<"<1 x float>">
-  // CHECK: rocdl.raw.buffer.store %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : !llvm<"<2 x float>">
-  rocdl.raw.buffer.store %vdata2, %rsrc, %offset, %soffset, %aux : !llvm<"<2 x float>">
-  // CHECK: rocdl.raw.buffer.store %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : !llvm<"<4 x float>">
-  rocdl.raw.buffer.store %vdata4, %rsrc, %offset, %offset, %aux : !llvm<"<4 x float>">
+  // CHECK: rocdl.raw.buffer.store %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<1xf32>
+  rocdl.raw.buffer.store %vdata1, %rsrc, %offset, %soffset, %aux : vector<1xf32>
+  // CHECK: rocdl.raw.buffer.store %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<2xf32>
+  rocdl.raw.buffer.store %vdata2, %rsrc, %offset, %soffset, %aux : vector<2xf32>
+  // CHECK: rocdl.raw.buffer.store %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<4xf32>
+  rocdl.raw.buffer.store %vdata4, %rsrc, %offset, %offset, %aux : vector<4xf32>
 
   llvm.return
 }

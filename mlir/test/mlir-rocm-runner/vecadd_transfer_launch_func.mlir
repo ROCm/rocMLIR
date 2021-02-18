@@ -14,8 +14,9 @@ module attributes {gpu.container_module} {
   
   func @vecadd(%arg0 : memref<?xf32>, %arg1 : memref<?xf32>, %arg2 : memref<?xf32>) {
     %cst = constant 1 : index
-    %cst2 = dim %arg0, 0 : memref<?xf32>
-    "gpu.launch_func"(%cst, %cst, %cst, %cst2, %cst, %cst, %arg0, %arg1, %arg2) { kernel = @gpu_kernels::@vecadd_kernel} : (index, index, index, index, index, index, memref<?xf32>, memref<?xf32>, memref<?xf32>) -> ()
+    %cst0 = constant 0 : index
+    %cst2 = dim %arg0, %cst0 : memref<?xf32>
+    "gpu.launch_func"(%cst, %cst, %cst, %cst2, %cst, %cst, %arg0, %arg1, %arg2) { kernel = @gpu_kernels::@vecadd_kernel, operand_segment_sizes = dense<[0,1,1,1,1,1,1,3]> : vector<8xi32> } : (index, index, index, index, index, index, memref<?xf32>, memref<?xf32>, memref<?xf32>) -> ()
     return
   }
   
@@ -73,9 +74,9 @@ module attributes {gpu.container_module} {
     return
   }
   
-  func @mcpuMemset(%ptr : memref<?xf32>, %value: f32) -> ()
-  func @mgpuMemAlloc(%ptr : memref<?xf32>) -> (memref<?xf32>)
-  func @mgpuMemDealloc(%ptr : memref<?xf32>) -> ()
-  func @mgpuMemCopy(%src : memref<?xf32>, %dst : memref<?xf32>, %dir : i32) -> ()
-  func @print_memref_f32(%ptr : memref<*xf32>) -> ()
+  func private @mcpuMemset(%ptr : memref<?xf32>, %value: f32) -> ()
+  func private @mgpuMemAlloc(%ptr : memref<?xf32>) -> (memref<?xf32>)
+  func private @mgpuMemDealloc(%ptr : memref<?xf32>) -> ()
+  func private @mgpuMemCopy(%src : memref<?xf32>, %dst : memref<?xf32>, %dir : i32) -> ()
+  func private @print_memref_f32(%ptr : memref<*xf32>) -> ()
 }

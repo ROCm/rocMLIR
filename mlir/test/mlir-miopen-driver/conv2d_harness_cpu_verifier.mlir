@@ -45,7 +45,7 @@ module {
     return
   }
 
-  func @mcpuMemset4DFloat(memref<?x?x?x?xf32>, f32)
+  func private @mcpuMemset4DFloat(memref<?x?x?x?xf32>, f32)
 
   func @gpu_conv(%arg0: memref<3x3x8x128xf32>, %arg1: memref<128x32x32x8xf32>, %arg2: memref<128x30x30x128xf32>) {
     %0 = memref_cast %arg0 : memref<3x3x8x128xf32> to memref<?x?x?x?xf32>
@@ -80,14 +80,14 @@ module {
     return
   }
 
-  func @mgpuMemAlloc4DFloat(memref<?x?x?x?xf32>) -> memref<?x?x?x?xf32>
-  func @mgpuMemCopy4DFloat(memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, i32)
+  func private @mgpuMemAlloc4DFloat(memref<?x?x?x?xf32>) -> memref<?x?x?x?xf32>
+  func private @mgpuMemCopy4DFloat(memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, i32)
 
   func @conv2d(%arg0: memref<3x3x8x128xf32>, %arg1: memref<128x32x32x8xf32>, %arg2: memref<128x30x30x128xf32>) {
     return
   }
 
-  func @mgpuMemDealloc4DFloat(memref<?x?x?x?xf32>)
+  func private @mgpuMemDealloc4DFloat(memref<?x?x?x?xf32>)
 
   func @conv2d_host(%arg0: memref<3x3x8x128xf32>, %arg1: memref<128x32x32x8xf32>, %arg2: memref<128x30x30x128xf32>) {
     %0 = memref_cast %arg0 : memref<3x3x8x128xf32> to memref<?x?x?x?xf32>
@@ -148,7 +148,7 @@ module {
     
     return
   }
-  func @mcpuConv2d(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32)
+  func private @mcpuConv2d(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32)
 
   func @verify_results(%arg0: memref<128x30x30x128xf32>, %arg1: memref<128x30x30x128xf32>) {
     %c0 = constant 0 : index
@@ -179,7 +179,7 @@ module {
     call @print_memref_i32(%1) : (memref<*xi32>) -> ()
     return
   }
-  func @print_memref_i32(memref<*xi32>)
+  func private @print_memref_i32(memref<*xi32>)
 }
 // E2E: Unranked Memref base@ = 0x{{.*}} rank = 1 offset = 0 sizes = [1] strides = [1] data =
 // E2E: [1]

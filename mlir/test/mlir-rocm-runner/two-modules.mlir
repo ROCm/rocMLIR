@@ -1,5 +1,5 @@
 // RUN: mlir-rocm-runner %s \
-// RUN:   --shared-libs=%cuda_wrapper_library_dir/libcuda-runtime-wrappers%shlibext \
+// RUN:   --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext \
 // RUN:   --shared-libs=%linalg_test_lib_dir/libmlir_runner_utils%shlibext \
 // RUN:   --entry-point-result=void \
 // RUN: | FileCheck %s
@@ -30,5 +30,5 @@ func @main() {
   return
 }
 
-func @mgpuMemGetDeviceMemRef1dInt32(%ptr : memref<?xi32>) -> (memref<?xi32>)
-func @print_memref_i32(%ptr : memref<*xi32>)
+func private @mgpuMemGetDeviceMemRef1dInt32(%ptr : memref<?xi32>) -> (memref<?xi32>)
+func private @print_memref_i32(%ptr : memref<*xi32>)

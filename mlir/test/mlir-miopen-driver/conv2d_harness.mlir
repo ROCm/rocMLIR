@@ -70,11 +70,11 @@ func @main() {
   return
 }
 
-func @mcpuMemset4DFloat(%ptr : memref<?x?x?x?xf32>, %value: f32) -> ()
-func @mgpuMemAlloc4DFloat(%ptr : memref<?x?x?x?xf32>) -> (memref<?x?x?x?xf32>)
-func @mgpuMemDealloc4DFloat(%ptr : memref<?x?x?x?xf32>) -> ()
-func @mgpuMemCopy4DFloat(%src : memref<?x?x?x?xf32>, %dst : memref<?x?x?x?xf32>, %dir : i32) -> ()
-func @print_memref_f32(%ptr : memref<*xf32>)
+func private @mcpuMemset4DFloat(%ptr : memref<?x?x?x?xf32>, %value: f32) -> ()
+func private @mgpuMemAlloc4DFloat(%ptr : memref<?x?x?x?xf32>) -> (memref<?x?x?x?xf32>)
+func private @mgpuMemDealloc4DFloat(%ptr : memref<?x?x?x?xf32>) -> ()
+func private @mgpuMemCopy4DFloat(%src : memref<?x?x?x?xf32>, %dst : memref<?x?x?x?xf32>, %dir : i32) -> ()
+func private @print_memref_f32(%ptr : memref<*xf32>)
 // LOWERING: gpu.module @miopen_kernel_module
 // LOWERING: gpu.func @miopen_conv2d_kcyx_nchw_nkhw
 // TBD. Add more verifying logic.

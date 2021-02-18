@@ -10,7 +10,7 @@ module attributes {gpu.container_module} {
   
   func @threadwise_gemm(%arg0 : memref<4x8xf32>, %arg1 : memref<4x8xf32>, %arg2 : memref<8x8xf32>) {
     %cst = constant 1 : index
-    "gpu.launch_func"(%cst, %cst, %cst, %cst, %cst, %cst, %arg0, %arg1, %arg2) { kernel = @gpu_kernels::@threadwise_gemm_kernel} : (index, index, index, index, index, index, memref<4x8xf32>, memref<4x8xf32>, memref<8x8xf32>) -> ()
+    "gpu.launch_func"(%cst, %cst, %cst, %cst, %cst, %cst, %arg0, %arg1, %arg2) { kernel = @gpu_kernels::@threadwise_gemm_kernel, operand_segment_sizes = dense<[0,1,1,1,1,1,1,3]> : vector<8xi32> } : (index, index, index, index, index, index, memref<4x8xf32>, memref<4x8xf32>, memref<8x8xf32>) -> ()
     return
   }
   
@@ -93,9 +93,9 @@ module attributes {gpu.container_module} {
     return
   }
   
-  func @mcpuMemset2DFloat(%ptr : memref<?x?xf32>, %value: f32) -> ()
-  func @mgpuMemAlloc2DFloat(%ptr : memref<?x?xf32>) -> (memref<?x?xf32>)
-  func @mgpuMemDealloc2DFloat(%ptr : memref<?x?xf32>) -> ()
-  func @mgpuMemCopy2DFloat(%src : memref<?x?xf32>, %dst : memref<?x?xf32>, %dir : i32) -> ()
-  func @print_memref_f32(%ptr : memref<*xf32>) -> ()
+  func private @mcpuMemset2DFloat(%ptr : memref<?x?xf32>, %value: f32) -> ()
+  func private @mgpuMemAlloc2DFloat(%ptr : memref<?x?xf32>) -> (memref<?x?xf32>)
+  func private @mgpuMemDealloc2DFloat(%ptr : memref<?x?xf32>) -> ()
+  func private @mgpuMemCopy2DFloat(%src : memref<?x?xf32>, %dst : memref<?x?xf32>, %dir : i32) -> ()
+  func private @print_memref_f32(%ptr : memref<*xf32>) -> ()
 }
