@@ -537,6 +537,10 @@ def ConvertMIOpenToGPU : Pass<"convert-miopen-to-gpu", "ModuleOp"> {
   ];
   let dependentDialects = [
     "miopen::MIOpenDialect",
+    "AffineDialect",
+    "scf::SCFDialect",
+    "StandardOpsDialect",
+    "vector::VectorDialect",
     "gpu::GPUDialect"
   ];
 }
@@ -551,6 +555,10 @@ def ConvertMIOpenWithinGPUModule : Pass<"test-miopen-lowering-gpu-module", "gpu:
   let constructor = "mlir::createLowerMIOpenOpsWithinGPUModulePass()";
   let dependentDialects = [
     "miopen::MIOpenDialect",
+    "AffineDialect",
+    "scf::SCFDialect",
+    "StandardOpsDialect",
+    "vector::VectorDialect",
     "gpu::GPUDialect"
   ];
 }

@@ -31,7 +31,9 @@ public:
                const std::string &feature);
   OwnedBlob compileISAToHsaco(const std::string isa, Location loc,
                               StringRef name);
-  std::unique_ptr<llvm::Module> compileModuleToROCDLIR(Operation *m);
+  std::unique_ptr<llvm::Module> compileModuleToROCDLIR(Operation *m,
+                                                       llvm::LLVMContext &llvmContext,
+                                                       llvm::StringRef name);
   std::string getChip() { return chip; }
   std::string getFeatures() { return features; }
   std::string getTriple() { return triple; }

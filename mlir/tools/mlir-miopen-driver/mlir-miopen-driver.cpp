@@ -243,10 +243,9 @@ static void populateDefaults() {
       strideWidth.setValue(1);
       paddingHeight.setValue(0);
       paddingWidth.setValue(0);
-
-      arch.setValue("gfx908");
       num_cu.setValue(120);
     }
+    arch.setValue("gfx908");
   }
 
   auto getOutputDim = [](int64_t inputLen, int64_t filLen, int padLen,
@@ -259,6 +258,13 @@ static void populateDefaults() {
   outputWidth.setValue(getOutputDim(
       inputWidth.getValue(), filterWidth.getValue(), paddingWidth.getValue(),
       strideWidth.getValue(), dilationWidth.getValue()));
+}
+
+static FuncOp makeFuncDecl(OpBuilder &builder, StringRef funcName, TypeRange inputs, TypeRange results) {
+  auto func = FuncOp::create(builder.getUnknownLoc(), funcName,
+                             builder.getFunctionType(inputs, results));
+  func.sym_visibilityAttr(builder.getStringAttr("private"));
+  return func;
 }
 
 static AllocOp initializeCPUConvResult(OpBuilder &builder, Block *block,
@@ -479,14 +485,12 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   }
 
   // Emit cpu convolution function call op
-  auto mcpuConv2dFuncOp =
-      FuncOp::create(builder.getUnknownLoc(), mcpuFuncName,
-                     builder.getFunctionType(
+  auto mcpuConv2dFuncOp = makeFuncDecl(builder, mcpuFuncName,
                          {unrankedMemRefType, unrankedMemRefType,
                           unrankedMemRefType, unrankedLayoutMemRefType,
                           unrankedLayoutMemRefType, unrankedLayoutMemRefType,
                           intType, intType, intType, intType, intType, intType},
-                         {}));
+                         {});
 
   auto mcpuConv2dCallOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mcpuConv2dFuncOp,
@@ -629,9 +633,8 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
       UnrankedMemRefType::get(builder.getIntegerType(32), 0);
   auto printMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), cmpResultAllocOp, unrankedMemRefType);
-  auto printMemRefFuncOp =
-      FuncOp::create(builder.getUnknownLoc(), "print_memref_i32",
-                     builder.getFunctionType({unrankedMemRefType}, {}));
+  auto printMemRefFuncOp = makeFuncDecl(builder, "print_memref_i32",
+                                        {unrankedMemRefType}, {});
   auto printMemRefCallOp =
       builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFuncOp,
                              ValueRange{printMemRefCastOp});
@@ -690,10 +693,10 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   } else if (dataType == builder.getBF16Type()) {
     gpuMemAllocFuncName = "mgpuMemAlloc4DBF16";
   }
-  auto mgpuMemAlloc4DFuncOp =
-      FuncOp::create(builder.getUnknownLoc(), gpuMemAllocFuncName,
-                     builder.getFunctionType({fourDimUnknownSizeMemRefType},
-                                             {fourDimUnknownSizeMemRefType}));
+  auto mgpuMemAlloc4DFuncOp = makeFuncDecl(builder, gpuMemAllocFuncName,
+                                           {fourDimUnknownSizeMemRefType},
+                                           {fourDimUnknownSizeMemRefType});
+
   module.push_back(mgpuMemAlloc4DFuncOp);
 
   auto filterGpuAllocOp =
@@ -726,12 +729,11 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   } else if (dataType == builder.getBF16Type()) {
     gpuMemCopyFuncName = "mgpuMemCopy4DBF16";
   }
-  auto mgpuMemCopy4DFuncOp =
-      FuncOp::create(builder.getUnknownLoc(), gpuMemCopyFuncName,
-                     builder.getFunctionType({fourDimUnknownSizeMemRefType,
+  auto mgpuMemCopy4DFuncOp = makeFuncDecl(builder, gpuMemCopyFuncName,
+                                          {fourDimUnknownSizeMemRefType,
                                               fourDimUnknownSizeMemRefType,
                                               builder.getIntegerType(32)},
-                                             {}));
+                                          {});
   module.push_back(mgpuMemCopy4DFuncOp);
 
   auto filterCpuToGpuCopyOp = builder.create<CallOp>(
@@ -809,9 +811,8 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   } else if (dataType == builder.getBF16Type()) {
     gpuMemDeallocFuncName = "mgpuMemDealloc4DBF16";
   }
-  auto mgpuMemDealloc4DFuncOp = FuncOp::create(
-      builder.getUnknownLoc(), gpuMemDeallocFuncName,
-      builder.getFunctionType({fourDimUnknownSizeMemRefType}, {}));
+  auto mgpuMemDealloc4DFuncOp = makeFuncDecl(builder, gpuMemDeallocFuncName,
+                                             {fourDimUnknownSizeMemRefType}, {});
   module.push_back(mgpuMemDealloc4DFuncOp);
 
   auto filterGpuDeallocOp =
@@ -898,9 +899,8 @@ static LogicalResult populateHostHarnessLogic(
     memsetFuncName = "mcpuMemset4DBF16";
   }
 
-  auto mcpuMemset4DFuncOp = FuncOp::create(
-      builder.getUnknownLoc(), memsetFuncName,
-      builder.getFunctionType({fourDimUnknownSizeMemRefType, dataType}, {}));
+  auto mcpuMemset4DFuncOp = makeFuncDecl(builder, memsetFuncName,
+                                         {fourDimUnknownSizeMemRefType, dataType}, {});
   module.push_back(mcpuMemset4DFuncOp);
 
   // Populate initial values.
@@ -962,9 +962,8 @@ static LogicalResult populateHostHarnessLogic(
     auto unrankedMemRefType = UnrankedMemRefType::get(dataType, 0);
     auto printMemRefCastOp = builder.create<MemRefCastOp>(
         builder.getUnknownLoc(), resultCpuValue, unrankedMemRefType);
-    auto printMemRefFuncOp =
-        FuncOp::create(builder.getUnknownLoc(), printMemRefFuncName,
-                       builder.getFunctionType({unrankedMemRefType}, {}));
+    auto printMemRefFuncOp = makeFuncDecl(builder, printMemRefFuncName,
+                                          {unrankedMemRefType}, {});
     auto printMemRefCallOp =
         builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFuncOp,
                                ValueRange{printMemRefCastOp});
@@ -1055,9 +1054,8 @@ static LogicalResult populateValidationLogic(
     memsetFuncName = "mcpuMemset4DBF16";
   }
 
-  auto mcpuMemset4DFuncOp = FuncOp::create(
-      builder.getUnknownLoc(), memsetFuncName,
-      builder.getFunctionType({fourDimUnknownSizeMemRefType, dataType}, {}));
+  auto mcpuMemset4DFuncOp = makeFuncDecl(builder, memsetFuncName,
+                                         {fourDimUnknownSizeMemRefType, dataType}, {});
   module.push_back(mcpuMemset4DFuncOp);
 
   // Populate initial values.
@@ -1250,6 +1248,17 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
       gpu::KernelDim3{cstBlockSize, cstOne, cstOne},
       ValueRange{theFunc.getArgument(0), theFunc.getArgument(1),
                  theFunc.getArgument(2)});
+  gpuLaunchFuncOp->setAttr("operand_segment_sizes",
+      builder.getI32VectorAttr({
+              static_cast<int32_t>(0), // sync
+              static_cast<int32_t>(1), // gridX
+              static_cast<int32_t>(1), // gridY
+              static_cast<int32_t>(1), // gridZ
+              static_cast<int32_t>(1), // blockX
+              static_cast<int32_t>(1), // blockY
+              static_cast<int32_t>(1), // blockZ
+              static_cast<int32_t>(3)})); // arg count
+
   block->push_back(gpuLaunchFuncOp);
 
   auto returnOp = builder.create<ReturnOp>(builder.getUnknownLoc());
@@ -1259,7 +1268,7 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
 }
 
 static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser &passPipeline, StringRef kernelName) {
-  PassManager pm(module.getContext());
+  PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
   applyPassManagerCLOptions(pm);
 
   if (loweringWithDefaultPipeline.getValue()) {
@@ -1295,8 +1304,9 @@ static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser 
 }
 
 int main(int argc, char **argv) {
-  DialectRegistry registry;
-  mlir::registerAllDialects(registry);
+  MLIRContext context;
+  mlir::registerAllDialects(context.getDialectRegistry());
+  context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect, scf::SCFDialect, AffineDialect>();
   mlir::registerAllPasses();
   InitLLVM y(argc, argv);
 
@@ -1307,7 +1317,6 @@ int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
 
-  MLIRContext context;
   OpBuilder builder(&context);
   ModuleOp module;
 

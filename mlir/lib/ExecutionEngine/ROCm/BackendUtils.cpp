@@ -194,9 +194,16 @@ OwnedBlob BackendUtils::compileISAToHsaco(const std::string isa, Location loc,
 }
 
 std::unique_ptr<llvm::Module>
-BackendUtils::compileModuleToROCDLIR(Operation *m) {
-  llvm::LLVMContext llvmContext;
+BackendUtils::compileModuleToROCDLIR(Operation *m, llvm::LLVMContext &llvmContext, llvm::StringRef name) {
+  StringRef amdgcnDataLayout = 
+    "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-i64:64-"
+    "v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:"
+    "1024-v2048:2048-n32:64-S32-A5-ni:7";
+
   auto llvmModule = translateModuleToROCDLIR(m, llvmContext);
+  llvmModule->setTargetTriple(triple);
+  llvmModule->setDataLayout(amdgcnDataLayout);
+  
   // TODO(whchung): Link with ROCm-Device-Libs in case needed (ex: the Module
   // depends on math functions).
   return llvmModule;
@@ -274,11 +281,4 @@ void BackendUtils::setupDefaults(std::string &chip, std::string &features,
 }
 
 void BackendUtils::configTargetFeatures(std::string &features) {
-  if (features.size() > 0)
-    features += ",";
-  // After ROCm 3.5, adopt HSA code object V3.
-  if (HIP_VERSION_MAJOR >= 3 && HIP_VERSION_MINOR >= 5)
-    features += "+code-object-v3";
-  else
-    features += "-code-object-v3";
 }

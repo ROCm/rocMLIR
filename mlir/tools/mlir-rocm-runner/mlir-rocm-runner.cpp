@@ -14,10 +14,12 @@
 
 #include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
 
+#include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
+#include "mlir/Dialect/Async/Passes.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/TargetSelect.h"
 
@@ -57,15 +59,22 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   kernelPm.addPass(createStripDebugInfoPass());
   kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass());
   kernelPm.addPass(createConvertGPUKernelToBlobPass(
-      [&utils](Operation *m, llvm::LLVMContext&, llvm::StringRef) { return utils.compileModuleToROCDLIR(m); },
+      [&utils](Operation *m, llvm::LLVMContext &llvmContext, llvm::StringRef name) {
+        return utils.compileModuleToROCDLIR(m, llvmContext, name);
+      },
       [&utils](const std::string isa, Location loc, StringRef name) {
         return utils.compileISAToHsaco(isa, loc, name);
       },
       utils.getTriple(), utils.getChip(), utils.getFeatures(),
-      /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
-  pm.addPass(createLowerToLLVMPass());
-  //  pm.addPass(createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
-  //      /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
+      gpuBinaryAnnotation));
+  auto &funcPm = pm.nest<FuncOp>();
+  funcPm.addPass(createGpuAsyncRegionPass());
+  funcPm.addPass(createAsyncRefCountingPass());
+  pm.addPass(createGpuToLLVMConversionPass(gpuBinaryAnnotation));
+  pm.addPass(createAsyncToAsyncRuntimePass());
+  pm.addPass(createConvertAsyncToLLVMPass());
+  mlir::LowerToLLVMOptions lower_to_llvm_opts;
+  pm.addPass(mlir::createLowerToLLVMPass(lower_to_llvm_opts));
 
   return pm.run(m);
 }

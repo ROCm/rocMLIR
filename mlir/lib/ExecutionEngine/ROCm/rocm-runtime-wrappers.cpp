@@ -32,14 +32,23 @@ int32_t reportErrorIfAny(hipError_t result, const char *where) {
 } // anonymous namespace
 
 extern "C" int32_t mgpuModuleLoad(void **module, void *data) {
+  printf("mgpuModuleLoad(void **module=%llx, void *data=%llx)\n",
+         (uint64_t)module, (uint64_t)data);
   int32_t err = reportErrorIfAny(
       hipModuleLoadData(reinterpret_cast<hipModule_t *>(module), data),
       "ModuleLoad");
   return err;
 }
 
+extern "C" void mgpuModuleUnload(void *module) {
+  reportErrorIfAny(hipModuleUnload(reinterpret_cast<hipModule_t>(module)),
+                   "ModuleUnload");
+}
+
 extern "C" int32_t mgpuModuleGetFunction(void **function, void *module,
                                          const char *name) {
+  printf("mgpuModuleGetFunction(void **function=%llx, void *module=%llx, const char *name=%llx)\n",
+         (uint64_t)function, (uint64_t)module, (uint64_t)name);
   return reportErrorIfAny(
       hipModuleGetFunction(reinterpret_cast<hipFunction_t *>(function),
                            reinterpret_cast<hipModule_t>(module), name),
@@ -54,6 +63,10 @@ extern "C" int32_t mgpuLaunchKernel(void *function, intptr_t gridX,
                                     intptr_t blockX, intptr_t blockY,
                                     intptr_t blockZ, int32_t smem, void *stream,
                                     void **params, void **extra) {
+  printf("mgpuLaunchKernel(void *function=%llx, void *stream=%llx, void **params=%llx, void **extra=%llx)\n",
+         (uint64_t)function, (uint64_t)stream, (uint64_t)params, (uint64_t)extra);
+  printf("    grid(%d,%d,%d), block(%d,%d,%d)\n", (int)gridX, (int)gridY, (int)gridZ, (int)blockX, (int)blockY, (int)blockZ);
+
   return reportErrorIfAny(
       hipModuleLaunchKernel(reinterpret_cast<hipFunction_t>(function), gridX,
                             gridY, gridZ, blockX, blockY, blockZ, smem,
@@ -63,15 +76,30 @@ extern "C" int32_t mgpuLaunchKernel(void *function, intptr_t gridX,
 }
 
 extern "C" void *mgpuGetStreamHelper() {
+  printf("mgpuStreamCreate()\n");
   hipStream_t stream;
   reportErrorIfAny(hipStreamCreate(&stream), "StreamCreate");
   return stream;
 }
 
+extern "C" void *mgpuStreamCreate() {
+  return mgpuGetStreamHelper();
+}
+
+extern "C" void mgpuStreamDestroy(void *stream) {
+  reportErrorIfAny(hipStreamDestroy(reinterpret_cast<hipStream_t>(stream)),
+                   "StreamDestroy");
+}
+
 extern "C" int32_t mgpuStreamSynchronize(void *stream) {
+  printf("mgpuStreamSynchronize(void *stream=%llx)\n", (uint64_t)stream);
   return reportErrorIfAny(
       hipStreamSynchronize(reinterpret_cast<hipStream_t>(stream)),
       "StreamSync");
+}
+
+extern "C" void mgpuStreamWaitEvent(void *stream, void *event) {
+  //CUDA_REPORT_IF_ERROR(cuStreamWaitEvent(stream, event, /*flags=*/0));
 }
 
 /// Helper functions for writing mlir example code
@@ -79,6 +107,8 @@ extern "C" int32_t mgpuStreamSynchronize(void *stream) {
 // Allows to register byte array with the ROCM runtime. Helpful until we have
 // transfer functions implemented.
 extern "C" void mgpuMemHostRegister(void *ptr, uint64_t sizeBytes) {
+  printf("mgpuMemHostRegister(void *ptr=%llx, uint64_t sizeBytes=%lld)\n",
+         (uint64_t)ptr, (uint64_t)sizeBytes);
   reportErrorIfAny(hipHostRegister(ptr, sizeBytes, /*flags=*/0),
                    "MemHostRegister");
 }
@@ -119,6 +149,27 @@ extern "C" void mgpuMemHostRegisterInt32(int64_t rank, void *ptr) {
   mgpuMemHostRegisterMemRef(desc->data + desc->offset, sizes, strides, 123);
 }
 
+extern "C" void
+mgpuMemHostRegisterMemRef(int64_t rank, StridedMemRefType<char, 1> *desc,
+                          int64_t elementSizeBytes) {
+  llvm::ArrayRef<int64_t> sizes(desc->sizes, rank);
+  llvm::ArrayRef<int64_t> strides(sizes.end(), rank);
+  llvm::SmallVector<int64_t, 4> denseStrides(rank);
+
+  std::partial_sum(sizes.rbegin(), sizes.rend(), denseStrides.rbegin(),
+                   std::multiplies<int64_t>());
+  auto sizeBytes = denseStrides.front() * elementSizeBytes;
+
+  // Only densely packed tensors are currently supported.
+  std::rotate(denseStrides.begin(), denseStrides.begin() + 1,
+              denseStrides.end());
+  denseStrides.back() = 1;
+  assert(strides == llvm::makeArrayRef(denseStrides));
+
+  auto ptr = desc->data + desc->offset * elementSizeBytes;
+  mgpuMemHostRegister(ptr, sizeBytes);
+}
+
 template <typename T> void mgpuMemGetDevicePointer(T *hostPtr, T **devicePtr) {
   reportErrorIfAny(hipSetDevice(0), "hipSetDevice");
   reportErrorIfAny(
@@ -152,6 +203,8 @@ extern "C" void mcpuMemset(float *allocated, float *aligned, int64_t offset,
 extern "C" StridedMemRefType<float, 1>
 mgpuMemAlloc(float *allocated, float *aligned, int64_t offset, int64_t size,
              int64_t stride) {
+  printf("mgpuMemAlloc(float *allocated=%llx, float *aligned=%llx, int64_t offset=%lld, int64_t size=%lld, uint64_t stride=%lld)\n",
+         (uint64_t)allocated, (uint64_t)aligned, (uint64_t)offset, (uint64_t)size, (uint64_t)stride);
   float *gpuPtr;
   hipMalloc((void **)&gpuPtr, size * sizeof(float));
   return {gpuPtr, gpuPtr, offset, {size}, {stride}};
@@ -168,6 +221,8 @@ extern "C" void mgpuMemCopy(float *sourceAllocated, float *sourceAligned,
                             float *destAligned, int64_t destOffset,
                             int64_t destSize, int64_t destStride,
                             unsigned copyDirection) {
+  printf("mgpuMemCopy(float *sourceAllocated=%llx, float *destAllocated=%llx)\n",
+         (uint64_t)sourceAllocated, (uint64_t)destAllocated);
   hipMemcpy(destAligned, sourceAligned, sourceSize * sizeof(float),
             static_cast<hipMemcpyKind>(copyDirection));
 }
@@ -178,6 +233,7 @@ extern "C" void mcpuMemset2DFloat(float *allocated, float *aligned,
                                   int64_t offset, int64_t size0, int64_t size1,
                                   int64_t stride0, int64_t stride1,
                                   float value) {
+  printf("mcpuMemset2DFloat()\n");
   for (unsigned i = 0; i < size0; ++i)
     for (unsigned j = 0; j < size1; ++j)
       aligned[i * stride0 + j * stride1] = value;
@@ -187,6 +243,7 @@ extern "C" StridedMemRefType<float, 2>
 mgpuMemAlloc2DFloat(float *allocated, float *aligned, int64_t offset,
                     int64_t size0, int64_t size1, int64_t stride0,
                     int64_t stride1) {
+  printf("mgpuMemAlloc2DFloat()\n");
   float *gpuPtr;
   hipMalloc((void **)&gpuPtr, size0 * size1 * sizeof(float));
   return {gpuPtr, gpuPtr, offset, {size0, size1}, {stride0, stride1}};
@@ -207,6 +264,7 @@ extern "C" void mgpuMemCopy2DFloat(float *sourceAllocated, float *sourceAligned,
                                    int64_t destSize0, int64_t destSize1,
                                    int64_t destStride0, int64_t destStride1,
                                    unsigned copyDirection) {
+  printf("mgpuMemCopy2DFloat()\n");
   hipMemcpy(destAligned, sourceAligned,
             sourceSize0 * sourceSize1 * sizeof(float),
             static_cast<hipMemcpyKind>(copyDirection));
@@ -219,6 +277,7 @@ extern "C" void mcpuMemset4DFloat(float *allocated, float *aligned,
                                   int64_t size2, int64_t size3, int64_t stride0,
                                   int64_t stride1, int64_t stride2,
                                   int64_t stride3, float value) {
+  printf("mcpuMemset4DFloat()\n");
   for (unsigned i = 0; i < size0; ++i)
     for (unsigned j = 0; j < size1; ++j)
       for (unsigned k = 0; k < size2; ++k)
@@ -232,6 +291,7 @@ mgpuMemAlloc4DFloat(float *allocated, float *aligned, int64_t offset,
                     int64_t size0, int64_t size1, int64_t size2, int64_t size3,
                     int64_t stride0, int64_t stride1, int64_t stride2,
                     int64_t stride3) {
+  printf("mgpuMemAlloc4DFloat()\n");
   float *gpuPtr;
   hipMalloc((void **)&gpuPtr, size0 * size1 * size2 * size3 * sizeof(float));
   return {gpuPtr,
@@ -259,6 +319,7 @@ extern "C" void mgpuMemCopy4DFloat(
     int64_t destSize1, int64_t destSize2, int64_t destSize3,
     int64_t destStride0, int64_t destStride1, int64_t destStride2,
     int64_t destStride3, unsigned copyDirection) {
+  printf("mgpuMemCopy4DFloat()\n");
   hipMemcpy(destAligned, sourceAligned,
             sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 *
                 sizeof(float),
@@ -273,6 +334,7 @@ extern "C" void mcpuMemset4DHalf(unsigned short *allocated,
                                  int64_t size3, int64_t stride0,
                                  int64_t stride1, int64_t stride2,
                                  int64_t stride3, unsigned short value) {
+  printf("mcpuMemset4DHalf()\n");
   for (unsigned i = 0; i < size0; ++i)
     for (unsigned j = 0; j < size1; ++j)
       for (unsigned k = 0; k < size2; ++k)
@@ -286,6 +348,7 @@ mgpuMemAlloc4DHalf(unsigned short *allocated, unsigned short *aligned,
                    int64_t offset, int64_t size0, int64_t size1, int64_t size2,
                    int64_t size3, int64_t stride0, int64_t stride1,
                    int64_t stride2, int64_t stride3) {
+  printf("mgpuMemAlloc4DHalf()\n");
   unsigned short *gpuPtr;
   hipMalloc((void **)&gpuPtr,
             size0 * size1 * size2 * size3 * sizeof(unsigned short));
@@ -314,6 +377,7 @@ extern "C" void mgpuMemCopy4DHalf(
     int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
     int64_t destSize3, int64_t destStride0, int64_t destStride1,
     int64_t destStride2, int64_t destStride3, unsigned copyDirection) {
+  printf("mgpuMemCopy4DHalf()\n");
   hipMemcpy(destAligned, sourceAligned,
             sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 *
                 sizeof(unsigned short),
@@ -328,6 +392,7 @@ extern "C" void mcpuMemset4DBF16(unsigned short *allocated,
                                  int64_t size3, int64_t stride0,
                                  int64_t stride1, int64_t stride2,
                                  int64_t stride3, unsigned short value) {
+  printf("mcpuMemset4DBF16()\n");
   for (unsigned i = 0; i < size0; ++i)
     for (unsigned j = 0; j < size1; ++j)
       for (unsigned k = 0; k < size2; ++k)
@@ -341,6 +406,7 @@ mgpuMemAlloc4DBF16(unsigned short *allocated, unsigned short *aligned,
                    int64_t offset, int64_t size0, int64_t size1, int64_t size2,
                    int64_t size3, int64_t stride0, int64_t stride1,
                    int64_t stride2, int64_t stride3) {
+  printf("mgpuMemAlloc4DBF16()\n");
   unsigned short *gpuPtr;
   hipMalloc((void **)&gpuPtr,
             size0 * size1 * size2 * size3 * sizeof(unsigned short));
@@ -369,6 +435,7 @@ extern "C" void mgpuMemCopy4DBF16(
     int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
     int64_t destSize3, int64_t destStride0, int64_t destStride1,
     int64_t destStride2, int64_t destStride3, unsigned copyDirection) {
+  printf("mgpuMemCopy4DBF16()\n");
   hipMemcpy(destAligned, sourceAligned,
             sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 *
                 sizeof(unsigned short),
