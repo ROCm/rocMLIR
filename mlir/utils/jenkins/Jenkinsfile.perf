@@ -33,8 +33,11 @@ pipeline {
                         -DMLIR_MIOPEN_DRIVER_ENABLED=1 \
                         -DMLIR_ENABLE_SQLITE=1
 
-                    # build LLVM / MLIR and run tests
-                    cmake --build . --target check-mlir
+                    # build MLIR tools needed for performance benchmarking.
+                    # due to customized perf db, tuning-related tests may not
+                    # pass.
+                    cmake --build . --target mlir-miopen-driver
+                    cmake --build . --target mlir-rocm-runner
                 '''
             }
         }
@@ -42,17 +45,21 @@ pipeline {
             steps {
                 sh '''
                     cd build
-
-                    # Run 1 perf benchmark config. more to come.
-
-                    # Ensure rocminfo can be located by rocprof.
-                    ./bin/mlir-miopen-driver -p -ph -c | \
-                    PATH=/opt/rocm/bin:$PATH /opt/rocm/bin/rocprof --hip-trace \
-                    ./bin/mlir-rocm-runner --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void
-
-                    # Dump perf figures.
-                    cat results.stats.csv
+                    cmake --build . --target MIOpenDriver.py
                 '''
+                dir('build') { 
+                    sh '''
+                        # TBD: Do not run MLIR perf benchmarks yet as test configs require gfx908.
+                        ## Run MLIR perf benchmarks.
+                        #PATH=/opt/rocm/bin:$PATH python3 MIOpenDriver.py -o `date +'%y%m%d'`_mlir_benchmark.csv -b
+                        ## Dump MLIR perf figures.
+                        #cat `date +'%y%m%d'`_mlir_benchmark.csv
+                        # Run MIOpen perf benchmarks.
+                        PATH=/opt/rocm/bin:$PATH python3 MIOpenDriver.py -o `date +'%y%m%d'`_miopen_benchmark.csv -bmiopen
+                        # Dump MIOpen perf figures.
+                        cat `date +'%y%m%d'`_miopen_benchmark.csv
+                    '''
+                }
             }
         }
     }

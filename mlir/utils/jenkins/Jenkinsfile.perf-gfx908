@@ -13,7 +13,7 @@ pipeline {
                 sh '/opt/rocm/bin/rocm-smi'
             }
         }
-        stage('Build and Test FP32') {
+        stage('Build') {
             steps {
                 checkout scm
                 sh '''
@@ -47,20 +47,24 @@ pipeline {
                 '''
             }
         }
-        stage('Benchmark FP32') {
+        stage('Benchmark') {
             steps {
                 sh '''
                     cd build
 
-                    # Run 1 perf benchmark config. more to come.
+                    cmake --build . --target MIOpenDriver.py
 
-                    # Ensure rocminfo can be located by rocprof.
-                    ./bin/mlir-miopen-driver -p -x2 -ph -c | \
-                    PATH=/opt/rocm/bin:$PATH /opt/rocm/bin/rocprof --hip-trace \
-                    ./bin/mlir-rocm-runner --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void
+                    # Run MLIR perf benchmarks.
+                    ./MIOpenDriver.py -o `date +'%y%m%d'`_mlir_benchmark.csv -b
 
-                    # Dump perf figures.
-                    cat results.stats.csv
+                    # Dump MLIR perf figures.
+                    cat `date +'%y%m%d'`_mlir_benchmark.csv
+
+                    # Run MIOpen perf benchmarks.
+                    ./MIOpenDriver.py -o `date +'%y%m%d'`_miopen_benchmark.csv -bmiopen
+
+                    # Dump MIOpen perf figures.
+                    cat `date +'%y%m%d'`_miopen_benchmark.csv
                 '''
             }
         }
