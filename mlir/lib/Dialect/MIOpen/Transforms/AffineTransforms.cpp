@@ -145,7 +145,7 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
 
 void AffineTransforms::runOnFunction() {
   FuncOp func = getFunction();
-
+/*
   func.walk([&](miopen::TransformOp op) {
     AffineMap indexAffineMap = buildIndexAffineMap(op);
 
@@ -162,6 +162,7 @@ void AffineTransforms::runOnFunction() {
     op.output().replaceAllUsesWith(newOp);
     op.erase();
   });
+  */
 }
 
 std::unique_ptr<Pass> mlir::miopen::createAffineTransformPass() {
