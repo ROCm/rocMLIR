@@ -282,10 +282,7 @@ static void configTargetFeatures() {
   if (features.size() > 0)
     features += ",";
   // After ROCm 3.5, adopt HSA code object V3.
-  if (HIP_VERSION_MAJOR >= 3 && HIP_VERSION_MINOR >= 5)
-    features += "+code-object-v3";
-  else
-    features += "-code-object-v3";
+  features += "+code-object-v3";
 }
 
 static LogicalResult runMLIRPasses(ModuleOp m) {
