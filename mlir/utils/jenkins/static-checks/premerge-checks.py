@@ -25,7 +25,7 @@ import unidiff
 
 
 def get_diff(base_commit) -> Tuple[bool, str]:
-  r = subprocess.run(f'/opt/rocm-3.7.0/llvm/bin/git-clang-format {base_commit}', shell=True)
+  r = subprocess.run(f'/opt/rocm/llvm/bin/git-clang-format {base_commit}', shell=True)
   if r.returncode != 0:
     r = subprocess.run(f'git checkout -- .', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
     return False, ''
