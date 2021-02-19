@@ -110,7 +110,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     arg0TargetLayoutName1.append(fields.gemmTargetCharName[0].substr(0, 1));
     SmallString<4> arg0TargetLayoutName2("gemm");
     arg0TargetLayoutName2.append(fields.gemmTargetCharName[0].substr(1, 1));
-    llvm::errs()<<"=============="<<arg0TargetLayoutName1<<"\n";
     // set layout attribute.
     // Weight tensor transformation for Conv2DOp
     // - Part 1: Merge non-K dimensions to dimension 0, name it as gemmK.
