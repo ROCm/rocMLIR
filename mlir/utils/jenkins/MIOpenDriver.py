@@ -415,7 +415,7 @@ if __name__ == '__main__':
         if sys.argv[1] == '-b':
             # CSV batch benchmarking mode.
             for testVector in globalTestVector.split(sep='\n'):
-                if len(testVector) > 0:
+                if len(testVector) > 0 and testVector[0] != '#':
                     benchmark(testVector.split(sep=' '))
         else:
             benchmark(sys.argv[1:])
