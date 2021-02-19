@@ -599,15 +599,21 @@ def runConfigWithMIOpenDriver(commandLine):
     # get output.
     p1.communicate()
     
+def output(string, outputFile):
+    print(string)
+    if outputFile != None:
+        outputFile.write(string)
+        outputFile.write('\n')
+
 # Benchmarking function.
-def benchmarkMLIR(commandLine):
+def benchmarkMLIR(commandLine, outputFile):
     config = ConvConfiguration(commandLine)
     runConfigWithMLIR(commandLine)
     # get nanoseconds from rocprof output.
     nanoSeconds = getNanoSeconds(benchmarkingResultFileName)
-    print(config.generateCSVContent(nanoSeconds))
+    output(config.generateCSVContent(nanoSeconds), outputFile)
 
-def benchmarkMIOpen(commandLine):
+def benchmarkMIOpen(commandLine, outputFile):
     config = ConvConfiguration(commandLine)
     if config.inputLayout == 'nchw':
         runConfigWithMIOpenDriver(commandLine)
@@ -617,23 +623,32 @@ def benchmarkMIOpen(commandLine):
         # skip the test for non-supported layouts.
         # MIOpenDriver currently only support NCHW.
         nanoSeconds = 0
-    print(config.generateCSVContent(nanoSeconds))
+    output(config.generateCSVContent(nanoSeconds), outputFile)
 
 # Main function.
 if __name__ == '__main__':
     if len(sys.argv) > 1:
-        print(ConvConfiguration.generateCSVHeader())
+        outputFile = None
+        if sys.argv[1] == '-o':
+            outputFile = open(sys.argv[2], 'w')
+            sys.argv.pop(1)
+            sys.argv.pop(1)
+
+        output(ConvConfiguration.generateCSVHeader(), outputFile)
         if sys.argv[1] == '-b':
             # CSV batch benchmarking mode with MLIR.
             for testVector in globalTestVector.split(sep='\n'):
                 if len(testVector) > 0 and testVector[0] != '#':
-                    benchmarkMLIR(testVector.split(sep=' '))
+                    benchmarkMLIR(testVector.split(sep=' '), outputFile)
         elif sys.argv[1] == '-bmiopen':
             # CSV batch benchmarking mode with MIOpenDriver.
             for testVector in globalTestVector.split(sep='\n'):
                 if len(testVector) > 0 and testVector[0] != '#':
-                    benchmarkMIOpen(testVector.split(sep=' '))
+                    benchmarkMIOpen(testVector.split(sep=' '), outputFile)
         elif sys.argv[1] == '-miopen':
-            benchmarkMIOpen(sys.argv[2:])
+            benchmarkMIOpen(sys.argv[2:], outputFile)
         else:
-            benchmarkMLIR(sys.argv[1:])
+            benchmarkMLIR(sys.argv[1:], outputFile)
+
+        if outputFile != None:
+            outputFile.close()
