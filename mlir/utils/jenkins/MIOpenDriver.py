@@ -322,11 +322,11 @@ class ConvConfiguration:
                 # 3 fwd+bwd
                 # 5 fwd+wrw
                 # 6 bwd+wrw
-                if arg == 1:
+                if int(arg) == 1:
                     self.direction = 'fwd'
-                elif arg == 2:
+                elif int(arg) == 2:
                     self.direction = 'bwd'
-                elif arg == 4:
+                elif int(arg) == 4:
                     self.direction = 'wrw'
             elif opt == '-f':
                 # -f
