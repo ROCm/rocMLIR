@@ -588,7 +588,11 @@ def runConfigWithMLIR(commandLine):
     p2 = subprocess.Popen(profilerCommand.split(), stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
     # get output.
-    p2.communicate()
+    try:
+        outs, errs = p2.communicate(timeout=30)
+    except TimeoutExpired:
+        p2.kill()
+        outs, errs = p2.communicate()
 
 def runConfigWithMIOpenDriver(commandLine):
     MIOpenDriverCommand = MIOpenDriver + ' ' + ' '.join(commandLine) + ' -V 0'
@@ -597,7 +601,11 @@ def runConfigWithMIOpenDriver(commandLine):
     # invoke rocprof + MIOpenDriver.
     p1 = subprocess.Popen(profilerCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     # get output.
-    p1.communicate()
+    try:
+        outs, errs = p1.communicate(timeout=30)
+    except TimeoutExpired:
+        p1.kill()
+        outs, errs = p1.communicate()
     
 def output(string, outputFile):
     print(string)
