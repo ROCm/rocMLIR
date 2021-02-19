@@ -1,7 +1,7 @@
 pipeline {
     agent {
         docker {
-            image 'rocm/mlir:rocm3.7-latest'
+            image 'rocm/mlir:rocm4.0-latest'
             args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
             label 'rocm'
         }
