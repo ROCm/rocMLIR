@@ -11,6 +11,7 @@ mlirBuildDir = './bin'
 mlirMIOpenDriver = 'mlir-miopen-driver'
 mlirROCmRunner = 'mlir-rocm-runner'
 rocprof = '/opt/rocm/bin/rocprof'
+MIOpenDriver = '/opt/rocm/miopen/bin/MIOpenDriver'
 benchmarkingResultFileName = 'results.stats.csv'
 roundDigits = 2
 
@@ -310,6 +311,8 @@ def getNanoSeconds(fileName):
 # convolution configurations.
 class ConvConfiguration:
     def computeTFlops(self, ns):
+        if ns == 0:
+            return 0.0
         return round((2.0 * self.n * self.c * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12, roundDigits)
 
     @classmethod
@@ -573,7 +576,7 @@ class ConvConfiguration:
         self.ho = (self.hi + self.paddingH * 2 - self.y) / self.convStrideH + 1
         self.wo = (self.wi + self.paddingW * 2 - self.x) / self.convStrideW + 1
 
-def runConfig(commandLine):
+def runConfigWithMLIR(commandLine):
     config = ConvConfiguration(commandLine)
     commandLineOptions = config.generateMlirDriverCommandLine()
     mlirMIOpenDriverCommand = mlirBuildDir + os.sep + mlirMIOpenDriver + ' -ph -c ' + commandLineOptions
@@ -586,13 +589,34 @@ def runConfig(commandLine):
     p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
     # get output.
     p2.communicate()
-    return config
+
+def runConfigWithMIOpenDriver(commandLine):
+    MIOpenDriverCommand = MIOpenDriver + ' ' + ' '.join(commandLine) + ' -V 0'
+    profilerCommand = rocprof + ' --hip-trace ' + MIOpenDriverCommand
+
+    # invoke rocprof + MIOpenDriver.
+    p1 = subprocess.Popen(profilerCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    # get output.
+    p1.communicate()
     
 # Benchmarking function.
-def benchmark(commandLine):
-    config = runConfig(commandLine)
+def benchmarkMLIR(commandLine):
+    config = ConvConfiguration(commandLine)
+    runConfigWithMLIR(commandLine)
     # get nanoseconds from rocprof output.
     nanoSeconds = getNanoSeconds(benchmarkingResultFileName)
+    print(config.generateCSVContent(nanoSeconds))
+
+def benchmarkMIOpen(commandLine):
+    config = ConvConfiguration(commandLine)
+    if config.inputLayout == 'nchw':
+        runConfigWithMIOpenDriver(commandLine)
+        # get nanoseconds from rocprof output.
+        nanoSeconds = getNanoSeconds(benchmarkingResultFileName)
+    else:
+        # skip the test for non-supported layouts.
+        # MIOpenDriver currently only support NCHW.
+        nanoSeconds = 0
     print(config.generateCSVContent(nanoSeconds))
 
 # Main function.
@@ -600,9 +624,16 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         print(ConvConfiguration.generateCSVHeader())
         if sys.argv[1] == '-b':
-            # CSV batch benchmarking mode.
+            # CSV batch benchmarking mode with MLIR.
             for testVector in globalTestVector.split(sep='\n'):
                 if len(testVector) > 0 and testVector[0] != '#':
-                    benchmark(testVector.split(sep=' '))
+                    benchmarkMLIR(testVector.split(sep=' '))
+        elif sys.argv[1] == '-bmiopen':
+            # CSV batch benchmarking mode with MIOpenDriver.
+            for testVector in globalTestVector.split(sep='\n'):
+                if len(testVector) > 0 and testVector[0] != '#':
+                    benchmarkMIOpen(testVector.split(sep=' '))
+        elif sys.argv[1] == '-miopen':
+            benchmarkMIOpen(sys.argv[2:])
         else:
-            benchmark(sys.argv[1:])
+            benchmarkMLIR(sys.argv[1:])
