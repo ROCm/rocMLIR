@@ -47,6 +47,8 @@ static cl::opt<std::string> features("feature", cl::desc("target features"),
                                      cl::init(""));
 
 static LogicalResult runMLIRPasses(ModuleOp m) {
+  // TODO(sjw): fix multi-threading race condition
+  m.getContext()->disableMultithreading();
   PassManager pm(m.getContext());
   applyPassManagerCLOptions(pm);
 
