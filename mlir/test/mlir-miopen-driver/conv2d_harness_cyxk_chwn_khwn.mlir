@@ -10,7 +10,7 @@ func @conv2d(%filter : memref<8x3x3x128xf32>, %input : memref<8x32x32x128xf32>, 
 // HARNESS: func @conv2d([[FILTER_MEMREF:%.*]]: memref<8x3x3x128xf32>, [[INPUT_MEMREF:%.*]]: memref<8x32x32x128xf32>, [[OUTPUT_MEMREF:%.*]]: memref<128x30x30x128xf32>)
 // LOWERING: module
 // LOWERING: func @conv2d([[FILTER_MEMREF:%.*]]: memref<8x3x3x128xf32>, [[INPUT_MEMREF:%.*]]: memref<8x32x32x128xf32>, [[OUTPUT_MEMREF:%.*]]: memref<128x30x30x128xf32>)
-// LOWERING: "gpu.launch_func"(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, [[FILTER_MEMREF]], [[INPUT_MEMREF]], [[OUTPUT_MEMREF]]) {kernel = @miopen_kernel_module::@miopen_conv2d_kcyx_nchw_nkhw} : (index, index, index, index, index, index, memref<8x3x3x128xf32>, memref<8x32x32x128xf32>, memref<128x30x30x128xf32>) -> ()
+// LOWERING: gpu.launch_func  @miopen_kernel_module::@miopen_conv2d_kcyx_nchw_nkhw blocks in (%{{.*}}, %{{.*}}, %{{.*}}) threads in (%{{.*}}, %{{.*}}, %{{.*}}) args([[FILTER_MEMREF]] : memref<8x3x3x128xf32>, [[INPUT_MEMREF]] : memref<8x32x32x128xf32>, [[OUTPUT_MEMREF]] : memref<128x30x30x128xf32>)
 
 func @main() {
   // allocate CPU memory.
