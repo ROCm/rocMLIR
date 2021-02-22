@@ -37,7 +37,7 @@ class LLVMDialect;
 
 namespace miopen {
 class MIOpenDialect;
-} // end namespace NVVM
+} // namespace miopen
 
 namespace NVVM {
 class NVVMDialect;

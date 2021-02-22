@@ -13,9 +13,9 @@
 #ifndef MLIR_DIALECT_MIOPEN_PASSES_H_
 #define MLIR_DIALECT_MIOPEN_PASSES_H_
 
+#include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "mlir/Pass/Pass.h"
 
 namespace mlir {
 namespace miopen {

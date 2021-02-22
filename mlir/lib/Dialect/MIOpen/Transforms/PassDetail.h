@@ -15,15 +15,15 @@ namespace mlir {
 
 namespace miopen {
 class MIOpenDialect;
-} // end namespace linalg
+} // namespace miopen
 
 namespace vector {
 class VectorDialect;
-} // end namespace linalg
+} // namespace vector
 
 namespace scf {
 class SCFDialect;
-} // end namespace linalg
+} // namespace scf
 
 class AffineDialect;
 class StandardOpsDialect;

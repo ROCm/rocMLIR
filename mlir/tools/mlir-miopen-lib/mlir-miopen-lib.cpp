@@ -214,7 +214,8 @@ extern "C" void MlirLowerBin(MlirHandle mlirHandle) {
   pm.addPass(createStripDebugInfoPass());
   pm.addPass(createLowerGpuOpsToROCDLOpsPass());
   pm.addPass(createConvertGPUKernelToBlobPass(
-      [&utils](Operation *m, llvm::LLVMContext &llvmContext, llvm::StringRef name) {
+      [&utils](Operation *m, llvm::LLVMContext &llvmContext,
+               llvm::StringRef name) {
         return utils.compileModuleToROCDLIR(m, llvmContext, name);
       },
       [&utils](const std::string isa, Location loc, StringRef name) {

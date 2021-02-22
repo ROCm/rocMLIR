@@ -61,7 +61,8 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   kernelPm.addPass(createStripDebugInfoPass());
   kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass());
   kernelPm.addPass(createConvertGPUKernelToBlobPass(
-      [&utils](Operation *m, llvm::LLVMContext &llvmContext, llvm::StringRef name) {
+      [&utils](Operation *m, llvm::LLVMContext &llvmContext,
+               llvm::StringRef name) {
         return utils.compileModuleToROCDLIR(m, llvmContext, name);
       },
       [&utils](const std::string isa, Location loc, StringRef name) {

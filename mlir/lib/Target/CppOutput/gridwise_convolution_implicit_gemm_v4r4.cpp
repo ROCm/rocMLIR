@@ -742,7 +742,8 @@ void mlir::translateModuleFromMIOpenToHeader(ModuleOp m, std::string &header) {
       outs.flush();
 
       // determine gridwise GEMM arguments.
-      auto gridwiseGemmArgPosAttr = op->getAttrOfType<IntegerAttr>("gridwise_gemm_argument_position");
+      auto gridwiseGemmArgPosAttr =
+          op->getAttrOfType<IntegerAttr>("gridwise_gemm_argument_position");
       if (gridwiseGemmArgPosAttr) {
         gridwiseGemmArguments[gridwiseGemmArgPosAttr.getInt()] = outputTensorName;
       }  

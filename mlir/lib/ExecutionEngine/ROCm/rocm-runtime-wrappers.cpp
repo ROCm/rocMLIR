@@ -33,7 +33,8 @@ int32_t reportErrorIfAny(hipError_t result, const char *where) {
 
 extern "C" hipModule_t mgpuModuleLoad(void *data) {
   hipModule_t module = nullptr;
-  int32_t err = reportErrorIfAny(hipModuleLoadData(&module, data), "ModuleLoad");
+  int32_t err =
+      reportErrorIfAny(hipModuleLoadData(&module, data), "ModuleLoad");
   return module;
 }
 
@@ -41,10 +42,11 @@ extern "C" void mgpuModuleUnload(hipModule_t module) {
   reportErrorIfAny(hipModuleUnload(module), "ModuleUnload");
 }
 
-extern "C" hipFunction_t mgpuModuleGetFunction(hipModule_t module, const char *name) {
+extern "C" hipFunction_t mgpuModuleGetFunction(hipModule_t module,
+                                               const char *name) {
   hipFunction_t function = nullptr;
   int32_t err = reportErrorIfAny(hipModuleGetFunction(&function, module, name),
-      "GetFunction");
+                                 "GetFunction");
   return function;
 }
 
@@ -54,11 +56,13 @@ extern "C" hipFunction_t mgpuModuleGetFunction(hipModule_t module, const char *n
 extern "C" int32_t mgpuLaunchKernel(hipFunction_t function, intptr_t gridX,
                                     intptr_t gridY, intptr_t gridZ,
                                     intptr_t blockX, intptr_t blockY,
-                                    intptr_t blockZ, int32_t smem, hipStream_t stream,
-                                    void **params, void **extra) {
+                                    intptr_t blockZ, int32_t smem,
+                                    hipStream_t stream, void **params,
+                                    void **extra) {
   return reportErrorIfAny(hipModuleLaunchKernel(function, gridX, gridY, gridZ,
                                                 blockX, blockY, blockZ, smem,
-                                                stream, params, extra), "LaunchKernel");
+                                                stream, params, extra),
+                          "LaunchKernel");
 }
 
 extern "C" hipStream_t mgpuGetStreamHelper() {
@@ -67,9 +71,7 @@ extern "C" hipStream_t mgpuGetStreamHelper() {
   return stream;
 }
 
-extern "C" hipStream_t mgpuStreamCreate() {
-  return mgpuGetStreamHelper();
-}
+extern "C" hipStream_t mgpuStreamCreate() { return mgpuGetStreamHelper(); }
 
 extern "C" void mgpuStreamDestroy(hipStream_t stream) {
   reportErrorIfAny(hipStreamDestroy(stream), "StreamDestroy");
@@ -80,7 +82,8 @@ extern "C" int32_t mgpuStreamSynchronize(hipStream_t stream) {
 }
 
 extern "C" void mgpuStreamWaitEvent(hipStream_t stream, hipEvent_t event) {
-  reportErrorIfAny(hipStreamWaitEvent(stream, event, /*flags*/0), "StreamWaitEvent");
+  reportErrorIfAny(hipStreamWaitEvent(stream, event, /*flags*/ 0),
+                   "StreamWaitEvent");
 }
 
 /// Helper functions for writing mlir example code
@@ -128,9 +131,9 @@ extern "C" void mgpuMemHostRegisterInt32(int64_t rank, void *ptr) {
   mgpuMemHostRegisterMemRef(desc->data + desc->offset, sizes, strides, 123);
 }
 
-extern "C" void
-mgpuMemHostRegisterMemRef(int64_t rank, StridedMemRefType<char, 1> *desc,
-                          int64_t elementSizeBytes) {
+extern "C" void mgpuMemHostRegisterMemRef(int64_t rank,
+                                          StridedMemRefType<char, 1> *desc,
+                                          int64_t elementSizeBytes) {
   llvm::ArrayRef<int64_t> sizes(desc->sizes, rank);
   llvm::ArrayRef<int64_t> strides(sizes.end(), rank);
   llvm::SmallVector<int64_t, 4> denseStrides(rank);
@@ -468,7 +471,7 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
                      i_layout, o_layout, filterSizeStride, inputSizeStride,
                      outputSizeStride);
 
-    // Perform forward convolution
+  // Perform forward convolution
   for (int64_t n = 0; n < outputSizeStride['n'].first; n++)
     for (int64_t k = 0; k < outputSizeStride['k'].first; k++)
       for (int64_t out_h = 0; out_h < outputSizeStride['h'].first; out_h++)

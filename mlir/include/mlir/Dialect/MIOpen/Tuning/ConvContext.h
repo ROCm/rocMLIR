@@ -93,9 +93,9 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
 // T is either GriwiseGemmOp or GridwiseGemmV2Op
 template <typename T> static miopen::ConvOpType ObtainConvDirection(T &op) {
   miopen::ConvOpType opType;
-  auto kernel_algorithm = op->template getAttrOfType<StringAttr>("kernel_algorithm").getValue();
-  if (kernel_algorithm.find(StringRef("backward_data")) !=
-      StringRef::npos) {
+  auto kernel_algorithm =
+      op->template getAttrOfType<StringAttr>("kernel_algorithm").getValue();
+  if (kernel_algorithm.find(StringRef("backward_data")) != StringRef::npos) {
     opType = miopen::ConvOpType::Conv2DBwdDataOpType;
   } else if (kernel_algorithm.find(StringRef("backward_weight")) !=
              StringRef::npos) {
@@ -148,7 +148,8 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
 
   llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
 
-  auto filterLayoutAttr = op->template getAttrOfType<ArrayAttr>("filter_layout");
+  auto filterLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("filter_layout");
   auto filterDimensionAttr =
       op->template getAttrOfType<ArrayAttr>("filter_dimension");
   populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
@@ -156,7 +157,8 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
   auto inputDimensionAttr =
       op->template getAttrOfType<ArrayAttr>("input_dimension");
   populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
-  auto outputLayoutAttr = op->template getAttrOfType<ArrayAttr>("output_layout");
+  auto outputLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("output_layout");
   auto outputDimensionAttr =
       op->template getAttrOfType<ArrayAttr>("output_dimension");
   populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);

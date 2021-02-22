@@ -480,7 +480,8 @@ void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std
 
 } // anontmous namespace
 
-std::unique_ptr<llvm::StringRef> mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
+std::unique_ptr<llvm::StringRef>
+mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
   llvm::raw_string_ostream output(resultStr);
 
   // Enumerate FuncOp instances inside the ModuleOp.
@@ -557,7 +558,8 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleFromMIOpenToHeaderXDLOPS(M
       outs.flush();
 
       // determine gridwise GEMM arguments.
-      auto gridwiseGemmArgPosAttr = op->getAttrOfType<IntegerAttr>("gridwise_gemm_argument_position");
+      auto gridwiseGemmArgPosAttr =
+          op->getAttrOfType<IntegerAttr>("gridwise_gemm_argument_position");
       if (gridwiseGemmArgPosAttr) {
         gridwiseGemmArguments[gridwiseGemmArgPosAttr.getInt()] = outputTensorName;
       }
@@ -660,7 +662,8 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleFromMIOpenToHeaderXDLOPS(M
     });
 
     bool filterGemmKVectorizable = false, inputGemmKVectorizable = false;
-    f.walk([&filterGemmKVectorizable, &inputGemmKVectorizable](miopen::GridwiseGemmOp op) {
+    f.walk([&filterGemmKVectorizable,
+            &inputGemmKVectorizable](miopen::GridwiseGemmOp op) {
       auto filterLayoutAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
       auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
 
@@ -715,7 +718,6 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleFromMIOpenToHeaderXDLOPS(M
 
         // gemmN dimension non-vectorizable.
       }
-
     });
 
     EmitHeaderEpilogue(output, gridwiseGemmArguments, filterGemmKVectorizable, inputGemmKVectorizable);
@@ -725,7 +727,8 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleFromMIOpenToHeaderXDLOPS(M
   return std::make_unique<llvm::StringRef>(resultStr);
 }
 
-std::unique_ptr<llvm::StringRef> mlir::translateModuleFromMIOpenToCppXDLOPS(ModuleOp m) {
+std::unique_ptr<llvm::StringRef>
+mlir::translateModuleFromMIOpenToCppXDLOPS(ModuleOp m) {
   llvm::raw_string_ostream output(resultStr);
 
   // Enumerate FuncOp instances inside the ModuleOp.
@@ -772,7 +775,8 @@ std::unique_ptr<llvm::StringRef> mlir::translateModuleFromMIOpenToCppXDLOPS(Modu
   return std::make_unique<llvm::StringRef>(resultStr);
 }
 
-std::unique_ptr<llvm::StringRef> mlir::translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m) {
+std::unique_ptr<llvm::StringRef>
+mlir::translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m) {
   llvm::raw_string_ostream output(resultStr);
 
   for (auto f : m.getOps<FuncOp>()) {

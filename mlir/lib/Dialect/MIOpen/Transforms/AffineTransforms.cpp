@@ -32,10 +32,13 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
 
   auto layoutAttr = op->template getAttrOfType<ArrayAttr>("layout");
 
-  auto sourceLayoutAttr = op->template getAttrOfType<ArrayAttr>("source_layout");
+  auto sourceLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("source_layout");
   if (!sourceLayoutAttr)
-    sourceLayoutAttr = op->template getAttrOfType<ArrayAttr>("intermediate_layout");
-  auto outputLayoutAttr = op->template getAttrOfType<ArrayAttr>("output_layout");
+    sourceLayoutAttr =
+        op->template getAttrOfType<ArrayAttr>("intermediate_layout");
+  auto outputLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("output_layout");
 
   llvm::SmallMapVector<int64_t, AffineExpr, 8> affExprsMap;
   for (unsigned i = 0; i < layoutAttr.size(); ++i) {
