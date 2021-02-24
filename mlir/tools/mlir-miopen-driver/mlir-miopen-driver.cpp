@@ -538,7 +538,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   // Create a new block
   Block *verifyResultsBlock = verifyFuncOp.addEntryBlock();
 
-/*will fix here
+  //will fix here
   // %c0 = constant 0: index
   auto c0IndexOp = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 0);
   verifyResultsBlock->push_back(c0IndexOp);
@@ -586,7 +586,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   verifyResultsBlock->push_back(indexOp3);
 
   auto indexOp4 = builder.create<ConstantIndexOp>(builder.getUnknownLoc(),
-		  outputDimension[4]);
+		                                              outputDimension[4]);
   verifyResultsBlock->push_back(indexOp4);
 
 
@@ -627,15 +627,20 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   auto bt3 = OpBuilder::atBlockTerminator(loop3.getBody());
   auto iv3 = loop3.getInductionVar();
 
-  auto cpuLoadOp = bt3.create<LoadOp>(builder.getUnknownLoc(),
+  auto loop4 = bt3.create<scf::ForOp>(builder.getUnknownLoc(), c0IndexOp,
+                                          indexOp4, c1IndexOp);
+  auto bt4 = OpBuilder::atBlockTerminator(loop4.getBody());
+  auto iv4 = loop4.getInductionVar();
+
+  auto cpuLoadOp = bt4.create<LoadOp>(builder.getUnknownLoc(),
                                       verifyResultsBlock->getArgument(0),
-                                      ValueRange{iv0, iv1, iv2, iv3});
-  auto gpuLoadOp = bt3.create<LoadOp>(builder.getUnknownLoc(),
+                                      ValueRange{iv0, iv1, iv2, iv3, iv4});
+  auto gpuLoadOp = bt4.create<LoadOp>(builder.getUnknownLoc(),
                                       verifyResultsBlock->getArgument(1),
-                                      ValueRange{iv0, iv1, iv2, iv3});
-  auto cmpOp = bt3.create<CmpFOp>(builder.getUnknownLoc(), CmpFPredicate::UNE,
+                                      ValueRange{iv0, iv1, iv2, iv3, iv4});
+  auto cmpOp = bt4.create<CmpFOp>(builder.getUnknownLoc(), CmpFPredicate::UNE,
                                   cpuLoadOp, gpuLoadOp);
-  auto ifOp = bt3.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
+  auto ifOp = bt4.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
   auto thenBody = ifOp.getThenBodyBuilder();
 
   auto storeOp0 =
@@ -658,7 +663,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   module.push_back(printMemRefFuncOp);
   verifyResultsBlock->push_back(printMemRefCastOp);
   verifyResultsBlock->push_back(printMemRefCallOp);
-*/
+
   auto returnOp =
       builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
   verifyResultsBlock->push_back(returnOp);
