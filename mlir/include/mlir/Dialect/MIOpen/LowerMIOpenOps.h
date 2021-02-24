@@ -98,6 +98,21 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto filterType = op.filter().getType().template dyn_cast<MemRefType>();
     auto filterShape = filterType.getShape();
     auto filterElementType = filterType.getElementType();
+
+
+    int64_t g = 1;
+    auto unrankedMemRefType = UnrankedMemRefType::get(filterType.getElementType(), 0);
+    auto filterMemRefCastUnRankedOp = b.create<MemRefCastOp>(b.getUnknownLoc(), op.filter(), unrankedMemRefType);
+    SmallVector<int64_t, 4> filterDimension;
+    filterDimension.push_back(g);
+    for (unsigned i = 0; i < filterShape.size(); ++i) {
+      filterDimension.push_back(filterShape[i]);
+      //llvm::errs() << " filter shape : " << filterShape[i] << "\n";
+    }
+    auto filterMemRef5Type = MemRefType::get(
+      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
+      filterElementType);
+    auto filterMemRefCast5RankedOp = b.create<MemRefCastOp>(b.getUnknownLoc(), filterMemRefCastUnRankedOp, filterMemRef5Type);
     // Y/X dimension for filter tensor.
     int64_t filterYDim, filterXDim;
 
