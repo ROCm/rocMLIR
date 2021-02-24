@@ -40,9 +40,9 @@ class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
 
 def MIOpen_Conv2DOp :
     MIOpen_Op<"conv2d">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [4]>:$filter,
-                   MemRefRankOf<[F32, F16, BF16], [4]>:$input,
-                   MemRefRankOf<[F32, F16, BF16], [4]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [5]>:$filter,
+                   MemRefRankOf<[F32, F16, BF16], [5]>:$input,
+                   MemRefRankOf<[F32, F16, BF16], [5]>:$output)> {
   let summary = "2D convolution forward";
   let description = [{
     The `miopen.conv2d` op computes 2D convolution forward.

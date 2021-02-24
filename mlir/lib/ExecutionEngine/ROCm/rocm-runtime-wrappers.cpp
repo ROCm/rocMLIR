@@ -227,6 +227,21 @@ extern "C" void mcpuMemset4DFloat(float *allocated, float *aligned,
               value;
 }
 
+extern "C" void mcpuMemset5DFloat(float *allocated, float *aligned,
+                                  int64_t offset, int64_t size0, int64_t size1,
+                                  int64_t size2, int64_t size3,int64_t size4, int64_t stride0,
+                                  int64_t stride1, int64_t stride2,
+                                  int64_t stride3, int64_t stride4,float value) {
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        for (unsigned l = 0; l < size3; ++l)
+          for (unsigned m = 0; m < size4; ++m)
+            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 + m * stride4] =
+                value;
+}
+
+
 extern "C" StridedMemRefType<float, 4>
 mgpuMemAlloc4DFloat(float *allocated, float *aligned, int64_t offset,
                     int64_t size0, int64_t size1, int64_t size2, int64_t size3,
@@ -241,6 +256,22 @@ mgpuMemAlloc4DFloat(float *allocated, float *aligned, int64_t offset,
           {stride0, stride1, stride2, stride3}};
 }
 
+extern "C" StridedMemRefType<float, 5>
+mgpuMemAlloc5DFloat(float *allocated, float *aligned, int64_t offset,
+                    int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
+                    int64_t stride0, int64_t stride1, int64_t stride2,
+                    int64_t stride3, int64_t stride4) {
+  float *gpuPtr;
+  hipMalloc((void **)&gpuPtr, size0 * size1 * size2 * size3 * size4 * sizeof(float));
+  return {gpuPtr,
+          gpuPtr,
+          offset,
+          {size0, size1, size2, size3, size4},
+          {stride0, stride1, stride2, stride3, stride4}};
+}
+
+
+
 extern "C" void mgpuMemDealloc4DFloat(float *allocated, float *aligned,
                                       int64_t offset, int64_t size0,
                                       int64_t size1, int64_t size2,
@@ -249,6 +280,17 @@ extern "C" void mgpuMemDealloc4DFloat(float *allocated, float *aligned,
                                       int64_t stride3) {
   hipFree(aligned);
 }
+
+extern "C" void mgpuMemDealloc5DFloat(float *allocated, float *aligned,
+                                      int64_t offset, int64_t size0,
+                                      int64_t size1, int64_t size2,
+                                      int64_t size3, int64_t size4, int64_t stride0,
+                                      int64_t stride1, int64_t stride2,
+                                      int64_t stride3, int64_t stride4) {
+  hipFree(aligned);
+}
+
+
 
 extern "C" void mgpuMemCopy4DFloat(
     float *sourceAllocated, float *sourceAligned, int64_t sourceOffset,
@@ -264,6 +306,22 @@ extern "C" void mgpuMemCopy4DFloat(
                 sizeof(float),
             static_cast<hipMemcpyKind>(copyDirection));
 }
+
+extern "C" void mgpuMemCopy5DFloat(
+    float *sourceAllocated, float *sourceAligned, int64_t sourceOffset,
+    int64_t sourceSize0, int64_t sourceSize1, int64_t sourceSize2,
+    int64_t sourceSize3, int64_t sourceSize4, int64_t sourceStride0, int64_t sourceStride1,
+    int64_t sourceStride2, int64_t sourceStride3, int64_t sourceStride4, float *destAllocated,
+    float *destAligned, int64_t destOffset, int64_t destSize0,
+    int64_t destSize1, int64_t destSize2, int64_t destSize3, int64_t destSize4,
+    int64_t destStride0, int64_t destStride1, int64_t destStride2,
+    int64_t destStride3, int64_t destStride4, unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned,
+            sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 * sourceSize4 *
+                sizeof(float),
+            static_cast<hipMemcpyKind>(copyDirection));
+}
+
 
 // 4D half memref utility routines.
 
@@ -281,6 +339,23 @@ extern "C" void mcpuMemset4DHalf(unsigned short *allocated,
               value;
 }
 
+
+extern "C" void mcpuMemset5DHalf(unsigned short *allocated,
+                                 unsigned short *aligned, int64_t offset,
+                                 int64_t size0, int64_t size1, int64_t size2,
+                                 int64_t size3, int64_t size4, int64_t stride0,
+                                 int64_t stride1, int64_t stride2,
+                                 int64_t stride3, int64_t stride4, unsigned short value) {
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        for (unsigned l = 0; l < size3; ++l)
+          for (unsigned m = 0; m < size4; ++m)
+            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 + m * stride4] =
+                value;
+}
+
+
 extern "C" StridedMemRefType<unsigned short, 4>
 mgpuMemAlloc4DHalf(unsigned short *allocated, unsigned short *aligned,
                    int64_t offset, int64_t size0, int64_t size1, int64_t size2,
@@ -296,6 +371,22 @@ mgpuMemAlloc4DHalf(unsigned short *allocated, unsigned short *aligned,
           {stride0, stride1, stride2, stride3}};
 }
 
+extern "C" StridedMemRefType<unsigned short, 5>
+mgpuMemAlloc5DHalf(unsigned short *allocated, unsigned short *aligned,
+                   int64_t offset, int64_t size0, int64_t size1, int64_t size2,
+                   int64_t size3, int64_t size4, int64_t stride0, int64_t stride1,
+                   int64_t stride2, int64_t stride3, int64_t stride4) {
+  unsigned short *gpuPtr;
+  hipMalloc((void **)&gpuPtr,
+            size0 * size1 * size2 * size3 * size4 * sizeof(unsigned short));
+  return {gpuPtr,
+          gpuPtr,
+          offset,
+          {size0, size1, size2, size3, size4},
+          {stride0, stride1, stride2, stride3, stride4}};
+}
+
+
 extern "C" void mgpuMemDealloc4DHalf(unsigned short *allocated,
                                      unsigned short *aligned, int64_t offset,
                                      int64_t size0, int64_t size1,
@@ -304,6 +395,16 @@ extern "C" void mgpuMemDealloc4DHalf(unsigned short *allocated,
                                      int64_t stride2, int64_t stride3) {
   hipFree(aligned);
 }
+
+extern "C" void mgpuMemDealloc5DHalf(unsigned short *allocated,
+                                     unsigned short *aligned, int64_t offset,
+                                     int64_t size0, int64_t size1,
+                                     int64_t size2, int64_t size3, int64_t size4,
+                                     int64_t stride0, int64_t stride1,
+                                     int64_t stride2, int64_t stride3, int64_t stride4) {
+  hipFree(aligned);
+}
+
 
 extern "C" void mgpuMemCopy4DHalf(
     unsigned short *sourceAllocated, unsigned short *sourceAligned,
@@ -316,6 +417,21 @@ extern "C" void mgpuMemCopy4DHalf(
     int64_t destStride2, int64_t destStride3, unsigned copyDirection) {
   hipMemcpy(destAligned, sourceAligned,
             sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 *
+                sizeof(unsigned short),
+            static_cast<hipMemcpyKind>(copyDirection));
+}
+
+extern "C" void mgpuMemCopy5DHalf(
+    unsigned short *sourceAllocated, unsigned short *sourceAligned,
+    int64_t sourceOffset, int64_t sourceSize0, int64_t sourceSize1,
+    int64_t sourceSize2, int64_t sourceSize3, int64_t sourceSize4, int64_t sourceStride0,
+    int64_t sourceStride1, int64_t sourceStride2, int64_t sourceStride3, int64_t sourceStride4,
+    unsigned short *destAllocated, unsigned short *destAligned,
+    int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
+    int64_t destSize3, int64_t destSize4, int64_t destStride0, int64_t destStride1,
+    int64_t destStride2, int64_t destStride3, int64_t destStride4 ,unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned,
+            sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 * sourceSize4 *
                 sizeof(unsigned short),
             static_cast<hipMemcpyKind>(copyDirection));
 }
@@ -336,6 +452,22 @@ extern "C" void mcpuMemset4DBF16(unsigned short *allocated,
               value;
 }
 
+extern "C" void mcpuMemset5DBF16(unsigned short *allocated,
+                                 unsigned short *aligned, int64_t offset,
+                                 int64_t size0, int64_t size1, int64_t size2,
+                                 int64_t size3, int64_t size4, int64_t stride0,
+                                 int64_t stride1, int64_t stride2,
+                                 int64_t stride3, int64_t stride4, unsigned short value) {
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        for (unsigned l = 0; l < size3; ++l)
+          for (unsigned m = 0; m < size4; ++m)
+            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 + m * stride4] =
+                value;
+}
+
+
 extern "C" StridedMemRefType<unsigned short, 4>
 mgpuMemAlloc4DBF16(unsigned short *allocated, unsigned short *aligned,
                    int64_t offset, int64_t size0, int64_t size1, int64_t size2,
@@ -351,6 +483,22 @@ mgpuMemAlloc4DBF16(unsigned short *allocated, unsigned short *aligned,
           {stride0, stride1, stride2, stride3}};
 }
 
+extern "C" StridedMemRefType<unsigned short, 5>
+mgpuMemAlloc5DBF16(unsigned short *allocated, unsigned short *aligned,
+                   int64_t offset, int64_t size0, int64_t size1, int64_t size2,
+                   int64_t size3, int64_t size4, int64_t stride0, int64_t stride1,
+                   int64_t stride2, int64_t stride3, int64_t stride4) {
+  unsigned short *gpuPtr;
+  hipMalloc((void **)&gpuPtr,
+            size0 * size1 * size2 * size3 * size4 * sizeof(unsigned short));
+  return {gpuPtr,
+          gpuPtr,
+          offset,
+          {size0, size1, size2, size3, size4},
+          {stride0, stride1, stride2, stride3, stride4}};
+}
+
+
 extern "C" void mgpuMemDealloc4DBF16(unsigned short *allocated,
                                      unsigned short *aligned, int64_t offset,
                                      int64_t size0, int64_t size1,
@@ -359,6 +507,16 @@ extern "C" void mgpuMemDealloc4DBF16(unsigned short *allocated,
                                      int64_t stride2, int64_t stride3) {
   hipFree(aligned);
 }
+
+extern "C" void mgpuMemDealloc5DBF16(unsigned short *allocated,
+                                     unsigned short *aligned, int64_t offset,
+                                     int64_t size0, int64_t size1,
+                                     int64_t size2, int64_t size3, int64_t size4,
+                                     int64_t stride0, int64_t stride1,
+                                     int64_t stride2, int64_t stride3, int64_t stride4) {
+  hipFree(aligned);
+}
+
 
 extern "C" void mgpuMemCopy4DBF16(
     unsigned short *sourceAllocated, unsigned short *sourceAligned,
@@ -374,6 +532,22 @@ extern "C" void mgpuMemCopy4DBF16(
                 sizeof(unsigned short),
             static_cast<hipMemcpyKind>(copyDirection));
 }
+
+extern "C" void mgpuMemCopy5DBF16(
+    unsigned short *sourceAllocated, unsigned short *sourceAligned,
+    int64_t sourceOffset, int64_t sourceSize0, int64_t sourceSize1,
+    int64_t sourceSize2, int64_t sourceSize3, int64_t sourceSize4, int64_t sourceStride0,
+    int64_t sourceStride1, int64_t sourceStride2, int64_t sourceStride3, int64_t sourceStride4,
+    unsigned short *destAllocated, unsigned short *destAligned,
+    int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
+    int64_t destSize3, int64_t destSize4, int64_t destStride0, int64_t destStride1,
+    int64_t destStride2, int64_t destStride3, int64_t destStride4, unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned,
+            sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 * sourceSize4 *
+                sizeof(unsigned short),
+            static_cast<hipMemcpyKind>(copyDirection));
+}
+
 
 typedef std::unordered_map<char, std::pair<int64_t, int64_t>> TensorDim;
 
