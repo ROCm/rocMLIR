@@ -15,7 +15,7 @@ find_solution(Solver solver, const ConvolutionContext &ctx) {
   // auto idx = name.find_last_of(':');
   // auto solverId = name.substr(idx + 1);
   std::string solverId = solver.getId();
-  llvm::errs() << "solverId=" << solverId << "\n";
+  LLVM_DEBUG(llvm::dbgs() << "solverId=" << solverId << "\n");
   bool loadRes = perfDb.load(ctx, solverId, config);
   if (loadRes) {
     if (succeeded(solver.IsValidPerformanceConfig(ctx, config))) {

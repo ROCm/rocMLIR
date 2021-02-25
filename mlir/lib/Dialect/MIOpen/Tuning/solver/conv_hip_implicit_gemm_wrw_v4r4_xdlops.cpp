@@ -1,6 +1,6 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 
-#define DEBUG_TYPE "miopen-tuning-parameter"
+#define DEBUG_TYPE "igemm-wrw-v4r4-xdl"
 
 PerformanceImplicitGemmWrwV4R4Xdlops::PerformanceImplicitGemmWrwV4R4Xdlops()
     : PerformanceImplicitGemmWrwV4R4Xdlops::
@@ -47,17 +47,17 @@ LogicalResult PerformanceImplicitGemmWrwV4R4Xdlops::EuristicInit(
       do {
         // list in reverse order of importance,
         // and favor large GEMM
-        if (!PreviousTwoPower<1, 8>(tmp.GemmKPerBlock))
+        if (!ImplicitGemmUtil::PreviousTwoPower<1, 8>(tmp.GemmKPerBlock))
           break;
-        if (!PreviousTwoPower<1, 4>(tmp.GemmKPack))
+        if (!ImplicitGemmUtil::PreviousTwoPower<1, 4>(tmp.GemmKPack))
           break;
-        if (!PreviousTwoPower<4, 128>(tmp.GemmNPerWave))
+        if (!ImplicitGemmUtil::PreviousTwoPower<4, 128>(tmp.GemmNPerWave))
           break;
-        if (!PreviousTwoPower<4, 128>(tmp.GemmMPerWave))
+        if (!ImplicitGemmUtil::PreviousTwoPower<4, 128>(tmp.GemmMPerWave))
           break;
-        if (!PreviousTwoPower<4, 256>(tmp.GemmNPerBlock))
+        if (!ImplicitGemmUtil::PreviousTwoPower<4, 256>(tmp.GemmNPerBlock))
           break;
-        if (!PreviousTwoPower<4, 256>(tmp.GemmMPerBlock))
+        if (!ImplicitGemmUtil::PreviousTwoPower<4, 256>(tmp.GemmMPerBlock))
           break;
 
         all_visited = true;
@@ -214,13 +214,15 @@ PerformanceImplicitGemmWrwV4R4Xdlops::
     LLVM_DEBUG(llvm::dbgs() << "invalid performance parameter");
 
   // GemmKPack is src vector read dimension, bounded by GemmKPack
-  SrcDataPerRead_GemmKPack = gcd(SrcDataPerRead_GemmKPack, GemmKPack);
+  SrcDataPerRead_GemmKPack =
+      ImplicitGemmUtil::gcd(SrcDataPerRead_GemmKPack, GemmKPack);
 
   // GemmPack bounded by ho*wo
   auto dimIndexVal = ctx.dimIndexVal;
   const auto ho = dimIndexVal["ho"].second;
   const auto wo = dimIndexVal["wo"].second;
-  SrcDataPerRead_GemmKPack = gcd(SrcDataPerRead_GemmKPack, ho * wo);
+  SrcDataPerRead_GemmKPack =
+      ImplicitGemmUtil::gcd(SrcDataPerRead_GemmKPack, ho * wo);
 
   // calculate threadwise copy size
   auto data_per_thread_copy =
@@ -229,7 +231,8 @@ PerformanceImplicitGemmWrwV4R4Xdlops::
 
   // make sure a thread can do a full vector load, at the cost that some threads
   // may not do threadwise copy at all
-  data_per_thread_copy = lcm(data_per_thread_copy, SrcDataPerRead_GemmKPack);
+  data_per_thread_copy =
+      ImplicitGemmUtil::lcm(data_per_thread_copy, SrcDataPerRead_GemmKPack);
 
   const auto data_per_thread_copy_gemmkpack = SrcDataPerRead_GemmKPack;
   const auto tmp = data_per_thread_copy / data_per_thread_copy_gemmkpack;
@@ -243,10 +246,10 @@ PerformanceImplicitGemmWrwV4R4Xdlops::
   int64_t data_per_thread_copy_gemmm = -1;
 
   if (GemmAThreadCopyMoreGemmK) {
-    data_per_thread_copy_gemmk = gcd(GemmKPerBlock, tmp);
+    data_per_thread_copy_gemmk = ImplicitGemmUtil::gcd(GemmKPerBlock, tmp);
     data_per_thread_copy_gemmm = tmp / data_per_thread_copy_gemmk;
   } else {
-    data_per_thread_copy_gemmm = gcd(GemmMPerBlock, tmp);
+    data_per_thread_copy_gemmm = ImplicitGemmUtil::gcd(GemmMPerBlock, tmp);
     data_per_thread_copy_gemmk = tmp / data_per_thread_copy_gemmm;
   }
 
@@ -257,8 +260,8 @@ PerformanceImplicitGemmWrwV4R4Xdlops::
   }
 
   // vector write into LDS
-  DstDataPerWrite_GemmKPack =
-      gcd(DstDataPerWrite_GemmKPack, data_per_thread_copy_gemmkpack);
+  DstDataPerWrite_GemmKPack = ImplicitGemmUtil::gcd(
+      DstDataPerWrite_GemmKPack, data_per_thread_copy_gemmkpack);
 
   if (!(GemmKPerBlock % data_per_thread_copy_gemmk == 0 &&
         GemmMPerBlock % data_per_thread_copy_gemmm == 0 &&
@@ -338,17 +341,19 @@ PerformanceImplicitGemmWrwV4R4Xdlops::
     in_left_pad_h == 0 && in_left_pad_w == 0 && in_right_pad_h == 0 &&
     in_right_pad_w == 0)
     {
-      SrcDataPerRead_GemmKPack = gcd(SrcDataPerRead_GemmKPack, ho * wo);
+      SrcDataPerRead_GemmKPack = ImplicitGemmUtil::gcd(SrcDataPerRead_GemmKPack,
+    ho * wo);
     }
     else if(conv_stride_w == 1 && in_left_pad_w == 0 && in_right_pad_w == 0)
     {
-      SrcDataPerRead_GemmKPack = gcd(SrcDataPerRead_GemmKPack, wo);
+      SrcDataPerRead_GemmKPack = ImplicitGemmUtil::gcd(SrcDataPerRead_GemmKPack,
+    wo);
     }
     else if(conv_stride_w == 1)
     {
       SrcDataPerRead_GemmKPack =
-            gcd(SrcDataPerRead_GemmKPack, wo, in_left_pad_w, in_right_pad_w,
-    conv_dilation_w);
+            ImplicitGemmUtil::gcd(SrcDataPerRead_GemmKPack, wo, in_left_pad_w,
+    in_right_pad_w, conv_dilation_w);
     }
     else
     {
@@ -356,7 +361,8 @@ PerformanceImplicitGemmWrwV4R4Xdlops::
     }
   */
   // SrcDataPerRead_GemmKPack also bounded by GemmKPack
-  SrcDataPerRead_GemmKPack = gcd(SrcDataPerRead_GemmKPack, GemmKPack);
+  SrcDataPerRead_GemmKPack =
+      ImplicitGemmUtil::gcd(SrcDataPerRead_GemmKPack, GemmKPack);
 
   // calculate threadwise copy size
   auto data_per_thread_copy =
@@ -365,7 +371,8 @@ PerformanceImplicitGemmWrwV4R4Xdlops::
 
   // make sure a thread can do a full vector load, at the cost that some threads
   // may not do threadwise copy at all
-  data_per_thread_copy = lcm(data_per_thread_copy, SrcDataPerRead_GemmKPack);
+  data_per_thread_copy =
+      ImplicitGemmUtil::lcm(data_per_thread_copy, SrcDataPerRead_GemmKPack);
 
   const auto data_per_thread_copy_gemmkpack = SrcDataPerRead_GemmKPack;
   const auto tmp = data_per_thread_copy / data_per_thread_copy_gemmkpack;
@@ -374,10 +381,10 @@ PerformanceImplicitGemmWrwV4R4Xdlops::
   int64_t data_per_thread_copy_gemmk = -1;
 
   if (GemmBThreadCopyMoreGemmK) {
-    data_per_thread_copy_gemmk = gcd(GemmKPerBlock, tmp);
+    data_per_thread_copy_gemmk = ImplicitGemmUtil::gcd(GemmKPerBlock, tmp);
     data_per_thread_copy_gemmn = tmp / data_per_thread_copy_gemmk;
   } else {
-    data_per_thread_copy_gemmn = gcd(GemmNPerBlock, tmp);
+    data_per_thread_copy_gemmn = ImplicitGemmUtil::gcd(GemmNPerBlock, tmp);
     data_per_thread_copy_gemmk = tmp / data_per_thread_copy_gemmn;
   }
 
@@ -388,8 +395,8 @@ PerformanceImplicitGemmWrwV4R4Xdlops::
   }
 
   // vector write into LDS
-  DstDataPerWrite_GemmKPack =
-      gcd(DstDataPerWrite_GemmKPack, data_per_thread_copy_gemmkpack);
+  DstDataPerWrite_GemmKPack = ImplicitGemmUtil::gcd(
+      DstDataPerWrite_GemmKPack, data_per_thread_copy_gemmkpack);
 
   if (!(GemmKPerBlock % data_per_thread_copy_gemmk == 0 &&
         GemmNPerBlock % data_per_thread_copy_gemmn == 0 &&
@@ -435,12 +442,12 @@ PerformanceImplicitGemmWrwV4R4Xdlops::CalculateLdsNumberOfByte(
 // Used by IsReallyValid()
 LogicalResult PerformanceImplicitGemmWrwV4R4Xdlops::IsValidValue() const {
   // clang-format off
-  if(  IsTwoPower<4, 256>(GemmMPerBlock)
-        && IsTwoPower<4, 256>(GemmNPerBlock)
-        && IsTwoPower<1, 8>(GemmKPerBlock)
-        && IsTwoPower<4, 128>(GemmMPerWave)
-        && IsTwoPower<4, 128>(GemmNPerWave)
-        && IsTwoPower<1, 8>(GemmKPack))
+  if( ImplicitGemmUtil::IsTwoPower<4, 256>(GemmMPerBlock) &&
+      ImplicitGemmUtil::IsTwoPower<4, 256>(GemmNPerBlock) &&
+      ImplicitGemmUtil::IsTwoPower<1, 8>(GemmKPerBlock) &&
+      ImplicitGemmUtil::IsTwoPower<4, 128>(GemmMPerWave) &&
+      ImplicitGemmUtil::IsTwoPower<4, 128>(GemmNPerWave) &&
+      ImplicitGemmUtil::IsTwoPower<1, 8>(GemmKPack))
     return success();
   // clang-format on
   return failure();
@@ -454,9 +461,9 @@ LogicalResult PerformanceImplicitGemmWrwV4R4Xdlops::IsReallyValid(
   if (failed(IsValidValue()))
     return failure();
 
-  if (failed(IsValidBlockwiseGemmXdlops(ctx, GemmMPerBlock, GemmNPerBlock,
-                                        GemmKPerBlock, GemmMPerWave,
-                                        GemmNPerWave, GemmKPack)))
+  if (failed(ImplicitGemmUtil::IsValidBlockwiseGemmXdlops(
+          ctx, GemmMPerBlock, GemmNPerBlock, GemmKPerBlock, GemmMPerWave,
+          GemmNPerWave, GemmKPack)))
     return failure();
 
   LogicalResult valid = failure();
@@ -504,7 +511,8 @@ LogicalResult PerformanceImplicitGemmWrwV4R4Xdlops::IsReallyValid(
   std::size_t lds_size = 0;
   std::tie(lds_size, valid) = CalculateLdsNumberOfByte(ctx);
 
-  if (succeeded(valid) && lds_size <= get_lds_max_number_of_byte())
+  if (succeeded(valid) &&
+      lds_size <= ImplicitGemmUtil::get_lds_max_number_of_byte())
     return success();
 
   return failure();
@@ -589,6 +597,10 @@ llvm::StringMap<int64_t> ConvHipImplicitGemmWrwV4R4Xdlops::GetSolution(
     result["matrix_b_dest_data_per_write_dim_n"] = GemmBBlockCopyDstDataPerWrite_GemmKPack;
     result["matrix_b_source_vector_read_dim"] = CalculateGemmBSrcVectorReadDim(ctx);
 
+    for (llvm::StringMap<int64_t>::iterator it = result.begin();
+       it != result.end(); ++it)
+      LLVM_DEBUG(llvm::dbgs() << it->first() << "=" << it->second << "\n");
+
     return result;
 }
 
@@ -616,6 +628,6 @@ LogicalResult ConvHipImplicitGemmWrwV4R4Xdlops::IsApplicable(const ConvolutionCo
   std::tie(std::ignore, gemm_m, gemm_n, gemm_k_total, std::ignore, std::ignore) =
     config.CalculateGemmSizeAndGemmKBlock(ctx);
 
-  return IsValidGridGemmXdlops(gemm_m, gemm_n, gemm_k_total);
+  return ImplicitGemmUtil::IsValidGridGemmXdlops(gemm_m, gemm_n, gemm_k_total);
 }
 

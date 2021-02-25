@@ -1,6 +1,6 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 
-#define DEBUG_TYPE "miopen-tuning-parameter"
+#define DEBUG_TYPE "igemm-bwd-v4r1-xdl"
 
 PerformanceImplicitGemmBwdDataV4R1Xdlops::
     PerformanceImplicitGemmBwdDataV4R1Xdlops()
@@ -72,7 +72,8 @@ PerformanceImplicitGemmBwdDataV4R1Xdlops::
       GemmNPerBlock * GemmMPerBlock / (GemmMPerWave * GemmNPerWave) * waveSize;
 
   // calculate vector length on gemmk dimension
-  SrcDataPerRead_GemmM = gcd(SrcDataPerRead_GemmM, GemmMPerBlock);
+  SrcDataPerRead_GemmM =
+      ImplicitGemmUtil::gcd(SrcDataPerRead_GemmM, GemmMPerBlock);
 
   auto dimIndexVal = ctx.dimIndexVal;
   const auto y = dimIndexVal["y"].second;
@@ -87,7 +88,8 @@ PerformanceImplicitGemmBwdDataV4R1Xdlops::
       std::max(static_cast<int64_t>(1),
                (GemmKPerBlock * GemmMPerBlock * GemmKPACKSize) / BlockSize);
 
-  a_data_per_thread_copy = lcm(a_data_per_thread_copy, SrcDataPerRead_GemmM);
+  a_data_per_thread_copy =
+      ImplicitGemmUtil::lcm(a_data_per_thread_copy, SrcDataPerRead_GemmM);
   // decide threadwise copy lengths
   const auto a_data_per_thread_copy_gemmm = SrcDataPerRead_GemmM;
   if (!(a_data_per_thread_copy_gemmm > 0)) {
@@ -100,7 +102,7 @@ PerformanceImplicitGemmBwdDataV4R1Xdlops::
   int64_t data_per_thread_copy_gemmkpack = -1;
 
   if (GemmAThreadCopyMoreGemmK) {
-    data_per_thread_copy_gemmk = gcd(GemmKPerBlock, tmp);
+    data_per_thread_copy_gemmk = ImplicitGemmUtil::gcd(GemmKPerBlock, tmp);
     if (!(data_per_thread_copy_gemmk > 0)) {
       LLVM_DEBUG(llvm::dbgs() << "invalid performance parameter: BwdV4R1Xdl");
       return std::make_tuple(-1, -1, -1, -1, -1, failure());
@@ -111,7 +113,7 @@ PerformanceImplicitGemmBwdDataV4R1Xdlops::
       return std::make_tuple(-1, -1, -1, -1, -1, failure());
     }
   } else {
-    data_per_thread_copy_gemmkpack = gcd(GemmKPACKSize, tmp);
+    data_per_thread_copy_gemmkpack = ImplicitGemmUtil::gcd(GemmKPACKSize, tmp);
     if (!(data_per_thread_copy_gemmkpack > 0)) {
       LLVM_DEBUG(llvm::dbgs() << "invalid performance parameter: BwdV4R1Xdl");
       return std::make_tuple(-1, -1, -1, -1, -1, failure());
@@ -125,8 +127,8 @@ PerformanceImplicitGemmBwdDataV4R1Xdlops::
 
   if (DstDataPerWrite_GemmKPack > data_per_thread_copy_gemmkpack)
     DstDataPerWrite_GemmKPack = data_per_thread_copy_gemmkpack;
-  DstDataPerWrite_GemmKPack =
-      gcd(DstDataPerWrite_GemmKPack, data_per_thread_copy_gemmkpack);
+  DstDataPerWrite_GemmKPack = ImplicitGemmUtil::gcd(
+      DstDataPerWrite_GemmKPack, data_per_thread_copy_gemmkpack);
 
   if (!(GemmKPerBlock % data_per_thread_copy_gemmk == 0 &&
         GemmMPerBlock % a_data_per_thread_copy_gemmm == 0 &&
@@ -166,7 +168,8 @@ PerformanceImplicitGemmBwdDataV4R1Xdlops::
   const auto BlockSize =
       GemmNPerBlock * GemmMPerBlock / (GemmMPerWave * GemmNPerWave) * waveSize;
 
-  SrcDataPerRead_GemmN = gcd(SrcDataPerRead_GemmN, GemmNPerBlock);
+  SrcDataPerRead_GemmN =
+      ImplicitGemmUtil::gcd(SrcDataPerRead_GemmN, GemmNPerBlock);
 
   // calculate vector length on gemmn dimension
   auto dimIndexVal = ctx.dimIndexVal;
@@ -177,7 +180,7 @@ PerformanceImplicitGemmBwdDataV4R1Xdlops::
   if (y == 1 && x == 1) {
     const auto ho = dimIndexVal["ho"].second;
     const auto wo = dimIndexVal["wo"].second;
-    SrcDataPerRead_GemmN = gcd(SrcDataPerRead_GemmN, ho * wo);
+    SrcDataPerRead_GemmN = ImplicitGemmUtil::gcd(SrcDataPerRead_GemmN, ho * wo);
   } else {
     SrcDataPerRead_GemmN = 1;
   }
@@ -192,7 +195,8 @@ PerformanceImplicitGemmBwdDataV4R1Xdlops::
     return std::make_tuple(-1, -1, -1, -1, -1, failure());
   }
 
-  b_data_per_thread_copy = lcm(SrcDataPerRead_GemmN, b_data_per_thread_copy);
+  b_data_per_thread_copy =
+      ImplicitGemmUtil::lcm(SrcDataPerRead_GemmN, b_data_per_thread_copy);
   if (BlockSize > GemmNPerBlock && GemmKPACKSize > BlockSize / GemmNPerBlock) {
     LLVM_DEBUG(llvm::dbgs() << "invalid performance parameter: BwdV4R1Xdl");
     return std::make_tuple(-1, -1, -1, -1, -1, failure());
@@ -213,7 +217,7 @@ PerformanceImplicitGemmBwdDataV4R1Xdlops::
   int64_t data_per_thread_copy_gemmk = -1;
 
   if (GemmBThreadCopyMoreGemmKPack) {
-    data_per_thread_copy_gemmkpack = gcd(GemmKPACKSize, tmp);
+    data_per_thread_copy_gemmkpack = ImplicitGemmUtil::gcd(GemmKPACKSize, tmp);
     if (!(data_per_thread_copy_gemmkpack > 0)) {
       LLVM_DEBUG(llvm::dbgs() << "invalid performance parameter: BwdV4R1Xdl");
       return std::make_tuple(-1, -1, -1, -1, -1, failure());
@@ -225,7 +229,7 @@ PerformanceImplicitGemmBwdDataV4R1Xdlops::
       return std::make_tuple(-1, -1, -1, -1, -1, failure());
     }
   } else {
-    data_per_thread_copy_gemmk = gcd(GemmKPerBlock, tmp);
+    data_per_thread_copy_gemmk = ImplicitGemmUtil::gcd(GemmKPerBlock, tmp);
     if (!(data_per_thread_copy_gemmk > 0)) {
       LLVM_DEBUG(llvm::dbgs() << "invalid performance parameter: BwdV4R1Xdl");
       return std::make_tuple(-1, -1, -1, -1, -1, failure());
@@ -241,8 +245,8 @@ PerformanceImplicitGemmBwdDataV4R1Xdlops::
   if (DstDataPerWrite_GemmKPack > data_per_thread_copy_gemmkpack)
     DstDataPerWrite_GemmKPack = data_per_thread_copy_gemmkpack;
 
-  DstDataPerWrite_GemmKPack =
-      gcd(DstDataPerWrite_GemmKPack, data_per_thread_copy_gemmkpack);
+  DstDataPerWrite_GemmKPack = ImplicitGemmUtil::gcd(
+      DstDataPerWrite_GemmKPack, data_per_thread_copy_gemmkpack);
 
   if (!(GemmKPerBlock % data_per_thread_copy_gemmk == 0 &&
         GemmNPerBlock % data_per_thread_copy_gemmn == 0 &&
@@ -308,15 +312,17 @@ PerformanceImplicitGemmBwdDataV4R1Xdlops::CalculateLdsNumberOfByte(
   const auto ThreadGemmDataPerRead_GemmN =
       GemmNPerBlock / GemmBBlockCopyClusterLengths_GemmN;
 
-  const auto max_lds_align =
-      lcm(GemmABlockCopyDescDataPerWriteGemmKPACK,
-          GemmBBlockCopyDescDataPerWriteGemmKPACK, ThreadGemmDataPerRead_GemmM,
-          ThreadGemmDataPerRead_GemmN);
+  const auto max_lds_align = ImplicitGemmUtil::lcm(
+      GemmABlockCopyDescDataPerWriteGemmKPACK,
+      GemmBBlockCopyDescDataPerWriteGemmKPACK, ThreadGemmDataPerRead_GemmM,
+      ThreadGemmDataPerRead_GemmN);
 
   const auto a_block_space =
-      GemmKPerBlock * integer_least_multiple(GemmMPerBlock, max_lds_align);
+      GemmKPerBlock *
+      ImplicitGemmUtil::integer_least_multiple(GemmMPerBlock, max_lds_align);
   const auto b_block_space =
-      GemmKPerBlock * integer_least_multiple(GemmNPerBlock, max_lds_align);
+      GemmKPerBlock *
+      ImplicitGemmUtil::integer_least_multiple(GemmNPerBlock, max_lds_align);
   lds_size = (a_block_space + b_block_space) * 4 * GemmKPack;
 
   return std::make_tuple(lds_size, success());
@@ -360,9 +366,9 @@ LogicalResult PerformanceImplicitGemmBwdDataV4R1Xdlops::IsReallyValid(
         GemmK % GemmKPerBlock == 0))
     return failure(); // wrong! cannot divice N evenly among thread
 
-  if (failed(IsValidBlockwiseGemmXdlops(ctx, GemmMPerBlock, GemmNPerBlock,
-                                        GemmKPerBlock, GemmMPerWave,
-                                        GemmNPerWave, GemmKPACKSize)))
+  if (failed(ImplicitGemmUtil::IsValidBlockwiseGemmXdlops(
+          ctx, GemmMPerBlock, GemmNPerBlock, GemmKPerBlock, GemmMPerWave,
+          GemmNPerWave, GemmKPACKSize)))
     return failure();
 
   LogicalResult valid = failure();
@@ -392,12 +398,13 @@ LogicalResult PerformanceImplicitGemmBwdDataV4R1Xdlops::IsReallyValid(
 
 LogicalResult PerformanceImplicitGemmBwdDataV4R1Xdlops::IsValidValue() const {
   // clang-format off
-  if(IsTwoPower<16,256>(GemmNPerBlock)
-        && IsTwoPower<4,256>(GemmMPerBlock)
-        && IsTwoPower<1,8>(GemmKPerBlock)
-        && IsTwoPower<1,8>(GemmKPACKSize)
-        && IsTwoPower<4,128>(GemmMPerWave)
-        && IsTwoPower<16,128>(GemmNPerWave)) // clang-format on
+  if(ImplicitGemmUtil::IsTwoPower<16,256>(GemmNPerBlock) &&
+     ImplicitGemmUtil::IsTwoPower<4,256>(GemmMPerBlock) &&
+     ImplicitGemmUtil::IsTwoPower<1,8>(GemmKPerBlock) &&
+     ImplicitGemmUtil::IsTwoPower<1,8>(GemmKPACKSize) &&
+     ImplicitGemmUtil::IsTwoPower<4,128>(GemmMPerWave) &&
+     ImplicitGemmUtil::IsTwoPower<16,128>(GemmNPerWave))
+    // clang-format on
     return success();
 
   return failure();
@@ -417,17 +424,17 @@ LogicalResult PerformanceImplicitGemmBwdDataV4R1Xdlops::EuristicInit(
       do {
         // list in reverse order of importance,
         // and favor large GEMM
-        if (!PreviousTwoPower<1, 8>(tmp.GemmKPerBlock))
+        if (!ImplicitGemmUtil::PreviousTwoPower<1, 8>(tmp.GemmKPerBlock))
           break;
-        if (!PreviousTwoPower<1, 4>(tmp.GemmKPACKSize))
+        if (!ImplicitGemmUtil::PreviousTwoPower<1, 4>(tmp.GemmKPACKSize))
           break;
-        if (!PreviousTwoPower<16, 128>(tmp.GemmNPerWave))
+        if (!ImplicitGemmUtil::PreviousTwoPower<16, 128>(tmp.GemmNPerWave))
           break;
-        if (!PreviousTwoPower<4, 128>(tmp.GemmMPerWave))
+        if (!ImplicitGemmUtil::PreviousTwoPower<4, 128>(tmp.GemmMPerWave))
           break;
-        if (!PreviousTwoPower<16, 256>(tmp.GemmNPerBlock))
+        if (!ImplicitGemmUtil::PreviousTwoPower<16, 256>(tmp.GemmNPerBlock))
           break;
-        if (!PreviousTwoPower<4, 256>(tmp.GemmMPerBlock))
+        if (!ImplicitGemmUtil::PreviousTwoPower<4, 256>(tmp.GemmMPerBlock))
           break;
 
         all_visited = true;
@@ -458,8 +465,10 @@ int64_t ConvHipImplicitGemmBwdDataV4R1Xdlops::CalculateNumberOfGemm(
   const auto conv_dilation_h = ctx.dilationVal[0];
   const auto conv_dilation_w = ctx.dilationVal[1];
 
-  const auto gcd_stride_dilation_h = gcd(conv_stride_h, conv_dilation_h);
-  const auto gcd_stride_dilation_w = gcd(conv_stride_w, conv_dilation_w);
+  const auto gcd_stride_dilation_h =
+      ImplicitGemmUtil::gcd(conv_stride_h, conv_dilation_h);
+  const auto gcd_stride_dilation_w =
+      ImplicitGemmUtil::gcd(conv_stride_w, conv_dilation_w);
 
   const auto ytilda = conv_stride_h / gcd_stride_dilation_h;
   const auto xtilda = conv_stride_w / gcd_stride_dilation_w;
@@ -488,19 +497,21 @@ ConvHipImplicitGemmBwdDataV4R1Xdlops::CalculateGemmSize(
   const auto in_left_pad_h = ctx.paddingVal[0];
   const auto in_left_pad_w = ctx.paddingVal[1];
 
-  const auto gcd_stride_dilation_h = gcd(conv_stride_h, conv_dilation_h);
-  const auto gcd_stride_dilation_w = gcd(conv_stride_w, conv_dilation_w);
+  const auto gcd_stride_dilation_h =
+      ImplicitGemmUtil::gcd(conv_stride_h, conv_dilation_h);
+  const auto gcd_stride_dilation_w =
+      ImplicitGemmUtil::gcd(conv_stride_w, conv_dilation_w);
 
   const auto ytilda = conv_stride_h / gcd_stride_dilation_h;
   const auto xtilda = conv_stride_w / gcd_stride_dilation_w;
 
-  const auto ydot = integer_divide_ceil(y, ytilda);
-  const auto xdot = integer_divide_ceil(x, xtilda);
+  const auto ydot = ImplicitGemmUtil::integer_divide_ceil(y, ytilda);
+  const auto xdot = ImplicitGemmUtil::integer_divide_ceil(x, xtilda);
 
-  const auto htilda =
-      ho + integer_divide_ceil(conv_dilation_h * (y - 1), conv_stride_h);
-  const auto wtilda =
-      wo + integer_divide_ceil(conv_dilation_w * (x - 1), conv_stride_w);
+  const auto htilda = ho + ImplicitGemmUtil::integer_divide_ceil(
+                               conv_dilation_h * (y - 1), conv_stride_h);
+  const auto wtilda = wo + ImplicitGemmUtil::integer_divide_ceil(
+                               conv_dilation_w * (x - 1), conv_stride_w);
 
   // int64_termediate result could be negative, use int64_t instead of size_t
   const auto htilda_left =
@@ -512,10 +523,14 @@ ConvHipImplicitGemmBwdDataV4R1Xdlops::CalculateGemmSize(
                in_left_pad_w - conv_dilation_w * (xtilda - 1)) /
       conv_stride_w;
 
-  const auto htilda_right = std::min(
-      htilda, integer_divide_ceil(in_left_pad_h + hi - 1, conv_stride_h) + 1);
-  const auto wtilda_right = std::min(
-      wtilda, integer_divide_ceil(in_left_pad_w + wi - 1, conv_stride_w) + 1);
+  const auto htilda_right =
+      std::min(htilda, ImplicitGemmUtil::integer_divide_ceil(
+                           in_left_pad_h + hi - 1, conv_stride_h) +
+                           1);
+  const auto wtilda_right =
+      std::min(wtilda, ImplicitGemmUtil::integer_divide_ceil(
+                           in_left_pad_w + wi - 1, conv_stride_w) +
+                           1);
 
   const auto htilda_slice = htilda_right - htilda_left;
   const auto wtilda_slice = wtilda_right - wtilda_left;
@@ -550,7 +565,8 @@ LogicalResult ConvHipImplicitGemmBwdDataV4R1Xdlops::IsApplicable(
   for (int64_t gemm_id = 0; gemm_id < CalculateNumberOfGemm(ctx); ++gemm_id) {
     std::tie(gemm_g, gemm_m, gemm_n, gemm_k_total) =
         CalculateGemmSize(ctx, gemm_id);
-    if (failed(IsValidGridGemmXdlops(gemm_m, gemm_n, gemm_k_total)))
+    if (failed(ImplicitGemmUtil::IsValidGridGemmXdlops(gemm_m, gemm_n,
+                                                       gemm_k_total)))
       return failure();
   }
   return success();

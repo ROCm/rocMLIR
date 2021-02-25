@@ -838,8 +838,10 @@ void mlir::translateModuleFromMIOpenToHeader(ModuleOp m, std::string &header) {
           op->getAttrOfType<ArrayAttr>("filter_dimension");
       populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
 
-      obtainGemmADimKVectorizable(opType, dimIndexVal, input1GemmKVectorizable);
-      obtainGemmBDimKVectorizable(opType, dimIndexVal, input2GemmKVectorizable);
+      ImplicitGemmUtil::obtainGemmADimKVectorizable(opType, dimIndexVal,
+                                                    input1GemmKVectorizable);
+      ImplicitGemmUtil::obtainGemmBDimKVectorizable(opType, dimIndexVal,
+                                                    input2GemmKVectorizable);
     });
 
     EmitHeaderEpilogue(output, gridwiseGemmArguments, input1GemmKVectorizable,

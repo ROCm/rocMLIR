@@ -1,6 +1,6 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 
-#define DEBUG_TYPE "miopen-tuning-parameter"
+#define DEBUG_TYPE "igemm-bwd-v1r1"
 
 PerformanceImplicitGemmBwdDataV1R1::PerformanceImplicitGemmBwdDataV1R1(
     int64_t BlockSize_, int64_t GemmMPerBlock_, int64_t GemmNPerBlock_,
@@ -107,7 +107,8 @@ PerformanceImplicitGemmBwdDataV1R1::
   int64_t DstDataPerWrite_GemmKPACK = 4;
 
   // calculate vector length on gemmk dimension
-  SrcDataPerRead_GemmM = gcd(SrcDataPerRead_GemmM, GemmMPerBlock);
+  SrcDataPerRead_GemmM =
+      ImplicitGemmUtil::gcd(SrcDataPerRead_GemmM, GemmMPerBlock);
 
   // calculate threadwise copy size
   const auto a_data_per_thread_copy =
@@ -117,7 +118,8 @@ PerformanceImplicitGemmBwdDataV1R1::
     return std::make_tuple(-1, -1, -1, -1, failure());
 
   // GemmABlockCopySrcDataPerRead_GemmK also bounded by size of threadwise copy
-  SrcDataPerRead_GemmM = gcd(SrcDataPerRead_GemmM, a_data_per_thread_copy);
+  SrcDataPerRead_GemmM =
+      ImplicitGemmUtil::gcd(SrcDataPerRead_GemmM, a_data_per_thread_copy);
 
   // decide threadwise copy lengths
   const auto a_data_per_thread_copy_gemmm = SrcDataPerRead_GemmM;
@@ -125,8 +127,8 @@ PerformanceImplicitGemmBwdDataV1R1::
       a_data_per_thread_copy / a_data_per_thread_copy_gemmm;
 
   if (1) { // if (ctx.IsFp32())
-    DstDataPerWrite_GemmM =
-        gcd(DstDataPerWrite_GemmM, a_data_per_thread_copy_gemmm);
+    DstDataPerWrite_GemmM = ImplicitGemmUtil::gcd(DstDataPerWrite_GemmM,
+                                                  a_data_per_thread_copy_gemmm);
   }
 
   // calculate blockwise copy thread cluster lengths
@@ -157,14 +159,15 @@ PerformanceImplicitGemmBwdDataV1R1::
   int64_t DstDataPerWrite_GemmN = 4;
   int64_t DstDataPerWrite_GemmKPACK = 4; // GetEPackLength(ctx, false);
 
-  SrcDataPerRead_GemmN = gcd(SrcDataPerRead_GemmN, GemmNPerBlock);
+  SrcDataPerRead_GemmN =
+      ImplicitGemmUtil::gcd(SrcDataPerRead_GemmN, GemmNPerBlock);
 
   // calculate vector length on gemmn dimension
   auto dimIndexVal = ctx.dimIndexVal;
   const auto ho = dimIndexVal["ho"].second;
   const auto wo = dimIndexVal["wo"].second;
 
-  SrcDataPerRead_GemmN = gcd(SrcDataPerRead_GemmN, ho * wo);
+  SrcDataPerRead_GemmN = ImplicitGemmUtil::gcd(SrcDataPerRead_GemmN, ho * wo);
 
   // calculate threadwise copy size
   const auto b_data_per_thread_copy =
@@ -174,7 +177,8 @@ PerformanceImplicitGemmBwdDataV1R1::
     return std::make_tuple(-1, -1, -1, -1, failure());
 
   // GemmBBlockCopySrcDataPerRead_GemmN also bounded by size of threadwise copy
-  SrcDataPerRead_GemmN = gcd(SrcDataPerRead_GemmN, b_data_per_thread_copy);
+  SrcDataPerRead_GemmN =
+      ImplicitGemmUtil::gcd(SrcDataPerRead_GemmN, b_data_per_thread_copy);
 
   const auto b_data_per_thread_copy_gemmn = SrcDataPerRead_GemmN;
   const auto b_data_per_thread_copy_gemmk =
@@ -182,8 +186,8 @@ PerformanceImplicitGemmBwdDataV1R1::
 
   // GemmBBlockCopyDstDataPerWrite_GemmN also bounded by size of threadwise copy
   if (1) { // if(ctx.IsFp32())
-    DstDataPerWrite_GemmN =
-        gcd(DstDataPerWrite_GemmN, b_data_per_thread_copy_gemmn);
+    DstDataPerWrite_GemmN = ImplicitGemmUtil::gcd(DstDataPerWrite_GemmN,
+                                                  b_data_per_thread_copy_gemmn);
   }
 
   // calculate blockwise copy thread cluster lengths
@@ -211,7 +215,8 @@ std::tuple<int64_t, LogicalResult> PerformanceImplicitGemmBwdDataV1R1::
   int64_t DstDataPerWrite_GemmN1 = 4;
 
   // GemmCThreadCopyDstDataPerWrite_GemmN1 bounded by size of threadwise GEMM
-  DstDataPerWrite_GemmN1 = gcd(DstDataPerWrite_GemmN1, GemmNPerThread);
+  DstDataPerWrite_GemmN1 =
+      ImplicitGemmUtil::gcd(DstDataPerWrite_GemmN1, GemmNPerThread);
 
   // GemmCThreadCopyDstDataPerWrite_GemmN1 limited by global memory layout of
   // input tensor calculate vector length on gemmn dimension
@@ -232,10 +237,12 @@ std::tuple<int64_t, LogicalResult> PerformanceImplicitGemmBwdDataV1R1::
       in_left_pad_h == 0 && in_left_pad_w == 0 && in_right_pad_h == 0 &&
       in_right_pad_w == 0) {
     // \todo there are more configs that can go through this if branch
-    DstDataPerWrite_GemmN1 = gcd(DstDataPerWrite_GemmN1, hi * wi);
+    DstDataPerWrite_GemmN1 =
+        ImplicitGemmUtil::gcd(DstDataPerWrite_GemmN1, hi * wi);
   } else if (conv_stride_w == 1) {
-    DstDataPerWrite_GemmN1 = gcd(DstDataPerWrite_GemmN1, in_left_pad_w, wi,
-                                 in_right_pad_w, conv_dilation_w);
+    DstDataPerWrite_GemmN1 =
+        ImplicitGemmUtil::gcd(DstDataPerWrite_GemmN1, in_left_pad_w, wi,
+                              in_right_pad_w, conv_dilation_w);
   } else {
     DstDataPerWrite_GemmN1 = 1;
   }
@@ -269,14 +276,16 @@ PerformanceImplicitGemmBwdDataV1R1::CalculateLdsNumberOfByte(
   const auto ThreadGemmDataPerRead_GemmM = GemmMPerThread;
   const auto ThreadGemmDataPerRead_GemmN = GemmNPerThread;
 
-  const auto max_lds_align = lcm(
+  const auto max_lds_align = ImplicitGemmUtil::lcm(
       GemmABlockCopyDescDataPerWriteGemm, GemmBBlockCopyDescDataPerWriteGemm,
       ThreadGemmDataPerRead_GemmM, ThreadGemmDataPerRead_GemmN);
 
   const auto a_block_space =
-      GemmKPerBlock * integer_least_multiple(GemmMPerBlock, max_lds_align);
+      GemmKPerBlock *
+      ImplicitGemmUtil::integer_least_multiple(GemmMPerBlock, max_lds_align);
   const auto b_block_space =
-      GemmKPerBlock * integer_least_multiple(GemmNPerBlock, max_lds_align);
+      GemmKPerBlock *
+      ImplicitGemmUtil::integer_least_multiple(GemmNPerBlock, max_lds_align);
 
   lds_size = 2 * (a_block_space + b_block_space) * sizeof(float);
 
@@ -285,12 +294,12 @@ PerformanceImplicitGemmBwdDataV1R1::CalculateLdsNumberOfByte(
 
 LogicalResult PerformanceImplicitGemmBwdDataV1R1::IsValidValue() const {
   // clang-format off
-  if( IsTwoPower<64, 256>(BlockSize) &&
-      IsTwoPower<32, 128>(GemmMPerBlock) &&
-      IsTwoPower<32, 128>(GemmNPerBlock) &&
-      IsTwoPower<4, 16>(GemmKPerBlock) &&
-      IsTwoPower<2, 4>(GemmMPerThread) &&
-      IsTwoPower<2, 4>(GemmNPerThread))
+  if( ImplicitGemmUtil::IsTwoPower<64, 256>(BlockSize) &&
+      ImplicitGemmUtil::IsTwoPower<32, 128>(GemmMPerBlock) &&
+      ImplicitGemmUtil::IsTwoPower<32, 128>(GemmNPerBlock) &&
+      ImplicitGemmUtil::IsTwoPower<4, 16>(GemmKPerBlock) &&
+      ImplicitGemmUtil::IsTwoPower<2, 4>(GemmMPerThread) &&
+      ImplicitGemmUtil::IsTwoPower<2, 4>(GemmNPerThread))
     return success();
 
   return failure();
@@ -352,7 +361,8 @@ LogicalResult PerformanceImplicitGemmBwdDataV1R1::IsValid(
   std::size_t lds_size = 0;
   std::tie(lds_size, valid) = CalculateLdsNumberOfByte(ctx);
 
-  if (succeeded(valid) && lds_size <= get_lds_max_number_of_byte())
+  if (succeeded(valid) &&
+      lds_size <= ImplicitGemmUtil::get_lds_max_number_of_byte())
     return success();
 
   return failure();
@@ -396,7 +406,8 @@ LogicalResult PerformanceImplicitGemmBwdDataV1R1::EuristicInit(
       return success();
     }
   }
-  llvm::errs() << "FATAL ERROR! COULD NOT FIND VALID TUNING PARAMETERS!\n";
+  LLVM_DEBUG(
+      llvm::dbgs() << "FATAL ERROR! COULD NOT FIND VALID TUNING PARAMETERS!\n");
   return failure();
 }
 
@@ -535,5 +546,10 @@ llvm::StringMap<int64_t> ConvHipImplicitGemmBwdDataV1R1::GetSolution(
       CalculateGemmASrcVectorReadDim(ctx);
   result["matrix_b_source_vector_read_dim"] =
       CalculateGemmBSrcVectorReadDim(ctx);
+
+  for (llvm::StringMap<int64_t>::iterator it = result.begin();
+       it != result.end(); ++it)
+    LLVM_DEBUG(llvm::dbgs() << it->first() << "=" << it->second << "\n");
+
   return result;
 }

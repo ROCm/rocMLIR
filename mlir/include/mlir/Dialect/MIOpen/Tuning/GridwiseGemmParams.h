@@ -357,7 +357,8 @@ struct SolverBase {
   int64_t CalculateGemmASrcVectorReadDim(const ConvolutionContext &ctx) const {
     auto dimIndexVal = ctx.dimIndexVal;
     bool Vectorizable = false;
-    obtainGemmADimKVectorizable(ctx.opType, dimIndexVal, Vectorizable);
+    ImplicitGemmUtil::obtainGemmADimKVectorizable(ctx.opType, dimIndexVal,
+                                                  Vectorizable);
     if (Vectorizable)
       return 1;
     else
@@ -367,7 +368,8 @@ struct SolverBase {
   int64_t CalculateGemmBSrcVectorReadDim(const ConvolutionContext &ctx) const {
     auto dimIndexVal = ctx.dimIndexVal;
     bool Vectorizable;
-    obtainGemmBDimKVectorizable(ctx.opType, dimIndexVal, Vectorizable);
+    ImplicitGemmUtil::obtainGemmBDimKVectorizable(ctx.opType, dimIndexVal,
+                                                  Vectorizable);
     if (Vectorizable)
       return 1;
     else

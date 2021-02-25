@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRMIOpenTuning
   SqliteDb.cpp
   GridwiseGemmParams.cpp
+  ImplicitGemm_util.cpp
   solver/conv_hip_implicit_gemm_fwd_v4r4.cpp
   solver/conv_hip_implicit_gemm_wrw_v4r4.cpp
   solver/conv_hip_implicit_gemm_bwd_v1r1.cpp
