@@ -1,6 +1,6 @@
 #include <cstddef>
 
-namespace mlir {
+#define MLIRMIOPEN_VERSION_FLAT 0
 
 /*! @brief The MLIR handle used for lowering and code generation
  */
@@ -52,5 +52,3 @@ extern "C" void MlirGenIgemmBin(MlirHandle mlirHandle, char **buffer,
  *  @param handle MLIR handle
  */
 extern "C" void DestroyMlirHandle(MlirHandle handle);
-
-} // namespace mlir
