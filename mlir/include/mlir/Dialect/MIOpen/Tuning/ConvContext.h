@@ -15,6 +15,8 @@
 
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Types.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
 
@@ -28,15 +30,19 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallVector<int64_t, 0> strideVal;
   llvm::SmallVector<int64_t, 0> dilationVal;
   llvm::SmallVector<int64_t, 0> paddingVal;
+  bool isXdlOp;
+  MemRefType filterType, inputType, outputType;
 
   ConvolutionContext(const llvm::SmallString<8> &architecture, int numCu,
                      miopen::ConvOpType op,
                      llvm::StringMap<std::pair<size_t, int64_t>> dim,
                      llvm::SmallVector<int64_t, 0> stride,
                      llvm::SmallVector<int64_t, 0> dilation,
-                     llvm::SmallVector<int64_t, 0> padding)
+                     llvm::SmallVector<int64_t, 0> padding, bool xdl,
+                     MemRefType fType, MemRefType iType, MemRefType oType)
       : arch(architecture), num_cu(numCu), opType(op), dimIndexVal(dim),
-        strideVal(stride), dilationVal(dilation), paddingVal(padding) {}
+        strideVal(stride), dilationVal(dilation), paddingVal(padding),
+        isXdlOp(xdl), filterType(fType), inputType(iType), outputType(oType) {}
 
   llvm::StringMap<std::pair<size_t, int64_t>> getDimIndexVal() const {
     return dimIndexVal;
@@ -45,6 +51,21 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallVector<int64_t, 0> getStrideVal() const { return strideVal; }
   llvm::SmallVector<int64_t, 0> getDilationVal() const { return dilationVal; }
   miopen::ConvOpType getOpType() const { return opType; }
+  bool IsF32() const {
+    return filterType.getElementType().isF32() &&
+           inputType.getElementType().isF32() &&
+           outputType.getElementType().isF32();
+  }
+  bool IsF16() const {
+    return filterType.getElementType().isF16() &&
+           inputType.getElementType().isF16() &&
+           outputType.getElementType().isF16();
+  }
+  bool IsBF16() const {
+    return filterType.getElementType().isBF16() &&
+           inputType.getElementType().isBF16() &&
+           outputType.getElementType().isBF16();
+  }
 
   static std::string tableName() { return "config"; }
 
@@ -175,8 +196,19 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
   llvm::SmallVector<int64_t, 0> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 
-  return {archVal,   numCuVal,    opType,    dimIndexVal,
-          strideVal, dilationVal, paddingVal};
+  auto xdl = false;
+  auto xdlopsAttr = op->template getAttrOfType<BoolAttr>("xdlops");
+  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
+  if ((xdlopsAttr && xdlopsAttr.getValue() == true) ||
+      (xdlopsV2Attr && xdlopsV2Attr.getValue() == true))
+    xdl = true;
+
+  auto filterType = op.filter().getType().template dyn_cast<MemRefType>();
+  auto inputType = op.input().getType().template dyn_cast<MemRefType>();
+  auto outputType = op.output().getType().template dyn_cast<MemRefType>();
+
+  return {archVal,    numCuVal, opType,     dimIndexVal, strideVal, dilationVal,
+          paddingVal, xdl,      filterType, inputType,   outputType};
 }
 
 } // namespace mlir
