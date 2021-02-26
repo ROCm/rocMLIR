@@ -551,6 +551,9 @@ LogicalResult ConvHipImplicitGemmForwardV4R4Xdlops::IsApplicable(
   if (!(ctx.isXdlOp))
     return failure();
 
+  if (!(ctx.IsF32() || ctx.IsF16() || ctx.IsBF16()))
+    return failure();
+
   // gemm size
   {
     int64_t gemm_g = -1;

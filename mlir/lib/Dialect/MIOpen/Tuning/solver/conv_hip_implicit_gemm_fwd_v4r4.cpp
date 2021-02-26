@@ -418,6 +418,9 @@ ConvHipImplicitGemmV4R4Fwd::IsApplicable(const ConvolutionContext &ctx) const {
   if (ctx.isXdlOp)
     return failure();
 
+  if (!(ctx.IsF32()))
+    return failure();
+
   int64_t gemm_m = 0;
   int64_t gemm_n = 0;
   int64_t gemm_k = 0;

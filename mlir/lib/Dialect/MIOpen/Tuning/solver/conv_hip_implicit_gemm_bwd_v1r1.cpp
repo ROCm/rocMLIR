@@ -438,6 +438,9 @@ LogicalResult ConvHipImplicitGemmBwdDataV1R1::IsApplicable(
   if (ctx.isXdlOp)
     return failure();
 
+  if (!(ctx.IsF32() || ctx.IsBF16()))
+    return failure();
+
   int64_t gemm_m = 0;
   int64_t gemm_n = 0;
   int64_t gemm_k = 0;

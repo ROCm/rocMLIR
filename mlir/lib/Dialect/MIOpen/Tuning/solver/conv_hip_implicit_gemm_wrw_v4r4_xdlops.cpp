@@ -612,6 +612,9 @@ LogicalResult ConvHipImplicitGemmWrwV4R4Xdlops::IsApplicable(const ConvolutionCo
   if (!(ctx.isXdlOp))
     return failure();
    
+  if(!(ctx.IsF32() || ctx.IsF16() || ctx.IsBF16()))
+    return failure();
+
   // this particular EuristicInit is so comprehensive, that if it cannot predict a valid
   // performance config, the problem is probably not applicable
   PerformanceImplicitGemmWrwV4R4Xdlops config;
