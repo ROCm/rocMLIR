@@ -51,6 +51,7 @@ if( NOT BUILD_SHARED_LIBS )
     set(full_output_path ${LLVM_LIBRARY_DIR}/lib${output_archive}.a)
     set(output_archive_dummy_file ./${output_archive}.dummy.cpp)
     set(install_path /opt/rocm/lib/lib${output_archive}.a)
+    set(header_path /opt/rocm/include/)
 
     # Step one: construct mri file.
     add_custom_command(OUTPUT ${output_archive_dummy_file}
@@ -72,6 +73,7 @@ if( NOT BUILD_SHARED_LIBS )
                        POST_BUILD
                        COMMAND ${CMAKE_AR} -M < ${mri_file}
                        COMMAND ${CMAKE_COMMAND} -E copy ${full_output_path} ${install_path}
+                       COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/mlir-miopen-lib.hpp ${header_path}
                        DEPENDS ${output_archive_dummy_file})
   endfunction(combine_archives)
 
