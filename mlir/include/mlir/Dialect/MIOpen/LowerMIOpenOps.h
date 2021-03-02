@@ -2343,9 +2343,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     bop.setAttr("m_waves", b.getI32IntegerAttr(MWaves));
     bop.setAttr("n_waves", b.getI32IntegerAttr(NWaves));
 
-    int64_t M = bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[1];
-    int64_t N = bop.matrixB().getType().template dyn_cast<MemRefType>().getShape()[1];
-    int64_t K = bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[0];
+    int64_t M = bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[2];
+    int64_t N = bop.matrixB().getType().template dyn_cast<MemRefType>().getShape()[2];
+    int64_t K = bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[1];
 
     bop.setAttr("m", b.getI32IntegerAttr(M));
     bop.setAttr("n", b.getI32IntegerAttr(N));
