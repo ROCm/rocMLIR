@@ -76,6 +76,7 @@ struct InitParams {
 };
 
 struct GemmSize {
+  int64_t gemmG;
   int64_t gemmM;
   int64_t gemmN;
   int64_t gemmK;
@@ -355,12 +356,16 @@ protected:
   }
 
   static void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
+    gemmSize.gemmG = 1;
+    if(ctx.dimIndexVal.count("g"))
+        gemmSize.gemmG = ctx.dimIndexVal["g"].second;
+    
     if (ctx.opType == mlir::miopen::ConvOpType::Conv2DOpType) {
-      gemmSize.gemmM = ctx.dimIndexVal["k"].second;
+      gemmSize.gemmM = ctx.dimIndexVal["k"].second / gemmSize.gemmG;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second *
                        ctx.dimIndexVal["ho"].second *
                        ctx.dimIndexVal["wo"].second;
-      gemmSize.gemmK = ctx.dimIndexVal["c"].second *
+      gemmSize.gemmK = (ctx.dimIndexVal["c"].second / gemmSize.gemmG)*
                        ctx.dimIndexVal["y"].second *
                        ctx.dimIndexVal["x"].second;
     } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
@@ -384,7 +389,8 @@ protected:
 
   int64_t obtainGridSize(GemmSize &gemmSize, InitParams *param) {
     return (gemmSize.gemmM / param->gemmMPerBlock) *
-           (gemmSize.gemmN / param->gemmNPerBlock);
+           (gemmSize.gemmN / param->gemmNPerBlock) * 
+           gemmSize.gemmG;
   }
 
   mlir::LogicalResult isValidGemm(InitParams *param, GemmSize &gemmSize) {
