@@ -173,26 +173,29 @@ public:
 
   static void obtainFilterVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
+    auto g = dimIndexVal["g"].second;
+    auto cgroup = dimIndexVal["c"].second  / g;
+    auto kgroup =  dimIndexVal["k"].second / g;
     // Vectorization length logic is the same for forward and bwd_data
     if (dimIndexVal["k"].first == 3) {
-      vecLen = dimIndexVal["k"].second;
+      vecLen = kgroup;
     } else if (dimIndexVal["k"].first == 0) {
       // dimKF is the lowest changing dimension, which means dimC/dimY/dimX
-      vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second *
+      vecLen = cgroup * dimIndexVal["y"].second *
                dimIndexVal["x"].second;
     } else if (dimIndexVal["k"].first == 1) {
       // K's position is at 1, vectorization legnth is last two dimension
       if (dimIndexVal["c"].first == 0) {
         vecLen = dimIndexVal["y"].second * dimIndexVal["x"].second;
       } else if (dimIndexVal["y"].first == 0) {
-        vecLen = dimIndexVal["c"].second * dimIndexVal["x"].second;
+        vecLen = cgroup * dimIndexVal["x"].second;
       } else {
-        vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second;
+        vecLen = cgroup * dimIndexVal["y"].second;
       }
     } else {
       // K's position is 2, vectorization legnth is last dimension
       if (dimIndexVal["c"].first == 3) {
-        vecLen = dimIndexVal["c"].second;
+        vecLen = cgroup;
       } else if (dimIndexVal["y"].first == 3) {
         vecLen = dimIndexVal["y"].second;
       } else {
