@@ -177,26 +177,26 @@ public:
     auto cgroup = dimIndexVal["c"].second  / g;
     auto kgroup =  dimIndexVal["k"].second / g;
     // Vectorization length logic is the same for forward and bwd_data
-    if (dimIndexVal["k"].first == 3) {
+    if (dimIndexVal["k"].first == 4) {
       vecLen = kgroup;
-    } else if (dimIndexVal["k"].first == 0) {
+    } else if (dimIndexVal["k"].first == 1) {
       // dimKF is the lowest changing dimension, which means dimC/dimY/dimX
       vecLen = cgroup * dimIndexVal["y"].second *
                dimIndexVal["x"].second;
-    } else if (dimIndexVal["k"].first == 1) {
+    } else if (dimIndexVal["k"].first == 2) {
       // K's position is at 1, vectorization legnth is last two dimension
-      if (dimIndexVal["c"].first == 0) {
+      if (dimIndexVal["c"].first == 1) {
         vecLen = dimIndexVal["y"].second * dimIndexVal["x"].second;
-      } else if (dimIndexVal["y"].first == 0) {
+      } else if (dimIndexVal["y"].first == 1) {
         vecLen = cgroup * dimIndexVal["x"].second;
       } else {
         vecLen = cgroup * dimIndexVal["y"].second;
       }
     } else {
       // K's position is 2, vectorization legnth is last dimension
-      if (dimIndexVal["c"].first == 3) {
+      if (dimIndexVal["c"].first == 4) {
         vecLen = cgroup;
-      } else if (dimIndexVal["y"].first == 3) {
+      } else if (dimIndexVal["y"].first == 4) {
         vecLen = dimIndexVal["y"].second;
       } else {
         vecLen = dimIndexVal["x"].second;
