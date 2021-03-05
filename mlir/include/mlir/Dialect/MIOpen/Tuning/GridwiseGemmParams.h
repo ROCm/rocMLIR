@@ -361,32 +361,31 @@ protected:
   }
 
   static void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
-    gemmSize.gemmG = 1;
-    if(ctx.dimIndexVal.count("g"))
-        gemmSize.gemmG = ctx.dimIndexVal["g"].second;
-    
+    gemmSize.gemmG = ctx.dimIndexVal["g"].second;
+    auto kgroup = ctx.dimIndexVal["k"].second / gemmSize.gemmG;
+    auto cgroup = ctx.dimIndexVal["c"].second / gemmSize.gemmG;
     if (ctx.opType == mlir::miopen::ConvOpType::Conv2DOpType) {
-      gemmSize.gemmM = ctx.dimIndexVal["k"].second / gemmSize.gemmG;
+      gemmSize.gemmM = kgroup;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second *
                        ctx.dimIndexVal["ho"].second *
                        ctx.dimIndexVal["wo"].second;
-      gemmSize.gemmK = (ctx.dimIndexVal["c"].second / gemmSize.gemmG)*
+      gemmSize.gemmK = cgroup*
                        ctx.dimIndexVal["y"].second *
                        ctx.dimIndexVal["x"].second;
     } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      gemmSize.gemmM = ctx.dimIndexVal["c"].second *
+      gemmSize.gemmM = cgroup *
                        ctx.dimIndexVal["y"].second *
                        ctx.dimIndexVal["x"].second;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second *
                        ctx.dimIndexVal["ho"].second *
                        ctx.dimIndexVal["wo"].second;
-      gemmSize.gemmK = ctx.dimIndexVal["k"].second;
+      gemmSize.gemmK = kgroup;
     } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
-      gemmSize.gemmM = ctx.dimIndexVal["k"].second;
+      gemmSize.gemmM = kgroup;
       gemmSize.gemmK = ctx.dimIndexVal["no"].second *
                        ctx.dimIndexVal["ho"].second *
                        ctx.dimIndexVal["wo"].second;
-      gemmSize.gemmN = ctx.dimIndexVal["c"].second *
+      gemmSize.gemmN = cgroup *
                        ctx.dimIndexVal["y"].second *
                        ctx.dimIndexVal["x"].second;
     }
