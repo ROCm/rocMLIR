@@ -222,26 +222,27 @@ public:
   }
   static void obtainOutputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
-    if (dimIndexVal["ko"].first == 3) {
-      vecLen = dimIndexVal["ko"].second;
-    } else if (dimIndexVal["ko"].first == 0) {
+    auto g = dimIndexVal["g"].second;
+    if (dimIndexVal["ko"].first == 4) {
+      vecLen = dimIndexVal["ko"].second / g;
+    } else if (dimIndexVal["ko"].first == 1) {
       // dimKO is the lowest changing dimension, which means dimN/dimHo/dimWo
       vecLen = dimIndexVal["no"].second * dimIndexVal["ho"].second *
                dimIndexVal["wo"].second;
-    } else if (dimIndexVal["ko"].first == 1) {
+    } else if (dimIndexVal["ko"].first == 2) {
       // Ko's position is at 1, vectorization legnth is last two dimensions
-      if (dimIndexVal["no"].first == 0) {
+      if (dimIndexVal["no"].first == 1) {
         vecLen = dimIndexVal["ho"].second * dimIndexVal["wo"].second;
-      } else if (dimIndexVal["ho"].first == 0) {
+      } else if (dimIndexVal["ho"].first == 1) {
         vecLen = dimIndexVal["no"].second * dimIndexVal["wo"].second;
       } else {
         vecLen = dimIndexVal["no"].second * dimIndexVal["ho"].second;
       }
     } else {
       // K's position is 2, vectorization legnth is last dimension
-      if (dimIndexVal["no"].first == 3) {
+      if (dimIndexVal["no"].first == 4) {
         vecLen = dimIndexVal["no"].second;
-      } else if (dimIndexVal["ho"].first == 3) {
+      } else if (dimIndexVal["ho"].first == 4) {
         vecLen = dimIndexVal["ho"].second;
       } else {
         vecLen = dimIndexVal["wo"].second;
