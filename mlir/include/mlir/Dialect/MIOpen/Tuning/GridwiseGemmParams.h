@@ -503,11 +503,11 @@ private:
                                          ConvolutionContext &ctx) {
     int64_t outputVecLen = 0;
     if ((ctx.opType == miopen::ConvOpType::Conv2DOpType) &&
-        (ctx.dimIndexVal["ko"].first == 3)) {
+        (ctx.dimIndexVal["ko"].first == 4)) {
       // gemmM vectorizable. However, there is no parameters for vectorizing
       // gemmM dimension for matrix C. Do nothing here.
     } else if ((ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) &&
-               (ctx.dimIndexVal["ci"].first == 3)) {
+               (ctx.dimIndexVal["ci"].first == 4)) {
       // gemmM vectorizable. However, there is no parameters for vectorizing
       // gemmM dimension for matrix C. Do nothing here.
     } else {
