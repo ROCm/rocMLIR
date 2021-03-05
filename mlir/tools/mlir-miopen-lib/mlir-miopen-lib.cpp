@@ -24,8 +24,6 @@
 
 namespace mlir {
 
-std::string s_arch = "";
-
 namespace {
 struct MlirHandle_s {
   MlirHandle_s() {
@@ -37,6 +35,7 @@ struct MlirHandle_s {
   mlir::ModuleOp getModule() { return module.get(); }
   MLIRContext context;
   mlir::OwningModuleRef module;
+  std::string arch;
   std::string genTxt;
 };
 
@@ -65,20 +64,20 @@ typedef void *MlirHandle;
 extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
   mlir::registerAllPasses();
 
-  MlirHandle_s *handle = new MlirHandle_s();
-  OpBuilder builder(&(handle->context));
+  MlirHandle_s *handle = nullptr;
 
   std::map<std::string, std::string> argMap;
   strToTokens(arguments, argMap);
 
   auto isValid = [&argMap]() {
     std::vector<std::string> validKeys = {
-        "operation",     "in_layout",   "out_layout", "fil_layout",
-        "batchsize",     "in_channels", "in_h",       "in_w",
-        "out_channels",  "out_h",       "out_w",      "fil_w",
-        "fil_h",         "dilation_h",  "dilation_w", "conv_stride_h",
-        "conv_stride_w", "padding_h",   "padding_w",  "arch",
-        "num_cu",        "kernel_name"};
+        "operation",    "batchsize",     "arch",          "num_cu",
+        "kernel_name",  "in_layout",     "in_type",       "in_channels",
+        "in_h",         "in_w",          "out_layout",    "out_type",
+        "out_channels", "out_h",         "out_w",         "fil_layout",
+        "fil_type",     "fil_w",         "fil_h",         "padding_h",
+        "padding_w",    "conv_stride_h", "conv_stride_w", "dilation_h",
+        "dilation_w"};
     return std::all_of(
         validKeys.begin(), validKeys.end(),
         [&argMap](std::string &key) { return argMap.count(key) > 0; });
@@ -87,6 +86,12 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
   // Proceed only if we have a valid argMap. Otherwise leave the handle to be
   // empty
   if (isValid()) {
+
+    handle = new MlirHandle_s;
+    OpBuilder builder(&(handle->context));
+
+    handle->arch = argMap["arch"];
+
     auto strToLong = [&argMap](std::string argKey) {
       return std::stoul(argMap[argKey]);
     };
@@ -124,30 +129,72 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
         strToInt("padding_h"), strToInt("padding_w"), module, builder,
         argMap["kernel_name"], mlir::FloatType::getF32(&(handle->context)),
         false);
-
-    if (argMap["arch"] != "")
-      s_arch = argMap["arch"];
   }
 
   return handle;
 }
 
-extern "C" void MlirLowerCpp(MlirHandle mlirHandle) {
+extern "C" int DestroyMlirHandle(MlirHandle mlirHandle) {
   MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+  if (handle == nullptr)
+    return EMlirInvalidParam;
+
+  delete handle;
+  return EMlirSuccess;
+}
+
+extern "C" int MlirGetExecutionDims(MlirHandle mlirHandle, size_t *global_size,
+                                    size_t *local_size) {
+  if (global_size == nullptr || local_size == nullptr)
+    return EMlirInvalidParam;
+
+  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+  if (handle == nullptr)
+    return EMlirInvalidParam;
+
+  ModuleOp module = handle->getModule();
+
+  LLVM::LLVMFuncOp kernel;
+  int count = 0;
+  module.walk([&](LLVM::LLVMFuncOp funcOp) -> WalkResult {
+    kernel = funcOp;
+    count++;
+    return WalkResult::advance();
+  });
+  if (count != 1)
+    return EMlirInvalidModule;
+
+  auto blockSizeAttr = kernel->getAttr("block_size");
+  auto gridSizeAttr = kernel->getAttr("grid_size");
+
+  if (blockSizeAttr && gridSizeAttr) {
+    auto blockSize = blockSizeAttr.template dyn_cast<IntegerAttr>().getInt();
+    auto gridSize = gridSizeAttr.template dyn_cast<IntegerAttr>().getInt();
+    *global_size = gridSize * blockSize;
+    *local_size = blockSize;
+    return EMlirSuccess;
+  }
+  return EMlirInvalidModule;
+}
+
+extern "C" int MlirLowerCpp(MlirHandle mlirHandle) {
+  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+  if (handle == nullptr)
+    return EMlirInvalidParam;
+
   ModuleOp module = handle->getModule();
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.run(module);
-}
-
-extern "C" void DestroyMlirHandle(MlirHandle mlirHandle) {
-  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
-  delete handle;
+  return EMlirSuccess;
 }
 
 extern "C" const char *MlirGenIgemmSource(MlirHandle mlirHandle) {
   MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+  if (handle == nullptr)
+    return "";
+
   handle->genTxt = "";
   translateModuleFromMIOpenToCpp(handle->getModule(), handle->genTxt);
   return (handle->genTxt).c_str();
@@ -155,6 +202,9 @@ extern "C" const char *MlirGenIgemmSource(MlirHandle mlirHandle) {
 
 extern "C" const char *MlirGenIgemmHeader(MlirHandle mlirHandle) {
   MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+  if (handle == nullptr)
+    return "";
+
   handle->genTxt = "";
   translateModuleFromMIOpenToHeader(handle->getModule(), handle->genTxt);
   return (handle->genTxt).c_str();
@@ -162,13 +212,19 @@ extern "C" const char *MlirGenIgemmHeader(MlirHandle mlirHandle) {
 
 extern "C" const char *MlirGenIgemmCflags(MlirHandle mlirHandle) {
   MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+  if (handle == nullptr)
+    return "";
+
   handle->genTxt = "";
   translateModuleFromMIOpenToCFlags(handle->getModule(), handle->genTxt);
   return (handle->genTxt).c_str();
 }
 
-extern "C" void MlirLowerBin(MlirHandle mlirHandle) {
+extern "C" int MlirLowerBin(MlirHandle mlirHandle) {
   MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+  if (handle == nullptr)
+    return EMlirInvalidParam;
+
   ModuleOp module = handle->getModule();
 
   llvm::InitializeAllTargetInfos();
@@ -185,7 +241,7 @@ extern "C" void MlirLowerBin(MlirHandle mlirHandle) {
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
   std::string triple = "amdgcn-amd-amdhsa";
-  BackendUtils utils(triple, s_arch, "");
+  BackendUtils utils(triple, handle->arch, "");
 
   // Retrieve name of FuncOp from the incoming module and set it
   // as the GpuFuncOps's kernel name
@@ -224,13 +280,15 @@ extern "C" void MlirLowerBin(MlirHandle mlirHandle) {
       utils.getTriple(), utils.getChip(), utils.getFeatures(),
       /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
 
-  pm.run(module);
+  auto status = pm.run(module);
+
+  return status.succeeded() ? EMlirSuccess : EMlirBuildFailure;
 }
 
-extern "C" void MlirGenIgemmBin(MlirHandle mlirHandle, char **buffer,
-                                size_t *size) {
+extern "C" int MlirGenIgemmBin(MlirHandle mlirHandle, char **buffer,
+                               size_t *size) {
   if ((buffer == nullptr) || (size == nullptr))
-    return;
+    return EMlirInvalidParam;
 
   MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
   ModuleOp module = handle->getModule();
@@ -244,5 +302,6 @@ extern "C" void MlirGenIgemmBin(MlirHandle mlirHandle, char **buffer,
     }
     return success();
   });
+  return EMlirSuccess;
 }
 } // namespace mlir
