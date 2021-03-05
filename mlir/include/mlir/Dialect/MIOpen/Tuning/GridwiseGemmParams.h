@@ -106,7 +106,7 @@ public:
       // gemmK dimension is vectorizable, gemmM is not, and vice versa.
       // Vectorization width depending on which among C, Y, X be the fastest
       // changing dimension.
-      if (dimIndexVal["k"].first == 3) {
+      if (dimIndexVal["k"].first == 4) {
         input1GemmKVectorizable = false;
       } else {
         input1GemmKVectorizable = true;
@@ -115,7 +115,7 @@ public:
       // When K is the fastest changing dimension(3),
       // gemmK dimension is vectorizable, gemmM is not, and vice versa.
       // Vectorization width depending on length of K.
-      if (dimIndexVal["k"].first == 3) {
+      if (dimIndexVal["k"].first == 4) {
         input1GemmKVectorizable = true;
       } else {
         input1GemmKVectorizable = false;
@@ -125,7 +125,7 @@ public:
       // gemmM dimension is vectorizable, gemmK is not, and vice versa.
       // Vectorization width depending on which among N, and HoWo be the fastest
       // changing dimension.
-      if (dimIndexVal["k"].first == 3) {
+      if (dimIndexVal["k"].first == 4) {
         input1GemmKVectorizable = false;
       } else {
         input1GemmKVectorizable = true;
@@ -143,7 +143,7 @@ public:
       // When C is the fastest changing dimension,
       // gemmK dimension is vectorizable, gemmN is not, and vice versa.
       // Vectorization width depending on length of C.
-      if (dimIndexVal["ci"].first == 3) {
+      if (dimIndexVal["ci"].first == 4) {
         input2GemmKVectorizable = true;
       } else {
         input2GemmKVectorizable = false;
@@ -153,7 +153,7 @@ public:
       // When K is the fastest changing dimension(3),
       // gemmK dimension is vectorizable, gemmN is not, and vice versa.
       // Vectorization width depending on length of K.
-      if (dimIndexVal["ko"].first == 3) {
+      if (dimIndexVal["ko"].first == 4) {
         input2GemmKVectorizable = true;
       } else {
         input2GemmKVectorizable = false;
@@ -163,7 +163,7 @@ public:
       // When C is the fastest changing dimension,
       // gemmN dimension is vectorizable, gemmK is not, and vice versa.
       // Vectorization width depending on length of C.
-      if (dimIndexVal["ci"].first == 3) {
+      if (dimIndexVal["ci"].first == 4) {
         input2GemmKVectorizable = false;
       } else {
         input2GemmKVectorizable = true;
