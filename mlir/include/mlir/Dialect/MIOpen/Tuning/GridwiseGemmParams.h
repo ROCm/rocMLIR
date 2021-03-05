@@ -206,10 +206,11 @@ public:
 
   static void obtainInputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
-    if (dimIndexVal["ni"].first == 3) {
+    auto g = dimIndexVal["g"].second;
+    if (dimIndexVal["ni"].first == 4) {
       vecLen = dimIndexVal["ni"].second;
-    } else if (dimIndexVal["ci"].first == 3) {
-      vecLen = dimIndexVal["ci"].second;
+    } else if (dimIndexVal["ci"].first == 4) {
+      vecLen = dimIndexVal["ci"].second / g;
     } else {
       if (ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 &&
           ctx.paddingVal[0] == 0 && ctx.paddingVal[1] == 0 &&
