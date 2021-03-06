@@ -83,6 +83,16 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
         [&argMap](std::string &key) { return argMap.count(key) > 0; });
   };
 
+  auto getType = [](mlir::MLIRContext *context, const std::string &type_s) {
+    mlir::Type type;
+    if (type_s == "fp32") {
+      type = mlir::FloatType::getF32(context);
+    } else if (type_s == "fp16") {
+      type = mlir::FloatType::getF16(context);
+    }
+    return type;
+  };
+  
   // Proceed only if we have a valid argMap. Otherwise leave the handle to be
   // empty
   if (isValid()) {
@@ -92,6 +102,12 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
 
     handle->arch = argMap["arch"];
 
+    mlir::Type type = getType(&(handle->context), argMap["out_type"]);
+    if (!type) {
+      delete handle;
+      return nullptr;
+    }
+    
     auto strToLong = [&argMap](std::string argKey) {
       return std::stoul(argMap[argKey]);
     };
@@ -127,8 +143,7 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
         strToInt("dilation_h"), strToInt("dilation_w"),
         strToInt("conv_stride_h"), strToInt("conv_stride_w"),
         strToInt("padding_h"), strToInt("padding_w"), module, builder,
-        argMap["kernel_name"], mlir::FloatType::getF32(&(handle->context)),
-        false);
+        argMap["kernel_name"], type, false);
   }
 
   return handle;
