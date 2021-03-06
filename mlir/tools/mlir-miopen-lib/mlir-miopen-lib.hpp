@@ -14,7 +14,7 @@ enum {
 typedef void *MlirHandle;
 
 /*! @brief Create the MLIR handle according to options string
- *  @param options A comma seperated string??
+ *  @param options Command-line options as a string
  *  @return        MLIR handle
  */
 extern "C" MlirHandle CreateMlirHandle(const char *options);
