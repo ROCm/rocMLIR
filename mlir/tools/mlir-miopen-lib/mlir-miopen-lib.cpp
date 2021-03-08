@@ -92,7 +92,7 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
     }
     return type;
   };
-  
+
   // Proceed only if we have a valid argMap. Otherwise leave the handle to be
   // empty
   if (isValid()) {
@@ -107,7 +107,7 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
       delete handle;
       return nullptr;
     }
-    
+
     auto strToLong = [&argMap](std::string argKey) {
       return std::stoul(argMap[argKey]);
     };
