@@ -217,7 +217,7 @@ public:
           ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 &&
           ctx.paddingVal[0] == 0 && ctx.paddingVal[1] == 0 &&
           ctx.paddingVal[2] == 0 && ctx.paddingVal[3] == 0)
-        vecLen = dimIndexVal["hi"].second * dimIndexVal["wi"].second;
+        vecLen = dimIndexVal["ho"].second * dimIndexVal["wo"].second;
       else
         vecLen = 1;
     }
