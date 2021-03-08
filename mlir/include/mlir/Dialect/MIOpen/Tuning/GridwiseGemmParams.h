@@ -212,7 +212,9 @@ public:
     } else if (dimIndexVal["ci"].first == 4) {
       vecLen = dimIndexVal["ci"].second / g;
     } else {
-      if (ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 &&
+      if (dimIndexVal["x"].second == 1 &&
+          dimIndexVal["y"].second == 1 &&
+          ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 &&
           ctx.paddingVal[0] == 0 && ctx.paddingVal[1] == 0 &&
           ctx.paddingVal[2] == 0 && ctx.paddingVal[3] == 0)
         vecLen = dimIndexVal["hi"].second * dimIndexVal["wi"].second;
