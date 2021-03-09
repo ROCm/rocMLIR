@@ -333,11 +333,11 @@ protected:
     if (gemmPos1Vectorizable) {
       dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmVectorized;
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmNonvectorized;
-      derived.srcVectorReadDim = 0;
+      derived.srcVectorReadDim = 1;
     } else {
       dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmNonvectorized;
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmVectorized;
-      derived.srcVectorReadDim = 1;
+      derived.srcVectorReadDim = 0;
     }
 
     // dstDataPerWrite also bounded by size of threadwise copy
