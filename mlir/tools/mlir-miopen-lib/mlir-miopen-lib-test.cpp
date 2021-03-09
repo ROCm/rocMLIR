@@ -1,4 +1,4 @@
-#include "mlir-miopen-lib.hpp"
+#include "mlir-miopen-lib.h"
 #include "llvm/Support/CommandLine.h"
 #include <iostream>
 #include <string>
@@ -23,20 +23,20 @@ int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
 
-  MlirHandle handle = CreateMlirHandle(args.getValue().c_str());
+  MlirmiopenHandle handle = mlirmiopenCreateHandle(args.getValue().c_str());
 
   // Cpp backend source/header/cflags generation
   if ((option.getValue() == "source") || (option.getValue() == "header") ||
       (option.getValue() == "cflags")) {
-    MlirLowerCpp(handle);
+    mlirmiopenLowerCpp(handle);
     if (option.getValue() == "source") {
-      std::string source = MlirGenIgemmSource(handle);
+      std::string source = mlirmiopenGenIgemmSource(handle);
       std::cout << source << std::endl;
     } else if (option.getValue() == "header") {
-      std::string header = MlirGenIgemmHeader(handle);
+      std::string header = mlirmiopenGenIgemmHeader(handle);
       std::cout << header << std::endl;
     } else if (option.getValue() == "cflags") {
-      std::string cflags = MlirGenIgemmCflags(handle);
+      std::string cflags = mlirmiopenGenIgemmCflags(handle);
       std::cout << cflags << std::endl;
     }
     // Bin backend binary generation
@@ -44,11 +44,11 @@ int main(int argc, char **argv) {
     char tmp[] = "";
     char *buffer = &tmp[0];
     size_t size = 0;
-    MlirLowerBin(handle);
-    MlirGenIgemmBin(handle, &buffer, &size);
+    mlirmiopenLowerBin(handle);
+    mlirmiopenGenIgemmBin(handle, &buffer, &size);
     std::string res(buffer, size);
     std::cout << res << std::endl;
   }
 
-  DestroyMlirHandle(handle);
+  mlirmiopenDestroyHandle(handle);
 }

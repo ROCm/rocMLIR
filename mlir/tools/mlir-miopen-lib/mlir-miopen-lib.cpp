@@ -1,4 +1,4 @@
-#include "mlir-miopen-lib.hpp"
+#include "mlir-miopen-lib.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
@@ -25,8 +25,8 @@
 namespace mlir {
 
 namespace {
-struct MlirHandle_s {
-  MlirHandle_s() {
+struct MlirmiopenHandle_s {
+  MlirmiopenHandle_s() {
     context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
     mlir::registerAllDialects(context.getDialectRegistry());
     OpBuilder builder(&context);
@@ -59,12 +59,12 @@ static void strToTokens(const std::string &arguments,
 }
 } // namespace
 
-typedef void *MlirHandle;
+typedef void *MlirmiopenHandle;
 
-extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
+extern "C" MlirmiopenHandle mlirmiopenCreateHandle(const char *arguments) {
   mlir::registerAllPasses();
 
-  MlirHandle_s *handle = nullptr;
+  MlirmiopenHandle_s *handle = nullptr;
 
   std::map<std::string, std::string> argMap;
   strToTokens(arguments, argMap);
@@ -97,7 +97,7 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
   // empty
   if (isValid()) {
 
-    handle = new MlirHandle_s;
+    handle = new MlirmiopenHandle_s;
     OpBuilder builder(&(handle->context));
 
     handle->arch = argMap["arch"];
@@ -149,23 +149,25 @@ extern "C" MlirHandle CreateMlirHandle(const char *arguments) {
   return handle;
 }
 
-extern "C" int DestroyMlirHandle(MlirHandle mlirHandle) {
-  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+extern "C" MlirmiopenStatus
+mlirmiopenDestroyHandle(MlirmiopenHandle mlirHandle) {
+  MlirmiopenHandle_s *handle = static_cast<MlirmiopenHandle_s *>(mlirHandle);
   if (handle == nullptr)
-    return EMlirInvalidParam;
+    return MlirmiopenInvalidParam;
 
   delete handle;
-  return EMlirSuccess;
+  return MlirmiopenSuccess;
 }
 
-extern "C" int MlirGetExecutionDims(MlirHandle mlirHandle, size_t *global_size,
-                                    size_t *local_size) {
+extern "C" MlirmiopenStatus
+mlirmiopenGetExecutionDims(MlirmiopenHandle mlirHandle, size_t *global_size,
+                           size_t *local_size) {
   if (global_size == nullptr || local_size == nullptr)
-    return EMlirInvalidParam;
+    return MlirmiopenInvalidParam;
 
-  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+  MlirmiopenHandle_s *handle = static_cast<MlirmiopenHandle_s *>(mlirHandle);
   if (handle == nullptr)
-    return EMlirInvalidParam;
+    return MlirmiopenInvalidParam;
 
   ModuleOp module = handle->getModule();
 
@@ -177,7 +179,7 @@ extern "C" int MlirGetExecutionDims(MlirHandle mlirHandle, size_t *global_size,
     return WalkResult::advance();
   });
   if (count != 1)
-    return EMlirInvalidModule;
+    return MlirmiopenInvalidModule;
 
   auto blockSizeAttr = kernel->getAttr("block_size");
   auto gridSizeAttr = kernel->getAttr("grid_size");
@@ -187,26 +189,26 @@ extern "C" int MlirGetExecutionDims(MlirHandle mlirHandle, size_t *global_size,
     auto gridSize = gridSizeAttr.template dyn_cast<IntegerAttr>().getInt();
     *global_size = gridSize * blockSize;
     *local_size = blockSize;
-    return EMlirSuccess;
+    return MlirmiopenSuccess;
   }
-  return EMlirInvalidModule;
+  return MlirmiopenInvalidModule;
 }
 
-extern "C" int MlirLowerCpp(MlirHandle mlirHandle) {
-  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+extern "C" MlirmiopenStatus mlirmiopenLowerCpp(MlirmiopenHandle mlirHandle) {
+  MlirmiopenHandle_s *handle = static_cast<MlirmiopenHandle_s *>(mlirHandle);
   if (handle == nullptr)
-    return EMlirInvalidParam;
+    return MlirmiopenInvalidParam;
 
   ModuleOp module = handle->getModule();
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.run(module);
-  return EMlirSuccess;
+  return MlirmiopenSuccess;
 }
 
-extern "C" const char *MlirGenIgemmSource(MlirHandle mlirHandle) {
-  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+extern "C" const char *mlirmiopenGenIgemmSource(MlirmiopenHandle mlirHandle) {
+  MlirmiopenHandle_s *handle = static_cast<MlirmiopenHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return "";
 
@@ -215,8 +217,8 @@ extern "C" const char *MlirGenIgemmSource(MlirHandle mlirHandle) {
   return (handle->genTxt).c_str();
 }
 
-extern "C" const char *MlirGenIgemmHeader(MlirHandle mlirHandle) {
-  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+extern "C" const char *mlirmiopenGenIgemmHeader(MlirmiopenHandle mlirHandle) {
+  MlirmiopenHandle_s *handle = static_cast<MlirmiopenHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return "";
 
@@ -225,8 +227,8 @@ extern "C" const char *MlirGenIgemmHeader(MlirHandle mlirHandle) {
   return (handle->genTxt).c_str();
 }
 
-extern "C" const char *MlirGenIgemmCflags(MlirHandle mlirHandle) {
-  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+extern "C" const char *mlirmiopenGenIgemmCflags(MlirmiopenHandle mlirHandle) {
+  MlirmiopenHandle_s *handle = static_cast<MlirmiopenHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return "";
 
@@ -235,10 +237,10 @@ extern "C" const char *MlirGenIgemmCflags(MlirHandle mlirHandle) {
   return (handle->genTxt).c_str();
 }
 
-extern "C" int MlirLowerBin(MlirHandle mlirHandle) {
-  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+extern "C" MlirmiopenStatus mlirmiopenLowerBin(MlirmiopenHandle mlirHandle) {
+  MlirmiopenHandle_s *handle = static_cast<MlirmiopenHandle_s *>(mlirHandle);
   if (handle == nullptr)
-    return EMlirInvalidParam;
+    return MlirmiopenInvalidParam;
 
   ModuleOp module = handle->getModule();
 
@@ -297,15 +299,15 @@ extern "C" int MlirLowerBin(MlirHandle mlirHandle) {
 
   auto status = pm.run(module);
 
-  return status.succeeded() ? EMlirSuccess : EMlirBuildFailure;
+  return status.succeeded() ? MlirmiopenSuccess : MlirmiopenBuildFailure;
 }
 
-extern "C" int MlirGenIgemmBin(MlirHandle mlirHandle, char **buffer,
-                               size_t *size) {
+extern "C" MlirmiopenStatus mlirmiopenGenIgemmBin(MlirmiopenHandle mlirHandle,
+                                                  char **buffer, size_t *size) {
   if ((buffer == nullptr) || (size == nullptr))
-    return EMlirInvalidParam;
+    return MlirmiopenInvalidParam;
 
-  MlirHandle_s *handle = static_cast<MlirHandle_s *>(mlirHandle);
+  MlirmiopenHandle_s *handle = static_cast<MlirmiopenHandle_s *>(mlirHandle);
   ModuleOp module = handle->getModule();
 
   module.walk([&](gpu::GPUModuleOp gpuModule) -> WalkResult {
@@ -317,6 +319,6 @@ extern "C" int MlirGenIgemmBin(MlirHandle mlirHandle, char **buffer,
     }
     return success();
   });
-  return EMlirSuccess;
+  return MlirmiopenSuccess;
 }
 } // namespace mlir
