@@ -337,7 +337,7 @@ protected:
     } else {
       dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmNonvectorized;
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmVectorized;
-      derived.srcVectorReadDim = 0;
+      derived.srcVectorReadDim = 2;
     }
 
     // dstDataPerWrite also bounded by size of threadwise copy
