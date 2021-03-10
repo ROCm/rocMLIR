@@ -23,23 +23,23 @@ int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
 
-  MlirmiopenStatus status = MLIRMIOPEN_SUCCESS;
+  MiirStatus status = MIIR_SUCCESS;
 
-  MlirmiopenHandle handle = mlirmiopenCreateHandle(args.getValue().c_str());
+  MiirHandle handle = miirCreateHandle(args.getValue().c_str());
 
   // Cpp backend source/header/cflags generation
   if ((option.getValue() == "source") || (option.getValue() == "header") ||
       (option.getValue() == "cflags")) {
-    status = mlirmiopenLowerCpp(handle);
-    if (status == MLIRMIOPEN_SUCCESS) {
+    status = miirLowerCpp(handle);
+    if (status == MIIR_SUCCESS) {
       if (option.getValue() == "source") {
-        std::string source = mlirmiopenGenIgemmSource(handle);
+        std::string source = miirGenIgemmSource(handle);
         std::cout << source << std::endl;
       } else if (option.getValue() == "header") {
-        std::string header = mlirmiopenGenIgemmHeader(handle);
+        std::string header = miirGenIgemmHeader(handle);
         std::cout << header << std::endl;
       } else if (option.getValue() == "cflags") {
-        std::string cflags = mlirmiopenGenIgemmCflags(handle);
+        std::string cflags = miirGenIgemmCflags(handle);
         std::cout << cflags << std::endl;
       }
     }
@@ -48,26 +48,26 @@ int main(int argc, char **argv) {
     char tmp[] = "";
     char *buffer = &tmp[0];
     size_t size = 0;
-    status = mlirmiopenLowerBin(handle);
-    if (status == MLIRMIOPEN_SUCCESS) {
-      status = mlirmiopenGenIgemmBin(handle, &buffer, &size);
-      if (status == MLIRMIOPEN_SUCCESS) {
+    status = miirLowerBin(handle);
+    if (status == MIIR_SUCCESS) {
+      status = miirGenIgemmBin(handle, &buffer, &size);
+      if (status == MIIR_SUCCESS) {
         std::string res(buffer, size);
         std::cout << res << std::endl;
       }
     }
     // 
-    if (status == MLIRMIOPEN_SUCCESS) {
+    if (status == MIIR_SUCCESS) {
       size_t global_size, local_size;
-      status = mlirmiopenGetExecutionDims(handle, &global_size, &local_size);
-      if (status == MLIRMIOPEN_SUCCESS) {
+      status = miirGetExecutionDims(handle, &global_size, &local_size);
+      if (status == MIIR_SUCCESS) {
         std::cout << "ExecutionDims - global_size=" << global_size
                   << ", local_size=" << local_size << std::endl;
       }
     }
   }
 
-  mlirmiopenDestroyHandle(handle);
+  miirDestroyHandle(handle);
 
   return status;
 }

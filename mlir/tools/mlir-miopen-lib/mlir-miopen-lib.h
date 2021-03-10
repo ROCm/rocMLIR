@@ -7,65 +7,65 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_C_MLIRMIOPEN_LIBMLIRMIOPEN_H
-#define MLIR_C_MLIRMIOPEN_LIBMLIRMIOPEN_H
+#ifndef MLIR_C_MIIR_LIBMIIR_H
+#define MLIR_C_MIIR_LIBMIIR_H
 
 #include <stddef.h>
 
-#define MLIRMIOPEN_VERSION_FLAT 0
+#define MIIR_VERSION_FLAT 0
 
-enum MlirmiopenStatus {
-  MLIRMIOPEN_SUCCESS = 0,
-  MLIRMIOPEN_INVALID_PARAM,
-  MLIRMIOPEN_INVALID_MODULE,
-  MLIRMIOPEN_BUILD_FAILURE
+enum MiirStatus {
+  MIIR_SUCCESS = 0,
+  MIIR_INVALID_PARAM,
+  MIIR_INVALID_MODULE,
+  MIIR_BUILD_FAILURE
 };
-typedef enum MlirmiopenStatus MlirmiopenStatus;
+typedef enum MiirStatus MiirStatus;
 
 /*! @brief The MLIR handle used for lowering and code generation
  */
-typedef void *MlirmiopenHandle;
+typedef void *MiirHandle;
 
 /*! @brief Create the MLIR handle according to options string
  *  @param options Command-line options as a string
  *  @return        MLIR handle
  */
-extern "C" MlirmiopenHandle mlirmiopenCreateHandle(const char *options);
+extern "C" MiirHandle miirCreateHandle(const char *options);
 
 /*! @brief Lower the MLIR module to c++ code
  *  @param handle   MLIR handle
  */
-extern "C" MlirmiopenStatus mlirmiopenLowerCpp(MlirmiopenHandle handle);
+extern "C" MiirStatus miirLowerCpp(MiirHandle handle);
 
 /*! @brief Populate Conv2d implicitgemm host code for MIOpen
  *  @param handle   MLIR handle
  *  @return         Source string
  */
-extern "C" const char *mlirmiopenGenIgemmSource(MlirmiopenHandle handle);
+extern "C" const char *miirGenIgemmSource(MiirHandle handle);
 
 /*! @brief Populate Conv2d implicitgemm header code for MIOpen
  *  @param handle   MLIR handle
  *  @return         Header string
  */
-extern "C" const char *mlirmiopenGenIgemmHeader(MlirmiopenHandle handle);
+extern "C" const char *miirGenIgemmHeader(MiirHandle handle);
 
 /*! @brief Populate Conv2d implicitgemm compilation flags for MIOpen
  *  @param handle   MLIR handle
  *  @return         Compilation flags string
  */
-extern "C" const char *mlirmiopenGenIgemmCflags(MlirmiopenHandle handle);
+extern "C" const char *miirGenIgemmCflags(MiirHandle handle);
 
 /*! @brief Lower the MLIR module to binary code
  *  @param handle MLIR handle
  */
-extern "C" MlirmiopenStatus mlirmiopenLowerBin(MlirmiopenHandle handle);
+extern "C" MiirStatus miirLowerBin(MiirHandle handle);
 
 /*! @brief Populate Conv2d implicitgemm hsaco code object
  *  @param handle MLIR handle
  *  @param buffer Binary buffer holds hsaco code
  *  @param size Size of the binary buffer
  */
-extern "C" MlirmiopenStatus mlirmiopenGenIgemmBin(MlirmiopenHandle handle,
+extern "C" MiirStatus miirGenIgemmBin(MiirHandle handle,
                                                   char **buffer, size_t *size);
 
 /*! @brief Get the global and local size for Dispatch
@@ -73,13 +73,13 @@ extern "C" MlirmiopenStatus mlirmiopenGenIgemmBin(MlirmiopenHandle handle,
  *  @param global_size Pointer to global size storage (1 dimension)
  *  @param local_size Pointer to local size storage (1 dimension)
  */
-extern "C" MlirmiopenStatus mlirmiopenGetExecutionDims(MlirmiopenHandle handle,
+extern "C" MiirStatus miirGetExecutionDims(MiirHandle handle,
                                                        size_t *global_size,
                                                        size_t *local_size);
 
 /*! @brief Destroy MLIR handle
  *  @param handle MLIR handle
  */
-extern "C" MlirmiopenStatus mlirmiopenDestroyHandle(MlirmiopenHandle handle);
+extern "C" MiirStatus miirDestroyHandle(MiirHandle handle);
 
-#endif // MLIR_C_MLIRMIOPEN_LIBMLIRMIOPEN_H
+#endif // MLIR_C_MIIR_LIBMIIR_H
