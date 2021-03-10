@@ -56,7 +56,7 @@ int main(int argc, char **argv) {
         std::cout << res << std::endl;
       }
     }
-    // 
+    //
     if (status == MIIR_SUCCESS) {
       size_t global_size, local_size;
       status = miirGetExecutionDims(handle, &global_size, &local_size);

@@ -65,8 +65,8 @@ extern "C" MiirStatus miirLowerBin(MiirHandle handle);
  *  @param buffer Binary buffer holds hsaco code
  *  @param size Size of the binary buffer
  */
-extern "C" MiirStatus miirGenIgemmBin(MiirHandle handle,
-                                                  char **buffer, size_t *size);
+extern "C" MiirStatus miirGenIgemmBin(MiirHandle handle, char **buffer,
+                                      size_t *size);
 
 /*! @brief Get the global and local size for Dispatch
  *  @param handle MLIR handle
@@ -74,8 +74,8 @@ extern "C" MiirStatus miirGenIgemmBin(MiirHandle handle,
  *  @param local_size Pointer to local size storage (1 dimension)
  */
 extern "C" MiirStatus miirGetExecutionDims(MiirHandle handle,
-                                                       size_t *global_size,
-                                                       size_t *local_size);
+                                           size_t *global_size,
+                                           size_t *local_size);
 
 /*! @brief Destroy MLIR handle
  *  @param handle MLIR handle

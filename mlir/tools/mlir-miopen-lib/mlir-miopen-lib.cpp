@@ -147,8 +147,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   return handle;
 }
 
-extern "C" MiirStatus
-miirDestroyHandle(MiirHandle mlirHandle) {
+extern "C" MiirStatus miirDestroyHandle(MiirHandle mlirHandle) {
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
@@ -157,9 +156,9 @@ miirDestroyHandle(MiirHandle mlirHandle) {
   return MIIR_SUCCESS;
 }
 
-extern "C" MiirStatus
-miirGetExecutionDims(MiirHandle mlirHandle, size_t *global_size,
-                           size_t *local_size) {
+extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
+                                           size_t *global_size,
+                                           size_t *local_size) {
   if (global_size == nullptr || local_size == nullptr)
     return MIIR_INVALID_PARAM;
 
@@ -300,8 +299,8 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   return status.succeeded() ? MIIR_SUCCESS : MIIR_BUILD_FAILURE;
 }
 
-extern "C" MiirStatus miirGenIgemmBin(MiirHandle mlirHandle,
-                                                  char **buffer, size_t *size) {
+extern "C" MiirStatus miirGenIgemmBin(MiirHandle mlirHandle, char **buffer,
+                                      size_t *size) {
   if ((buffer == nullptr) || (size == nullptr))
     return MIIR_INVALID_PARAM;
 
