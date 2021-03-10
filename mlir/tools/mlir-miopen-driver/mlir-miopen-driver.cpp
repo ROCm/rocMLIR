@@ -119,13 +119,13 @@ static cl::opt<int64_t> filterHeight("fil_h", cl::desc("Filter height"),
 // Ho
 static cl::opt<int64_t>
     outputHeight("out_h", cl::desc("Output height"),
-                 cl::value_desc("ouput dimension value, does not need to set."),
+                 cl::value_desc("output dimension value, does not need to set."),
                  cl::init(-1));
 
 // Wo
 static cl::opt<int64_t>
     outputWidth("out_w", cl::desc("Output width"),
-                cl::value_desc("ouput dimension value, does not need to set."),
+                cl::value_desc("output dimension value, does not need to set."),
                 cl::init(-1));
 
 // dilation height
