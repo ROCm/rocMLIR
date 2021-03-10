@@ -23,32 +23,51 @@ int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
 
+  MlirmiopenStatus status = MLIRMIOPEN_SUCCESS;
+
   MlirmiopenHandle handle = mlirmiopenCreateHandle(args.getValue().c_str());
 
   // Cpp backend source/header/cflags generation
   if ((option.getValue() == "source") || (option.getValue() == "header") ||
       (option.getValue() == "cflags")) {
-    mlirmiopenLowerCpp(handle);
-    if (option.getValue() == "source") {
-      std::string source = mlirmiopenGenIgemmSource(handle);
-      std::cout << source << std::endl;
-    } else if (option.getValue() == "header") {
-      std::string header = mlirmiopenGenIgemmHeader(handle);
-      std::cout << header << std::endl;
-    } else if (option.getValue() == "cflags") {
-      std::string cflags = mlirmiopenGenIgemmCflags(handle);
-      std::cout << cflags << std::endl;
+    status = mlirmiopenLowerCpp(handle);
+    if (status == MLIRMIOPEN_SUCCESS) {
+      if (option.getValue() == "source") {
+        std::string source = mlirmiopenGenIgemmSource(handle);
+        std::cout << source << std::endl;
+      } else if (option.getValue() == "header") {
+        std::string header = mlirmiopenGenIgemmHeader(handle);
+        std::cout << header << std::endl;
+      } else if (option.getValue() == "cflags") {
+        std::string cflags = mlirmiopenGenIgemmCflags(handle);
+        std::cout << cflags << std::endl;
+      }
     }
     // Bin backend binary generation
   } else if (option.getValue() == "bin") {
     char tmp[] = "";
     char *buffer = &tmp[0];
     size_t size = 0;
-    mlirmiopenLowerBin(handle);
-    mlirmiopenGenIgemmBin(handle, &buffer, &size);
-    std::string res(buffer, size);
-    std::cout << res << std::endl;
+    status = mlirmiopenLowerBin(handle);
+    if (status == MLIRMIOPEN_SUCCESS) {
+      status = mlirmiopenGenIgemmBin(handle, &buffer, &size);
+      if (status == MLIRMIOPEN_SUCCESS) {
+        std::string res(buffer, size);
+        std::cout << res << std::endl;
+      }
+    }
+    // 
+    if (status == MLIRMIOPEN_SUCCESS) {
+      size_t global_size, local_size;
+      status = mlirmiopenGetExecutionDims(handle, &global_size, &local_size);
+      if (status == MLIRMIOPEN_SUCCESS) {
+        std::cout << "ExecutionDims - global_size=" << global_size
+                  << ", local_size=" << local_size << std::endl;
+      }
+    }
   }
 
   mlirmiopenDestroyHandle(handle);
+
+  return status;
 }

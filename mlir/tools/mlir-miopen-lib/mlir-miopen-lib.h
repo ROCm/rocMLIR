@@ -15,10 +15,10 @@
 #define MLIRMIOPEN_VERSION_FLAT 0
 
 enum MlirmiopenStatus {
-  MlirmiopenSuccess = 0,
-  MlirmiopenInvalidParam = -1,
-  MlirmiopenInvalidModule = -2,
-  MlirmiopenBuildFailure = -3
+  MLIRMIOPEN_SUCCESS = 0,
+  MLIRMIOPEN_INVALID_PARAM,
+  MLIRMIOPEN_INVALID_MODULE,
+  MLIRMIOPEN_BUILD_FAILURE
 };
 typedef enum MlirmiopenStatus MlirmiopenStatus;
 
@@ -70,8 +70,8 @@ extern "C" MlirmiopenStatus mlirmiopenGenIgemmBin(MlirmiopenHandle handle,
 
 /*! @brief Get the global and local size for Dispatch
  *  @param handle MLIR handle
- *  @param global_size Pointer to global size storage
- *  @param local_size Pointer to local size storage
+ *  @param global_size Pointer to global size storage (1 dimension)
+ *  @param local_size Pointer to local size storage (1 dimension)
  */
 extern "C" MlirmiopenStatus mlirmiopenGetExecutionDims(MlirmiopenHandle handle,
                                                        size_t *global_size,

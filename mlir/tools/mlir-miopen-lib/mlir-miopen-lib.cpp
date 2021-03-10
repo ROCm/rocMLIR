@@ -22,8 +22,6 @@
 #include <sstream>
 #include <string>
 
-namespace mlir {
-
 namespace {
 struct MlirmiopenHandle_s {
   MlirmiopenHandle_s() {
@@ -153,21 +151,21 @@ extern "C" MlirmiopenStatus
 mlirmiopenDestroyHandle(MlirmiopenHandle mlirHandle) {
   MlirmiopenHandle_s *handle = static_cast<MlirmiopenHandle_s *>(mlirHandle);
   if (handle == nullptr)
-    return MlirmiopenInvalidParam;
+    return MLIRMIOPEN_INVALID_PARAM;
 
   delete handle;
-  return MlirmiopenSuccess;
+  return MLIRMIOPEN_SUCCESS;
 }
 
 extern "C" MlirmiopenStatus
 mlirmiopenGetExecutionDims(MlirmiopenHandle mlirHandle, size_t *global_size,
                            size_t *local_size) {
   if (global_size == nullptr || local_size == nullptr)
-    return MlirmiopenInvalidParam;
+    return MLIRMIOPEN_INVALID_PARAM;
 
   MlirmiopenHandle_s *handle = static_cast<MlirmiopenHandle_s *>(mlirHandle);
   if (handle == nullptr)
-    return MlirmiopenInvalidParam;
+    return MLIRMIOPEN_INVALID_PARAM;
 
   ModuleOp module = handle->getModule();
 
@@ -179,7 +177,7 @@ mlirmiopenGetExecutionDims(MlirmiopenHandle mlirHandle, size_t *global_size,
     return WalkResult::advance();
   });
   if (count != 1)
-    return MlirmiopenInvalidModule;
+    return MLIRMIOPEN_INVALID_MODULE;
 
   auto blockSizeAttr = kernel->getAttr("block_size");
   auto gridSizeAttr = kernel->getAttr("grid_size");
@@ -189,22 +187,22 @@ mlirmiopenGetExecutionDims(MlirmiopenHandle mlirHandle, size_t *global_size,
     auto gridSize = gridSizeAttr.template dyn_cast<IntegerAttr>().getInt();
     *global_size = gridSize * blockSize;
     *local_size = blockSize;
-    return MlirmiopenSuccess;
+    return MLIRMIOPEN_SUCCESS;
   }
-  return MlirmiopenInvalidModule;
+  return MLIRMIOPEN_INVALID_MODULE;
 }
 
 extern "C" MlirmiopenStatus mlirmiopenLowerCpp(MlirmiopenHandle mlirHandle) {
   MlirmiopenHandle_s *handle = static_cast<MlirmiopenHandle_s *>(mlirHandle);
   if (handle == nullptr)
-    return MlirmiopenInvalidParam;
+    return MLIRMIOPEN_INVALID_PARAM;
 
   ModuleOp module = handle->getModule();
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.run(module);
-  return MlirmiopenSuccess;
+  return MLIRMIOPEN_SUCCESS;
 }
 
 extern "C" const char *mlirmiopenGenIgemmSource(MlirmiopenHandle mlirHandle) {
@@ -240,7 +238,7 @@ extern "C" const char *mlirmiopenGenIgemmCflags(MlirmiopenHandle mlirHandle) {
 extern "C" MlirmiopenStatus mlirmiopenLowerBin(MlirmiopenHandle mlirHandle) {
   MlirmiopenHandle_s *handle = static_cast<MlirmiopenHandle_s *>(mlirHandle);
   if (handle == nullptr)
-    return MlirmiopenInvalidParam;
+    return MLIRMIOPEN_INVALID_PARAM;
 
   ModuleOp module = handle->getModule();
 
@@ -299,13 +297,13 @@ extern "C" MlirmiopenStatus mlirmiopenLowerBin(MlirmiopenHandle mlirHandle) {
 
   auto status = pm.run(module);
 
-  return status.succeeded() ? MlirmiopenSuccess : MlirmiopenBuildFailure;
+  return status.succeeded() ? MLIRMIOPEN_SUCCESS : MLIRMIOPEN_BUILD_FAILURE;
 }
 
 extern "C" MlirmiopenStatus mlirmiopenGenIgemmBin(MlirmiopenHandle mlirHandle,
                                                   char **buffer, size_t *size) {
   if ((buffer == nullptr) || (size == nullptr))
-    return MlirmiopenInvalidParam;
+    return MLIRMIOPEN_INVALID_PARAM;
 
   MlirmiopenHandle_s *handle = static_cast<MlirmiopenHandle_s *>(mlirHandle);
   ModuleOp module = handle->getModule();
@@ -319,6 +317,5 @@ extern "C" MlirmiopenStatus mlirmiopenGenIgemmBin(MlirmiopenHandle mlirHandle,
     }
     return success();
   });
-  return MlirmiopenSuccess;
+  return MLIRMIOPEN_SUCCESS;
 }
-} // namespace mlir
