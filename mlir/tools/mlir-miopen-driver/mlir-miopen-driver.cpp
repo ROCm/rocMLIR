@@ -282,6 +282,22 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   auto fourDimUnknownSizeMemRefType =
       MemRefType::get({-1, -1, -1, -1}, dataType);
 
+  // Determine types of memref to be printed out.
+  // Forward convolution: output tensor.
+  // Backward data convolution: input tensor.
+  // Backward weight convolution: filter tensor.
+  MemRefType printMemRefType;
+  if (operation.getValue() == "conv2d") {
+    printMemRefType = MemRefType::get(
+        ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()), builder.getF32Type());
+  } else if (operation.getValue() == "conv2d_bwd_data") {
+    printMemRefType = MemRefType::get(
+        ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()), builder.getF32Type());
+  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    printMemRefType = MemRefType::get(
+        ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()), builder.getF32Type());
+  }
+
   // Emit CPU alloc.
   auto filterHostAllocOp =
       builder.create<AllocOp>(builder.getUnknownLoc(), filterMemRefType);
@@ -292,6 +308,11 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   block->push_back(filterHostAllocOp);
   block->push_back(inputHostAllocOp);
   block->push_back(outputHostAllocOp);
+
+  // Emit CPU alloc for memref to be printed out.
+  auto printHostAllocOp =
+      builder.create<AllocOp>(builder.getUnknownLoc(), printMemRefType);
+  block->push_back(printHostAllocOp);
 
   // Emit memref_cast.
   auto filterMemRefCastOp = builder.create<MemRefCastOp>(
@@ -455,16 +476,19 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   block->push_back(kernelCallOp);
 
   // Emit mgpuMemCopy4DFloat function call.
-  mlir::Value resultGpuValue, resultCpuValue;
+  mlir::Value resultGpuValue, resultCpuValue, resultOriginalCpuValue;
   if (operation.getValue() == "conv2d") {
     resultGpuValue = outputGpuAllocOp.getResult(0);
     resultCpuValue = outputMemRefCastOp;
+    resultOriginalCpuValue = outputHostAllocOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
     resultGpuValue = inputGpuAllocOp.getResult(0);
     resultCpuValue = inputMemRefCastOp;
+    resultOriginalCpuValue = inputHostAllocOp;
   } else if (operation.getValue() == "conv2d_bwd_weight") {
     resultGpuValue = filterGpuAllocOp.getResult(0);
     resultCpuValue = filterMemRefCastOp;
+    resultOriginalCpuValue = filterHostAllocOp;
   }
   auto outputGpuToCpuCopyOp =
       builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
@@ -474,17 +498,58 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
 
   // Emit verification logic.
   if (printResultTensor.getValue()) {
-    StringRef printMemRefFuncName;
-    if (dataType == builder.getF32Type()) {
-      printMemRefFuncName = "print_memref_f32";
-    } else if (dataType == builder.getF16Type()) {
-      printMemRefFuncName = "print_memref_f16";
-    } else if (dataType == builder.getBF16Type()) {
-      printMemRefFuncName = "print_memref_bf16";
-    }
-    auto unrankedMemRefType = UnrankedMemRefType::get(dataType, 0);
+    // Insert loop to convert data.
+    // Source: resultOriginalCpuValue.
+    // Target: printHostAllocOp.
+    auto printMemRefShape = printMemRefType.getShape();
+	auto zero = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 0);
+	auto one = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
+	block->push_back(zero);
+	block->push_back(one);
+	SmallVector<mlir::Value, 4> boundVector;
+    SmallVector<mlir::scf::ForOp, 4> loopOpVector;
+	SmallVector<mlir::Value, 4> loopIVVector;
+
+	// Emit loop bounds.
+	for (unsigned i = 0; i < printMemRefShape.size(); ++i) {
+	  auto dim = printMemRefShape[i];
+	  auto bound = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), dim);
+	  block->push_back(bound);
+	  boundVector.push_back(bound);
+	}
+
+	// Emit loops.
+	for (unsigned i = 0; i < printMemRefShape.size(); ++i) {
+	  if (i == 0) {
+	    auto loopOp = builder.create<scf::ForOp>(builder.getUnknownLoc(), zero, boundVector[i], one);
+	    block->push_back(loopOp);
+        loopOpVector.push_back(loopOp);
+		loopIVVector.push_back(loopOp.getInductionVar());
+	  } else {
+	    auto lb = OpBuilder::atBlockBegin(loopOpVector[loopOpVector.size() - 1].getBody());
+		auto loopOp = lb.create<scf::ForOp>(builder.getUnknownLoc(), zero, boundVector[i], one);
+        loopOpVector.push_back(loopOp);
+		loopIVVector.push_back(loopOp.getInductionVar());
+	  }
+	}
+
+	// Emit loop body in the innermost loop.
+    auto innermostLoopBuilder = OpBuilder::atBlockBegin(loopOpVector[loopOpVector.size() - 1].getBody());
+	mlir::Value sourceValue = innermostLoopBuilder.create<LoadOp>(builder.getUnknownLoc(), dataType, resultOriginalCpuValue, loopIVVector);
+	mlir::Value convertedValue;
+	if (dataType == builder.getF16Type() || dataType == builder.getBF16Type()) {
+	  // Emit fpext.
+	  convertedValue = innermostLoopBuilder.create<FPExtOp>(builder.getUnknownLoc(), sourceValue, builder.getF32Type());
+	} else {
+	  convertedValue = sourceValue;
+	}
+	innermostLoopBuilder.create<StoreOp>(builder.getUnknownLoc(), convertedValue, printHostAllocOp, loopIVVector);
+
+	// Emit print function call.
+    StringRef printMemRefFuncName = "print_memref_f32";
+    auto unrankedMemRefType = UnrankedMemRefType::get(builder.getF32Type(), 0);
     auto printMemRefCastOp = builder.create<MemRefCastOp>(
-        builder.getUnknownLoc(), resultCpuValue, unrankedMemRefType);
+        builder.getUnknownLoc(), printHostAllocOp, unrankedMemRefType);
     auto printMemRefFuncOp =
         FuncOp::create(builder.getUnknownLoc(), printMemRefFuncName,
                        builder.getFunctionType({unrankedMemRefType}, {}));
@@ -533,6 +598,10 @@ static LogicalResult populateHostHarnessLogic(ModuleOp &module, OpBuilder &build
   block->push_back(filterHostDeallocOp);
   block->push_back(inputHostDeallocOp);
   block->push_back(outputHostDeallocOp);
+
+  auto printHostDeallocOp =
+      builder.create<DeallocOp>(builder.getUnknownLoc(), printHostAllocOp);
+  block->push_back(printHostDeallocOp);
 
   auto returnOp =
       builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
