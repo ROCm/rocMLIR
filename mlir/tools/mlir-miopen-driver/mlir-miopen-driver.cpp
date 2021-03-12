@@ -296,6 +296,82 @@ static AllocOp initializeCPUConvResult(OpBuilder &builder, Block *block,
   return cpuResultHostAllocOp;
 }
 
+static FuncOp createConvertResult(ModuleOp &module, OpBuilder &builder,
+                                  mlir::MemRefType &originalMemRefType,
+                                  mlir::MemRefType &convertedMemRefType) {
+  // Create print_result function
+  auto convertResultFuncOp = FuncOp::create(
+      builder.getUnknownLoc(), StringRef("convert_result"),
+      builder.getFunctionType({originalMemRefType, convertedMemRefType}, {}));
+  module.push_back(convertResultFuncOp);
+
+  // Construct a new Block.
+  Block *block = convertResultFuncOp.addEntryBlock();
+
+  // Insert loop to convert data.
+  auto printMemRefShape = convertedMemRefType.getShape();
+  auto zero = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 0);
+  auto one = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
+  block->push_back(zero);
+  block->push_back(one);
+  SmallVector<mlir::Value, 4> boundVector;
+  SmallVector<mlir::scf::ForOp, 4> loopOpVector;
+  SmallVector<mlir::Value, 4> loopIVVector;
+
+  // Emit loop bounds.
+  for (unsigned i = 0; i < printMemRefShape.size(); ++i) {
+    auto dim = printMemRefShape[i];
+    auto bound = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), dim);
+    block->push_back(bound);
+    boundVector.push_back(bound);
+  }
+
+  // Emit loops.
+  for (unsigned i = 0; i < printMemRefShape.size(); ++i) {
+    if (i == 0) {
+      auto loopOp = builder.create<scf::ForOp>(builder.getUnknownLoc(), zero,
+                                               boundVector[i], one);
+      block->push_back(loopOp);
+      loopOpVector.push_back(loopOp);
+      loopIVVector.push_back(loopOp.getInductionVar());
+    } else {
+      auto lb = OpBuilder::atBlockBegin(
+          loopOpVector[loopOpVector.size() - 1].getBody());
+      auto loopOp = lb.create<scf::ForOp>(builder.getUnknownLoc(), zero,
+                                          boundVector[i], one);
+      loopOpVector.push_back(loopOp);
+      loopIVVector.push_back(loopOp.getInductionVar());
+    }
+  }
+
+  // Emit loop body in the innermost loop.
+  auto innermostLoopBuilder =
+      OpBuilder::atBlockBegin(loopOpVector[loopOpVector.size() - 1].getBody());
+  auto dataType = originalMemRefType.getElementType();
+  auto arguments = convertResultFuncOp.getArguments();
+  mlir::Value sourceMemRef = arguments[0];
+  mlir::Value convertedMemRef = arguments[1];
+  mlir::Value sourceValue = innermostLoopBuilder.create<LoadOp>(
+      builder.getUnknownLoc(), dataType, sourceMemRef, loopIVVector);
+  mlir::Value convertedValue;
+  if (dataType == builder.getF16Type() || dataType == builder.getBF16Type()) {
+    // Emit fpext.
+    convertedValue = innermostLoopBuilder.create<FPExtOp>(
+        builder.getUnknownLoc(), sourceValue, builder.getF32Type());
+  } else {
+    convertedValue = sourceValue;
+  }
+  innermostLoopBuilder.create<StoreOp>(builder.getUnknownLoc(), convertedValue,
+                                       convertedMemRef, loopIVVector);
+
+  // Emit return op.
+  auto returnOp =
+      builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
+  block->push_back(returnOp);
+
+  return convertResultFuncOp;
+}
+
 static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
                                    mlir::MemRefType &filterMemRefType,
                                    mlir::MemRefType &inputMemRefType,
@@ -968,74 +1044,31 @@ static LogicalResult populateHostHarnessLogic(
   block->push_back(gpuConvCallOp);
 
   mlir::Value resultCpuValue, resultOriginalCpuValue;
+  mlir::MemRefType resultOriginalCpuType;
   if (operation.getValue() == "conv2d") {
     resultCpuValue = outputMemRefCastOp;
     resultOriginalCpuValue = outputHostAllocOp;
+    resultOriginalCpuType = outputMemRefType;
   } else if (operation.getValue() == "conv2d_bwd_data") {
     resultCpuValue = inputMemRefCastOp;
     resultOriginalCpuValue = inputHostAllocOp;
+    resultOriginalCpuType = inputMemRefType;
   } else if (operation.getValue() == "conv2d_bwd_weight") {
     resultCpuValue = filterMemRefCastOp;
     resultOriginalCpuValue = filterHostAllocOp;
+    resultOriginalCpuType = filterMemRefType;
   }
 
+  // Print the result if be specified.
   if (printResultTensor.getValue()) {
-    // Insert loop to convert data.
-    // Source: resultOriginalCpuValue.
-    // Target: printHostAllocOp.
-    auto printMemRefShape = printMemRefType.getShape();
-    auto zero = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 0);
-    auto one = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
-    block->push_back(zero);
-    block->push_back(one);
-    SmallVector<mlir::Value, 4> boundVector;
-    SmallVector<mlir::scf::ForOp, 4> loopOpVector;
-    SmallVector<mlir::Value, 4> loopIVVector;
-
-    // Emit loop bounds.
-    for (unsigned i = 0; i < printMemRefShape.size(); ++i) {
-      auto dim = printMemRefShape[i];
-      auto bound =
-          builder.create<ConstantIndexOp>(builder.getUnknownLoc(), dim);
-      block->push_back(bound);
-      boundVector.push_back(bound);
-    }
-
-    // Emit loops.
-    for (unsigned i = 0; i < printMemRefShape.size(); ++i) {
-      if (i == 0) {
-        auto loopOp = builder.create<scf::ForOp>(builder.getUnknownLoc(), zero,
-                                                 boundVector[i], one);
-        block->push_back(loopOp);
-        loopOpVector.push_back(loopOp);
-        loopIVVector.push_back(loopOp.getInductionVar());
-      } else {
-        auto lb = OpBuilder::atBlockBegin(
-            loopOpVector[loopOpVector.size() - 1].getBody());
-        auto loopOp = lb.create<scf::ForOp>(builder.getUnknownLoc(), zero,
-                                            boundVector[i], one);
-        loopOpVector.push_back(loopOp);
-        loopIVVector.push_back(loopOp.getInductionVar());
-      }
-    }
-
-    // Emit loop body in the innermost loop.
-    auto innermostLoopBuilder = OpBuilder::atBlockBegin(
-        loopOpVector[loopOpVector.size() - 1].getBody());
-    mlir::Value sourceValue = innermostLoopBuilder.create<LoadOp>(
-        builder.getUnknownLoc(), dataType, resultOriginalCpuValue,
-        loopIVVector);
-    mlir::Value convertedValue;
-    if (dataType == builder.getF16Type() || dataType == builder.getBF16Type()) {
-      // Emit fpext.
-      convertedValue = innermostLoopBuilder.create<FPExtOp>(
-          builder.getUnknownLoc(), sourceValue, builder.getF32Type());
-    } else {
-      convertedValue = sourceValue;
-    }
-    innermostLoopBuilder.create<StoreOp>(builder.getUnknownLoc(),
-                                         convertedValue, printHostAllocOp,
-                                         loopIVVector);
+    // Emit type conversion routine to convert every element to f32.
+    mlir::Value printHostValue = printHostAllocOp;
+    auto convertResultFuncOp = createConvertResult(
+        module, builder, resultOriginalCpuType, printMemRefType);
+    auto convertResultCallOp = builder.create<CallOp>(
+        builder.getUnknownLoc(), convertResultFuncOp,
+        ValueRange{resultOriginalCpuValue, printHostAllocOp});
+    block->push_back(convertResultCallOp);
 
     // Emit print function call.
     StringRef printMemRefFuncName = "print_memref_f32";
