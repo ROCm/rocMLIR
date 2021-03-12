@@ -1,4 +1,4 @@
-#include "mlir-miopen-lib.h"
+#include "Miir.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
@@ -299,22 +299,33 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   return status.succeeded() ? MIIR_SUCCESS : MIIR_BUILD_FAILURE;
 }
 
-extern "C" MiirStatus miirGenIgemmBin(MiirHandle mlirHandle, char **buffer,
-                                      size_t *size) {
-  if ((buffer == nullptr) || (size == nullptr))
+extern "C" MiirStatus miirBufferGet(MiirHandle mlirHandle, char *buffer,
+                                    size_t *size) {
+  if ((buffer == nullptr) && (size == nullptr))
     return MIIR_INVALID_PARAM;
 
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   ModuleOp module = handle->getModule();
 
-  module.walk([&](gpu::GPUModuleOp gpuModule) -> WalkResult {
-    auto hsaco = gpuModule->getAttrOfType<StringAttr>("rocdl.hsaco");
-    if (hsaco) {
-      handle->genTxt = hsaco.getValue().str();
-      *buffer = &(handle->genTxt[0]);
-      *size = hsaco.getValue().size();
-    }
-    return success();
-  });
+  // 1st call: give client the size of buffer to allocate
+  if ((buffer == nullptr) && (size != nullptr)) {
+    module.walk([&](gpu::GPUModuleOp gpuModule) -> WalkResult {
+      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>("rocdl.hsaco");
+      if (hsacoAttr) {
+        *size = hsacoAttr.getValue().size();
+      }
+      return success();
+    });
+    // 2nd call: copy the hsaco to the target buffer
+  } else {
+    module.walk([&](gpu::GPUModuleOp gpuModule) -> WalkResult {
+      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>("rocdl.hsaco");
+      if (hsacoAttr) {
+        std::string hsaco = hsacoAttr.getValue().str();
+        std::copy(hsaco.begin(), hsaco.end(), buffer);
+      }
+      return success();
+    });
+  }
   return MIIR_SUCCESS;
 }

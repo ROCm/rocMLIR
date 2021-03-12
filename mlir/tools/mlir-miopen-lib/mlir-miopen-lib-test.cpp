@@ -1,4 +1,4 @@
-#include "mlir-miopen-lib.h"
+#include "Miir.h"
 #include "llvm/Support/CommandLine.h"
 #include <iostream>
 #include <string>
@@ -45,26 +45,33 @@ int main(int argc, char **argv) {
     }
     // Bin backend binary generation
   } else if (option.getValue() == "bin") {
-    char tmp[] = "";
-    char *buffer = &tmp[0];
-    size_t size = 0;
+
     status = miirLowerBin(handle);
-    if (status == MIIR_SUCCESS) {
-      status = miirGenIgemmBin(handle, &buffer, &size);
-      if (status == MIIR_SUCCESS) {
-        std::string res(buffer, size);
-        std::cout << res << std::endl;
-      }
+    if (status != MIIR_SUCCESS) {
+      return status;
     }
-    //
-    if (status == MIIR_SUCCESS) {
-      size_t global_size, local_size;
-      status = miirGetExecutionDims(handle, &global_size, &local_size);
-      if (status == MIIR_SUCCESS) {
-        std::cout << "ExecutionDims - global_size=" << global_size
-                  << ", local_size=" << local_size << std::endl;
-      }
+
+    size_t size = 0;
+    status = miirBufferGet(handle, nullptr, &size);
+    if (status != MIIR_SUCCESS) {
+      return status;
     }
+    std::vector<char> buffer(size);
+    status = miirBufferGet(handle, buffer.data(), &size);
+    if (status != MIIR_SUCCESS) {
+      return status;
+    }
+    std::for_each(buffer.begin(), buffer.end(),
+                  [](char &c) { std::cout << c; });
+    std::cout << std::endl;
+
+    size_t global_size, local_size;
+    status = miirGetExecutionDims(handle, &global_size, &local_size);
+    if (status != MIIR_SUCCESS) {
+      return status;
+    }
+    std::cout << "ExecutionDims - global_size=" << global_size
+              << ", local_size=" << local_size << std::endl;
   }
 
   miirDestroyHandle(handle);

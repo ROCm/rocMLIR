@@ -1,4 +1,4 @@
-//===-------------- mlir-miopen-lib.h - C API ---------------------*- C -*-===//
+//===-------------- Miir.h - C API ---------------------*- C -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM
 // Exceptions.
@@ -7,12 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_C_MIIR_LIBMIIR_H
-#define MLIR_C_MIIR_LIBMIIR_H
+#ifndef MLIR_C_MIIR_H
+#define MLIR_C_MIIR_H
 
 #include <stddef.h>
 
-#define MIIR_VERSION_FLAT 0
+#define MIIR_VERSION_FLAT 1
 
 enum MiirStatus {
   MIIR_SUCCESS = 0,
@@ -61,12 +61,17 @@ extern "C" const char *miirGenIgemmCflags(MiirHandle handle);
 extern "C" MiirStatus miirLowerBin(MiirHandle handle);
 
 /*! @brief Populate Conv2d implicitgemm hsaco code object
+ *         Client is responsible for the buffer allocation
+ *         * First call: client invoke the API with buffer param set to nullptr
+ *           and this API set the size param only
+ *         * Second call: Client passes in the allocated buffer and this API
+ *           copies the hsaco into the client allocated buffer
  *  @param handle MLIR handle
  *  @param buffer Binary buffer holds hsaco code
  *  @param size Size of the binary buffer
  */
-extern "C" MiirStatus miirGenIgemmBin(MiirHandle handle, char **buffer,
-                                      size_t *size);
+extern "C" MiirStatus miirBufferGet(MiirHandle handle, char *buffer,
+                                    size_t *size);
 
 /*! @brief Get the global and local size for Dispatch
  *  @param handle MLIR handle
@@ -82,4 +87,4 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle handle,
  */
 extern "C" MiirStatus miirDestroyHandle(MiirHandle handle);
 
-#endif // MLIR_C_MIIR_LIBMIIR_H
+#endif // MLIR_C_MIIR_H
