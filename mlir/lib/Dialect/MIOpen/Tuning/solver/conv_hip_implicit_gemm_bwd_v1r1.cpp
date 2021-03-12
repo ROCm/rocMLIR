@@ -368,7 +368,7 @@ LogicalResult PerformanceImplicitGemmBwdDataV1R1::IsValid(
   return failure();
 }
 
-LogicalResult PerformanceImplicitGemmBwdDataV1R1::EuristicInit(
+LogicalResult PerformanceImplicitGemmBwdDataV1R1::HeuristicInit(
     const ConvolutionContext &ctx) {
   PerformanceImplicitGemmBwdDataV1R1 config;
 

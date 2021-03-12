@@ -347,7 +347,7 @@ PerformanceImplicitGemmV4R4Fwd::IsValid(const ConvolutionContext &ctx) const {
 }
 
 LogicalResult
-PerformanceImplicitGemmV4R4Fwd::EuristicInit(const ConvolutionContext &ctx) {
+PerformanceImplicitGemmV4R4Fwd::HeuristicInit(const ConvolutionContext &ctx) {
   PerformanceImplicitGemmV4R4Fwd config;
 
   using ConfigParam = llvm::SmallVector<int64_t, 6>;

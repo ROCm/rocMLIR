@@ -32,7 +32,7 @@ using namespace mlir;
 template <typename PerformanceImplicitGemm_t>
 inline static auto GetPerformanceConfigBase(const ConvolutionContext &ctx) {
   PerformanceImplicitGemm_t pp;
-  pp.EuristicInit(ctx);
+  pp.HeuristicInit(ctx);
   return pp;
 }
 
@@ -87,7 +87,7 @@ struct PerformanceImplicitGemmV4R4Fwd
 
   LogicalResult IsValidValue() const;
   LogicalResult IsValid(const ConvolutionContext &ctx) const;
-  LogicalResult EuristicInit(const ConvolutionContext &ctx);
+  LogicalResult HeuristicInit(const ConvolutionContext &ctx);
 };
 
 struct PerformanceImplicitGemmV4R4WrW
@@ -143,7 +143,7 @@ struct PerformanceImplicitGemmV4R4WrW
 
   LogicalResult IsValidValue() const;
   LogicalResult IsValid(const ConvolutionContext &ctx) const;
-  LogicalResult EuristicInit(const ConvolutionContext &ctx);
+  LogicalResult HeuristicInit(const ConvolutionContext &ctx);
 };
 
 struct PerformanceImplicitGemmBwdDataV1R1
@@ -198,7 +198,7 @@ struct PerformanceImplicitGemmBwdDataV1R1
 
   LogicalResult IsValidValue() const;
   LogicalResult IsValid(const ConvolutionContext &ctx) const;
-  LogicalResult EuristicInit(const ConvolutionContext &ctx);
+  LogicalResult HeuristicInit(const ConvolutionContext &ctx);
 };
 
 struct PerformanceImplicitGemmForwardV4R4Xdlops
@@ -234,7 +234,7 @@ struct PerformanceImplicitGemmForwardV4R4Xdlops
   bool operator==(const PerformanceImplicitGemmForwardV4R4Xdlops &other) const;
   std::string ToString() const;
 
-  LogicalResult EuristicInit(const ConvolutionContext &ctx);
+  LogicalResult HeuristicInit(const ConvolutionContext &ctx);
   LogicalResult IsValidValue() const;
   LogicalResult IsReallyValid(const ConvolutionContext &ctx) const;
 
@@ -298,7 +298,7 @@ struct PerformanceImplicitGemmBwdDataV4R1Xdlops
   LogicalResult IsValidValue() const;
 
   LogicalResult IsReallyValid(const ConvolutionContext &ctx) const;
-  LogicalResult EuristicInit(const ConvolutionContext &ctx);
+  LogicalResult HeuristicInit(const ConvolutionContext &ctx);
 };
 
 struct PerformanceImplicitGemmWrwV4R4Xdlops
@@ -331,7 +331,7 @@ struct PerformanceImplicitGemmWrwV4R4Xdlops
   bool operator==(const PerformanceImplicitGemmWrwV4R4Xdlops &other) const;
   std::string ToString() const;
 
-  LogicalResult EuristicInit(const ConvolutionContext &ctx);
+  LogicalResult HeuristicInit(const ConvolutionContext &ctx);
   LogicalResult IsValidValue() const;
   LogicalResult IsReallyValid(const ConvolutionContext &ctx) const;
 

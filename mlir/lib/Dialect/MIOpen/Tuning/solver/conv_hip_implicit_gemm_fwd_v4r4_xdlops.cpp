@@ -36,7 +36,7 @@ bool PerformanceImplicitGemmForwardV4R4Xdlops::operator==(
   // clang-format on
 }
 
-LogicalResult PerformanceImplicitGemmForwardV4R4Xdlops::EuristicInit(
+LogicalResult PerformanceImplicitGemmForwardV4R4Xdlops::HeuristicInit(
     const ConvolutionContext &ctx) {
   PerformanceImplicitGemmForwardV4R4Xdlops tmp;
 
@@ -369,7 +369,7 @@ LogicalResult PerformanceImplicitGemmForwardV4R4Xdlops::IsValidValue() const {
   // clang-format on
 }
 
-// Used by EuristicInit() and GenericSearch
+// Used by HeuristicInit() and GenericSearch
 // Only return false if a performance config will violate requirements given by
 // kernel algorithm
 LogicalResult PerformanceImplicitGemmForwardV4R4Xdlops::IsReallyValid(
@@ -568,10 +568,10 @@ LogicalResult ConvHipImplicitGemmForwardV4R4Xdlops::IsApplicable(
       return failure();
   }
 
-  // this particular EuristicInit is so comprehensive, that if it cannot predict
-  // a valid performance config, the problem is probably not applicable
+  // this particular HeuristicInit is so comprehensive, that if it cannot
+  // predict a valid performance config, the problem is probably not applicable
   PerformanceImplicitGemmForwardV4R4Xdlops config;
-  config.EuristicInit(ctx);
+  config.HeuristicInit(ctx);
 
   if (succeeded(config.IsReallyValid(ctx)))
     return success();

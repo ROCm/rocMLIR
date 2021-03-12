@@ -410,7 +410,7 @@ LogicalResult PerformanceImplicitGemmBwdDataV4R1Xdlops::IsValidValue() const {
   return failure();
 }
 
-LogicalResult PerformanceImplicitGemmBwdDataV4R1Xdlops::EuristicInit(
+LogicalResult PerformanceImplicitGemmBwdDataV4R1Xdlops::HeuristicInit(
     const ConvolutionContext &ctx) {
   PerformanceImplicitGemmBwdDataV4R1Xdlops tmp;
 
