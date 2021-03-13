@@ -563,8 +563,13 @@ struct AtomicFAddOpLowering : ConvertToLLVMPattern {
         Value voffsetUpdated = rewriter.create<LLVM::AddOp>(
             loc, LLVMI32Type, voffset, elementOffset);
 
-        rewriter.replaceOpWithNewOp<ROCDL::AtomicFAddOp>(
-            op, element, rsrc, vindex, voffsetUpdated, slc);
+        if (iter == 0) {
+          rewriter.replaceOpWithNewOp<ROCDL::AtomicFAddOp>(
+              op, element, rsrc, vindex, voffsetUpdated, slc);
+        } else {
+          rewriter.create<ROCDL::AtomicFAddOp>(loc, element, rsrc, vindex,
+                                               voffsetUpdated, slc);
+        }
       }
     } else {
       // populate voffset.
