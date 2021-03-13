@@ -31,6 +31,18 @@ int32_t reportErrorIfAny(hipError_t result, const char *where) {
 }
 } // anonymous namespace
 
+typedef union bf16_fp32_cvt {
+  uint u32;
+  unsigned short ushortvec[2];
+  float f32;
+} bf16_fp32_cvt_t;
+
+static float bfloat16_to_float(ushort src_val) {
+  bf16_fp32_cvt_t target_val;
+  target_val.ushortvec[1] = src_val;
+  return target_val.f32;
+}
+
 extern "C" hipModule_t mgpuModuleLoad(void *data) {
   hipModule_t module = nullptr;
   int32_t err =
@@ -205,6 +217,32 @@ extern "C" void mgpuMemCopy(float *sourceAllocated, float *sourceAligned,
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
+extern "C" void mcpuMemBF16ConvertFloat(
+    unsigned short *sourceAllocated, unsigned short *sourceAligned,
+    int64_t sourceOffset, int64_t size0, int64_t size1, int64_t size2,
+    int64_t size3, int64_t stride0, int64_t stride1, int64_t stride2,
+    int64_t stride3, float *destAllocated, float *destAligned,
+    int64_t destOffset, int64_t size4, int64_t size5, int64_t size6,
+    int64_t size7, int64_t stride4, int64_t stride5, int64_t stride6,
+    int64_t stride7) {
+  assert(size0 * size1 * size2 * size3 == size4 * size5 * size6 * size7);
+  int64_t dataSize = size0 * size1 * size2 * size3;
+  for (int64_t i = 0; i < dataSize; i++) {
+    destAligned[i] = bfloat16_to_float(sourceAligned[i]);
+  }
+}
+
+extern "C" void mcpuPrintBF16(unsigned short *allocated,
+                              unsigned short *aligned, int64_t offset,
+                              int64_t size0, int64_t size1, int64_t size2,
+                              int64_t size3, int64_t stride0, int64_t stride1,
+                              int64_t stride2, int64_t stride3) {
+  int64_t dataSize = size0 * size1 * size2 * size3;
+  for (int64_t i = 0; i < dataSize; i++) {
+    float fvalue = bfloat16_to_float(aligned[i]);
+    printf("%f\t", fvalue);
+  }
+}
 // 2D float memref utility routines.
 
 extern "C" void mcpuMemset2DFloat(float *allocated, float *aligned,

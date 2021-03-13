@@ -53,7 +53,7 @@
 // BF16-NEXT:     scf.for [[IV_HO:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_HO]] step [[ONE]] {
 // BF16-NEXT:       scf.for [[IV_WO:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_WO]] step [[ONE]] {
 // BF16-NEXT:         [[VALUE:%[a-zA-Z_0-9]+]] = load [[SOURCE]]{{\[}}[[IV_N]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>
-// BF16-NEXT:         [[CONVERTED_VALUE:%[a-zA-Z_0-9]+]] = fpext [[VALUE]] : [[TYPE]] to [[PRINT_TYPE]]
+// BF16-NEXT:         [[CONVERTED_VALUE:%[a-zA-Z_0-9]+]] = sitofp [[VALUE]] : [[TYPE]] to [[PRINT_TYPE]]
 // BF16-NEXT:         store [[CONVERTED_VALUE]], [[DEST]]{{\[}}[[IV_N]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE]]>
 // BF16-NEXT:       }
 // BF16-NEXT:     }

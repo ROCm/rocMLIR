@@ -35,6 +35,7 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "bf16convert.hpp"
 #include "mlir/Dialect/SCF/EDSC/Builders.h"
 #include <unordered_map>
 
@@ -269,7 +270,7 @@ static FuncOp makeFuncDecl(OpBuilder &builder, StringRef funcName,
 }
 
 static AllocOp initializeCPUConvResult(OpBuilder &builder, Block *block,
-                                       mlir::FloatType dataType,
+                                       mlir::Type dataType,
                                        mlir::FuncOp &mcpuMemset4DFuncOp,
                                        mlir::MemRefType &resultMemRefType,
                                        mlir::Value &resultMemsetValue) {
@@ -354,9 +355,14 @@ static FuncOp createConvertResult(ModuleOp &module, OpBuilder &builder,
   mlir::Value sourceValue = innermostLoopBuilder.create<LoadOp>(
       builder.getUnknownLoc(), dataType, sourceMemRef, loopIVVector);
   mlir::Value convertedValue;
-  if (dataType == builder.getF16Type() || dataType == builder.getBF16Type()) {
+  if (dataType == builder.getF16Type()) {
     // Emit fpext.
     convertedValue = innermostLoopBuilder.create<FPExtOp>(
+        builder.getUnknownLoc(), sourceValue, builder.getF32Type());
+  } else if (dataType == builder.getIntegerType(16)) {
+    // Treat I16 as BF16.
+    // TBD: Implement proper conversion logic. Force cast for now.
+    convertedValue = innermostLoopBuilder.create<SIToFPOp>(
         builder.getUnknownLoc(), sourceValue, builder.getF32Type());
   } else {
     convertedValue = sourceValue;
@@ -728,7 +734,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
 }
 
 static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
-                                   mlir::FloatType dataType,
+                                   mlir::Type dataType,
                                    mlir::AllocOp &filterHostAllocOp,
                                    mlir::AllocOp &inputHostAllocOp,
                                    mlir::AllocOp &outputHostAllocOp) {
@@ -768,7 +774,7 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
     gpuMemAllocFuncName = "mgpuMemAlloc4DFloat";
   } else if (dataType == builder.getF16Type()) {
     gpuMemAllocFuncName = "mgpuMemAlloc4DHalf";
-  } else if (dataType == builder.getBF16Type()) {
+  } else if (dataType == builder.getIntegerType(16)) {
     gpuMemAllocFuncName = "mgpuMemAlloc4DBF16";
   }
   auto mgpuMemAlloc4DFuncOp =
@@ -804,7 +810,7 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
     gpuMemCopyFuncName = "mgpuMemCopy4DFloat";
   } else if (dataType == builder.getF16Type()) {
     gpuMemCopyFuncName = "mgpuMemCopy4DHalf";
-  } else if (dataType == builder.getBF16Type()) {
+  } else if (dataType == builder.getIntegerType(16)) {
     gpuMemCopyFuncName = "mgpuMemCopy4DBF16";
   }
   auto mgpuMemCopy4DFuncOp =
@@ -886,7 +892,7 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
     gpuMemDeallocFuncName = "mgpuMemDealloc4DFloat";
   } else if (dataType == builder.getF16Type()) {
     gpuMemDeallocFuncName = "mgpuMemDealloc4DHalf";
-  } else if (dataType == builder.getBF16Type()) {
+  } else if (dataType == builder.getIntegerType(16)) {
     gpuMemDeallocFuncName = "mgpuMemDealloc4DBF16";
   }
   auto mgpuMemDealloc4DFuncOp = makeFuncDecl(
@@ -917,7 +923,7 @@ static LogicalResult populateHostHarnessLogic(
     ModuleOp &module, OpBuilder &builder, MLIRContext &context,
     const SmallVector<int64_t, 4> &filterDimension,
     const SmallVector<int64_t, 4> &inputDimension,
-    const SmallVector<int64_t, 4> &outputDimension, mlir::FloatType dataType) {
+    const SmallVector<int64_t, 4> &outputDimension, mlir::Type dataType) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -984,10 +990,29 @@ static LogicalResult populateHostHarnessLogic(
   block->push_back(inputMemRefCastOp);
   block->push_back(outputMemRefCastOp);
 
-  auto oneConstantFloatOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), dataType, builder.getFloatAttr(dataType, 1.0));
-  auto zeroConstantFloatOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), dataType, builder.getFloatAttr(dataType, 0.0));
+  auto getOneConstOp = [&]() {
+    if (dataType == builder.getIntegerType(16)) {
+      const ushort one = float_to_bfloat16(1.0);
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                        builder.getI16IntegerAttr(one));
+    } else {
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                        builder.getFloatAttr(dataType, 1.0));
+    }
+  };
+  auto getZeroConstOp = [&]() {
+    if (dataType == builder.getIntegerType(16)) {
+      const ushort zero = float_to_bfloat16(0.0);
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                        builder.getI16IntegerAttr(zero));
+    } else {
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                        builder.getFloatAttr(dataType, 0.0));
+    }
+  };
+
+  auto oneConstantFloatOp = getOneConstOp();
+  auto zeroConstantFloatOp = getZeroConstOp();
   block->push_back(oneConstantFloatOp);
   block->push_back(zeroConstantFloatOp);
 
@@ -997,7 +1022,7 @@ static LogicalResult populateHostHarnessLogic(
     memsetFuncName = "mcpuMemset4DFloat";
   } else if (dataType == builder.getF16Type()) {
     memsetFuncName = "mcpuMemset4DHalf";
-  } else if (dataType == builder.getBF16Type()) {
+  } else if (dataType == builder.getIntegerType(16)) {
     memsetFuncName = "mcpuMemset4DBF16";
   }
 
@@ -1111,7 +1136,7 @@ static LogicalResult populateValidationLogic(
     ModuleOp &module, OpBuilder &builder, MLIRContext &context,
     SmallVector<int64_t, 4> &filterDimension,
     SmallVector<int64_t, 4> &inputDimension,
-    SmallVector<int64_t, 4> &outputDimension, mlir::FloatType dataType) {
+    SmallVector<int64_t, 4> &outputDimension, mlir::Type dataType) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -1154,10 +1179,29 @@ static LogicalResult populateValidationLogic(
   block->push_back(inputMemRefCastOp);
   block->push_back(outputMemRefCastOp);
 
-  auto oneConstantFloatOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), dataType, builder.getFloatAttr(dataType, 1.0));
-  auto zeroConstantFloatOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), dataType, builder.getFloatAttr(dataType, 0.0));
+  auto getOneConstOp = [&]() {
+    if (dataType == builder.getIntegerType(16)) {
+      const ushort one = float_to_bfloat16(1.0);
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                        builder.getI16IntegerAttr(one));
+    } else {
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                        builder.getFloatAttr(dataType, 1.0));
+    }
+  };
+  auto getZeroConstOp = [&]() {
+    if (dataType == builder.getIntegerType(16)) {
+      const ushort zero = float_to_bfloat16(0.0);
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                        builder.getI16IntegerAttr(zero));
+    } else {
+      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
+                                        builder.getFloatAttr(dataType, 0.0));
+    }
+  };
+
+  auto oneConstantFloatOp = getOneConstOp();
+  auto zeroConstantFloatOp = getZeroConstOp();
   block->push_back(oneConstantFloatOp);
   block->push_back(zeroConstantFloatOp);
 
@@ -1167,7 +1211,7 @@ static LogicalResult populateValidationLogic(
     memsetFuncName = "mcpuMemset4DFloat";
   } else if (dataType == builder.getF16Type()) {
     memsetFuncName = "mcpuMemset4DHalf";
-  } else if (dataType == builder.getBF16Type()) {
+  } else if (dataType == builder.getIntegerType(16)) {
     memsetFuncName = "mcpuMemset4DBF16";
   }
 
@@ -1213,64 +1257,266 @@ static LogicalResult populateValidationLogic(
       ValueRange{filterHostAllocOp, inputHostAllocOp, outputHostAllocOp});
   block->push_back(gpuConvCallOp);
 
-  mlir::AllocOp gpuResults;
-  if (operation.getValue() == "conv2d")
-    gpuResults = outputHostAllocOp;
-  else if (operation.getValue() == "conv2d_bwd_data")
-    gpuResults = inputHostAllocOp;
-  else if (operation.getValue() == "conv2d_bwd_weight")
-    gpuResults = filterHostAllocOp;
+  // create f32 data
+  auto getFloatDataFromBF16 = [&](mlir::MemRefCastOp &memRefCastOp) {
+    // alloc new memory for verify function
+    auto floatType = builder.getF32Type();
+    auto verifyMemRefType = MemRefType::get(
+        ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
+        floatType);
 
-  mlir::AllocOp cpuFilterHostAllocOp, cpuInputHostAllocOp, cpuOutputHostAllocOp;
+    auto verifyHostAllocOp =
+        builder.create<AllocOp>(builder.getUnknownLoc(), verifyMemRefType);
+    block->push_back(verifyHostAllocOp);
+
+    auto filterMemRefForBf16Type = MemRefType::get(
+        ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
+        floatType);
+    auto inputMemRefForBf16Type = MemRefType::get(
+        ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
+        floatType);
+    auto outputMemRefForBf16Type = MemRefType::get(
+        ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
+        floatType);
+
+    auto unknownSizeMemRefFloatType =
+        MemRefType::get({-1, -1, -1, -1}, floatType);
+
+    auto verifyUnkownSizeMemRefCastOp = builder.create<MemRefCastOp>(
+        builder.getUnknownLoc(), verifyHostAllocOp, unknownSizeMemRefFloatType);
+    block->push_back(verifyUnkownSizeMemRefCastOp);
+
+    auto cpuMemConvertOp = FuncOp::create(
+        builder.getUnknownLoc(), "mcpuMemBF16ConvertFloat",
+        builder.getFunctionType(
+            {fourDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {}));
+    module.push_back(cpuMemConvertOp);
+
+    auto verifyMemConvertCallOp = builder.create<CallOp>(
+        builder.getUnknownLoc(), cpuMemConvertOp,
+        ValueRange{memRefCastOp, verifyUnkownSizeMemRefCastOp});
+    block->push_back(verifyMemConvertCallOp);
+
+    return verifyHostAllocOp;
+  };
+
+  mlir::AllocOp gpuResults;
+  mlir::AllocOp gpuResultsBf16;
   if (operation.getValue() == "conv2d") {
-    cpuFilterHostAllocOp = filterHostAllocOp;
-    cpuInputHostAllocOp = inputHostAllocOp;
-    cpuOutputHostAllocOp =
-        initializeCPUConvResult(builder, block, dataType, mcpuMemset4DFuncOp,
-                                outputMemRefType, outputMemsetValue);
+    if (builder.getIntegerType(16) == dataType) {
+      gpuResultsBf16 = getFloatDataFromBF16(outputMemRefCastOp);
+    } else
+      gpuResults = outputHostAllocOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
-    cpuFilterHostAllocOp = filterHostAllocOp;
-    cpuOutputHostAllocOp = outputHostAllocOp;
-    cpuInputHostAllocOp =
-        initializeCPUConvResult(builder, block, dataType, mcpuMemset4DFuncOp,
-                                inputMemRefType, inputMemsetValue);
+    gpuResults = inputHostAllocOp;
+    // Reset the input tensor
+    auto inputCpuMemsetOp =
+        builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+                               ValueRange{inputMemRefCastOp, inputMemsetValue});
+    block->push_back(inputCpuMemsetOp);
   } else if (operation.getValue() == "conv2d_bwd_weight") {
-    cpuInputHostAllocOp = inputHostAllocOp;
-    cpuOutputHostAllocOp = outputHostAllocOp;
-    cpuFilterHostAllocOp =
-        initializeCPUConvResult(builder, block, dataType, mcpuMemset4DFuncOp,
-                                filterMemRefType, filterMemsetValue);
+    gpuResults = filterHostAllocOp;
+    // Reset the filter tensor
+    auto filterCpuMemsetOp = builder.create<CallOp>(
+        builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+        ValueRange{filterMemRefCastOp, filterMemsetValue});
+    block->push_back(filterCpuMemsetOp);
   }
 
-  // Populate host validation logic
-  auto cpuConvFuncOp = createCPUConvolution(module, builder, filterMemRefType,
-                                            inputMemRefType, outputMemRefType);
-
-  // Emit conv2d_host function call.
-  auto cpuConvCallOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), cpuConvFuncOp,
-      ValueRange{cpuFilterHostAllocOp, cpuInputHostAllocOp,
-                 cpuOutputHostAllocOp});
-  block->push_back(cpuConvCallOp);
-
   mlir::AllocOp cpuResults;
+  mlir::AllocOp filterHostForBf16AllocOp, inputHostForBf16AllocOp,
+      cpuOutputHostForBf16AllocOp;
+  mlir::MemRefType filterMemRefForBf16Type, inputMemRefForBf16Type,
+      outputMemRefForBf16Type;
+  if (dataType == builder.getIntegerType(16)) {
+    mlir::Type dataTypeForBf16 = builder.getF32Type();
+    auto fourDimUnknownSizeMemRefForBf16Type =
+        MemRefType::get({-1, -1, -1, -1}, dataTypeForBf16);
+
+    filterMemRefForBf16Type = MemRefType::get(
+        ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
+        dataTypeForBf16);
+
+    inputMemRefForBf16Type = MemRefType::get(
+        ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
+        dataTypeForBf16);
+    outputMemRefForBf16Type = MemRefType::get(
+        ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
+        dataTypeForBf16);
+
+    filterHostForBf16AllocOp = builder.create<AllocOp>(builder.getUnknownLoc(),
+                                                       filterMemRefForBf16Type);
+    block->push_back(filterHostForBf16AllocOp);
+    inputHostForBf16AllocOp = builder.create<AllocOp>(builder.getUnknownLoc(),
+                                                      inputMemRefForBf16Type);
+    block->push_back(inputHostForBf16AllocOp);
+
+    auto filterMemRefForBf16CastOp = builder.create<MemRefCastOp>(
+        builder.getUnknownLoc(), filterHostForBf16AllocOp,
+        fourDimUnknownSizeMemRefForBf16Type);
+    block->push_back(filterMemRefForBf16CastOp);
+    auto inputMemRefForBf16CastOp = builder.create<MemRefCastOp>(
+        builder.getUnknownLoc(), inputHostForBf16AllocOp,
+        fourDimUnknownSizeMemRefForBf16Type);
+    block->push_back(inputMemRefForBf16CastOp);
+
+    // bf16 1.0,change to float 32 and compute
+    const ushort oneForBf16 = float_to_bfloat16(1.0);
+    const float oneBf16 = bfloat16_to_float(oneForBf16);
+    auto oneConstantFloatForBf16Op = builder.create<ConstantOp>(
+        builder.getUnknownLoc(), dataTypeForBf16,
+        builder.getFloatAttr(dataTypeForBf16, oneBf16));
+
+    const ushort zeroForBf16 = float_to_bfloat16(0.0);
+    const float zeroBf16 = bfloat16_to_float(zeroForBf16);
+    auto zeroConstantFloatForBf16Op = builder.create<ConstantOp>(
+        builder.getUnknownLoc(), dataTypeForBf16,
+        builder.getFloatAttr(dataTypeForBf16, zeroBf16));
+
+    auto oneConstantForBf16FloatOp = oneConstantFloatForBf16Op;
+    auto zeroConstantForBf16FloatOp = zeroConstantFloatForBf16Op;
+    block->push_back(oneConstantForBf16FloatOp);
+    block->push_back(zeroConstantForBf16FloatOp);
+
+    auto mcpuMemset4DForBf16FuncOp = FuncOp::create(
+        builder.getUnknownLoc(), "mcpuMemset4DFloat",
+        builder.getFunctionType(
+            {fourDimUnknownSizeMemRefForBf16Type, dataTypeForBf16}, {}));
+    module.push_back(mcpuMemset4DForBf16FuncOp);
+
+    mlir::Value filterMemsetForBf16Value, inputMemsetForBf16Value,
+        cpuOutputMemsetForBf16Value;
+    ;
+
+    if (operation.getValue() == "conv2d") {
+      filterMemsetForBf16Value = oneConstantForBf16FloatOp;
+      inputMemsetForBf16Value = oneConstantForBf16FloatOp;
+      //    outputMemsetValue = zeroConstantFloatOp;
+      cpuOutputMemsetForBf16Value = zeroConstantForBf16FloatOp;
+    } else if (operation.getValue() == "conv2d_bwd_data") {
+      filterMemsetForBf16Value = oneConstantForBf16FloatOp;
+      inputMemsetForBf16Value = zeroConstantForBf16FloatOp;
+      //    outputMemsetValue = oneConstantFloatOp;
+      cpuOutputMemsetForBf16Value = oneConstantForBf16FloatOp;
+    } else if (operation.getValue() == "conv2d_bwd_weight") {
+      filterMemsetForBf16Value = zeroConstantForBf16FloatOp;
+      inputMemsetForBf16Value = oneConstantForBf16FloatOp;
+      //    outputMemsetValue = oneConstantFloatOp;
+      cpuOutputMemsetForBf16Value = oneConstantForBf16FloatOp;
+    }
+
+    auto filterCpuMemsetForBf16Op = builder.create<CallOp>(
+        builder.getUnknownLoc(), mcpuMemset4DForBf16FuncOp,
+        ValueRange{filterMemRefForBf16CastOp, filterMemsetForBf16Value});
+
+    auto inputCpuMemsetForBf16Op = builder.create<CallOp>(
+        builder.getUnknownLoc(), mcpuMemset4DForBf16FuncOp,
+        ValueRange{inputMemRefForBf16CastOp, inputMemsetForBf16Value});
+    block->push_back(filterCpuMemsetForBf16Op);
+
+    block->push_back(inputCpuMemsetForBf16Op);
+    // Emit CPU alloc for CPU convolution
+    cpuOutputHostForBf16AllocOp = builder.create<AllocOp>(
+        builder.getUnknownLoc(), outputMemRefForBf16Type);
+    block->push_back(cpuOutputHostForBf16AllocOp);
+
+    // Emit memref cast
+    auto cpuOutputMemRefForBf16CastOp = builder.create<MemRefCastOp>(
+        builder.getUnknownLoc(), cpuOutputHostForBf16AllocOp,
+        fourDimUnknownSizeMemRefForBf16Type);
+    block->push_back(cpuOutputMemRefForBf16CastOp);
+
+    // Populate initial values
+    auto cpuOutputCpuMemsetForBf16Op = builder.create<CallOp>(
+        builder.getUnknownLoc(), mcpuMemset4DForBf16FuncOp,
+        ValueRange{cpuOutputMemRefForBf16CastOp, cpuOutputMemsetForBf16Value});
+    block->push_back(cpuOutputCpuMemsetForBf16Op);
+
+  } // i16 end
+
+  mlir::AllocOp cpuFilterHostAllocOp, cpuInputHostAllocOp, cpuOutputHostAllocOp;
+  if (dataType == builder.getIntegerType(16)) {
+    cpuFilterHostAllocOp = filterHostForBf16AllocOp;
+    cpuInputHostAllocOp = inputHostForBf16AllocOp;
+    cpuOutputHostAllocOp = cpuOutputHostForBf16AllocOp;
+
+    auto cpuConvFuncOp =
+        createCPUConvolution(module, builder, filterMemRefForBf16Type,
+                             inputMemRefForBf16Type, outputMemRefForBf16Type);
+
+    // Emit conv2d_host function call.
+    auto cpuConvForBf16CallOp = builder.create<CallOp>(
+        builder.getUnknownLoc(), cpuConvFuncOp,
+        ValueRange{cpuFilterHostAllocOp, cpuInputHostAllocOp,
+                   cpuOutputHostAllocOp});
+    block->push_back(cpuConvForBf16CallOp);
+
+  } else {
+    if (operation.getValue() == "conv2d") {
+      cpuFilterHostAllocOp = filterHostAllocOp;
+      cpuInputHostAllocOp = inputHostAllocOp;
+      cpuOutputHostAllocOp =
+          initializeCPUConvResult(builder, block, dataType, mcpuMemset4DFuncOp,
+                                  outputMemRefType, outputMemsetValue);
+    } else if (operation.getValue() == "conv2d_bwd_data") {
+      cpuFilterHostAllocOp = filterHostAllocOp;
+      cpuOutputHostAllocOp = outputHostAllocOp;
+      cpuInputHostAllocOp =
+          initializeCPUConvResult(builder, block, dataType, mcpuMemset4DFuncOp,
+                                  inputMemRefType, inputMemsetValue);
+    } else if (operation.getValue() == "conv2d_bwd_weight") {
+      cpuInputHostAllocOp = inputHostAllocOp;
+      cpuOutputHostAllocOp = outputHostAllocOp;
+      cpuFilterHostAllocOp =
+          initializeCPUConvResult(builder, block, dataType, mcpuMemset4DFuncOp,
+                                  filterMemRefType, filterMemsetValue);
+    }
+
+    // Populate host validation logic, bf16 and others should not the same
+    auto cpuConvFuncOp = createCPUConvolution(
+        module, builder, filterMemRefType, inputMemRefType, outputMemRefType);
+
+    // Emit conv2d_host function call.
+    auto cpuConvCallOp = builder.create<CallOp>(
+        builder.getUnknownLoc(), cpuConvFuncOp,
+        ValueRange{cpuFilterHostAllocOp, cpuInputHostAllocOp,
+                   cpuOutputHostAllocOp});
+    block->push_back(cpuConvCallOp);
+  }
+
+  if (dataType == builder.getIntegerType(16)) {
+    if (operation.getValue() == "conv2d") {
+      cpuResults = cpuOutputHostForBf16AllocOp;
+    } else if (operation.getValue() == "conv2d_bwd_data") {
+      cpuResults = inputHostForBf16AllocOp;
+    } else if (operation.getValue() == "conv2d_bwd_weight") {
+      cpuResults = filterHostForBf16AllocOp;
+    }
+  } else {
+    if (operation.getValue() == "conv2d") {
+      cpuResults = cpuOutputHostAllocOp;
+    } else if (operation.getValue() == "conv2d_bwd_data") {
+      cpuResults = cpuInputHostAllocOp;
+    } else if (operation.getValue() == "conv2d_bwd_weight") {
+      cpuResults = cpuFilterHostAllocOp;
+    }
+  }
+
   mlir::FuncOp verifyFuncOp;
   if (operation.getValue() == "conv2d") {
-    cpuResults = cpuOutputHostAllocOp;
+    // cpuResults = cpuOutputHostAllocOp;
     verifyFuncOp = createVerifyFuncOp(module, builder, outputDimension,
                                       cpuResults, gpuResults);
   } else if (operation.getValue() == "conv2d_bwd_data") {
-    cpuResults = cpuInputHostAllocOp;
+    // cpuResults = cpuInputHostAllocOp;
     verifyFuncOp = createVerifyFuncOp(module, builder, inputDimension,
                                       cpuResults, gpuResults);
   } else if (operation.getValue() == "conv2d_bwd_weight") {
-    cpuResults = cpuFilterHostAllocOp;
+    // cpuResults = cpuFilterHostAllocOp;
     verifyFuncOp = createVerifyFuncOp(module, builder, filterDimension,
                                       cpuResults, gpuResults);
   }
-
   // Compare the results
-
   auto verifyCallOp =
       builder.create<CallOp>(builder.getUnknownLoc(), verifyFuncOp,
                              ValueRange{cpuResults, gpuResults});
@@ -1289,6 +1535,19 @@ static LogicalResult populateValidationLogic(
   block->push_back(inputHostDeallocOp);
   block->push_back(outputHostDeallocOp);
   block->push_back(cpuResultsDeallocOp);
+
+  if (dataType == builder.getIntegerType(16)) {
+    auto filterHostForBf16DeallocOp = builder.create<DeallocOp>(
+        builder.getUnknownLoc(), filterHostForBf16AllocOp);
+    auto inputHostForBf16DeallocOp = builder.create<DeallocOp>(
+        builder.getUnknownLoc(), inputHostForBf16AllocOp);
+    auto cpuOutputHostForBf16DeallocOp = builder.create<DeallocOp>(
+        builder.getUnknownLoc(), cpuOutputHostForBf16AllocOp);
+
+    block->push_back(filterHostForBf16DeallocOp);
+    block->push_back(inputHostForBf16DeallocOp);
+    block->push_back(cpuOutputHostForBf16DeallocOp);
+  }
 
   auto returnOp =
       builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
@@ -1464,13 +1723,13 @@ int main(int argc, char **argv) {
   }
 
   // Determine data type.
-  mlir::FloatType dataType = builder.getF32Type();
+  mlir::Type dataType = builder.getF32Type();
   if (tensorDataType == "f32") {
     dataType = builder.getF32Type();
   } else if (tensorDataType == "f16") {
     dataType = builder.getF16Type();
   } else if (tensorDataType == "bf16") {
-    dataType = builder.getBF16Type();
+    dataType = builder.getIntegerType(16);
   }
 
   populateDefaults();

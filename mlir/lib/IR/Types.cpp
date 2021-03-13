@@ -22,6 +22,9 @@ Dialect &Type::getDialect() const {
 
 MLIRContext *Type::getContext() const { return getDialect().getContext(); }
 
+bool Type::isI16() const {
+  return isa<IntegerType>() && (getIntOrFloatBitWidth() == 16);
+}
 bool Type::isBF16() const { return isa<BFloat16Type>(); }
 bool Type::isF16() const { return isa<Float16Type>(); }
 bool Type::isF32() const { return isa<Float32Type>(); }
