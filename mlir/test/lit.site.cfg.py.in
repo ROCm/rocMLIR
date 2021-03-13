@@ -42,6 +42,7 @@ config.run_rocm_tests = @MLIR_ROCM_CONVERSIONS_ENABLED@
 config.rocm_wrapper_library_dir = "@MLIR_ROCM_WRAPPER_LIBRARY_DIR@"
 config.enable_rocm_runner = @MLIR_ROCM_RUNNER_ENABLED@
 config.enable_miopen_driver = @MLIR_MIOPEN_DRIVER_ENABLED@
+config.enable_miopen_driver_e2e_test = @MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED@
 config.enable_miopen_sqlite = @MLIR_MIOPEN_SQLITE_ENABLED@
 config.vulkan_wrapper_library_dir = "@MLIR_VULKAN_WRAPPER_LIBRARY_DIR@"
 config.enable_vulkan_runner = @MLIR_VULKAN_RUNNER_ENABLED@
