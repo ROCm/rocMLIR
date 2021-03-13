@@ -22,14 +22,14 @@ gpu.module @kernel {
     // NVVM: %[[c1:.*]] = llvm.mlir.constant(1 : index) : !llvm.i64
     // NVVM: %[[descr6:.*]] = llvm.insertvalue %[[c1]], %[[descr5]][4, 0]
 
-    // ROCDL: %[[descr1:.*]] = llvm.mlir.undef : !llvm<"{ float addrspace(5)*, float addrspace(5)*, i64, [1 x i64], [1 x i64] }">
+    // ROCDL: %[[descr1:.*]] = llvm.mlir.undef : !llvm<"{ float addrspace(5)*, float addrspace(5)*, i32, [1 x i32], [1 x i32] }">
     // ROCDL: %[[descr2:.*]] = llvm.insertvalue %[[raw]], %[[descr1]][0]
     // ROCDL: %[[descr3:.*]] = llvm.insertvalue %[[raw]], %[[descr2]][1]
-    // ROCDL: %[[c0:.*]] = llvm.mlir.constant(0 : index) : !llvm.i64
+    // ROCDL: %[[c0:.*]] = llvm.mlir.constant(0 : index) : !llvm.i32
     // ROCDL: %[[descr4:.*]] = llvm.insertvalue %[[c0]], %[[descr3]][2]
-    // ROCDL: %[[c4:.*]] = llvm.mlir.constant(4 : index) : !llvm.i64
+    // ROCDL: %[[c4:.*]] = llvm.mlir.constant(4 : index) : !llvm.i32
     // ROCDL: %[[descr5:.*]] = llvm.insertvalue %[[c4]], %[[descr4]][3, 0]
-    // ROCDL: %[[c1:.*]] = llvm.mlir.constant(1 : index) : !llvm.i64
+    // ROCDL: %[[c1:.*]] = llvm.mlir.constant(1 : index) : !llvm.i32
     // ROCDL: %[[descr6:.*]] = llvm.insertvalue %[[c1]], %[[descr5]][4, 0]
 
     // "Store" lowering should work just as any other memref, only check that
@@ -88,14 +88,14 @@ gpu.module @kernel {
     // NVVM: %[[c1:.*]] = llvm.mlir.constant(1 : index) : !llvm.i64
     // NVVM: %[[descr6:.*]] = llvm.insertvalue %[[c1]], %[[descr5]][4, 0]
 
-    // ROCDL: %[[descr1:.*]] = llvm.mlir.undef : !llvm<"{ float addrspace(3)*, float addrspace(3)*, i64, [1 x i64], [1 x i64] }">
+    // ROCDL: %[[descr1:.*]] = llvm.mlir.undef : !llvm<"{ float addrspace(3)*, float addrspace(3)*, i32, [1 x i32], [1 x i32] }">
     // ROCDL: %[[descr2:.*]] = llvm.insertvalue %[[raw]], %[[descr1]][0]
     // ROCDL: %[[descr3:.*]] = llvm.insertvalue %[[raw]], %[[descr2]][1]
-    // ROCDL: %[[c0:.*]] = llvm.mlir.constant(0 : index) : !llvm.i64
+    // ROCDL: %[[c0:.*]] = llvm.mlir.constant(0 : index) : !llvm.i32
     // ROCDL: %[[descr4:.*]] = llvm.insertvalue %[[c0]], %[[descr3]][2]
-    // ROCDL: %[[c4:.*]] = llvm.mlir.constant(4 : index) : !llvm.i64
+    // ROCDL: %[[c4:.*]] = llvm.mlir.constant(4 : index) : !llvm.i32
     // ROCDL: %[[descr5:.*]] = llvm.insertvalue %[[c4]], %[[descr4]][3, 0]
-    // ROCDL: %[[c1:.*]] = llvm.mlir.constant(1 : index) : !llvm.i64
+    // ROCDL: %[[c1:.*]] = llvm.mlir.constant(1 : index) : !llvm.i32
     // ROCDL: %[[descr6:.*]] = llvm.insertvalue %[[c1]], %[[descr5]][4, 0]
 
     // "Store" lowering should work just as any other memref, only check that
@@ -159,22 +159,22 @@ gpu.module @kernel {
     // NVVM: %[[c1:.*]] = llvm.mlir.constant(1 : index) : !llvm.i64
     // NVVM: %[[descr10:.*]] = llvm.insertvalue %[[c1]], %[[descr9]][4, 2]
 
-    // ROCDL: %[[descr1:.*]] = llvm.mlir.undef : !llvm<"{ float addrspace(3)*, float addrspace(3)*, i64, [3 x i64], [3 x i64] }">
+    // ROCDL: %[[descr1:.*]] = llvm.mlir.undef : !llvm<"{ float addrspace(3)*, float addrspace(3)*, i32, [3 x i32], [3 x i32] }">
     // ROCDL: %[[descr2:.*]] = llvm.insertvalue %[[raw]], %[[descr1]][0]
     // ROCDL: %[[descr3:.*]] = llvm.insertvalue %[[raw]], %[[descr2]][1]
-    // ROCDL: %[[c0:.*]] = llvm.mlir.constant(0 : index) : !llvm.i64
+    // ROCDL: %[[c0:.*]] = llvm.mlir.constant(0 : index) : !llvm.i32
     // ROCDL: %[[descr4:.*]] = llvm.insertvalue %[[c0]], %[[descr3]][2]
-    // ROCDL: %[[c4:.*]] = llvm.mlir.constant(4 : index) : !llvm.i64
+    // ROCDL: %[[c4:.*]] = llvm.mlir.constant(4 : index) : !llvm.i32
     // ROCDL: %[[descr5:.*]] = llvm.insertvalue %[[c4]], %[[descr4]][3, 0]
-    // ROCDL: %[[c12:.*]] = llvm.mlir.constant(12 : index) : !llvm.i64
+    // ROCDL: %[[c12:.*]] = llvm.mlir.constant(12 : index) : !llvm.i32
     // ROCDL: %[[descr6:.*]] = llvm.insertvalue %[[c12]], %[[descr5]][4, 0]
-    // ROCDL: %[[c2:.*]] = llvm.mlir.constant(2 : index) : !llvm.i64
+    // ROCDL: %[[c2:.*]] = llvm.mlir.constant(2 : index) : !llvm.i32
     // ROCDL: %[[descr7:.*]] = llvm.insertvalue %[[c2]], %[[descr6]][3, 1]
-    // ROCDL: %[[c6:.*]] = llvm.mlir.constant(6 : index) : !llvm.i64
+    // ROCDL: %[[c6:.*]] = llvm.mlir.constant(6 : index) : !llvm.i32
     // ROCDL: %[[descr8:.*]] = llvm.insertvalue %[[c6]], %[[descr7]][4, 1]
-    // ROCDL: %[[c6:.*]] = llvm.mlir.constant(6 : index) : !llvm.i64
+    // ROCDL: %[[c6:.*]] = llvm.mlir.constant(6 : index) : !llvm.i32
     // ROCDL: %[[descr9:.*]] = llvm.insertvalue %[[c6]], %[[descr8]][3, 2]
-    // ROCDL: %[[c1:.*]] = llvm.mlir.constant(1 : index) : !llvm.i64
+    // ROCDL: %[[c1:.*]] = llvm.mlir.constant(1 : index) : !llvm.i32
     // ROCDL: %[[descr10:.*]] = llvm.insertvalue %[[c1]], %[[descr9]][4, 2]
 
     %c0 = constant 0 : index
