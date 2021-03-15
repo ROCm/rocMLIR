@@ -174,8 +174,8 @@ public:
   static void obtainFilterVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
     auto g = dimIndexVal["g"].second;
-    auto cgroup = dimIndexVal["c"].second  / g;
-    auto kgroup =  dimIndexVal["k"].second / g;
+    auto cgroup = dimIndexVal["c"].second ;
+    auto kgroup =  dimIndexVal["k"].second ;
     // Vectorization length logic is the same for forward and bwd_data
     if (dimIndexVal["k"].first == 4) {
       vecLen = kgroup;
@@ -210,7 +210,7 @@ public:
     if (dimIndexVal["ni"].first == 4) {
       vecLen = dimIndexVal["ni"].second;
     } else if (dimIndexVal["ci"].first == 4) {
-      vecLen = dimIndexVal["ci"].second / g;
+      vecLen = dimIndexVal["ci"].second ;
     } else {
       if (dimIndexVal["x"].second == 1 &&
           dimIndexVal["y"].second == 1 &&
@@ -226,7 +226,7 @@ public:
     auto dimIndexVal = ctx.dimIndexVal;
     auto g = dimIndexVal["g"].second;
     if (dimIndexVal["ko"].first == 4) {
-      vecLen = dimIndexVal["ko"].second / g;
+      vecLen = dimIndexVal["ko"].second ;
     } else if (dimIndexVal["ko"].first == 1) {
       // dimKO is the lowest changing dimension, which means dimN/dimHo/dimWo
       vecLen = dimIndexVal["no"].second * dimIndexVal["ho"].second *
@@ -364,8 +364,8 @@ protected:
 
   static void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
     gemmSize.gemmG = ctx.dimIndexVal["g"].second;
-    auto kgroup = ctx.dimIndexVal["k"].second / gemmSize.gemmG;
-    auto cgroup = ctx.dimIndexVal["c"].second / gemmSize.gemmG;
+    auto kgroup = ctx.dimIndexVal["k"].second;
+    auto cgroup = ctx.dimIndexVal["c"].second;
     if (ctx.opType == mlir::miopen::ConvOpType::Conv2DOpType) {
       gemmSize.gemmM = kgroup;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second *
