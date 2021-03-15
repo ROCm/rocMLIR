@@ -27,9 +27,9 @@ LogicalResult Conv2dGenerator::parseConvDims(
     auto &outputDim = outputLayout[i];
 
     if (filterDim == 'k') {
-      filterDimension.push_back(outputChannel);
+      filterDimension.push_back(outputChannel / groupSize);
     } else if (filterDim == 'c') {
-      filterDimension.push_back(inputChannel);
+      filterDimension.push_back(inputChannel / groupSize);
     } else if (filterDim == 'y') {
       filterDimension.push_back(filterHeight);
     } else if (filterDim == 'x') {
@@ -41,7 +41,7 @@ LogicalResult Conv2dGenerator::parseConvDims(
     if (inputDim == 'n') {
       inputDimension.push_back(batchSize);
     } else if (inputDim == 'c') {
-      inputDimension.push_back(inputChannel);
+      inputDimension.push_back(inputChannel / groupSize);
     } else if (inputDim == 'h') {
       inputDimension.push_back(inputHeight);
     } else if (inputDim == 'w') {
@@ -53,7 +53,7 @@ LogicalResult Conv2dGenerator::parseConvDims(
     if (outputDim == 'n') {
       outputDimension.push_back(batchSize);
     } else if (outputDim == 'k') {
-      outputDimension.push_back(outputChannel);
+      outputDimension.push_back(outputChannel / groupSize);
     } else if (outputDim == 'h') {
       outputDimension.push_back(outputHeight);
     } else if (outputDim == 'w') {
