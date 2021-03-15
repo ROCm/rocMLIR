@@ -73,7 +73,7 @@ if( NOT BUILD_SHARED_LIBS )
                        POST_BUILD
                        COMMAND ${CMAKE_AR} -M < ${mri_file}
                        COMMAND ${CMAKE_COMMAND} -E copy ${full_output_path} ${install_path}
-                       COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/mlir-miopen-lib.hpp ${header_path}
+                       COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/Miir.h ${header_path}
                        DEPENDS ${output_archive_dummy_file})
   endfunction(combine_archives)
 

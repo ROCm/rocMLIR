@@ -66,7 +66,7 @@ LogicalResult Conv2dGenerator::genConvModule(
     const SmallVector<int64_t, 4> &outputDimension, int dilationHeight,
     int dilationWidth, int strideHeight, int strideWidth, int paddingHeight,
     int paddingWidth, ModuleOp &module, OpBuilder &builder,
-    std::string &kernelName, mlir::FloatType dataType, bool xdlops) {
+    std::string &kernelName, mlir::Type dataType, bool xdlops) {
 
   // Construct a new FuncOp.
   auto filterArgType = MemRefType::get(
