@@ -5667,8 +5667,14 @@ struct ThreadwiseCopyV2RewritePattern
           }
         } else {
           // Skip carry / borrow logic.
-          for (int64_t iter = 0; iter < destType.getShape().size(); ++iter) {
-            destIndexLowerNewUpdated.push_back(b.create<IndexCastOp>(loc, indexLowerNew[iter], b.getIndexType()));
+          if (dataType == b.getF32Type()) {
+            for (int64_t iter = 0; iter < destType.getShape().size(); ++iter)
+              destIndexLowerNewUpdated.push_back(indexLowerNew[iter]);
+          } else {
+            for (int64_t iter = 0; iter < destType.getShape().size(); ++iter) {
+              destIndexLowerNewUpdated.push_back(b.create<IndexCastOp>(
+                  loc, indexLowerNew[iter], b.getIndexType()));
+            }
           }
         }
       }
@@ -5683,7 +5689,10 @@ struct ThreadwiseCopyV2RewritePattern
       } else {
         // Issue scalar store.
         if (dataType == b.getF32Type()) {
-          b.create<StoreOp>(loc, scalarValue, op.dest(), destIndexLowerNewUpdated);
+          // b.create<StoreOp>(loc, scalarValue, op.dest(),
+          // destIndexLowerNewUpdated);
+          b.create<gpu::AtomicFAddOp>(loc, scalarValue, op.dest(),
+                                      destIndexLowerNewUpdated);
         } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
           auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
           b.create<StoreOp>(loc, truncValue, op.dest(), destIndexLowerNewUpdated);
