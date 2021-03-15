@@ -1369,13 +1369,18 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   LogicalResult matchAndRewrite(miopen::GridwiseGemmOp op, PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
-    auto elementType = op.output().getType().cast<MemRefType>().getElementType();
+    auto elementType = op.output().getType().cast<MemRefType>().getElementType().template dyn_cast<Type>();
 
     // Prepare some useful constants.
-    auto zeroConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
+    Value zeroConstantFloatOp;
+    if (elementType == b.getF32Type()) {
+      zeroConstantFloatOp = b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
+    } else if (elementType == b.getF16Type() || elementType == b.getBF16Type()) {
+      auto zeroF32Op = b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
+      zeroConstantFloatOp = b.create<FPTruncOp>(loc, zeroF32Op, elementType);
+    } else if (elementType == b.getIntegerType(16)) {
+      zeroConstantFloatOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(16));
+    }
     auto zeroConstantI32Op =
         b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
 
