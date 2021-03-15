@@ -3600,6 +3600,7 @@ struct ThreadwiseGemmRewritePattern
     auto gemmA = op.matrixA();
     auto gemmB = op.matrixB();
     auto gemmC = op.matrixC();
+    auto dataType = gemmA.getType().template dyn_cast<MemRefType>().getElementType();
 
     ArrayRef<int64_t> gemmAShape =
         gemmA.getType().dyn_cast<MemRefType>().getShape();
@@ -3625,13 +3626,13 @@ struct ThreadwiseGemmRewritePattern
     SmallVector<Value, 2> memIndicesKN;
     extractForInductionVars({loopK, loopN}, &memIndicesKN);
     auto gemmBKN = b.create<AffineLoadOp>(loc, gemmB, memIndicesKN);
-    auto mul = b.create<MulFOp>(loc, b.getF32Type(), gemmAKM, gemmBKN);
+    auto mul = b.create<MulFOp>(loc, dataType, gemmAKM, gemmBKN);
 
     SmallVector<Value, 2> memIndicesMN;
     extractForInductionVars({loopM, loopN}, &memIndicesMN);
     auto gemmCMN = b.create<AffineLoadOp>(loc, gemmC, memIndicesMN);
 
-    auto add = b.create<AddFOp>(loc, b.getF32Type(), mul, gemmCMN);
+    auto add = b.create<AddFOp>(loc, dataType, mul, gemmCMN);
     auto store = b.create<AffineStoreOp>(loc, add, gemmC, memIndicesMN);
 
     op.erase();
