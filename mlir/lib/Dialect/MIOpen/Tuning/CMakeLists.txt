@@ -9,7 +9,7 @@ add_mlir_dialect_library(MLIRMIOpenTuning
   MLIRSupport
 )
 
-if (MLIR_ENABLE_SQLITE)
+if (MLIR_MIOPEN_SQLITE_ENABLED)
   # MLIR now depends on SQLite and existence of miopen perfdb
   list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
   set (SQLITE3_FOUND 0)
