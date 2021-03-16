@@ -1380,8 +1380,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     if (elementType == b.getF32Type()) {
       zeroConstantFloatOp =
           b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    } else if (elementType == b.getF16Type() ||
-               elementType == b.getBF16Type()) {
+    } else if (elementType == b.getF16Type()) {
       auto zeroF32Op =
           b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
       zeroConstantFloatOp = b.create<FPTruncOp>(loc, zeroF32Op, elementType);
