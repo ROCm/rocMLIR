@@ -85,7 +85,7 @@ def MIOpen_GridwiseGemmOp :
     MIOpen_Op<"gridwise_gemm">,
     Arguments<(ins MemRefRankOf<[F32, F16, I16], [2]>:$filter,
                    MemRefRankOf<[F32, F16, I16], [2]>:$input,
-                   MemRefRankOf<[F32, F16], [2]>:$output)> {
+                   MemRefRankOf<[F32, F16, I16], [2]>:$output)> {
   let summary = "Gridwise GEMM";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM.
