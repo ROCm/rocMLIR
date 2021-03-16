@@ -1,0 +1,40 @@
+pipeline {
+    agent {
+        docker {
+            image 'rocm/mlir:rocm4.0-latest'
+            args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+            label 'rocm'
+        }
+    }
+    stages {
+        stage('Environment') {
+            steps {
+                sh 'cat /etc/os-release'
+                sh '/opt/rocm/bin/rocm-smi'
+            }
+        }
+        stage('Igemm Static Library Build') {
+            steps {
+                checkout scm
+                sh '''
+                    mkdir -p build && cd build
+
+                    cmake -G "Unix Makefiles" ../llvm \
+                        -DLLVM_ENABLE_PROJECTS="mlir;lld" \
+                        -DLLVM_TARGETS_TO_BUILD="X86;AMDGPU" \
+                        -DCMAKE_BUILD_TYPE=Release \
+                        -DBUILD_SHARED_LIBS=OFF \
+                        -DLLVM_BUILD_LLVM_DYLIB=OFF \
+                        -DLLVM_ENABLE_TERMINFO=OFF
+
+                    make -j libMLIRMIOpen
+                '''
+            }
+        }
+    }
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
