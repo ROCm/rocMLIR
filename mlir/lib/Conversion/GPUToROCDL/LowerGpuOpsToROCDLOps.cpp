@@ -180,39 +180,80 @@ struct MFMAOpLowering : ConvertToLLVMPattern {
                        immValues[0], immValues[1], immValues[2]});
     } else if (mfmaInstr.endswith("bf16")) {
       // BF16.
-      Type castedVectorType = VectorType::get({2}, rewriter.getIntegerType(16));
-      Type castedLLVMVectorType = typeConverter->convertType(castedVectorType);
-      Value castedSourceA = rewriter.create<LLVM::BitcastOp>(
-          op->getLoc(), castedLLVMVectorType, adaptor.sourceA());
-      Value castedSourceB = rewriter.create<LLVM::BitcastOp>(
-          op->getLoc(), castedLLVMVectorType, adaptor.sourceB());
       if (mfmaInstr == "mfma_f32_32x32x2bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x2bf16>(
             op, adaptor.destC().getType(),
-            ValueRange{castedSourceA, castedSourceB, adaptor.destC(),
+            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
                        immValues[0], immValues[1], immValues[2]});
       else if (mfmaInstr == "mfma_f32_32x32x4bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x4bf16>(
             op, adaptor.destC().getType(),
-            ValueRange{castedSourceA, castedSourceB, adaptor.destC(),
+            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
                        immValues[0], immValues[1], immValues[2]});
       else if (mfmaInstr == "mfma_f32_16x16x8bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x8bf16>(
             op, adaptor.destC().getType(),
-            ValueRange{castedSourceA, castedSourceB, adaptor.destC(),
+            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
                        immValues[0], immValues[1], immValues[2]});
       else if (mfmaInstr == "mfma_f32_16x16x2bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x2bf16>(
             op, adaptor.destC().getType(),
-            ValueRange{castedSourceA, castedSourceB, adaptor.destC(),
+            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
                        immValues[0], immValues[1], immValues[2]});
       else if (mfmaInstr == "mfma_f32_4x4x2bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_4x4x2bf16>(
             op, adaptor.destC().getType(),
-            ValueRange{castedSourceA, castedSourceB, adaptor.destC(),
+            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
                        immValues[0], immValues[1], immValues[2]});
     }
 
+    return success();
+  }
+};
+
+struct BFOpLowering : ConvertToLLVMPattern {
+  explicit BFOpLowering(MLIRContext *context, LLVMTypeConverter &typeConverter)
+      : ConvertToLLVMPattern(gpu::BFConvertOp::getOperationName(), context,
+                             typeConverter) {}
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto bfOp = cast<gpu::BFConvertOp>(op);
+    auto adaptor = gpu::BFConvertOpAdaptor(operands);
+    auto loc = bfOp.getLoc();
+
+    Type castedI32Type = rewriter.getIntegerType(32);
+    Type castedI16Type = rewriter.getIntegerType(16);
+    Type llvmI32Type = typeConverter->convertType(castedI32Type);
+    Type llvmI16Type = typeConverter->convertType(castedI16Type);
+    // a = bitcast f32 value to i32
+    // b = (a + 32767) << 16
+    // c = ((a << 16) & 1)
+    // d = b + c
+    // truncate (d << 16) to i16 and return this i16
+    auto bitcastop =
+        rewriter.create<LLVM::BitcastOp>(loc, llvmI32Type, adaptor.in());
+    auto constantSixteen = rewriter.create<LLVM::ConstantOp>(
+        loc, llvmI32Type, rewriter.getIntegerAttr(castedI32Type, 16));
+    auto ShiftValue = rewriter.create<LLVM::LShrOp>(loc, llvmI32Type, bitcastop,
+                                                    constantSixteen);
+
+    auto constantOne = rewriter.create<LLVM::ConstantOp>(
+        loc, llvmI32Type, rewriter.getIntegerAttr(castedI32Type, 1));
+    auto andValue = rewriter.create<LLVM::AndOp>(loc, ShiftValue, constantOne);
+
+    auto constantBig = rewriter.create<LLVM::ConstantOp>(
+        loc, llvmI32Type, rewriter.getIntegerAttr(castedI32Type, 32767));
+    auto addBigValue =
+        rewriter.create<LLVM::AddOp>(loc, bitcastop, constantBig);
+    auto addValue = rewriter.create<LLVM::AddOp>(loc, andValue, addBigValue);
+
+    auto ShiftBeforeTruncValue = rewriter.create<LLVM::LShrOp>(
+        loc, llvmI32Type, addValue, constantSixteen);
+    auto truncValue =
+        rewriter.create<LLVM::TruncOp>(loc, llvmI16Type, ShiftBeforeTruncValue);
+    rewriter.replaceOp(op, {truncValue});
     return success();
   }
 };
@@ -266,6 +307,9 @@ void mlir::populateGpuToROCDLConversionPatterns(
 
   patterns.insert<MFMAOpLowering>(converter.getDialect()->getContext(),
                                   converter);
+
+  patterns.insert<BFOpLowering>(converter.getDialect()->getContext(),
+                                converter);
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>

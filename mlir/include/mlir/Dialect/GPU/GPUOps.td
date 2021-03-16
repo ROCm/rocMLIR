@@ -912,10 +912,10 @@ def GPU_MemcpyOp : GPU_Op<"memcpy", [GPU_AsyncOpInterface]> {
 // mfma
 def GPU_MFMAOp:
     GPU_Op<"mfma">,
-    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceA,
-                   AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceB,
-                   VectorOfRankAndType<[1], [F32, F16, BF16]>: $destC)>,
-    Results<(outs VectorOfRankAndType<[1], [F32, F16, BF16]>: $destD)> {
+    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>, VectorOfLengthAndType<[4], [I16]>]>: $sourceA,
+                   AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>, VectorOfLengthAndType<[4], [I16]>]>: $sourceB,
+                   VectorOfRankAndType<[1], [F32, F16]>: $destC)>,
+    Results<(outs VectorOfRankAndType<[1], [F32, F16]>: $destD)> {
   let summary = "XDLOPS MFMA";
   let description = [{
     The `gpu.mfma` op is an abstraction of XDLOPS.
@@ -925,4 +925,16 @@ def GPU_MFMAOp:
   let verifier = [{ return ::verify(*this); }];
 }
 
+def GPU_BFConvertOp :
+    GPU_Op<"bf_convert">,
+    Arguments<(ins F32:$in)>,
+    Results<(outs I16:$out)> {
+  let summary = "from fp32 to bf16";
+  let description = [{
+    The 'gpu.bf_convert' op converts an fp32 value to bf16 value. Stored as i16 for usage compatibility.
+  }];
+  let parser = [{ return parseBFConvertOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
 #endif // GPU_OPS

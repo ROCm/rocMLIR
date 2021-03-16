@@ -10,8 +10,8 @@
 // CHECK-NEXT: memref_cast {{.*}} : memref<[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]> to memref<?x?x?x?x[[TYPE]]>
 // CHECK-NEXT: memref_cast {{.*}} : memref<[[N]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]> to memref<?x?x?x?x[[TYPE]]>
 // CHECK-NEXT: memref_cast {{.*}} : memref<[[N]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]> to memref<?x?x?x?x[[TYPE]]>
-// CHECK-NEXT: constant 1.000000e+00 : [[TYPE]]
-// CHECK-NEXT: constant 0.000000e+00 : [[TYPE]]
+// CHECK-NEXT: constant {{.*}} : [[TYPE]]
+// CHECK-NEXT: constant {{.*}} : [[TYPE]]
 // CHECK-NEXT: call @mcpuMemset4D{{.*}}({{.*}}, {{.*}}) : (memref<?x?x?x?x[[TYPE]]>, [[TYPE]]) -> ()
 // CHECK-NEXT: call @mcpuMemset4D{{.*}}({{.*}}, {{.*}}) : (memref<?x?x?x?x[[TYPE]]>, [[TYPE]]) -> ()
 // CHECK-NEXT: call @mcpuMemset4D{{.*}}({{.*}}, {{.*}}) : (memref<?x?x?x?x[[TYPE]]>, [[TYPE]]) -> ()

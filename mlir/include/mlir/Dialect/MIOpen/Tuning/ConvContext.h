@@ -45,7 +45,6 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallVector<int64_t, 0> getStrideVal() const { return strideVal; }
   llvm::SmallVector<int64_t, 0> getDilationVal() const { return dilationVal; }
   miopen::ConvOpType getOpType() const { return opType; }
-
   static std::string tableName() { return "config"; }
 
   // Note: Keep it in sync with miopen/conv/problem_description

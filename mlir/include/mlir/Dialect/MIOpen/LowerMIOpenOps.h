@@ -1380,8 +1380,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     if (elementType == b.getF32Type()) {
       zeroConstantFloatOp =
           b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    } else if (elementType == b.getF16Type() ||
-               elementType == b.getBF16Type()) {
+    } else if (elementType == b.getF16Type()) {
       auto zeroF32Op =
           b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
       zeroConstantFloatOp = b.create<FPTruncOp>(loc, zeroF32Op, elementType);
@@ -2369,7 +2368,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         op->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
-    auto dataType = op.input().getType().template dyn_cast<MemRefType>().getElementType().template dyn_cast<FloatType>();
+    auto dataType =
+        op.input().getType().template dyn_cast<MemRefType>().getElementType();
 
     auto MPerWaveConstantOp = b.create<ConstantIndexOp>(loc, MPerWave);
     auto NPerWaveConstantOp = b.create<ConstantIndexOp>(loc, NPerWave);
@@ -3635,13 +3635,21 @@ struct ThreadwiseGemmRewritePattern
     SmallVector<Value, 2> memIndicesKN;
     extractForInductionVars({loopK, loopN}, &memIndicesKN);
     auto gemmBKN = b.create<AffineLoadOp>(loc, gemmB, memIndicesKN);
-    auto mul = b.create<MulFOp>(loc, dataType, gemmAKM, gemmBKN);
 
+    Value mul;
+    if (dataType.isa<IntegerType>())
+      mul = b.create<MulIOp>(loc, dataType, gemmAKM, gemmBKN);
+    else
+      mul = b.create<MulFOp>(loc, dataType, gemmAKM, gemmBKN);
     SmallVector<Value, 2> memIndicesMN;
     extractForInductionVars({loopM, loopN}, &memIndicesMN);
     auto gemmCMN = b.create<AffineLoadOp>(loc, gemmC, memIndicesMN);
 
-    auto add = b.create<AddFOp>(loc, dataType, mul, gemmCMN);
+    Value add;
+    if (dataType.isa<IntegerType>())
+      add = b.create<AddIOp>(loc, dataType, mul, gemmCMN);
+    else
+      add = b.create<AddFOp>(loc, dataType, mul, gemmCMN);
     auto store = b.create<AffineStoreOp>(loc, add, gemmC, memIndicesMN);
 
     op.erase();
@@ -4332,9 +4340,14 @@ struct ThreadwiseCopyV2RewritePattern
       // Issue scalar store.
       if (dataType == b.getF32Type()) {
         innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
-      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+      } else if (dataType == b.getF16Type()) {
         auto truncValue = innerLoopBuilder.create<FPTruncOp>(loc, scalarValue, dataType);
         innerLoopBuilder.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
+      } else if (dataType == b.getIntegerType(16)) {
+        auto convertValue = innerLoopBuilder.create<miopen::DataConvertOp>(
+            loc, dataType, scalarValue);
+        innerLoopBuilder.create<StoreOp>(loc, convertValue, op.dest(),
+                                         destLowerIndices);
       }
     }
 
@@ -4565,7 +4578,8 @@ struct XdlopsGemmV2RewritePattern
     int64_t NPerWave =
         op->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
 
-    auto dataType = op.matrixA().getType().template dyn_cast<MemRefType>().getElementType().template dyn_cast<FloatType>();
+    auto dataType =
+        op.matrixA().getType().template dyn_cast<MemRefType>().getElementType();
 
     auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
     auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
@@ -4625,12 +4639,12 @@ struct XdlopsGemmV2RewritePattern
     // TBD. Existing logic for fp16/bf16 may still NOT be 100% correct.
     int64_t KRepeats = 0;
     if (dataType == b.getF32Type()) {
-      KRepeats = (dataType.getWidth() / 8) / (dataType.getWidth() / 8 * k_base);
-    } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+      KRepeats = 1 / k_base;
+    } else if (dataType == b.getF16Type() || dataType == b.getIntegerType(16)) {
       VectorType argVectorType = argType.template dyn_cast<VectorType>();
-      KRepeats = (dataType.getWidth() / 8 * argVectorType.getShape()[0]) / (dataType.getWidth() / 8 * k_base);
+      KRepeats = argVectorType.getShape()[0] / k_base;
     }
-    
+
     int64_t AStride = K * KRepeats;
     int64_t BStride = K * KRepeats;
 
@@ -4737,7 +4751,8 @@ struct XdlopsGemmV2RewritePattern
       if (dataType == b.getF32Type()) {
         argA = loopKb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
         argB = loopKb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
-      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+      } else if (dataType == b.getF16Type() ||
+                 dataType == b.getIntegerType(16)) {
         argA = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
         argB = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
       }
@@ -4836,7 +4851,8 @@ struct XdlopsGemmV2RewritePattern
       if (dataType == b.getF32Type()) {
         argA = innerLoopb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
         argB = innerLoopb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
-      } else if (dataType == b.getF16Type() || dataType == b.getBF16Type()) {
+      } else if (dataType == b.getF16Type() ||
+                 dataType == b.getIntegerType(16)) {
         argA = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
         argB = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
       }
