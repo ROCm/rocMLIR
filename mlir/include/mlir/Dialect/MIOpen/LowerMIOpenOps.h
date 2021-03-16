@@ -3637,16 +3637,20 @@ struct ThreadwiseGemmRewritePattern
     extractForInductionVars({loopK, loopN}, &memIndicesKN);
     auto gemmBKN = b.create<AffineLoadOp>(loc, gemmB, memIndicesKN);
 
-    Value mul = b.create<MulFOp>(loc, dataType, gemmAKM, gemmBKN);
+    Value mul;
     if (dataType.isa<IntegerType>())
       mul = b.create<MulIOp>(loc, dataType, gemmAKM, gemmBKN);
+    else
+      mul = b.create<MulFOp>(loc, dataType, gemmAKM, gemmBKN);
     SmallVector<Value, 2> memIndicesMN;
     extractForInductionVars({loopM, loopN}, &memIndicesMN);
     auto gemmCMN = b.create<AffineLoadOp>(loc, gemmC, memIndicesMN);
 
-    Value add = b.create<AddFOp>(loc, dataType, mul, gemmCMN);
+    Value add;
     if (dataType.isa<IntegerType>())
       add = b.create<AddIOp>(loc, dataType, mul, gemmCMN);
+    else
+      add = b.create<AddFOp>(loc, dataType, mul, gemmCMN);
     auto store = b.create<AffineStoreOp>(loc, add, gemmC, memIndicesMN);
 
     op.erase();
