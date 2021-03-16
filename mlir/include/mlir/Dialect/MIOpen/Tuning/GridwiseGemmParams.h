@@ -398,8 +398,8 @@ protected:
 };
 
 struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
-  InitParamsNonXDL(int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
-                   int64_t mPerThread, int64_t nPerThread, int64_t bSize)
+  InitParamsNonXDL(int64_t bSize, int64_t mPerBlock, int64_t nPerBlock,
+                   int64_t kPerBlock, int64_t mPerThread, int64_t nPerThread)
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerThread(mPerThread),
         gemmNPerThread(nPerThread), blockSize(bSize) {}
   int64_t gemmMPerThread;
@@ -460,15 +460,28 @@ class PopulateParams : public PopulateParamsBase {
 private:
   // clang-format off
   llvm::SmallVector<InitParamsNonXDL, 8> initParameters = {
-    // M/block N/block K/block M/thread N/thread blockSize
-    {128, 128, 8, 4, 4, 256},
-    {128, 64, 8, 4, 4, 128},
-    {64, 128, 4, 4, 4, 128},
-    {64, 64, 16, 4, 4, 64},
-    {32, 64, 16, 2, 4, 64},
-    {64, 32, 16, 4, 2, 64},
-    {32, 32, 4, 2, 2, 64}
-  };
+    // blockSize M/block N/block K/block M/thread N/thread
+    {256, 128, 128, 16, 4, 4},
+    {256, 128, 128, 8, 4, 4},
+    {256, 128, 128, 4, 4, 4},
+    {128, 128, 64, 16, 4, 4},
+    {128, 128, 64, 8, 4, 4},
+    {128, 128, 64, 4, 4, 4},
+    {128, 64, 128, 16, 4, 4},
+    {128, 64, 128, 8, 4, 4},
+    {128, 64, 128, 4, 4, 4},
+    {64, 64, 64, 16, 4, 4},
+    {64, 64, 64, 8, 4, 4},
+    {64, 64, 64, 4, 4, 4},
+    {64, 64, 32, 16, 4, 2},
+    {64, 64, 32, 8, 4, 2},
+    {64, 64, 32, 4, 4, 2},
+    {64, 32, 64, 16, 2, 4},
+    {64, 32, 64, 8, 2, 4},
+    {64, 32, 64, 4, 2, 4},
+    {64, 32, 32, 16, 2, 2},
+    {64, 32, 32, 8, 2, 2},
+    {64, 32, 32, 4, 2, 2}};
   // clang-format on
 
   LogicalResult
