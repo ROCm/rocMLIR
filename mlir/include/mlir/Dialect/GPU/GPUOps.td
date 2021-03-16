@@ -931,7 +931,7 @@ def GPU_BFConvertOp :
     Results<(outs I16:$out)> {
   let summary = "from fp32 to bf16";
   let description = [{
-    The `gpu.bf_convert` op change fp32 to bf16, but we store with i16.
+    The 'gpu.bf_convert' op converts an fp32 value to bf16 value. Stored as i16 for usage compatibility.
   }];
   let parser = [{ return parseBFConvertOp(parser, result); }];
   let printer = [{ return ::print(p, *this); }];

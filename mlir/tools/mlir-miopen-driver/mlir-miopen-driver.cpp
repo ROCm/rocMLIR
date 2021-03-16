@@ -1504,15 +1504,12 @@ static LogicalResult populateValidationLogic(
 
   mlir::FuncOp verifyFuncOp;
   if (operation.getValue() == "conv2d") {
-    // cpuResults = cpuOutputHostAllocOp;
     verifyFuncOp = createVerifyFuncOp(module, builder, outputDimension,
                                       cpuResults, gpuResults);
   } else if (operation.getValue() == "conv2d_bwd_data") {
-    // cpuResults = cpuInputHostAllocOp;
     verifyFuncOp = createVerifyFuncOp(module, builder, inputDimension,
                                       cpuResults, gpuResults);
   } else if (operation.getValue() == "conv2d_bwd_weight") {
-    // cpuResults = cpuFilterHostAllocOp;
     verifyFuncOp = createVerifyFuncOp(module, builder, filterDimension,
                                       cpuResults, gpuResults);
   }

@@ -40,6 +40,7 @@ typedef union bf16_fp32_cvt {
 static float bfloat16_to_float(ushort src_val) {
   bf16_fp32_cvt_t target_val;
   target_val.ushortvec[1] = src_val;
+  target_val.ushortvec[0] = 0;
   return target_val.f32;
 }
 

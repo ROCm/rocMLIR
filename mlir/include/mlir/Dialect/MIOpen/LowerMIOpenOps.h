@@ -4617,21 +4617,10 @@ struct XdlopsGemmV2RewritePattern
     // TBD. Existing logic for fp16/bf16 may still NOT be 100% correct.
     int64_t KRepeats = 0;
     if (dataType == b.getF32Type()) {
-      KRepeats =
-          (dataType.template dyn_cast<FloatType>().getWidth() / 8) /
-          (dataType.template dyn_cast<FloatType>().getWidth() / 8 * k_base);
-    } else if (dataType == b.getF16Type()) {
+      KRepeats = 1 / k_base;
+    } else if (dataType == b.getF16Type() || dataType == b.getIntegerType(16)) {
       VectorType argVectorType = argType.template dyn_cast<VectorType>();
-      KRepeats =
-          (dataType.template dyn_cast<FloatType>().getWidth() / 8 *
-           argVectorType.getShape()[0]) /
-          (dataType.template dyn_cast<FloatType>().getWidth() / 8 * k_base);
-    } else if (dataType == b.getIntegerType(16)) {
-      VectorType argVectorType = argType.template dyn_cast<VectorType>();
-      KRepeats =
-          (dataType.template dyn_cast<IntegerType>().getWidth() / 8 *
-           argVectorType.getShape()[0]) /
-          (dataType.template dyn_cast<IntegerType>().getWidth() / 8 * k_base);
+      KRepeats = argVectorType.getShape()[0] / k_base;
     }
 
     int64_t AStride = K * KRepeats;

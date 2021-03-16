@@ -315,9 +315,9 @@ def MIOpen_DataConvertOp :
     MIOpen_Op<"data_convert">,
     Arguments<(ins F32:$in)>,
     Results<(outs I16:$out)> {
-  let summary = "from data type to another";
+  let summary = "data type conversion";
   let description = [{
-    The `miopen.data_convert` op transforms some data type.
+    The `miopen.data_convert` op will convert f32 to bf16, but we use i16 to replace bf16 here.
   }];
 }
 #endif // MIOPEN_OPS
