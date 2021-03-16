@@ -2267,7 +2267,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                            }));
       bop.setAttr("source_vector_read_dim",
                   gop.getAttr("matrix_a_source_vector_read_dim"));
-      bop.setAttr("dest_vector_write_dim", b.getI32IntegerAttr(1));
+      bop.setAttr("dest_vector_write_dim", b.getI32IntegerAttr(2));
 
       bop.setAttr("source_data_per_read",
                   gop.getAttr("matrix_a_source_data_per_read"));
@@ -2286,7 +2286,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                            }));
       bop.setAttr("source_vector_read_dim",
                   gop.getAttr("matrix_b_source_vector_read_dim"));
-      bop.setAttr("dest_vector_write_dim", b.getI32IntegerAttr(1));
+      bop.setAttr("dest_vector_write_dim", b.getI32IntegerAttr(2));
 
       bop.setAttr("source_data_per_read",
                   gop.getAttr("matrix_b_source_data_per_read"));
