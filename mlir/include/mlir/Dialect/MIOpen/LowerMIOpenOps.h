@@ -3602,6 +3602,9 @@ struct ThreadwiseGemmRewritePattern
     ArrayRef<int64_t> gemmBShape =
         gemmB.getType().dyn_cast<MemRefType>().getShape();
 
+    auto destType = gemmC.getType().cast<MemRefType>();
+    auto dataType = destType.getElementType();
+
     auto loopK = b.create<AffineForOp>(loc, 0, gemmAShape[0], 1);
     auto lbK = loopK.getBody();
     b.setInsertionPointToStart(lbK);
@@ -3621,15 +3624,19 @@ struct ThreadwiseGemmRewritePattern
     SmallVector<Value, 2> memIndicesKN;
     extractForInductionVars({loopK, loopN}, &memIndicesKN);
     auto gemmBKN = b.create<AffineLoadOp>(loc, gemmB, memIndicesKN);
-    auto mul = b.create<MulFOp>(loc, b.getF32Type(), gemmAKM, gemmBKN);
 
+    Value mul = b.create<MulFOp>(loc, b.getF32Type(), gemmAKM, gemmBKN);
+    if (dataType == b.getIntegerType(16))
+      mul = b.create<MulIOp>(loc, b.getIntegerType(16), gemmAKM, gemmBKN);
     SmallVector<Value, 2> memIndicesMN;
     extractForInductionVars({loopM, loopN}, &memIndicesMN);
     auto gemmCMN = b.create<AffineLoadOp>(loc, gemmC, memIndicesMN);
 
-    auto add = b.create<AddFOp>(loc, b.getF32Type(), mul, gemmCMN);
-    auto store = b.create<AffineStoreOp>(loc, add, gemmC, memIndicesMN);
+    Value add = b.create<AddFOp>(loc, b.getF32Type(), mul, gemmCMN);
+    if (dataType == b.getIntegerType(16))
+      add = b.create<AddIOp>(loc, b.getIntegerType(16), mul, gemmCMN);
 
+    auto store = b.create<AffineStoreOp>(loc, add, gemmC, memIndicesMN);
     op.erase();
     return success();
   }

@@ -16,6 +16,7 @@ typedef union cvt_bf16_fp32 {
 float bfloat16_to_float(uint16_t src_val) {
   cvt_bf16_fp32_t target_val;
   target_val.ushortvec[1] = src_val;
+  target_val.ushortvec[0] = 0;
   return target_val.f32;
 }
 
