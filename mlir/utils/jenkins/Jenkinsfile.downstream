@@ -60,6 +60,7 @@ pipeline {
 
                     cmake -G "Unix Makefiles" ../llvm \
                         -DLLVM_ENABLE_PROJECTS="mlir;lld" \
+                        -DLLVM_TARGETS_TO_BUILD="X86;AMDGPU" \
                         -DCMAKE_BUILD_TYPE=Release \
                         -DBUILD_SHARED_LIBS=OFF \
                         -DLLVM_BUILD_LLVM_DYLIB=OFF \
