@@ -1308,10 +1308,9 @@ static LogicalResult populateValidationLogic(
         builder.getUnknownLoc(), verifyHostAllocOp, unknownSizeMemRefFloatType);
     block->push_back(verifyUnkownSizeMemRefCastOp);
 
-    auto cpuMemConvertOp = FuncOp::create(
-        builder.getUnknownLoc(), "mcpuMemBF16ConvertFloat",
-        builder.getFunctionType(
-            {fourDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {}));
+    auto cpuMemConvertOp = makeFuncDecl(
+        builder, "mcpuMemBF16ConvertFloat",
+        {fourDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {});
     module.push_back(cpuMemConvertOp);
 
     auto verifyMemConvertCallOp = builder.create<CallOp>(
@@ -1323,10 +1322,9 @@ static LogicalResult populateValidationLogic(
   };
 
   mlir::AllocOp gpuResults;
-  mlir::AllocOp gpuResultsBf16;
   if (operation.getValue() == "conv2d") {
     if (builder.getIntegerType(16) == dataType) {
-      gpuResultsBf16 = getFloatDataFromBF16(outputMemRefCastOp);
+      gpuResults = getFloatDataFromBF16(outputMemRefCastOp);
     } else
       gpuResults = outputHostAllocOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
@@ -1400,10 +1398,9 @@ static LogicalResult populateValidationLogic(
     block->push_back(oneConstantForBf16FloatOp);
     block->push_back(zeroConstantForBf16FloatOp);
 
-    auto mcpuMemset4DForBf16FuncOp = FuncOp::create(
-        builder.getUnknownLoc(), "mcpuMemset4DFloat",
-        builder.getFunctionType(
-            {fourDimUnknownSizeMemRefForBf16Type, dataTypeForBf16}, {}));
+    auto mcpuMemset4DForBf16FuncOp = makeFuncDecl(
+        builder, "mcpuMemset4DFloat",
+        {fourDimUnknownSizeMemRefForBf16Type, dataTypeForBf16}, {});
     module.push_back(mcpuMemset4DForBf16FuncOp);
 
     mlir::Value filterMemsetForBf16Value, inputMemsetForBf16Value,
@@ -1548,12 +1545,15 @@ static LogicalResult populateValidationLogic(
       builder.create<DeallocOp>(builder.getUnknownLoc(), inputHostAllocOp);
   auto outputHostDeallocOp =
       builder.create<DeallocOp>(builder.getUnknownLoc(), outputHostAllocOp);
-  auto cpuResultsDeallocOp =
-      builder.create<DeallocOp>(builder.getUnknownLoc(), cpuResults);
   block->push_back(filterHostDeallocOp);
   block->push_back(inputHostDeallocOp);
   block->push_back(outputHostDeallocOp);
-  block->push_back(cpuResultsDeallocOp);
+
+  if (dataType != builder.getIntegerType(16)) { // i16 dealloc in below
+    auto cpuResultsDeallocOp =
+        builder.create<DeallocOp>(builder.getUnknownLoc(), cpuResults);
+    block->push_back(cpuResultsDeallocOp);
+  }
 
   if (dataType == builder.getIntegerType(16)) {
     auto filterHostForBf16DeallocOp = builder.create<DeallocOp>(
