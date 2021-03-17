@@ -46,8 +46,7 @@ static float bfloat16_to_float(ushort src_val) {
 
 extern "C" hipModule_t mgpuModuleLoad(void *data) {
   hipModule_t module = nullptr;
-  int32_t err =
-      reportErrorIfAny(hipModuleLoadData(&module, data), "ModuleLoad");
+  reportErrorIfAny(hipModuleLoadData(&module, data), "ModuleLoad");
   return module;
 }
 
@@ -58,8 +57,7 @@ extern "C" void mgpuModuleUnload(hipModule_t module) {
 extern "C" hipFunction_t mgpuModuleGetFunction(hipModule_t module,
                                                const char *name) {
   hipFunction_t function = nullptr;
-  int32_t err = reportErrorIfAny(hipModuleGetFunction(&function, module, name),
-                                 "GetFunction");
+  reportErrorIfAny(hipModuleGetFunction(&function, module, name), "GetFunction");
   return function;
 }
 
@@ -486,6 +484,14 @@ getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 4> *filter,
   return;
 }
 
+#define MAKE_ARRAY(x, a, b, c, d, field)        \
+  int64_t x ## _ ## field [] = {                \
+    x [a].field,                                \
+    x [b].field,                                \
+    x [c].field,                                \
+    x [d].field                                 \
+  }
+
 // A generic forward convolution function that supports random layouts,
 // dimensions, strides, paddings, and dilations.
 extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
@@ -510,17 +516,24 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
                      i_layout, o_layout, filterSizeStride, inputSizeStride,
                      outputSizeStride);
 
+  MAKE_ARRAY(outputSizeStride, 'n', 'k', 'h', 'w', first);
+  MAKE_ARRAY(outputSizeStride, 'n', 'k', 'h', 'w', second);
+  MAKE_ARRAY(inputSizeStride,  'n', 'c', 'h', 'w', first);
+  MAKE_ARRAY(inputSizeStride,  'n', 'c', 'h', 'w', second);
+  MAKE_ARRAY(filterSizeStride, 'k', 'c', 'y', 'x', first);
+  MAKE_ARRAY(filterSizeStride, 'k', 'c', 'y', 'x', second);
+
   // Perform forward convolution
-  for (int64_t n = 0; n < outputSizeStride['n'].first; n++)
-    for (int64_t k = 0; k < outputSizeStride['k'].first; k++)
-      for (int64_t out_h = 0; out_h < outputSizeStride['h'].first; out_h++)
-        for (int64_t out_w = 0; out_w < outputSizeStride['w'].first; out_w++) {
+  for (int64_t n = 0; n < outputSizeStride_first[0]; n++)
+    for (int64_t k = 0; k < outputSizeStride_first[1]; k++)
+      for (int64_t out_h = 0; out_h < outputSizeStride_first[2]; out_h++)
+        for (int64_t out_w = 0; out_w < outputSizeStride_first[3]; out_w++) {
 
           float acc = 0.0;
-          for (int64_t c = 0; c < inputSizeStride['c'].first; c++)
-            for (int64_t fil_h = 0; fil_h < filterSizeStride['y'].first;
+          for (int64_t c = 0; c < inputSizeStride_first[1]; c++)
+            for (int64_t fil_h = 0; fil_h < filterSizeStride_first[2];
                  fil_h++)
-              for (int64_t fil_w = 0; fil_w < filterSizeStride['x'].first;
+              for (int64_t fil_w = 0; fil_w < filterSizeStride_first[3];
                    fil_w++) {
 
                 float input;
@@ -529,26 +542,26 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
                 int64_t in_w =
                     out_w * stride_w + fil_w * dilation_w - padding_w;
 
-                if (in_h < 0 || in_h >= inputSizeStride['h'].first ||
-                    in_w < 0 || in_w >= inputSizeStride['w'].first)
+                if (in_h < 0 || in_h >= inputSizeStride_first[2] ||
+                    in_w < 0 || in_w >= inputSizeStride_first[3])
                   input = 0.0;
                 else
-                  input = inputAllocated[n * inputSizeStride['n'].second +
-                                         c * inputSizeStride['c'].second +
-                                         in_h * inputSizeStride['h'].second +
-                                         in_w * inputSizeStride['w'].second];
+                  input = inputAllocated[n * inputSizeStride_second[0] +
+                                         c * inputSizeStride_second[1] +
+                                         in_h * inputSizeStride_second[2] +
+                                         in_w * inputSizeStride_second[3]];
 
                 acc += input *
-                       filterAllocated[k * filterSizeStride['k'].second +
-                                       c * filterSizeStride['c'].second +
-                                       fil_h * filterSizeStride['y'].second +
-                                       fil_w * filterSizeStride['x'].second];
+                       filterAllocated[k * filterSizeStride_second[0] +
+                                       c * filterSizeStride_second[1] +
+                                       fil_h * filterSizeStride_second[2] +
+                                       fil_w * filterSizeStride_second[3]];
               }
 
-          outputAllocated[n * outputSizeStride['n'].second +
-                          k * outputSizeStride['k'].second +
-                          out_h * outputSizeStride['h'].second +
-                          out_w * outputSizeStride['w'].second] = acc;
+          outputAllocated[n * outputSizeStride_second[0] +
+                          k * outputSizeStride_second[1] +
+                          out_h * outputSizeStride_second[2] +
+                          out_w * outputSizeStride_second[3]] = acc;
         }
 }
 
