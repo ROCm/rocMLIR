@@ -2256,9 +2256,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     if (isMatrixA) {
       bop.setAttr("source_dim_access_order", b.getArrayAttr({
+                                                 b.getI32IntegerAttr(0),
                                                  b.getI32IntegerAttr(2),
                                                  b.getI32IntegerAttr(1),
-                                                 b.getI32IntegerAttr(0),
                                              }));
       bop.setAttr("dest_dim_access_order", b.getArrayAttr({
                                                b.getI32IntegerAttr(0),
@@ -2275,9 +2275,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                   gop.getAttr("matrix_a_dest_data_per_write_dim_m"));
     } else {
       bop.setAttr("source_dim_access_order", b.getArrayAttr({
-                                                 b.getI32IntegerAttr(2),
                                                  b.getI32IntegerAttr(0),
                                                  b.getI32IntegerAttr(1),
+                                                 b.getI32IntegerAttr(2),
                                              }));
       bop.setAttr("dest_dim_access_order", b.getArrayAttr({
                                                b.getI32IntegerAttr(0),
