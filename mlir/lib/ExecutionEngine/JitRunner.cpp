@@ -71,20 +71,16 @@ struct Options {
   // CLI variables for -On options.
   llvm::cl::opt<bool> optO0{"O0",
                             llvm::cl::desc("Run opt passes and codegen at O0"),
-                            llvm::cl::cat(optFlags),
-                            llvm::cl::init(false)};
+                            llvm::cl::cat(optFlags), llvm::cl::init(false)};
   llvm::cl::opt<bool> optO1{"O1",
                             llvm::cl::desc("Run opt passes and codegen at O1"),
-                            llvm::cl::cat(optFlags),
-                            llvm::cl::init(false)};
+                            llvm::cl::cat(optFlags), llvm::cl::init(false)};
   llvm::cl::opt<bool> optO2{"O2",
                             llvm::cl::desc("Run opt passes and codegen at O2"),
-                            llvm::cl::cat(optFlags),
-                            llvm::cl::init(false)};
+                            llvm::cl::cat(optFlags), llvm::cl::init(false)};
   llvm::cl::opt<bool> optO3{"O3",
                             llvm::cl::desc("Run opt passes and codegen at O3"),
-                            llvm::cl::cat(optFlags),
-                            llvm::cl::init(true)};
+                            llvm::cl::cat(optFlags), llvm::cl::init(true)};
 
   llvm::cl::OptionCategory clOptionsCategory{"linking options"};
   llvm::cl::list<std::string> clSharedLibs{
