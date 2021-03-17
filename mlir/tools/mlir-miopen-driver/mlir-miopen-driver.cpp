@@ -1291,16 +1291,6 @@ static LogicalResult populateValidationLogic(
         builder.create<AllocOp>(builder.getUnknownLoc(), verifyMemRefType);
     block->push_back(verifyHostAllocOp);
 
-    auto filterMemRefForBf16Type = MemRefType::get(
-        ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
-        floatType);
-    auto inputMemRefForBf16Type = MemRefType::get(
-        ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
-        floatType);
-    auto outputMemRefForBf16Type = MemRefType::get(
-        ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
-        floatType);
-
     auto unknownSizeMemRefFloatType =
         MemRefType::get({-1, -1, -1, -1}, floatType);
 
@@ -1410,17 +1400,14 @@ static LogicalResult populateValidationLogic(
     if (operation.getValue() == "conv2d") {
       filterMemsetForBf16Value = oneConstantForBf16FloatOp;
       inputMemsetForBf16Value = oneConstantForBf16FloatOp;
-      //    outputMemsetValue = zeroConstantFloatOp;
       cpuOutputMemsetForBf16Value = zeroConstantForBf16FloatOp;
     } else if (operation.getValue() == "conv2d_bwd_data") {
       filterMemsetForBf16Value = oneConstantForBf16FloatOp;
       inputMemsetForBf16Value = zeroConstantForBf16FloatOp;
-      //    outputMemsetValue = oneConstantFloatOp;
       cpuOutputMemsetForBf16Value = oneConstantForBf16FloatOp;
     } else if (operation.getValue() == "conv2d_bwd_weight") {
       filterMemsetForBf16Value = zeroConstantForBf16FloatOp;
       inputMemsetForBf16Value = oneConstantForBf16FloatOp;
-      //    outputMemsetValue = oneConstantFloatOp;
       cpuOutputMemsetForBf16Value = oneConstantForBf16FloatOp;
     }
 
