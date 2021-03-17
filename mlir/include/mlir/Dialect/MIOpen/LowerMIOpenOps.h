@@ -175,7 +175,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 		      b.getNamedAttr("source_names",
 				      b.getArrayAttr(ArrayRef<Attribute>(
 						      nonKDimNames.begin(), nonKDimNames.end())))};
-      if (kDim.getInt() != 0 && kDim.getInt() != 3) {//here kdim changed from 0 to 1 ,care
+      if (kDim.getInt() != 1 && kDim.getInt() != 4) {//here kdim changed from 0 to 1 ,care
 	      sourceProbCYXDimAttr.push_back(
 			      b.getNamedAttr("transformation", b.getStringAttr("Merge")));
       } else {
@@ -755,7 +755,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                       "source_dimensions",
                       b.getArrayAttr({gDim})),
                   b.getNamedAttr("source_names",
-                                 b.getArrayAttr( b.getArrayAttr({gDimName}))),
+                                  b.getArrayAttr({gDimName})),
               }),
 
               // Part 1: Merge ci, y, x dimensions.
