@@ -1086,14 +1086,36 @@ static LogicalResult populateHostHarnessLogic(
 
   // Print the result if be specified.
   if (printResultTensor.getValue()) {
-    // Emit type conversion routine to convert every element to f32.
-    mlir::Value printHostValue = printHostAllocOp;
-    auto convertResultFuncOp = createConvertResult(
-        module, builder, resultOriginalCpuType, printMemRefType);
-    auto convertResultCallOp = builder.create<CallOp>(
-        builder.getUnknownLoc(), convertResultFuncOp,
-        ValueRange{resultOriginalCpuValue, printHostAllocOp});
-    block->push_back(convertResultCallOp);
+    if (dataType == builder.getIntegerType(16)) {
+      auto floatType = builder.getF32Type();
+      auto unknownSizeMemRefFloatType =
+          MemRefType::get({-1, -1, -1, -1}, floatType);
+
+      auto printUnkownSizeMemRefCastOp = builder.create<MemRefCastOp>(
+          builder.getUnknownLoc(), printHostAllocOp,
+          unknownSizeMemRefFloatType);
+      block->push_back(printUnkownSizeMemRefCastOp);
+
+      auto cpuMemConvertOp = makeFuncDecl(
+          builder, "mcpuMemBF16ConvertFloat",
+          {fourDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {});
+      module.push_back(cpuMemConvertOp);
+
+      auto printMemConvertCallOp = builder.create<CallOp>(
+          builder.getUnknownLoc(), cpuMemConvertOp,
+          ValueRange{resultCpuValue, printUnkownSizeMemRefCastOp});
+      block->push_back(printMemConvertCallOp);
+
+    } else { // f32 or f16
+      // Emit type conversion routine to convert every element to f32.
+      mlir::Value printHostValue = printHostAllocOp;
+      auto convertResultFuncOp = createConvertResult(
+          module, builder, resultOriginalCpuType, printMemRefType);
+      auto convertResultCallOp = builder.create<CallOp>(
+          builder.getUnknownLoc(), convertResultFuncOp,
+          ValueRange{resultOriginalCpuValue, printHostAllocOp});
+      block->push_back(convertResultCallOp);
+    }
 
     // Emit print function call.
     StringRef printMemRefFuncName = "print_memref_f32";
