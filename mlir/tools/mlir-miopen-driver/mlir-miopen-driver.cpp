@@ -1086,7 +1086,7 @@ static LogicalResult populateHostHarnessLogic(
 
   // Print the result if be specified.
   if (printResultTensor.getValue()) {
-    if (dataType == builder.getIntegerType(16)) {
+    if (dataType == builder.getIntegerType(16)) { // i16 only
       auto floatType = builder.getF32Type();
       auto unknownSizeMemRefFloatType =
           MemRefType::get({-1, -1, -1, -1}, floatType);
@@ -1280,12 +1280,11 @@ static LogicalResult populateValidationLogic(
   block->push_back(gpuConvCallOp);
 
   // create f32 data
-  auto getFloatDataFromBF16 = [&](mlir::MemRefCastOp &memRefCastOp) {
+  auto getFloatDataFromBF16 = [&](mlir::MemRefCastOp &memRefCastOp,
+                                  MemRefType resultMemType) {
     // alloc new memory for verify function
     auto floatType = builder.getF32Type();
-    auto verifyMemRefType = MemRefType::get(
-        ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
-        floatType);
+    auto verifyMemRefType = resultMemType;
 
     auto verifyHostAllocOp =
         builder.create<AllocOp>(builder.getUnknownLoc(), verifyMemRefType);
@@ -1314,18 +1313,38 @@ static LogicalResult populateValidationLogic(
   mlir::AllocOp gpuResults;
   if (operation.getValue() == "conv2d") {
     if (builder.getIntegerType(16) == dataType) {
-      gpuResults = getFloatDataFromBF16(outputMemRefCastOp);
+      auto verifyBf16MemRefType = MemRefType::get(
+          ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
+          builder.getF32Type());
+      gpuResults =
+          getFloatDataFromBF16(outputMemRefCastOp, verifyBf16MemRefType);
     } else
       gpuResults = outputHostAllocOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
-    gpuResults = inputHostAllocOp;
+    if (builder.getIntegerType(16) == dataType) {
+      auto verifyBf16MemRefType = MemRefType::get(
+          ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
+          builder.getF32Type());
+      gpuResults =
+          getFloatDataFromBF16(inputMemRefCastOp, verifyBf16MemRefType);
+    } else {
+      gpuResults = inputHostAllocOp;
+    }
     // Reset the input tensor
     auto inputCpuMemsetOp =
         builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
                                ValueRange{inputMemRefCastOp, inputMemsetValue});
     block->push_back(inputCpuMemsetOp);
   } else if (operation.getValue() == "conv2d_bwd_weight") {
-    gpuResults = filterHostAllocOp;
+    if (builder.getIntegerType(16) == dataType) {
+      auto verifyBf16MemRefType = MemRefType::get(
+          ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
+          builder.getF32Type());
+      gpuResults =
+          getFloatDataFromBF16(filterMemRefCastOp, verifyBf16MemRefType);
+    } else {
+      gpuResults = filterHostAllocOp;
+    }
     // Reset the filter tensor
     auto filterCpuMemsetOp = builder.create<CallOp>(
         builder.getUnknownLoc(), mcpuMemset4DFuncOp,
@@ -1540,9 +1559,7 @@ static LogicalResult populateValidationLogic(
     auto cpuResultsDeallocOp =
         builder.create<DeallocOp>(builder.getUnknownLoc(), cpuResults);
     block->push_back(cpuResultsDeallocOp);
-  }
-
-  if (dataType == builder.getIntegerType(16)) {
+  } else {
     auto filterHostForBf16DeallocOp = builder.create<DeallocOp>(
         builder.getUnknownLoc(), filterHostForBf16AllocOp);
     auto inputHostForBf16DeallocOp = builder.create<DeallocOp>(
