@@ -41,22 +41,4 @@
 // F16-NEXT: }
 // F16-NEXT: return
 
-// BF16: func @convert_result([[SOURCE:%[a-zA-Z_0-9]+]]: memref<[[N:[0-9]+]]x[[K:[0-9]+]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]x[[TYPE:[a-zA-Z0-9]+]]>, [[DEST:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE:[a-zA-Z0-9]+]]>)
-// BF16-NEXT: [[ZERO:%[a-zA-Z_0-9]+]] = constant 0 : index
-// BF16-NEXT: [[ONE:%[a-zA-Z_0-9]+]] = constant 1 : index
-// BF16-NEXT: [[BOUND_N:%[a-zA-Z_0-9]+]] = constant [[N]] : index
-// BF16-NEXT: [[BOUND_K:%[a-zA-Z_0-9]+]] = constant [[K]] : index
-// BF16-NEXT: [[BOUND_HO:%[a-zA-Z_0-9]+]] = constant [[HO]] : index
-// BF16-NEXT: [[BOUND_WO:%[a-zA-Z_0-9]+]] = constant [[WO]] : index
-// BF16-NEXT: scf.for [[IV_N:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_N]] step [[ONE]] {
-// BF16-NEXT:   scf.for [[IV_K:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_K]] step [[ONE]] {
-// BF16-NEXT:     scf.for [[IV_HO:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_HO]] step [[ONE]] {
-// BF16-NEXT:       scf.for [[IV_WO:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_WO]] step [[ONE]] {
-// BF16-NEXT:         [[VALUE:%[a-zA-Z_0-9]+]] = load [[SOURCE]]{{\[}}[[IV_N]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>
-// BF16-NEXT:         [[CONVERTED_VALUE:%[a-zA-Z_0-9]+]] = sitofp [[VALUE]] : [[TYPE]] to [[PRINT_TYPE]]
-// BF16-NEXT:         store [[CONVERTED_VALUE]], [[DEST]]{{\[}}[[IV_N]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE]]>
-// BF16-NEXT:       }
-// BF16-NEXT:     }
-// BF16-NEXT:   }
-// BF16-NEXT: }
-// BF16-NEXT: return
+//BF16-NOT: func @convert_result([[SOURCE:%[a-zA-Z_0-9]+]]: memref<[[N:[0-9]+]]x[[K:[0-9]+]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]x[[TYPE:[a-zA-Z0-9]+]]>, [[DEST:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE:[a-zA-Z0-9]+]]>)
