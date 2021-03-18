@@ -186,17 +186,18 @@ static cl::opt<bool> populateHostHarness(
     cl::value_desc("To populate host harness logic"), cl::init(false));
 
 // populate host validation logic.
-static cl::opt<bool>
-    populateValidation("pv",
-                       cl::desc("To populate host validation logic for conv2d "
-                                "forward on specific layouts: "
-                                "filter(yxck), input(nhwc) and output(nhwk)"),
-                       cl::value_desc("To populate host validation logic"),
-                       cl::init(false));
+static cl::opt<bool> populateValidation(
+    "pv", cl::desc("To populate host validation logic for conv2d"),
+    cl::value_desc("To populate host validation logic"), cl::init(false));
 
 static cl::opt<bool> printResultTensor(
     "pr", cl::desc("To print result tensor for verification"),
      cl::value_desc("To print result tensor for verification"), cl::init(false));
+
+static cl::opt<bool> populateCpuConvolution(
+    "prc", cl::desc("To run cpu conv2d and print results for verification"),
+    cl::value_desc("To run cpu conv2d and print results for verification"),
+    cl::init(false));
 
 static cl::opt<int> blockSize("block_size", cl::desc("Block size"),
                               cl::value_desc("Block size"), cl::init(0));
@@ -1513,6 +1514,7 @@ static LogicalResult populateValidationLogic(
     verifyFuncOp = createVerifyFuncOp(module, builder, filterDimension,
                                       cpuResults, gpuResults);
   }
+
   // Compare the results
   auto verifyCallOp =
       builder.create<CallOp>(builder.getUnknownLoc(), verifyFuncOp,
@@ -1545,6 +1547,154 @@ static LogicalResult populateValidationLogic(
     block->push_back(inputHostForBf16DeallocOp);
     block->push_back(cpuOutputHostForBf16DeallocOp);
   }
+
+  auto returnOp =
+      builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
+  block->push_back(returnOp);
+
+  return success();
+}
+
+static LogicalResult
+populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
+                            MLIRContext &context,
+                            SmallVector<int64_t, 4> &filterDimension,
+                            SmallVector<int64_t, 4> &inputDimension,
+                            SmallVector<int64_t, 4> &outputDimension) {
+  // Construct main function.
+  auto func = FuncOp::create(builder.getUnknownLoc(), "main",
+                             builder.getFunctionType({}, {}));
+  module.push_back(func);
+
+  // Construct a new Block.
+  Block *block = func.addEntryBlock();
+
+  auto floatType = builder.getF32Type();
+
+  auto filterMemRefType = MemRefType::get(
+      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
+      floatType);
+  auto inputMemRefType = MemRefType::get(
+      ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
+      floatType);
+  auto outputMemRefType = MemRefType::get(
+      ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
+      floatType);
+
+  auto fourDimUnknownSizeMemRefType =
+      MemRefType::get({-1, -1, -1, -1}, floatType);
+
+  // Emit CPU alloc.
+  auto cpuFilterHostAllocOp =
+      builder.create<AllocOp>(builder.getUnknownLoc(), filterMemRefType);
+  auto cpuInputHostAllocOp =
+      builder.create<AllocOp>(builder.getUnknownLoc(), inputMemRefType);
+  auto cpuOutputHostAllocOp =
+      builder.create<AllocOp>(builder.getUnknownLoc(), outputMemRefType);
+  block->push_back(cpuFilterHostAllocOp);
+  block->push_back(cpuInputHostAllocOp);
+  block->push_back(cpuOutputHostAllocOp);
+
+  // Emit memref_cast.
+  auto filterMemRefCastOp = builder.create<MemRefCastOp>(
+      builder.getUnknownLoc(), cpuFilterHostAllocOp,
+      fourDimUnknownSizeMemRefType);
+  auto inputMemRefCastOp =
+      builder.create<MemRefCastOp>(builder.getUnknownLoc(), cpuInputHostAllocOp,
+                                   fourDimUnknownSizeMemRefType);
+  auto outputMemRefCastOp = builder.create<MemRefCastOp>(
+      builder.getUnknownLoc(), cpuOutputHostAllocOp,
+      fourDimUnknownSizeMemRefType);
+  block->push_back(filterMemRefCastOp);
+  block->push_back(inputMemRefCastOp);
+  block->push_back(outputMemRefCastOp);
+
+  auto oneConstantFloatOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), floatType, builder.getFloatAttr(floatType, 1.0));
+  auto zeroConstantFloatOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), floatType, builder.getFloatAttr(floatType, 0.0));
+
+  block->push_back(oneConstantFloatOp);
+  block->push_back(zeroConstantFloatOp);
+
+  // Emit CPU memset function calls.
+  StringRef memsetFuncName = memsetFuncName = "mcpuMemset4DFloat";
+  auto mcpuMemset4DFuncOp = makeFuncDecl(
+      builder, memsetFuncName, {fourDimUnknownSizeMemRefType, floatType}, {});
+  module.push_back(mcpuMemset4DFuncOp);
+
+  // Populate initial values.
+  mlir::Value filterMemsetValue, inputMemsetValue, outputMemsetValue;
+  if (operation.getValue() == "conv2d") {
+    filterMemsetValue = oneConstantFloatOp;
+    inputMemsetValue = oneConstantFloatOp;
+    outputMemsetValue = zeroConstantFloatOp;
+  } else if (operation.getValue() == "conv2d_bwd_data") {
+    filterMemsetValue = oneConstantFloatOp;
+    inputMemsetValue = zeroConstantFloatOp;
+    outputMemsetValue = oneConstantFloatOp;
+  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    filterMemsetValue = zeroConstantFloatOp;
+    inputMemsetValue = oneConstantFloatOp;
+    outputMemsetValue = oneConstantFloatOp;
+  }
+  auto filterCpuMemsetOp =
+      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+                             ValueRange{filterMemRefCastOp, filterMemsetValue});
+  auto inputCpuMemsetOp =
+      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+                             ValueRange{inputMemRefCastOp, inputMemsetValue});
+  auto outputCpuMemsetOp =
+      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+                             ValueRange{outputMemRefCastOp, outputMemsetValue});
+  block->push_back(filterCpuMemsetOp);
+  block->push_back(inputCpuMemsetOp);
+  block->push_back(outputCpuMemsetOp);
+
+  // Populate host validation logic
+  auto cpuConvFuncOp = createCPUConvolution(module, builder, filterMemRefType,
+                                            inputMemRefType, outputMemRefType);
+
+  // Emit conv2d_host function call.
+  auto cpuConvCallOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), cpuConvFuncOp,
+      ValueRange{cpuFilterHostAllocOp, cpuInputHostAllocOp,
+                 cpuOutputHostAllocOp});
+  block->push_back(cpuConvCallOp);
+
+  mlir::AllocOp cpuResults;
+  if (operation.getValue() == "conv2d") {
+    cpuResults = cpuOutputHostAllocOp;
+  } else if (operation.getValue() == "conv2d_bwd_data") {
+    cpuResults = cpuInputHostAllocOp;
+  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    cpuResults = cpuFilterHostAllocOp;
+  }
+
+  // Emit print function call.
+  StringRef printMemRefFuncName = "print_memref_f32";
+  auto unrankedMemRefType = UnrankedMemRefType::get(builder.getF32Type(), 0);
+  auto printMemRefCastOp = builder.create<MemRefCastOp>(
+      builder.getUnknownLoc(), cpuResults, unrankedMemRefType);
+  auto printMemRefFuncOp =
+      makeFuncDecl(builder, printMemRefFuncName, {unrankedMemRefType}, {});
+  auto printMemRefCallOp =
+      builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFuncOp,
+                             ValueRange{printMemRefCastOp});
+  module.push_back(printMemRefFuncOp);
+  block->push_back(printMemRefCastOp);
+  block->push_back(printMemRefCallOp);
+
+  // Emit CPU dealloc.
+  auto filterHostDeallocOp =
+      builder.create<DeallocOp>(builder.getUnknownLoc(), cpuFilterHostAllocOp);
+  auto inputHostDeallocOp =
+      builder.create<DeallocOp>(builder.getUnknownLoc(), cpuInputHostAllocOp);
+  auto outputHostDeallocOp =
+      builder.create<DeallocOp>(builder.getUnknownLoc(), cpuOutputHostAllocOp);
+  block->push_back(filterHostDeallocOp);
+  block->push_back(inputHostDeallocOp);
+  block->push_back(outputHostDeallocOp);
 
   auto returnOp =
       builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
@@ -1744,15 +1894,18 @@ int main(int argc, char **argv) {
 
   // Populate the module.
   std::string kernelName;
-  if (failed(conv2dGenerator.genConvModule(
-          arch.getValue(), num_cu.getValue(), operation.getValue(), inputLayout,
-          outputLayout, filterLayout, filterDimension, inputDimension,
-          outputDimension, dilationHeight.getValue(), dilationWidth.getValue(),
-          strideHeight.getValue(), strideWidth.getValue(),
-          paddingHeight.getValue(), paddingWidth.getValue(), module, builder,
-          kernelName, dataType, xdlopsV2.getValue()))) {
-    llvm::errs() << "Module population failed.\n";
-    exit(1);
+  if (!populateCpuConvolution.getValue()) {
+    if (failed(conv2dGenerator.genConvModule(
+            arch.getValue(), num_cu.getValue(), operation.getValue(),
+            inputLayout, outputLayout, filterLayout, filterDimension,
+            inputDimension, outputDimension, dilationHeight.getValue(),
+            dilationWidth.getValue(), strideHeight.getValue(),
+            strideWidth.getValue(), paddingHeight.getValue(),
+            paddingWidth.getValue(), module, builder, kernelName, dataType,
+            xdlopsV2.getValue()))) {
+      llvm::errs() << "Module population failed.\n";
+      exit(1);
+    }
   }
 
   // populate host harness and host validation.
@@ -1761,6 +1914,16 @@ int main(int argc, char **argv) {
                                        filterDimension, inputDimension,
                                        outputDimension, dataType))) {
       llvm::errs() << "Host validation populated failed.\n";
+      exit(1);
+    }
+  }
+
+  // populate CPU convolution and print the results.
+  if (populateCpuConvolution.getValue()) {
+    if (failed(populateCpuConvolutionLogic(module, builder, context,
+                                           filterDimension, inputDimension,
+                                           outputDimension))) {
+      llvm::errs() << "Cpu Convolution populated failed.\n";
       exit(1);
     }
   }
