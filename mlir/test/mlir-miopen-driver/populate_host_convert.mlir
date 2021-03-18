@@ -1,6 +1,6 @@
 // RUN: mlir-miopen-driver -p -ph -pr | FileCheck %s --check-prefix=F32
 // RUN: mlir-miopen-driver -p -ph -pr -t f16 | FileCheck %s --check-prefix=F16
-// FIXME: BF16 use another function, so skip it
+// RUN: mlir-miopen-driver -p -ph -pr -t bf16 | FileCheck %s --check-prefix=BF16
 
 // F32: func @convert_result([[SOURCE:%[a-zA-Z_0-9]+]]: memref<[[N:[0-9]+]]x[[K:[0-9]+]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]x[[TYPE:[a-zA-Z0-9]+]]>, [[DEST:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE:[a-zA-Z0-9]+]]>)
 // F32-NEXT: [[ZERO:%[a-zA-Z_0-9]+]] = constant 0 : index
@@ -40,3 +40,5 @@
 // F16-NEXT:   }
 // F16-NEXT: }
 // F16-NEXT: return
+
+//BF16-NOT: func @convert_result([[SOURCE:%[a-zA-Z_0-9]+]]: memref<[[N:[0-9]+]]x[[K:[0-9]+]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]x[[TYPE:[a-zA-Z0-9]+]]>, [[DEST:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE:[a-zA-Z0-9]+]]>)
