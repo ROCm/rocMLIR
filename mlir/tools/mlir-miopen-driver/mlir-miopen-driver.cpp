@@ -1569,6 +1569,7 @@ populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
   // Construct a new Block.
   Block *block = func.addEntryBlock();
 
+  // Only produce convolution logic for F32 type
   auto floatType = builder.getF32Type();
 
   auto filterMemRefType = MemRefType::get(
