@@ -86,7 +86,7 @@ static cl::opt<std::string> outputLayout("out_layout",
 // G
 static cl::opt<int64_t> groupSize("groupsize", cl::desc("Group size"),
                                   cl::value_desc("dimension value"),
-                                  cl::init(-1));
+                                  cl::init(1));
 
 // N
 static cl::opt<int64_t> batchSize("batchsize", cl::desc("Batch size"),
@@ -220,6 +220,20 @@ static cl::opt<std::string> tensorDataType("t", cl::desc("Data type for convolut
                                            cl::value_desc("Data type for convolution"),
                                            cl::init("f32"));
 
+static void correctParameters(){
+  std::string filterLayoutValue = filterLayout.getValue();
+  std::string inputLayoutValue = inputLayout.getValue();
+  std::string outputLayoutValue = outputLayout.getValue();
+  if(filterLayoutValue.size() == 4 && \
+     inputLayoutValue.size() == 4 && \ 
+     outputLayoutValue.size() == 4){
+       filterLayout.setValue("g" + filterLayoutValue);
+       inputLayout.setValue("g" + inputLayoutValue);
+       outputLayout.setValue("g" + outputLayoutValue);
+     }
+   
+   
+}
 static void populateDefaults() {
   if (populateDefaultValues == true) {
     if (xdlopsV2.getValue() == false) {
@@ -1362,7 +1376,7 @@ int main(int argc, char **argv) {
   } else if (tensorDataType == "bf16") {
     dataType = builder.getBF16Type();
   }
-
+  correctParameters();
   populateDefaults();
 
   Conv2dGenerator conv2dGenerator;
