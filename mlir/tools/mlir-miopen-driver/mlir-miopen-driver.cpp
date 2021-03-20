@@ -271,10 +271,10 @@ static FuncOp makeFuncDecl(OpBuilder &builder, StringRef funcName,
 }
 
 static AllocOp allocAndInitializeTensor(OpBuilder &builder, Block *block,
-                                       mlir::Type dataType,
-                                       mlir::FuncOp &mcpuMemset4DFuncOp,
-                                       mlir::MemRefType &memRefType,
-                                       mlir::Value &memsetValue) {
+                                        mlir::Type dataType,
+                                        mlir::FuncOp &mcpuMemset4DFuncOp,
+                                        mlir::MemRefType &memRefType,
+                                        mlir::Value &memsetValue) {
   auto fourDimUnknownSizeMemRefType =
       MemRefType::get({-1, -1, -1, -1}, dataType);
 
@@ -285,14 +285,13 @@ static AllocOp allocAndInitializeTensor(OpBuilder &builder, Block *block,
 
   // Emit memref cast
   auto cpuMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), cpuAllocOp,
-      fourDimUnknownSizeMemRefType);
+      builder.getUnknownLoc(), cpuAllocOp, fourDimUnknownSizeMemRefType);
   block->push_back(cpuMemRefCastOp);
 
   // Populate initial values of the output tensor
-  auto cpuMemsetOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-      ValueRange{cpuMemRefCastOp, memsetValue});
+  auto cpuMemsetOp =
+      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+                             ValueRange{cpuMemRefCastOp, memsetValue});
   block->push_back(cpuMemsetOp);
 
   return cpuAllocOp;
@@ -1563,24 +1562,17 @@ populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
   }
 
   // Emit CPU alloc.
-  auto cpuFilterHostAllocOp = allocAndInitializeTensor(builder, block,
-                                       floatType,
-                                       mcpuMemset4DFuncOp,
-                                       filterMemRefType,
-                                       filterMemsetValue);
+  auto cpuFilterHostAllocOp =
+      allocAndInitializeTensor(builder, block, floatType, mcpuMemset4DFuncOp,
+                               filterMemRefType, filterMemsetValue);
 
-  auto cpuInputHostAllocOp = allocAndInitializeTensor(builder, block,
-                                       floatType,
-                                       mcpuMemset4DFuncOp,
-                                       inputMemRefType,
-                                       inputMemsetValue);
+  auto cpuInputHostAllocOp =
+      allocAndInitializeTensor(builder, block, floatType, mcpuMemset4DFuncOp,
+                               inputMemRefType, inputMemsetValue);
 
-  auto cpuOutputHostAllocOp = allocAndInitializeTensor(builder, block,
-                                       floatType,
-                                       mcpuMemset4DFuncOp,
-                                       outputMemRefType,
-                                       outputMemsetValue);
-
+  auto cpuOutputHostAllocOp =
+      allocAndInitializeTensor(builder, block, floatType, mcpuMemset4DFuncOp,
+                               outputMemRefType, outputMemsetValue);
 
   // Populate host validation logic
   auto cpuConvFuncOp = createCPUConvolution(module, builder, filterMemRefType,
