@@ -173,13 +173,15 @@ public:
 
   static void obtainFilterVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
+    auto g = dimIndexVal["g"].second;
+    auto cgroup = dimIndexVal["c"].second;
+    auto kgroup = dimIndexVal["k"].second;
     // Vectorization length logic is the same for forward and bwd_data
     if (dimIndexVal["k"].first == 4) {
       vecLen = dimIndexVal["k"].second;
     } else if (dimIndexVal["k"].first == 1) {
       // dimKF is the lowest changing dimension, which means dimC/dimY/dimX
-      vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second *
-               dimIndexVal["x"].second;
+      vecLen = cgroup * dimIndexVal["y"].second * dimIndexVal["x"].second;
     } else if (dimIndexVal["k"].first == 2) {
       // K's position is at 1, vectorization legnth is last two dimension
       if (dimIndexVal["c"].first == 1) {
@@ -209,15 +211,10 @@ public:
     } else if (dimIndexVal["ci"].first == 4) {
       vecLen = dimIndexVal["ci"].second;
     } else {
-      bool noVectorReadLimitation =
-          !isXdlops ||
-          (dimIndexVal["x"].second == 1 && dimIndexVal["y"].second == 1);
-      if (noVectorReadLimitation && ctx.strideVal[0] == 1 &&
-          ctx.strideVal[1] ==
-              1 && // it seems we need to change to 5 dims in the future
-          ctx.paddingVal[0] == 0 &&
-          ctx.paddingVal[1] == 0 && ctx.paddingVal[2] == 0 &&
-          ctx.paddingVal[3] == 0)
+      if (dimIndexVal["x"].second == 1 && dimIndexVal["y"].second == 1 &&
+          ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 &&
+          ctx.paddingVal[0] == 0 && ctx.paddingVal[1] == 0 &&
+          ctx.paddingVal[2] == 0 && ctx.paddingVal[3] == 0)
         vecLen = dimIndexVal["ho"].second * dimIndexVal["wo"].second;
       else
         vecLen = 1;

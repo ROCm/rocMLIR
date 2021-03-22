@@ -1155,7 +1155,8 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
   top->setAttr("vector_read_write_dim",
                gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
-  top->setAttr("dest_data_per_write", gop->getAttr("matrix_c_dest_data_per_write"));
+  top->setAttr("dest_data_per_write",
+               gop->getAttr("matrix_c_dest_data_per_write"));
 }
 
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
@@ -1169,7 +1170,8 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
   top->setAttr("vector_read_write_dim",
                gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
-  top->setAttr("dest_data_per_write", gop->getAttr("matrix_c_dest_data_per_write"));
+  top->setAttr("dest_data_per_write",
+               gop->getAttr("matrix_c_dest_data_per_write"));
 }
 
 static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
@@ -2305,9 +2307,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     if (isMatrixA) {
       bop->setAttr("source_dim_access_order", b.getArrayAttr({
-                                                b.getI32IntegerAttr(0),
-                                                b.getI32IntegerAttr(2),
-                                                b.getI32IntegerAttr(1),
+                                                  b.getI32IntegerAttr(0),
+                                                  b.getI32IntegerAttr(2),
+                                                  b.getI32IntegerAttr(1),
                                               }));
       bop->setAttr("dest_dim_access_order", b.getArrayAttr({
                                                 b.getI32IntegerAttr(0),
@@ -2324,9 +2326,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                    gop->getAttr("matrix_a_dest_data_per_write_dim_m"));
     } else {
       bop->setAttr("source_dim_access_order", b.getArrayAttr({
-                                                 b.getI32IntegerAttr(0),
-                                                 b.getI32IntegerAttr(1),
-                                                 b.getI32IntegerAttr(2),
+                                                  b.getI32IntegerAttr(0),
+                                                  b.getI32IntegerAttr(1),
+                                                  b.getI32IntegerAttr(2),
                                               }));
       bop->setAttr("dest_dim_access_order", b.getArrayAttr({
                                                 b.getI32IntegerAttr(0),
@@ -2394,9 +2396,12 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     bop->setAttr("m_waves", b.getI32IntegerAttr(MWaves));
     bop->setAttr("n_waves", b.getI32IntegerAttr(NWaves));
 
-    int64_t M = bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[2];
-    int64_t N = bop.matrixB().getType().template dyn_cast<MemRefType>().getShape()[2];
-    int64_t K = bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t M =
+        bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[2];
+    int64_t N =
+        bop.matrixB().getType().template dyn_cast<MemRefType>().getShape()[2];
+    int64_t K =
+        bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[1];
 
     bop->setAttr("m", b.getI32IntegerAttr(M));
     bop->setAttr("n", b.getI32IntegerAttr(N));
@@ -2454,10 +2459,14 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto twoConstantOp = b.create<ConstantIndexOp>(loc, 2);
 
     // Obtain critical matrix dimensions.
-    int64_t G = op.filter().getType().template dyn_cast<MemRefType>().getShape()[0];
-    int64_t K = op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
-    int64_t M = op.filter().getType().template dyn_cast<MemRefType>().getShape()[2];
-    int64_t N = op.input().getType().template dyn_cast<MemRefType>().getShape()[2];
+    int64_t G =
+        op.filter().getType().template dyn_cast<MemRefType>().getShape()[0];
+    int64_t K =
+        op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t M =
+        op.filter().getType().template dyn_cast<MemRefType>().getShape()[2];
+    int64_t N =
+        op.input().getType().template dyn_cast<MemRefType>().getShape()[2];
 
     // Obtain critical tuning parameters.
     int64_t BlockSize =
@@ -2565,10 +2574,13 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Result block_work_desc is <NBlockWorkd, MBlockWork>
 
-    auto block_work_id_g = b.create<SignedDivIOp>(loc, bid, GStridOp);  //id_g of coordinate
-    auto block_work_rem  = b.create<SignedRemIOp>(loc, bid, GStridOp);
-    auto block_work_id_m = b.create<SignedRemIOp>(loc, block_work_rem, MBlockWorkConstantOp);
-    auto block_work_id_n = b.create<SignedDivIOp>(loc, block_work_rem, MBlockWorkConstantOp);
+    auto block_work_id_g =
+        b.create<SignedDivIOp>(loc, bid, GStridOp); // id_g of coordinate
+    auto block_work_rem = b.create<SignedRemIOp>(loc, bid, GStridOp);
+    auto block_work_id_m =
+        b.create<SignedRemIOp>(loc, block_work_rem, MBlockWorkConstantOp);
+    auto block_work_id_n =
+        b.create<SignedDivIOp>(loc, block_work_rem, MBlockWorkConstantOp);
 
     auto m_block_data_on_global = b.create<MulIOp>(loc, block_work_id_m, MPerBlockConstantOp);
     auto n_block_data_on_global = b.create<MulIOp>(loc, block_work_id_n, NPerBlockConstantOp);
@@ -2950,17 +2962,19 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto mfmalb = OpBuilder::atBlockBegin(mfmaLoopOp.getBody());
 
     // Blockwise copy from global (generic tensor) to register (naive tensor).
-    mfmalb.create<miopen::MovePosOp>(
-        loc, blockwiseCopyASrc,
-        ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op, zeroConstantI32Op});
+    mfmalb.create<miopen::MovePosOp>(loc, blockwiseCopyASrc,
+                                     ValueRange{zeroConstantI32Op,
+                                                KPerBlockConstantI32Op,
+                                                zeroConstantI32Op});
     auto blockwiseCopyOpATop = mfmalb.create<miopen::BlockwiseCopyOp>(
         loc, op.filter(), threadAAllocOp, blockwiseCopyASrc,
         blockwiseCopyADst, /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyOpATop, op, b,
                                  /*isMatrixA=*/true);
-    mfmalb.create<miopen::MovePosOp>(
-        loc, blockwiseCopyBSrc,
-        ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op, zeroConstantI32Op});
+    mfmalb.create<miopen::MovePosOp>(loc, blockwiseCopyBSrc,
+                                     ValueRange{zeroConstantI32Op,
+                                                KPerBlockConstantI32Op,
+                                                zeroConstantI32Op});
     auto blockwiseCopyOpBTop = mfmalb.create<miopen::BlockwiseCopyOp>(
         loc, op.input(), threadBAllocOp, blockwiseCopyBSrc,
         blockwiseCopyBDst, /*buffer=*/nullptr);
@@ -3123,12 +3137,12 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto affineMap5to3 =
         AffineMap::get(5, 0,
                        {getAffineDimExpr(0, op.getContext()),
-                         getAffineDimExpr(1, op.getContext()) *
-                            getAffineConstantExpr(M1, op.getContext()) *
-                            getAffineConstantExpr(M2, op.getContext()) +
-                        getAffineDimExpr(2, op.getContext()) *
-                            getAffineConstantExpr(M2, op.getContext()) +
-                        getAffineDimExpr(3, op.getContext()),
+                        getAffineDimExpr(1, op.getContext()) *
+                                getAffineConstantExpr(M1, op.getContext()) *
+                                getAffineConstantExpr(M2, op.getContext()) +
+                            getAffineDimExpr(2, op.getContext()) *
+                                getAffineConstantExpr(M2, op.getContext()) +
+                            getAffineDimExpr(3, op.getContext()),
                         getAffineDimExpr(4, op.getContext())},
                        op.getContext());
 
@@ -3149,14 +3163,16 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     //     make_native_tensor_descriptor_packed(Sequence<M0, 1, M2, 1>{});
 
     // Build affine expression for Sequence<M0, 1, M2, 1>
-    // (d0, d1, d2, d3) -> (d0 * M2 + d2)  -->(d0, d1, d2, d3, d4) -> (d1 * M2 + d3)
-    // constexpr auto c_g_m0_m1_m2_n_thread_desc =
-    //            make_native_tensor_descriptor_packed(Sequence<1, M0, 1, M2, 1>{});
-    auto matrixCAffineMap5to1 = AffineMap::get(
-        5, 0,
-        {getAffineDimExpr(1, op.getContext()) * getAffineConstantExpr(M2, op.getContext()) +
-         getAffineDimExpr(3, op.getContext())},
-        op.getContext());
+    // (d0, d1, d2, d3) -> (d0 * M2 + d2)  -->(d0, d1, d2, d3, d4) -> (d1 * M2 +
+    // d3) constexpr auto c_g_m0_m1_m2_n_thread_desc =
+    //            make_native_tensor_descriptor_packed(Sequence<1, M0, 1, M2,
+    //            1>{});
+    auto matrixCAffineMap5to1 =
+        AffineMap::get(5, 0,
+                       {getAffineDimExpr(1, op.getContext()) *
+                            getAffineConstantExpr(M2, op.getContext()) +
+                        getAffineDimExpr(3, op.getContext())},
+                       op.getContext());
 
     // Original C++ logic.
     // for(index_t i = 0; i < NumBlks; ++i)
@@ -3328,7 +3344,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
           loc, m_block_data_on_global_i32, c_thread_mtx_index_row_i32);
       n_thread_data_on_global_i32 = b.create<AddIOp>(
           loc, n_block_data_on_global_i32, c_thread_mtx_index_col_i32);
- 
+
       SmallVector<Value, 10> matrixCThreadwiseCopySourceAndDestCoords;
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
