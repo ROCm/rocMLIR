@@ -3354,7 +3354,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
       affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b);
 
       // affix coord_transforms attributes.
-      threadwiseCopyV2CMatrixOp.setAttr("coord_transforms",
+      threadwiseCopyV2CMatrixOp->setAttr("coord_transforms",
                                     b.getArrayAttr({
                                       b.getDictionaryAttr({
                                         b.getNamedAttr("operand", b.getI32IntegerAttr(0)),
@@ -3363,7 +3363,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                     }));
  
       // affix bound attributes.
-      threadwiseCopyV2CMatrixOp.setAttr("bound",
+      threadwiseCopyV2CMatrixOp->setAttr("bound",
                                     b.getArrayAttr({
                                      b.getI32IntegerAttr(1),
                                      b.getI32IntegerAttr(M3),
