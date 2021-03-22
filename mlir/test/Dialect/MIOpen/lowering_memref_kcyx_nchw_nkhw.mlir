@@ -4,7 +4,7 @@
 
 // RUN: mlir-opt -miopen-lowering %s | FileCheck %s
 
-func @miopen_conv2d_kcyx_nchw_nkhw(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
+func @miopen_conv2d_kcyx_nchw_nkhw(%filter : memref<128x8x3x3xf32>, %input : memref<128x8x32x32xf32>, %output : memref<128x128x30x30xf32>) {
   miopen.conv2d(%filter, %input, %output) {
     arch = "gfx906",
     num_cu = 64,
@@ -14,7 +14,7 @@ func @miopen_conv2d_kcyx_nchw_nkhw(%filter : memref<?x?x?x?xf32>, %input : memre
     dilations = [1, 1],
     strides = [1, 1],
     padding = [0, 0]
-  } : memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, memref<?x?x?x?xf32>
+  } : memref<128x8x3x3xf32>, memref<128x8x32x32xf32>, memref<128x128x30x30xf32>
   return
 }
 // CHECK-LABEL: func @miopen_conv2d
@@ -25,7 +25,7 @@ func @miopen_conv2d_kcyx_nchw_nkhw(%filter : memref<?x?x?x?xf32>, %input : memre
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.gridwise_gemm.*{.*}.*memref.*memref.*memref}}
 
-func @miopen_conv2d_bwd_data_kcyx_nchw_nkhw(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
+func @miopen_conv2d_bwd_data_kcyx_nchw_nkhw(%filter : memref<128x8x3x3xf32>, %input : memref<128x8x32x32xf32>, %output : memref<128x128x30x30xf32>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
     arch = "gfx906",
     num_cu = 64,
@@ -35,7 +35,7 @@ func @miopen_conv2d_bwd_data_kcyx_nchw_nkhw(%filter : memref<?x?x?x?xf32>, %inpu
     dilations = [1, 1],
     strides = [1, 1],
     padding = [0, 0]
-  } : memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, memref<?x?x?x?xf32>
+  } : memref<128x8x3x3xf32>, memref<128x8x32x32xf32>, memref<128x128x30x30xf32>
   return
 }
 // CHECK-LABEL: func @miopen_conv2d_bwd_data
@@ -46,7 +46,7 @@ func @miopen_conv2d_bwd_data_kcyx_nchw_nkhw(%filter : memref<?x?x?x?xf32>, %inpu
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.gridwise_gemm.*{.*}.*memref.*memref.*memref}}
 
-func @miopen_conv2d_bwd_weight_kcyx_nchw_nkhw(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
+func @miopen_conv2d_bwd_weight_kcyx_nchw_nkhw(%filter : memref<128x8x3x3xf32>, %input : memref<128x8x32x32xf32>, %output : memref<128x128x30x30xf32>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
     arch = "gfx906",
     num_cu = 64,
@@ -56,7 +56,7 @@ func @miopen_conv2d_bwd_weight_kcyx_nchw_nkhw(%filter : memref<?x?x?x?xf32>, %in
     dilations = [1, 1],
     strides = [1, 1],
     padding = [0, 0]
-  } : memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, memref<?x?x?x?xf32>
+  } : memref<128x8x3x3xf32>, memref<128x8x32x32xf32>, memref<128x128x30x30xf32>
   return
 }
 // CHECK-LABEL: func @miopen_conv2d_bwd_weight
