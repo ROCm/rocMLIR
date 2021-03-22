@@ -75,9 +75,21 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
     auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
 
+    // Get shape of filter tensor.
+    auto filterType = op.filter().getType().template dyn_cast<MemRefType>();
+    auto filterShape = filterType.getShape();
+    auto filterElementType = filterType.getElementType();
+
+    // Get shape of input tensor.
+    auto inputType = op.input().getType().template dyn_cast<MemRefType>();
+    auto inputShape = inputType.getShape();
+    auto inputElementType = inputType.getElementType();
+
     // Get shape of output tensor.
     auto outputType = op.output().getType().template dyn_cast<MemRefType>();
     auto outputShape = outputType.getShape();
+    auto outputElementType = outputType.getElementType();
+
     // HO/WO dimension for output tensor.
     int64_t outputHDim, outputWDim;
 
@@ -94,10 +106,59 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       }
     }
 
+    // Obtain convolution parameters: padding / dialtion / stride.
+    auto leftPadH =
+        paddingAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+    auto leftPadW =
+        paddingAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+    auto dilationH =
+        dilationsAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+    auto dilationW =
+        dilationsAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+    auto strideH =
+        stridesAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+    auto strideW =
+        stridesAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+
+    // get y, x, ho, wo, hi, wi
+    int64_t y, x, ho, wo, hi, wi;
+    y = x = ho = wo = hi = wi = 0;
+    for (unsigned i = 0; i < 4; ++i) {
+      auto filterAttr =
+          filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+      auto inputAttr =
+          inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+      auto outputAttr =
+          outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+
+      if (filterAttr.getValue() == "y") {
+        y = filterShape[i];
+      } else if (filterAttr.getValue() == "x") {
+        x = filterShape[i];
+      }
+
+      if (inputAttr.getValue() == "hi") {
+        hi = inputShape[i];
+      } else if (inputAttr.getValue() == "wi") {
+        wi = inputShape[i];
+      }
+
+      if (outputAttr.getValue() == "ho") {
+        ho = outputShape[i];
+      } else if (outputAttr.getValue() == "wo") {
+        wo = outputShape[i];
+      }
+    }
+
+    // compute padding hi/wi.
+    auto hiPadded = 1 + (y - 1) * dilationH + (ho - 1) * strideH;
+    auto wiPadded = 1 + (x - 1) * dilationW + (wo - 1) * strideW;
+    // compute right padding parameters.
+    int rightPadH = hiPadded > (leftPadH + hi) ? hiPadded - (leftPadH + hi) : 0;
+    int rightPadW = wiPadded > (leftPadW + wi) ? wiPadded - (leftPadW + wi) : 0;
+
     // Transform filter tensor.
-    auto filterType = op.filter().getType().template dyn_cast<MemRefType>();
-    auto filterShape = filterType.getShape();
-    auto filterElementType = filterType.getElementType();
+
     // Y/X dimension for filter tensor.
     int64_t filterYDim, filterXDim;
 
@@ -247,10 +308,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Transform input tensor.
     // Input tensor step 1: padded input.
-    auto inputType = op.input().getType().template dyn_cast<MemRefType>();
-    auto inputShape = inputType.getShape();
-    auto inputElementType = inputType.getElementType();
-
     llvm::SmallVector<int64_t, 4> paddedInputShape;
 
     llvm::SmallVector<NamedAttribute, 3> paddedInputAttrs;
@@ -719,7 +776,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                transformedInputAttrs);
 
     // Transform output tensor.
-    auto outputElementType = outputType.getElementType();
     llvm::SmallVector<int64_t, 2> transformedOutputShape;
 
     llvm::SmallVector<NamedAttribute, 3> transformedOutputAttrs;
@@ -845,48 +901,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         MemRefType::get(transformedOutputShape, outputElementType);
     auto gemmC = b.create<miopen::TransformOp>(
         loc, transformedOutputMemRefType, op.output(), transformedOutputAttrs);
-
-    // compute right padding parameters.
-    auto leftPadH = paddingAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
-    auto leftPadW = paddingAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
-    auto dilationH =
-        dilationsAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
-    auto dilationW =
-        dilationsAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
-    auto strideH = stridesAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
-    auto strideW = stridesAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
-
-    // get y, x, ho, wo, hi, wi
-    int64_t y, x, ho, wo, hi, wi;
-    y = x = ho = wo = hi = wi = 0;
-    for (unsigned i = 0; i < 4; ++i) {
-      auto filterAttr = filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
-      auto inputAttr = inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
-      auto outputAttr = outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
-
-      if (filterAttr.getValue() == "y") {
-        y = filterShape[i];
-      } else if (filterAttr.getValue() == "x") {
-        x = filterShape[i];
-      }
-
-      if (inputAttr.getValue() == "hi") {
-        hi = inputShape[i];
-      } else if (inputAttr.getValue() == "wi") {
-        wi = inputShape[i];
-      }
-
-      if (outputAttr.getValue() == "ho") {
-        ho = outputShape[i];
-      } else if (outputAttr.getValue() == "wo") {
-        wo = outputShape[i];
-      }
-    }
-
-    auto hiPadded = 1 + (y - 1) * dilationH + (ho - 1) * strideH;
-    auto wiPadded = 1 + (x - 1) * dilationW + (wo - 1) * strideW;
-    int rightPadH = hiPadded > (leftPadH + hi) ? hiPadded - (leftPadH + hi) : 0;
-    int rightPadW = wiPadded > (leftPadW + wi) ? wiPadded - (leftPadW + wi) : 0;
 
     // Set attributes for gridwise_gemm op.
     llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
