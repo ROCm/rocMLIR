@@ -157,9 +157,9 @@ extern "C" MiirStatus miirDestroyHandle(MiirHandle mlirHandle) {
 }
 
 extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
-                                           size_t *global_size,
-                                           size_t *local_size) {
-  if (global_size == nullptr || local_size == nullptr)
+                                           size_t *globalSize,
+                                           size_t *localSize) {
+  if (globalSize == nullptr || localSize == nullptr)
     return MIIR_INVALID_PARAM;
 
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
@@ -168,26 +168,53 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
 
   ModuleOp module = handle->getModule();
 
-  LLVM::LLVMFuncOp kernel;
+  auto getSizeAttr = [](const Attribute &attr, int32_t &size) {
+    if (attr) {
+      size = attr.template dyn_cast<IntegerAttr>().getInt();
+      return success();
+    } else {
+      return failure();
+    }
+  };
+
+  auto setReturn = [&](int32_t blockSize, int32_t gridSize) {
+    *globalSize = gridSize * blockSize;
+    *localSize = blockSize;
+  };
+
   int count = 0;
-  module.walk([&](LLVM::LLVMFuncOp funcOp) -> WalkResult {
-    kernel = funcOp;
-    count++;
+  int32_t blockSize = 0;
+  int32_t gridSize = 0;
+
+  // If mlirHandle contains result from miirLowerTuningParams(), it is still
+  // a mlir::FuncOp
+  module.walk([&](FuncOp funcOp) -> WalkResult {
+    auto statusBlock = getSizeAttr(funcOp->getAttr("block_size"), blockSize);
+    auto statusGrid = getSizeAttr(funcOp->getAttr("grid_size"), gridSize);
+    if (statusBlock.succeeded() && statusGrid.succeeded()) {
+      setReturn(blockSize, gridSize);
+    }
+    ++count;
     return WalkResult::advance();
   });
-  if (count != 1)
-    return MIIR_INVALID_MODULE;
-
-  auto blockSizeAttr = kernel->getAttr("block_size");
-  auto gridSizeAttr = kernel->getAttr("grid_size");
-
-  if (blockSizeAttr && gridSizeAttr) {
-    auto blockSize = blockSizeAttr.template dyn_cast<IntegerAttr>().getInt();
-    auto gridSize = gridSizeAttr.template dyn_cast<IntegerAttr>().getInt();
-    *global_size = gridSize * blockSize;
-    *local_size = blockSize;
+  if (count == 1)
     return MIIR_SUCCESS;
-  }
+
+  count = 0;
+  // If mlirHandle contains result from miirLowerTuningBin(), it is
+  // a LLVM::LLVMFuncOp
+  module.walk([&](LLVM::LLVMFuncOp funcOp) -> WalkResult {
+    auto statusBlock = getSizeAttr(funcOp->getAttr("block_size"), blockSize);
+    auto statusGrid = getSizeAttr(funcOp->getAttr("grid_size"), gridSize);
+    if (statusBlock.succeeded() && statusGrid.succeeded()) {
+      setReturn(blockSize, gridSize);
+    }
+    ++count;
+    return WalkResult::advance();
+  });
+  if (count == 1)
+    return MIIR_SUCCESS;
+
   return MIIR_INVALID_MODULE;
 }
 
@@ -234,13 +261,7 @@ extern "C" const char *miirGenIgemmCflags(MiirHandle mlirHandle) {
   return (handle->genTxt).c_str();
 }
 
-extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
-  MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
-  if (handle == nullptr)
-    return MIIR_INVALID_PARAM;
-
-  ModuleOp module = handle->getModule();
-
+extern "C" void miirLowerInit() {
   llvm::InitializeAllTargetInfos();
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllAsmParsers();
@@ -251,6 +272,33 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   LLVMInitializeAMDGPUTargetMC();
   LLVMInitializeAMDGPUAsmPrinter();
   mlir::initializeLLVMPasses();
+}
+
+extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
+  MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
+  if (handle == nullptr)
+    return MIIR_INVALID_PARAM;
+
+  ModuleOp module = handle->getModule();
+
+  PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
+
+  // Passes for lowering MIOpen dialect.
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
+  pm.addPass(mlir::miopen::createAffineTransformPass());
+  pm.addPass(mlir::miopen::createAffixTuningParametersPass(0, 0));
+
+  auto status = pm.run(module);
+
+  return status.succeeded() ? MIIR_SUCCESS : MIIR_BUILD_FAILURE;
+}
+
+extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
+  MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
+  if (handle == nullptr)
+    return MIIR_INVALID_PARAM;
+
+  ModuleOp module = handle->getModule();
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
@@ -309,22 +357,20 @@ extern "C" MiirStatus miirBufferGet(MiirHandle mlirHandle, char *buffer,
 
   // 1st call: give client the size of buffer to allocate
   if ((buffer == nullptr) && (size != nullptr)) {
-    module.walk([&](gpu::GPUModuleOp gpuModule) -> WalkResult {
+    module.walk([&](gpu::GPUModuleOp gpuModule) {
       auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>("rocdl.hsaco");
       if (hsacoAttr) {
         *size = hsacoAttr.getValue().size();
       }
-      return success();
     });
     // 2nd call: copy the hsaco to the target buffer
   } else {
-    module.walk([&](gpu::GPUModuleOp gpuModule) -> WalkResult {
+    module.walk([&](gpu::GPUModuleOp gpuModule) {
       auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>("rocdl.hsaco");
       if (hsacoAttr) {
         std::string hsaco = hsacoAttr.getValue().str();
         std::copy(hsaco.begin(), hsaco.end(), buffer);
       }
-      return success();
     });
   }
   return MIIR_SUCCESS;

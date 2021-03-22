@@ -19,6 +19,8 @@ pipeline {
                 sh '''
                     # make build directory
                     mkdir -p build && cd build
+                    # Set the path to llvm-symbolizer
+                    PATH=$PATH:/opt/rocm-4.0.0/llvm/bin/
 
                     # config MLIR on ROCm
                     cmake -G Ninja ../llvm \
