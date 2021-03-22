@@ -557,7 +557,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                               b.getStringAttr("ho"),
                                           })),
                   b.getNamedAttr("transformation", b.getStringAttr("Embed")),
-                  // TBD: padding parmeters.
+                  // TBD: embed parmeters.
                   b.getNamedAttr("parameters", b.getArrayAttr({
                                                    b.getI32IntegerAttr(1),
                                                    b.getI32IntegerAttr(1),
