@@ -5,7 +5,7 @@
 // output: NHWK
 module {
   func @main() {
-    // allocate CPU memory.
+    // allocate CPU memory for gpu_conv.
     %0 = alloc() : memref<3x3x8x128xf32>
     %1 = alloc() : memref<128x32x32x8xf32>
     %2 = alloc() : memref<128x30x30x128xf32>
@@ -24,24 +24,32 @@ module {
     // launch gpu convolution
     call @gpu_conv(%0, %1, %2) : (memref<3x3x8x128xf32>, memref<128x32x32x8xf32>, memref<128x30x30x128xf32>) -> ()
 
-    // allocate CPU memory.
-    %6 = alloc() : memref<128x30x30x128xf32>
+    // allocate CPU memory for cpu_conv and populate initial values.
+    %6 = alloc() : memref<3x3x8x128xf32>
+    %7 = memref_cast %6 : memref<3x3x8x128xf32> to memref<?x?x?x?xf32>
+    call @mcpuMemset4DFloat(%7, %cst) : (memref<?x?x?x?xf32>, f32) -> ()
 
-    // populate initial values.
-    %7 = memref_cast %6 : memref<128x30x30x128xf32> to memref<?x?x?x?xf32>
-    call @mcpuMemset4DFloat(%7, %cst_0) : (memref<?x?x?x?xf32>, f32) -> ()
-  
+    %8 = alloc() : memref<128x32x32x8xf32>
+    %9 = memref_cast %8 : memref<128x32x32x8xf32> to memref<?x?x?x?xf32>
+    call @mcpuMemset4DFloat(%9, %cst) : (memref<?x?x?x?xf32>, f32) -> ()
+
+    %10 = alloc() : memref<128x30x30x128xf32>
+    %11 = memref_cast %10 : memref<128x30x30x128xf32> to memref<?x?x?x?xf32>
+    call @mcpuMemset4DFloat(%11, %cst_0) : (memref<?x?x?x?xf32>, f32) -> ()
+
     // launch cpu convolution
-    call @conv2d_host(%0, %1, %6) : (memref<3x3x8x128xf32>, memref<128x32x32x8xf32>, memref<128x30x30x128xf32>) -> ()
+    call @conv2d_host(%6, %8, %10) : (memref<3x3x8x128xf32>, memref<128x32x32x8xf32>, memref<128x30x30x128xf32>) -> ()
 
     // verity results
-    call @verify_results(%6, %2) : (memref<128x30x30x128xf32>, memref<128x30x30x128xf32>) -> ()
+    call @verify_results(%10, %2) : (memref<128x30x30x128xf32>, memref<128x30x30x128xf32>) -> ()
 
     // deallocate CPU memory.
     dealloc %0 : memref<3x3x8x128xf32>
     dealloc %1 : memref<128x32x32x8xf32>
     dealloc %2 : memref<128x30x30x128xf32>
-    dealloc %6 : memref<128x30x30x128xf32>
+    dealloc %6 : memref<3x3x8x128xf32>
+    dealloc %8 : memref<128x32x32x8xf32>
+    dealloc %10 : memref<128x30x30x128xf32>
     return
   }
 
