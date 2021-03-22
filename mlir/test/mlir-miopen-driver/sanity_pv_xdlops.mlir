@@ -1,4 +1,3 @@
-// UNSUPPORTED: native
 // Sanity test to -pv produces valid MLIR for all possible data types and
 // XDLOPS lowering paths.
 
