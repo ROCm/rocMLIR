@@ -175,15 +175,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 		      b.getNamedAttr("source_names",
 				      b.getArrayAttr(ArrayRef<Attribute>(
 						      nonKDimNames.begin(), nonKDimNames.end())))};
-      if (kDim.getInt() != 1 && kDim.getInt() != 4) {//here kdim changed from 0 to 1 ,care
-	      sourceProbCYXDimAttr.push_back(
-			      b.getNamedAttr("transformation", b.getStringAttr("Merge")));
+      if (kDim.getInt() != 1 && kDim.getInt() != 4) {
+        sourceProbCYXDimAttr.push_back(
+            b.getNamedAttr("transformation", b.getStringAttr("Merge")));
       } else {
-	      sourceProbCYXDimAttr.push_back(
-			      b.getNamedAttr("transformation", b.getStringAttr("Unfold")));
+        sourceProbCYXDimAttr.push_back(
+            b.getNamedAttr("transformation", b.getStringAttr("Unfold")));
       }
-
-
 
       llvm::SmallVector<NamedAttribute, 3> sourceProbKDimAttr{
 	      b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),

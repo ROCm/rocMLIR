@@ -20,23 +20,22 @@
 namespace mlir {
 class Conv2dGenerator {
 public:
-  LogicalResult parseConvDims(std::string &inputLayout,
-                              std::string &outputLayout,
-                              std::string &filterLayout, int64_t batchSize,
-                              int64_t inputChannel, int64_t inputHeight,
-                              int64_t inputWidth, int64_t outputChannel,
-                              int64_t outputHeight, int64_t outputWidth,
-                              int64_t filterHeight, int64_t filterWidth,
-                              SmallVector<int64_t, 4> &filterDimension,
-                              SmallVector<int64_t, 4> &inputDimension,
-                              SmallVector<int64_t, 4> &outputDimension);
+  LogicalResult
+  parseConvDims(std::string &inputLayout, std::string &outputLayout,
+                std::string &filterLayout, int64_t groupSize, int64_t batchSize,
+                int64_t inputChannel, int64_t inputHeight, int64_t inputWidth,
+                int64_t outputChannel, int64_t outputHeight,
+                int64_t outputWidth, int64_t filterHeight, int64_t filterWidth,
+                SmallVector<int64_t, 5> &filterDimension,
+                SmallVector<int64_t, 5> &inputDimension,
+                SmallVector<int64_t, 5> &outputDimension);
 
   LogicalResult genConvModule(
       std::string &arch, int num_cu, std::string &operation,
       std::string &inputLayout, std::string &outputLayout,
-      std::string &filterLayout, const SmallVector<int64_t, 4> &filterDimension,
-      const SmallVector<int64_t, 4> &inputDimension,
-      const SmallVector<int64_t, 4> &outputDimension, int dilationHeight,
+      std::string &filterLayout, const SmallVector<int64_t, 5> &filterDimension,
+      const SmallVector<int64_t, 5> &inputDimension,
+      const SmallVector<int64_t, 5> &outputDimension, int dilationHeight,
       int dilationWidth, int strideHeight, int strideWidth, int paddingHeight,
       int paddingWidth, ModuleOp &module, OpBuilder &builder,
       std::string &kernelName, mlir::Type dataType, bool xdlops = false);
