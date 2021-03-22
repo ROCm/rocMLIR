@@ -105,11 +105,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     llvm::SmallVector<NamedAttribute, 3> transformedFilterAttrs;
 
-    SmallString<4> arg0TargetLayoutName0("gemm");
-    arg0TargetLayoutName0.append(fields.gemmTargetCharName[0].substr(0, 1));
+    SmallString<5> arg0TargetLayoutName0("gemmG");
     SmallString<4> arg0TargetLayoutName1("gemm");
-    arg0TargetLayoutName1.append(fields.gemmTargetCharName[0].substr(1, 1));
-
+    arg0TargetLayoutName1.append(fields.gemmTargetCharName[0].substr(0, 1));
+    SmallString<4> arg0TargetLayoutName2("gemm");
+    arg0TargetLayoutName2.append(fields.gemmTargetCharName[0].substr(1, 1));
     // set layout attribute.
     // Weight tensor transformation for Conv2DOp
     // - Part 1: Merge non-K dimensions to dimension 0, name it as gemmK.
@@ -131,13 +131,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       IntegerAttr kDim;
       llvm::SmallVector<StringAttr, 3> nonKDimNames;
       StringAttr kDimName;
+
+      IntegerAttr gDim;
+      StringAttr gDimName;
       for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
         if (auto strAttr =
                 filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
           if (strAttr.getValue() == "k") {
             kDim = b.getI32IntegerAttr(i);
             kDimName = strAttr;
-          } else {
+          } else if(strAttr.getValue() == "g") {
+	    gDim = b.getI32IntegerAttr(i);
+            gDimName = strAttr;
+	  } else {
             // Register filter Y/X dimension to be used later when transforming
             // input tensor.
             if (strAttr.getValue() == "y") {
@@ -154,10 +160,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // Compute transformed filter shape dimension.
       int64_t nonKDimSize = 1;
       for (unsigned i = 0; i < filterShape.size(); ++i) {
-        if (i != kDim.getInt()) {
+        if (i != kDim.getInt() && i!= gDim.getInt()) {
           nonKDimSize *= filterShape[i];
         }
       }
+      transformedFilterShape.push_back(filterShape[gDim.getInt()]);
       transformedFilterShape.push_back(nonKDimSize);
       transformedFilterShape.push_back(filterShape[kDim.getInt()]);
 
@@ -168,7 +175,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 		      b.getNamedAttr("source_names",
 				      b.getArrayAttr(ArrayRef<Attribute>(
 						      nonKDimNames.begin(), nonKDimNames.end())))};
-      if (kDim.getInt() != 0 && kDim.getInt() != 3) {
+      if (kDim.getInt() != 1 && kDim.getInt() != 4) {//here kdim changed from 0 to 1 ,care
 	      sourceProbCYXDimAttr.push_back(
 			      b.getNamedAttr("transformation", b.getStringAttr("Merge")));
       } else {
@@ -176,16 +183,24 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 			      b.getNamedAttr("transformation", b.getStringAttr("Unfold")));
       }
 
+
+
       llvm::SmallVector<NamedAttribute, 3> sourceProbKDimAttr{
 	      b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
 		      b.getNamedAttr("source_dimensions", b.getArrayAttr({kDim})),
 		      b.getNamedAttr("source_names", b.getArrayAttr({kDimName}))};
 
+      llvm::SmallVector<NamedAttribute, 3> sourceProbGDimAttr{
+	      b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+		      b.getNamedAttr("source_dimensions", b.getArrayAttr({gDim})),
+		      b.getNamedAttr("source_names", b.getArrayAttr({gDimName}))};
+
       llvm::SmallVector<NamedAttribute, 3> targetGemm0DimAttr{
 	      b.getNamedAttr("dimensions",
 			      b.getArrayAttr({b.getI32IntegerAttr(0)})),
 		      b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
-						      arg0TargetLayoutName0)}))};
+						      "gemmG")}))};
+
 
       llvm::SmallVector<NamedAttribute, 3> targetGemm1DimAttr{
 	      b.getNamedAttr("dimensions",
@@ -193,26 +208,42 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 		      b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
 						      arg0TargetLayoutName1)}))};
 
+      llvm::SmallVector<NamedAttribute, 3> targetGemm2DimAttr{
+	      b.getNamedAttr("dimensions",
+			      b.getArrayAttr({b.getI32IntegerAttr(2)})),
+		      b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+						      arg0TargetLayoutName2)}))};
+
       llvm::SmallVector<NamedAttribute, 0> layoutAttr0;
       llvm::SmallVector<NamedAttribute, 0> layoutAttr1;
+      llvm::SmallVector<NamedAttribute, 0> layoutAttr2;
 
       if (convOpType == miopen::ConvOpType::Conv2DOpType) {
         layoutAttr0.append(targetGemm0DimAttr.begin(),
-                           targetGemm0DimAttr.end());
-        layoutAttr0.append(sourceProbCYXDimAttr.begin(),
+			                     targetGemm0DimAttr.end());
+	      layoutAttr0.append(sourceProbGDimAttr.begin(),
+			                     sourceProbGDimAttr.end());
+        layoutAttr1.append(targetGemm1DimAttr.begin(),
+                           targetGemm1DimAttr.end());
+        layoutAttr1.append(sourceProbCYXDimAttr.begin(),
                            sourceProbCYXDimAttr.end());
+        layoutAttr2.append(targetGemm2DimAttr.begin(),
+                           targetGemm2DimAttr.end());
+        layoutAttr2.append(sourceProbKDimAttr.begin(),
+                           sourceProbKDimAttr.end());
+      } else {
+        layoutAttr0.append(targetGemm0DimAttr.begin(),
+			                     targetGemm0DimAttr.end());
+	      layoutAttr0.append(sourceProbGDimAttr.begin(),
+			                     sourceProbGDimAttr.end());
+
         layoutAttr1.append(targetGemm1DimAttr.begin(),
                            targetGemm1DimAttr.end());
         layoutAttr1.append(sourceProbKDimAttr.begin(),
                            sourceProbKDimAttr.end());
-      } else {
-        layoutAttr0.append(targetGemm0DimAttr.begin(),
-                           targetGemm0DimAttr.end());
-        layoutAttr0.append(sourceProbKDimAttr.begin(),
-                           sourceProbKDimAttr.end());
-        layoutAttr1.append(targetGemm1DimAttr.begin(),
-                           targetGemm1DimAttr.end());
-        layoutAttr1.append(sourceProbCYXDimAttr.begin(),
+        layoutAttr2.append(targetGemm2DimAttr.begin(),
+                           targetGemm2DimAttr.end());
+        layoutAttr2.append(sourceProbCYXDimAttr.begin(),
                            sourceProbCYXDimAttr.end());
       }
 
@@ -224,6 +255,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                         // Part 2: Passthrough part.
                         b.getDictionaryAttr({ArrayRef<NamedAttribute>(
                             layoutAttr1.begin(), layoutAttr1.end())}),
+                            b.getDictionaryAttr({ArrayRef<NamedAttribute>(
+                            layoutAttr2.begin(), layoutAttr2.end())}),
+
                     })));
     }
 
@@ -234,7 +268,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     transformedFilterAttrs.push_back(b.getNamedAttr(
         "output_layout",
         b.getArrayAttr({b.getStringAttr(arg0TargetLayoutName0),
-                        b.getStringAttr(arg0TargetLayoutName1)})));
+                        b.getStringAttr(arg0TargetLayoutName1),
+                        b.getStringAttr(arg0TargetLayoutName2)})));
     // set gridwise_gemm_argument_pos attribute.
     transformedFilterAttrs.push_back(b.getNamedAttr(
         "gridwise_gemm_argument_position",
@@ -251,12 +286,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto inputShape = inputType.getShape();
     auto inputElementType = inputType.getElementType();
 
-    llvm::SmallVector<int64_t, 4> paddedInputShape;
+    llvm::SmallVector<int64_t, 5> paddedInputShape;
 
-    llvm::SmallVector<NamedAttribute, 3> paddedInputAttrs;
+    llvm::SmallVector<NamedAttribute, 4> paddedInputAttrs;
 
     // reorderedPaddedInputDimNames would be used by the next stage.
-    llvm::SmallVector<StringAttr, 4> reorderedPaddedInputDimNames;
+    llvm::SmallVector<StringAttr, 5> reorderedPaddedInputDimNames;
 
     // set layout attribute.
     // Padded input tensor transformation:
@@ -267,8 +302,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // - Part 3: Pad hi/wi dimensions to their original dimensions, name it as
     // hipad/wipad.
     {
-      IntegerAttr nDim, cDim;
-      StringAttr nDimName, cDimName;
+      IntegerAttr nDim, cDim, gDim;
+      StringAttr nDimName, cDimName, gDimName;
       llvm::SmallVector<IntegerAttr, 2> hwDims;
       llvm::SmallVector<StringAttr, 2> hwDimNames;
       for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
@@ -280,7 +315,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           } else if (strAttr.getValue() == "ci") {
             cDim = b.getI32IntegerAttr(i);
             cDimName = strAttr;
-          } else {
+          } else if (strAttr.getValue() == "gi") {
+	          gDim = b.getI32IntegerAttr(i);
+	          gDimName = strAttr;
+	        }else {
             hwDims.push_back(b.getI32IntegerAttr(i));
             hwDimNames.push_back(strAttr);
           }
@@ -300,7 +338,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         } else if (APInt(32, i) == cDim.getValue()) {
           reorderedPaddedInputDimNames.push_back(cDimName);
           paddedInputShape.push_back(inputShape[cDim.getInt()]);
-        } else {
+        }else if (APInt(32, i) == gDim.getValue()) {
+	        reorderedPaddedInputDimNames.push_back(gDimName);
+	        paddedInputShape.push_back(inputShape[gDim.getInt()]);
+	      } else {
           // TBD: padding parameters.
           paddedInputShape.push_back(inputShape[hwDims[j].getInt()]);
 
@@ -310,7 +351,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       paddedInputAttrs.push_back(b.getNamedAttr(
           "layout",
+
           b.getArrayAttr({
+            // Part 0: Passthrough for gi dimension.
+              b.getDictionaryAttr({
+                  b.getNamedAttr("dimensions", b.getArrayAttr({gDim})),
+                  b.getNamedAttr("names", b.getArrayAttr({gDimName})),
+                  b.getNamedAttr("transformation",
+                                 b.getStringAttr("PassThrough")),
+                  b.getNamedAttr("source_dimensions", b.getArrayAttr({gDim})),
+                  b.getNamedAttr("source_names", b.getArrayAttr({gDimName})),
+              }),
+
+
               // Part 1: Passthrough for ni dimension.
               b.getDictionaryAttr({
                   b.getNamedAttr("dimensions", b.getArrayAttr({nDim})),
@@ -354,6 +407,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               }),
           })));
     }
+
     // set source_layout attribute.
     paddedInputAttrs.push_back(
         b.getNamedAttr("source_layout", inputLayoutAttr));
@@ -368,12 +422,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         loc, paddedInputMemRefType, op.input(), paddedInputAttrs);
 
     // Input tensor step 2 : embedded input.
-    llvm::SmallVector<int64_t, 6> embeddedInputShape;
+    llvm::SmallVector<int64_t, 7> embeddedInputShape;
 
-    llvm::SmallVector<NamedAttribute, 3> embeddedInputAttrs;
+    llvm::SmallVector<NamedAttribute, 4> embeddedInputAttrs;
 
     // reorderedEmbeddedInputDimNames would be used by the next stage.
-    llvm::SmallVector<StringAttr, 6> reorderedEmbeddedInputDimNames;
+    llvm::SmallVector<StringAttr, 7> reorderedEmbeddedInputDimNames;
 
     // Embedded input tensor transformation:
     // - Part 1: PassThrough ni dimension to its original dimension, name it as
@@ -383,19 +437,28 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // - Part 3: Embed hipad dimension to 2 dimensions, name them as: y, ho.
     // - Part 4: Embed wipad dimension to 2 dimensions, name them as: x, wo.
     {
-      IntegerAttr nDim, cDim;
-      StringAttr nDimName, cDimName;
+      IntegerAttr nDim, cDim, gDim;
+      StringAttr nDimName, cDimName, gDimName;
       IntegerAttr hDim, wDim;
       StringAttr hDimName, wDimName;
       // reorder dimensions from 4 to 6.
       // ex: (ni, ci, hipad, wipad) -> (ni, ci, y, ho, x, wo).
-      IntegerAttr reorderedNDim, reorderedCDim;
+      IntegerAttr reorderedNDim, reorderedCDim, reorderedGDim;
       llvm::SmallVector<IntegerAttr, 2> reorderedYHoDim;
       llvm::SmallVector<IntegerAttr, 2> reorderedXWoDim;
       unsigned dimCtr = 0;
       for (unsigned i = 0; i < reorderedPaddedInputDimNames.size(); ++i) {
         auto strAttr = reorderedPaddedInputDimNames[i];
-        if (strAttr.getValue() == "ni") {
+        if (strAttr.getValue() == "gi") {
+          gDim = b.getI32IntegerAttr(i);
+          gDimName = strAttr;
+
+          reorderedGDim = b.getI32IntegerAttr(dimCtr++);
+
+          reorderedEmbeddedInputDimNames.push_back(strAttr);
+
+          embeddedInputShape.push_back(inputShape[gDim.getInt()]);
+        } else if (strAttr.getValue() == "ni") {
           nDim = b.getI32IntegerAttr(i);
           nDimName = strAttr;
 
@@ -443,6 +506,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       embeddedInputAttrs.push_back(b.getNamedAttr(
           "layout",
           b.getArrayAttr({
+            // Part 0: Passthrough for gi dimension.
+              b.getDictionaryAttr({
+                  b.getNamedAttr("dimensions", b.getArrayAttr({reorderedGDim})),
+                  b.getNamedAttr("names", b.getArrayAttr({gDimName})),
+                  b.getNamedAttr("transformation",
+                                 b.getStringAttr("PassThrough")),
+                  b.getNamedAttr("source_dimensions", b.getArrayAttr({gDim})),
+                  b.getNamedAttr("source_names", b.getArrayAttr({gDimName})),
+              }),
+
               // Part 1: Passthrough for ni dimension.
               b.getDictionaryAttr({
                   b.getNamedAttr("dimensions", b.getArrayAttr({reorderedNDim})),
@@ -508,6 +581,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               }),
           })));
     }
+
     // set intermediate_layout attribute.
     embeddedInputAttrs.push_back(b.getNamedAttr(
         "intermediate_layout", b.getArrayAttr(ArrayRef<Attribute>(
@@ -525,14 +599,15 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         embeddedInputAttrs);
 
     // Input tensor step 3: transformed input.
-    llvm::SmallVector<int64_t, 2> transformedInputShape;
+    llvm::SmallVector<int64_t, 3> transformedInputShape;
 
     llvm::SmallVector<NamedAttribute, 3> transformedInputAttrs;
 
-    SmallString<4> arg1TargetLayoutName0("gemm");
-    arg1TargetLayoutName0.append(fields.gemmTargetCharName[1].substr(0, 1));
+    SmallString<5> arg1TargetLayoutName0("gemmG");
     SmallString<4> arg1TargetLayoutName1("gemm");
-    arg1TargetLayoutName1.append(fields.gemmTargetCharName[1].substr(1, 1));
+    arg1TargetLayoutName1.append(fields.gemmTargetCharName[1].substr(0, 1));
+    SmallString<4> arg1TargetLayoutName2("gemm");
+    arg1TargetLayoutName2.append(fields.gemmTargetCharName[1].substr(1, 1));
 
     // set layout attribute.
     // Transformed input tensor transformation:
@@ -543,8 +618,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // - Part 1: Merge ni, ho, wo dimensions to dimension 0, name it as gemmK.
     // - Part 2: Merge ci, y, x dimensions to dimension 1, name it as gemmN.
     {
-      IntegerAttr nDim, cDim;
-      StringAttr nDimName, cDimName;
+      IntegerAttr nDim, cDim, gDim;
+      StringAttr nDimName, cDimName, gDimName;
       IntegerAttr hDim, wDim;
       StringAttr hDimName, wDimName;
       IntegerAttr yDim, xDim;
@@ -553,7 +628,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // ex: (ni, ci, y, ho, x, wo) -> ((ci, y, x), (ni, ho, wo)).
       for (unsigned i = 0; i < reorderedEmbeddedInputDimNames.size(); ++i) {
         auto strAttr = reorderedEmbeddedInputDimNames[i];
-        if (strAttr.getValue() == "ni") {
+	      if (strAttr.getValue() == "gi") {
+          gDim = b.getI32IntegerAttr(i);
+          gDimName = strAttr;
+        } else if (strAttr.getValue() == "ni") {
           nDim = b.getI32IntegerAttr(i);
           nDimName = strAttr;
         } else if (strAttr.getValue() == "ci") {
@@ -653,22 +731,39 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       }
       
       if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
+        transformedInputShape.push_back(embeddedInputShape[gDim.getInt()]);
         transformedInputShape.push_back(embeddedInputShape[hDim.getInt()] * embeddedInputShape[wDim.getInt()] * embeddedInputShape[nDim.getInt()]);
         transformedInputShape.push_back(embeddedInputShape[cDim.getInt()] * embeddedInputShape[yDim.getInt()] * embeddedInputShape[xDim.getInt()]);
       } else {
+        transformedInputShape.push_back(embeddedInputShape[gDim.getInt()]);
         transformedInputShape.push_back(embeddedInputShape[cDim.getInt()] * embeddedInputShape[yDim.getInt()] * embeddedInputShape[xDim.getInt()]);
         transformedInputShape.push_back(embeddedInputShape[hDim.getInt()] * embeddedInputShape[wDim.getInt()] * embeddedInputShape[nDim.getInt()]);
       }
 
       transformedInputAttrs.push_back(b.getNamedAttr(
           "layout",
+
           b.getArrayAttr({
-              // Part 1: Merge ci, y, x dimensions.
+            // Part 0: g dimensions.
               b.getDictionaryAttr({
                   b.getNamedAttr("dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(0)})),
                   b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
                                               arg1TargetLayoutName0)})),
+                  b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+                  b.getNamedAttr(
+                      "source_dimensions",
+                      b.getArrayAttr({gDim})),
+                  b.getNamedAttr("source_names",
+                                  b.getArrayAttr({gDimName})),
+              }),
+
+              // Part 1: Merge ci, y, x dimensions.
+              b.getDictionaryAttr({
+                  b.getNamedAttr("dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                  b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+                                              arg1TargetLayoutName1)})),
                   b.getNamedAttr("transformation", b.getStringAttr("Merge")),
                   b.getNamedAttr(
                       "source_dimensions",
@@ -683,9 +778,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               // Part 2: Merge ni, ho, wo dimensions.
               b.getDictionaryAttr({
                   b.getNamedAttr("dimensions",
-                                 b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                                 b.getArrayAttr({b.getI32IntegerAttr(2)})),
                   b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
-                                              arg1TargetLayoutName1)})),
+                                              arg1TargetLayoutName2)})),
                   b.getNamedAttr("transformation", b.getStringAttr("Merge")),
                   b.getNamedAttr(
                       "source_dimensions",
@@ -698,6 +793,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               }),
           })));
     }
+
     // set intermediate_layout attribute.
     transformedInputAttrs.push_back(b.getNamedAttr(
         "intermediate_layout", b.getArrayAttr(ArrayRef<Attribute>(
@@ -707,7 +803,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     transformedInputAttrs.push_back(b.getNamedAttr(
         "output_layout",
         b.getArrayAttr({b.getStringAttr(arg1TargetLayoutName0),
-                        b.getStringAttr(arg1TargetLayoutName1)})));
+		                    b.getStringAttr(arg1TargetLayoutName1),
+                        b.getStringAttr(arg1TargetLayoutName2)})));
     // set gridwise_gemm_argument_pos attribute.
     transformedInputAttrs.push_back(b.getNamedAttr(
         "gridwise_gemm_argument_position",
@@ -720,14 +817,15 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Transform output tensor.
     auto outputElementType = outputType.getElementType();
-    llvm::SmallVector<int64_t, 2> transformedOutputShape;
+    llvm::SmallVector<int64_t, 3> transformedOutputShape;
 
-    llvm::SmallVector<NamedAttribute, 3> transformedOutputAttrs;
+    llvm::SmallVector<NamedAttribute, 4> transformedOutputAttrs;
 
-    SmallString<4> arg2TargetLayoutName0("gemm");
-    arg2TargetLayoutName0.append(fields.gemmTargetCharName[2].substr(0, 1));
+    SmallString<5> arg2TargetLayoutName0("gemmG");
     SmallString<4> arg2TargetLayoutName1("gemm");
-    arg2TargetLayoutName1.append(fields.gemmTargetCharName[2].substr(1, 1));
+    arg2TargetLayoutName1.append(fields.gemmTargetCharName[2].substr(0, 1));
+    SmallString<4> arg2TargetLayoutName2("gemm");
+    arg2TargetLayoutName2.append(fields.gemmTargetCharName[2].substr(1, 1));
 
     // set layout attribute.
     // Output tensor transformation:
@@ -739,16 +837,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // - Part 2: PassThrough K dimension to dimension 1, name it as gemmM.
     {
       llvm::SmallVector<IntegerAttr, 3> nonKDims;
-      IntegerAttr kDim;
+      IntegerAttr kDim, gDim;
       llvm::SmallVector<StringAttr, 3> nonKDimNames;
-      StringAttr kDimName;
+      StringAttr kDimName, gDimName;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
         if (auto strAttr =
                 outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
           if (strAttr.getValue() == "ko") {
             kDim = b.getI32IntegerAttr(i);
             kDimName = strAttr;
-          } else {
+          } else if (strAttr.getValue() == "go") {
+	          gDim = b.getI32IntegerAttr(i);
+	          gDimName = strAttr;
+	        } else {
             nonKDims.push_back(b.getI32IntegerAttr(i));
             nonKDimNames.push_back(strAttr);
           }
@@ -763,12 +864,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         }
       }
       if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
+        transformedOutputShape.push_back(outputShape[gDim.getInt()]);
         transformedOutputShape.push_back(nonKDimSize);
         transformedOutputShape.push_back(outputShape[kDim.getInt()]);
       } else {
+        transformedOutputShape.push_back(outputShape[gDim.getInt()]);
         transformedOutputShape.push_back(outputShape[kDim.getInt()]);
         transformedOutputShape.push_back(nonKDimSize);
       }
+
+      llvm::SmallVector<NamedAttribute, 3> sourceProbGDimAttr{
+              b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+                      b.getNamedAttr("source_dimensions", b.getArrayAttr({gDim})),
+                      b.getNamedAttr("source_names", b.getArrayAttr({gDimName}))};
 
       llvm::SmallVector<NamedAttribute, 3> sourceProbNHoWoDimAttr{
 	      b.getNamedAttr("source_dimensions",
@@ -796,26 +904,46 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 		      b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
 						      arg2TargetLayoutName1)}))};
 
+      llvm::SmallVector<NamedAttribute, 3> targetGemm2DimAttr{
+	      b.getNamedAttr("dimensions",
+			      b.getArrayAttr({b.getI32IntegerAttr(2)})),
+		      b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+						      arg2TargetLayoutName2)}))};
+
+
       llvm::SmallVector<NamedAttribute, 0> layoutAttr0;
       llvm::SmallVector<NamedAttribute, 0> layoutAttr1;
+      llvm::SmallVector<NamedAttribute, 0> layoutAttr2;
 
       if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
 	      layoutAttr0.append(targetGemm0DimAttr.begin(),
 			      targetGemm0DimAttr.end());
-	      layoutAttr0.append(sourceProbNHoWoDimAttr.begin(),
+	      layoutAttr0.append(sourceProbGDimAttr.begin(),
+			      sourceProbGDimAttr.end());
+
+	      layoutAttr1.append(targetGemm1DimAttr.begin(),
+			      targetGemm1DimAttr.end());
+	      layoutAttr1.append(sourceProbNHoWoDimAttr.begin(),
 			      sourceProbNHoWoDimAttr.end());
+	      layoutAttr2.append(targetGemm2DimAttr.begin(),
+			      targetGemm2DimAttr.end());
+	      layoutAttr2.append(sourceProbKDimAttr.begin(),
+			      sourceProbKDimAttr.end());
+
+      } else {
+	      
+        layoutAttr0.append(targetGemm0DimAttr.begin(),
+			      targetGemm0DimAttr.end());
+	      layoutAttr0.append(sourceProbGDimAttr.begin(),
+			      sourceProbGDimAttr.end());
+
 	      layoutAttr1.append(targetGemm1DimAttr.begin(),
 			      targetGemm1DimAttr.end());
 	      layoutAttr1.append(sourceProbKDimAttr.begin(),
 			      sourceProbKDimAttr.end());
-      } else {
-	      layoutAttr0.append(targetGemm0DimAttr.begin(),
-			      targetGemm0DimAttr.end());
-	      layoutAttr0.append(sourceProbKDimAttr.begin(),
-			      sourceProbKDimAttr.end());
-	      layoutAttr1.append(targetGemm1DimAttr.begin(),
-			      targetGemm1DimAttr.end());
-	      layoutAttr1.append(sourceProbNHoWoDimAttr.begin(),
+	      layoutAttr2.append(targetGemm2DimAttr.begin(),
+			      targetGemm2DimAttr.end());
+	      layoutAttr2.append(sourceProbNHoWoDimAttr.begin(),
 			      sourceProbNHoWoDimAttr.end());
       }
  
@@ -825,6 +953,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                             layoutAttr0.begin(), layoutAttr0.end())}),
                         b.getDictionaryAttr({ArrayRef<NamedAttribute>(
                             layoutAttr1.begin(), layoutAttr1.end())}),
+                        b.getDictionaryAttr({ArrayRef<NamedAttribute>(
+                            layoutAttr2.begin(), layoutAttr2.end())}),
                     })));
     }
 
@@ -836,6 +966,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         "output_layout", b.getArrayAttr({
                              b.getStringAttr(arg2TargetLayoutName0),
                              b.getStringAttr(arg2TargetLayoutName1),
+                             b.getStringAttr(arg2TargetLayoutName2),
                          })));
     // set gridwise_gemm_argument_pos attribute.
     transformedOutputAttrs.push_back(b.getNamedAttr(
@@ -984,8 +1115,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
   top->setAttr("vector_read_write_dim",
                gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
-  top->setAttr("dest_data_per_write",
-               gop->getAttr("matrix_c_dest_data_per_write"));
+  top->setAttr("dest_data_per_write", gop->getAttr("matrix_c_dest_data_per_write"));
 }
 
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
@@ -994,12 +1124,12 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
                                        b.getI32IntegerAttr(1),
                                        b.getI32IntegerAttr(2),
                                        b.getI32IntegerAttr(3),
+                                       b.getI32IntegerAttr(4),
                                    }));
   top->setAttr("vector_read_write_dim",
                gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
-  top->setAttr("dest_data_per_write",
-               gop->getAttr("matrix_c_dest_data_per_write"));
+  top->setAttr("dest_data_per_write", gop->getAttr("matrix_c_dest_data_per_write"));
 }
 
 static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
@@ -1008,6 +1138,7 @@ static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top, miop
                                        b.getI32IntegerAttr(1),
                                        b.getI32IntegerAttr(2),
                                        b.getI32IntegerAttr(3),
+                                       b.getI32IntegerAttr(4),
                                    }));
   top->setAttr("vector_read_write_dim",
                gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
@@ -2192,16 +2323,18 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     if (isMatrixA) {
       bop->setAttr("source_dim_access_order", b.getArrayAttr({
-                                                  b.getI32IntegerAttr(1),
-                                                  b.getI32IntegerAttr(0),
+                                                b.getI32IntegerAttr(0),
+                                                b.getI32IntegerAttr(2),
+                                                b.getI32IntegerAttr(1),
                                               }));
       bop->setAttr("dest_dim_access_order", b.getArrayAttr({
                                                 b.getI32IntegerAttr(0),
                                                 b.getI32IntegerAttr(1),
+                                                b.getI32IntegerAttr(2),
                                             }));
       bop->setAttr("source_vector_read_dim",
                    gop->getAttr("matrix_a_source_vector_read_dim"));
-      bop->setAttr("dest_vector_write_dim", b.getI32IntegerAttr(1));
+      bop->setAttr("dest_vector_write_dim", b.getI32IntegerAttr(2));
 
       bop->setAttr("source_data_per_read",
                    gop->getAttr("matrix_a_source_data_per_read"));
@@ -2209,16 +2342,18 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                    gop->getAttr("matrix_a_dest_data_per_write_dim_m"));
     } else {
       bop->setAttr("source_dim_access_order", b.getArrayAttr({
-                                                  b.getI32IntegerAttr(0),
-                                                  b.getI32IntegerAttr(1),
+                                                 b.getI32IntegerAttr(0),
+                                                 b.getI32IntegerAttr(1),
+                                                 b.getI32IntegerAttr(2),
                                               }));
       bop->setAttr("dest_dim_access_order", b.getArrayAttr({
                                                 b.getI32IntegerAttr(0),
                                                 b.getI32IntegerAttr(1),
+                                                b.getI32IntegerAttr(2),
                                             }));
       bop->setAttr("source_vector_read_dim",
                    gop->getAttr("matrix_b_source_vector_read_dim"));
-      bop->setAttr("dest_vector_write_dim", b.getI32IntegerAttr(1));
+      bop->setAttr("dest_vector_write_dim", b.getI32IntegerAttr(2));
 
       bop->setAttr("source_data_per_read",
                    gop->getAttr("matrix_b_source_data_per_read"));
@@ -2277,9 +2412,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     bop->setAttr("m_waves", b.getI32IntegerAttr(MWaves));
     bop->setAttr("n_waves", b.getI32IntegerAttr(NWaves));
 
-    int64_t M = bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[1];
-    int64_t N = bop.matrixB().getType().template dyn_cast<MemRefType>().getShape()[1];
-    int64_t K = bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[0];
+    int64_t M = bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[2];
+    int64_t N = bop.matrixB().getType().template dyn_cast<MemRefType>().getShape()[2];
+    int64_t K = bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[1];
 
     bop->setAttr("m", b.getI32IntegerAttr(M));
     bop->setAttr("n", b.getI32IntegerAttr(N));
@@ -2336,11 +2471,13 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
+    auto twoConstantOp = b.create<ConstantIndexOp>(loc, 2);
 
     // Obtain critical matrix dimensions.
-    int64_t K = op.filter().getType().template dyn_cast<MemRefType>().getShape()[0];
-    int64_t M = op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
-    int64_t N = op.input().getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t G = op.filter().getType().template dyn_cast<MemRefType>().getShape()[0];
+    int64_t K = op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t M = op.filter().getType().template dyn_cast<MemRefType>().getShape()[2];
+    int64_t N = op.input().getType().template dyn_cast<MemRefType>().getShape()[2];
 
     // Obtain critical tuning parameters.
     int64_t BlockSize =
@@ -2387,6 +2524,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     int64_t MBlockWork = M / MPerBlock;
     int64_t NBlockWork = N / NPerBlock;
+    int64_t GStride = MBlockWork * NBlockWork;
 
     int64_t MWavePerBlock = MPerBlock / MPerWave;
     int64_t NWavePerBlock = NPerBlock / NPerWave;
@@ -2416,6 +2554,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto NBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, NBlockWork);
     auto MWavePerBlockConstantOp = b.create<ConstantIndexOp>(loc, MWavePerBlock);
     auto NWavePerBlockConstantOp = b.create<ConstantIndexOp>(loc, NWavePerBlock);
+    auto GStridOp = b.create<ConstantIndexOp>(loc, GStride);
 
     // -----
 
@@ -2430,8 +2569,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Result block_work_desc is <NBlockWorkd, MBlockWork>
 
-    auto block_work_id_m = b.create<SignedRemIOp>(loc, bid, MBlockWorkConstantOp);
-    auto block_work_id_n = b.create<SignedDivIOp>(loc, bid, MBlockWorkConstantOp);
+    auto block_work_id_g = b.create<SignedDivIOp>(loc, bid, GStridOp);  //id_g of coordinate
+    auto block_work_rem  = b.create<SignedRemIOp>(loc, bid, GStridOp);
+    auto block_work_id_m = b.create<SignedRemIOp>(loc, block_work_rem, MBlockWorkConstantOp);
+    auto block_work_id_n = b.create<SignedDivIOp>(loc, block_work_rem, MBlockWorkConstantOp);
 
     auto m_block_data_on_global = b.create<MulIOp>(loc, block_work_id_m, MPerBlockConstantOp);
     auto n_block_data_on_global = b.create<MulIOp>(loc, block_work_id_n, NPerBlockConstantOp);
@@ -2557,6 +2698,13 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto GemmBBlockCopyDestCoord_X_i32 =
         b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_X_i32);
 
+    auto GemmDataIdBegin_G_i32 = b.create<IndexCastOp>(
+        loc, block_work_id_g, b.getIntegerType(32));
+    auto GemmBlockCoord_G_i32 =
+        b.create<AddIOp>(loc, zeroConstantI32Op, GemmDataIdBegin_G_i32);
+    
+    auto GemmBlockCoord_Zero_i32 =
+        b.create<AddIOp>(loc, zeroConstantI32Op, zeroConstantOp);
     // -----
 
     // Alocate LDS and create subviews.
@@ -2591,7 +2739,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // constexpr auto a_k_m_block_desc = make_native_tensor_descriptor_aligned(
     //     Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
     auto lds2DMatrixAMemRefType = computeSubviewResultType(
-        op, ldsBlockAMemRefType, 0, {KPerBlock, MPerBlock}, elementType);
+        op, ldsBlockAMemRefType, 0, {1, KPerBlock, MPerBlock}, elementType);
     auto lds2DMatrixASubviewOp = b.create<miopen::SubviewOp>(
         loc, lds2DMatrixAMemRefType, ldsBlockASubviewOp,
         zeroConstantOp);
@@ -2616,7 +2764,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // constexpr auto b_k_n_block_desc = make_native_tensor_descriptor_aligned(
     //     Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
     auto lds2DMatrixBMemRefType = computeSubviewResultType(
-        op, ldsBlockBMemRefType, 0, {KPerBlock, NPerBlock}, elementType);
+        op, ldsBlockBMemRefType, 0, {1, KPerBlock, NPerBlock}, elementType);
     auto lds2DMatrixBSubviewOp = b.create<miopen::SubviewOp>(
         loc, lds2DMatrixBMemRefType, ldsBlockBSubviewOp,
         zeroConstantOp);
@@ -2626,14 +2774,16 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Allocate for Matrix A / B on registers for blockwise_copy.
 
     auto threadARegisterMemRefType = MemRefType::get(
-        {GemmABlockCopyThreadSliceLengths_GemmK,
+        {1,   //gemm_g
+         GemmABlockCopyThreadSliceLengths_GemmK,
          GemmABlockCopyThreadSliceLengths_GemmM},
         elementType, {}, gpu::GPUDialect::getPrivateAddressSpace());
     auto threadAAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadARegisterMemRefType);
 
     auto threadBRegisterMemRefType = MemRefType::get(
-        {GemmBBlockCopyThreadSliceLengths_GemmK,
+        {1,  //gemm_g
+         GemmBBlockCopyThreadSliceLengths_GemmK,
          GemmBBlockCopyThreadSliceLengths_GemmN},
         elementType, {}, gpu::GPUDialect::getPrivateAddressSpace());
     auto threadBAllocOp =
@@ -2644,38 +2794,47 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Compute source and destination coordinates for BlockwiseCopy ops.
 
     auto blockwiseCopyCoordType =
-        MemRefType::get({2}, b.getIntegerType(32), {},
+        MemRefType::get({3}, b.getIntegerType(32), {},
                         gpu::GPUDialect::getPrivateAddressSpace());
 
-    // Matrix A: {0, m_block_data_on_global}, {0, 0}
+    // Matrix A: {g, 0, m_block_data_on_global}, {0, 0}
     auto blockwiseCopyASrc =
         b.create<miopen::GpuAllocOp>(loc, blockwiseCopyCoordType);
-    b.create<StoreOp>(loc, GemmABlockCopySourceCoord_Y_i32, blockwiseCopyASrc,
+    b.create<StoreOp>(loc, GemmBlockCoord_G_i32, blockwiseCopyASrc,
                       ValueRange{zeroConstantOp});
-    b.create<StoreOp>(loc, GemmABlockCopySourceCoord_X_i32, blockwiseCopyASrc,
+    b.create<StoreOp>(loc, GemmABlockCopySourceCoord_Y_i32, blockwiseCopyASrc,
                       ValueRange{oneConstantOp});
+    b.create<StoreOp>(loc, GemmABlockCopySourceCoord_X_i32, blockwiseCopyASrc,
+                      ValueRange{twoConstantOp});
 
     auto blockwiseCopyADst =
         b.create<miopen::GpuAllocOp>(loc, blockwiseCopyCoordType);
-    b.create<StoreOp>(loc, GemmABlockCopyDestCoord_Y_i32, blockwiseCopyADst,
+    b.create<StoreOp>(loc, GemmBlockCoord_Zero_i32, blockwiseCopyADst,
                       ValueRange{zeroConstantOp});
-    b.create<StoreOp>(loc, GemmABlockCopyDestCoord_X_i32, blockwiseCopyADst,
+    b.create<StoreOp>(loc, GemmABlockCopyDestCoord_Y_i32, blockwiseCopyADst,
                       ValueRange{oneConstantOp});
+    b.create<StoreOp>(loc, GemmABlockCopyDestCoord_X_i32, blockwiseCopyADst,
+                      ValueRange{twoConstantOp});
 
     // Matrix B: {0, n_block_data_on_global}, {0, 0}
     auto blockwiseCopyBSrc =
         b.create<miopen::GpuAllocOp>(loc, blockwiseCopyCoordType);
-    b.create<StoreOp>(loc, GemmBBlockCopySourceCoord_Y_i32, blockwiseCopyBSrc,
+    b.create<StoreOp>(loc, GemmBlockCoord_G_i32, blockwiseCopyBSrc,
                       ValueRange{zeroConstantOp});
-    b.create<StoreOp>(loc, GemmBBlockCopySourceCoord_X_i32, blockwiseCopyBSrc,
+    b.create<StoreOp>(loc, GemmBBlockCopySourceCoord_Y_i32, blockwiseCopyBSrc,
                       ValueRange{oneConstantOp});
+    b.create<StoreOp>(loc, GemmBBlockCopySourceCoord_X_i32, blockwiseCopyBSrc,
+                      ValueRange{twoConstantOp});
 
     auto blockwiseCopyBDst =
         b.create<miopen::GpuAllocOp>(loc, blockwiseCopyCoordType);
-    b.create<StoreOp>(loc, GemmBBlockCopyDestCoord_Y_i32, blockwiseCopyBDst,
+    b.create<StoreOp>(loc, GemmBlockCoord_Zero_i32, blockwiseCopyBDst,
                       ValueRange{zeroConstantOp});
-    b.create<StoreOp>(loc, GemmBBlockCopyDestCoord_X_i32, blockwiseCopyBDst,
+    b.create<StoreOp>(loc, GemmBBlockCopyDestCoord_Y_i32, blockwiseCopyBDst,
                       ValueRange{oneConstantOp});
+    b.create<StoreOp>(loc, GemmBBlockCopyDestCoord_X_i32, blockwiseCopyBDst,
+                      ValueRange{twoConstantOp});
+
 
     // -----
 
@@ -2781,7 +2940,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Blockwise copy from global (generic tensor) to register (naive tensor).
     mfmalb.create<miopen::MovePosOp>(
         loc, blockwiseCopyASrc,
-        ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
+        ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpATop = mfmalb.create<miopen::BlockwiseCopyOp>(
         loc, op.filter(), threadAAllocOp, blockwiseCopyASrc,
         blockwiseCopyADst, /*buffer=*/nullptr);
@@ -2789,7 +2948,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                  /*isMatrixA=*/true);
     mfmalb.create<miopen::MovePosOp>(
         loc, blockwiseCopyBSrc,
-        ValueRange{KPerBlockConstantI32Op, zeroConstantI32Op});
+        ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op, zeroConstantI32Op});
     auto blockwiseCopyOpBTop = mfmalb.create<miopen::BlockwiseCopyOp>(
         loc, op.input(), threadBAllocOp, blockwiseCopyBSrc,
         blockwiseCopyBDst, /*buffer=*/nullptr);
@@ -2946,26 +3105,27 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     //     make_tuple(Sequence<0, 1, 2>{}, Sequence<3>{}));
  
     // build affine expression:
-    // (d0, d1, d2, d3) -> (d0 * M1 * M2 + d1 * M2 + d2, d3)
-    auto affineMap4to2 =
-        AffineMap::get(4, 0,
-                       {getAffineDimExpr(0, op.getContext()) *
+    // (g, d0, d1, d2, d3) -> (g, d0 * M1 * M2 + d1 * M2 + d2, d3)
+    auto affineMap5to3 =
+        AffineMap::get(5, 0,
+                       {getAffineDimExpr(0, op.getContext()),
+                         getAffineDimExpr(1, op.getContext()) *
                             getAffineConstantExpr(M1, op.getContext()) *
                             getAffineConstantExpr(M2, op.getContext()) +
-                        getAffineDimExpr(1, op.getContext()) *
+                        getAffineDimExpr(2, op.getContext()) *
                             getAffineConstantExpr(M2, op.getContext()) +
-                        getAffineDimExpr(2, op.getContext()),
-                        getAffineDimExpr(3, op.getContext())},
+                        getAffineDimExpr(3, op.getContext()),
+                        getAffineDimExpr(4, op.getContext())},
                        op.getContext());
 
     // compose with output tensor affine map.
     auto outputType = op.output().getType().template dyn_cast<MemRefType>();
-    auto outputAffineMap2to4 = outputType.getAffineMaps()[0];
-    auto affineMap4to2to4 = outputAffineMap2to4.compose(affineMap4to2);
+    auto outputAffineMap3to5 = outputType.getAffineMaps()[0];
+    auto affineMap5to3to5 = outputAffineMap3to5.compose(affineMap5to3);
 
     // emit TransformOp for output tensor.
     auto newOutputType = MemRefType::get(
-        {M0, M1, M2, N}, outputType.getElementType(), {affineMap4to2to4});
+        {G, M0, M1, M2, N}, outputType.getElementType(), {affineMap5to3to5});
     auto newOutputTransformOp =
         b.create<miopen::TransformOp>(loc, newOutputType, op.output());
 
@@ -2975,11 +3135,13 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     //     make_native_tensor_descriptor_packed(Sequence<M0, 1, M2, 1>{});
 
     // Build affine expression for Sequence<M0, 1, M2, 1>
-    // (d0, d1, d2, d3) -> (d0 * M2 + d2)
-    auto matrixCAffineMap4to1 = AffineMap::get(
-        4, 0,
-        {getAffineDimExpr(0, op.getContext()) * getAffineConstantExpr(M2, op.getContext()) +
-         getAffineDimExpr(2, op.getContext())},
+    // (d0, d1, d2, d3) -> (d0 * M2 + d2)  -->(d0, d1, d2, d3, d4) -> (d1 * M2 + d3)
+    // constexpr auto c_g_m0_m1_m2_n_thread_desc =
+    //            make_native_tensor_descriptor_packed(Sequence<1, M0, 1, M2, 1>{});
+    auto matrixCAffineMap5to1 = AffineMap::get(
+        5, 0,
+        {getAffineDimExpr(1, op.getContext()) * getAffineConstantExpr(M2, op.getContext()) +
+         getAffineDimExpr(3, op.getContext())},
         op.getContext());
 
     // Original C++ logic.
@@ -3153,12 +3315,15 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
       n_thread_data_on_global_i32 = b.create<AddIOp>(
           loc, n_block_data_on_global_i32, c_thread_mtx_index_col_i32);
  
-      SmallVector<Value, 8> matrixCThreadwiseCopySourceAndDestCoords;
+      SmallVector<Value, 10> matrixCThreadwiseCopySourceAndDestCoords;
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
       matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
 
+      // g index
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(GemmDataIdBegin_G_i32);
       // m_thread_data_on_global / (M2 * M1)
       matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<SignedDivIOp>(
           loc, m_thread_data_on_global_i32, M2TimesM1I32Op));
@@ -3189,20 +3354,23 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
       affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b);
 
       // affix coord_transforms attributes.
-      threadwiseCopyV2CMatrixOp->setAttr(
-          "coord_transforms",
-          b.getArrayAttr({b.getDictionaryAttr(
-              {b.getNamedAttr("operand", b.getI32IntegerAttr(0)),
-               b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
-                                                matrixCAffineMap4to1))})}));
-
+      threadwiseCopyV2CMatrixOp.setAttr("coord_transforms",
+                                    b.getArrayAttr({
+                                      b.getDictionaryAttr({
+                                        b.getNamedAttr("operand", b.getI32IntegerAttr(0)),
+                                        b.getNamedAttr("transforms", b.getAffineMapArrayAttr(matrixCAffineMap5to1))
+                                      })
+                                    }));
+ 
       // affix bound attributes.
-      threadwiseCopyV2CMatrixOp->setAttr("bound", b.getArrayAttr({
-                                                      b.getI32IntegerAttr(M3),
-                                                      b.getI32IntegerAttr(1),
-                                                      b.getI32IntegerAttr(M2),
-                                                      b.getI32IntegerAttr(1),
-                                                  }));
+      threadwiseCopyV2CMatrixOp.setAttr("bound",
+                                    b.getArrayAttr({
+                                     b.getI32IntegerAttr(1),
+                                     b.getI32IntegerAttr(M3),
+                                     b.getI32IntegerAttr(1),
+                                     b.getI32IntegerAttr(M2),
+                                     b.getI32IntegerAttr(1),
+                                    }));
     }
 
     op.erase();
