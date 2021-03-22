@@ -378,8 +378,14 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           reorderedPaddedInputDimNames.push_back(cDimName);
           paddedInputShape.push_back(inputShape[cDim.getInt()]);
         } else {
-          // TBD: padding parameters.
-          paddedInputShape.push_back(inputShape[hwDims[j].getInt()]);
+          // Set padded dimension.
+          auto strAttr =
+              inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+          if (strAttr.getValue() == "hi") {
+            paddedInputShape.push_back(hiPadded);
+          } else if (strAttr.getValue() == "wi") {
+            paddedInputShape.push_back(wiPadded);
+          }
 
           reorderedPaddedInputDimNames.push_back(hwPaddedDimNames[j++]);
         }
@@ -417,11 +423,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                               hwPaddedDimNames.begin(),
                                               hwPaddedDimNames.end()))),
                   b.getNamedAttr("transformation", b.getStringAttr("Pad")),
-                  // TBD: padding parmeters.
-                  b.getNamedAttr("parameters", b.getArrayAttr({
-                                                   b.getI32IntegerAttr(0),
-                                                   b.getI32IntegerAttr(0),
-                                               })),
+                  b.getNamedAttr("parameters",
+                                 b.getArrayAttr({
+                                     b.getI32IntegerAttr(leftPadH),
+                                     b.getI32IntegerAttr(leftPadW),
+                                 })),
                   b.getNamedAttr("source_dimensions",
                                  b.getArrayAttr(ArrayRef<Attribute>(
                                      hwDims.begin(), hwDims.end()))),
