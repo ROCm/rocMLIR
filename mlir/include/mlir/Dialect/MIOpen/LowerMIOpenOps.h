@@ -275,8 +275,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr("transformation", b.getStringAttr("Unfold")));
       }
 
-
-
       llvm::SmallVector<NamedAttribute, 3> sourceProbKDimAttr{
 	      b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
 		      b.getNamedAttr("source_dimensions", b.getArrayAttr({kDim})),

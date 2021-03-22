@@ -93,14 +93,14 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   strToTokens(arguments, argMap);
 
   auto isValid = [&argMap]() {
-    static const std::vector<std::string> validKeys = {
-        "operation",    "batchsize",     "arch",          "num_cu",
-        "kernel_name",  "in_layout",     "in_type",       "in_channels",
-        "in_h",         "in_w",          "out_layout",    "out_type",
-        "out_channels", "out_h",         "out_w",         "fil_layout",
-        "fil_type",     "fil_w",         "fil_h",         "padding_h",
-        "padding_w",    "conv_stride_h", "conv_stride_w", "dilation_h",
-        "dilation_w", "groupsize"};
+    std::vector<std::string> validKeys = {
+        "operation",   "groupsize",    "batchsize",     "arch",
+        "num_cu",      "kernel_name",  "in_layout",     "in_type",
+        "in_channels", "in_h",         "in_w",          "out_layout",
+        "out_type",    "out_channels", "out_h",         "out_w",
+        "fil_layout",  "fil_type",     "fil_w",         "fil_h",
+        "padding_h",   "padding_w",    "conv_stride_h", "conv_stride_w",
+        "dilation_h",  "dilation_w"};
     return std::all_of(
         validKeys.cbegin(), validKeys.cend(),
         [&argMap](const std::string &key) { return argMap.count(key) > 0; });
