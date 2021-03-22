@@ -1,6 +1,4 @@
 // This tests checks the following aspects of lowering component:
-// * Input has three transformations in total
-// * Input has correct output_layout across transformations
 // * Input tensor has non-zero padding.
 
 // RUN: mlir-opt -miopen-lowering %s | FileCheck %s --check-prefix=LOWERING
@@ -21,15 +19,9 @@ func @miopen_conv2d_cyxk_cnhw_knhw(%filter : memref<8x3x3x128xf32>, %input : mem
 }
 
 // LOWERING-LABEL: func @miopen_conv2d
-// LOWERING-NEXT:  miopen.transform(%arg0)
-// LOWERING-NEXT:  miopen.transform(%arg1)
-// LOWERING:       output_layout = ["ci", "ni", "hipad", "wipad"]
-// LOWERING:       memref<8x128x34x34xf32>
-// LOWERING-NEXT:  miopen.transform
-// LOWERING:       output_layout = ["ci", "ni", "y", "ho", "x", "wo"]
-// LOWERING-NEXT:  miopen.transform
-// LOWERING:       output_layout = ["gemmK", "gemmN"]
-// LOWERING-NEXT:  miopen.transform(%arg2)
+// LOWERING:  miopen.transform(%arg1)
+// LOWERING:  output_layout = ["ci", "ni", "hipad", "wipad"]
+// LOWERING:  memref<8x128x34x34xf32>
 
 // AFFINE: #map{{[0-9]+}} = affine_map<(d0, d1) -> (d0 floordiv 9, (d0 mod 9) floordiv 3, (d0 mod 9) mod 3, d1)>
 // AFFINE-NEXT: #map{{[0-9]+}} = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2 - 1, d3 - 1)>
