@@ -174,15 +174,14 @@ public:
   static void obtainFilterVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
     auto g = dimIndexVal["g"].second;
-    auto cgroup = dimIndexVal["c"].second ;
-    auto kgroup =  dimIndexVal["k"].second ;
+    auto cgroup = dimIndexVal["c"].second;
+    auto kgroup = dimIndexVal["k"].second;
     // Vectorization length logic is the same for forward and bwd_data
     if (dimIndexVal["k"].first == 4) {
       vecLen = kgroup;
     } else if (dimIndexVal["k"].first == 1) {
       // dimKF is the lowest changing dimension, which means dimC/dimY/dimX
-      vecLen = cgroup * dimIndexVal["y"].second *
-               dimIndexVal["x"].second;
+      vecLen = cgroup * dimIndexVal["y"].second * dimIndexVal["x"].second;
     } else if (dimIndexVal["k"].first == 2) {
       // K's position is at 1, vectorization legnth is last two dimension
       if (dimIndexVal["c"].first == 1) {
@@ -210,10 +209,9 @@ public:
     if (dimIndexVal["ni"].first == 4) {
       vecLen = dimIndexVal["ni"].second;
     } else if (dimIndexVal["ci"].first == 4) {
-      vecLen = dimIndexVal["ci"].second ;
+      vecLen = dimIndexVal["ci"].second;
     } else {
-      if (dimIndexVal["x"].second == 1 &&
-          dimIndexVal["y"].second == 1 &&
+      if (dimIndexVal["x"].second == 1 && dimIndexVal["y"].second == 1 &&
           ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 &&
           ctx.paddingVal[0] == 0 && ctx.paddingVal[1] == 0 &&
           ctx.paddingVal[2] == 0 && ctx.paddingVal[3] == 0)
@@ -226,7 +224,7 @@ public:
     auto dimIndexVal = ctx.dimIndexVal;
     auto g = dimIndexVal["g"].second;
     if (dimIndexVal["ko"].first == 4) {
-      vecLen = dimIndexVal["ko"].second ;
+      vecLen = dimIndexVal["ko"].second;
     } else if (dimIndexVal["ko"].first == 1) {
       // dimKO is the lowest changing dimension, which means dimN/dimHo/dimWo
       vecLen = dimIndexVal["no"].second * dimIndexVal["ho"].second *
@@ -371,13 +369,11 @@ protected:
       gemmSize.gemmN = ctx.dimIndexVal["no"].second *
                        ctx.dimIndexVal["ho"].second *
                        ctx.dimIndexVal["wo"].second;
-      gemmSize.gemmK = cgroup*
-                       ctx.dimIndexVal["y"].second *
-                       ctx.dimIndexVal["x"].second;
+      gemmSize.gemmK =
+          cgroup * ctx.dimIndexVal["y"].second * ctx.dimIndexVal["x"].second;
     } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      gemmSize.gemmM = cgroup *
-                       ctx.dimIndexVal["y"].second *
-                       ctx.dimIndexVal["x"].second;
+      gemmSize.gemmM =
+          cgroup * ctx.dimIndexVal["y"].second * ctx.dimIndexVal["x"].second;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second *
                        ctx.dimIndexVal["ho"].second *
                        ctx.dimIndexVal["wo"].second;
@@ -387,16 +383,14 @@ protected:
       gemmSize.gemmK = ctx.dimIndexVal["no"].second *
                        ctx.dimIndexVal["ho"].second *
                        ctx.dimIndexVal["wo"].second;
-      gemmSize.gemmN = cgroup *
-                       ctx.dimIndexVal["y"].second *
-                       ctx.dimIndexVal["x"].second;
+      gemmSize.gemmN =
+          cgroup * ctx.dimIndexVal["y"].second * ctx.dimIndexVal["x"].second;
     }
   }
 
   int64_t obtainGridSize(GemmSize &gemmSize, InitParams *param) {
     return (gemmSize.gemmM / param->gemmMPerBlock) *
-           (gemmSize.gemmN / param->gemmNPerBlock) * 
-           gemmSize.gemmG;
+           (gemmSize.gemmN / param->gemmNPerBlock) * gemmSize.gemmG;
   }
 
   mlir::LogicalResult isValidGemm(InitParams *param, GemmSize &gemmSize) {

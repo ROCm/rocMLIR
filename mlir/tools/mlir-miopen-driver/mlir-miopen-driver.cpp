@@ -222,8 +222,8 @@ static void correctParameters() {
   std::string filterLayoutValue = filterLayout.getValue();
   std::string inputLayoutValue = inputLayout.getValue();
   std::string outputLayoutValue = outputLayout.getValue();
-  if (filterLayoutValue.size() == 4 && inputLayoutValue.size() == 4 && \
-     outputLayoutValue.size() == 4) {
+  if (filterLayoutValue.size() == 4 && inputLayoutValue.size() == 4 &&
+      outputLayoutValue.size() == 4) {
     filterLayout.setValue("g" + filterLayoutValue);
     inputLayout.setValue("g" + inputLayoutValue);
     outputLayout.setValue("g" + outputLayoutValue);
