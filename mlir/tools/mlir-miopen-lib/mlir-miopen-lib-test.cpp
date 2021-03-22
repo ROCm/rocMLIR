@@ -44,7 +44,24 @@ int main(int argc, char **argv) {
       }
     }
     // Bin backend binary generation
+  } else if (option.getValue() == "tuningparams") {
+    miirLowerInit();
+
+    status = miirLowerTuningParams(handle);
+    if (status != MIIR_SUCCESS) {
+      return status;
+    }
+
+    size_t globalSize, localSize;
+    status = miirGetExecutionDims(handle, &globalSize, &localSize);
+    if (status != MIIR_SUCCESS) {
+      return status;
+    }
+    std::cout << "ExecutionDims - globalSize=" << globalSize
+              << ", localSize=" << localSize << std::endl;
+
   } else if (option.getValue() == "bin") {
+    miirLowerInit();
 
     status = miirLowerBin(handle);
     if (status != MIIR_SUCCESS) {
@@ -65,13 +82,13 @@ int main(int argc, char **argv) {
                   [](char &c) { std::cout << c; });
     std::cout << std::endl;
 
-    size_t global_size, local_size;
-    status = miirGetExecutionDims(handle, &global_size, &local_size);
+    size_t globalSize, localSize;
+    status = miirGetExecutionDims(handle, &globalSize, &localSize);
     if (status != MIIR_SUCCESS) {
       return status;
     }
-    std::cout << "ExecutionDims - global_size=" << global_size
-              << ", local_size=" << local_size << std::endl;
+    std::cout << "ExecutionDims - globalSize=" << globalSize
+              << ", localSize=" << localSize << std::endl;
   }
 
   miirDestroyHandle(handle);
