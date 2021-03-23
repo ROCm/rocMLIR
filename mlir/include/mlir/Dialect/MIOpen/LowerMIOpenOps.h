@@ -47,7 +47,7 @@ using namespace mlir;
 //===----------------------------------------------------------------------===//
 // Check if an AffineMap has division or remainder inside.
 //===----------------------------------------------------------------------===//
-bool hasDivisionOrRemainder(AffineMap map) {
+static bool hasDivisionOrRemainder(AffineMap map) {
   bool ret = false;
   if (!map) return false;
   map.walkExprs([&ret](AffineExpr expr) {
