@@ -18,7 +18,8 @@ using namespace mlir;
 using namespace mlir::miopen;
 
 namespace {
-struct TestAffineTransforms : public MIOpenOpsTestAffineTransformPassBase<TestAffineTransforms> {
+struct TestAffineTransforms
+    : public MIOpenOpsTestAffineTransformPassBase<TestAffineTransforms> {
   void runOnFunction() override;
 };
 } // anonymous namespace

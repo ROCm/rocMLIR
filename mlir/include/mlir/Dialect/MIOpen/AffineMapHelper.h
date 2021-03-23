@@ -39,17 +39,18 @@ namespace miopen {
 //===----------------------------------------------------------------------===//
 inline bool hasDivisionOrRemainder(AffineMap map) {
   bool ret = false;
-  if (!map) return false;
+  if (!map)
+    return false;
   map.walkExprs([&ret](AffineExpr expr) {
     if (expr.getKind() == AffineExprKind::Mod ||
         expr.getKind() == AffineExprKind::FloorDiv ||
-	expr.getKind() == AffineExprKind::CeilDiv)
+        expr.getKind() == AffineExprKind::CeilDiv)
       ret = true;
   });
 
   // XXX. hack. always return false for now for performance reason.
   // May need more sophisticated checks to determine if we would truly go OOB.
-  //return ret;
+  // return ret;
   return false;
 }
 
@@ -59,7 +60,8 @@ inline bool hasDivisionOrRemainder(AffineMap map) {
 //===----------------------------------------------------------------------===//
 inline bool hasPadding(AffineMap map) {
   bool ret = false;
-  if (!map) return false;
+  if (!map)
+    return false;
   map.walkExprs([&ret](AffineExpr expr) {
     auto hasMinusConstant = [](AffineExpr expr) -> bool {
       if (expr.getKind() == AffineExprKind::Constant) {
