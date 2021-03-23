@@ -624,8 +624,12 @@ getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 4> *filter,
                    int64_t rank2, StridedMemRefType<float, 4> *input,
                    int64_t rank3, StridedMemRefType<float, 4> *output,
                    void *f_layout, void *i_layout, void *o_layout,
-                   TensorDim &filterSizeStride, TensorDim &inputSizeStride,
-                   TensorDim &outputSizeStride) {
+                   llvm::SmallVector<int64_t, 4> &fSizes,
+                   llvm::SmallVector<int64_t, 4> &fStrides,
+                   llvm::SmallVector<int64_t, 4> &iSizes,
+                   llvm::SmallVector<int64_t, 4> &iStrides,
+                   llvm::SmallVector<int64_t, 4> &oSizes,
+                   llvm::SmallVector<int64_t, 4> &oStrides) {
   auto filterSizes = llvm::ArrayRef<int64_t>(filter->sizes, rank1);
   auto filterStrides = llvm::ArrayRef<int64_t>(filter->strides, rank1);
 
@@ -644,6 +648,9 @@ getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 4> *filter,
   auto *layout3 = static_cast<StridedMemRefType<char, 1> *>(o_layout);
   auto *outputLayout = layout3->data + layout3->offset;
 
+  // Extract tensor sizes and strides into a map
+  std::unordered_map<char, std::pair<int64_t, int64_t>> filterSizeStride,
+      inputSizeStride, outputSizeStride;
   for (size_t i = 0; i < 4; i++) {
     filterSizeStride[filterLayout[i]] =
         std::make_pair(filterSizes[i], filterStrides[i]);
@@ -652,6 +659,82 @@ getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 4> *filter,
     outputSizeStride[outputLayout[i]] =
         std::make_pair(outputSizes[i], outputStrides[i]);
   }
+
+  // Move sizes and strides into vectors to help compiler optimization
+  // filter: k c y x
+  fSizes = {filterSizeStride['k'].first, filterSizeStride['c'].first,
+            filterSizeStride['y'].first, filterSizeStride['x'].first};
+  fStrides = {filterSizeStride['k'].second, filterSizeStride['c'].second,
+              filterSizeStride['y'].second, filterSizeStride['x'].second};
+  // input: n c h w
+  iSizes = {inputSizeStride['n'].first, inputSizeStride['c'].first,
+            inputSizeStride['h'].first, inputSizeStride['w'].first};
+  iStrides = {inputSizeStride['n'].second, inputSizeStride['c'].second,
+              inputSizeStride['h'].second, inputSizeStride['w'].second};
+  // output: n k h w
+  oSizes = {outputSizeStride['n'].first, outputSizeStride['k'].first,
+            outputSizeStride['h'].first, outputSizeStride['w'].first};
+  oStrides = {outputSizeStride['n'].second, outputSizeStride['k'].second,
+              outputSizeStride['h'].second, outputSizeStride['w'].second};
+  return;
+}
+static void
+getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 5> *filter,
+                   int64_t rank2, StridedMemRefType<float, 5> *input,
+                   int64_t rank3, StridedMemRefType<float, 5> *output,
+                   void *f_layout, void *i_layout, void *o_layout,
+                   llvm::SmallVector<int64_t, 5> &fSizes,
+                   llvm::SmallVector<int64_t, 5> &fStrides,
+                   llvm::SmallVector<int64_t, 5> &iSizes,
+                   llvm::SmallVector<int64_t, 5> &iStrides,
+                   llvm::SmallVector<int64_t, 5> &oSizes,
+                   llvm::SmallVector<int64_t, 5> &oStrides) {
+  auto filterSizes = llvm::ArrayRef<int64_t>(filter->sizes, rank1);
+  auto filterStrides = llvm::ArrayRef<int64_t>(filter->strides, rank1);
+
+  auto inputSizes = llvm::ArrayRef<int64_t>(input->sizes, rank2);
+  auto inputStrides = llvm::ArrayRef<int64_t>(input->strides, rank2);
+
+  auto outputSizes = llvm::ArrayRef<int64_t>(output->sizes, rank3);
+  auto outputStrides = llvm::ArrayRef<int64_t>(output->strides, rank3);
+
+  auto *layout1 = static_cast<StridedMemRefType<char, 1> *>(f_layout);
+  auto *filterLayout = layout1->data + layout1->offset;
+
+  auto *layout2 = static_cast<StridedMemRefType<char, 1> *>(i_layout);
+  auto *inputLayout = layout2->data + layout2->offset;
+
+  auto *layout3 = static_cast<StridedMemRefType<char, 1> *>(o_layout);
+  auto *outputLayout = layout3->data + layout3->offset;
+
+  // Extract tensor sizes and strides into a map
+  std::unordered_map<char, std::pair<int64_t, int64_t>> filterSizeStride,
+      inputSizeStride, outputSizeStride;
+  for (size_t i = 0; i < 5; i++) {
+    filterSizeStride[filterLayout[i]] =
+        std::make_pair(filterSizes[i], filterStrides[i]);
+    inputSizeStride[inputLayout[i]] =
+        std::make_pair(inputSizes[i], inputStrides[i]);
+    outputSizeStride[outputLayout[i]] =
+        std::make_pair(outputSizes[i], outputStrides[i]);
+  }
+
+  // Move sizes and strides into vectors to help compiler optimization
+  // filter: k c y x
+  fSizes = {filterSizeStride['g'].first, filterSizeStride['k'].first, filterSizeStride['c'].first,
+            filterSizeStride['y'].first, filterSizeStride['x'].first};
+  fStrides = {filterSizeStride['g'].second, filterSizeStride['k'].second, filterSizeStride['c'].second,
+              filterSizeStride['y'].second, filterSizeStride['x'].second};
+  // input: n c h w
+  iSizes = {inputSizeStride['g'].first, inputSizeStride['n'].first, inputSizeStride['c'].first,
+            inputSizeStride['h'].first, inputSizeStride['w'].first};
+  iStrides = {inputSizeStride['g'].second, inputSizeStride['n'].second, inputSizeStride['c'].second,
+              inputSizeStride['h'].second, inputSizeStride['w'].second};
+  // output: n k h w
+  oSizes = {outputSizeStride['g'].first, outputSizeStride['n'].first, outputSizeStride['k'].first,
+            outputSizeStride['h'].first, outputSizeStride['w'].first};
+  oStrides = {outputSizeStride['g'].second, outputSizeStride['n'].second, outputSizeStride['k'].second,
+              outputSizeStride['h'].second, outputSizeStride['w'].second};
   return;
 }
 
@@ -710,56 +793,54 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
-  TensorDim filterSizeStride, inputSizeStride, outputSizeStride;
+  llvm::SmallVector<int64_t, 5> filterSizes(5), filterStrides(5);
+  llvm::SmallVector<int64_t, 5> inputSizes(5), inputStrides(5);
+  llvm::SmallVector<int64_t, 5> outputSizes(5), outputStrides(5);
+
   getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
-                     i_layout, o_layout, filterSizeStride, inputSizeStride,
-                     outputSizeStride);
+                     i_layout, o_layout, filterSizes, filterStrides, inputSizes,
+                     inputStrides, outputSizes, outputStrides);
 
   // Perform forward convolution
-  for (int64_t g = 0; g < outputSizeStride['g'].first; g++)
-    for (int64_t n = 0; n < outputSizeStride['n'].first; n++)
-      for (int64_t k = 0; k < outputSizeStride['k'].first; k++)
-        for (int64_t out_h = 0; out_h < outputSizeStride['h'].first; out_h++)
-          for (int64_t out_w = 0; out_w < outputSizeStride['w'].first;
-               out_w++) {
+  for (int64_t g = 0; g < outputSizes[0]; g++)
+   for (int64_t n = 0; n < outputSizes[1]; n++)
+    for (int64_t k = 0; k < outputSizes[2]; k++)
+      for (int64_t out_h = 0; out_h < outputSizes[3]; out_h++)
+        for (int64_t out_w = 0; out_w < outputSizes[4]; out_w++) {
 
-            float acc = 0.0;
-            for (int64_t c = 0; c < inputSizeStride['c'].first; c++)
-              for (int64_t fil_h = 0; fil_h < filterSizeStride['y'].first;
-                   fil_h++)
-                for (int64_t fil_w = 0; fil_w < filterSizeStride['x'].first;
-                     fil_w++) {
+          float acc = 0.0;
+          for (int64_t c = 0; c < inputSizes[1]; c++)
+            for (int64_t fil_h = 0; fil_h < filterSizes[2]; fil_h++)
+              for (int64_t fil_w = 0; fil_w < filterSizes[3]; fil_w++) {
 
-                  float input;
-                  int64_t in_h =
-                      out_h * stride_h + fil_h * dilation_h - padding_h;
-                  int64_t in_w =
-                      out_w * stride_w + fil_w * dilation_w - padding_w;
+                float input;
+                int64_t in_h =
+                    out_h * stride_h + fil_h * dilation_h - padding_h;
+                int64_t in_w =
+                    out_w * stride_w + fil_w * dilation_w - padding_w;
 
-                  if (in_h < 0 || in_h >= inputSizeStride['h'].first ||
-                      in_w < 0 || in_w >= inputSizeStride['w'].first)
-                    input = 0.0;
-                  else
-                    input = inputAllocated[g * inputSizeStride['g'].second +
-                                           n * inputSizeStride['n'].second +
-                                           c * inputSizeStride['c'].second +
-                                           in_h * inputSizeStride['h'].second +
-                                           in_w * inputSizeStride['w'].second];
+                if (in_h < 0 || in_h >= inputSizes[2] || in_w < 0 ||
+                    in_w >= inputSizes[3])
+                  input = 0.0;
+                else
+                  input =
+                      inputAllocated[g * inputStrides[0] + 
+		                     n * inputStrides[1] + 
+				     c * inputStrides[2] +
+                                     in_h * inputStrides[2] +
+                                     in_w * inputStrides[3]];
 
-                  acc += input *
-                         filterAllocated[g * filterSizeStride['g'].second +
-                                         k * filterSizeStride['k'].second +
-                                         c * filterSizeStride['c'].second +
-                                         fil_h * filterSizeStride['y'].second +
-                                         fil_w * filterSizeStride['x'].second];
-                }
+                acc += input * filterAllocated[g * filterStrides[0] +
+                                               k * filterStrides[1] +
+                                               c * filterStrides[2] +
+                                               fil_h * filterStrides[3] +
+                                               fil_w * filterStrides[4]];
+              }
 
-            outputAllocated[g * outputSizeStride['g'].second +
-                            n * outputSizeStride['n'].second +
-                            k * outputSizeStride['k'].second +
-                            out_h * outputSizeStride['h'].second +
-                            out_w * outputSizeStride['w'].second] = acc;
-          }
+          outputAllocated[g * outputStrides[0] + n * outputStrides[1] + k * outputStrides[2] +
+                          out_h * outputStrides[3] + out_w * outputStrides[4]] =
+              acc;
+        }
 }
 
 // A generic backward-weight convolution function that supports random layouts,
@@ -783,40 +864,38 @@ extern "C" void mcpuConv2dBwdWeight(int64_t rank1, void *f_ptr, int64_t rank2,
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
-  TensorDim filterSizeStride, inputSizeStride, outputSizeStride;
+  llvm::SmallVector<int64_t, 4> filterSizes, filterStrides;
+  llvm::SmallVector<int64_t, 4> inputSizes, inputStrides;
+  llvm::SmallVector<int64_t, 4> outputSizes, outputStrides;
   getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
-                     i_layout, o_layout, filterSizeStride, inputSizeStride,
-                     outputSizeStride);
+                     i_layout, o_layout, filterSizes, filterStrides, inputSizes,
+                     inputStrides, outputSizes, outputStrides);
 
   // Perform bwd_weight convolution
-  for (int64_t k = 0; k < filterSizeStride['k'].first; k++)
-    for (int64_t c = 0; c < filterSizeStride['c'].first; c++)
-      for (int64_t y = 0; y < filterSizeStride['y'].first; y++)
-        for (int64_t x = 0; x < filterSizeStride['x'].first; x++) {
+  for (int64_t k = 0; k < filterSizes[0]; k++)
+    for (int64_t c = 0; c < filterSizes[1]; c++)
+      for (int64_t y = 0; y < filterSizes[2]; y++)
+        for (int64_t x = 0; x < filterSizes[3]; x++) {
 
           float acc = 0.0;
-          for (int64_t n = 0; n < outputSizeStride['n'].first; n++)
-            for (int64_t out_h = 0; out_h < outputSizeStride['h'].first;
-                 out_h++)
-              for (int64_t out_w = 0; out_w < outputSizeStride['w'].first;
-                   out_w++) {
+          for (int64_t n = 0; n < outputSizes[0]; n++)
+            for (int64_t out_h = 0; out_h < outputSizes[2]; out_h++)
+              for (int64_t out_w = 0; out_w < outputSizes[3]; out_w++) {
                 int64_t in_h = out_h * stride_h + y * dilation_h - padding_h;
                 int64_t in_w = out_w * stride_w + x * dilation_w - padding_w;
-                if (in_h >= 0 && in_h < inputSizeStride['h'].first &&
-                    in_w >= 0 && in_w < inputSizeStride['w'].first)
-                  acc += inputAllocated[n * inputSizeStride['n'].second +
-                                        c * inputSizeStride['c'].second +
-                                        in_h * inputSizeStride['h'].second +
-                                        in_w * inputSizeStride['w'].second] *
-                         outputAllocated[n * outputSizeStride['n'].second +
-                                         k * outputSizeStride['k'].second +
-                                         out_h * outputSizeStride['h'].second +
-                                         out_w * outputSizeStride['w'].second];
+                if (in_h >= 0 && in_h < inputSizes[2] && in_w >= 0 &&
+                    in_w < inputSizes[3])
+                  acc +=
+                      inputAllocated[n * inputStrides[0] + c * inputStrides[1] +
+                                     in_h * inputStrides[2] +
+                                     in_w * inputStrides[3]] *
+                      outputAllocated[n * outputStrides[0] +
+                                      k * outputStrides[1] +
+                                      out_h * outputStrides[2] +
+                                      out_w * outputStrides[3]];
               }
-          filterAllocated[k * filterSizeStride['k'].second +
-                          c * filterSizeStride['c'].second +
-                          y * filterSizeStride['y'].second +
-                          x * filterSizeStride['x'].second] = acc;
+          filterAllocated[k * filterStrides[0] + c * filterStrides[1] +
+                          y * filterStrides[2] + x * filterStrides[3]] = acc;
         }
 }
 
@@ -840,40 +919,40 @@ extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
-  TensorDim filterSizeStride, inputSizeStride, outputSizeStride;
+  llvm::SmallVector<int64_t, 4> filterSizes, filterStrides;
+  llvm::SmallVector<int64_t, 4> inputSizes, inputStrides;
+  llvm::SmallVector<int64_t, 4> outputSizes, outputStrides;
   getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
-                     i_layout, o_layout, filterSizeStride, inputSizeStride,
-                     outputSizeStride);
+                     i_layout, o_layout, filterSizes, filterStrides, inputSizes,
+                     inputStrides, outputSizes, outputStrides);
 
   // Perform bwd_data convolution
-  for (int64_t n = 0; n < inputSizeStride['n'].first; n++)
-    for (int64_t c = 0; c < inputSizeStride['c'].first; c++)
-      for (int64_t in_h = 0; in_h < inputSizeStride['h'].first; in_h++)
-        for (int64_t in_w = 0; in_w < inputSizeStride['w'].first; in_w++) {
+  for (int64_t n = 0; n < inputSizes[0]; n++)
+    for (int64_t c = 0; c < inputSizes[1]; c++)
+      for (int64_t in_h = 0; in_h < inputSizes[2]; in_h++)
+        for (int64_t in_w = 0; in_w < inputSizes[3]; in_w++) {
 
           float acc = 0.0;
-          for (int64_t k = 0; k < filterSizeStride['k'].first; k++)
-            for (int64_t y = 0; y < filterSizeStride['y'].first; y++)
-              for (int64_t x = 0; x < filterSizeStride['x'].first; x++) {
+          for (int64_t k = 0; k < filterSizes[0]; k++)
+            for (int64_t y = 0; y < filterSizes[2]; y++)
+              for (int64_t x = 0; x < filterSizes[3]; x++) {
                 int64_t out_h_tmp = in_h + padding_h - y * dilation_h;
                 int64_t out_w_tmp = in_w + padding_w - x * dilation_w;
                 int64_t out_h = out_h_tmp / stride_h;
                 int64_t out_w = out_w_tmp / stride_w;
                 if (out_h_tmp % stride_h == 0 && out_w_tmp % stride_w == 0 &&
-                    out_h >= 0 && out_h < outputSizeStride['h'].first &&
-                    out_w >= 0 && out_w < outputSizeStride['w'].first)
-                  acc += filterAllocated[k * filterSizeStride['k'].second +
-                                         c * filterSizeStride['c'].second +
-                                         y * filterSizeStride['y'].second +
-                                         x * filterSizeStride['x'].second] *
-                         outputAllocated[n * outputSizeStride['n'].second +
-                                         k * outputSizeStride['k'].second +
-                                         out_h * outputSizeStride['h'].second +
-                                         out_w * outputSizeStride['w'].second];
+                    out_h >= 0 && out_h < outputSizes[2] && out_w >= 0 &&
+                    out_w < outputSizes[3])
+                  acc += filterAllocated[k * filterStrides[0] +
+                                         c * filterStrides[1] +
+                                         y * filterStrides[2] +
+                                         x * filterStrides[3]] *
+                         outputAllocated[n * outputStrides[0] +
+                                         k * outputStrides[1] +
+                                         out_h * outputStrides[2] +
+                                         out_w * outputStrides[3]];
               }
-          inputAllocated[n * inputSizeStride['n'].second +
-                         c * inputSizeStride['c'].second +
-                         in_h * inputSizeStride['h'].second +
-                         in_w * inputSizeStride['w'].second] = acc;
+          inputAllocated[n * inputStrides[0] + c * inputStrides[1] +
+                         in_h * inputStrides[2] + in_w * inputStrides[3]] = acc;
         }
 }
