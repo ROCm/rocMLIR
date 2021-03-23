@@ -16,6 +16,7 @@
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/MIOpen/AffineMapHelper.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/SCF/SCF.h"
@@ -41,6 +42,7 @@
 #include "XdlopsCodeSelection.h"
 
 using namespace mlir;
+using namespace mlir::miopen;
 
 //===----------------------------------------------------------------------===//
 // Conv2D (forward, backward) lowering.
