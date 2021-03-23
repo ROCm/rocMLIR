@@ -64,6 +64,33 @@ static bool hasDivisionOrRemainder(AffineMap map) {
 }
 
 //===----------------------------------------------------------------------===//
+// Check if an AffineMap has padding, which is represented as a minus expression
+// with a constant operand.
+//===----------------------------------------------------------------------===//
+static bool hasPadding(AffineMap map) {
+  bool ret = false;
+  if (!map) return false;
+  map.walkExprs([&ret](AffineExpr expr) {
+    auto hasMinusConstant = [](AffineExpr expr) -> bool {
+      if (expr.getKind() == AffineExprKind::Constant) {
+        auto constantExpr = expr.template dyn_cast<AffineConstantExpr>();
+        if (constantExpr.getValue() < 0)
+          return true;
+      }
+      return false;
+    };
+    auto binaryExpr = expr.template dyn_cast<AffineBinaryOpExpr>();
+    if (binaryExpr) {
+      ret |= hasMinusConstant(binaryExpr.getLHS());
+      if (ret)
+        return;
+      ret |= hasMinusConstant(binaryExpr.getRHS());
+    }
+  });
+  return ret;
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2D (forward, backward) lowering.
 //===----------------------------------------------------------------------===//
 
