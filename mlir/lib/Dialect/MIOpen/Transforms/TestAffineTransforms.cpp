@@ -35,7 +35,7 @@ void TestAffineTransforms::runOnFunction() {
       bool ret = false;
       for (auto &affineMap : outputAffineMaps)
         ret |= hasPadding(affineMap);
-      op.setAttr("hasPadding", b.getBoolAttr(ret));
+      op->setAttr("hasPadding", b.getBoolAttr(ret));
     }
   });
 }
