@@ -16,6 +16,7 @@
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/MIOpen/AffineMapHelper.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/SCF/SCF.h"
@@ -41,53 +42,7 @@
 #include "XdlopsCodeSelection.h"
 
 using namespace mlir;
-
-
-//===----------------------------------------------------------------------===//
-// Check if an AffineMap has division or remainder inside.
-//===----------------------------------------------------------------------===//
-static bool hasDivisionOrRemainder(AffineMap map) {
-  bool ret = false;
-  if (!map) return false;
-  map.walkExprs([&ret](AffineExpr expr) {
-    if (expr.getKind() == AffineExprKind::Mod ||
-        expr.getKind() == AffineExprKind::FloorDiv ||
-	expr.getKind() == AffineExprKind::CeilDiv)
-      ret = true;
-  });
-
-  // XXX. hack. always return false for now for performance reason.
-  // May need more sophisticated checks to determine if we would truly go OOB.
-  //return ret;
-  return false;
-}
-
-//===----------------------------------------------------------------------===//
-// Check if an AffineMap has padding, which is represented as a minus expression
-// with a constant operand.
-//===----------------------------------------------------------------------===//
-static bool hasPadding(AffineMap map) {
-  bool ret = false;
-  if (!map) return false;
-  map.walkExprs([&ret](AffineExpr expr) {
-    auto hasMinusConstant = [](AffineExpr expr) -> bool {
-      if (expr.getKind() == AffineExprKind::Constant) {
-        auto constantExpr = expr.template dyn_cast<AffineConstantExpr>();
-        if (constantExpr.getValue() < 0)
-          return true;
-      }
-      return false;
-    };
-    auto binaryExpr = expr.template dyn_cast<AffineBinaryOpExpr>();
-    if (binaryExpr) {
-      ret |= hasMinusConstant(binaryExpr.getLHS());
-      if (ret)
-        return;
-      ret |= hasMinusConstant(binaryExpr.getRHS());
-    }
-  });
-  return ret;
-}
+using namespace mlir::miopen;
 
 //===----------------------------------------------------------------------===//
 // Conv2D (forward, backward) lowering.
