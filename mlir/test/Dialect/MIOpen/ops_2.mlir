@@ -30,17 +30,29 @@ func @miopen_subview(%buffer : memref<1024xi8>) {
   // 0 offset, different type.
   %view_1 = miopen.subview(%buffer, %c0) : memref<1024xi8> to memref<256xf32>
 
+  // 0 offset, different type.
+  %view_2 = miopen.subview(%buffer, %c0) : memref<1024xi8> to memref<256xf16>
+
   // 0 offset, different type, different rank.
-  %view_2 = miopen.subview(%buffer, %c0) { dimensions = [ 16, 16 ] } : memref<1024xi8> to memref<16x16xf32>
+  %view_3 = miopen.subview(%buffer, %c0) { dimensions = [ 16, 16 ] } : memref<1024xi8> to memref<16x16xf32>
+
+  // 0 offset, different type, different rank.
+  %view_4 = miopen.subview(%buffer, %c0) { dimensions = [ 16, 16 ] } : memref<1024xi8> to memref<16x16xf16>
 
   // 512 offset, same type.
-  %view_3 = miopen.subview(%buffer, %c512) : memref<1024xi8> to memref<512xi8>
+  %view_5 = miopen.subview(%buffer, %c512) : memref<1024xi8> to memref<512xi8>
 
   // 512 offset, different type.
-  %view_4 = miopen.subview(%buffer, %c512) : memref<1024xi8> to memref<128xf32>
+  %view_6 = miopen.subview(%buffer, %c512) : memref<1024xi8> to memref<128xf32>
+
+  // 512 offset, different type.
+  %view_7 = miopen.subview(%buffer, %c512) : memref<1024xi8> to memref<128xf16>
 
   // 512 offset, different type, different rank.
-  %view_5 = miopen.subview(%buffer, %c512) { dimensions = [ 16, 8 ] } : memref<1024xi8> to memref<16x8xf32>
+  %view_8 = miopen.subview(%buffer, %c512) { dimensions = [ 16, 8 ] } : memref<1024xi8> to memref<16x8xf32>
+
+  // 512 offset, different type, different rank.
+  %view_9 = miopen.subview(%buffer, %c512) { dimensions = [ 16, 8 ] } : memref<1024xi8> to memref<16x8xf16>
 
   return
 }
@@ -52,11 +64,18 @@ func @miopen_subview(%buffer : memref<1024xi8>) {
 //   CHECK-NEXT: miopen.subview
 //   CHECK-NEXT: miopen.subview
 //   CHECK-NEXT: miopen.subview
+//   CHECK-NEXT: miopen.subview
+//   CHECK-NEXT: miopen.subview
+//   CHECK-NEXT: miopen.subview
+//   CHECK-NEXT: miopen.subview
 
 
-func @miopen_fill(%buffer_f32 : memref<1024xf32, 5>, %buffer_i32 : memref<2xi32, 5>) {
+func @miopen_fill(%buffer_f32 : memref<1024xf32, 5>, %buffer_i32 : memref<2xi32, 5>, %buffer_f16 : memref<1024xf16, 5>) {
   %cst = constant 0.0 : f32
   miopen.fill(%buffer_f32, %cst) : memref<1024xf32, 5>
+
+  %cst_f16 = constant 0.0 : f16
+  miopen.fill(%buffer_f16, %cst_f16) : memref<1024xf16, 5>
 
   %c0 = constant 0 : i32
   miopen.fill(%buffer_i32, %c0) : memref<2xi32, 5>
@@ -65,8 +84,10 @@ func @miopen_fill(%buffer_f32 : memref<1024xf32, 5>, %buffer_i32 : memref<2xi32,
 
 // CHECK-LABEL: func @miopen_fill
 //   CHECK: miopen.fill
+//   CHECK: miopen.fill
+//   CHECK: miopen.fill
 
-func @miopen_move_pos(%buffer_f32 : memref<2xf32, 5>, %buffer_i32 : memref<2xi32, 5>) {
+func @miopen_move_pos(%buffer_f32 : memref<2xf32, 5>, %buffer_i32 : memref<2xi32, 5>, %buffer_f16 : memref<2xf16, 5>) {
   %deltaY_i32 = constant 16 : i32
   %deltaX_i32 = constant 8 : i32
   miopen.move_pos(%buffer_i32, %deltaY_i32, %deltaX_i32) : memref<2xi32, 5>
@@ -75,10 +96,15 @@ func @miopen_move_pos(%buffer_f32 : memref<2xf32, 5>, %buffer_i32 : memref<2xi32
   %deltaX_f32 = constant 8.0 : f32
   miopen.move_pos(%buffer_f32, %deltaY_f32, %deltaX_f32) : memref<2xf32, 5>
 
+  %deltaY_f16 = constant 16.0 : f16
+  %deltaX_f16 = constant 8.0 : f16
+  miopen.move_pos(%buffer_f16, %deltaY_f16, %deltaX_f16) : memref<2xf16, 5>
+
   return
 }
 
 // CHECK-LABEL: func @miopen_move_pos
+//   CHECK: miopen.move_pos
 //   CHECK: miopen.move_pos
 //   CHECK: miopen.move_pos
 
