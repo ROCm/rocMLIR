@@ -87,6 +87,7 @@ struct DerivedParams {
   int64_t dstVectorWriteDim;
   int64_t srcDataPerRead;
   int64_t dstDataPerWrite;
+  int64_t clusterLenGemmPos0; // G
   int64_t clusterLenGemmPos1;
   int64_t clusterLenGemmPos2;
   DerivedParams()
@@ -203,7 +204,8 @@ public:
     }
   }
 
-  static void obtainInputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
+  static void obtainInputVecLen(ConvolutionContext &ctx, int64_t &vecLen,
+                                bool isXdlops) {
     auto dimIndexVal = ctx.dimIndexVal;
     auto g = dimIndexVal["g"].second;
     if (dimIndexVal["ni"].first == 4) {
@@ -211,10 +213,15 @@ public:
     } else if (dimIndexVal["ci"].first == 4) {
       vecLen = dimIndexVal["ci"].second;
     } else {
-      if (dimIndexVal["x"].second == 1 && dimIndexVal["y"].second == 1 &&
-          ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 &&
-          ctx.paddingVal[0] == 0 && ctx.paddingVal[1] == 0 &&
-          ctx.paddingVal[2] == 0 && ctx.paddingVal[3] == 0)
+      bool noVectorReadLimitation =
+          !isXdlops ||
+          (dimIndexVal["x"].second == 1 && dimIndexVal["y"].second == 1);
+      if (noVectorReadLimitation && ctx.strideVal[0] == 1 &&
+          ctx.strideVal[1] ==
+              1 && // it seems we need to change to 5 dims in the future
+          ctx.paddingVal[0] == 0 &&
+          ctx.paddingVal[1] == 0 && ctx.paddingVal[2] == 0 &&
+          ctx.paddingVal[3] == 0)
         vecLen = dimIndexVal["ho"].second * dimIndexVal["wo"].second;
       else
         vecLen = 1;
@@ -261,34 +268,35 @@ public:
     }
   }
 
-  static void obtainGemmBVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
+  static void obtainGemmBVecLen(ConvolutionContext &ctx, int64_t &vecLen,
+                                bool isXdlops) {
     auto opType = ctx.opType;
     if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
-      obtainInputVecLen(ctx, vecLen);
+      obtainInputVecLen(ctx, vecLen, isXdlops);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
       obtainOutputVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
-      obtainInputVecLen(ctx, vecLen);
+      obtainInputVecLen(ctx, vecLen, isXdlops);
     }
   }
 
-  static void obtainGemmCVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
+  static void obtainGemmCVecLen(ConvolutionContext &ctx, int64_t &vecLen,
+                                bool isXdlops) {
     auto opType = ctx.opType;
     if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
       obtainOutputVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      obtainInputVecLen(ctx, vecLen);
+      obtainInputVecLen(ctx, vecLen, isXdlops);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       obtainFilterVecLen(ctx, vecLen);
     }
   }
 
 protected:
-  mlir::LogicalResult calculateInputDerivedParams(InitParams *param,
-                                                  int64_t blockSize,
-                                                  ConvolutionContext &ctx,
-                                                  bool isGemmA,
-                                                  DerivedParams &derived) {
+  mlir::LogicalResult
+  calculateInputDerivedParams(InitParams *param, int64_t blockSize,
+                              ConvolutionContext &ctx, bool isGemmA,
+                              DerivedParams &derived, bool isXdlops) {
 
     bool gemmPos1Vectorizable = false;
     int64_t vectorizableLength = 0;
@@ -299,7 +307,7 @@ protected:
     } else {
       obtainGemmBDimKVectorizable(ctx.opType, ctx.dimIndexVal,
                                   gemmPos1Vectorizable);
-      obtainGemmBVecLen(ctx, vectorizableLength);
+      obtainGemmBVecLen(ctx, vectorizableLength, isXdlops);
     }
 
     // calculate threadwise copy size
@@ -495,7 +503,7 @@ private:
                                                ConvolutionContext &ctx,
                                                DerivedParams &derived) {
     return calculateInputDerivedParams(param, param->blockSize, ctx, true,
-                                       derived);
+                                       derived, false);
   }
 
   LogicalResult
@@ -504,7 +512,7 @@ private:
                                                DerivedParams &derived) {
 
     return calculateInputDerivedParams(param, param->blockSize, ctx, false,
-                                       derived);
+                                       derived, false);
   }
 
   int64_t calculateGemmCDestDataPerWrite(const InitParamsNonXDL &param,
@@ -519,7 +527,7 @@ private:
       // gemmM vectorizable. However, there is no parameters for vectorizing
       // gemmM dimension for matrix C. Do nothing here.
     } else {
-      obtainGemmCVecLen(ctx, outputVecLen);
+      obtainGemmCVecLen(ctx, outputVecLen, false);
     }
 
     outputVecLen = gcd(outputVecLen, param.gemmNPerThread);
@@ -633,13 +641,15 @@ private:
   LogicalResult calculateGemmABlockCopyPerformanceParameters(
       InitParamsXDL *param, ConvolutionContext &ctx, DerivedParams &derived) {
     int64_t blockSize = obtainBlockSize(*param, waveSize);
-    return calculateInputDerivedParams(param, blockSize, ctx, true, derived);
+    return calculateInputDerivedParams(param, blockSize, ctx, true, derived,
+                                       true);
   }
 
   LogicalResult calculateGemmBBlockCopyPerformanceParameters(
       InitParamsXDL *param, ConvolutionContext &ctx, DerivedParams &derived) {
     int64_t blockSize = obtainBlockSize(*param, waveSize);
-    return calculateInputDerivedParams(param, blockSize, ctx, false, derived);
+    return calculateInputDerivedParams(param, blockSize, ctx, false, derived,
+                                       true);
   }
 
   LogicalResult calculateLdsNumberOfByte(InitParamsXDL &param,
