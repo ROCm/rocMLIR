@@ -45,6 +45,25 @@ using namespace mlir;
 using namespace mlir::miopen;
 
 //===----------------------------------------------------------------------===//
+// Utility function to emit zero constant float op.
+//===----------------------------------------------------------------------===//
+inline Value createZeroConstantFloatOp(PatternRewriter &b, Location loc,
+                                       Type elementType) {
+  Value zeroConstantFloatOp;
+  if (elementType == b.getF32Type()) {
+    zeroConstantFloatOp =
+        b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
+  } else if (elementType == b.getF16Type()) {
+    auto zeroF32Op =
+        b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
+    zeroConstantFloatOp = b.create<FPTruncOp>(loc, zeroF32Op, elementType);
+  } else if (elementType == b.getIntegerType(16)) {
+    zeroConstantFloatOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(16));
+  }
+  return zeroConstantFloatOp;
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2D (forward, backward) lowering.
 //===----------------------------------------------------------------------===//
 
@@ -1398,18 +1417,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                            .template dyn_cast<Type>();
 
     // Prepare some useful constants.
-    Value zeroConstantFloatOp;
-    if (elementType == b.getF32Type()) {
-      zeroConstantFloatOp =
-          b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    } else if (elementType == b.getF16Type()) {
-      auto zeroF32Op =
-          b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-      zeroConstantFloatOp = b.create<FPTruncOp>(loc, zeroF32Op, elementType);
-    } else if (elementType == b.getIntegerType(16)) {
-      zeroConstantFloatOp =
-          b.create<ConstantIntOp>(loc, 0, b.getIntegerType(16));
-    }
+    Value zeroConstantFloatOp = createZeroConstantFloatOp(b, loc, elementType);
     auto zeroConstantI32Op =
         b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
 
@@ -2351,8 +2359,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Prepare some useful constants.
     auto zeroConstantFloatOp =
         b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
     auto zeroConstantI32Op =
         b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
 
@@ -3690,11 +3696,9 @@ struct ThreadwiseCopyRewritePattern
   LogicalResult matchAndRewrite(miopen::ThreadwiseCopyOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
+    auto elementType = op.dest().getType().cast<MemRefType>().getElementType();
 
-    auto zeroConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
+    Value zeroConstantFloatOp = createZeroConstantFloatOp(b, loc, elementType);
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
@@ -4113,10 +4117,6 @@ struct ThreadwiseCopyV2RewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
-    auto zeroConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
     auto zeroConstantI32Op =
@@ -4679,9 +4679,6 @@ struct XdlopsGemmV2RewritePattern
     auto MRepeatsConstantOp = b.create<ConstantIndexOp>(loc, MRepeats);
     auto NRepeatsConstantOp = b.create<ConstantIndexOp>(loc, NRepeats);
     auto KRepeatsConstantOp = b.create<ConstantIndexOp>(loc, KRepeats);
-
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
 
     if (!IsKReduction) {
       // store bufferA logic.

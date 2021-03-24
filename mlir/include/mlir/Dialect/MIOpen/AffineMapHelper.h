@@ -43,6 +43,30 @@ inline bool hasDivisionOrRemainder(AffineMap map) {
 }
 
 //===----------------------------------------------------------------------===//
+// Check if an AffineExpr has padding, which is represented as a minus
+// expression with a constant operand.
+//===----------------------------------------------------------------------===//
+inline bool hasPadding(AffineExpr expr) {
+  bool ret = false;
+  auto hasMinusConstant = [](AffineExpr expr) -> bool {
+    if (expr.getKind() == AffineExprKind::Constant) {
+      auto constantExpr = expr.template dyn_cast<AffineConstantExpr>();
+      if (constantExpr.getValue() < 0)
+        return true;
+    }
+    return false;
+  };
+  auto binaryExpr = expr.template dyn_cast<AffineBinaryOpExpr>();
+  if (binaryExpr) {
+    ret |= hasMinusConstant(binaryExpr.getLHS());
+    if (ret)
+      return ret;
+    ret |= hasMinusConstant(binaryExpr.getRHS());
+  }
+  return ret;
+}
+
+//===----------------------------------------------------------------------===//
 // Check if an AffineMap has padding, which is represented as a minus expression
 // with a constant operand.
 //===----------------------------------------------------------------------===//
@@ -50,23 +74,7 @@ inline bool hasPadding(AffineMap map) {
   bool ret = false;
   if (!map)
     return false;
-  map.walkExprs([&ret](AffineExpr expr) {
-    auto hasMinusConstant = [](AffineExpr expr) -> bool {
-      if (expr.getKind() == AffineExprKind::Constant) {
-        auto constantExpr = expr.template dyn_cast<AffineConstantExpr>();
-        if (constantExpr.getValue() < 0)
-          return true;
-      }
-      return false;
-    };
-    auto binaryExpr = expr.template dyn_cast<AffineBinaryOpExpr>();
-    if (binaryExpr) {
-      ret |= hasMinusConstant(binaryExpr.getLHS());
-      if (ret)
-        return;
-      ret |= hasMinusConstant(binaryExpr.getRHS());
-    }
-  });
+  map.walkExprs([&ret](AffineExpr expr) { ret |= hasPadding(expr); });
   return ret;
 }
 
