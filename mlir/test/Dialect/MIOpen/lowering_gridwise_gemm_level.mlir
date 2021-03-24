@@ -6,7 +6,7 @@
 
 // RUN: mlir-opt -miopen-lowering %s | FileCheck %s
 
-func @miopen_gridwise_gemm(%matrix_a : memref<?x?xf32>, %matrix_b : memref<?x?xf32>, %matrix_c : memref<?x?xf32>) {
+func @miopen_gridwise_gemm(%matrix_a : memref<?x?x?xf32>, %matrix_b : memref<?x?x?xf32>, %matrix_c : memref<?x?x?xf32>) {
   miopen.gridwise_gemm(%matrix_a, %matrix_b, %matrix_c) {
     block_size = 256,
 
@@ -33,7 +33,7 @@ func @miopen_gridwise_gemm(%matrix_a : memref<?x?xf32>, %matrix_b : memref<?x?xf
 
     matrix_c_source_dest_vector_read_write_dim = 3,
     matrix_c_dest_data_per_write = 1
-  } : memref<?x?xf32>, memref<?x?xf32>, memref<?x?xf32>
+  } : memref<?x?x?xf32>, memref<?x?x?xf32>, memref<?x?x?xf32>
   return
 }
 
