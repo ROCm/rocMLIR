@@ -13,6 +13,7 @@ func @miopen_conv2d_cyxk_chwn_khwn(%filter : memref<1x8x3x3x128xf32>, %input : m
     dilations = [1, 1],
     strides = [1, 1],
     padding = [0, 0]
+    , xdlopsV2 = true
   } : memref<1x8x3x3x128xf32>, memref<1x8x32x32x128xf32>, memref<1x128x30x30x128xf32>
   return
 }
@@ -25,7 +26,7 @@ func @miopen_conv2d_cyxk_chwn_khwn(%filter : memref<1x8x3x3x128xf32>, %input : m
 // CHECK:       gridwise_gemm_argument_position = 1
 // CHECK-NEXT:  miopen.transform
 // CHECK:       gridwise_gemm_argument_position = 2
-// CHECK-NEXT:  miopen.gridwise_gemm(%0, %3, %4)
+// CHECK-NEXT:  miopen.gridwise_gemm_v2(%0, %3, %4)
 
 func @miopen_conv2d_bwd_data_cyxk_chwn_khwn(%filter : memref<1x8x3x3x128xf32>, %input : memref<1x8x32x32x128xf32>, %output : memref<1x128x30x30x128xf32>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
@@ -37,6 +38,7 @@ func @miopen_conv2d_bwd_data_cyxk_chwn_khwn(%filter : memref<1x8x3x3x128xf32>, %
     dilations = [1, 1],
     strides = [1, 1],
     padding = [0, 0]
+    , xdlopsV2 = true
   } : memref<1x8x3x3x128xf32>, memref<1x8x32x32x128xf32>, memref<1x128x30x30x128xf32>
   return
 }
@@ -49,7 +51,7 @@ func @miopen_conv2d_bwd_data_cyxk_chwn_khwn(%filter : memref<1x8x3x3x128xf32>, %
 // CHECK:       gridwise_gemm_argument_position = 2
 // CHECK-NEXT:  miopen.transform
 // CHECK:       gridwise_gemm_argument_position = 1
-// CHECK-NEXT:  miopen.gridwise_gemm(%0, %4, %3)
+// CHECK-NEXT:  miopen.gridwise_gemm_v2(%0, %4, %3)
 
 func @miopen_conv2d_bwd_weight_cyxk_chwn_khwn(%filter : memref<1x8x3x3x128xf32>, %input : memref<1x8x32x32x128xf32>, %output : memref<1x128x30x30x128xf32>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
@@ -61,6 +63,7 @@ func @miopen_conv2d_bwd_weight_cyxk_chwn_khwn(%filter : memref<1x8x3x3x128xf32>,
     dilations = [1, 1],
     strides = [1, 1],
     padding = [0, 0]
+    , xdlopsV2 = true
   } : memref<1x8x3x3x128xf32>, memref<1x8x32x32x128xf32>, memref<1x128x30x30x128xf32>
   return
 }
@@ -73,4 +76,4 @@ func @miopen_conv2d_bwd_weight_cyxk_chwn_khwn(%filter : memref<1x8x3x3x128xf32>,
 // CHECK:       gridwise_gemm_argument_position = 1
 // CHECK-NEXT:  miopen.transform
 // CHECK:       gridwise_gemm_argument_position = 0
-// CHECK-NEXT:  miopen.gridwise_gemm(%4, %3, %0)
+// CHECK-NEXT:  miopen.gridwise_gemm_v2(%4, %3, %0)
