@@ -668,7 +668,7 @@ mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
       auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
 
       size_t dimKF, dimNI, dimCI;
-      for (size_t i = 0; i < 4; ++i) {
+      for (size_t i = 0; i < 5; ++i) {
         auto filterDim = filterLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
 
         // Since XDLOPS cpp backend only supports forward pass so not all
@@ -687,7 +687,7 @@ mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
 
       // Filter tensor.
       // Find the fastest changing dimension.
-      if (dimKF == 3) {
+      if (dimKF == 4) {
         // When K is the fastest changing dimension,
         // gemmM dimension is vectorizable.
         // vectorization width depending on length of K.
@@ -703,14 +703,14 @@ mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
 
       // Input tensor.
       // Find the fastest changing dimension.
-      if (dimNI == 3) {
+      if (dimNI == 4) {
         // When N is the fastest changing dimension,
         // gemmN dimension is vectorizable.
         // vectorization width depending on length of N.
 
         // gemmK dimension non-vectorizable.
         inputGemmKVectorizable = false;
-      } else if (dimCI == 3) {
+      } else if (dimCI == 4) {
         // When C is the fastest changing dimension,
         // gemmK dimension vectorizable.
         // vectorization width depending on length of C.
@@ -785,15 +785,18 @@ mlir::translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m) {
       std::map<std::string, int> parameters;
 
       // Filter
+      parameters["CK_PARAM_PROBLEM_G"] = ctx.dimIndexVal["g"].second;
       parameters["CK_PARAM_PROBLEM_K"] = ctx.dimIndexVal["k"].second;
       parameters["CK_PARAM_PROBLEM_C"] = ctx.dimIndexVal["c"].second;
       parameters["CK_PARAM_PROBLEM_Y"] = ctx.dimIndexVal["y"].second;
       parameters["CK_PARAM_PROBLEM_X"] = ctx.dimIndexVal["x"].second;
       // Input
+      parameters["CK_PARAM_PROBLEM_G"] = ctx.dimIndexVal["gi"].second;
       parameters["CK_PARAM_PROBLEM_N"] = ctx.dimIndexVal["ni"].second;
       parameters["CK_PARAM_PROBLEM_HI"] = ctx.dimIndexVal["hi"].second;
       parameters["CK_PARAM_PROBLEM_WI"] = ctx.dimIndexVal["wi"].second;
       // Output
+      parameters["CK_PARAM_PROBLEM_GO"] = ctx.dimIndexVal["go"].second;
       parameters["CK_PARAM_PROBLEM_HO"] = ctx.dimIndexVal["ho"].second;
       parameters["CK_PARAM_PROBLEM_WO"] = ctx.dimIndexVal["wo"].second;
       // Stride
