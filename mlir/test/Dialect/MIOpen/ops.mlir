@@ -16,21 +16,21 @@ func @miopen_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf
 // CHECK-LABEL: func @miopen_conv2d
 // CHECK-NEXT: miopen.conv2d
 
-func @miopen_conv2d_f16(%filter : memref<?x?x?x?xf16>, %input : memref<?x?x?x?xf16>, %output : memref<?x?x?x?xf16>) {
+func @miopen_conv2d_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
   miopen.conv2d(%filter, %input, %output) {
-    filter_layout = ["k", "c", "y", "x"],
-    input_layout = ["n", "c", "hi", "wi"],
-    output_layout = ["n", "k", "ho", "wo"],
+    filter_layout = ["g" ,"k", "c", "y", "x"],
+    input_layout = ["n", "gi", "c", "hi", "wi"],
+    output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
     padding = [0, 0]
-  } : memref<?x?x?x?xf16>, memref<?x?x?x?xf16>, memref<?x?x?x?xf16>
+  } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
 // CHECK-LABEL: func @miopen_conv2d_f16
 // CHECK-NEXT: miopen.conv2d
 
-func @miopen_conv2d_bwd_data(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
+func @miopen_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
@@ -44,21 +44,21 @@ func @miopen_conv2d_bwd_data(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x
 // CHECK-LABEL: func @miopen_conv2d_bwd_data
 // CHECK-NEXT: miopen.conv2d_bwd_data
 
-func @miopen_conv2d_bwd_data_f16(%filter : memref<?x?x?x?xf16>, %input : memref<?x?x?x?xf16>, %output : memref<?x?x?x?xf16>) {
+func @miopen_conv2d_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
-    filter_layout = ["k", "c", "y", "x"],
-    input_layout = ["n", "c", "hi", "wi"],
-    output_layout = ["n", "k", "ho", "wo"],
+    filter_layout = ["g", "k", "c", "y", "x"],
+    input_layout = ["n", "gi", "c", "hi", "wi"],
+    output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
     padding = [0, 0]
-  } : memref<?x?x?x?xf16>, memref<?x?x?x?xf16>, memref<?x?x?x?xf16>
+  } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
 // CHECK-LABEL: func @miopen_conv2d_bwd_data_f16
 // CHECK-NEXT: miopen.conv2d_bwd_data
 
-func @miopen_conv2d_bwd_weight(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
+func @miopen_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
@@ -103,7 +103,7 @@ func @miopen_transform_1_to_1(%memref: memref<?x?x?x?x?xf32>) {
         names = ["n"],
         transformation = "PassThrough",
         source_dimensions = [0],
-        source_names = ["n"]
+        source_names = ["g"]
       },
       {
         dimensions = [2],
@@ -188,7 +188,7 @@ func @miopen_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
         names = ["n"],
         transformation = "PassThrough",
         source_dimensions = [0],
-        source_names = ["n"]
+        source_names = ["g"]
       },
       {
         dimensions = [2],
