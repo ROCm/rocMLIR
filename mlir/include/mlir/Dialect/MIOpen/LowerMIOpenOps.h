@@ -45,22 +45,32 @@ using namespace mlir;
 using namespace mlir::miopen;
 
 //===----------------------------------------------------------------------===//
-// Utility function to emit zero constant float op.
+// Utility function to emit constant float op.
 //===----------------------------------------------------------------------===//
-inline Value createZeroConstantFloatOp(PatternRewriter &b, Location loc,
-                                       Type elementType) {
-  Value zeroConstantFloatOp;
+inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
+                                   float value) {
+  Value ret;
   if (elementType == b.getF32Type()) {
-    zeroConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
+    ret = b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
   } else if (elementType == b.getF16Type()) {
-    auto zeroF32Op =
-        b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    zeroConstantFloatOp = b.create<FPTruncOp>(loc, zeroF32Op, elementType);
+    auto valueF32Op =
+        b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
+    ret = b.create<FPTruncOp>(loc, valueF32Op, elementType);
   } else if (elementType == b.getIntegerType(16)) {
-    zeroConstantFloatOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(16));
+    ret = b.create<ConstantIntOp>(loc, static_cast<int>(value),
+                                  b.getIntegerType(16));
   }
-  return zeroConstantFloatOp;
+  return ret;
+}
+
+inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc,
+                                       Type elementType) {
+  return createConstantFloatOp(b, loc, elementType, 0.0f);
+}
+
+inline Value createOneConstantFloatOp(OpBuilder &b, Location loc,
+                                      Type elementType) {
+  return createConstantFloatOp(b, loc, elementType, 1.0f);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3696,9 +3706,9 @@ struct ThreadwiseCopyRewritePattern
   LogicalResult matchAndRewrite(miopen::ThreadwiseCopyOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
-    auto elementType = op.dest().getType().cast<MemRefType>().getElementType();
+    auto elementType =
+        op.dest().getType().cast<MemRefType>().getElementType().cast<Type>();
 
-    Value zeroConstantFloatOp = createZeroConstantFloatOp(b, loc, elementType);
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
@@ -3759,6 +3769,21 @@ struct ThreadwiseCopyRewritePattern
       }
     }
 
+    // Determine if we need to emit codes for out-of-bound check.
+    bool toEmitOOBCheckLogic = false;
+    SmallVector<unsigned, 2> oobCheckDims;
+    if (sourceTransform) {
+      for (unsigned iter = 0; iter < sourceTransform.getNumResults(); ++iter) {
+        auto expr = sourceTransform.getResult(iter);
+        if (hasPadding(expr)) {
+          toEmitOOBCheckLogic = true;
+          oobCheckDims.push_back(iter);
+          // llvm::errs() << "check dim[" << iter << "]\n";
+          // llvm::errs() << expr << "\n";
+        }
+      }
+    }
+
     if (sourceCoordLength + destCoordLength != sourceAndDestCoord.size()) {
       llvm::errs() << "INCORRECT source and dest coordinates assigned!";
       return failure();
@@ -3789,6 +3814,7 @@ struct ThreadwiseCopyRewritePattern
       auto NSliceCol = NSliceColAttr.template cast<IntegerAttr>().getInt();
       auto DataPerAccess =
           DataPerAccessAttr.template cast<IntegerAttr>().getInt();
+      DataPerAccess = 1;
 
       // Original C++ logic:
       // template <typename SrcMatrix,
@@ -3870,22 +3896,10 @@ struct ThreadwiseCopyRewritePattern
       else
         srcLowerIndices = srcUpperIndices;
 
-      Value vectorValue;
       Value scalarValue;
-      // Load from source.
-      if (DataPerAccess > 1) {
-        // Issue vector load.
-        auto vectorType =
-            VectorType::get(DataPerAccess, sourceType.getElementType());
-        auto srcExpr =
-            getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
-        auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
-        vectorValue = lib.create<vector::TransferReadOp>(
-            loc, vectorType, op.source(), srcLowerIndices, srcProjection);
-      } else {
-        // Issue scalar load.
-        scalarValue = lib.create<LoadOp>(loc, sourceType.getElementType(), op.source(), srcLowerIndices);
-      }
+      // Issue scalar load.
+      scalarValue = lib.create<LoadOp>(loc, sourceType.getElementType(),
+                                       op.source(), srcLowerIndices);
 
       // Compute high-level coordinate for dest memref.
       // dst_index = (ivo_i32, ivi_i32) + destCoord
@@ -3906,17 +3920,8 @@ struct ThreadwiseCopyRewritePattern
       else
         destLowerIndices = destUpperIndices;
 
-      // Store to dest.
-      if (DataPerAccess > 1) {
-        auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
-        auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
-        lib.create<vector::TransferWriteOp>(loc, vectorValue, op.dest(),
-                                            destLowerIndices, dstProjection);
-      } else {
-        // Issue scalar store.
-        lib.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
-      }
-
+      // Issue scalar store.
+      lib.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
     } else {
       // The more elaborated algorithm.
       // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
@@ -3939,6 +3944,7 @@ struct ThreadwiseCopyRewritePattern
                                   .getInt();
 
       auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
+      longVectorSize = 1;
 
       // llvm::errs() << "vector_read_write_dim: " << vectorAccessDim << "\n";
       // llvm::errs() << "source_data_per_read: " << srcDataPerRead << "\n";
@@ -4048,17 +4054,65 @@ struct ThreadwiseCopyRewritePattern
         srcLowerIndices = srcUpperIndices;
 
       // Load from source.
-      Value vectorValue;
       Value scalarValue;
-      if (srcDataPerRead > 1) {
-        // Issue vector load.
-        auto sourceVectorType =
-            VectorType::get(srcDataPerRead, sourceType.getElementType());
-        auto srcExpr =
-            getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
-        auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
-        vectorValue = innerLoopBuilder.create<vector::TransferReadOp>(
-            loc, sourceVectorType, op.source(), srcLowerIndices, srcProjection);
+      if (toEmitOOBCheckLogic) {
+        // Walkthrough all lower level indices where the dimension has padding,
+        // check if the result lies within boundaries.
+
+        // Logic in C++:
+        // bool withinBounds = true;
+        // for (auto dim : oobCheckDims) {
+        //   withBounds &=
+        //     (srcLowerIndices[dim] >= 0 &&
+        //      srcLowerIndices[dim] < sourceType.getShape()[dim]) {
+        // }
+        Value withinBoundsOp = innerLoopBuilder.create<ConstantIntOp>(
+            loc, 1, innerLoopBuilder.getIntegerType(1));
+        for (auto dim : oobCheckDims) {
+          Value coord = srcLowerIndices[dim];
+          Value lowerBoundCheckOp = innerLoopBuilder.create<CmpIOp>(
+              loc, CmpIPredicate::sge, coord, zeroConstantOp);
+          Value upperBoundOp = innerLoopBuilder.create<ConstantIndexOp>(
+              loc, sourceType.getShape()[dim]);
+          Value upperBoundCheckOp = innerLoopBuilder.create<CmpIOp>(
+              loc, CmpIPredicate::slt, coord, upperBoundOp);
+          Value withinBoundInOneDimOp = innerLoopBuilder.create<AndOp>(
+              loc, lowerBoundCheckOp, upperBoundCheckOp);
+
+          withinBoundsOp = innerLoopBuilder.create<AndOp>(
+              loc, withinBoundsOp, withinBoundInOneDimOp);
+        }
+
+        // Logic in C++:
+        // if (withinBounds) {
+        //   // GPU load logic.
+        // } else {
+        //   // OOB. Fill with 0.
+        // }
+
+        // Emit IfOp.
+        auto ifWithinBoundsOp = innerLoopBuilder.create<scf::IfOp>(
+            loc, elementType, withinBoundsOp, /*withElseRegion=*/true);
+        // Then part.
+        auto ifWithinBoundsThenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
+        // // Issue scalar load.
+        // Value loadValueOp = ifWithinBoundsThenBuilder.create<LoadOp>(
+        //    loc, sourceType.getElementType(), op.source(), srcLowerIndices);
+        // ifWithinBoundsThenBuilder.create<scf::YieldOp>(loc, loadValueOp);
+
+        // Fill with 1.
+        Value oneConstantFloatOp = createOneConstantFloatOp(
+            ifWithinBoundsThenBuilder, loc, elementType);
+        ifWithinBoundsThenBuilder.create<scf::YieldOp>(loc, oneConstantFloatOp);
+
+        // Else part.
+        auto ifWithinBoundsElseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
+        Value zeroConstantFloatOp = createZeroConstantFloatOp(
+            ifWithinBoundsElseBuilder, loc, elementType);
+        ifWithinBoundsElseBuilder.create<scf::YieldOp>(loc,
+                                                       zeroConstantFloatOp);
+
+        scalarValue = ifWithinBoundsOp.results()[0];
       } else {
         // Issue scalar load.
         scalarValue = innerLoopBuilder.create<LoadOp>(loc, sourceType.getElementType(), op.source(), srcLowerIndices);
@@ -4088,16 +4142,9 @@ struct ThreadwiseCopyRewritePattern
         destLowerIndices = destUpperIndices;
 
       // Store to dest.
-      if (destDataPerWrite > 1) {
-        // Issue vector store.
-        auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
-        auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
-        innerLoopBuilder.create<vector::TransferWriteOp>(
-            loc, vectorValue, op.dest(), destLowerIndices, dstProjection);
-      } else {
-        // Issue scalar store.
-        innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
-      }
+      // Issue scalar store.
+      innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(),
+                                       destLowerIndices);
     }
 
     op.erase();
@@ -4209,6 +4256,7 @@ struct ThreadwiseCopyV2RewritePattern
                                 .getInt();
 
     auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
+    longVectorSize = 1;
 
     // llvm::errs() << "vector_read_write_dim: " << vectorAccessDim << "\n";
     // llvm::errs() << "source_data_per_read: " << srcDataPerRead << "\n";
@@ -4311,23 +4359,11 @@ struct ThreadwiseCopyV2RewritePattern
                           op.sourceOffset());
 
     // Load from source.
-    // TBD. Issue vector load.
-    // Value vectorValue;
     Value scalarValue;
-    if (srcDataPerRead > 1) {
-      // TBD. Issue vector load.
-      // auto sourceVectorType =
-      //     VectorType::get(srcDataPerRead, sourceType.getElementType());
-      // auto srcExpr =
-      //     getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
-      // auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
-      // vectorValue = innerLoopBuilder.create<vector::TransferReadOp>(
-      //     loc, sourceVectorType, op.source(), srcLowerIndices, srcProjection);
-    } else {
-      // Issue scalar load.
-      scalarValue = innerLoopBuilder.create<vector::ExtractElementOp>(loc, sourceType.getElementType(), op.source(), srcPosition);
-    }
-    
+    // Issue scalar load.
+    scalarValue = innerLoopBuilder.create<vector::ExtractElementOp>(
+        loc, sourceType.getElementType(), op.source(), srcPosition);
+
     // Compute high-level coordinate for dest memref.
     // dst_index = (iv_0, iv_1, ...) + destCoord
     SmallVector<Value, 8> destUpperIndices;
@@ -4352,25 +4388,20 @@ struct ThreadwiseCopyV2RewritePattern
       destLowerIndices = destUpperIndices;
 
     // Store to dest.
-    if (destDataPerWrite > 1) {
-      // TBD. Issue vector store.
-      // auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
-      // auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
-      // innerLoopBuilder.create<vector::TransferWriteOp>(
-      //     loc, vectorValue, op.dest(), destLowerIndices, dstProjection);
-    } else {
-      // Issue scalar store.
-      if (dataType == b.getF32Type()) {
-        innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
-      } else if (dataType == b.getF16Type()) {
-        auto truncValue = innerLoopBuilder.create<FPTruncOp>(loc, scalarValue, dataType);
-        innerLoopBuilder.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
-      } else if (dataType == b.getIntegerType(16)) {
-        auto convertValue = innerLoopBuilder.create<miopen::DataConvertOp>(
-            loc, dataType, scalarValue);
-        innerLoopBuilder.create<StoreOp>(loc, convertValue, op.dest(),
-                                         destLowerIndices);
-      }
+    // Issue scalar store.
+    if (dataType == b.getF32Type()) {
+      innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(),
+                                       destLowerIndices);
+    } else if (dataType == b.getF16Type()) {
+      auto truncValue =
+          innerLoopBuilder.create<FPTruncOp>(loc, scalarValue, dataType);
+      innerLoopBuilder.create<StoreOp>(loc, truncValue, op.dest(),
+                                       destLowerIndices);
+    } else if (dataType == b.getIntegerType(16)) {
+      auto convertValue = innerLoopBuilder.create<miopen::DataConvertOp>(
+          loc, dataType, scalarValue);
+      innerLoopBuilder.create<StoreOp>(loc, convertValue, op.dest(),
+                                       destLowerIndices);
     }
 
     op.erase();
