@@ -43,8 +43,8 @@ inline bool hasDivisionOrRemainder(AffineMap map) {
 }
 
 //===----------------------------------------------------------------------===//
-// Check if an AffineExpr has padding, which is represented as a minus expression
-// with a constant operand.
+// Check if an AffineExpr has padding, which is represented as a minus
+// expression with a constant operand.
 //===----------------------------------------------------------------------===//
 inline bool hasPadding(AffineExpr expr) {
   bool ret = false;
@@ -74,9 +74,7 @@ inline bool hasPadding(AffineMap map) {
   bool ret = false;
   if (!map)
     return false;
-  map.walkExprs([&ret](AffineExpr expr) {
-    ret |= hasPadding(expr);
-  });
+  map.walkExprs([&ret](AffineExpr expr) { ret |= hasPadding(expr); });
   return ret;
 }
 
