@@ -83,9 +83,9 @@ def MIOpen_TransformOp :
 
 def MIOpen_GridwiseGemmOp :
     MIOpen_Op<"gridwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [2]>:$filter,
-                   MemRefRankOf<[F32, F16, I16], [2]>:$input,
-                   MemRefRankOf<[F32, F16, I16], [2]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$filter,
+                   MemRefRankOf<[F32, F16, I16], [3]>:$input,
+                   MemRefRankOf<[F32, F16, I16], [3]>:$output)> {
   let summary = "Gridwise GEMM";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM.
@@ -234,8 +234,8 @@ def MIOpen_ThreadwiseCopyV2Op:
 // blockwise_gemm
 def MIOpen_BlockwiseGemmOp:
     MIOpen_Op<"blockwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [2]>:$matrixA,
-                   MemRefRankOf<[F32, F16, I16], [2]>:$matrixB,
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$matrixA,
+                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixB,
                    AnyMemRef:$matrixC,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB)> {
@@ -269,9 +269,9 @@ def MIOpen_BlockwiseGemmV2Op:
 // threadwise_gemm
 def MIOpen_ThreadwiseGemmOp:
     MIOpen_Op<"threadwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [2]>:$matrixA,
-                   MemRefRankOf<[F32, F16, I16], [2]>:$matrixB,
-                   MemRefRankOf<[F32, F16, I16], [2]>:$matrixC)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3,2]>:$matrixA,
+                   MemRefRankOf<[F32, F16, I16], [3,2]>:$matrixB,
+                   MemRefRankOf<[F32, F16, I16], [3,2]>:$matrixC)> {
   let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.
