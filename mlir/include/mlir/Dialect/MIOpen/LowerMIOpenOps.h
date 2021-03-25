@@ -3897,6 +3897,7 @@ struct ThreadwiseCopyRewritePattern
         srcLowerIndices = srcUpperIndices;
 
       Value scalarValue;
+      // Load from source.
       // Issue scalar load.
       scalarValue = lib.create<LoadOp>(loc, sourceType.getElementType(),
                                        op.source(), srcLowerIndices);
@@ -3920,8 +3921,10 @@ struct ThreadwiseCopyRewritePattern
       else
         destLowerIndices = destUpperIndices;
 
+      // Store to dest.
       // Issue scalar store.
       lib.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
+
     } else {
       // The more elaborated algorithm.
       // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
@@ -3943,8 +3946,10 @@ struct ThreadwiseCopyRewritePattern
                                   .template cast<IntegerAttr>()
                                   .getInt();
 
+      // FIXME: force use scalar load / store for now.
+      srcDataPerRead = destDataPerWrite = 1;
+
       auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
-      longVectorSize = 1;
 
       // llvm::errs() << "vector_read_write_dim: " << vectorAccessDim << "\n";
       // llvm::errs() << "source_data_per_read: " << srcDataPerRead << "\n";
@@ -4255,8 +4260,10 @@ struct ThreadwiseCopyV2RewritePattern
                                 .template cast<IntegerAttr>()
                                 .getInt();
 
+    // FIXME: force use scalar load / store for now.
+    srcDataPerRead = destDataPerWrite = 1;
+
     auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
-    longVectorSize = 1;
 
     // llvm::errs() << "vector_read_write_dim: " << vectorAccessDim << "\n";
     // llvm::errs() << "source_data_per_read: " << srcDataPerRead << "\n";
