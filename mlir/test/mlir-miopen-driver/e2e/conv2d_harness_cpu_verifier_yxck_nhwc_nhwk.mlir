@@ -1,3 +1,5 @@
+// UNSUPPORTED: native
+// FIXME
 // RUN: mlir-miopen-driver -p -fil_layout=yxck -in_layout=nhwc -out_layout=nhwk --host %s -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
 // filter: YXCK
