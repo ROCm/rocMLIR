@@ -3520,13 +3520,13 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     // Alloc register for thread_a and thread_b.
     auto threadARegisterMemRefType =
-        MemRefType::get({KPerThread, MPerThread}, elementType, {},
+        MemRefType::get({1, KPerThread, MPerThread}, elementType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
     auto threadAAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadARegisterMemRefType);
 
     auto threadBRegisterMemRefType =
-        MemRefType::get({KPerThread, NPerThread}, elementType, {},
+        MemRefType::get({1, KPerThread, NPerThread}, elementType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
     auto threadBAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadBRegisterMemRefType);
@@ -3562,10 +3562,11 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     // Threadwise copy from LDS (naive tensor) to register (generic tensor).
 
     // Set copy sorce and dest coordinate acoording to original C++ logic:
-    SmallVector<Value, 4> matrixAThreadwiseCopySourceAndDestCoords;
+    SmallVector<Value, 6> matrixAThreadwiseCopySourceAndDestCoords;
     // a_thread_copy.Run(
     //   p_a_block + a_block_mtx.CalculateOffset(k_begin, m_repeat *  MPerLevel1Cluster) + mMyThreadOffsetA),
     // mMyThreadOffsetA = BlockMatrixA::GetOffsetFromMultiIndex{0, c_thread_mtx_index.row} = c_thread_mtx_index_row
+    matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(lab.create<AddIOp>(
         loc, lab.create<MulIOp>(loc, iva_i32, MPerLevel1ClusterConstantI32Op),
@@ -3573,6 +3574,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
                                 lab.getIntegerType(32))));
 
     //   p_a_thread + a_thread_mtx.CalculateOffset(0, m_repeat * MPerThreadSubC));
+    matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(
         lab.create<MulIOp>(loc, iva_i32, MPerThreadSubCConstantI32Op));
@@ -3601,10 +3603,11 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     // Threadwise copy from LDS (naive tensor) to register (generic tensor).
 
     // Set copy sorce and dest coordinate acoording to original C++ logic:
-    SmallVector<Value, 4> matrixBThreadwiseCopySourceAndDestCoords;
+    SmallVector<Value, 6> matrixBThreadwiseCopySourceAndDestCoords;
     // b_thread_copy.Run(
     //   p_b_block + b_block_mtx.CalculateOffset(k_begin, n_repeat * NPerLevel1Cluster) + mMyThreadOffsetB),
     // mMyThreadOffsetB = BlockMatrixB::GetOffsetFromMultiIndex{0, c_thread_mtx_index.col} = c_thread_mtx_index_col
+    matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(lbb.create<AddIOp>(
         loc, lbb.create<MulIOp>(loc, ivb_i32, NPerLevel1ClusterConstantI32Op),
@@ -3612,6 +3615,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
                                 lbb.getIntegerType(32))));
 
     //   p_b_thread + b_thread_mtx.CalculateOffset(0, n_repeat * NPerThreadSubC));
+    matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(
         lbb.create<MulIOp>(loc, ivb_i32, NPerThreadSubCConstantI32Op));

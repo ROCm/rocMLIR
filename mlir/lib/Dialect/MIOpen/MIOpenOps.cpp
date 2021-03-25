@@ -497,11 +497,11 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
     }
   }
 
-/*  if (coords.size() != expectedSourceCoords + expectedDestCoords)
+  if (coords.size() != expectedSourceCoords + expectedDestCoords)
     return op.emitError(
         "Number of coordinates supplied doesn't match the rank, or affine maps "
         "of source and destination memrefs");
- */ return success();
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

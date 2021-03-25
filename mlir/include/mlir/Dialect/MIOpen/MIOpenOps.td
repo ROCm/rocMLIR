@@ -269,9 +269,9 @@ def MIOpen_BlockwiseGemmV2Op:
 // threadwise_gemm
 def MIOpen_ThreadwiseGemmOp:
     MIOpen_Op<"threadwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3,2]>:$matrixA,
-                   MemRefRankOf<[F32, F16, I16], [3,2]>:$matrixB,
-                   MemRefRankOf<[F32, F16, I16], [3,2]>:$matrixC)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$matrixA,
+                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixB,
+                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixC)> {
   let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.
