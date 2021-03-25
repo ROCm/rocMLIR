@@ -3778,8 +3778,6 @@ struct ThreadwiseCopyRewritePattern
         if (hasPadding(expr)) {
           toEmitOOBCheckLogic = true;
           oobCheckDims.push_back(iter);
-          // llvm::errs() << "check dim[" << iter << "]\n";
-          // llvm::errs() << expr << "\n";
         }
       }
     }
@@ -4100,15 +4098,10 @@ struct ThreadwiseCopyRewritePattern
             loc, elementType, withinBoundsOp, /*withElseRegion=*/true);
         // Then part.
         auto ifWithinBoundsThenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
-        // // Issue scalar load.
-        // Value loadValueOp = ifWithinBoundsThenBuilder.create<LoadOp>(
-        //    loc, sourceType.getElementType(), op.source(), srcLowerIndices);
-        // ifWithinBoundsThenBuilder.create<scf::YieldOp>(loc, loadValueOp);
-
-        // Fill with 1.
-        Value oneConstantFloatOp = createOneConstantFloatOp(
-            ifWithinBoundsThenBuilder, loc, elementType);
-        ifWithinBoundsThenBuilder.create<scf::YieldOp>(loc, oneConstantFloatOp);
+        // Issue scalar load.
+        Value loadValueOp = ifWithinBoundsThenBuilder.create<LoadOp>(
+            loc, sourceType.getElementType(), op.source(), srcLowerIndices);
+        ifWithinBoundsThenBuilder.create<scf::YieldOp>(loc, loadValueOp);
 
         // Else part.
         auto ifWithinBoundsElseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
