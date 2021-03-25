@@ -19,6 +19,7 @@
 
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <string>
 
@@ -37,8 +38,8 @@ struct MiirHandle_s {
   std::string genTxt;
 };
 
-static void strToTokens(const std::string &arguments,
-                        std::map<std::string, std::string> &argMap) {
+void strToTokens(const std::string &arguments,
+                 std::map<std::string, std::string> &argMap) {
   std::istringstream iss(arguments);
   std::string token;
   std::string argKey;
@@ -55,6 +56,24 @@ static void strToTokens(const std::string &arguments,
     }
   }
 }
+
+bool lazy_init() {
+  static const bool once = []() {
+    llvm::InitializeAllTargetInfos();
+    llvm::InitializeAllTargetMCs();
+    llvm::InitializeAllAsmParsers();
+
+    // Initialize LLVM AMDGPU backend.
+    LLVMInitializeAMDGPUTarget();
+    LLVMInitializeAMDGPUTargetInfo();
+    LLVMInitializeAMDGPUTargetMC();
+    LLVMInitializeAMDGPUAsmPrinter();
+    mlir::initializeLLVMPasses();
+    return true;
+  }();
+  return once;
+}
+
 } // namespace
 
 typedef void *MiirHandle;
@@ -261,20 +280,16 @@ extern "C" const char *miirGenIgemmCflags(MiirHandle mlirHandle) {
   return (handle->genTxt).c_str();
 }
 
-extern "C" void miirLowerInit() {
-  llvm::InitializeAllTargetInfos();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmParsers();
-
-  // Initialize LLVM AMDGPU backend.
-  LLVMInitializeAMDGPUTarget();
-  LLVMInitializeAMDGPUTargetInfo();
-  LLVMInitializeAMDGPUTargetMC();
-  LLVMInitializeAMDGPUAsmPrinter();
-  mlir::initializeLLVMPasses();
-}
-
+// This mutex provides the following guarantee:
+// * Each lowering routine is a critical section
+// * Initialization cannot run in parallel with lowering
+// TODO: Remove the lock if evidence exists that there is no race condition
+// between multi-threaded initialization and lowering.
+static std::mutex mutex;
 extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
+  std::lock_guard<std::mutex> lock(mutex);
+  lazy_init();
+
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
@@ -294,6 +309,9 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
 }
 
 extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
+  std::lock_guard<std::mutex> lock(mutex);
+  lazy_init();
+
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;

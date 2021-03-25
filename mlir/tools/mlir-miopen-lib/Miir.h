@@ -12,7 +12,7 @@
 
 #include <stddef.h>
 
-#define MIIR_VERSION_FLAT 2
+#define MIIR_VERSION_FLAT 3
 
 enum MiirStatus {
   MIIR_SUCCESS = 0,
@@ -31,10 +31,6 @@ typedef void *MiirHandle;
  *  @return        MLIR handle
  */
 extern "C" MiirHandle miirCreateHandle(const char *options);
-
-/*! @brief Initialize the Miir Lowering APIs
- */
-extern "C" void miirLowerInit();
 
 /*! @brief Lower the MLIR module to c++ code
  *  @param handle   MLIR handle
