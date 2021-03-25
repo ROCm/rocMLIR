@@ -45,22 +45,32 @@ using namespace mlir;
 using namespace mlir::miopen;
 
 //===----------------------------------------------------------------------===//
-// Utility function to emit zero constant float op.
+// Utility function to emit constant float op.
 //===----------------------------------------------------------------------===//
-inline Value createZeroConstantFloatOp(PatternRewriter &b, Location loc,
-                                       Type elementType) {
-  Value zeroConstantFloatOp;
+inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
+                                   float value) {
+  Value ret;
   if (elementType == b.getF32Type()) {
-    zeroConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
+    ret = b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
   } else if (elementType == b.getF16Type()) {
-    auto zeroF32Op =
-        b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    zeroConstantFloatOp = b.create<FPTruncOp>(loc, zeroF32Op, elementType);
+    auto valueF32Op =
+        b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
+    ret = b.create<FPTruncOp>(loc, valueF32Op, elementType);
   } else if (elementType == b.getIntegerType(16)) {
-    zeroConstantFloatOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(16));
+    ret = b.create<ConstantIntOp>(loc, static_cast<int>(value),
+                                  b.getIntegerType(16));
   }
-  return zeroConstantFloatOp;
+  return ret;
+}
+
+inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc,
+                                       Type elementType) {
+  return createConstantFloatOp(b, loc, elementType, 0.0f);
+}
+
+inline Value createOneConstantFloatOp(OpBuilder &b, Location loc,
+                                      Type elementType) {
+  return createConstantFloatOp(b, loc, elementType, 1.0f);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1910,6 +1920,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     affixBlockwiseCopyAttributes(blockwiseCopyOpBTop, op, b,
                                  /*isMatrixA=*/false);
 
+    // LDS barrier.
+    lb.create<miopen::WorkgroupBarrierOp>(loc);
+
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
     auto blockwiseCopyOpABottom = lb.create<miopen::BlockwiseCopyOp>(
         loc, threadAAllocOp, lds2DMatrixASubviewOp, blockwiseCopyASrc,
@@ -3627,9 +3640,9 @@ struct ThreadwiseCopyRewritePattern
   LogicalResult matchAndRewrite(miopen::ThreadwiseCopyOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
-    auto elementType = op.dest().getType().cast<MemRefType>().getElementType();
+    auto elementType =
+        op.dest().getType().cast<MemRefType>().getElementType().cast<Type>();
 
-    Value zeroConstantFloatOp = createZeroConstantFloatOp(b, loc, elementType);
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
@@ -3690,6 +3703,19 @@ struct ThreadwiseCopyRewritePattern
       }
     }
 
+    // Determine if we need to emit codes for out-of-bound check.
+    bool toEmitOOBCheckLogic = false;
+    SmallVector<unsigned, 2> oobCheckDims;
+    if (sourceTransform) {
+      for (unsigned iter = 0; iter < sourceTransform.getNumResults(); ++iter) {
+        auto expr = sourceTransform.getResult(iter);
+        if (hasPadding(expr)) {
+          toEmitOOBCheckLogic = true;
+          oobCheckDims.push_back(iter);
+        }
+      }
+    }
+
     if (sourceCoordLength + destCoordLength != sourceAndDestCoord.size()) {
       llvm::errs() << "INCORRECT source and dest coordinates assigned!";
       return failure();
@@ -3720,6 +3746,7 @@ struct ThreadwiseCopyRewritePattern
       auto NSliceCol = NSliceColAttr.template cast<IntegerAttr>().getInt();
       auto DataPerAccess =
           DataPerAccessAttr.template cast<IntegerAttr>().getInt();
+      DataPerAccess = 1;
 
       // Original C++ logic:
       // template <typename SrcMatrix,
@@ -3829,7 +3856,6 @@ struct ThreadwiseCopyRewritePattern
       // Store to dest.
       // Issue scalar store.
       lib.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
-
     } else {
       // The more elaborated algorithm.
       // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
@@ -3855,6 +3881,7 @@ struct ThreadwiseCopyRewritePattern
       srcDataPerRead = destDataPerWrite = 1;
 
       auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
+      longVectorSize = 1;
 
       // llvm::errs() << "vector_read_write_dim: " << vectorAccessDim << "\n";
       // llvm::errs() << "source_data_per_read: " << srcDataPerRead << "\n";
@@ -3967,9 +3994,97 @@ struct ThreadwiseCopyRewritePattern
 
       // Load from source.
       Value scalarValue;
-      // Issue scalar load.
-      scalarValue = innerLoopBuilder.create<LoadOp>(
-          loc, sourceType.getElementType(), op.source(), srcLowerIndices);
+      if (toEmitOOBCheckLogic) {
+        // Walkthrough all lower level indices where the dimension has padding,
+        // check if the result lies within boundaries.
+
+        Value zeroOp = createZeroConstantFloatOp(innerLoopBuilder, loc,
+                                                 sourceType.getElementType());
+        Value oneOp = createOneConstantFloatOp(innerLoopBuilder, loc,
+                                               sourceType.getElementType());
+
+        // Logic in C++:
+        // bool withinBounds = true;
+        // for (auto dim : oobCheckDims) {
+        //   withBounds &=
+        //     (srcLowerIndices[dim] >= 0 &&
+        //      srcLowerIndices[dim] < sourceType.getShape()[dim]) {
+        // }
+        Value withinBoundsOp = innerLoopBuilder.create<ConstantIntOp>(
+            loc, 1, innerLoopBuilder.getIntegerType(1));
+        for (auto dim : oobCheckDims) {
+          Value coord = srcLowerIndices[dim];
+          Value lowerBoundCheckOp = innerLoopBuilder.create<CmpIOp>(
+              loc, CmpIPredicate::sge, coord, zeroConstantOp);
+          Value upperBoundOp = innerLoopBuilder.create<ConstantIndexOp>(
+              loc, sourceType.getShape()[dim]);
+          Value upperBoundCheckOp = innerLoopBuilder.create<CmpIOp>(
+              loc, CmpIPredicate::slt, coord, upperBoundOp);
+          Value withinBoundInOneDimOp = innerLoopBuilder.create<AndOp>(
+              loc, lowerBoundCheckOp, upperBoundCheckOp);
+
+          withinBoundsOp = innerLoopBuilder.create<AndOp>(
+              loc, withinBoundsOp, withinBoundInOneDimOp);
+        }
+
+        // Logic:
+        // if (withinBounds) {
+        //   // load address = lower indices from affine transform.
+        // } else {
+        //   // OOB. Prepare an address known NOT OOB.
+        //   // load address = {0, 0, 0, 0}
+        // }
+        // V = load(load address)
+        // if (withinBounds) {
+        //   return V
+        // } else {
+        //   return 0
+        // }
+
+        // Emit the first IfOp.
+        auto firstIfWithinBoundsOp = innerLoopBuilder.create<scf::IfOp>(
+            loc,
+            TypeRange{innerLoopBuilder.getIndexType(),
+                      innerLoopBuilder.getIndexType(),
+                      innerLoopBuilder.getIndexType(),
+                      innerLoopBuilder.getIndexType()},
+            withinBoundsOp, /*withElseRegion=*/true);
+
+        // Then part.
+        auto firstIfWithinBoundsThenBuilder =
+            firstIfWithinBoundsOp.getThenBodyBuilder();
+        firstIfWithinBoundsThenBuilder.create<scf::YieldOp>(
+            loc, ValueRange{srcLowerIndices[0], srcLowerIndices[1],
+                            srcLowerIndices[2], srcLowerIndices[3]});
+
+        // Else part.
+        auto firstIfWithinBoundsElseBuilder =
+            firstIfWithinBoundsOp.getElseBodyBuilder();
+        firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{zeroConstantOp, zeroConstantOp, zeroConstantOp,
+                            zeroConstantOp});
+
+        // Issue scalar load.
+        scalarValue = innerLoopBuilder.create<LoadOp>(
+            loc, elementType, op.source(), firstIfWithinBoundsOp.results());
+
+        // Emit the second IfOp.
+        auto secondIfWithinBoundsOp = innerLoopBuilder.create<scf::IfOp>(
+            loc, elementType, withinBoundsOp, true);
+        auto secondIfWithinBoundsThenBuilder =
+            secondIfWithinBoundsOp.getThenBodyBuilder();
+        secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc, scalarValue);
+        auto secondIfWithinBoundsElseBuilder =
+            secondIfWithinBoundsOp.getElseBodyBuilder();
+        secondIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOp);
+
+        scalarValue = secondIfWithinBoundsOp.results()[0];
+
+      } else {
+        // Issue scalar load.
+        scalarValue = innerLoopBuilder.create<LoadOp>(
+            loc, sourceType.getElementType(), op.source(), srcLowerIndices);
+      }
 
       // Compute high-level coordinate for dest memref.
       // dst_index = (iv_0, iv_1, ...) + destCoord
@@ -4110,6 +4225,7 @@ struct ThreadwiseCopyV2RewritePattern
     srcDataPerRead = destDataPerWrite = 1;
 
     auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
+    longVectorSize = 1;
 
     // llvm::errs() << "vector_read_write_dim: " << vectorAccessDim << "\n";
     // llvm::errs() << "source_data_per_read: " << srcDataPerRead << "\n";
