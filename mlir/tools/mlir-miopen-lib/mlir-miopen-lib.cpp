@@ -19,7 +19,6 @@
 
 #include <iostream>
 #include <map>
-#include <mutex>
 #include <sstream>
 #include <string>
 
@@ -57,6 +56,10 @@ void strToTokens(const std::string &arguments,
   }
 }
 
+// In multi-threaded context, static intialization is guaranteed to
+// be thread safe and atomic. With this guarantee, we are protected
+// from the possible race condition of one thread doing intialization
+// and another doing lowering.
 bool lazy_init() {
   static const bool once = []() {
     llvm::InitializeAllTargetInfos();
@@ -87,7 +90,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   strToTokens(arguments, argMap);
 
   auto isValid = [&argMap]() {
-    std::vector<std::string> validKeys = {
+    static const std::vector<std::string> validKeys = {
         "operation",    "batchsize",     "arch",          "num_cu",
         "kernel_name",  "in_layout",     "in_type",       "in_channels",
         "in_h",         "in_w",          "out_layout",    "out_type",
@@ -96,8 +99,8 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
         "padding_w",    "conv_stride_h", "conv_stride_w", "dilation_h",
         "dilation_w"};
     return std::all_of(
-        validKeys.begin(), validKeys.end(),
-        [&argMap](std::string &key) { return argMap.count(key) > 0; });
+        validKeys.cbegin(), validKeys.cend(),
+        [&argMap](const std::string &key) { return argMap.count(key) > 0; });
   };
 
   auto getType = [](mlir::MLIRContext *context, const std::string &type_s) {
@@ -280,14 +283,7 @@ extern "C" const char *miirGenIgemmCflags(MiirHandle mlirHandle) {
   return (handle->genTxt).c_str();
 }
 
-// This mutex provides the following guarantee:
-// * Each lowering routine is a critical section
-// * Initialization cannot run in parallel with lowering
-// TODO: Remove the lock if evidence exists that there is no race condition
-// between multi-threaded initialization and lowering.
-static std::mutex mutex;
 extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
-  std::lock_guard<std::mutex> lock(mutex);
   lazy_init();
 
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
@@ -309,7 +305,6 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
 }
 
 extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
-  std::lock_guard<std::mutex> lock(mutex);
   lazy_init();
 
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
