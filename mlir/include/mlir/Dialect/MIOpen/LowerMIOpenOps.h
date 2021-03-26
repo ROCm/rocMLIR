@@ -3870,22 +3870,11 @@ struct ThreadwiseCopyRewritePattern
       else
         srcLowerIndices = srcUpperIndices;
 
-      Value vectorValue;
       Value scalarValue;
       // Load from source.
-      if (DataPerAccess > 1) {
-        // Issue vector load.
-        auto vectorType =
-            VectorType::get(DataPerAccess, sourceType.getElementType());
-        auto srcExpr =
-            getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
-        auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
-        vectorValue = lib.create<vector::TransferReadOp>(
-            loc, vectorType, op.source(), srcLowerIndices, srcProjection);
-      } else {
-        // Issue scalar load.
-        scalarValue = lib.create<LoadOp>(loc, sourceType.getElementType(), op.source(), srcLowerIndices);
-      }
+      // Issue scalar load.
+      scalarValue = lib.create<LoadOp>(loc, sourceType.getElementType(),
+                                       op.source(), srcLowerIndices);
 
       // Compute high-level coordinate for dest memref.
       // dst_index = (ivo_i32, ivi_i32) + destCoord
@@ -3907,15 +3896,8 @@ struct ThreadwiseCopyRewritePattern
         destLowerIndices = destUpperIndices;
 
       // Store to dest.
-      if (DataPerAccess > 1) {
-        auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
-        auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
-        lib.create<vector::TransferWriteOp>(loc, vectorValue, op.dest(),
-                                            destLowerIndices, dstProjection);
-      } else {
-        // Issue scalar store.
-        lib.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
-      }
+      // Issue scalar store.
+      lib.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
 
     } else {
       // The more elaborated algorithm.
@@ -3937,6 +3919,9 @@ struct ThreadwiseCopyRewritePattern
       auto destDataPerWrite = op->getAttr("dest_data_per_write")
                                   .template cast<IntegerAttr>()
                                   .getInt();
+
+      // FIXME: force use scalar load / store for now.
+      srcDataPerRead = destDataPerWrite = 1;
 
       auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
 
@@ -4048,21 +4033,10 @@ struct ThreadwiseCopyRewritePattern
         srcLowerIndices = srcUpperIndices;
 
       // Load from source.
-      Value vectorValue;
       Value scalarValue;
-      if (srcDataPerRead > 1) {
-        // Issue vector load.
-        auto sourceVectorType =
-            VectorType::get(srcDataPerRead, sourceType.getElementType());
-        auto srcExpr =
-            getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
-        auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
-        vectorValue = innerLoopBuilder.create<vector::TransferReadOp>(
-            loc, sourceVectorType, op.source(), srcLowerIndices, srcProjection);
-      } else {
-        // Issue scalar load.
-        scalarValue = innerLoopBuilder.create<LoadOp>(loc, sourceType.getElementType(), op.source(), srcLowerIndices);
-      }
+      // Issue scalar load.
+      scalarValue = innerLoopBuilder.create<LoadOp>(
+          loc, sourceType.getElementType(), op.source(), srcLowerIndices);
 
       // Compute high-level coordinate for dest memref.
       // dst_index = (iv_0, iv_1, ...) + destCoord
@@ -4088,16 +4062,9 @@ struct ThreadwiseCopyRewritePattern
         destLowerIndices = destUpperIndices;
 
       // Store to dest.
-      if (destDataPerWrite > 1) {
-        // Issue vector store.
-        auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
-        auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
-        innerLoopBuilder.create<vector::TransferWriteOp>(
-            loc, vectorValue, op.dest(), destLowerIndices, dstProjection);
-      } else {
-        // Issue scalar store.
-        innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
-      }
+      // Issue scalar store.
+      innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(),
+                                       destLowerIndices);
     }
 
     op.erase();
@@ -4208,6 +4175,9 @@ struct ThreadwiseCopyV2RewritePattern
                                 .template cast<IntegerAttr>()
                                 .getInt();
 
+    // FIXME: force use scalar load / store for now.
+    srcDataPerRead = destDataPerWrite = 1;
+
     auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
 
     // llvm::errs() << "vector_read_write_dim: " << vectorAccessDim << "\n";
@@ -4311,23 +4281,11 @@ struct ThreadwiseCopyV2RewritePattern
                           op.sourceOffset());
 
     // Load from source.
-    // TBD. Issue vector load.
-    // Value vectorValue;
     Value scalarValue;
-    if (srcDataPerRead > 1) {
-      // TBD. Issue vector load.
-      // auto sourceVectorType =
-      //     VectorType::get(srcDataPerRead, sourceType.getElementType());
-      // auto srcExpr =
-      //     getAffineDimExpr(sourceType.getRank() - 1, op.getContext());
-      // auto srcProjection = AffineMap::get(sourceType.getRank(), 0, srcExpr);
-      // vectorValue = innerLoopBuilder.create<vector::TransferReadOp>(
-      //     loc, sourceVectorType, op.source(), srcLowerIndices, srcProjection);
-    } else {
-      // Issue scalar load.
-      scalarValue = innerLoopBuilder.create<vector::ExtractElementOp>(loc, sourceType.getElementType(), op.source(), srcPosition);
-    }
-    
+    // Issue scalar load.
+    scalarValue = innerLoopBuilder.create<vector::ExtractElementOp>(
+        loc, sourceType.getElementType(), op.source(), srcPosition);
+
     // Compute high-level coordinate for dest memref.
     // dst_index = (iv_0, iv_1, ...) + destCoord
     SmallVector<Value, 8> destUpperIndices;
@@ -4352,25 +4310,20 @@ struct ThreadwiseCopyV2RewritePattern
       destLowerIndices = destUpperIndices;
 
     // Store to dest.
-    if (destDataPerWrite > 1) {
-      // TBD. Issue vector store.
-      // auto dstExpr = getAffineDimExpr(destType.getRank() - 1, op.getContext());
-      // auto dstProjection = AffineMap::get(destType.getRank(), 0, dstExpr);
-      // innerLoopBuilder.create<vector::TransferWriteOp>(
-      //     loc, vectorValue, op.dest(), destLowerIndices, dstProjection);
-    } else {
-      // Issue scalar store.
-      if (dataType == b.getF32Type()) {
-        innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
-      } else if (dataType == b.getF16Type()) {
-        auto truncValue = innerLoopBuilder.create<FPTruncOp>(loc, scalarValue, dataType);
-        innerLoopBuilder.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
-      } else if (dataType == b.getIntegerType(16)) {
-        auto convertValue = innerLoopBuilder.create<miopen::DataConvertOp>(
-            loc, dataType, scalarValue);
-        innerLoopBuilder.create<StoreOp>(loc, convertValue, op.dest(),
-                                         destLowerIndices);
-      }
+    // Issue scalar store.
+    if (dataType == b.getF32Type()) {
+      innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(),
+                                       destLowerIndices);
+    } else if (dataType == b.getF16Type()) {
+      auto truncValue =
+          innerLoopBuilder.create<FPTruncOp>(loc, scalarValue, dataType);
+      innerLoopBuilder.create<StoreOp>(loc, truncValue, op.dest(),
+                                       destLowerIndices);
+    } else if (dataType == b.getIntegerType(16)) {
+      auto convertValue = innerLoopBuilder.create<miopen::DataConvertOp>(
+          loc, dataType, scalarValue);
+      innerLoopBuilder.create<StoreOp>(loc, convertValue, op.dest(),
+                                       destLowerIndices);
     }
 
     op.erase();
