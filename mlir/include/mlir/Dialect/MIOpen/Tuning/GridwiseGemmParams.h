@@ -173,15 +173,13 @@ public:
 
   static void obtainFilterVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
-    auto g = dimIndexVal["g"].second;
-    auto cgroup = dimIndexVal["c"].second;
-    auto kgroup = dimIndexVal["k"].second;
     // Vectorization length logic is the same for forward and bwd_data
     if (dimIndexVal["k"].first == 4) {
       vecLen = dimIndexVal["k"].second;
     } else if (dimIndexVal["k"].first == 1) {
       // dimKF is the lowest changing dimension, which means dimC/dimY/dimX
-      vecLen = cgroup * dimIndexVal["y"].second * dimIndexVal["x"].second;
+      vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second *
+               dimIndexVal["x"].second;
     } else if (dimIndexVal["k"].first == 2) {
       // K's position is at 1, vectorization legnth is last two dimension
       if (dimIndexVal["c"].first == 1) {
