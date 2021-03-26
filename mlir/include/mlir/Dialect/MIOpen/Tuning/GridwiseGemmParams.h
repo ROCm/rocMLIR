@@ -113,7 +113,6 @@ public:
         input1GemmKVectorizable = true;
       }
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      // When K is the fastest changing dimension(3),
       // gemmK dimension is vectorizable, gemmM is not, and vice versa.
       // Vectorization width depending on length of K.
       if (dimIndexVal["k"].first == 4) {
@@ -174,28 +173,26 @@ public:
 
   static void obtainFilterVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
-    auto g = dimIndexVal["g"].second;
-    auto cgroup = dimIndexVal["c"].second;
-    auto kgroup = dimIndexVal["k"].second;
     // Vectorization length logic is the same for forward and bwd_data
     if (dimIndexVal["k"].first == 4) {
-      vecLen = kgroup;
+      vecLen = dimIndexVal["k"].second;
     } else if (dimIndexVal["k"].first == 1) {
       // dimKF is the lowest changing dimension, which means dimC/dimY/dimX
-      vecLen = cgroup * dimIndexVal["y"].second * dimIndexVal["x"].second;
+      vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second *
+               dimIndexVal["x"].second;
     } else if (dimIndexVal["k"].first == 2) {
       // K's position is at 1, vectorization legnth is last two dimension
       if (dimIndexVal["c"].first == 1) {
         vecLen = dimIndexVal["y"].second * dimIndexVal["x"].second;
       } else if (dimIndexVal["y"].first == 1) {
-        vecLen = cgroup * dimIndexVal["x"].second;
+        vecLen = dimIndexVal["c"].second * dimIndexVal["x"].second;
       } else {
-        vecLen = cgroup * dimIndexVal["y"].second;
+        vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second;
       }
     } else {
       // K's position is 2, vectorization legnth is last dimension
       if (dimIndexVal["c"].first == 4) {
-        vecLen = cgroup;
+        vecLen = dimIndexVal["c"].second;
       } else if (dimIndexVal["y"].first == 4) {
         vecLen = dimIndexVal["y"].second;
       } else {
@@ -207,7 +204,6 @@ public:
   static void obtainInputVecLen(ConvolutionContext &ctx, int64_t &vecLen,
                                 bool isXdlops) {
     auto dimIndexVal = ctx.dimIndexVal;
-    auto g = dimIndexVal["g"].second;
     if (dimIndexVal["ni"].first == 4) {
       vecLen = dimIndexVal["ni"].second;
     } else if (dimIndexVal["ci"].first == 4) {
@@ -237,7 +233,7 @@ public:
       vecLen = dimIndexVal["no"].second * dimIndexVal["ho"].second *
                dimIndexVal["wo"].second;
     } else if (dimIndexVal["ko"].first == 2) {
-      // Ko's position is at 1, vectorization legnth is last two dimensions
+      // Ko's position is at 2, vectorization legnth is last two dimensions
       if (dimIndexVal["no"].first == 1) {
         vecLen = dimIndexVal["ho"].second * dimIndexVal["wo"].second;
       } else if (dimIndexVal["ho"].first == 1) {
