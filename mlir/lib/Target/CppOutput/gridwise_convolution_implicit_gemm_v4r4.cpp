@@ -924,18 +924,15 @@ void mlir::translateModuleFromMIOpenToCFlags(ModuleOp m, std::string &cflags) {
       std::map<std::string, int> parameters;
 
       // Filter
-      parameters["CK_PARAM_PROBLEM_G"] = ctx.dimIndexVal["g"].second;
       parameters["CK_PARAM_PROBLEM_K"] = ctx.dimIndexVal["k"].second;
       parameters["CK_PARAM_PROBLEM_C"] = ctx.dimIndexVal["c"].second;
       parameters["CK_PARAM_PROBLEM_Y"] = ctx.dimIndexVal["y"].second;
       parameters["CK_PARAM_PROBLEM_X"] = ctx.dimIndexVal["x"].second;
       // Input
-      parameters["CK_PARAM_PROBLEM_GI"] = ctx.dimIndexVal["gi"].second;
       parameters["CK_PARAM_PROBLEM_N"] = ctx.dimIndexVal["ni"].second;
       parameters["CK_PARAM_PROBLEM_HI"] = ctx.dimIndexVal["hi"].second;
       parameters["CK_PARAM_PROBLEM_WI"] = ctx.dimIndexVal["wi"].second;
       // Output
-      parameters["CK_PARAM_PROBLEM_GO"] = ctx.dimIndexVal["go"].second;
       parameters["CK_PARAM_PROBLEM_HO"] = ctx.dimIndexVal["ho"].second;
       parameters["CK_PARAM_PROBLEM_WO"] = ctx.dimIndexVal["wo"].second;
       // Stride
