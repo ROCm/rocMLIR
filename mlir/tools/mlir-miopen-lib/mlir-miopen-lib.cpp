@@ -57,10 +57,13 @@ void strToTokens(const std::string &arguments,
 }
 
 // In multi-threaded context, static intialization is guaranteed to
-// be thread safe and atomic. With this guarantee, we are protected
-// from the possible race condition of one thread doing intialization
-// and another doing lowering.
-bool lazy_init() {
+// be thread safe, since C++11. Refer to
+// https://en.cppreference.com/w/cpp/language/storage_duration
+//
+// With this guarantee, we are protected from the possible race
+// condition of one thread doing intialization and another doing
+// lowering.
+bool miirLazyInit() {
   static const bool once = []() {
     llvm::InitializeAllTargetInfos();
     llvm::InitializeAllTargetMCs();
@@ -284,7 +287,7 @@ extern "C" const char *miirGenIgemmCflags(MiirHandle mlirHandle) {
 }
 
 extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
-  lazy_init();
+  miirLazyInit();
 
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
@@ -305,7 +308,7 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
 }
 
 extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
-  lazy_init();
+  miirLazyInit();
 
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
