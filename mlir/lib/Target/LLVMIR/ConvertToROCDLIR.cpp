@@ -80,7 +80,6 @@ mlir::translateModuleToROCDLIR(Operation *m, llvm::LLVMContext &llvmContext,
   // Locate a GPU module within a Module. Use it if we find one.
   if (auto module = dyn_cast<ModuleOp>(m)) {
     auto *block = module.getBody();
-    block->dump();
     for (auto op = block->begin(); op != block->end(); ++op)
       if (auto gpuModule = dyn_cast<gpu::GPUModuleOp>(op)) {
         m = gpuModule;
