@@ -45,8 +45,6 @@ int main(int argc, char **argv) {
     }
     // Bin backend binary generation
   } else if (option.getValue() == "tuningparams") {
-    miirLowerInit();
-
     status = miirLowerTuningParams(handle);
     if (status != MIIR_SUCCESS) {
       return status;
@@ -61,8 +59,6 @@ int main(int argc, char **argv) {
               << ", localSize=" << localSize << std::endl;
 
   } else if (option.getValue() == "bin") {
-    miirLowerInit();
-
     status = miirLowerBin(handle);
     if (status != MIIR_SUCCESS) {
       return status;
