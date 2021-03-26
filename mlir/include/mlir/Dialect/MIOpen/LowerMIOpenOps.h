@@ -3850,24 +3850,28 @@ struct ThreadwiseGemmRewritePattern
     ArrayRef<int64_t> gemmBShape =
         gemmB.getType().dyn_cast<MemRefType>().getShape();
 
-    auto loopK = b.create<AffineForOp>(loc, 0, gemmAShape[0], 1);
+    auto loopG = b.create<AffineForOp>(loc, 0, gemmAShape[0], 1);
+    auto lbG = loopG.getBody();
+    b.setInsertionPointToStart(lbG);
+
+    auto loopK = b.create<AffineForOp>(loc, 0, gemmAShape[1], 1);
     auto lbK = loopK.getBody();
     b.setInsertionPointToStart(lbK);
 
-    auto loopM = b.create<AffineForOp>(loopK.getLoc(), 0, gemmAShape[1], 1);
+    auto loopM = b.create<AffineForOp>(loopK.getLoc(), 0, gemmAShape[2], 1);
     auto lbM = loopM.getBody();
     b.setInsertionPointToStart(lbM);
 
-    auto loopN = b.create<AffineForOp>(loc, 0, gemmBShape[1], 1);
+    auto loopN = b.create<AffineForOp>(loc, 0, gemmBShape[2], 1);
     auto lbN = loopN.getBody();
     b.setInsertionPointToStart(lbN);
 
-    SmallVector<Value, 2> memIndicesKM;
-    extractForInductionVars({loopK, loopM}, &memIndicesKM);
+    SmallVector<Value, 3> memIndicesKM;
+    extractForInductionVars({loopG, loopK, loopM}, &memIndicesKM);
     auto gemmAKM = b.create<AffineLoadOp>(loc, gemmA, memIndicesKM);
 
-    SmallVector<Value, 2> memIndicesKN;
-    extractForInductionVars({loopK, loopN}, &memIndicesKN);
+    SmallVector<Value, 3> memIndicesKN;
+    extractForInductionVars({loopG, loopK, loopN}, &memIndicesKN);
     auto gemmBKN = b.create<AffineLoadOp>(loc, gemmB, memIndicesKN);
 
     Value mul;
@@ -3875,8 +3879,8 @@ struct ThreadwiseGemmRewritePattern
       mul = b.create<MulIOp>(loc, dataType, gemmAKM, gemmBKN);
     else
       mul = b.create<MulFOp>(loc, dataType, gemmAKM, gemmBKN);
-    SmallVector<Value, 2> memIndicesMN;
-    extractForInductionVars({loopM, loopN}, &memIndicesMN);
+    SmallVector<Value, 3> memIndicesMN;
+    extractForInductionVars({loopG, loopM, loopN}, &memIndicesMN);
     auto gemmCMN = b.create<AffineLoadOp>(loc, gemmC, memIndicesMN);
 
     Value add;
