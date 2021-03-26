@@ -2011,7 +2011,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                  getAffineConstantExpr(MPerThread, op.getContext()),
          getAffineDimExpr(3, op.getContext()) +
              getAffineDimExpr(2, op.getContext()) *
-                 getAffineConstantExpr(MPerThread, op.getContext())},
+                 getAffineConstantExpr(NPerThread, op.getContext())},
         op.getContext());
 
     // emit TransformOp for Matrix C on VGPR.
