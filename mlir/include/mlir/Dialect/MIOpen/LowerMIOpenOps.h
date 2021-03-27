@@ -4028,17 +4028,15 @@ struct ThreadwiseCopyRewritePattern
 
       // Compute high-level coordinate for dest memref.
       // dst_index = (iv_0, iv_1, ...) + destCoord
-      SmallVector<Value, 8> destUpperIndices;
-      for (unsigned iter = 0; iter < loopIV_i32s.size(); ++iter)
-        destUpperIndices.push_back(innerLoopBuilder.create<IndexCastOp>(
+      SmallVector<Value, 2> destUpperIndices = destCoord;
+      for (unsigned iter = 0; iter < loopIV_i32s.size(); ++iter) {
+        auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+        destUpperIndices[dim] = innerLoopBuilder.create<IndexCastOp>(
             loc,
-            innerLoopBuilder.create<AddIOp>(
-                loc,
-                loopIV_i32s[dimAccessOrder[iter]
-                                .template cast<IntegerAttr>()
-                                .getInt()],
-                destCoord[iter]),
-            b.getIndexType()));
+            innerLoopBuilder.create<AddIOp>(loc, destUpperIndices[dim],
+                                            loopIV_i32s[iter]),
+            b.getIndexType());
+      }
 
       // Apply affine transformations to compute the low-level coordinate.
       SmallVector<Value, 8> destLowerIndices;
