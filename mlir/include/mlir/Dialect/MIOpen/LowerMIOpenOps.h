@@ -4042,7 +4042,7 @@ struct ThreadwiseCopyRewritePattern
       auto NSliceColConstantOp = b.create<ConstantIndexOp>(loc, NSliceCol);
       auto DataPerAccessConstantOp =
           b.create<ConstantIndexOp>(loc, DataPerAccess);
-
+      
       // outer loop.
       auto outerLoopOp =
           b.create<scf::ForOp>(loc, zeroConstantOp,
@@ -4067,10 +4067,13 @@ struct ThreadwiseCopyRewritePattern
       // src_index = (ivo_i32, ivi_i32) + sourceCoord
       SmallVector<Value, 8> srcUpperIndices;
       srcUpperIndices.push_back(lib.create<IndexCastOp>(
-          loc, lib.create<AddIOp>(loc, ivo_i32, sourceCoord[0]),
+          loc, lib.create<AddIOp>(loc, zeroConstantOp, sourceCoord[0]),
           b.getIndexType()));
       srcUpperIndices.push_back(lib.create<IndexCastOp>(
-          loc, lib.create<AddIOp>(loc, ivi_i32, sourceCoord[1]),
+          loc, lib.create<AddIOp>(loc, ivo_i32, sourceCoord[1]),
+          b.getIndexType()));
+      srcUpperIndices.push_back(lib.create<IndexCastOp>(
+          loc, lib.create<AddIOp>(loc, ivi_i32, sourceCoord[2]),
           b.getIndexType()));
 
       // Apply affine transformations to compute the low-level coordinate.
@@ -4103,10 +4106,13 @@ struct ThreadwiseCopyRewritePattern
       // dst_index = (ivo_i32, ivi_i32) + destCoord
       SmallVector<Value, 8> destUpperIndices;
       destUpperIndices.push_back(lib.create<IndexCastOp>(
-          loc, lib.create<AddIOp>(loc, ivo_i32, destCoord[0]),
+          loc, lib.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
           b.getIndexType()));
       destUpperIndices.push_back(lib.create<IndexCastOp>(
-          loc, lib.create<AddIOp>(loc, ivi_i32, destCoord[1]),
+          loc, lib.create<AddIOp>(loc, ivo_i32, destCoord[1]),
+          b.getIndexType()));
+      destUpperIndices.push_back(lib.create<IndexCastOp>(
+          loc, lib.create<AddIOp>(loc, ivi_i32, destCoord[2]),
           b.getIndexType()));
 
       // Apply affine transformations to compute the low-level coordinate.
