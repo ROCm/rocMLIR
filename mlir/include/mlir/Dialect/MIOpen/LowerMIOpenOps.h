@@ -3246,7 +3246,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGemmOp> {
   using OpRewritePattern<miopen::BlockwiseGemmOp>::OpRewritePattern;
 
-  LogicalResult naiveRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const {
+  LogicalResult matchAndRewrite(miopen::BlockwiseGemmOp op,
+                                PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
     // Prepare some useful constants.
@@ -3426,21 +3427,6 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     op.erase();
     return success();
-  }
-
-  LogicalResult twoByTwoPipelinedRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const {
-    // TBD implement 2x2 pipelined version.
-    op.erase();
-    return success();
-  }
-
-  LogicalResult matchAndRewrite(miopen::BlockwiseGemmOp op, PatternRewriter &b) const override {
-    // TBD switch between 2x2 and naive pipeline.
-    if (true) {
-      return naiveRewrite(op, b);
-    } else {
-      return twoByTwoPipelinedRewrite(op, b);
-    }
   }
 };
 
