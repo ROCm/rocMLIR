@@ -1309,8 +1309,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     if (isMatrixA) {
       bop->setAttr("source_dim_access_order", b.getArrayAttr({
-                                                  b.getI32IntegerAttr(1),
                                                   b.getI32IntegerAttr(0),
+                                                  b.getI32IntegerAttr(1),
                                               }));
       bop->setAttr("dest_dim_access_order", b.getArrayAttr({
                                                 b.getI32IntegerAttr(0),
@@ -1516,11 +1516,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // llvm::errs() << "matrix_b_source_data_per_read: " << matrix_b_source_data_per_read << "\n";
 
     // Compute ThreadClusterLengths for Matrix A.
-    int64_t GemmABlockCopyClusterLengths_GemmK =
-        KPerBlock /
-        ((MPerBlock * KPerBlock / BlockSize) / matrix_a_source_data_per_read);
     int64_t GemmABlockCopyClusterLengths_GemmM =
-        MPerBlock / matrix_a_source_data_per_read;
+        MPerBlock /
+        ((MPerBlock * KPerBlock / BlockSize) / matrix_a_source_data_per_read);
+    int64_t GemmABlockCopyClusterLengths_GemmK =
+        KPerBlock / matrix_a_source_data_per_read;
 
     // llvm::errs() << "thread cluster lengths for Matrix A\n";
     // llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
@@ -2222,8 +2222,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     if (isMatrixA) {
       bop->setAttr("source_dim_access_order", b.getArrayAttr({
-                                                  b.getI32IntegerAttr(1),
                                                   b.getI32IntegerAttr(0),
+                                                  b.getI32IntegerAttr(1),
                                               }));
       bop->setAttr("dest_dim_access_order", b.getArrayAttr({
                                                 b.getI32IntegerAttr(0),
@@ -2472,11 +2472,11 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Logic to prepare parameters for blockwise_copy.
 
     // Compute ThreadClusterLengths for Matrix A.
-    int64_t GemmABlockCopyClusterLengths_GemmK =
-        KPerBlock /
-        ((MPerBlock * KPerBlock / BlockSize) / matrix_a_source_data_per_read);
     int64_t GemmABlockCopyClusterLengths_GemmM =
-        MPerBlock / matrix_a_source_data_per_read;
+        MPerBlock /
+        ((MPerBlock * KPerBlock / BlockSize) / matrix_a_source_data_per_read);
+    int64_t GemmABlockCopyClusterLengths_GemmK =
+        KPerBlock / matrix_a_source_data_per_read;
 
     // llvm::errs() << "thread cluster lengths for Matrix A\n";
     // llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
