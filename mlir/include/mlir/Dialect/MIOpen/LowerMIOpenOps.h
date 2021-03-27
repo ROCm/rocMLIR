@@ -1470,6 +1470,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         op->getAttr("matrix_b_source_data_per_read")
             .template dyn_cast<IntegerAttr>()
             .getInt();
+    int64_t matrix_a_source_vector_read_dim =
+        op->getAttr("matrix_a_source_vector_read_dim")
+            .template dyn_cast<IntegerAttr>()
+            .getInt();
+    int64_t matrix_b_source_vector_read_dim =
+        op->getAttr("matrix_b_source_vector_read_dim")
+            .template dyn_cast<IntegerAttr>()
+            .getInt();
 
     auto dataType = op.input().getType().template dyn_cast<MemRefType>().getElementType().template dyn_cast<FloatType>();
 
@@ -1515,47 +1523,69 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // llvm::errs() << "matrix_a_source_data_per_read: " << matrix_a_source_data_per_read << "\n";
     // llvm::errs() << "matrix_b_source_data_per_read: " << matrix_b_source_data_per_read << "\n";
 
-    // Compute ThreadClusterLengths for Matrix A.
-    int64_t GemmABlockCopyClusterLengths_GemmM =
-        MPerBlock /
-        ((MPerBlock * KPerBlock / BlockSize) / matrix_a_source_data_per_read);
-    int64_t GemmABlockCopyClusterLengths_GemmK =
-        KPerBlock / matrix_a_source_data_per_read;
-
-    // llvm::errs() << "thread cluster lengths for Matrix A\n";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmM << "\n";
-
     // Compute ThreadSliceLengths for Matrix A.
-    int64_t GemmABlockCopyThreadSliceLengths_GemmK =
-        KPerBlock / GemmABlockCopyClusterLengths_GemmK;
-    int64_t GemmABlockCopyThreadSliceLengths_GemmM =
-        MPerBlock / GemmABlockCopyClusterLengths_GemmM;
+    int64_t GemmABlockCopyNumberDataPerThread =
+        MPerBlock * KPerBlock / BlockSize;
+
+    int64_t GemmABlockCopyThreadSliceLengths_GemmK;
+    int64_t GemmABlockCopyThreadSliceLengths_GemmM;
+    if (matrix_a_source_vector_read_dim == 0) {
+      GemmABlockCopyThreadSliceLengths_GemmK = matrix_a_source_data_per_read;
+      GemmABlockCopyThreadSliceLengths_GemmM =
+          GemmABlockCopyNumberDataPerThread /
+          GemmABlockCopyThreadSliceLengths_GemmK;
+    } else {
+      GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
+      GemmABlockCopyThreadSliceLengths_GemmK =
+          GemmABlockCopyNumberDataPerThread /
+          GemmABlockCopyThreadSliceLengths_GemmM;
+    }
 
     // llvm::errs() << "slice lengths for Matrix A\n";
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
 
-    // Compute ThreadClusterLengths for Matrix B.
-    int64_t GemmBBlockCopyClusterLengths_GemmK =
-        KPerBlock /
-        ((NPerBlock * KPerBlock / BlockSize) / matrix_b_source_data_per_read);
-    int64_t GemmBBlockCopyClusterLengths_GemmN =
-        NPerBlock / matrix_b_source_data_per_read;
+    // Compute ThreadClusterLengths for Matrix A.
+    int64_t GemmABlockCopyClusterLengths_GemmK =
+        KPerBlock / GemmABlockCopyThreadSliceLengths_GemmK;
+    int64_t GemmABlockCopyClusterLengths_GemmM =
+        MPerBlock / GemmABlockCopyThreadSliceLengths_GemmM;
 
-    // llvm::errs() << "thread cluster lengths for Matrix B\n";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << "\n";
+    // llvm::errs() << "thread cluster lengths for Matrix A\n";
+    // llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
+    // llvm::errs() << GemmABlockCopyClusterLengths_GemmM << "\n";
 
     // Compute ThreadSliceLengths for Matrix B.
-    int64_t GemmBBlockCopyThreadSliceLengths_GemmK =
-        KPerBlock / GemmBBlockCopyClusterLengths_GemmK;
-    int64_t GemmBBlockCopyThreadSliceLengths_GemmN =
-        NPerBlock / GemmBBlockCopyClusterLengths_GemmN;
+    int64_t GemmBBlockCopyNumberDataPerThread =
+        NPerBlock * KPerBlock / BlockSize;
+
+    int64_t GemmBBlockCopyThreadSliceLengths_GemmK;
+    int64_t GemmBBlockCopyThreadSliceLengths_GemmN;
+    if (matrix_b_source_vector_read_dim == 0) {
+      GemmBBlockCopyThreadSliceLengths_GemmK = matrix_b_source_data_per_read;
+      GemmBBlockCopyThreadSliceLengths_GemmN =
+          GemmBBlockCopyNumberDataPerThread /
+          GemmBBlockCopyThreadSliceLengths_GemmK;
+    } else {
+      GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
+      GemmBBlockCopyThreadSliceLengths_GemmK =
+          GemmBBlockCopyNumberDataPerThread /
+          GemmBBlockCopyThreadSliceLengths_GemmN;
+    }
 
     // llvm::errs() << "thread slice lengths for Matrix B\n";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
+
+    // Compute ThreadClusterLengths for Matrix B.
+    int64_t GemmBBlockCopyClusterLengths_GemmK =
+        KPerBlock / GemmBBlockCopyThreadSliceLengths_GemmK;
+    int64_t GemmBBlockCopyClusterLengths_GemmN =
+        NPerBlock / GemmBBlockCopyThreadSliceLengths_GemmN;
+
+    // llvm::errs() << "thread cluster lengths for Matrix B\n";
+    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
+    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << "\n";
 
     // Get current workitem ID.
 
@@ -2388,6 +2418,14 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         op->getAttr("matrix_b_source_data_per_read")
             .template dyn_cast<IntegerAttr>()
             .getInt();
+    int64_t matrix_a_source_vector_read_dim =
+        op->getAttr("matrix_a_source_vector_read_dim")
+            .template dyn_cast<IntegerAttr>()
+            .getInt();
+    int64_t matrix_b_source_vector_read_dim =
+        op->getAttr("matrix_b_source_vector_read_dim")
+            .template dyn_cast<IntegerAttr>()
+            .getInt();
 
     // Obtain XDLOPS-related attributes.
     int64_t MPerWave =
@@ -2471,47 +2509,65 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Logic to prepare parameters for blockwise_copy.
 
-    // Compute ThreadClusterLengths for Matrix A.
-    int64_t GemmABlockCopyClusterLengths_GemmM =
-        MPerBlock /
-        ((MPerBlock * KPerBlock / BlockSize) / matrix_a_source_data_per_read);
-    int64_t GemmABlockCopyClusterLengths_GemmK =
-        KPerBlock / matrix_a_source_data_per_read;
-
-    // llvm::errs() << "thread cluster lengths for Matrix A\n";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmM << "\n";
-
     // Compute ThreadSliceLengths for Matrix A.
-    int64_t GemmABlockCopyThreadSliceLengths_GemmK =
-        KPerBlock / GemmABlockCopyClusterLengths_GemmK;
-    int64_t GemmABlockCopyThreadSliceLengths_GemmM =
-        MPerBlock / GemmABlockCopyClusterLengths_GemmM;
+    int64_t GemmABlockCopyNumberDataPerThread =
+        MPerBlock * KPerBlock / BlockSize;
+
+    int64_t GemmABlockCopyThreadSliceLengths_GemmK;
+    int64_t GemmABlockCopyThreadSliceLengths_GemmM;
+    if (matrix_a_source_vector_read_dim == 0) {
+      GemmABlockCopyThreadSliceLengths_GemmK = matrix_a_source_data_per_read;
+      GemmABlockCopyThreadSliceLengths_GemmM =
+          GemmABlockCopyNumberDataPerThread /
+          GemmABlockCopyThreadSliceLengths_GemmK;
+    } else {
+      GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
+      GemmABlockCopyThreadSliceLengths_GemmK =
+          GemmABlockCopyNumberDataPerThread /
+          GemmABlockCopyThreadSliceLengths_GemmM;
+    }
 
     // llvm::errs() << "slice lengths for Matrix A\n";
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
 
-    // Compute ThreadClusterLengths for Matrix B.
-    int64_t GemmBBlockCopyClusterLengths_GemmK =
-        KPerBlock /
-        ((NPerBlock * KPerBlock / BlockSize) / matrix_b_source_data_per_read);
-    int64_t GemmBBlockCopyClusterLengths_GemmN =
-        NPerBlock / matrix_b_source_data_per_read;
+    // Compute ThreadClusterLengths for Matrix A.
+    int64_t GemmABlockCopyClusterLengths_GemmK =
+        KPerBlock / GemmABlockCopyThreadSliceLengths_GemmK;
+    int64_t GemmABlockCopyClusterLengths_GemmM =
+        MPerBlock / GemmABlockCopyThreadSliceLengths_GemmM;
 
-    // llvm::errs() << "thread cluster lengths for Matrix B\n";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << "\n";
+    // llvm::errs() << "thread cluster lengths for Matrix A\n";
+    // llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
+    // llvm::errs() << GemmABlockCopyClusterLengths_GemmM << "\n";
 
     // Compute ThreadSliceLengths for Matrix B.
-    int64_t GemmBBlockCopyThreadSliceLengths_GemmK =
-        KPerBlock / GemmBBlockCopyClusterLengths_GemmK;
-    int64_t GemmBBlockCopyThreadSliceLengths_GemmN =
-        NPerBlock / GemmBBlockCopyClusterLengths_GemmN;
+    int64_t GemmBBlockCopyNumberDataPerThread =
+        NPerBlock * KPerBlock / BlockSize;
+
+    int64_t GemmBBlockCopyThreadSliceLengths_GemmK;
+    int64_t GemmBBlockCopyThreadSliceLengths_GemmN;
+    if (matrix_b_source_vector_read_dim == 0) {
+      GemmBBlockCopyThreadSliceLengths_GemmK = matrix_b_source_data_per_read;
+      GemmBBlockCopyThreadSliceLengths_GemmN =
+          GemmBBlockCopyNumberDataPerThread /
+          GemmBBlockCopyThreadSliceLengths_GemmK;
+    } else {
+      GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
+      GemmBBlockCopyThreadSliceLengths_GemmK =
+          GemmBBlockCopyNumberDataPerThread /
+          GemmBBlockCopyThreadSliceLengths_GemmN;
+    }
 
     // llvm::errs() << "thread slice lengths for Matrix B\n";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
+
+    // Compute ThreadClusterLengths for Matrix B.
+    int64_t GemmBBlockCopyClusterLengths_GemmK =
+        KPerBlock / GemmBBlockCopyThreadSliceLengths_GemmK;
+    int64_t GemmBBlockCopyClusterLengths_GemmN =
+        NPerBlock / GemmBBlockCopyThreadSliceLengths_GemmN;
 
     // Compute thread_data_id_begin for Matrix A.
     // ClusterArrangeOrder for Matrix A is <1, 0>.
