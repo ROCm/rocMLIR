@@ -4008,6 +4008,11 @@ struct ThreadwiseCopyRewritePattern
         // Walkthrough all lower level indices where the dimension has padding,
         // check if the result lies within boundaries.
 
+        Value zeroOp = createZeroConstantFloatOp(innerLoopBuilder, loc,
+                                                 sourceType.getElementType());
+        Value oneOp = createOneConstantFloatOp(innerLoopBuilder, loc,
+                                               sourceType.getElementType());
+
         // Logic in C++:
         // bool withinBounds = true;
         // for (auto dim : oobCheckDims) {
@@ -4039,39 +4044,46 @@ struct ThreadwiseCopyRewritePattern
         //   // OOB. Fill with 0.
         // }
 
-        // FIXME. remove these srcZeroIndices.
-        SmallVector<Value, 8> srcZeroIndices;
-        for (unsigned iter = 0; iter < srcLowerIndices.size(); ++iter)
-          srcZeroIndices.push_back(
-              innerLoopBuilder.create<ConstantIndexOp>(loc, 0));
-
         // Emit IfOp.
         auto ifWithinBoundsOp = innerLoopBuilder.create<scf::IfOp>(
-            loc, elementType, withinBoundsOp, /*withElseRegion=*/true);
+            loc,
+            TypeRange{innerLoopBuilder.getIndexType(),
+                      innerLoopBuilder.getIndexType(),
+                      innerLoopBuilder.getIndexType(),
+                      innerLoopBuilder.getIndexType()},
+            withinBoundsOp, /*withElseRegion=*/true);
+
         // Then part.
         auto ifWithinBoundsThenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
-        // Issue scalar load.
-        // FIXME: go from srcZeroIndices to srcLowerIndices.
-        Value loadValueOp = ifWithinBoundsThenBuilder.create<LoadOp>(
-            loc, sourceType.getElementType(), op.source(), srcZeroIndices);
-        // loc, sourceType.getElementType(), op.source(), srcLowerIndices);
-        ifWithinBoundsThenBuilder.create<scf::YieldOp>(loc, loadValueOp);
+        ifWithinBoundsThenBuilder.create<scf::YieldOp>(
+            loc, ValueRange{srcLowerIndices[0], srcLowerIndices[1],
+                            srcLowerIndices[2], srcLowerIndices[3]});
 
         // Else part.
         auto ifWithinBoundsElseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
+        ifWithinBoundsElseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{srcLowerIndices[0], srcLowerIndices[1],
+                            zeroConstantOp, zeroConstantOp});
 
-        // OOB. Instead of issue a constant 0, we do the following:
-        // Load from an address which is known not OOB.
-        // Subtract the value by itself so the end result is always 0.
-        Value loadNonOOBValueOp = ifWithinBoundsElseBuilder.create<LoadOp>(
-            loc, sourceType.getElementType(), op.source(), srcZeroIndices);
-        Value minusNonOOBValueOp =
-            ifWithinBoundsElseBuilder.create<NegFOp>(loc, loadNonOOBValueOp);
-        Value zeroOOBValueOp = ifWithinBoundsElseBuilder.create<AddFOp>(
-            loc, loadNonOOBValueOp, minusNonOOBValueOp);
-        ifWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOOBValueOp);
+        // Issue scalar load.
+        scalarValue = innerLoopBuilder.create<LoadOp>(
+            loc, elementType, op.source(), ifWithinBoundsOp.results());
 
-        scalarValue = ifWithinBoundsOp.results()[0];
+        auto ifWithinBoundsOp2 = innerLoopBuilder.create<scf::IfOp>(
+            loc, elementType, withinBoundsOp, true);
+        auto ifWithinBounds2ThenBuilder =
+            ifWithinBoundsOp2.getThenBodyBuilder();
+        Value timesOne =
+            ifWithinBounds2ThenBuilder.create<MulFOp>(loc, scalarValue, oneOp);
+        ifWithinBounds2ThenBuilder.create<scf::YieldOp>(loc, timesOne);
+        auto ifWithinBounds2ElseBuilder =
+            ifWithinBoundsOp2.getElseBodyBuilder();
+        Value timesZero =
+            ifWithinBounds2ElseBuilder.create<MulFOp>(loc, scalarValue, zeroOp);
+        ifWithinBounds2ElseBuilder.create<scf::YieldOp>(loc, timesZero);
+
+        scalarValue = ifWithinBoundsOp2.results()[0];
+
       } else {
         // Issue scalar load.
         scalarValue = innerLoopBuilder.create<LoadOp>(
