@@ -62,7 +62,7 @@ auto weight_g = weight.reshape(
         {groups,
          n_output_plane / groups,
          n_input_plane / groups * kernel_depth * kernel_height * kernel_width});
-####input:[GKCYX]
+####filter:[GKCYX]
 <br/>
 ###NHWC
 <br/>
