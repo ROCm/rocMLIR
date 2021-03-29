@@ -1071,9 +1071,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Emit miopen.gridwise_gemm op.
     // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
-    auto arguments = std::array<miopen::TransformOp, 3>{gemmA, gemmB, gemmC};
+    
 
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
+      auto arguments = std::array<miopen::TransformOp, 3>{gemmA, gemmB, gemmC};
       b.create<miopen::GridwiseGemmV2Op>(
           loc, ArrayRef<Type>{},
           ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
@@ -1081,12 +1082,173 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                      arguments[fields.gridwiseGemmArgumentPosition[2]]},
           gridwiseGemmAttrs);
     } else {
-      b.create<miopen::GridwiseGemmOp>(
-          loc, ArrayRef<Type>{},
-          ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
-                     arguments[fields.gridwiseGemmArgumentPosition[1]],
-                     arguments[fields.gridwiseGemmArgumentPosition[2]]},
-          gridwiseGemmAttrs);
+       // Obtain critical matrix dimensions.
+        int64_t G = gemmA.getType().template dyn_cast<MemRefType>().getShape()[0];
+       if(G != 1){
+         assert(0);
+       }
+       int64_t K = gemmA.getType().template dyn_cast<MemRefType>().getShape()[1];
+       int64_t M = gemmA.getType().template dyn_cast<MemRefType>().getShape()[2];
+       int64_t N = gemmB.getType().template dyn_cast<MemRefType>().getShape()[2];
+
+       llvm::SmallVector<int64_t, 2> transformedFilterShape2;
+       transformedFilterShape2.push_back(K);
+       transformedFilterShape2.push_back(M);
+      auto transformedFilterMemRefType2 =
+        MemRefType::get(transformedFilterShape2, filterElementType);
+
+      llvm::SmallVector<NamedAttribute, 3> transformedFilterAttrs2;
+      transformedFilterAttrs2.push_back(b.getNamedAttr(
+        "gridwise_gemm_argument_position",
+        b.getI32IntegerAttr(fields.gridwiseGemmArgumentPosition[0])));
+       transformedFilterAttrs2.push_back(b.getNamedAttr(
+        "output_layout",
+        b.getArrayAttr({b.getStringAttr("gemmK"),
+                        b.getStringAttr("gemmM"),
+                        })));
+      transformedFilterAttrs2.push_back(b.getNamedAttr(
+        "intermediate_layout",
+        b.getArrayAttr({b.getStringAttr("gemmG"),
+                        b.getStringAttr("gemmK"),
+                        b.getStringAttr("gemmM"),
+                        })));
+      transformedFilterAttrs2.push_back(b.getNamedAttr(
+        "layout",
+         b.getArrayAttr({
+              // Part 0: gemmK dimensions.
+              b.getDictionaryAttr({
+                  b.getNamedAttr("dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                  b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmK")})),
+                  b.getNamedAttr("transformation",
+                                 b.getStringAttr("PassThrough")),
+                  b.getNamedAttr("source_dimensions", b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                  b.getNamedAttr("source_names", b.getArrayAttr({b.getStringAttr("gemmK")})),
+              }),
+
+              // Part 1: Merge gemmG,GemmM dimensions.
+              b.getDictionaryAttr({
+                  b.getNamedAttr("dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                  b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmM")})),
+                  b.getNamedAttr("transformation", b.getStringAttr("Merge")),
+                  b.getNamedAttr(
+                      "source_dimensions",
+                      b.getArrayAttr({b.getI32IntegerAttr(0),b.getI32IntegerAttr(2)})),
+                  b.getNamedAttr("source_names",
+                                 b.getArrayAttr({b.getStringAttr("gemmG"),b.getStringAttr("gemmM")})),
+              }),
+          })));
+      auto gemmA2 = b.create<miopen::TransformOp>(
+        loc, transformedFilterMemRefType2, ArrayRef<Value>(gemmA), transformedFilterAttrs2);
+
+
+      llvm::SmallVector<int64_t, 2> transformedInputShape2;
+      transformedInputShape2.push_back(K);
+      transformedInputShape2.push_back(N);
+      auto transformedInputMemRefType2 =
+        MemRefType::get(transformedInputShape2, inputElementType);
+      llvm::SmallVector<NamedAttribute, 3> transformedInputAttrs2;
+      transformedInputAttrs2.push_back(b.getNamedAttr(
+        "gridwise_gemm_argument_position",
+        b.getI32IntegerAttr(fields.gridwiseGemmArgumentPosition[1])));
+       transformedInputAttrs2.push_back(b.getNamedAttr(
+        "output_layout",
+        b.getArrayAttr({b.getStringAttr("gemmK"),
+                        b.getStringAttr("gemmN"),
+                        })));
+      transformedInputAttrs2.push_back(b.getNamedAttr(
+        "intermediate_layout",
+        b.getArrayAttr({b.getStringAttr("gemmG"),
+                        b.getStringAttr("gemmK"),
+                        b.getStringAttr("gemmN"),
+                        })));
+      transformedInputAttrs2.push_back(b.getNamedAttr(
+        "layout",
+         b.getArrayAttr({
+            // Part 0: Merge gemmG,GemmK dimensions.
+              b.getDictionaryAttr({
+                  b.getNamedAttr("dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                  b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmM")})),
+                  b.getNamedAttr("transformation", b.getStringAttr("Merge")),
+                  b.getNamedAttr(
+                      "source_dimensions",
+                      b.getArrayAttr({b.getI32IntegerAttr(0),b.getI32IntegerAttr(1)})),
+                  b.getNamedAttr("source_names",
+                                 b.getArrayAttr({b.getStringAttr("gemmG"),b.getStringAttr("gemmM")})),
+              }),
+              // Part 1: gemmN dimensions.
+              b.getDictionaryAttr({
+                  b.getNamedAttr("dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                  b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmN")})),
+                  b.getNamedAttr("transformation",
+                                 b.getStringAttr("PassThrough")),
+                  b.getNamedAttr("source_dimensions", b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                  b.getNamedAttr("source_names", b.getArrayAttr({b.getStringAttr("gemmN")})),
+              }),
+          })));
+      auto gemmB2 = b.create<miopen::TransformOp>(loc, transformedInputMemRefType2,
+                                               ArrayRef<Value>(gemmB),
+                                               transformedInputAttrs2);
+      
+      llvm::SmallVector<int64_t, 2> transformedOutputShape2;
+      transformedOutputShape2.push_back(M);
+      transformedOutputShape2.push_back(N);
+      auto transformedOutputMemRefType2 =
+        MemRefType::get(transformedOutputShape2, outputElementType);
+      llvm::SmallVector<NamedAttribute, 3> transformedOutputAttrs2;
+      transformedOutputAttrs2.push_back(b.getNamedAttr(
+        "gridwise_gemm_argument_position",
+        b.getI32IntegerAttr(fields.gridwiseGemmArgumentPosition[2])));
+       transformedOutputAttrs2.push_back(b.getNamedAttr(
+        "output_layout",
+        b.getArrayAttr({b.getStringAttr("gemmM"),
+                        b.getStringAttr("gemmN"),
+                        })));
+      transformedOutputAttrs2.push_back(b.getNamedAttr(
+        "intermediate_layout",
+        b.getArrayAttr({b.getStringAttr("gemmG"),
+                        b.getStringAttr("gemmM"),
+                        b.getStringAttr("gemmN"),
+                        })));
+      transformedOutputAttrs2.push_back(b.getNamedAttr(
+        "layout",
+         b.getArrayAttr({
+            // Part 0: Merge gemmG,GemmK dimensions.
+              b.getDictionaryAttr({
+                  b.getNamedAttr("dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                  b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmM")})),
+                  b.getNamedAttr("transformation", b.getStringAttr("Merge")),
+                  b.getNamedAttr(
+                      "source_dimensions",
+                      b.getArrayAttr({b.getI32IntegerAttr(0),b.getI32IntegerAttr(1)})),
+                  b.getNamedAttr("source_names",
+                                 b.getArrayAttr({b.getStringAttr("gemmG"),b.getStringAttr("gemmM")})),
+              }),
+              // Part 1: gemmN dimensions.
+              b.getDictionaryAttr({
+                  b.getNamedAttr("dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                  b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmN")})),
+                  b.getNamedAttr("transformation",
+                                 b.getStringAttr("PassThrough")),
+                  b.getNamedAttr("source_dimensions", b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                  b.getNamedAttr("source_names", b.getArrayAttr({b.getStringAttr("gemmN")})),
+              }),
+          })));
+      auto gemmC2 = b.create<miopen::TransformOp>(
+        loc, transformedOutputMemRefType2, ArrayRef<Value>(gemmC), transformedOutputAttrs2);
+       auto arguments = std::array<miopen::TransformOp, 3>{gemmA2, gemmB2, gemmC2};
+
+       b.create<miopen::GridwiseGemmOp>(
+           loc, ArrayRef<Type>{},
+           ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
+                      arguments[fields.gridwiseGemmArgumentPosition[1]],
+                      arguments[fields.gridwiseGemmArgumentPosition[2]]},
+           gridwiseGemmAttrs);
     }
 
     // Finally, erase the original Conv2D op.
