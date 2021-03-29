@@ -3990,13 +3990,12 @@ struct ThreadwiseCopyRewritePattern
       // Load from source.
       Value scalarValue;
       if (toEmitOOBCheckLogic) {
-        // Walkthrough all lower level indices where the dimension has padding,
-        // check if the result lies within boundaries.
-
+        // Emit a useful constant 0f for later use.
         Value zeroOp = createZeroConstantFloatOp(innerLoopBuilder, loc,
                                                  sourceType.getElementType());
-        Value oneOp = createOneConstantFloatOp(innerLoopBuilder, loc,
-                                               sourceType.getElementType());
+
+        // Walkthrough all lower level indices where the dimension has padding,
+        // check if the result lies within boundaries.
 
         // Logic in C++:
         // bool withinBounds = true;
