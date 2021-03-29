@@ -1920,9 +1920,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     affixBlockwiseCopyAttributes(blockwiseCopyOpBTop, op, b,
                                  /*isMatrixA=*/false);
 
-    // LDS barrier.
-    lb.create<miopen::WorkgroupBarrierOp>(loc);
-
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
     auto blockwiseCopyOpABottom = lb.create<miopen::BlockwiseCopyOp>(
         loc, threadAAllocOp, lds2DMatrixASubviewOp, blockwiseCopyASrc,
@@ -3746,7 +3743,6 @@ struct ThreadwiseCopyRewritePattern
       auto NSliceCol = NSliceColAttr.template cast<IntegerAttr>().getInt();
       auto DataPerAccess =
           DataPerAccessAttr.template cast<IntegerAttr>().getInt();
-      DataPerAccess = 1;
 
       // Original C++ logic:
       // template <typename SrcMatrix,
@@ -3881,7 +3877,6 @@ struct ThreadwiseCopyRewritePattern
       srcDataPerRead = destDataPerWrite = 1;
 
       auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
-      longVectorSize = 1;
 
       // llvm::errs() << "vector_read_write_dim: " << vectorAccessDim << "\n";
       // llvm::errs() << "source_data_per_read: " << srcDataPerRead << "\n";
@@ -4225,7 +4220,6 @@ struct ThreadwiseCopyV2RewritePattern
     srcDataPerRead = destDataPerWrite = 1;
 
     auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
-    longVectorSize = 1;
 
     // llvm::errs() << "vector_read_write_dim: " << vectorAccessDim << "\n";
     // llvm::errs() << "source_data_per_read: " << srcDataPerRead << "\n";
