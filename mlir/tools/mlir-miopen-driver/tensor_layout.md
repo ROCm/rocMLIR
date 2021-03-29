@@ -72,6 +72,6 @@ b = torch.empty(N, C, H, W, device="cuda:0", memory_format=torch.channels_last)
 conv_nhwc = nn.Conv2d(C, K, 3, 1, 1).to("cuda:0", memory_format=torch.channels_last)
 we can dump shape like conv_nhwc.shape or a= nn.Conv2d a.weight.shape
 then we can judge G in which dim because if G=3 C=6 input=[N 6 H W] ,we can know dim(G) is dim(C)-1
-####input:[NGCHW]
+####input:[NHWGC]
 ####filter:[GKCYX]
-####output:[NGKHW]
+####output:[NHWGK]
