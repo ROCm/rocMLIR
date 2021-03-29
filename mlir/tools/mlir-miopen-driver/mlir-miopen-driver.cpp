@@ -246,7 +246,12 @@ static void populateDefaults() {
       paddingHeight.setValue(0);
       paddingWidth.setValue(0);
       num_cu.setValue(120);
+      arch.setValue("gfx908");
     }
+  }
+
+  if (xdlopsV2.getValue() == true) {
+    num_cu.setValue(120);
     arch.setValue("gfx908");
   }
 
