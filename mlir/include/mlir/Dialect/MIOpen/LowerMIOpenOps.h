@@ -2720,9 +2720,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto waveId_m = b.create<SignedDivIOp>(loc, waveId, NWavesConstantOp);
     auto waveId_n = b.create<SignedRemIOp>(loc, waveId, NWavesConstantOp);
 
-    Value mMyThreadOffsetA, mMyThreadOffsetB;
-    mMyThreadOffsetA = b.create<MulIOp>(loc, waveId_m, MPerWaveConstantOp);
-    mMyThreadOffsetB = b.create<MulIOp>(loc, waveId_n, NPerWaveConstantOp);
+    Value mMyWaveOffsetA, mMyWaveOffsetB;
+    mMyWaveOffsetA = b.create<MulIOp>(loc, waveId_m, MPerWaveConstantOp);
+    mMyWaveOffsetB = b.create<MulIOp>(loc, waveId_n, NPerWaveConstantOp);
     
     // Logic to setup buffers for blockwise_gemm_v2.
     
@@ -2785,7 +2785,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Emit blockwise V2 GEMM.
     auto blockwiseGemmV2Op = mfmalb.create<miopen::BlockwiseGemmV2Op>(
         loc, vectorCTypes, lds2DMatrixASubviewOp, lds2DMatrixBSubviewOp,
-        mMyThreadOffsetA, mMyThreadOffsetB, arrayA, arrayB, mfmaLoopOp.getRegionIterArgs());
+        mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB, mfmaLoopOp.getRegionIterArgs());
     affixBlockwiseGemmV2Attributes(blockwiseGemmV2Op, op, b);
  
     // LDS barrier.
@@ -2814,7 +2814,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Emit blockwise GEMM for the loop tail.
     auto blockwiseGemmV2TailOp = b.create<miopen::BlockwiseGemmV2Op>(
         loc, vectorCTypes, lds2DMatrixASubviewOp, lds2DMatrixBSubviewOp,
-        mMyThreadOffsetA, mMyThreadOffsetB, arrayA, arrayB, mfmaLoopOp.getResults());
+        mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB, mfmaLoopOp.getResults());
     affixBlockwiseGemmV2Attributes(blockwiseGemmV2TailOp, op, b);
 
     // -----
@@ -4681,7 +4681,7 @@ struct XdlopsGemmV2RewritePattern
       //     for(index_t m_i = 0; m_i < MRepeats; ++m_i)
       //         for(index_t k_i      = 0; k_i < K; ++k_i)
       //             a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
-      // p_a_wave need to be offseted by threadOffsetA.
+      // p_a_wave need to be offseted by waveOffsetA.
 
       auto outerLoopM = b.create<scf::ForOp>(loc, zeroConstantOp, MRepeatsConstantOp, oneConstantOp);
       auto olmb = OpBuilder::atBlockTerminator(outerLoopM.getBody());
@@ -4692,9 +4692,9 @@ struct XdlopsGemmV2RewritePattern
 
       // TBD. Check if we need to apply coord_transform as well.
       //             a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
-      // p_a_wave need to be offseted by threadOffsetA.
+      // p_a_wave need to be offseted by waveOffsetA.
       auto sourceOffsetA = ilmkb.create<AddIOp>(
-          loc, op.threadOffsetA(),
+          loc, op.waveOffsetA(),
           ilmkb.create<AddIOp>(
               loc,
               ilmkb.create<AddIOp>(
@@ -4714,7 +4714,7 @@ struct XdlopsGemmV2RewritePattern
       //     for(index_t n_i = 0; n_i < NRepeats; ++n_i)
       //         for(index_t k_i      = 0; k_i < K; ++k_i)
       //             b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops * n_i];
-      // p_b_wave need to be offseted by threadOffsetB.
+      // p_b_wave need to be offseted by waveOffsetB.
 
       auto outerLoopN = b.create<scf::ForOp>(loc, zeroConstantOp, NRepeatsConstantOp, oneConstantOp);
       auto olnb = OpBuilder::atBlockTerminator(outerLoopN.getBody());
@@ -4725,10 +4725,10 @@ struct XdlopsGemmV2RewritePattern
 
       // TBD. Check if we need to apply coord_transform as well.
       //             b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops * n_i];
-      // p_b_wave need to be offseted by threadOffsetB.
+      // p_b_wave need to be offseted by waveOffsetB.
 
       auto sourceOffsetB = ilnkb.create<AddIOp>(
-          loc, op.threadOffsetB(),
+          loc, op.waveOffsetB(),
           ilnkb.create<AddIOp>(
               loc,
               ilnkb.create<AddIOp>(
@@ -4816,7 +4816,7 @@ struct XdlopsGemmV2RewritePattern
       // p_a_wave need to be offseted by threadOffsetA.
       // p_b_wave need to be offseted by threadOffsetB.
       auto sourceOffsetA = lklb.create<AddIOp>(
-          loc, op.threadOffsetA(),
+          loc, op.waveOffsetA(),
           lklb.create<AddIOp>(
               loc,
               lklb.create<MulIOp>(loc, lklb.create<AddIOp>(loc, lkliv, blk_id),
@@ -4828,7 +4828,7 @@ struct XdlopsGemmV2RewritePattern
       lklb.create<StoreOp>(loc, valueA, op.bufferA(), ValueRange{lkliv});
 
       auto sourceOffsetB = lklb.create<AddIOp>(
-          loc, op.threadOffsetB(),
+          loc, op.waveOffsetB(),
           lklb.create<AddIOp>(
               loc,
               lklb.create<MulIOp>(loc, lklb.create<AddIOp>(loc, lkliv, blk_id),
@@ -4935,8 +4935,8 @@ struct BlockwiseGemmV2RewritePattern
       }
 
       auto xdlopsGemmV2Op = b.create<miopen::XdlopsGemmV2Op>(
-          loc, resultTypes, op.matrixA(), op.matrixB(), op.threadOffsetA(),
-          op.threadOffsetB(), op.bufferA(), op.bufferB(), op.vectorCs());
+          loc, resultTypes, op.matrixA(), op.matrixB(), op.waveOffsetA(),
+          op.waveOffsetB(), op.bufferA(), op.bufferB(), op.vectorCs());
 
       xdlopsGemmV2Op->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op->setAttr("n", op->getAttr("n"));
@@ -4958,8 +4958,8 @@ struct BlockwiseGemmV2RewritePattern
       resultTypes0.push_back(op.vectorDs()[1].getType());
 
       auto xdlopsGemmV2Op0 = b.create<miopen::XdlopsGemmV2Op>(
-          loc, resultTypes0, op.matrixA(), op.matrixB(), op.threadOffsetA(),
-          op.threadOffsetB(), op.bufferA(), op.bufferB(), ValueRange{op.vectorCs()[0], op.vectorCs()[1]});
+          loc, resultTypes0, op.matrixA(), op.matrixB(), op.waveOffsetA(),
+          op.waveOffsetB(), op.bufferA(), op.bufferB(), ValueRange{op.vectorCs()[0], op.vectorCs()[1]});
 
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
@@ -4978,8 +4978,8 @@ struct BlockwiseGemmV2RewritePattern
       auto MPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
       auto xdlopsGemmV2Op1 = b.create<miopen::XdlopsGemmV2Op>(
           loc, resultTypes1, op.matrixA(), op.matrixB(),
-          b.create<AddIOp>(loc, op.threadOffsetA(), MPerXdlopsConstantOp),
-          op.threadOffsetB(), op.bufferA(), op.bufferB(), ValueRange{op.vectorCs()[2], op.vectorCs()[3]});
+          b.create<AddIOp>(loc, op.waveOffsetA(), MPerXdlopsConstantOp),
+          op.waveOffsetB(), op.bufferA(), op.bufferB(), ValueRange{op.vectorCs()[2], op.vectorCs()[3]});
 
       xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
@@ -5005,8 +5005,8 @@ struct BlockwiseGemmV2RewritePattern
       resultTypes0.push_back(op.vectorDs()[1].getType());
 
       auto xdlopsGemmV2Op0 = b.create<miopen::XdlopsGemmV2Op>(
-          loc, resultTypes0, op.matrixA(), op.matrixB(), op.threadOffsetA(),
-          op.threadOffsetB(), op.bufferA(), op.bufferB(), ValueRange{op.vectorCs()[0], op.vectorCs()[1]});
+          loc, resultTypes0, op.matrixA(), op.matrixB(), op.waveOffsetA(),
+          op.waveOffsetB(), op.bufferA(), op.bufferB(), ValueRange{op.vectorCs()[0], op.vectorCs()[1]});
 
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
@@ -5024,8 +5024,8 @@ struct BlockwiseGemmV2RewritePattern
 
       auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
       auto xdlopsGemmV2Op1 = b.create<miopen::XdlopsGemmV2Op>(
-          loc, resultTypes1, op.matrixA(), op.matrixB(), op.threadOffsetA(),
-          b.create<AddIOp>(loc, op.threadOffsetB(), NPerXdlopsConstantOp),
+          loc, resultTypes1, op.matrixA(), op.matrixB(), op.waveOffsetA(),
+          b.create<AddIOp>(loc, op.waveOffsetB(), NPerXdlopsConstantOp),
           op.bufferA(), op.bufferB(),
           ValueRange{op.vectorCs()[2], op.vectorCs()[3]});
 
