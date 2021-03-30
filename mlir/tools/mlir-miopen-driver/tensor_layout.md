@@ -75,3 +75,7 @@ then we can judge G in which dim because if G=3 C=6 input=[N 6 H W] ,we can know
 ####input:[NHWGC]
 ####filter:[GKCYX]
 ####output:[NHWGK]
+<br/>
+<br/>
+if filter:YXCK, tensorflow will transform it and pytorch not use it, we can set GYXCK,
+but if it from tensorflow, don't use this format even user set it
