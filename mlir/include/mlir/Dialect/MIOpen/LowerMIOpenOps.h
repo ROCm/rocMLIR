@@ -2116,6 +2116,13 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     int64_t AlignedMPerBlock =
         max_lds_align *
         math::integer_divide_ceil<int64_t>(MPerBlock, max_lds_align);
+
+    // llvm::errs() << "MPerBlock : " << MPerBlock << "\n";
+    // llvm::errs() << "NPerBlock : " << NPerBlock << "\n";
+    // llvm::errs() << "max_lds_align : " << max_lds_align << "\n";
+    // llvm::errs() << "AlignedMPerBlock : " << AlignedMPerBlock << "\n";
+    // llvm::errs() << "AlignedNPerBlock : " << AlignedNPerBlock << "\n";
+
     a_block_space = math::integer_least_multiple(KPerBlock * AlignedMPerBlock,
                                                  max_lds_align);
 
@@ -2351,8 +2358,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     int64_t NWavePerBlock = NPerBlock / NPerWave;
 
     // llvm::errs() << "M: " << M << "\n";
-    // llvm::errs() << "N: "  << N << "\n";
-    // llvm::errs() << "K: "  << K << "\n";
+    // llvm::errs() << "N: " << N << "\n";
+    // llvm::errs() << "K: " << K << "\n";
     // llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
     // llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
     // llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
@@ -2362,11 +2369,19 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // llvm::errs() << "NPerWave: " << NPerWave << "\n";
     // llvm::errs() << "MWaves = MPerBlock / MPerWave: " << MWaves << "\n";
     // llvm::errs() << "NWaves = NPerBlock / NPerWave: " << NWaves << "\n";
-    // llvm::errs() << "MWavesPerBlock = MPerBlock / MPerWave: " << MWavePerBlock << "\n";
-    // llvm::errs() << "NWavesPerBlock = NPerBlock / NPerWave: " << NWavePerBlock << "\n";
+    // llvm::errs() << "MWavesPerBlock = MPerBlock / MPerWave: " << MWavePerBlock
+    //              << "\n";
+    // llvm::errs() << "NWavesPerBlock = NPerBlock / NPerWave: " << NWavePerBlock
+    //              << "\n";
 
-    // llvm::errs() << "matrix_a_source_data_per_read: " << matrix_a_source_data_per_read << "\n";
-    // llvm::errs() << "matrix_b_source_data_per_read: " << matrix_b_source_data_per_read << "\n";
+    // llvm::errs() << "matrix_a_source_data_per_read: "
+    //              << matrix_a_source_data_per_read << "\n";
+    // llvm::errs() << "matrix_b_source_data_per_read: "
+    //              << matrix_b_source_data_per_read << "\n";
+    // llvm::errs() << "matrix_a_source_vector_read_dim: "
+    //              << matrix_a_source_vector_read_dim << "\n";
+    // llvm::errs() << "matrix_b_source_vector_read_dim: "
+    //              << matrix_b_source_vector_read_dim << "\n";
 
     auto MPerBlockConstantOp = b.create<ConstantIndexOp>(loc, MPerBlock);
     auto NPerBlockConstantOp = b.create<ConstantIndexOp>(loc, NPerBlock);
