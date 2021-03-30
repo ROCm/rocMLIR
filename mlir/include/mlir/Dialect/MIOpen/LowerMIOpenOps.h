@@ -2369,10 +2369,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // llvm::errs() << "NPerWave: " << NPerWave << "\n";
     // llvm::errs() << "MWaves = MPerBlock / MPerWave: " << MWaves << "\n";
     // llvm::errs() << "NWaves = NPerBlock / NPerWave: " << NWaves << "\n";
-    // llvm::errs() << "MWavesPerBlock = MPerBlock / MPerWave: " << MWavePerBlock
-    //              << "\n";
-    // llvm::errs() << "NWavesPerBlock = NPerBlock / NPerWave: " << NWavePerBlock
-    //              << "\n";
+    // llvm::errs() << "MWavesPerBlock = MPerBlock / MPerWave: " <<
+    // MWavePerBlock << "\n";
+    // llvm::errs() << "NWavesPerBlock = NPerBlock / NPerWave: " <<
+    // NWavePerBlock << "\n";
 
     // llvm::errs() << "matrix_a_source_data_per_read: "
     //              << matrix_a_source_data_per_read << "\n";
