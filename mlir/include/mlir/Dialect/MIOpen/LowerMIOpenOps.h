@@ -2090,15 +2090,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         op->getAttr("matrix_b_dest_data_per_write_dim_n")
             .template dyn_cast<IntegerAttr>()
             .getInt();
-    int64_t ThreadGemmAThreadCopySrcDataPerRead_M =
-        op->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
-    int64_t ThreadGemmBThreadCopySrcDataPerRead_N =
-        op->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
 
     int64_t max_lds_align =
-        math::lcm(ABlockCopyDstDataPerWrite_M, BBlockCopyDstDataPerWrite_N,
-                  ThreadGemmAThreadCopySrcDataPerRead_M,
-                  ThreadGemmBThreadCopySrcDataPerRead_N);
+        math::lcm(ABlockCopyDstDataPerWrite_M, BBlockCopyDstDataPerWrite_N);
 
     int64_t KPerBlock =
         op->getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
