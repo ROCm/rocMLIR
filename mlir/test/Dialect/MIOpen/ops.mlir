@@ -16,6 +16,20 @@ func @miopen_conv2d(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>,
 // CHECK-LABEL: func @miopen_conv2d
 // CHECK-NEXT: miopen.conv2d
 
+func @miopen_conv2d_f16(%filter : memref<?x?x?x?xf16>, %input : memref<?x?x?x?xf16>, %output : memref<?x?x?x?xf16>) {
+  miopen.conv2d(%filter, %input, %output) {
+    filter_layout = ["k", "c", "y", "x"],
+    input_layout = ["n", "c", "hi", "wi"],
+    output_layout = ["n", "k", "ho", "wo"],
+    dilations = [1, 1],
+    strides = [1, 1],
+    padding = [0, 0]
+  } : memref<?x?x?x?xf16>, memref<?x?x?x?xf16>, memref<?x?x?x?xf16>
+  return
+}
+// CHECK-LABEL: func @miopen_conv2d_f16
+// CHECK-NEXT: miopen.conv2d
+
 func @miopen_conv2d_bwd_data(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
     filter_layout = ["k", "c", "y", "x"],
@@ -30,6 +44,20 @@ func @miopen_conv2d_bwd_data(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x
 // CHECK-LABEL: func @miopen_conv2d_bwd_data
 // CHECK-NEXT: miopen.conv2d_bwd_data
 
+func @miopen_conv2d_bwd_data_f16(%filter : memref<?x?x?x?xf16>, %input : memref<?x?x?x?xf16>, %output : memref<?x?x?x?xf16>) {
+  miopen.conv2d_bwd_data(%filter, %input, %output) {
+    filter_layout = ["k", "c", "y", "x"],
+    input_layout = ["n", "c", "hi", "wi"],
+    output_layout = ["n", "k", "ho", "wo"],
+    dilations = [1, 1],
+    strides = [1, 1],
+    padding = [0, 0]
+  } : memref<?x?x?x?xf16>, memref<?x?x?x?xf16>, memref<?x?x?x?xf16>
+  return
+}
+// CHECK-LABEL: func @miopen_conv2d_bwd_data_f16
+// CHECK-NEXT: miopen.conv2d_bwd_data
+
 func @miopen_conv2d_bwd_weight(%filter : memref<?x?x?x?xf32>, %input : memref<?x?x?x?xf32>, %output : memref<?x?x?x?xf32>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
     filter_layout = ["k", "c", "y", "x"],
@@ -42,6 +70,21 @@ func @miopen_conv2d_bwd_weight(%filter : memref<?x?x?x?xf32>, %input : memref<?x
   return
 }
 // CHECK-LABEL: func @miopen_conv2d_bwd_weight
+// CHECK-NEXT: miopen.conv2d_bwd_weight
+
+func @miopen_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?xf16>, %input : memref<?x?x?x?xf16>, %output : memref<?x?x?x?xf16>) {
+  miopen.conv2d_bwd_weight(%filter, %input, %output) {
+    filter_layout = ["k", "c", "y", "x"],
+    input_layout = ["n", "c", "hi", "wi"],
+    output_layout = ["n", "k", "ho", "wo"],
+    dilations = [1, 1],
+    strides = [1, 1],
+    padding = [0, 0]
+  } : memref<?x?x?x?xf16>, memref<?x?x?x?xf16>, memref<?x?x?x?xf16>
+  return
+}
+
+// CHECK-LABEL: func @miopen_conv2d_bwd_weight_f16
 // CHECK-NEXT: miopen.conv2d_bwd_weight
 
 // test 1-1 dimension mappings.
