@@ -129,13 +129,13 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
       Value dataPtr = getStridedElementPtr(op->getLoc(), srcMemRefType, adaptor.memref(), adaptor.indices(), rewriter);
       if (!resultType.isa<VectorType>()) {
         rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtr);
-	return success();
+        return success();
       } else {
         // bitcast in case the result type is a vector.
-	LLVM::LLVMType LLVMResultPointerType = LLVMResultType.cast<LLVM::LLVMType>().getPointerTo(srcMemRefType.getMemorySpace());
+        Type LLVMResultPointerType = LLVM::LLVMPointerType::get(LLVMResultType, srcMemRefType.getMemorySpace());
         Value dataPtrBitcasted = rewriter.create<LLVM::BitcastOp>(loc, LLVMResultPointerType, dataPtr);
         rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtrBitcasted);
-	return success();
+        return success();
       }
     }
 
