@@ -1039,9 +1039,9 @@ Value ConvertToLLVMPattern::linearizeSubscripts(
   Value linearized = indices.front();
   for (int i = 1, nSizes = allocSizes.size(); i < nSizes; ++i) {
     linearized = builder.create<LLVM::MulOp>(
-        loc, this->getIndexType(), ArrayRef<Value>{linearized, allocSizes[i]});
+        loc, builder.getIntegerType(32), ArrayRef<Value>{linearized, allocSizes[i]});
     linearized = builder.create<LLVM::AddOp>(
-        loc, this->getIndexType(), ArrayRef<Value>{linearized, indices[i]});
+        loc, builder.getIntegerType(32), ArrayRef<Value>{linearized, indices[i]});
   }
   return linearized;
 }
