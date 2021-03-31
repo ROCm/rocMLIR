@@ -181,6 +181,7 @@ static constexpr StringLiteral kCppEpiloguePart2Format = R"(
 )";
 
 static constexpr StringLiteral kGemmNameABlockCopySrcDataPerRead[] = {
+    "GemmG",
     "GemmK", // Conv2DOpType and Conv2DBwdWeightOpType
     "GemmM", // Conv2DBwdDataOpType
 };
@@ -427,24 +428,28 @@ void EmitHeaderPreamble(llvm::raw_ostream &output,
                         llvm::SmallVector<std::string, 3> &tensorDescs,
                         miopen::ConvOpType opType) {
   std::string headerIncludeGuard;
+  std::string commentGemmG;
   std::string commentGemmM;
   std::string commentGemmN;
   std::string commentGemmK;
   std::string gemmNameABlockCopySrcDataPerRead;
   if (opType == miopen::ConvOpType::Conv2DOpType) {
     headerIncludeGuard = "MLIR_GEN_IGEMM_CONV2D_CPP_V4R4_FWD";
+    commentGemmG = "G";
     commentGemmM = "K";
     commentGemmN = "N * H * W";
     commentGemmK = "C * Y * X";
     gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[0].str();
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
     headerIncludeGuard = "MLIR_GEN_IGEMM_CONV2D_CPP_V1R1_BWD";
+    commentGemmG = "G";
     commentGemmM = "C * Y * X";
     commentGemmN = "N * H * W";
     commentGemmK = "K";
     gemmNameABlockCopySrcDataPerRead = kGemmNameABlockCopySrcDataPerRead[1].str();
   } else if (opType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
     headerIncludeGuard = "MLIR_GEN_IGEMM_CONV2D_CPP_V4R4_WRW";
+    commentGemmG = "G";
     commentGemmM = "K";
     commentGemmN = "C * Y * X";
     commentGemmK = "N * H * W";

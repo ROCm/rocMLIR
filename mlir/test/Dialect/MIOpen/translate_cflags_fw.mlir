@@ -1,22 +1,22 @@
 // RUN: mlir-translate -mlir-to-miopen-cflags %s | FileCheck %s
 
-func @basic_parsing(%filter : memref<?x?xf32>, %input : memref<?x?xf32>, %output : memref<?x?xf32>) {
+func @basic_parsing(%filter : memref<?x?x?xf32>, %input : memref<?x?x?xf32>, %output : memref<?x?x?xf32>) {
   miopen.gridwise_gemm(%filter, %input, %output) {
     arch = "gfx906",
     num_cu = 64,
     kernel_algorithm = "v4r4",
-    filter_dimension = [1024, 1024, 1, 1],
-    filter_layout = ["k", "c", "y", "x"],
-    input_dimension = [64, 1024, 14, 14],
-    input_layout = ["ni", "ci", "hi", "wi"],
-    output_dimension = [64, 1024, 14, 14],
-    output_layout = ["no", "ko", "ho", "wo"],
+    filter_dimension = [1, 1024, 1024, 1, 1],
+    filter_layout = ["g", "k", "c", "y", "x"],
+    input_dimension = [1, 64, 1024, 14, 14],
+    input_layout = ["gi", "ni", "ci", "hi", "wi"],
+    output_dimension = [1, 64, 1024, 14, 14],
+    output_layout = ["go", "no", "ko", "ho", "wo"],
     dilations = [1, 1],
     padding = [[0, 0], [0, 0]],
     strides = [1, 1]
-  } : memref<?x?xf32>,
-      memref<?x?xf32>,
-      memref<?x?xf32>
+  } : memref<?x?x?xf32>,
+      memref<?x?x?xf32>,
+      memref<?x?x?xf32>
   return
 }
 // CHECK-LABEL: basic_parsing
@@ -38,23 +38,23 @@ func @basic_parsing(%filter : memref<?x?xf32>, %input : memref<?x?xf32>, %output
 // CHECK: -DCK_PARAM_PROBLEM_X=1
 // CHECK: -DCK_PARAM_PROBLEM_Y=1
 
-func @all_params(%filter : memref<?x?xf32>, %input : memref<?x?xf32>, %output : memref<?x?xf32>) {
+func @all_params(%filter : memref<?x?x?xf32>, %input : memref<?x?x?xf32>, %output : memref<?x?x?xf32>) {
   miopen.gridwise_gemm(%filter, %input, %output) {
     arch = "gfx906",
     num_cu = 64,
     kernel_algorithm = "v4r4",
-    filter_dimension = [128, 8, 3, 3],
-    filter_layout = ["k", "c", "y", "x"],
-    input_dimension = [128, 8, 32, 32],
-    input_layout = ["ni", "ci", "hi", "wi"],
-    output_dimension = [128, 128, 30, 30],
-    output_layout = ["no", "ko", "ho", "wo"],
+    filter_dimension = [1, 128, 8, 3, 3],
+    filter_layout = ["g", "k", "c", "y", "x"],
+    input_dimension = [1, 128, 8, 32, 32],
+    input_layout = ["gi", "ni", "ci", "hi", "wi"],
+    output_dimension = [1, 128, 128, 30, 30],
+    output_layout = ["go", "no", "ko", "ho", "wo"],
     dilations = [1, 1],
     padding = [[0, 0], [0, 0]],
     strides = [1, 1]
-  } : memref<?x?xf32>,
-      memref<?x?xf32>,
-      memref<?x?xf32>
+  } : memref<?x?x?xf32>,
+      memref<?x?x?xf32>,
+      memref<?x?x?xf32>
   return
 }
 // CHECK-LABEL: all_params

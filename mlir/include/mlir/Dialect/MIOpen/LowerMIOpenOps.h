@@ -123,7 +123,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // get y, x, ho, wo, hi, wi
     int64_t y, x, ho, wo, hi, wi;
     y = x = ho = wo = hi = wi = 0;
-    for (unsigned i = 0; i < 5; ++i) {
+    for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
       auto inputAttr =
