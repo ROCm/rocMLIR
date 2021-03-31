@@ -117,8 +117,7 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
     // 1) loading scalar f16 and i16 (bf16) from global (addrspace 0).
     if ((srcElementType == rewriter.getIntegerType(16) || srcElementType == rewriter.getF16Type()) &&
         (srcMemRefType.getMemorySpace() == 0 && !resultType.isa<VectorType>())) {
-      Value dataPtr = getDataPtr(op->getLoc(), srcMemRefType, adaptor.memref(),
-                                 adaptor.indices(), rewriter, getModule());
+      Value dataPtr = getStridedElementPtr(op->getLoc(), srcMemRefType, adaptor.memref(), adaptor.indices(), rewriter);
       rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtr);
       return success();
     }
@@ -127,8 +126,7 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
     // 2) loading scalar and vector f16 and i16 (bf16) from LDS (addrspace 3).
     // 3) loading scalar and vector f16 and i16 (bf16) from VGPR (addrspace 5).
     if (srcMemRefType.getMemorySpace() == 3 || srcMemRefType.getMemorySpace() == 5) {
-      Value dataPtr = getDataPtr(op->getLoc(), srcMemRefType, adaptor.memref(),
-                                 adaptor.indices(), rewriter, getModule());
+      Value dataPtr = getStridedElementPtr(op->getLoc(), srcMemRefType, adaptor.memref(), adaptor.indices(), rewriter);
       if (!resultType.isa<VectorType>()) {
         rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtr);
 	return success();
@@ -259,8 +257,7 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     // use standard store for storing scalar f16 and i16 (bf16).
     if ((dstElementType == rewriter.getIntegerType(16) || dstElementType == rewriter.getF16Type()) &&
         !valueType.isa<VectorType>()) {
-      Value dataPtr = getDataPtr(op->getLoc(), dstMemRefType, adaptor.memref(),
-                                 adaptor.indices(), rewriter, getModule());
+      Value dataPtr = getStridedElementPtr(op->getLoc(), dstMemRefType, adaptor.memref(), adaptor.indices(), rewriter);
       rewriter.replaceOpWithNewOp<LLVM::StoreOp>(op, adaptorValue, dataPtr);
       return success();
     }
