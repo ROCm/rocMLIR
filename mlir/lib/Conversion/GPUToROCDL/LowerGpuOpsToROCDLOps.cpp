@@ -102,7 +102,7 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto mubufLoadOp = cast<gpu::MubufLoadOp>(op);
-    auto adaptor = gpu::MubufLoadOpOperandAdaptor(operands);
+    auto adaptor = gpu::MubufLoadOpAdaptor(operands);
     auto loc = mubufLoadOp.getLoc();
 
     MemRefType srcMemRefType = mubufLoadOp.memref().getType().cast<MemRefType>();
@@ -111,7 +111,7 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
     auto adaptorIndices = adaptor.indices();
 
     Type resultType = mubufLoadOp.result().getType();
-    Type LLVMResultType = typeConverter.convertType(resultType);
+    Type LLVMResultType = typeConverter->convertType(resultType);
 
     // use standard load for:
     // 1) loading scalar f16 and i16 (bf16) from global (addrspace 0).
@@ -144,19 +144,19 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
     // for all other cases, use rocdl.mubuf_load.
 
     Type I1Type = rewriter.getI1Type();
-    Type LLVMI1Type = typeConverter.convertType(I1Type);
+    Type LLVMI1Type = typeConverter->convertType(I1Type);
 
     Type I32Type = rewriter.getIntegerType(32);
-    Type LLVMI32Type = typeConverter.convertType(I32Type);
+    Type LLVMI32Type = typeConverter->convertType(I32Type);
 
     Type I64Type = rewriter.getIntegerType(64);
-    Type LLVMI64Type = typeConverter.convertType(I64Type);
+    Type LLVMI64Type = typeConverter->convertType(I64Type);
 
     Type rsrcVectorType = VectorType::get({4}, I32Type);
-    Type LLVMRsrcVectorType = typeConverter.convertType(rsrcVectorType);
+    Type LLVMRsrcVectorType = typeConverter->convertType(rsrcVectorType);
 
     Type I32x2Type = VectorType::get({2}, I32Type);
-    Type LLVMI32x2Type = typeConverter.convertType(I32x2Type);
+    Type LLVMI32x2Type = typeConverter->convertType(I32x2Type);
 
     // word 0-1: pointer to memref.
     MemRefDescriptor memrefDescriptor(adaptor.memref());
@@ -220,7 +220,7 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
         interimResultType = rewriter.getF32Type();
       else
 	interimResultType = VectorType::get(interimShape, rewriter.getF32Type());
-      Type interimLLVMResultType = typeConverter.convertType(interimResultType);
+      Type interimLLVMResultType = typeConverter->convertType(interimResultType);
 
       Value interimLoad = rewriter.create<ROCDL::MubufLoadOp>(loc, interimLLVMResultType, rsrc, vindex, voffset, slc, glc);
 
@@ -244,7 +244,7 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto mubufStoreOp = cast<gpu::MubufStoreOp>(op);
-    auto adaptor = gpu::MubufStoreOpOperandAdaptor(operands);
+    auto adaptor = gpu::MubufStoreOpAdaptor(operands);
     auto loc = mubufStoreOp.getLoc();
 
     MemRefType dstMemRefType = mubufStoreOp.memref().getType().cast<MemRefType>();
@@ -254,7 +254,7 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     auto adaptorValue = adaptor.value();
 
     Type valueType = mubufStoreOp.value().getType();
-    Type LLVMValueType = typeConverter.convertType(valueType);
+    Type LLVMValueType = typeConverter->convertType(valueType);
 
     // use standard store for storing scalar f16 and i16 (bf16).
     if ((dstElementType == rewriter.getIntegerType(16) || dstElementType == rewriter.getF16Type()) &&
@@ -268,19 +268,19 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     // for all other cases, use rocdl.mubuf_store.
 
     Type I1Type = rewriter.getI1Type();
-    Type LLVMI1Type = typeConverter.convertType(I1Type);
+    Type LLVMI1Type = typeConverter->convertType(I1Type);
 
     Type I32Type = rewriter.getIntegerType(32);
-    Type LLVMI32Type = typeConverter.convertType(I32Type);
+    Type LLVMI32Type = typeConverter->convertType(I32Type);
 
     Type I64Type = rewriter.getIntegerType(64);
-    Type LLVMI64Type = typeConverter.convertType(I64Type);
+    Type LLVMI64Type = typeConverter->convertType(I64Type);
 
     Type rsrcVectorType = VectorType::get({4}, I32Type);
-    Type LLVMRsrcVectorType = typeConverter.convertType(rsrcVectorType);
+    Type LLVMRsrcVectorType = typeConverter->convertType(rsrcVectorType);
 
     Type I32x2Type = VectorType::get({2}, I32Type);
-    Type LLVMI32x2Type = typeConverter.convertType(I32x2Type);
+    Type LLVMI32x2Type = typeConverter->convertType(I32x2Type);
 
     // word 0-1: pointer to memref.
     MemRefDescriptor memrefDescriptor(adaptor.memref());
@@ -344,7 +344,7 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
         interimValueType = rewriter.getF32Type();
       else
         interimValueType = VectorType::get(interimShape, rewriter.getF32Type());
-      Type interimLLVMValueType = typeConverter.convertType(interimValueType);
+      Type interimLLVMValueType = typeConverter->convertType(interimValueType);
 
       Value bitcastedValue = rewriter.create<LLVM::BitcastOp>(loc, interimLLVMValueType, adaptorValue);
       rewriter.replaceOpWithNewOp<ROCDL::MubufStoreOp>(op, bitcastedValue, rsrc, vindex, voffset, slc, glc);
