@@ -3473,9 +3473,9 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     int64_t KPerThread =
         op->getAttr("k_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t MPerThread =
-        op.matrixC().getType().template dyn_cast<MemRefType>().getShape()[0];
-    int64_t NPerThread =
         op.matrixC().getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t NPerThread =
+        op.matrixC().getType().template dyn_cast<MemRefType>().getShape()[2];
     int64_t MPerThreadSubC =
         op->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerThreadSubC =
