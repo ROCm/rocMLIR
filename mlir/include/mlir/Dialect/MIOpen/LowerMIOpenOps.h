@@ -4604,6 +4604,26 @@ struct XdlopsGemmV2RewritePattern
     int64_t NPerWave =
         op->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
 
+    // Obtain coordinate transforms for Matrix A and B.
+    auto coordTransformsAttr =
+        op->getAttr("coord_transforms").template dyn_cast<ArrayAttr>();
+    AffineMap transformMatrixA, transformMatrixB;
+    for (auto transformAttr : coordTransformsAttr) {
+      auto dictAttr = transformAttr.template dyn_cast<DictionaryAttr>();
+      auto operandIndex =
+          dictAttr.get("operand").template dyn_cast<IntegerAttr>().getInt();
+      auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
+      if (transforms.size() > 0) {
+        // Use the first affine map in the transforms array.
+        auto affineMap = transforms[0].template cast<AffineMapAttr>();
+        if (operandIndex == 0) {
+          transformMatrixA = affineMap.getValue();
+        } else if (operandIndex == 1) {
+          transformMatrixB = affineMap.getValue();
+        }
+      }
+    }
+
     auto dataType =
         op.matrixA().getType().template dyn_cast<MemRefType>().getElementType();
 
@@ -4702,22 +4722,32 @@ struct XdlopsGemmV2RewritePattern
       auto ilmkb = OpBuilder::atBlockTerminator(innerLoopMK.getBody());
       auto ilmkiv = innerLoopMK.getInductionVar();
 
-      // TBD. Check if we need to apply coord_transform as well.
       //             a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops *
       //             m_i];
       // p_a_wave need to be offseted by waveOffsetA.
-      auto sourceOffsetA = ilmkb.create<AddIOp>(
+      Value sourceOffsetBeforeTransformA = ilmkb.create<AddIOp>(
           loc, op.waveOffsetA(),
           ilmkb.create<AddIOp>(
               loc,
               ilmkb.create<AddIOp>(
                   loc, ilmkb.create<MulIOp>(loc, ilmkiv, MConstantOp), laneId),
               ilmkb.create<MulIOp>(loc, MPerXdlopsConstantOp, olmiv)));
+
+      // Apply coord_transform for matrix A if necessarily.
+      SmallVector<Value, 8> sourceOffsetA;
+      if (transformMatrixA)
+        sourceOffsetA =
+            expandAffineMap(ilmkb, loc, transformMatrixA,
+                            ValueRange{sourceOffsetBeforeTransformA})
+                .getValue();
+      else
+        sourceOffsetA.push_back(sourceOffsetBeforeTransformA);
+
       auto destOffsetA = ilmkb.create<AddIOp>(
           loc, ilmkiv, ilmkb.create<MulIOp>(loc, olmiv, KConstantOp));
 
-      auto valueA = ilmkb.create<LoadOp>(loc, dataType, op.matrixA(),
-                                         ValueRange{sourceOffsetA});
+      auto valueA =
+          ilmkb.create<LoadOp>(loc, dataType, op.matrixA(), sourceOffsetA);
       ilmkb.create<StoreOp>(loc, valueA, op.bufferA(), ValueRange{destOffsetA});
 
       // store bufferB logic.
@@ -4736,23 +4766,32 @@ struct XdlopsGemmV2RewritePattern
       auto ilnkb = OpBuilder::atBlockTerminator(innerLoopNK.getBody());
       auto ilnkiv = innerLoopNK.getInductionVar();
 
-      // TBD. Check if we need to apply coord_transform as well.
       //             b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops *
       //             n_i];
       // p_b_wave need to be offseted by waveOffsetB.
-
-      auto sourceOffsetB = ilnkb.create<AddIOp>(
+      Value sourceOffsetBeforeTransformB = ilnkb.create<AddIOp>(
           loc, op.waveOffsetB(),
           ilnkb.create<AddIOp>(
               loc,
               ilnkb.create<AddIOp>(
                   loc, ilnkb.create<MulIOp>(loc, ilnkiv, NConstantOp), laneId),
               ilnkb.create<MulIOp>(loc, NPerXdlopsConstantOp, olniv)));
+
+      // Apply coord_transform for matrix B if necessarily.
+      SmallVector<Value, 8> sourceOffsetB;
+      if (transformMatrixB)
+        sourceOffsetB =
+            expandAffineMap(ilnkb, loc, transformMatrixB,
+                            ValueRange{sourceOffsetBeforeTransformB})
+                .getValue();
+      else
+        sourceOffsetB.push_back(sourceOffsetBeforeTransformB);
+
       auto destOffsetB = ilnkb.create<AddIOp>(
           loc, ilnkiv, ilnkb.create<MulIOp>(loc, olniv, KConstantOp));
 
-      auto valueB = ilnkb.create<LoadOp>(loc, dataType, op.matrixB(),
-                                         ValueRange{sourceOffsetB});
+      auto valueB =
+          ilnkb.create<LoadOp>(loc, dataType, op.matrixB(), sourceOffsetB);
       ilnkb.create<StoreOp>(loc, valueB, op.bufferB(), ValueRange{destOffsetB});
 
       // Original C++ logic.
