@@ -31,10 +31,12 @@ weights = tf.get_variable('weights', shape=[filter_height,
                                                     input_channels/groups,
                                                     num_filters])
 <br/>
-#####but tensorflow will  transform filter from YXCK to KYXC:
-https://github.com/ROCmSoftwarePlatform/tensorflow-upstream/blob/develop-upstream/tensorflow/core/kernels/conv_ops.cc#L1040-L1048
+#####axis=3 split on k dim before transform, after transform 
+weight_groups = tf.split(axis=3, num_or_size_splits=groups,value=weights)
+YXCK=>YXCGK
 <br/>
-#####axis=3 split on k dim before transform, after transform , weights layout become [GKYXC]
+#####but tensorflow will  transform filter from YXCK to KYXC, weights layout become [GKYXC]:
+https://github.com/ROCmSoftwarePlatform/tensorflow-upstream/blob/develop-upstream/tensorflow/core/kernels/conv_ops.cc#L1040-L1048
 weight_groups = tf.split(axis=3, num_or_size_splits=groups,value=weights)
 YXCK=>YXCGK , after transform => GKYXC
 <br/>
