@@ -9,6 +9,8 @@
 <br/>
 #####axis=3 split on c dim ,input layout become [N H W G C]
 input_groups = tf.split(axis=3, num_or_size_splits=groups, value=x)
+this function will split [N, H, W, C] tensor x along the 3rd dimension, result in groups number of tensors 
+with [N, H, W, C/groups] each ,so it's equivalent to [N H W G C]
 <br/>
 Example of split:
 if nhwk is 
@@ -23,6 +25,7 @@ after split to 2 groups :
 [[[[2]],[[4]]],[[[6]],[[8]]]],[[[[10]],[[12]]],[[[14]],[[16]]]]
 <br/>
 #####user format is [YXGCK], not final format
+here we use 4 dim YXCK as user input, but c already /g ,k not split 
 weights = tf.get_variable('weights', shape=[filter_height,     
                                                     filter_width,
                                                     input_channels/groups,
@@ -33,6 +36,7 @@ https://github.com/ROCmSoftwarePlatform/tensorflow-upstream/blob/develop-upstrea
 <br/>
 #####axis=3 split on k dim before transform, after transform , weights layout become [GKYXC]
 weight_groups = tf.split(axis=3, num_or_size_splits=groups,value=weights)
+YXCK=>YXCGK , after transform => GKYXC
 <br/>
 from: https://www.tensorflow.org/api_docs/python/tf/nn/conv2d
 results is NHWK
@@ -79,3 +83,5 @@ then we can judge G in which dim because if G=3 C=6 input=[N 6 H W] ,we can know
 <br/>
 if filter:YXCK, tensorflow will transform it and pytorch not use it, we can set GYXCK,
 but if it from tensorflow, don't use this format even user set it
+from tensorflow: YXCK=> KCYX or KYXC
+not from tensorflow : YXCK->YXCK
