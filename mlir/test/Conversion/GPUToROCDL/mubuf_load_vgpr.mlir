@@ -1,4 +1,4 @@
-// RUN: mlir-opt %s -convert-gpu-to-rocdl | FileCheck %s --dump-input-on-failure
+// RUN: mlir-opt %s -convert-gpu-to-rocdl | FileCheck %s
 
 gpu.module @mubuf_load {
   // f32 tests.
