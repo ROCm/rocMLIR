@@ -219,15 +219,14 @@ extern "C" void mgpuMemCopy(float *sourceAllocated, float *sourceAligned,
 }
 
 extern "C" void mcpuMemBF16ConvertFloat(
-    unsigned short *sourceAllocated, unsigned short *sourceAligned,
-    int64_t sourceOffset, int64_t size0, int64_t size1, int64_t size2,
-    int64_t size3, int64_t stride0, int64_t stride1, int64_t stride2,
-    int64_t stride3, float *destAllocated, float *destAligned,
-    int64_t destOffset, int64_t size4, int64_t size5, int64_t size6,
-    int64_t size7, int64_t stride4, int64_t stride5, int64_t stride6,
-    int64_t stride7) {
-  assert(size0 * size1 * size2 * size3 == size4 * size5 * size6 * size7);
-  int64_t dataSize = size0 * size1 * size2 * size3;
+    unsigned short *sourceAllocated, unsigned short *sourceAligned,int64_t sourceOffset, 
+    int64_t size0, int64_t size1, int64_t size2,int64_t size3, int64_t size4, 
+    int64_t stride0, int64_t stride1, int64_t stride2,int64_t stride3, int64_t stride4,  
+    float *destAllocated, float *destAligned,int64_t destOffset, 
+    int64_t size5, int64_t size6, int64_t size7,int64_t size8,int64_t size9,  
+    int64_t stride5, int64_t stride6, int64_t stride7,int64_t stride8,  int64_t stride9) {
+  assert(size0 * size1 * size2 * size3 * size4 == size5 * size6 * size7 * size8 * size9);
+  int64_t dataSize = size0 * size1 * size2 * size3 * size4;
   for (int64_t i = 0; i < dataSize; i++) {
     destAligned[i] = bfloat16_to_float(sourceAligned[i]);
   }
