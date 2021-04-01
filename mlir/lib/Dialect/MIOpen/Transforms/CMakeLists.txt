@@ -2,6 +2,7 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   AffixTuningParameters.cpp
   AffineTransforms.cpp
   LowerMIOpenOps.cpp
+  TestAffineTransforms.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Transforms

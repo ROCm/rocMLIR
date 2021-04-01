@@ -23,6 +23,15 @@ def MIOpenOpsAffineTransformPass : FunctionPass<"miopen-affine-transform"> {
   let dependentDialects = ["miopen::MIOpenDialect"];
 }
 
+def MIOpenOpsTestAffineTransformPass : FunctionPass<"miopen-test-affine-transform"> {
+  let summary = "test affine maps for miopen.transform ops";
+  let constructor = "mlir::miopen::createTestAffineTransformPass()";
+  let options = [
+    Option<"testMethod", "test-method", "std::string", "\"hasPadding\"",
+           "method to be tested">
+  ];
+}
+
 def MIOpenOpsAffixTuningParametersPass : FunctionPass<"miopen-affix-params"> {
   let summary = "populate tuning parameters for miopen.gridwise_gemm ops";
   let constructor = "mlir::miopen::createAffixTuningParametersPass()";

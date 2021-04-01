@@ -625,6 +625,7 @@ private:
       {128, 128, 16, 64, 64, 0, false, false},
       {8, 64, 8, 8, 64, 0, false, false},
       {4, 64, 16, 4, 64, 0, false, false},
+      {32, 64, 4, 32, 64, 0, false, false},
       {16, 16, 4, 16, 16, 0, false, false},
   };
   const int64_t waveSize = 64;

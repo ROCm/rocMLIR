@@ -37,8 +37,8 @@ struct MiirHandle_s {
   std::string genTxt;
 };
 
-static void strToTokens(const std::string &arguments,
-                        std::map<std::string, std::string> &argMap) {
+void strToTokens(const std::string &arguments,
+                 std::map<std::string, std::string> &argMap) {
   std::istringstream iss(arguments);
   std::string token;
   std::string argKey;
@@ -55,6 +55,31 @@ static void strToTokens(const std::string &arguments,
     }
   }
 }
+
+// In multi-threaded context, static intialization is guaranteed to
+// be thread safe, since C++11. Refer to
+// https://en.cppreference.com/w/cpp/language/storage_duration
+//
+// With this guarantee, we are protected from the possible race
+// condition of one thread doing intialization and another doing
+// lowering.
+bool miirLazyInit() {
+  static const bool once = []() {
+    llvm::InitializeAllTargetInfos();
+    llvm::InitializeAllTargetMCs();
+    llvm::InitializeAllAsmParsers();
+
+    // Initialize LLVM AMDGPU backend.
+    LLVMInitializeAMDGPUTarget();
+    LLVMInitializeAMDGPUTargetInfo();
+    LLVMInitializeAMDGPUTargetMC();
+    LLVMInitializeAMDGPUAsmPrinter();
+    mlir::initializeLLVMPasses();
+    return true;
+  }();
+  return once;
+}
+
 } // namespace
 
 typedef void *MiirHandle;
@@ -68,17 +93,17 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   strToTokens(arguments, argMap);
 
   auto isValid = [&argMap]() {
-    std::vector<std::string> validKeys = {
-        "operation",   "groupsize",    "batchsize",     "arch",
-        "num_cu",      "kernel_name",  "in_layout",     "in_type",
-        "in_channels", "in_h",         "in_w",          "out_layout",
-        "out_type",    "out_channels", "out_h",         "out_w",
-        "fil_layout",  "fil_type",     "fil_w",         "fil_h",
-        "padding_h",   "padding_w",    "conv_stride_h", "conv_stride_w",
-        "dilation_h",  "dilation_w"};
+    static const std::vector<std::string> validKeys = {
+        "operation",    "batchsize",     "arch",          "num_cu",
+        "kernel_name",  "in_layout",     "in_type",       "in_channels",
+        "in_h",         "in_w",          "out_layout",    "out_type",
+        "out_channels", "out_h",         "out_w",         "fil_layout",
+        "fil_type",     "fil_w",         "fil_h",         "padding_h",
+        "padding_w",    "conv_stride_h", "conv_stride_w", "dilation_h",
+        "dilation_w"};
     return std::all_of(
-        validKeys.begin(), validKeys.end(),
-        [&argMap](std::string &key) { return argMap.count(key) > 0; });
+        validKeys.cbegin(), validKeys.cend(),
+        [&argMap](const std::string &key) { return argMap.count(key) > 0; });
   };
 
   auto getType = [](mlir::MLIRContext *context, const std::string &type_s) {
@@ -261,20 +286,9 @@ extern "C" const char *miirGenIgemmCflags(MiirHandle mlirHandle) {
   return (handle->genTxt).c_str();
 }
 
-extern "C" void miirLowerInit() {
-  llvm::InitializeAllTargetInfos();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmParsers();
-
-  // Initialize LLVM AMDGPU backend.
-  LLVMInitializeAMDGPUTarget();
-  LLVMInitializeAMDGPUTargetInfo();
-  LLVMInitializeAMDGPUTargetMC();
-  LLVMInitializeAMDGPUAsmPrinter();
-  mlir::initializeLLVMPasses();
-}
-
 extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
+  miirLazyInit();
+
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
@@ -294,6 +308,8 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
 }
 
 extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
+  miirLazyInit();
+
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
