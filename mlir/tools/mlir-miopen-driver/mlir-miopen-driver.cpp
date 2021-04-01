@@ -222,11 +222,30 @@ static void correctParameters() {
   std::string filterLayoutValue = filterLayout.getValue();
   std::string inputLayoutValue = inputLayout.getValue();
   std::string outputLayoutValue = outputLayout.getValue();
-  if (filterLayoutValue.size() == 4 && inputLayoutValue.size() == 4 &&
-      outputLayoutValue.size() == 4) {
-    filterLayout.setValue("g" + filterLayoutValue);
-    inputLayout.setValue("g" + inputLayoutValue);
-    outputLayout.setValue("g" + outputLayoutValue);
+  if (filterLayoutValue.size() == 4) {//yxcgk not implement yet
+    if (filterLayoutValue == "kcyx")
+      filterLayout.setValue("gkcyx");
+    else if (filterLayoutValue == "kyxc")
+      filterLayout.setValue("gkyxc");
+    else
+      filterLayout.setValue("g" + filterLayoutValue);
+  }
+  if (outputLayoutValue.size() == 4) {
+    if (outputLayoutValue == "nkhw")
+      outputLayout.setValue("ngkhw");
+    else if (outputLayoutValue == "nhwk")
+      outputLayout.setValue("nhwgk");
+    else
+      outputLayout.setValue("g" + outputLayoutValue);
+  }
+
+  if (inputLayoutValue.size() == 4) {
+    if (inputLayoutValue == "nchw")
+      inputLayout.setValue("ngchw");
+    else if (inputLayoutValue == "nhwc")
+      inputLayout.setValue("nhwgc");
+    else
+      inputLayout.setValue("g" + inputLayoutValue);
   }
 }
 
