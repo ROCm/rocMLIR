@@ -284,6 +284,44 @@ extern "C" void mgpuMemCopy2DFloat(float *sourceAllocated, float *sourceAligned,
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
+// 3D float memref utility routines.
+
+extern "C" void mcpuMemset3DFloat(float *allocated, float *aligned,int64_t offset, 
+                                  int64_t size0, int64_t size1,int64_t size2,
+                                  int64_t stride0, int64_t stride1, int64_t stride2,
+                                  float value) {
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        aligned[i * stride0 + j * stride1 + k * stride2] = value;
+}
+
+extern "C" StridedMemRefType<float, 3>
+mgpuMemAlloc3DFloat(float *allocated, float *aligned, int64_t offset,
+                    int64_t size0, int64_t size1,  int64_t size2, 
+                    int64_t stride0,int64_t stride1,int64_t stride2) {
+  float *gpuPtr;
+  hipMalloc((void **)&gpuPtr, size0 * size1 * size2 * sizeof(float));
+  return {gpuPtr, gpuPtr, offset, {size0, size1, size2}, {stride0, stride1, stride2}};
+}
+
+extern "C" void mgpuMemDealloc3DFloat(float *allocated, float *aligned,
+                                      int64_t offset, int64_t size0,int64_t size1,int64_t size2,
+                                       int64_t stride0,int64_t stride1,int64_t stride2) {
+  hipFree(aligned);
+}
+
+extern "C" void mgpuMemCopy3DFloat(float *sourceAllocated, float *sourceAligned,int64_t sourceOffset,
+                                   int64_t sourceSize0,int64_t sourceSize1, int64_t sourceSize2,
+                                   int64_t sourceStride0,int64_t sourceStride1,int64_t sourceStride2,
+                                   float *destAllocated,float *destAligned, int64_t destOffset,
+                                   int64_t destSize0, int64_t destSize1, int64_t destSize2,
+                                   int64_t destStride0, int64_t destStride1,int64_t destStride2,
+                                   unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned,
+            sourceSize0 * sourceSize1 * sourceSize2 * sizeof(float),
+            static_cast<hipMemcpyKind>(copyDirection));
+}
 // 4D float memref utility routines.
 
 extern "C" void mcpuMemset4DFloat(float *allocated, float *aligned,
