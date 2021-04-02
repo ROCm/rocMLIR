@@ -1,6 +1,6 @@
-// RUN: mlir-miopen-driver -p --host %s | FileCheck %s --check-prefix=HARNESS
-// RUN: mlir-miopen-driver -pc --host %s | FileCheck %s --check-prefix=LOWERING
-// RUN: mlir-miopen-driver -p -fil_layout=kyxc -in_layout=nhwc -out_layout=nhwk -c --host %s | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
+// RUN: mlir-miopen-driver -p -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk --host %s | FileCheck %s --check-prefix=HARNESS
+// RUN: mlir-miopen-driver -pc -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk --host %s | FileCheck %s --check-prefix=LOWERING
+// RUN: mlir-miopen-driver -p -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk -c --host %s | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
 func @conv2d(%filter : memref<128x3x3x8xf32>, %input : memref<128x32x32x8xf32>, %output : memref<128x30x30x128xf32>) {
   // Convolution host-side logic would be populated here.
