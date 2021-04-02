@@ -100,7 +100,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
         "out_channels", "out_h",         "out_w",         "fil_layout",
         "fil_type",     "fil_w",         "fil_h",         "padding_h",
         "padding_w",    "conv_stride_h", "conv_stride_w", "dilation_h",
-        "dilation_w"};
+        "dilation_w", "groupsize"};
     return std::all_of(
         validKeys.cbegin(), validKeys.cend(),
         [&argMap](const std::string &key) { return argMap.count(key) > 0; });
@@ -142,11 +142,11 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     Conv2dGenerator conv2dGenerator;
     // MIOpen has NCHW as layout string for all three tensors
     std::string inLayout = conv2dGenerator.translateLayout(
-        argMap["in_layout"], std::string("GNCHW"), std::string("gnchw"));
+        argMap["in_layout"], std::string("NGCHW"), std::string("ngchw"));
     std::string filLayout = conv2dGenerator.translateLayout(
-        argMap["fil_layout"], std::string("GNCHW"), std::string("gkcyx"));
+        argMap["fil_layout"], std::string("GKCYX"), std::string("gkcyx"));
     std::string outLayout = conv2dGenerator.translateLayout(
-        argMap["out_layout"], std::string("GNCHW"), std::string("gnkhw"));
+        argMap["out_layout"], std::string("NGCHW"), std::string("ngkhw"));
 
     ModuleOp module = handle->getModule();
     // Determine dimensions.
