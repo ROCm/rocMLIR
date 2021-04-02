@@ -5,8 +5,8 @@
 func @miopen_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   miopen.conv2d(%filter, %input, %output) {
     filter_layout = ["g", "k", "c", "y", "x"],
-    input_layout = ["gi", "n", "c", "hi", "wi"],
-    output_layout = ["go", "n", "k", "ho", "wo"],
+    input_layout = ["n", "gi", "c", "hi", "wi"],
+    output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
     padding = [0, 0]
@@ -19,8 +19,8 @@ func @miopen_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf
 func @miopen_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
     filter_layout = ["g", "k", "c", "y", "x"],
-    input_layout = ["gi", "n", "c", "hi", "wi"],
-    output_layout = ["go", "n", "k", "ho", "wo"],
+    input_layout = ["n", "gi", "c", "hi", "wi"],
+    output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
     padding = [0, 0]
@@ -33,8 +33,8 @@ func @miopen_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x
 func @miopen_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
     filter_layout = ["g", "k", "c", "y", "x"],
-    input_layout = ["gi", "n", "c", "hi", "wi"],
-    output_layout = ["go", "n", "k", "ho", "wo"],
+    input_layout = ["n", "gi", "c", "hi", "wi"],
+    output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
     padding = [0, 0]
@@ -52,14 +52,14 @@ func @miopen_transform_1_to_1(%memref: memref<?x?x?x?x?xf32>) {
         dimensions = [0],
         names = ["g"], 
         transformation = "PassThrough",
-        source_dimensions = [0],
+        source_dimensions = [1],
         source_names = ["g"]
       },
       {
         dimensions = [1],
         names = ["n"],
         transformation = "PassThrough",
-        source_dimensions = [1],
+        source_dimensions = [0],
         source_names = ["n"]
       },
       {
@@ -87,7 +87,7 @@ func @miopen_transform_1_to_1(%memref: memref<?x?x?x?x?xf32>) {
       }
     ],
     source_layout = ["gi", "n", "c", "hi", "wi"],
-    output_layout = ["gi", "n", "c", "hipad", "wipad"]
+    output_layout = ["n", "gi", "c", "hipad", "wipad"]
   } : memref<?x?x?x?x?xf32> to memref<?x?x?x?x?xf32>
   return
 }
@@ -137,14 +137,14 @@ func @miopen_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
         dimensions = [0],
         names = ["g"], 
         transformation = "PassThrough",
-        source_dimensions = [0],
+        source_dimensions = [1],
         source_names = ["g"]
       },
       {
         dimensions = [1],
         names = ["n"],
         transformation = "PassThrough",
-        source_dimensions = [1],
+        source_dimensions = [0],
         source_names = ["n"]
       },
       {
@@ -171,8 +171,8 @@ func @miopen_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
         source_names = ["wipad"]
       }
     ],
-    intermediate_layout = ["gi", "n", "c", "hipad", "wipad"],
-    output_layout = ["go", "n", "c", "y", "ho", "x", "wo"]
+    intermediate_layout = ["n", "gi", "c", "hipad", "wipad"],
+    output_layout = ["n", "go", "c", "y", "ho", "x", "wo"]
   } : memref<?x?x?x?x?xf32> to memref<?x?x?x?x?x?x?xf32>
   return
 }
@@ -184,9 +184,9 @@ func @miopen_gridwise_gemm(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C : 
   miopen.gridwise_gemm(%A, %B, %C) {
     filter_layout = ["g", "k", "c", "y", "x"],
     filter_dimension = [0, 1, 2, 3, 4],
-    input_layout = ["gi", "n", "c", "hi", "wi"],
+    input_layout = ["n", "gi", "c", "hi", "wi"],
     input_dimension = [5, 6, 7, 8, 9],
-    output_layout = ["go", "n", "k", "ho", "wo"],
+    output_layout = ["n", "go", "k", "ho", "wo"],
     output_dimension = [10, 11, 12, 13, 14],
     strides = [1, 1],
     dilations = [1, 1],
@@ -202,9 +202,9 @@ func @miopen_gridwise_gemm_v2(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C
   miopen.gridwise_gemm_v2(%A, %B, %C) {
     filter_layout = ["g", "k", "c", "y", "x"],
     filter_dimension = [0, 1, 2, 3, 4],
-    input_layout = ["gi", "n", "c", "hi", "wi"],
+    input_layout = ["n", "gi", "c", "hi", "wi"],
     input_dimension = [5, 6, 7, 8, 9],
-    output_layout = ["go", "n", "k", "ho", "wo"],
+    output_layout = ["n", "go", "k", "ho", "wo"],
     output_dimension = [10, 11, 12, 13, 14],
     strides = [1, 1],
     dilations = [1, 1],
