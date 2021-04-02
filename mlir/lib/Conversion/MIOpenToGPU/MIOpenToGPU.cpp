@@ -88,7 +88,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
 
   // Check parameters and populate default values if necessary.
   if (kernelName.empty())
-    kernelName = "miopen_conv2d_kcyx_nchw_nkhw";
+    kernelName = "miopen_conv2d_gkcyx_ngchw_ngkhw";
   if (gpuModuleName.empty())
     gpuModuleName = "miopen_kernel_module";
 
