@@ -75,12 +75,12 @@ static cl::opt<std::string> filterLayout("fil_layout",
 
 static cl::opt<std::string> inputLayout("in_layout", cl::desc("Input layout"),
                                         cl::value_desc("layout string"),
-                                        cl::init("gnchw"));
+                                        cl::init("ngchw"));
 
 static cl::opt<std::string> outputLayout("out_layout",
                                          cl::desc("Output layout"),
                                          cl::value_desc("layout string"),
-                                         cl::init("gnkhw"));
+                                         cl::init("ngkhw"));
 
 static cl::opt<int64_t> groupSize("groupsize", cl::desc("Group size"),
                                   cl::value_desc("dimension value"),
