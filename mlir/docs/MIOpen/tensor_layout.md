@@ -8,6 +8,7 @@
 #### you split on dim of c or k , and tf.concat outputs 
 <br/>
 ##### axis=3 split on c dim ,input layout become [N H W G C]
+tf.split api , ,x is the tensor ,axis is which dim you want to split ,split to num_or_size_splits parts
 input_groups = tf.split(axis=3, num_or_size_splits=groups, value=x)
 this function will split [N, H, W, C] tensor x along the 3rd dimension, result in groups number of tensors 
 with [N, H, W, C/groups] each ,so it's equivalent to [N H W G C]
@@ -40,6 +41,7 @@ https://github.com/ROCmSoftwarePlatform/tensorflow-upstream/blob/develop-upstrea
 weight_groups = tf.split(axis=3, num_or_size_splits=groups,value=weights)
 YXCK=>YXCGK , after transform => GKYXC
 <br/>
+after 3 conv done, we merge results of these  input conv weight  ,and merge at the k dim
 from: https://www.tensorflow.org/api_docs/python/tf/nn/conv2d
 results is NHWK
 ##### finally we concat at dim k ,the layout is [NHWGK]
@@ -78,6 +80,7 @@ b = torch.empty(N, C, H, W, device="cuda:0", memory_format=torch.channels_last)
 conv_nhwc = nn.Conv2d(C, K, 3, 1, 1).to("cuda:0", memory_format=torch.channels_last)
 we can dump shape like conv_nhwc.shape or a= nn.Conv2d a.weight.shape
 then we can judge G in which dim because if G=3 C=6 input=[N 6 H W] ,we can know dim(G) is dim(C)-1
+if not , you will get shape like [N 2 3H W] or [3N 2 H W].....
 #### input:[NHWGC]
 #### filter:[GKCYX]
 #### output:[NHWGK]
