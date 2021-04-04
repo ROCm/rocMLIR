@@ -155,8 +155,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
       signalPassFailure();
     }
 
-    op->setAttr("m_per_thread", b.getI32IntegerAttr(validParams.gemmMPerWave));
-    op->setAttr("n_per_thread", b.getI32IntegerAttr(validParams.gemmNPerWave));
+    op->setAttr("m_per_wave", b.getI32IntegerAttr(validParams.gemmMPerWave));
+    op->setAttr("n_per_wave", b.getI32IntegerAttr(validParams.gemmNPerWave));
     op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
 
     getFunction()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
