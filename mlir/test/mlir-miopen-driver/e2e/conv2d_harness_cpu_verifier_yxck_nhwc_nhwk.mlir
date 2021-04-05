@@ -5,7 +5,7 @@
 // output: NHWK
 module {
   func @main() {
-    // allocate CPU memory for gpu_conv.
+    // allocate CPU memory for gpu_conv
     %0 = alloc() : memref<3x3x8x128xf32>
     %1 = alloc() : memref<128x32x32x8xf32>
     %2 = alloc() : memref<128x30x30x128xf32>
@@ -14,46 +14,47 @@ module {
     %4 = memref_cast %1 : memref<128x32x32x8xf32> to memref<?x?x?x?xf32>
     %5 = memref_cast %2 : memref<128x30x30x128xf32> to memref<?x?x?x?xf32>
 
-    // populate initial values.
-    %cst = constant 1.000000e+00 : f32
-    %cst_0 = constant 0.000000e+00 : f32
-    call @mcpuMemset4DFloat(%3, %cst) : (memref<?x?x?x?xf32>, f32) -> ()
-    call @mcpuMemset4DFloat(%4, %cst) : (memref<?x?x?x?xf32>, f32) -> ()
-    call @mcpuMemset4DFloat(%5, %cst_0) : (memref<?x?x?x?xf32>, f32) -> ()
+    // populate initial values
+    %c0_i16 = constant 0 : i16
+    %c1_i16 = constant 1 : i16
+    %c1_i16_0 = constant 1 : i16
+    %c1_i32 = constant 1 : i32
+    call @mcpuMemset4DFloatRand(%3, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?xf32>, i16, i16, i32) -> ()
+    call @mcpuMemset4DFloatRand(%4, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?xf32>, i16, i16, i32) -> ()
+    call @mcpuMemset4DFloatRand(%5, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?xf32>, i16, i16, i32) -> ()
 
     // launch gpu convolution
     call @gpu_conv(%0, %1, %2) : (memref<3x3x8x128xf32>, memref<128x32x32x8xf32>, memref<128x30x30x128xf32>) -> ()
 
-    // allocate CPU memory for cpu_conv and populate initial values.
+    // allocate CPU memory and initialized
     %6 = alloc() : memref<3x3x8x128xf32>
     %7 = memref_cast %6 : memref<3x3x8x128xf32> to memref<?x?x?x?xf32>
-    call @mcpuMemset4DFloat(%7, %cst) : (memref<?x?x?x?xf32>, f32) -> ()
-
-    %8 = alloc() : memref<128x32x32x8xf32>
-    %9 = memref_cast %8 : memref<128x32x32x8xf32> to memref<?x?x?x?xf32>
-    call @mcpuMemset4DFloat(%9, %cst) : (memref<?x?x?x?xf32>, f32) -> ()
-
-    %10 = alloc() : memref<128x30x30x128xf32>
-    %11 = memref_cast %10 : memref<128x30x30x128xf32> to memref<?x?x?x?xf32>
-    call @mcpuMemset4DFloat(%11, %cst_0) : (memref<?x?x?x?xf32>, f32) -> ()
+    call @mcpuMemset4DFloatRand(%7, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?xf32>, i16, i16, i32) -> ()
+    %9 = alloc() : memref<128x32x32x8xf32>
+    %10 = memref_cast %9 : memref<128x32x32x8xf32> to memref<?x?x?x?xf32>
+    call @mcpuMemset4DFloatRand(%10, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?xf32>, i16, i16, i32) -> ()
+    %12 = alloc() : memref<128x30x30x128xf32>
+    %13 = memref_cast %12 : memref<128x30x30x128xf32> to memref<?x?x?x?xf32>
+    call @mcpuMemset4DFloatRand(%13, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?xf32>, i16, i16, i32) -> ()
 
     // launch cpu convolution
-    call @conv2d_host(%6, %8, %10) : (memref<3x3x8x128xf32>, memref<128x32x32x8xf32>, memref<128x30x30x128xf32>) -> ()
+    call @conv2d_host(%6, %9, %12) : (memref<3x3x8x128xf32>, memref<128x32x32x8xf32>, memref<128x30x30x128xf32>) -> ()
 
     // verity results
-    call @verify_results(%10, %2) : (memref<128x30x30x128xf32>, memref<128x30x30x128xf32>) -> ()
+    call @verify_results(%12, %2) : (memref<128x30x30x128xf32>, memref<128x30x30x128xf32>) -> ()
 
     // deallocate CPU memory.
     dealloc %0 : memref<3x3x8x128xf32>
     dealloc %1 : memref<128x32x32x8xf32>
     dealloc %2 : memref<128x30x30x128xf32>
     dealloc %6 : memref<3x3x8x128xf32>
-    dealloc %8 : memref<128x32x32x8xf32>
-    dealloc %10 : memref<128x30x30x128xf32>
+    dealloc %9 : memref<128x32x32x8xf32>
+    dealloc %12 : memref<128x30x30x128xf32>
     return
   }
 
-  func private @mcpuMemset4DFloat(memref<?x?x?x?xf32>, f32)
+  func private @mcpuMemset4DFloatRand(memref<?x?x?x?xf32>, i16, i16, i32)
+  func private @mcpuMemCopy4DFloat(memref<?x?x?x?xf32>, memref<?x?x?x?xf32>)
 
   func @gpu_conv(%arg0: memref<3x3x8x128xf32>, %arg1: memref<128x32x32x8xf32>, %arg2: memref<128x30x30x128xf32>) {
     %0 = memref_cast %arg0 : memref<3x3x8x128xf32> to memref<?x?x?x?xf32>

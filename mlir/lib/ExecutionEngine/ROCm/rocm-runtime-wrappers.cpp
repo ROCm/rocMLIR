@@ -44,6 +44,53 @@ static float bfloat16_to_float(ushort src_val) {
   return target_val.f32;
 }
 
+static unsigned short float_to_bfloat16(float src_val) {
+  bf16_fp32_cvt_t target_val;
+  target_val.f32 = src_val;
+  return target_val.ushortvec[1];
+}
+
+static unsigned short int_to_fp16(short src_val) {
+  unsigned short sign = src_val < 0;
+  unsigned short absx = ((unsigned short)src_val ^ -sign) + sign; // safe abs(x)
+  unsigned short tmp = absx, manbits = 0;
+  int exp = 0, truncated = 0;
+
+  // calculate the number of bits needed for the mantissa
+  while (tmp) {
+    tmp >>= 1;
+    manbits++;
+  }
+
+  // half-precision floats have 11 bits in the mantissa.
+  // truncate the excess or insert the lacking 0s until there are 11.
+  if (manbits) {
+    exp = 10; // exp bias because 1.0 is at bit position 10
+    while (manbits > 11) {
+      truncated |= absx & 1;
+      absx >>= 1;
+      manbits--;
+      exp++;
+    }
+    while (manbits < 11) {
+      absx <<= 1;
+      manbits++;
+      exp--;
+    }
+  }
+
+  if (exp + truncated > 15) {
+    // absx was too big, force it to +/- infinity
+    exp = 31; // special infinity value
+    absx = 0;
+  } else if (manbits) {
+    // normal case, absx > 0
+    exp += 15; // bias the exponent
+  }
+
+  return (sign << 15) | ((unsigned)exp << 10) | (absx & ((1u << 10) - 1));
+}
+
 extern "C" hipModule_t mgpuModuleLoad(void *data) {
   hipModule_t module = nullptr;
   int32_t err =
@@ -286,6 +333,12 @@ extern "C" void mgpuMemCopy2DFloat(float *sourceAllocated, float *sourceAligned,
 
 // 4D float memref utility routines.
 
+short tensorValue(short min, short max) {
+  if (min == max)
+    return min;
+  return (std::rand() % (max - min)) + min;
+}
+
 extern "C" void mcpuMemset4DFloat(float *allocated, float *aligned,
                                   int64_t offset, int64_t size0, int64_t size1,
                                   int64_t size2, int64_t size3, int64_t stride0,
@@ -294,9 +347,33 @@ extern "C" void mcpuMemset4DFloat(float *allocated, float *aligned,
   for (unsigned i = 0; i < size0; ++i)
     for (unsigned j = 0; j < size1; ++j)
       for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
+        for (unsigned l = 0; l < size3; ++l) {
           aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
               value;
+        }
+}
+
+extern "C" void mcpuMemset4DFloatRand(float *allocated, float *aligned,
+                                      int64_t offset, int64_t size0,
+                                      int64_t size1, int64_t size2,
+                                      int64_t size3, int64_t stride0,
+                                      int64_t stride1, int64_t stride2,
+                                      int64_t stride3, short min, short max,
+                                      int64_t seed) {
+  if (seed < 0)
+    std::srand(time(0));
+  else
+    std::srand(seed);
+
+  float value;
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        for (unsigned l = 0; l < size3; ++l) {
+          value = (float)tensorValue(min, max);
+          aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
+              value;
+        }
 }
 
 extern "C" StridedMemRefType<float, 4>
@@ -337,6 +414,26 @@ extern "C" void mgpuMemCopy4DFloat(
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
+// Copy Float to Float
+extern "C" void mcpuMemCopy4DFloat(float *sourceAllocated, float *sourceAligned,
+                                   int64_t sourceOffset, int64_t sourceSize0,
+                                   int64_t sourceSize1, int64_t sourceSize2,
+                                   int64_t sourceSize3, int64_t sourceStride0,
+                                   int64_t sourceStride1, int64_t sourceStride2,
+                                   int64_t sourceStride3, float *destAllocated,
+                                   float *destAligned, int64_t destOffset,
+                                   int64_t destSize0, int64_t destSize1,
+                                   int64_t destSize2, int64_t destSize3,
+                                   int64_t destStride0, int64_t destStride1,
+                                   int64_t destStride2, int64_t destStride3) {
+
+  assert(sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 ==
+         destSize0 * destSize1 * destSize2 * destSize3);
+  int64_t dataSize = sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3;
+  for (int64_t i = 0; i < dataSize; i++)
+    destAligned[i] = sourceAligned[i];
+}
+
 // 4D half memref utility routines.
 
 extern "C" void mcpuMemset4DHalf(unsigned short *allocated,
@@ -351,6 +448,29 @@ extern "C" void mcpuMemset4DHalf(unsigned short *allocated,
         for (unsigned l = 0; l < size3; ++l)
           aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
               value;
+}
+
+extern "C" void mcpuMemset4DHalfRand(unsigned short *allocated,
+                                     unsigned short *aligned, int64_t offset,
+                                     int64_t size0, int64_t size1,
+                                     int64_t size2, int64_t size3,
+                                     int64_t stride0, int64_t stride1,
+                                     int64_t stride2, int64_t stride3,
+                                     short min, short max, int64_t seed) {
+  if (seed < 0)
+    std::srand(time(0));
+  else
+    std::srand(seed);
+
+  unsigned short value;
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        for (unsigned l = 0; l < size3; ++l) {
+          value = (unsigned short)tensorValue(min, max);
+          aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
+              int_to_fp16(value);
+        }
 }
 
 extern "C" StridedMemRefType<unsigned short, 4>
@@ -408,6 +528,30 @@ extern "C" void mcpuMemset4DBF16(unsigned short *allocated,
               value;
 }
 
+extern "C" void mcpuMemset4DBF16Rand(unsigned short *allocated,
+                                     unsigned short *aligned, int64_t offset,
+                                     int64_t size0, int64_t size1,
+                                     int64_t size2, int64_t size3,
+                                     int64_t stride0, int64_t stride1,
+                                     int64_t stride2, int64_t stride3,
+                                     short min, short max, int64_t seed) {
+
+  if (seed < 0)
+    std::srand(time(0));
+  else
+    std::srand(seed);
+
+  unsigned short value;
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        for (unsigned l = 0; l < size3; ++l) {
+          value = float_to_bfloat16((float)tensorValue(min, max));
+          aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
+              value;
+        }
+}
+
 extern "C" StridedMemRefType<unsigned short, 4>
 mgpuMemAlloc4DBF16(unsigned short *allocated, unsigned short *aligned,
                    int64_t offset, int64_t size0, int64_t size1, int64_t size2,
@@ -446,7 +590,6 @@ extern "C" void mgpuMemCopy4DBF16(
                 sizeof(unsigned short),
             static_cast<hipMemcpyKind>(copyDirection));
 }
-
 
 // Extract proper tensor sizes and strides based on layouts
 static void

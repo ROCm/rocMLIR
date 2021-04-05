@@ -229,6 +229,10 @@ static cl::opt<std::string> tensorDataType("t", cl::desc("Data type for convolut
                                            cl::value_desc("Data type for convolution"),
                                            cl::init("f32"));
 
+static cl::opt<std::string>
+    randomData("rand", cl::desc("To use random data for host validation"),
+               cl::value_desc("To use random data for host validation"),
+               cl::init("none"));
 static void populateDefaults() {
   if (populateDefaultValues == true) {
     if (xdlopsV2.getValue() == false) {
@@ -293,11 +297,13 @@ static AllocOp allocAndInitializeTensor(OpBuilder &builder, Block *block,
                                         mlir::Type dataType,
                                         mlir::FuncOp &mcpuMemset4DFuncOp,
                                         mlir::MemRefType &memRefType,
-                                        mlir::Value &memsetValue) {
+                                        mlir::Value &memsetMinValue,
+                                        mlir::Value &memsetMaxValue,
+                                        mlir::ConstantOp &seedValue) {
   auto fourDimUnknownSizeMemRefType =
       MemRefType::get({-1, -1, -1, -1}, dataType);
 
-  // Emit CPU alloc for the result tensor
+  // Emit CPU alloc
   auto cpuAllocOp =
       builder.create<AllocOp>(builder.getUnknownLoc(), memRefType);
   block->push_back(cpuAllocOp);
@@ -307,23 +313,41 @@ static AllocOp allocAndInitializeTensor(OpBuilder &builder, Block *block,
       builder.getUnknownLoc(), cpuAllocOp, fourDimUnknownSizeMemRefType);
   block->push_back(cpuMemRefCastOp);
 
-  // Populate initial values of the output tensor
-  auto cpuMemsetOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-                             ValueRange{cpuMemRefCastOp, memsetValue});
+  // Populate initial values
+  auto cpuMemsetOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      ValueRange{cpuMemRefCastOp, memsetMinValue, memsetMaxValue, seedValue});
   block->push_back(cpuMemsetOp);
 
   return cpuAllocOp;
 }
 
-static FuncOp createConvertResult(ModuleOp &module, OpBuilder &builder,
-                                  mlir::MemRefType &originalMemRefType,
-                                  mlir::MemRefType &convertedMemRefType) {
-  // Create print_result function
+static FuncOp
+createConvertResult(ModuleOp &module, OpBuilder &builder,
+                    mlir::MemRefType &originalMemRefType,
+                    mlir::MemRefType &convertedMemRefType,
+                    std::unordered_map<std::string, FuncOp> &convertFuncs) {
+  std::string funcName = "convert_tensor";
+  auto originalMemRefShape = originalMemRefType.getShape();
+  funcName += std::to_string(originalMemRefShape[0]);
+  for (unsigned i = 1; i < originalMemRefShape.size(); ++i) {
+    auto dim = originalMemRefShape[i];
+    funcName += "x" + std::to_string(dim);
+  }
+
+  // Does a conversion function already exist?
+  std::unordered_map<std::string, FuncOp>::const_iterator it =
+      convertFuncs.find(funcName);
+
+  if (it != convertFuncs.end()) // Reuse an existing function
+    return it->second;
+
+  // Otherwise create a new conversion function
   auto convertResultFuncOp = FuncOp::create(
-      builder.getUnknownLoc(), StringRef("convert_result"),
+      builder.getUnknownLoc(), StringRef(funcName),
       builder.getFunctionType({originalMemRefType, convertedMemRefType}, {}));
   module.push_back(convertResultFuncOp);
+  convertFuncs[funcName] = convertResultFuncOp;
 
   // Construct a new Block.
   Block *block = convertResultFuncOp.addEntryBlock();
@@ -395,6 +419,76 @@ static FuncOp createConvertResult(ModuleOp &module, OpBuilder &builder,
   block->push_back(returnOp);
 
   return convertResultFuncOp;
+}
+
+static AllocOp
+allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
+                   mlir::FuncOp &mcpuMemCopy4DFuncOp,
+                   mlir::AllocOp &sourceOriginalAllocOp,
+                   SmallVector<int64_t, 4> &sourceDimension,
+                   std::unordered_map<std::string, FuncOp> &convertFuncs) {
+  auto floatType = builder.getF32Type();
+  auto fourDimUnknownSizeFloatType =
+      MemRefType::get({-1, -1, -1, -1}, floatType);
+
+  // Emit CPU alloc of Float type
+  auto floatMemRefType = MemRefType::get(
+      ArrayRef<int64_t>(sourceDimension.begin(), sourceDimension.end()),
+      floatType);
+  auto cpuAllocOp =
+      builder.create<AllocOp>(builder.getUnknownLoc(), floatMemRefType);
+  block->push_back(cpuAllocOp);
+
+  // Emit memref cast
+  auto cpuMemRefCastOp = builder.create<MemRefCastOp>(
+      builder.getUnknownLoc(), cpuAllocOp, fourDimUnknownSizeFloatType);
+  block->push_back(cpuMemRefCastOp);
+
+  auto sourceMemRefType = sourceOriginalAllocOp.getType();
+  auto dataType = sourceMemRefType.getElementType();
+
+  MemRefCastOp sourceMemRefCastOp;
+  if (dataType == builder.getF16Type()) { // f16
+    // Allocate memory that stores the converted source data
+    auto sourceFloatAllocOp =
+        builder.create<AllocOp>(builder.getUnknownLoc(), floatMemRefType);
+    block->push_back(sourceFloatAllocOp);
+
+    sourceMemRefCastOp = builder.create<MemRefCastOp>(
+        builder.getUnknownLoc(), sourceFloatAllocOp,
+        fourDimUnknownSizeFloatType);
+    block->push_back(sourceMemRefCastOp);
+
+    // Create conversion routine
+    auto convertResultFuncOp = createConvertResult(
+        module, builder, sourceMemRefType, floatMemRefType, convertFuncs);
+    auto convertResultCallOp = builder.create<CallOp>(
+        builder.getUnknownLoc(), convertResultFuncOp,
+        ValueRange{sourceOriginalAllocOp, sourceFloatAllocOp});
+    block->push_back(convertResultCallOp);
+  } else { // f32 or bf16
+    // Emit memref cast
+    auto sourceUnknownSizeMemRefType =
+        MemRefType::get({-1, -1, -1, -1}, dataType);
+    sourceMemRefCastOp = builder.create<MemRefCastOp>(
+        builder.getUnknownLoc(), sourceOriginalAllocOp,
+        sourceUnknownSizeMemRefType);
+    block->push_back(sourceMemRefCastOp);
+  }
+
+  // Copy values of sourceAllocOp into cpuAllocOp
+  auto cpuMemCopyCallOp =
+      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemCopy4DFuncOp,
+                             ValueRange{sourceMemRefCastOp, cpuMemRefCastOp});
+  block->push_back(cpuMemCopyCallOp);
+
+  // Dealloc memory for storing converted data
+  if (dataType == builder.getF16Type()) { // f16
+    auto convertedResultDeallocOp =
+        builder.create<DeallocOp>(builder.getUnknownLoc(), sourceMemRefCastOp);
+    block->push_back(convertedResultDeallocOp);
+  }
+  return cpuAllocOp;
 }
 
 static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
@@ -1011,71 +1105,93 @@ static LogicalResult populateHostHarnessLogic(
   block->push_back(inputMemRefCastOp);
   block->push_back(outputMemRefCastOp);
 
-  auto getOneConstOp = [&]() {
-    if (dataType == builder.getIntegerType(16)) {
-      const ushort one = float_to_bfloat16(1.0);
-      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
-                                        builder.getI16IntegerAttr(one));
-    } else {
-      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
-                                        builder.getFloatAttr(dataType, 1.0));
-    }
-  };
-  auto getZeroConstOp = [&]() {
-    if (dataType == builder.getIntegerType(16)) {
-      const ushort zero = float_to_bfloat16(0.0);
-      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
-                                        builder.getI16IntegerAttr(zero));
-    } else {
-      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
-                                        builder.getFloatAttr(dataType, 0.0));
-    }
-  };
+  auto int16Type = builder.getIntegerType(16);
+  auto int32Type = builder.getIntegerType(32);
+  unsigned short zero = 0;
+  short min, max;
+  int seed = 1;
+  if (randomData.getValue() == "none") {
+    min = 1;
+    max = 1;
+  } else {
+    min = -5;
+    max = 5;
+    std::string rseed = randomData.getValue();
+    if (rseed[0] >= '0' and rseed[1] <= '9')
+      seed = std::stoi(rseed);
+    else
+      seed = -1;
+  }
 
-  auto oneConstantFloatOp = getOneConstOp();
-  auto zeroConstantFloatOp = getZeroConstOp();
-  block->push_back(oneConstantFloatOp);
-  block->push_back(zeroConstantFloatOp);
+  auto zeroConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(zero));
+  auto minConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(min));
+  auto maxConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(max));
+  auto seedConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int32Type, builder.getI32IntegerAttr(seed));
+
+  block->push_back(zeroConstantIntOp);
+  block->push_back(minConstantIntOp);
+  block->push_back(maxConstantIntOp);
+  block->push_back(seedConstantIntOp);
 
   // Emit CPU memset function calls.
   StringRef memsetFuncName;
   if (dataType == builder.getF32Type()) {
-    memsetFuncName = "mcpuMemset4DFloat";
+    memsetFuncName = "mcpuMemset4DFloatRand";
   } else if (dataType == builder.getF16Type()) {
-    memsetFuncName = "mcpuMemset4DHalf";
+    memsetFuncName = "mcpuMemset4DHalfRand";
   } else if (dataType == builder.getIntegerType(16)) {
-    memsetFuncName = "mcpuMemset4DBF16";
+    memsetFuncName = "mcpuMemset4DBF16Rand";
   }
 
   auto mcpuMemset4DFuncOp = makeFuncDecl(
-      builder, memsetFuncName, {fourDimUnknownSizeMemRefType, dataType}, {});
+      builder, memsetFuncName,
+      {fourDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
   module.push_back(mcpuMemset4DFuncOp);
 
   // Populate initial values.
-  mlir::Value filterMemsetValue, inputMemsetValue, outputMemsetValue;
+  mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
+  mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
+
   if (operation.getValue() == "conv2d" ||
       operation.getValue() == "conv2d_dummy") {
-    filterMemsetValue = oneConstantFloatOp;
-    inputMemsetValue = oneConstantFloatOp;
-    outputMemsetValue = zeroConstantFloatOp;
+    filterMemsetMinValue = minConstantIntOp;
+    inputMemsetMinValue = minConstantIntOp;
+    outputMemsetMinValue = zeroConstantIntOp;
+    filterMemsetMaxValue = maxConstantIntOp;
+    inputMemsetMaxValue = maxConstantIntOp;
+    outputMemsetMaxValue = zeroConstantIntOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
-    filterMemsetValue = oneConstantFloatOp;
-    inputMemsetValue = zeroConstantFloatOp;
-    outputMemsetValue = oneConstantFloatOp;
+    filterMemsetMinValue = minConstantIntOp;
+    inputMemsetMinValue = zeroConstantIntOp;
+    outputMemsetMinValue = minConstantIntOp;
+    filterMemsetMaxValue = maxConstantIntOp;
+    inputMemsetMaxValue = zeroConstantIntOp;
+    outputMemsetMaxValue = maxConstantIntOp;
   } else if (operation.getValue() == "conv2d_bwd_weight") {
-    filterMemsetValue = zeroConstantFloatOp;
-    inputMemsetValue = oneConstantFloatOp;
-    outputMemsetValue = oneConstantFloatOp;
+    filterMemsetMinValue = zeroConstantIntOp;
+    inputMemsetMinValue = minConstantIntOp;
+    outputMemsetMinValue = minConstantIntOp;
+    filterMemsetMaxValue = zeroConstantIntOp;
+    inputMemsetMaxValue = maxConstantIntOp;
+    outputMemsetMaxValue = maxConstantIntOp;
   }
-  auto filterCpuMemsetOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-                             ValueRange{filterMemRefCastOp, filterMemsetValue});
-  auto inputCpuMemsetOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-                             ValueRange{inputMemRefCastOp, inputMemsetValue});
-  auto outputCpuMemsetOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-                             ValueRange{outputMemRefCastOp, outputMemsetValue});
+
+  auto filterCpuMemsetOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      ValueRange{filterMemRefCastOp, filterMemsetMinValue, filterMemsetMaxValue,
+                 seedConstantIntOp});
+  auto inputCpuMemsetOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      ValueRange{inputMemRefCastOp, inputMemsetMinValue, inputMemsetMaxValue,
+                 seedConstantIntOp});
+  auto outputCpuMemsetOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      ValueRange{outputMemRefCastOp, outputMemsetMinValue, outputMemsetMaxValue,
+                 seedConstantIntOp});
   block->push_back(filterCpuMemsetOp);
   block->push_back(inputCpuMemsetOp);
   block->push_back(outputCpuMemsetOp);
@@ -1131,9 +1247,10 @@ static LogicalResult populateHostHarnessLogic(
 
     } else { // f32 or f16
       // Emit type conversion routine to convert every element to f32.
-      mlir::Value printHostValue = printHostAllocOp;
-      auto convertResultFuncOp = createConvertResult(
-          module, builder, resultOriginalCpuType, printMemRefType);
+      std::unordered_map<std::string, FuncOp> convertFuncs;
+      auto convertResultFuncOp =
+          createConvertResult(module, builder, resultOriginalCpuType,
+                              printMemRefType, convertFuncs);
       auto convertResultCallOp = builder.create<CallOp>(
           builder.getUnknownLoc(), convertResultFuncOp,
           ValueRange{resultOriginalCpuValue, printHostAllocOp});
@@ -1224,75 +1341,93 @@ static LogicalResult populateValidationLogic(
   block->push_back(inputMemRefCastOp);
   block->push_back(outputMemRefCastOp);
 
-  float f1 = 1.0;
-  float f0 = 0.0;
-  auto getOneConstOp = [&]() {
-    if (dataType == builder.getIntegerType(16)) {
-      const ushort one = float_to_bfloat16(f1);
-      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
-                                        builder.getI16IntegerAttr(one));
-    } else {
-      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
-                                        builder.getFloatAttr(dataType, f1));
-    }
-  };
-  auto getZeroConstOp = [&]() {
-    if (dataType == builder.getIntegerType(16)) {
-      const ushort zero = float_to_bfloat16(f0);
-      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
-                                        builder.getI16IntegerAttr(zero));
-    } else {
-      return builder.create<ConstantOp>(builder.getUnknownLoc(), dataType,
-                                        builder.getFloatAttr(dataType, f0));
-    }
-  };
+  auto int16Type = builder.getIntegerType(16);
+  auto int32Type = builder.getIntegerType(32);
+  unsigned short zero = 0;
+  short min, max;
+  int seed = 1;
+  if (randomData.getValue() == "none") {
+    min = 1;
+    max = 1;
+  } else {
+    min = -5;
+    max = 5;
+    std::string rseed = randomData.getValue();
+    if (rseed[0] >= '0' and rseed[1] <= '9')
+      seed = std::stoi(rseed);
+    else
+      seed = -1;
+  }
 
-  auto oneConstantFloatOp = getOneConstOp();
-  auto zeroConstantFloatOp = getZeroConstOp();
+  auto zeroConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(zero));
+  auto minConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(min));
+  auto maxConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(max));
+  auto seedConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int32Type, builder.getI32IntegerAttr(seed));
 
-  block->push_back(oneConstantFloatOp);
-  block->push_back(zeroConstantFloatOp);
+  block->push_back(zeroConstantIntOp);
+  block->push_back(minConstantIntOp);
+  block->push_back(maxConstantIntOp);
+  block->push_back(seedConstantIntOp);
 
   // Emit CPU memset function calls.
   StringRef memsetFuncName;
   if (dataType == builder.getF32Type()) {
-    memsetFuncName = "mcpuMemset4DFloat";
+    memsetFuncName = "mcpuMemset4DFloatRand";
   } else if (dataType == builder.getF16Type()) {
-    memsetFuncName = "mcpuMemset4DHalf";
+    memsetFuncName = "mcpuMemset4DHalfRand";
   } else if (dataType == builder.getIntegerType(16)) {
-    memsetFuncName = "mcpuMemset4DBF16";
+    memsetFuncName = "mcpuMemset4DBF16Rand";
   }
 
   auto mcpuMemset4DFuncOp = makeFuncDecl(
-      builder, memsetFuncName, {fourDimUnknownSizeMemRefType, dataType}, {});
+      builder, memsetFuncName,
+      {fourDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
   module.push_back(mcpuMemset4DFuncOp);
 
   // Populate initial values.
-  mlir::Value filterMemsetValue, inputMemsetValue, outputMemsetValue;
+  mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
+  mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
+
   if (operation.getValue() == "conv2d" ||
       operation.getValue() == "conv2d_dummy") {
-    filterMemsetValue = oneConstantFloatOp;
-    inputMemsetValue = oneConstantFloatOp;
-    outputMemsetValue = zeroConstantFloatOp;
+    filterMemsetMinValue = minConstantIntOp;
+    inputMemsetMinValue = minConstantIntOp;
+    outputMemsetMinValue = zeroConstantIntOp;
+    filterMemsetMaxValue = maxConstantIntOp;
+    inputMemsetMaxValue = maxConstantIntOp;
+    outputMemsetMaxValue = zeroConstantIntOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
-    filterMemsetValue = oneConstantFloatOp;
-    inputMemsetValue = zeroConstantFloatOp;
-    outputMemsetValue = oneConstantFloatOp;
+    filterMemsetMinValue = minConstantIntOp;
+    inputMemsetMinValue = zeroConstantIntOp;
+    outputMemsetMinValue = minConstantIntOp;
+    filterMemsetMaxValue = maxConstantIntOp;
+    inputMemsetMaxValue = zeroConstantIntOp;
+    outputMemsetMaxValue = maxConstantIntOp;
   } else if (operation.getValue() == "conv2d_bwd_weight") {
-    filterMemsetValue = zeroConstantFloatOp;
-    inputMemsetValue = oneConstantFloatOp;
-    outputMemsetValue = oneConstantFloatOp;
+    filterMemsetMinValue = zeroConstantIntOp;
+    inputMemsetMinValue = minConstantIntOp;
+    outputMemsetMinValue = minConstantIntOp;
+    filterMemsetMaxValue = zeroConstantIntOp;
+    inputMemsetMaxValue = maxConstantIntOp;
+    outputMemsetMaxValue = maxConstantIntOp;
   }
 
-  auto filterCpuMemsetOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-                             ValueRange{filterMemRefCastOp, filterMemsetValue});
-  auto inputCpuMemsetOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-                             ValueRange{inputMemRefCastOp, inputMemsetValue});
-  auto outputCpuMemsetOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemset4DFuncOp,
-                             ValueRange{outputMemRefCastOp, outputMemsetValue});
+  auto filterCpuMemsetOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      ValueRange{filterMemRefCastOp, filterMemsetMinValue, filterMemsetMaxValue,
+                 seedConstantIntOp});
+  auto inputCpuMemsetOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      ValueRange{inputMemRefCastOp, inputMemsetMinValue, inputMemsetMaxValue,
+                 seedConstantIntOp});
+  auto outputCpuMemsetOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      ValueRange{outputMemRefCastOp, outputMemsetMinValue, outputMemsetMaxValue,
+                 seedConstantIntOp});
   block->push_back(filterCpuMemsetOp);
   block->push_back(inputCpuMemsetOp);
   block->push_back(outputCpuMemsetOp);
@@ -1307,6 +1442,7 @@ static LogicalResult populateValidationLogic(
       ValueRange{filterHostAllocOp, inputHostAllocOp, outputHostAllocOp});
   block->push_back(gpuConvCallOp);
 
+  mlir::FuncOp cpuMemConvertOp;
   // create f32 data
   auto getFloatDataFromBF16 = [&](mlir::MemRefCastOp &memRefCastOp,
                                   MemRefType resultMemType) {
@@ -1325,7 +1461,7 @@ static LogicalResult populateValidationLogic(
         builder.getUnknownLoc(), verifyHostAllocOp, unknownSizeMemRefFloatType);
     block->push_back(verifyUnkownSizeMemRefCastOp);
 
-    auto cpuMemConvertOp = makeFuncDecl(
+    cpuMemConvertOp = makeFuncDecl(
         builder, "mcpuMemBF16ConvertFloat",
         {fourDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {});
     module.push_back(cpuMemConvertOp);
@@ -1377,6 +1513,7 @@ static LogicalResult populateValidationLogic(
     }
   }
 
+  std::unordered_map<std::string, FuncOp> convertFuncs;
   if (dataType == builder.getF32Type())
     gpuF32Results = gpuOriginalResults;
   else if (dataType == builder.getF16Type()) {
@@ -1386,7 +1523,7 @@ static LogicalResult populateValidationLogic(
     block->push_back(gpuF32Results);
 
     auto convertResultFuncOp = createConvertResult(
-        module, builder, gpuOriginalResultType, gpuF32ResultType);
+        module, builder, gpuOriginalResultType, gpuF32ResultType, convertFuncs);
     auto convertResultCallOp =
         builder.create<CallOp>(builder.getUnknownLoc(), convertResultFuncOp,
                                ValueRange{gpuOriginalResults, gpuF32Results});
@@ -1406,54 +1543,76 @@ static LogicalResult populateValidationLogic(
       ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
       floatType);
 
-  fourDimUnknownSizeMemRefType = MemRefType::get({-1, -1, -1, -1}, floatType);
+  auto fourDimUnknownSizeFloatType =
+      MemRefType::get({-1, -1, -1, -1}, floatType);
 
+  // Emit CPU memcopy function calls
+  mlir::FuncOp mcpuMemCopy4DFuncOp;
+  if (dataType == builder.getIntegerType(16)) { // bf16
+    mcpuMemCopy4DFuncOp = cpuMemConvertOp;
+  } else { // fp32 or fp16
+    mcpuMemCopy4DFuncOp = makeFuncDecl(
+        builder, "mcpuMemCopy4DFloat",
+        {fourDimUnknownSizeFloatType, fourDimUnknownSizeFloatType}, {});
+    module.push_back(mcpuMemCopy4DFuncOp);
+  }
+
+  // Emit CPU memset function calls
   if (dataType != builder.getF32Type()) {
-    oneConstantFloatOp =
-        builder.create<ConstantOp>(builder.getUnknownLoc(), floatType,
-                                   builder.getFloatAttr(floatType, f1));
-    zeroConstantFloatOp =
-        builder.create<ConstantOp>(builder.getUnknownLoc(), floatType,
-                                   builder.getFloatAttr(floatType, f0));
-
-    block->push_back(oneConstantFloatOp);
-    block->push_back(zeroConstantFloatOp);
-
-    // Emit CPU memset function calls.
-    mcpuMemset4DFuncOp =
-        makeFuncDecl(builder, "mcpuMemset4DFloat",
-                     {fourDimUnknownSizeMemRefType, floatType}, {});
+    mcpuMemset4DFuncOp = makeFuncDecl(
+        builder, "mcpuMemset4DFloatRand",
+        {fourDimUnknownSizeFloatType, int16Type, int16Type, int32Type}, {});
     module.push_back(mcpuMemset4DFuncOp);
   }
 
-  // Set initial values.
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
-    filterMemsetValue = oneConstantFloatOp;
-    inputMemsetValue = oneConstantFloatOp;
-    outputMemsetValue = zeroConstantFloatOp;
-  } else if (operation.getValue() == "conv2d_bwd_data") {
-    filterMemsetValue = oneConstantFloatOp;
-    inputMemsetValue = zeroConstantFloatOp;
-    outputMemsetValue = oneConstantFloatOp;
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
-    filterMemsetValue = zeroConstantFloatOp;
-    inputMemsetValue = oneConstantFloatOp;
-    outputMemsetValue = oneConstantFloatOp;
+  mlir::Value memsetValue = zeroConstantIntOp;
+  AllocOp cpuFilterHostAllocOp, cpuInputHostAllocOp, cpuOutputHostAllocOp;
+  if (randomData.getValue() == "none") {
+    // If not using random data, emit CPU alloc and initialization
+    cpuFilterHostAllocOp = allocAndInitializeTensor(
+        builder, block, floatType, mcpuMemset4DFuncOp, filterMemRefType,
+        filterMemsetMinValue, filterMemsetMaxValue, seedConstantIntOp);
+    cpuInputHostAllocOp = allocAndInitializeTensor(
+        builder, block, floatType, mcpuMemset4DFuncOp, inputMemRefType,
+        inputMemsetMinValue, inputMemsetMaxValue, seedConstantIntOp);
+    cpuOutputHostAllocOp = allocAndInitializeTensor(
+        builder, block, floatType, mcpuMemset4DFuncOp, outputMemRefType,
+        outputMemsetMinValue, outputMemsetMaxValue, seedConstantIntOp);
+  } else {
+    // If using random data, mit CPU alloc and copy input data
+    if (operation.getValue() == "conv2d" ||
+        operation.getValue() == "conv2d_dummy") {
+      cpuFilterHostAllocOp =
+          allocAndCopyTensor(module, builder, block, mcpuMemCopy4DFuncOp,
+                             filterHostAllocOp, filterDimension, convertFuncs);
+      cpuInputHostAllocOp =
+          allocAndCopyTensor(module, builder, block, mcpuMemCopy4DFuncOp,
+                             inputHostAllocOp, inputDimension, convertFuncs);
+      cpuOutputHostAllocOp = allocAndInitializeTensor(
+          builder, block, floatType, mcpuMemset4DFuncOp, outputMemRefType,
+          memsetValue, memsetValue, seedConstantIntOp);
+    } else if (operation.getValue() == "conv2d_bwd_data") {
+      cpuFilterHostAllocOp =
+          allocAndCopyTensor(module, builder, block, mcpuMemCopy4DFuncOp,
+                             filterHostAllocOp, filterDimension, convertFuncs);
+      cpuInputHostAllocOp = allocAndInitializeTensor(
+          builder, block, floatType, mcpuMemset4DFuncOp, inputMemRefType,
+          memsetValue, memsetValue, seedConstantIntOp);
+      cpuOutputHostAllocOp =
+          allocAndCopyTensor(module, builder, block, mcpuMemCopy4DFuncOp,
+                             outputHostAllocOp, outputDimension, convertFuncs);
+    } else if (operation.getValue() == "conv2d_bwd_weight") {
+      cpuFilterHostAllocOp = allocAndInitializeTensor(
+          builder, block, floatType, mcpuMemset4DFuncOp, filterMemRefType,
+          memsetValue, memsetValue, seedConstantIntOp);
+      cpuInputHostAllocOp =
+          allocAndCopyTensor(module, builder, block, mcpuMemCopy4DFuncOp,
+                             inputHostAllocOp, inputDimension, convertFuncs);
+      cpuOutputHostAllocOp =
+          allocAndCopyTensor(module, builder, block, mcpuMemCopy4DFuncOp,
+                             outputHostAllocOp, outputDimension, convertFuncs);
+    }
   }
-
-  // Emit CPU alloc and initialization.
-  auto cpuFilterHostAllocOp =
-      allocAndInitializeTensor(builder, block, floatType, mcpuMemset4DFuncOp,
-                               filterMemRefType, filterMemsetValue);
-
-  auto cpuInputHostAllocOp =
-      allocAndInitializeTensor(builder, block, floatType, mcpuMemset4DFuncOp,
-                               inputMemRefType, inputMemsetValue);
-
-  auto cpuOutputHostAllocOp =
-      allocAndInitializeTensor(builder, block, floatType, mcpuMemset4DFuncOp,
-                               outputMemRefType, outputMemsetValue);
 
   // Populate host validation logic
   auto cpuConvFuncOp = createCPUConvolution(module, builder, filterMemRefType,
@@ -1559,49 +1718,85 @@ populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
   auto fourDimUnknownSizeMemRefType =
       MemRefType::get({-1, -1, -1, -1}, floatType);
 
-  auto oneConstantFloatOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), floatType, builder.getFloatAttr(floatType, 1.0));
-  auto zeroConstantFloatOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), floatType, builder.getFloatAttr(floatType, 0.0));
+  auto int16Type = builder.getIntegerType(16);
+  auto int32Type = builder.getIntegerType(32);
+  unsigned short zero = 0;
+  short min, max;
+  int seed = 1;
+  if (randomData.getValue() == "none") {
+    min = 1;
+    max = 1;
+  } else {
+    min = -5;
+    max = 5;
+    std::string rseed = randomData.getValue();
+    if (rseed[0] >= '0' and rseed[1] <= '9')
+      seed = std::stoi(rseed);
+    else
+      seed = -1;
+  }
 
-  block->push_back(oneConstantFloatOp);
-  block->push_back(zeroConstantFloatOp);
+  auto zeroConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(zero));
+  auto minConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(min));
+  auto maxConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(max));
+  auto seedConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int32Type, builder.getI32IntegerAttr(seed));
+
+  block->push_back(zeroConstantIntOp);
+  block->push_back(minConstantIntOp);
+  block->push_back(maxConstantIntOp);
+  block->push_back(seedConstantIntOp);
 
   // Emit CPU memset function calls.
-  StringRef memsetFuncName = memsetFuncName = "mcpuMemset4DFloat";
+  StringRef memsetFuncName = "mcpuMemset4DFloatRand";
   auto mcpuMemset4DFuncOp = makeFuncDecl(
-      builder, memsetFuncName, {fourDimUnknownSizeMemRefType, floatType}, {});
+      builder, memsetFuncName,
+      {fourDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
   module.push_back(mcpuMemset4DFuncOp);
 
   // Populate initial values.
-  mlir::Value filterMemsetValue, inputMemsetValue, outputMemsetValue;
+  mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
+  mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
+
   if (operation.getValue() == "conv2d" ||
       operation.getValue() == "conv2d_dummy") {
-    filterMemsetValue = oneConstantFloatOp;
-    inputMemsetValue = oneConstantFloatOp;
-    outputMemsetValue = zeroConstantFloatOp;
+    filterMemsetMinValue = minConstantIntOp;
+    inputMemsetMinValue = minConstantIntOp;
+    outputMemsetMinValue = zeroConstantIntOp;
+    filterMemsetMaxValue = maxConstantIntOp;
+    inputMemsetMaxValue = maxConstantIntOp;
+    outputMemsetMaxValue = zeroConstantIntOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
-    filterMemsetValue = oneConstantFloatOp;
-    inputMemsetValue = zeroConstantFloatOp;
-    outputMemsetValue = oneConstantFloatOp;
+    filterMemsetMinValue = minConstantIntOp;
+    inputMemsetMinValue = zeroConstantIntOp;
+    outputMemsetMinValue = minConstantIntOp;
+    filterMemsetMaxValue = maxConstantIntOp;
+    inputMemsetMaxValue = zeroConstantIntOp;
+    outputMemsetMaxValue = maxConstantIntOp;
   } else if (operation.getValue() == "conv2d_bwd_weight") {
-    filterMemsetValue = zeroConstantFloatOp;
-    inputMemsetValue = oneConstantFloatOp;
-    outputMemsetValue = oneConstantFloatOp;
+    filterMemsetMinValue = zeroConstantIntOp;
+    inputMemsetMinValue = minConstantIntOp;
+    outputMemsetMinValue = minConstantIntOp;
+    filterMemsetMaxValue = zeroConstantIntOp;
+    inputMemsetMaxValue = maxConstantIntOp;
+    outputMemsetMaxValue = maxConstantIntOp;
   }
 
   // Emit CPU alloc.
-  auto cpuFilterHostAllocOp =
-      allocAndInitializeTensor(builder, block, floatType, mcpuMemset4DFuncOp,
-                               filterMemRefType, filterMemsetValue);
+  auto cpuFilterHostAllocOp = allocAndInitializeTensor(
+      builder, block, floatType, mcpuMemset4DFuncOp, filterMemRefType,
+      filterMemsetMinValue, filterMemsetMaxValue, seedConstantIntOp);
 
-  auto cpuInputHostAllocOp =
-      allocAndInitializeTensor(builder, block, floatType, mcpuMemset4DFuncOp,
-                               inputMemRefType, inputMemsetValue);
+  auto cpuInputHostAllocOp = allocAndInitializeTensor(
+      builder, block, floatType, mcpuMemset4DFuncOp, inputMemRefType,
+      inputMemsetMinValue, inputMemsetMaxValue, seedConstantIntOp);
 
-  auto cpuOutputHostAllocOp =
-      allocAndInitializeTensor(builder, block, floatType, mcpuMemset4DFuncOp,
-                               outputMemRefType, outputMemsetValue);
+  auto cpuOutputHostAllocOp = allocAndInitializeTensor(
+      builder, block, floatType, mcpuMemset4DFuncOp, outputMemRefType,
+      outputMemsetMinValue, outputMemsetMaxValue, seedConstantIntOp);
 
   // Populate host validation logic
   auto cpuConvFuncOp = createCPUConvolution(module, builder, filterMemRefType,

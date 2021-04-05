@@ -10,11 +10,13 @@
 // CHECK-NEXT: memref_cast {{.*}} : memref<[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]> to memref<?x?x?x?x[[TYPE]]>
 // CHECK-NEXT: memref_cast {{.*}} : memref<[[N]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]> to memref<?x?x?x?x[[TYPE]]>
 // CHECK-NEXT: memref_cast {{.*}} : memref<[[N]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]> to memref<?x?x?x?x[[TYPE]]>
-// CHECK-NEXT: constant {{.*}} : [[TYPE]]
-// CHECK-NEXT: constant {{.*}} : [[TYPE]]
-// CHECK-NEXT: call @mcpuMemset4D{{.*}}({{.*}}, {{.*}}) : (memref<?x?x?x?x[[TYPE]]>, [[TYPE]]) -> ()
-// CHECK-NEXT: call @mcpuMemset4D{{.*}}({{.*}}, {{.*}}) : (memref<?x?x?x?x[[TYPE]]>, [[TYPE]]) -> ()
-// CHECK-NEXT: call @mcpuMemset4D{{.*}}({{.*}}, {{.*}}) : (memref<?x?x?x?x[[TYPE]]>, [[TYPE]]) -> ()
+// CHECK-NEXT: constant 0 : i16
+// CHECK-NEXT: constant {{.*}} : i16
+// CHECK-NEXT: constant {{.*}} : i16
+// CHECK-NEXT: constant {{.*}} : i32
+// CHECK-NEXT: call @mcpuMemset4D{{.*}}Rand({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
+// CHECK-NEXT: call @mcpuMemset4D{{.*}}Rand({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
+// CHECK-NEXT: call @mcpuMemset4D{{.*}}Rand({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
 // CHECK-NEXT: call @gpu_conv({{.*}}, {{.*}}, {{.*}}) : (memref<[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, memref<[[N]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, memref<[[N]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>) -> ()
 // CHECK-NEXT: dealloc {{.*}} : memref<[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
 // CHECK-NEXT: dealloc {{.*}} : memref<[[N]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>
