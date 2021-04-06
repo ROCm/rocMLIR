@@ -862,10 +862,10 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
                 else
                   input =
                       inputAllocated[g * inputStrides[0] + 
-		                     n * inputStrides[1] + 
-				     c * inputStrides[2] +
-                                     in_h * inputStrides[2] +
-                                     in_w * inputStrides[3]];
+		                                 n * inputStrides[1] + 
+				                             c * inputStrides[2] +
+                                     in_h * inputStrides[3] +
+                                     in_w * inputStrides[4]];
 
                 acc += input * filterAllocated[g * filterStrides[0] +
                                                k * filterStrides[1] +
