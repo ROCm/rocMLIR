@@ -2789,7 +2789,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                  /*isMatrixA=*/false);
 
     // LDS barrier.
-    mfmalb.create<miopen::WorkgroupBarrierOp>(loc);
+    mfmalb.create<miopen::LDSBarrierOp>(loc);
 
     // Emit blockwise V2 GEMM.
     auto blockwiseGemmV2Op = mfmalb.create<miopen::BlockwiseGemmV2Op>(
@@ -2799,7 +2799,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     affixBlockwiseGemmV2Attributes(blockwiseGemmV2Op, op, b);
  
     // LDS barrier.
-    mfmalb.create<miopen::WorkgroupBarrierOp>(loc);
+    mfmalb.create<miopen::LDSBarrierOp>(loc);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
     auto blockwiseCopyOpABottom = mfmalb.create<miopen::BlockwiseCopyOp>(
@@ -2819,7 +2819,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Emit loop tail.
 
     // LDS barrier.
-    b.create<miopen::WorkgroupBarrierOp>(loc);
+    b.create<miopen::LDSBarrierOp>(loc);
 
     // Emit blockwise GEMM for the loop tail.
     auto blockwiseGemmV2TailOp = b.create<miopen::BlockwiseGemmV2Op>(

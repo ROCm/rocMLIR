@@ -312,6 +312,21 @@ static void print(OpAsmPrinter &p, WorkgroupBarrierOp op) {
 static LogicalResult verify(WorkgroupBarrierOp op) { return success(); }
 
 //===----------------------------------------------------------------------===//
+// LDSBarrierOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseLDSBarrierOp(OpAsmParser &parser,
+                                     OperationState &result) {
+  return success();
+}
+
+static void print(OpAsmPrinter &p, LDSBarrierOp op) {
+  p << op.getOperationName();
+}
+
+static LogicalResult verify(LDSBarrierOp op) { return success(); }
+
+//===----------------------------------------------------------------------===//
 // WorkgroupIdOp
 //===----------------------------------------------------------------------===//
 
