@@ -1437,7 +1437,7 @@ static LogicalResult populateValidationLogic(
       ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
       floatType);
 
-  fourDimUnknownSizeMemRefType = MemRefType::get({-1, -1, -1, -1}, floatType);
+  fourDimUnknownSizeMemRefType = MemRefType::get({-1, -1, -1, -1, -1}, floatType);
 
   if (dataType != builder.getF32Type()) {
     oneConstantFloatOp =
@@ -1452,7 +1452,7 @@ static LogicalResult populateValidationLogic(
 
     // Emit CPU memset function calls.
     mcpuMemset4DFuncOp =
-        makeFuncDecl(builder, "mcpuMemset4DFloat",
+        makeFuncDecl(builder, "mcpuMemset5DFloat",
                      {fourDimUnknownSizeMemRefType, floatType}, {});
     module.push_back(mcpuMemset4DFuncOp);
   }
