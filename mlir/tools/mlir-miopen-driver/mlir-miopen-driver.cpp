@@ -1596,7 +1596,7 @@ populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
   block->push_back(zeroConstantFloatOp);
 
   // Emit CPU memset function calls.
-  StringRef memsetFuncName = memsetFuncName = "mcpuMemset4DFloat";
+  StringRef memsetFuncName = memsetFuncName = "mcpuMemset5DFloat";
   auto mcpuMemset4DFuncOp = makeFuncDecl(
       builder, memsetFuncName, {fourDimUnknownSizeMemRefType, floatType}, {});
   module.push_back(mcpuMemset4DFuncOp);
