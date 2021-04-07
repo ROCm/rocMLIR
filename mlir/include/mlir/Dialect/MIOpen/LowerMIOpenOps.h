@@ -1894,13 +1894,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
 
     // LDS barrier.
-    lb.create<miopen::WorkgroupBarrierOp>(loc);
+    lb.create<miopen::LDSBarrierOp>(loc);
 
     // Emit blockwise GEMM.
     auto blockwiseGemmOp = lb.create<miopen::BlockwiseGemmOp>(
         loc, lds2DMatrixASubviewOp, lds2DMatrixBSubviewOp,
         registerMatrixCAllocOp, mMyThreadOffsetA, mMyThreadOffsetB);
     affixBlockwiseGemmAttributes(blockwiseGemmOp, op, b);
+
+    // LDS barrier.
+    // This barrier prevents halo part of outputs having weird values.
+    lb.create<miopen::LDSBarrierOp>(loc);
 
     // Blockwise copy from global (generic tensor) to register (naive tensor).
     lb.create<miopen::MovePosOp>(
@@ -1935,7 +1939,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // outside the loop.
 
     // LDS barrier.
-    b.create<miopen::WorkgroupBarrierOp>(loc);
+    b.create<miopen::LDSBarrierOp>(loc);
 
     // Emit blockwise GEMM for the loop tail.
     auto blockwiseGemmTailOp = b.create<miopen::BlockwiseGemmOp>(
