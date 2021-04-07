@@ -146,7 +146,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     std::string filLayout = conv2dGenerator.translateLayout(
         argMap["fil_layout"], std::string("GKCYX"), std::string("gkcyx"));
     std::string outLayout = conv2dGenerator.translateLayout(
-        argMap["out_layout"], std::string("NGCHW"), std::string("ngkhw"));
+        argMap["out_layout"], std::string("NGKHW"), std::string("ngkhw"));
 
     ModuleOp module = handle->getModule();
     // Determine dimensions.
