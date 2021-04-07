@@ -100,7 +100,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
         "out_channels", "out_h",         "out_w",         "fil_layout",
         "fil_type",     "fil_w",         "fil_h",         "padding_h",
         "padding_w",    "conv_stride_h", "conv_stride_w", "dilation_h",
-        "dilation_w", "groupsize"};
+        "dilation_w",   "groupsize"};
     return std::all_of(
         validKeys.cbegin(), validKeys.cend(),
         [&argMap](const std::string &key) { return argMap.count(key) > 0; });

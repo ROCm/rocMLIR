@@ -222,7 +222,7 @@ static void correctParameters() {
   std::string filterLayoutValue = filterLayout.getValue();
   std::string inputLayoutValue = inputLayout.getValue();
   std::string outputLayoutValue = outputLayout.getValue();
-  if (filterLayoutValue.size() == 4) {//yxcgk not implement yet
+  if (filterLayoutValue.size() == 4) { // yxcgk not implement yet
     if (filterLayoutValue == "kcyx")
       filterLayout.setValue("gkcyx");
     else if (filterLayoutValue == "kyxc")
@@ -1437,7 +1437,8 @@ static LogicalResult populateValidationLogic(
       ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
       floatType);
 
-  fourDimUnknownSizeMemRefType = MemRefType::get({-1, -1, -1, -1, -1}, floatType);
+  fourDimUnknownSizeMemRefType =
+      MemRefType::get({-1, -1, -1, -1, -1}, floatType);
 
   if (dataType != builder.getF32Type()) {
     oneConstantFloatOp =

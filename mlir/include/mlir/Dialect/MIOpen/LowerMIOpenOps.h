@@ -1003,7 +1003,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                  sourceProbGDimAttr.end());
 
               layoutAttr1.append(targetGemm1DimAttr.begin(),
-			      targetGemm1DimAttr.end());
+                                 targetGemm1DimAttr.end());
               layoutAttr1.append(sourceProbNHoWoDimAttr.begin(),
                                  sourceProbNHoWoDimAttr.end());
               layoutAttr2.append(targetGemm2DimAttr.begin(),
@@ -1564,10 +1564,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto twoConstantOp = b.create<ConstantIndexOp>(loc, 2);
 
     // Obtain critical matrix dimensions.
-    int64_t G = op.filter().getType().template dyn_cast<MemRefType>().getShape()[0];
-    int64_t K = op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
-    int64_t M = op.filter().getType().template dyn_cast<MemRefType>().getShape()[2];
-    int64_t N = op.input().getType().template dyn_cast<MemRefType>().getShape()[2];
+    int64_t G =
+        op.filter().getType().template dyn_cast<MemRefType>().getShape()[0];
+    int64_t K =
+        op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
+    int64_t M =
+        op.filter().getType().template dyn_cast<MemRefType>().getShape()[2];
+    int64_t N =
+        op.input().getType().template dyn_cast<MemRefType>().getShape()[2];
 
     // Obtain critical tuning parameters.
     int64_t BlockSize =
@@ -1809,7 +1813,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
     auto GemmBBlockCopyDestCoord_X_i32 =
         b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_X_i32);
-    
+
     auto GemmDataIdBegin_G_i32 =
         b.create<IndexCastOp>(loc, block_work_id_g, b.getIntegerType(32));
     auto GemmBlockCoord_G_i32 =
@@ -1892,23 +1896,21 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // llvm::errs() << "GemmNRepeat: " << GemmNRepeat << "\n";
 
     auto threadCRegisterMemRefType = MemRefType::get(
-        {1, GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, elementType, {},
-        gpu::GPUDialect::getPrivateAddressSpace());
+        {1, GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, elementType,
+        {}, gpu::GPUDialect::getPrivateAddressSpace());
     registerMatrixCAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadCRegisterMemRefType);
 
     // Alloc for Matrix A / B on registers.
     auto threadARegisterMemRefType = MemRefType::get(
-        {1,
-         GemmABlockCopyThreadSliceLengths_GemmK,
+        {1, GemmABlockCopyThreadSliceLengths_GemmK,
          GemmABlockCopyThreadSliceLengths_GemmM},
         elementType, {}, gpu::GPUDialect::getPrivateAddressSpace());
     auto threadAAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadARegisterMemRefType);
 
     auto threadBRegisterMemRefType = MemRefType::get(
-        {1,
-         GemmBBlockCopyThreadSliceLengths_GemmK,
+        {1, GemmBBlockCopyThreadSliceLengths_GemmK,
          GemmBBlockCopyThreadSliceLengths_GemmN},
         elementType, {}, gpu::GPUDialect::getPrivateAddressSpace());
     auto threadBAllocOp =
@@ -2036,9 +2038,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t loopIteration = (K - KPerBlock) / KPerBlock;
     auto loopIterationConstantOp =
         b.create<ConstantIndexOp>(loc, loopIteration);
-    auto loopOp =
-        b.create<scf::ForOp>(loc, zeroConstantOp,
-                             loopIterationConstantOp, oneConstantOp);
+    auto loopOp = b.create<scf::ForOp>(loc, zeroConstantOp,
+                                       loopIterationConstantOp, oneConstantOp);
 
     // inside the loop.
     auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
@@ -2053,17 +2054,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     affixBlockwiseGemmAttributes(blockwiseGemmOp, op, b);
 
     // Blockwise copy from global (generic tensor) to register (naive tensor).
-    lb.create<miopen::MovePosOp>(
-        loc, blockwiseCopyASrc,
-        ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op, zeroConstantI32Op});
+    lb.create<miopen::MovePosOp>(loc, blockwiseCopyASrc,
+                                 ValueRange{zeroConstantI32Op,
+                                            KPerBlockConstantI32Op,
+                                            zeroConstantI32Op});
     auto blockwiseCopyOpATop = lb.create<miopen::BlockwiseCopyOp>(
         loc, op.filter(), threadAAllocOp, blockwiseCopyASrc, blockwiseCopyADst,
         /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyOpATop, op, b,
                                  /*isMatrixA=*/true);
-    lb.create<miopen::MovePosOp>(
-        loc, blockwiseCopyBSrc,
-        ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op, zeroConstantI32Op});
+    lb.create<miopen::MovePosOp>(loc, blockwiseCopyBSrc,
+                                 ValueRange{zeroConstantI32Op,
+                                            KPerBlockConstantI32Op,
+                                            zeroConstantI32Op});
     auto blockwiseCopyOpBTop = lb.create<miopen::BlockwiseCopyOp>(
         loc, op.input(), threadBAllocOp, blockwiseCopyBSrc, blockwiseCopyBDst,
         /*buffer=*/nullptr);
@@ -2163,10 +2166,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                        {getAffineDimExpr(0, op.getContext()),
                         getAffineDimExpr(2, op.getContext()) +
                             getAffineDimExpr(1, op.getContext()) *
-                            getAffineConstantExpr(M1, op.getContext()),
+                                getAffineConstantExpr(M1, op.getContext()),
                         getAffineDimExpr(4, op.getContext()) +
                             getAffineDimExpr(3, op.getContext()) *
-                            getAffineConstantExpr(N1, op.getContext())},
+                                getAffineConstantExpr(N1, op.getContext())},
                        op.getContext());
 
     // compose with output tensor affine map.
@@ -4005,7 +4008,7 @@ struct ThreadwiseCopyRewritePattern
       auto NSliceColConstantOp = b.create<ConstantIndexOp>(loc, NSliceCol);
       auto DataPerAccessConstantOp =
           b.create<ConstantIndexOp>(loc, DataPerAccess);
-      
+
       // outer loop.
       auto outerLoopOp =
           b.create<scf::ForOp>(loc, zeroConstantOp,
