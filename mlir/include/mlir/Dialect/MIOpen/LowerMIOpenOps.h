@@ -1918,7 +1918,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // llvm::errs() << "GemmNRepeat: " << GemmNRepeat << "\n";
 
     auto threadCRegisterMemRefType = MemRefType::get(
-        {1, GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, elementType,
+        {GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, accumulatorType,
         {}, gpu::GPUDialect::getPrivateAddressSpace());
     registerMatrixCAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadCRegisterMemRefType);
@@ -2224,9 +2224,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         op.getContext());
 
     // emit TransformOp for Matrix C on VGPR.
-    auto register5DMatrixCType = MemRefType::get(
-        {1, GemmMRepeat, MPerThread, GemmNRepeat, NPerThread}, elementType,
-        {matrixCAffineMap5to3}, gpu::GPUDialect::getPrivateAddressSpace());
+    auto register4DMatrixCType = MemRefType::get(
+        {GemmMRepeat, MPerThread, GemmNRepeat, NPerThread}, accumulatorType,
+        {matrixCAffineMap4to2}, gpu::GPUDialect::getPrivateAddressSpace());
     auto matrixCTransformOp = b.create<miopen::TransformOp>(
         loc, register5DMatrixCType, registerMatrixCAllocOp);
 
