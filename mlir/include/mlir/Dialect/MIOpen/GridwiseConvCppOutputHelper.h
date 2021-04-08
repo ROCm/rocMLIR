@@ -18,7 +18,7 @@
 
 using namespace mlir;
 
-static constexpr int kConv2DTensorDimension = 4;
+static constexpr int kConv2DTensorDimension = 5;
 static constexpr StringLiteral kVarName[3] = {"weight", "input", "output"};
 
 static inline void
