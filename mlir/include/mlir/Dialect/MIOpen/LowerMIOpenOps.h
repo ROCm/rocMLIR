@@ -1422,14 +1422,25 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   LogicalResult matchAndRewrite(miopen::GridwiseGemmOp op, PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
+    // Determine the type used in the filter/input/output tensors.
     auto elementType = op.output()
                            .getType()
                            .cast<MemRefType>()
                            .getElementType()
                            .template dyn_cast<Type>();
 
+    // Determine the type used on VGPR to act as accumulator.
+    // f32: f32.
+    // f16: f32 to prevent overflow from happening.
+    // i16(bf16) : i16.
+    Type accumulatorType = elementType;
+    if (elementType == b.getF16Type()) {
+      accumulatorType = b.getF32Type();
+    }
+
     // Prepare some useful constants.
-    Value zeroConstantFloatOp = createZeroConstantFloatOp(b, loc, elementType);
+    Value zeroConstantFloatOp =
+        createZeroConstantFloatOp(b, loc, accumulatorType);
     auto zeroConstantI32Op =
         b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
 
@@ -1752,8 +1763,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // llvm::errs() << "GemmNRepeat: " << GemmNRepeat << "\n";
 
     auto threadCRegisterMemRefType = MemRefType::get(
-        {GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, elementType, {},
-        gpu::GPUDialect::getPrivateAddressSpace());
+        {GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, accumulatorType,
+        {}, gpu::GPUDialect::getPrivateAddressSpace());
     registerMatrixCAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadCRegisterMemRefType);
 
@@ -2047,7 +2058,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // emit TransformOp for Matrix C on VGPR.
     auto register4DMatrixCType = MemRefType::get(
-        {GemmMRepeat, MPerThread, GemmNRepeat, NPerThread}, elementType,
+        {GemmMRepeat, MPerThread, GemmNRepeat, NPerThread}, accumulatorType,
         {matrixCAffineMap4to2}, gpu::GPUDialect::getPrivateAddressSpace());
     auto matrixCTransformOp = b.create<miopen::TransformOp>(
         loc, register4DMatrixCType, registerMatrixCAllocOp);
