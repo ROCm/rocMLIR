@@ -4271,6 +4271,7 @@ struct ThreadwiseCopyRewritePattern
             TypeRange{innerLoopBuilder.getIndexType(),
                       innerLoopBuilder.getIndexType(),
                       innerLoopBuilder.getIndexType(),
+                      innerLoopBuilder.getIndexType(),
                       innerLoopBuilder.getIndexType()},
             withinBoundsOp, /*withElseRegion=*/true);
 
@@ -4279,14 +4280,14 @@ struct ThreadwiseCopyRewritePattern
             firstIfWithinBoundsOp.getThenBodyBuilder();
         firstIfWithinBoundsThenBuilder.create<scf::YieldOp>(
             loc, ValueRange{srcLowerIndices[0], srcLowerIndices[1],
-                            srcLowerIndices[2], srcLowerIndices[3]});
+                            srcLowerIndices[2], srcLowerIndices[3], srcLowerIndices[4]});
 
         // Else part.
         auto firstIfWithinBoundsElseBuilder =
             firstIfWithinBoundsOp.getElseBodyBuilder();
         firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(
             loc, ValueRange{zeroConstantOp, zeroConstantOp, zeroConstantOp,
-                            zeroConstantOp});
+                            zeroConstantOp, zeroConstantOp});
 
         // Issue scalar load.
         scalarValue = innerLoopBuilder.create<LoadOp>(
