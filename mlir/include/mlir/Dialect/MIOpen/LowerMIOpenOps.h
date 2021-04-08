@@ -74,6 +74,26 @@ inline Value createOneConstantFloatOp(OpBuilder &b, Location loc,
 }
 
 //===----------------------------------------------------------------------===//
+// Utility function to emit type conversion ops.
+//===----------------------------------------------------------------------===//
+inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
+                                    Type sourceType, Type destType) {
+  // Convert from sourceType to destType if necessary.
+  Value result = source;
+  if (sourceType != destType) {
+    // Possible cases:
+    // - fp16 -> fp32 : use fpext.
+    // - fp32 -> fp16 : use fptrunc.
+    if (sourceType == b.getF16Type() && destType == b.getF32Type()) {
+      result = b.create<FPExtOp>(loc, source, destType);
+    } else if (sourceType == b.getF32Type() && destType == b.getF16Type()) {
+      result = b.create<FPTruncOp>(loc, source, destType);
+    }
+  }
+  return result;
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2D (forward, backward) lowering.
 //===----------------------------------------------------------------------===//
 
@@ -1422,14 +1442,25 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   LogicalResult matchAndRewrite(miopen::GridwiseGemmOp op, PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
+    // Determine the type used in the filter/input/output tensors.
     auto elementType = op.output()
                            .getType()
                            .cast<MemRefType>()
                            .getElementType()
                            .template dyn_cast<Type>();
 
+    // Determine the type used on VGPR to act as accumulator.
+    // f32: f32.
+    // f16: f32 to prevent overflow from happening.
+    // i16(bf16) : i16.
+    Type accumulatorType = elementType;
+    if (elementType == b.getF16Type()) {
+      accumulatorType = b.getF32Type();
+    }
+
     // Prepare some useful constants.
-    Value zeroConstantFloatOp = createZeroConstantFloatOp(b, loc, elementType);
+    Value zeroConstantFloatOp =
+        createZeroConstantFloatOp(b, loc, accumulatorType);
     auto zeroConstantI32Op =
         b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
 
@@ -1752,8 +1783,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // llvm::errs() << "GemmNRepeat: " << GemmNRepeat << "\n";
 
     auto threadCRegisterMemRefType = MemRefType::get(
-        {GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, elementType, {},
-        gpu::GPUDialect::getPrivateAddressSpace());
+        {GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, accumulatorType,
+        {}, gpu::GPUDialect::getPrivateAddressSpace());
     registerMatrixCAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadCRegisterMemRefType);
 
@@ -2047,7 +2078,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // emit TransformOp for Matrix C on VGPR.
     auto register4DMatrixCType = MemRefType::get(
-        {GemmMRepeat, MPerThread, GemmNRepeat, NPerThread}, elementType,
+        {GemmMRepeat, MPerThread, GemmNRepeat, NPerThread}, accumulatorType,
         {matrixCAffineMap4to2}, gpu::GPUDialect::getPrivateAddressSpace());
     auto matrixCTransformOp = b.create<miopen::TransformOp>(
         loc, register4DMatrixCType, registerMatrixCAllocOp);
@@ -3418,8 +3449,6 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
     if (op.buffer())
       bufferType = op.buffer().getType().cast<MemRefType>();
 
-    auto elementType = destType.getElementType();
-
     // Prepare some useful constants.
     auto zeroConstantI32Op =
         b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
@@ -3652,7 +3681,9 @@ struct ThreadwiseCopyRewritePattern
   LogicalResult matchAndRewrite(miopen::ThreadwiseCopyOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
-    auto elementType =
+    auto sourceElementType =
+        op.source().getType().cast<MemRefType>().getElementType().cast<Type>();
+    auto destElementType =
         op.dest().getType().cast<MemRefType>().getElementType().cast<Type>();
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
@@ -3842,8 +3873,12 @@ struct ThreadwiseCopyRewritePattern
       Value scalarValue;
       // Load from source.
       // Issue scalar load.
-      scalarValue = lib.create<LoadOp>(loc, sourceType.getElementType(),
-                                       op.source(), srcLowerIndices);
+      scalarValue = lib.create<LoadOp>(loc, sourceElementType, op.source(),
+                                       srcLowerIndices);
+
+      // Convert from sourceElementType to destElementType if necessary.
+      Value convertedScalarValue = createTypeConversionOp(
+          lib, loc, scalarValue, sourceElementType, destElementType);
 
       // Compute high-level coordinate for dest memref.
       // dst_index = (ivo_i32, ivi_i32) + destCoord
@@ -3866,7 +3901,8 @@ struct ThreadwiseCopyRewritePattern
 
       // Store to dest.
       // Issue scalar store.
-      lib.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
+      lib.create<StoreOp>(loc, convertedScalarValue, op.dest(),
+                          destLowerIndices);
     } else {
       // The more elaborated algorithm.
       // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
@@ -4074,12 +4110,13 @@ struct ThreadwiseCopyRewritePattern
                             zeroConstantOp});
 
         // Issue scalar load.
-        scalarValue = innerLoopBuilder.create<LoadOp>(
-            loc, elementType, op.source(), firstIfWithinBoundsOp.results());
+        scalarValue =
+            innerLoopBuilder.create<LoadOp>(loc, sourceElementType, op.source(),
+                                            firstIfWithinBoundsOp.results());
 
         // Emit the second IfOp.
         auto secondIfWithinBoundsOp = innerLoopBuilder.create<scf::IfOp>(
-            loc, elementType, withinBoundsOp, true);
+            loc, sourceElementType, withinBoundsOp, true);
         auto secondIfWithinBoundsThenBuilder =
             secondIfWithinBoundsOp.getThenBodyBuilder();
         secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc, scalarValue);
@@ -4092,8 +4129,13 @@ struct ThreadwiseCopyRewritePattern
       } else {
         // Issue scalar load.
         scalarValue = innerLoopBuilder.create<LoadOp>(
-            loc, sourceType.getElementType(), op.source(), srcLowerIndices);
+            loc, sourceElementType, op.source(), srcLowerIndices);
       }
+
+      // Convert from sourceElementType to destElementType if necessary.
+      Value convertedScalarValue =
+          createTypeConversionOp(innerLoopBuilder, loc, scalarValue,
+                                 sourceElementType, destElementType);
 
       // Compute high-level coordinate for dest memref.
       // dst_index = (iv_0, iv_1, ...) + destCoord
@@ -4118,7 +4160,7 @@ struct ThreadwiseCopyRewritePattern
 
       // Store to dest.
       // Issue scalar store.
-      innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(),
+      innerLoopBuilder.create<StoreOp>(loc, convertedScalarValue, op.dest(),
                                        destLowerIndices);
     }
 
