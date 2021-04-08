@@ -3429,8 +3429,6 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
     if (op.buffer())
       bufferType = op.buffer().getType().cast<MemRefType>();
 
-    auto elementType = destType.getElementType();
-
     // Prepare some useful constants.
     auto zeroConstantI32Op =
         b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
