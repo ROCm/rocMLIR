@@ -20,25 +20,15 @@
 namespace mlir {
 class Conv2dGenerator {
 public:
-  LogicalResult
-  parseConvDims(std::string &inputLayout, std::string &outputLayout,
-                std::string &filterLayout, int64_t groupSize, int64_t batchSize,
-                int64_t inputChannel, int64_t inputHeight, int64_t inputWidth,
-                int64_t outputChannel, int64_t outputHeight,
-                int64_t outputWidth, int64_t filterHeight, int64_t filterWidth,
-                SmallVector<int64_t, 5> &filterDimension,
-                SmallVector<int64_t, 5> &inputDimension,
-                SmallVector<int64_t, 5> &outputDimension);
+  LogicalResult parseConvConfig(const char *arguments);
 
-  LogicalResult genConvModule(
-      std::string &arch, int num_cu, std::string &operation,
-      std::string &inputLayout, std::string &outputLayout,
-      std::string &filterLayout, const SmallVector<int64_t, 5> &filterDimension,
-      const SmallVector<int64_t, 5> &inputDimension,
-      const SmallVector<int64_t, 5> &outputDimension, int dilationHeight,
-      int dilationWidth, int strideHeight, int strideWidth, int paddingHeight,
-      int paddingWidth, ModuleOp &module, OpBuilder &builder,
-      std::string &kernelName, mlir::Type dataType, bool xdlops = false);
+  LogicalResult parseConvDims(int64_t batchSize, int64_t inputChannel,
+                              int64_t inputHeight, int64_t inputWidth,
+                              int64_t outputChannel, int64_t outputHeight,
+                              int64_t outputWidth, int64_t filterHeight,
+                              int64_t filterWidth);
+
+  LogicalResult genConvModule(ModuleOp &module, OpBuilder &builder);
 
   template <typename Vector>
   std::string translateLayout(const Vector &src, const Vector &srcSpec,
@@ -64,6 +54,25 @@ private:
                    });
     return permutation;
   }
+
+public:
+  std::string arch;
+  int num_cu = 0;
+  bool xdlops = false;
+  std::string operation = "conv2d";
+  std::string dataTypeStr = "f32";
+  int dilationHeight = 1, dilationWidth = 1;
+  int strideHeight = 1, strideWidth = 1;
+  int paddingHeight = 0, paddingWidth = 0;
+  std::string filterLayout = "kcyx";
+  std::string inputLayout = "nchw";
+  std::string outputLayout = "nkhw";
+
+  std::string kernelName;
+
+  SmallVector<int64_t, 4> filterDimension;
+  SmallVector<int64_t, 4> inputDimension;
+  SmallVector<int64_t, 4> outputDimension;
 };
 
 } // namespace mlir
