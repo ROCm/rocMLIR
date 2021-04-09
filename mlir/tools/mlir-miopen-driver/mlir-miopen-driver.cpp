@@ -171,10 +171,24 @@ static cl::opt<std::string>
                        cl::value_desc("Populate entry point function"),
                        cl::init("conv2d"));
 
-// lowering pipeline setup.
-static cl::opt<bool> loweringWithDefaultPipeline(
-    "c", cl::desc("To lower with default pipeline"),
-    cl::value_desc("To lower with default pipeline"), cl::init(false));
+// Set up lowering pipeline.
+// The default lowering pipeline compiles down to GPU dialect.
+// The output of the pipeline can be piped to mlir-rocm-runner for execution.
+//
+// When users specify "-c -target=rocdl", compiles down to LLVM dialect.
+// The output of the pipeline can be piped to mlir-translate for translation to
+// LLVM IR.
+static cl::opt<bool> loweringWithBuiltinPipeline(
+    "c", cl::desc("Compile with the specified pipeline"),
+    cl::value_desc("By default, compiles down to GPU dialect. Set "
+                   "-target=rocdl compiles to ROCDL dialect."),
+    cl::init(false));
+
+static cl::opt<std::string> loweringTargetDialect(
+    "target", cl::desc("Target dialect"),
+    cl::value_desc("By default, compiles down to GPU dialect. Set "
+                   "-target=rocdl compiles to ROCDL dialect."),
+    cl::init("gpu"));
 
 // use host harness program.
 static cl::opt<bool> useHostHarness(
@@ -1719,28 +1733,41 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
   return success();
 }
 
+static void populateDefaultLoweringPipeline(PassManager &pm,
+                                            StringRef kernelName) {
+  // Passes for lowering MIOpen dialect.
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
+  pm.addPass(mlir::miopen::createAffineTransformPass());
+  pm.addPass(
+      mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
+  pm.addPass(mlir::createLowerMIOpenOpsToGPUPass(kernelName));
+
+  // Passes for lowering linalg dialect.
+  pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+  pm.addPass(mlir::createLowerAffinePass());
+  pm.addPass(mlir::createLowerToCFGPass());
+}
+
 static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser &passPipeline, StringRef kernelName) {
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
   applyPassManagerCLOptions(pm);
 
-  if (loweringWithDefaultPipeline.getValue()) {
-    // Use fixed lowering pipeline.
-
-    // Passes for lowering MIOpen dialect.
-    pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
-    pm.addPass(mlir::miopen::createAffineTransformPass());
-    pm.addPass(
-        mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
-    pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
-    pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
-    pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
-    pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
-    pm.addPass(mlir::createLowerMIOpenOpsToGPUPass(kernelName));
-
-    // Passes for lowering linalg dialect.
-    pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
-    pm.addPass(mlir::createLowerAffinePass());
-    pm.addPass(mlir::createLowerToCFGPass());
+  // Set up lowering pipeline.
+  bool toUseBuiltinPipeline = loweringWithBuiltinPipeline.getValue();
+  if (toUseBuiltinPipeline) {
+    StringRef pipeline = loweringTargetDialect.getValue();
+    if (pipeline == "gpu") {
+      // Set up the default lowering pipeline which goes down to GPU dialect.
+      populateDefaultLoweringPipeline(pm, kernelName);
+    } else if (pipeline == "rocdl") {
+      // Set up the lowering pipeline which goes down to ROCDL dialect.
+      populateDefaultLoweringPipeline(pm, kernelName);
+      pm.addPass(createLowerGpuOpsToROCDLOpsPass());
+    }
   } else {
     auto errorHandler = [&](const Twine &msg) {
       emitError(UnknownLoc::get(module.getContext())) << msg;
