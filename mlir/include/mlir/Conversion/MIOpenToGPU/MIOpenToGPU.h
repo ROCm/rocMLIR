@@ -31,7 +31,7 @@ class GPUModuleOp;
 
 /// Create a pass to convert MIOpen operations to std operations.
 std::unique_ptr<OperationPass<ModuleOp>>
-createLowerMIOpenOpsToGPUPass(StringRef kernelName = "",
+createLowerMIOpenOpsToGPUPass(StringRef kernelNameList = "",
                               StringRef gpuModuleName = "");
 
 /// Create a pass to convert MIOpen operations to std/gpu operations within a

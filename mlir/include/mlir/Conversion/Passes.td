@@ -528,7 +528,7 @@ def ConvertMIOpenToGPU : Pass<"convert-miopen-to-gpu", "ModuleOp"> {
                 "dialect";
   let constructor = "mlir::createLowerMIOpenOpsToGPUPass()";
   let options = [
-    Option<"kernelName", "kernel-name", "std::string",
+    Option<"kernelNameList", "kernel-name", "std::string",
            "\"miopen_conv2d_kcyx_nchw_nkhw\"",
            "kernel name to be lowered">,
     Option<"gpuModuleName", "gpu-module-name", "std::string",
