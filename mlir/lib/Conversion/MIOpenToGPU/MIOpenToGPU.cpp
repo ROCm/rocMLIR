@@ -63,8 +63,8 @@ namespace {
 struct LowerMIOpenOpsToGPUPass : public ConvertMIOpenToGPUBase<LowerMIOpenOpsToGPUPass> {
 public:
   LowerMIOpenOpsToGPUPass() = default;
-  LowerMIOpenOpsToGPUPass(StringRef kernelName, StringRef gpuModuleName) {
-    this->kernelName = kernelName.str();
+  LowerMIOpenOpsToGPUPass(StringRef kernelNameList, StringRef gpuModuleName) {
+    this->kernelNameList = kernelNameList.str();
     this->gpuModuleName = gpuModuleName.str();
   }
   void runOnOperation() override;
@@ -87,11 +87,21 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
               UnitAttr::get(op.getContext()));
 
   // Check parameters and populate default values if necessary.
-  if (kernelName.empty())
-    kernelName = "miopen_conv2d_kcyx_nchw_nkhw";
+  if (kernelNameList.empty())
+    kernelNameList = "miopen_conv2d_kcyx_nchw_nkhw";
   if (gpuModuleName.empty())
     gpuModuleName = "miopen_kernel_module";
 
+  // Split kernelNameList into a vector separated with comma.
+  StringRef remainingKernelNameList = kernelNameList;
+  SmallVector<StringRef, 1> kernelNameTable;
+  do {
+    std::pair<StringRef, StringRef> p = remainingKernelNameList.split(',');
+    kernelNameTable.push_back(p.first);
+    remainingKernelNameList = p.second;
+  } while (!remainingKernelNameList.empty());
+
+  // Identify the specified GPU ModuleOp.
   bool theGpuModuleExist = false;
   gpu::GPUModuleOp theGpuModule;
   for (auto gpuModule : op.getOps<gpu::GPUModuleOp>()) {
@@ -113,84 +123,110 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     symbolTable.insert(theGpuModule);
   }
 
-  bool theGpuFuncExist = false;
-  gpu::GPUFuncOp theGpuFunc;
+  // Identify the specified GPU FuncOp instances.
+  bool gpuFuncInstancesExist = false;
+  SmallVector<gpu::GPUFuncOp, 1> gpuFuncTable;
   for (auto gpuFunc : theGpuModule.getOps<gpu::GPUFuncOp>()) {
-    if (gpuFunc.getName() == kernelName) {
-      theGpuFuncExist = true;
-      theGpuFunc = gpuFunc;
+    for (auto kernelName : kernelNameTable) {
+      if (gpuFunc.getName() == kernelName) {
+        gpuFuncInstancesExist = true;
+        gpuFuncTable.push_back(gpuFunc);
+
+        // Set kernel attribute.
+        gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
+                         b.getUnitAttr());
+        break;
+      }
+    }
+  }
+
+  if (!gpuFuncInstancesExist) {
+    // Lambda to process the identified FuncOp.
+    auto processGpuKernelFunc = [&b, &loc](FuncOp &theFunc) -> gpu::GPUFuncOp {
+      // create a GPUFuncOp.
+      FunctionType gpuFuncType = theFunc.getType();
+      auto gpuFunc =
+          b.create<gpu::GPUFuncOp>(loc, theFunc.getName(), gpuFuncType);
 
       // Set kernel attribute.
       gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
                        b.getUnitAttr());
-      break;
-    }
-  }
+      if (auto attr = theFunc->getAttr("block_size"))
+        gpuFunc->setAttr("block_size", attr);
+      if (auto attr = theFunc->getAttr("grid_size"))
+        gpuFunc->setAttr("grid_size", attr);
 
-  if (!theGpuFuncExist) {
-    // Try locate a FuncOp which has kernelName, and convert it to a GPUFuncOp.
+      // associate arguments for newly created GPUFuncOp.
+      BlockAndValueMapping map;
+      for (unsigned idx = 0; idx < theFunc.getNumArguments(); ++idx) {
+        auto arg = theFunc.getArgument(idx);
+        auto gpuFuncArg = gpuFunc.getArgument(idx);
 
+        map.map(arg, gpuFuncArg);
+      }
+
+      // clone function body into newly created GPUFuncOp.
+      Region &gpuFuncBody = gpuFunc.body();
+      Region &funcBody = theFunc.getBody();
+      funcBody.cloneInto(&gpuFuncBody, map);
+
+      // add a branch op to the cloned region.
+      Block &funcEntry = funcBody.front();
+      Block *clonedFuncEntry = map.lookup(&funcEntry);
+      Block &gpuFuncEntry = gpuFuncBody.front();
+      b.setInsertionPointToEnd(&gpuFuncEntry);
+      b.create<BranchOp>(loc, clonedFuncEntry);
+
+      // remove std.return ops.
+      gpuFunc.walk([&](ReturnOp op) { op.erase(); });
+
+      // create a GPU ReturnOp inside the GPUFuncOp.
+      b.setInsertionPointToEnd(&gpuFuncBody.back());
+      b.create<gpu::ReturnOp>(loc);
+
+      return gpuFunc;
+    };
+
+    // Set up the symbol table for the GPU ModuleOp.
     SymbolTable gpuModuleSymbolTable(theGpuModule);
 
-    bool theFuncExist = false;
-    FuncOp theFunc;
+    // Try locate a FuncOp which has kernelName, and convert it to a GPUFuncOp.
+    // Logic to use the lambda.
+    // Walkthrough all the FuncOp, check if it's within kernelNameTable, process
+    // it if true.
+    SmallVector<StringRef, 1> processedKernelNameTable;
     for (auto func : op.getOps<FuncOp>()) {
-      if (func.getName() == kernelName) {
-        theFuncExist = true;
-        theFunc = func;
-        break;
+      for (auto kernelName : kernelNameTable) {
+        if (func.getName() == kernelName) {
+          // Reset builder insertion point to the beginning of the GPU module,
+          // as it would be modified inside the lambda.
+          b.setInsertionPointToStart(&(theGpuModule.body()).front());
+          auto gpuFunc = processGpuKernelFunc(func);
+
+          // insert the GPUFuncOp into GPUModuleOp.
+          gpuModuleSymbolTable.insert(gpuFunc);
+
+          processedKernelNameTable.push_back(kernelName);
+          break;
+        }
       }
     }
 
-    // Early exit if the function to be rewritten does not exist.
-    if (!theFuncExist)
-      return;
-
-    // create a GPUFuncOp.
-    FunctionType gpuFuncType = theFunc.getType();
-    auto gpuFunc =
-        b.create<gpu::GPUFuncOp>(loc, theFunc.getName(), gpuFuncType);
-
-    // Set kernel attribute.
-    gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
-    if (auto attr = theFunc->getAttr("block_size"))
-      gpuFunc->setAttr("block_size", attr);
-    if (auto attr = theFunc->getAttr("grid_size"))
-      gpuFunc->setAttr("grid_size", attr);
-
-    // associate arguments for newly created GPUFuncOp.
-    BlockAndValueMapping map;
-    for (unsigned idx = 0; idx < theFunc.getNumArguments(); ++idx) {
-      auto arg = theFunc.getArgument(idx);
-      auto gpuFuncArg = gpuFunc.getArgument(idx);
-
-      map.map(arg, gpuFuncArg);
+    // Remove all processed FuncOp instances.
+    while (!processedKernelNameTable.empty()) {
+      auto iter = processedKernelNameTable.begin();
+      auto kernelName = *iter;
+      bool funcRemoved = false;
+      for (auto func : op.getOps<FuncOp>()) {
+        if (func.getName() == kernelName) {
+          funcRemoved = true;
+          func.erase();
+          break;
+        }
+      }
+      if (funcRemoved)
+        processedKernelNameTable.erase(iter);
     }
-
-    // clone function body into newly created GPUFuncOp.
-    Region &gpuFuncBody = gpuFunc.body();
-    Region &funcBody = theFunc.getBody();
-    funcBody.cloneInto(&gpuFuncBody, map);
-
-    // add a branch op to the cloned region.
-    Block &funcEntry = funcBody.front();
-    Block *clonedFuncEntry = map.lookup(&funcEntry);
-    Block &gpuFuncEntry = gpuFuncBody.front();
-    b.setInsertionPointToEnd(&gpuFuncEntry);
-    b.create<BranchOp>(loc, clonedFuncEntry);
-
-    // remove std.return ops.
-    gpuFunc.walk([&](ReturnOp op) { op.erase(); });
-
-    // create a GPU ReturnOp inside the GPUFuncOp.
-    b.setInsertionPointToEnd(&gpuFuncBody.back());
-    b.create<gpu::ReturnOp>(loc);
-
-    // insert the GPUFuncOp into GPUModuleOp.
-    gpuModuleSymbolTable.insert(gpuFunc);
-
-    // Erase old FuncOp instance.
-    theFunc.erase();
   }
 
   // Convert GPU-specific ops to GPU dialect.
