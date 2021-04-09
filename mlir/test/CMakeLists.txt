@@ -3,6 +3,7 @@ add_subdirectory(CAPI)
 add_subdirectory(EDSC)
 add_subdirectory(SDBM)
 add_subdirectory(lib)
+add_subdirectory(auto_e2e)
 
 llvm_canonicalize_cmake_booleans(
   MLIR_BINDINGS_PYTHON_ENABLED
@@ -123,6 +124,12 @@ add_lit_testsuite(check-mlir "Running the MLIR regression tests"
   DEPENDS ${MLIR_TEST_DEPENDS}
   )
 set_target_properties(check-mlir PROPERTIES FOLDER "Tests")
+
+if(MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED)
+  list(APPEND MLIR_TEST_DEPENDS
+      check-e2e
+      )
+endif()
 
 add_lit_testsuites(MLIR ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS ${MLIR_TEST_DEPENDS}
