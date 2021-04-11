@@ -2198,12 +2198,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
           gop->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
       int64_t NPerBlock =
           gop->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
-      int64_t MPerWave = gop->getAttr("m_per_wave")
-                             .template dyn_cast<IntegerAttr>()
-                             .getInt();
-      int64_t NPerWave = gop->getAttr("n_per_wave")
-                             .template dyn_cast<IntegerAttr>()
-                             .getInt();
+      int64_t MPerWave =
+          gop->getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
+      int64_t NPerWave =
+          gop->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
       int64_t MWaves = MPerBlock / MPerWave;
       int64_t NWaves = NPerBlock / NPerWave;
 
