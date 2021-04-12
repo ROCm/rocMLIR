@@ -116,14 +116,6 @@ func @miopen_workgroup_barrier() {
 // CHECK-LABEL: func @miopen_workgroup_barrier
 //   CHECK-NEXT: miopen.workgroup_barrier
 
-func @miopen_lds_barrier() {
-  miopen.lds_barrier
-  return
-}
-
-// CHECK-LABEL: func @miopen_lds_barrier
-//   CHECK-NEXT: miopen.lds_barrier
-
 func @miopen_indexing() {
   %0 = miopen.workgroup_id : index
   %1 = miopen.workitem_id : index
@@ -134,7 +126,7 @@ func @miopen_indexing() {
 //   CHECK-NEXT: miopen.workgroup_id
 //   CHECK-NEXT: miopen.workitem_id
  
-func @miopen_blockwise_gemm(%A : memref<?x?xf32, 3>, %B : memref<?x?xf32, 3>, %C : memref<?x?xf32, 5>) {
+func @miopen_blockwise_gemm(%A : memref<?x?x?xf32, 3>, %B : memref<?x?x?xf32, 3>, %C : memref<?x?x?xf32, 5>) {
   %c0 = constant 0 : index
   miopen.blockwise_gemm(%A, %B, %C, %c0, %c0) {
     m_per_thread = 64,
@@ -148,7 +140,7 @@ func @miopen_blockwise_gemm(%A : memref<?x?xf32, 3>, %B : memref<?x?xf32, 3>, %C
 
     matrix_a_source_data_per_read = 4,
     matrix_b_source_data_per_read = 4
-  } : memref<?x?xf32, 3>, memref<?x?xf32, 3>, memref<?x?xf32, 5>, index, index
+  } : memref<?x?x?xf32, 3>, memref<?x?x?xf32, 3>, memref<?x?x?xf32, 5>, index, index
   return
 }
 
@@ -269,8 +261,8 @@ func @miopen_threadwise_copy_v2(%source_offset : i32, %source_coord : memref<2xi
 // CHECK-LABEL: func @miopen_threadwise_copy_v2
 //  CHECK: miopen.threadwise_copy_v2
 
-func @miopen_threadwise_gemm(%lhs : memref<4x8xf32>, %rhs : memref<4x8xf32>, %output : memref<8x8xf32>) {
-  miopen.threadwise_gemm(%lhs, %rhs, %output) : memref<4x8xf32>, memref<4x8xf32>, memref<8x8xf32>
+func @miopen_threadwise_gemm(%lhs : memref<1x4x8xf32>, %rhs : memref<1x4x8xf32>, %output : memref<1x8x8xf32>) {
+  miopen.threadwise_gemm(%lhs, %rhs, %output) : memref<1x4x8xf32>, memref<1x4x8xf32>, memref<1x8x8xf32>
   return
 }
  

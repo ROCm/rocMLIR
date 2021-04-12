@@ -35,12 +35,6 @@ func @rocdl.barrier() {
   llvm.return
 }
 
-func @rocdl.lds_barrier() {
-  // CHECK: rocdl.lds_barrier
-  rocdl.lds_barrier
-  llvm.return
-}
-
 func @rocdl.xdlops(%arg0 : f32, %arg1 : f32,
                    %arg2 : vector<32xf32>, %arg3 : i32,
                    %arg4 : vector<16xf32>, %arg5 : vector<4xf32>,

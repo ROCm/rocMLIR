@@ -106,8 +106,8 @@ func @miopen_threadwise_copy_v2_f16(%source_offset : i32, %source_coord : memref
 // CHECK-LABEL: func @miopen_threadwise_copy_v2_f16
 //  CHECK: miopen.threadwise_copy_v2
 
-func @miopen_threadwise_gemm_f16(%lhs : memref<4x8xf16>, %rhs : memref<4x8xf16>, %output : memref<8x8xf16>) {
-  miopen.threadwise_gemm(%lhs, %rhs, %output) : memref<4x8xf16>, memref<4x8xf16>, memref<8x8xf16>
+func @miopen_threadwise_gemm_f16(%lhs : memref<1x4x8xf16>, %rhs : memref<1x4x8xf16>, %output : memref<1x8x8xf16>) {
+  miopen.threadwise_gemm(%lhs, %rhs, %output) : memref<1x4x8xf16>, memref<1x4x8xf16>, memref<1x8x8xf16>
   return
 }
  

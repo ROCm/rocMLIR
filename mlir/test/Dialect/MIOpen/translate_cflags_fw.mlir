@@ -1,22 +1,22 @@
 // RUN: mlir-translate -mlir-to-miopen-cflags %s | FileCheck %s
 
-func @basic_parsing(%filter : memref<?x?xf32>, %input : memref<?x?xf32>, %output : memref<?x?xf32>) {
+func @basic_parsing(%filter : memref<?x?x?xf32>, %input : memref<?x?x?xf32>, %output : memref<?x?x?xf32>) {
   miopen.gridwise_gemm(%filter, %input, %output) {
     arch = "gfx906",
     num_cu = 64,
     kernel_algorithm = "v4r4",
-    filter_dimension = [1024, 1024, 1, 1],
-    filter_layout = ["k", "c", "y", "x"],
-    input_dimension = [64, 1024, 14, 14],
-    input_layout = ["ni", "ci", "hi", "wi"],
-    output_dimension = [64, 1024, 14, 14],
-    output_layout = ["no", "ko", "ho", "wo"],
+    filter_dimension = [1, 1024, 1024, 1, 1],
+    filter_layout = ["g", "k", "c", "y", "x"],
+    input_dimension = [64, 1, 1024, 14, 14],
+    input_layout = ["ni", "gi", "ci", "hi", "wi"],
+    output_dimension = [64, 1, 1024, 14, 14],
+    output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     padding = [[0, 0], [0, 0]],
     strides = [1, 1]
-  } : memref<?x?xf32>,
-      memref<?x?xf32>,
-      memref<?x?xf32>
+  } : memref<?x?x?xf32>,
+      memref<?x?x?xf32>,
+      memref<?x?x?xf32>
   return
 }
 // CHECK-LABEL: basic_parsing
@@ -38,23 +38,23 @@ func @basic_parsing(%filter : memref<?x?xf32>, %input : memref<?x?xf32>, %output
 // CHECK: -DCK_PARAM_PROBLEM_X=1
 // CHECK: -DCK_PARAM_PROBLEM_Y=1
 
-func @all_params(%filter : memref<?x?xf32>, %input : memref<?x?xf32>, %output : memref<?x?xf32>) {
+func @all_params(%filter : memref<?x?x?xf32>, %input : memref<?x?x?xf32>, %output : memref<?x?x?xf32>) {
   miopen.gridwise_gemm(%filter, %input, %output) {
     arch = "gfx906",
     num_cu = 64,
     kernel_algorithm = "v4r4",
-    filter_dimension = [128, 8, 3, 3],
-    filter_layout = ["k", "c", "y", "x"],
-    input_dimension = [128, 8, 32, 32],
-    input_layout = ["ni", "ci", "hi", "wi"],
-    output_dimension = [128, 128, 30, 30],
-    output_layout = ["no", "ko", "ho", "wo"],
+    filter_dimension = [1, 128, 8, 3, 3],
+    filter_layout = ["g", "k", "c", "y", "x"],
+    input_dimension = [128, 1, 8, 32, 32],
+    input_layout = ["ni", "gi", "ci", "hi", "wi"],
+    output_dimension = [128, 1, 128, 30, 30],
+    output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     padding = [[0, 0], [0, 0]],
     strides = [1, 1]
-  } : memref<?x?xf32>,
-      memref<?x?xf32>,
-      memref<?x?xf32>
+  } : memref<?x?x?xf32>,
+      memref<?x?x?xf32>,
+      memref<?x?x?xf32>
   return
 }
 // CHECK-LABEL: all_params
@@ -84,10 +84,10 @@ func @all_params(%filter : memref<?x?xf32>, %input : memref<?x?xf32>, %output : 
 // CHECK: -DCK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_M=128
 // CHECK: -DCK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_M=1
 // CHECK: -DCK_PARAM_TUNABLE_GEMM_A_BLOCK_COPY_SRC_DATA_PER_READ_GEMM=4
-// CHECK: -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K=8
-// CHECK: -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N=32
-// CHECK: -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N=4
-// CHECK: -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM=4
+// CHECK: -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_K=2
+// CHECK: -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_CLUSTER_LENGTHS_GEMM_N=128
+// CHECK: -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_DST_DATA_PER_WRITE_GEMM_N=
+// CHECK: -DCK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM=1
 // CHECK: -DCK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1=4
 // CHECK: -DCK_PARAM_TUNABLE_GEMM_K_PER_BLOCK=8
 // CHECK: -DCK_PARAM_TUNABLE_GEMM_M_LEVEL0_CLUSTER=4
