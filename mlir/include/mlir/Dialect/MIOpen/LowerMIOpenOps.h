@@ -1918,8 +1918,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // llvm::errs() << "GemmNRepeat: " << GemmNRepeat << "\n";
 
     auto threadCRegisterMemRefType = MemRefType::get(
-        {1, GemmMRepeat * MPerThread, GemmNRepeat * NPerThread}, accumulatorType,
-        {}, gpu::GPUDialect::getPrivateAddressSpace());
+        {1, GemmMRepeat * MPerThread, GemmNRepeat * NPerThread},
+        accumulatorType, {}, gpu::GPUDialect::getPrivateAddressSpace());
     registerMatrixCAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadCRegisterMemRefType);
 
