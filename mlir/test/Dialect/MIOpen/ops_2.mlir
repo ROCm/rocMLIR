@@ -116,14 +116,6 @@ func @miopen_workgroup_barrier() {
 // CHECK-LABEL: func @miopen_workgroup_barrier
 //   CHECK-NEXT: miopen.workgroup_barrier
 
-func @miopen_lds_barrier() {
-  miopen.lds_barrier
-  return
-}
-
-// CHECK-LABEL: func @miopen_lds_barrier
-//   CHECK-NEXT: miopen.lds_barrier
-
 func @miopen_indexing() {
   %0 = miopen.workgroup_id : index
   %1 = miopen.workitem_id : index
