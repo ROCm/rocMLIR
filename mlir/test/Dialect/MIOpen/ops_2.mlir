@@ -120,6 +120,7 @@ func @miopen_lds_barrier() {
   miopen.lds_barrier
   return
 }
+
 // CHECK-LABEL: func @miopen_lds_barrier
 //   CHECK-NEXT: miopen.lds_barrier
 

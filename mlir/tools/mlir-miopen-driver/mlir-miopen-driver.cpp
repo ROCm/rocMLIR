@@ -510,6 +510,7 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   auto charType = builder.getIntegerType(8);
   // Emit Constant ops for letters used in layouts
+  //  these numbers are ascii codes , g = 103, k = 107
   //  %g = constant 103: i8
   //  %k = constant 107 : i8
   //  %c = constant 99 : i8
