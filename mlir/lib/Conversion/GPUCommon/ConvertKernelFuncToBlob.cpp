@@ -109,7 +109,8 @@ GpuKernelToBlobPass::translateModuleToISA(llvm::Module &module,
     llvm::raw_string_ostream stream(targetISA);
     llvm::buffer_ostream pstream(stream);
     llvm::PassManagerBuilder builder;
-    builder.OptLevel = 3;
+    // FIXME: Figure out the root cause why we can't use optimization level 3.
+    builder.OptLevel = 1;
     llvm::legacy::PassManager codegenPasses;
     builder.populateModulePassManager(codegenPasses);
     targetMachine.addPassesToEmitFile(codegenPasses, pstream, nullptr,
