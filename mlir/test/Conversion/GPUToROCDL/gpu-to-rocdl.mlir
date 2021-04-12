@@ -66,6 +66,7 @@ gpu.module @test_module {
     std.return
   }
 }
+
 // -----
 
 gpu.module @test_module {
