@@ -1932,7 +1932,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         b.create<miopen::GpuAllocOp>(loc, threadARegisterMemRefType);
 
     auto threadBRegisterMemRefType = MemRefType::get(
-        {GemmBBlockCopyThreadSliceLengths_GemmK,
+        {1, GemmBBlockCopyThreadSliceLengths_GemmK,
          GemmBBlockCopyThreadSliceLengths_GemmN},
         elementType, {}, gpu::GPUDialect::getPrivateAddressSpace());
     auto threadBAllocOp =
