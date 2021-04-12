@@ -59,6 +59,16 @@ gpu.module @test_module {
 // -----
 
 gpu.module @test_module {
+  // CHECK-LABEL: func @gpu_lds_sync()
+  func @gpu_lds_sync() {
+    // CHECK: rocdl.lds_barrier
+    gpu.lds_barrier
+    std.return
+  }
+}
+// -----
+
+gpu.module @test_module {
   // CHECK-LABEL: func @gpu_index_comp
   // CHECK32-LABEL: func @gpu_index_comp
   func @gpu_index_comp(%idx : index) -> index {
