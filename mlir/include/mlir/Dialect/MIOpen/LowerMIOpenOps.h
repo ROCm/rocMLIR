@@ -1533,15 +1533,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // llvm::errs() << "M: " << M << "\n";
     // llvm::errs() << "N: "  << N << "\n";
     // llvm::errs() << "K: "  << K << "\n";
+    // llvm::errs() << "BlockSize: " << BlockSize << "\n";
     // llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
     // llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
     // llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
+    // llvm::errs() << "MPerThread: " << MPerThread << "\n";
+    // llvm::errs() << "NPerThread: " << NPerThread << "\n";
     // llvm::errs() << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n";
     // llvm::errs() << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n";
-    // llvm::errs() << "MPerWave: " << MPerWave << "\n";
-    // llvm::errs() << "NPerWave: " << NPerWave << "\n";
-    // llvm::errs() << "MWaves = MPerBlock / MPerWave: " << MWaves << "\n";
-    // llvm::errs() << "NWaves = NPerBlock / NPerWave: " << NWaves << "\n";
 
     auto MBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, MBlockWork);
     auto NBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, NBlockWork);
