@@ -308,7 +308,8 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
         op.replaceAllUsesWith(gpuMfmaOp.destD());
         op.erase();
       });
-   
+
+      gpuFunc.walk([&](miopen::Conv2DDummyOp op) { op.erase(); });
     });
   }
 }
