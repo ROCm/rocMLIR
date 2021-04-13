@@ -74,10 +74,10 @@ gpu.module @test_module {
 // -----
 
 gpu.module @test_module {
-  // CHECK-LABEL: func @gpu_lds_sync()
-  func @gpu_lds_sync() {
-    // CHECK: rocdl.lds_barrier
-    gpu.lds_barrier
+  // CHECK-LABEL: func @gpu_sync()
+  func @gpu_sync() {
+    // CHECK: rocdl.barrier
+    gpu.barrier
     std.return
   }
 }
@@ -85,10 +85,10 @@ gpu.module @test_module {
 // -----
 
 gpu.module @test_module {
-  // CHECK-LABEL: func @gpu_sync()
-  func @gpu_sync() {
-    // CHECK: rocdl.barrier
-    gpu.barrier
+  // CHECK-LABEL: func @gpu_lds_sync()
+  func @gpu_lds_sync() {
+    // CHECK: rocdl.lds_barrier
+    gpu.lds_barrier
     std.return
   }
 }
