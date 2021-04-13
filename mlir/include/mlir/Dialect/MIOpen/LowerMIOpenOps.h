@@ -2232,17 +2232,15 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
           gop->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
       int64_t NPerBlock =
           gop->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
-      int64_t MPerWave = gop->getAttr("m_per_thread")
-                             .template dyn_cast<IntegerAttr>()
-                             .getInt();
-      int64_t NPerWave = gop->getAttr("n_per_thread")
-                             .template dyn_cast<IntegerAttr>()
-                             .getInt();
+      int64_t MPerWave =
+          gop->getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
+      int64_t NPerWave =
+          gop->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
       int64_t MWaves = MPerBlock / MPerWave;
       int64_t NWaves = NPerBlock / NPerWave;
 
-      xop->setAttr("m_per_wave", gop->getAttr("m_per_thread"));
-      xop->setAttr("n_per_wave", gop->getAttr("n_per_thread"));
+      xop->setAttr("m_per_wave", gop->getAttr("m_per_wave"));
+      xop->setAttr("n_per_wave", gop->getAttr("n_per_wave"));
       xop->setAttr("m_waves", b.getI32IntegerAttr(MWaves));
       xop->setAttr("n_waves", b.getI32IntegerAttr(NWaves));
 
@@ -2260,14 +2258,14 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     int64_t NPerBlock =
         gop->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
     int64_t MPerWave =
-        gop->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        gop->getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerWave =
-        gop->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        gop->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
     int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
 
-    bop->setAttr("m_per_wave", gop->getAttr("m_per_thread"));
-    bop->setAttr("n_per_wave", gop->getAttr("n_per_thread"));
+    bop->setAttr("m_per_wave", gop->getAttr("m_per_wave"));
+    bop->setAttr("n_per_wave", gop->getAttr("n_per_wave"));
     bop->setAttr("m_waves", b.getI32IntegerAttr(MWaves));
     bop->setAttr("n_waves", b.getI32IntegerAttr(NWaves));
 
@@ -2363,9 +2361,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Obtain XDLOPS-related attributes.
     int64_t MPerWave =
-        op->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
     int64_t NPerWave =
-        op->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
     int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
     auto dataType =
