@@ -130,7 +130,7 @@ void AffixTuningParameters::runOnFunction() {
   func.walk([&](miopen::Conv2DDummyOp op) {
     OpBuilder b(op.getContext());
     // Set attributes for the dummy conv2d op.
-    getFunction()->setAttr("kernel", b.getI32IntegerAttr(1));
+    getFunction()->setAttr("kernel", b.getUnitAttr());
     getFunction()->setAttr("block_size", b.getI32IntegerAttr(1));
     getFunction()->setAttr("grid_size", b.getI32IntegerAttr(1));
   });
