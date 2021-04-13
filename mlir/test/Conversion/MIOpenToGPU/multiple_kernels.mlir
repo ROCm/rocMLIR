@@ -4,6 +4,7 @@
 // RUN: mlir-opt -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu="kernel-name=step1" %s | FileCheck %s --check-prefix=SUBSET1
 // RUN: mlir-opt -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu="kernel-name=step1,step3" %s | FileCheck %s --check-prefix=SUBSET2
 // RUN: mlir-opt -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu="kernel-name=step5" %s | FileCheck %s --check-prefix=NONEXIST
+// RUN: mlir-opt -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu %s | FileCheck %s
 
 // The last kernel be converted would appear as the first.
 

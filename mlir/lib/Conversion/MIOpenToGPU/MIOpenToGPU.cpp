@@ -87,19 +87,8 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
               UnitAttr::get(op.getContext()));
 
   // Check parameters and populate default values if necessary.
-  if (kernelNameList.empty())
-    kernelNameList = "miopen_conv2d_kcyx_nchw_nkhw";
   if (gpuModuleName.empty())
     gpuModuleName = "miopen_kernel_module";
-
-  // Split kernelNameList into a vector separated with comma.
-  StringRef remainingKernelNameList = kernelNameList;
-  SmallVector<StringRef, 1> kernelNameTable;
-  do {
-    std::pair<StringRef, StringRef> p = remainingKernelNameList.split(',');
-    kernelNameTable.push_back(p.first);
-    remainingKernelNameList = p.second;
-  } while (!remainingKernelNameList.empty());
 
   // Identify the specified GPU ModuleOp.
   bool theGpuModuleExist = false;
@@ -121,6 +110,22 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     // add the GPUModuleOp into the symbol table.
     SymbolTable symbolTable(op);
     symbolTable.insert(theGpuModule);
+  }
+
+  // Check parameters and populate default values if necessary.
+  SmallVector<StringRef, 1> kernelNameTable;
+  if (kernelNameList.empty()) {
+    for (auto func : op.getOps<FuncOp>())
+      if (func->getAttr("kernel"))
+        kernelNameTable.push_back(func.getName());
+  } else {
+    // Split kernelNameList into a vector separated with comma.
+    StringRef remainingKernelNameList = kernelNameList;
+    do {
+      std::pair<StringRef, StringRef> p = remainingKernelNameList.split(',');
+      kernelNameTable.push_back(p.first);
+      remainingKernelNameList = p.second;
+    } while (!remainingKernelNameList.empty());
   }
 
   // Identify the specified GPU FuncOp instances.

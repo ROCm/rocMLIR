@@ -167,6 +167,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("n_per_wave", b.getI32IntegerAttr(validParams.gemmNPerWave));
     op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
 
+    // Set attributes on the function.
+    getFunction()->setAttr("kernel", b.getUnitAttr());
     getFunction()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
     getFunction()->setAttr(
         "grid_size",
@@ -215,6 +217,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
                 b.getI32IntegerAttr(validParams.gemmNPerThread));
     op->setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
 
+    // Set attributes on the function.
+    getFunction()->setAttr("kernel", b.getUnitAttr());
     getFunction()->setAttr("block_size",
                            b.getI32IntegerAttr(validParams.blockSize));
     getFunction()->setAttr(
