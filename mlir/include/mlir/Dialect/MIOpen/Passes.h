@@ -49,6 +49,10 @@ std::unique_ptr<Pass>
 createAffixTuningParametersPass(int64_t blockSizeOverride = 0,
                                 int64_t gridSizeOverride = 0);
 
+/// Create a pass to split MIOpen conv2d operations to multiple
+/// conv2d and conv2d_dummy operations.
+std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>> createSplitConv2DPass();
+
 #define GEN_PASS_REGISTRATION
 #include "mlir/Dialect/MIOpen/Passes.h.inc"
 

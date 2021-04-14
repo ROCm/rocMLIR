@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   AffineTransforms.cpp
   LowerMIOpenOps.cpp
   TestAffineTransforms.cpp
+  SplitConv2D.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Transforms

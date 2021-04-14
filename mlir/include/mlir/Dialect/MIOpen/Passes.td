@@ -62,4 +62,10 @@ def MIOpenOpsStep5Pass : Pass<"miopen-lowering-step5", "ModuleOp"> {
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "AffineDialect", "StandardOpsDialect"];
 }
 
+def MIOpenOpsSplitConv2DPass : Pass<"miopen-split-conv2d", "ModuleOp"> {
+  let summary = "split convolution into one convolution with multiple dummy ops";
+  let constructor = "mlir::miopen::createSplitConv2DPass()";
+  let dependentDialects = ["miopen::MIOpenDialect"];
+}
+
 #endif // MLIR_DIALECT_MIOPEN_PASSES

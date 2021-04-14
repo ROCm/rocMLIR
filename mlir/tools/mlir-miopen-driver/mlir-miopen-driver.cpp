@@ -1989,6 +1989,7 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
 static void populateDefaultLoweringPipeline(PassManager &pm,
                                             StringRef kernelName) {
   // Passes for lowering MIOpen dialect.
+  pm.addPass(mlir::miopen::createSplitConv2DPass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(mlir::miopen::createAffineTransformPass());
   pm.addPass(
