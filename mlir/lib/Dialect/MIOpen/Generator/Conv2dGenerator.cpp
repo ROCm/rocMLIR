@@ -94,7 +94,14 @@ LogicalResult Conv2dGenerator::genConvModule(
                  inputLayout + "_" + outputLayout;
   }
 
-  auto func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType);
+  // Annotate kernel attribute to the FuncOp.
+  SmallVector<NamedAttribute, 1> kernelAttrs{
+      builder.getNamedAttr("kernel", builder.getUnitAttr()),
+  };
+
+  // Construct the FuncOp.
+  auto func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
+                             ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
 
   // Construct a new Block.
