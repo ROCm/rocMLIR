@@ -230,8 +230,8 @@ static cl::opt<std::string> tensorDataType("t", cl::desc("Data type for convolut
                                            cl::init("f32"));
 
 static cl::opt<std::string>
-    randomData("rand", cl::desc("To use random data for host validation"),
-               cl::value_desc("To use random data for host validation"),
+    randomData("rand", cl::desc("To specify the seed of random data generator for host validation"),
+               cl::value_desc("To specify the seed of random data generator for host validation"),
                cl::init("none"));
 static void populateDefaults() {
   if (populateDefaultValues == true) {
@@ -1033,6 +1033,26 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   return gpuConvFuncOp;
 }
 
+// Determine the range and seed for the random data generator
+static std::tuple<short, short, int> configRandomTestData()
+{
+  short min, max;
+  int seed = 1;
+  if (randomData.getValue() == "none") {
+    min = 1;
+    max = 1;
+  } else {
+    min = -5;
+    max = 5;
+    std::string rseed = randomData.getValue();
+    if (rseed[0] >= '0' and rseed[1] <= '9')
+      seed = std::stoi(rseed);
+    else
+      seed = -1;
+  }
+  return std::make_tuple(min, max, seed);
+}
+
 static LogicalResult populateHostHarnessLogic(
     ModuleOp &module, OpBuilder &builder, MLIRContext &context,
     const SmallVector<int64_t, 4> &filterDimension,
@@ -1110,18 +1130,7 @@ static LogicalResult populateHostHarnessLogic(
   unsigned short zero = 0;
   short min, max;
   int seed = 1;
-  if (randomData.getValue() == "none") {
-    min = 1;
-    max = 1;
-  } else {
-    min = -5;
-    max = 5;
-    std::string rseed = randomData.getValue();
-    if (rseed[0] >= '0' and rseed[1] <= '9')
-      seed = std::stoi(rseed);
-    else
-      seed = -1;
-  }
+  std::tie(min, max, seed) = configRandomTestData();
 
   auto zeroConstantIntOp = builder.create<ConstantOp>(
       builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(zero));
@@ -1346,18 +1355,7 @@ static LogicalResult populateValidationLogic(
   unsigned short zero = 0;
   short min, max;
   int seed = 1;
-  if (randomData.getValue() == "none") {
-    min = 1;
-    max = 1;
-  } else {
-    min = -5;
-    max = 5;
-    std::string rseed = randomData.getValue();
-    if (rseed[0] >= '0' and rseed[1] <= '9')
-      seed = std::stoi(rseed);
-    else
-      seed = -1;
-  }
+  std::tie(min, max, seed) = configRandomTestData();
 
   auto zeroConstantIntOp = builder.create<ConstantOp>(
       builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(zero));
@@ -1723,18 +1721,7 @@ populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
   unsigned short zero = 0;
   short min, max;
   int seed = 1;
-  if (randomData.getValue() == "none") {
-    min = 1;
-    max = 1;
-  } else {
-    min = -5;
-    max = 5;
-    std::string rseed = randomData.getValue();
-    if (rseed[0] >= '0' and rseed[1] <= '9')
-      seed = std::stoi(rseed);
-    else
-      seed = -1;
-  }
+  std::tie(min, max, seed) = configRandomTestData();
 
   auto zeroConstantIntOp = builder.create<ConstantOp>(
       builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(zero));
