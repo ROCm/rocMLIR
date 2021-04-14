@@ -958,7 +958,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // Compute transformed filter shape dimension.
       int64_t nonKDimSize = 1;
       for (unsigned i = 0; i < outputShape.size(); ++i) {
-        if (i != kDim.getInt()) {
+        if (i != kDim.getInt() && i != gDim.getInt()) {
           nonKDimSize *= outputShape[i];
         }
       }
