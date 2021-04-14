@@ -11,8 +11,9 @@
 #define MLIR_C_MIIR_H
 
 #include <stddef.h>
+#include <stdint.h>
 
-#define MIIR_VERSION_FLAT 3
+#define MIIR_VERSION_FLAT 4
 
 enum MiirStatus {
   MIIR_SUCCESS = 0,
@@ -25,6 +26,29 @@ typedef enum MiirStatus MiirStatus;
 /*! @brief The MLIR handle used for lowering and code generation
  */
 typedef void *MiirHandle;
+
+// A convolution includes three arguments of StridedMemRef to
+// represent filter, input and output tensors
+
+/*! @brief Device interface argument type for 2D convolution
+ */
+struct StridedMemRef4D {
+  void *basePtr;
+  void *data;
+  int64_t offset;
+  int64_t sizes[4];
+  int64_t strides[4];
+};
+
+/*! @brief Device interface argument type for 3D convolution
+ */
+struct StridedMemRef5D {
+  void *basePtr;
+  void *data;
+  int64_t offset;
+  int64_t sizes[5];
+  int64_t strides[5];
+};
 
 /*! @brief Create the MLIR handle according to options string
  *  @param options Command-line options as a string
