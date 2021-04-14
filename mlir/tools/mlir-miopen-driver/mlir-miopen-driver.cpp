@@ -1998,7 +1998,7 @@ static void populateDefaultLoweringPipeline(PassManager &pm,
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
-  pm.addPass(mlir::createLowerMIOpenOpsToGPUPass(kernelName));
+  pm.addPass(mlir::createLowerMIOpenOpsToGPUPass());
 
   // Passes for lowering linalg dialect.
   pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
