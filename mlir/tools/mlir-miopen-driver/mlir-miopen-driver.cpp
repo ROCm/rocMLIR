@@ -185,10 +185,10 @@ static cl::opt<bool> loweringWithBuiltinPipeline(
     cl::init(false));
 
 static cl::opt<std::string> loweringTargetDialect(
-    "target", cl::desc("Target dialect"),
-    cl::value_desc("By default, compiles down to GPU dialect. Set "
-                   "-target=rocdl compiles to ROCDL dialect."),
-    cl::init("gpu"));
+    "target",
+    cl::desc("By default, compiles down to GPU dialect. Set "
+             "-target=rocdl compiles to ROCDL dialect."),
+    cl::value_desc("Target dialect"), cl::init("gpu"));
 
 // use host harness program.
 static cl::opt<bool> useHostHarness(
@@ -232,10 +232,10 @@ static cl::opt<std::string> tensorDataType("t", cl::desc("Data type for convolut
 static cl::opt<std::string> randomData(
     "rand",
     cl::desc(
-        "To specify the seed of random data generator for host validation"),
-    cl::value_desc(
-        "To specify the seed of random data generator for host validation"),
-    cl::init("none"));
+        "To specify the seed of random data generator for convolution inputs,"
+        " e.g. -rand 1. By default, use all ones"),
+    cl::value_desc("seed"), cl::init("none"));
+
 static void populateDefaults() {
   if (populateDefaultValues == true) {
     if (xdlopsV2.getValue() == false) {

@@ -1,3 +1,11 @@
+// RUN: mlir-miopen-driver -ph -p | FileCheck %s 
+
+// CHECK:  [[MIN:%.*]] = constant 1 : i16
+// CHECK-NEXT:   [[MAX:%.*]] = constant 1 : i16
+// CHECK-NEXT:   [[SEED:%.*]] = constant 1 : i32
+// CHECK-NEXT:    call @mcpuMemset4DFloatRand({{.*}}, [[MIN]], [[MAX]], [[SEED]]) : (memref<?x?x?x?xf32>, i16, i16, i32) -> ()
+// CHECK-NEXT:    call @mcpuMemset4DFloatRand({{.*}}, [[MIN]], [[MAX]], [[SEED]]) : (memref<?x?x?x?xf32>, i16, i16, i32) -> ()
+
 // RUN: mlir-miopen-driver -ph -p -rand 1| FileCheck %s --check-prefix=RAND1
 
 // RAND1:  [[MIN:%.*]] = constant -5 : i16
