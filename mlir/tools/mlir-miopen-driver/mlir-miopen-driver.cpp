@@ -232,8 +232,9 @@ static cl::opt<std::string> tensorDataType("t", cl::desc("Data type for convolut
 static cl::opt<std::string> randomData(
     "rand",
     cl::desc(
-        "To specify the seed of random data generator for convolution inputs,"
-        " e.g. -rand 1. By default, use all ones"),
+        "A positive integer indicates the seed of random data generator for "
+        "convolution inputs, e.g. -rand 1. If not specifed or -rand none, "
+        "use all ones. Otherwise, use time(0) as the seed."),
     cl::value_desc("seed"), cl::init("none"));
 
 static void populateDefaults() {
