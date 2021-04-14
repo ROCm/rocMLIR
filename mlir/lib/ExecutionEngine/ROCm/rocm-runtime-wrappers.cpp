@@ -331,13 +331,13 @@ extern "C" void mgpuMemCopy2DFloat(float *sourceAllocated, float *sourceAligned,
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
-// 4D float memref utility routines.
-
-short tensorValue(short min, short max) {
+short randomValue(short min, short max) {
   if (min == max)
     return min;
   return (std::rand() % (max - min)) + min;
 }
+
+// 4D float memref utility routines.
 
 extern "C" void mcpuMemset4DFloat(float *allocated, float *aligned,
                                   int64_t offset, int64_t size0, int64_t size1,
@@ -370,7 +370,7 @@ extern "C" void mcpuMemset4DFloatRand(float *allocated, float *aligned,
     for (unsigned j = 0; j < size1; ++j)
       for (unsigned k = 0; k < size2; ++k)
         for (unsigned l = 0; l < size3; ++l) {
-          value = (float)tensorValue(min, max);
+          value = (float)randomValue(min, max);
           aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
               value;
         }
@@ -467,7 +467,7 @@ extern "C" void mcpuMemset4DHalfRand(unsigned short *allocated,
     for (unsigned j = 0; j < size1; ++j)
       for (unsigned k = 0; k < size2; ++k)
         for (unsigned l = 0; l < size3; ++l) {
-          value = (unsigned short)tensorValue(min, max);
+          value = (unsigned short)randomValue(min, max);
           aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
               int_to_fp16(value);
         }
@@ -546,7 +546,7 @@ extern "C" void mcpuMemset4DBF16Rand(unsigned short *allocated,
     for (unsigned j = 0; j < size1; ++j)
       for (unsigned k = 0; k < size2; ++k)
         for (unsigned l = 0; l < size3; ++l) {
-          value = float_to_bfloat16((float)tensorValue(min, max));
+          value = float_to_bfloat16((float)randomValue(min, max));
           aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
               value;
         }
