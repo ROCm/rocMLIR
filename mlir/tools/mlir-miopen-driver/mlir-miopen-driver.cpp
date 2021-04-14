@@ -229,10 +229,13 @@ static cl::opt<std::string> tensorDataType("t", cl::desc("Data type for convolut
                                            cl::value_desc("Data type for convolution"),
                                            cl::init("f32"));
 
-static cl::opt<std::string>
-    randomData("rand", cl::desc("To specify the seed of random data generator for host validation"),
-               cl::value_desc("To specify the seed of random data generator for host validation"),
-               cl::init("none"));
+static cl::opt<std::string> randomData(
+    "rand",
+    cl::desc(
+        "To specify the seed of random data generator for host validation"),
+    cl::value_desc(
+        "To specify the seed of random data generator for host validation"),
+    cl::init("none"));
 static void populateDefaults() {
   if (populateDefaultValues == true) {
     if (xdlopsV2.getValue() == false) {
@@ -1034,8 +1037,7 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
 }
 
 // Determine the range and seed for the random data generator
-static std::tuple<short, short, int> configRandomTestData()
-{
+static std::tuple<short, short, int> configRandomTestData() {
   short min, max;
   int seed = 1;
   if (randomData.getValue() == "none") {
