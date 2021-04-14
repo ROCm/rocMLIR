@@ -172,6 +172,13 @@ LogicalResult Conv2dGenerator::genConvModule(
                    func.getArgument(2)},
         attributes);
     block->push_back(convOp);
+  } else if (operation.compare("conv2d_dummy") == 0) {
+    auto convOp = builder.create<miopen::Conv2DDummyOp>(
+        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
+        ValueRange{func.getArgument(0), func.getArgument(1),
+                   func.getArgument(2)},
+        attributes);
+    block->push_front(convOp);
   }
 
   auto returnOp =

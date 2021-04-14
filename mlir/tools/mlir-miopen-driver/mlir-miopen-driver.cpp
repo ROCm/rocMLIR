@@ -942,7 +942,8 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   // Emit mgpuMemCopy4DFloat function call.
   mlir::Value resultGpuValue, resultCpuValue;
-  if (operation.getValue() == "conv2d") {
+  if (operation.getValue() == "conv2d" ||
+      operation.getValue() == "conv2d_dummy") {
     resultGpuValue = outputGpuAllocOp.getResult(0);
     resultCpuValue = outputMemRefCastOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
@@ -1021,7 +1022,8 @@ static LogicalResult populateHostHarnessLogic(
   // Backward data convolution: input tensor.
   // Backward weight convolution: filter tensor.
   MemRefType printMemRefType;
-  if (operation.getValue() == "conv2d") {
+  if (operation.getValue() == "conv2d" ||
+      operation.getValue() == "conv2d_dummy") {
     printMemRefType = MemRefType::get(
         ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
         builder.getF32Type());
@@ -1104,7 +1106,8 @@ static LogicalResult populateHostHarnessLogic(
 
   // Populate initial values.
   mlir::Value filterMemsetValue, inputMemsetValue, outputMemsetValue;
-  if (operation.getValue() == "conv2d") {
+  if (operation.getValue() == "conv2d" ||
+      operation.getValue() == "conv2d_dummy") {
     filterMemsetValue = oneConstantFloatOp;
     inputMemsetValue = oneConstantFloatOp;
     outputMemsetValue = zeroConstantFloatOp;
@@ -1142,7 +1145,8 @@ static LogicalResult populateHostHarnessLogic(
 
   mlir::Value resultCpuValue, resultOriginalCpuValue;
   mlir::MemRefType resultOriginalCpuType;
-  if (operation.getValue() == "conv2d") {
+  if (operation.getValue() == "conv2d" ||
+      operation.getValue() == "conv2d_dummy") {
     resultCpuValue = outputMemRefCastOp;
     resultOriginalCpuValue = outputHostAllocOp;
     resultOriginalCpuType = outputMemRefType;
@@ -1318,7 +1322,8 @@ static LogicalResult populateValidationLogic(
 
   // Populate initial values.
   mlir::Value filterMemsetValue, inputMemsetValue, outputMemsetValue;
-  if (operation.getValue() == "conv2d") {
+  if (operation.getValue() == "conv2d" ||
+      operation.getValue() == "conv2d_dummy") {
     filterMemsetValue = oneConstantFloatOp;
     inputMemsetValue = oneConstantFloatOp;
     outputMemsetValue = zeroConstantFloatOp;
@@ -1388,7 +1393,8 @@ static LogicalResult populateValidationLogic(
 
   AllocOp gpuOriginalResults, gpuF32Results;
   MemRefType gpuOriginalResultType, gpuF32ResultType;
-  if (operation.getValue() == "conv2d") {
+  if (operation.getValue() == "conv2d" ||
+      operation.getValue() == "conv2d_dummy") {
     gpuF32ResultType = MemRefType::get(
         ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
         builder.getF32Type());
@@ -1475,7 +1481,8 @@ static LogicalResult populateValidationLogic(
   }
 
   // Set initial values.
-  if (operation.getValue() == "conv2d") {
+  if (operation.getValue() == "conv2d" ||
+      operation.getValue() == "conv2d_dummy") {
     filterMemsetValue = oneConstantFloatOp;
     inputMemsetValue = oneConstantFloatOp;
     outputMemsetValue = zeroConstantFloatOp;
@@ -1514,7 +1521,8 @@ static LogicalResult populateValidationLogic(
   block->push_back(cpuConvCallOp);
 
   mlir::AllocOp cpuResults;
-  if (operation.getValue() == "conv2d") {
+  if (operation.getValue() == "conv2d" ||
+      operation.getValue() == "conv2d_dummy") {
     cpuResults = cpuOutputHostAllocOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
     cpuResults = cpuInputHostAllocOp;
@@ -1523,7 +1531,8 @@ static LogicalResult populateValidationLogic(
   }
 
   mlir::FuncOp verifyFuncOp;
-  if (operation.getValue() == "conv2d") {
+  if (operation.getValue() == "conv2d" ||
+      operation.getValue() == "conv2d_dummy") {
     verifyFuncOp = createVerifyFuncOp(module, builder, outputDimension,
                                       cpuResults, gpuF32Results);
   } else if (operation.getValue() == "conv2d_bwd_data") {
@@ -1620,7 +1629,8 @@ populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
 
   // Populate initial values.
   mlir::Value filterMemsetValue, inputMemsetValue, outputMemsetValue;
-  if (operation.getValue() == "conv2d") {
+  if (operation.getValue() == "conv2d" ||
+      operation.getValue() == "conv2d_dummy") {
     filterMemsetValue = oneConstantFloatOp;
     inputMemsetValue = oneConstantFloatOp;
     outputMemsetValue = zeroConstantFloatOp;
@@ -1659,7 +1669,8 @@ populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
   block->push_back(cpuConvCallOp);
 
   mlir::AllocOp cpuResults;
-  if (operation.getValue() == "conv2d") {
+  if (operation.getValue() == "conv2d" ||
+      operation.getValue() == "conv2d_dummy") {
     cpuResults = cpuOutputHostAllocOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
     cpuResults = cpuInputHostAllocOp;
