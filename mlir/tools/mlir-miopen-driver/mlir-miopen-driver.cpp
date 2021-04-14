@@ -1900,8 +1900,7 @@ populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
 
 static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
                                                OpBuilder &builder,
-                                               MLIRContext &context,
-                                               StringRef kernelName) {
+                                               MLIRContext &context) {
   // Check if populate entry point exist.
   FuncOp theFunc;
   bool entryPointExist = false;
@@ -1920,68 +1919,64 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
     return success();
   }
 
-  // Check if kernel to be launched exist.
-  gpu::GPUFuncOp theGpuFunc;
-  bool gpuKernelExist = false;
-  module.walk([&](gpu::GPUModuleOp gpuModule) -> WalkResult {
-    module.walk([&](gpu::GPUFuncOp gpuFunc) -> WalkResult {
-      if (gpuFunc.getName() == kernelName) {
-        gpuKernelExist = true;
-        theGpuFunc = gpuFunc;
-        return WalkResult::interrupt();
+  auto addGpuLaunchLogic = [&](gpu::GPUFuncOp theGpuFunc) {
+    Block *block = &(theFunc.getBody().front());
+
+    auto blockSizeAttr = theGpuFunc->getAttr("block_size")
+                             .template dyn_cast<IntegerAttr>()
+                             .getInt();
+    auto gridSizeAttr = theGpuFunc->getAttr("grid_size")
+                            .template dyn_cast<IntegerAttr>()
+                            .getInt();
+    auto cstOne = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
+    auto cstBlockSize =
+        builder.create<ConstantIndexOp>(builder.getUnknownLoc(), blockSizeAttr);
+    auto cstGridSize =
+        builder.create<ConstantIndexOp>(builder.getUnknownLoc(), gridSizeAttr);
+    block->push_back(cstOne);
+    block->push_back(cstBlockSize);
+    block->push_back(cstGridSize);
+
+    auto gpuLaunchFuncOp = builder.create<gpu::LaunchFuncOp>(
+        builder.getUnknownLoc(), theGpuFunc,
+        gpu::KernelDim3{cstGridSize, cstOne, cstOne},
+        gpu::KernelDim3{cstBlockSize, cstOne, cstOne},
+        ValueRange{theFunc.getArgument(0), theFunc.getArgument(1),
+                   theFunc.getArgument(2)});
+    gpuLaunchFuncOp->setAttr(
+        "operand_segment_sizes",
+        builder.getI32VectorAttr({static_cast<int32_t>(0),    // sync
+                                  static_cast<int32_t>(1),    // gridX
+                                  static_cast<int32_t>(1),    // gridY
+                                  static_cast<int32_t>(1),    // gridZ
+                                  static_cast<int32_t>(1),    // blockX
+                                  static_cast<int32_t>(1),    // blockY
+                                  static_cast<int32_t>(1),    // blockZ
+                                  static_cast<int32_t>(3)})); // arg count
+    block->push_back(gpuLaunchFuncOp);
+  };
+
+  bool gpuKernelFound = false;
+  module.walk([&](gpu::GPUModuleOp gpuModule) {
+    module.walk([&](gpu::GPUFuncOp gpuFunc) {
+      if (gpuFunc.isKernel()) {
+        // Remove the ReturnOp previously populated.
+        if (!gpuKernelFound) {
+          Block *block = &(theFunc.getBody().front());
+          block->clear();
+          gpuKernelFound = true;
+        }
+        addGpuLaunchLogic(gpuFunc);
       }
-      return WalkResult::advance();
     });
-    if (gpuKernelExist)
-      return WalkResult::interrupt();
-    return WalkResult::advance();
   });
 
-  if (!gpuKernelExist) {
-    // do not fail for now. silent exit.
-    // return failure();
-    return success();
+  // Reinstate the ReturnOp.
+  if (gpuKernelFound) {
+    Block *block = &(theFunc.getBody().front());
+    auto returnOp = builder.create<ReturnOp>(builder.getUnknownLoc());
+    block->push_back(returnOp);
   }
-
-  Block *block = &(theFunc.getBody().front());
-  block->clear();
-
-  auto blockSizeAttr = theGpuFunc->getAttr("block_size")
-                           .template dyn_cast<IntegerAttr>()
-                           .getInt();
-  auto gridSizeAttr = theGpuFunc->getAttr("grid_size")
-                          .template dyn_cast<IntegerAttr>()
-                          .getInt();
-  auto cstOne = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
-  auto cstBlockSize =
-      builder.create<ConstantIndexOp>(builder.getUnknownLoc(), blockSizeAttr);
-  auto cstGridSize =
-      builder.create<ConstantIndexOp>(builder.getUnknownLoc(), gridSizeAttr);
-  block->push_back(cstOne);
-  block->push_back(cstBlockSize);
-  block->push_back(cstGridSize);
-
-  auto gpuLaunchFuncOp = builder.create<gpu::LaunchFuncOp>(
-      builder.getUnknownLoc(), theGpuFunc,
-      gpu::KernelDim3{cstGridSize, cstOne, cstOne},
-      gpu::KernelDim3{cstBlockSize, cstOne, cstOne},
-      ValueRange{theFunc.getArgument(0), theFunc.getArgument(1),
-                 theFunc.getArgument(2)});
-  gpuLaunchFuncOp->setAttr(
-      "operand_segment_sizes",
-      builder.getI32VectorAttr({static_cast<int32_t>(0),    // sync
-                                static_cast<int32_t>(1),    // gridX
-                                static_cast<int32_t>(1),    // gridY
-                                static_cast<int32_t>(1),    // gridZ
-                                static_cast<int32_t>(1),    // blockX
-                                static_cast<int32_t>(1),    // blockY
-                                static_cast<int32_t>(1),    // blockZ
-                                static_cast<int32_t>(3)})); // arg count
-
-  block->push_back(gpuLaunchFuncOp);
-
-  auto returnOp = builder.create<ReturnOp>(builder.getUnknownLoc());
-  block->push_back(returnOp);
 
   return success();
 }
@@ -2157,8 +2152,7 @@ int main(int argc, char **argv) {
   // populate host launch logic.
   if (useHostHarness.getValue() || populateHostHarness.getValue() ||
       populateValidation.getValue()) {
-    if (failed(
-            populateKernelLaunchLogic(module, builder, context, kernelName))) {
+    if (failed(populateKernelLaunchLogic(module, builder, context))) {
       llvm::errs() << "Host kernel launch logic populated failed.\n";
       exit(1);
     }
