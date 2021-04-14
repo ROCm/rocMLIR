@@ -130,7 +130,6 @@ void AffixTuningParameters::runOnFunction() {
   func.walk([&](miopen::Conv2DDummyOp op) {
     OpBuilder b(op.getContext());
     // Set attributes for the dummy conv2d op.
-    getFunction()->setAttr("kernel", b.getUnitAttr());
     getFunction()->setAttr("block_size", b.getI32IntegerAttr(1));
     getFunction()->setAttr("grid_size", b.getI32IntegerAttr(1));
   });
@@ -168,7 +167,6 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
 
     // Set attributes on the function.
-    getFunction()->setAttr("kernel", b.getUnitAttr());
     getFunction()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
     getFunction()->setAttr(
         "grid_size",
@@ -218,7 +216,6 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
 
     // Set attributes on the function.
-    getFunction()->setAttr("kernel", b.getUnitAttr());
     getFunction()->setAttr("block_size",
                            b.getI32IntegerAttr(validParams.blockSize));
     getFunction()->setAttr(
