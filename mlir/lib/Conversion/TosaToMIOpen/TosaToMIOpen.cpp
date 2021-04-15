@@ -61,9 +61,107 @@ public:
 
     ValueRange args({filter_t, input_t, output_t});
 
-    TypeRange resTypes;
-    rewriter.create<mlir::miopen::Conv2DOp>(loc, resTypes, args);
+#if 0
+    std::vector<NamedAttribute> attributes{
+      rewriter.getNamedAttr("arch", rewriter.getStringAttr(arch)),
+          rewriter.getNamedAttr("num_cu", rewriter.getI32IntegerAttr(num_cu)),
 
+          rewriter.getNamedAttr(
+              "filter_layout",
+              rewriter.getArrayAttr(ArrayRef<mlir::Attribute>(
+                                       filterLayoutSpec.begin(), filterLayoutSpec.end()))),
+          rewriter.getNamedAttr(
+              "input_layout", rewriter.getArrayAttr(ArrayRef<mlir::Attribute>(
+                                                       inputLayoutSpec.begin(), inputLayoutSpec.end()))),
+          rewriter.getNamedAttr(
+              "output_layout",
+              rewriter.getArrayAttr(ArrayRef<mlir::Attribute>(
+                                       outputLayoutSpec.begin(), outputLayoutSpec.end()))),
+
+          rewriter.getNamedAttr("dilations",
+                               rewriter.getArrayAttr({
+                                   rewriter.getI32IntegerAttr(dilationHeight),
+                                       rewriter.getI32IntegerAttr(dilationWidth),
+                                       })),
+          rewriter.getNamedAttr("strides",
+                               rewriter.getArrayAttr({
+                                   rewriter.getI32IntegerAttr(strideHeight),
+                                       rewriter.getI32IntegerAttr(strideWidth),
+                                       })),
+          rewriter.getNamedAttr("padding",
+                               rewriter.getArrayAttr({
+                                   rewriter.getI32IntegerAttr(paddingHeight),
+                                       rewriter.getI32IntegerAttr(paddingWidth),
+                                       })),
+          };
+
+      // xdlops v2.
+  // if (xdlops)
+  //   attributes.push_back(
+  //       rewriter.getNamedAttr("xdlopsV2", rewriter.getBoolAttr(true)));
+    
+#endif
+
+      TypeRange resTypes;
+      auto cop = rewriter.create<mlir::miopen::Conv2DOp>(loc, resTypes, args);
+
+
+#if 1
+    // Construct a new Conv2DOp.
+    StringRef arch = "gfx906";
+    int32_t num_cu = 64;
+
+    int32_t dilationHeight=1, dilationWidth=1;
+    int32_t strideHeight=1, strideWidth=1;
+    int32_t paddingHeight=0, paddingWidth=0;
+    
+    std::string filterLayout = "kcyx";
+    std::string inputLayout = "nchw";
+    std::string outputLayout = "nkhw";
+    SmallVector<StringAttr, 4> filterLayoutSpec;
+    SmallVector<StringAttr, 4> inputLayoutSpec;
+    SmallVector<StringAttr, 4> outputLayoutSpec;
+    for (size_t i = 0; i < 4; ++i) {
+      filterLayoutSpec.push_back(
+          rewriter.getStringAttr(StringRef(&filterLayout[i], 1).str()));
+      inputLayoutSpec.push_back(
+          rewriter.getStringAttr((StringRef(&inputLayout[i], 1) + "i").str()));
+      outputLayoutSpec.push_back(
+          rewriter.getStringAttr((StringRef(&outputLayout[i], 1) + "o").str()));
+    }
+
+    cop->setAttr("arch", rewriter.getStringAttr(arch));
+    cop->setAttr("num_cu", rewriter.getI32IntegerAttr(num_cu));
+
+    cop->setAttr(
+        "filter_layout",
+        rewriter.getArrayAttr(ArrayRef<mlir::Attribute>(
+                                  filterLayoutSpec.begin(), filterLayoutSpec.end())));
+    cop->setAttr(
+        "input_layout", rewriter.getArrayAttr(ArrayRef<mlir::Attribute>(
+                                                  inputLayoutSpec.begin(), inputLayoutSpec.end())));
+    cop->setAttr(
+        "output_layout",
+        rewriter.getArrayAttr(ArrayRef<mlir::Attribute>(
+                                  outputLayoutSpec.begin(), outputLayoutSpec.end())));
+
+    cop->setAttr("dilations",
+                 rewriter.getArrayAttr({
+                     rewriter.getI32IntegerAttr(dilationHeight),
+                         rewriter.getI32IntegerAttr(dilationWidth),
+                         }));
+    cop->setAttr("strides",
+                 rewriter.getArrayAttr({
+                     rewriter.getI32IntegerAttr(strideHeight),
+                         rewriter.getI32IntegerAttr(strideWidth),
+                         }));
+    cop->setAttr("padding",
+                 rewriter.getArrayAttr({
+                     rewriter.getI32IntegerAttr(paddingHeight),
+                         rewriter.getI32IntegerAttr(paddingWidth),
+                         }));
+#endif
+      
     rewriter.replaceOp(op, output_t);
 
     return success();
