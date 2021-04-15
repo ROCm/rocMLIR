@@ -1958,7 +1958,7 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
 
   bool gpuKernelFound = false;
   module.walk([&](gpu::GPUModuleOp gpuModule) {
-    module.walk([&](gpu::GPUFuncOp gpuFunc) {
+    gpuModule.walk([&](gpu::GPUFuncOp gpuFunc) {
       if (gpuFunc.isKernel()) {
         // Remove the ReturnOp previously populated.
         if (!gpuKernelFound) {

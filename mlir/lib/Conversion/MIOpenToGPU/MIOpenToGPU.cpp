@@ -63,9 +63,10 @@ namespace {
 struct LowerMIOpenOpsToGPUPass : public ConvertMIOpenToGPUBase<LowerMIOpenOpsToGPUPass> {
 public:
   LowerMIOpenOpsToGPUPass() = default;
-  LowerMIOpenOpsToGPUPass(StringRef kernelNameList, StringRef gpuModuleName) {
+  LowerMIOpenOpsToGPUPass(StringRef kernelNameList,
+                          StringRef gpuModuleNameList) {
     this->kernelNameList = kernelNameList.str();
-    this->gpuModuleName = gpuModuleName.str();
+    this->gpuModuleNameList = gpuModuleNameList.str();
   }
   void runOnOperation() override;
 };
@@ -86,35 +87,11 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   op->setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
               UnitAttr::get(op.getContext()));
 
-  // Check parameters and populate default values if necessary.
-  if (gpuModuleName.empty())
-    gpuModuleName = "miopen_kernel_module";
-
-  // Identify the specified GPU ModuleOp.
-  bool theGpuModuleExist = false;
-  gpu::GPUModuleOp theGpuModule;
-  for (auto gpuModule : op.getOps<gpu::GPUModuleOp>()) {
-    if (gpuModule.getName() == gpuModuleName) {
-      theGpuModuleExist = true;
-      theGpuModule = gpuModule;
-      break;
-    }
-  }
-
-  if (!theGpuModuleExist) {
-    // create a GPUModuleOp in case the GPU module specified does not exist.
-    OperationState state(loc, gpu::GPUModuleOp::getOperationName());
-    gpu::GPUModuleOp::build(b, state, gpuModuleName);
-    theGpuModule = cast<gpu::GPUModuleOp>(Operation::create(state));
-
-    // add the GPUModuleOp into the symbol table.
-    SymbolTable symbolTable(op);
-    symbolTable.insert(theGpuModule);
-  }
-
-  // Check parameters and populate default values if necessary.
+  // Populate the list of kernels to be converted.
   SmallVector<StringRef, 1> kernelNameTable;
   if (kernelNameList.empty()) {
+    // In case the kernel name list is not specified, use all FuncOp with kernel
+    // attribute.
     for (auto func : op.getOps<FuncOp>())
       if (func->getAttr("kernel"))
         kernelNameTable.push_back(func.getName());
@@ -128,19 +105,70 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     } while (!remainingKernelNameList.empty());
   }
 
+  // Populate the list of GPU modules to host kernels.
+  SmallVector<StringRef, 1> gpuModuleNameTable;
+  if (gpuModuleNameList.empty()) {
+    // In case the GPU module name is not specified, simply use kernel name
+    // list.
+    gpuModuleNameTable = kernelNameTable;
+  } else {
+    // Split gpuModuleNameList into a vector separated with comma.
+    StringRef remainingGpuModuleNameList = gpuModuleNameList;
+    do {
+      std::pair<StringRef, StringRef> p = remainingGpuModuleNameList.split(',');
+      gpuModuleNameTable.push_back(p.first);
+      remainingGpuModuleNameList = p.second;
+    } while (!remainingGpuModuleNameList.empty());
+  }
+
+  if (gpuModuleNameTable.size() != kernelNameTable.size()) {
+    llvm::errs() << "FAIL!\n";
+    return;
+  }
+
+  // Identify the specified GPU ModuleOp.
+  bool gpuModuleInstancesExist = false;
+  SmallVector<gpu::GPUModuleOp, 1> gpuModuleTable;
+  for (auto gpuModule : op.getOps<gpu::GPUModuleOp>()) {
+    for (auto gpuModuleName : gpuModuleNameTable) {
+      if (gpuModule.getName() == gpuModuleName) {
+        gpuModuleInstancesExist = true;
+        gpuModuleTable.push_back(gpuModule);
+        break;
+      }
+    }
+  }
+
+  SymbolTable symbolTable(op);
+  if (!gpuModuleInstancesExist) {
+    // create a GPUModuleOp in case the GPU module specified does not exist.
+    for (auto gpuModuleName : gpuModuleNameTable) {
+      OperationState state(loc, gpu::GPUModuleOp::getOperationName());
+      gpu::GPUModuleOp::build(b, state, gpuModuleName);
+      auto gpuModule = cast<gpu::GPUModuleOp>(Operation::create(state));
+
+      gpuModuleTable.push_back(gpuModule);
+
+      // add the GPUModuleOp into the symbol table.
+      symbolTable.insert(gpuModule);
+    }
+  }
+
   // Identify the specified GPU FuncOp instances.
   bool gpuFuncInstancesExist = false;
   SmallVector<gpu::GPUFuncOp, 1> gpuFuncTable;
-  for (auto gpuFunc : theGpuModule.getOps<gpu::GPUFuncOp>()) {
-    for (auto kernelName : kernelNameTable) {
-      if (gpuFunc.getName() == kernelName) {
-        gpuFuncInstancesExist = true;
-        gpuFuncTable.push_back(gpuFunc);
+  for (auto gpuModule : gpuModuleTable) {
+    for (auto gpuFunc : gpuModule.getOps<gpu::GPUFuncOp>()) {
+      for (auto kernelName : kernelNameTable) {
+        if (gpuFunc.getName() == kernelName) {
+          gpuFuncInstancesExist = true;
+          gpuFuncTable.push_back(gpuFunc);
 
-        // Set kernel attribute.
-        gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
-                         b.getUnitAttr());
-        break;
+          // Set kernel attribute.
+          gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
+                           b.getUnitAttr());
+          break;
+        }
       }
     }
   }
@@ -192,20 +220,22 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
       return gpuFunc;
     };
 
-    // Set up the symbol table for the GPU ModuleOp.
-    SymbolTable gpuModuleSymbolTable(theGpuModule);
-
     // Try locate a FuncOp which has kernelName, and convert it to a GPUFuncOp.
     // Logic to use the lambda.
     // Walkthrough all the FuncOp, check if it's within kernelNameTable, process
     // it if true.
     SmallVector<StringRef, 1> processedKernelNameTable;
     for (auto func : op.getOps<FuncOp>()) {
-      for (auto kernelName : kernelNameTable) {
+      for (unsigned i = 0; i < kernelNameTable.size(); ++i) {
+        auto kernelName = kernelNameTable[i];
         if (func.getName() == kernelName) {
+          auto gpuModule = gpuModuleTable[i];
+          // Set up the symbol table for the GPU ModuleOp.
+          SymbolTable gpuModuleSymbolTable(gpuModule);
+
           // Reset builder insertion point to the beginning of the GPU module,
           // as it would be modified inside the lambda.
-          b.setInsertionPointToStart(&(theGpuModule.body()).front());
+          b.setInsertionPointToStart(&(gpuModule.body()).front());
           auto gpuFunc = processGpuKernelFunc(func);
 
           // insert the GPUFuncOp into GPUModuleOp.
@@ -354,9 +384,10 @@ void LowerMIOpenOpsWithinGPUModulePass::runOnOperation() {
 }
 
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
-mlir::createLowerMIOpenOpsToGPUPass(StringRef kernelName,
-                                    StringRef gpuModuleName) {
-  return std::make_unique<LowerMIOpenOpsToGPUPass>(kernelName, gpuModuleName);
+mlir::createLowerMIOpenOpsToGPUPass(StringRef kernelNameList,
+                                    StringRef gpuModuleNameList) {
+  return std::make_unique<LowerMIOpenOpsToGPUPass>(kernelNameList,
+                                                   gpuModuleNameList);
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
