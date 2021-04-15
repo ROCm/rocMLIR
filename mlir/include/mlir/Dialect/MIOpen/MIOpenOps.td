@@ -40,9 +40,9 @@ class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
 
 def MIOpen_Conv2DOp :
     MIOpen_Op<"conv2d">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [4]>:$filter,
-                   MemRefRankOf<[F32, F16, I16], [4]>:$input,
-                   MemRefRankOf<[F32, F16, I16], [4]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [5]>:$filter,
+                   MemRefRankOf<[F32, F16, I16], [5]>:$input,
+                   MemRefRankOf<[F32, F16, I16], [5]>:$output)> {
   let summary = "2D convolution forward";
   let description = [{
     The `miopen.conv2d` op computes 2D convolution forward.
@@ -51,9 +51,9 @@ def MIOpen_Conv2DOp :
 
 def MIOpen_Conv2DBwdDataOp :
     MIOpen_Op<"conv2d_bwd_data">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [4]>:$filter,
-                   MemRefRankOf<[F32, F16, I16], [4]>:$input,
-                   MemRefRankOf<[F32, F16, I16], [4]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [5]>:$filter,
+                   MemRefRankOf<[F32, F16, I16], [5]>:$input,
+                   MemRefRankOf<[F32, F16, I16], [5]>:$output)> {
   let summary = "2D convolution backward data";
   let description = [{
     The `miopen.conv2d_bwd_data` op computes 2D convolution backward data.
@@ -62,9 +62,9 @@ def MIOpen_Conv2DBwdDataOp :
 
 def MIOpen_Conv2DBwdWeightOp :
     MIOpen_Op<"conv2d_bwd_weight">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [4]>:$filter,
-                   MemRefRankOf<[F32, F16, I16], [4]>:$input,
-                   MemRefRankOf<[F32, F16, I16], [4]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [5]>:$filter,
+                   MemRefRankOf<[F32, F16, I16], [5]>:$input,
+                   MemRefRankOf<[F32, F16, I16], [5]>:$output)> {
   let summary = "2D convolution backward weight";
   let description = [{
     The `miopen.conv2d_bwd_weight` op computes 2D convolution backward weight.
@@ -73,9 +73,9 @@ def MIOpen_Conv2DBwdWeightOp :
 
 def MIOpen_Conv2DDummyOp :
     MIOpen_Op<"conv2d_dummy">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [4]>:$filter,
-                   MemRefRankOf<[F32, F16, I16], [4]>:$input,
-                   MemRefRankOf<[F32, F16, I16], [4]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [5]>:$filter,
+                   MemRefRankOf<[F32, F16, I16], [5]>:$input,
+                   MemRefRankOf<[F32, F16, I16], [5]>:$output)> {
   let summary = "Dummy op for 2D convolution";
   let description = [{
     The `miopen.conv2d_dummy` op is an empty op which takes the same operands as a regular 2D conv op.
@@ -95,9 +95,9 @@ def MIOpen_TransformOp :
 
 def MIOpen_GridwiseGemmOp :
     MIOpen_Op<"gridwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [2]>:$filter,
-                   MemRefRankOf<[F32, F16, I16], [2]>:$input,
-                   MemRefRankOf<[F32, F16, I16], [2]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$filter,
+                   MemRefRankOf<[F32, F16, I16], [3]>:$input,
+                   MemRefRankOf<[F32, F16, I16], [3]>:$output)> {
   let summary = "Gridwise GEMM";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM.
@@ -107,9 +107,9 @@ def MIOpen_GridwiseGemmOp :
 // gridwise_gemm_v2
 def MIOpen_GridwiseGemmV2Op :
     MIOpen_Op<"gridwise_gemm_v2">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [2]>:$filter,
-                   MemRefRankOf<[F32, F16, I16], [2]>:$input,
-                   MemRefRankOf<[F32, F16, I16], [2]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$filter,
+                   MemRefRankOf<[F32, F16, I16], [3]>:$input,
+                   MemRefRankOf<[F32, F16, I16], [3]>:$output)> {
   let summary = "Gridwise GEMM V2";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
@@ -254,8 +254,8 @@ def MIOpen_ThreadwiseCopyV2Op:
 // blockwise_gemm
 def MIOpen_BlockwiseGemmOp:
     MIOpen_Op<"blockwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [2]>:$matrixA,
-                   MemRefRankOf<[F32, F16, I16], [2]>:$matrixB,
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$matrixA,
+                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixB,
                    AnyMemRef:$matrixC,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB)> {
@@ -289,9 +289,9 @@ def MIOpen_BlockwiseGemmV2Op:
 // threadwise_gemm
 def MIOpen_ThreadwiseGemmOp:
     MIOpen_Op<"threadwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [2]>:$matrixA,
-                   MemRefRankOf<[F32, F16, I16], [2]>:$matrixB,
-                   MemRefRankOf<[F32, F16, I16], [2]>:$matrixC)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$matrixA,
+                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixB,
+                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixC)> {
   let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.

@@ -2,7 +2,7 @@
 // RUN: mlir-opt %s | mlir-opt | FileCheck %s
 // Run: mlir-opt -mlir-print-op-generic %s | mlir-opt | FileCheck %s
 
-func @miopen_blockwise_gemm_f16(%A : memref<?x?xf16, 3>, %B : memref<?x?xf16, 3>, %C : memref<?x?xf16, 5>) {
+func @miopen_blockwise_gemm_f16(%A : memref<?x?x?xf16, 3>, %B : memref<?x?x?xf16, 3>, %C : memref<?x?x?xf16, 5>) {
   %c0 = constant 0 : index
   miopen.blockwise_gemm(%A, %B, %C, %c0, %c0) {
     m_per_thread = 64,
@@ -16,16 +16,16 @@ func @miopen_blockwise_gemm_f16(%A : memref<?x?xf16, 3>, %B : memref<?x?xf16, 3>
 
     matrix_a_source_data_per_read = 4,
     matrix_b_source_data_per_read = 4
-  } : memref<?x?xf16, 3>, memref<?x?xf16, 3>, memref<?x?xf16, 5>, index, index
+  } : memref<?x?x?xf16, 3>, memref<?x?x?xf16, 3>, memref<?x?x?xf16, 5>, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_gemm_f16
 //  CHECK: miopen.blockwise_gemm
 
-func @miopen_blockwise_copy_f16(%source : memref<?x?xf16>, %dest : memref<?x?xf16, 3>, %source_coord : memref<2xi32>, %dest_coord : memref<2xi32>) {
-  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) : memref<?x?xf16>, memref<?x?xf16, 3>, memref<2xi32>, memref<2xi32>
-  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) { move_source_offset = 16 } : memref<?x?xf16>, memref<?x?xf16, 3>, memref<2xi32>, memref<2xi32>
+func @miopen_blockwise_copy_f16(%source : memref<?x?x?xf16>, %dest : memref<?x?x?xf16, 3>, %source_coord : memref<2xi32>, %dest_coord : memref<2xi32>) {
+  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) : memref<?x?x?xf16>, memref<?x?x?xf16, 3>, memref<2xi32>, memref<2xi32>
+  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) { move_source_offset = 16 } : memref<?x?x?xf16>, memref<?x?x?xf16, 3>, memref<2xi32>, memref<2xi32>
   return
 }
 

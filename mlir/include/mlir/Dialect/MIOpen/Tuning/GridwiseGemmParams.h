@@ -76,6 +76,7 @@ struct InitParams {
 };
 
 struct GemmSize {
+  int64_t gemmG;
   int64_t gemmM;
   int64_t gemmN;
   int64_t gemmK;
@@ -86,6 +87,7 @@ struct DerivedParams {
   int64_t dstVectorWriteDim;
   int64_t srcDataPerRead;
   int64_t dstDataPerWrite;
+  int64_t clusterLenGemmPos0; // G
   int64_t clusterLenGemmPos1;
   int64_t clusterLenGemmPos2;
   DerivedParams()
@@ -105,7 +107,7 @@ public:
       // gemmK dimension is vectorizable, gemmM is not, and vice versa.
       // Vectorization width depending on which among C, Y, X be the fastest
       // changing dimension.
-      if (dimIndexVal["k"].first == 3) {
+      if (dimIndexVal["k"].first == 4) {
         input1GemmKVectorizable = false;
       } else {
         input1GemmKVectorizable = true;
@@ -114,7 +116,7 @@ public:
       // When K is the fastest changing dimension(3),
       // gemmK dimension is vectorizable, gemmM is not, and vice versa.
       // Vectorization width depending on length of K.
-      if (dimIndexVal["k"].first == 3) {
+      if (dimIndexVal["k"].first == 4) {
         input1GemmKVectorizable = true;
       } else {
         input1GemmKVectorizable = false;
@@ -124,7 +126,7 @@ public:
       // gemmM dimension is vectorizable, gemmK is not, and vice versa.
       // Vectorization width depending on which among N, and HoWo be the fastest
       // changing dimension.
-      if (dimIndexVal["k"].first == 3) {
+      if (dimIndexVal["k"].first == 4) {
         input1GemmKVectorizable = false;
       } else {
         input1GemmKVectorizable = true;
@@ -142,7 +144,7 @@ public:
       // When C is the fastest changing dimension,
       // gemmK dimension is vectorizable, gemmN is not, and vice versa.
       // Vectorization width depending on length of C.
-      if (dimIndexVal["ci"].first == 3) {
+      if (dimIndexVal["ci"].first == 4) {
         input2GemmKVectorizable = true;
       } else {
         input2GemmKVectorizable = false;
@@ -152,7 +154,7 @@ public:
       // When K is the fastest changing dimension(3),
       // gemmK dimension is vectorizable, gemmN is not, and vice versa.
       // Vectorization width depending on length of K.
-      if (dimIndexVal["ko"].first == 3) {
+      if (dimIndexVal["ko"].first == 4) {
         input2GemmKVectorizable = true;
       } else {
         input2GemmKVectorizable = false;
@@ -162,7 +164,7 @@ public:
       // When C is the fastest changing dimension,
       // gemmN dimension is vectorizable, gemmK is not, and vice versa.
       // Vectorization width depending on length of C.
-      if (dimIndexVal["ci"].first == 3) {
+      if (dimIndexVal["ci"].first == 4) {
         input2GemmKVectorizable = false;
       } else {
         input2GemmKVectorizable = true;
@@ -173,26 +175,26 @@ public:
   static void obtainFilterVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
     // Vectorization length logic is the same for forward and bwd_data
-    if (dimIndexVal["k"].first == 3) {
+    if (dimIndexVal["k"].first == 4) {
       vecLen = dimIndexVal["k"].second;
-    } else if (dimIndexVal["k"].first == 0) {
+    } else if (dimIndexVal["k"].first == 1) {
       // dimKF is the lowest changing dimension, which means dimC/dimY/dimX
       vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second *
                dimIndexVal["x"].second;
-    } else if (dimIndexVal["k"].first == 1) {
-      // K's position is at 1, vectorization legnth is last two dimension
-      if (dimIndexVal["c"].first == 0) {
+    } else if (dimIndexVal["k"].first == 2) {
+      // K's position is at 2, vectorization legnth is last two dimension
+      if (dimIndexVal["c"].first == 1) {
         vecLen = dimIndexVal["y"].second * dimIndexVal["x"].second;
-      } else if (dimIndexVal["y"].first == 0) {
+      } else if (dimIndexVal["y"].first == 1) {
         vecLen = dimIndexVal["c"].second * dimIndexVal["x"].second;
       } else {
         vecLen = dimIndexVal["c"].second * dimIndexVal["y"].second;
       }
     } else {
-      // K's position is 2, vectorization legnth is last dimension
-      if (dimIndexVal["c"].first == 3) {
+      // K's position is 3, vectorization legnth is last dimension
+      if (dimIndexVal["c"].first == 4) {
         vecLen = dimIndexVal["c"].second;
-      } else if (dimIndexVal["y"].first == 3) {
+      } else if (dimIndexVal["y"].first == 4) {
         vecLen = dimIndexVal["y"].second;
       } else {
         vecLen = dimIndexVal["x"].second;
@@ -202,41 +204,43 @@ public:
 
   static void obtainInputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
-    if (dimIndexVal["ni"].first == 3) {
+    if (dimIndexVal["ni"].first == 4) {
       vecLen = dimIndexVal["ni"].second;
-    } else if (dimIndexVal["ci"].first == 3) {
+    } else if (dimIndexVal["ci"].first == 4) {
       vecLen = dimIndexVal["ci"].second;
     } else {
-      if (ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 &&
+      if (dimIndexVal["x"].second == 1 && dimIndexVal["y"].second == 1 &&
+          ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 &&
           ctx.paddingVal[0] == 0 && ctx.paddingVal[1] == 0 &&
           ctx.paddingVal[2] == 0 && ctx.paddingVal[3] == 0)
-        vecLen = dimIndexVal["hi"].second * dimIndexVal["wi"].second;
+        vecLen = dimIndexVal["ho"].second * dimIndexVal["wo"].second;
       else
         vecLen = 1;
     }
   }
   static void obtainOutputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
-    if (dimIndexVal["ko"].first == 3) {
+    auto g = dimIndexVal["g"].second;
+    if (dimIndexVal["ko"].first == 4) {
       vecLen = dimIndexVal["ko"].second;
-    } else if (dimIndexVal["ko"].first == 0) {
+    } else if (dimIndexVal["ko"].first == 1) {
       // dimKO is the lowest changing dimension, which means dimN/dimHo/dimWo
       vecLen = dimIndexVal["no"].second * dimIndexVal["ho"].second *
                dimIndexVal["wo"].second;
-    } else if (dimIndexVal["ko"].first == 1) {
-      // Ko's position is at 1, vectorization legnth is last two dimensions
-      if (dimIndexVal["no"].first == 0) {
+    } else if (dimIndexVal["ko"].first == 2) {
+      // Ko's position is at 2, vectorization legnth is last two dimensions
+      if (dimIndexVal["no"].first == 1) {
         vecLen = dimIndexVal["ho"].second * dimIndexVal["wo"].second;
-      } else if (dimIndexVal["ho"].first == 0) {
+      } else if (dimIndexVal["ho"].first == 1) {
         vecLen = dimIndexVal["no"].second * dimIndexVal["wo"].second;
       } else {
         vecLen = dimIndexVal["no"].second * dimIndexVal["ho"].second;
       }
     } else {
-      // K's position is 2, vectorization legnth is last dimension
-      if (dimIndexVal["no"].first == 3) {
+      // K's position is 3, vectorization legnth is last dimension
+      if (dimIndexVal["no"].first == 4) {
         vecLen = dimIndexVal["no"].second;
-      } else if (dimIndexVal["ho"].first == 3) {
+      } else if (dimIndexVal["ho"].first == 4) {
         vecLen = dimIndexVal["ho"].second;
       } else {
         vecLen = dimIndexVal["wo"].second;
@@ -325,11 +329,11 @@ protected:
     if (gemmPos1Vectorizable) {
       dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmVectorized;
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmNonvectorized;
-      derived.srcVectorReadDim = 0;
+      derived.srcVectorReadDim = 1;
     } else {
       dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmNonvectorized;
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmVectorized;
-      derived.srcVectorReadDim = 1;
+      derived.srcVectorReadDim = 2;
     }
 
     // dstDataPerWrite also bounded by size of threadwise copy
@@ -355,6 +359,8 @@ protected:
   }
 
   static void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
+    gemmSize.gemmG = ctx.dimIndexVal["g"].second;
+
     if (ctx.opType == mlir::miopen::ConvOpType::Conv2DOpType) {
       gemmSize.gemmM = ctx.dimIndexVal["k"].second;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second *
@@ -384,7 +390,7 @@ protected:
 
   int64_t obtainGridSize(GemmSize &gemmSize, InitParams *param) {
     return (gemmSize.gemmM / param->gemmMPerBlock) *
-           (gemmSize.gemmN / param->gemmNPerBlock);
+           (gemmSize.gemmN / param->gemmNPerBlock) * gemmSize.gemmG;
   }
 
   mlir::LogicalResult isValidGemm(InitParams *param, GemmSize &gemmSize) {
@@ -505,11 +511,11 @@ private:
                                          ConvolutionContext &ctx) {
     int64_t outputVecLen = 0;
     if ((ctx.opType == miopen::ConvOpType::Conv2DOpType) &&
-        (ctx.dimIndexVal["ko"].first == 3)) {
+        (ctx.dimIndexVal["ko"].first == 4)) {
       // gemmM vectorizable. However, there is no parameters for vectorizing
       // gemmM dimension for matrix C. Do nothing here.
     } else if ((ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) &&
-               (ctx.dimIndexVal["ci"].first == 3)) {
+               (ctx.dimIndexVal["ci"].first == 4)) {
       // gemmM vectorizable. However, there is no parameters for vectorizing
       // gemmM dimension for matrix C. Do nothing here.
     } else {
