@@ -501,21 +501,21 @@ extern "C" void mgpuMemCopy4DFloat(
 }
 
 // Copy Float to Float
-extern "C" void mcpuMemCopy4DFloat(float *sourceAllocated, float *sourceAligned,
-                                   int64_t sourceOffset, int64_t sourceSize0,
-                                   int64_t sourceSize1, int64_t sourceSize2,
-                                   int64_t sourceSize3, int64_t sourceStride0,
-                                   int64_t sourceStride1, int64_t sourceStride2,
-                                   int64_t sourceStride3, float *destAllocated,
-                                   float *destAligned, int64_t destOffset,
-                                   int64_t destSize0, int64_t destSize1,
-                                   int64_t destSize2, int64_t destSize3,
-                                   int64_t destStride0, int64_t destStride1,
-                                   int64_t destStride2, int64_t destStride3) {
+extern "C" void mcpuMemCopy5DFloat(
+    float *sourceAllocated, float *sourceAligned, int64_t sourceOffset,
+    int64_t sourceSize0, int64_t sourceSize1, int64_t sourceSize2,
+    int64_t sourceSize3, int64_t sourceSize4, int64_t sourceStride0,
+    int64_t sourceStride1, int64_t sourceStride2, int64_t sourceStride3,
+    int64_t sourceStride4, float *destAllocated, float *destAligned,
+    int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
+    int64_t destSize3, int64_t destSize4, int64_t destStride0,
+    int64_t destStride1, int64_t destStride2, int64_t destStride3,
+    int64_t destStride4) {
 
-  assert(sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 ==
-         destSize0 * destSize1 * destSize2 * destSize3);
-  int64_t dataSize = sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3;
+  assert(sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 * sourceSize4 ==
+         destSize0 * destSize1 * destSize2 * destSize3 * destSize4);
+  int64_t dataSize =
+      sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 * sourceSize4;
   for (int64_t i = 0; i < dataSize; i++)
     destAligned[i] = sourceAligned[i];
 }
