@@ -1,6 +1,6 @@
 llvm_canonicalize_cmake_booleans(
- MLIR_ROCM_CONVERSIONS_ENABLED
- MLIR_ROCM_RUNNER_ENABLED
+  MLIR_ROCM_CONVERSIONS_ENABLED
+  MLIR_ROCM_RUNNER_ENABLED
   )
 
 # Passed to lit.site.cfg.py.in to set up the path where to find the libraries
@@ -30,7 +30,6 @@ configure_lit_site_cfg(
 set(MLIR_E2E_TEST_DEPENDS
   FileCheck count not
   mlir-miopen-driver
-  mlir-rocm-runner
   mlir-miopen-lib-test
   mlir-opt
   mlir-translate
