@@ -337,6 +337,55 @@ short randomValue(short min, short max) {
   return (std::rand() % (max - min)) + min;
 }
 
+// 3D float memref utility routines.
+
+extern "C" void mcpuMemset3DFloat(float *allocated, float *aligned,
+                                  int64_t offset, int64_t size0, int64_t size1,
+                                  int64_t size2, int64_t stride0,
+                                  int64_t stride1, int64_t stride2,
+                                  float value) {
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        aligned[i * stride0 + j * stride1 + k * stride2] = value;
+}
+
+extern "C" StridedMemRefType<float, 3>
+mgpuMemAlloc3DFloat(float *allocated, float *aligned, int64_t offset,
+                    int64_t size0, int64_t size1, int64_t size2,
+                    int64_t stride0, int64_t stride1, int64_t stride2) {
+  float *gpuPtr;
+  hipMalloc((void **)&gpuPtr, size0 * size1 * size2 * sizeof(float));
+  return {gpuPtr,
+          gpuPtr,
+          offset,
+          {size0, size1, size2},
+          {stride0, stride1, stride2}};
+}
+
+extern "C" void mgpuMemDealloc3DFloat(float *allocated, float *aligned,
+                                      int64_t offset, int64_t size0,
+                                      int64_t size1, int64_t size2,
+                                      int64_t stride0, int64_t stride1,
+                                      int64_t stride2) {
+  hipFree(aligned);
+}
+
+extern "C" void mgpuMemCopy3DFloat(float *sourceAllocated, float *sourceAligned,
+                                   int64_t sourceOffset, int64_t sourceSize0,
+                                   int64_t sourceSize1, int64_t sourceSize2,
+                                   int64_t sourceStride0, int64_t sourceStride1,
+                                   int64_t sourceStride2, float *destAllocated,
+                                   float *destAligned, int64_t destOffset,
+                                   int64_t destSize0, int64_t destSize1,
+                                   int64_t destSize2, int64_t destStride0,
+                                   int64_t destStride1, int64_t destStride2,
+                                   unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned,
+            sourceSize0 * sourceSize1 * sourceSize2 * sizeof(float),
+            static_cast<hipMemcpyKind>(copyDirection));
+}
+
 // 4D float memref utility routines.
 
 extern "C" void mcpuMemset4DFloat(float *allocated, float *aligned,
@@ -353,13 +402,42 @@ extern "C" void mcpuMemset4DFloat(float *allocated, float *aligned,
         }
 }
 
-extern "C" void mcpuMemset4DFloatRand(float *allocated, float *aligned,
-                                      int64_t offset, int64_t size0,
-                                      int64_t size1, int64_t size2,
-                                      int64_t size3, int64_t stride0,
-                                      int64_t stride1, int64_t stride2,
-                                      int64_t stride3, short min, short max,
-                                      int64_t seed) {
+extern "C" void mcpuMemset5DFloat(float *allocated, float *aligned,
+                                  int64_t offset, int64_t size0, int64_t size1,
+                                  int64_t size2, int64_t size3, int64_t size4,
+                                  int64_t stride0, int64_t stride1,
+                                  int64_t stride2, int64_t stride3,
+                                  int64_t stride4, float value) {
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        for (unsigned l = 0; l < size3; ++l)
+          for (unsigned m = 0; m < size4; ++m)
+            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
+                    m * stride4] = value;
+}
+
+extern "C" StridedMemRefType<float, 5>
+mgpuMemAlloc5DFloat(float *allocated, float *aligned, int64_t offset,
+                    int64_t size0, int64_t size1, int64_t size2, int64_t size3,
+                    int64_t size4, int64_t stride0, int64_t stride1,
+                    int64_t stride2, int64_t stride3, int64_t stride4) {
+  float *gpuPtr;
+  hipMalloc((void **)&gpuPtr,
+            size0 * size1 * size2 * size3 * size4 * sizeof(float));
+  return {gpuPtr,
+          gpuPtr,
+          offset,
+          {size0, size1, size2, size3, size4},
+          {stride0, stride1, stride2, stride3, stride4}};
+}
+
+extern "C" void
+mcpuMemset5DFloatRand(float *allocated, float *aligned, int64_t offset,
+                      int64_t size0, int64_t size1, int64_t size2,
+                      int64_t size3, int64_t size4, int64_t stride0,
+                      int64_t stride1, int64_t stride2, int64_t stride3,
+                      int64_t stride4, short min, short max, int64_t seed) {
   if (seed < 0)
     std::srand(time(0));
   else
@@ -369,11 +447,12 @@ extern "C" void mcpuMemset4DFloatRand(float *allocated, float *aligned,
   for (unsigned i = 0; i < size0; ++i)
     for (unsigned j = 0; j < size1; ++j)
       for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l) {
-          value = (float)randomValue(min, max);
-          aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
-              value;
-        }
+        for (unsigned l = 0; l < size3; ++l)
+          for (unsigned m = 0; m < size4; ++m) {
+            value = (float)randomValue(min, max);
+            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
+                    m * stride4] = value;
+          }
 }
 
 extern "C" StridedMemRefType<float, 4>
@@ -388,6 +467,13 @@ mgpuMemAlloc4DFloat(float *allocated, float *aligned, int64_t offset,
           offset,
           {size0, size1, size2, size3},
           {stride0, stride1, stride2, stride3}};
+}
+
+extern "C" void mgpuMemDealloc5DFloat(
+    float *allocated, float *aligned, int64_t offset, int64_t size0,
+    int64_t size1, int64_t size2, int64_t size3, int64_t size4, int64_t stride0,
+    int64_t stride1, int64_t stride2, int64_t stride3, int64_t stride4) {
+  hipFree(aligned);
 }
 
 extern "C" void mgpuMemDealloc4DFloat(float *allocated, float *aligned,
@@ -415,23 +501,39 @@ extern "C" void mgpuMemCopy4DFloat(
 }
 
 // Copy Float to Float
-extern "C" void mcpuMemCopy4DFloat(float *sourceAllocated, float *sourceAligned,
-                                   int64_t sourceOffset, int64_t sourceSize0,
-                                   int64_t sourceSize1, int64_t sourceSize2,
-                                   int64_t sourceSize3, int64_t sourceStride0,
-                                   int64_t sourceStride1, int64_t sourceStride2,
-                                   int64_t sourceStride3, float *destAllocated,
-                                   float *destAligned, int64_t destOffset,
-                                   int64_t destSize0, int64_t destSize1,
-                                   int64_t destSize2, int64_t destSize3,
-                                   int64_t destStride0, int64_t destStride1,
-                                   int64_t destStride2, int64_t destStride3) {
+extern "C" void mcpuMemCopy5DFloat(
+    float *sourceAllocated, float *sourceAligned, int64_t sourceOffset,
+    int64_t sourceSize0, int64_t sourceSize1, int64_t sourceSize2,
+    int64_t sourceSize3, int64_t sourceSize4, int64_t sourceStride0,
+    int64_t sourceStride1, int64_t sourceStride2, int64_t sourceStride3,
+    int64_t sourceStride4, float *destAllocated, float *destAligned,
+    int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
+    int64_t destSize3, int64_t destSize4, int64_t destStride0,
+    int64_t destStride1, int64_t destStride2, int64_t destStride3,
+    int64_t destStride4) {
 
-  assert(sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 ==
-         destSize0 * destSize1 * destSize2 * destSize3);
-  int64_t dataSize = sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3;
+  assert(sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 * sourceSize4 ==
+         destSize0 * destSize1 * destSize2 * destSize3 * destSize4);
+  int64_t dataSize =
+      sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 * sourceSize4;
   for (int64_t i = 0; i < dataSize; i++)
     destAligned[i] = sourceAligned[i];
+}
+
+extern "C" void mgpuMemCopy5DFloat(
+    float *sourceAllocated, float *sourceAligned, int64_t sourceOffset,
+    int64_t sourceSize0, int64_t sourceSize1, int64_t sourceSize2,
+    int64_t sourceSize3, int64_t sourceSize4, int64_t sourceStride0,
+    int64_t sourceStride1, int64_t sourceStride2, int64_t sourceStride3,
+    int64_t sourceStride4, float *destAllocated, float *destAligned,
+    int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
+    int64_t destSize3, int64_t destSize4, int64_t destStride0,
+    int64_t destStride1, int64_t destStride2, int64_t destStride3,
+    int64_t destStride4, unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned,
+            sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 *
+                sourceSize4 * sizeof(float),
+            static_cast<hipMemcpyKind>(copyDirection));
 }
 
 // 4D half memref utility routines.
@@ -450,13 +552,11 @@ extern "C" void mcpuMemset4DHalf(unsigned short *allocated,
               value;
 }
 
-extern "C" void mcpuMemset4DHalfRand(unsigned short *allocated,
-                                     unsigned short *aligned, int64_t offset,
-                                     int64_t size0, int64_t size1,
-                                     int64_t size2, int64_t size3,
-                                     int64_t stride0, int64_t stride1,
-                                     int64_t stride2, int64_t stride3,
-                                     short min, short max, int64_t seed) {
+extern "C" void mcpuMemset5DHalfRand(
+    unsigned short *allocated, unsigned short *aligned, int64_t offset,
+    int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
+    int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
+    int64_t stride4, short min, short max, int64_t seed) {
   if (seed < 0)
     std::srand(time(0));
   else
@@ -466,11 +566,28 @@ extern "C" void mcpuMemset4DHalfRand(unsigned short *allocated,
   for (unsigned i = 0; i < size0; ++i)
     for (unsigned j = 0; j < size1; ++j)
       for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l) {
-          value = (unsigned short)randomValue(min, max);
-          aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
-              int_to_fp16(value);
-        }
+        for (unsigned l = 0; l < size3; ++l)
+          for (unsigned m = 0; m < size4; ++m) {
+            value = (unsigned short)randomValue(min, max);
+            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
+                    m * stride4] = int_to_fp16(value);
+          }
+}
+
+extern "C" void mcpuMemset5DHalf(unsigned short *allocated,
+                                 unsigned short *aligned, int64_t offset,
+                                 int64_t size0, int64_t size1, int64_t size2,
+                                 int64_t size3, int64_t size4, int64_t stride0,
+                                 int64_t stride1, int64_t stride2,
+                                 int64_t stride3, int64_t stride4,
+                                 unsigned short value) {
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        for (unsigned l = 0; l < size3; ++l)
+          for (unsigned m = 0; m < size4; ++m)
+            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
+                    m * stride4] = value;
 }
 
 extern "C" StridedMemRefType<unsigned short, 4>
@@ -488,12 +605,38 @@ mgpuMemAlloc4DHalf(unsigned short *allocated, unsigned short *aligned,
           {stride0, stride1, stride2, stride3}};
 }
 
+extern "C" StridedMemRefType<unsigned short, 5>
+mgpuMemAlloc5DHalf(unsigned short *allocated, unsigned short *aligned,
+                   int64_t offset, int64_t size0, int64_t size1, int64_t size2,
+                   int64_t size3, int64_t size4, int64_t stride0,
+                   int64_t stride1, int64_t stride2, int64_t stride3,
+                   int64_t stride4) {
+  unsigned short *gpuPtr;
+  hipMalloc((void **)&gpuPtr,
+            size0 * size1 * size2 * size3 * size4 * sizeof(unsigned short));
+  return {gpuPtr,
+          gpuPtr,
+          offset,
+          {size0, size1, size2, size3, size4},
+          {stride0, stride1, stride2, stride3, stride4}};
+}
+
 extern "C" void mgpuMemDealloc4DHalf(unsigned short *allocated,
                                      unsigned short *aligned, int64_t offset,
                                      int64_t size0, int64_t size1,
                                      int64_t size2, int64_t size3,
                                      int64_t stride0, int64_t stride1,
                                      int64_t stride2, int64_t stride3) {
+  hipFree(aligned);
+}
+
+extern "C" void mgpuMemDealloc5DHalf(unsigned short *allocated,
+                                     unsigned short *aligned, int64_t offset,
+                                     int64_t size0, int64_t size1,
+                                     int64_t size2, int64_t size3,
+                                     int64_t size4, int64_t stride0,
+                                     int64_t stride1, int64_t stride2,
+                                     int64_t stride3, int64_t stride4) {
   hipFree(aligned);
 }
 
@@ -509,6 +652,22 @@ extern "C" void mgpuMemCopy4DHalf(
   hipMemcpy(destAligned, sourceAligned,
             sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 *
                 sizeof(unsigned short),
+            static_cast<hipMemcpyKind>(copyDirection));
+}
+
+extern "C" void mgpuMemCopy5DHalf(
+    unsigned short *sourceAllocated, unsigned short *sourceAligned,
+    int64_t sourceOffset, int64_t sourceSize0, int64_t sourceSize1,
+    int64_t sourceSize2, int64_t sourceSize3, int64_t sourceSize4,
+    int64_t sourceStride0, int64_t sourceStride1, int64_t sourceStride2,
+    int64_t sourceStride3, int64_t sourceStride4, unsigned short *destAllocated,
+    unsigned short *destAligned, int64_t destOffset, int64_t destSize0,
+    int64_t destSize1, int64_t destSize2, int64_t destSize3, int64_t destSize4,
+    int64_t destStride0, int64_t destStride1, int64_t destStride2,
+    int64_t destStride3, int64_t destStride4, unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned,
+            sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 *
+                sourceSize4 * sizeof(unsigned short),
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
@@ -528,13 +687,11 @@ extern "C" void mcpuMemset4DBF16(unsigned short *allocated,
               value;
 }
 
-extern "C" void mcpuMemset4DBF16Rand(unsigned short *allocated,
-                                     unsigned short *aligned, int64_t offset,
-                                     int64_t size0, int64_t size1,
-                                     int64_t size2, int64_t size3,
-                                     int64_t stride0, int64_t stride1,
-                                     int64_t stride2, int64_t stride3,
-                                     short min, short max, int64_t seed) {
+extern "C" void mcpuMemset5DBF16Rand(
+    unsigned short *allocated, unsigned short *aligned, int64_t offset,
+    int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
+    int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
+    int64_t stride4, short min, short max, int64_t seed) {
 
   if (seed < 0)
     std::srand(time(0));
@@ -545,11 +702,28 @@ extern "C" void mcpuMemset4DBF16Rand(unsigned short *allocated,
   for (unsigned i = 0; i < size0; ++i)
     for (unsigned j = 0; j < size1; ++j)
       for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l) {
-          value = float_to_bfloat16((float)randomValue(min, max));
-          aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
-              value;
-        }
+        for (unsigned l = 0; l < size3; ++l)
+          for (unsigned m = 0; m < size4; ++m) {
+            value = float_to_bfloat16((float)randomValue(min, max));
+            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
+                    m * stride4] = value;
+          }
+}
+
+extern "C" void mcpuMemset5DBF16(unsigned short *allocated,
+                                 unsigned short *aligned, int64_t offset,
+                                 int64_t size0, int64_t size1, int64_t size2,
+                                 int64_t size3, int64_t size4, int64_t stride0,
+                                 int64_t stride1, int64_t stride2,
+                                 int64_t stride3, int64_t stride4,
+                                 unsigned short value) {
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        for (unsigned l = 0; l < size3; ++l)
+          for (unsigned m = 0; m < size4; ++m)
+            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
+                    m * stride4] = value;
 }
 
 extern "C" StridedMemRefType<unsigned short, 4>
@@ -567,12 +741,38 @@ mgpuMemAlloc4DBF16(unsigned short *allocated, unsigned short *aligned,
           {stride0, stride1, stride2, stride3}};
 }
 
+extern "C" StridedMemRefType<unsigned short, 5>
+mgpuMemAlloc5DBF16(unsigned short *allocated, unsigned short *aligned,
+                   int64_t offset, int64_t size0, int64_t size1, int64_t size2,
+                   int64_t size3, int64_t size4, int64_t stride0,
+                   int64_t stride1, int64_t stride2, int64_t stride3,
+                   int64_t stride4) {
+  unsigned short *gpuPtr;
+  hipMalloc((void **)&gpuPtr,
+            size0 * size1 * size2 * size3 * size4 * sizeof(unsigned short));
+  return {gpuPtr,
+          gpuPtr,
+          offset,
+          {size0, size1, size2, size3, size4},
+          {stride0, stride1, stride2, stride3, stride4}};
+}
+
 extern "C" void mgpuMemDealloc4DBF16(unsigned short *allocated,
                                      unsigned short *aligned, int64_t offset,
                                      int64_t size0, int64_t size1,
                                      int64_t size2, int64_t size3,
                                      int64_t stride0, int64_t stride1,
                                      int64_t stride2, int64_t stride3) {
+  hipFree(aligned);
+}
+
+extern "C" void mgpuMemDealloc5DBF16(unsigned short *allocated,
+                                     unsigned short *aligned, int64_t offset,
+                                     int64_t size0, int64_t size1,
+                                     int64_t size2, int64_t size3,
+                                     int64_t size4, int64_t stride0,
+                                     int64_t stride1, int64_t stride2,
+                                     int64_t stride3, int64_t stride4) {
   hipFree(aligned);
 }
 
@@ -591,18 +791,34 @@ extern "C" void mgpuMemCopy4DBF16(
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
+extern "C" void mgpuMemCopy5DBF16(
+    unsigned short *sourceAllocated, unsigned short *sourceAligned,
+    int64_t sourceOffset, int64_t sourceSize0, int64_t sourceSize1,
+    int64_t sourceSize2, int64_t sourceSize3, int64_t sourceSize4,
+    int64_t sourceStride0, int64_t sourceStride1, int64_t sourceStride2,
+    int64_t sourceStride3, int64_t sourceStride4, unsigned short *destAllocated,
+    unsigned short *destAligned, int64_t destOffset, int64_t destSize0,
+    int64_t destSize1, int64_t destSize2, int64_t destSize3, int64_t destSize4,
+    int64_t destStride0, int64_t destStride1, int64_t destStride2,
+    int64_t destStride3, int64_t destStride4, unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned,
+            sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 *
+                sourceSize4 * sizeof(unsigned short),
+            static_cast<hipMemcpyKind>(copyDirection));
+}
+
 // Extract proper tensor sizes and strides based on layouts
 static void
-getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 4> *filter,
-                   int64_t rank2, StridedMemRefType<float, 4> *input,
-                   int64_t rank3, StridedMemRefType<float, 4> *output,
+getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 5> *filter,
+                   int64_t rank2, StridedMemRefType<float, 5> *input,
+                   int64_t rank3, StridedMemRefType<float, 5> *output,
                    void *f_layout, void *i_layout, void *o_layout,
-                   llvm::SmallVector<int64_t, 4> &fSizes,
-                   llvm::SmallVector<int64_t, 4> &fStrides,
-                   llvm::SmallVector<int64_t, 4> &iSizes,
-                   llvm::SmallVector<int64_t, 4> &iStrides,
-                   llvm::SmallVector<int64_t, 4> &oSizes,
-                   llvm::SmallVector<int64_t, 4> &oStrides) {
+                   llvm::SmallVector<int64_t, 5> &fSizes,
+                   llvm::SmallVector<int64_t, 5> &fStrides,
+                   llvm::SmallVector<int64_t, 5> &iSizes,
+                   llvm::SmallVector<int64_t, 5> &iStrides,
+                   llvm::SmallVector<int64_t, 5> &oSizes,
+                   llvm::SmallVector<int64_t, 5> &oStrides) {
   auto filterSizes = llvm::ArrayRef<int64_t>(filter->sizes, rank1);
   auto filterStrides = llvm::ArrayRef<int64_t>(filter->strides, rank1);
 
@@ -624,7 +840,7 @@ getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 4> *filter,
   // Extract tensor sizes and strides into a map
   std::unordered_map<char, std::pair<int64_t, int64_t>> filterSizeStride,
       inputSizeStride, outputSizeStride;
-  for (size_t i = 0; i < 4; i++) {
+  for (size_t i = 0; i < 5; i++) {
     filterSizeStride[filterLayout[i]] =
         std::make_pair(filterSizes[i], filterStrides[i]);
     inputSizeStride[inputLayout[i]] =
@@ -634,21 +850,27 @@ getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 4> *filter,
   }
 
   // Move sizes and strides into vectors to help compiler optimization
-  // filter: k c y x
-  fSizes = {filterSizeStride['k'].first, filterSizeStride['c'].first,
-            filterSizeStride['y'].first, filterSizeStride['x'].first};
-  fStrides = {filterSizeStride['k'].second, filterSizeStride['c'].second,
-              filterSizeStride['y'].second, filterSizeStride['x'].second};
-  // input: n c h w
-  iSizes = {inputSizeStride['n'].first, inputSizeStride['c'].first,
-            inputSizeStride['h'].first, inputSizeStride['w'].first};
-  iStrides = {inputSizeStride['n'].second, inputSizeStride['c'].second,
-              inputSizeStride['h'].second, inputSizeStride['w'].second};
-  // output: n k h w
-  oSizes = {outputSizeStride['n'].first, outputSizeStride['k'].first,
-            outputSizeStride['h'].first, outputSizeStride['w'].first};
-  oStrides = {outputSizeStride['n'].second, outputSizeStride['k'].second,
-              outputSizeStride['h'].second, outputSizeStride['w'].second};
+  // filter: g k c y x
+  fSizes = {filterSizeStride['g'].first, filterSizeStride['k'].first,
+            filterSizeStride['c'].first, filterSizeStride['y'].first,
+            filterSizeStride['x'].first};
+  fStrides = {filterSizeStride['g'].second, filterSizeStride['k'].second,
+              filterSizeStride['c'].second, filterSizeStride['y'].second,
+              filterSizeStride['x'].second};
+  // input: g n c h w
+  iSizes = {inputSizeStride['g'].first, inputSizeStride['n'].first,
+            inputSizeStride['c'].first, inputSizeStride['h'].first,
+            inputSizeStride['w'].first};
+  iStrides = {inputSizeStride['g'].second, inputSizeStride['n'].second,
+              inputSizeStride['c'].second, inputSizeStride['h'].second,
+              inputSizeStride['w'].second};
+  // output: g n k h w
+  oSizes = {outputSizeStride['g'].first, outputSizeStride['n'].first,
+            outputSizeStride['k'].first, outputSizeStride['h'].first,
+            outputSizeStride['w'].first};
+  oStrides = {outputSizeStride['g'].second, outputSizeStride['n'].second,
+              outputSizeStride['k'].second, outputSizeStride['h'].second,
+              outputSizeStride['w'].second};
   return;
 }
 
@@ -661,60 +883,63 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
                            int32_t stride_h, int32_t stride_w,
                            int32_t padding_h, int32_t padding_w,
                            int32_t dilation_h, int32_t dilation_w) {
-  auto *filter = static_cast<StridedMemRefType<float, 4> *>(f_ptr);
+  auto *filter = static_cast<StridedMemRefType<float, 5> *>(f_ptr);
   auto *filterAllocated = filter->data + filter->offset;
 
-  auto *input = static_cast<StridedMemRefType<float, 4> *>(i_ptr);
+  auto *input = static_cast<StridedMemRefType<float, 5> *>(i_ptr);
   auto *inputAllocated = input->data + input->offset;
 
-  auto *output = static_cast<StridedMemRefType<float, 4> *>(o_ptr);
+  auto *output = static_cast<StridedMemRefType<float, 5> *>(o_ptr);
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
-  llvm::SmallVector<int64_t, 4> filterSizes(4), filterStrides(4);
-  llvm::SmallVector<int64_t, 4> inputSizes(4), inputStrides(4);
-  llvm::SmallVector<int64_t, 4> outputSizes(4), outputStrides(4);
+  llvm::SmallVector<int64_t, 5> filterSizes(5), filterStrides(5);
+  llvm::SmallVector<int64_t, 5> inputSizes(5), inputStrides(5);
+  llvm::SmallVector<int64_t, 5> outputSizes(5), outputStrides(5);
 
   getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
                      i_layout, o_layout, filterSizes, filterStrides, inputSizes,
                      inputStrides, outputSizes, outputStrides);
 
   // Perform forward convolution
-  for (int64_t n = 0; n < outputSizes[0]; n++)
-    for (int64_t k = 0; k < outputSizes[1]; k++)
-      for (int64_t out_h = 0; out_h < outputSizes[2]; out_h++)
-        for (int64_t out_w = 0; out_w < outputSizes[3]; out_w++) {
+  for (int64_t g = 0; g < outputSizes[0]; g++)
+    for (int64_t n = 0; n < outputSizes[1]; n++)
+      for (int64_t k = 0; k < outputSizes[2]; k++)
+        for (int64_t out_h = 0; out_h < outputSizes[3]; out_h++)
+          for (int64_t out_w = 0; out_w < outputSizes[4]; out_w++) {
 
-          float acc = 0.0;
-          for (int64_t c = 0; c < inputSizes[1]; c++)
-            for (int64_t fil_h = 0; fil_h < filterSizes[2]; fil_h++)
-              for (int64_t fil_w = 0; fil_w < filterSizes[3]; fil_w++) {
+            float acc = 0.0;
+            for (int64_t c = 0; c < inputSizes[2]; c++)
+              for (int64_t fil_h = 0; fil_h < filterSizes[3]; fil_h++)
+                for (int64_t fil_w = 0; fil_w < filterSizes[4]; fil_w++) {
 
-                float input;
-                int64_t in_h =
-                    out_h * stride_h + fil_h * dilation_h - padding_h;
-                int64_t in_w =
-                    out_w * stride_w + fil_w * dilation_w - padding_w;
+                  float input;
+                  int64_t in_h =
+                      out_h * stride_h + fil_h * dilation_h - padding_h;
+                  int64_t in_w =
+                      out_w * stride_w + fil_w * dilation_w - padding_w;
 
-                if (in_h < 0 || in_h >= inputSizes[2] || in_w < 0 ||
-                    in_w >= inputSizes[3])
-                  input = 0.0;
-                else
-                  input =
-                      inputAllocated[n * inputStrides[0] + c * inputStrides[1] +
-                                     in_h * inputStrides[2] +
-                                     in_w * inputStrides[3]];
+                  if (in_h < 0 || in_h >= inputSizes[3] || in_w < 0 ||
+                      in_w >= inputSizes[4])
+                    input = 0.0;
+                  else
+                    input = inputAllocated[g * inputStrides[0] +
+                                           n * inputStrides[1] +
+                                           c * inputStrides[2] +
+                                           in_h * inputStrides[3] +
+                                           in_w * inputStrides[4]];
 
-                acc += input * filterAllocated[k * filterStrides[0] +
-                                               c * filterStrides[1] +
-                                               fil_h * filterStrides[2] +
-                                               fil_w * filterStrides[3]];
-              }
+                  acc += input * filterAllocated[g * filterStrides[0] +
+                                                 k * filterStrides[1] +
+                                                 c * filterStrides[2] +
+                                                 fil_h * filterStrides[3] +
+                                                 fil_w * filterStrides[4]];
+                }
 
-          outputAllocated[n * outputStrides[0] + k * outputStrides[1] +
-                          out_h * outputStrides[2] + out_w * outputStrides[3]] =
-              acc;
-        }
+            outputAllocated[g * outputStrides[0] + n * outputStrides[1] +
+                            k * outputStrides[2] + out_h * outputStrides[3] +
+                            out_w * outputStrides[4]] = acc;
+          }
 }
 
 // A generic backward-weight convolution function that supports random layouts,
@@ -728,49 +953,53 @@ extern "C" void mcpuConv2dBwdWeight(int64_t rank1, void *f_ptr, int64_t rank2,
                                     int32_t padding_h, int32_t padding_w,
                                     int32_t dilation_h, int32_t dilation_w) {
 
-  auto *filter = static_cast<StridedMemRefType<float, 4> *>(f_ptr);
+  auto *filter = static_cast<StridedMemRefType<float, 5> *>(f_ptr);
   auto *filterAllocated = filter->data + filter->offset;
 
-  auto *input = static_cast<StridedMemRefType<float, 4> *>(i_ptr);
+  auto *input = static_cast<StridedMemRefType<float, 5> *>(i_ptr);
   auto *inputAllocated = input->data + input->offset;
 
-  auto *output = static_cast<StridedMemRefType<float, 4> *>(o_ptr);
+  auto *output = static_cast<StridedMemRefType<float, 5> *>(o_ptr);
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
-  llvm::SmallVector<int64_t, 4> filterSizes, filterStrides;
-  llvm::SmallVector<int64_t, 4> inputSizes, inputStrides;
-  llvm::SmallVector<int64_t, 4> outputSizes, outputStrides;
+  llvm::SmallVector<int64_t, 5> filterSizes, filterStrides;
+  llvm::SmallVector<int64_t, 5> inputSizes, inputStrides;
+  llvm::SmallVector<int64_t, 5> outputSizes, outputStrides;
   getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
                      i_layout, o_layout, filterSizes, filterStrides, inputSizes,
                      inputStrides, outputSizes, outputStrides);
 
   // Perform bwd_weight convolution
-  for (int64_t k = 0; k < filterSizes[0]; k++)
-    for (int64_t c = 0; c < filterSizes[1]; c++)
-      for (int64_t y = 0; y < filterSizes[2]; y++)
-        for (int64_t x = 0; x < filterSizes[3]; x++) {
+  for (int64_t g = 0; g < outputSizes[0]; g++)
+    for (int64_t k = 0; k < filterSizes[1]; k++)
+      for (int64_t c = 0; c < filterSizes[2]; c++)
+        for (int64_t y = 0; y < filterSizes[3]; y++)
+          for (int64_t x = 0; x < filterSizes[4]; x++) {
 
-          float acc = 0.0;
-          for (int64_t n = 0; n < outputSizes[0]; n++)
-            for (int64_t out_h = 0; out_h < outputSizes[2]; out_h++)
-              for (int64_t out_w = 0; out_w < outputSizes[3]; out_w++) {
-                int64_t in_h = out_h * stride_h + y * dilation_h - padding_h;
-                int64_t in_w = out_w * stride_w + x * dilation_w - padding_w;
-                if (in_h >= 0 && in_h < inputSizes[2] && in_w >= 0 &&
-                    in_w < inputSizes[3])
-                  acc +=
-                      inputAllocated[n * inputStrides[0] + c * inputStrides[1] +
-                                     in_h * inputStrides[2] +
-                                     in_w * inputStrides[3]] *
-                      outputAllocated[n * outputStrides[0] +
-                                      k * outputStrides[1] +
-                                      out_h * outputStrides[2] +
-                                      out_w * outputStrides[3]];
-              }
-          filterAllocated[k * filterStrides[0] + c * filterStrides[1] +
-                          y * filterStrides[2] + x * filterStrides[3]] = acc;
-        }
+            float acc = 0.0;
+            for (int64_t n = 0; n < outputSizes[1]; n++)
+              for (int64_t out_h = 0; out_h < outputSizes[3]; out_h++)
+                for (int64_t out_w = 0; out_w < outputSizes[4]; out_w++) {
+                  int64_t in_h = out_h * stride_h + y * dilation_h - padding_h;
+                  int64_t in_w = out_w * stride_w + x * dilation_w - padding_w;
+                  if (in_h >= 0 && in_h < inputSizes[3] && in_w >= 0 &&
+                      in_w < inputSizes[4])
+                    acc += inputAllocated[g * inputStrides[0] +
+                                          n * inputStrides[1] +
+                                          c * inputStrides[2] +
+                                          in_h * inputStrides[3] +
+                                          in_w * inputStrides[4]] *
+                           outputAllocated[g * outputStrides[0] +
+                                           n * outputStrides[1] +
+                                           k * outputStrides[2] +
+                                           out_h * outputStrides[3] +
+                                           out_w * outputStrides[4]];
+                }
+            filterAllocated[g * filterStrides[0] + k * filterStrides[1] +
+                            c * filterStrides[2] + y * filterStrides[3] +
+                            x * filterStrides[4]] = acc;
+          }
 }
 
 // A generic backward-data convolution function that supports random layouts,
@@ -783,50 +1012,54 @@ extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
                                   int32_t padding_h, int32_t padding_w,
                                   int32_t dilation_h, int32_t dilation_w) {
 
-  auto *filter = static_cast<StridedMemRefType<float, 4> *>(f_ptr);
+  auto *filter = static_cast<StridedMemRefType<float, 5> *>(f_ptr);
   auto *filterAllocated = filter->data + filter->offset;
 
-  auto *input = static_cast<StridedMemRefType<float, 4> *>(i_ptr);
+  auto *input = static_cast<StridedMemRefType<float, 5> *>(i_ptr);
   auto *inputAllocated = input->data + input->offset;
 
-  auto *output = static_cast<StridedMemRefType<float, 4> *>(o_ptr);
+  auto *output = static_cast<StridedMemRefType<float, 5> *>(o_ptr);
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
-  llvm::SmallVector<int64_t, 4> filterSizes, filterStrides;
-  llvm::SmallVector<int64_t, 4> inputSizes, inputStrides;
-  llvm::SmallVector<int64_t, 4> outputSizes, outputStrides;
+  llvm::SmallVector<int64_t, 5> filterSizes, filterStrides;
+  llvm::SmallVector<int64_t, 5> inputSizes, inputStrides;
+  llvm::SmallVector<int64_t, 5> outputSizes, outputStrides;
   getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
                      i_layout, o_layout, filterSizes, filterStrides, inputSizes,
                      inputStrides, outputSizes, outputStrides);
 
   // Perform bwd_data convolution
-  for (int64_t n = 0; n < inputSizes[0]; n++)
-    for (int64_t c = 0; c < inputSizes[1]; c++)
-      for (int64_t in_h = 0; in_h < inputSizes[2]; in_h++)
-        for (int64_t in_w = 0; in_w < inputSizes[3]; in_w++) {
+  for (int64_t g = 0; g < outputSizes[0]; g++)
+    for (int64_t n = 0; n < inputSizes[1]; n++)
+      for (int64_t c = 0; c < inputSizes[2]; c++)
+        for (int64_t in_h = 0; in_h < inputSizes[3]; in_h++)
+          for (int64_t in_w = 0; in_w < inputSizes[4]; in_w++) {
 
-          float acc = 0.0;
-          for (int64_t k = 0; k < filterSizes[0]; k++)
-            for (int64_t y = 0; y < filterSizes[2]; y++)
-              for (int64_t x = 0; x < filterSizes[3]; x++) {
-                int64_t out_h_tmp = in_h + padding_h - y * dilation_h;
-                int64_t out_w_tmp = in_w + padding_w - x * dilation_w;
-                int64_t out_h = out_h_tmp / stride_h;
-                int64_t out_w = out_w_tmp / stride_w;
-                if (out_h_tmp % stride_h == 0 && out_w_tmp % stride_w == 0 &&
-                    out_h >= 0 && out_h < outputSizes[2] && out_w >= 0 &&
-                    out_w < outputSizes[3])
-                  acc += filterAllocated[k * filterStrides[0] +
-                                         c * filterStrides[1] +
-                                         y * filterStrides[2] +
-                                         x * filterStrides[3]] *
-                         outputAllocated[n * outputStrides[0] +
-                                         k * outputStrides[1] +
-                                         out_h * outputStrides[2] +
-                                         out_w * outputStrides[3]];
-              }
-          inputAllocated[n * inputStrides[0] + c * inputStrides[1] +
-                         in_h * inputStrides[2] + in_w * inputStrides[3]] = acc;
-        }
+            float acc = 0.0;
+            for (int64_t k = 0; k < filterSizes[1]; k++)
+              for (int64_t y = 0; y < filterSizes[3]; y++)
+                for (int64_t x = 0; x < filterSizes[4]; x++) {
+                  int64_t out_h_tmp = in_h + padding_h - y * dilation_h;
+                  int64_t out_w_tmp = in_w + padding_w - x * dilation_w;
+                  int64_t out_h = out_h_tmp / stride_h;
+                  int64_t out_w = out_w_tmp / stride_w;
+                  if (out_h_tmp % stride_h == 0 && out_w_tmp % stride_w == 0 &&
+                      out_h >= 0 && out_h < outputSizes[3] && out_w >= 0 &&
+                      out_w < outputSizes[4])
+                    acc += filterAllocated[g * filterStrides[0] +
+                                           k * filterStrides[1] +
+                                           c * filterStrides[2] +
+                                           y * filterStrides[3] +
+                                           x * filterStrides[4]] *
+                           outputAllocated[g * outputStrides[0] +
+                                           n * outputStrides[1] +
+                                           k * outputStrides[2] +
+                                           out_h * outputStrides[3] +
+                                           out_w * outputStrides[4]];
+                }
+            inputAllocated[g * inputStrides[0] + n * inputStrides[1] +
+                           c * inputStrides[2] + in_h * inputStrides[3] +
+                           in_w * inputStrides[4]] = acc;
+          }
 }

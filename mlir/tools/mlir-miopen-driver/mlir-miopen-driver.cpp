@@ -71,17 +71,20 @@ static cl::opt<int>
 static cl::opt<std::string> filterLayout("fil_layout",
                                          cl::desc("Filter layout"),
                                          cl::value_desc("layout string"),
-                                         cl::init("kcyx"));
+                                         cl::init("gkcyx"));
 
 static cl::opt<std::string> inputLayout("in_layout", cl::desc("Input layout"),
                                         cl::value_desc("layout string"),
-                                        cl::init("nchw"));
+                                        cl::init("ngchw"));
 
 static cl::opt<std::string> outputLayout("out_layout",
                                          cl::desc("Output layout"),
                                          cl::value_desc("layout string"),
-                                         cl::init("nkhw"));
+                                         cl::init("ngkhw"));
 
+static cl::opt<int64_t> groupSize("groupsize", cl::desc("Group size"),
+                                  cl::value_desc("dimension value"),
+                                  cl::init(1));
 // N
 static cl::opt<int64_t> batchSize("batchsize", cl::desc("Batch size"),
                                   cl::value_desc("dimension value"),
@@ -237,9 +240,41 @@ static cl::opt<std::string> randomData(
         "use all ones. Otherwise, use time(0) as the seed."),
     cl::value_desc("seed"), cl::init("none"));
 
+static void correctParameters() {
+  std::string filterLayoutValue = filterLayout.getValue();
+  std::string inputLayoutValue = inputLayout.getValue();
+  std::string outputLayoutValue = outputLayout.getValue();
+  if (filterLayoutValue.size() == 4) { // yxcgk not implement yet
+    if (filterLayoutValue == "kcyx")
+      filterLayout.setValue("gkcyx");
+    else if (filterLayoutValue == "kyxc")
+      filterLayout.setValue("gkyxc");
+    else
+      filterLayout.setValue("g" + filterLayoutValue);
+  }
+  if (outputLayoutValue.size() == 4) {
+    if (outputLayoutValue == "nkhw")
+      outputLayout.setValue("ngkhw");
+    else if (outputLayoutValue == "nhwk")
+      outputLayout.setValue("nhwgk");
+    else
+      outputLayout.setValue("g" + outputLayoutValue);
+  }
+
+  if (inputLayoutValue.size() == 4) {
+    if (inputLayoutValue == "nchw")
+      inputLayout.setValue("ngchw");
+    else if (inputLayoutValue == "nhwc")
+      inputLayout.setValue("nhwgc");
+    else
+      inputLayout.setValue("g" + inputLayoutValue);
+  }
+}
+
 static void populateDefaults() {
   if (populateDefaultValues == true) {
     if (xdlopsV2.getValue() == false) {
+      groupSize.setValue(1);
       batchSize.setValue(128);
       inputChannel.setValue(8);
       outputChannel.setValue(128);
@@ -254,6 +289,7 @@ static void populateDefaults() {
       paddingHeight.setValue(0);
       paddingWidth.setValue(0);
     } else {
+      groupSize.setValue(1);
       batchSize.setValue(128);
       inputChannel.setValue(1024);
       outputChannel.setValue(1024);
@@ -299,13 +335,13 @@ static FuncOp makeFuncDecl(OpBuilder &builder, StringRef funcName,
 
 static AllocOp allocAndInitializeTensor(OpBuilder &builder, Block *block,
                                         mlir::Type dataType,
-                                        mlir::FuncOp &mcpuMemset4DFuncOp,
+                                        mlir::FuncOp &mcpuMemset5DFuncOp,
                                         mlir::MemRefType &memRefType,
                                         mlir::Value &memsetMinValue,
                                         mlir::Value &memsetMaxValue,
                                         mlir::ConstantOp &seedValue) {
-  auto fourDimUnknownSizeMemRefType =
-      MemRefType::get({-1, -1, -1, -1}, dataType);
+  auto fiveDimUnknownSizeMemRefType =
+      MemRefType::get({-1, -1, -1, -1, -1}, dataType);
 
   // Emit CPU alloc
   auto cpuAllocOp =
@@ -314,12 +350,12 @@ static AllocOp allocAndInitializeTensor(OpBuilder &builder, Block *block,
 
   // Emit memref cast
   auto cpuMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), cpuAllocOp, fourDimUnknownSizeMemRefType);
+      builder.getUnknownLoc(), cpuAllocOp, fiveDimUnknownSizeMemRefType);
   block->push_back(cpuMemRefCastOp);
 
   // Populate initial values
   auto cpuMemsetOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      builder.getUnknownLoc(), mcpuMemset5DFuncOp,
       ValueRange{cpuMemRefCastOp, memsetMinValue, memsetMaxValue, seedValue});
   block->push_back(cpuMemsetOp);
 
@@ -427,13 +463,13 @@ createConvertResult(ModuleOp &module, OpBuilder &builder,
 
 static AllocOp
 allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
-                   mlir::FuncOp &mcpuMemCopy4DFuncOp,
+                   mlir::FuncOp &mcpuMemCopy5DFuncOp,
                    mlir::AllocOp &sourceOriginalAllocOp,
-                   SmallVector<int64_t, 4> &sourceDimension,
+                   SmallVector<int64_t, 5> &sourceDimension,
                    std::unordered_map<std::string, FuncOp> &convertFuncs) {
   auto floatType = builder.getF32Type();
-  auto fourDimUnknownSizeFloatType =
-      MemRefType::get({-1, -1, -1, -1}, floatType);
+  auto fiveDimUnknownSizeFloatType =
+      MemRefType::get({-1, -1, -1, -1, -1}, floatType);
 
   // Emit CPU alloc of Float type
   auto floatMemRefType = MemRefType::get(
@@ -445,7 +481,7 @@ allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
 
   // Emit memref cast
   auto cpuMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), cpuAllocOp, fourDimUnknownSizeFloatType);
+      builder.getUnknownLoc(), cpuAllocOp, fiveDimUnknownSizeFloatType);
   block->push_back(cpuMemRefCastOp);
 
   auto sourceMemRefType = sourceOriginalAllocOp.getType();
@@ -460,7 +496,7 @@ allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
 
     sourceMemRefCastOp = builder.create<MemRefCastOp>(
         builder.getUnknownLoc(), sourceFloatAllocOp,
-        fourDimUnknownSizeFloatType);
+        fiveDimUnknownSizeFloatType);
     block->push_back(sourceMemRefCastOp);
 
     // Create conversion routine
@@ -473,7 +509,7 @@ allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
   } else { // f32 or bf16
     // Emit memref cast
     auto sourceUnknownSizeMemRefType =
-        MemRefType::get({-1, -1, -1, -1}, dataType);
+        MemRefType::get({-1, -1, -1, -1, -1}, dataType);
     sourceMemRefCastOp = builder.create<MemRefCastOp>(
         builder.getUnknownLoc(), sourceOriginalAllocOp,
         sourceUnknownSizeMemRefType);
@@ -482,7 +518,7 @@ allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
 
   // Copy values of sourceAllocOp into cpuAllocOp
   auto cpuMemCopyCallOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemCopy4DFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mcpuMemCopy5DFuncOp,
                              ValueRange{sourceMemRefCastOp, cpuMemRefCastOp});
   block->push_back(cpuMemCopyCallOp);
 
@@ -562,8 +598,9 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   // %c_1 = constant 1 : index
   // %c_2 = constant 2 : index
   // %c_3 = constant 3 : index
+  // %c_4 = constant 4 : index
   std::vector<ConstantIndexOp> indexOpVec;
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 5; i++) {
     auto indexOp = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), i);
     cpuConvBlock->push_back(indexOp);
     indexOpVec.push_back(indexOp);
@@ -571,6 +608,8 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   auto charType = builder.getIntegerType(8);
   // Emit Constant ops for letters used in layouts
+  //  these numbers are ascii codes , g = 103, k = 107
+  //  %g = constant 103: i8
   //  %k = constant 107 : i8
   //  %c = constant 99 : i8
   //  %y = constant 121 : i8
@@ -599,6 +638,10 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   auto wConstantOp =
       builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'w', charType);
 
+  auto gConstantOp =
+      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'g', charType);
+
+  cpuConvBlock->push_back(gConstantOp);
   cpuConvBlock->push_back(kConstantOp);
   cpuConvBlock->push_back(cConstantOp);
   cpuConvBlock->push_back(yConstantOp);
@@ -608,6 +651,7 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   cpuConvBlock->push_back(wConstantOp);
 
   std::unordered_map<char, mlir::ConstantOp> layoutConstOps;
+  layoutConstOps['g'] = gConstantOp;
   layoutConstOps['k'] = kConstantOp;
   layoutConstOps['c'] = cConstantOp;
   layoutConstOps['y'] = yConstantOp;
@@ -616,10 +660,10 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   layoutConstOps['h'] = hConstantOp;
   layoutConstOps['w'] = wConstantOp;
 
-  // %3   = alloca() : memref<4xi8>
-  // %4   = alloca() : memref<4xi8>
-  // %5   = alloca() : memref<4xi8>
-  SmallVector<int64_t, 4> layoutVector({4});
+  // %3   = alloca() : memref<5xi8>
+  // %4   = alloca() : memref<5xi8>
+  // %5   = alloca() : memref<5xi8>
+  SmallVector<int64_t, 5> layoutVector({5});
   auto layoutMemRefType = MemRefType::get(
       ArrayRef<int64_t>(layoutVector.begin(), layoutVector.end()), charType);
   auto filLayoutAllocOp =
@@ -633,25 +677,25 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   cpuConvBlock->push_back(outLayoutAllocOp);
 
   // Store layouts into layoutAllocOp
-  // store %k, %3[%c_0]: memref<4xi32>
+  // store %k, %3[%c_0]: memref<5xi32>
   std::string fil_layout = filterLayout.getValue();
   std::string in_layout = inputLayout.getValue();
   std::string out_layout = outputLayout.getValue();
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 5; i++) {
     auto storeOp = builder.create<StoreOp>(
         builder.getUnknownLoc(), layoutConstOps[fil_layout[i]],
         filLayoutAllocOp, ValueRange{indexOpVec[i]});
     cpuConvBlock->push_back(storeOp);
   }
 
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 5; i++) {
     auto storeOp = builder.create<StoreOp>(
         builder.getUnknownLoc(), layoutConstOps[in_layout[i]], inLayoutAllocOp,
         ValueRange{indexOpVec[i]});
     cpuConvBlock->push_back(storeOp);
   }
 
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 5; i++) {
     auto storeOp = builder.create<StoreOp>(
         builder.getUnknownLoc(), layoutConstOps[out_layout[i]],
         outLayoutAllocOp, ValueRange{indexOpVec[i]});
@@ -659,9 +703,9 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   }
 
   // Emit memref_cast
-  // %6 = memref_cast %3 : memref<4xi8> to memref<*xi8>
-  // %7 = memref_cast %4 : memref<4xi8> to memref<*xi8>
-  // %8 = memref_cast %5 : memref<4xi8> to memref<*xi8>
+  // %6 = memref_cast %3 : memref<5xi8> to memref<*xi8>
+  // %7 = memref_cast %4 : memref<5xi8> to memref<*xi8>
+  // %8 = memref_cast %5 : memref<5xi8> to memref<*xi8>
   auto unrankedLayoutMemRefType = UnrankedMemRefType::get(charType, 0);
   auto filLayoutMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), filLayoutAllocOp, unrankedLayoutMemRefType);
@@ -714,7 +758,7 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
 }
 
 static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
-                                 SmallVector<int64_t, 4> &outputDimension,
+                                 SmallVector<int64_t, 5> &outputDimension,
                                  mlir::AllocOp &cpuAllocOp,
                                  mlir::AllocOp &gpuAllocOp) {
   // Emit verify_results function call
@@ -775,18 +819,25 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
                                                   outputDimension[3]);
   verifyResultsBlock->push_back(indexOp3);
 
+  auto indexOp4 = builder.create<ConstantIndexOp>(builder.getUnknownLoc(),
+                                                  outputDimension[4]);
+  verifyResultsBlock->push_back(indexOp4);
+
   // scf.for %arg0 = %c0 to %c128 step %c1 {
   //  scf.for %arg1 = %c0 to %c30 step %c1 {
   //    scf.for %arg2 = %c0 to %c30 step %c1 {
   //      scf.for %arg3 = %c0 to %c128 step %c1 {
-  //        %cpu_result = load %CpuResults[%arg0, %arg1, %arg2, %arg3] :
-  //        memref<128x30x30x128xf32> %gpu_result = load %GpuRsults[%arg0,
-  //        %arg1, %arg2, %arg3] : memref<128x30x30x128xf32> %cmp_result = cmpf
-  //        "oeq", %cpu_result, %gpu_result : f32
+  //        scf.for %arg4 = %c0 to %c128 step %c1 {
+  //          %cpu_result = load %CpuResults[%arg0, %arg1, %arg2, %arg3, %arg4]
+  //          : memref<128x30x30x128x128xf32> %gpu_result = load
+  //          %GpuRsults[%arg0, %arg1, %arg2, %arg3, %arg4] :
+  //          memref<128x30x30x128x128xf32> %cmp_result = cmpf "oeq",
+  //          %cpu_result, %gpu_result : f32
   //
-  //        scf.if %cmp_result {
-  //        } else {
-  //          store %c0_i32, %result[%c0] : memref<1xi32>
+  //          scf.if %cmp_result {
+  //          } else {
+  //            store %c0_i32, %result[%c0] : memref<1xi32>
+  //          }
   //        }
   //      }
   //    }
@@ -812,15 +863,22 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   auto bt3 = OpBuilder::atBlockTerminator(loop3.getBody());
   auto iv3 = loop3.getInductionVar();
 
-  auto cpuLoadOp = bt3.create<LoadOp>(builder.getUnknownLoc(),
+  auto loop4 = bt3.create<scf::ForOp>(builder.getUnknownLoc(), c0IndexOp,
+                                      indexOp4, c1IndexOp);
+
+  auto bt4 = OpBuilder::atBlockTerminator(loop4.getBody());
+  auto iv4 = loop4.getInductionVar();
+  auto cpuLoadOp = bt4.create<LoadOp>(builder.getUnknownLoc(),
                                       verifyResultsBlock->getArgument(0),
-                                      ValueRange{iv0, iv1, iv2, iv3});
-  auto gpuLoadOp = bt3.create<LoadOp>(builder.getUnknownLoc(),
+                                      ValueRange{iv0, iv1, iv2, iv3, iv4});
+
+  auto gpuLoadOp = bt4.create<LoadOp>(builder.getUnknownLoc(),
                                       verifyResultsBlock->getArgument(1),
-                                      ValueRange{iv0, iv1, iv2, iv3});
-  auto cmpOp = bt3.create<CmpFOp>(builder.getUnknownLoc(), CmpFPredicate::UNE,
+                                      ValueRange{iv0, iv1, iv2, iv3, iv4});
+
+  auto cmpOp = bt4.create<CmpFOp>(builder.getUnknownLoc(), CmpFPredicate::UNE,
                                   cpuLoadOp, gpuLoadOp);
-  auto ifOp = bt3.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
+  auto ifOp = bt4.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
   auto thenBody = ifOp.getThenBodyBuilder();
 
   auto storeOp0 =
@@ -869,18 +927,18 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   Block *gpuConvBlock = gpuConvFuncOp.addEntryBlock();
 
   // Emit memref_cast.
-  auto fourDimUnknownSizeMemRefType =
-      MemRefType::get({-1, -1, -1, -1}, dataType);
+  auto fiveDimUnknownSizeMemRefType =
+      MemRefType::get({-1, -1, -1, -1, -1}, dataType);
 
   auto filterMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), gpuConvBlock->getArgument(0),
-      fourDimUnknownSizeMemRefType);
+      fiveDimUnknownSizeMemRefType);
   auto inputMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), gpuConvBlock->getArgument(1),
-      fourDimUnknownSizeMemRefType);
+      fiveDimUnknownSizeMemRefType);
   auto outputMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), gpuConvBlock->getArgument(2),
-      fourDimUnknownSizeMemRefType);
+      fiveDimUnknownSizeMemRefType);
   gpuConvBlock->push_back(filterMemRefCastOp);
   gpuConvBlock->push_back(inputMemRefCastOp);
   gpuConvBlock->push_back(outputMemRefCastOp);
@@ -888,26 +946,26 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   // Emit GPU memory allocation function calls.
   StringRef gpuMemAllocFuncName;
   if (dataType == builder.getF32Type()) {
-    gpuMemAllocFuncName = "mgpuMemAlloc4DFloat";
+    gpuMemAllocFuncName = "mgpuMemAlloc5DFloat";
   } else if (dataType == builder.getF16Type()) {
-    gpuMemAllocFuncName = "mgpuMemAlloc4DHalf";
+    gpuMemAllocFuncName = "mgpuMemAlloc5DHalf";
   } else if (dataType == builder.getIntegerType(16)) {
-    gpuMemAllocFuncName = "mgpuMemAlloc4DBF16";
+    gpuMemAllocFuncName = "mgpuMemAlloc5DBF16";
   }
-  auto mgpuMemAlloc4DFuncOp =
-      makeFuncDecl(builder, gpuMemAllocFuncName, {fourDimUnknownSizeMemRefType},
-                   {fourDimUnknownSizeMemRefType});
+  auto mgpuMemAlloc5DFuncOp =
+      makeFuncDecl(builder, gpuMemAllocFuncName, {fiveDimUnknownSizeMemRefType},
+                   {fiveDimUnknownSizeMemRefType});
 
-  module.push_back(mgpuMemAlloc4DFuncOp);
+  module.push_back(mgpuMemAlloc5DFuncOp);
 
   auto filterGpuAllocOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc5DFuncOp,
                              ValueRange{filterMemRefCastOp});
   auto inputGpuAllocOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc5DFuncOp,
                              ValueRange{inputMemRefCastOp});
   auto outputGpuAllocOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc4DFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc5DFuncOp,
                              ValueRange{outputMemRefCastOp});
   gpuConvBlock->push_back(filterGpuAllocOp);
   gpuConvBlock->push_back(inputGpuAllocOp);
@@ -924,29 +982,29 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   // Emit CPU->GPU memcpy function calls.
   StringRef gpuMemCopyFuncName;
   if (dataType == builder.getF32Type()) {
-    gpuMemCopyFuncName = "mgpuMemCopy4DFloat";
+    gpuMemCopyFuncName = "mgpuMemCopy5DFloat";
   } else if (dataType == builder.getF16Type()) {
-    gpuMemCopyFuncName = "mgpuMemCopy4DHalf";
+    gpuMemCopyFuncName = "mgpuMemCopy5DHalf";
   } else if (dataType == builder.getIntegerType(16)) {
-    gpuMemCopyFuncName = "mgpuMemCopy4DBF16";
+    gpuMemCopyFuncName = "mgpuMemCopy5DBF16";
   }
-  auto mgpuMemCopy4DFuncOp =
+  auto mgpuMemCopy5DFuncOp =
       makeFuncDecl(builder, gpuMemCopyFuncName,
-                   {fourDimUnknownSizeMemRefType, fourDimUnknownSizeMemRefType,
+                   {fiveDimUnknownSizeMemRefType, fiveDimUnknownSizeMemRefType,
                     builder.getIntegerType(32)},
                    {});
-  module.push_back(mgpuMemCopy4DFuncOp);
+  module.push_back(mgpuMemCopy5DFuncOp);
 
   auto filterCpuToGpuCopyOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
+      builder.getUnknownLoc(), mgpuMemCopy5DFuncOp,
       ValueRange{filterMemRefCastOp, filterGpuAllocOp.getResult(0),
                  oneConstantI32Op});
   auto inputCpuToGpuCopyOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
+      builder.getUnknownLoc(), mgpuMemCopy5DFuncOp,
       ValueRange{inputMemRefCastOp, inputGpuAllocOp.getResult(0),
                  oneConstantI32Op});
   auto outputCpuToGpuCopyOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
+      builder.getUnknownLoc(), mgpuMemCopy5DFuncOp,
       ValueRange{outputMemRefCastOp, outputGpuAllocOp.getResult(0),
                  oneConstantI32Op});
   gpuConvBlock->push_back(filterCpuToGpuCopyOp);
@@ -985,7 +1043,7 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
                  outputGpuMemRefCastOp});
   gpuConvBlock->push_back(kernelCallOp);
 
-  // Emit mgpuMemCopy4DFloat function call.
+  // Emit mgpuMemCopy5DFloat function call.
   mlir::Value resultGpuValue, resultCpuValue;
   if (operation.getValue() == "conv2d" ||
       operation.getValue() == "conv2d_dummy") {
@@ -998,33 +1056,32 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
     resultGpuValue = filterGpuAllocOp.getResult(0);
     resultCpuValue = filterMemRefCastOp;
   }
-  auto outputGpuToCpuCopyOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemCopy4DFuncOp,
-                             ValueRange{resultGpuValue, resultCpuValue,
-                                        twoConstantI32Op});
+  auto outputGpuToCpuCopyOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), mgpuMemCopy5DFuncOp,
+      ValueRange{resultGpuValue, resultCpuValue, twoConstantI32Op});
   gpuConvBlock->push_back(outputGpuToCpuCopyOp);
 
   // Emit GPU memory deallocation function calls.
   StringRef gpuMemDeallocFuncName;
   if (dataType == builder.getF32Type()) {
-    gpuMemDeallocFuncName = "mgpuMemDealloc4DFloat";
+    gpuMemDeallocFuncName = "mgpuMemDealloc5DFloat";
   } else if (dataType == builder.getF16Type()) {
-    gpuMemDeallocFuncName = "mgpuMemDealloc4DHalf";
+    gpuMemDeallocFuncName = "mgpuMemDealloc5DHalf";
   } else if (dataType == builder.getIntegerType(16)) {
-    gpuMemDeallocFuncName = "mgpuMemDealloc4DBF16";
+    gpuMemDeallocFuncName = "mgpuMemDealloc5DBF16";
   }
-  auto mgpuMemDealloc4DFuncOp = makeFuncDecl(
-      builder, gpuMemDeallocFuncName, {fourDimUnknownSizeMemRefType}, {});
-  module.push_back(mgpuMemDealloc4DFuncOp);
+  auto mgpuMemDealloc5DFuncOp = makeFuncDecl(
+      builder, gpuMemDeallocFuncName, {fiveDimUnknownSizeMemRefType}, {});
+  module.push_back(mgpuMemDealloc5DFuncOp);
 
   auto filterGpuDeallocOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemDealloc4DFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemDealloc5DFuncOp,
                              ValueRange{filterMemRefCastOp});
   auto inputGpuDeallocOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemDealloc4DFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemDealloc5DFuncOp,
                              ValueRange{inputMemRefCastOp});
   auto outputGpuDeallocOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemDealloc4DFuncOp,
+      builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemDealloc5DFuncOp,
                              ValueRange{outputMemRefCastOp});
   gpuConvBlock->push_back(filterGpuDeallocOp);
   gpuConvBlock->push_back(inputGpuDeallocOp);
@@ -1058,9 +1115,9 @@ static std::tuple<short, short, int> configRandomTestData() {
 
 static LogicalResult populateHostHarnessLogic(
     ModuleOp &module, OpBuilder &builder, MLIRContext &context,
-    const SmallVector<int64_t, 4> &filterDimension,
-    const SmallVector<int64_t, 4> &inputDimension,
-    const SmallVector<int64_t, 4> &outputDimension, mlir::Type dataType) {
+    const SmallVector<int64_t, 5> &filterDimension,
+    const SmallVector<int64_t, 5> &inputDimension,
+    const SmallVector<int64_t, 5> &outputDimension, mlir::Type dataType) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -1078,8 +1135,8 @@ static LogicalResult populateHostHarnessLogic(
   auto outputMemRefType = MemRefType::get(
       ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
       dataType);
-  auto fourDimUnknownSizeMemRefType =
-      MemRefType::get({-1, -1, -1, -1}, dataType);
+  auto fiveDimUnknownSizeMemRefType =
+      MemRefType::get({-1, -1, -1, -1, -1}, dataType);
 
   // Determine types of memref to be printed out.
   // Forward convolution: output tensor.
@@ -1119,11 +1176,11 @@ static LogicalResult populateHostHarnessLogic(
 
   // Emit memref_cast.
   auto filterMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), filterHostAllocOp, fourDimUnknownSizeMemRefType);
+      builder.getUnknownLoc(), filterHostAllocOp, fiveDimUnknownSizeMemRefType);
   auto inputMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), inputHostAllocOp, fourDimUnknownSizeMemRefType);
+      builder.getUnknownLoc(), inputHostAllocOp, fiveDimUnknownSizeMemRefType);
   auto outputMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), outputHostAllocOp, fourDimUnknownSizeMemRefType);
+      builder.getUnknownLoc(), outputHostAllocOp, fiveDimUnknownSizeMemRefType);
   block->push_back(filterMemRefCastOp);
   block->push_back(inputMemRefCastOp);
   block->push_back(outputMemRefCastOp);
@@ -1152,17 +1209,17 @@ static LogicalResult populateHostHarnessLogic(
   // Emit CPU memset function calls.
   StringRef memsetFuncName;
   if (dataType == builder.getF32Type()) {
-    memsetFuncName = "mcpuMemset4DFloatRand";
+    memsetFuncName = "mcpuMemset5DFloatRand";
   } else if (dataType == builder.getF16Type()) {
-    memsetFuncName = "mcpuMemset4DHalfRand";
+    memsetFuncName = "mcpuMemset5DHalfRand";
   } else if (dataType == builder.getIntegerType(16)) {
-    memsetFuncName = "mcpuMemset4DBF16Rand";
+    memsetFuncName = "mcpuMemset5DBF16Rand";
   }
 
-  auto mcpuMemset4DFuncOp = makeFuncDecl(
+  auto mcpuMemset5DFuncOp = makeFuncDecl(
       builder, memsetFuncName,
-      {fourDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
-  module.push_back(mcpuMemset4DFuncOp);
+      {fiveDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
+  module.push_back(mcpuMemset5DFuncOp);
 
   // Populate initial values.
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
@@ -1193,15 +1250,15 @@ static LogicalResult populateHostHarnessLogic(
   }
 
   auto filterCpuMemsetOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      builder.getUnknownLoc(), mcpuMemset5DFuncOp,
       ValueRange{filterMemRefCastOp, filterMemsetMinValue, filterMemsetMaxValue,
                  seedConstantIntOp});
   auto inputCpuMemsetOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      builder.getUnknownLoc(), mcpuMemset5DFuncOp,
       ValueRange{inputMemRefCastOp, inputMemsetMinValue, inputMemsetMaxValue,
                  seedConstantIntOp});
   auto outputCpuMemsetOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      builder.getUnknownLoc(), mcpuMemset5DFuncOp,
       ValueRange{outputMemRefCastOp, outputMemsetMinValue, outputMemsetMaxValue,
                  seedConstantIntOp});
   block->push_back(filterCpuMemsetOp);
@@ -1240,7 +1297,7 @@ static LogicalResult populateHostHarnessLogic(
     if (dataType == builder.getIntegerType(16)) { // i16 only
       auto floatType = builder.getF32Type();
       auto unknownSizeMemRefFloatType =
-          MemRefType::get({-1, -1, -1, -1}, floatType);
+          MemRefType::get({-1, -1, -1, -1, -1}, floatType);
 
       auto printUnkownSizeMemRefCastOp = builder.create<MemRefCastOp>(
           builder.getUnknownLoc(), printHostAllocOp,
@@ -1249,7 +1306,7 @@ static LogicalResult populateHostHarnessLogic(
 
       auto cpuMemConvertOp = makeFuncDecl(
           builder, "mcpuMemBF16ConvertFloat",
-          {fourDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {});
+          {fiveDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {});
       module.push_back(cpuMemConvertOp);
 
       auto printMemConvertCallOp = builder.create<CallOp>(
@@ -1308,9 +1365,9 @@ static LogicalResult populateHostHarnessLogic(
 
 static LogicalResult populateValidationLogic(
     ModuleOp &module, OpBuilder &builder, MLIRContext &context,
-    SmallVector<int64_t, 4> &filterDimension,
-    SmallVector<int64_t, 4> &inputDimension,
-    SmallVector<int64_t, 4> &outputDimension, mlir::Type dataType) {
+    SmallVector<int64_t, 5> &filterDimension,
+    SmallVector<int64_t, 5> &inputDimension,
+    SmallVector<int64_t, 5> &outputDimension, mlir::Type dataType) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -1328,8 +1385,8 @@ static LogicalResult populateValidationLogic(
   auto outputMemRefType = MemRefType::get(
       ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
       dataType);
-  auto fourDimUnknownSizeMemRefType =
-      MemRefType::get({-1, -1, -1, -1}, dataType);
+  auto fiveDimUnknownSizeMemRefType =
+      MemRefType::get({-1, -1, -1, -1, -1}, dataType);
 
   // Emit CPU alloc.
   auto filterHostAllocOp =
@@ -1344,11 +1401,11 @@ static LogicalResult populateValidationLogic(
 
   // Emit memref_cast.
   auto filterMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), filterHostAllocOp, fourDimUnknownSizeMemRefType);
+      builder.getUnknownLoc(), filterHostAllocOp, fiveDimUnknownSizeMemRefType);
   auto inputMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), inputHostAllocOp, fourDimUnknownSizeMemRefType);
+      builder.getUnknownLoc(), inputHostAllocOp, fiveDimUnknownSizeMemRefType);
   auto outputMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), outputHostAllocOp, fourDimUnknownSizeMemRefType);
+      builder.getUnknownLoc(), outputHostAllocOp, fiveDimUnknownSizeMemRefType);
   block->push_back(filterMemRefCastOp);
   block->push_back(inputMemRefCastOp);
   block->push_back(outputMemRefCastOp);
@@ -1377,17 +1434,17 @@ static LogicalResult populateValidationLogic(
   // Emit CPU memset function calls.
   StringRef memsetFuncName;
   if (dataType == builder.getF32Type()) {
-    memsetFuncName = "mcpuMemset4DFloatRand";
+    memsetFuncName = "mcpuMemset5DFloatRand";
   } else if (dataType == builder.getF16Type()) {
-    memsetFuncName = "mcpuMemset4DHalfRand";
+    memsetFuncName = "mcpuMemset5DHalfRand";
   } else if (dataType == builder.getIntegerType(16)) {
-    memsetFuncName = "mcpuMemset4DBF16Rand";
+    memsetFuncName = "mcpuMemset5DBF16Rand";
   }
 
-  auto mcpuMemset4DFuncOp = makeFuncDecl(
+  auto mcpuMemset5DFuncOp = makeFuncDecl(
       builder, memsetFuncName,
-      {fourDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
-  module.push_back(mcpuMemset4DFuncOp);
+      {fiveDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
+  module.push_back(mcpuMemset5DFuncOp);
 
   // Populate initial values.
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
@@ -1418,15 +1475,15 @@ static LogicalResult populateValidationLogic(
   }
 
   auto filterCpuMemsetOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      builder.getUnknownLoc(), mcpuMemset5DFuncOp,
       ValueRange{filterMemRefCastOp, filterMemsetMinValue, filterMemsetMaxValue,
                  seedConstantIntOp});
   auto inputCpuMemsetOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      builder.getUnknownLoc(), mcpuMemset5DFuncOp,
       ValueRange{inputMemRefCastOp, inputMemsetMinValue, inputMemsetMaxValue,
                  seedConstantIntOp});
   auto outputCpuMemsetOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), mcpuMemset4DFuncOp,
+      builder.getUnknownLoc(), mcpuMemset5DFuncOp,
       ValueRange{outputMemRefCastOp, outputMemsetMinValue, outputMemsetMaxValue,
                  seedConstantIntOp});
   block->push_back(filterCpuMemsetOp);
@@ -1456,7 +1513,7 @@ static LogicalResult populateValidationLogic(
     block->push_back(verifyHostAllocOp);
 
     auto unknownSizeMemRefFloatType =
-        MemRefType::get({-1, -1, -1, -1}, floatType);
+        MemRefType::get({-1, -1, -1, -1, -1}, floatType);
 
     auto verifyUnkownSizeMemRefCastOp = builder.create<MemRefCastOp>(
         builder.getUnknownLoc(), verifyHostAllocOp, unknownSizeMemRefFloatType);
@@ -1464,7 +1521,7 @@ static LogicalResult populateValidationLogic(
 
     cpuMemConvertOp = makeFuncDecl(
         builder, "mcpuMemBF16ConvertFloat",
-        {fourDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {});
+        {fiveDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {});
     module.push_back(cpuMemConvertOp);
 
     auto verifyMemConvertCallOp = builder.create<CallOp>(
@@ -1544,26 +1601,26 @@ static LogicalResult populateValidationLogic(
       ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
       floatType);
 
-  auto fourDimUnknownSizeFloatType =
-      MemRefType::get({-1, -1, -1, -1}, floatType);
+  auto fiveDimUnknownSizeFloatType =
+      MemRefType::get({-1, -1, -1, -1, -1}, floatType);
 
   // Emit CPU memcopy function calls
-  mlir::FuncOp mcpuMemCopy4DFuncOp;
+  mlir::FuncOp mcpuMemCopy5DFuncOp;
   if (dataType == builder.getIntegerType(16)) { // bf16
-    mcpuMemCopy4DFuncOp = cpuMemConvertOp;
+    mcpuMemCopy5DFuncOp = cpuMemConvertOp;
   } else { // fp32 or fp16
-    mcpuMemCopy4DFuncOp = makeFuncDecl(
-        builder, "mcpuMemCopy4DFloat",
-        {fourDimUnknownSizeFloatType, fourDimUnknownSizeFloatType}, {});
-    module.push_back(mcpuMemCopy4DFuncOp);
+    mcpuMemCopy5DFuncOp = makeFuncDecl(
+        builder, "mcpuMemCopy5DFloat",
+        {fiveDimUnknownSizeFloatType, fiveDimUnknownSizeFloatType}, {});
+    module.push_back(mcpuMemCopy5DFuncOp);
   }
 
   // Emit CPU memset function calls
   if (dataType != builder.getF32Type()) {
-    mcpuMemset4DFuncOp = makeFuncDecl(
-        builder, "mcpuMemset4DFloatRand",
-        {fourDimUnknownSizeFloatType, int16Type, int16Type, int32Type}, {});
-    module.push_back(mcpuMemset4DFuncOp);
+    mcpuMemset5DFuncOp = makeFuncDecl(
+        builder, "mcpuMemset5DFloatRand",
+        {fiveDimUnknownSizeFloatType, int16Type, int16Type, int32Type}, {});
+    module.push_back(mcpuMemset5DFuncOp);
   }
 
   mlir::Value memsetValue = zeroConstantIntOp;
@@ -1571,46 +1628,46 @@ static LogicalResult populateValidationLogic(
   if (randomData.getValue() == "none") {
     // If not using random data, emit CPU alloc and initialization
     cpuFilterHostAllocOp = allocAndInitializeTensor(
-        builder, block, floatType, mcpuMemset4DFuncOp, filterMemRefType,
+        builder, block, floatType, mcpuMemset5DFuncOp, filterMemRefType,
         filterMemsetMinValue, filterMemsetMaxValue, seedConstantIntOp);
     cpuInputHostAllocOp = allocAndInitializeTensor(
-        builder, block, floatType, mcpuMemset4DFuncOp, inputMemRefType,
+        builder, block, floatType, mcpuMemset5DFuncOp, inputMemRefType,
         inputMemsetMinValue, inputMemsetMaxValue, seedConstantIntOp);
     cpuOutputHostAllocOp = allocAndInitializeTensor(
-        builder, block, floatType, mcpuMemset4DFuncOp, outputMemRefType,
+        builder, block, floatType, mcpuMemset5DFuncOp, outputMemRefType,
         outputMemsetMinValue, outputMemsetMaxValue, seedConstantIntOp);
   } else {
     // If using random data, mit CPU alloc and copy input data
     if (operation.getValue() == "conv2d" ||
         operation.getValue() == "conv2d_dummy") {
       cpuFilterHostAllocOp =
-          allocAndCopyTensor(module, builder, block, mcpuMemCopy4DFuncOp,
+          allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              filterHostAllocOp, filterDimension, convertFuncs);
       cpuInputHostAllocOp =
-          allocAndCopyTensor(module, builder, block, mcpuMemCopy4DFuncOp,
+          allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              inputHostAllocOp, inputDimension, convertFuncs);
       cpuOutputHostAllocOp = allocAndInitializeTensor(
-          builder, block, floatType, mcpuMemset4DFuncOp, outputMemRefType,
+          builder, block, floatType, mcpuMemset5DFuncOp, outputMemRefType,
           memsetValue, memsetValue, seedConstantIntOp);
     } else if (operation.getValue() == "conv2d_bwd_data") {
       cpuFilterHostAllocOp =
-          allocAndCopyTensor(module, builder, block, mcpuMemCopy4DFuncOp,
+          allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              filterHostAllocOp, filterDimension, convertFuncs);
       cpuInputHostAllocOp = allocAndInitializeTensor(
-          builder, block, floatType, mcpuMemset4DFuncOp, inputMemRefType,
+          builder, block, floatType, mcpuMemset5DFuncOp, inputMemRefType,
           memsetValue, memsetValue, seedConstantIntOp);
       cpuOutputHostAllocOp =
-          allocAndCopyTensor(module, builder, block, mcpuMemCopy4DFuncOp,
+          allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              outputHostAllocOp, outputDimension, convertFuncs);
     } else if (operation.getValue() == "conv2d_bwd_weight") {
       cpuFilterHostAllocOp = allocAndInitializeTensor(
-          builder, block, floatType, mcpuMemset4DFuncOp, filterMemRefType,
+          builder, block, floatType, mcpuMemset5DFuncOp, filterMemRefType,
           memsetValue, memsetValue, seedConstantIntOp);
       cpuInputHostAllocOp =
-          allocAndCopyTensor(module, builder, block, mcpuMemCopy4DFuncOp,
+          allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              inputHostAllocOp, inputDimension, convertFuncs);
       cpuOutputHostAllocOp =
-          allocAndCopyTensor(module, builder, block, mcpuMemCopy4DFuncOp,
+          allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              outputHostAllocOp, outputDimension, convertFuncs);
     }
   }
@@ -1692,9 +1749,9 @@ static LogicalResult populateValidationLogic(
 static LogicalResult
 populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
                             MLIRContext &context,
-                            SmallVector<int64_t, 4> &filterDimension,
-                            SmallVector<int64_t, 4> &inputDimension,
-                            SmallVector<int64_t, 4> &outputDimension) {
+                            SmallVector<int64_t, 5> &filterDimension,
+                            SmallVector<int64_t, 5> &inputDimension,
+                            SmallVector<int64_t, 5> &outputDimension) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -1716,8 +1773,8 @@ populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
       ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
       floatType);
 
-  auto fourDimUnknownSizeMemRefType =
-      MemRefType::get({-1, -1, -1, -1}, floatType);
+  auto fiveDimUnknownSizeMemRefType =
+      MemRefType::get({-1, -1, -1, -1, -1}, floatType);
 
   auto int16Type = builder.getIntegerType(16);
   auto int32Type = builder.getIntegerType(32);
@@ -1741,11 +1798,11 @@ populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
   block->push_back(seedConstantIntOp);
 
   // Emit CPU memset function calls.
-  StringRef memsetFuncName = "mcpuMemset4DFloatRand";
-  auto mcpuMemset4DFuncOp = makeFuncDecl(
+  StringRef memsetFuncName = "mcpuMemset5DFloatRand";
+  auto mcpuMemset5DFuncOp = makeFuncDecl(
       builder, memsetFuncName,
-      {fourDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
-  module.push_back(mcpuMemset4DFuncOp);
+      {fiveDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
+  module.push_back(mcpuMemset5DFuncOp);
 
   // Populate initial values.
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
@@ -1777,15 +1834,15 @@ populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
 
   // Emit CPU alloc.
   auto cpuFilterHostAllocOp = allocAndInitializeTensor(
-      builder, block, floatType, mcpuMemset4DFuncOp, filterMemRefType,
+      builder, block, floatType, mcpuMemset5DFuncOp, filterMemRefType,
       filterMemsetMinValue, filterMemsetMaxValue, seedConstantIntOp);
 
   auto cpuInputHostAllocOp = allocAndInitializeTensor(
-      builder, block, floatType, mcpuMemset4DFuncOp, inputMemRefType,
+      builder, block, floatType, mcpuMemset5DFuncOp, inputMemRefType,
       inputMemsetMinValue, inputMemsetMaxValue, seedConstantIntOp);
 
   auto cpuOutputHostAllocOp = allocAndInitializeTensor(
-      builder, block, floatType, mcpuMemset4DFuncOp, outputMemRefType,
+      builder, block, floatType, mcpuMemset5DFuncOp, outputMemRefType,
       outputMemsetMinValue, outputMemsetMaxValue, seedConstantIntOp);
 
   // Populate host validation logic
@@ -2030,17 +2087,18 @@ int main(int argc, char **argv) {
     dataType = builder.getIntegerType(16);
   }
 
+  correctParameters();
   populateDefaults();
 
   Conv2dGenerator conv2dGenerator;
   // Determine dimensions.
-  SmallVector<int64_t, 4> filterDimension;
-  SmallVector<int64_t, 4> inputDimension;
-  SmallVector<int64_t, 4> outputDimension;
+  SmallVector<int64_t, 5> filterDimension;
+  SmallVector<int64_t, 5> inputDimension;
+  SmallVector<int64_t, 5> outputDimension;
   conv2dGenerator.parseConvDims(
-      inputLayout, outputLayout, filterLayout, batchSize, inputChannel,
-      inputHeight, inputWidth, outputChannel, outputHeight, outputWidth,
-      filterWidth, filterHeight, filterDimension, inputDimension,
+      inputLayout, outputLayout, filterLayout, groupSize, batchSize,
+      inputChannel, inputHeight, inputWidth, outputChannel, outputHeight,
+      outputWidth, filterWidth, filterHeight, filterDimension, inputDimension,
       outputDimension);
 
   // Populate the module.

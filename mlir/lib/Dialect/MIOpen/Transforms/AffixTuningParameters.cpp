@@ -265,7 +265,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   //           b.getI32IntegerAttr(gemmCDstPerWrite));
   op->setAttr("matrix_c_dest_data_per_write", b.getI32IntegerAttr(1));
   op->setAttr("matrix_c_source_dest_vector_read_write_dim",
-              b.getI32IntegerAttr(3));
+              b.getI32IntegerAttr(4));
 }
 
 std::unique_ptr<Pass>

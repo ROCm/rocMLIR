@@ -668,7 +668,7 @@ mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
       auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
 
       size_t dimKF, dimNI, dimCI;
-      for (size_t i = 0; i < 4; ++i) {
+      for (size_t i = 0; i < 5; ++i) {
         auto filterDim = filterLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
 
         // Since XDLOPS cpp backend only supports forward pass so not all
@@ -687,7 +687,7 @@ mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
 
       // Filter tensor.
       // Find the fastest changing dimension.
-      if (dimKF == 3) {
+      if (dimKF == 4) {
         // When K is the fastest changing dimension,
         // gemmM dimension is vectorizable.
         // vectorization width depending on length of K.
@@ -703,14 +703,14 @@ mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
 
       // Input tensor.
       // Find the fastest changing dimension.
-      if (dimNI == 3) {
+      if (dimNI == 4) {
         // When N is the fastest changing dimension,
         // gemmN dimension is vectorizable.
         // vectorization width depending on length of N.
 
         // gemmK dimension non-vectorizable.
         inputGemmKVectorizable = false;
-      } else if (dimCI == 3) {
+      } else if (dimCI == 4) {
         // When C is the fastest changing dimension,
         // gemmK dimension vectorizable.
         // vectorization width depending on length of C.

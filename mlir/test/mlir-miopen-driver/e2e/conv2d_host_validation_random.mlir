@@ -30,6 +30,12 @@
 // CHECK_KCYX_NCHW_NKHW_8: [1]
 
 
+// group test
+// RUN: mlir-miopen-driver -pv -fil_layout=gkcyx -in_layout=ngchw -out_layout=ngkhw -groupsize=4  -batchsize=256 -in_channels=256 -out_channels=256 -in_h=56 -in_w=56 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --padding_h=0 --padding_w=0 --conv_stride_h=1 --conv_stride_w=1 -p=false -t f16 -rand 1 -c | mlir-rocm-runner  --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=GROUP_NCHW
+
+// GROUP_NCHW: Unranked Memref base@ = 0x{{.*}} rank = 1 offset = 0 sizes = [1] strides = [1] data =
+// GROUP_NCHW: [1]
+
 // kyxc_nhwc_nhwk
 // filter 1x1 f32
 // RUN: mlir-miopen-driver -pv -fil_layout=kyxc -in_layout=nhwc -out_layout=nhwk  -batchsize=64 -in_channels=4 -out_channels=64 -in_h=32 -in_w=32 -fil_h=1 -fil_w=1   --dilation_h=1 --dilation_w=1 --padding_h=0 --padding_w=0 --conv_stride_h=1 --conv_stride_w=1 -p=false -t f32 -c -rand 1| mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CHECK_KYXC_NHWC_NHWK_1
@@ -61,3 +67,8 @@
 // CHECK_KYXC_NHWC_NHWK_5: Unranked Memref base@ = 0x{{.*}} rank = 1 offset = 0 sizes = [1] strides = [1] data =
 // CHECK_KYXC_NHWC_NHWK_5: [1]
 
+// group test
+// RUN: mlir-miopen-driver -pv -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk -groupsize=4  -batchsize=256 -in_channels=256 -out_channels=256 -in_h=56 -in_w=56 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --padding_h=0 --padding_w=0 --conv_stride_h=1 --conv_stride_w=1 -p=false -t f16 -rand 1 -c | mlir-rocm-runner  --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=GROUP_NHWC
+
+// GROUP_NHWC: Unranked Memref base@ = 0x{{.*}} rank = 1 offset = 0 sizes = [1] strides = [1] data =
+// GROUP_NHWC: [1]
