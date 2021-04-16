@@ -471,7 +471,7 @@ static AllocOp
 allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
                    mlir::FuncOp &mcpuMemCopy5DFuncOp,
                    mlir::AllocOp &sourceOriginalAllocOp,
-                   SmallVector<int64_t, 5> &sourceDimension,
+                   const SmallVector<int64_t, 5> &sourceDimension,
                    std::unordered_map<std::string, FuncOp> &convertFuncs) {
   auto floatType = builder.getF32Type();
   auto fiveDimUnknownSizeFloatType =
@@ -2102,9 +2102,9 @@ int main(int argc, char **argv) {
       exit(1);
     }
   } else {
-    conv2dGenerator.parseConvDims(batchSize, inputChannel, inputHeight,
-                                  inputWidth, outputChannel, outputHeight,
-                                  outputWidth, filterWidth, filterHeight);
+    conv2dGenerator.parseConvDims(
+        batchSize, groupSize, inputChannel, inputHeight, inputWidth,
+        outputChannel, outputHeight, outputWidth, filterWidth, filterHeight);
   }
 
   // Determine data type.

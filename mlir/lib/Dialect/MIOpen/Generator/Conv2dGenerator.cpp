@@ -51,9 +51,10 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   auto isValid = [&argMap]() {
     // only require tensor configs
     static const std::vector<std::string> validKeys = {
-        "batchsize", "in_layout",  "in_type",  "in_channels",  "in_h",
-        "in_w",      "out_layout", "out_type", "out_channels", "out_h",
-        "out_w",     "fil_layout", "fil_type", "fil_w",        "fil_h"};
+        "batchsize",   "groupsize",    "in_layout", "in_type",
+        "in_channels", "in_h",         "in_w",      "out_layout",
+        "out_type",    "out_channels", "out_h",     "out_w",
+        "fil_layout",  "fil_type",     "fil_w",     "fil_h"};
     return std::all_of(
         validKeys.cbegin(), validKeys.cend(),
         [&argMap](const std::string &key) { return argMap.count(key) > 0; });
@@ -102,36 +103,41 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
     strToStr("out_layout", config.outputLayout);
 
     // Determine tensor dimensions.
-    return parseConvDims(
-        strToLong("batchsize"), strToLong("in_channels"), strToLong("in_h"),
-        strToLong("in_w"), strToLong("out_channels"), strToLong("out_h"),
-        strToLong("out_w"), strToLong("fil_w"), strToLong("fil_h"));
+    return parseConvDims(strToLong("batchsize"), strToLong("groupsize"),
+                         strToLong("in_channels"), strToLong("in_h"),
+                         strToLong("in_w"), strToLong("out_channels"),
+                         strToLong("out_h"), strToLong("out_w"),
+                         strToLong("fil_w"), strToLong("fil_h"));
   }
 
   return failure();
 }
 
-LogicalResult Conv2dGenerator::parseConvDims(
-    int64_t batchSize, int64_t inputChannel, int64_t inputHeight,
-    int64_t inputWidth, int64_t outputChannel, int64_t outputHeight,
-    int64_t outputWidth, int64_t filterHeight, int64_t filterWidth) {
+LogicalResult
+Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
+                               int64_t inputChannel, int64_t inputHeight,
+                               int64_t inputWidth, int64_t outputChannel,
+                               int64_t outputHeight, int64_t outputWidth,
+                               int64_t filterHeight, int64_t filterWidth) {
 
-  static const std::string filterKeys = "kcyx";
-  int64_t filterVals[] = {outputChannel, inputChannel, filterHeight,
-                          filterWidth};
+  static const std::string filterKeys = "kgcyx";
+  int64_t filterVals[] = {outputChannel, groupSize, inputChannel / groupSize,
+                          filterHeight, filterWidth};
 
-  static const std::string inputKeys = "nchw";
-  int64_t inputVals[] = {batchSize, inputChannel, inputHeight, inputWidth};
+  static const std::string inputKeys = "ngchw";
+  int64_t inputVals[] = {batchSize, groupSize, inputChannel / groupSize,
+                         inputHeight, inputWidth};
 
-  static const std::string outputKeys = "nkhw";
-  int64_t outputVals[] = {batchSize, outputChannel, outputHeight, outputWidth};
+  static const std::string outputKeys = "ngkhw";
+  int64_t outputVals[] = {batchSize, groupSize, outputChannel / groupSize,
+                          outputHeight, outputWidth};
 
   auto convertLayout = [](char &key, const std::string &kmap, int64_t vals[],
                           auto &dims) {
     auto keyl = std::tolower(key);
     auto ii = kmap.find(keyl);
     if (ii == std::string::npos) {
-      static std::string nchw = "nchw";
+      static std::string nchw = "ngchw";
       ii = nchw.find(keyl);
       if (ii == std::string::npos)
         return false;
@@ -142,7 +148,7 @@ LogicalResult Conv2dGenerator::parseConvDims(
   };
 
   // Determine dimensions.
-  for (size_t i = 0; i < 4; ++i) {
+  for (size_t i = 0; i < 5; ++i) {
     if (!convertLayout(config.filterLayout[i], filterKeys, filterVals,
                        config.filterDimension) ||
         !convertLayout(config.inputLayout[i], inputKeys, inputVals,
@@ -278,7 +284,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
                    func.getArgument(2)},
         attributes);
     block->push_back(convOp);
-  } else if (operation.compare("conv2d_dummy") == 0) {
+  } else if (config.operation == "conv2d_dummy") {
     auto convOp = builder.create<miopen::Conv2DDummyOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{func.getArgument(0), func.getArgument(1),
