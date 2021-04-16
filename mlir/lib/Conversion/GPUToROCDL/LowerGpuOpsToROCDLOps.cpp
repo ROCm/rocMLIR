@@ -76,6 +76,30 @@ struct LowerGpuOpsToROCDLOpsPass
   }
 };
 
+// Given subscript indices and array sizes in row-major order,
+//   i_n, i_{n-1}, ..., i_1
+//   s_n, s_{n-1}, ..., s_1
+// obtain a value that corresponds to the linearized subscript
+//   \sum_k i_k * \prod_{j=1}^{k-1} s_j
+// by accumulating the running linearized value.
+// Note that `indices` and `allocSizes` are passed in the same order as they
+// appear in load/store operations and memref type declarations.
+Value linearizeSubscripts(
+    ConversionPatternRewriter &builder, Location loc, ArrayRef<Value> indices,
+    ArrayRef<Value> allocSizes) {
+  assert(indices.size() == allocSizes.size() &&
+         "mismatching number of indices and allocation sizes");
+  assert(!indices.empty() && "cannot linearize a 0-dimensional access");
+
+  Value linearized = indices.front();
+  for (int i = 1, nSizes = allocSizes.size(); i < nSizes; ++i) {
+    linearized = builder.create<LLVM::MulOp>(
+        loc, builder.getIntegerType(32), ArrayRef<Value>{linearized, allocSizes[i]});
+    linearized = builder.create<LLVM::AddOp>(
+        loc, builder.getIntegerType(32), ArrayRef<Value>{linearized, indices[i]});
+  }
+  return linearized;
+}
 } // anonymous namespace
 
 void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {

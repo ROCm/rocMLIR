@@ -1029,23 +1029,6 @@ Value ConvertToLLVMPattern::createIndexConstant(
   return createIndexAttrConstant(builder, loc, getIndexType(), value);
 }
 
-Value ConvertToLLVMPattern::linearizeSubscripts(
-    ConversionPatternRewriter &builder, Location loc, ArrayRef<Value> indices,
-    ArrayRef<Value> allocSizes) const {
-  assert(indices.size() == allocSizes.size() &&
-         "mismatching number of indices and allocation sizes");
-  assert(!indices.empty() && "cannot linearize a 0-dimensional access");
-
-  Value linearized = indices.front();
-  for (int i = 1, nSizes = allocSizes.size(); i < nSizes; ++i) {
-    linearized = builder.create<LLVM::MulOp>(
-        loc, builder.getIntegerType(32), ArrayRef<Value>{linearized, allocSizes[i]});
-    linearized = builder.create<LLVM::AddOp>(
-        loc, builder.getIntegerType(32), ArrayRef<Value>{linearized, indices[i]});
-  }
-  return linearized;
-}
-
 Value ConvertToLLVMPattern::getStridedElementPtr(
     Location loc, MemRefType type, Value memRefDesc, ValueRange indices,
     ConversionPatternRewriter &rewriter) const {
