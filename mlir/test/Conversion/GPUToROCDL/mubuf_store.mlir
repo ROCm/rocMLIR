@@ -1,4 +1,4 @@
-// RUN: mlir-opt %s -convert-gpu-to-rocdl | FileCheck %s
+// RUN: mlir-opt %s -convert-gpu-to-rocdl='index-bitwidth=32' | FileCheck %s
 
 gpu.module @mubuf_store {
   // f32 tests.
@@ -54,12 +54,12 @@ gpu.module @mubuf_store {
     return
   }
 
-  // // FIXME-CHECK-LABEL: func @buffer_store_f16_to_rank_4
-  // func @buffer_store_f16_to_rank_4(%value : f16, %dst : memref<128x64x32x16xf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-  //   // FIXME-CHECK: llvm.store %{{.*}}, %{{.*}} : !llvm.ptr<f16>
-  //   gpu.buffer_store(%value, %dst, %offset0, %offset1, %offset2, %offset3) : f16, memref<128x64x32x16xf16>
-  //   return
-  // }
+  // CHECK-LABEL: func @buffer_store_f16_to_rank_4
+  func @buffer_store_f16_to_rank_4(%value : f16, %dst : memref<128x64x32x16xf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
+    // CHECK: llvm.store %{{.*}}, %{{.*}} : !llvm.ptr<f16>
+    gpu.buffer_store(%value, %dst, %offset0, %offset1, %offset2, %offset3) : f16, memref<128x64x32x16xf16>
+    return
+  }
 
   // CHECK-LABEL: func @buffer_store_2xf16_to_rank_1
   func @buffer_store_2xf16_to_rank_1(%value : vector<2xf16>, %dst : memref<128xf16>, %offset0 : i32) {
@@ -118,12 +118,12 @@ gpu.module @mubuf_store {
     return
   }
 
-  // // FIXME-CHECK-LABEL: func @buffer_store_i16_to_rank_4
-  // func @buffer_store_i16_to_rank_4(%value : i16, %dst : memref<128x64x32x16xi16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-  //   // FIXME-CHECK: llvm.store %{{.*}}, %{{.*}} : !llvm.ptr<i16>
-  //   gpu.buffer_store(%value, %dst, %offset0, %offset1, %offset2, %offset3) : i16, memref<128x64x32x16xi16>
-  //   return
-  // }
+  // CHECK-LABEL: func @buffer_store_i16_to_rank_4
+  func @buffer_store_i16_to_rank_4(%value : i16, %dst : memref<128x64x32x16xi16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
+    // CHECK: llvm.store %{{.*}}, %{{.*}} : !llvm.ptr<i16>
+    gpu.buffer_store(%value, %dst, %offset0, %offset1, %offset2, %offset3) : i16, memref<128x64x32x16xi16>
+    return
+  }
 
   // CHECK-LABEL: func @buffer_store_2xi16_to_rank_1
   func @buffer_store_2xi16_to_rank_1(%value : vector<2xi16>, %dst : memref<128xi16>, %offset0 : i32) {

@@ -1,4 +1,4 @@
-// RUN: mlir-opt %s -convert-gpu-to-rocdl | FileCheck %s
+// RUN: mlir-opt %s -convert-gpu-to-rocdl='index-bitwidth=32' | FileCheck %s
 
 gpu.module @mubuf_load {
   // f32 tests.
@@ -54,12 +54,12 @@ gpu.module @mubuf_load {
     return %result : f16
   }
 
-  // FIXME-CHECK-LABEL: func @buffer_load_from_rank_4_to_f16
-  //func @buffer_load_from_rank_4_to_f16(%src : memref<128x64x32x16xf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> f16 {
-    // FIXME-CHECK: llvm.load %{{.*}} : !llvm.ptr<f16>
-    //%result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xf16>, f16
-    //return %result : f16
-  //}
+  // CHECK-LABEL: func @buffer_load_from_rank_4_to_f16
+  func @buffer_load_from_rank_4_to_f16(%src : memref<128x64x32x16xf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> f16 {
+    // CHECK: llvm.load %{{.*}} : !llvm.ptr<f16>
+    %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xf16>, f16
+    return %result : f16
+  }
 
   // CHECK-LABEL: func @buffer_load_from_rank_1_to_2xf16
   func @buffer_load_from_rank_1_to_2xf16(%src : memref<128xf16>, %offset0 : i32) -> vector<2xf16> {
@@ -118,12 +118,12 @@ gpu.module @mubuf_load {
     return %result : i16
   }
 
-  // FIXME-CHECK-LABEL: func @buffer_load_from_rank_4_to_i16
-  //func @buffer_load_from_rank_4_to_i16(%src : memref<128x64x32x16xi16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> i16 {
-    // FIXME-CHECK: llvm.load %{{.*}} : !llvm<"i16*">
-    //%result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xi16>, i16
-    //return %result : i16
-  //}
+  // CHECK-LABEL: func @buffer_load_from_rank_4_to_i16
+  func @buffer_load_from_rank_4_to_i16(%src : memref<128x64x32x16xi16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> i16 {
+    // CHECK: llvm.load %{{.*}} : !llvm.ptr<i16>
+    %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xi16>, i16
+    return %result : i16
+  }
 
   // CHECK-LABEL: func @buffer_load_from_rank_1_to_2xi16
   func @buffer_load_from_rank_1_to_2xi16(%src : memref<128xi16>, %offset0 : i32) -> vector<2xi16> {
