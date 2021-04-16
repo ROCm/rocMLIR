@@ -84,19 +84,20 @@ struct LowerGpuOpsToROCDLOpsPass
 // by accumulating the running linearized value.
 // Note that `indices` and `allocSizes` are passed in the same order as they
 // appear in load/store operations and memref type declarations.
-Value linearizeSubscripts(
-    ConversionPatternRewriter &builder, Location loc, ArrayRef<Value> indices,
-    ArrayRef<Value> allocSizes) {
+Value linearizeSubscripts(ConversionPatternRewriter &builder, Location loc,
+                          ArrayRef<Value> indices, ArrayRef<Value> allocSizes) {
   assert(indices.size() == allocSizes.size() &&
          "mismatching number of indices and allocation sizes");
   assert(!indices.empty() && "cannot linearize a 0-dimensional access");
 
   Value linearized = indices.front();
   for (int i = 1, nSizes = allocSizes.size(); i < nSizes; ++i) {
-    linearized = builder.create<LLVM::MulOp>(
-        loc, builder.getIntegerType(32), ArrayRef<Value>{linearized, allocSizes[i]});
-    linearized = builder.create<LLVM::AddOp>(
-        loc, builder.getIntegerType(32), ArrayRef<Value>{linearized, indices[i]});
+    linearized =
+        builder.create<LLVM::MulOp>(loc, builder.getIntegerType(32),
+                                    ArrayRef<Value>{linearized, allocSizes[i]});
+    linearized =
+        builder.create<LLVM::AddOp>(loc, builder.getIntegerType(32),
+                                    ArrayRef<Value>{linearized, indices[i]});
   }
   return linearized;
 }
@@ -129,7 +130,8 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
     auto adaptor = gpu::MubufLoadOpAdaptor(operands);
     auto loc = mubufLoadOp.getLoc();
 
-    MemRefType srcMemRefType = mubufLoadOp.memref().getType().cast<MemRefType>();
+    MemRefType srcMemRefType =
+        mubufLoadOp.memref().getType().cast<MemRefType>();
     Type srcElementType = srcMemRefType.getElementType();
     auto srcShape = srcMemRefType.getShape();
     auto adaptorIndices = adaptor.indices();
@@ -142,7 +144,9 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
     if ((srcElementType.getIntOrFloatBitWidth() != 32) &&
         (srcMemRefType.getMemorySpace() == 0 &&
          !resultType.isa<VectorType>())) {
-      Value dataPtr = getStridedElementPtr(op->getLoc(), srcMemRefType, adaptor.memref(), adaptor.indices(), rewriter);
+      Value dataPtr =
+          getStridedElementPtr(op->getLoc(), srcMemRefType, adaptor.memref(),
+                               adaptor.indices(), rewriter);
       rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtr);
       return success();
     }
@@ -150,15 +154,20 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
     // use standard load for:
     // 2) loading scalar and vector f16 and i16 (bf16) from LDS (addrspace 3).
     // 3) loading scalar and vector f16 and i16 (bf16) from VGPR (addrspace 5).
-    if (srcMemRefType.getMemorySpace() == 3 || srcMemRefType.getMemorySpace() == 5) {
-      Value dataPtr = getStridedElementPtr(op->getLoc(), srcMemRefType, adaptor.memref(), adaptor.indices(), rewriter);
+    if (srcMemRefType.getMemorySpace() == 3 ||
+        srcMemRefType.getMemorySpace() == 5) {
+      Value dataPtr =
+          getStridedElementPtr(op->getLoc(), srcMemRefType, adaptor.memref(),
+                               adaptor.indices(), rewriter);
       if (!resultType.isa<VectorType>()) {
         rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtr);
         return success();
       } else {
         // bitcast in case the result type is a vector.
-        Type LLVMResultPointerType = LLVM::LLVMPointerType::get(LLVMResultType, srcMemRefType.getMemorySpace());
-        Value dataPtrBitcasted = rewriter.create<LLVM::BitcastOp>(loc, LLVMResultPointerType, dataPtr);
+        Type LLVMResultPointerType = LLVM::LLVMPointerType::get(
+            LLVMResultType, srcMemRefType.getMemorySpace());
+        Value dataPtrBitcasted = rewriter.create<LLVM::BitcastOp>(
+            loc, LLVMResultPointerType, dataPtr);
         rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtrBitcasted);
         return success();
       }
@@ -187,47 +196,69 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
     Value ptrToInt = rewriter.create<LLVM::PtrToIntOp>(loc, LLVMI64Type, ptr);
 
     // word 0-1: pointer to memref.
-    Value ptrBitcasted = rewriter.create<LLVM::BitcastOp>(loc, LLVMI32x2Type, ptrToInt);
-    Value rsrcUndefTwoItems = rewriter.create<LLVM::UndefOp>(loc, LLVMI32x2Type);
-    Value rsrcFirstTwoItems = rewriter.create<LLVM::ShuffleVectorOp>(loc, ptrBitcasted, rsrcUndefTwoItems, rewriter.getI32ArrayAttr({0, 1, -1, -1}));
+    Value ptrBitcasted =
+        rewriter.create<LLVM::BitcastOp>(loc, LLVMI32x2Type, ptrToInt);
+    Value rsrcUndefTwoItems =
+        rewriter.create<LLVM::UndefOp>(loc, LLVMI32x2Type);
+    Value rsrcFirstTwoItems = rewriter.create<LLVM::ShuffleVectorOp>(
+        loc, ptrBitcasted, rsrcUndefTwoItems,
+        rewriter.getI32ArrayAttr({0, 1, -1, -1}));
 
     Value rsrcUndef = rewriter.create<LLVM::UndefOp>(loc, LLVMRsrcVectorType);
     // word 2: fixed as -1 .
-    Value constant2 = rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(2));
-    Value minusOne = rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(-1));
-    Value rsrc2 = rewriter.create<LLVM::InsertElementOp>(loc, LLVMRsrcVectorType, rsrcUndef, minusOne, constant2);
+    Value constant2 = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(2));
+    Value minusOne = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(-1));
+    Value rsrc2 = rewriter.create<LLVM::InsertElementOp>(
+        loc, LLVMRsrcVectorType, rsrcUndef, minusOne, constant2);
 
     // word 3: fixed as 0x00027000 .
-    Value constant3 = rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(3));
-    Value bufferLoadConstant = rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(0x00027000));
-    Value rsrcLastTwoItems = rewriter.create<LLVM::InsertElementOp>(loc, LLVMRsrcVectorType, rsrc2, bufferLoadConstant, constant3);
+    Value constant3 = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(3));
+    Value bufferLoadConstant = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(0x00027000));
+    Value rsrcLastTwoItems = rewriter.create<LLVM::InsertElementOp>(
+        loc, LLVMRsrcVectorType, rsrc2, bufferLoadConstant, constant3);
 
-    Value rsrc = rewriter.create<LLVM::ShuffleVectorOp>(loc, rsrcFirstTwoItems, rsrcLastTwoItems, rewriter.getI32ArrayAttr({0, 1, 6, 7}));
+    Value rsrc = rewriter.create<LLVM::ShuffleVectorOp>(
+        loc, rsrcFirstTwoItems, rsrcLastTwoItems,
+        rewriter.getI32ArrayAttr({0, 1, 6, 7}));
 
     // populate vindex : fixed as 0 of type i32.
-    Value vindex = rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(0));
+    Value vindex = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(0));
 
     // populate voffset.
     SmallVector<Value, 4> indices;
     SmallVector<Value, 4> allocSizes;
     for (unsigned i = 0; i < srcShape.size(); ++i) {
       indices.push_back(adaptorIndices[i]);
-      allocSizes.push_back(rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(srcShape[i])));
+      allocSizes.push_back(rewriter.create<LLVM::ConstantOp>(
+          loc, LLVMI32Type, rewriter.getI32IntegerAttr(srcShape[i])));
     }
-    Value voffsetElements = linearizeSubscripts(rewriter, loc, ArrayRef<Value>{indices.begin(), indices.end()}, ArrayRef<Value>{allocSizes.begin(), allocSizes.end()});
+    Value voffsetElements = linearizeSubscripts(
+        rewriter, loc, ArrayRef<Value>{indices.begin(), indices.end()},
+        ArrayRef<Value>{allocSizes.begin(), allocSizes.end()});
 
     // vindex is counted in bytes. Times size of element type.
-    Value elementBytes = rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(srcMemRefType.getElementTypeBitWidth() / 8));
-    Value voffset = rewriter.create<LLVM::MulOp>(loc, LLVMI32Type, ArrayRef<Value>{voffsetElements, elementBytes});
+    Value elementBytes = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type,
+        rewriter.getI32IntegerAttr(srcMemRefType.getElementTypeBitWidth() / 8));
+    Value voffset = rewriter.create<LLVM::MulOp>(
+        loc, LLVMI32Type, ArrayRef<Value>{voffsetElements, elementBytes});
 
     // populate slc : fixed as 0 of type i1.
-    Value slc = rewriter.create<LLVM::ConstantOp>(loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
+    Value slc = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
 
     // populate glc : fixed as 0 of type i1.
-    Value glc = rewriter.create<LLVM::ConstantOp>(loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
+    Value glc = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
 
     if (srcElementType.getIntOrFloatBitWidth() != 32) {
-      // for f16 and i16 (bf16) types, use f32 buffer_load and bitcast the result.
+      // for f16 and i16 (bf16) types, use f32 buffer_load and bitcast the
+      // result.
       assert(resultType.isa<VectorType>());
       // deduce the interim type for f16 / i16 (bf16).
       VectorType vectorResultType = resultType.template cast<VectorType>();
@@ -242,15 +273,19 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
       if (useScalarF32)
         interimResultType = rewriter.getF32Type();
       else
-	interimResultType = VectorType::get(interimShape, rewriter.getF32Type());
-      Type interimLLVMResultType = typeConverter->convertType(interimResultType);
+        interimResultType =
+            VectorType::get(interimShape, rewriter.getF32Type());
+      Type interimLLVMResultType =
+          typeConverter->convertType(interimResultType);
 
-      Value interimLoad = rewriter.create<ROCDL::MubufLoadOp>(loc, interimLLVMResultType, rsrc, vindex, voffset, slc, glc);
+      Value interimLoad = rewriter.create<ROCDL::MubufLoadOp>(
+          loc, interimLLVMResultType, rsrc, vindex, voffset, slc, glc);
 
-      rewriter.replaceOpWithNewOp<LLVM::BitcastOp>(op, LLVMResultType, interimLoad);
+      rewriter.replaceOpWithNewOp<LLVM::BitcastOp>(op, LLVMResultType,
+                                                   interimLoad);
     } else {
       rewriter.replaceOpWithNewOp<ROCDL::MubufLoadOp>(
-              op, LLVMResultType, rsrc, vindex, voffset, slc, glc);
+          op, LLVMResultType, rsrc, vindex, voffset, slc, glc);
     }
 
     return success();
@@ -270,7 +305,8 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     auto adaptor = gpu::MubufStoreOpAdaptor(operands);
     auto loc = mubufStoreOp.getLoc();
 
-    MemRefType dstMemRefType = mubufStoreOp.memref().getType().cast<MemRefType>();
+    MemRefType dstMemRefType =
+        mubufStoreOp.memref().getType().cast<MemRefType>();
     Type dstElementType = dstMemRefType.getElementType();
     auto dstShape = dstMemRefType.getShape();
     auto adaptorIndices = adaptor.indices();
@@ -282,7 +318,9 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     // use standard store for storing scalar f16 and i16 (bf16).
     if ((dstElementType.getIntOrFloatBitWidth() != 32) &&
         !valueType.isa<VectorType>()) {
-      Value dataPtr = getStridedElementPtr(op->getLoc(), dstMemRefType, adaptor.memref(), adaptor.indices(), rewriter);
+      Value dataPtr =
+          getStridedElementPtr(op->getLoc(), dstMemRefType, adaptor.memref(),
+                               adaptor.indices(), rewriter);
       rewriter.replaceOpWithNewOp<LLVM::StoreOp>(op, adaptorValue, dataPtr);
       return success();
     }
@@ -310,47 +348,69 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     Value ptrToInt = rewriter.create<LLVM::PtrToIntOp>(loc, LLVMI64Type, ptr);
 
     // word 0-1: pointer to memref.
-    Value ptrBitcasted = rewriter.create<LLVM::BitcastOp>(loc, LLVMI32x2Type, ptrToInt);
-    Value rsrcUndefTwoItems = rewriter.create<LLVM::UndefOp>(loc, LLVMI32x2Type);
-    Value rsrcFirstTwoItems = rewriter.create<LLVM::ShuffleVectorOp>(loc, ptrBitcasted, rsrcUndefTwoItems, rewriter.getI32ArrayAttr({0, 1, -1, -1}));
+    Value ptrBitcasted =
+        rewriter.create<LLVM::BitcastOp>(loc, LLVMI32x2Type, ptrToInt);
+    Value rsrcUndefTwoItems =
+        rewriter.create<LLVM::UndefOp>(loc, LLVMI32x2Type);
+    Value rsrcFirstTwoItems = rewriter.create<LLVM::ShuffleVectorOp>(
+        loc, ptrBitcasted, rsrcUndefTwoItems,
+        rewriter.getI32ArrayAttr({0, 1, -1, -1}));
 
     Value rsrcUndef = rewriter.create<LLVM::UndefOp>(loc, LLVMRsrcVectorType);
     // word 2: fixed as -1 .
-    Value constant2 = rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(2));
-    Value minusOne = rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(-1));
-    Value rsrc2 = rewriter.create<LLVM::InsertElementOp>(loc, LLVMRsrcVectorType, rsrcUndef, minusOne, constant2);
+    Value constant2 = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(2));
+    Value minusOne = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(-1));
+    Value rsrc2 = rewriter.create<LLVM::InsertElementOp>(
+        loc, LLVMRsrcVectorType, rsrcUndef, minusOne, constant2);
 
     // word 3: fixed as 0x00027000 .
-    Value constant3 = rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(3));
-    Value bufferLoadConstant = rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(0x00027000));
-    Value rsrcLastTwoItems = rewriter.create<LLVM::InsertElementOp>(loc, LLVMRsrcVectorType, rsrc2, bufferLoadConstant, constant3);
+    Value constant3 = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(3));
+    Value bufferLoadConstant = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(0x00027000));
+    Value rsrcLastTwoItems = rewriter.create<LLVM::InsertElementOp>(
+        loc, LLVMRsrcVectorType, rsrc2, bufferLoadConstant, constant3);
 
-    Value rsrc = rewriter.create<LLVM::ShuffleVectorOp>(loc, rsrcFirstTwoItems, rsrcLastTwoItems, rewriter.getI32ArrayAttr({0, 1, 6, 7}));
+    Value rsrc = rewriter.create<LLVM::ShuffleVectorOp>(
+        loc, rsrcFirstTwoItems, rsrcLastTwoItems,
+        rewriter.getI32ArrayAttr({0, 1, 6, 7}));
 
     // populate vindex : fixed as 0 of type i32.
-    Value vindex = rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(0));
+    Value vindex = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(0));
 
     // populate voffset.
     SmallVector<Value, 4> indices;
     SmallVector<Value, 4> allocSizes;
     for (unsigned i = 0; i < dstShape.size(); ++i) {
       indices.push_back(adaptorIndices[i]);
-      allocSizes.push_back(rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(dstShape[i])));
+      allocSizes.push_back(rewriter.create<LLVM::ConstantOp>(
+          loc, LLVMI32Type, rewriter.getI32IntegerAttr(dstShape[i])));
     }
-    Value voffsetElements = linearizeSubscripts(rewriter, loc, ArrayRef<Value>{indices.begin(), indices.end()}, ArrayRef<Value>{allocSizes.begin(), allocSizes.end()});
+    Value voffsetElements = linearizeSubscripts(
+        rewriter, loc, ArrayRef<Value>{indices.begin(), indices.end()},
+        ArrayRef<Value>{allocSizes.begin(), allocSizes.end()});
 
     // vindex is counted in bytes. Times size of element type.
-    Value elementBytes = rewriter.create<LLVM::ConstantOp>(loc, LLVMI32Type, rewriter.getI32IntegerAttr(dstMemRefType.getElementTypeBitWidth() / 8));
-    Value voffset = rewriter.create<LLVM::MulOp>(loc, LLVMI32Type, ArrayRef<Value>{voffsetElements, elementBytes});
+    Value elementBytes = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type,
+        rewriter.getI32IntegerAttr(dstMemRefType.getElementTypeBitWidth() / 8));
+    Value voffset = rewriter.create<LLVM::MulOp>(
+        loc, LLVMI32Type, ArrayRef<Value>{voffsetElements, elementBytes});
 
     // populate slc : fixed as 0 of type i1.
-    Value slc = rewriter.create<LLVM::ConstantOp>(loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
+    Value slc = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
 
     // populate glc : fixed as 0 of type i1.
-    Value glc = rewriter.create<LLVM::ConstantOp>(loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
+    Value glc = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
 
     if (dstElementType.getIntOrFloatBitWidth() != 32) {
-      // for f16 and i16 (bf16) types, use f32 buffer_store and bitcast the result.
+      // for f16 and i16 (bf16) types, use f32 buffer_store and bitcast the
+      // result.
       assert(valueType.isa<VectorType>());
       // deduce the interim type for f16 / i16 (bf16).
       VectorType vectorResultType = valueType.template cast<VectorType>();
@@ -368,11 +428,13 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
         interimValueType = VectorType::get(interimShape, rewriter.getF32Type());
       Type interimLLVMValueType = typeConverter->convertType(interimValueType);
 
-      Value bitcastedValue = rewriter.create<LLVM::BitcastOp>(loc, interimLLVMValueType, adaptorValue);
-      rewriter.replaceOpWithNewOp<ROCDL::MubufStoreOp>(op, bitcastedValue, rsrc, vindex, voffset, slc, glc);
+      Value bitcastedValue = rewriter.create<LLVM::BitcastOp>(
+          loc, interimLLVMValueType, adaptorValue);
+      rewriter.replaceOpWithNewOp<ROCDL::MubufStoreOp>(
+          op, bitcastedValue, rsrc, vindex, voffset, slc, glc);
     } else {
       rewriter.replaceOpWithNewOp<ROCDL::MubufStoreOp>(
-              op, adaptorValue, rsrc, vindex, voffset, slc, glc);
+          op, adaptorValue, rsrc, vindex, voffset, slc, glc);
     }
 
     return success();
