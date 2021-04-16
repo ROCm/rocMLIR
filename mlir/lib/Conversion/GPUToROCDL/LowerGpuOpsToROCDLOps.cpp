@@ -451,7 +451,7 @@ struct AtomicFAddOpLowering : ConvertToLLVMPattern {
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto atomicAddOp = cast<gpu::AtomicFAddOp>(op);
-    auto adaptor = gpu::AtomicFAddOpOperandAdaptor(operands);
+    auto adaptor = gpu::AtomicFAddOpAdaptor(operands);
     auto loc = atomicAddOp.getLoc();
 
     MemRefType dstMemRefType =
@@ -462,24 +462,24 @@ struct AtomicFAddOpLowering : ConvertToLLVMPattern {
     auto adaptorValue = adaptor.value();
 
     Type valueType = atomicAddOp.value().getType();
-    Type LLVMValueType = typeConverter.convertType(valueType);
+    Type LLVMValueType = typeConverter->convertType(valueType);
 
     // use rocdl.atomic_add.
 
     Type I1Type = rewriter.getI1Type();
-    Type LLVMI1Type = typeConverter.convertType(I1Type);
+    Type LLVMI1Type = typeConverter->convertType(I1Type);
 
     Type I32Type = rewriter.getIntegerType(32);
-    Type LLVMI32Type = typeConverter.convertType(I32Type);
+    Type LLVMI32Type = typeConverter->convertType(I32Type);
 
     Type I64Type = rewriter.getIntegerType(64);
-    Type LLVMI64Type = typeConverter.convertType(I64Type);
+    Type LLVMI64Type = typeConverter->convertType(I64Type);
 
     Type rsrcVectorType = VectorType::get({4}, I32Type);
-    Type LLVMRsrcVectorType = typeConverter.convertType(rsrcVectorType);
+    Type LLVMRsrcVectorType = typeConverter->convertType(rsrcVectorType);
 
     Type I32x2Type = VectorType::get({2}, I32Type);
-    Type LLVMI32x2Type = typeConverter.convertType(I32x2Type);
+    Type LLVMI32x2Type = typeConverter->convertType(I32x2Type);
 
     // word 0-1: pointer to memref.
     MemRefDescriptor memrefDescriptor(adaptor.memref());
@@ -529,7 +529,7 @@ struct AtomicFAddOpLowering : ConvertToLLVMPattern {
       // vector.
       VectorType valueVectorType = valueType.template cast<VectorType>();
       Type valueElementType = valueVectorType.getElementType();
-      Type LLVMValueElementType = typeConverter.convertType(valueElementType);
+      Type LLVMValueElementType = typeConverter->convertType(valueElementType);
 
       for (unsigned iter = 0; iter < valueVectorType.getShape()[0]; ++iter) {
         auto iterConstant = rewriter.create<LLVM::ConstantOp>(
