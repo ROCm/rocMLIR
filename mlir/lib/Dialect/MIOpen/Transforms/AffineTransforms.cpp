@@ -103,6 +103,22 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
           auto srcDim = srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
           affExprsMap.insert({srcDim, expr});
         }
+      }else if (transformAttr.getValue() == "UnMerge") {
+        assert(srcDimAttr.size() == 1);
+        assert(destDimAttr.size() > 1);
+        auto outputType = op.output().getType().dyn_cast<MemRefType>();
+        auto outputShape = outputType.getShape();
+
+        auto srcDim = srcDimAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+        auto destDim = destDimAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+        auto expr = getAffineDimExpr(destDim, op.getContext());
+        for (unsigned j = 1; j < destDimAttr.size(); ++j) {
+          destDim = destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          auto lengthExpr = getAffineConstantExpr(outputShape[destDim], op.getContext());
+          auto partialExpr = getAffineDimExpr(destDim, op.getContext());
+          expr = expr * lengthExpr + partialExpr;
+        }
+        affExprsMap.insert({srcDim, expr});
       } else if (transformAttr.getValue() == "Embed") {
         assert(srcDimAttr.size() == 1);
         assert(destDimAttr.size() > 1);
