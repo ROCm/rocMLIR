@@ -139,8 +139,9 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
 
     // use standard load for:
     // 1) loading scalar f16 and i16 (bf16) from global (addrspace 0).
-    if ((srcElementType == rewriter.getIntegerType(16) || srcElementType == rewriter.getF16Type()) &&
-        (srcMemRefType.getMemorySpace() == 0 && !resultType.isa<VectorType>())) {
+    if ((srcElementType.getIntOrFloatBitWidth() != 32) &&
+        (srcMemRefType.getMemorySpace() == 0 &&
+         !resultType.isa<VectorType>())) {
       Value dataPtr = getStridedElementPtr(op->getLoc(), srcMemRefType, adaptor.memref(), adaptor.indices(), rewriter);
       rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtr);
       return success();
@@ -225,7 +226,7 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
     // populate glc : fixed as 0 of type i1.
     Value glc = rewriter.create<LLVM::ConstantOp>(loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
 
-    if (srcElementType == rewriter.getIntegerType(16) || srcElementType == rewriter.getF16Type()) {
+    if (srcElementType.getIntOrFloatBitWidth() != 32) {
       // for f16 and i16 (bf16) types, use f32 buffer_load and bitcast the result.
       assert(resultType.isa<VectorType>());
       // deduce the interim type for f16 / i16 (bf16).
@@ -279,7 +280,7 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     Type LLVMValueType = typeConverter->convertType(valueType);
 
     // use standard store for storing scalar f16 and i16 (bf16).
-    if ((dstElementType == rewriter.getIntegerType(16) || dstElementType == rewriter.getF16Type()) &&
+    if ((dstElementType.getIntOrFloatBitWidth() != 32) &&
         !valueType.isa<VectorType>()) {
       Value dataPtr = getStridedElementPtr(op->getLoc(), dstMemRefType, adaptor.memref(), adaptor.indices(), rewriter);
       rewriter.replaceOpWithNewOp<LLVM::StoreOp>(op, adaptorValue, dataPtr);
@@ -348,7 +349,7 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     // populate glc : fixed as 0 of type i1.
     Value glc = rewriter.create<LLVM::ConstantOp>(loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
 
-    if (dstElementType == rewriter.getIntegerType(16) || dstElementType == rewriter.getF16Type()) {
+    if (dstElementType.getIntOrFloatBitWidth() != 32) {
       // for f16 and i16 (bf16) types, use f32 buffer_store and bitcast the result.
       assert(valueType.isa<VectorType>());
       // deduce the interim type for f16 / i16 (bf16).
