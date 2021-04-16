@@ -153,7 +153,7 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
         auto outputType = op.output().getType().dyn_cast<MemRefType>();
         auto outputShape = outputType.getShape();
 
-        for(int j = 0; i < begins.size(); j++){
+        for(int j = 0; j < begins.size(); j++){
           auto begin = begins.getValue()[j].dyn_cast<IntegerAttr>().getInt();
           auto end = ends.getValue()[j].dyn_cast<IntegerAttr>().getInt();
           auto destDim = destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
