@@ -23,7 +23,8 @@ set(LIBS
   MLIRSupport
   MLIRIR
   MLIRTargetMIOpenCppTranslation
-)
+  MLIRMIOpenThin
+  )
 
 add_llvm_executable(mlir-miopen-driver
   PARTIAL_SOURCES_INTENDED
