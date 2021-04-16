@@ -11,10 +11,12 @@ set(MLIR_DIALECT_LINALG_INTEGRATION_TEST_LIB_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTOR
 # for the mlir cuda / rocm / spirv / vulkan runner tests.
 set(MLIR_ROCM_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 
-if(MLIR_MIOPEN_DRIVER_XDLOPV2_TEST_ENABLED)
-  set(MLIR_XDLOPV2 "-x2")
+# Passed to lit.site.cfg.py.in to set the -x2 flag for the mlir E2E tests.
+if(MLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED)
+  set(MLIR_XDLOPS "-x2")
 endif()
 
+# Passed to lit.site.cfg.py.in to set the -rand flag for the mlir E2E tests.
 if(NOT MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED STREQUAL "none")
   set(MLIR_RANDOM_DATA "-rand ${MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED} ")
 endif()
@@ -37,6 +39,7 @@ set(MLIR_E2E_TEST_DEPENDS
   llc
   )
 
+# check-e2e runs MLIR E2E tests with or without -x2 or -rand flags
 add_lit_testsuite(check-e2e "Running the MLIR end-to-end tests"
   ${CMAKE_CURRENT_BINARY_DIR}
   DEPENDS ${MLIR_E2E_TEST_DEPENDS}

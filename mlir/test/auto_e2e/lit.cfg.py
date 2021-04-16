@@ -33,7 +33,7 @@ config.substitutions.append(('%PATH%', config.environment['PATH']))
 config.substitutions.append(('%shlibext', config.llvm_shlib_ext))
 config.substitutions.append(("%mlir_src_root", config.mlir_src_root))
 config.substitutions.append(('%random_data', config.random_data))
-config.substitutions.append(('%xdlopv2', config.xdlopv2))
+config.substitutions.append(('%xdlops', config.xdlops))
 
 llvm_config.with_system_environment(
     ['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP'])

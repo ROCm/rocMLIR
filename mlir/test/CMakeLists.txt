@@ -119,12 +119,15 @@ if(MLIR_MIOPEN_DRIVER_ENABLED)
     )
 endif()
 
+# check-mlir runs MLIR regression tests including E2E tests 
+# if MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED
 add_lit_testsuite(check-mlir "Running the MLIR regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}
   DEPENDS ${MLIR_TEST_DEPENDS}
   )
 set_target_properties(check-mlir PROPERTIES FOLDER "Tests")
 
+# check-e2e only runs MLIR E2E tests in the subdirectory auto_e2e 
 if(MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED)
   list(APPEND MLIR_TEST_DEPENDS
       check-e2e

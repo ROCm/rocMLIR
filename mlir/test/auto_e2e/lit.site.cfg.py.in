@@ -38,7 +38,7 @@ config.enable_rocm_runner = @MLIR_ROCM_RUNNER_ENABLED@
 config.enable_miopen_driver = @MLIR_MIOPEN_DRIVER_ENABLED@
 config.enable_miopen_driver_e2e_test = @MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED@
 config.random_data = "@MLIR_RANDOM_DATA@"
-config.xdlopv2 = "@MLIR_XDLOPV2@"
+config.xdlops = "@MLIR_XDLOPS@"
 
 # Support substitution of the tools_dir with user parameters. This is
 # used when we can't determine the tool dir at configuration time.
