@@ -205,8 +205,8 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   };
 
   // Construct the FuncOp.
-  auto func = FuncOp::create(builder.getUnknownLoc(), config.kernelName, funcType,
-                             ArrayRef<NamedAttribute>(kernelAttrs));
+  auto func = FuncOp::create(builder.getUnknownLoc(), config.kernelName,
+                             funcType, ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
 
   // Construct a new Block.
