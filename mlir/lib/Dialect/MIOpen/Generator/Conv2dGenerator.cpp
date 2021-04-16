@@ -10,6 +10,19 @@
 
 using namespace mlir;
 
+Conv2dGenerator::Conv2dGenerator(
+    const std::string &arch, int num_cu, bool xdlops,
+    const std::string &operation, const std::string &dataTypeStr,
+    int dilationHeight, int dilationWidth, int strideHeight, int strideWidth,
+    int paddingHeight, int paddingWidth, const std::string &filterLayout,
+    const std::string &inputLayout, const std::string &outputLayout,
+    const std::string &kernelName)
+    : config{arch,        num_cu,         xdlops,        operation,
+             dataTypeStr, dilationHeight, dilationWidth, strideHeight,
+             strideWidth, paddingHeight,  paddingWidth,  filterLayout,
+             inputLayout, outputLayout,   kernelName} {}
+
+namespace {
 
 void strToTokens(const std::string &arguments,
                  std::map<std::string, std::string> &argMap) {
@@ -28,6 +41,8 @@ void strToTokens(const std::string &arguments,
     }
   }
 }
+
+} // namespace
 
 LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   std::map<std::string, std::string> argMap;
@@ -65,26 +80,26 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
     };
 
     // arch settings
-    strToStr("arch", arch);
-    strToInt("num_cu", num_cu);
-    strToInt("x2", xdlops);
+    strToStr("arch", config.arch);
+    strToInt("num_cu", config.num_cu);
+    strToInt("x2", config.xdlops);
 
     // conv settings
-    operation = argMap["operation"];
-    dataTypeStr = argMap["out_type"];
-    strToInt("dilation_h", dilationHeight);
-    strToInt("dilation_w", dilationWidth);
-    strToInt("conv_stride_h", strideHeight);
-    strToInt("conv_stride_w", strideWidth);
-    strToInt("padding_h", paddingHeight);
-    strToInt("padding_w", paddingWidth);
+    config.operation = argMap["operation"];
+    config.dataTypeStr = argMap["out_type"];
+    strToInt("dilation_h", config.dilationHeight);
+    strToInt("dilation_w", config.dilationWidth);
+    strToInt("conv_stride_h", config.strideHeight);
+    strToInt("conv_stride_w", config.strideWidth);
+    strToInt("padding_h", config.paddingHeight);
+    strToInt("padding_w", config.paddingWidth);
 
-    strToStr("kernel_name", kernelName);
+    strToStr("kernel_name", config.kernelName);
 
     // MIOpen has NCHW as layout string for all three tensors
-    strToStr("fil_layout", filterLayout);
-    strToStr("in_layout", inputLayout);
-    strToStr("out_layout", outputLayout);
+    strToStr("fil_layout", config.filterLayout);
+    strToStr("in_layout", config.inputLayout);
+    strToStr("out_layout", config.outputLayout);
 
     // Determine tensor dimensions.
     return parseConvDims(
@@ -111,7 +126,7 @@ LogicalResult Conv2dGenerator::parseConvDims(
   static const std::string outputKeys = "nkhw";
   int64_t outputVals[] = {batchSize, outputChannel, outputHeight, outputWidth};
 
-  auto convertLayout = [](char key, const std::string &kmap, int64_t vals[],
+  auto convertLayout = [](char &key, const std::string &kmap, int64_t vals[],
                           auto &dims) {
     auto keyl = std::tolower(key);
     auto ii = kmap.find(keyl);
@@ -119,20 +134,23 @@ LogicalResult Conv2dGenerator::parseConvDims(
       static std::string nchw = "nchw";
       ii = nchw.find(keyl);
       if (ii == std::string::npos)
-        return '\0';
+        return false;
     }
     dims.push_back(vals[ii]);
-    return kmap[ii];
+    key = kmap[ii];
+    return true;
   };
 
   // Determine dimensions.
   for (size_t i = 0; i < 4; ++i) {
-    filterLayout[i] =
-        convertLayout(filterLayout[i], filterKeys, filterVals, filterDimension);
-    inputLayout[i] =
-        convertLayout(inputLayout[i], inputKeys, inputVals, inputDimension);
-    outputLayout[i] =
-        convertLayout(outputLayout[i], outputKeys, outputVals, outputDimension);
+    if (!convertLayout(config.filterLayout[i], filterKeys, filterVals,
+                       config.filterDimension) ||
+        !convertLayout(config.inputLayout[i], inputKeys, inputVals,
+                       config.inputDimension) ||
+        !convertLayout(config.outputLayout[i], outputKeys, outputVals,
+                       config.outputDimension)) {
+      return failure();
+    }
   }
 
   return success();
@@ -142,33 +160,37 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
                                              OpBuilder &builder) {
 
   mlir::Type dataType;
-  if (dataTypeStr == "f32" || dataTypeStr == "fp32") {
+  if (config.dataTypeStr == "f32" || config.dataTypeStr == "fp32") {
     dataType = builder.getF32Type();
-  } else if (dataTypeStr == "f16" || dataTypeStr == "fp16") {
+  } else if (config.dataTypeStr == "f16" || config.dataTypeStr == "fp16") {
     dataType = builder.getF16Type();
-  } else if (dataTypeStr == "bf16") {
+  } else if (config.dataTypeStr == "bf16") {
     dataType = builder.getIntegerType(16);
   } else {
     return failure();
   }
 
   // Construct a new FuncOp.
-  auto filterArgType = MemRefType::get(
-      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
-      dataType);
-  auto inputArgType = MemRefType::get(
-      ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
-      dataType);
-  auto outputArgType = MemRefType::get(
-      ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
-      dataType);
+  auto filterArgType =
+      MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
+                                        config.filterDimension.end()),
+                      dataType);
+  auto inputArgType =
+      MemRefType::get(ArrayRef<int64_t>(config.inputDimension.begin(),
+                                        config.inputDimension.end()),
+                      dataType);
+  auto outputArgType =
+      MemRefType::get(ArrayRef<int64_t>(config.outputDimension.begin(),
+                                        config.outputDimension.end()),
+                      dataType);
   auto funcType =
       builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
 
   // Determine kernel name, if there isn't one.
-  if (kernelName.size() == 0) {
-    kernelName = "miopen_" + operation + "_" + filterLayout + "_" +
-                 inputLayout + "_" + outputLayout;
+  if (config.kernelName.empty()) {
+    config.kernelName = "miopen_" + config.operation + "_" +
+                        config.filterLayout + "_" + config.inputLayout + "_" +
+                        config.outputLayout;
   }
 
   // Annotate kernel attribute to the FuncOp.
@@ -177,7 +199,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   };
 
   // Construct the FuncOp.
-  auto func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
+  auto func = FuncOp::create(builder.getUnknownLoc(), config.kernelName, funcType,
                              ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
 
@@ -190,16 +212,16 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   SmallVector<StringAttr, 5> outputLayoutSpec;
   for (size_t i = 0; i < 5; ++i) {
     filterLayoutSpec.push_back(
-        builder.getStringAttr(StringRef(&filterLayout[i], 1)));
-    inputLayoutSpec.push_back(
-        builder.getStringAttr((StringRef(&inputLayout[i], 1) + "i").str()));
-    outputLayoutSpec.push_back(
-        builder.getStringAttr((StringRef(&outputLayout[i], 1) + "o").str()));
+        builder.getStringAttr(StringRef(&config.filterLayout[i], 1)));
+    inputLayoutSpec.push_back(builder.getStringAttr(
+        (StringRef(&config.inputLayout[i], 1) + "i").str()));
+    outputLayoutSpec.push_back(builder.getStringAttr(
+        (StringRef(&config.outputLayout[i], 1) + "o").str()));
   }
 
   std::vector<NamedAttribute> attributes{
-      builder.getNamedAttr("arch", builder.getStringAttr(arch)),
-      builder.getNamedAttr("num_cu", builder.getI32IntegerAttr(num_cu)),
+      builder.getNamedAttr("arch", builder.getStringAttr(config.arch)),
+      builder.getNamedAttr("num_cu", builder.getI32IntegerAttr(config.num_cu)),
 
       builder.getNamedAttr(
           "filter_layout",
@@ -215,41 +237,41 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
 
       builder.getNamedAttr("dilations",
                            builder.getArrayAttr({
-                               builder.getI32IntegerAttr(dilationHeight),
-                               builder.getI32IntegerAttr(dilationWidth),
+                               builder.getI32IntegerAttr(config.dilationHeight),
+                               builder.getI32IntegerAttr(config.dilationWidth),
                            })),
       builder.getNamedAttr("strides",
                            builder.getArrayAttr({
-                               builder.getI32IntegerAttr(strideHeight),
-                               builder.getI32IntegerAttr(strideWidth),
+                               builder.getI32IntegerAttr(config.strideHeight),
+                               builder.getI32IntegerAttr(config.strideWidth),
                            })),
       builder.getNamedAttr("padding",
                            builder.getArrayAttr({
-                               builder.getI32IntegerAttr(paddingHeight),
-                               builder.getI32IntegerAttr(paddingWidth),
+                               builder.getI32IntegerAttr(config.paddingHeight),
+                               builder.getI32IntegerAttr(config.paddingWidth),
                            })),
   };
 
   // xdlops v2.
-  if (xdlops)
+  if (config.xdlops)
     attributes.push_back(
         builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
 
-  if (operation == "conv2d") {
+  if (config.operation == "conv2d") {
     auto convOp = builder.create<miopen::Conv2DOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{func.getArgument(0), func.getArgument(1),
                    func.getArgument(2)},
         attributes);
     block->push_front(convOp);
-  } else if (operation == "conv2d_bwd_data") {
+  } else if (config.operation == "conv2d_bwd_data") {
     auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{func.getArgument(0), func.getArgument(1),
                    func.getArgument(2)},
         attributes);
     block->push_front(convOp);
-  } else if (operation == "conv2d_bwd_weight") {
+  } else if (config.operation == "conv2d_bwd_weight") {
     auto convOp = builder.create<miopen::Conv2DBwdWeightOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{func.getArgument(0), func.getArgument(1),

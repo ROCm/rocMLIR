@@ -77,7 +77,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     handle = new MiirHandle_s;
     OpBuilder builder(&(handle->context));
 
-    handle->arch = conv2dGenerator.arch;
+    handle->arch = conv2dGenerator.getConfig().arch;
 
     ModuleOp module = handle->getModule();
 

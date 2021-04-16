@@ -20,6 +20,40 @@
 namespace mlir {
 class Conv2dGenerator {
 public:
+  struct Config {
+    std::string arch;
+    int num_cu;
+    bool xdlops;
+    std::string operation;
+    std::string dataTypeStr;
+    int dilationHeight, dilationWidth;
+    int strideHeight, strideWidth;
+    int paddingHeight, paddingWidth;
+    std::string filterLayout;
+    std::string inputLayout;
+    std::string outputLayout;
+
+    std::string kernelName;
+
+    int outputSize;
+    SmallVector<int64_t, 5> filterDimension;
+    SmallVector<int64_t, 5> inputDimension;
+    SmallVector<int64_t, 5> outputDimension;
+  };
+
+  Conv2dGenerator(const std::string &arch = "", int num_cu = 0,
+                  bool xdlops = false, const std::string &operation = "conv2d",
+                  const std::string &dataTypeStr = "f32",
+                  int dilationHeight = 1, int dilationWidth = 1,
+                  int strideHeight = 1, int strideWidth = 1,
+                  int paddingHeight = 0, int paddingWidth = 0,
+                  const std::string &filterLayout = "kcyx",
+                  const std::string &inputLayout = "nchw",
+                  const std::string &outputLayout = "nkhw",
+                  const std::string &kernelName = "");
+
+  const Config &getConfig() const { return config; }
+
   LogicalResult parseConvConfig(const char *arguments);
 
   LogicalResult parseConvDims(int64_t batchSize, int64_t inputChannel,
@@ -55,24 +89,8 @@ private:
     return permutation;
   }
 
-public:
-  std::string arch;
-  int num_cu = 0;
-  bool xdlops = false;
-  std::string operation = "conv2d";
-  std::string dataTypeStr = "f32";
-  int dilationHeight = 1, dilationWidth = 1;
-  int strideHeight = 1, strideWidth = 1;
-  int paddingHeight = 0, paddingWidth = 0;
-  std::string filterLayout = "kcyx";
-  std::string inputLayout = "nchw";
-  std::string outputLayout = "nkhw";
-
-  std::string kernelName;
-
-  SmallVector<int64_t, 4> filterDimension;
-  SmallVector<int64_t, 4> inputDimension;
-  SmallVector<int64_t, 4> outputDimension;
+  // Generator config
+  Config config;
 };
 
 } // namespace mlir
