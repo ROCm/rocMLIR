@@ -31,16 +31,7 @@ typedef void *MiirHandle;
 // represent filter, input and output tensors
 
 /*! @brief Device interface argument type for 2D convolution
- */
-struct StridedMemRef4D {
-  void *basePtr;
-  void *data;
-  int64_t offset;
-  int64_t sizes[4];
-  int64_t strides[4];
-};
-
-/*! @brief Device interface argument type for 3D convolution
+ * There is an additional group dimension before channel dimension
  */
 struct StridedMemRef5D {
   void *basePtr;
