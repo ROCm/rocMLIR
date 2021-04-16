@@ -140,6 +140,31 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
         }
         affExprsMap.insert({srcDim, expr});
       }
+      else if (transformAttr.getValue() == "Slice") {
+        assert(srcDimAttr.size() == destDimAttr.size());
+        
+        auto begins = dimLayoutAttr.get("begins").dyn_cast<ArrayAttr>();
+        auto ends = dimLayoutAttr.get("ends").dyn_cast<ArrayAttr>();
+        assert(begins.size() == ends.size());
+        //same dim
+        assert(begins.size() == srcDimAttr.size());
+
+        //output data
+        auto outputType = op.output().getType().dyn_cast<MemRefType>();
+        auto outputShape = outputType.getShape();
+
+        for(int j = 0; i < begins.size(); j++){
+          auto begin = begins.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          auto end = ends.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          auto destDim = destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          auto length = outputShape[destDim];
+          assert(length == (end - begin));
+          
+          auto expr = getAffineDimExpr(destDim, op.getContext()) + getAffineConstantExpr(begin, op.getContext());
+          auto srcDim = srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          affExprsMap.insert({srcDim, expr});
+        }
+      }
     }
   }
 
