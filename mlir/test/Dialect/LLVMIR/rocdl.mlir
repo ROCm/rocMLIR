@@ -195,15 +195,15 @@ llvm.func @rocdl.rawbuf(%rsrc : vector<4xi32>,
   llvm.return
 }
 
-llvm.func @rocdl.atomic.fadd(%rsrc : !llvm<"<4 x i32>">, %vindex : !llvm.i32,
-                             %offset : !llvm.i32, %slc : !llvm.i1,
-                             %vdata1 : !llvm.float, %vdata2 : !llvm<"<2 x half>">) {
+llvm.func @rocdl.atomic.fadd(%rsrc : vector<4xi32>, %vindex : i32,
+                             %offset : i32, %slc : i1,
+                             %vdata1 : f32, %vdata2 : vector<2xf16>) {
   // CHECK-LABEL: rocdl.atomic.fadd
 
-  // CHECK: rocdl.atomic.fadd %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : !llvm.float
-  rocdl.atomic.fadd %vdata1, %rsrc, %vindex, %offset, %slc : !llvm.float
-  // CHECK: rocdl.atomic.fadd %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : !llvm<"<2 x half>">
-  rocdl.atomic.fadd %vdata2, %rsrc, %vindex, %offset, %slc : !llvm<"<2 x half>">
+  // CHECK: rocdl.atomic.fadd %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : f32
+  rocdl.atomic.fadd %vdata1, %rsrc, %vindex, %offset, %slc : f32
+  // CHECK: rocdl.atomic.fadd %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<2xf16>
+  rocdl.atomic.fadd %vdata2, %rsrc, %vindex, %offset, %slc : vector<2xf16>
 
   llvm.return
 }

@@ -124,12 +124,12 @@ static ParseResult parseROCDLAtomicFAddOp(OpAsmParser &parser,
   if (parser.parseOperandList(ops, 5) || parser.parseColonType(type))
     return failure();
 
-  auto int32Ty = LLVM::LLVMType::getInt32Ty(getLlvmDialect(parser));
-  auto int1Ty = LLVM::LLVMType::getInt1Ty(getLlvmDialect(parser));
-  auto i32x4Ty = LLVM::LLVMType::getVectorTy(int32Ty, 4);
+  auto bldr = parser.getBuilder();
+  auto int32Ty = bldr.getI32Type();
+  auto int1Ty = bldr.getI1Type();
+  auto i32x4Ty = VectorType::get({4}, int32Ty);
 
-  if (parser.resolveOperands(ops,
-                             {type, i32x4Ty, int32Ty, int32Ty, int1Ty},
+  if (parser.resolveOperands(ops, {type, i32x4Ty, int32Ty, int32Ty, int1Ty},
                              parser.getNameLoc(), result.operands))
     return failure();
   return success();
