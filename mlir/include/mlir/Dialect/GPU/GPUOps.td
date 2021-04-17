@@ -946,4 +946,43 @@ def GPU_BFConvertOp :
   let printer = [{ return ::print(p, *this); }];
   let verifier = [{ return ::verify(*this); }];
 }
+
+// buffer load
+def GPU_MubufLoadOp :
+    GPU_Op<"buffer_load">,
+    Arguments<(ins AnyMemRef:$memref,
+                   Variadic<I32>:$indices)>,
+    Results<(outs AnyTypeOf<[I16, F16, F32,
+                             VectorOfLengthAndType<[2, 4], [F32]>,
+                             VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$result)> {
+  let summary = "AMD GPU Buffer Load";
+  let description = [{
+    The `gpu.buffer_load` op is an abstraction of AMD GPU buffer load intrinsics.
+    `vector.transfer_read` is too tightly coupled with masked load which is not
+    supported well on AMD GPU.
+  }];
+  let parser = [{ return parseMubufLoadOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
+
+// buffer store
+def GPU_MubufStoreOp :
+    GPU_Op<"buffer_store">,
+    Arguments<(ins AnyTypeOf<[I16, F16, F32,
+                              VectorOfLengthAndType<[2, 4], [F32]>,
+                              VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$value,
+                   AnyMemRef:$memref,
+                   Variadic<I32>:$indices)> {
+  let summary = "AMD GPU Buffer Store";
+  let description = [{
+    The `gpu.buffer_store` op is an abstraction of AMD GPU buffer store intrinsics.
+    `vector.transfer_write` is too tightly coupled with masked load which is not
+    supported well on AMD GPU.
+  }];
+  let parser = [{ return parseMubufStoreOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
+
 #endif // GPU_OPS

@@ -13,6 +13,7 @@
 
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 
+#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Conversion/VectorToROCDL/VectorToROCDL.h"
@@ -75,6 +76,31 @@ struct LowerGpuOpsToROCDLOpsPass
   }
 };
 
+// Given subscript indices and array sizes in row-major order,
+//   i_n, i_{n-1}, ..., i_1
+//   s_n, s_{n-1}, ..., s_1
+// obtain a value that corresponds to the linearized subscript
+//   \sum_k i_k * \prod_{j=1}^{k-1} s_j
+// by accumulating the running linearized value.
+// Note that `indices` and `allocSizes` are passed in the same order as they
+// appear in load/store operations and memref type declarations.
+Value linearizeSubscripts(ConversionPatternRewriter &builder, Location loc,
+                          ArrayRef<Value> indices, ArrayRef<Value> allocSizes) {
+  assert(indices.size() == allocSizes.size() &&
+         "mismatching number of indices and allocation sizes");
+  assert(!indices.empty() && "cannot linearize a 0-dimensional access");
+
+  Value linearized = indices.front();
+  for (int i = 1, nSizes = allocSizes.size(); i < nSizes; ++i) {
+    linearized =
+        builder.create<LLVM::MulOp>(loc, builder.getIntegerType(32),
+                                    ArrayRef<Value>{linearized, allocSizes[i]});
+    linearized =
+        builder.create<LLVM::AddOp>(loc, builder.getIntegerType(32),
+                                    ArrayRef<Value>{linearized, indices[i]});
+  }
+  return linearized;
+}
 } // anonymous namespace
 
 void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
@@ -91,6 +117,330 @@ void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
 }
 
 namespace mlir {
+struct MubufLoadOpLowering : ConvertToLLVMPattern {
+  explicit MubufLoadOpLowering(MLIRContext *context,
+                               LLVMTypeConverter &typeConverter)
+      : ConvertToLLVMPattern(gpu::MubufLoadOp::getOperationName(), context,
+                             typeConverter) {}
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto mubufLoadOp = cast<gpu::MubufLoadOp>(op);
+    auto adaptor = gpu::MubufLoadOpAdaptor(operands);
+    auto loc = mubufLoadOp.getLoc();
+
+    MemRefType srcMemRefType =
+        mubufLoadOp.memref().getType().cast<MemRefType>();
+    Type srcElementType = srcMemRefType.getElementType();
+    auto srcShape = srcMemRefType.getShape();
+    auto adaptorIndices = adaptor.indices();
+
+    Type resultType = mubufLoadOp.result().getType();
+    Type LLVMResultType = typeConverter->convertType(resultType);
+
+    // use standard load for:
+    // 1) loading scalar f16 and i16 (bf16) from global (addrspace 0).
+    if ((srcElementType.getIntOrFloatBitWidth() != 32) &&
+        (srcMemRefType.getMemorySpace() == 0 &&
+         !resultType.isa<VectorType>())) {
+      Value dataPtr =
+          getStridedElementPtr(op->getLoc(), srcMemRefType, adaptor.memref(),
+                               adaptor.indices(), rewriter);
+      rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtr);
+      return success();
+    }
+
+    // use standard load for:
+    // 2) loading scalar and vector f16 and i16 (bf16) from LDS (addrspace 3).
+    // 3) loading scalar and vector f16 and i16 (bf16) from VGPR (addrspace 5).
+    if (srcMemRefType.getMemorySpace() == 3 ||
+        srcMemRefType.getMemorySpace() == 5) {
+      Value dataPtr =
+          getStridedElementPtr(op->getLoc(), srcMemRefType, adaptor.memref(),
+                               adaptor.indices(), rewriter);
+      if (!resultType.isa<VectorType>()) {
+        rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtr);
+        return success();
+      } else {
+        // bitcast in case the result type is a vector.
+        Type LLVMResultPointerType = LLVM::LLVMPointerType::get(
+            LLVMResultType, srcMemRefType.getMemorySpace());
+        Value dataPtrBitcasted = rewriter.create<LLVM::BitcastOp>(
+            loc, LLVMResultPointerType, dataPtr);
+        rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, dataPtrBitcasted);
+        return success();
+      }
+    }
+
+    // for all other cases, use rocdl.mubuf_load.
+
+    Type I1Type = rewriter.getI1Type();
+    Type LLVMI1Type = typeConverter->convertType(I1Type);
+
+    Type I32Type = rewriter.getIntegerType(32);
+    Type LLVMI32Type = typeConverter->convertType(I32Type);
+
+    Type I64Type = rewriter.getIntegerType(64);
+    Type LLVMI64Type = typeConverter->convertType(I64Type);
+
+    Type rsrcVectorType = VectorType::get({4}, I32Type);
+    Type LLVMRsrcVectorType = typeConverter->convertType(rsrcVectorType);
+
+    Type I32x2Type = VectorType::get({2}, I32Type);
+    Type LLVMI32x2Type = typeConverter->convertType(I32x2Type);
+
+    // word 0-1: pointer to memref.
+    MemRefDescriptor memrefDescriptor(adaptor.memref());
+    Value ptr = memrefDescriptor.alignedPtr(rewriter, loc);
+    Value ptrToInt = rewriter.create<LLVM::PtrToIntOp>(loc, LLVMI64Type, ptr);
+
+    // word 0-1: pointer to memref.
+    Value ptrBitcasted =
+        rewriter.create<LLVM::BitcastOp>(loc, LLVMI32x2Type, ptrToInt);
+    Value rsrcUndefTwoItems =
+        rewriter.create<LLVM::UndefOp>(loc, LLVMI32x2Type);
+    Value rsrcFirstTwoItems = rewriter.create<LLVM::ShuffleVectorOp>(
+        loc, ptrBitcasted, rsrcUndefTwoItems,
+        rewriter.getI32ArrayAttr({0, 1, -1, -1}));
+
+    Value rsrcUndef = rewriter.create<LLVM::UndefOp>(loc, LLVMRsrcVectorType);
+    // word 2: fixed as -1 .
+    Value constant2 = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(2));
+    Value minusOne = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(-1));
+    Value rsrc2 = rewriter.create<LLVM::InsertElementOp>(
+        loc, LLVMRsrcVectorType, rsrcUndef, minusOne, constant2);
+
+    // word 3: fixed as 0x00027000 .
+    Value constant3 = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(3));
+    Value bufferLoadConstant = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(0x00027000));
+    Value rsrcLastTwoItems = rewriter.create<LLVM::InsertElementOp>(
+        loc, LLVMRsrcVectorType, rsrc2, bufferLoadConstant, constant3);
+
+    Value rsrc = rewriter.create<LLVM::ShuffleVectorOp>(
+        loc, rsrcFirstTwoItems, rsrcLastTwoItems,
+        rewriter.getI32ArrayAttr({0, 1, 6, 7}));
+
+    // populate vindex : fixed as 0 of type i32.
+    Value vindex = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(0));
+
+    // populate voffset.
+    SmallVector<Value, 4> indices;
+    SmallVector<Value, 4> allocSizes;
+    for (unsigned i = 0; i < srcShape.size(); ++i) {
+      indices.push_back(adaptorIndices[i]);
+      allocSizes.push_back(rewriter.create<LLVM::ConstantOp>(
+          loc, LLVMI32Type, rewriter.getI32IntegerAttr(srcShape[i])));
+    }
+    Value voffsetElements = linearizeSubscripts(
+        rewriter, loc, ArrayRef<Value>{indices.begin(), indices.end()},
+        ArrayRef<Value>{allocSizes.begin(), allocSizes.end()});
+
+    // vindex is counted in bytes. Times size of element type.
+    Value elementBytes = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type,
+        rewriter.getI32IntegerAttr(srcMemRefType.getElementTypeBitWidth() / 8));
+    Value voffset = rewriter.create<LLVM::MulOp>(
+        loc, LLVMI32Type, ArrayRef<Value>{voffsetElements, elementBytes});
+
+    // populate slc : fixed as 0 of type i1.
+    Value slc = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
+
+    // populate glc : fixed as 0 of type i1.
+    Value glc = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
+
+    if (srcElementType.getIntOrFloatBitWidth() != 32) {
+      // for f16 and i16 (bf16) types, use f32 buffer_load and bitcast the
+      // result.
+      assert(resultType.isa<VectorType>());
+      // deduce the interim type for f16 / i16 (bf16).
+      VectorType vectorResultType = resultType.template cast<VectorType>();
+      auto vectorShape = vectorResultType.getShape();
+
+      SmallVector<int64_t, 1> interimShape;
+      for (unsigned iter = 0; iter < vectorShape.size() - 1; ++iter)
+        interimShape.push_back(vectorShape[iter]);
+      interimShape.push_back(vectorShape[vectorShape.size() - 1] >> 1);
+      bool useScalarF32 = (vectorShape.size() == 1) && (vectorShape[0] == 2);
+      Type interimResultType;
+      if (useScalarF32)
+        interimResultType = rewriter.getF32Type();
+      else
+        interimResultType =
+            VectorType::get(interimShape, rewriter.getF32Type());
+      Type interimLLVMResultType =
+          typeConverter->convertType(interimResultType);
+
+      Value interimLoad = rewriter.create<ROCDL::MubufLoadOp>(
+          loc, interimLLVMResultType, rsrc, vindex, voffset, slc, glc);
+
+      rewriter.replaceOpWithNewOp<LLVM::BitcastOp>(op, LLVMResultType,
+                                                   interimLoad);
+    } else {
+      rewriter.replaceOpWithNewOp<ROCDL::MubufLoadOp>(
+          op, LLVMResultType, rsrc, vindex, voffset, slc, glc);
+    }
+
+    return success();
+  }
+};
+
+struct MubufStoreOpLowering : ConvertToLLVMPattern {
+  explicit MubufStoreOpLowering(MLIRContext *context,
+                                LLVMTypeConverter &typeConverter)
+      : ConvertToLLVMPattern(gpu::MubufStoreOp::getOperationName(), context,
+                             typeConverter) {}
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto mubufStoreOp = cast<gpu::MubufStoreOp>(op);
+    auto adaptor = gpu::MubufStoreOpAdaptor(operands);
+    auto loc = mubufStoreOp.getLoc();
+
+    MemRefType dstMemRefType =
+        mubufStoreOp.memref().getType().cast<MemRefType>();
+    Type dstElementType = dstMemRefType.getElementType();
+    auto dstShape = dstMemRefType.getShape();
+    auto adaptorIndices = adaptor.indices();
+    auto adaptorValue = adaptor.value();
+
+    Type valueType = mubufStoreOp.value().getType();
+    Type LLVMValueType = typeConverter->convertType(valueType);
+
+    // use standard store for storing scalar f16 and i16 (bf16).
+    if ((dstElementType.getIntOrFloatBitWidth() != 32) &&
+        !valueType.isa<VectorType>()) {
+      Value dataPtr =
+          getStridedElementPtr(op->getLoc(), dstMemRefType, adaptor.memref(),
+                               adaptor.indices(), rewriter);
+      rewriter.replaceOpWithNewOp<LLVM::StoreOp>(op, adaptorValue, dataPtr);
+      return success();
+    }
+
+    // for all other cases, use rocdl.mubuf_store.
+
+    Type I1Type = rewriter.getI1Type();
+    Type LLVMI1Type = typeConverter->convertType(I1Type);
+
+    Type I32Type = rewriter.getIntegerType(32);
+    Type LLVMI32Type = typeConverter->convertType(I32Type);
+
+    Type I64Type = rewriter.getIntegerType(64);
+    Type LLVMI64Type = typeConverter->convertType(I64Type);
+
+    Type rsrcVectorType = VectorType::get({4}, I32Type);
+    Type LLVMRsrcVectorType = typeConverter->convertType(rsrcVectorType);
+
+    Type I32x2Type = VectorType::get({2}, I32Type);
+    Type LLVMI32x2Type = typeConverter->convertType(I32x2Type);
+
+    // word 0-1: pointer to memref.
+    MemRefDescriptor memrefDescriptor(adaptor.memref());
+    Value ptr = memrefDescriptor.alignedPtr(rewriter, loc);
+    Value ptrToInt = rewriter.create<LLVM::PtrToIntOp>(loc, LLVMI64Type, ptr);
+
+    // word 0-1: pointer to memref.
+    Value ptrBitcasted =
+        rewriter.create<LLVM::BitcastOp>(loc, LLVMI32x2Type, ptrToInt);
+    Value rsrcUndefTwoItems =
+        rewriter.create<LLVM::UndefOp>(loc, LLVMI32x2Type);
+    Value rsrcFirstTwoItems = rewriter.create<LLVM::ShuffleVectorOp>(
+        loc, ptrBitcasted, rsrcUndefTwoItems,
+        rewriter.getI32ArrayAttr({0, 1, -1, -1}));
+
+    Value rsrcUndef = rewriter.create<LLVM::UndefOp>(loc, LLVMRsrcVectorType);
+    // word 2: fixed as -1 .
+    Value constant2 = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(2));
+    Value minusOne = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(-1));
+    Value rsrc2 = rewriter.create<LLVM::InsertElementOp>(
+        loc, LLVMRsrcVectorType, rsrcUndef, minusOne, constant2);
+
+    // word 3: fixed as 0x00027000 .
+    Value constant3 = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(3));
+    Value bufferLoadConstant = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(0x00027000));
+    Value rsrcLastTwoItems = rewriter.create<LLVM::InsertElementOp>(
+        loc, LLVMRsrcVectorType, rsrc2, bufferLoadConstant, constant3);
+
+    Value rsrc = rewriter.create<LLVM::ShuffleVectorOp>(
+        loc, rsrcFirstTwoItems, rsrcLastTwoItems,
+        rewriter.getI32ArrayAttr({0, 1, 6, 7}));
+
+    // populate vindex : fixed as 0 of type i32.
+    Value vindex = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(0));
+
+    // populate voffset.
+    SmallVector<Value, 4> indices;
+    SmallVector<Value, 4> allocSizes;
+    for (unsigned i = 0; i < dstShape.size(); ++i) {
+      indices.push_back(adaptorIndices[i]);
+      allocSizes.push_back(rewriter.create<LLVM::ConstantOp>(
+          loc, LLVMI32Type, rewriter.getI32IntegerAttr(dstShape[i])));
+    }
+    Value voffsetElements = linearizeSubscripts(
+        rewriter, loc, ArrayRef<Value>{indices.begin(), indices.end()},
+        ArrayRef<Value>{allocSizes.begin(), allocSizes.end()});
+
+    // vindex is counted in bytes. Times size of element type.
+    Value elementBytes = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type,
+        rewriter.getI32IntegerAttr(dstMemRefType.getElementTypeBitWidth() / 8));
+    Value voffset = rewriter.create<LLVM::MulOp>(
+        loc, LLVMI32Type, ArrayRef<Value>{voffsetElements, elementBytes});
+
+    // populate slc : fixed as 0 of type i1.
+    Value slc = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
+
+    // populate glc : fixed as 0 of type i1.
+    Value glc = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
+
+    if (dstElementType.getIntOrFloatBitWidth() != 32) {
+      // for f16 and i16 (bf16) types, use f32 buffer_store and bitcast the
+      // result.
+      assert(valueType.isa<VectorType>());
+      // deduce the interim type for f16 / i16 (bf16).
+      VectorType vectorResultType = valueType.template cast<VectorType>();
+      auto vectorShape = vectorResultType.getShape();
+
+      SmallVector<int64_t, 1> interimShape;
+      for (unsigned iter = 0; iter < vectorShape.size() - 1; ++iter)
+        interimShape.push_back(vectorShape[iter]);
+      interimShape.push_back(vectorShape[vectorShape.size() - 1] >> 1);
+      bool useScalarF32 = (vectorShape.size() == 1) && (vectorShape[0] == 2);
+      Type interimValueType;
+      if (useScalarF32)
+        interimValueType = rewriter.getF32Type();
+      else
+        interimValueType = VectorType::get(interimShape, rewriter.getF32Type());
+      Type interimLLVMValueType = typeConverter->convertType(interimValueType);
+
+      Value bitcastedValue = rewriter.create<LLVM::BitcastOp>(
+          loc, interimLLVMValueType, adaptorValue);
+      rewriter.replaceOpWithNewOp<ROCDL::MubufStoreOp>(
+          op, bitcastedValue, rsrc, vindex, voffset, slc, glc);
+    } else {
+      rewriter.replaceOpWithNewOp<ROCDL::MubufStoreOp>(
+          op, adaptorValue, rsrc, vindex, voffset, slc, glc);
+    }
+
+    return success();
+  }
+};
+
 struct MFMAOpLowering : ConvertToLLVMPattern {
   explicit MFMAOpLowering(MLIRContext *context,
                           LLVMTypeConverter &typeConverter)
@@ -310,6 +660,10 @@ void mlir::populateGpuToROCDLConversionPatterns(
 
   patterns.insert<BFOpLowering>(converter.getDialect()->getContext(),
                                 converter);
+  patterns.insert<MubufLoadOpLowering>(converter.getDialect()->getContext(),
+                                       converter);
+  patterns.insert<MubufStoreOpLowering>(converter.getDialect()->getContext(),
+                                        converter);
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
