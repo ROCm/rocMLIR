@@ -121,7 +121,7 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
                                int64_t filterHeight, int64_t filterWidth) {
 
   static const std::string filterKeys = "kgcyx";
-  int64_t filterVals[] = {outputChannel, groupSize, inputChannel / groupSize,
+  int64_t filterVals[] = {outputChannel / groupSize, groupSize, inputChannel / groupSize,
                           filterHeight, filterWidth};
 
   static const std::string inputKeys = "ngchw";
