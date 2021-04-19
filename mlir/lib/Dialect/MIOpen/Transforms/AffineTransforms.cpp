@@ -142,7 +142,7 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
         }
         affExprsMap.insert({srcDim, expr});
       } else if (transformAttr.getValue() == "Slice") {
-        assert(srcDimAttr.size() >=1);
+        assert(srcDimAttr.size() >= 1);
         assert(srcDimAttr.size() == destDimAttr.size());
 
         auto begins = dimLayoutAttr.get("begins").dyn_cast<ArrayAttr>();
