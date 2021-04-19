@@ -2678,6 +2678,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     int64_t GemmBBlockCopyClusterLengths_GemmN =
         NPerBlock / GemmBBlockCopyThreadSliceLengths_GemmN;
 
+    // llvm::errs() << "thread cluster lengths for Matrix B\n";
+    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
+    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << "\n";
+
     // Compute thread_data_id_begin for Matrix A.
     // ClusterArrangeOrder for Matrix A is <1, 0>.
     // So divide by GemmABlockCopyClusterLengths_GemmK.
@@ -4285,7 +4289,7 @@ struct ThreadwiseCopyRewritePattern
         //   // load address = lower indices from affine transform.
         // } else {
         //   // OOB. Prepare an address known NOT OOB.
-        //   // load address = {0, 0, 0, 0}
+        //   // load address = {0, 0, 0, 0, 0}
         // }
         // V = load(load address)
         // if (withinBounds) {
