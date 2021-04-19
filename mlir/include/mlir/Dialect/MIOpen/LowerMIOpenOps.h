@@ -3009,8 +3009,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     affixBlockwiseCopyAttributes(blockwiseCopyOpBTop, op, b,
                                  /*isMatrixA=*/false);
 
-    // LDS barrier.
-    mfmalb.create<miopen::LDSBarrierOp>(loc);
+    // Workgroup barrier.
+    mfmalb.create<miopen::WorkgroupBarrierOp>(loc);
 
     // Emit blockwise V2 GEMM.
     auto blockwiseGemmV2Op = mfmalb.create<miopen::BlockwiseGemmV2Op>(
@@ -3019,9 +3019,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         mfmaLoopOp.getRegionIterArgs());
     affixBlockwiseGemmV2Attributes(blockwiseGemmV2Op, op, b);
  
-    // LDS barrier.
-    mfmalb.create<miopen::LDSBarrierOp>(loc);
-
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
     auto blockwiseCopyOpABottom = mfmalb.create<miopen::BlockwiseCopyOp>(
         loc, threadAAllocOp, lds2DMatrixASubviewOp, blockwiseCopyASrc,
@@ -3039,8 +3036,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Emit loop tail.
 
-    // LDS barrier.
-    b.create<miopen::LDSBarrierOp>(loc);
+    // Workgroup barrier.
+    b.create<miopen::WorkgroupBarrierOp>(loc);
 
     // Emit blockwise GEMM for the loop tail.
     auto blockwiseGemmV2TailOp = b.create<miopen::BlockwiseGemmV2Op>(
@@ -5080,6 +5077,9 @@ struct XdlopsGemmV2RewritePattern
         argA = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
         argB = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
       }
+
+      // Workgroup barrier.
+      loopKb.create<miopen::WorkgroupBarrierOp>(loc);
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
