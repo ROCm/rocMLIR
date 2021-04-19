@@ -37,25 +37,6 @@ struct MiirHandle_s {
   std::string genTxt;
 };
 
-void strToTokens(const std::string &arguments,
-                 std::map<std::string, std::string> &argMap) {
-  std::istringstream iss(arguments);
-  std::string token;
-  std::string argKey;
-  std::string argVal;
-  while (std::getline(iss, token, ' ')) {
-    auto pos = token.find("--");
-    if (pos != std::string::npos) {
-      argKey = token.substr(pos + 2, token.size());
-    } else {
-      argVal = token;
-      if (argKey.empty() || argVal.empty())
-        continue;
-      argMap[argKey] = argVal;
-    }
-  }
-}
-
 // In multi-threaded context, static intialization is guaranteed to
 // be thread safe, since C++11. Refer to
 // https://en.cppreference.com/w/cpp/language/storage_duration
@@ -89,84 +70,18 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
 
   MiirHandle_s *handle = nullptr;
 
-  std::map<std::string, std::string> argMap;
-  strToTokens(arguments, argMap);
+  Conv2dGenerator conv2dGenerator;
 
-  auto isValid = [&argMap]() {
-    static const std::vector<std::string> validKeys = {
-        "operation",    "batchsize",     "arch",          "num_cu",
-        "kernel_name",  "in_layout",     "in_type",       "in_channels",
-        "in_h",         "in_w",          "out_layout",    "out_type",
-        "out_channels", "out_h",         "out_w",         "fil_layout",
-        "fil_type",     "fil_w",         "fil_h",         "padding_h",
-        "padding_w",    "conv_stride_h", "conv_stride_w", "dilation_h",
-        "dilation_w",   "groupsize"};
-    return std::all_of(
-        validKeys.cbegin(), validKeys.cend(),
-        [&argMap](const std::string &key) { return argMap.count(key) > 0; });
-  };
-
-  auto getType = [](mlir::MLIRContext *context, const std::string &type_s) {
-    mlir::Type type;
-    if (type_s == "fp32") {
-      type = mlir::FloatType::getF32(context);
-    } else if (type_s == "fp16") {
-      type = mlir::FloatType::getF16(context);
-    }
-    return type;
-  };
-
-  // Proceed only if we have a valid argMap. Otherwise leave the handle to be
-  // empty
-  if (isValid()) {
+  if (succeeded(conv2dGenerator.parseConvConfig(arguments))) {
 
     handle = new MiirHandle_s;
     OpBuilder builder(&(handle->context));
 
-    handle->arch = argMap["arch"];
-
-    mlir::Type type = getType(&(handle->context), argMap["out_type"]);
-    if (!type) {
-      delete handle;
-      return nullptr;
-    }
-
-    auto strToLong = [&argMap](std::string argKey) {
-      return std::stoul(argMap[argKey]);
-    };
-
-    auto strToInt = [&argMap](std::string argKey) {
-      return std::stoi(argMap[argKey]);
-    };
-
-    Conv2dGenerator conv2dGenerator;
-    // MIOpen has NCHW as layout string for all three tensors
-    std::string inLayout = conv2dGenerator.translateLayout(
-        argMap["in_layout"], std::string("NGCHW"), std::string("ngchw"));
-    std::string filLayout = conv2dGenerator.translateLayout(
-        argMap["fil_layout"], std::string("GKCYX"), std::string("gkcyx"));
-    std::string outLayout = conv2dGenerator.translateLayout(
-        argMap["out_layout"], std::string("NGKHW"), std::string("ngkhw"));
+    handle->arch = conv2dGenerator.getConfig().arch;
 
     ModuleOp module = handle->getModule();
-    // Determine dimensions.
-    SmallVector<int64_t, 5> filterDimension;
-    SmallVector<int64_t, 5> inputDimension;
-    SmallVector<int64_t, 5> outputDimension;
-    conv2dGenerator.parseConvDims(
-        inLayout, outLayout, filLayout, strToLong("groupsize"),
-        strToLong("batchsize"), strToLong("in_channels"), strToLong("in_h"),
-        strToLong("in_w"), strToLong("out_channels"), strToLong("out_h"),
-        strToLong("out_w"), strToLong("fil_w"), strToLong("fil_h"),
-        filterDimension, inputDimension, outputDimension);
 
-    conv2dGenerator.genConvModule(
-        argMap["arch"], strToInt("num_cu"), argMap["operation"], inLayout,
-        outLayout, filLayout, filterDimension, inputDimension, outputDimension,
-        strToInt("dilation_h"), strToInt("dilation_w"),
-        strToInt("conv_stride_h"), strToInt("conv_stride_w"),
-        strToInt("padding_h"), strToInt("padding_w"), module, builder,
-        argMap["kernel_name"], type, false);
+    conv2dGenerator.genConvModule(module, builder);
   }
 
   return handle;

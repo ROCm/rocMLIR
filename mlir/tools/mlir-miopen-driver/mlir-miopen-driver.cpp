@@ -162,6 +162,12 @@ static cl::opt<int> paddingWidth("padding_w", cl::desc("Padding width"),
                                  cl::value_desc("attribute value"),
                                  cl::init(0));
 
+// conv-config
+static cl::opt<std::string> populateConvConfig(
+    "conv-config",
+    cl::desc("Populate full config settings (overrides all specific settings)"),
+    cl::value_desc("config settings"), cl::init(""));
+
 // populate default values
 static cl::opt<bool>
     populateDefaultValues("p", cl::desc("To populate default values"),
@@ -465,7 +471,7 @@ static AllocOp
 allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
                    mlir::FuncOp &mcpuMemCopy5DFuncOp,
                    mlir::AllocOp &sourceOriginalAllocOp,
-                   SmallVector<int64_t, 5> &sourceDimension,
+                   const SmallVector<int64_t, 5> &sourceDimension,
                    std::unordered_map<std::string, FuncOp> &convertFuncs) {
   auto floatType = builder.getF32Type();
   auto fiveDimUnknownSizeFloatType =
@@ -758,7 +764,7 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
 }
 
 static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
-                                 SmallVector<int64_t, 5> &outputDimension,
+                                 const SmallVector<int64_t, 5> &outputDimension,
                                  mlir::AllocOp &cpuAllocOp,
                                  mlir::AllocOp &gpuAllocOp) {
   // Emit verify_results function call
@@ -1365,9 +1371,9 @@ static LogicalResult populateHostHarnessLogic(
 
 static LogicalResult populateValidationLogic(
     ModuleOp &module, OpBuilder &builder, MLIRContext &context,
-    SmallVector<int64_t, 5> &filterDimension,
-    SmallVector<int64_t, 5> &inputDimension,
-    SmallVector<int64_t, 5> &outputDimension, mlir::Type dataType) {
+    const SmallVector<int64_t, 5> &filterDimension,
+    const SmallVector<int64_t, 5> &inputDimension,
+    const SmallVector<int64_t, 5> &outputDimension, mlir::Type dataType) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -1749,9 +1755,9 @@ static LogicalResult populateValidationLogic(
 static LogicalResult
 populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
                             MLIRContext &context,
-                            SmallVector<int64_t, 5> &filterDimension,
-                            SmallVector<int64_t, 5> &inputDimension,
-                            SmallVector<int64_t, 5> &outputDimension) {
+                            const SmallVector<int64_t, 5> &filterDimension,
+                            const SmallVector<int64_t, 5> &inputDimension,
+                            const SmallVector<int64_t, 5> &outputDimension) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -2077,51 +2083,55 @@ int main(int argc, char **argv) {
     module = ModuleOp::create(builder.getUnknownLoc());
   }
 
-  // Determine data type.
-  mlir::Type dataType = builder.getF32Type();
-  if (tensorDataType == "f32") {
-    dataType = builder.getF32Type();
-  } else if (tensorDataType == "f16") {
-    dataType = builder.getF16Type();
-  } else if (tensorDataType == "bf16") {
-    dataType = builder.getIntegerType(16);
-  }
-
   correctParameters();
   populateDefaults();
 
-  Conv2dGenerator conv2dGenerator;
-  // Determine dimensions.
-  SmallVector<int64_t, 5> filterDimension;
-  SmallVector<int64_t, 5> inputDimension;
-  SmallVector<int64_t, 5> outputDimension;
-  conv2dGenerator.parseConvDims(
-      inputLayout, outputLayout, filterLayout, groupSize, batchSize,
-      inputChannel, inputHeight, inputWidth, outputChannel, outputHeight,
-      outputWidth, filterWidth, filterHeight, filterDimension, inputDimension,
-      outputDimension);
+  auto convConfig = populateConvConfig.getValue();
+  auto dataTypeStr = tensorDataType.getValue();
+
+  Conv2dGenerator conv2dGenerator(
+      arch.getValue(), num_cu.getValue(), xdlopsV2.getValue(),
+      operation.getValue(), dataTypeStr, dilationHeight.getValue(),
+      dilationWidth.getValue(), strideHeight.getValue(), strideWidth.getValue(),
+      paddingHeight.getValue(), paddingWidth.getValue(),
+      filterLayout.getValue(), inputLayout.getValue(), outputLayout.getValue());
+
+  if (!convConfig.empty()) {
+    if (failed(conv2dGenerator.parseConvConfig(convConfig.c_str()))) {
+      llvm::errs() << "Module population failed.\n";
+      exit(1);
+    }
+  } else {
+    conv2dGenerator.parseConvDims(
+        batchSize, groupSize, inputChannel, inputHeight, inputWidth,
+        outputChannel, outputHeight, outputWidth, filterWidth, filterHeight);
+  }
+
+  // Determine data type.
+  mlir::Type dataType = builder.getF32Type();
+  if (dataTypeStr == "f32") {
+    dataType = builder.getF32Type();
+  } else if (dataTypeStr == "f16") {
+    dataType = builder.getF16Type();
+  } else if (dataTypeStr == "bf16") {
+    dataType = builder.getIntegerType(16);
+  }
 
   // Populate the module.
-  std::string kernelName;
   if (!populateCpuConvolution.getValue()) {
-    if (failed(conv2dGenerator.genConvModule(
-            arch.getValue(), num_cu.getValue(), operation.getValue(),
-            inputLayout, outputLayout, filterLayout, filterDimension,
-            inputDimension, outputDimension, dilationHeight.getValue(),
-            dilationWidth.getValue(), strideHeight.getValue(),
-            strideWidth.getValue(), paddingHeight.getValue(),
-            paddingWidth.getValue(), module, builder, kernelName, dataType,
-            xdlopsV2.getValue()))) {
+    if (failed(conv2dGenerator.genConvModule(module, builder))) {
       llvm::errs() << "Module population failed.\n";
       exit(1);
     }
   }
 
+  const auto &genConfig = conv2dGenerator.getConfig();
+
   // populate host harness and host validation.
   if (populateValidation.getValue()) {
-    if (failed(populateValidationLogic(module, builder, context,
-                                       filterDimension, inputDimension,
-                                       outputDimension, dataType))) {
+    if (failed(populateValidationLogic(
+            module, builder, context, genConfig.filterDimension,
+            genConfig.inputDimension, genConfig.outputDimension, dataType))) {
       llvm::errs() << "Host validation populated failed.\n";
       exit(1);
     }
@@ -2129,25 +2139,25 @@ int main(int argc, char **argv) {
 
   // populate CPU convolution and print the results.
   if (populateCpuConvolution.getValue()) {
-    if (failed(populateCpuConvolutionLogic(module, builder, context,
-                                           filterDimension, inputDimension,
-                                           outputDimension))) {
+    if (failed(populateCpuConvolutionLogic(
+            module, builder, context, genConfig.filterDimension,
+            genConfig.inputDimension, genConfig.outputDimension))) {
       llvm::errs() << "Cpu Convolution populated failed.\n";
       exit(1);
     }
   }
 
   // Apply passes.
-  if (failed(runMLIRPasses(module, passPipeline, kernelName))) {
+  if (failed(runMLIRPasses(module, passPipeline, genConfig.kernelName))) {
     llvm::errs() << "Lowering failed.\n";
     exit(1);
   }
 
   // populate host logic.
   if (populateHostHarness.getValue()) {
-    if (failed(populateHostHarnessLogic(module, builder, context,
-                                        filterDimension, inputDimension,
-                                        outputDimension, dataType))) {
+    if (failed(populateHostHarnessLogic(
+            module, builder, context, genConfig.filterDimension,
+            genConfig.inputDimension, genConfig.outputDimension, dataType))) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);
     }
@@ -2156,8 +2166,8 @@ int main(int argc, char **argv) {
   // populate host launch logic.
   if (useHostHarness.getValue() || populateHostHarness.getValue() ||
       populateValidation.getValue()) {
-    if (failed(
-            populateKernelLaunchLogic(module, builder, context, kernelName))) {
+    if (failed(populateKernelLaunchLogic(module, builder, context,
+                                         genConfig.kernelName))) {
       llvm::errs() << "Host kernel launch logic populated failed.\n";
       exit(1);
     }
