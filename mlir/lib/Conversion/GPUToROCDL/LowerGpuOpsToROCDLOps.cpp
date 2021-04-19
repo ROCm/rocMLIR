@@ -823,7 +823,9 @@ void mlir::populateGpuToROCDLConversionPatterns(
   patterns.insert<MubufLoadOpLowering>(converter.getDialect()->getContext(),
                                        converter);
   patterns.insert<MubufStoreOpLowering>(converter.getDialect()->getContext(),
+                                        converter);
   patterns.insert<AtomicFAddOpLowering>(converter.getDialect()->getContext(),
+                                        converter);
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
