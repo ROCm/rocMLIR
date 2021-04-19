@@ -2678,6 +2678,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     int64_t GemmBBlockCopyClusterLengths_GemmN =
         NPerBlock / GemmBBlockCopyThreadSliceLengths_GemmN;
 
+    // llvm::errs() << "thread cluster lengths for Matrix B\n";
+    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
+    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << "\n";
+
     // Compute thread_data_id_begin for Matrix A.
     // ClusterArrangeOrder for Matrix A is <1, 0>.
     // So divide by GemmABlockCopyClusterLengths_GemmK.
@@ -4285,7 +4289,7 @@ struct ThreadwiseCopyRewritePattern
         //   // load address = lower indices from affine transform.
         // } else {
         //   // OOB. Prepare an address known NOT OOB.
-        //   // load address = {0, 0, 0, 0}
+        //   // load address = {0, 0, 0, 0, 0}
         // }
         // V = load(load address)
         // if (withinBounds) {
@@ -5110,20 +5114,19 @@ struct XdlopsGemmV2RewritePattern
       //         a[k_i] = p_a_wave[(k_i + blk_id) * M + blk_td];
       //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
       //     }
-      // p_a_wave need to be offseted by threadOffsetA.
-      // p_b_wave need to be offseted by threadOffsetB.
+      // p_a_wave need to be offseted by waveOffsetA.
+      // p_b_wave need to be offseted by waveOffsetB.
 
       auto NumInputBlksConstantOp = b.create<ConstantIndexOp>(loc, num_input_blks);
       auto loopKLoad = b.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, NumInputBlksConstantOp);
       auto lklb = OpBuilder::atBlockTerminator(loopKLoad.getBody());
       auto lkliv = loopKLoad.getInductionVar();
 
-      // TBD. Check if we need to apply coord_transform as well.
       //         a[k_i] = p_a_wave[(k_i + blk_id) * M + blk_td];
       //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
-      // p_a_wave need to be offseted by threadOffsetA.
-      // p_b_wave need to be offseted by threadOffsetB.
-      auto sourceOffsetA = lklb.create<AddIOp>(
+      // p_a_wave need to be offseted by waveOffsetA.
+      // p_b_wave need to be offseted by waveOffsetB.
+      Value sourceOffsetBeforeTransformA = lklb.create<AddIOp>(
           loc, op.waveOffsetA(),
           lklb.create<AddIOp>(
               loc,
@@ -5131,17 +5134,37 @@ struct XdlopsGemmV2RewritePattern
                                   MConstantOp),
               blk_td));
 
+      // Apply coord_transform for matrix A if necessarily.
+      SmallVector<Value, 8> sourceOffsetA;
+      if (transformMatrixA)
+        sourceOffsetA =
+            expandAffineMap(lklb, loc, transformMatrixA,
+                            ValueRange{sourceOffsetBeforeTransformA})
+                .getValue();
+      else
+        sourceOffsetA.push_back(sourceOffsetBeforeTransformA);
+
       auto valueA = lklb.create<LoadOp>(loc, dataType, op.matrixA(),
                                         ValueRange{sourceOffsetA});
       lklb.create<StoreOp>(loc, valueA, op.bufferA(), ValueRange{lkliv});
 
-      auto sourceOffsetB = lklb.create<AddIOp>(
+      Value sourceOffsetBeforeTransformB = lklb.create<AddIOp>(
           loc, op.waveOffsetB(),
           lklb.create<AddIOp>(
               loc,
               lklb.create<MulIOp>(loc, lklb.create<AddIOp>(loc, lkliv, blk_id),
                                   NConstantOp),
               blk_td));
+
+      // Apply coord_transform for matrix B if necessarily.
+      SmallVector<Value, 8> sourceOffsetB;
+      if (transformMatrixB)
+        sourceOffsetB =
+            expandAffineMap(lklb, loc, transformMatrixB,
+                            ValueRange{sourceOffsetBeforeTransformB})
+                .getValue();
+      else
+        sourceOffsetB.push_back(sourceOffsetBeforeTransformB);
 
       auto valueB = lklb.create<LoadOp>(loc, dataType, op.matrixB(),
                                         ValueRange{sourceOffsetB});
