@@ -106,6 +106,7 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
       } else if (transformAttr.getValue() == "UnMerge") {
         assert(srcDimAttr.size() == 1);
         assert(destDimAttr.size() > 1);
+        // output data
         auto outputType = op.output().getType().dyn_cast<MemRefType>();
         auto outputShape = outputType.getShape();
 
@@ -113,10 +114,15 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
         auto destDim =
             destDimAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
         auto expr = getAffineDimExpr(destDim, op.getContext());
+        auto dimLength =
+            dimLayoutAttr.get("dimension_lengths").dyn_cast<ArrayAttr>();
         for (unsigned j = 1; j < destDimAttr.size(); ++j) {
           destDim = destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
-          auto lengthExpr =
-              getAffineConstantExpr(outputShape[destDim], op.getContext());
+          auto length =
+              dimLength.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          assert(length == outputShape[destDim]);
+
+          auto lengthExpr = getAffineConstantExpr(length, op.getContext());
           auto partialExpr = getAffineDimExpr(destDim, op.getContext());
           expr = expr * lengthExpr + partialExpr;
         }
