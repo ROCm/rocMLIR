@@ -2905,6 +2905,11 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // -----
 
     // Logic to do XDLOPS code selection.
+    llvm::errs() << "Invoke XDLOPS code selection logic:\n";
+    llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
+    llvm::errs() << "MPerWave: " << MPerWave << "\n";
+    llvm::errs() << "NPerWave: " << NPerWave << "\n";
+
     XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
     // Extract values from XdlopsCodeSelection.
@@ -4887,6 +4892,12 @@ struct XdlopsGemmV2RewritePattern
     auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
     auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
     auto KConstantOp = b.create<ConstantIndexOp>(loc, K);
+
+    // Logic to do XDLOPS code selection.
+    llvm::errs() << "Invoke XDLOPS code selection logic:\n";
+    llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
+    llvm::errs() << "MPerWave: " << MPerWave << "\n";
+    llvm::errs() << "NPerWave: " << NPerWave << "\n";
 
     XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
