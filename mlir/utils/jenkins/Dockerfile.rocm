@@ -2,10 +2,10 @@
 FROM ubuntu:bionic
 MAINTAINER Zhuoran Yin <zhuoran.yin@amd.com>
 
-ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/4.0/
+ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/4.1.1/
 ARG ROCM_BUILD_NAME=xenial
 ARG ROCM_BUILD_NUM=main
-ARG ROCM_PATH=/opt/rocm-4.0.0
+ARG ROCM_PATH=/opt/rocm-4.1.1
 
 ENV DEBIAN_FRONTEND noninteractive
 ENV HOME /root/
@@ -15,7 +15,7 @@ RUN apt-get clean all
 # --------------------- Section 1: ported from llvm-premerge-checks -----------------
 # Keep this section up-to-date with the upstream
 # https://github.com/google/llvm-premerge-checks/blob/master/containers/base-debian/Dockerfile
-RUN echo 'intall build dependencies'; \
+RUN echo 'install build dependencies'; \
     apt-get update ;\
     apt-get install -y --no-install-recommends \
         locales openssh-client gnupg ca-certificates  \
