@@ -103,6 +103,30 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
           auto srcDim = srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
           affExprsMap.insert({srcDim, expr});
         }
+      } else if (transformAttr.getValue() == "UnMerge") {
+        assert(srcDimAttr.size() == 1);
+        assert(destDimAttr.size() > 1);
+        // output data
+        auto outputType = op.output().getType().dyn_cast<MemRefType>();
+        auto outputShape = outputType.getShape();
+
+        auto srcDim = srcDimAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+        auto destDim =
+            destDimAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+        auto expr = getAffineDimExpr(destDim, op.getContext());
+        auto dimLength =
+            dimLayoutAttr.get("dimension_lengths").dyn_cast<ArrayAttr>();
+        for (unsigned j = 1; j < destDimAttr.size(); ++j) {
+          destDim = destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          auto length =
+              dimLength.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          assert(length == outputShape[destDim]);
+
+          auto lengthExpr = getAffineConstantExpr(length, op.getContext());
+          auto partialExpr = getAffineDimExpr(destDim, op.getContext());
+          expr = expr * lengthExpr + partialExpr;
+        }
+        affExprsMap.insert({srcDim, expr});
       } else if (transformAttr.getValue() == "Embed") {
         assert(srcDimAttr.size() == 1);
         assert(destDimAttr.size() > 1);
@@ -123,6 +147,34 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
           expr = expr + partialExpr;
         }
         affExprsMap.insert({srcDim, expr});
+      } else if (transformAttr.getValue() == "Slice") {
+        assert(srcDimAttr.size() >= 1);
+        assert(srcDimAttr.size() == destDimAttr.size());
+
+        auto begins = dimLayoutAttr.get("begins").dyn_cast<ArrayAttr>();
+        auto ends = dimLayoutAttr.get("ends").dyn_cast<ArrayAttr>();
+        assert(begins.size() == ends.size());
+        // same dim
+        assert(begins.size() == srcDimAttr.size());
+
+        // output data
+        auto outputType = op.output().getType().dyn_cast<MemRefType>();
+        auto outputShape = outputType.getShape();
+
+        for (int j = 0; j < begins.size(); j++) {
+          auto begin = begins.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          auto end = ends.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          auto destDim =
+              destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          auto length = outputShape[destDim];
+          assert(length == (end - begin));
+
+          auto expr = getAffineDimExpr(destDim, op.getContext()) +
+                      getAffineConstantExpr(begin, op.getContext());
+          auto srcDim =
+              srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          affExprsMap.insert({srcDim, expr});
+        }
       }
     }
   }
