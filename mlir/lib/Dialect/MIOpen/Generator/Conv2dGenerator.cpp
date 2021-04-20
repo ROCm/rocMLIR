@@ -12,15 +12,15 @@ using namespace mlir;
 
 Conv2dGenerator::Conv2dGenerator(
     const std::string &arch, int num_cu, bool xdlops,
-    const std::string &operation, const std::string &dataTypeStr,
+    const std::string &operation, int kernelId, const std::string &dataTypeStr,
     int dilationHeight, int dilationWidth, int strideHeight, int strideWidth,
     int paddingHeight, int paddingWidth, const std::string &filterLayout,
     const std::string &inputLayout, const std::string &outputLayout,
     const std::string &kernelName)
-    : config{arch,        num_cu,         xdlops,        operation,
-             dataTypeStr, dilationHeight, dilationWidth, strideHeight,
-             strideWidth, paddingHeight,  paddingWidth,  filterLayout,
-             inputLayout, outputLayout,   kernelName} {}
+    : config{arch,         num_cu,      xdlops,         operation,
+             kernelId,     dataTypeStr, dilationHeight, dilationWidth,
+             strideHeight, strideWidth, paddingHeight,  paddingWidth,
+             filterLayout, inputLayout, outputLayout,   kernelName} {}
 
 namespace {
 
@@ -43,6 +43,22 @@ void strToTokens(const std::string &arguments,
 }
 
 } // namespace
+
+int Conv2dGenerator::getKernelCount(const char *arguments) {
+  int count = 0;
+  std::map<std::string, std::string> argMap;
+  strToTokens(arguments, argMap);
+
+  auto operation = argMap["operation"];
+  if (operation == "conv2d") {
+    count = 1;
+  } else if (operation == "conv2d_bwd_data") {
+    count = 1;
+  } else if (operation == "conv2d_bww_weight") {
+    count = 1;
+  }
+  return count;
+}
 
 LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   std::map<std::string, std::string> argMap;
@@ -87,6 +103,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
 
     // conv settings
     config.operation = argMap["operation"];
+    strToInt("kernel_id", config.kernelId);
     config.dataTypeStr = argMap["out_type"];
     strToInt("dilation_h", config.dilationHeight);
     strToInt("dilation_w", config.dilationWidth);
@@ -194,7 +211,11 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
 
   // Determine kernel name, if there isn't one.
   if (config.kernelName.empty()) {
-    config.kernelName = "miopen_" + config.operation + "_" +
+    std::string subscript = "";
+    if (config.kernelId != 0) {
+      subscript = "_" + std::to_string(config.kernelId);
+    }
+    config.kernelName = "miopen_" + config.operation + subscript + "_" +
                         config.filterLayout + "_" + config.inputLayout + "_" +
                         config.outputLayout;
   }

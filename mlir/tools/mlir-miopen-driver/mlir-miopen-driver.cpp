@@ -2088,10 +2088,11 @@ int main(int argc, char **argv) {
 
   auto convConfig = populateConvConfig.getValue();
   auto dataTypeStr = tensorDataType.getValue();
+  int kernelId = 0;
 
   Conv2dGenerator conv2dGenerator(
       arch.getValue(), num_cu.getValue(), xdlopsV2.getValue(),
-      operation.getValue(), dataTypeStr, dilationHeight.getValue(),
+      operation.getValue(), kernelId, dataTypeStr, dilationHeight.getValue(),
       dilationWidth.getValue(), strideHeight.getValue(), strideWidth.getValue(),
       paddingHeight.getValue(), paddingWidth.getValue(),
       filterLayout.getValue(), inputLayout.getValue(), outputLayout.getValue());
