@@ -25,6 +25,7 @@ public:
     int num_cu;
     bool xdlops;
     std::string operation;
+    int kernelId;
     std::string dataTypeStr;
     int dilationHeight, dilationWidth;
     int strideHeight, strideWidth;
@@ -43,7 +44,7 @@ public:
 
   Conv2dGenerator(const std::string &arch = "", int num_cu = 0,
                   bool xdlops = false, const std::string &operation = "conv2d",
-                  const std::string &dataTypeStr = "f32",
+                  int kernelId = 0, const std::string &dataTypeStr = "f32",
                   int dilationHeight = 1, int dilationWidth = 1,
                   int strideHeight = 1, int strideWidth = 1,
                   int paddingHeight = 0, int paddingWidth = 0,
@@ -53,6 +54,8 @@ public:
                   const std::string &kernelName = "");
 
   const Config &getConfig() const { return config; }
+
+  static int getKernelCount(const char *arguments);
 
   LogicalResult parseConvConfig(const char *arguments);
 

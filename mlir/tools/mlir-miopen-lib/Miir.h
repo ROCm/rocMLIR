@@ -12,7 +12,7 @@
 
 #include <stddef.h>
 
-#define MIIR_VERSION_FLAT 3
+#define MIIR_VERSION_FLAT 4
 
 enum MiirStatus {
   MIIR_SUCCESS = 0,
