@@ -98,9 +98,12 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
     strToStr("kernel_name", config.kernelName);
 
     // MIOpen has NCHW as layout string for all three tensors
-    strToStr("fil_layout", config.filterLayout);
-    strToStr("in_layout", config.inputLayout);
-    strToStr("out_layout", config.outputLayout);
+    config.inputLayout = translateLayout(
+        argMap["in_layout"], std::string("NGCHW"), std::string("ngchw"));
+    config.filterLayout = translateLayout(
+        argMap["fil_layout"], std::string("GNCHW"), std::string("gkcyx"));
+    config.outputLayout = translateLayout(
+        argMap["out_layout"], std::string("NGCHW"), std::string("ngkhw"));
 
     // Determine tensor dimensions.
     return parseConvDims(strToLong("batchsize"), strToLong("groupsize"),
