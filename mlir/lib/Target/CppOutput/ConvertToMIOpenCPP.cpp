@@ -26,16 +26,23 @@
 
 using namespace mlir;
 using namespace llvm;
+namespace {
+static bool initOptions() {
+  cl::opt<std::string> TunableParametersYAMLFile("tunable-parameters-yaml-file",
+                                                 cl::desc("Tunable parameters YAML file"),
+                                                 cl::value_desc("filename"),
+                                                 cl::Hidden);
 
-cl::opt<std::string> TunableParametersYAMLFile("tunable-parameters-yaml-file",
-                                                      cl::desc("Tunable parameters YAML file"),
-                                                      cl::value_desc("filename"),
-                                                      cl::Hidden);
+  cl::opt<bool> IsPopulateTunableParameters("populate-tunable-parameters-to-yaml-file",
+                                            cl::desc("Populate default tunable parameters to YAML file"),
+                                            cl::value_desc("bool"),
+                                            cl::init(false));
+  return true;
+}
 
-cl::opt<bool> IsPopulateTunableParameters("populate-tunable-parameters-to-yaml-file",
-                                                 cl::desc("Populate default tunable parameters to YAML file"),
-                                                 cl::value_desc("bool"),
-                                                 cl::init(false));
+static bool init = initOptions();
+
+}
 
 namespace mlir {
 void registerFromMIOpenToCPPTranslation() {
