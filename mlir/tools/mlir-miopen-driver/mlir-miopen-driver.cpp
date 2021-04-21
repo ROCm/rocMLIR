@@ -249,8 +249,10 @@ static cl::opt<std::string> randomData(
 static cl::opt<std::string> randomSide(
     "rand_side",
     cl::desc("To populate random numbers to a specified tensor: "
-             "-rand_side filter, -rand_side input, -rand_side output. "
-             "By default populate random numbers to both tensors."),
+             "For conv2d, -rand_side filter or -rand_side input; "
+             "For conv2d_bwd_data, -rand_side filter or -rand_side output; "
+             "For conv2d_bwd_weight, -rand_side input or -rand_side output. "
+             "By default, populate random numbers to both tensors."),
     cl::value_desc("tensor"), cl::init("both"));
 
 static void correctParameters() {
