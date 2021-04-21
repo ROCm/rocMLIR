@@ -1,0 +1,18 @@
+project(miopen-mlir)
+cmake_minimum_required(VERSION 3.13.4)
+
+set(LLVM_ENABLE_PROJECTS "llvm;mlir;lld" CACHE STRING "List of default llvm targets")
+set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
+set(LLVM_TARGETS_TO_BUILD "X86;NVPTX;AMDGPU" CACHE STRING "")
+set(LLVM_ENABLE_ASSERTIONS ON CACHE BOOL "")
+set(BUILD_SHARED_LIBS ON CACHE BOOL "")
+set(LLVM_BUILD_LLVM_DYLIB ON CACHE BOOL "")
+set(MLIR_ROCM_RUNNER_ENABLED ON CACHE BOOL "")
+set(MLIR_MIOPEN_DRIVER_ENABLED ON CACHE BOOL "")
+set(MLIR_ENABLE_SQLITE ON CACHE BOOL "")
+
+add_subdirectory(llvm)
+
+add_custom_target(miopen_target ALL)
+add_dependencies(miopen_target check-mlir)
+
