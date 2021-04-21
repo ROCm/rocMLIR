@@ -2567,9 +2567,11 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // llvm::errs() << "MWaves = MPerBlock / MPerWave: " << MWaves << "\n";
     // llvm::errs() << "NWaves = NPerBlock / NPerWave: " << NWaves << "\n";
     // llvm::errs() << "MWavesPerBlock = MPerBlock / MPerWave: " <<
-    // MWavePerBlock << "\n";
+    // MWavePerBlock
+    //              << "\n";
     // llvm::errs() << "NWavesPerBlock = NPerBlock / NPerWave: " <<
-    // NWavePerBlock << "\n";
+    // NWavePerBlock
+    //              << "\n";
 
     // llvm::errs() << "matrix_a_source_data_per_read: "
     //              << matrix_a_source_data_per_read << "\n";
@@ -2905,10 +2907,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // -----
 
     // Logic to do XDLOPS code selection.
-    llvm::errs() << "Invoke XDLOPS code selection logic:\n";
-    llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
-    llvm::errs() << "MPerWave: " << MPerWave << "\n";
-    llvm::errs() << "NPerWave: " << NPerWave << "\n";
+    // llvm::errs() << "Invoke XDLOPS code selection logic:\n";
+    // llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
+    // llvm::errs() << "MPerWave: " << MPerWave << "\n";
+    // llvm::errs() << "NPerWave: " << NPerWave << "\n";
 
     XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
@@ -4894,10 +4896,10 @@ struct XdlopsGemmV2RewritePattern
     auto KConstantOp = b.create<ConstantIndexOp>(loc, K);
 
     // Logic to do XDLOPS code selection.
-    llvm::errs() << "Invoke XDLOPS code selection logic:\n";
-    llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
-    llvm::errs() << "MPerWave: " << MPerWave << "\n";
-    llvm::errs() << "NPerWave: " << NPerWave << "\n";
+    // llvm::errs() << "Invoke XDLOPS code selection logic:\n";
+    // llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
+    // llvm::errs() << "MPerWave: " << MPerWave << "\n";
+    // llvm::errs() << "NPerWave: " << NPerWave << "\n";
 
     XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 

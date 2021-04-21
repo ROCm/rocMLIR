@@ -674,33 +674,33 @@ struct XdlopsCodeSelection {
     result.cycles = cycles;
     result.k_base = k_base;
 
-    llvm::errs() << "XDLOPS code selection result:\n";
-    llvm::errs() << "mfmaInstr: " << mfmaInstr << "\n";
-    llvm::errs() << "MPerXdlops: " << MPerXdlops << "\n";
-    llvm::errs() << "NPerXdlops: " << NPerXdlops << "\n";
-    llvm::errs() << "MRepeats: " << MRepeats << "\n";
-    llvm::errs() << "NRepeats: " << NRepeats << "\n";
-    llvm::errs() << "vectorType: " << vectorType << "\n";
-    llvm::errs() << "vectorNumber: " << vectorNumber << "\n";
-    llvm::errs() << "imms:\n";
-    for (auto imm : imms) {
-	    llvm::errs() << imm[0] << " " << imm[1] << " " << imm[2] << "\n";
-    }
-    llvm::errs() << "argType: " << argType << "\n";
+    // llvm::errs() << "XDLOPS code selection result:\n";
+    // llvm::errs() << "mfmaInstr: " << mfmaInstr << "\n";
+    // llvm::errs() << "MPerXdlops: " << MPerXdlops << "\n";
+    // llvm::errs() << "NPerXdlops: " << NPerXdlops << "\n";
+    // llvm::errs() << "MRepeats: " << MRepeats << "\n";
+    // llvm::errs() << "NRepeats: " << NRepeats << "\n";
+    // llvm::errs() << "vectorType: " << vectorType << "\n";
+    // llvm::errs() << "vectorNumber: " << vectorNumber << "\n";
+    // llvm::errs() << "imms:\n";
+    // for (auto imm : imms) {
+    //         llvm::errs() << imm[0] << " " << imm[1] << " " << imm[2] << "\n";
+    // }
+    // llvm::errs() << "argType: " << argType << "\n";
 
-    llvm::errs() << "group_size: " << group_size << "\n";
-    llvm::errs() << "num_groups_blk: " << num_groups_blk << "\n";
-    llvm::errs() << "num_regs_blk: " << num_regs_blk << "\n";
-    llvm::errs() << "num_threads_blk: " << num_threads_blk << "\n";
-    llvm::errs() << "wave_size: " << wave_size << "\n";
-    llvm::errs() << "num_input_blks: " << num_input_blks << "\n";
-    llvm::errs() << "num_output_blks: " << num_output_blks << "\n";
-    llvm::errs() << "num_regs_xdlops: " << num_regs_xdlops << "\n";
-    llvm::errs() << "m: " << m << "\n";
-    llvm::errs() << "n: " << n << "\n";
-    llvm::errs() << "k: " << k << "\n";
-    llvm::errs() << "cycles: " << cycles << "\n";
-    llvm::errs() << "k_base: " << k_base << "\n";
+    // llvm::errs() << "group_size: " << group_size << "\n";
+    // llvm::errs() << "num_groups_blk: " << num_groups_blk << "\n";
+    // llvm::errs() << "num_regs_blk: " << num_regs_blk << "\n";
+    // llvm::errs() << "num_threads_blk: " << num_threads_blk << "\n";
+    // llvm::errs() << "wave_size: " << wave_size << "\n";
+    // llvm::errs() << "num_input_blks: " << num_input_blks << "\n";
+    // llvm::errs() << "num_output_blks: " << num_output_blks << "\n";
+    // llvm::errs() << "num_regs_xdlops: " << num_regs_xdlops << "\n";
+    // llvm::errs() << "m: " << m << "\n";
+    // llvm::errs() << "n: " << n << "\n";
+    // llvm::errs() << "k: " << k << "\n";
+    // llvm::errs() << "cycles: " << cycles << "\n";
+    // llvm::errs() << "k_base: " << k_base << "\n";
 
     return result;
   }
