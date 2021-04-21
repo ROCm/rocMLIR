@@ -2567,9 +2567,11 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // llvm::errs() << "MWaves = MPerBlock / MPerWave: " << MWaves << "\n";
     // llvm::errs() << "NWaves = NPerBlock / NPerWave: " << NWaves << "\n";
     // llvm::errs() << "MWavesPerBlock = MPerBlock / MPerWave: " <<
-    // MWavePerBlock << "\n";
+    // MWavePerBlock
+    //              << "\n";
     // llvm::errs() << "NWavesPerBlock = NPerBlock / NPerWave: " <<
-    // NWavePerBlock << "\n";
+    // NWavePerBlock
+    //              << "\n";
 
     // llvm::errs() << "matrix_a_source_data_per_read: "
     //              << matrix_a_source_data_per_read << "\n";
@@ -2905,6 +2907,11 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // -----
 
     // Logic to do XDLOPS code selection.
+    // llvm::errs() << "Invoke XDLOPS code selection logic:\n";
+    // llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
+    // llvm::errs() << "MPerWave: " << MPerWave << "\n";
+    // llvm::errs() << "NPerWave: " << NPerWave << "\n";
+
     XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
     // Extract values from XdlopsCodeSelection.
@@ -2953,15 +2960,19 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     mMyWaveOffsetB = b.create<MulIOp>(loc, waveId_n, NPerWaveConstantOp);
 
     // Logic to setup buffers for blockwise_gemm_v2.
-    
-    // TBD. FloatA / FloatB could be vectorized via KPack. Ignore this for now.
-    auto arrayAType =
-        MemRefType::get({KPerBlock * MRepeats}, dataType, {},
-                        gpu::GPUDialect::getPrivateAddressSpace());
+
+    bool IsKReduction = (num_output_blks == 1) && (num_input_blks > 1);
+    int64_t arrayASize = (!IsKReduction)
+                             ? (KPerBlock * MRepeats)
+                             : (KPerBlock / num_input_blks * MRepeats);
+    int64_t arrayBSize = (!IsKReduction)
+                             ? (KPerBlock * NRepeats)
+                             : (KPerBlock / num_input_blks * NRepeats);
+    auto arrayAType = MemRefType::get(
+        {arrayASize}, dataType, {}, gpu::GPUDialect::getPrivateAddressSpace());
     auto arrayA = b.create<miopen::GpuAllocOp>(loc, arrayAType);
-    auto arrayBType =
-        MemRefType::get({KPerBlock * NRepeats}, dataType, {},
-                        gpu::GPUDialect::getPrivateAddressSpace());
+    auto arrayBType = MemRefType::get(
+        {arrayBSize}, dataType, {}, gpu::GPUDialect::getPrivateAddressSpace());
     auto arrayB = b.create<miopen::GpuAllocOp>(loc, arrayBType);
 
     // -----
@@ -4888,6 +4899,12 @@ struct XdlopsGemmV2RewritePattern
     auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
     auto KConstantOp = b.create<ConstantIndexOp>(loc, K);
 
+    // Logic to do XDLOPS code selection.
+    // llvm::errs() << "Invoke XDLOPS code selection logic:\n";
+    // llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
+    // llvm::errs() << "MPerWave: " << MPerWave << "\n";
+    // llvm::errs() << "NPerWave: " << NPerWave << "\n";
+
     XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
     // Extract values from XdlopsCodeSelection.
@@ -5061,21 +5078,30 @@ struct XdlopsGemmV2RewritePattern
       //         &pa[k_i * mfma_type.k_base], &pb[k_i * mfma_type.k_base], p_c_thread);
       // }
 
+      // Instead of following C++ logic where the induction variable is
+      // increased by one, increase by k_base. Mathmetically they are
+      // equivalent.
       auto loopIterationConstantOp = b.create<ConstantIndexOp>(loc, K * KRepeats);
-      auto loopK = b.create<scf::ForOp>(loc, zeroConstantOp, loopIterationConstantOp, oneConstantOp, op.vectorCs());
+      auto loopK =
+          b.create<scf::ForOp>(loc, zeroConstantOp, loopIterationConstantOp,
+                               KBaseConstantOp, op.vectorCs());
       auto loopKb = OpBuilder::atBlockBegin(loopK.getBody());
       auto loopKiv = loopK.getInductionVar();
 
-      auto offset = loopKb.create<MulIOp>(loc, loopKiv, KBaseConstantOp);
-
       Value argA, argB;
       if (dataType == b.getF32Type()) {
-        argA = loopKb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
-        argB = loopKb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
+        argA = loopKb.create<LoadOp>(loc, dataType, op.bufferA(),
+                                     ValueRange{loopKiv});
+        argB = loopKb.create<LoadOp>(loc, dataType, op.bufferB(),
+                                     ValueRange{loopKiv});
       } else if (dataType == b.getF16Type() ||
                  dataType == b.getIntegerType(16)) {
-        argA = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
-        argB = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
+        argA = loopKb.create<vector::TransferReadOp>(
+            loc, argType.template dyn_cast<VectorType>(), op.bufferA(),
+            ValueRange{loopKiv});
+        argB = loopKb.create<vector::TransferReadOp>(
+            loc, argType.template dyn_cast<VectorType>(), op.bufferB(),
+            ValueRange{loopKiv});
       }
 
       // Workgroup barrier.
@@ -5117,8 +5143,14 @@ struct XdlopsGemmV2RewritePattern
       // p_a_wave need to be offseted by waveOffsetA.
       // p_b_wave need to be offseted by waveOffsetB.
 
+      // Instead loop to K, change loop bound to K / num_input_blks.
+      auto loopKLoadIteration =
+          b.create<ConstantIndexOp>(loc, K / num_input_blks);
+      auto loopKLoad = b.create<scf::ForOp>(loc, zeroConstantOp,
+                                            loopKLoadIteration, oneConstantOp);
+
       auto NumInputBlksConstantOp = b.create<ConstantIndexOp>(loc, num_input_blks);
-      auto loopKLoad = b.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, NumInputBlksConstantOp);
+
       auto lklb = OpBuilder::atBlockTerminator(loopKLoad.getBody());
       auto lkliv = loopKLoad.getInductionVar();
 
@@ -5126,12 +5158,19 @@ struct XdlopsGemmV2RewritePattern
       //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
       // p_a_wave need to be offseted by waveOffsetA.
       // p_b_wave need to be offseted by waveOffsetB.
+
+      // NOTICE: We times k_i by num_input_blks in MLIR path.
       Value sourceOffsetBeforeTransformA = lklb.create<AddIOp>(
           loc, op.waveOffsetA(),
           lklb.create<AddIOp>(
               loc,
-              lklb.create<MulIOp>(loc, lklb.create<AddIOp>(loc, lkliv, blk_id),
-                                  MConstantOp),
+              lklb.create<MulIOp>(
+                  loc,
+                  lklb.create<AddIOp>(
+                      loc,
+                      lklb.create<MulIOp>(loc, lkliv, NumInputBlksConstantOp),
+                      blk_id),
+                  MConstantOp),
               blk_td));
 
       // Apply coord_transform for matrix A if necessarily.
@@ -5148,12 +5187,18 @@ struct XdlopsGemmV2RewritePattern
                                         ValueRange{sourceOffsetA});
       lklb.create<StoreOp>(loc, valueA, op.bufferA(), ValueRange{lkliv});
 
+      // NOTICE: We times k_i by num_input_blks in MLIR path.
       Value sourceOffsetBeforeTransformB = lklb.create<AddIOp>(
           loc, op.waveOffsetB(),
           lklb.create<AddIOp>(
               loc,
-              lklb.create<MulIOp>(loc, lklb.create<AddIOp>(loc, lkliv, blk_id),
-                                  NConstantOp),
+              lklb.create<MulIOp>(
+                  loc,
+                  lklb.create<AddIOp>(
+                      loc,
+                      lklb.create<MulIOp>(loc, lkliv, NumInputBlksConstantOp),
+                      blk_id),
+                  NConstantOp),
               blk_td));
 
       // Apply coord_transform for matrix B if necessarily.
@@ -5180,15 +5225,27 @@ struct XdlopsGemmV2RewritePattern
       //             p_c_thread);
       // }
 
-      auto outerLoop = b.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, NumInputBlksConstantOp, op.vectorCs());
+      // Change loop bound to the same as loopKLoadIteration.
+      // Instead of increasing num_input_blks, increase k_base.
+      auto outerLoop =
+          b.create<scf::ForOp>(loc, zeroConstantOp, loopKLoadIteration,
+                               KBaseConstantOp, op.vectorCs());
       auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
       auto outerLoopiv = outerLoop.getInductionVar();
 
-      auto innerLoop = outerLoopb.create<scf::ForOp>(loc, zeroConstantOp, KRepeatsConstantOp, oneConstantOp, outerLoop.getRegionIterArgs());
+      auto innerLoop = outerLoopb.create<scf::ForOp>(
+          loc, zeroConstantOp, KRepeatsConstantOp, oneConstantOp,
+          outerLoop.getRegionIterArgs());
       auto innerLoopb = OpBuilder::atBlockBegin(innerLoop.getBody());
       auto innerLoopiv = innerLoop.getInductionVar();
 
-      auto offset = innerLoopb.create<MulIOp>(loc, innerLoopb.create<AddIOp>(loc, innerLoopb.create<MulIOp>(loc, outerLoopiv, KRepeatsConstantOp), innerLoopiv), KBaseConstantOp);
+      auto offset = innerLoopb.create<MulIOp>(
+          loc,
+          innerLoopb.create<AddIOp>(
+              loc,
+              innerLoopb.create<MulIOp>(loc, outerLoopiv, KRepeatsConstantOp),
+              innerLoopiv),
+          KBaseConstantOp);
 
       Value argA, argB;
       if (dataType == b.getF32Type()) {
@@ -5196,8 +5253,12 @@ struct XdlopsGemmV2RewritePattern
         argB = innerLoopb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
       } else if (dataType == b.getF16Type() ||
                  dataType == b.getIntegerType(16)) {
-        argA = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
-        argB = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
+        argA = innerLoopb.create<vector::TransferReadOp>(
+            loc, argType.template dyn_cast<VectorType>(), op.bufferA(),
+            ValueRange{offset});
+        argB = innerLoopb.create<vector::TransferReadOp>(
+            loc, argType.template dyn_cast<VectorType>(), op.bufferB(),
+            ValueRange{offset});
       }
 
       SmallVector<Value, 4> mfmas;
