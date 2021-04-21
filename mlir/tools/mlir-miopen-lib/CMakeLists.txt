@@ -44,6 +44,10 @@ llvm_update_compile_flags(mlir-miopen-lib-test)
 target_link_libraries(mlir-miopen-lib-test PRIVATE MLIRMIOpenThin ${LIBS})
 mlir_check_link_libraries(mlir-miopen-lib-test)
 
+install(FILES "Miir.h"
+  DESTINATION include 
+  )
+      
 # Static library target, enabled only when building static libs
 if( NOT BUILD_SHARED_LIBS )
   function(combine_archives output_archive)
