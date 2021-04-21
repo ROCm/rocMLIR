@@ -13,6 +13,3 @@ set(MLIR_ENABLE_SQLITE ON CACHE BOOL "")
 
 add_subdirectory(llvm)
 
-add_custom_target(miopen_target ALL)
-add_dependencies(miopen_target check-mlir)
-
