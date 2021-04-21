@@ -246,11 +246,12 @@ static cl::opt<std::string> randomData(
         "use all ones. Otherwise, use time(0) as the seed."),
     cl::value_desc("seed"), cl::init("none"));
 
-static cl::opt<std::string>
-    randomSide("rand_side",
-               cl::desc("To populate random numbers to a specified tensor, "
-                        "e.g. -rand_side filter"),
-               cl::value_desc("tensor"), cl::init("both"));
+static cl::opt<std::string> randomSide(
+    "rand_side",
+    cl::desc("To populate random numbers to a specified tensor: "
+             "-rand_side filter, -rand_side input, -rand_side output. "
+             "By default populate random numbers to both tensors."),
+    cl::value_desc("tensor"), cl::init("both"));
 
 static void correctParameters() {
   std::string filterLayoutValue = filterLayout.getValue();
