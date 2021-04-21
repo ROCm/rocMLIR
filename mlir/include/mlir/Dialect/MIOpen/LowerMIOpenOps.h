@@ -2960,8 +2960,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     mMyWaveOffsetB = b.create<MulIOp>(loc, waveId_n, NPerWaveConstantOp);
 
     // Logic to setup buffers for blockwise_gemm_v2.
-    
+
     // TBD. FloatA / FloatB could be vectorized via KPack. Ignore this for now.
+    // FIXME. For KReduction case, arrayAType and arrayBType are too large.
+    // should be changed to KPerBlock / num_input_blks in KReduction case.
     auto arrayAType =
         MemRefType::get({KPerBlock * MRepeats}, dataType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
@@ -5074,21 +5076,30 @@ struct XdlopsGemmV2RewritePattern
       //         &pa[k_i * mfma_type.k_base], &pb[k_i * mfma_type.k_base], p_c_thread);
       // }
 
+      // Instead of following C++ logic where the induction variable is
+      // increased by one, increase by k_base. Mathmetically they are
+      // equivalent.
       auto loopIterationConstantOp = b.create<ConstantIndexOp>(loc, K * KRepeats);
-      auto loopK = b.create<scf::ForOp>(loc, zeroConstantOp, loopIterationConstantOp, oneConstantOp, op.vectorCs());
+      auto loopK =
+          b.create<scf::ForOp>(loc, zeroConstantOp, loopIterationConstantOp,
+                               KBaseConstantOp, op.vectorCs());
       auto loopKb = OpBuilder::atBlockBegin(loopK.getBody());
       auto loopKiv = loopK.getInductionVar();
 
-      auto offset = loopKb.create<MulIOp>(loc, loopKiv, KBaseConstantOp);
-
       Value argA, argB;
       if (dataType == b.getF32Type()) {
-        argA = loopKb.create<LoadOp>(loc, dataType, op.bufferA(), ValueRange{offset});
-        argB = loopKb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
+        argA = loopKb.create<LoadOp>(loc, dataType, op.bufferA(),
+                                     ValueRange{loopKiv});
+        argB = loopKb.create<LoadOp>(loc, dataType, op.bufferB(),
+                                     ValueRange{loopKiv});
       } else if (dataType == b.getF16Type() ||
                  dataType == b.getIntegerType(16)) {
-        argA = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
-        argB = loopKb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
+        argA = loopKb.create<vector::TransferReadOp>(
+            loc, argType.template dyn_cast<VectorType>(), op.bufferA(),
+            ValueRange{loopKiv});
+        argB = loopKb.create<vector::TransferReadOp>(
+            loc, argType.template dyn_cast<VectorType>(), op.bufferB(),
+            ValueRange{loopKiv});
       }
 
       // Workgroup barrier.
@@ -5130,6 +5141,9 @@ struct XdlopsGemmV2RewritePattern
       // p_a_wave need to be offseted by waveOffsetA.
       // p_b_wave need to be offseted by waveOffsetB.
 
+      // NOTICE: Data in a[], b[] in KReduction case are strided!
+      // LDS -> VGPR data is strided, separated by num_input_blks.
+      // Can't use vector.transfer_read to load them.
       auto NumInputBlksConstantOp = b.create<ConstantIndexOp>(loc, num_input_blks);
       auto loopKLoad = b.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, NumInputBlksConstantOp);
       auto lklb = OpBuilder::atBlockTerminator(loopKLoad.getBody());
@@ -5193,15 +5207,28 @@ struct XdlopsGemmV2RewritePattern
       //             p_c_thread);
       // }
 
-      auto outerLoop = b.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, NumInputBlksConstantOp, op.vectorCs());
+      // Instead of increasing num_input_blks, increase num_input_blks * k_base.
+      auto NumInputBlksTimesKBaseConstantOp =
+          b.create<ConstantIndexOp>(loc, num_input_blks * k_base);
+      auto outerLoop =
+          b.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp,
+                               NumInputBlksTimesKBaseConstantOp, op.vectorCs());
       auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
       auto outerLoopiv = outerLoop.getInductionVar();
 
-      auto innerLoop = outerLoopb.create<scf::ForOp>(loc, zeroConstantOp, KRepeatsConstantOp, oneConstantOp, outerLoop.getRegionIterArgs());
+      auto innerLoop = outerLoopb.create<scf::ForOp>(
+          loc, zeroConstantOp, KRepeatsConstantOp, oneConstantOp,
+          outerLoop.getRegionIterArgs());
       auto innerLoopb = OpBuilder::atBlockBegin(innerLoop.getBody());
       auto innerLoopiv = innerLoop.getInductionVar();
 
-      auto offset = innerLoopb.create<MulIOp>(loc, innerLoopb.create<AddIOp>(loc, innerLoopb.create<MulIOp>(loc, outerLoopiv, KRepeatsConstantOp), innerLoopiv), KBaseConstantOp);
+      auto offset = innerLoopb.create<MulIOp>(
+          loc,
+          innerLoopb.create<AddIOp>(
+              loc,
+              innerLoopb.create<MulIOp>(loc, outerLoopiv, KRepeatsConstantOp),
+              innerLoopiv),
+          KBaseConstantOp);
 
       Value argA, argB;
       if (dataType == b.getF32Type()) {
@@ -5209,8 +5236,29 @@ struct XdlopsGemmV2RewritePattern
         argB = innerLoopb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
       } else if (dataType == b.getF16Type() ||
                  dataType == b.getIntegerType(16)) {
-        argA = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferA(), ValueRange{offset});
-        argB = innerLoopb.create<vector::TransferReadOp>(loc, argType.template dyn_cast<VectorType>(), op.bufferB(), ValueRange{offset});
+        // LDS -> VGPR data is strided, separated by num_input_blks.
+        // Use std.load + vector.insertelement to prepare the vector.
+        Value zeroConstantFloatOp =
+            createZeroConstantFloatOp(innerLoopb, loc, dataType);
+        argA = innerLoopb.create<SplatOp>(loc, zeroConstantFloatOp, argType);
+        argB = innerLoopb.create<SplatOp>(loc, zeroConstantFloatOp, argType);
+        VectorType argVectorType = argType.template dyn_cast<VectorType>();
+        for (unsigned i = 0; i < argVectorType.getShape()[0]; ++i) {
+          Value loadOffset = innerLoopb.create<AddIOp>(
+              loc, offset,
+              innerLoopb.create<ConstantIndexOp>(loc, i * num_input_blks));
+          auto insertOffset = innerLoopb.create<ConstantIntOp>(
+              loc, i, innerLoopb.getIntegerType(32));
+
+          Value elementA = innerLoopb.create<LoadOp>(loc, op.bufferA(),
+                                                     ValueRange{loadOffset});
+          argA = innerLoopb.create<vector::InsertElementOp>(
+              loc, argVectorType, elementA, argA, insertOffset);
+          Value elementB = innerLoopb.create<LoadOp>(loc, op.bufferB(),
+                                                     ValueRange{loadOffset});
+          argB = innerLoopb.create<vector::InsertElementOp>(
+              loc, argVectorType, elementB, argB, insertOffset);
+        }
       }
 
       SmallVector<Value, 4> mfmas;
