@@ -72,3 +72,14 @@
 
 // GROUP_NHWC: Unranked Memref base@ = 0x{{.*}} rank = 1 offset = 0 sizes = [1] strides = [1] data =
 // GROUP_NHWC: [1]
+
+// RUN: mlir-miopen-driver -pv -p -rand 1 -rand_side filter -c| mlir-rocm-runner  --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=FWD_FILTER
+
+// FWD_FILTER: Unranked Memref base@ = 0x{{.*}} rank = 1 offset = 0 sizes = [1] strides = [1] data =
+// FWD_FILTER: [1]
+
+// RUN: mlir-miopen-driver -pv -p -rand 1 -rand_side input -c| mlir-rocm-runner  --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=FWD_INPUT
+
+// FWD_INPUT: Unranked Memref base@ = 0x{{.*}} rank = 1 offset = 0 sizes = [1] strides = [1] data =
+// FWD_INPUT: [1]
+
