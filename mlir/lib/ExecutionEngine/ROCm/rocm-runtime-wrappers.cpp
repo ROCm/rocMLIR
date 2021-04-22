@@ -50,45 +50,54 @@ static unsigned short float_to_bfloat16(float src_val) {
   return target_val.ushortvec[1];
 }
 
-static unsigned short int_to_fp16(short src_val) {
-  unsigned short sign = src_val < 0;
-  unsigned short absx = ((unsigned short)src_val ^ -sign) + sign; // safe abs(x)
-  unsigned short tmp = absx, manbits = 0;
-  int exp = 0, truncated = 0;
-
-  // calculate the number of bits needed for the mantissa
-  while (tmp) {
-    tmp >>= 1;
-    manbits++;
-  }
-
-  // half-precision floats have 11 bits in the mantissa.
-  // truncate the excess or insert the lacking 0s until there are 11.
-  if (manbits) {
-    exp = 10; // exp bias because 1.0 is at bit position 10
-    while (manbits > 11) {
-      truncated |= absx & 1;
-      absx >>= 1;
-      manbits--;
-      exp++;
+// Tables for float-to-fp16 conversion
+unsigned short basetable[512];
+unsigned char shifttable[512];
+static void generateTables() {
+  unsigned int i;
+  int e;
+  for (i = 0; i < 256; ++i) {
+    e = i - 127;
+    if (e < -24) { // Very small numbers map to zero
+      basetable[i | 0x000] = 0x0000;
+      basetable[i | 0x100] = 0x8000;
+      shifttable[i | 0x000] = 24;
+      shifttable[i | 0x100] = 24;
+    } else if (e < -14) { // Small numbers map to denorms
+      basetable[i | 0x000] = (0x0400 >> (-e - 14));
+      basetable[i | 0x100] = (0x0400 >> (-e - 14)) | 0x8000;
+      shifttable[i | 0x000] = -e - 1;
+      shifttable[i | 0x100] = -e - 1;
+    } else if (e <= 15) { // Normal numbers just lose precision
+      basetable[i | 0x000] = ((e + 15) << 10);
+      basetable[i | 0x100] = ((e + 15) << 10) | 0x8000;
+      shifttable[i | 0x000] = 13;
+      shifttable[i | 0x100] = 13;
+    } else if (e < 128) { // Large numbers map to Infinity
+      basetable[i | 0x000] = 0x7C00;
+      basetable[i | 0x100] = 0xFC00;
+      shifttable[i | 0x000] = 24;
+      shifttable[i | 0x100] = 24;
+    } else { // Infinity and NaN's stay Infinity and NaN's
+      basetable[i | 0x000] = 0x7C00;
+      basetable[i | 0x100] = 0xFC00;
+      shifttable[i | 0x000] = 13;
+      shifttable[i | 0x100] = 13;
     }
-    while (manbits < 11) {
-      absx <<= 1;
-      manbits++;
-      exp--;
-    }
   }
 
-  if (exp + truncated > 15) {
-    // absx was too big, force it to +/- infinity
-    exp = 31; // special infinity value
-    absx = 0;
-  } else if (manbits) {
-    // normal case, absx > 0
-    exp += 15; // bias the exponent
-  }
+  return;
+}
 
-  return (sign << 15) | ((unsigned)exp << 10) | (absx & ((1u << 10) - 1));
+static unsigned short float_to_fp16(float src_val) {
+  // ref. http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
+  bf16_fp32_cvt_t target_val;
+  target_val.f32 = src_val;
+
+  unsigned int b = target_val.u32;
+  unsigned short h = basetable[(b >> 23) & 0x1ff] +
+                     ((b & 0x007fffff) >> shifttable[(b >> 23) & 0x1ff]);
+  return h;
 }
 
 extern "C" hipModule_t mgpuModuleLoad(void *data) {
@@ -265,16 +274,54 @@ extern "C" void mgpuMemCopy(float *sourceAllocated, float *sourceAligned,
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
-extern "C" void mcpuMemBF16ConvertFloat(
+extern "C" void mcpuMem5DFloatConvertHalf(
+    float *sourceAllocated, float *sourceAligned, int64_t sourceOffset,
+    int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
+    int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
+    int64_t stride4, unsigned short *destAllocated, unsigned short *destAligned,
+    int64_t destOffset, int64_t size5, int64_t size6, int64_t size7,
+    int64_t size8, int64_t size9, int64_t stride5, int64_t stride6,
+    int64_t stride7, int64_t stride8, int64_t stride9) {
+  assert(size0 * size1 * size2 * size3 * size4 ==
+         size5 * size6 * size7 * size8 * size9);
+
+  // Generate tables for converting float to fp16
+  generateTables();
+
+  int64_t dataSize = size0 * size1 * size2 * size3 * size4;
+  for (int64_t i = 0; i < dataSize; i++) {
+    destAligned[i] = float_to_fp16(sourceAligned[i]);
+  }
+}
+
+extern "C" void mcpuMem5DFloatConvertFP16(
+    float *sourceAllocated, float *sourceAligned, int64_t sourceOffset,
+    int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
+    int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
+    int64_t stride4, unsigned short *destAllocated, unsigned short *destAligned,
+    int64_t destOffset, int64_t size5, int64_t size6, int64_t size7,
+    int64_t size8, int64_t size9, int64_t stride5, int64_t stride6,
+    int64_t stride7, int64_t stride8, int64_t stride9) {
+  assert(size0 * size1 * size2 * size3 * size4 ==
+         size5 * size6 * size7 * size8 * size9);
+
+  int64_t dataSize = size0 * size1 * size2 * size3 * size4;
+  for (int64_t i = 0; i < dataSize; i++) {
+    destAligned[i] = float_to_bfloat16(sourceAligned[i]);
+  }
+}
+
+extern "C" void mcpuMem5DBF16ConvertFloat(
     unsigned short *sourceAllocated, unsigned short *sourceAligned,
     int64_t sourceOffset, int64_t size0, int64_t size1, int64_t size2,
-    int64_t size3, int64_t stride0, int64_t stride1, int64_t stride2,
-    int64_t stride3, float *destAllocated, float *destAligned,
-    int64_t destOffset, int64_t size4, int64_t size5, int64_t size6,
-    int64_t size7, int64_t stride4, int64_t stride5, int64_t stride6,
-    int64_t stride7) {
-  assert(size0 * size1 * size2 * size3 == size4 * size5 * size6 * size7);
-  int64_t dataSize = size0 * size1 * size2 * size3;
+    int64_t size3, int64_t size4, int64_t stride0, int64_t stride1,
+    int64_t stride2, int64_t stride3, int64_t stride4, float *destAllocated,
+    float *destAligned, int64_t destOffset, int64_t size5, int64_t size6,
+    int64_t size7, int64_t size8, int64_t size9, int64_t stride5,
+    int64_t stride6, int64_t stride7, int64_t stride8, int64_t stride9) {
+  assert(size0 * size1 * size2 * size3 * size4 ==
+         size5 * size6 * size7 * size8 * size9);
+  int64_t dataSize = size0 * size1 * size2 * size3 * size4;
   for (int64_t i = 0; i < dataSize; i++) {
     destAligned[i] = bfloat16_to_float(sourceAligned[i]);
   }
@@ -557,20 +604,24 @@ extern "C" void mcpuMemset5DHalfRand(
     int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
     int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
     int64_t stride4, short min, short max, int64_t seed) {
+
+  // Generate tables for converting float to fp16
+  generateTables();
+
   if (seed < 0)
     std::srand(time(0));
   else
     std::srand(seed);
 
-  unsigned short value;
+  float value;
   for (unsigned i = 0; i < size0; ++i)
     for (unsigned j = 0; j < size1; ++j)
       for (unsigned k = 0; k < size2; ++k)
         for (unsigned l = 0; l < size3; ++l)
           for (unsigned m = 0; m < size4; ++m) {
-            value = (unsigned short)randomValue(min, max);
+            value = randomValue(min, max);
             aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = int_to_fp16(value);
+                    m * stride4] = float_to_fp16(value);
           }
 }
 

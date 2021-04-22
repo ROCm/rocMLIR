@@ -378,7 +378,7 @@ static AllocOp allocAndInitializeTensor(OpBuilder &builder, Block *block,
 }
 
 static FuncOp
-createConvertResult(ModuleOp &module, OpBuilder &builder,
+createConvertTensor(ModuleOp &module, OpBuilder &builder,
                     mlir::MemRefType &originalMemRefType,
                     mlir::MemRefType &convertedMemRefType,
                     std::unordered_map<std::string, FuncOp> &convertFuncs) {
@@ -515,7 +515,7 @@ allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
     block->push_back(sourceMemRefCastOp);
 
     // Create conversion routine
-    auto convertResultFuncOp = createConvertResult(
+    auto convertResultFuncOp = createConvertTensor(
         module, builder, sourceMemRefType, floatMemRefType, convertFuncs);
     auto convertResultCallOp = builder.create<CallOp>(
         builder.getUnknownLoc(), convertResultFuncOp,
@@ -772,6 +772,53 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   return cpuConvFuncOp;
 }
 
+static AllocOp getConvertedCpuResults(ModuleOp &module, OpBuilder &builder,
+                                      Block *block,
+                                      mlir::AllocOp &cpuOriginalAllocOp,
+                                      mlir::MemRefType &memRefType,
+                                      mlir::Type dataType) {
+  // Emit allocOp for converted CPU results.
+  auto cpuConvertedResults =
+      builder.create<AllocOp>(builder.getUnknownLoc(), memRefType);
+  block->push_back(cpuConvertedResults);
+
+  StringRef convertFuncName;
+  if (dataType == builder.getF16Type()) // f16
+    convertFuncName = "mcpuMem5DFloatConvertHalf";
+  else if (dataType == builder.getIntegerType(16))
+    convertFuncName = "mcpuMem5DFloatConvertBF16";
+  else
+    return cpuOriginalAllocOp;
+
+  auto fiveDimUnknownSizeMemRefFloat =
+      MemRefType::get({-1, -1, -1, -1, -1}, builder.getF32Type());
+  auto fiveDimUnknownSizeMemRefType =
+      MemRefType::get({-1, -1, -1, -1, -1}, dataType);
+
+  auto convertFuncOp = makeFuncDecl(
+      builder, convertFuncName,
+      {fiveDimUnknownSizeMemRefFloat, fiveDimUnknownSizeMemRefType}, {});
+  module.push_back(convertFuncOp);
+
+  // Emit memref_cast
+  auto cpuOrigianlMemRefCastOp =
+      builder.create<MemRefCastOp>(builder.getUnknownLoc(), cpuOriginalAllocOp,
+                                   fiveDimUnknownSizeMemRefFloat);
+  block->push_back(cpuOrigianlMemRefCastOp);
+
+  auto cputConvertedMemRefCastOp =
+      builder.create<MemRefCastOp>(builder.getUnknownLoc(), cpuConvertedResults,
+                                   fiveDimUnknownSizeMemRefType);
+  block->push_back(cputConvertedMemRefCastOp);
+
+  // Emit function call to convert Cpu results from F32 to desired data type
+  auto convertCallOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), convertFuncOp,
+      ValueRange{cpuOrigianlMemRefCastOp, cputConvertedMemRefCastOp});
+  block->push_back(convertCallOp);
+  return cpuConvertedResults;
+}
+
 static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
                                  const SmallVector<int64_t, 5> &outputDimension,
                                  mlir::AllocOp &cpuAllocOp,
@@ -891,9 +938,16 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
                                       verifyResultsBlock->getArgument(1),
                                       ValueRange{iv0, iv1, iv2, iv3, iv4});
 
-  auto cmpOp = bt4.create<CmpFOp>(builder.getUnknownLoc(), CmpFPredicate::UNE,
-                                  cpuLoadOp, gpuLoadOp);
-  auto ifOp = bt4.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
+  scf::IfOp ifOp;
+  if (outputMemRefType.getElementType() == builder.getIntegerType(16)) {
+    auto cmpOp = bt4.create<CmpIOp>(builder.getUnknownLoc(), CmpIPredicate::ne,
+                                    cpuLoadOp, gpuLoadOp);
+    ifOp = bt4.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
+  } else {
+    auto cmpOp = bt4.create<CmpFOp>(builder.getUnknownLoc(), CmpFPredicate::UNE,
+                                    cpuLoadOp, gpuLoadOp);
+    ifOp = bt4.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
+  }
   auto thenBody = ifOp.getThenBodyBuilder();
 
   auto storeOp0 =
@@ -1411,7 +1465,7 @@ static LogicalResult populateHostHarnessLogic(
       // Emit type conversion routine to convert every element to f32.
       std::unordered_map<std::string, FuncOp> convertFuncs;
       auto convertResultFuncOp =
-          createConvertResult(module, builder, resultOriginalCpuType,
+          createConvertTensor(module, builder, resultOriginalCpuType,
                               printMemRefType, convertFuncs);
       auto convertResultCallOp = builder.create<CallOp>(
           builder.getUnknownLoc(), convertResultFuncOp,
@@ -1557,92 +1611,18 @@ static LogicalResult populateValidationLogic(
       ValueRange{filterHostAllocOp, inputHostAllocOp, outputHostAllocOp});
   block->push_back(gpuConvCallOp);
 
-  mlir::FuncOp cpuMemConvertOp;
-  // create f32 data
-  auto getFloatDataFromBF16 = [&](mlir::MemRefCastOp &memRefCastOp,
-                                  MemRefType resultMemType) {
-    // alloc new memory for verify function
-    auto floatType = builder.getF32Type();
-    auto verifyMemRefType = resultMemType;
-
-    auto verifyHostAllocOp =
-        builder.create<AllocOp>(builder.getUnknownLoc(), verifyMemRefType);
-    block->push_back(verifyHostAllocOp);
-
-    auto unknownSizeMemRefFloatType =
-        MemRefType::get({-1, -1, -1, -1, -1}, floatType);
-
-    auto verifyUnkownSizeMemRefCastOp = builder.create<MemRefCastOp>(
-        builder.getUnknownLoc(), verifyHostAllocOp, unknownSizeMemRefFloatType);
-    block->push_back(verifyUnkownSizeMemRefCastOp);
-
-    cpuMemConvertOp = makeFuncDecl(
-        builder, "mcpuMemBF16ConvertFloat",
-        {fiveDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {});
-    module.push_back(cpuMemConvertOp);
-
-    auto verifyMemConvertCallOp = builder.create<CallOp>(
-        builder.getUnknownLoc(), cpuMemConvertOp,
-        ValueRange{memRefCastOp, verifyUnkownSizeMemRefCastOp});
-    block->push_back(verifyMemConvertCallOp);
-
-    return verifyHostAllocOp;
-  };
-
-  AllocOp gpuOriginalResults, gpuF32Results;
-  MemRefType gpuOriginalResultType, gpuF32ResultType;
+  AllocOp gpuOriginalResults;
+  MemRefType gpuOriginalResultType;
   if (operation.getValue() == "conv2d" ||
       operation.getValue() == "conv2d_dummy") {
-    gpuF32ResultType = MemRefType::get(
-        ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
-        builder.getF32Type());
+    gpuOriginalResults = outputHostAllocOp;
     gpuOriginalResultType = outputMemRefType;
-
-    if (builder.getIntegerType(16) == dataType) {
-      gpuF32Results =
-          getFloatDataFromBF16(outputMemRefCastOp, gpuF32ResultType);
-    } else
-      gpuOriginalResults = outputHostAllocOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
-    gpuF32ResultType = MemRefType::get(
-        ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
-        builder.getF32Type());
+    gpuOriginalResults = inputHostAllocOp;
     gpuOriginalResultType = inputMemRefType;
-
-    if (builder.getIntegerType(16) == dataType) {
-      gpuF32Results = getFloatDataFromBF16(inputMemRefCastOp, gpuF32ResultType);
-    } else {
-      gpuOriginalResults = inputHostAllocOp;
-    }
   } else if (operation.getValue() == "conv2d_bwd_weight") {
-    gpuF32ResultType = MemRefType::get(
-        ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
-        builder.getF32Type());
+    gpuOriginalResults = filterHostAllocOp;
     gpuOriginalResultType = filterMemRefType;
-
-    if (builder.getIntegerType(16) == dataType) {
-      gpuF32Results =
-          getFloatDataFromBF16(filterMemRefCastOp, gpuF32ResultType);
-    } else {
-      gpuOriginalResults = filterHostAllocOp;
-    }
-  }
-
-  std::unordered_map<std::string, FuncOp> convertFuncs;
-  if (dataType == builder.getF32Type())
-    gpuF32Results = gpuOriginalResults;
-  else if (dataType == builder.getF16Type()) {
-    // Convert F16 gpu results to F32 for verification
-    gpuF32Results =
-        builder.create<AllocOp>(builder.getUnknownLoc(), gpuF32ResultType);
-    block->push_back(gpuF32Results);
-
-    auto convertResultFuncOp = createConvertResult(
-        module, builder, gpuOriginalResultType, gpuF32ResultType, convertFuncs);
-    auto convertResultCallOp =
-        builder.create<CallOp>(builder.getUnknownLoc(), convertResultFuncOp,
-                               ValueRange{gpuOriginalResults, gpuF32Results});
-    block->push_back(convertResultCallOp);
   }
 
   // Produce CPU convolution logic on F32 type
@@ -1664,13 +1644,15 @@ static LogicalResult populateValidationLogic(
   // Emit CPU memcopy function calls
   mlir::FuncOp mcpuMemCopy5DFuncOp;
   if (dataType == builder.getIntegerType(16)) { // bf16
-    mcpuMemCopy5DFuncOp = cpuMemConvertOp;
+    mcpuMemCopy5DFuncOp = makeFuncDecl(
+        builder, "mcpuMemBF16ConvertFloat",
+        {fiveDimUnknownSizeMemRefType, fiveDimUnknownSizeFloatType}, {});
   } else { // fp32 or fp16
     mcpuMemCopy5DFuncOp = makeFuncDecl(
         builder, "mcpuMemCopy5DFloat",
         {fiveDimUnknownSizeFloatType, fiveDimUnknownSizeFloatType}, {});
-    module.push_back(mcpuMemCopy5DFuncOp);
   }
+  module.push_back(mcpuMemCopy5DFuncOp);
 
   // Emit CPU memset function calls
   if (dataType != builder.getF32Type()) {
@@ -1680,6 +1662,8 @@ static LogicalResult populateValidationLogic(
     module.push_back(mcpuMemset5DFuncOp);
   }
 
+  // Prepare input data for cpu convolution.
+  std::unordered_map<std::string, FuncOp> convertFuncs;
   AllocOp cpuFilterHostAllocOp, cpuInputHostAllocOp, cpuOutputHostAllocOp;
   if (randomData.getValue() == "none") {
     // If not using random data, emit CPU alloc and initialization
@@ -1755,30 +1739,38 @@ static LogicalResult populateValidationLogic(
     cpuResults = cpuFilterHostAllocOp;
   }
 
+  // Convert CPU results
+  mlir::AllocOp cpuConvertedResults;
+  if (dataType == builder.getF32Type())
+    cpuConvertedResults = cpuResults;
+  else
+    cpuConvertedResults = getConvertedCpuResults(
+        module, builder, block, cpuResults, gpuOriginalResultType, dataType);
+
   mlir::FuncOp verifyFuncOp;
   if (operation.getValue() == "conv2d" ||
       operation.getValue() == "conv2d_dummy") {
     verifyFuncOp = createVerifyFuncOp(module, builder, outputDimension,
-                                      cpuResults, gpuF32Results);
+                                      cpuConvertedResults, outputHostAllocOp);
   } else if (operation.getValue() == "conv2d_bwd_data") {
     verifyFuncOp = createVerifyFuncOp(module, builder, inputDimension,
-                                      cpuResults, gpuF32Results);
+                                      cpuConvertedResults, inputHostAllocOp);
   } else if (operation.getValue() == "conv2d_bwd_weight") {
     verifyFuncOp = createVerifyFuncOp(module, builder, filterDimension,
-                                      cpuResults, gpuF32Results);
+                                      cpuConvertedResults, filterHostAllocOp);
   }
 
   // Compare the results
-  auto verifyCallOp =
-      builder.create<CallOp>(builder.getUnknownLoc(), verifyFuncOp,
-                             ValueRange{cpuResults, gpuF32Results});
+  auto verifyCallOp = builder.create<CallOp>(
+      builder.getUnknownLoc(), verifyFuncOp,
+      ValueRange{cpuConvertedResults, gpuOriginalResults});
   block->push_back(verifyCallOp);
 
   // Emit CPU dealloc.
   if (dataType != builder.getF32Type()) {
-    auto gpuResultsDeallocOp =
-        builder.create<DeallocOp>(builder.getUnknownLoc(), gpuF32Results);
-    block->push_back(gpuResultsDeallocOp);
+    auto cpuResultsDeallocOp =
+        builder.create<DeallocOp>(builder.getUnknownLoc(), cpuConvertedResults);
+    block->push_back(cpuResultsDeallocOp);
   }
 
   auto filterHostDeallocOp =
@@ -1808,12 +1800,11 @@ static LogicalResult populateValidationLogic(
   return success();
 }
 
-static LogicalResult
-populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
-                            MLIRContext &context,
-                            const SmallVector<int64_t, 5> &filterDimension,
-                            const SmallVector<int64_t, 5> &inputDimension,
-                            const SmallVector<int64_t, 5> &outputDimension) {
+static LogicalResult populateCpuConvolutionLogic(
+    ModuleOp &module, OpBuilder &builder, MLIRContext &context,
+    const SmallVector<int64_t, 5> &filterDimension,
+    const SmallVector<int64_t, 5> &inputDimension,
+    const SmallVector<int64_t, 5> &outputDimension, mlir::Type dataType) {
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -1883,20 +1874,38 @@ populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
   block->push_back(cpuConvCallOp);
 
   mlir::AllocOp cpuResults;
+  mlir::MemRefType desiredMemRefType;
   if (operation.getValue() == "conv2d" ||
       operation.getValue() == "conv2d_dummy") {
     cpuResults = cpuOutputHostAllocOp;
+    desiredMemRefType = MemRefType::get(
+        ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
+        dataType);
   } else if (operation.getValue() == "conv2d_bwd_data") {
     cpuResults = cpuInputHostAllocOp;
+    desiredMemRefType = MemRefType::get(
+        ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
+        dataType);
   } else if (operation.getValue() == "conv2d_bwd_weight") {
     cpuResults = cpuFilterHostAllocOp;
+    desiredMemRefType = MemRefType::get(
+        ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
+        dataType);
   }
+
+  // Emit AllocOp for converted CPU results
+  mlir::AllocOp cpuConvertedResults;
+  if (dataType == builder.getF32Type())
+    cpuConvertedResults = cpuResults;
+  else
+    cpuConvertedResults = getConvertedCpuResults(
+        module, builder, block, cpuResults, desiredMemRefType, dataType);
 
   // Emit print function call.
   StringRef printMemRefFuncName = "print_memref_f32";
   auto unrankedMemRefType = UnrankedMemRefType::get(builder.getF32Type(), 0);
   auto printMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), cpuResults, unrankedMemRefType);
+      builder.getUnknownLoc(), cpuConvertedResults, unrankedMemRefType);
   auto printMemRefFuncOp =
       makeFuncDecl(builder, printMemRefFuncName, {unrankedMemRefType}, {});
   auto printMemRefCallOp =
@@ -1907,6 +1916,12 @@ populateCpuConvolutionLogic(ModuleOp &module, OpBuilder &builder,
   block->push_back(printMemRefCallOp);
 
   // Emit CPU dealloc.
+  if (dataType != builder.getF32Type()) {
+    auto cpuResultsDeallocOp =
+        builder.create<DeallocOp>(builder.getUnknownLoc(), cpuConvertedResults);
+    block->push_back(cpuResultsDeallocOp);
+  }
+
   auto filterHostDeallocOp =
       builder.create<DeallocOp>(builder.getUnknownLoc(), cpuFilterHostAllocOp);
   auto inputHostDeallocOp =
@@ -2162,7 +2177,7 @@ int main(int argc, char **argv) {
   if (populateCpuConvolution.getValue()) {
     if (failed(populateCpuConvolutionLogic(
             module, builder, context, genConfig.filterDimension,
-            genConfig.inputDimension, genConfig.outputDimension))) {
+            genConfig.inputDimension, genConfig.outputDimension, dataType))) {
       llvm::errs() << "Cpu Convolution populated failed.\n";
       exit(1);
     }
