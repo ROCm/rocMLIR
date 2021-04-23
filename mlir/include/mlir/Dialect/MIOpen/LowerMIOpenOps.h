@@ -4261,12 +4261,17 @@ struct ThreadwiseCopyRewritePattern
 
       // Apply affine transformations to compute the low-level coordinate.
       SmallVector<Value, 2> srcLowerIndices;
+      SmallVector<Value, 2> srcLowerOOBIndices;
       if (sourceExternalTransform || sourceEmbeddedTransform)
         srcLowerIndices = expandAffineMap(innerLoopBuilder, loc,
                                           sourceTransform, srcUpperIndices)
                               .getValue();
       else
         srcLowerIndices = srcUpperIndices;
+
+      // Pre-populate srcLowerOOBIndices. It will be modified inside
+      // toEmitOOBCheckLogic basic block.
+      srcLowerOOBIndices = srcLowerIndices;
 
       // Load from source.
       Value scalarValue;
@@ -4300,6 +4305,9 @@ struct ThreadwiseCopyRewritePattern
 
           withinBoundsOp = innerLoopBuilder.create<AndOp>(
               loc, withinBoundsOp, withinBoundInOneDimOp);
+
+          // Prepare srcLowerOOBIndices.
+          srcLowerOOBIndices[dim] = zeroConstantOp;
         }
 
         // Logic:
@@ -4307,7 +4315,10 @@ struct ThreadwiseCopyRewritePattern
         //   // load address = lower indices from affine transform.
         // } else {
         //   // OOB. Prepare an address known NOT OOB.
-        //   // load address = {0, 0, 0, 0, 0}
+        //   // For example, in NGCHW case:
+        //   // load address = {N, G, C, 0, 0}
+        //   // In NGHWC case:
+        //   // load address = {N, G, 0, 0, C}
         // }
         // V = load(load address)
         // if (withinBounds) {
@@ -4338,8 +4349,9 @@ struct ThreadwiseCopyRewritePattern
         auto firstIfWithinBoundsElseBuilder =
             firstIfWithinBoundsOp.getElseBodyBuilder();
         firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(
-            loc, ValueRange{zeroConstantOp, zeroConstantOp, zeroConstantOp,
-                            zeroConstantOp, zeroConstantOp});
+            loc, ValueRange{srcLowerOOBIndices[0], srcLowerOOBIndices[1],
+                            srcLowerOOBIndices[2], srcLowerOOBIndices[3],
+                            srcLowerOOBIndices[4]});
 
         // Issue scalar load.
         scalarValue =
