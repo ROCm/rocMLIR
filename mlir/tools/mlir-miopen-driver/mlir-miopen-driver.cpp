@@ -348,13 +348,13 @@ static FuncOp makeFuncDecl(OpBuilder &builder, StringRef funcName,
   return func;
 }
 
-static AllocOp allocAndInitializeTensor(OpBuilder &builder, Block *block,
-                                        mlir::Type dataType,
-                                        mlir::FuncOp &mcpuMemset5DFuncOp,
-                                        mlir::MemRefType &memRefType,
-                                        mlir::Value &memsetMinValue,
-                                        mlir::Value &memsetMaxValue,
-                                        mlir::ConstantOp &seedValue) {
+static mlir::Value allocAndInitializeTensor(OpBuilder &builder, Block *block,
+                                            mlir::Type dataType,
+                                            mlir::FuncOp &mcpuMemset5DFuncOp,
+                                            mlir::MemRefType &memRefType,
+                                            mlir::Value &memsetMinValue,
+                                            mlir::Value &memsetMaxValue,
+                                            mlir::ConstantOp &seedValue) {
   auto fiveDimUnknownSizeMemRefType =
       MemRefType::get({-1, -1, -1, -1, -1}, dataType);
 
@@ -476,10 +476,10 @@ createConvertTensor(ModuleOp &module, OpBuilder &builder,
   return convertResultFuncOp;
 }
 
-static AllocOp
+static mlir::Value
 allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
                    mlir::FuncOp &mcpuMemCopy5DFuncOp,
-                   mlir::AllocOp &sourceOriginalAllocOp,
+                   mlir::Value sourceOriginalAllocOp,
                    const SmallVector<int64_t, 5> &sourceDimension,
                    std::unordered_map<std::string, FuncOp> &convertFuncs) {
   auto floatType = builder.getF32Type();
@@ -499,7 +499,8 @@ allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
       builder.getUnknownLoc(), cpuAllocOp, fiveDimUnknownSizeFloatType);
   block->push_back(cpuMemRefCastOp);
 
-  auto sourceMemRefType = sourceOriginalAllocOp.getType();
+  auto sourceMemRefType =
+      sourceOriginalAllocOp.getType().template dyn_cast<MemRefType>();
   auto dataType = sourceMemRefType.getElementType();
 
   MemRefCastOp sourceMemRefCastOp;
@@ -772,11 +773,11 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   return cpuConvFuncOp;
 }
 
-static AllocOp getConvertedCpuResults(ModuleOp &module, OpBuilder &builder,
-                                      Block *block,
-                                      mlir::AllocOp &cpuOriginalAllocOp,
-                                      mlir::MemRefType &memRefType,
-                                      mlir::Type dataType) {
+static mlir::Value getConvertedCpuResults(ModuleOp &module, OpBuilder &builder,
+                                          Block *block,
+                                          mlir::Value cpuOriginalAllocOp,
+                                          mlir::MemRefType &memRefType,
+                                          mlir::Type dataType) {
   // Emit allocOp for converted CPU results.
   auto cpuConvertedResults =
       builder.create<AllocOp>(builder.getUnknownLoc(), memRefType);
@@ -821,10 +822,10 @@ static AllocOp getConvertedCpuResults(ModuleOp &module, OpBuilder &builder,
 
 static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
                                  const SmallVector<int64_t, 5> &outputDimension,
-                                 mlir::AllocOp &cpuAllocOp,
-                                 mlir::AllocOp &gpuAllocOp) {
+                                 mlir::Value cpuAllocOp,
+                                 mlir::Value gpuAllocOp) {
   // Emit verify_results function call
-  auto outputMemRefType = cpuAllocOp.getType();
+  auto outputMemRefType = cpuAllocOp.getType().template dyn_cast<MemRefType>();
 
   auto verifyFuncOp = FuncOp::create(
       builder.getUnknownLoc(), StringRef("verify_results"),
@@ -979,12 +980,15 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
 
 static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
                                    mlir::Type dataType,
-                                   mlir::AllocOp &filterHostAllocOp,
-                                   mlir::AllocOp &inputHostAllocOp,
-                                   mlir::AllocOp &outputHostAllocOp) {
-  auto filterMemRefType = filterHostAllocOp.getType();
-  auto inputMemRefType = inputHostAllocOp.getType();
-  auto outputMemRefType = outputHostAllocOp.getType();
+                                   mlir::Value filterHostAllocOp,
+                                   mlir::Value inputHostAllocOp,
+                                   mlir::Value outputHostAllocOp) {
+  auto filterMemRefType =
+      filterHostAllocOp.getType().template dyn_cast<MemRefType>();
+  auto inputMemRefType =
+      inputHostAllocOp.getType().template dyn_cast<MemRefType>();
+  auto outputMemRefType =
+      outputHostAllocOp.getType().template dyn_cast<MemRefType>();
   // Create gpu_conv function
   auto gpuConvFuncOp = FuncOp::create(
       builder.getUnknownLoc(), StringRef("gpu_conv"),
@@ -1611,7 +1615,7 @@ static LogicalResult populateValidationLogic(
       ValueRange{filterHostAllocOp, inputHostAllocOp, outputHostAllocOp});
   block->push_back(gpuConvCallOp);
 
-  AllocOp gpuOriginalResults;
+  mlir::Value gpuOriginalResults;
   MemRefType gpuOriginalResultType;
   if (operation.getValue() == "conv2d" ||
       operation.getValue() == "conv2d_dummy") {
@@ -1664,7 +1668,7 @@ static LogicalResult populateValidationLogic(
 
   // Prepare input data for cpu convolution.
   std::unordered_map<std::string, FuncOp> convertFuncs;
-  AllocOp cpuFilterHostAllocOp, cpuInputHostAllocOp, cpuOutputHostAllocOp;
+  mlir::Value cpuFilterHostAllocOp, cpuInputHostAllocOp, cpuOutputHostAllocOp;
   if (randomData.getValue() == "none") {
     // If not using random data, emit CPU alloc and initialization
     cpuFilterHostAllocOp = allocAndInitializeTensor(
@@ -1729,7 +1733,7 @@ static LogicalResult populateValidationLogic(
                  cpuOutputHostAllocOp});
   block->push_back(cpuConvCallOp);
 
-  mlir::AllocOp cpuResults;
+  mlir::Value cpuResults;
   if (operation.getValue() == "conv2d" ||
       operation.getValue() == "conv2d_dummy") {
     cpuResults = cpuOutputHostAllocOp;
@@ -1740,7 +1744,7 @@ static LogicalResult populateValidationLogic(
   }
 
   // Convert CPU results
-  mlir::AllocOp cpuConvertedResults;
+  mlir::Value cpuConvertedResults;
   if (dataType == builder.getF32Type())
     cpuConvertedResults = cpuResults;
   else
@@ -1873,7 +1877,7 @@ static LogicalResult populateCpuConvolutionLogic(
                  cpuOutputHostAllocOp});
   block->push_back(cpuConvCallOp);
 
-  mlir::AllocOp cpuResults;
+  mlir::Value cpuResults;
   mlir::MemRefType desiredMemRefType;
   if (operation.getValue() == "conv2d" ||
       operation.getValue() == "conv2d_dummy") {
@@ -1894,7 +1898,7 @@ static LogicalResult populateCpuConvolutionLogic(
   }
 
   // Emit AllocOp for converted CPU results
-  mlir::AllocOp cpuConvertedResults;
+  mlir::Value cpuConvertedResults;
   if (dataType == builder.getF32Type())
     cpuConvertedResults = cpuResults;
   else

@@ -50,10 +50,10 @@ static unsigned short float_to_bfloat16(float src_val) {
   return target_val.ushortvec[1];
 }
 
-// Tables for float-to-fp16 conversion
-unsigned short basetable[512];
-unsigned char shifttable[512];
-static void generateTables() {
+// Generate tables for float-to-fp16 conversion
+// ref. http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
+static void generateTables(unsigned short *basetable,
+                           unsigned char *shifttable) {
   unsigned int i;
   int e;
   for (i = 0; i < 256; ++i) {
@@ -89,7 +89,9 @@ static void generateTables() {
   return;
 }
 
-static unsigned short float_to_fp16(float src_val) {
+static unsigned short float_to_fp16(float src_val,
+                                    unsigned short const *basetable,
+                                    unsigned char const *shifttable) {
   // ref. http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
   bf16_fp32_cvt_t target_val;
   target_val.f32 = src_val;
@@ -286,15 +288,17 @@ extern "C" void mcpuMem5DFloatConvertHalf(
          size5 * size6 * size7 * size8 * size9);
 
   // Generate tables for converting float to fp16
-  generateTables();
+  unsigned short basetable[512];
+  unsigned char shifttable[512];
+  generateTables(basetable, shifttable);
 
   int64_t dataSize = size0 * size1 * size2 * size3 * size4;
   for (int64_t i = 0; i < dataSize; i++) {
-    destAligned[i] = float_to_fp16(sourceAligned[i]);
+    destAligned[i] = float_to_fp16(sourceAligned[i], basetable, shifttable);
   }
 }
 
-extern "C" void mcpuMem5DFloatConvertFP16(
+extern "C" void mcpuMem5DFloatConvertBF16(
     float *sourceAllocated, float *sourceAligned, int64_t sourceOffset,
     int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
     int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
@@ -606,7 +610,9 @@ extern "C" void mcpuMemset5DHalfRand(
     int64_t stride4, short min, short max, int64_t seed) {
 
   // Generate tables for converting float to fp16
-  generateTables();
+  unsigned short basetable[512];
+  unsigned char shifttable[512];
+  generateTables(basetable, shifttable);
 
   if (seed < 0)
     std::srand(time(0));
@@ -621,7 +627,7 @@ extern "C" void mcpuMemset5DHalfRand(
           for (unsigned m = 0; m < size4; ++m) {
             value = randomValue(min, max);
             aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = float_to_fp16(value);
+                    m * stride4] = float_to_fp16(value, basetable, shifttable);
           }
 }
 
