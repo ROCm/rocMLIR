@@ -653,13 +653,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                               b.getStringAttr("ho"),
                                           })),
                   b.getNamedAttr("transformation", b.getStringAttr("Embed")),
-                  // TBD: embed parmeters.
-                  b.getNamedAttr("parameters", b.getArrayAttr({
-                                                   b.getI32IntegerAttr(1),
-                                                   b.getI32IntegerAttr(1),
-                                                   b.getI32IntegerAttr(1),
-                                                   b.getI32IntegerAttr(0),
-                                               })),
+                  // Embed parmeters.
+                  // 0: dilationH
+                  // 1: strideH
+                  // 2: unused
+                  // 3: unused
+                  b.getNamedAttr("parameters",
+                                 b.getArrayAttr({
+                                     b.getI32IntegerAttr(dilationH),
+                                     b.getI32IntegerAttr(strideH),
+                                     b.getI32IntegerAttr(1),
+                                     b.getI32IntegerAttr(0),
+                                 })),
                   b.getNamedAttr("source_dimensions", b.getArrayAttr({hDim})),
                   b.getNamedAttr("source_names", b.getArrayAttr({hDimName})),
               }),
@@ -675,13 +680,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                               b.getStringAttr("wo"),
                                           })),
                   b.getNamedAttr("transformation", b.getStringAttr("Embed")),
-                  // TBD: embed parmeters.
-                  b.getNamedAttr("parameters", b.getArrayAttr({
-                                                   b.getI32IntegerAttr(1),
-                                                   b.getI32IntegerAttr(1),
-                                                   b.getI32IntegerAttr(1),
-                                                   b.getI32IntegerAttr(0),
-                                               })),
+                  // Embed parmeters.
+                  // 0: dilationW
+                  // 1: strideW
+                  // 2: unused
+                  // 3: unused
+                  b.getNamedAttr("parameters",
+                                 b.getArrayAttr({
+                                     b.getI32IntegerAttr(dilationW),
+                                     b.getI32IntegerAttr(strideW),
+                                     b.getI32IntegerAttr(1),
+                                     b.getI32IntegerAttr(0),
+                                 })),
                   b.getNamedAttr("source_dimensions", b.getArrayAttr({wDim})),
                   b.getNamedAttr("source_names", b.getArrayAttr({wDimName})),
               }),
