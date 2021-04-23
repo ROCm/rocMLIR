@@ -1,7 +1,7 @@
 pipeline {
     agent {
         docker {
-            image 'rocm/mlir:rocm4.0-latest'
+            image 'rocm/mlir:rocm4.1-latest'
             args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
             label 'rocm'
         }
@@ -19,7 +19,7 @@ pipeline {
                 sh '''
                     mkdir -p build && cd build
                     # Set the path to llvm-symbolizer
-                    PATH=$PATH:/opt/rocm-4.0.0/llvm/bin/
+                    PATH=$PATH:/opt/rocm-4.1.1/llvm/bin/
 
                     cmake -G Ninja ../llvm \
                         -DLLVM_ENABLE_PROJECTS="mlir;lld" \
@@ -48,7 +48,7 @@ pipeline {
                 sh '''
                     mkdir -p build && cd build
                     # Set the path to llvm-symbolizer
-                    PATH=$PATH:/opt/rocm-4.0.0/llvm/bin/
+                    PATH=$PATH:/opt/rocm-4.1.1/llvm/bin/
 
                     cmake -G Ninja ../llvm \
                         -DLLVM_ENABLE_PROJECTS="mlir;lld" \
