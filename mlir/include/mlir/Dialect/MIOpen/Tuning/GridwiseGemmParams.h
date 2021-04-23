@@ -490,6 +490,8 @@ private:
     {64, 32, 32, 4, 2, 2}};
   // clang-format on
 
+  InitParamsNonXDL ExtraParameters = {128, 64, 128, 4, 4, 4};
+
   LogicalResult
   calculateGemmABlockCopyPerformanceParameters(InitParamsNonXDL *param,
                                                ConvolutionContext &ctx,
@@ -611,6 +613,12 @@ public:
                               DerivedParams &gemmBDerivedParam,
                               DerivedBlockGemmParams &blockGemmDerivedParam,
                               int64_t &gemmCDstPerWrite, int64_t &gridSize);
+
+  llvm::SmallVector<InitParamsNonXDL, 8> getTunningParameters() {
+    return initParameters;
+  }
+
+  InitParamsNonXDL getExtraParameters() { return ExtraParameters; }
 };
 
 class PopulateParamsXDL : public PopulateParamsBase {
@@ -626,6 +634,8 @@ private:
       {16, 16, 4, 16, 16, 0, false, false},
   };
   const int64_t waveSize = 64;
+
+  InitParamsXDL ExtraParameters = {256, 128, 16, 128, 64, 0, false, false};
 
   int64_t obtainBlockSize(InitParamsXDL &params, int64_t waveSize) {
     return waveSize * params.gemmNPerBlock * params.gemmMPerBlock /
@@ -733,6 +743,12 @@ public:
                               DerivedParams &gemmADerivedParam,
                               DerivedParams &gemmBDerivedParam,
                               int64_t &blockSize, int64_t &gridSize);
+
+  llvm::SmallVector<InitParamsXDL, 4> getTunningParameters() {
+    return initParameters;
+  }
+
+  InitParamsXDL getExtraParameters() { return ExtraParameters; }
 };
 
 #endif // MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H

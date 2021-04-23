@@ -37,9 +37,9 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 
-#include "llvm/ADT/SmallVector.h"
-
 #include "XdlopsCodeSelection.h"
+#include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
+#include "llvm/ADT/SmallVector.h"
 
 using namespace mlir;
 using namespace mlir::miopen;
@@ -174,6 +174,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // get y, x, ho, wo, hi, wi
     int64_t y, x, ho, wo, hi, wi;
     y = x = ho = wo = hi = wi = 0;
+
+    int64_t g, k, c, n;
+    k = c = n = 0;
+    g = 1; // if input is 4 dim , g = 1
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
@@ -186,18 +190,98 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         y = filterShape[i];
       } else if (filterAttr.getValue() == "x") {
         x = filterShape[i];
+      } else if (filterAttr.getValue() == "k") {
+        k = filterShape[i];
+      } else if (filterAttr.getValue() == "c") {
+        c = filterShape[i];
+      } else if (filterAttr.getValue() == "g") {
+        g = filterShape[i];
       }
 
       if (inputAttr.getValue() == "hi") {
         hi = inputShape[i];
       } else if (inputAttr.getValue() == "wi") {
         wi = inputShape[i];
+      } else if (inputAttr.getValue() == "n") {
+        n = inputShape[i];
       }
 
       if (outputAttr.getValue() == "ho") {
         ho = outputShape[i];
       } else if (outputAttr.getValue() == "wo") {
         wo = outputShape[i];
+      }
+    }
+
+    int64_t gemmM_size, gemmN_size, gemmK_size;
+    int64_t gemmM_extra, gemmN_extra, gemmK_extra;
+    gemmM_extra = gemmN_extra = gemmK_extra = 0;
+    // compute we should use extra padding kernel or not
+    if (convOpType == miopen::ConvOpType::Conv2DOpType) {
+      gemmM_size = k / g;
+      gemmK_size = (c / g) * y * x;
+      gemmN_size = n * ho * wo;
+    } else if (convOpType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+      gemmM_size = c / g;
+      gemmK_size = (k / g) * y * x;
+      gemmN_size = n * ho * wo;
+    } else if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
+      gemmM_size = k / g;
+      gemmK_size = n * ho * wo;
+      gemmN_size = (c / g) * y * x;
+    }
+
+    bool needExtraPad = true;
+    bool isXdlops = false;
+    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
+    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
+      isXdlops = true;
+
+    if (!isXdlops) {
+      PopulateParams populateParams;
+      for (auto &params : populateParams.getTunningParameters()) {
+
+        if (gemmM_size % params.gemmMPerBlock == 0 &&
+            gemmK_size % params.gemmKPerBlock == 0 &&
+            gemmN_size % params.gemmNPerBlock == 0) {
+          needExtraPad = false;
+          break;
+        }
+      }
+
+      if (needExtraPad) {
+        auto extraParams = populateParams.getExtraParameters();
+        gemmM_extra = extraParams.gemmMPerBlock -
+                      (gemmM_size % extraParams.gemmMPerBlock);
+        gemmN_extra = extraParams.gemmNPerBlock -
+                      (gemmN_size % extraParams.gemmNPerBlock);
+        gemmK_extra = extraParams.gemmKPerBlock -
+                      (gemmK_size % extraParams.gemmKPerBlock);
+        // llvm::errs() << "gemmM_extra: " << gemmM_extra << << "gemmN_extra: "
+        // << gemmN_extra << "gemmK_extra: " << gemmK_extra << "\n";
+      }
+    } else { // xdlops
+      PopulateParamsXDL populateParamsXDL;
+
+      for (auto &params : populateParamsXDL.getTunningParameters()) {
+        if (gemmM_size % params.gemmMPerBlock == 0 &&
+            gemmK_size % params.gemmKPerBlock == 0 &&
+            gemmN_size % params.gemmNPerBlock == 0) {
+          needExtraPad = false;
+          break;
+        }
+      }
+
+      if (needExtraPad) {
+        auto extraParams = populateParamsXDL.getExtraParameters();
+        gemmM_extra = extraParams.gemmMPerBlock -
+                      (gemmM_size % extraParams.gemmMPerBlock);
+        gemmN_extra = extraParams.gemmNPerBlock -
+                      (gemmN_size % extraParams.gemmNPerBlock);
+        gemmK_extra = extraParams.gemmKPerBlock -
+                      (gemmK_size % extraParams.gemmKPerBlock);
+        // llvm::errs() << "gemmM_extra: " << gemmM_extra << << "gemmN_extra: "
+        // << gemmN_extra << "gemmK_extra: " << gemmK_extra << "\n";
       }
     }
 
@@ -1100,8 +1184,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     // xdlopsV2.
-    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
+    if (isXdlops)
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
 
