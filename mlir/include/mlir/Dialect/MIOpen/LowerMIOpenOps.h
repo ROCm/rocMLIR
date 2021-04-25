@@ -219,6 +219,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       gemmM_size = k;
       gemmK_size = c * y * x;
       gemmN_size = n * ho * wo;
+
+      llvm::errs() << n << " " << ho << " " << wo << "\n";
     } else if (convOpType == miopen::ConvOpType::Conv2DBwdDataOpType) {
       gemmM_size = c;
       gemmK_size = k * y * x;
@@ -251,15 +253,22 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       if (numOfFailedConfigs == populateParams.getTunningParameters().size()) {
         needExtraPad = true;
         auto extraParams = populateParams.getUniversalParameters();
-        gemmM_extra = extraParams.gemmMPerBlock -
-                      (gemmM_size % extraParams.gemmMPerBlock);
-        gemmN_extra = extraParams.gemmNPerBlock -
-                      (gemmN_size % extraParams.gemmNPerBlock);
-        gemmK_extra = extraParams.gemmKPerBlock -
-                      (gemmK_size % extraParams.gemmKPerBlock);
+        int gemmM_remain, gemmK_remain, gemmN_remain;
 
-        // llvm::errs() << "gemmM_extra: " << gemmM_extra << << "gemmN_extra: "
-        // << gemmN_extra << "gemmK_extra: " << gemmK_extra << "\n";
+        gemmM_remain = gemmM_size % extraParams.gemmMPerBlock;
+        if (gemmM_remain != 0)
+          gemmM_extra = extraParams.gemmMPerBlock - gemmM_remain;
+
+        gemmN_remain = gemmN_size % extraParams.gemmNPerBlock;
+        if (gemmN_remain != 0)
+          gemmN_extra = extraParams.gemmNPerBlock - gemmN_remain;
+
+        gemmK_remain = gemmK_size % extraParams.gemmKPerBlock;
+        if (gemmK_remain != 0)
+          gemmK_extra = extraParams.gemmKPerBlock - gemmK_remain;
+
+        // llvm::errs() << "gemmM_extra: " << gemmM_extra << "gemmN_extra: " <<
+        // gemmN_extra << "gemmK_extra: " << gemmK_extra << "\n";
       }
     } else { // xdlops
       PopulateParamsXDL populateParamsXDL;
@@ -278,14 +287,22 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           populateParamsXDL.getTunningParameters().size()) {
         needExtraPad = true;
         auto extraParams = populateParamsXDL.getUniversalParameters();
-        gemmM_extra = extraParams.gemmMPerBlock -
-                      (gemmM_size % extraParams.gemmMPerBlock);
-        gemmN_extra = extraParams.gemmNPerBlock -
-                      (gemmN_size % extraParams.gemmNPerBlock);
-        gemmK_extra = extraParams.gemmKPerBlock -
-                      (gemmK_size % extraParams.gemmKPerBlock);
-        // llvm::errs() << "gemmM_extra: " << gemmM_extra << << "gemmN_extra: "
-        // << gemmN_extra << "gemmK_extra: " << gemmK_extra << "\n";
+        int gemmM_remain, gemmK_remain, gemmN_remain;
+
+        gemmM_remain = gemmM_size % extraParams.gemmMPerBlock;
+        if (gemmM_remain != 0)
+          gemmM_extra = extraParams.gemmMPerBlock - gemmM_remain;
+
+        gemmN_remain = gemmN_size % extraParams.gemmNPerBlock;
+        if (gemmN_remain != 0)
+          gemmN_extra = extraParams.gemmNPerBlock - gemmN_remain;
+
+        gemmK_remain = gemmK_size % extraParams.gemmKPerBlock;
+        if (gemmK_remain != 0)
+          gemmK_extra = extraParams.gemmKPerBlock - gemmK_remain;
+
+        // llvm::errs() << "gemmM_extra: " << gemmM_extra << "gemmN_extra: " <<
+        // gemmN_extra << "gemmK_extra: " << gemmK_extra << "\n";
       }
     }
 
