@@ -232,78 +232,57 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     }
 
     bool needExtraPad = false;
-    int numOfFailedConfigs = 0;
     bool isXdlops = false;
     auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
       isXdlops = true;
 
+    auto calculatePaddingKernelSize =
+        [
+          &needExtraPad, gemmM_size, gemmN_size, gemmK_size, &gemmM_extra,
+          &gemmN_extra, &gemmK_extra
+        ](auto populateParams) mutable throw()
+            ->void {
+      auto config_params = populateParams.getTuningParameters();
+      int numOfFailedConfigs = 0;
+      for (auto &params : config_params) {
+        if (gemmM_size % params.gemmMPerBlock == 0 &&
+            gemmK_size % params.gemmKPerBlock == 0 &&
+            gemmN_size % params.gemmNPerBlock == 0) {
+          break;
+        } else {
+          numOfFailedConfigs++;
+        }
+      }
+
+      auto extraParams = populateParams.getUniversalParameters();
+      if (numOfFailedConfigs == config_params.size()) {
+        needExtraPad = true;
+        int gemmM_remain, gemmK_remain, gemmN_remain;
+
+        gemmM_remain = gemmM_size % extraParams.gemmMPerBlock;
+        if (gemmM_remain != 0)
+          gemmM_extra = extraParams.gemmMPerBlock - gemmM_remain;
+
+        gemmN_remain = gemmN_size % extraParams.gemmNPerBlock;
+        if (gemmN_remain != 0)
+          gemmN_extra = extraParams.gemmNPerBlock - gemmN_remain;
+
+        gemmK_remain = gemmK_size % extraParams.gemmKPerBlock;
+        if (gemmK_remain != 0)
+          gemmK_extra = extraParams.gemmKPerBlock - gemmK_remain;
+
+        // llvm::errs() << "gemmM_extra: " << gemmM_extra << "gemmN_extra: " <<
+        // gemmN_extra << "gemmK_extra: " << gemmK_extra << "\n";
+      }
+    };
+
     if (!isXdlops) {
       PopulateParams populateParams;
-      for (auto &params : populateParams.getTuningParameters()) {
-        if (gemmM_size % params.gemmMPerBlock == 0 &&
-            gemmK_size % params.gemmKPerBlock == 0 &&
-            gemmN_size % params.gemmNPerBlock == 0) {
-          break;
-        } else {
-          numOfFailedConfigs++;
-        }
-      }
-
-      if (numOfFailedConfigs == populateParams.getTuningParameters().size()) {
-        needExtraPad = true;
-        auto extraParams = populateParams.getUniversalParameters();
-        int gemmM_remain, gemmK_remain, gemmN_remain;
-
-        gemmM_remain = gemmM_size % extraParams.gemmMPerBlock;
-        if (gemmM_remain != 0)
-          gemmM_extra = extraParams.gemmMPerBlock - gemmM_remain;
-
-        gemmN_remain = gemmN_size % extraParams.gemmNPerBlock;
-        if (gemmN_remain != 0)
-          gemmN_extra = extraParams.gemmNPerBlock - gemmN_remain;
-
-        gemmK_remain = gemmK_size % extraParams.gemmKPerBlock;
-        if (gemmK_remain != 0)
-          gemmK_extra = extraParams.gemmKPerBlock - gemmK_remain;
-
-        // llvm::errs() << "gemmM_extra: " << gemmM_extra << "gemmN_extra: " <<
-        // gemmN_extra << "gemmK_extra: " << gemmK_extra << "\n";
-      }
+      calculatePaddingKernelSize(populateParams);
     } else { // xdlops
       PopulateParamsXDL populateParamsXDL;
-
-      for (auto &params : populateParamsXDL.getTuningParameters()) {
-        if (gemmM_size % params.gemmMPerBlock == 0 &&
-            gemmK_size % params.gemmKPerBlock == 0 &&
-            gemmN_size % params.gemmNPerBlock == 0) {
-          break;
-        } else {
-          numOfFailedConfigs++;
-        }
-      }
-
-      if (numOfFailedConfigs ==
-          populateParamsXDL.getTuningParameters().size()) {
-        needExtraPad = true;
-        auto extraParams = populateParamsXDL.getUniversalParameters();
-        int gemmM_remain, gemmK_remain, gemmN_remain;
-
-        gemmM_remain = gemmM_size % extraParams.gemmMPerBlock;
-        if (gemmM_remain != 0)
-          gemmM_extra = extraParams.gemmMPerBlock - gemmM_remain;
-
-        gemmN_remain = gemmN_size % extraParams.gemmNPerBlock;
-        if (gemmN_remain != 0)
-          gemmN_extra = extraParams.gemmNPerBlock - gemmN_remain;
-
-        gemmK_remain = gemmK_size % extraParams.gemmKPerBlock;
-        if (gemmK_remain != 0)
-          gemmK_extra = extraParams.gemmKPerBlock - gemmK_remain;
-
-        // llvm::errs() << "gemmM_extra: " << gemmM_extra << "gemmN_extra: " <<
-        // gemmN_extra << "gemmK_extra: " << gemmK_extra << "\n";
-      }
+      calculatePaddingKernelSize(populateParamsXDL);
     }
 
     // compute padding hi/wi.
