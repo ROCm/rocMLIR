@@ -40,10 +40,51 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include "XdlopsCodeSelection.h"
+#include <math.h>
 
 using namespace mlir;
 using namespace mlir::miopen;
 
+namespace math {
+
+// greatest common divisor, aka highest common factor
+template <typename T> T gcd(T x, T y) {
+  if (x == y || x == 0) {
+    return y;
+  } else if (y == 0) {
+    return x;
+  } else if (x > y) {
+    return gcd(x - y, y);
+  } else {
+    return gcd(x, y - x);
+  }
+}
+
+template <typename X, typename... Ys> auto gcd(X x, Ys... ys) {
+  return gcd(x, ys...);
+}
+
+// least common multiple
+template <typename T> T lcm(T x, T y) { return (x * y) / gcd(x, y); }
+
+template <typename X, typename... Ys> auto lcm(X x, Ys... ys) {
+  return lcm(x, lcm(ys...));
+}
+
+template <class X, class Y> auto integer_divide_ceil(X x, Y y) {
+  return (x + y - 1) / y;
+}
+
+template <class X, class Y>
+constexpr auto integer_divide_floor(X x, Y y) {
+  return x / y;
+}
+
+template <class X, class Y> auto integer_least_multiple(X x, Y y) {
+  return y * integer_divide_ceil(x, y);
+}
+
+} // namespace math
 //===----------------------------------------------------------------------===//
 // Utility function to emit constant float op.
 //===----------------------------------------------------------------------===//
@@ -108,8 +149,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   const static ArgumentFields fields;
   const static miopen::ConvOpType convOpType;
   using OpRewritePattern<T>::OpRewritePattern;
-
+ 
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
+    if(miopen::ConvOpType::Conv2DBwdDataOpType == convOpType)
+    {
+        return backwardData(op,b);
+    }
     auto loc = op.getLoc();
 
     auto archAttr = op->template getAttrOfType<StringAttr>("arch");
@@ -1131,6 +1176,254 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     return success();
   }
+  
+  LogicalResult backwardData(T op, PatternRewriter &b) const{
+    auto loc = op.getLoc();
+
+    auto archAttr = op->template getAttrOfType<StringAttr>("arch");
+    auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
+
+    auto filterLayoutAttr =
+        op->template getAttrOfType<ArrayAttr>("filter_layout");
+    auto inputLayoutAttr =
+        op->template getAttrOfType<ArrayAttr>("input_layout");
+    auto outputLayoutAttr =
+        op->template getAttrOfType<ArrayAttr>("output_layout");
+
+    auto dilationsAttr = op->template getAttrOfType<ArrayAttr>("dilations");
+    auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
+    auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
+
+    // Get shape of filter tensor.
+    auto filterType = op.filter().getType().template dyn_cast<MemRefType>();
+    auto filterShape = filterType.getShape();
+    auto filterElementType = filterType.getElementType();
+
+    // Get shape of input tensor.
+    auto inputType = op.input().getType().template dyn_cast<MemRefType>();
+    auto inputShape = inputType.getShape();
+    auto inputElementType = inputType.getElementType();
+
+    // Get shape of output tensor.
+    auto outputType = op.output().getType().template dyn_cast<MemRefType>();
+    auto outputShape = outputType.getShape();
+    auto outputElementType = outputType.getElementType();
+
+    // HO/WO dimension for output tensor.
+    int64_t outputHDim, outputWDim;
+
+    // Find Ho/Wo dimension for output tensor. They will be used in
+    // transforming input tensor.
+    for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
+      if (auto strAttr =
+              outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
+        if (strAttr.getValue() == "ho") {
+          outputHDim = i;
+        } else if (strAttr.getValue() == "wo") {
+          outputWDim = i;
+        }
+      }
+    }
+
+    // Obtain convolution parameters: padding / dialtion / stride.
+    auto leftPadH =
+        paddingAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+    auto leftPadW =
+        paddingAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+    auto dilationH =
+        dilationsAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+    auto dilationW =
+        dilationsAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+    auto strideH =
+        stridesAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+    auto strideW =
+        stridesAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+
+    // get y, x, ho, wo, hi, wi
+    int64_t g, n, k, c, y, x, ho, wo, hi, wi;
+    g = n = k = c = y = x = ho = wo = hi = wi = 0;
+    for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
+      auto filterAttr =
+          filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+      auto inputAttr =
+          inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+      auto outputAttr =
+          outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+
+      if (filterAttr.getValue() == "g") {
+        g = filterShape[i];
+      } else if (filterAttr.getValue() == "k") {
+        k = filterShape[i];
+      } else if (filterAttr.getValue() == "c") {
+        c = filterShape[i];
+      } else if (filterAttr.getValue() == "y") {
+        y = filterShape[i];
+      } else if (filterAttr.getValue() == "x") {
+        x = filterShape[i];
+      }
+
+      if (inputAttr.getValue() == "n") {
+        n = inputShape[i];
+      } else if (inputAttr.getValue() == "hi") {
+        hi = inputShape[i];
+      } else if (inputAttr.getValue() == "wi") {
+        wi = inputShape[i];
+      }
+
+      if (outputAttr.getValue() == "ho") {
+        ho = outputShape[i];
+      } else if (outputAttr.getValue() == "wo") {
+        wo = outputShape[i];
+      }
+    }
+
+    // compute padding hi/wi.
+    auto hiPadded = 1 + (y - 1) * dilationH + (ho - 1) * strideH;
+    auto wiPadded = 1 + (x - 1) * dilationW + (wo - 1) * strideW;
+    // compute right padding parameters.
+    int rightPadH = hiPadded > (leftPadH + hi) ? hiPadded - (leftPadH + hi) : 0;
+    int rightPadW = wiPadded > (leftPadW + wi) ? wiPadded - (leftPadW + wi) : 0;
+
+    auto gcdStrideDilationH = math::gcd(strideH, dilationH);
+    auto gcdStrideDilationW = math::gcd(strideW, dilationW);
+
+    auto yTilda = dilationH / gcdStrideDilationH;
+    auto xTilda = dilationW / gcdStrideDilationW;
+
+    auto yDot = math::integer_divide_ceil(y, yTilda);
+    auto xDot = math::integer_divide_ceil(x, xTilda);
+
+    auto hTilda = ho + math::integer_divide_ceil(dilationH * (y -1),strideH);
+    auto wTilda = wo + math::integer_divide_ceil(dilationW * (x -1), strideW);
+
+    auto iHTildaLeft = math::integer_divide_floor(
+      std::max(0l, leftPadH - dilationH * (yTilda -1)),  strideH);
+    auto iWTildaLeft = math::integer_divide_floor(
+      std::max(0l, leftPadW - dilationW * (xTilda -1)),  strideW);
+
+    auto iHTildaRight = std::min(
+      hTilda, math::integer_divide_ceil(leftPadH + hi -1, strideH) + 1);
+    auto iWTildaRight = std::min(
+      wTilda, math::integer_divide_ceil(leftPadW + hi -1, strideW) + 1);
+
+    auto hTildaSlice = iHTildaRight - iHTildaLeft;
+    auto wTildaSlice = iWTildaRight - iWTildaLeft;
+    // Transform filter tensor.
+
+    // set layout attribute.
+    // Weight tensor transformation for Conv2DOp
+    auto getGemmA = [&](){
+      //key to dim
+      std::map<StringRef,int> filterKeyToDim;
+      for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
+        if (auto strAttr =
+                filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
+            filterKeyToDim[ strAttr.getValue() ] = i;
+        }
+      }
+
+      //wei_g_k_c_ydot_ytilda_xdot_xtilda
+      llvm::SmallVector<StringAttr, 6>  firtFilterDimName;
+      llvm::SmallVector<int64_t, 6> transformedFilterShape;
+      //g
+      firtFilterDimName.push_back(b.getStringAttr("g"));
+      transformedFilterShape.push_back(g);
+      llvm::SmallVector<NamedAttribute, 5> gDimAttr{
+        b.getNamedAttr("dimensions", b.getArrayAttr({b.getI32IntegerAttr(0)})),
+        b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("g")})),
+        b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+        b.getNamedAttr("source_dimensions", b.getArrayAttr({b.getI32IntegerAttr(filterKeyToDim["g"])})),
+        b.getNamedAttr("source_names", b.getArrayAttr({firtFilterDimName[0]}))};
+      
+      //k
+      firtFilterDimName.push_back(b.getStringAttr("k"));
+      transformedFilterShape.push_back(k);
+      llvm::SmallVector<NamedAttribute, 5> kDimAttr{
+        b.getNamedAttr("dimensions", b.getArrayAttr({b.getI32IntegerAttr(1)})),
+        b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("k")})),
+        b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+        b.getNamedAttr("source_dimensions", b.getArrayAttr({b.getI32IntegerAttr(filterKeyToDim["k"])})),
+        b.getNamedAttr("source_names", b.getArrayAttr({b.getStringAttr("k")}))};
+
+      //c
+      firtFilterDimName.push_back(b.getStringAttr("c"));
+      transformedFilterShape.push_back(c);
+      llvm::SmallVector<NamedAttribute, 5> cDimAttr{
+        b.getNamedAttr("dimensions", b.getArrayAttr({b.getI32IntegerAttr(2)})),
+        b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("c")})),
+        b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+        b.getNamedAttr("source_dimensions", b.getArrayAttr({b.getI32IntegerAttr(filterKeyToDim["c"])})),
+        b.getNamedAttr("source_names", b.getArrayAttr({b.getStringAttr("c")}))};
+    
+      //y
+      firtFilterDimName.push_back(b.getStringAttr("ydot"));
+      firtFilterDimName.push_back(b.getStringAttr("ytilda"));
+      transformedFilterShape.push_back(yDot);
+      transformedFilterShape.push_back(yTilda);
+      llvm::SmallVector<NamedAttribute, 6> yDimAttr{
+        b.getNamedAttr("dimensions", b.getArrayAttr({b.getI32IntegerAttr(2)})),
+        b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("ydot"), b.getStringAttr("ytilda")})),
+        b.getNamedAttr("transformation", b.getStringAttr("Embed")),
+        b.getNamedAttr("parameters", b.getArrayAttr({
+                                                   b.getI32IntegerAttr(1),
+                                                   b.getI32IntegerAttr(1),
+                                                   b.getI32IntegerAttr(1),
+                                                   b.getI32IntegerAttr(0),
+                                               })),
+        b.getNamedAttr("source_dimensions", b.getArrayAttr({b.getI32IntegerAttr(filterKeyToDim["y"])})),
+        b.getNamedAttr("source_names", b.getArrayAttr({b.getStringAttr("y")}))};
+      
+      //x
+      firtFilterDimName.push_back(b.getStringAttr("xdot"));
+      firtFilterDimName.push_back(b.getStringAttr("xtilda"));
+      transformedFilterShape.push_back(xDot);
+      transformedFilterShape.push_back(xTilda);
+      llvm::SmallVector<NamedAttribute, 6> xDimAttr{
+        b.getNamedAttr("dimensions", b.getArrayAttr({b.getI32IntegerAttr(2)})),
+        b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("xdot"), b.getStringAttr("xtilda")})),
+        b.getNamedAttr("transformation", b.getStringAttr("Embed")),
+        b.getNamedAttr("parameters", b.getArrayAttr({
+                                                   b.getI32IntegerAttr(1),
+                                                   b.getI32IntegerAttr(1),
+                                                   b.getI32IntegerAttr(0),
+                                               })),
+        b.getNamedAttr("source_dimensions", b.getArrayAttr({b.getI32IntegerAttr(filterKeyToDim["x"])})),
+        b.getNamedAttr("source_names", b.getArrayAttr({b.getStringAttr("x")}))};
+
+        llvm::SmallVector<NamedAttribute, 3> transformedFilterAttrs;
+        transformedFilterAttrs.push_back(b.getNamedAttr(
+          "layout", b.getArrayAttr({b.getDictionaryAttr(gDimAttr),
+                                    b.getDictionaryAttr(kDimAttr),
+                                    b.getDictionaryAttr(cDimAttr),
+                                    b.getDictionaryAttr(yDimAttr),
+                                    b.getDictionaryAttr(xDimAttr)
+                                    })));
+        transformedFilterAttrs.push_back(b.getNamedAttr(
+          "output_layout", b.getArrayAttr({firtFilterDimName[0],
+                                           firtFilterDimName[1],
+                                           firtFilterDimName[2],
+                                           firtFilterDimName[3],
+                                           firtFilterDimName[4],
+                                           firtFilterDimName[5],
+                                          })));
+
+        transformedFilterAttrs.push_back(b.getNamedAttr(
+          "source_layout", inputLayoutAttr));
+
+
+        auto transformedFilterMemRefType =
+        MemRefType::get(transformedFilterShape, filterElementType);
+        auto gemmA = b.create<miopen::TransformOp>(
+        loc, transformedFilterMemRefType, op.filter(), transformedFilterAttrs);
+        return gemmA;
+    };
+
+    auto gemmA = getGemmA();
+    // Finally, erase the original Conv2D op.
+    op.erase();
+
+    return success();
+  }
 };
 
 // Explicitly instantiate the template to operation type
@@ -1291,65 +1584,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
 //===----------------------------------------------------------------------===//
 // GridwiseGemm lowering.
 //===----------------------------------------------------------------------===//
-
-namespace math {
-
-// greatest common divisor, aka highest common factor
-template <typename T>
-T gcd(T x, T y)
-{
-    if(x == y || x == 0)
-    {
-        return y;
-    }
-    else if(y == 0)
-    {
-        return x;
-    }
-    else if(x > y)
-    {
-        return gcd(x - y, y);
-    }
-    else
-    {
-        return gcd(x, y - x);
-    }
-}
-
-template <typename X, typename... Ys>
-auto gcd(X x, Ys... ys)
-{
-    return gcd(x, ys...);
-}
-
-// least common multiple
-template <typename T>
-T lcm(T x, T y)
-{
-    return (x * y) / gcd(x, y);
-}
-
-template <typename X, typename... Ys>
-auto lcm(X x, Ys... ys)
-{
-    return lcm(x, lcm(ys...));
-}
-
-template <class X, class Y>
-auto integer_divide_ceil(X x, Y y)
-{
-    return (x + y - 1) / y;
-}
-
-template <class X, class Y>
-auto integer_least_multiple(X x, Y y)
-{
-    return y * integer_divide_ceil(x, y);
-}
-
-
-
-} // namespace math
 
 struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemmOp> {
   using OpRewritePattern<miopen::GridwiseGemmOp>::OpRewritePattern;
