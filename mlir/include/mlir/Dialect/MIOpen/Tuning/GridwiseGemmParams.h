@@ -490,9 +490,9 @@ private:
     {64, 32, 32, 4, 2, 2}};
   // clang-format on
 
-  // if driver can't use any configs in the above , use this config to do
-  // padding kernel for example , K/block is 16 , if your gemmK is  13 , we add
-  // more 3 gemmk
+  // if can't select config from above , use this config to do
+  // padding kernel for example , GemmK/block is 16 , if your gemmK is  13 , we
+  // add more 3 gemmk
   InitParamsNonXDL universal_Parameters = {64, 64, 64, 16, 4, 4};
 
   LogicalResult
@@ -617,7 +617,7 @@ public:
                               DerivedBlockGemmParams &blockGemmDerivedParam,
                               int64_t &gemmCDstPerWrite, int64_t &gridSize);
 
-  llvm::SmallVector<InitParamsNonXDL, 8> getTunningParameters() {
+  llvm::SmallVector<InitParamsNonXDL, 8> getTuningParameters() {
     return initParameters;
   }
 
@@ -638,9 +638,9 @@ private:
   };
   const int64_t waveSize = 64;
 
-  // if driver can't use any configs in the above , use this config to do
-  // padding kernel for example , K/block is 16 , if your gemmK is  13 , we add
-  // more 3 gemmk
+  // if can't select config from above , use this config to do
+  // padding kernel for example , GEMMK/block is 16 , if your gemmK is  13 , we
+  // add more 3 gemmk
   InitParamsXDL universal_Parameters = {128, 128, 16, 64, 64, 0, false, false};
 
   int64_t obtainBlockSize(InitParamsXDL &params, int64_t waveSize) {
@@ -750,7 +750,7 @@ public:
                               DerivedParams &gemmBDerivedParam,
                               int64_t &blockSize, int64_t &gridSize);
 
-  llvm::SmallVector<InitParamsXDL, 4> getTunningParameters() {
+  llvm::SmallVector<InitParamsXDL, 4> getTuningParameters() {
     return initParameters;
   }
 

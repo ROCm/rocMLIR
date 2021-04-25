@@ -240,7 +240,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     if (!isXdlops) {
       PopulateParams populateParams;
-      for (auto &params : populateParams.getTunningParameters()) {
+      for (auto &params : populateParams.getTuningParameters()) {
         if (gemmM_size % params.gemmMPerBlock == 0 &&
             gemmK_size % params.gemmKPerBlock == 0 &&
             gemmN_size % params.gemmNPerBlock == 0) {
@@ -250,7 +250,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         }
       }
 
-      if (numOfFailedConfigs == populateParams.getTunningParameters().size()) {
+      if (numOfFailedConfigs == populateParams.getTuningParameters().size()) {
         needExtraPad = true;
         auto extraParams = populateParams.getUniversalParameters();
         int gemmM_remain, gemmK_remain, gemmN_remain;
@@ -273,7 +273,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     } else { // xdlops
       PopulateParamsXDL populateParamsXDL;
 
-      for (auto &params : populateParamsXDL.getTunningParameters()) {
+      for (auto &params : populateParamsXDL.getTuningParameters()) {
         if (gemmM_size % params.gemmMPerBlock == 0 &&
             gemmK_size % params.gemmKPerBlock == 0 &&
             gemmN_size % params.gemmNPerBlock == 0) {
@@ -284,7 +284,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       }
 
       if (numOfFailedConfigs ==
-          populateParamsXDL.getTunningParameters().size()) {
+          populateParamsXDL.getTuningParameters().size()) {
         needExtraPad = true;
         auto extraParams = populateParamsXDL.getUniversalParameters();
         int gemmM_remain, gemmK_remain, gemmN_remain;
