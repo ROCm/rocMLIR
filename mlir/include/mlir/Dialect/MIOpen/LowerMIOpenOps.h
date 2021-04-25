@@ -171,12 +171,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto strideW =
         stridesAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
 
-    // get y, x, ho, wo, hi, wi
-    int64_t y, x, ho, wo, hi, wi;
-    y = x = ho = wo = hi = wi = 0;
-
-    int64_t g, k, c, n;
-    k = c = n = 0;
+    // get y, x, ho, wo, hi, wi, g, k, c, n
+    int64_t y, x, ho, wo, hi, wi, g, k, c, n;
+    y = x = ho = wo = hi = wi = k = c = n = 0;
     g = 1; // if input is 4 dim , g = 1
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
@@ -202,7 +199,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         hi = inputShape[i];
       } else if (inputAttr.getValue() == "wi") {
         wi = inputShape[i];
-      } else if (inputAttr.getValue() == "n") {
+      } else if (inputAttr.getValue() == "ni") {
         n = inputShape[i];
       }
 
@@ -217,21 +214,23 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     int64_t gemmM_extra, gemmN_extra, gemmK_extra;
     gemmM_extra = gemmN_extra = gemmK_extra = 0;
     // compute we should use extra padding kernel or not
+    // c,k already / g ,so we can skip / g here
     if (convOpType == miopen::ConvOpType::Conv2DOpType) {
-      gemmM_size = k / g;
-      gemmK_size = (c / g) * y * x;
+      gemmM_size = k;
+      gemmK_size = c * y * x;
       gemmN_size = n * ho * wo;
     } else if (convOpType == miopen::ConvOpType::Conv2DBwdDataOpType) {
-      gemmM_size = c / g;
-      gemmK_size = (k / g) * y * x;
+      gemmM_size = c;
+      gemmK_size = k * y * x;
       gemmN_size = n * ho * wo;
     } else if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
-      gemmM_size = k / g;
+      gemmM_size = k;
       gemmK_size = n * ho * wo;
-      gemmN_size = (c / g) * y * x;
+      gemmN_size = c * y * x;
     }
 
-    bool needExtraPad = true;
+    bool needExtraPad = false;
+    int numOfFailedConfigs = 0;
     bool isXdlops = false;
     auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
@@ -240,23 +239,25 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     if (!isXdlops) {
       PopulateParams populateParams;
       for (auto &params : populateParams.getTunningParameters()) {
-
         if (gemmM_size % params.gemmMPerBlock == 0 &&
             gemmK_size % params.gemmKPerBlock == 0 &&
             gemmN_size % params.gemmNPerBlock == 0) {
-          needExtraPad = false;
           break;
+        } else {
+          numOfFailedConfigs++;
         }
       }
 
-      if (needExtraPad) {
-        auto extraParams = populateParams.getExtraParameters();
+      if (numOfFailedConfigs == populateParams.getTunningParameters().size()) {
+        needExtraPad = true;
+        auto extraParams = populateParams.getUniversalParameters();
         gemmM_extra = extraParams.gemmMPerBlock -
                       (gemmM_size % extraParams.gemmMPerBlock);
         gemmN_extra = extraParams.gemmNPerBlock -
                       (gemmN_size % extraParams.gemmNPerBlock);
         gemmK_extra = extraParams.gemmKPerBlock -
                       (gemmK_size % extraParams.gemmKPerBlock);
+
         // llvm::errs() << "gemmM_extra: " << gemmM_extra << << "gemmN_extra: "
         // << gemmN_extra << "gemmK_extra: " << gemmK_extra << "\n";
       }
@@ -267,13 +268,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         if (gemmM_size % params.gemmMPerBlock == 0 &&
             gemmK_size % params.gemmKPerBlock == 0 &&
             gemmN_size % params.gemmNPerBlock == 0) {
-          needExtraPad = false;
           break;
+        } else {
+          numOfFailedConfigs++;
         }
       }
 
-      if (needExtraPad) {
-        auto extraParams = populateParamsXDL.getExtraParameters();
+      if (numOfFailedConfigs ==
+          populateParamsXDL.getTunningParameters().size()) {
+        needExtraPad = true;
+        auto extraParams = populateParamsXDL.getUniversalParameters();
         gemmM_extra = extraParams.gemmMPerBlock -
                       (gemmM_size % extraParams.gemmMPerBlock);
         gemmN_extra = extraParams.gemmNPerBlock -
@@ -453,9 +457,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                     })));
     }
 
-    // set source_layout attribute.
-    transformedFilterAttrs.push_back(
-        b.getNamedAttr("source_layout", filterLayoutAttr));
     // set output_layout attribute.
     transformedFilterAttrs.push_back(b.getNamedAttr(
         "output_layout",
@@ -466,6 +467,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     transformedFilterAttrs.push_back(b.getNamedAttr(
         "gridwise_gemm_argument_position",
         b.getI32IntegerAttr(fields.gridwiseGemmArgumentPosition[0])));
+
+    // set gemmM_extra & gemmK_extra
+    transformedFilterAttrs.push_back(
+        b.getNamedAttr("gemmM_extra", b.getI32IntegerAttr(gemmM_extra)));
+    transformedFilterAttrs.push_back(
+        b.getNamedAttr("gemmK_extra", b.getI32IntegerAttr(gemmK_extra)));
+    // set needExtraPad
+    transformedFilterAttrs.push_back(b.getNamedAttr(
+        "extraPad", b.getStringAttr(needExtraPad ? "true" : "false")));
+
+    // set source_layout attribute.
+    transformedFilterAttrs.push_back(
+        b.getNamedAttr("source_layout", filterLayoutAttr));
 
     auto transformedFilterMemRefType =
         MemRefType::get(transformedFilterShape, filterElementType);
@@ -606,6 +620,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         "output_layout", b.getArrayAttr(ArrayRef<Attribute>(
                              reorderedPaddedInputDimNames.begin(),
                              reorderedPaddedInputDimNames.end()))));
+
+    // set gemmK_extra & gemmN_extra
+    paddedInputAttrs.push_back(
+        b.getNamedAttr("gemmK_extra", b.getI32IntegerAttr(gemmK_extra)));
+    paddedInputAttrs.push_back(
+        b.getNamedAttr("gemmN_extra", b.getI32IntegerAttr(gemmN_extra)));
+    // set needExtraPad
+    paddedInputAttrs.push_back(b.getNamedAttr(
+        "extraPad", b.getStringAttr(needExtraPad ? "true" : "false")));
+
     auto paddedInputMemRefType =
         MemRefType::get(paddedInputShape, inputElementType);
     auto paddedInput = b.create<miopen::TransformOp>(
@@ -1160,6 +1184,15 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     transformedOutputAttrs.push_back(b.getNamedAttr(
         "gridwise_gemm_argument_position",
         b.getI32IntegerAttr(fields.gridwiseGemmArgumentPosition[2])));
+    // set gemmM & gemmN
+    transformedOutputAttrs.push_back(
+        b.getNamedAttr("gemmM_extra", b.getI32IntegerAttr(gemmM_extra)));
+    transformedOutputAttrs.push_back(
+        b.getNamedAttr("gemmN_extra", b.getI32IntegerAttr(gemmN_extra)));
+    // set needExtraPad
+    transformedOutputAttrs.push_back(b.getNamedAttr(
+        "extraPad", b.getStringAttr(needExtraPad ? "true" : "false")));
+
     auto transformedOutputMemRefType =
         MemRefType::get(transformedOutputShape, outputElementType);
     auto gemmC = b.create<miopen::TransformOp>(

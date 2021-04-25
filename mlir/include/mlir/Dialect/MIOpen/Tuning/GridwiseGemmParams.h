@@ -490,7 +490,10 @@ private:
     {64, 32, 32, 4, 2, 2}};
   // clang-format on
 
-  InitParamsNonXDL ExtraParameters = {128, 64, 128, 4, 4, 4};
+  // if driver can't use any configs in the above , use this config to do
+  // padding kernel for example , K/block is 16 , if your gemmK is  13 , we add
+  // more 3 gemmk
+  InitParamsNonXDL universal_Parameters = {64, 64, 64, 16, 4, 4};
 
   LogicalResult
   calculateGemmABlockCopyPerformanceParameters(InitParamsNonXDL *param,
@@ -618,7 +621,7 @@ public:
     return initParameters;
   }
 
-  InitParamsNonXDL getExtraParameters() { return ExtraParameters; }
+  InitParamsNonXDL getUniversalParameters() { return universal_Parameters; }
 };
 
 class PopulateParamsXDL : public PopulateParamsBase {
@@ -635,7 +638,10 @@ private:
   };
   const int64_t waveSize = 64;
 
-  InitParamsXDL ExtraParameters = {256, 128, 16, 128, 64, 0, false, false};
+  // if driver can't use any configs in the above , use this config to do
+  // padding kernel for example , K/block is 16 , if your gemmK is  13 , we add
+  // more 3 gemmk
+  InitParamsXDL universal_Parameters = {128, 128, 16, 64, 64, 0, false, false};
 
   int64_t obtainBlockSize(InitParamsXDL &params, int64_t waveSize) {
     return waveSize * params.gemmNPerBlock * params.gemmMPerBlock /
@@ -748,7 +754,7 @@ public:
     return initParameters;
   }
 
-  InitParamsXDL getExtraParameters() { return ExtraParameters; }
+  InitParamsXDL getUniversalParameters() { return universal_Parameters; }
 };
 
 #endif // MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
