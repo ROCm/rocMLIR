@@ -1457,7 +1457,7 @@ static LogicalResult populateHostHarnessLogic(
       block->push_back(printUnkownSizeMemRefCastOp);
 
       auto cpuMemConvertOp = makeFuncDecl(
-          builder, "mcpuMemBF16ConvertFloat",
+          builder, "mcpuMem5DBF16ConvertFloat",
           {fiveDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {});
       module.push_back(cpuMemConvertOp);
 
@@ -1650,7 +1650,7 @@ static LogicalResult populateValidationLogic(
   mlir::FuncOp mcpuMemCopy5DFuncOp;
   if (dataType == builder.getIntegerType(16)) { // bf16
     mcpuMemCopy5DFuncOp = makeFuncDecl(
-        builder, "mcpuMemBF16ConvertFloat",
+        builder, "mcpuMem5DBF16ConvertFloat",
         {fiveDimUnknownSizeMemRefType, fiveDimUnknownSizeFloatType}, {});
   } else { // fp32 or fp16
     mcpuMemCopy5DFuncOp = makeFuncDecl(
@@ -1916,10 +1916,6 @@ static LogicalResult populateCpuConvolutionLogic(
 
   auto fiveDimUnknownSizeMemRefType =
       MemRefType::get({-1, -1, -1, -1, -1}, dataType);
-  auto dataTypeMemRefCastOp =
-      builder.create<MemRefCastOp>(builder.getUnknownLoc(), cpuConvertedResults,
-                                   fiveDimUnknownSizeMemRefType);
-  block->push_back(dataTypeMemRefCastOp);
 
   if (dataType == builder.getIntegerType(16)) { // bf16 only
 
@@ -1928,9 +1924,14 @@ static LogicalResult populateCpuConvolutionLogic(
     block->push_back(printUnkownSizeMemRefCastOp);
 
     auto cpuMemConvertOp = makeFuncDecl(
-        builder, "mcpuMemBF16ConvertFloat",
+        builder, "mcpuMem5DBF16ConvertFloat",
         {fiveDimUnknownSizeMemRefType, fiveDimUnknownSizeFloatType}, {});
     module.push_back(cpuMemConvertOp);
+
+    auto dataTypeMemRefCastOp = builder.create<MemRefCastOp>(
+        builder.getUnknownLoc(), cpuConvertedResults,
+        fiveDimUnknownSizeMemRefType);
+    block->push_back(dataTypeMemRefCastOp);
 
     auto printMemConvertCallOp = builder.create<CallOp>(
         builder.getUnknownLoc(), cpuMemConvertOp,
@@ -1978,6 +1979,10 @@ static LogicalResult populateCpuConvolutionLogic(
   block->push_back(filterHostDeallocOp);
   block->push_back(inputHostDeallocOp);
   block->push_back(outputHostDeallocOp);
+
+  auto printDeallocOp =
+      builder.create<DeallocOp>(builder.getUnknownLoc(), printAllocOp);
+  block->push_back(printDeallocOp);
 
   auto returnOp =
       builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
