@@ -27,16 +27,6 @@
 using namespace mlir;
 using namespace llvm;
 
-static cl::opt<std::string> TunableParametersYAMLFile("tunable-parameters-yaml-file",
-                                                 cl::desc("Tunable parameters YAML file"),
-                                                 cl::value_desc("filename"),
-                                                 cl::Hidden);
-
-static cl::opt<bool> IsPopulateTunableParameters("populate-tunable-parameters-to-yaml-file",
-                                            cl::desc("Populate default tunable parameters to YAML file"),
-                                            cl::value_desc("bool"),
-                                            cl::init(false));
-
 namespace mlir {
 void registerFromMIOpenToCPPTranslation() {
   auto dialectRegistrar = [](DialectRegistry &registry) {

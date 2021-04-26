@@ -23,30 +23,6 @@ add_mlir_translation_library(MLIRTargetLLVMIRModuleTranslation
   MLIRTranslation
   )
 
-add_mlir_translation_library(MLIRTargetMIOpenCppTranslation
-  CppOutput/ConvertToMIOpenCPP.cpp
-  CppOutput/gridwise_convolution_implicit_gemm_v4r4.cpp
-  CppOutput/gridwise_convolution_implicit_gemm_v4r4_gen_xdlops.cpp
-
-  ADDITIONAL_HEADER_DIRS
-  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Target
-
-  DEPENDS
-  intrinsics_gen
-
-  LINK_COMPONENTS
-  Core
-  Support
-
-  LINK_LIBS PUBLIC
-  MLIRIR
-  MLIRLLVMIR
-  MLIRStandard
-  MLIRMIOpenOps
-  MLIRMIOpenTuning
-  MLIRTranslation
-  )
-
 add_mlir_translation_library(MLIRTargetAVX512
   LLVMIR/LLVMAVX512Intr.cpp
 
@@ -159,3 +135,4 @@ add_mlir_translation_library(MLIRTargetROCDLIR
   MLIRTargetLLVMIRModuleTranslation
   )
 
+add_subdirectory(CppOutput)
