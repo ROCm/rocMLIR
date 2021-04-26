@@ -1787,7 +1787,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr("source_layout", outputLayoutAttr));
 
         auto transformedFilterMemRefType =
-            MemRefType::get(transformedShape, filterElementType);
+            MemRefType::get(transformedShape, outputElementType);
         auto gemmA = b.create<miopen::TransformOp>(
             loc, transformedFilterMemRefType, op.output(), transformedAttrs);
         return gemmA;
@@ -1795,7 +1795,144 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       auto out_g_n_k_ydot_htilda_xdot_wtilda =
           getOut_g_n_k_ydot_htilda_xdot_wtilda();
-      return out_g_n_k_ydot_htilda_xdot_wtilda;
+      // return out_g_n_k_ydot_htilda_xdot_wtilda;
+      llvm::SmallVector<StringAttr, 7> secondOutputDimName;
+      auto getOut_g_n_k_ydotslice_htidaslice_xdotslice_wtildaslice =
+          [&](decltype(firtOutputDimName) &preDimName,
+              llvm::SmallVector<StringAttr, 7> &outputDimName) {
+            llvm::SmallVector<int64_t, 6> transformedShape;
+            // g
+            outputDimName.push_back(b.getStringAttr("go"));
+            transformedShape.push_back(g);
+            llvm::SmallVector<NamedAttribute, 5> gDimAttr{
+                b.getNamedAttr("dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                b.getNamedAttr("names",
+                               b.getArrayAttr({b.getStringAttr("go")})),
+                b.getNamedAttr("transformation",
+                               b.getStringAttr("PassThrough")),
+                b.getNamedAttr("source_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                b.getNamedAttr("source_names",
+                               b.getArrayAttr({preDimName[0]}))};
+
+            // n
+            outputDimName.push_back(b.getStringAttr("no"));
+            transformedShape.push_back(n);
+            llvm::SmallVector<NamedAttribute, 5> nDimAttr{
+                b.getNamedAttr("dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                b.getNamedAttr("names",
+                               b.getArrayAttr({b.getStringAttr("no")})),
+                b.getNamedAttr("transformation",
+                               b.getStringAttr("PassThrough")),
+                b.getNamedAttr("source_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                b.getNamedAttr("source_names",
+                               b.getArrayAttr({preDimName[1]}))};
+
+            // k
+            outputDimName.push_back(b.getStringAttr("ko"));
+            transformedShape.push_back(k);
+            llvm::SmallVector<NamedAttribute, 5> kDimAttr{
+                b.getNamedAttr("dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                b.getNamedAttr("names",
+                               b.getArrayAttr({b.getStringAttr("ko")})),
+                b.getNamedAttr("transformation",
+                               b.getStringAttr("PassThrough")),
+                b.getNamedAttr("source_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                b.getNamedAttr("source_names",
+                               b.getArrayAttr({preDimName[2]}))};
+
+            // slice ydot xdot
+            outputDimName.push_back(b.getStringAttr("ydotslice"));
+            outputDimName.push_back(b.getStringAttr("htildaslice"));
+
+            transformedShape.push_back(yDotSlice);
+            transformedShape.push_back(hTildaSlice);
+            transformedShape.push_back(xDotSlice);
+            transformedShape.push_back(wTildaSlice);
+
+            llvm::SmallVector<NamedAttribute, 6> yxDotSliceDimAttr{
+                b.getNamedAttr("dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(3),
+                                               b.getI32IntegerAttr(5)})),
+                b.getNamedAttr("names",
+                               b.getArrayAttr({b.getStringAttr("ydotslice"),
+                                               b.getStringAttr("xdotslice")})),
+                b.getNamedAttr("transformation", b.getStringAttr("Slice")),
+                b.getNamedAttr("begins", b.getArrayAttr({
+                                             b.getI32IntegerAttr(0),
+                                             b.getI32IntegerAttr(0),
+                                         })),
+                b.getNamedAttr("ends", b.getArrayAttr({
+                                           b.getI32IntegerAttr(yDotSlice),
+                                           b.getI32IntegerAttr(xDotSlice),
+                                       })),
+                b.getNamedAttr("source_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(3),
+                                               b.getI32IntegerAttr(5)})),
+                b.getNamedAttr("source_names",
+                               b.getArrayAttr({preDimName[3], preDimName[5]}))};
+
+            // hw tilda slice
+            outputDimName.push_back(b.getStringAttr("xdotslice"));
+            outputDimName.push_back(b.getStringAttr("wtildaslice"));
+
+            llvm::SmallVector<NamedAttribute, 6> hwTildaSliceDimAttr{
+                b.getNamedAttr("dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(4),
+                                               b.getI32IntegerAttr(6)})),
+                b.getNamedAttr(
+                    "names", b.getArrayAttr({b.getStringAttr("htildaslice"),
+                                             b.getStringAttr("wtildaslice")})),
+                b.getNamedAttr("transformation", b.getStringAttr("Slice")),
+                b.getNamedAttr("begins", b.getArrayAttr({
+                                             b.getI32IntegerAttr(iHTildaLeft),
+                                             b.getI32IntegerAttr(iWTildaLeft),
+                                         })),
+                b.getNamedAttr("ends", b.getArrayAttr({
+                                           b.getI32IntegerAttr(iHTildaRight),
+                                           b.getI32IntegerAttr(iWTildaRight),
+                                       })),
+                b.getNamedAttr("source_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(4),
+                                               b.getI32IntegerAttr(6)})),
+                b.getNamedAttr("source_names",
+                               b.getArrayAttr({preDimName[4], preDimName[6]}))};
+
+            llvm::SmallVector<NamedAttribute, 3> transformedAttrs;
+            transformedAttrs.push_back(b.getNamedAttr(
+                "layout",
+                b.getArrayAttr({b.getDictionaryAttr(gDimAttr),
+                                b.getDictionaryAttr(nDimAttr),
+                                b.getDictionaryAttr(kDimAttr),
+                                b.getDictionaryAttr(yxDotSliceDimAttr),
+                                b.getDictionaryAttr(hwTildaSliceDimAttr)})));
+            transformedAttrs.push_back(b.getNamedAttr(
+                "output_layout",
+                b.getArrayAttr(ArrayRef<Attribute>(outputDimName.begin(),
+                                                   outputDimName.end()))));
+
+            transformedAttrs.push_back(
+                b.getNamedAttr("intermediate_layout",
+                               b.getArrayAttr(ArrayRef<Attribute>(
+                                   preDimName.begin(), preDimName.end()))));
+
+            auto transformedMemRefType =
+                MemRefType::get(transformedShape, outputElementType);
+            auto gemmA = b.create<miopen::TransformOp>(
+                loc, transformedMemRefType,
+                ArrayRef<Value>(out_g_n_k_ydot_htilda_xdot_wtilda),
+                transformedAttrs);
+            return gemmA;
+          };
+      auto wei_g_k_c_ydotslice_ytidaslice_xdotslice_xtildaslice =
+          getOut_g_n_k_ydotslice_htidaslice_xdotslice_wtildaslice(
+              firtOutputDimName, secondOutputDimName);
+      return wei_g_k_c_ydotslice_ytidaslice_xdotslice_xtildaslice;
     };
     auto gemmA = getGemmA();
 
