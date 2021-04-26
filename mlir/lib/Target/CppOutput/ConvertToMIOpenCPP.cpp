@@ -73,10 +73,10 @@ void registerFromMIOpenToCPPTranslation() {
       "mlir-to-miopen-cpp-xdlops",
       [](ModuleOp module, llvm::raw_ostream &output) {
         auto sourceCode = mlir::translateModuleFromMIOpenToCppXDLOPS(module);
-        if (!sourceCode)
+        if (sourceCode.empty())
           return failure();
-  
-        output << *sourceCode;
+
+        output << sourceCode;
         return success();
       },
       dialectRegistrar);
@@ -85,10 +85,10 @@ void registerFromMIOpenToCPPTranslation() {
       "mlir-to-miopen-hpp-xdlops",
       [](ModuleOp module, llvm::raw_ostream &output) {
         auto sourceCode = mlir::translateModuleFromMIOpenToHeaderXDLOPS(module);
-        if (!sourceCode)
+        if (sourceCode.empty())
           return failure();
-  
-        output << *sourceCode;
+
+        output << sourceCode;
         return success();
       },
       dialectRegistrar);
@@ -97,10 +97,10 @@ void registerFromMIOpenToCPPTranslation() {
       "mlir-to-miopen-cflags-xdlops",
       [](ModuleOp module, llvm::raw_ostream &output) {
         auto sourceCode = mlir::translateModuleFromMIOpenToCFlagsXDLOPS(module);
-        if (!sourceCode)
+        if (sourceCode.empty())
           return failure();
-  
-        output << *sourceCode;
+
+        output << sourceCode;
         return success();
       },
       dialectRegistrar);

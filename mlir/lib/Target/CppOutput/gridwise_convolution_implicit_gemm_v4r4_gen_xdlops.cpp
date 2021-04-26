@@ -479,8 +479,7 @@ void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std
 
 } // anontmous namespace
 
-std::unique_ptr<llvm::StringRef>
-mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
+std::string mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
   std::string resultStr;
   llvm::raw_string_ostream output(resultStr);
 
@@ -724,11 +723,10 @@ mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
   }
 
   output.flush();
-  return std::make_unique<llvm::StringRef>(resultStr);
+  return resultStr;
 }
 
-std::unique_ptr<llvm::StringRef>
-mlir::translateModuleFromMIOpenToCppXDLOPS(ModuleOp m) {
+std::string mlir::translateModuleFromMIOpenToCppXDLOPS(ModuleOp m) {
   std::string resultStr;
   llvm::raw_string_ostream output(resultStr);
 
@@ -773,11 +771,10 @@ mlir::translateModuleFromMIOpenToCppXDLOPS(ModuleOp m) {
   }
 
   output.flush();
-  return std::make_unique<llvm::StringRef>(resultStr);
+  return resultStr;
 }
 
-std::unique_ptr<llvm::StringRef>
-mlir::translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m) {
+std::string mlir::translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m) {
   std::string resultStr;
   llvm::raw_string_ostream output(resultStr);
 
@@ -881,5 +878,5 @@ mlir::translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m) {
   }
 
   output.flush();
-  return std::make_unique<llvm::StringRef>(resultStr);
+  return resultStr;
 }
