@@ -773,6 +773,7 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   return cpuConvFuncOp;
 }
 
+// Cconvert CPU results of f32 to f16 or bf16
 static mlir::Value getConvertedCpuResults(ModuleOp &module, OpBuilder &builder,
                                           Block *block,
                                           mlir::Value cpuOriginalAllocOp,
@@ -1687,7 +1688,7 @@ static LogicalResult populateValidationLogic(
 
     mlir::Value memsetValue = zeroConstantIntOp;
 
-    // If using random data, mit CPU alloc and copy input data
+    // If using random data, emit CPU alloc and copy input data
     if (operation.getValue() == "conv2d" ||
         operation.getValue() == "conv2d_dummy") {
       cpuFilterHostAllocOp =
@@ -1830,7 +1831,7 @@ static LogicalResult populateCpuConvolutionLogic(
       ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
       floatType);
 
-  auto fiveDimUnknownSizeMemRefType =
+  auto fiveDimUnknownSizeFloatType =
       MemRefType::get({-1, -1, -1, -1, -1}, floatType);
 
   auto int16Type = builder.getIntegerType(16);
@@ -1840,7 +1841,7 @@ static LogicalResult populateCpuConvolutionLogic(
   StringRef memsetFuncName = "mcpuMemset5DFloatRand";
   auto mcpuMemset5DFuncOp = makeFuncDecl(
       builder, memsetFuncName,
-      {fiveDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
+      {fiveDimUnknownSizeFloatType, int16Type, int16Type, int32Type}, {});
   module.push_back(mcpuMemset5DFuncOp);
 
   // Populate initial values.
@@ -1878,38 +1879,80 @@ static LogicalResult populateCpuConvolutionLogic(
   block->push_back(cpuConvCallOp);
 
   mlir::Value cpuResults;
-  mlir::MemRefType desiredMemRefType;
+  mlir::MemRefType dataTypeMemRefType, floatMemRefType;
   if (operation.getValue() == "conv2d" ||
       operation.getValue() == "conv2d_dummy") {
     cpuResults = cpuOutputHostAllocOp;
-    desiredMemRefType = MemRefType::get(
+    floatMemRefType = outputMemRefType;
+    dataTypeMemRefType = MemRefType::get(
         ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
         dataType);
   } else if (operation.getValue() == "conv2d_bwd_data") {
     cpuResults = cpuInputHostAllocOp;
-    desiredMemRefType = MemRefType::get(
+    floatMemRefType = inputMemRefType;
+    dataTypeMemRefType = MemRefType::get(
         ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
         dataType);
   } else if (operation.getValue() == "conv2d_bwd_weight") {
     cpuResults = cpuFilterHostAllocOp;
-    desiredMemRefType = MemRefType::get(
+    floatMemRefType = filterMemRefType;
+    dataTypeMemRefType = MemRefType::get(
         ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
         dataType);
   }
 
-  // Emit AllocOp for converted CPU results
   mlir::Value cpuConvertedResults;
   if (dataType == builder.getF32Type())
     cpuConvertedResults = cpuResults;
   else
+    // Convert Cpu results of f32 to desired dataType
     cpuConvertedResults = getConvertedCpuResults(
-        module, builder, block, cpuResults, desiredMemRefType, dataType);
+        module, builder, block, cpuResults, dataTypeMemRefType, dataType);
+
+  // Convert CPU results to f32 for printing
+  auto printAllocOp =
+      builder.create<AllocOp>(builder.getUnknownLoc(), floatMemRefType);
+  block->push_back(printAllocOp);
+
+  auto fiveDimUnknownSizeMemRefType =
+      MemRefType::get({-1, -1, -1, -1, -1}, dataType);
+  auto dataTypeMemRefCastOp =
+      builder.create<MemRefCastOp>(builder.getUnknownLoc(), cpuConvertedResults,
+                                   fiveDimUnknownSizeMemRefType);
+  block->push_back(dataTypeMemRefCastOp);
+
+  if (dataType == builder.getIntegerType(16)) { // bf16 only
+
+    auto printUnkownSizeMemRefCastOp = builder.create<MemRefCastOp>(
+        builder.getUnknownLoc(), printAllocOp, fiveDimUnknownSizeFloatType);
+    block->push_back(printUnkownSizeMemRefCastOp);
+
+    auto cpuMemConvertOp = makeFuncDecl(
+        builder, "mcpuMemBF16ConvertFloat",
+        {fiveDimUnknownSizeMemRefType, fiveDimUnknownSizeFloatType}, {});
+    module.push_back(cpuMemConvertOp);
+
+    auto printMemConvertCallOp = builder.create<CallOp>(
+        builder.getUnknownLoc(), cpuMemConvertOp,
+        ValueRange{dataTypeMemRefCastOp, printUnkownSizeMemRefCastOp});
+    block->push_back(printMemConvertCallOp);
+
+  } else { // f32 or f16
+    // Emit type conversion routine to convert every element to f32.
+    std::unordered_map<std::string, FuncOp> convertFuncs;
+    auto convertResultFuncOp = createConvertTensor(
+        module, builder, dataTypeMemRefType, floatMemRefType, convertFuncs);
+    auto convertResultCallOp =
+        builder.create<CallOp>(builder.getUnknownLoc(), convertResultFuncOp,
+                               ValueRange{cpuConvertedResults, printAllocOp});
+    block->push_back(convertResultCallOp);
+  }
 
   // Emit print function call.
   StringRef printMemRefFuncName = "print_memref_f32";
   auto unrankedMemRefType = UnrankedMemRefType::get(builder.getF32Type(), 0);
   auto printMemRefCastOp = builder.create<MemRefCastOp>(
-      builder.getUnknownLoc(), cpuConvertedResults, unrankedMemRefType);
+      builder.getUnknownLoc(), printAllocOp, unrankedMemRefType);
   auto printMemRefFuncOp =
       makeFuncDecl(builder, printMemRefFuncName, {unrankedMemRefType}, {});
   auto printMemRefCallOp =
