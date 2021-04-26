@@ -219,8 +219,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       gemmM_size = k;
       gemmK_size = c * y * x;
       gemmN_size = n * ho * wo;
-
-      llvm::errs() << n << " " << ho << " " << wo << "\n";
     } else if (convOpType == miopen::ConvOpType::Conv2DBwdDataOpType) {
       gemmM_size = c;
       gemmK_size = k * y * x;
