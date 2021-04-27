@@ -114,14 +114,16 @@ void LowerMIOpenOpsStep1Pass::runOnOperation() {
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(&getContext());
   patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>>(
       &getContext());
-  (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+    signalPassFailure();
 }
 
 void LowerMIOpenOpsStep2Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<GridwiseGemmRewritePattern>(&getContext());
   patterns.insert<GridwiseGemmV2RewritePattern>(&getContext());
-  (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+    signalPassFailure();
 }
 
 void LowerMIOpenOpsStep3Pass::runOnOperation() {
@@ -133,7 +135,8 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
   patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
   patterns.insert<BlockwiseGemmV2RewritePattern>(&getContext());
   patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
-  (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+    signalPassFailure();
 }
 
 void LowerMIOpenOpsStep4Pass::runOnOperation() {
@@ -142,14 +145,16 @@ void LowerMIOpenOpsStep4Pass::runOnOperation() {
   patterns.insert<ThreadwiseCopyRewritePattern>(&getContext());
   patterns.insert<ThreadwiseCopyV2RewritePattern>(&getContext());
   patterns.insert<XdlopsGemmV2RewritePattern>(&getContext());
-  (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+    signalPassFailure();
 }
 
 void LowerMIOpenOpsStep5Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   populateAffineToStdConversionPatterns(patterns, &getContext());
   populateLoopToStdConversionPatterns(patterns, &getContext());
-  (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+    signalPassFailure();
 }
 
 std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep1Pass() {
