@@ -69,7 +69,7 @@
 // BF16-NEXT: call @mcpuMemset5DBF16Rand({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
 // BF16-NEXT: call @gpu_conv({{.*}}, {{.*}}, {{.*}}) : (memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>) -> ()
 // BF16-NEXT: memref_cast %{{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE]]> to memref<?x?x?x?x?x[[PRINT_TYPE]]>
-// BF16-NEXT: call @mcpuMemBF16ConvertFloat({{.*}}, {{.*}}) : (memref<?x?x?x?x?xi16>, memref<?x?x?x?x?xf32>) -> ()
+// BF16-NEXT: call @mcpuMem5DBF16ConvertFloat({{.*}}, {{.*}}) : (memref<?x?x?x?x?xi16>, memref<?x?x?x?x?xf32>) -> ()
 // BF16-NEXT: memref_cast %{{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE]]> to memref<*x[[PRINT_TYPE]]>
 // BF16-NEXT: call @print_memref_f32(%{{.*}}) : (memref<*x[[PRINT_TYPE]]>) -> ()
 // BF16-NEXT: dealloc {{.*}} : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
