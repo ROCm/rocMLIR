@@ -97,12 +97,21 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
             if (leftPad == 0 && rightPad != 0) {
               auto expr_div = getAffineDimExpr(destDim, op.getContext())
                                   .ceilDiv(inputShape[srcDim]);
-              // w=14 0-13 right pad =1 ,left pad =0 => 0-14 become 0-13 ,15 =>
-              // oob check will drop 15 we use ceildiv -1 instead of floordiv
-              // due to oob check need minus - symbol
+              // w=14 0-13 right pad =1 ,left pad =0 , the dst is 0-14 <=14 is
+              // the padding block we want to let 0-13 not do transformation,
+              // because dst[0-13]=src[0-13] but if we do not do transformation
+              // ,no affine map generated , and we can't check out of boundary
+              // when miopen-lowering-step4 because of if no affinemap no out of
+              // boundary check, so we will load dst[14], it's not a real memory
+              // address the idea of fixing it is: dst[0-13] not do transform ,
+              // dst[14] do transform with minus src_index = dst_index +
+              // ceil(dst_index/14) -1 , src[0]= dst[0]+1-1=0+1-1=0        <=
+              // when out of boundary check, it can load src[13]=
+              // dst[13]+1-1=13+1-1=13    <= when out of boundary check, it can
+              // load src[14]= dst[14]+2-1=14+2-1=15    <= the padding slot
+              // ,when out of boundary check ,it will not load
               expr = getAffineDimExpr(destDim, op.getContext()) +
-                     getAffineConstantExpr(-leftPad - 1, op.getContext()) +
-                     expr_div;
+                     getAffineConstantExpr(-1, op.getContext()) + expr_div;
             }
             affExprsMap.insert({srcDim, expr});
           }
