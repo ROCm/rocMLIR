@@ -5419,12 +5419,6 @@ struct BlockwiseGemmV2RewritePattern
     int64_t NPerWave =
         op->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
 
-    auto dataType = op.matrixA()
-                        .getType()
-                        .template dyn_cast<MemRefType>()
-                        .getElementType()
-                        .template dyn_cast<FloatType>();
-
     // Original C++ logic.
     // static constexpr index_t MRepeats = (GemmMPerWave > 64) ? (GemmMPerWave /
     // 64) : 1; static constexpr index_t NRepeats = (GemmNPerWave > 64) ?
