@@ -490,6 +490,11 @@ private:
     {64, 32, 32, 4, 2, 2}};
   // clang-format on
 
+  // if can't select config from above , use this config to do
+  // padding kernel for example , GemmK/block is 16 , if your gemmK is  13 , we
+  // add more 3 gemmk
+  InitParams universal_Parameters = {64, 64, 16};
+
   LogicalResult
   calculateGemmABlockCopyPerformanceParameters(InitParamsNonXDL *param,
                                                ConvolutionContext &ctx,
@@ -611,6 +616,12 @@ public:
                               DerivedParams &gemmBDerivedParam,
                               DerivedBlockGemmParams &blockGemmDerivedParam,
                               int64_t &gemmCDstPerWrite, int64_t &gridSize);
+
+  llvm::SmallVector<InitParamsNonXDL, 8> getTuningParameters() {
+    return initParameters;
+  }
+
+  InitParams getUniversalParameters() { return universal_Parameters; }
 };
 
 class PopulateParamsXDL : public PopulateParamsBase {
@@ -626,6 +637,11 @@ private:
       {16, 16, 4, 16, 16, 0, false, false},
   };
   const int64_t waveSize = 64;
+
+  // if can't select config from above , use this config to do
+  // padding kernel for example , GEMMK/block is 16 , if your gemmK is  13 , we
+  // add more 3 gemmk
+  InitParams universal_Parameters = {128, 128, 16};
 
   int64_t obtainBlockSize(InitParamsXDL &params, int64_t waveSize) {
     return waveSize * params.gemmNPerBlock * params.gemmMPerBlock /
@@ -733,6 +749,12 @@ public:
                               DerivedParams &gemmADerivedParam,
                               DerivedParams &gemmBDerivedParam,
                               int64_t &blockSize, int64_t &gridSize);
+
+  llvm::SmallVector<InitParamsXDL, 4> getTuningParameters() {
+    return initParameters;
+  }
+
+  InitParams getUniversalParameters() { return universal_Parameters; }
 };
 
 #endif // MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
