@@ -104,8 +104,7 @@ static unsigned short float_to_fp16(float src_val,
 
 extern "C" hipModule_t mgpuModuleLoad(void *data) {
   hipModule_t module = nullptr;
-  int32_t err =
-      reportErrorIfAny(hipModuleLoadData(&module, data), "ModuleLoad");
+  (void)reportErrorIfAny(hipModuleLoadData(&module, data), "ModuleLoad");
   return module;
 }
 
@@ -116,8 +115,8 @@ extern "C" void mgpuModuleUnload(hipModule_t module) {
 extern "C" hipFunction_t mgpuModuleGetFunction(hipModule_t module,
                                                const char *name) {
   hipFunction_t function = nullptr;
-  int32_t err = reportErrorIfAny(hipModuleGetFunction(&function, module, name),
-                                 "GetFunction");
+  (void)reportErrorIfAny(hipModuleGetFunction(&function, module, name),
+                         "GetFunction");
   return function;
 }
 

@@ -952,7 +952,6 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   }
   auto thenBody = ifOp.getThenBodyBuilder();
 
-  auto storeOp0 =
       thenBody.create<StoreOp>(builder.getUnknownLoc(), c0ConstantInt32Op,
                                cmpResultAllocOp, ValueRange{c0IndexOp});
 
@@ -2190,7 +2189,7 @@ int main(int argc, char **argv) {
       exit(1);
     }
   } else {
-    conv2dGenerator.parseConvDims(
+    (void)conv2dGenerator.parseConvDims(
         batchSize, groupSize, inputChannel, inputHeight, inputWidth,
         outputChannel, outputHeight, outputWidth, filterWidth, filterHeight);
   }
