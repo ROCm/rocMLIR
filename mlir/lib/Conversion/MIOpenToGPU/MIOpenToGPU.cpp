@@ -350,7 +350,7 @@ void LowerMIOpenOpsWithinGPUModulePass::runOnOperation() {
   populateAffineToStdConversionPatterns(patterns, &getContext());
   populateLoopToStdConversionPatterns(patterns, &getContext());
 
-  applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+  (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
 }
 
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
