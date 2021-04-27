@@ -171,10 +171,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto strideW =
         stridesAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
 
-    // get y, x, ho, wo, hi, wi, g, k, c, n
-    int64_t y, x, ho, wo, hi, wi, g, k, c, n;
+    // get y, x, ho, wo, hi, wi, k, c, n
+    int64_t y, x, ho, wo, hi, wi, k, c, n;
     y = x = ho = wo = hi = wi = k = c = n = 0;
-    g = 1; // if input is 4 dim , g = 1
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
@@ -191,8 +190,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         k = filterShape[i];
       } else if (filterAttr.getValue() == "c") {
         c = filterShape[i];
-      } else if (filterAttr.getValue() == "g") {
-        g = filterShape[i];
       }
 
       if (inputAttr.getValue() == "hi") {
@@ -235,14 +232,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
       isXdlops = true;
 
-    auto calculatePaddingKernelSize =
-        [
-          &needExtraPad, gemmM_size, gemmN_size, gemmK_size, &gemmM_extra,
-          &gemmN_extra, &gemmK_extra
-        ](auto populateParams) mutable throw()
-            ->void {
+    auto calculatePaddingKernelSize = [&needExtraPad, gemmM_size, gemmN_size,
+                                       gemmK_size, &gemmM_extra, &gemmN_extra,
+                                       &gemmK_extra](auto populateParams) {
       auto config_params = populateParams.getTuningParameters();
-      int numOfFailedConfigs = 0;
+      unsigned numOfFailedConfigs = 0;
       for (auto &params : config_params) {
         if (gemmM_size % params.gemmMPerBlock == 0 &&
             gemmK_size % params.gemmKPerBlock == 0 &&
