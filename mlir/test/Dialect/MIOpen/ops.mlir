@@ -144,7 +144,7 @@ func @miopen_transform_1_to_1(%memref: memref<?x?x?x?x?xf32>) {
         dimensions = [3],
         names = ["hipad"],
         transformation = "Pad",
-        parameters = [1, 1],
+        parameters = [1, 1, 1, 1],
         source_dimensions = [3],
         source_names = ["hi"]
       },
@@ -152,7 +152,7 @@ func @miopen_transform_1_to_1(%memref: memref<?x?x?x?x?xf32>) {
         dimensions = [4],
         names = ["wipad"],
         transformation = "Pad",
-        parameters = [2, 2],
+        parameters = [2, 2, 2, 2],
         source_dimensions = [4],
         source_names = ["wi"]
       }

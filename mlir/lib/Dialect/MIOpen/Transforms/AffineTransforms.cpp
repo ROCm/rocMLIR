@@ -59,14 +59,53 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
         assert(srcDimAttr.size() == destDimAttr.size());
 
         auto parameters = dimLayoutAttr.get("parameters").dyn_cast<ArrayAttr>();
-        auto leftPad = parameters.getValue()[0].dyn_cast<IntegerAttr>().getInt();
-        auto rightPad = parameters.getValue()[0].dyn_cast<IntegerAttr>().getInt();
-        for (unsigned j = 0; j < srcDimAttr.size(); ++j) {
-          auto srcDim = srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
-          auto destDim = destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+        // support 2 format of paddding parameters
+        // first is [0, 1] leftpadH = rightPadH = 0, leftpadW = rightPadW = 1
+        if (parameters.size() == 2) {
+          auto leftPad =
+              parameters.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+          auto rightPad =
+              parameters.getValue()[0].dyn_cast<IntegerAttr>().getInt();
 
-          auto expr = getAffineDimExpr(destDim, op.getContext()) + getAffineConstantExpr(-leftPad, op.getContext());
-          affExprsMap.insert({srcDim, expr});
+          for (unsigned j = 0; j < srcDimAttr.size(); ++j) {
+            auto srcDim =
+                srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+            auto destDim =
+                destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+
+            auto expr = getAffineDimExpr(destDim, op.getContext()) +
+                        getAffineConstantExpr(-leftPad, op.getContext());
+            affExprsMap.insert({srcDim, expr});
+          }
+        } else { // second is [0, 2, 3, 1] leftpadH = 0 rightPadH =2 leftpadW =
+                 // 3 rightPadW = 1
+          for (unsigned j = 0; j < srcDimAttr.size(); ++j) {
+            auto leftPad =
+                parameters.getValue()[j * 2].dyn_cast<IntegerAttr>().getInt();
+            auto rightPad = parameters.getValue()[j * 2 + 1]
+                                .dyn_cast<IntegerAttr>()
+                                .getInt();
+
+            auto srcDim =
+                srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+            auto destDim =
+                destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+
+            auto expr = getAffineDimExpr(destDim, op.getContext()) +
+                        getAffineConstantExpr(-leftPad, op.getContext());
+
+            if (leftPad == 0 && rightPad != 0) {
+              auto expr_div = getAffineDimExpr(destDim, op.getContext())
+                                  .ceilDiv(inputShape[srcDim]);
+              // w=14 0-13 right pad =1 ,left pad =0 => 0-14 become 0-13 ,15 =>
+              // oob check will drop 15 we use ceildiv -1 instead of floordiv
+              // due to oob check need minus - symbol
+              expr = getAffineDimExpr(destDim, op.getContext()) +
+                     getAffineConstantExpr(-leftPad - 1, op.getContext()) +
+                     expr_div;
+            }
+            affExprsMap.insert({srcDim, expr});
+          }
         }
       } else if (transformAttr.getValue() == "Merge" ||
                  transformAttr.getValue() == "Unfold") {
