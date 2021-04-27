@@ -225,7 +225,8 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
 
   // Annotate kernel attribute to the FuncOp.
   SmallVector<NamedAttribute, 1> kernelAttrs{
-      builder.getNamedAttr("kernel", builder.getI32IntegerAttr(config.kernelId)),
+      builder.getNamedAttr("kernel",
+                           builder.getI32IntegerAttr(config.kernelId)),
   };
 
   // Construct the FuncOp.
@@ -294,33 +295,33 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
                    func.getArgument(2)},
         attributes);
     block->push_front(convOp);
-  } else {    
+  } else {
     if (config.operation == "conv2d") {
       auto convOp = builder.create<miopen::Conv2DOp>(
           builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
           ValueRange{func.getArgument(0), func.getArgument(1),
-                func.getArgument(2)},
+                     func.getArgument(2)},
           attributes);
       block->push_front(convOp);
     } else if (config.operation == "conv2d_bwd_data") {
       auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
           builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
           ValueRange{func.getArgument(0), func.getArgument(1),
-                func.getArgument(2)},
+                     func.getArgument(2)},
           attributes);
       block->push_front(convOp);
     } else if (config.operation == "conv2d_bwd_weight") {
       auto convOp = builder.create<miopen::Conv2DBwdWeightOp>(
           builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
           ValueRange{func.getArgument(0), func.getArgument(1),
-                func.getArgument(2)},
+                     func.getArgument(2)},
           attributes);
       block->push_back(convOp);
     } else if (config.operation == "conv2d_dummy") {
       auto convOp = builder.create<miopen::Conv2DDummyOp>(
           builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
           ValueRange{func.getArgument(0), func.getArgument(1),
-                func.getArgument(2)},
+                     func.getArgument(2)},
           attributes);
       block->push_front(convOp);
     }
