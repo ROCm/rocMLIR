@@ -6,6 +6,7 @@ llvm_canonicalize_cmake_booleans(
 # Passed to lit.site.cfg.py.in to set up the path where to find the libraries
 # for linalg integration tests.
 set(MLIR_DIALECT_LINALG_INTEGRATION_TEST_LIB_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+set(MLIR_RUNNER_UTILS_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 
 # Passed to lit.site.cfg.py.in to set up the path where to find the libraries
 # for the mlir cuda / rocm / spirv / vulkan runner tests.
@@ -35,9 +36,16 @@ set(MLIR_E2E_TEST_DEPENDS
   mlir-miopen-lib-test
   mlir-opt
   mlir-translate
+  mlir_runner_utils
   opt
   llc
   )
+
+if(MLIR_ROCM_RUNNER_ENABLED)
+	list(APPEND MLIR_E2E_TEST_DEPENDS
+    mlir-rocm-runner
+  )
+endif()
 
 # check-e2e runs MLIR E2E tests with or without -x2 or -rand flags
 add_lit_testsuite(check-e2e "Running the MLIR end-to-end tests"
