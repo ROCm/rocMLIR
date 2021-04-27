@@ -63,7 +63,7 @@ struct LowerGpuOpsToROCDLOpsPass
     OwningRewritePatternList patterns, llvmPatterns;
 
     populateGpuRewritePatterns(m.getContext(), patterns);
-    applyPatternsAndFoldGreedily(m, std::move(patterns));
+    (void)applyPatternsAndFoldGreedily(m, std::move(patterns));
 
     populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
     populateVectorToROCDLConversionPatterns(converter, llvmPatterns);
@@ -313,7 +313,6 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     auto adaptorValue = adaptor.value();
 
     Type valueType = mubufStoreOp.value().getType();
-    Type LLVMValueType = typeConverter->convertType(valueType);
 
     // use standard store for storing scalar f16 and i16 (bf16).
     if ((dstElementType.getIntOrFloatBitWidth() != 32) &&
@@ -456,13 +455,11 @@ struct AtomicFAddOpLowering : ConvertToLLVMPattern {
 
     MemRefType dstMemRefType =
         atomicAddOp.memref().getType().cast<MemRefType>();
-    Type dstElementType = dstMemRefType.getElementType();
     auto dstShape = dstMemRefType.getShape();
     auto adaptorIndices = adaptor.indices();
     auto adaptorValue = adaptor.value();
 
     Type valueType = atomicAddOp.value().getType();
-    Type LLVMValueType = typeConverter->convertType(valueType);
 
     // use rocdl.atomic_add.
 

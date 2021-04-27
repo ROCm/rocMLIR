@@ -1247,10 +1247,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   }
 };
 
-// Explicitly instantiate the template to operation type
-template struct Conv2DRewritePattern<miopen::Conv2DOp>;
-template struct Conv2DRewritePattern<miopen::Conv2DBwdDataOp>;
-template struct Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>;
+// Delcaration of static member variables of Conv2DRewritePattern template.
+template <typename T> typename Conv2DRewritePattern<T>::ArgumentFields fields;
+template <typename T> typename Conv2DRewritePattern<T>::ConvOpType convOpType;
 
 //===----------------------------------------------------------------------===//
 // Assigning attributes.
