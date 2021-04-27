@@ -77,6 +77,7 @@ struct LowerMIOpenOpsStep5Pass
 // hight level convolution operations is the argument sequence. For
 // simplicity, we always arrange the first two arguments to be input
 // and the last argument to be output
+
 template <>
 const ArgumentFields Conv2DRewritePattern<miopen::Conv2DOp>::fields = {
     {0, 1, 2},
@@ -107,6 +108,11 @@ template <>
 const miopen::ConvOpType
     Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>::convOpType =
         miopen::ConvOpType::Conv2DBwdWeightOpType;
+
+// Explicitly instantiate the template to operation type
+template struct Conv2DRewritePattern<miopen::Conv2DOp>;
+template struct Conv2DRewritePattern<miopen::Conv2DBwdDataOp>;
+template struct Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>;
 
 void LowerMIOpenOpsStep1Pass::runOnOperation() {
   OwningRewritePatternList patterns;
