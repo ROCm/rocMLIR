@@ -67,7 +67,7 @@ typedef void *MiirHandle;
 
 extern "C" int miirGetKernelCount(const char *arguments) {
   return Conv2dGenerator::getKernelCount(arguments);
-};
+}
 
 extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   mlir::registerAllPasses();

@@ -220,7 +220,6 @@ public:
   }
   static void obtainOutputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
-    auto g = dimIndexVal["g"].second;
     if (dimIndexVal["ko"].first == 4) {
       vecLen = dimIndexVal["ko"].second;
     } else if (dimIndexVal["ko"].first == 1) {
