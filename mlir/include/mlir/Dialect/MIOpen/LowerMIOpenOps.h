@@ -2008,7 +2008,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                preOutputDimName.end()))));
 
         transformedAttrs.push_back(b.getNamedAttr(
-            "gridwise_gemm_argument_position", b.getI32IntegerAttr(0)));
+            "gridwise_gemm_argument_position", b.getI32IntegerAttr(1)));
 
         auto transformedMemRefType =
             MemRefType::get(transformedShape, outputElementType);
@@ -2456,7 +2456,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                preOutputDimName.end()))));
 
         transformedAttrs.push_back(b.getNamedAttr(
-            "gridwise_gemm_argument_position", b.getI32IntegerAttr(0)));
+            "gridwise_gemm_argument_position", b.getI32IntegerAttr(2)));
 
         auto transformedMemRefType =
             MemRefType::get(transformedShape, outputElementType);
