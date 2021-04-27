@@ -1292,21 +1292,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
                gop->getAttr("matrix_c_dest_data_per_write"));
 }
 
-static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
-  top->setAttr("dim_access_order", b.getArrayAttr({
-                                       b.getI32IntegerAttr(0),
-                                       b.getI32IntegerAttr(1),
-                                       b.getI32IntegerAttr(2),
-                                       b.getI32IntegerAttr(3),
-                                       b.getI32IntegerAttr(4),
-                                   }));
-  top->setAttr("vector_read_write_dim",
-               gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
-  top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
-  top->setAttr("dest_data_per_write",
-               gop->getAttr("matrix_c_dest_data_per_write"));
-}
-
 static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
   top->setAttr("dim_access_order", b.getArrayAttr({
                                        b.getI32IntegerAttr(0),
