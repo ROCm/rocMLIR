@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Quant/QuantOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Traits.h"
+#include "mlir/Dialect/Tosa/IR/TosaOpTraits.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
