@@ -26,9 +26,6 @@
 
 using namespace mlir;
 
-extern llvm::cl::opt<std::string> TunableParametersYAMLFile;
-extern llvm::cl::opt<bool> IsPopulateTunableParameters;
-
 LLVM_YAML_IS_STRING_MAP(int)
 
 // greatest common divisor, aka highest common factor

@@ -27,16 +27,6 @@
 using namespace mlir;
 using namespace llvm;
 
-cl::opt<std::string> TunableParametersYAMLFile("tunable-parameters-yaml-file",
-                                                      cl::desc("Tunable parameters YAML file"),
-                                                      cl::value_desc("filename"),
-                                                      cl::Hidden);
-
-cl::opt<bool> IsPopulateTunableParameters("populate-tunable-parameters-to-yaml-file",
-                                                 cl::desc("Populate default tunable parameters to YAML file"),
-                                                 cl::value_desc("bool"),
-                                                 cl::init(false));
-
 namespace mlir {
 void registerFromMIOpenToCPPTranslation() {
   auto dialectRegistrar = [](DialectRegistry &registry) {
@@ -83,10 +73,10 @@ void registerFromMIOpenToCPPTranslation() {
       "mlir-to-miopen-cpp-xdlops",
       [](ModuleOp module, llvm::raw_ostream &output) {
         auto sourceCode = mlir::translateModuleFromMIOpenToCppXDLOPS(module);
-        if (!sourceCode)
+        if (sourceCode.empty())
           return failure();
-  
-        output << *sourceCode;
+
+        output << sourceCode;
         return success();
       },
       dialectRegistrar);
@@ -95,10 +85,10 @@ void registerFromMIOpenToCPPTranslation() {
       "mlir-to-miopen-hpp-xdlops",
       [](ModuleOp module, llvm::raw_ostream &output) {
         auto sourceCode = mlir::translateModuleFromMIOpenToHeaderXDLOPS(module);
-        if (!sourceCode)
+        if (sourceCode.empty())
           return failure();
-  
-        output << *sourceCode;
+
+        output << sourceCode;
         return success();
       },
       dialectRegistrar);
@@ -107,10 +97,10 @@ void registerFromMIOpenToCPPTranslation() {
       "mlir-to-miopen-cflags-xdlops",
       [](ModuleOp module, llvm::raw_ostream &output) {
         auto sourceCode = mlir::translateModuleFromMIOpenToCFlagsXDLOPS(module);
-        if (!sourceCode)
+        if (sourceCode.empty())
           return failure();
-  
-        output << *sourceCode;
+
+        output << sourceCode;
         return success();
       },
       dialectRegistrar);
