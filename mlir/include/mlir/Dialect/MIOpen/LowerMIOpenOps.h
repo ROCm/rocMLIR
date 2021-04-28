@@ -1209,22 +1209,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto outputShape = outputType.getShape();
     auto outputElementType = outputType.getElementType();
 
-    // HO/WO dimension for output tensor.
-    int64_t outputHDim, outputWDim;
-
-    // Find Ho/Wo dimension for output tensor. They will be used in
-    // transforming input tensor.
-    for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
-      if (auto strAttr =
-              outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
-        if (strAttr.getValue() == "ho") {
-          outputHDim = i;
-        } else if (strAttr.getValue() == "wo") {
-          outputWDim = i;
-        }
-      }
-    }
-
     // Obtain convolution parameters: padding / dialtion / stride.
     auto leftPadH =
         paddingAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
@@ -1304,7 +1288,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto iHTildaRight = std::min(
       hTilda, math::integer_divide_ceil(leftPadH + hi -1, strideH) + 1);
     auto iWTildaRight = std::min(
-      wTilda, math::integer_divide_ceil(leftPadW + hi -1, strideW) + 1);
+        wTilda, math::integer_divide_ceil(leftPadW + wi - 1, strideW) + 1);
 
     auto hTildaSlice = iHTildaRight - iHTildaLeft;
     auto wTildaSlice = iWTildaRight - iWTildaLeft;
@@ -1331,16 +1315,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       //wei_g_k_c_ydot_ytilda_xdot_xtilda
       llvm::SmallVector<StringAttr, 7> firtFilterDimName;
       auto getWei_g_k_c_ydot_ytilda_xdot_xtilda = [&]() {
-        // llvm::SmallVector<StringAttr, 6> firtFilterDimName;
+        decltype(firtFilterDimName) &curOutputDimName = firtFilterDimName;
         llvm::SmallVector<int64_t, 6> transformedFilterShape;
         llvm::SmallVector<NamedAttribute, 3> transformedFilterAttrs;
         // g
-        firtFilterDimName.push_back(b.getStringAttr("g"));
+        curOutputDimName.push_back(b.getStringAttr("g"));
         transformedFilterShape.push_back(g);
         llvm::SmallVector<NamedAttribute, 5> gDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("g")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
                 "source_dimensions",
@@ -1349,12 +1333,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            b.getArrayAttr({b.getStringAttr("g")}))};
 
         // k
-        firtFilterDimName.push_back(b.getStringAttr("k"));
+        curOutputDimName.push_back(b.getStringAttr("k"));
         transformedFilterShape.push_back(k);
         llvm::SmallVector<NamedAttribute, 5> kDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(1)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("k")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
                 "source_dimensions",
@@ -1363,12 +1347,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            b.getArrayAttr({b.getStringAttr("k")}))};
 
         // c
-        firtFilterDimName.push_back(b.getStringAttr("c"));
+        curOutputDimName.push_back(b.getStringAttr("c"));
         transformedFilterShape.push_back(c);
         llvm::SmallVector<NamedAttribute, 5> cDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(2)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("c")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
                 "source_dimensions",
@@ -1377,17 +1361,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            b.getArrayAttr({b.getStringAttr("c")}))};
 
         // y
-        firtFilterDimName.push_back(b.getStringAttr("ydot"));
-        firtFilterDimName.push_back(b.getStringAttr("ytilda"));
+        curOutputDimName.push_back(b.getStringAttr("ydot"));
+        curOutputDimName.push_back(b.getStringAttr("ytilda"));
         transformedFilterShape.push_back(yDot);
         transformedFilterShape.push_back(yTilda);
         llvm::SmallVector<NamedAttribute, 6> yDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(3),
                                            b.getI32IntegerAttr(4)})),
-            b.getNamedAttr("names",
-                           b.getArrayAttr({b.getStringAttr("ydot"),
-                                           b.getStringAttr("ytilda")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+                                                    curOutputDimName[4]})),
             b.getNamedAttr("transformation", b.getStringAttr("Embed")),
             b.getNamedAttr("parameters", b.getArrayAttr({
                                              b.getI32IntegerAttr(
@@ -1402,17 +1385,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            b.getArrayAttr({b.getStringAttr("y")}))};
 
         // x
-        firtFilterDimName.push_back(b.getStringAttr("xdot"));
-        firtFilterDimName.push_back(b.getStringAttr("xtilda"));
+        curOutputDimName.push_back(b.getStringAttr("xdot"));
+        curOutputDimName.push_back(b.getStringAttr("xtilda"));
         transformedFilterShape.push_back(xDot);
         transformedFilterShape.push_back(xTilda);
         llvm::SmallVector<NamedAttribute, 6> xDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(5),
                                            b.getI32IntegerAttr(6)})),
-            b.getNamedAttr("names",
-                           b.getArrayAttr({b.getStringAttr("xdot"),
-                                           b.getStringAttr("xtilda")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[5],
+                                                    curOutputDimName[6]})),
             b.getNamedAttr("transformation", b.getStringAttr("Embed")),
             b.getNamedAttr("parameters", b.getArrayAttr({
                                              b.getI32IntegerAttr(
@@ -1435,11 +1417,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                     })));
         transformedFilterAttrs.push_back(b.getNamedAttr(
             "output_layout",
-            b.getArrayAttr(ArrayRef<Attribute>(firtFilterDimName.begin(),
-                                               firtFilterDimName.end()))));
+            b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
+                                               curOutputDimName.end()))));
 
-        transformedFilterAttrs.push_back(b.getNamedAttr(
-          "source_layout", inputLayoutAttr));
+        transformedFilterAttrs.push_back(
+            b.getNamedAttr("source_layout", filterLayoutAttr));
 
         auto transformedFilterMemRefType =
             MemRefType::get(transformedFilterShape, filterElementType);
@@ -1455,15 +1437,15 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       llvm::SmallVector<StringAttr, 7> secondFilterDimName;
       auto getWei_g_k_c_ydotslice_ytidaslice_xdotslice_xtildaslice =
           [&](decltype(firtFilterDimName) &preOutputDimName,
-              llvm::SmallVector<StringAttr, 7> &filterDimName) {
+              llvm::SmallVector<StringAttr, 7> &curOutputDimName) {
             llvm::SmallVector<int64_t, 6> transformedFilterShape;
             // g
-            filterDimName.push_back(b.getStringAttr("g"));
+            curOutputDimName.push_back(b.getStringAttr("g"));
             transformedFilterShape.push_back(g);
             llvm::SmallVector<NamedAttribute, 5> gDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("g")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
                 b.getNamedAttr("source_dimensions",
@@ -1472,12 +1454,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                b.getArrayAttr({preOutputDimName[0]}))};
 
             // k
-            filterDimName.push_back(b.getStringAttr("k"));
+            curOutputDimName.push_back(b.getStringAttr("k"));
             transformedFilterShape.push_back(k);
             llvm::SmallVector<NamedAttribute, 5> kDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("k")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
                 b.getNamedAttr("source_dimensions",
@@ -1486,12 +1468,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                b.getArrayAttr({preOutputDimName[1]}))};
 
             // c
-            filterDimName.push_back(b.getStringAttr("c"));
+            curOutputDimName.push_back(b.getStringAttr("c"));
             transformedFilterShape.push_back(c);
             llvm::SmallVector<NamedAttribute, 5> cDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("c")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
                 b.getNamedAttr("source_dimensions",
@@ -1500,8 +1482,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                b.getArrayAttr({preOutputDimName[2]}))};
 
             // slice ydot xdot
-            filterDimName.push_back(b.getStringAttr("ydotslice"));
-            filterDimName.push_back(b.getStringAttr("ytildaslice"));
+            curOutputDimName.push_back(b.getStringAttr("ydotslice"));
+            curOutputDimName.push_back(b.getStringAttr("ytildaslice"));
+            curOutputDimName.push_back(b.getStringAttr("xdotslice"));
+            curOutputDimName.push_back(b.getStringAttr("xtildaslice"));
 
             transformedFilterShape.push_back(yDotSlice);
             transformedFilterShape.push_back(1);
@@ -1512,9 +1496,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(3),
                                                b.getI32IntegerAttr(5)})),
-                b.getNamedAttr("names",
-                               b.getArrayAttr({b.getStringAttr("ydotslice"),
-                                               b.getStringAttr("xdotslice")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+                                                        curOutputDimName[5]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Slice")),
                 b.getNamedAttr("begins", b.getArrayAttr({
                                              b.getI32IntegerAttr(0),
@@ -1532,16 +1515,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                preOutputDimName[5]}))};
 
             // xy tilda slice
-            filterDimName.push_back(b.getStringAttr("xdotslice"));
-            filterDimName.push_back(b.getStringAttr("xtildaslice"));
-
             llvm::SmallVector<NamedAttribute, 6> yxTildaSliceDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(4),
                                                b.getI32IntegerAttr(6)})),
-                b.getNamedAttr(
-                    "names", b.getArrayAttr({b.getStringAttr("ytildaslice"),
-                                             b.getStringAttr("xtildaslice")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[4],
+                                                        curOutputDimName[6]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Slice")),
                 b.getNamedAttr("begins", b.getArrayAttr({
                                              b.getI32IntegerAttr(iYTilda),
@@ -1568,8 +1547,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                 b.getDictionaryAttr(yxTildaSliceDimAttr)})));
             transformedFilterAttrs.push_back(b.getNamedAttr(
                 "output_layout",
-                b.getArrayAttr(ArrayRef<Attribute>(filterDimName.begin(),
-                                                   filterDimName.end()))));
+                b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
+                                                   curOutputDimName.end()))));
 
             transformedFilterAttrs.push_back(b.getNamedAttr(
                 "intermediate_layout",
@@ -1590,15 +1569,15 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // return wei_g_k_c_ydotslice_ytidaslice_xdotslice_xtildaslice;
       auto getWei_gemmg_gemmk_gemmm = [&](decltype(secondFilterDimName)
                                               &preOutputDimName) {
-        llvm::SmallVector<StringAttr, 7> filterDimName;
+        llvm::SmallVector<StringAttr, 7> curOutputDimName;
         llvm::SmallVector<int64_t, 7> transformedFilterShape;
         // gemmG
-        filterDimName.push_back(b.getStringAttr("gemmG"));
+        curOutputDimName.push_back(b.getStringAttr("gemmG"));
         transformedFilterShape.push_back(g);
         llvm::SmallVector<NamedAttribute, 5> gemmGDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmG")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr("source_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
@@ -1606,12 +1585,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            b.getArrayAttr({preOutputDimName[0]}))};
 
         // gemmK
-        filterDimName.push_back(b.getStringAttr("gemmK"));
+        curOutputDimName.push_back(b.getStringAttr("gemmK"));
         transformedFilterShape.push_back(k * yDotSlice * xDotSlice);
         llvm::SmallVector<NamedAttribute, 5> gemmKDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(1)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmK")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
             b.getNamedAttr("transformation", b.getStringAttr("Merge")),
             b.getNamedAttr(
                 "source_dimensions",
@@ -1623,12 +1602,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                 preOutputDimName[5]}))};
 
         // gemmM
-        filterDimName.push_back(b.getStringAttr("gemmM"));
+        curOutputDimName.push_back(b.getStringAttr("gemmM"));
         transformedFilterShape.push_back(c);
         llvm::SmallVector<NamedAttribute, 5> gemmMDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(2)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmM")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
             b.getNamedAttr("transformation", b.getStringAttr("Merge")),
             b.getNamedAttr(
                 "source_dimensions",
@@ -1645,8 +1624,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                       b.getDictionaryAttr(gemmKDimAttr),
                                       b.getDictionaryAttr(gemmMDimAttr)})));
         transformedFilterAttrs.push_back(b.getNamedAttr(
-            "output_layout", b.getArrayAttr(ArrayRef<Attribute>(
-                                 filterDimName.begin(), filterDimName.end()))));
+            "output_layout",
+            b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
+                                               curOutputDimName.end()))));
 
         transformedFilterAttrs.push_back(b.getNamedAttr(
             "intermediate_layout",
@@ -1684,41 +1664,42 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // wei_g_k_c_ydot_ytilda_xdot_xtilda
       llvm::SmallVector<StringAttr, 7> firstOutputDimName;
       auto getOut_g_n_k_ydot_htilda_xdot_wtilda = [&]() {
+        decltype(firstOutputDimName) &curOutputDimName = firstOutputDimName;
         llvm::SmallVector<int64_t, 7> transformedShape;
         llvm::SmallVector<NamedAttribute, 3> transformedAttrs;
-        // g
-        firstOutputDimName.push_back(b.getStringAttr("go"));
+        // go
+        curOutputDimName.push_back(b.getStringAttr("go"));
         transformedShape.push_back(g);
         llvm::SmallVector<NamedAttribute, 5> gDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("go")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
                 "source_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["go"])})),
             b.getNamedAttr("source_names",
                            b.getArrayAttr({b.getStringAttr("go")}))};
-        // n
-        firstOutputDimName.push_back(b.getStringAttr("no"));
+        // no
+        curOutputDimName.push_back(b.getStringAttr("no"));
         transformedShape.push_back(n);
         llvm::SmallVector<NamedAttribute, 5> nDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(1)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("no")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
                 "source_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["no"])})),
             b.getNamedAttr("source_names",
                            b.getArrayAttr({b.getStringAttr("no")}))};
-        // k
-        firstOutputDimName.push_back(b.getStringAttr("ko"));
+        // ko
+        curOutputDimName.push_back(b.getStringAttr("ko"));
         transformedShape.push_back(k);
         llvm::SmallVector<NamedAttribute, 5> kDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(2)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("ko")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
                 "source_dimensions",
@@ -1727,17 +1708,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            b.getArrayAttr({b.getStringAttr("ko")}))};
 
         // ho
-        firstOutputDimName.push_back(b.getStringAttr("ydot"));
-        firstOutputDimName.push_back(b.getStringAttr("htilda"));
+        curOutputDimName.push_back(b.getStringAttr("ydot"));
+        curOutputDimName.push_back(b.getStringAttr("htilda"));
         transformedShape.push_back(yDot);
         transformedShape.push_back(hTilda);
         llvm::SmallVector<NamedAttribute, 6> hoDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(3),
                                            b.getI32IntegerAttr(4)})),
-            b.getNamedAttr("names",
-                           b.getArrayAttr({b.getStringAttr("ydot"),
-                                           b.getStringAttr("htilda")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+                                                    curOutputDimName[4]})),
             b.getNamedAttr("transformation", b.getStringAttr("Embed")),
             b.getNamedAttr(
                 "parameters",
@@ -1753,17 +1733,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            b.getArrayAttr({b.getStringAttr("ho")}))};
 
         // wo
-        firstOutputDimName.push_back(b.getStringAttr("xdot"));
-        firstOutputDimName.push_back(b.getStringAttr("wtilda"));
+        curOutputDimName.push_back(b.getStringAttr("xdot"));
+        curOutputDimName.push_back(b.getStringAttr("wtilda"));
         transformedShape.push_back(xDot);
         transformedShape.push_back(wTilda);
         llvm::SmallVector<NamedAttribute, 6> woDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(5),
                                            b.getI32IntegerAttr(6)})),
-            b.getNamedAttr("names",
-                           b.getArrayAttr({b.getStringAttr("xdot"),
-                                           b.getStringAttr("wtilda")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[5],
+                                                    curOutputDimName[6]})),
             b.getNamedAttr("transformation", b.getStringAttr("Embed")),
             b.getNamedAttr(
                 "parameters",
@@ -1786,17 +1765,17 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                  b.getDictionaryAttr(woDimAttr)})));
         transformedAttrs.push_back(b.getNamedAttr(
             "output_layout",
-            b.getArrayAttr(ArrayRef<Attribute>(firstOutputDimName.begin(),
-                                               firstOutputDimName.end()))));
+            b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
+                                               curOutputDimName.end()))));
 
         transformedAttrs.push_back(
             b.getNamedAttr("source_layout", outputLayoutAttr));
 
         auto transformedFilterMemRefType =
             MemRefType::get(transformedShape, outputElementType);
-        auto gemmA = b.create<miopen::TransformOp>(
+        auto gemm = b.create<miopen::TransformOp>(
             loc, transformedFilterMemRefType, op.output(), transformedAttrs);
-        return gemmA;
+        return gemm;
       };
 
       auto out_g_n_k_ydot_htilda_xdot_wtilda =
@@ -1807,14 +1786,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           [&](decltype(firstOutputDimName) &preOutputDimName,
               llvm::SmallVector<StringAttr, 7> &curOutputDimName) {
             llvm::SmallVector<int64_t, 6> transformedShape;
-            // g
+            // go
             curOutputDimName.push_back(b.getStringAttr("go"));
             transformedShape.push_back(g);
             llvm::SmallVector<NamedAttribute, 5> gDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                b.getNamedAttr("names",
-                               b.getArrayAttr({b.getStringAttr("go")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
                 b.getNamedAttr("source_dimensions",
@@ -1822,14 +1800,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 b.getNamedAttr("source_names",
                                b.getArrayAttr({preOutputDimName[0]}))};
 
-            // n
+            // no
             curOutputDimName.push_back(b.getStringAttr("no"));
             transformedShape.push_back(n);
             llvm::SmallVector<NamedAttribute, 5> nDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                b.getNamedAttr("names",
-                               b.getArrayAttr({b.getStringAttr("no")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
                 b.getNamedAttr("source_dimensions",
@@ -1837,14 +1814,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 b.getNamedAttr("source_names",
                                b.getArrayAttr({preOutputDimName[1]}))};
 
-            // k
+            // ko
             curOutputDimName.push_back(b.getStringAttr("ko"));
             transformedShape.push_back(k);
             llvm::SmallVector<NamedAttribute, 5> kDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                b.getNamedAttr("names",
-                               b.getArrayAttr({b.getStringAttr("ko")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
                 b.getNamedAttr("source_dimensions",
@@ -1855,6 +1831,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             // slice ydot xdot
             curOutputDimName.push_back(b.getStringAttr("ydotslice"));
             curOutputDimName.push_back(b.getStringAttr("htildaslice"));
+            curOutputDimName.push_back(b.getStringAttr("xdotslice"));
+            curOutputDimName.push_back(b.getStringAttr("wtildaslice"));
 
             transformedShape.push_back(yDotSlice);
             transformedShape.push_back(hTildaSlice);
@@ -1865,9 +1843,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(3),
                                                b.getI32IntegerAttr(5)})),
-                b.getNamedAttr("names",
-                               b.getArrayAttr({b.getStringAttr("ydotslice"),
-                                               b.getStringAttr("xdotslice")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+                                                        curOutputDimName[5]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Slice")),
                 b.getNamedAttr("begins", b.getArrayAttr({
                                              b.getI32IntegerAttr(0),
@@ -1885,16 +1862,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                preOutputDimName[5]}))};
 
             // hw tilda slice
-            curOutputDimName.push_back(b.getStringAttr("xdotslice"));
-            curOutputDimName.push_back(b.getStringAttr("wtildaslice"));
-
             llvm::SmallVector<NamedAttribute, 6> hwTildaSliceDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(4),
                                                b.getI32IntegerAttr(6)})),
-                b.getNamedAttr(
-                    "names", b.getArrayAttr({b.getStringAttr("htildaslice"),
-                                             b.getStringAttr("wtildaslice")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[4],
+                                                        curOutputDimName[6]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Slice")),
                 b.getNamedAttr("begins", b.getArrayAttr({
                                              b.getI32IntegerAttr(iHTildaLeft),
@@ -1951,7 +1924,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         llvm::SmallVector<NamedAttribute, 5> gemmGDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmG")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr("source_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
@@ -1964,7 +1937,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         llvm::SmallVector<NamedAttribute, 5> gemmKDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(1)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmK")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
             b.getNamedAttr("transformation", b.getStringAttr("Merge")),
             b.getNamedAttr(
                 "source_dimensions",
@@ -1981,7 +1954,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         llvm::SmallVector<NamedAttribute, 5> gemmNDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(2)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmN")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
             b.getNamedAttr("transformation", b.getStringAttr("Merge")),
             b.getNamedAttr(
                 "source_dimensions",
@@ -2037,41 +2010,42 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       llvm::SmallVector<StringAttr, 5> firstOutputDimName;
       auto getIn_g_n_c_hip_wip = [&]() {
+        decltype(firstOutputDimName) &curOutputDimName = firstOutputDimName;
         llvm::SmallVector<int64_t, 7> transformedShape;
         llvm::SmallVector<NamedAttribute, 3> transformedAttrs;
-        // g
-        firstOutputDimName.push_back(b.getStringAttr("gi"));
+        // gi
+        curOutputDimName.push_back(b.getStringAttr("gi"));
         transformedShape.push_back(g);
         llvm::SmallVector<NamedAttribute, 5> gDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gi")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
                 "source_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["gi"])})),
             b.getNamedAttr("source_names",
                            b.getArrayAttr({b.getStringAttr("gi")}))};
-        // n
-        firstOutputDimName.push_back(b.getStringAttr("ni"));
+        // ni
+        curOutputDimName.push_back(b.getStringAttr("ni"));
         transformedShape.push_back(n);
         llvm::SmallVector<NamedAttribute, 5> nDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(1)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("ni")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
                 "source_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["ni"])})),
             b.getNamedAttr("source_names",
                            b.getArrayAttr({b.getStringAttr("ni")}))};
-        // c
-        firstOutputDimName.push_back(b.getStringAttr("ci"));
+        // ci
+        curOutputDimName.push_back(b.getStringAttr("ci"));
         transformedShape.push_back(c);
         llvm::SmallVector<NamedAttribute, 5> cDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(2)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("ci")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
                 "source_dimensions",
@@ -2080,16 +2054,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            b.getArrayAttr({b.getStringAttr("ci")}))};
 
         // hip wip
-        firstOutputDimName.push_back(b.getStringAttr("hipad"));
-        firstOutputDimName.push_back(b.getStringAttr("wipad"));
+        curOutputDimName.push_back(b.getStringAttr("hipad"));
+        curOutputDimName.push_back(b.getStringAttr("wipad"));
         transformedShape.push_back(hiPadded);
         transformedShape.push_back(wiPadded);
         llvm::SmallVector<NamedAttribute, 6> hwpadDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(3),
                                            b.getI32IntegerAttr(4)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("hipad"),
-                                                    b.getStringAttr("wipad")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+                                                    curOutputDimName[4]})),
             b.getNamedAttr("transformation", b.getStringAttr("Pad")),
             b.getNamedAttr("parameters", b.getArrayAttr({
                                              b.getI32IntegerAttr(leftPadH),
@@ -2110,8 +2084,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                       b.getDictionaryAttr(hwpadDimAttr)})));
         transformedAttrs.push_back(b.getNamedAttr(
             "output_layout",
-            b.getArrayAttr(ArrayRef<Attribute>(firstOutputDimName.begin(),
-                                               firstOutputDimName.end()))));
+            b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
+                                               curOutputDimName.end()))));
 
         transformedAttrs.push_back(
             b.getNamedAttr("source_layout", inputLayoutAttr));
@@ -2137,8 +2111,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             llvm::SmallVector<NamedAttribute, 5> gDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                b.getNamedAttr("names",
-                               b.getArrayAttr({b.getStringAttr("gi")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
                 b.getNamedAttr("source_dimensions",
@@ -2151,8 +2124,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             llvm::SmallVector<NamedAttribute, 5> nDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                b.getNamedAttr("names",
-                               b.getArrayAttr({b.getStringAttr("ni")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
                 b.getNamedAttr("source_dimensions",
@@ -2165,8 +2137,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             llvm::SmallVector<NamedAttribute, 5> cDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                b.getNamedAttr("names",
-                               b.getArrayAttr({b.getStringAttr("ci")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
                 b.getNamedAttr("source_dimensions",
@@ -2183,9 +2154,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(3),
                                                b.getI32IntegerAttr(4)})),
-                b.getNamedAttr("names",
-                               b.getArrayAttr({b.getStringAttr("ytilda"),
-                                               b.getStringAttr("htilda")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+                                                        curOutputDimName[4]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                 b.getNamedAttr("parameters", b.getArrayAttr({
                                                  b.getI32IntegerAttr(dilationH),
@@ -2206,9 +2176,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(5),
                                                b.getI32IntegerAttr(6)})),
-                b.getNamedAttr("names",
-                               b.getArrayAttr({b.getStringAttr("xtilda"),
-                                               b.getStringAttr("wtilda")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[5],
+                                                        curOutputDimName[6]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                 b.getNamedAttr("parameters", b.getArrayAttr({
                                                  b.getI32IntegerAttr(dilationW),
@@ -2260,8 +2229,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             llvm::SmallVector<NamedAttribute, 5> gDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                b.getNamedAttr("names",
-                               b.getArrayAttr({b.getStringAttr("gi")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
                 b.getNamedAttr("source_dimensions",
@@ -2275,8 +2243,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             llvm::SmallVector<NamedAttribute, 5> nDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                b.getNamedAttr("names",
-                               b.getArrayAttr({b.getStringAttr("ni")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
                 b.getNamedAttr("source_dimensions",
@@ -2290,8 +2257,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             llvm::SmallVector<NamedAttribute, 5> cDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                b.getNamedAttr("names",
-                               b.getArrayAttr({b.getStringAttr("ci")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
                 b.getNamedAttr("source_dimensions",
@@ -2302,6 +2268,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             // slice ytilda xtilda
             curOutputDimName.push_back(b.getStringAttr("ytildaslice"));
             curOutputDimName.push_back(b.getStringAttr("htildaslice"));
+            curOutputDimName.push_back(b.getStringAttr("xtildaslice"));
+            curOutputDimName.push_back(b.getStringAttr("wtildaslice"));
 
             transformedShape.push_back(1);
             transformedShape.push_back(hTildaSlice);
@@ -2312,9 +2280,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(3),
                                                b.getI32IntegerAttr(5)})),
-                b.getNamedAttr(
-                    "names", b.getArrayAttr({b.getStringAttr("ytildaslice"),
-                                             b.getStringAttr("xtildaslice")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+                                                        curOutputDimName[5]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Slice")),
                 b.getNamedAttr("begins", b.getArrayAttr({
                                              b.getI32IntegerAttr(iYTilda),
@@ -2332,16 +2299,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                preOutputDimName[5]}))};
 
             // hw tilda slice
-            curOutputDimName.push_back(b.getStringAttr("xtildaslice"));
-            curOutputDimName.push_back(b.getStringAttr("wtildaslice"));
-
             llvm::SmallVector<NamedAttribute, 6> hwTildaSliceDimAttr{
                 b.getNamedAttr("dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(4),
                                                b.getI32IntegerAttr(6)})),
-                b.getNamedAttr(
-                    "names", b.getArrayAttr({b.getStringAttr("htildaslice"),
-                                             b.getStringAttr("wtildaslice")})),
+                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[4],
+                                                        curOutputDimName[6]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Slice")),
                 b.getNamedAttr("begins", b.getArrayAttr({
                                              b.getI32IntegerAttr(iHTildaLeft),
@@ -2377,7 +2340,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                    preOutputDimName.end()))));
 
             auto transformedMemRefType =
-                MemRefType::get(transformedShape, outputElementType);
+                MemRefType::get(transformedShape, inputElementType);
             auto gemmA = b.create<miopen::TransformOp>(
                 loc, transformedMemRefType,
                 ArrayRef<Value>(in_g_n_c_ytilda_htilda_xtilda_wtilda),
@@ -2399,7 +2362,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         llvm::SmallVector<NamedAttribute, 5> gemmGDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmG")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr("source_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
@@ -2412,7 +2375,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         llvm::SmallVector<NamedAttribute, 5> gemmMDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(1)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmM")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
             b.getNamedAttr("transformation", b.getStringAttr("Merge")),
             b.getNamedAttr(
                 "source_dimensions",
@@ -2429,7 +2392,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         llvm::SmallVector<NamedAttribute, 5> gemmNDimAttr{
             b.getNamedAttr("dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(2)})),
-            b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr("gemmN")})),
+            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
             b.getNamedAttr("transformation", b.getStringAttr("Merge")),
             b.getNamedAttr(
                 "source_dimensions",
@@ -2459,7 +2422,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             "gridwise_gemm_argument_position", b.getI32IntegerAttr(2)));
 
         auto transformedMemRefType =
-            MemRefType::get(transformedShape, outputElementType);
+            MemRefType::get(transformedShape, inputElementType);
         auto gemmA = b.create<miopen::TransformOp>(
             loc, transformedMemRefType,
             ArrayRef<Value>(
