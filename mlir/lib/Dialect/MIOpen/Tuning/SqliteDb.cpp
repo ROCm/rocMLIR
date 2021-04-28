@@ -31,8 +31,7 @@ class SQLite::impl {
       rc = sqlite3_open_v2(filepath.c_str(), &ptr_tmp, SQLITE_OPEN_READONLY,
                            nullptr);
     } else {
-      llvm::errs() << "FATAL ERROR! Does not support user db"
-                   << "\n";
+      LLVM_DEBUG(dbgs() << "FATAL ERROR! Does not support user db\n");
     }
     ptrDb = Sqlite3Ptr{ptr_tmp};
     return rc;
@@ -45,8 +44,8 @@ public:
     sqlite3_busy_timeout(ptrDb.get(), MIOPEN_SQL_BUSY_TIMEOUT_MS);
     isValid = (rc == 0);
     if (!isValid) {
-      llvm::errs() << "FATAL ERROR! COULD NOT OPEN DB CONNECTION to "
-                   << filename_ << "\n";
+      LLVM_DEBUG(dbgs() << "FATAL ERROR! COULD NOT OPEN DB "
+                              << "CONNECTION to " << filename_ << "\n";
     } else {
       LLVM_DEBUG(dbgs() << "Successfully opened connection to PerfDb.\n");
     }
@@ -80,7 +79,7 @@ SQLite::ResultType SQLite::exec(const std::string &query) const {
                           static_cast<void *>(&res), nullptr);
     });
     if (rc != SQLITE_OK) {
-      llvm::errs() << "Query[" << query << "] failed: " << errorMessage();
+      LLVM_DEBUG(dbgs() << "Query[" << query << "] failed: " << errorMessage());
     }
   }
   return res;
@@ -89,7 +88,7 @@ SQLite::ResultType SQLite::exec(const std::string &query) const {
 int SQLite::retry(std::function<int()> f, std::string filename) {
   int rc = f();
   if (rc == SQLITE_BUSY) {
-    llvm::errs() << "Timeout while waiting for Database: " + filename;
+    LLVM_DEBUG(dbgs() << "Timeout while waiting for Database: " + filename);
   }
   return rc;
 }

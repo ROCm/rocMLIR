@@ -114,7 +114,8 @@ LogicalResult PopulateParams::paramsFromCtx(
 
   if (failed(res)) {
     // All initParameters have failed, shouldn't happen
-    llvm::errs() << "FATAL ERROR! COULD NOT FIND VALID TUNING PARAMETERS!\n";
+    LLVM_DEBUG(llvm::dbgs() << "FATAL ERROR! COULD NOT FIND VALID TUNING"
+                            << " PARAMETERS!\n");
   } else {
     LLVM_DEBUG(llvm::dbgs() << "Successfully picked tuning params from backup"
                             << " path.\n");
@@ -236,7 +237,8 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
 
   if (failed(res)) {
     // All initParameters have failed, shouldn't happen
-    llvm::errs() << "FATAL ERROR! COULD NOT FIND VALID TUNING PARAMETERS!\n";
+    LLVM_DEBUG(llvm::dbgs() << "FATAL ERROR! COULD NOT FIND VALID TUNING"
+                            << " PARAMETERS!\n");
   } else {
     LLVM_DEBUG(llvm::dbgs() << "Successfully picked tuning params from backup"
                             << " path.\n");
