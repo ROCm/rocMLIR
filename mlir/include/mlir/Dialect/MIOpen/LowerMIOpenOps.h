@@ -1651,7 +1651,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       return wei_gemmg_gemmk_gemmm;
     };
 
-    auto getGemmB = [&]() {
+    auto getGemmC = [&]() {
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
@@ -1998,7 +1998,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       return out_gemmg_gemmk_gemmn;
     };
 
-    auto getGemmC = [&]() {
+    auto getGemmB = [&]() {
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
