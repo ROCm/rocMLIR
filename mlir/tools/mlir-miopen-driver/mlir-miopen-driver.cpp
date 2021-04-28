@@ -887,19 +887,19 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
                                                   outputDimension[4]);
   verifyResultsBlock->push_back(indexOp4);
 
+  // clang-format off
   // scf.for %arg0 = %c0 to %c128 step %c1 {
   //  scf.for %arg1 = %c0 to %c30 step %c1 {
   //    scf.for %arg2 = %c0 to %c30 step %c1 {
   //      scf.for %arg3 = %c0 to %c128 step %c1 {
   //        scf.for %arg4 = %c0 to %c128 step %c1 {
-  //          %cpu_result = load %CpuResults[%arg0, %arg1, %arg2, %arg3, %arg4]
-  //          : memref<128x30x30x128x128xf32> %gpu_result = load
+  //          %cpu_result = load %CpuResults[%arg0, %arg1, %arg2, %arg3, %arg4] : memref<128x30x30x128x128xf32> %gpu_result = load
   //          %GpuRsults[%arg0, %arg1, %arg2, %arg3, %arg4] :
-  //          memref<128x30x30x128x128xf32> %cmp_result = cmpf "oeq",
-  //          %cpu_result, %gpu_result : f32
-  //
-  //          scf.if %cmp_result {
-  //          } else {
+  //          %cst = constant 1.000000e-07 : f32
+  //          %4 = subf %2, %3 : f32
+  //          %5 = absf %4 : f32
+  //          %6 = cmpf ugt, %5, %cst : f32
+  //          scf.if %6 {
   //            store %c0_i32, %result[%c0] : memref<1xi32>
   //          }
   //        }
@@ -907,6 +907,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   //    }
   //  }
   //}
+  // clang-format on
   auto loop0 = builder.create<scf::ForOp>(builder.getUnknownLoc(), c0IndexOp,
                                           indexOp0, c1IndexOp);
   auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
@@ -946,14 +947,24 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
                                     cpuLoadOp, gpuLoadOp);
     ifOp = bt4.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
   } else {
-    auto cmpOp = bt4.create<CmpFOp>(builder.getUnknownLoc(), CmpFPredicate::UNE,
-                                    cpuLoadOp, gpuLoadOp);
+    float delta = 0.0000001;
+    if (outputMemRefType.getElementType() == builder.getF16Type())
+      delta = 0.125; // Decimals less than 256 have precision of 2^-3
+
+    auto deltaConstantOp = bt4.create<ConstantOp>(
+        builder.getUnknownLoc(), outputMemRefType.getElementType(),
+        builder.getFloatAttr(outputMemRefType.getElementType(), delta));
+    auto subfOp =
+        bt4.create<SubFOp>(builder.getUnknownLoc(), cpuLoadOp, gpuLoadOp);
+    auto absfOp = bt4.create<AbsFOp>(builder.getUnknownLoc(), subfOp);
+    auto cmpOp = bt4.create<CmpFOp>(builder.getUnknownLoc(), CmpFPredicate::UGT,
+                                    absfOp, deltaConstantOp);
     ifOp = bt4.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
   }
   auto thenBody = ifOp.getThenBodyBuilder();
 
-      thenBody.create<StoreOp>(builder.getUnknownLoc(), c0ConstantInt32Op,
-                               cmpResultAllocOp, ValueRange{c0IndexOp});
+  thenBody.create<StoreOp>(builder.getUnknownLoc(), c0ConstantInt32Op,
+                           cmpResultAllocOp, ValueRange{c0IndexOp});
 
   verifyResultsBlock->push_back(loop0);
 
@@ -1175,8 +1186,8 @@ static std::tuple<short, short, int> configRandomTestData() {
     min = 1;
     max = 1;
   } else {
-    min = -5;
-    max = 5;
+    min = -1;
+    max = 1;
     std::string rseed = randomData.getValue();
     if (rseed[0] >= '0' and rseed[1] <= '9')
       seed = std::stoi(rseed);

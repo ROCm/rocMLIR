@@ -381,10 +381,16 @@ extern "C" void mgpuMemCopy2DFloat(float *sourceAllocated, float *sourceAligned,
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
-short randomValue(short min, short max) {
+short random_int_value(short min, short max) {
   if (min == max)
     return min;
   return (std::rand() % (max - min)) + min;
+}
+
+float random_float_value(short min, short max) {
+  if (min == max)
+    return (float)min;
+  return (max - min) * (float)(std::rand()) / RAND_MAX + (float)min;
 }
 
 // 3D float memref utility routines.
@@ -499,7 +505,7 @@ mcpuMemset5DFloatRand(float *allocated, float *aligned, int64_t offset,
       for (unsigned k = 0; k < size2; ++k)
         for (unsigned l = 0; l < size3; ++l)
           for (unsigned m = 0; m < size4; ++m) {
-            value = (float)randomValue(min, max);
+            value = random_float_value(min, max);
             aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
                     m * stride4] = value;
           }
@@ -624,7 +630,7 @@ extern "C" void mcpuMemset5DHalfRand(
       for (unsigned k = 0; k < size2; ++k)
         for (unsigned l = 0; l < size3; ++l)
           for (unsigned m = 0; m < size4; ++m) {
-            value = randomValue(min, max);
+            value = random_float_value(min, max);
             aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
                     m * stride4] = float_to_fp16(value, basetable, shifttable);
           }
@@ -760,7 +766,7 @@ extern "C" void mcpuMemset5DBF16Rand(
       for (unsigned k = 0; k < size2; ++k)
         for (unsigned l = 0; l < size3; ++l)
           for (unsigned m = 0; m < size4; ++m) {
-            value = float_to_bfloat16((float)randomValue(min, max));
+            value = float_to_bfloat16(random_float_value(min, max));
             aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
                     m * stride4] = value;
           }
