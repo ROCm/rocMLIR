@@ -37,6 +37,7 @@
 
 #include "bf16convert.hpp"
 #include "mlir/Dialect/SCF/EDSC/Builders.h"
+#include <iostream>
 #include <unordered_map>
 
 using namespace llvm;
@@ -2173,15 +2174,15 @@ int main(int argc, char **argv) {
   populateDefaults();
 
   auto convConfig = populateConvConfig.getValue();
-  auto dataTypeStr = tensorDataType.getValue();
   int kernelId = 0;
 
   Conv2dGenerator conv2dGenerator(
       arch.getValue(), num_cu.getValue(), xdlopsV2.getValue(),
-      operation.getValue(), kernelId, dataTypeStr, dilationHeight.getValue(),
-      dilationWidth.getValue(), strideHeight.getValue(), strideWidth.getValue(),
-      paddingHeight.getValue(), paddingWidth.getValue(),
-      filterLayout.getValue(), inputLayout.getValue(), outputLayout.getValue());
+      operation.getValue(), kernelId, tensorDataType.getValue(),
+      dilationHeight.getValue(), dilationWidth.getValue(),
+      strideHeight.getValue(), strideWidth.getValue(), paddingHeight.getValue(),
+      paddingWidth.getValue(), filterLayout.getValue(), inputLayout.getValue(),
+      outputLayout.getValue());
 
   if (!convConfig.empty()) {
     if (failed(conv2dGenerator.parseConvConfig(convConfig.c_str()))) {
@@ -2194,25 +2195,30 @@ int main(int argc, char **argv) {
         outputChannel, outputHeight, outputWidth, filterWidth, filterHeight);
   }
 
-  // Determine data type.
-  mlir::Type dataType = builder.getF32Type();
-  if (dataTypeStr == "f32") {
-    dataType = builder.getF32Type();
-  } else if (dataTypeStr == "f16") {
-    dataType = builder.getF16Type();
-  } else if (dataTypeStr == "bf16") {
-    dataType = builder.getIntegerType(16);
-  }
+  const auto &genConfig = conv2dGenerator.getConfig();
 
+  std::vector<std::string> kernels;
   // Populate the module.
   if (!populateCpuConvolution.getValue()) {
-    if (failed(conv2dGenerator.genConvModule(module, builder))) {
-      llvm::errs() << "Module population failed.\n";
-      exit(1);
+    if (genConfig.kernelId < 0) {
+      int kernelCount = conv2dGenerator.getKernelCount();
+      for (int i = 0; i < kernelCount; ++i) {
+        if (failed(conv2dGenerator.genConvModule(module, builder, i))) {
+          llvm::errs() << "Module population failed.\n";
+          exit(1);
+        }
+        kernels.push_back(genConfig.kernelName);
+      }
+    } else {
+      if (failed(conv2dGenerator.genConvModule(module, builder))) {
+        llvm::errs() << "Module population failed.\n";
+        exit(1);
+      }
     }
   }
 
-  const auto &genConfig = conv2dGenerator.getConfig();
+  // Determine data type.
+  mlir::Type dataType = conv2dGenerator.getDataType(builder);
 
   // populate host harness and host validation.
   if (populateValidation.getValue()) {
@@ -2235,9 +2241,12 @@ int main(int argc, char **argv) {
   }
 
   // Apply passes.
-  if (failed(runMLIRPasses(module, passPipeline, genConfig.kernelName))) {
-    llvm::errs() << "Lowering failed.\n";
-    exit(1);
+  for (const auto &kernelName : kernels) {
+    std::cout << "Kernel - " << kernelName << std::endl;
+    if (failed(runMLIRPasses(module, passPipeline, kernelName))) {
+      llvm::errs() << "Lowering failed.\n";
+      exit(1);
+    }
   }
 
   // populate host logic.

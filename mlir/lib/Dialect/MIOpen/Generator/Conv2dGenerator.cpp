@@ -45,19 +45,37 @@ void strToTokens(const std::string &arguments,
 } // namespace
 
 int Conv2dGenerator::getKernelCount(const char *arguments) {
-  int count = 0;
-  std::map<std::string, std::string> argMap;
-  strToTokens(arguments, argMap);
+  Conv2dGenerator gen;
+  if (failed(gen.parseConvConfig(arguments))) {
+    return 0;
+  }
+  return gen.getKernelCount();
+}
 
-  auto operation = argMap["operation"];
-  if (operation == "conv2d") {
-    count = 4;
-  } else if (operation == "conv2d_bwd_data") {
+int Conv2dGenerator::getKernelCount() const {
+  int count = 0;
+  if (config.kernelId > 0) { // generate only 1 specified kernel
     count = 1;
-  } else if (operation == "conv2d_bww_weight") {
+  } else if (config.operation == "conv2d") {
+    count = 4;
+  } else if (config.operation == "conv2d_bwd_data") {
+    count = 1;
+  } else if (config.operation == "conv2d_bww_weight") {
     count = 1;
   }
   return count;
+}
+
+Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
+  mlir::Type dataType;
+  if (config.dataTypeStr == "f32" || config.dataTypeStr == "fp32") {
+    dataType = builder.getF32Type();
+  } else if (config.dataTypeStr == "f16" || config.dataTypeStr == "fp16") {
+    dataType = builder.getF16Type();
+  } else if (config.dataTypeStr == "bf16") {
+    dataType = builder.getIntegerType(16);
+  }
+  return dataType;
 }
 
 LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
@@ -183,16 +201,18 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
 }
 
 LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
+                                             OpBuilder &builder,
+                                             int kernel_id) {
+  config.kernelId = kernel_id;
+  config.kernelName.clear();
+  return genConvModule(module, builder);
+}
+
+LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
                                              OpBuilder &builder) {
 
-  mlir::Type dataType;
-  if (config.dataTypeStr == "f32" || config.dataTypeStr == "fp32") {
-    dataType = builder.getF32Type();
-  } else if (config.dataTypeStr == "f16" || config.dataTypeStr == "fp16") {
-    dataType = builder.getF16Type();
-  } else if (config.dataTypeStr == "bf16") {
-    dataType = builder.getIntegerType(16);
-  } else {
+  Type dataType = getDataType(builder);
+  if (!dataType) {
     return failure();
   }
 
@@ -215,12 +235,12 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   // Determine kernel name, if there isn't one.
   if (config.kernelName.empty()) {
     std::string subscript = "";
-    if (config.kernelId != 0) {
+    if (config.kernelId > 0) {
       subscript = "_" + std::to_string(config.kernelId);
     }
-    config.kernelName = "miopen_" + config.operation + subscript + "_" +
+    config.kernelName = "miopen_" + config.operation + "_" +
                         config.filterLayout + "_" + config.inputLayout + "_" +
-                        config.outputLayout;
+                        config.outputLayout + subscript;
   }
 
   // Annotate kernel attribute to the FuncOp.
@@ -288,7 +308,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
     attributes.push_back(
         builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
 
-  if (config.kernelId != 0) {
+  if (config.kernelId > 0) {
     auto convOp = builder.create<miopen::Conv2DDummyOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{func.getArgument(0), func.getArgument(1),
