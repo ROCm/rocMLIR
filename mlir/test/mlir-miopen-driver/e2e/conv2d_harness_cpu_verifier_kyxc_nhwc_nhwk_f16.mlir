@@ -13,16 +13,17 @@ module  {
 
     // populate initial values.
     %c0_i16 = constant 0 : i16
-    %c-5_i16 = constant -5 : i16
-    %c5_i16 = constant 5 : i16
+    %c-5_i16 = constant -1 : i16
+    %c5_i16 = constant 1 : i16
     %c1_i32 = constant 1 : i32
-    call @mcpuMemset5DHalfRand(%3, %c-5_i16, %c5_i16, %c1_i32) : (memref<?x?x?x?x?xf16>, i16, i16, i32) -> ()
-    call @mcpuMemset5DHalfRand(%4, %c-5_i16, %c5_i16, %c1_i32) : (memref<?x?x?x?x?xf16>, i16, i16, i32) -> ()
-    call @mcpuMemset5DHalfRand(%5, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?x?xf16>, i16, i16, i32) -> ()
+    call @mcpuMemset5DHalfRandInt(%3, %c-1_i16, %c1_i16, %c1_i32) : (memref<?x?x?x?x?xf16>, i16, i16, i32) -> ()
+    call @mcpuMemset5DHalfRandInt(%4, %c-1_i16, %c1_i16, %c1_i32) : (memref<?x?x?x?x?xf16>, i16, i16, i32) -> ()
+    call @mcpuMemset5DHalfRandInt(%5, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?x?xf16>, i16, i16, i32) -> ()
 
     // launch GPU convolution
     call @gpu_conv(%0, %1, %2) : (memref<1x128x3x3x8xf16>, memref<128x32x32x1x8xf16>, memref<128x30x30x1x128xf16>) -> ()
 
+    %c0_i16_0 = constant 0 : i16 
     // allocate CPU memory for CPU filter tensor    
     %6 = alloc() : memref<1x128x3x3x8xf32>
     %7 = memref_cast %6 : memref<1x128x3x3x8xf32> to memref<?x?x?x?x?xf32>
@@ -48,7 +49,7 @@ module  {
     // allocate CPU memory for cpu output tensor and initialize
     %14 = alloc() : memref<128x30x30x1x128xf32>
     %15 = memref_cast %14 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
-    call @mcpuMemset5DFloatRand(%15, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+    call @mcpuMemset5DFloatRandInt(%15, %c0_i16_0, %c0_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 
     // launch cpu convolution
     call @conv2d_host(%6, %10, %14) : (memref<1x128x3x3x8xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
@@ -74,7 +75,7 @@ module  {
     return
   }
 
-  func private @mcpuMemset5DHalfRand(memref<?x?x?x?x?xf16>, i16, i16, i32)
+  func private @mcpuMemset5DHalfRandInt(memref<?x?x?x?x?xf16>, i16, i16, i32)
 
   func @gpu_conv(%arg0: memref<1x128x3x3x8xf16>, %arg1: memref<128x32x32x1x8xf16>, %arg2: memref<128x30x30x1x128xf16>) {
     %0 = memref_cast %arg0 : memref<1x128x3x3x8xf16> to memref<?x?x?x?x?xf16>
@@ -120,7 +121,7 @@ module  {
 
   func private @mcpuMemCopy5DFloat(memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>)
 
-  func private @mcpuMemset5DFloatRand(memref<?x?x?x?x?xf32>, i16, i16, i32)
+  func private @mcpuMemset5DFloatRandInt(memref<?x?x?x?x?xf32>, i16, i16, i32)
 
   func @convert_tensor1x128x3x3x8(%arg0: memref<1x128x3x3x8xf16>, %arg1: memref<1x128x3x3x8xf32>) {
     %c0 = constant 0 : index
@@ -241,8 +242,11 @@ module  {
             scf.for %arg6 = %c0 to %c128_2 step %c1 {
               %2 = load %arg0[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x30x30x1x128xf16>
               %3 = load %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x30x30x1x128xf16>
-              %4 = cmpf une, %2, %3 : f16
-              scf.if %4 {
+              %cst = constant 2.500000e-01 : f16
+              %4 = subf %2, %3 : f16
+              %5 = absf %4 : f16
+              %6 = cmpf ugt, %5, %cst : f16
+              scf.if %6 {
                 store %c0_i32, %0[%c0] : memref<1xi32>
               }
             }
