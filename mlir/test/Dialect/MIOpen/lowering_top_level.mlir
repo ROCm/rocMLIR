@@ -67,10 +67,15 @@ func @miopen_conv2d_bwd_data(%filter : memref<1x128x8x3x3xf32>, %input : memref<
 // CHECK-LABEL: func {{@miopen_conv2d_bwd_data.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT:   miopen.conv2d_bwd_data
 // CHECK-NEXT:  miopen.transform(%arg0)
+// CHECK-NEXT:  miopen.transform
+// CHECK-NEXT:  miopen.transform
 // CHECK-NEXT:  miopen.transform(%arg1)
 // CHECK-NEXT:  miopen.transform
 // CHECK-NEXT:  miopen.transform
+// CHECK-NEXT:  miopen.transform
 // CHECK-NEXT:  miopen.transform(%arg2)
+// CHECK-NEXT:  miopen.transform
+// CHECK-NEXT:  miopen.transform
 // CHECK-NEXT:  miopen.gridwise_gemm
 
 func @miopen_conv2d_bwd_data_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
@@ -89,10 +94,15 @@ func @miopen_conv2d_bwd_data_f16(%filter : memref<1x128x8x3x3xf16>, %input : mem
 // CHECK-LABEL: func {{@miopen_conv2d_bwd_data.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT:   miopen.conv2d_bwd_data
 // CHECK-NEXT:  miopen.transform(%arg0)
+// CHECK-NEXT:  miopen.transform
+// CHECK-NEXT:  miopen.transform
 // CHECK-NEXT:  miopen.transform(%arg1)
 // CHECK-NEXT:  miopen.transform
 // CHECK-NEXT:  miopen.transform
+// CHECK-NEXT:  miopen.transform
 // CHECK-NEXT:  miopen.transform(%arg2)
+// CHECK-NEXT:  miopen.transform
+// CHECK-NEXT:  miopen.transform
 // CHECK-NEXT:  miopen.gridwise_gemm
 
 func @miopen_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {

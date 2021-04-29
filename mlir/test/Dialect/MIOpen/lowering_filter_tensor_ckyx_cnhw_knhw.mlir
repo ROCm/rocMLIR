@@ -46,9 +46,9 @@ func @miopen_conv2d_bwd_data_ckyx_cnhw_knhw(%filter : memref<1x8x128x3x3xf32>, %
 // CHECK:       names = ["gemmG"]
 // CHECK:       source_names = ["g"]
 // CHECK:       names = ["gemmK"]
-// CHECK:       source_names = ["k"]
+// CHECK:       source_names = ["k", "ydotslice", "xdotslice"]
 // CHECK:       names = ["gemmM"]
-// CHECK:       source_names = ["c", "y", "x"]
+// CHECK:       source_names = ["c", "ytildaslice", "xtildaslice"]
 // CHECK-NEXT:  miopen.transform(%arg1)
 
 func @miopen_conv2d_bwd_weight_ckyx_cnhw_knhw(%filter : memref<1x8x128x3x3xf32>, %input : memref<1x8x128x32x32xf32>, %output : memref<1x128x128x30x30xf32>) {

@@ -42,7 +42,7 @@ func @all_params(%filter : memref<?x?x?xf32>, %input : memref<?x?x?xf32>, %outpu
   miopen.gridwise_gemm(%filter, %input, %output) {
     arch = "gfx906",
     num_cu = 64,
-    kernel_algorithm = "backward_data_v1r1",
+    kernel_algorithm = "backward_data_v4r1",
     filter_dimension = [1, 128, 128, 3, 3],
     filter_layout = ["g", "k", "c", "y", "x"],
     input_dimension = [32, 1, 128, 32, 32],

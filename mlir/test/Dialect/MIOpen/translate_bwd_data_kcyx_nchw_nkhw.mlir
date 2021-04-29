@@ -178,7 +178,7 @@ func @miopen_transformed_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref
   // apply gridwise GEMM
   miopen.gridwise_gemm(%filter_gemmK_gemmM, %output_gemmK_gemmN, %input_gemmM_gemmN) {
     // tuning parameters
-    kernel_algorithm = "backward_data_v1r1",
+    kernel_algorithm = "backward_data_v4r1",
     filter_dimension = [1, 128, 8, 3, 3],
     filter_layout = ["g", "k", "c", "y", "x"],
     input_dimension = [128, 1, 8, 32, 32],

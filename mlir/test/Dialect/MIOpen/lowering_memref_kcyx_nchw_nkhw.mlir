@@ -44,6 +44,11 @@ func @miopen_conv2d_bwd_data_kcyx_nchw_nkhw(%filter : memref<1x128x8x3x3xf32>, %
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.gridwise_gemm.*{.*}.*memref.*memref.*memref}}
 
 func @miopen_conv2d_bwd_weight_kcyx_nchw_nkhw(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
