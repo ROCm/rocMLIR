@@ -40,7 +40,6 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include "XdlopsCodeSelection.h"
-#include <math.h>
 
 using namespace mlir;
 using namespace mlir::miopen;
