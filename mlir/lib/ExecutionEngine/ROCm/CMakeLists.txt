@@ -14,7 +14,7 @@ if (NOT "lld" IN_LIST LLVM_ENABLE_PROJECTS)
 endif()
 
 # lld header files.
-include_directories(${MLIR_SOURCE_DIR}/../lld/include)
+include_directories(${CMAKE_SOURCE_DIR}/external/llvm-project/lld/include)
 
 set(HIP_PATH "${ROCM_PATH}/hip" CACHE PATH " Path to which HIP has been installed")
 set(CMAKE_MODULE_PATH "${HIP_PATH}/cmake" ${CMAKE_MODULE_PATH})

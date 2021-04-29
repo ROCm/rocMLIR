@@ -72,7 +72,7 @@ class VectorDialect;
 } // end namespace vector
 
 #define GEN_PASS_CLASSES
-#include "mlir/Conversion/Passes.h.inc"
+#include "mlir/Conversion/MIOpenPasses.h.inc"
 
 } // end namespace mlir
 
