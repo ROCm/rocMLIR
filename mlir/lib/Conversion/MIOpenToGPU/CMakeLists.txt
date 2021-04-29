@@ -6,6 +6,7 @@ add_mlir_conversion_library(MLIRMIOpenToGPU
 
   DEPENDS
   MLIRConversionPassIncGen
+  MLIRMIOpenConversionPassIncGen
 )
 target_link_libraries(MLIRMIOpenToGPU
   PUBLIC
