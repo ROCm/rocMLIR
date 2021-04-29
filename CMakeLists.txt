@@ -1,15 +1,22 @@
 project(miopen-mlir)
 cmake_minimum_required(VERSION 3.13.4)
 
+# Set policy CMP0057 to support IN_LIST operators
+cmake_policy(SET CMP0057 NEW)
+
+# MIOpen dialect.
+set(MLIR_MIOPEN_DRIVER_ENABLED 0 CACHE BOOL "Enable build MIOpen driver")
+set(MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for MIOpen driver")
+set(MLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build miscellaneous E2E tests for MIOpen driver")
+set(MLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build PR-triggered E2E tests for MIOpen driver")
+set(MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using random data")
+set(MLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for XDLops")
+set(MLIR_MIOPEN_SQLITE_ENABLED 0 CACHE BOOL "Enable SQLite integration")
+
+# Library type and linkage settings
 if( NOT DEFINED BUILD_FAT_LIBMLIRMIOPEN )
   set(BUILD_FAT_LIBMLIRMIOPEN OFF CACHE BOOL "Build fat libMLIRMIOpen to link into MIOpen driver")
 endif()
-
-set(LLVM_ENABLE_PROJECTS "mlir;lld" CACHE STRING "List of default llvm targets")
-set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
-set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
-set(LLVM_ENABLE_ASSERTIONS ON CACHE BOOL "")
-set(MLIR_ENABLE_SQLITE ON CACHE BOOL "")
 if( BUILD_FAT_LIBMLIRMIOPEN )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB OFF CACHE BOOL "")
@@ -20,14 +27,6 @@ else()
   set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
   set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "")
 endif()
-
-# Set policy CMP0057 to support IN_LIST operators
-cmake_policy(SET CMP0057 NEW)
-
-#set (git_cmd "git")
-#set (git_arg "status" "--help")
-#message(STATUS "git cmd: ${git_cmd}")
-#execute_process(COMMAND ${git_cmd} ${git_arg})
 
 # Patch 'external/llvm-project/mlir' with mods in 'mlir-patch'
 # FIXME: multi-line cmd + args...
