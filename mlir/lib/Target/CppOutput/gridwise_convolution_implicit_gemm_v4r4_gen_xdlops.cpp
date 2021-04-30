@@ -28,7 +28,6 @@ using namespace mlir;
 
 namespace {
 // result string to keep C++ source / header / flags emission.
-std::string resultStr;
 
 static constexpr StringLiteral kCppPreamblePart1 = R"(
 #include "common_header.hpp"
@@ -480,8 +479,8 @@ void ObtainModuleInfo(ModuleOp &m, std::string &layoutStr, llvm::SmallVector<std
 
 } // anontmous namespace
 
-std::unique_ptr<llvm::StringRef>
-mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
+std::string mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
+  std::string resultStr;
   llvm::raw_string_ostream output(resultStr);
 
   // Enumerate FuncOp instances inside the ModuleOp.
@@ -724,11 +723,11 @@ mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
   }
 
   output.flush();
-  return std::make_unique<llvm::StringRef>(resultStr);
+  return resultStr;
 }
 
-std::unique_ptr<llvm::StringRef>
-mlir::translateModuleFromMIOpenToCppXDLOPS(ModuleOp m) {
+std::string mlir::translateModuleFromMIOpenToCppXDLOPS(ModuleOp m) {
+  std::string resultStr;
   llvm::raw_string_ostream output(resultStr);
 
   // Enumerate FuncOp instances inside the ModuleOp.
@@ -772,11 +771,11 @@ mlir::translateModuleFromMIOpenToCppXDLOPS(ModuleOp m) {
   }
 
   output.flush();
-  return std::make_unique<llvm::StringRef>(resultStr);
+  return resultStr;
 }
 
-std::unique_ptr<llvm::StringRef>
-mlir::translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m) {
+std::string mlir::translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m) {
+  std::string resultStr;
   llvm::raw_string_ostream output(resultStr);
 
   for (auto f : m.getOps<FuncOp>()) {
@@ -814,8 +813,9 @@ mlir::translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m) {
       DerivedParams gemmBDerivedParam;
       int64_t blockSize = 0;
       int64_t gridSize = 0;
-      populateParams.paramsFromCtx(ctx, 0, validParams, gemmADerivedParam,
-                                   gemmBDerivedParam, blockSize, gridSize);
+      (void)populateParams.paramsFromCtx(ctx, 0, validParams, gemmADerivedParam,
+                                         gemmBDerivedParam, blockSize,
+                                         gridSize);
 
       parameters["CK_PARAM_TUNABLE_BLOCK_SIZE"] = blockSize;
       parameters["CK_PARAM_DEPENDENT_GRID_SIZE"] = gridSize;
@@ -878,5 +878,5 @@ mlir::translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m) {
   }
 
   output.flush();
-  return std::make_unique<llvm::StringRef>(resultStr);
+  return resultStr;
 }

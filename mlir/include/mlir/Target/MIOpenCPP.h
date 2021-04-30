@@ -42,20 +42,17 @@ void translateModuleFromMIOpenToCFlags(ModuleOp m, std::string &cflags);
 /// Convert the given MLIR module into MIOpen C++ . In case of error, report it
 /// to the error handler registered with the MLIR context, if any (obtained from
 /// the MLIR module), and return `nullptr`.
-std::unique_ptr<llvm::StringRef>
-translateModuleFromMIOpenToCppXDLOPS(ModuleOp m);
+std::string translateModuleFromMIOpenToCppXDLOPS(ModuleOp m);
 
 /// Convert the given MLIR module into MIOpen C++ Header. In case of error, report it
 /// to the error handler registered with the MLIR context, if any (obtained from
 /// the MLIR module), and return `nullptr`.
-std::unique_ptr<llvm::StringRef>
-translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m);
+std::string translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m);
 
 /// Convert the given MLIR module into MIOpen C++ compilation flags. In case of error, report it
 /// to the error handler registered with the MLIR context, if any (obtained from
 /// the MLIR module), and return `nullptr`.
-std::unique_ptr<llvm::StringRef>
-translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m);
+std::string translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m);
 
 } // namespace mlir
 

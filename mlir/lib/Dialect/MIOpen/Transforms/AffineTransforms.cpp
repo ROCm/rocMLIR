@@ -26,8 +26,6 @@ private:
 AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
   auto inputType = op.input().getType().dyn_cast<MemRefType>();
   auto inputShape = inputType.getShape();
-  auto inputRank = inputType.getRank();
-  auto inputElementType = inputType.getElementType();
   auto inputAffineMaps = inputType.getAffineMaps();
 
   auto layoutAttr = op->template getAttrOfType<ArrayAttr>("layout");
@@ -60,7 +58,6 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
 
         auto parameters = dimLayoutAttr.get("parameters").dyn_cast<ArrayAttr>();
         auto leftPad = parameters.getValue()[0].dyn_cast<IntegerAttr>().getInt();
-        auto rightPad = parameters.getValue()[0].dyn_cast<IntegerAttr>().getInt();
         for (unsigned j = 0; j < srcDimAttr.size(); ++j) {
           auto srcDim = srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
           auto destDim = destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
@@ -161,7 +158,7 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
         auto outputType = op.output().getType().dyn_cast<MemRefType>();
         auto outputShape = outputType.getShape();
 
-        for (int j = 0; j < begins.size(); j++) {
+        for (unsigned j = 0; j < begins.size(); j++) {
           auto begin = begins.getValue()[j].dyn_cast<IntegerAttr>().getInt();
           auto end = ends.getValue()[j].dyn_cast<IntegerAttr>().getInt();
           auto destDim =
@@ -205,7 +202,6 @@ void AffineTransforms::runOnFunction() {
 
     auto outputType = op.output().getType().dyn_cast<MemRefType>();
     auto outputShape = outputType.getShape();
-    auto outputElementType = outputType.getElementType();
     auto transformedOutputType = MemRefType::get(outputShape, outputType.getElementType(),
                                                  {indexAffineMap});
 

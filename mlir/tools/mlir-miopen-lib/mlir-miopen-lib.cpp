@@ -67,7 +67,7 @@ typedef void *MiirHandle;
 
 extern "C" int miirGetKernelCount(const char *arguments) {
   return Conv2dGenerator::getKernelCount(arguments);
-};
+}
 
 extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   mlir::registerAllPasses();
@@ -75,6 +75,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   MiirHandle_s *handle = nullptr;
 
   Conv2dGenerator conv2dGenerator;
+  LogicalResult result = LogicalResult::failure();
 
   if (succeeded(conv2dGenerator.parseConvConfig(arguments))) {
 
@@ -85,10 +86,10 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
 
     ModuleOp module = handle->getModule();
 
-    conv2dGenerator.genConvModule(module, builder);
+    result = conv2dGenerator.genConvModule(module, builder);
   }
 
-  return handle;
+  return (result.succeeded()) ? handle : nullptr;
 }
 
 extern "C" MiirStatus miirDestroyHandle(MiirHandle mlirHandle) {
@@ -171,8 +172,8 @@ extern "C" MiirStatus miirLowerCpp(MiirHandle mlirHandle) {
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
-  pm.run(module);
-  return MIIR_SUCCESS;
+  LogicalResult result = pm.run(module);
+  return (result.succeeded()) ? MIIR_SUCCESS : MIIR_BUILD_FAILURE;
 }
 
 extern "C" const char *miirGenIgemmSource(MiirHandle mlirHandle) {
