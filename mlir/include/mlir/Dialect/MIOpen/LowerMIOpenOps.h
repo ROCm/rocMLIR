@@ -1563,7 +1563,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       auto wei_g_k_c_ydotslice_ytidaslice_xdotslice_xtildaslice =
           getWei_g_k_c_ydotslice_ytidaslice_xdotslice_xtildaslice(
               firtFilterDimName, secondFilterDimName);
-      // return wei_g_k_c_ydotslice_ytidaslice_xdotslice_xtildaslice;
+      
       auto getWei_gemmg_gemmk_gemmm =
           [&](decltype(secondFilterDimName) &preOutputDimName) {
             llvm::SmallVector<StringAttr, 7> curOutputDimName;
@@ -1747,9 +1747,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                   op.input(), transformedAttrs);
         return gemm;
       };
-
       auto in_g_n_c_hip_wip = getIn_g_n_c_hip_wip();
-      // return in_g_n_c_hip_wip;
+      
       llvm::SmallVector<StringAttr, 7> secondOutputDimName;
       auto getIn_g_n_c_ytilda_htilda_xtilda_wtilda =
           [&](decltype(firstOutputDimName) &preOutputDimName,
@@ -1867,7 +1866,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       auto in_g_n_c_ytilda_htilda_xtilda_wtilda =
           getIn_g_n_c_ytilda_htilda_xtilda_wtilda(firstOutputDimName,
                                                   secondOutputDimName);
-      // return in_g_n_c_ytilda_htilda_xtilda_wtilda;
 
       llvm::SmallVector<StringAttr, 7> thirdOutputDimName;
       auto getIn_g_n_c_ytildaslice_htidaslice_xtildaslice_wtildaslice =
@@ -2001,7 +1999,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       auto in_g_n_c_ytildaslice_htidaslice_xtildaslice_wtildaslice =
           getIn_g_n_c_ytildaslice_htidaslice_xtildaslice_wtildaslice(
               secondOutputDimName, thirdOutputDimName);
-      // return in_g_n_c_ytildaslice_htidaslice_xtildaslice_wtildaslice;
 
       auto getIn_gemmg_gemmm_gemmn =
           [&](decltype(thirdOutputDimName) &preOutputDimName) {
@@ -2216,7 +2213,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       auto out_g_n_k_ydot_htilda_xdot_wtilda =
           getOut_g_n_k_ydot_htilda_xdot_wtilda();
-      // return out_g_n_k_ydot_htilda_xdot_wtilda;
+      
       llvm::SmallVector<StringAttr, 7> secondOutputDimName;
       auto getOut_g_n_k_ydotslice_htidaslice_xdotslice_wtildaslice =
           [&](decltype(firstOutputDimName) &preOutputDimName,
@@ -2349,7 +2346,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       auto out_g_n_k_ydotslice_htidaslice_xdotslice_wtildaslice =
           getOut_g_n_k_ydotslice_htidaslice_xdotslice_wtildaslice(
               firstOutputDimName, secondOutputDimName);
-      // return out_g_n_k_ydotslice_htidaslice_xdotslice_wtildaslice;
+      
       auto getOut_gemmg_gemmk_gemmn =
           [&](decltype(secondOutputDimName) &preOutputDimName) {
             llvm::SmallVector<StringAttr, 7> curOutputDimName;
