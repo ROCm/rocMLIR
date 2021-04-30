@@ -276,9 +276,15 @@ void BackendUtils::setupDefaults(std::string &chip, std::string &features,
     triple = "amdgcn-amd-amdhsa";
   }
 
-  // Configure target features per ROCm / HIP version.
-  configTargetFeatures(features);
+  // Configure target features per ROCm / HIP version, and target GPU.
+  configTargetFeatures(chip, triple, features);
 }
 
-void BackendUtils::configTargetFeatures(std::string &features) {
+void BackendUtils::configTargetFeatures(const std::string &chip,
+                                        const std::string &triple,
+                                        std::string &features) {
+  // For gfx908, add +sramecc by default to be compatible with ROCm 4.1+.
+  if (chip == "gfx908") {
+    features += "+sramecc";
+  }
 }
