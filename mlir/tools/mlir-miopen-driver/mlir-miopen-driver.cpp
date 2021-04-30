@@ -396,7 +396,7 @@ createConvertTensor(ModuleOp &module, OpBuilder &builder,
     funcName += "x" + std::to_string(dim);
   }
   auto originalDataType = originalMemRefType.getElementType();
-  if(originalDataType == builder.getF32Type())
+  if (originalDataType == builder.getF32Type())
     funcName += "xf32";
   else if (originalDataType == builder.getF16Type())
     funcName += "xf16";
@@ -784,11 +784,11 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
 }
 
 // Cconvert CPU results of f32 to f16 or bf16
-static mlir::Value getConvertedCpuResults(ModuleOp &module, OpBuilder &builder,
-                                          Block *block,
-                                          mlir::Value cpuOriginalAllocOp,
-                                          mlir::MemRefType &convertedMemRefType,
-                                          std::unordered_map<std::string, FuncOp> &convertFuncs) {
+static mlir::Value
+getConvertedCpuResults(ModuleOp &module, OpBuilder &builder, Block *block,
+                       mlir::Value cpuOriginalAllocOp,
+                       mlir::MemRefType &convertedMemRefType,
+                       std::unordered_map<std::string, FuncOp> &convertFuncs) {
   auto dataType = convertedMemRefType.getElementType();
 
   if (dataType == builder.getF32Type())
@@ -799,10 +799,9 @@ static mlir::Value getConvertedCpuResults(ModuleOp &module, OpBuilder &builder,
       builder.create<AllocOp>(builder.getUnknownLoc(), convertedMemRefType);
   block->push_back(cpuConvertedResults);
 
-
-  //mlir::Value convertFuncOp;
   if (dataType == builder.getF16Type()) { // f16
-    auto originalMemRefType = cpuOriginalAllocOp.getType().template dyn_cast<MemRefType>();
+    auto originalMemRefType =
+        cpuOriginalAllocOp.getType().template dyn_cast<MemRefType>();
 
     // Create conversion routine f32->f16
     auto convertFuncOp = createConvertTensor(
@@ -811,38 +810,35 @@ static mlir::Value getConvertedCpuResults(ModuleOp &module, OpBuilder &builder,
         builder.getUnknownLoc(), convertFuncOp,
         ValueRange{cpuOriginalAllocOp, cpuConvertedResults});
     block->push_back(convertResultCallOp);
-  }
-  else // bf16
-  {
+  } else { // bf16
     StringRef convertFuncName = "mcpuMem5DFloatConvertBF16";
 
-  auto fiveDimUnknownSizeMemRefFloat =
-      MemRefType::get({-1, -1, -1, -1, -1}, builder.getF32Type());
-  auto fiveDimUnknownSizeMemRefType =
-      MemRefType::get({-1, -1, -1, -1, -1}, dataType);
+    auto fiveDimUnknownSizeMemRefFloat =
+        MemRefType::get({-1, -1, -1, -1, -1}, builder.getF32Type());
+    auto fiveDimUnknownSizeMemRefType =
+        MemRefType::get({-1, -1, -1, -1, -1}, dataType);
 
-  auto  convertFuncOp = makeFuncDecl(
-      builder, convertFuncName,
-      {fiveDimUnknownSizeMemRefFloat, fiveDimUnknownSizeMemRefType}, {});
+    auto convertFuncOp = makeFuncDecl(
+        builder, convertFuncName,
+        {fiveDimUnknownSizeMemRefFloat, fiveDimUnknownSizeMemRefType}, {});
     module.push_back(convertFuncOp);
 
-  // Emit memref cast
-  auto cpuConvertedMemRefCastOp =
-      builder.create<MemRefCastOp>(builder.getUnknownLoc(), cpuConvertedResults,
-                                   fiveDimUnknownSizeMemRefType);
-  block->push_back(cpuConvertedMemRefCastOp);
+    // Emit memref cast
+    auto cpuConvertedMemRefCastOp = builder.create<MemRefCastOp>(
+        builder.getUnknownLoc(), cpuConvertedResults,
+        fiveDimUnknownSizeMemRefType);
+    block->push_back(cpuConvertedMemRefCastOp);
 
-  // Emit memref_cast
-  auto cpuOrigianlMemRefCastOp =
-      builder.create<MemRefCastOp>(builder.getUnknownLoc(), cpuOriginalAllocOp,
-                                   fiveDimUnknownSizeMemRefFloat);
-  block->push_back(cpuOrigianlMemRefCastOp);
+    // Emit memref_cast
+    auto cpuOrigianlMemRefCastOp = builder.create<MemRefCastOp>(
+        builder.getUnknownLoc(), cpuOriginalAllocOp,
+        fiveDimUnknownSizeMemRefFloat);
+    block->push_back(cpuOrigianlMemRefCastOp);
 
-
-  // Emit function call to convert Cpu results from F32 to desired data type
+    // Emit function call to convert Cpu results from F32 to desired data type
     auto convertCallOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), convertFuncOp,
-      ValueRange{cpuOrigianlMemRefCastOp, cpuConvertedMemRefCastOp});
+        builder.getUnknownLoc(), convertFuncOp,
+        ValueRange{cpuOrigianlMemRefCastOp, cpuConvertedMemRefCastOp});
     block->push_back(convertCallOp);
   }
   return cpuConvertedResults;
@@ -1807,8 +1803,9 @@ static LogicalResult populateValidationLogic(
   if (dataType == builder.getF32Type())
     cpuConvertedResults = cpuResults;
   else
-    cpuConvertedResults = getConvertedCpuResults(
-        module, builder, block, cpuResults, gpuOriginalResultType, convertFuncs);
+    cpuConvertedResults =
+        getConvertedCpuResults(module, builder, block, cpuResults,
+                               gpuOriginalResultType, convertFuncs);
 
   mlir::FuncOp verifyFuncOp;
   if (operation.getValue() == "conv2d" ||
@@ -2005,7 +2002,6 @@ static LogicalResult populateCpuConvolutionLogic(
   if (dataType != builder.getF32Type())
     // Convert Cpu results of f32 to desired dataType
     cpuConvertedResults = getConvertedCpuResults(
-        //module, builder, block, cpuResults, dataTypeMemRefType, dataType, convertFuncs);
         module, builder, block, cpuResults, dataTypeMemRefType, convertFuncs);
 
   // Convert CPU results to f32 for printing
