@@ -12,15 +12,15 @@ using namespace mlir;
 
 Conv2dGenerator::Conv2dGenerator(
     const std::string &arch, int num_cu, bool xdlops,
-    const std::string &operation, int kernelId, const std::string &dataTypeStr,
+    const std::string &operation, const std::string &dataTypeStr,
     int dilationHeight, int dilationWidth, int strideHeight, int strideWidth,
     int paddingHeight, int paddingWidth, const std::string &filterLayout,
     const std::string &inputLayout, const std::string &outputLayout,
     const std::string &kernelName)
-    : config{arch,         num_cu,      xdlops,         operation,
-             kernelId,     dataTypeStr, dilationHeight, dilationWidth,
-             strideHeight, strideWidth, paddingHeight,  paddingWidth,
-             filterLayout, inputLayout, outputLayout,   kernelName} {}
+    : config{arch,        num_cu,         xdlops,        operation,
+             dataTypeStr, dilationHeight, dilationWidth, strideHeight,
+             strideWidth, paddingHeight,  paddingWidth,  filterLayout,
+             inputLayout, outputLayout,   kernelName,    -1} {}
 
 namespace {
 
@@ -60,7 +60,9 @@ int Conv2dGenerator::getKernelCount() const {
     count = 4;
   } else if (config.operation == "conv2d_bwd_data") {
     count = 1;
-  } else if (config.operation == "conv2d_bww_weight") {
+  } else if (config.operation == "conv2d_bwd_weight") {
+    count = 1;
+  } else if (config.operation == "conv2d_dummy") {
     count = 1;
   }
   return count;
@@ -197,19 +199,30 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
     }
   }
 
+  // Determine kernel name, if there isn't one.
+  if (config.kernelName.empty()) {
+    config.kernelName = "miopen_" + config.operation + "_" +
+                        config.filterLayout + "_" + config.inputLayout + "_" +
+                        config.outputLayout;
+  }
+
   return success();
+}
+
+std::string Conv2dGenerator::getKernelName(int kernelId) const {
+  std::string kname = config.kernelName;
+  if (kernelId > 0) {
+    kname += "_" + std::to_string(kernelId);
+  }
+  return kname;
 }
 
 LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
                                              OpBuilder &builder,
                                              int kernel_id) {
-  config.kernelId = kernel_id;
-  config.kernelName.clear();
-  return genConvModule(module, builder);
-}
-
-LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
-                                             OpBuilder &builder) {
+  if (kernel_id == -1) {
+    kernel_id = config.kernelId;
+  }
 
   Type dataType = getDataType(builder);
   if (!dataType) {
@@ -232,26 +245,16 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   auto funcType =
       builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
 
-  // Determine kernel name, if there isn't one.
-  if (config.kernelName.empty()) {
-    std::string subscript = "";
-    if (config.kernelId > 0) {
-      subscript = "_" + std::to_string(config.kernelId);
-    }
-    config.kernelName = "miopen_" + config.operation + "_" +
-                        config.filterLayout + "_" + config.inputLayout + "_" +
-                        config.outputLayout + subscript;
-  }
+  std::string kernelName = getKernelName(kernel_id);
 
   // Annotate kernel attribute to the FuncOp.
   SmallVector<NamedAttribute, 1> kernelAttrs{
-      builder.getNamedAttr("kernel",
-                           builder.getI32IntegerAttr(config.kernelId)),
+      builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernel_id)),
   };
 
   // Construct the FuncOp.
-  auto func = FuncOp::create(builder.getUnknownLoc(), config.kernelName,
-                             funcType, ArrayRef<NamedAttribute>(kernelAttrs));
+  auto func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
+                             ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
 
   // Construct a new Block.
@@ -308,7 +311,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
     attributes.push_back(
         builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
 
-  if (config.kernelId > 0) {
+  if (kernel_id > 0) {
     auto convOp = builder.create<miopen::Conv2DDummyOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{func.getArgument(0), func.getArgument(1),

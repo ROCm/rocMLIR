@@ -241,13 +241,6 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   std::string triple = "amdgcn-amd-amdhsa";
   BackendUtils utils(triple, handle->arch, "");
 
-  // Retrieve name of FuncOp from the incoming module and set it
-  // as the GpuFuncOps's kernel name
-  StringRef kernelName;
-  for (auto func : module.getOps<FuncOp>()) {
-    kernelName = func.getName();
-  }
-
   // Passes for lowering MIOpen dialect.
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(mlir::miopen::createAffineTransformPass());
@@ -256,7 +249,7 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
-  pm.addPass(mlir::createLowerMIOpenOpsToGPUPass(kernelName));
+  pm.addPass(mlir::createLowerMIOpenOpsToGPUPass());
 
   // Passes for lowering linalg dialect.
   pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
