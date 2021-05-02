@@ -59,7 +59,20 @@ static void print(OpAsmPrinter &p, Conv2DOp op) {
 }
 
 static LogicalResult verify(Conv2DOp op) {
-  return success();
+  auto filter_layout = op->getAttr("filter_layout").cast<ArrayAttr>().getValue();
+  auto y_pos = -1, x_pos = -1;
+  for(unsigned int i = 0; i < filter_layout.size(); ++i)
+  {
+	  if( filter_layout[i].dyn_cast<StringAttr>().getValue() == "y")
+		  y_pos = i;
+	  if( filter_layout[i].dyn_cast<StringAttr>().getValue() == "x")
+		  x_pos = i;
+  }
+
+  if(x_pos == (y_pos + 1))
+	  return success();
+  else
+	  return failure();
 }
 
 //===----------------------------------------------------------------------===//
