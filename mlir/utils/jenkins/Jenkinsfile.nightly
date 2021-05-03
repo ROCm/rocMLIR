@@ -16,6 +16,7 @@ pipeline {
         stage('Build and Test') {
             steps {
                 checkout scm
+                gitStatusWrapper(credentialsId: 'cd9678d2-1c7f-44e3-9fe5-8bdab3514013', gitHubContext: 'AMD ROCm™ -- Community CI Build', account: 'ROCmSoftwarePlatform', repo: 'llvm-project-mlir') {
                 sh '''
                     mkdir -p build && cd build
                     # Set the path to llvm-symbolizer
@@ -41,6 +42,7 @@ pipeline {
                     # Clean up build directory
                     rm -rf build
                 '''
+                }
             }
         }
         stage('Test Random E2E') {
