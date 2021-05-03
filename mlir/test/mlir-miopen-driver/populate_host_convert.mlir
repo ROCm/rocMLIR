@@ -2,7 +2,7 @@
 // RUN: mlir-miopen-driver -p -ph -pr -t f16 | FileCheck %s --check-prefix=F16
 // RUN: mlir-miopen-driver -p -ph -pr -t bf16 | FileCheck %s --check-prefix=BF16
 
-// F32: func @convert_tensor[[N:[0-9]+]]x[[G:[0-9]+]]x[[K:[0-9]+]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]([[SOURCE:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE:[a-zA-Z0-9]+]]>, [[DEST:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE:[a-zA-Z0-9]+]]>)
+// F32: func @convert_tensor[[N:[0-9]+]]x[[G:[0-9]+]]x[[K:[0-9]+]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]xf32([[SOURCE:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE:[a-zA-Z0-9]+]]>, [[DEST:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE:[a-zA-Z0-9]+]]>)
 // F32-NEXT: [[ZERO:%[a-zA-Z_0-9]+]] = constant 0 : index
 // F32-NEXT: [[ONE:%[a-zA-Z_0-9]+]] = constant 1 : index
 // F32-NEXT: [[BOUND_N:%[a-zA-Z_0-9]+]] = constant [[N]] : index
@@ -24,7 +24,7 @@
 // F32-NEXT: }
 // F32-NEXT: return
 
-// F16: func @convert_tensor[[N:[0-9]+]]x[[G:[0-9]+]]x[[K:[0-9]+]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]([[SOURCE:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE:[a-zA-Z0-9]+]]>, [[DEST:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE:[a-zA-Z0-9]+]]>)
+// F16: func @convert_tensor[[N:[0-9]+]]x[[G:[0-9]+]]x[[K:[0-9]+]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]xf16([[SOURCE:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE:[a-zA-Z0-9]+]]>, [[DEST:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE:[a-zA-Z0-9]+]]>)
 // F16-NEXT: [[ZERO:%[a-zA-Z_0-9]+]] = constant 0 : index
 // F16-NEXT: [[ONE:%[a-zA-Z_0-9]+]] = constant 1 : index
 // F16-NEXT: [[BOUND_N:%[a-zA-Z_0-9]+]] = constant [[N]] : index

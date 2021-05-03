@@ -94,3 +94,15 @@
 // CHECK_ISSUE_155_1: [1]
 // CHECK_ISSUE_155_2: Unranked Memref base@ = 0x{{.*}} rank = 1 offset = 0 sizes = [1] strides = [1] data =
 // CHECK_ISSUE_155_2: [1]
+
+// Use random float numbers
+
+// RUN: mlir-miopen-driver -pv -p -rand 1 -rand_type float | mlir-rocm-runner  --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CHECK_RAND_FLOAT_1
+
+// CHECK_RAND_FLOAT_1: Unranked Memref base@ = 0x{{.*}} rank = 1 offset = 0 sizes = [1] strides = [1] data =
+// CHECK_RAND_FLOAT_1: [1]
+
+// RUN: mlir-miopen-driver -pv -p -t f16 -rand 1 -rand_type float | mlir-rocm-runner  --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CHECK_RAND_FLOAT_2
+
+// CHECK_RAND_FLOAT_2: Unranked Memref base@ = 0x{{.*}} rank = 1 offset = 0 sizes = [1] strides = [1] data =
+// CHECK_RAND_FLOAT_2: [1]
