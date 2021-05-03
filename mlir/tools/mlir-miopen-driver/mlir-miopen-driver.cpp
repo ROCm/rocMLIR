@@ -466,28 +466,24 @@ createConvertTensor(ModuleOp &module, OpBuilder &builder,
   mlir::Value sourceValue = innermostLoopBuilder.create<LoadOp>(
       builder.getUnknownLoc(), originalDataType, sourceMemRef, loopIVVector);
   mlir::Value convertedValue;
-  // convert to or from f16
   if (originalDataType == convertedDataType) {
     convertedValue = sourceValue;
   } else {
     auto f16Type = builder.getF16Type();
     auto f32Type = builder.getF32Type();
-    if ((originalDataType == f16Type && convertedDataType == f32Type) ||
-        (originalDataType == f32Type && convertedDataType == f16Type)) {
-      if (originalDataType == f16Type)
-        // Emit fpext.
-        convertedValue = innermostLoopBuilder.create<FPExtOp>(
-            builder.getUnknownLoc(), sourceValue, f32Type);
-      else
-        // Emit fptrunc.
-        convertedValue = innermostLoopBuilder.create<FPTruncOp>(
-            builder.getUnknownLoc(), sourceValue, f16Type);
-    } else if (originalDataType == builder.getIntegerType(16)) {
+    // f16->f32, emit fpext
+    if (originalDataType == f16Type && convertedDataType == f32Type)
+      convertedValue = innermostLoopBuilder.create<FPExtOp>(
+          builder.getUnknownLoc(), sourceValue, f32Type);
+    // f32->f16, emit fptrunc
+    else if (originalDataType == f32Type && convertedDataType == f16Type)
+      convertedValue = innermostLoopBuilder.create<FPTruncOp>(
+          builder.getUnknownLoc(), sourceValue, f16Type);
+    else if (originalDataType == builder.getIntegerType(16))
       // Treat I16 as BF16.
       // TBD: Implement proper conversion logic. Force cast for now.
       convertedValue = innermostLoopBuilder.create<SIToFPOp>(
           builder.getUnknownLoc(), sourceValue, f32Type);
-    }
   }
   innermostLoopBuilder.create<StoreOp>(builder.getUnknownLoc(), convertedValue,
                                        convertedMemRef, loopIVVector);
