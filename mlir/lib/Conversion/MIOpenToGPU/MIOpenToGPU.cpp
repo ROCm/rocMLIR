@@ -224,7 +224,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     return gpuFunc;
   };
 
-  SmallVector<StringRef, 1> processedKernelNameTable;
+  SmallVector<FuncOp, 1> processedFuncs;
   // Check parameters and populate default values if necessary.
   for (auto func : op.getOps<FuncOp>()) {
     if (func->hasAttr("kernel")) {
@@ -241,24 +241,13 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
       // insert the GPUFuncOp into GPUModuleOp.
       gpuModuleSymbolTable.insert(gpuFunc);
 
-      processedKernelNameTable.push_back(func.getName());
+      processedFuncs.push_back(func);
     }
   }
 
   // Remove all processed FuncOp instances.
-  while (!processedKernelNameTable.empty()) {
-    auto iter = processedKernelNameTable.begin();
-    auto kernelName = *iter;
-    bool funcRemoved = false;
-    for (auto func : op.getOps<FuncOp>()) {
-      if (func.getName() == kernelName) {
-        funcRemoved = true;
-        func.erase();
-        break;
-      }
-    }
-    if (funcRemoved)
-      processedKernelNameTable.erase(iter);
+  for (auto func : processedFuncs) {
+    func.erase();
   }
 
   op.walk([this](gpu::GPUModuleOp gpuMod) {
