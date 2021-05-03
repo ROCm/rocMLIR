@@ -292,11 +292,18 @@ static void verifyLayout() {
 
   if (filterLayoutValue.find("yx") == std::string::npos &&
       filterLayoutValue.find("xy") == std::string::npos)
+  {
+	  llvm::errs() << "Unsupported filter layout: disjointed yx!\n";
     exit(1);
+  }
 
   if (inputLayoutValue.find("hw") == std::string::npos &&
       inputLayoutValue.find("wh") == std::string::npos)
+  {
+
+	  llvm::errs() << "Unsupported input layout: disjointed hw!\n";
     exit(1);
+  }
 }
 
 static void populateDefaults() {
