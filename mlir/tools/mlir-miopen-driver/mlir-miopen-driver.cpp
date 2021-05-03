@@ -286,6 +286,17 @@ static void correctParameters() {
   }
 }
 
+static void verifyLayout() {
+  std::string filterLayoutValue = filterLayout.getValue();
+  std::string inputLayoutValue = inputLayout.getValue();
+  
+  if(filterLayoutValue.find("yx") == std::string::npos && filterLayoutValue.find("xy") == std::string::npos )
+      exit(1);
+
+  if(inputLayoutValue.find("hw") == std::string::npos && inputLayoutValue.find("wh") == std::string::npos)
+      exit(1);
+}
+
 static void populateDefaults() {
   if (populateDefaultValues == true) {
     if (xdlopsV2.getValue() == false) {
@@ -2169,6 +2180,7 @@ int main(int argc, char **argv) {
     module = ModuleOp::create(builder.getUnknownLoc());
   }
 
+  verifyLayout();
   correctParameters();
   populateDefaults();
 
