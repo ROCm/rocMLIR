@@ -910,10 +910,10 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   // scf.for %arg0 = %c0 to %c128 step %c1 {
   //  scf.for %arg1 = %c0 to %c30 step %c1 {
   //    scf.for %arg2 = %c0 to %c30 step %c1 {
-  //      scf.for %arg3 = %c0 to %c128 step %c1 {
+  //      scf.for %arg3 = %c0 to %c1 step %c1 {
   //        scf.for %arg4 = %c0 to %c128 step %c1 {
-  //          %cpu_result = load %CpuResults[%arg0, %arg1, %arg2, %arg3, %arg4] : memref<128x30x30x128x128xf32> %gpu_result = load
-  //          %GpuRsults[%arg0, %arg1, %arg2, %arg3, %arg4] :
+  //          %2 = load %CpuResults[%arg0, %arg1, %arg2, %arg3, %arg4] : memref<128x30x30x1x128xf32>
+  //          %3 = load %GpuResults[%arg0, %arg1, %arg2, %arg3, %arg4] : memref<128x30x30x1x128xf32>
   //          %cst = constant 1.000000e-07 : f32
   //          %4 = subf %2, %3 : f32
   //          %5 = absf %4 : f32
@@ -927,6 +927,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   //  }
   //}
   // clang-format on
+
   auto loop0 = builder.create<scf::ForOp>(builder.getUnknownLoc(), c0IndexOp,
                                           indexOp0, c1IndexOp);
   auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
