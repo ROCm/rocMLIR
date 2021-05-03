@@ -291,17 +291,15 @@ static void verifyLayout() {
   std::string inputLayoutValue = inputLayout.getValue();
 
   if (filterLayoutValue.find("yx") == std::string::npos &&
-      filterLayoutValue.find("xy") == std::string::npos)
-  {
-	  llvm::errs() << "Unsupported filter layout: disjointed yx!\n";
+      filterLayoutValue.find("xy") == std::string::npos) {
+    llvm::errs() << "Unsupported filter layout: disjointed yx!\n";
     exit(1);
   }
 
   if (inputLayoutValue.find("hw") == std::string::npos &&
-      inputLayoutValue.find("wh") == std::string::npos)
-  {
+      inputLayoutValue.find("wh") == std::string::npos) {
 
-	  llvm::errs() << "Unsupported input layout: disjointed hw!\n";
+    llvm::errs() << "Unsupported input layout: disjointed hw!\n";
     exit(1);
   }
 }
