@@ -13,11 +13,11 @@ module  {
 
     // populate initial values.
     %c0_i16 = constant 0 : i16
-    %c-5_i16 = constant -1 : i16
-    %c5_i16 = constant 1 : i16
+    %c-5_i16 = constant -5 : i16
+    %c5_i16 = constant 5 : i16
     %c1_i32 = constant 1 : i32
-    call @mcpuMemset5DHalfRandInt(%3, %c-1_i16, %c1_i16, %c1_i32) : (memref<?x?x?x?x?xf16>, i16, i16, i32) -> ()
-    call @mcpuMemset5DHalfRandInt(%4, %c-1_i16, %c1_i16, %c1_i32) : (memref<?x?x?x?x?xf16>, i16, i16, i32) -> ()
+    call @mcpuMemset5DHalfRandInt(%3, %c-5_i16, %c5_i16, %c1_i32) : (memref<?x?x?x?x?xf16>, i16, i16, i32) -> ()
+    call @mcpuMemset5DHalfRandInt(%4, %c-5_i16, %c5_i16, %c1_i32) : (memref<?x?x?x?x?xf16>, i16, i16, i32) -> ()
     call @mcpuMemset5DHalfRandInt(%5, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?x?xf16>, i16, i16, i32) -> ()
 
     // launch GPU convolution
@@ -242,11 +242,8 @@ module  {
             scf.for %arg6 = %c0 to %c128_2 step %c1 {
               %2 = load %arg0[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x30x30x1x128xf16>
               %3 = load %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x30x30x1x128xf16>
-              %cst = constant 2.500000e-01 : f16
-              %4 = subf %2, %3 : f16
-              %5 = absf %4 : f16
-              %6 = cmpf ugt, %5, %cst : f16
-              scf.if %6 {
+              %4 = cmpf une, %2, %3 : f16
+              scf.if %4 {
                 store %c0_i32, %0[%c0] : memref<1xi32>
               }
             }
