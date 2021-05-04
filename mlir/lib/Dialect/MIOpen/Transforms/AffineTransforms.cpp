@@ -57,12 +57,46 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
         assert(srcDimAttr.size() == destDimAttr.size());
 
         auto parameters = dimLayoutAttr.get("parameters").dyn_cast<ArrayAttr>();
-        auto leftPad = parameters.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+        // auto leftPad =
+        // parameters.getValue()[0].dyn_cast<IntegerAttr>().getInt();
         for (unsigned j = 0; j < srcDimAttr.size(); ++j) {
+          // [0, 2, 3, 1] leftpadH = 0 rightPadH = 2 leftpadW = 3 rightPadW = 1
+          // first run leftPad = 0 rightPad = 2 , second run leftPad = 3
+          // rightPad = 1
+          auto leftPad =
+              parameters.getValue()[j * 2].dyn_cast<IntegerAttr>().getInt();
+          auto rightPad =
+              parameters.getValue()[j * 2 + 1].dyn_cast<IntegerAttr>().getInt();
+
           auto srcDim = srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
           auto destDim = destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
 
           auto expr = getAffineDimExpr(destDim, op.getContext()) + getAffineConstantExpr(-leftPad, op.getContext());
+          if (leftPad == 0 && rightPad != 0) {
+            // when leftPad == 0 , your original expr is just minus leftpad, but
+            // leftpad is zero, affinemap do not have minus out of boundary
+            // check depends on minus symbol , it will not do out of boundary
+            // check even rightpad part is oob example of leftPad == 0 &&
+            // rightPad != 0:
+            // srcIndex0 srcIndex1 ... srcIndex[src_size - 1]
+            // dstIndex0 dstIndex1 ... dstIndex[src_size - 1] dstIndex[rightpad]
+            // index0    index1        index[src_size -1]     index[src_size]
+            // can't find index[src_size] in src
+            // so we need to force it to  do out of boundary check ,
+            // the idea :
+            // dst index :
+            // dstIndex0 dstIndex1 ... dstIndex[src_size -1]  dstIndex[rightpad]
+            // src index computed:
+            // srcIndex0 srcIndex1 ... srcIndex[src_size - 1]
+            // srcIndex[src_size+1] how to achieve it: dstIndex +
+            // (dstIndex/srcsize) + 1 - 1 the expr is : dstIndex
+            // + ceildiv(dstIndex+1/srcsize) - 1, the same with above but the
+            // minus symbol exist after optimization
+            expr = ((getAffineDimExpr(destDim, op.getContext()) + 1)
+                        .ceilDiv(inputShape[srcDim])) +
+                   getAffineDimExpr(destDim, op.getContext()) -
+                   getAffineConstantExpr(1, op.getContext());
+          }
           affExprsMap.insert({srcDim, expr});
         }
       } else if (transformAttr.getValue() == "Merge" ||

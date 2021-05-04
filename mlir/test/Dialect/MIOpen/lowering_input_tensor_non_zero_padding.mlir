@@ -13,7 +13,7 @@ func @miopen_conv2d_gcyxk_gcnhw_gknhw(%filter : memref<1x8x3x3x128xf32>, %input 
     output_layout = ["go", "ko", "no", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [1, 1]
+    padding = [1, 1, 1, 1]
   } : memref<1x8x3x3x128xf32>, memref<1x8x128x32x32xf32>, memref<1x128x128x32x32xf32>
   return
 }

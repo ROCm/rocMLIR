@@ -589,7 +589,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                   b.getNamedAttr("parameters",
                                  b.getArrayAttr({
                                      b.getI32IntegerAttr(leftPadH),
+                                     b.getI32IntegerAttr(rightPadH),
                                      b.getI32IntegerAttr(leftPadW),
+                                     b.getI32IntegerAttr(rightPadW),
                                  })),
                   b.getNamedAttr("source_dimensions",
                                  b.getArrayAttr(ArrayRef<Attribute>(
