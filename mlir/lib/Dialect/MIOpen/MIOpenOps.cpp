@@ -58,8 +58,7 @@ static void print(OpAsmPrinter &p, Conv2DOp op) {
   p << " : " << op.getOperandTypes();
 }
 
-static LogicalResult verify(Conv2DOp op) 
-{
+static LogicalResult verify(Conv2DOp op) {
 
   {
     auto filter_layout =
@@ -117,8 +116,7 @@ static void print(OpAsmPrinter &p, Conv2DBwdDataOp op) {
   p << " : " << op.getOperandTypes();
 }
 
-static LogicalResult verify(Conv2DBwdDataOp op) 
-{
+static LogicalResult verify(Conv2DBwdDataOp op) {
 
   {
     auto filter_layout =
@@ -176,8 +174,7 @@ static void print(OpAsmPrinter &p, Conv2DBwdWeightOp op) {
   p << " : " << op.getOperandTypes();
 }
 
-static LogicalResult verify(Conv2DBwdWeightOp op) 
-{
+static LogicalResult verify(Conv2DBwdWeightOp op) {
 
   {
     auto filter_layout =
@@ -212,7 +209,7 @@ static LogicalResult verify(Conv2DBwdWeightOp op)
 #endif
 
   return success();
-}//===----------------------------------------------------------------------===//
+} //===----------------------------------------------------------------------===//
 // Conv2DDummyOp
 //===----------------------------------------------------------------------===//
 
