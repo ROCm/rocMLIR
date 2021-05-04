@@ -13,7 +13,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define MIIR_VERSION_FLAT 4
+#define MIIR_VERSION_FLAT 5
 
 enum MiirStatus {
   MIIR_SUCCESS = 0,
@@ -41,17 +41,17 @@ struct StridedMemRef5D {
   int64_t strides[5];
 };
 
-/*! @brief Return the number of kernels required for options
- *  @param options Command-line options as a string
- *  @return        Kernel count
- */
-extern "C" int miirGetKernelCount(const char *options);
-
 /*! @brief Create the MLIR handle according to options string
  *  @param options Command-line options as a string
  *  @return        MLIR handle
  */
 extern "C" MiirHandle miirCreateHandle(const char *options);
+
+/*! @brief Return the number of kernels required for operation
+ *  @param handle  MLIR handle
+ *  @return        Kernel count
+ */
+extern "C" int miirGetKernelCount(MiirHandle handle);
 
 /*! @brief Lower the MLIR module to c++ code
  *  @param handle   MLIR handle

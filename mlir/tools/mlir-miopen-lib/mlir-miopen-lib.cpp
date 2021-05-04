@@ -35,6 +35,7 @@ struct MiirHandle_s {
   mlir::OwningModuleRef module;
   std::string arch;
   std::string genTxt;
+  int kernelCount;
 };
 
 // In multi-threaded context, static intialization is guaranteed to
@@ -65,10 +66,6 @@ bool miirLazyInit() {
 
 typedef void *MiirHandle;
 
-extern "C" int miirGetKernelCount(const char *arguments) {
-  return Conv2dGenerator::getKernelCount(arguments);
-}
-
 extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   mlir::registerAllPasses();
 
@@ -83,6 +80,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     OpBuilder builder(&(handle->context));
 
     handle->arch = conv2dGenerator.getConfig().arch;
+    handle->kernelCount = conv2dGenerator.getKernelCount();
 
     ModuleOp module = handle->getModule();
 
@@ -90,6 +88,14 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   }
 
   return (result.succeeded()) ? handle : nullptr;
+}
+
+extern "C" int miirGetKernelCount(MiirHandle mlirHandle) {
+  MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
+  if (handle == nullptr)
+    return -1;
+
+  return handle->kernelCount;
 }
 
 extern "C" MiirStatus miirDestroyHandle(MiirHandle mlirHandle) {

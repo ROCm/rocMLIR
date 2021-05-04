@@ -44,14 +44,6 @@ void strToTokens(const std::string &arguments,
 
 } // namespace
 
-int Conv2dGenerator::getKernelCount(const char *arguments) {
-  Conv2dGenerator gen;
-  if (failed(gen.parseConvConfig(arguments))) {
-    return 0;
-  }
-  return gen.getKernelCount();
-}
-
 int Conv2dGenerator::getKernelCount() const {
   int count = 0;
   if (config.kernelId > 0) { // generate only 1 specified kernel

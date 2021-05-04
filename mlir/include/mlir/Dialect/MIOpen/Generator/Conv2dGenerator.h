@@ -57,7 +57,6 @@ public:
   const Config &getConfig() const { return config; }
   std::string getKernelName(int kernelId) const;
 
-  static int getKernelCount(const char *arguments);
   int getKernelCount() const;
 
   Type getDataType(OpBuilder &builder) const;
