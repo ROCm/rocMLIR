@@ -2,9 +2,9 @@
 
 // CHECK: module attributes {gpu.container_module}
 // CHECK-NEXT: gpu.module @misckernel_module
-// CHECK-NEXT: gpu.func @misckernel(%{{.*}}: memref<?x?x?x?xf32>) kernel
+// CHECK-NEXT: gpu.func @misckernel(%{{.*}}: memref<?xf32>, %{{.*}}: memref<?xf32>) kernel
 module {
-  func @misckernel(%arg0: memref<?x?x?x?xf32>) attributes {kernel = 0 : i32} {
+  func @misckernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>) attributes {kernel = 0 : i32} {
     // CHECK: gpu.barrier
     miopen.workgroup_barrier
 
@@ -17,7 +17,11 @@ module {
     // CHECK: %{{.*}} = "gpu.thread_id"() {dimension = "x"} : () -> index
     %tid = miopen.workitem_id : index
 
-    %out = muli %bid, %tid : index
+    %idx = muli %bid, %tid : index
+
+    %val = load %arg0[%idx] : memref<?xf32>
+
+    store %val, %arg1[%idx] : memref<?xf32>
     return
   }
 }

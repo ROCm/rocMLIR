@@ -183,6 +183,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     // add the GPUModuleOp into the symbol table.
     SymbolTable symbolTable(op);
     symbolTable.insert(gpuModule);
+
     return gpuModule;
   };
 
@@ -250,7 +251,10 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     func.erase();
   }
 
-  op.walk([this](gpu::GPUModuleOp gpuMod) {
+  // Convert MIOpen ops to GPU Ops
+  int gpuModCount = 0;
+  op.walk([this, &gpuModCount](gpu::GPUModuleOp gpuMod) {
+    gpuModCount++;
     OwningRewritePatternList patterns;
 
     // miopen-lowering
@@ -273,6 +277,11 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     if (failed(applyPatternsAndFoldGreedily(gpuMod, std::move(patterns))))
       signalPassFailure();
   });
+
+  if (gpuModCount == 0) {
+    // Must have at least 1 gpu.module for rocm-runner
+    makeGpuModule("miopen_gpu_module");
+  }
 }
 
 void LowerMIOpenOpsWithinGPUModulePass::runOnOperation() {
