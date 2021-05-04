@@ -41,6 +41,12 @@ struct StridedMemRef5D {
   int64_t strides[5];
 };
 
+/*! @brief Return the number of kernels required for options
+ *  @param options Command-line options as a string
+ *  @return        Kernel count
+ */
+extern "C" int miirGetKernelCount(const char *options);
+
 /*! @brief Create the MLIR handle according to options string
  *  @param options Command-line options as a string
  *  @return        MLIR handle
