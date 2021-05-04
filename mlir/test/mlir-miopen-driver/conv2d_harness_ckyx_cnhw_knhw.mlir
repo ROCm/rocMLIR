@@ -10,7 +10,7 @@ func @conv2d(%filter : memref<1x8x128x3x3xf32>, %input : memref<1x8x128x32x32xf3
 // HARNESS: func @conv2d([[FILTER_MEMREF:%.*]]: memref<1x8x128x3x3xf32>, [[INPUT_MEMREF:%.*]]: memref<1x8x128x32x32xf32>, [[OUTPUT_MEMREF:%.*]]: memref<1x128x128x30x30xf32>)
 // LOWERING: module
 // LOWERING: func @conv2d([[FILTER_MEMREF:%.*]]: memref<1x8x128x3x3xf32>, [[INPUT_MEMREF:%.*]]: memref<1x8x128x32x32xf32>, [[OUTPUT_MEMREF:%.*]]: memref<1x128x128x30x30xf32>)
-// LOWERING: gpu.launch_func  @miopen_kernel_module::@miopen_conv2d_gckyx_gcnhw_gknhw blocks in (%{{.*}}, %{{.*}}, %{{.*}}) threads in (%{{.*}}, %{{.*}}, %{{.*}}) args([[FILTER_MEMREF]] : memref<1x8x128x3x3xf32>, [[INPUT_MEMREF]] : memref<1x8x128x32x32xf32>, [[OUTPUT_MEMREF]] : memref<1x128x128x30x30xf32>)
+// LOWERING: gpu.launch_func  @miopen_conv2d_gckyx_gcnhw_gknhw_module::@miopen_conv2d_gckyx_gcnhw_gknhw blocks in (%{{.*}}, %{{.*}}, %{{.*}}) threads in (%{{.*}}, %{{.*}}, %{{.*}}) args([[FILTER_MEMREF]] : memref<1x8x128x3x3xf32>, [[INPUT_MEMREF]] : memref<1x8x128x32x32xf32>, [[OUTPUT_MEMREF]] : memref<1x128x128x30x30xf32>)
 
 func @main() {
   // allocate CPU memory.
@@ -75,7 +75,7 @@ func private @mgpuMemAlloc5DFloat(%ptr : memref<?x?x?x?x?xf32>) -> (memref<?x?x?
 func private @mgpuMemDealloc5DFloat(%ptr : memref<?x?x?x?x?xf32>) -> ()
 func private @mgpuMemCopy5DFloat(%src : memref<?x?x?x?x?xf32>, %dst : memref<?x?x?x?x?xf32>, %dir : i32) -> ()
 func private @print_memref_f32(%ptr : memref<*xf32>)
-// LOWERING: gpu.module @miopen_kernel_module
+// LOWERING: gpu.module @miopen_conv2d_gckyx_gcnhw_gknhw_module
 // LOWERING: gpu.func @miopen_conv2d_gckyx_gcnhw_gknhw
 // TBD. Add more verifying logic.
 // E2E: Unranked Memref base@ = 0x{{.*}} rank = 5 offset = 0 sizes = [1, 128, 128, 30, 30] strides = [14745600, 115200, 900, 30, 1] data =

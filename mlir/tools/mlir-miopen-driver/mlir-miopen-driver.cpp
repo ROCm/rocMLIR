@@ -2089,10 +2089,10 @@ static LogicalResult populateCpuConvolutionLogic(
   return success();
 }
 
-static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
-                                               OpBuilder &builder,
-                                               MLIRContext &context,
-                                               StringRef kernelName) {
+static LogicalResult
+populateKernelLaunchLogic(ModuleOp &module, OpBuilder &builder,
+                          MLIRContext &context,
+                          const SmallVector<std::string, 4> &kernels) {
   // Check if populate entry point exist.
   FuncOp theFunc;
   bool entryPointExist = false;
@@ -2111,24 +2111,20 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
     return success();
   }
 
+  std::unordered_map<std::string, gpu::GPUFuncOp> gpuKernelMap;
   // Check if kernel to be launched exist.
-  gpu::GPUFuncOp theGpuFunc;
-  bool gpuKernelExist = false;
   module.walk([&](gpu::GPUModuleOp gpuModule) -> WalkResult {
     module.walk([&](gpu::GPUFuncOp gpuFunc) -> WalkResult {
-      if (gpuFunc.getName() == kernelName) {
-        gpuKernelExist = true;
-        theGpuFunc = gpuFunc;
-        return WalkResult::interrupt();
+      auto fi = std::find(kernels.begin(), kernels.end(), gpuFunc.getName());
+      if (fi != kernels.end()) {
+        gpuKernelMap.emplace(*fi, gpuFunc);
       }
       return WalkResult::advance();
     });
-    if (gpuKernelExist)
-      return WalkResult::interrupt();
     return WalkResult::advance();
   });
 
-  if (!gpuKernelExist) {
+  if (gpuKernelMap.size() != kernels.size()) {
     // do not fail for now. silent exit.
     // return failure();
     return success();
@@ -2137,39 +2133,53 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
   Block *block = &(theFunc.getBody().front());
   block->clear();
 
-  auto blockSizeAttr = theGpuFunc->getAttr("block_size")
-                           .template dyn_cast<IntegerAttr>()
-                           .getInt();
-  auto gridSizeAttr = theGpuFunc->getAttr("grid_size")
-                          .template dyn_cast<IntegerAttr>()
-                          .getInt();
-  auto cstOne = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
-  auto cstBlockSize =
-      builder.create<ConstantIndexOp>(builder.getUnknownLoc(), blockSizeAttr);
-  auto cstGridSize =
-      builder.create<ConstantIndexOp>(builder.getUnknownLoc(), gridSizeAttr);
-  block->push_back(cstOne);
-  block->push_back(cstBlockSize);
-  block->push_back(cstGridSize);
+  auto genLaunchCode = [&builder, &theFunc, &block](gpu::GPUFuncOp theGpuFunc) {
+    auto blockSizeAttr = theGpuFunc->getAttr("block_size")
+                             .template dyn_cast<IntegerAttr>()
+                             .getInt();
+    auto gridSizeAttr = theGpuFunc->getAttr("grid_size")
+                            .template dyn_cast<IntegerAttr>()
+                            .getInt();
+    auto cstOne = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
+    auto cstBlockSize =
+        builder.create<ConstantIndexOp>(builder.getUnknownLoc(), blockSizeAttr);
+    auto cstGridSize =
+        builder.create<ConstantIndexOp>(builder.getUnknownLoc(), gridSizeAttr);
+    block->push_back(cstOne);
+    block->push_back(cstBlockSize);
+    block->push_back(cstGridSize);
 
-  auto gpuLaunchFuncOp = builder.create<gpu::LaunchFuncOp>(
-      builder.getUnknownLoc(), theGpuFunc,
-      gpu::KernelDim3{cstGridSize, cstOne, cstOne},
-      gpu::KernelDim3{cstBlockSize, cstOne, cstOne},
-      ValueRange{theFunc.getArgument(0), theFunc.getArgument(1),
-                 theFunc.getArgument(2)});
-  gpuLaunchFuncOp->setAttr(
-      "operand_segment_sizes",
-      builder.getI32VectorAttr({static_cast<int32_t>(0),    // sync
-                                static_cast<int32_t>(1),    // gridX
-                                static_cast<int32_t>(1),    // gridY
-                                static_cast<int32_t>(1),    // gridZ
-                                static_cast<int32_t>(1),    // blockX
-                                static_cast<int32_t>(1),    // blockY
-                                static_cast<int32_t>(1),    // blockZ
-                                static_cast<int32_t>(3)})); // arg count
+    auto gpuLaunchFuncOp = builder.create<gpu::LaunchFuncOp>(
+        builder.getUnknownLoc(), theGpuFunc,
+        gpu::KernelDim3{cstGridSize, cstOne, cstOne},
+        gpu::KernelDim3{cstBlockSize, cstOne, cstOne},
+        ValueRange{theFunc.getArgument(0), theFunc.getArgument(1),
+                   theFunc.getArgument(2)});
+    gpuLaunchFuncOp->setAttr(
+        "operand_segment_sizes",
+        builder.getI32VectorAttr({static_cast<int32_t>(0),    // sync
+                                  static_cast<int32_t>(1),    // gridX
+                                  static_cast<int32_t>(1),    // gridY
+                                  static_cast<int32_t>(1),    // gridZ
+                                  static_cast<int32_t>(1),    // blockX
+                                  static_cast<int32_t>(1),    // blockY
+                                  static_cast<int32_t>(1),    // blockZ
+                                  static_cast<int32_t>(3)})); // arg count
 
-  block->push_back(gpuLaunchFuncOp);
+    block->push_back(gpuLaunchFuncOp);
+  };
+
+  bool first = true;
+  for (auto gpuKernel : kernels) {
+    // if (!first) {
+    //   auto gpuBarrierOp = builder.create<gpu::BarrierOp>(
+    //       builder.getUnknownLoc());
+    //   block->push_back(gpuBarrierOp);
+    // }
+    // first = false;
+
+    genLaunchCode(gpuKernelMap[gpuKernel]);
+  }
 
   auto returnOp = builder.create<ReturnOp>(builder.getUnknownLoc());
   block->push_back(returnOp);
@@ -2177,8 +2187,7 @@ static LogicalResult populateKernelLaunchLogic(ModuleOp &module,
   return success();
 }
 
-static void populateDefaultLoweringPipeline(PassManager &pm,
-                                            StringRef kernelName) {
+static void populateDefaultLoweringPipeline(PassManager &pm) {
   // Passes for lowering MIOpen dialect.
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(mlir::miopen::createAffineTransformPass());
@@ -2188,7 +2197,8 @@ static void populateDefaultLoweringPipeline(PassManager &pm,
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
-  pm.addPass(mlir::createLowerMIOpenOpsToGPUPass(kernelName));
+  pm.addPass(mlir::createLowerMIOpenOpsToGPUPass());
+  // pm.addPass(mlir::createGpuKernelOutliningPass());
 
   // Passes for lowering linalg dialect.
   pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
@@ -2196,7 +2206,8 @@ static void populateDefaultLoweringPipeline(PassManager &pm,
   pm.addPass(mlir::createLowerToCFGPass());
 }
 
-static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser &passPipeline, StringRef kernelName) {
+static LogicalResult runMLIRPasses(ModuleOp &module,
+                                   mlir::PassPipelineCLParser &passPipeline) {
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
   applyPassManagerCLOptions(pm);
 
@@ -2206,10 +2217,10 @@ static LogicalResult runMLIRPasses(ModuleOp &module, mlir::PassPipelineCLParser 
     StringRef pipeline = loweringTargetDialect.getValue();
     if (pipeline == "gpu") {
       // Set up the default lowering pipeline which goes down to GPU dialect.
-      populateDefaultLoweringPipeline(pm, kernelName);
+      populateDefaultLoweringPipeline(pm);
     } else if (pipeline == "rocdl") {
       // Set up the lowering pipeline which goes down to ROCDL dialect.
-      populateDefaultLoweringPipeline(pm, kernelName);
+      populateDefaultLoweringPipeline(pm);
       pm.addPass(createLowerGpuOpsToROCDLOpsPass());
     }
   } else {
@@ -2272,15 +2283,14 @@ int main(int argc, char **argv) {
   populateDefaults();
 
   auto convConfig = populateConvConfig.getValue();
-  auto dataTypeStr = tensorDataType.getValue();
-  int kernelId = 0;
 
   Conv2dGenerator conv2dGenerator(
       arch.getValue(), num_cu.getValue(), xdlopsV2.getValue(),
-      operation.getValue(), kernelId, dataTypeStr, dilationHeight.getValue(),
-      dilationWidth.getValue(), strideHeight.getValue(), strideWidth.getValue(),
-      paddingHeight.getValue(), paddingWidth.getValue(),
-      filterLayout.getValue(), inputLayout.getValue(), outputLayout.getValue());
+      operation.getValue(), tensorDataType.getValue(),
+      dilationHeight.getValue(), dilationWidth.getValue(),
+      strideHeight.getValue(), strideWidth.getValue(), paddingHeight.getValue(),
+      paddingWidth.getValue(), filterLayout.getValue(), inputLayout.getValue(),
+      outputLayout.getValue());
 
   if (!convConfig.empty()) {
     if (failed(conv2dGenerator.parseConvConfig(convConfig.c_str()))) {
@@ -2293,25 +2303,33 @@ int main(int argc, char **argv) {
         outputChannel, outputHeight, outputWidth, filterWidth, filterHeight);
   }
 
-  // Determine data type.
-  mlir::Type dataType = builder.getF32Type();
-  if (dataTypeStr == "f32") {
-    dataType = builder.getF32Type();
-  } else if (dataTypeStr == "f16") {
-    dataType = builder.getF16Type();
-  } else if (dataTypeStr == "bf16") {
-    dataType = builder.getIntegerType(16);
-  }
+  const auto &genConfig = conv2dGenerator.getConfig();
 
+  SmallVector<std::string, 4> kernels;
   // Populate the module.
   if (!populateCpuConvolution.getValue()) {
-    if (failed(conv2dGenerator.genConvModule(module, builder))) {
-      llvm::errs() << "Module population failed.\n";
-      exit(1);
+    if (genConfig.kernelId < 0) {
+      // generate all sub-kernels
+      int kernelCount = conv2dGenerator.getKernelCount();
+      for (int i = 0; i < kernelCount; ++i) {
+        if (failed(conv2dGenerator.genConvModule(module, builder, i))) {
+          llvm::errs() << "Module population failed.\n";
+          exit(1);
+        }
+        kernels.push_back(conv2dGenerator.getKernelName(i));
+      }
+    } else {
+      // generate a specific kernel (kernel_id >= 0)
+      if (failed(conv2dGenerator.genConvModule(module, builder))) {
+        llvm::errs() << "Module population failed.\n";
+        exit(1);
+      }
+      kernels.push_back(conv2dGenerator.getKernelName(genConfig.kernelId));
     }
   }
 
-  const auto &genConfig = conv2dGenerator.getConfig();
+  // Determine data type.
+  mlir::Type dataType = conv2dGenerator.getDataType(builder);
 
   // populate host harness and host validation.
   if (populateValidation.getValue()) {
@@ -2334,7 +2352,7 @@ int main(int argc, char **argv) {
   }
 
   // Apply passes.
-  if (failed(runMLIRPasses(module, passPipeline, genConfig.kernelName))) {
+  if (failed(runMLIRPasses(module, passPipeline))) {
     llvm::errs() << "Lowering failed.\n";
     exit(1);
   }
@@ -2352,8 +2370,7 @@ int main(int argc, char **argv) {
   // populate host launch logic.
   if (useHostHarness.getValue() || populateHostHarness.getValue() ||
       populateValidation.getValue()) {
-    if (failed(populateKernelLaunchLogic(module, builder, context,
-                                         genConfig.kernelName))) {
+    if (failed(populateKernelLaunchLogic(module, builder, context, kernels))) {
       llvm::errs() << "Host kernel launch logic populated failed.\n";
       exit(1);
     }

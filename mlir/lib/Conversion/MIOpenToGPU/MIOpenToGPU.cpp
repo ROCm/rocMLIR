@@ -63,10 +63,6 @@ namespace {
 struct LowerMIOpenOpsToGPUPass : public ConvertMIOpenToGPUBase<LowerMIOpenOpsToGPUPass> {
 public:
   LowerMIOpenOpsToGPUPass() = default;
-  LowerMIOpenOpsToGPUPass(StringRef kernelNameList, StringRef gpuModuleName) {
-    this->kernelNameList = kernelNameList.str();
-    this->gpuModuleName = gpuModuleName.str();
-  }
   void runOnOperation() override;
 };
 
@@ -77,6 +73,100 @@ struct LowerMIOpenOpsWithinGPUModulePass
 };
 } // end anonymous namespace
 
+namespace {
+
+//===----------------------------------------------------------------------===//
+// MIOpen Operation pattern lowering.
+//===----------------------------------------------------------------------===//
+
+struct MIGPUAllocRewritePattern : public OpRewritePattern<miopen::GpuAllocOp> {
+  using OpRewritePattern<miopen::GpuAllocOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::GpuAllocOp op,
+                                PatternRewriter &b) const override {
+    auto type = op.output().getType().cast<MemRefType>();
+    auto func = op->getParentOfType<gpu::GPUFuncOp>();
+
+    if (type.getMemorySpace() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+      Value attribution = func.addWorkgroupAttribution(type);
+      op.replaceAllUsesWith(attribution);
+    } else if (type.getMemorySpace() ==
+               gpu::GPUDialect::getPrivateAddressSpace()) {
+      Value attribution = func.addPrivateAttribution(type);
+      op.replaceAllUsesWith(attribution);
+    } else {
+      // TBD: return failure.
+      llvm::errs() << "unsupported addrspace!\n";
+    }
+    op.erase();
+    return success();
+  }
+};
+
+struct MIDataConvertRewritePattern
+    : public OpRewritePattern<miopen::DataConvertOp> {
+  using OpRewritePattern<miopen::DataConvertOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::DataConvertOp op,
+                                PatternRewriter &b) const override {
+    Value nop =
+        b.create<gpu::BFConvertOp>(op.getLoc(), op.out().getType(), op.in());
+    op.replaceAllUsesWith(nop);
+    op.erase();
+    return success();
+  }
+};
+
+template <typename Tmi, typename Tgpu>
+struct MIOpRewritePattern : public OpRewritePattern<Tmi> {
+  using OpRewritePattern<Tmi>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(Tmi op, PatternRewriter &b) const override {
+    b.create<Tgpu>(op.getLoc());
+    op.erase();
+    return success();
+  }
+};
+
+template <typename Tmi, typename Tgpu>
+struct MIIdRewritePattern : public OpRewritePattern<Tmi> {
+  using OpRewritePattern<Tmi>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(Tmi op, PatternRewriter &b) const override {
+    Value nop = b.create<Tgpu>(op.getLoc(), b.getIndexType(), "x");
+    op.replaceAllUsesWith(nop);
+    op.erase();
+    return success();
+  }
+};
+
+struct MIMFMARewritePattern : public OpRewritePattern<miopen::MFMAV2Op> {
+  using OpRewritePattern<miopen::MFMAV2Op>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::MFMAV2Op op,
+                                PatternRewriter &b) const override {
+    auto gpuMfmaOp = b.create<gpu::MFMAOp>(
+        op.getLoc(), op.getType(), op.sourceA(), op.sourceB(), op.destC());
+    gpuMfmaOp->setAttr("instr", op->getAttr("instr"));
+    gpuMfmaOp->setAttr("imm", op->getAttr("imm"));
+    op.replaceAllUsesWith(Value(gpuMfmaOp));
+    op.erase();
+    return success();
+  }
+};
+
+struct MIDummyRewritePattern : public OpRewritePattern<miopen::Conv2DDummyOp> {
+  using OpRewritePattern<miopen::Conv2DDummyOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::Conv2DDummyOp op,
+                                PatternRewriter &b) const override {
+    op.erase();
+    return success();
+  }
+};
+
+} // namespace
+
 void LowerMIOpenOpsToGPUPass::runOnOperation() {
   auto op = getOperation();
   OpBuilder b(op.getContext());
@@ -86,236 +176,111 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   op->setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
               UnitAttr::get(op.getContext()));
 
-  // Check parameters and populate default values if necessary.
-  if (gpuModuleName.empty())
-    gpuModuleName = "miopen_kernel_module";
-
-  // Identify the specified GPU ModuleOp.
-  bool theGpuModuleExist = false;
-  gpu::GPUModuleOp theGpuModule;
-  for (auto gpuModule : op.getOps<gpu::GPUModuleOp>()) {
-    if (gpuModule.getName() == gpuModuleName) {
-      theGpuModuleExist = true;
-      theGpuModule = gpuModule;
-      break;
-    }
-  }
-
-  if (!theGpuModuleExist) {
+  auto makeGpuModule = [&](StringRef name) {
     // create a GPUModuleOp in case the GPU module specified does not exist.
-    OperationState state(loc, gpu::GPUModuleOp::getOperationName());
-    gpu::GPUModuleOp::build(b, state, gpuModuleName);
-    theGpuModule = cast<gpu::GPUModuleOp>(Operation::create(state));
+    auto gpuModule = b.create<gpu::GPUModuleOp>(loc, name);
 
     // add the GPUModuleOp into the symbol table.
     SymbolTable symbolTable(op);
-    symbolTable.insert(theGpuModule);
-  }
+    symbolTable.insert(gpuModule);
 
+    return gpuModule;
+  };
+
+  auto processGpuKernelFunc = [&](FuncOp &theFunc,
+                                  OpBuilder &b) -> gpu::GPUFuncOp {
+    // create a GPUFuncOp.
+    FunctionType gpuFuncType = theFunc.getType();
+    auto gpuFunc =
+        b.create<gpu::GPUFuncOp>(loc, theFunc.getName(), gpuFuncType);
+
+    // Set kernel attribute.
+    gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
+    if (auto attr = theFunc->getAttr("block_size"))
+      gpuFunc->setAttr("block_size", attr);
+    if (auto attr = theFunc->getAttr("grid_size"))
+      gpuFunc->setAttr("grid_size", attr);
+
+    // associate arguments for newly created GPUFuncOp.
+    BlockAndValueMapping map;
+    for (unsigned idx = 0; idx < theFunc.getNumArguments(); ++idx) {
+      auto arg = theFunc.getArgument(idx);
+      auto gpuFuncArg = gpuFunc.getArgument(idx);
+
+      map.map(arg, gpuFuncArg);
+    }
+
+    // clone function body into newly created GPUFuncOp.
+    Region &gpuFuncBody = gpuFunc.body();
+    Region &funcBody = theFunc.getBody();
+    funcBody.cloneInto(&gpuFuncBody, map);
+
+    // add a branch op to the cloned region.
+    Block &funcEntry = funcBody.front();
+    Block *clonedFuncEntry = map.lookup(&funcEntry);
+    Block &gpuFuncEntry = gpuFuncBody.front();
+    b.setInsertionPointToEnd(&gpuFuncEntry);
+    b.create<BranchOp>(loc, clonedFuncEntry);
+
+    return gpuFunc;
+  };
+
+  SmallVector<FuncOp, 1> processedFuncs;
   // Check parameters and populate default values if necessary.
-  SmallVector<StringRef, 1> kernelNameTable;
-  if (kernelNameList.empty()) {
-    for (auto func : op.getOps<FuncOp>())
-      if (func->getAttr("kernel"))
-        kernelNameTable.push_back(func.getName());
-  } else {
-    // Split kernelNameList into a vector separated with comma.
-    StringRef remainingKernelNameList = kernelNameList;
-    do {
-      std::pair<StringRef, StringRef> p = remainingKernelNameList.split(',');
-      kernelNameTable.push_back(p.first);
-      remainingKernelNameList = p.second;
-    } while (!remainingKernelNameList.empty());
-  }
+  for (auto func : op.getOps<FuncOp>()) {
+    if (func->hasAttr("kernel")) {
+      std::string gfname = func.getName().str();
+      gfname += "_module";
+      auto gpuMod = makeGpuModule(gfname);
+      // Set up the symbol table for the GPU ModuleOp.
+      SymbolTable gpuModuleSymbolTable(gpuMod);
+      // Reset builder insertion point to the beginning of the GPU module,
+      // as it would be modified inside the lambda.
+      OpBuilder bmod(gpuMod.getContext());
+      auto gpuFunc = processGpuKernelFunc(func, bmod);
 
-  // Identify the specified GPU FuncOp instances.
-  bool gpuFuncInstancesExist = false;
-  SmallVector<gpu::GPUFuncOp, 1> gpuFuncTable;
-  for (auto gpuFunc : theGpuModule.getOps<gpu::GPUFuncOp>()) {
-    for (auto kernelName : kernelNameTable) {
-      if (gpuFunc.getName() == kernelName) {
-        gpuFuncInstancesExist = true;
-        gpuFuncTable.push_back(gpuFunc);
+      // insert the GPUFuncOp into GPUModuleOp.
+      gpuModuleSymbolTable.insert(gpuFunc);
 
-        // Set kernel attribute.
-        gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
-                         b.getUnitAttr());
-        break;
-      }
+      processedFuncs.push_back(func);
     }
   }
 
-  if (!gpuFuncInstancesExist) {
-    // Lambda to process the identified FuncOp.
-    auto processGpuKernelFunc = [&b, &loc](FuncOp &theFunc) -> gpu::GPUFuncOp {
-      // create a GPUFuncOp.
-      FunctionType gpuFuncType = theFunc.getType();
-      auto gpuFunc =
-          b.create<gpu::GPUFuncOp>(loc, theFunc.getName(), gpuFuncType);
-
-      // Set kernel attribute.
-      gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
-                       b.getUnitAttr());
-      if (auto attr = theFunc->getAttr("block_size"))
-        gpuFunc->setAttr("block_size", attr);
-      if (auto attr = theFunc->getAttr("grid_size"))
-        gpuFunc->setAttr("grid_size", attr);
-
-      // associate arguments for newly created GPUFuncOp.
-      BlockAndValueMapping map;
-      for (unsigned idx = 0; idx < theFunc.getNumArguments(); ++idx) {
-        auto arg = theFunc.getArgument(idx);
-        auto gpuFuncArg = gpuFunc.getArgument(idx);
-
-        map.map(arg, gpuFuncArg);
-      }
-
-      // clone function body into newly created GPUFuncOp.
-      Region &gpuFuncBody = gpuFunc.body();
-      Region &funcBody = theFunc.getBody();
-      funcBody.cloneInto(&gpuFuncBody, map);
-
-      // add a branch op to the cloned region.
-      Block &funcEntry = funcBody.front();
-      Block *clonedFuncEntry = map.lookup(&funcEntry);
-      Block &gpuFuncEntry = gpuFuncBody.front();
-      b.setInsertionPointToEnd(&gpuFuncEntry);
-      b.create<BranchOp>(loc, clonedFuncEntry);
-
-      // remove std.return ops.
-      gpuFunc.walk([&](ReturnOp op) { op.erase(); });
-
-      // create a GPU ReturnOp inside the GPUFuncOp.
-      b.setInsertionPointToEnd(&gpuFuncBody.back());
-      b.create<gpu::ReturnOp>(loc);
-
-      return gpuFunc;
-    };
-
-    // Set up the symbol table for the GPU ModuleOp.
-    SymbolTable gpuModuleSymbolTable(theGpuModule);
-
-    // Try locate a FuncOp which has kernelName, and convert it to a GPUFuncOp.
-    // Logic to use the lambda.
-    // Walkthrough all the FuncOp, check if it's within kernelNameTable, process
-    // it if true.
-    SmallVector<StringRef, 1> processedKernelNameTable;
-    for (auto func : op.getOps<FuncOp>()) {
-      for (auto kernelName : kernelNameTable) {
-        if (func.getName() == kernelName) {
-          // Reset builder insertion point to the beginning of the GPU module,
-          // as it would be modified inside the lambda.
-          b.setInsertionPointToStart(&(theGpuModule.body()).front());
-          auto gpuFunc = processGpuKernelFunc(func);
-
-          // insert the GPUFuncOp into GPUModuleOp.
-          gpuModuleSymbolTable.insert(gpuFunc);
-
-          processedKernelNameTable.push_back(kernelName);
-          break;
-        }
-      }
-    }
-
-    // Remove all processed FuncOp instances.
-    while (!processedKernelNameTable.empty()) {
-      auto iter = processedKernelNameTable.begin();
-      auto kernelName = *iter;
-      bool funcRemoved = false;
-      for (auto func : op.getOps<FuncOp>()) {
-        if (func.getName() == kernelName) {
-          funcRemoved = true;
-          func.erase();
-          break;
-        }
-      }
-      if (funcRemoved)
-        processedKernelNameTable.erase(iter);
-    }
+  // Remove all processed FuncOp instances.
+  for (auto func : processedFuncs) {
+    func.erase();
   }
 
-  // Convert GPU-specific ops to GPU dialect.
-  for (auto module : op.getOps<gpu::GPUModuleOp>()) {
-    module.walk([&](gpu::GPUFuncOp gpuFunc) {
-      gpuFunc.walk([&](miopen::GpuAllocOp op) {
-        auto type = op.output().getType().cast<MemRefType>();
+  // Convert MIOpen ops to GPU Ops
+  int gpuModCount = 0;
+  op.walk([this, &gpuModCount](gpu::GPUModuleOp gpuMod) {
+    gpuModCount++;
+    OwningRewritePatternList patterns;
 
-        if (type.getMemorySpace() ==
-            gpu::GPUDialect::getWorkgroupAddressSpace()) {
-          Value attribution = gpuFunc.addWorkgroupAttribution(type);
-          op.replaceAllUsesWith(attribution);
-        } else if (type.getMemorySpace() ==
-                   gpu::GPUDialect::getPrivateAddressSpace()) {
-          Value attribution = gpuFunc.addPrivateAttribution(type);
-          op.replaceAllUsesWith(attribution);
-        } else {
-          // TBD: return failure.
-          llvm::errs() << "unsupported addrspace!\n";
-        }
-        op.erase();
-      });
+    // miopen-lowering
+    patterns.insert<MIGPUAllocRewritePattern>(&getContext());
+    patterns.insert<MIDataConvertRewritePattern>(&getContext());
+    patterns
+        .insert<MIOpRewritePattern<miopen::WorkgroupBarrierOp, gpu::BarrierOp>>(
+            &getContext());
+    patterns
+        .insert<MIOpRewritePattern<miopen::LDSBarrierOp, gpu::LDSBarrierOp>>(
+            &getContext());
+    patterns.insert<MIIdRewritePattern<miopen::WorkgroupIdOp, gpu::BlockIdOp>>(
+        &getContext());
+    patterns.insert<MIIdRewritePattern<miopen::WorkitemIdOp, gpu::ThreadIdOp>>(
+        &getContext());
+    patterns.insert<MIOpRewritePattern<ReturnOp, gpu::ReturnOp>>(&getContext());
 
-      gpuFunc.walk([&](miopen::DataConvertOp op) {
-        auto loc = op.getLoc();
-        OpBuilder b(op.getContext());
-        b.setInsertionPoint(op);
-        Value cast =
-            b.create<gpu::BFConvertOp>(loc, op.out().getType(), op.in());
-        op.replaceAllUsesWith(cast);
-        op.erase();
-      });
+    patterns.insert<MIMFMARewritePattern>(&getContext());
+    patterns.insert<MIDummyRewritePattern>(&getContext());
+    if (failed(applyPatternsAndFoldGreedily(gpuMod, std::move(patterns))))
+      signalPassFailure();
+  });
 
-      // TBD see if these patterns could be re-written using tablgen.
-      gpuFunc.walk([&](miopen::WorkgroupBarrierOp op) {
-        auto loc = op.getLoc();
-        OpBuilder b(op.getContext());
-        b.setInsertionPoint(op);
-        b.create<gpu::BarrierOp>(loc);
-        op.erase();
-      });
-
-      // TBD see if these patterns could be re-written using tablgen.
-      gpuFunc.walk([&](miopen::LDSBarrierOp op) {
-        auto loc = op.getLoc();
-        OpBuilder b(op.getContext());
-        b.setInsertionPoint(op);
-        b.create<gpu::LDSBarrierOp>(loc);
-        op.erase();
-      });
-
-      gpuFunc.walk([&](miopen::WorkgroupIdOp op) {
-        auto loc = op.getLoc();
-        OpBuilder b(op.getContext());
-        b.setInsertionPoint(op);
-        Value bid = b.create<gpu::BlockIdOp>(loc, b.getIndexType(), "x");
-        op.replaceAllUsesWith(bid);
-        op.erase();
-      });
-
-      gpuFunc.walk([&](miopen::WorkitemIdOp op) {
-        auto loc = op.getLoc();
-        OpBuilder b(op.getContext());
-        b.setInsertionPoint(op);
-        Value tid = b.create<gpu::ThreadIdOp>(loc, b.getIndexType(), "x");
-        op.replaceAllUsesWith(tid);
-        op.erase();
-      });
-
-      gpuFunc.walk([&](miopen::MFMAV2Op op) {
-        auto loc = op.getLoc();
-        OpBuilder b(op.getContext());
-        b.setInsertionPoint(op);
-
-        auto gpuMfmaOp = b.create<gpu::MFMAOp>(loc, op.getType(), op.sourceA(), op.sourceB(), op.destC());
-        gpuMfmaOp->setAttr("instr", op->getAttr("instr"));
-        gpuMfmaOp->setAttr("imm", op->getAttr("imm"));
-
-        op.replaceAllUsesWith(gpuMfmaOp.destD());
-        op.erase();
-      });
-
-      gpuFunc.walk([&](miopen::Conv2DDummyOp op) { op.erase(); });
-    });
+  if (gpuModCount == 0) {
+    // Must have at least 1 gpu.module for rocm-runner
+    makeGpuModule("miopen_gpu_module");
   }
 }
 
@@ -355,9 +320,8 @@ void LowerMIOpenOpsWithinGPUModulePass::runOnOperation() {
 }
 
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
-mlir::createLowerMIOpenOpsToGPUPass(StringRef kernelName,
-                                    StringRef gpuModuleName) {
-  return std::make_unique<LowerMIOpenOpsToGPUPass>(kernelName, gpuModuleName);
+mlir::createLowerMIOpenOpsToGPUPass() {
+  return std::make_unique<LowerMIOpenOpsToGPUPass>();
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>

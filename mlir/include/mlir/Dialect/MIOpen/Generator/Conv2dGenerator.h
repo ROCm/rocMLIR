@@ -25,7 +25,6 @@ public:
     int num_cu;
     bool xdlops;
     std::string operation;
-    int kernelId;
     std::string dataTypeStr;
     int dilationHeight, dilationWidth;
     int strideHeight, strideWidth;
@@ -36,6 +35,8 @@ public:
 
     std::string kernelName;
 
+    int kernelId;
+
     int outputSize;
     SmallVector<int64_t, 5> filterDimension;
     SmallVector<int64_t, 5> inputDimension;
@@ -44,7 +45,7 @@ public:
 
   Conv2dGenerator(const std::string &arch = "", int num_cu = 0,
                   bool xdlops = false, const std::string &operation = "conv2d",
-                  int kernelId = 0, const std::string &dataTypeStr = "f32",
+                  const std::string &dataTypeStr = "f32",
                   int dilationHeight = 1, int dilationWidth = 1,
                   int strideHeight = 1, int strideWidth = 1,
                   int paddingHeight = 0, int paddingWidth = 0,
@@ -54,8 +55,11 @@ public:
                   const std::string &kernelName = "");
 
   const Config &getConfig() const { return config; }
+  std::string getKernelName(int kernelId) const;
 
-  static int getKernelCount(const char *arguments);
+  int getKernelCount() const;
+
+  Type getDataType(OpBuilder &builder) const;
 
   LogicalResult parseConvConfig(const char *arguments);
 
@@ -65,7 +69,8 @@ public:
                               int64_t outputHeight, int64_t outputWidth,
                               int64_t filterHeight, int64_t filterWidth);
 
-  LogicalResult genConvModule(ModuleOp &module, OpBuilder &builder);
+  LogicalResult genConvModule(ModuleOp &module, OpBuilder &builder,
+                              int kernel_id = -1);
 
   template <typename Vector>
   std::string translateLayout(const Vector &src, const Vector &srcSpec,

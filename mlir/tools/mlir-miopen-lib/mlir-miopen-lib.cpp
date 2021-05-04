@@ -35,6 +35,7 @@ struct MiirHandle_s {
   mlir::OwningModuleRef module;
   std::string arch;
   std::string genTxt;
+  int kernelCount;
 };
 
 // In multi-threaded context, static intialization is guaranteed to
@@ -65,10 +66,6 @@ bool miirLazyInit() {
 
 typedef void *MiirHandle;
 
-extern "C" int miirGetKernelCount(const char *arguments) {
-  return Conv2dGenerator::getKernelCount(arguments);
-}
-
 extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   mlir::registerAllPasses();
 
@@ -83,6 +80,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     OpBuilder builder(&(handle->context));
 
     handle->arch = conv2dGenerator.getConfig().arch;
+    handle->kernelCount = conv2dGenerator.getKernelCount();
 
     ModuleOp module = handle->getModule();
 
@@ -90,6 +88,14 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   }
 
   return (result.succeeded()) ? handle : nullptr;
+}
+
+extern "C" int miirGetKernelCount(MiirHandle mlirHandle) {
+  MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
+  if (handle == nullptr)
+    return -1;
+
+  return handle->kernelCount;
 }
 
 extern "C" MiirStatus miirDestroyHandle(MiirHandle mlirHandle) {
@@ -241,13 +247,6 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   std::string triple = "amdgcn-amd-amdhsa";
   BackendUtils utils(triple, handle->arch, "");
 
-  // Retrieve name of FuncOp from the incoming module and set it
-  // as the GpuFuncOps's kernel name
-  StringRef kernelName;
-  for (auto func : module.getOps<FuncOp>()) {
-    kernelName = func.getName();
-  }
-
   // Passes for lowering MIOpen dialect.
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(mlir::miopen::createAffineTransformPass());
@@ -256,7 +255,7 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
-  pm.addPass(mlir::createLowerMIOpenOpsToGPUPass(kernelName));
+  pm.addPass(mlir::createLowerMIOpenOpsToGPUPass());
 
   // Passes for lowering linalg dialect.
   pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
