@@ -2311,12 +2311,18 @@ int main(int argc, char **argv) {
     if (genConfig.kernelId < 0) {
       // generate all sub-kernels
       int kernelCount = conv2dGenerator.getKernelCount();
+      std::string kernelBaseName = genConfig.kernelName;
       for (int i = 0; i < kernelCount; ++i) {
+        std::string kName = kernelBaseName;
+        if (i > 0) {
+          kName += "_" + std::to_string(i);
+        }
+        conv2dGenerator.setKernelName(kName);
         if (failed(conv2dGenerator.genConvModule(module, builder, i))) {
           llvm::errs() << "Module population failed.\n";
           exit(1);
         }
-        kernels.push_back(conv2dGenerator.getKernelName(i));
+        kernels.push_back(kName);
       }
     } else {
       // generate a specific kernel (kernel_id >= 0)
@@ -2324,7 +2330,7 @@ int main(int argc, char **argv) {
         llvm::errs() << "Module population failed.\n";
         exit(1);
       }
-      kernels.push_back(conv2dGenerator.getKernelName(genConfig.kernelId));
+      kernels.push_back(genConfig.kernelName);
     }
   }
 

@@ -55,7 +55,7 @@ public:
                   const std::string &kernelName = "");
 
   const Config &getConfig() const { return config; }
-  std::string getKernelName(int kernelId) const;
+  LogicalResult setKernelName(std::string newName);
 
   int getKernelCount() const;
 
