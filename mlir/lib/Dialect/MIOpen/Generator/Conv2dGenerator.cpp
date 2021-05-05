@@ -49,7 +49,7 @@ int Conv2dGenerator::getKernelCount() const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
     count = 1;
   } else if (config.operation == "conv2d") {
-    count = 1;
+    count = 4;
   } else if (config.operation == "conv2d_bwd_data") {
     count = 1;
   } else if (config.operation == "conv2d_bwd_weight") {
@@ -201,12 +201,9 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
   return success();
 }
 
-std::string Conv2dGenerator::getKernelName(int kernelId) const {
-  std::string kname = config.kernelName;
-  if (kernelId > 0) {
-    kname += "_" + std::to_string(kernelId);
-  }
-  return kname;
+LogicalResult Conv2dGenerator::setKernelName(std::string newName) {
+  config.kernelName = newName;
+  return success();
 }
 
 LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
@@ -237,7 +234,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   auto funcType =
       builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
 
-  std::string kernelName = getKernelName(kernel_id);
+  std::string kernelName = config.kernelName;
 
   // Annotate kernel attribute to the FuncOp.
   SmallVector<NamedAttribute, 1> kernelAttrs{
@@ -248,6 +245,10 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   auto func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                              ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
+
+  if (func.getName() != kernelName) {
+    return failure();
+  }
 
   // Construct a new Block.
   Block *block = func.addEntryBlock();
