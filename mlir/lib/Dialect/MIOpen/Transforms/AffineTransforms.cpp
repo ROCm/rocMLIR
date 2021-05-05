@@ -57,12 +57,13 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
         assert(srcDimAttr.size() == destDimAttr.size());
 
         auto parameters = dimLayoutAttr.get("parameters").dyn_cast<ArrayAttr>();
-        // auto leftPad =
-        // parameters.getValue()[0].dyn_cast<IntegerAttr>().getInt();
         for (unsigned j = 0; j < srcDimAttr.size(); ++j) {
-          // [0, 2, 3, 1] leftpadH = 0 rightPadH = 2 leftpadW = 3 rightPadW = 1
-          // first run leftPad = 0 rightPad = 2 , second run leftPad = 3
-          // rightPad = 1
+          // example of h and w pad parameters [0, 2, 3, 1] :
+          // leftpadH = 0 rightPadH = 2 leftpadW = 3 rightPadW = 1
+          // first run leftPad = 0 rightPad = 2
+          // second run leftPad = 3 rightPad = 1
+          // if your pad is one dim , example of pad parameters [1,2]
+          // leftPad = 1 rightPad = 2
           auto leftPad =
               parameters.getValue()[j * 2].dyn_cast<IntegerAttr>().getInt();
           auto rightPad =
