@@ -21,6 +21,8 @@ set(LIBS
   MLIRTargetMIOpenCppTranslation
 )
 
+set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_DIR}/external/llvm-project/llvm/lib)
+
 llvm_add_library(MLIRMIOpenThin
 PARTIAL_SOURCES_INTENDED
 
