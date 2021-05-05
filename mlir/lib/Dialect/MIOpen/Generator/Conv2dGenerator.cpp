@@ -193,17 +193,17 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
 
   // Determine kernel name, if there isn't one.
   if (config.kernelName.empty()) {
+    int id = std::max(config.kernelId, 0);
     config.kernelName = "miopen_" + config.operation + "_" +
                         config.filterLayout + "_" + config.inputLayout + "_" +
-                        config.outputLayout;
+                        config.outputLayout + "_" + std::to_string(id);
   }
 
   return success();
 }
 
-LogicalResult Conv2dGenerator::setKernelName(std::string newName) {
+void Conv2dGenerator::setKernelName(std::string newName) {
   config.kernelName = newName;
-  return success();
 }
 
 LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
