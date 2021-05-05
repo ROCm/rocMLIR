@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_CONVERSION_PASSES
-#define MLIR_CONVERSION_PASSES
+#ifndef MIOPEN_MLIR_CONVERSION_PASSES
+#define MIOPEN_MLIR_CONVERSION_PASSES
 
 include "mlir/Pass/PassBase.td"
 
@@ -69,4 +69,4 @@ def TosaToMIOpen : FunctionPass<"tosa-to-miopen"> {
   let constructor = "tosa::createTosaToMIOpen()";
 }
 
-#endif // MLIR_CONVERSION_PASSES
+#endif // MIOPEN_MLIR_CONVERSION_PASSES

@@ -10,8 +10,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Conversion/MIOpenPasses.h"
+#include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
@@ -2403,6 +2406,8 @@ int main(int argc, char **argv) {
   context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect,
                       scf::SCFDialect, AffineDialect>();
   mlir::registerAllPasses();
+  mlir::registerMIOpenConversionPasses();
+  miopen::registerPasses();
   InitLLVM y(argc, argv);
 
   // Register any pass manager command line options.

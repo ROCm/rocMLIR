@@ -1,4 +1,5 @@
 #include "Miir.h"
+#include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"

@@ -6,9 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_CONVERSION_PASSES_H
-#define MLIR_CONVERSION_PASSES_H
+#ifndef MIOPEN_MLIR_CONVERSION_PASSES_H
+#define MIOPEN_MLIR_CONVERSION_PASSES_H
 
+#include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
 
@@ -16,8 +17,8 @@ namespace mlir {
 
 /// Generate the code for registering conversion passes.
 #define GEN_PASS_REGISTRATION
-#include "mlir/Conversion/Passes.h.inc"
+#include "mlir/Conversion/MIOpenPasses.h.inc"
 
 } // namespace mlir
 
-#endif // MLIR_CONVERSION_PASSES_H
+#endif // MIOPEN_MLIR_CONVERSION_PASSES_H
