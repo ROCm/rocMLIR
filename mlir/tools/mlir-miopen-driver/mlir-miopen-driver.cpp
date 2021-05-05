@@ -2169,15 +2169,7 @@ populateKernelLaunchLogic(ModuleOp &module, OpBuilder &builder,
     block->push_back(gpuLaunchFuncOp);
   };
 
-  bool first = true;
   for (auto gpuKernel : kernels) {
-    // if (!first) {
-    //   auto gpuBarrierOp = builder.create<gpu::BarrierOp>(
-    //       builder.getUnknownLoc());
-    //   block->push_back(gpuBarrierOp);
-    // }
-    // first = false;
-
     genLaunchCode(gpuKernelMap[gpuKernel]);
   }
 
@@ -2311,12 +2303,10 @@ int main(int argc, char **argv) {
     if (genConfig.kernelId < 0) {
       // generate all sub-kernels
       int kernelCount = conv2dGenerator.getKernelCount();
-      std::string kernelBaseName = genConfig.kernelName;
+      auto knSize = genConfig.kernelName.size();
+      std::string kernelBaseName = genConfig.kernelName.substr(0, knSize - 1);
       for (int i = 0; i < kernelCount; ++i) {
-        std::string kName = kernelBaseName;
-        if (i > 0) {
-          kName += "_" + std::to_string(i);
-        }
+        std::string kName = kernelBaseName + std::to_string(i);
         conv2dGenerator.setKernelName(kName);
         if (failed(conv2dGenerator.genConvModule(module, builder, i))) {
           llvm::errs() << "Module population failed.\n";
