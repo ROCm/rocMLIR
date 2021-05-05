@@ -11,10 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_INITALLPASSES_H_
-#define MLIR_INITALLPASSES_H_
+#ifndef MIOPEN_MLIR_INITALLPASSES_H_
+#define MIOPEN_MLIR_INITALLPASSES_H_
 
-#include "mlir/Conversion/Passes.h"
+#include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Dialect/Affine/Passes.h"
 #include "mlir/Dialect/Async/Passes.h"
 #include "mlir/Dialect/GPU/Passes.h"
@@ -66,4 +66,4 @@ inline void registerAllPasses() {
 
 } // namespace mlir
 
-#endif // MLIR_INITALLPASSES_H_
+#endif // MIOPEN_MLIR_INITALLPASSES_H_

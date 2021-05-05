@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CONVERSION_PASSDETAIL_H_
-#define CONVERSION_PASSDETAIL_H_
+#ifndef MIOPEN_CONVERSION_PASSDETAIL_H_
+#define MIOPEN_CONVERSION_PASSDETAIL_H_
 
 #include "mlir/Pass/Pass.h"
 
@@ -76,4 +76,4 @@ class VectorDialect;
 
 } // end namespace mlir
 
-#endif // CONVERSION_PASSDETAIL_H_
+#endif // MIOPEN_CONVERSION_PASSDETAIL_H_
