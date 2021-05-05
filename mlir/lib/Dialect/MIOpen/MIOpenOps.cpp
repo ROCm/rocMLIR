@@ -78,7 +78,7 @@ static LogicalResult verify(Conv2DOp op) {
   };
 
   if(isDisjointed("filter_layout", "y", "x") || isDisjointed("input_layout", "hi", "wi"))
-      return failure();
+      return op.emitError("Disjointed yx or hw!");
   else
       return success();
 }
@@ -124,7 +124,7 @@ static LogicalResult verify(Conv2DBwdDataOp op) {
   };
 
   if(isDisjointed("filter_layout", "y", "x") || isDisjointed("input_layout", "hi", "wi"))
-      return failure();
+      return op.emitError("Disjointed yx or hw!");
   else
       return success();
 }
@@ -170,7 +170,7 @@ static LogicalResult verify(Conv2DBwdWeightOp op) {
   };
 
   if(isDisjointed("filter_layout", "y", "x") || isDisjointed("input_layout", "hi", "wi"))
-      return failure();
+      return op.emitError("Disjointed yx or hw!");
   else
       return success();
 } //===----------------------------------------------------------------------===//
