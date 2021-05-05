@@ -246,6 +246,10 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
                              ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
 
+  if (func.getName() != kernelName) {
+    return failure();
+  }
+
   // Construct a new Block.
   Block *block = func.addEntryBlock();
 
