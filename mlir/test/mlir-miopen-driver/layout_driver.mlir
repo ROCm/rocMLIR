@@ -5,7 +5,7 @@
 // RUN: not mlir-miopen-driver -p -in_layout nhcw 2>&1 | FileCheck %s --check-prefix=ERR3
 // RUN: not mlir-miopen-driver -p -in_layout chnw 2>&1 | FileCheck %s --check-prefix=ERR4
 
-ERR1: Unsupported filter layout 
-ERR2: Unsupported filter layout 
-ERR3: Unsupported input layout 
-ERR4: Unsupported input layout 
+ERR1: Unsupported filter layout
+ERR2: Unsupported filter layout
+ERR3: Unsupported input layout
+ERR4: Unsupported input layout
