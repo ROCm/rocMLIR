@@ -39,6 +39,8 @@
 // HIP headers.
 #include "hip/hip_version.h"
 
+#include <mutex>
+
 using namespace mlir;
 
 static constexpr const char kRunnerProgram[] = "mlir-rocm-runner";
@@ -125,8 +127,10 @@ LogicalResult BackendUtils::assembleIsa(const std::string isa, StringRef name,
   return assembleIsa(isa, name, result, triple, chip, features);
 }
 
+static std::mutex mutex;
 LogicalResult BackendUtils::createHsaco(const Blob &isaBlob, StringRef name,
                                         Blob &hsacoBlob) {
+  const std::lock_guard<std::mutex> lock(mutex);
   // Save the ISA binary to a temp file.
   int tempIsaBinaryFd = -1;
   SmallString<128> tempIsaBinaryFilename;
@@ -276,9 +280,15 @@ void BackendUtils::setupDefaults(std::string &chip, std::string &features,
     triple = "amdgcn-amd-amdhsa";
   }
 
-  // Configure target features per ROCm / HIP version.
-  configTargetFeatures(features);
+  // Configure target features per ROCm / HIP version, and target GPU.
+  configTargetFeatures(chip, triple, features);
 }
 
-void BackendUtils::configTargetFeatures(std::string &features) {
+void BackendUtils::configTargetFeatures(const std::string &chip,
+                                        const std::string &triple,
+                                        std::string &features) {
+  // For gfx908, add +sramecc by default to be compatible with ROCm 4.1+.
+  if (chip == "gfx908") {
+    features += "+sramecc";
+  }
 }
