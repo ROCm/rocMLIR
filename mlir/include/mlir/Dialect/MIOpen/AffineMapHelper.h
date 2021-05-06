@@ -58,9 +58,19 @@ inline bool hasPadding(AffineExpr expr) {
   };
   auto binaryExpr = expr.template dyn_cast<AffineBinaryOpExpr>();
   if (binaryExpr) {
-    ret |= hasMinusConstant(binaryExpr.getLHS());
-    if (ret)
+    AffineExpr tmp = binaryExpr.getLHS();
+
+    tmp.walk([&ret](AffineExpr expr_sub) {
+      if (expr_sub.getKind() == AffineExprKind::Constant) {
+        auto constantSubExpr = expr_sub.template dyn_cast<AffineConstantExpr>();
+        if (constantSubExpr.getValue() < 0)
+          ret = true;
+      }
+    });
+
+    if (ret) {
       return ret;
+    }
     ret |= hasMinusConstant(binaryExpr.getRHS());
   }
   return ret;

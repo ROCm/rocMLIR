@@ -79,22 +79,34 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
             // check depends on minus symbol , it will not do out of boundary
             // check even rightpad part is oob example of leftPad == 0 &&
             // rightPad != 0:
+            //
             // srcIndex0 srcIndex1 ... srcIndex[src_size - 1]
             // dstIndex0 dstIndex1 ... dstIndex[src_size - 1] dstIndex[rightpad]
             // index0    index1        index[src_size -1]     index[src_size]
             // can't find index[src_size] in src
             // so we need to force it to  do out of boundary check ,
+            //
             // the idea :
             // dst index :
             // dstIndex0 dstIndex1 ... dstIndex[src_size -1]  dstIndex[rightpad]
             // src index computed:
-            // srcIndex0 srcIndex1 ... srcIndex[src_size - 1]
-            // srcIndex[src_size+1] how to achieve it: dstIndex +
-            // (dstIndex/srcsize) + 1 - 1 the expr is : dstIndex
-            // + ceildiv(dstIndex+1/srcsize) - 1, the same with above but the
+            // srcIndex0 srcIndex1 ... srcIndex[src_size - 1] src_size+1
+            //
+            // how to achieve it:
+            // dstIndex + (dstIndex/srcsize) + 1 - 1
+            //
+            // the expr is :
+            // dstIndex + ceildiv(dstIndex+1/srcsize) - 1
+            // the same with above but the
             // minus symbol exist after optimization
-            expr = ((getAffineDimExpr(destDim, op.getContext()) + 1)
-                        .ceilDiv(inputShape[srcDim])) +
+            //
+            // but if we use the equation above, when srcsize = 1
+            // affinemap will optimized  and no minus symbol
+            // just add more 1 can generate minus symbol
+            // the final expr is :
+            // dstIndex + ceildiv((dstIndex+2)/(srcsize+1)) - 1
+            expr = ((getAffineDimExpr(destDim, op.getContext()) + 2)
+                        .ceilDiv(inputShape[srcDim] + 1)) +
                    getAffineDimExpr(destDim, op.getContext()) -
                    getAffineConstantExpr(1, op.getContext());
           }
