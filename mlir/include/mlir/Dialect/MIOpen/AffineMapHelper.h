@@ -71,6 +71,9 @@ inline bool hasPadding(AffineExpr expr) {
     if (ret) {
       return ret;
     }
+    // RHS always has only one expression like :
+    // d1 * 4  or  1024 , skip walk through it
+    // just use hasMinusConstant
     ret |= hasMinusConstant(binaryExpr.getRHS());
   }
   return ret;
