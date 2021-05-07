@@ -1,10 +1,4 @@
-// RUN: mlir-opt -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu="kernel-name=step1,step2,step3,step4" %s | mlir-opt
-// RUN: mlir-opt -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu="kernel-name=step1,step2,step3,step4" %s | FileCheck %s
-// RUN: mlir-opt -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu="kernel-name=step1,step2,step3,step4,step5" %s | FileCheck %s
-// RUN: mlir-opt -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu="kernel-name=step1" %s | FileCheck %s --check-prefix=SUBSET1
-// RUN: mlir-opt -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu="kernel-name=step1,step3" %s | FileCheck %s --check-prefix=SUBSET2
-// RUN: mlir-opt -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu="kernel-name=step5" %s | FileCheck %s --check-prefix=NONEXIST
-// RUN: mlir-opt -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu %s | FileCheck %s
+// RUN: mlir-opt -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu %s | mlir-opt
 
 // The last kernel be converted would appear as the first.
 
@@ -16,33 +10,6 @@
 // CHECK-LABEL: gpu.func @step3
 // CHECK-LABEL: gpu.func @step2
 // CHECK-LABEL: gpu.func @step1
-
-// SUBSET1-NOT: func @step1
-// SUBSET1-LABEL: func @step2
-// SUBSET1-LABEL: func @step3
-// SUBSET1-LABEL: func @step4
-// SUBSET1-NOT: gpu.func @step4
-// SUBSET1-NOT: gpu.func @step3
-// SUBSET1-NOT: gpu.func @step2
-// SUBSET1-LABEL: gpu.func @step1
-
-// SUBSET2-NOT: func @step1
-// SUBSET2-LABEL: func @step2
-// SUBSET2-NOT: func @step3
-// SUBSET2-LABEL: func @step4
-// SUBSET2-NOT: gpu.func @step4
-// SUBSET2-LABEL: gpu.func @step3
-// SUBSET2-NOT: gpu.func @step2
-// SUBSET2-LABEL: gpu.func @step1
-
-// NONEXIST-LABEL: func @step1
-// NONEXIST-LABEL: func @step2
-// NONEXIST-LABEL: func @step3
-// NONEXIST-LABEL: func @step4
-// NONEXIST-NOT: gpu.func @step4
-// NONEXIST-NOT: gpu.func @step3
-// NONEXIST-NOT: gpu.func @step2
-// NONEXIST-NOT: gpu.func @step1
 
 module  {
   func @step1(%arg0: memref<1x1216x16x3x3xf32>, %arg1: memref<1216x1x16x32x32xf32>, %arg2: memref<1216x1x1216x30x30xf32>) attributes {kernel} {

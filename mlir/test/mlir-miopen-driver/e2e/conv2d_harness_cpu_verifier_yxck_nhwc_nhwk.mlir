@@ -19,9 +19,9 @@ module {
     %c1_i16 = constant 1 : i16
     %c1_i16_0 = constant 1 : i16
     %c1_i32 = constant 1 : i32
-    call @mcpuMemset5DFloatRand(%3, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
-    call @mcpuMemset5DFloatRand(%4, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
-    call @mcpuMemset5DFloatRand(%5, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+    call @mcpuMemset5DFloatRandInt(%3, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+    call @mcpuMemset5DFloatRandInt(%4, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+    call @mcpuMemset5DFloatRandInt(%5, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 
     // launch gpu convolution
     call @gpu_conv(%0, %1, %2) : (memref<1x3x3x8x128xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
@@ -29,13 +29,13 @@ module {
     // allocate CPU memory and initialized
     %6 = alloc() : memref<1x3x3x8x128xf32>
     %7 = memref_cast %6 : memref<1x3x3x8x128xf32> to memref<?x?x?x?x?xf32>
-    call @mcpuMemset5DFloatRand(%7, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+    call @mcpuMemset5DFloatRandInt(%7, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
     %9 = alloc() : memref<128x32x32x1x8xf32>
     %10 = memref_cast %9 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
-    call @mcpuMemset5DFloatRand(%10, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+    call @mcpuMemset5DFloatRandInt(%10, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
     %12 = alloc() : memref<128x30x30x1x128xf32>
     %13 = memref_cast %12 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
-    call @mcpuMemset5DFloatRand(%13, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+    call @mcpuMemset5DFloatRandInt(%13, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 
     // launch cpu convolution
     call @conv2d_host(%6, %9, %12) : (memref<1x3x3x8x128xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
@@ -53,7 +53,7 @@ module {
     return
   }
 
-  func private @mcpuMemset5DFloatRand(memref<?x?x?x?x?xf32>, i16, i16, i32)
+  func private @mcpuMemset5DFloatRandInt(memref<?x?x?x?x?xf32>, i16, i16, i32)
   func private @mcpuMemCopy5DFloat(memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>)
 
   func @gpu_conv(%arg0: memref<1x3x3x8x128xf32>, %arg1: memref<128x32x32x1x8xf32>, %arg2: memref<128x30x30x1x128xf32>) {
