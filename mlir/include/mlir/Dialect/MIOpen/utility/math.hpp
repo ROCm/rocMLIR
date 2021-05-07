@@ -4,14 +4,18 @@
 namespace math {
 // greatest common divisor, aka highest common factor
 template <typename T> T gcd(T x, T y) {
-  if (x == y || x == 0) {
+  assert(!(x == 0 && y == 0));
+
+  if (x < 0 || y < 0) {
+    return gcd(abs(x), abs(y));
+  } else if (x == y || x == 0) {
     return y;
   } else if (y == 0) {
     return x;
   } else if (x > y) {
-    return gcd(x - y, y);
+    return gcd(x % y, y);
   } else {
-    return gcd(x, y - x);
+    return gcd(x, y % x);
   }
 }
 
