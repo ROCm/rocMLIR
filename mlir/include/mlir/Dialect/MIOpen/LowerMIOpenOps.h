@@ -1369,8 +1369,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto gemm_id = 0;
     auto iYTilda = gemm_id / xTilda;
     auto iXTilda = gemm_id % xTilda;
-    auto yDotSlice = (iYTilda + 1) * yDot <= y ? yDot : y % yDot;
-    auto xDotSlice = (iXTilda + 1) * xDot <= x ? xDot : x % xDot;
+    auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
+    auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
     // Transform filter tensor.
 
     // set layout attribute.
