@@ -59,7 +59,29 @@ static void print(OpAsmPrinter &p, Conv2DOp op) {
 }
 
 static LogicalResult verify(Conv2DOp op) {
-  return success();
+
+  auto isDisjointed = [&](llvm::StringRef tensor, llvm::StringRef dim1,
+                          llvm::StringRef dim2) {
+    auto layout = op->getAttr(tensor).cast<ArrayAttr>().getValue();
+    auto pos1 = -1, pos2 = -1;
+    for (unsigned int i = 0; i < layout.size(); ++i) {
+      if (layout[i].dyn_cast<StringAttr>().getValue() == dim1)
+        pos1 = i;
+      if (layout[i].dyn_cast<StringAttr>().getValue() == dim2)
+        pos2 = i;
+    }
+
+    if ((pos2 != pos1 + 1) && (pos1 != pos2 + 1))
+      return true;
+    else
+      return false;
+  };
+
+  if (isDisjointed("filter_layout", "y", "x") ||
+      isDisjointed("input_layout", "hi", "wi"))
+    return op.emitError("Disjointed yx or hw!");
+  else
+    return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -83,7 +105,31 @@ static void print(OpAsmPrinter &p, Conv2DBwdDataOp op) {
   p << " : " << op.getOperandTypes();
 }
 
-static LogicalResult verify(Conv2DBwdDataOp op) { return success(); }
+static LogicalResult verify(Conv2DBwdDataOp op) {
+
+  auto isDisjointed = [&](llvm::StringRef tensor, llvm::StringRef dim1,
+                          llvm::StringRef dim2) {
+    auto layout = op->getAttr(tensor).cast<ArrayAttr>().getValue();
+    auto pos1 = -1, pos2 = -1;
+    for (unsigned int i = 0; i < layout.size(); ++i) {
+      if (layout[i].dyn_cast<StringAttr>().getValue() == dim1)
+        pos1 = i;
+      if (layout[i].dyn_cast<StringAttr>().getValue() == dim2)
+        pos2 = i;
+    }
+
+    if ((pos2 != pos1 + 1) && (pos1 != pos2 + 1))
+      return true;
+    else
+      return false;
+  };
+
+  if (isDisjointed("filter_layout", "y", "x") ||
+      isDisjointed("input_layout", "hi", "wi"))
+    return op.emitError("Disjointed yx or hw!");
+  else
+    return success();
+}
 
 //===----------------------------------------------------------------------===//
 // Conv2DBwdWeightOp
@@ -106,9 +152,31 @@ static void print(OpAsmPrinter &p, Conv2DBwdWeightOp op) {
   p << " : " << op.getOperandTypes();
 }
 
-static LogicalResult verify(Conv2DBwdWeightOp op) { return success(); }
+static LogicalResult verify(Conv2DBwdWeightOp op) {
 
-//===----------------------------------------------------------------------===//
+  auto isDisjointed = [&](llvm::StringRef tensor, llvm::StringRef dim1,
+                          llvm::StringRef dim2) {
+    auto layout = op->getAttr(tensor).cast<ArrayAttr>().getValue();
+    auto pos1 = -1, pos2 = -1;
+    for (unsigned int i = 0; i < layout.size(); ++i) {
+      if (layout[i].dyn_cast<StringAttr>().getValue() == dim1)
+        pos1 = i;
+      if (layout[i].dyn_cast<StringAttr>().getValue() == dim2)
+        pos2 = i;
+    }
+
+    if ((pos2 != pos1 + 1) && (pos1 != pos2 + 1))
+      return true;
+    else
+      return false;
+  };
+
+  if (isDisjointed("filter_layout", "y", "x") ||
+      isDisjointed("input_layout", "hi", "wi"))
+    return op.emitError("Disjointed yx or hw!");
+  else
+    return success();
+} //===----------------------------------------------------------------------===//
 // Conv2DDummyOp
 //===----------------------------------------------------------------------===//
 
