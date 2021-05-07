@@ -1,0 +1,58 @@
+pipeline {
+    agent {
+        docker {
+            image 'rocm/mlir:miopen_test'
+            args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+            label 'gfx908'
+        }
+    }
+    stages {
+        stage('Environment') {
+            steps {
+                sh 'cat /etc/os-release'
+                sh '/opt/rocm/bin/rocm-smi'
+            }
+        }
+        stage('Build libMLIRMIOpen') {
+            steps {
+                checkout scm
+                sh '''
+                    mkdir -p build && cd build
+                    /usr/local/bin/cmake -G "Unix Makefiles" ../llvm \
+                         -DLLVM_ENABLE_PROJECTS="mlir;lld" \
+                         -DCMAKE_BUILD_TYPE=Release \
+                         -DBUILD_SHARED_LIBS=OFF \
+                         -DLLVM_BUILD_LLVM_DYLIB=OFF \
+                         -DLLVM_ENABLE_TERMINFO=OFF
+                    make -j$(nproc) libMLIRMIOpen
+                '''
+            }
+        }
+        stage('Build MIOpenDriver and Test') {
+            steps {
+                checkout scm
+                sh '''
+                    git clone https://github.com/ROCmSoftwarePlatform/MIOpen.git
+                    cd MIOpen
+                    mkdir -p build && cd build
+                    CXX=/opt/rocm/llvm/bin/clang++ cmake -DMIOPEN_USE_MLIR=On \
+                         -DBUILD_DEV=On \
+                         -DCMAKE_BUILD_TYPE=release \
+                         -DMIOPEN_TEST_FLAGS='--verbose \
+                         --disable-verification-cache' ..
+                    make -j MIOpenDriver
+                    pwd
+                    ls ../.. 
+                    bash ../../mlir/utils/jenkins/miopen-tests/resnet50_fp16_nchw.sh
+                    bash ../../mlir/utils/jenkins/miopen-tests/resnet50_fp32_nhwc.sh
+                    
+                '''
+            }
+        }
+    }
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
