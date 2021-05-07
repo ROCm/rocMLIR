@@ -310,6 +310,10 @@ static void correctParameters() {
       inputLayout.setValue("g" + inputLayoutValue);
   }
 
+  // we can use paddingHeight or paddingHeightLeft + paddingHeightRight
+  // if use paddingHeight , paddingHeightLeft and paddingHeightRight =
+  // paddingHeight if use paddingHeightLeft + paddingHeightRight , please
+  // assigne value
   if (paddingHeight.getValue() > 0) {
     if (paddingHeightLeft.getValue() == 0 &&
         paddingHeightRight.getValue() == 0) {
@@ -324,6 +328,9 @@ static void correctParameters() {
     }
   }
 
+  // we can use paddingWidth or paddingWidthLeft + paddingWidthRight
+  // if use paddingWidth , paddingWidthLeft and paddingWidthRight = paddingWidth
+  // if use paddingWidthLeft + paddingWidthRight , please assigne value
   if (paddingWidth.getValue() > 0) {
     if (paddingWidthLeft.getValue() == 0 && paddingWidthRight.getValue() == 0) {
       paddingWidthLeft.setValue(paddingWidth.getValue());
