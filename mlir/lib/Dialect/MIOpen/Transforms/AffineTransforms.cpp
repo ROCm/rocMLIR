@@ -11,6 +11,7 @@
 
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Support/raw_ostream.h"
+#include <set>
 
 using namespace mlir;
 
@@ -19,11 +20,12 @@ struct AffineTransforms : public MIOpenOpsAffineTransformPassBase<AffineTransfor
   void runOnFunction() override;
 
 private:
-  AffineMap buildIndexAffineMap(miopen::TransformOp);
+  std::vector<AffineMap> buildIndexAffineMap(miopen::TransformOp);
 };
 } // anonymous namespace
 
-AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
+std::vector<AffineMap>
+AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
   auto inputType = op.input().getType().dyn_cast<MemRefType>();
   auto inputShape = inputType.getShape();
   auto inputAffineMaps = inputType.getAffineMaps();
@@ -39,6 +41,7 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
       op->template getAttrOfType<ArrayAttr>("output_layout");
 
   llvm::SmallMapVector<int64_t, AffineExpr, 8> affExprsMap;
+  std::set<int64_t> limitVec;
   for (unsigned i = 0; i < layoutAttr.size(); ++i) {
     if (auto dimLayoutAttr = layoutAttr.getValue()[i].dyn_cast<DictionaryAttr>()) {
       auto srcDimAttr = dimLayoutAttr.get("source_dimensions").dyn_cast<ArrayAttr>();
@@ -130,7 +133,11 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
 
         auto srcDim = srcDimAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
         auto parameters = dimLayoutAttr.get("parameters").dyn_cast<ArrayAttr>();
-
+        auto limitDimAttr = dimLayoutAttr.get("bound_check");
+        if (limitDimAttr) {
+          auto dim = limitDimAttr.dyn_cast<IntegerAttr>().getInt();
+          limitVec.insert(dim);
+        }
         // # of parameters would always be 1 more than the # of destDim.
         // populate the initial affine expr.
         auto param = parameters.getValue()[parameters.size() - 1].dyn_cast<IntegerAttr>().getInt();
@@ -191,19 +198,36 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
     outputAffineMap = transformAffineMap;
   }
 
-  return outputAffineMap;
+  llvm::SmallVector<AffineExpr, 8> limitExprsVec;
+  if (limitVec.size()) {
+    for (int i = 0; i < outputAffineMap.getNumResults(); i++) {
+      auto expr = getAffineConstantExpr(
+          limitVec.find(i) == limitVec.end() ? 0 : 1, op.getContext());
+      limitExprsVec.push_back(expr);
+    }
+  }
+
+  std::vector<AffineMap> maps;
+  maps.push_back(outputAffineMap);
+  if (limitExprsVec.size()) {
+    auto limitAffineMap =
+        AffineMap::get(limitExprsVec.size(), 0, limitExprsVec, op.getContext());
+    maps.push_back(limitAffineMap);
+  }
+  return maps;
 }
 
 void AffineTransforms::runOnFunction() {
   FuncOp func = getFunction();
 
   func.walk([&](miopen::TransformOp op) {
-    AffineMap indexAffineMap = buildIndexAffineMap(op);
+    std::vector<AffineMap> indexAffineMap = buildIndexAffineMap(op);
 
     auto outputType = op.output().getType().dyn_cast<MemRefType>();
     auto outputShape = outputType.getShape();
-    auto transformedOutputType = MemRefType::get(outputShape, outputType.getElementType(),
-                                                 {indexAffineMap});
+    auto transformedOutputType =
+        MemRefType::get(outputShape, outputType.getElementType(),
+                        ArrayRef<AffineMap>(indexAffineMap));
 
     OpBuilder b(op.getOperation());
     auto loc = op.getLoc();
