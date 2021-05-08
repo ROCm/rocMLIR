@@ -225,8 +225,6 @@ AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
       maps.push_back(inputAffineMaps[1]);
     } else {
       auto oldLimitMap = inputAffineMaps[1];
-      assert(oldLimitMap.isIdentity());
-
       auto results = oldLimitMap.getResults();
       for (unsigned i = 0; i < results.size(); i++) {
         if (limitVec.find(i) == limitVec.end()) {
