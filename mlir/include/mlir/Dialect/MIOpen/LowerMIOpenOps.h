@@ -3976,12 +3976,16 @@ struct ThreadwiseCopyRewritePattern
     bool destExternalTransform = false;
     AffineMap sourceTransform;
     AffineMap destTransform;
+    AffineMap limitDimTransform;
 
     if (sourceTypeAffineMaps.size()) {
       // Use the first affine map in the attribute array.
       sourceCoordLength = sourceTypeAffineMaps[0].getNumInputs();
       sourceEmbeddedTransform = true;
       sourceTransform = sourceTypeAffineMaps[0];
+      if (sourceTypeAffineMaps.size() > 1) {
+        limitDimTransform = sourceTypeAffineMaps[1];
+      }
     }
     if (destTypeAffineMaps.size()) {
       // Use the first affine map in the attribute array.
@@ -3997,6 +4001,10 @@ struct ThreadwiseCopyRewritePattern
         auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
         // Use the first affine map in the transforms array.
         auto affineMap = transforms[0].template cast<AffineMapAttr>();
+        if (transforms.size() > 1) {
+          limitDimTransform =
+              transforms[1].template cast<AffineMapAttr>().getValue();
+        }
         if (operandIndex == 0) {
           sourceCoordLength = affineMap.getValue().getNumInputs();
           sourceExternalTransform = true;
@@ -4010,6 +4018,9 @@ struct ThreadwiseCopyRewritePattern
     }
 
     // Determine if we need to emit codes for out-of-bound check.
+    ArrayRef<AffineExpr> limits;
+    if (limitDimTransform)
+      limits = limitDimTransform.getResults();
     bool toEmitOOBCheckLogic = false;
     SmallVector<unsigned, 2> oobCheckDims;
     if (sourceTransform) {
@@ -4018,6 +4029,14 @@ struct ThreadwiseCopyRewritePattern
         if (hasPadding(expr)) {
           toEmitOOBCheckLogic = true;
           oobCheckDims.push_back(iter);
+        } else if (limits.size() > iter) {
+          auto expr = limits[iter];
+          if (expr.getKind() == AffineExprKind::Constant) {
+            auto constantExpr = expr.template dyn_cast<AffineConstantExpr>();
+            if (constantExpr.getValue() == 1) {
+              oobCheckDims.push_back(iter);
+            }
+          }
         }
       }
     }
