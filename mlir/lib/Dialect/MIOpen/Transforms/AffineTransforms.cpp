@@ -59,6 +59,15 @@ AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
       } else if (transformAttr.getValue() == "Pad") {
         assert(srcDimAttr.size() == destDimAttr.size());
 
+        auto limitDimAttr = dimLayoutAttr.get("bound_check");
+        if (limitDimAttr) {
+          auto dimArrayAttr = limitDimAttr.dyn_cast<ArrayAttr>();
+          for (int j = 0; j < dimArrayAttr.size(); j++) {
+            auto dim = dimArrayAttr[j].dyn_cast<IntegerAttr>().getInt();
+            limitVec.insert(dim);
+          }
+        }
+
         auto parameters = dimLayoutAttr.get("parameters").dyn_cast<ArrayAttr>();
         auto leftPad = parameters.getValue()[0].dyn_cast<IntegerAttr>().getInt();
         for (unsigned j = 0; j < srcDimAttr.size(); ++j) {
@@ -135,8 +144,11 @@ AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
         auto parameters = dimLayoutAttr.get("parameters").dyn_cast<ArrayAttr>();
         auto limitDimAttr = dimLayoutAttr.get("bound_check");
         if (limitDimAttr) {
-          auto dim = limitDimAttr.dyn_cast<IntegerAttr>().getInt();
-          limitVec.insert(dim);
+          auto dimArrayAttr = limitDimAttr.dyn_cast<ArrayAttr>();
+          for (int j = 0; j < dimArrayAttr.size(); j++) {
+            auto dim = dimArrayAttr[j].dyn_cast<IntegerAttr>().getInt();
+            limitVec.insert(dim);
+          }
         }
         // # of parameters would always be 1 more than the # of destDim.
         // populate the initial affine expr.
@@ -198,21 +210,36 @@ AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
     outputAffineMap = transformAffineMap;
   }
 
-  llvm::SmallVector<AffineExpr, 8> limitExprsVec;
-  if (limitVec.size()) {
-    for (int i = 0; i < outputAffineMap.getNumResults(); i++) {
-      auto expr = getAffineConstantExpr(
-          limitVec.find(i) == limitVec.end() ? 0 : 1, op.getContext());
-      limitExprsVec.push_back(expr);
-    }
-  }
-
   std::vector<AffineMap> maps;
   maps.push_back(outputAffineMap);
-  if (limitExprsVec.size()) {
-    auto limitAffineMap =
-        AffineMap::get(limitExprsVec.size(), 0, limitExprsVec, op.getContext());
-    maps.push_back(limitAffineMap);
+
+  if (limitVec.size() || inputAffineMaps.size() > 1) {
+    llvm::SmallVector<AffineExpr, 8> limitExprsVec;
+    if (inputAffineMaps.size() <= 1) { // only this transform have limit dim
+      for (int i = 0; i < outputAffineMap.getNumResults(); i++) {
+        auto expr = getAffineConstantExpr(
+            limitVec.find(i) == limitVec.end() ? 0 : 1, op.getContext());
+        limitExprsVec.push_back(expr);
+      }
+    } else if (limitVec.empty()) { // only pre-transformat have limit dim
+      maps.push_back(inputAffineMaps[1]);
+    } else {
+      auto oldLimitMap = inputAffineMaps[1];
+      auto results = oldLimitMap.getResults();
+      for (int i = 0; i < results.size(); i++) {
+        if (limitVec.find(i) == limitVec.end()) {
+          limitExprsVec.push_back(results[i]);
+        } else {
+          auto expr = getAffineConstantExpr(1, op.getContext());
+          limitExprsVec.push_back(expr);
+        }
+      }
+    }
+    if (limitExprsVec.size()) {
+      auto limitAffineMap = AffineMap::get(limitExprsVec.size(), 0,
+                                           limitExprsVec, op.getContext());
+      maps.push_back(limitAffineMap);
+    }
   }
   return maps;
 }
