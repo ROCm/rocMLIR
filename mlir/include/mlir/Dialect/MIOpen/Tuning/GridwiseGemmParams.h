@@ -388,9 +388,6 @@ protected:
       auto yTilda = dilationH / gcdStrideDilationH;
       auto xTilda = dilationW / gcdStrideDilationW;
 
-      auto yDot = math::integer_divide_ceil(y, yTilda);
-      auto xDot = math::integer_divide_ceil(x, xTilda);
-
       auto hTilda =
           ho + math::integer_divide_ceil(dilationH * (y - 1), strideH);
       auto wTilda =
