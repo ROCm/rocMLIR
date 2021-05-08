@@ -508,9 +508,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       paddingFilterShape.push_back(transformedFilterShape[1]);
       paddingFilterShape.push_back(transformedFilterShape[2]);
 
-      llvm::SmallVector<NamedAttribute, 2> gemmKDimAttr;
-      llvm::SmallVector<NamedAttribute, 2> gemmMDimAttr;
-      llvm::SmallVector<NamedAttribute, 2> gemmNDimAttr;
       StringAttr gemmKDim;
       IntegerAttr gemmKDimName;
 
@@ -545,11 +542,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           gemm_dim1_target_name = b.getStringAttr(gemmK_Pad_name);
 
           paddingFilterShape[1] = paddingFilterShape[1] + gemmK_extra;
-          gemmKDimAttr.push_back(
-              b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim1})));
-          gemmKDimAttr.push_back(
-              b.getNamedAttr("source_names", b.getArrayAttr(GemmDim1Name)));
-
           sourceGemmDim1Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
           sourceGemmDim1Attr.push_back(
@@ -566,11 +558,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           gemm_dim2_target_name = b.getStringAttr(gemmK_Pad_name);
 
           paddingFilterShape[2] = paddingFilterShape[2] + gemmK_extra;
-          gemmKDimAttr.push_back(
-              b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim2})));
-          gemmKDimAttr.push_back(
-              b.getNamedAttr("source_names", b.getArrayAttr(GemmDim2Name)));
-
           sourceGemmDim2Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
           sourceGemmDim2Attr.push_back(
@@ -1234,10 +1221,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       paddingInputShape.push_back(transformedInputShape[1]);
       paddingInputShape.push_back(transformedInputShape[2]);
 
-      llvm::SmallVector<NamedAttribute, 2> gemmKDimAttr;
-      llvm::SmallVector<NamedAttribute, 2> gemmMDimAttr;
-      llvm::SmallVector<NamedAttribute, 2> gemmNDimAttr;
-
       StringAttr gemmKDim;
       IntegerAttr gemmKDimName;
 
@@ -1271,11 +1254,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           gemm_dim1_target_name = b.getStringAttr(gemmK_Pad_name);
           paddingInputShape[1] = paddingInputShape[1] + gemmK_extra;
 
-          gemmKDimAttr.push_back(
-              b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim1})));
-          gemmKDimAttr.push_back(
-              b.getNamedAttr("source_names", b.getArrayAttr(GemmDim1Name)));
-
           sourceGemmDim1Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
           sourceGemmDim1Attr.push_back(b.getNamedAttr(
@@ -1290,11 +1268,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           gemm_dim2_target_name = b.getStringAttr(gemmK_Pad_name);
 
           paddingInputShape[2] = paddingInputShape[2] + gemmK_extra;
-          gemmKDimAttr.push_back(
-              b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim2})));
-          gemmKDimAttr.push_back(
-              b.getNamedAttr("source_names", b.getArrayAttr(GemmDim2Name)));
-
           sourceGemmDim2Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
           sourceGemmDim2Attr.push_back(b.getNamedAttr(
@@ -1572,13 +1545,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       StringAttr GemmDim2Name = b.getStringAttr(arg2TargetLayoutName2);
       IntegerAttr GemmDim2 = b.getI32IntegerAttr(2);
 
-      paddingOutputShape.push_back(transformedFilterShape[0]);
-      paddingOutputShape.push_back(transformedFilterShape[1]);
-      paddingOutputShape.push_back(transformedFilterShape[2]);
-
-      llvm::SmallVector<NamedAttribute, 2> gemmKDimAttr;
-      llvm::SmallVector<NamedAttribute, 2> gemmMDimAttr;
-      llvm::SmallVector<NamedAttribute, 2> gemmNDimAttr;
+      paddingOutputShape.push_back(transformedOutputShape[0]);
+      paddingOutputShape.push_back(transformedOutputShape[1]);
+      paddingOutputShape.push_back(transformedOutputShape[2]);
 
       StringAttr gemmKDim;
       IntegerAttr gemmKDimName;
@@ -1613,11 +1582,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           gemm_dim1_target_name = b.getStringAttr(gemmK_Pad_name);
 
           paddingOutputShape[1] = paddingOutputShape[1] + gemmK_extra;
-          gemmKDimAttr.push_back(
-              b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim1})));
-          gemmKDimAttr.push_back(
-              b.getNamedAttr("source_names", b.getArrayAttr(GemmDim1Name)));
-
           sourceGemmDim1Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
           sourceGemmDim1Attr.push_back(b.getNamedAttr(
@@ -1633,11 +1597,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           gemm_dim2_target_name = b.getStringAttr(gemmK_Pad_name);
 
           paddingOutputShape[2] = paddingOutputShape[2] + gemmK_extra;
-          gemmKDimAttr.push_back(
-              b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim2})));
-          gemmKDimAttr.push_back(
-              b.getNamedAttr("source_names", b.getArrayAttr(GemmDim2Name)));
-
           sourceGemmDim2Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
           sourceGemmDim2Attr.push_back(b.getNamedAttr(
@@ -1655,7 +1614,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           is_output_pad = false;
           isGemmDim1Pad = false;
           paddingOutputShape[1] = paddingOutputShape[1] + gemmM_extra;
-        } else if (arg0TargetLayoutName2 == "gemmM") {
+        } else if (arg2TargetLayoutName2 == "gemmM") {
           is_output_pad = false;
           isGemmDim2Pad = false;
           paddingOutputShape[2] = paddingOutputShape[2] + gemmM_extra;
@@ -1667,7 +1626,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           is_output_pad = false;
           isGemmDim1Pad = false;
           paddingOutputShape[1] = paddingOutputShape[1] + gemmN_extra;
-        } else if (arg0TargetLayoutName2 == "gemmN") {
+        } else if (arg2TargetLayoutName2 == "gemmN") {
           is_output_pad = false;
           isGemmDim2Pad = false;
           paddingOutputShape[2] = paddingOutputShape[2] + gemmN_extra;
