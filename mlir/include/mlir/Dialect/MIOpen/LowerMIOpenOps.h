@@ -1286,7 +1286,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto leftPadH =
         paddingAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
     auto leftPadW =
+        paddingAttr.getValue()[2].template dyn_cast<IntegerAttr>().getInt();
+    auto rightPadH =
         paddingAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+    auto rightPadW =
+        paddingAttr.getValue()[3].template dyn_cast<IntegerAttr>().getInt();
+
     auto dilationH =
         dilationsAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
     auto dilationW =
@@ -1295,7 +1300,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         stridesAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
     auto strideW =
         stridesAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
-
     // get y, x, ho, wo, hi, wi
     int64_t g, n, k, c, y, x, ho, wo, hi, wi;
     g = n = k = c = y = x = ho = wo = hi = wi = 0;
@@ -1335,11 +1339,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     }
 
     // compute padding hi/wi.
-    auto hiPadded = 1 + (y - 1) * dilationH + (ho - 1) * strideH;
-    auto wiPadded = 1 + (x - 1) * dilationW + (wo - 1) * strideW;
-    // compute right padding parameters.
-    int rightPadH = hiPadded > (leftPadH + hi) ? hiPadded - (leftPadH + hi) : 0;
-    int rightPadW = wiPadded > (leftPadW + wi) ? wiPadded - (leftPadW + wi) : 0;
+    auto hiPadded = hi + leftPadH + rightPadH;
+    auto wiPadded = wi + leftPadW + rightPadW;
 
     auto gcdStrideDilationH = math::gcd(strideH, dilationH);
     auto gcdStrideDilationW = math::gcd(strideW, dilationW);
@@ -1794,7 +1795,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr("transformation", b.getStringAttr("Pad")),
             b.getNamedAttr("parameters", b.getArrayAttr({
                                              b.getI32IntegerAttr(leftPadH),
+                                             b.getI32IntegerAttr(rightPadH),
                                              b.getI32IntegerAttr(leftPadW),
+                                             b.getI32IntegerAttr(rightPadW),
                                          })),
             b.getNamedAttr(
                 "source_dimensions",
@@ -2525,10 +2528,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         b.getNamedAttr("output_dimension", b.getI64ArrayAttr(outputShape)),
         b.getNamedAttr("dilations", dilationsAttr),
         b.getNamedAttr("strides", stridesAttr),
-        b.getNamedAttr(
-            "padding",
-            b.getArrayAttr(
-                {paddingAttr, b.getI32ArrayAttr({rightPadH, rightPadW})})),
+        b.getNamedAttr("padding", paddingAttr),
     };
 
     // xdlopsV2.
