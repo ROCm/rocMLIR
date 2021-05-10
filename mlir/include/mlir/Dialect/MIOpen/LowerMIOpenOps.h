@@ -1683,7 +1683,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
-    auto twoConstantOp = b.create<ConstantIndexOp>(loc, 2);
 
     // Obtain critical matrix dimensions.
     int64_t G =
@@ -2044,6 +2043,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     Value blockwiseCopyASrcVector =
         b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
     blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
+        loc, blockwiseCopyVectorCoordType, GemmBlockCoord_G_i32,
+        blockwiseCopyASrcVector, zeroConstantI32Op);
+    blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
         loc, blockwiseCopyVectorCoordType, GemmABlockCopySourceCoord_Y_i32,
         blockwiseCopyASrcVector, oneConstantI32Op);
     blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
@@ -2052,6 +2054,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     Value blockwiseCopyADstVector =
         b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
+    blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
+        loc, blockwiseCopyVectorCoordType, GemmBlockCoord_Zero_i32,
+        blockwiseCopyADstVector, zeroConstantI32Op);
     blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
         loc, blockwiseCopyVectorCoordType, GemmABlockCopyDestCoord_Y_i32,
         blockwiseCopyADstVector, oneConstantI32Op);
@@ -2063,6 +2068,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     Value blockwiseCopyBSrcVector =
         b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
     blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
+        loc, blockwiseCopyVectorCoordType, GemmBlockCoord_G_i32,
+        blockwiseCopyBSrcVector, zeroConstantI32Op);
+    blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
         loc, blockwiseCopyVectorCoordType, GemmBBlockCopySourceCoord_Y_i32,
         blockwiseCopyBSrcVector, oneConstantI32Op);
     blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
@@ -2071,6 +2079,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     Value blockwiseCopyBDstVector =
         b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
+    blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
+        loc, blockwiseCopyVectorCoordType, GemmBlockCoord_Zero_i32,
+        blockwiseCopyBDstVector, zeroConstantI32Op);
     blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
         loc, blockwiseCopyVectorCoordType, GemmBBlockCopyDestCoord_Y_i32,
         blockwiseCopyBDstVector, oneConstantI32Op);
@@ -2596,7 +2607,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
-    auto twoConstantOp = b.create<ConstantIndexOp>(loc, 2);
 
     // Obtain critical matrix dimensions.
     int64_t G =
@@ -2959,6 +2969,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     Value blockwiseCopyASrcVector =
         b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
     blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
+        loc, blockwiseCopyVectorCoordType, GemmBlockCoord_G_i32,
+        blockwiseCopyASrcVector, zeroConstantI32Op);
+    blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
         loc, blockwiseCopyVectorCoordType, GemmABlockCopySourceCoord_Y_i32,
         blockwiseCopyASrcVector, oneConstantI32Op);
     blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
@@ -2967,6 +2980,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     Value blockwiseCopyADstVector =
         b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
+    blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
+        loc, blockwiseCopyVectorCoordType, GemmBlockCoord_Zero_i32,
+        blockwiseCopyADstVector, zeroConstantI32Op);
     blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
         loc, blockwiseCopyVectorCoordType, GemmABlockCopyDestCoord_Y_i32,
         blockwiseCopyADstVector, oneConstantI32Op);
@@ -2978,6 +2994,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     Value blockwiseCopyBSrcVector =
         b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
     blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
+        loc, blockwiseCopyVectorCoordType, GemmBlockCoord_G_i32,
+        blockwiseCopyBSrcVector, zeroConstantI32Op);
+    blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
         loc, blockwiseCopyVectorCoordType, GemmBBlockCopySourceCoord_Y_i32,
         blockwiseCopyBSrcVector, oneConstantI32Op);
     blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
@@ -2986,6 +3005,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     Value blockwiseCopyBDstVector =
         b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
+    blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
+        loc, blockwiseCopyVectorCoordType, GemmBlockCoord_Zero_i32,
+        blockwiseCopyBDstVector, zeroConstantI32Op);
     blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
         loc, blockwiseCopyVectorCoordType, GemmBBlockCopyDestCoord_Y_i32,
         blockwiseCopyBDstVector, oneConstantI32Op);
