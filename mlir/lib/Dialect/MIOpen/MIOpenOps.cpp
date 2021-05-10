@@ -529,11 +529,12 @@ static LogicalResult verify(BlockwiseCopyOp op) {
 // BlockwiseLoadOp
 //===----------------------------------------------------------------------===//
 
-static ParseResult parseBlockwiseLoadOp(OpAsmParser &parser, OperationState &result) {
+static ParseResult parseBlockwiseLoadOp(OpAsmParser &parser,
+                                        OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 2> ops;
   SmallVector<Type, 2> types;
-  VectorType coordVectorType = VectorType::get(2,
-		  parser.getBuilder().getIntegerType(32));
+  VectorType coordVectorType =
+      VectorType::get(2, parser.getBuilder().getIntegerType(32));
   return failure(
       parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
       parser.parseOptionalAttrDict(result.attributes) ||
@@ -549,19 +550,18 @@ static void print(OpAsmPrinter &p, BlockwiseLoadOp op) {
   p << " : " << op.getOperand(0).getType() << ", " << op.getType();
 }
 
-static LogicalResult verify(BlockwiseLoadOp op) {
-  return success();
-}
+static LogicalResult verify(BlockwiseLoadOp op) { return success(); }
 
 //===----------------------------------------------------------------------===//
 // BlockwiseStoreOp
 //===----------------------------------------------------------------------===//
 
-static ParseResult parseBlockwiseStoreOp(OpAsmParser &parser, OperationState &result) {
+static ParseResult parseBlockwiseStoreOp(OpAsmParser &parser,
+                                         OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 2> ops;
   SmallVector<Type, 2> types;
-  VectorType coordVectorType = VectorType::get(2,
-		  parser.getBuilder().getIntegerType(32));
+  VectorType coordVectorType =
+      VectorType::get(2, parser.getBuilder().getIntegerType(32));
   return failure(
       parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
       parser.parseOptionalAttrDict(result.attributes) ||
@@ -574,12 +574,11 @@ static ParseResult parseBlockwiseStoreOp(OpAsmParser &parser, OperationState &re
 static void print(OpAsmPrinter &p, BlockwiseStoreOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperand(0).getType() << ", " << op.getOperand(1).getType();
+  p << " : " << op.getOperand(0).getType() << ", "
+    << op.getOperand(1).getType();
 }
 
-static LogicalResult verify(BlockwiseStoreOp op) {
-  return success();
-}
+static LogicalResult verify(BlockwiseStoreOp op) { return success(); }
 
 //===----------------------------------------------------------------------===//
 // ThreadwiseCopyOp
