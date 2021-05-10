@@ -2042,13 +2042,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Matrix A: {0, 0, m_block_data_on_global}, {0, 0, 0}
     Value blockwiseCopyASrcVector =
-        b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoord ype);
-    blockwiseCopyASrcVector =
-        b.create<vector::InsertElementOp>(loc, blockwiseCopyVectorCoordTyp,
-                                          GemmABlockCopySourceCoord_Y_i32
-
-                                              blockwiseCopyASrcVector,
-                                          oneConstantI32Op);
+        b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
+    blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
+        loc, blockwiseCopyVectorCoordType, GemmABlockCopySourceCoord_Y_i32,
+        blockwiseCopyASrcVector, oneConstantI32Op);
     blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
         loc, blockwiseCopyVectorCoordType, GemmABlockCopySourceCoord_X_i32,
         blockwiseCopyASrcVector, twoConstantI32Op);
@@ -2064,7 +2061,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Matrix B: {0, 0, n_block_data_on_global}, {0, 0, 0}
     Value blockwiseCopyBSrcVector =
-        b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoord ype);
+        b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
     blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
         loc, blockwiseCopyVectorCoordType, GemmBBlockCopySourceCoord_Y_i32,
         blockwiseCopyBSrcVector, oneConstantI32Op);
@@ -2195,7 +2192,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         /*buffer=*/nullptr);
     affixBlockwiseCopyAttributes(blockwiseCopyOpATop, op, b,
                                  /*isMatrixA=*/true);
-    Vector blockwiseCopyBSrcVectorUpdated = lb.create<miopen::MovePosV2Op>(
+    Value blockwiseCopyBSrcVectorUpdated = lb.create<miopen::MovePosV2Op>(
         loc, blockwiseCopyVectorCoordType, loopOp.getRegionIterArgs()[2],
         ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op,
                    zeroConstantI32Op});
@@ -2955,7 +2952,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Compute source and destination coordinates for BlockwiseCopy ops.
 
-    auto blockwiseCopyCoordType = VectorType::get({3}, b.getIntegerType(32));
+    auto blockwiseCopyVectorCoordType =
+        VectorType::get({3}, b.getIntegerType(32));
 
     // Matrix A: {0, 0, m_block_data_on_global}, {0, 0, 0}
     Value blockwiseCopyASrcVector =
