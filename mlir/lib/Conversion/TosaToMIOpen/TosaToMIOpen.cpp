@@ -61,67 +61,31 @@ public:
 
     ValueRange args({filter_t, input_t, output_t});
 
-#if 0
-    std::vector<NamedAttribute> attributes{
-      rewriter.getNamedAttr("arch", rewriter.getStringAttr(arch)),
-          rewriter.getNamedAttr("num_cu", rewriter.getI32IntegerAttr(num_cu)),
+    TypeRange resTypes;
+    auto cop = rewriter.create<mlir::miopen::Conv2DOp>(loc, resTypes, args);
 
-          rewriter.getNamedAttr(
-              "filter_layout",
-              rewriter.getArrayAttr(ArrayRef<mlir::Attribute>(
-                                       filterLayoutSpec.begin(), filterLayoutSpec.end()))),
-          rewriter.getNamedAttr(
-              "input_layout", rewriter.getArrayAttr(ArrayRef<mlir::Attribute>(
-                                                       inputLayoutSpec.begin(), inputLayoutSpec.end()))),
-          rewriter.getNamedAttr(
-              "output_layout",
-              rewriter.getArrayAttr(ArrayRef<mlir::Attribute>(
-                                       outputLayoutSpec.begin(), outputLayoutSpec.end()))),
-
-          rewriter.getNamedAttr("dilations",
-                               rewriter.getArrayAttr({
-                                   rewriter.getI32IntegerAttr(dilationHeight),
-                                       rewriter.getI32IntegerAttr(dilationWidth),
-                                       })),
-          rewriter.getNamedAttr("strides",
-                               rewriter.getArrayAttr({
-                                   rewriter.getI32IntegerAttr(strideHeight),
-                                       rewriter.getI32IntegerAttr(strideWidth),
-                                       })),
-          rewriter.getNamedAttr("padding",
-                               rewriter.getArrayAttr({
-                                   rewriter.getI32IntegerAttr(paddingHeight),
-                                       rewriter.getI32IntegerAttr(paddingWidth),
-                                       })),
-          };
-
-      // xdlops v2.
-  // if (xdlops)
-  //   attributes.push_back(
-  //       rewriter.getNamedAttr("xdlopsV2", rewriter.getBoolAttr(true)));
-    
-#endif
-
-      TypeRange resTypes;
-      auto cop = rewriter.create<mlir::miopen::Conv2DOp>(loc, resTypes, args);
-
-
-#if 1
     // Construct a new Conv2DOp.
     StringRef arch = "gfx906";
     int32_t num_cu = 64;
 
-    int32_t dilationHeight=1, dilationWidth=1;
-    int32_t strideHeight=1, strideWidth=1;
-    int32_t paddingHeight=0, paddingWidth=0;
+    ArrayAttr padArr = op.pad();
+    int32_t paddingHeight = padArr[0].dyn_cast<IntegerAttr>().getInt();
+    int32_t paddingWidth = padArr[1].dyn_cast<IntegerAttr>().getInt();
+    // Add support for 4 side padding
+    // assert( padding[2] == padding[0] );
+    // assert( padding[3] == padding[1] );
+    int32_t strideHeight = op.stride()[0].dyn_cast<IntegerAttr>().getInt();
+    int32_t strideWidth = op.stride()[1].dyn_cast<IntegerAttr>().getInt();
+    int32_t dilationHeight = op.dilation()[0].dyn_cast<IntegerAttr>().getInt();
+    int32_t dilationWidth = op.dilation()[1].dyn_cast<IntegerAttr>().getInt();
     
-    std::string filterLayout = "kcyx";
-    std::string inputLayout = "nchw";
-    std::string outputLayout = "nkhw";
-    SmallVector<StringAttr, 4> filterLayoutSpec;
-    SmallVector<StringAttr, 4> inputLayoutSpec;
-    SmallVector<StringAttr, 4> outputLayoutSpec;
-    for (size_t i = 0; i < 4; ++i) {
+    const char *filterLayout = "kyxcg";
+    const char *inputLayout = "nhwcg";
+    const char *outputLayout = "nhwkg";
+    SmallVector<StringAttr, 5> filterLayoutSpec;
+    SmallVector<StringAttr, 5> inputLayoutSpec;
+    SmallVector<StringAttr, 5> outputLayoutSpec;
+    for (size_t i = 0; i < 5; ++i) {
       filterLayoutSpec.push_back(
           rewriter.getStringAttr(StringRef(&filterLayout[i], 1).str()));
       inputLayoutSpec.push_back(
@@ -160,7 +124,6 @@ public:
                      rewriter.getI32IntegerAttr(paddingHeight),
                          rewriter.getI32IntegerAttr(paddingWidth),
                          }));
-#endif
       
     rewriter.replaceOp(op, output_t);
 
