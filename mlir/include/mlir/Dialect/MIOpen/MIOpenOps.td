@@ -216,8 +216,8 @@ def MIOpen_BlockwiseCopyOp:
     MIOpen_Op<"blockwise_copy">,
     Arguments<(ins AnyMemRef:$source,
                    AnyMemRef:$dest,
-                   AnyMemRef:$sourceCoord,
-                   AnyMemRef:$destCoord,
+                   VectorOfLengthAndType<[3], [I32]>:$sourceCoordVector,
+                   VectorOfLengthAndType<[3], [I32]>:$destCoordVector,
                    Optional<AnyMemRef>:$buffer)> {
   let summary = "Blockwise GPU data movement";
   let description = [{
