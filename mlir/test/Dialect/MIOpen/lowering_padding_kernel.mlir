@@ -13,7 +13,7 @@ func @miopen_conv2d_kcyx_nchw_nkhw_padding_kernel(%filter : memref<32x4x2x3x3xf3
     output_layout = ["no", "go",  "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    padding = [0, 0]
   } : memref<32x4x2x3x3xf32>, memref<2x32x2x11x11xf32>, memref<2x32x4x9x9xf32>
   return
 }
@@ -34,7 +34,7 @@ func @miopen_conv2d_kcyx_nchw_nkhw_no_extra_padding(%filter : memref<1x128x64x3x
     output_layout = ["no", "go",  "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    padding = [0, 0]
   } : memref<1x128x64x3x3xf32>, memref<128x1x64x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -55,7 +55,7 @@ func @miopen_conv2d_kcyx_nchw_nkhw_partial_padding_kernel(%filter : memref<32x4x
     output_layout = ["no", "go",  "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    padding = [0, 0]
   } : memref<32x4x2x3x3xf32>, memref<128x32x2x11x11xf32>, memref<128x32x4x9x9xf32>
   return
 }
