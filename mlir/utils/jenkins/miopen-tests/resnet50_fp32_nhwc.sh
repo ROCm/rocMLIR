@@ -33,7 +33,7 @@ bin/MIOpenDriver conv -F 1 -n 256 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u
 bin/MIOpenDriver conv -F 1 -n 256 -c 64 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC
 bin/MIOpenDriver conv -F 1 -n 256 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC
 bin/MIOpenDriver conv -F 1 -n 256 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC
-# TODO bin/MIOpenDriver conv -F 1 -n 256 -c 3 -H 230 -W 230 -k 64 -y 7 -x 7 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC
+# FIXME bin/MIOpenDriver conv -F 1 -n 256 -c 3 -H 230 -W 230 -k 64 -y 7 -x 7 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC
 
 # Wrw
 export MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmWrW
@@ -59,4 +59,4 @@ bin/MIOpenDriver conv -F 4 -n 256 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u
 bin/MIOpenDriver conv -F 4 -n 256 -c 64 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC
 bin/MIOpenDriver conv -F 4 -n 256 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC
 bin/MIOpenDriver conv -F 4 -n 256 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC
-#TODO bin/MIOpenDriver conv -F 4 -n 256 -c 3 -H 230 -W 230 -k 64 -y 7 -x 7 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC
+#FIXME bin/MIOpenDriver conv -F 4 -n 256 -c 3 -H 230 -W 230 -k 64 -y 7 -x 7 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC
