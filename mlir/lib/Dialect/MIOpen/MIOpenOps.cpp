@@ -888,7 +888,8 @@ static LogicalResult verify(DataConvertOp op) { return success(); }
 // LowerIndexDiffOp
 //===----------------------------------------------------------------------===//
 
-static ParseResult parseLowerIndexDiffOp(OpAsmParser &parser, OperationState &result) {
+static ParseResult parseLowerIndexDiffOp(OpAsmParser &parser,
+                                         OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 5> ops;
   SmallVector<Type, 5> types;
 
@@ -914,9 +915,7 @@ static void print(OpAsmPrinter &p, LowerIndexDiffOp op) {
   p << " : " << op.getOperandTypes();
 }
 
-static LogicalResult verify(LowerIndexDiffOp op) {
-  return success();
-}
+static LogicalResult verify(LowerIndexDiffOp op) { return success(); }
 
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions

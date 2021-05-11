@@ -7344,15 +7344,20 @@ struct LowerIndexDiffRewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
-    int64_t upperIndexLength = op.upperIndexLength().getDefiningOp<ConstantIndexOp>().getValue();
-    int64_t lowerIndexLength = op.lowerIndexLength().getDefiningOp<ConstantIndexOp>().getValue();
-    llvm::errs() << "upper index length: " << upperIndexLength << "\nlower index length: " << lowerIndexLength << "\n";
+    int64_t upperIndexLength =
+        op.upperIndexLength().getDefiningOp<ConstantIndexOp>().getValue();
+    int64_t lowerIndexLength =
+        op.lowerIndexLength().getDefiningOp<ConstantIndexOp>().getValue();
+    llvm::errs() << "upper index length: " << upperIndexLength
+                 << "\nlower index length: " << lowerIndexLength << "\n";
 
     // Fetch index upper diff
     SmallVector<Attribute, 2> indexUpperDiff;
     llvm::errs() << "index upper diff:\n";
     for (int64_t iter = 0; iter < upperIndexLength; ++iter) {
-      int64_t v = op.upperIndexDiffAndLowerIndexOld()[iter].getDefiningOp<ConstantIndexOp>().getValue();
+      int64_t v = op.upperIndexDiffAndLowerIndexOld()[iter]
+                      .getDefiningOp<ConstantIndexOp>()
+                      .getValue();
       llvm::errs() << v << " ";
       indexUpperDiff.push_back(b.getI32IntegerAttr(v));
     }
@@ -7365,7 +7370,8 @@ struct LowerIndexDiffRewritePattern
     // SmallVector<int64_t, 4> indexLowerOld;
     // llvm::errs() << "index lower old:\n";
     // for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
-    //   int64_t v = op.upperIndexDiffAndLowerIndexOld()[iter + upperIndexLength].getDefiningOp<ConstantIndexOp>().getValue();
+    //   int64_t v = op.upperIndexDiffAndLowerIndexOld()[iter +
+    //   upperIndexLength].getDefiningOp<ConstantIndexOp>().getValue();
     //   llvm::errs() << v << " ";
     //   indexLowerOld.push_back(v);
     // }
@@ -7418,7 +7424,8 @@ struct LowerIndexDiffRewritePattern
     SmallVector<Value, 8> indexLowerNew;
     llvm::errs() << "index lower new before borrow/carry:\n";
     for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
-      Value v = b.create<AddIOp>(loc, indexLowerOld[iter], indexLowerDiffTmpOp[iter]);
+      Value v =
+          b.create<AddIOp>(loc, indexLowerOld[iter], indexLowerDiffTmpOp[iter]);
       v.dump();
       indexLowerNew.push_back(v);
     }
@@ -7481,12 +7488,15 @@ struct LowerIndexDiffRewritePattern
       Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
       for (int64_t iter = lowerIndexLength - 1; iter >= 0; --iter) {
         // carry logic.
-        auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
+        auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp,
+                                             /*withElseRegion=*/true);
         auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
-        auto carried = ifCarryThenBuilder.create<AddIOp>(loc, indexLowerNew[iter], constantOneOp);
+        auto carried = ifCarryThenBuilder.create<AddIOp>(
+            loc, indexLowerNew[iter], constantOneOp);
         ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
         auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
-        carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter], constantZeroOp);
+        carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter],
+                                                    constantZeroOp);
         ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
 
         ifCarryOp.dump();
@@ -7495,17 +7505,21 @@ struct LowerIndexDiffRewritePattern
         indexLowerNewCarried.push_back(carriedResult);
 
         // set carry flag for the next digit.
-        carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult, boundOp[iter]);
+        carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult,
+                                   boundOp[iter]);
 
         carryOp.dump();
 
         // overflow logic.
-        auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
+        auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp,
+                                                /*withElseRegion=*/true);
         auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
-        auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult, boundOp[iter]);
+        auto updated = ifOverflowThenBuilder.create<SubIOp>(loc, carriedResult,
+                                                            boundOp[iter]);
         ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
         auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
-        updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult, constantZeroOp);
+        updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult,
+                                                       constantZeroOp);
         ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
 
         ifOverflowOp.dump();
@@ -7517,7 +7531,6 @@ struct LowerIndexDiffRewritePattern
       // TBD borrow logic.
       // TBD revise per scf_if_v1.mlir
     }
-
 
     // Subtract: index lower new - index lower old = index lower diff
 
@@ -7539,7 +7552,8 @@ struct LowerIndexDiffRewritePattern
 
     llvm::errs() << "index lower diff:\n";
     for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
-      Value v = b.create<SubIOp>(loc, indexLowerNewUpdated[iter], indexLowerOld[iter]);
+      Value v = b.create<SubIOp>(loc, indexLowerNewUpdated[iter],
+                                 indexLowerOld[iter]);
       v.dump();
       indexLowerDiff.push_back(v);
     }
@@ -7551,5 +7565,5 @@ struct LowerIndexDiffRewritePattern
     return success();
   }
 };
- 
+
 #endif // MLIR_DIALECT_MIOPEN_LOWERMIOPENOPS_H

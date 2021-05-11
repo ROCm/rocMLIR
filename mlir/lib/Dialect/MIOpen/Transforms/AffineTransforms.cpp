@@ -502,8 +502,9 @@ void AffineTransforms::runOnFunction() {
   func.walk([&](miopen::TransformOp op) {
     AffineMap indexAffineMap = buildIndexAffineMap(op);
     AffineMap indexDiffAffineMap = buildIndexDiffAffineMap(op);
-    // llvm::errs() << "index affine map: "; indexAffineMap.dump(); llvm::errs() << "\n";
-    // llvm::errs() << "index diff affine map: "; indexDiffAffineMap.dump(); llvm::errs() << "\n";
+    // llvm::errs() << "index affine map: "; indexAffineMap.dump(); llvm::errs()
+    // << "\n"; llvm::errs() << "index diff affine map: ";
+    // indexDiffAffineMap.dump(); llvm::errs() << "\n";
 
     auto outputType = op.output().getType().dyn_cast<MemRefType>();
     auto outputShape = outputType.getShape();
