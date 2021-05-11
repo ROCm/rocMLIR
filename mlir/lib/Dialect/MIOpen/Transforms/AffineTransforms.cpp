@@ -57,7 +57,8 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
         assert(srcDimAttr.size() == destDimAttr.size());
 
         auto parameters = dimLayoutAttr.get("parameters").dyn_cast<ArrayAttr>();
-        auto leftPad = parameters.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+        auto leftPad =
+            parameters.getValue()[0].dyn_cast<IntegerAttr>().getInt();
         for (unsigned j = 0; j < srcDimAttr.size(); ++j) {
           auto srcDim = srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
           auto destDim = destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
