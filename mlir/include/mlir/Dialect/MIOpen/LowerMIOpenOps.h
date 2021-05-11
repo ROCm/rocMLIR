@@ -4168,17 +4168,20 @@ struct ThreadwiseCopyRewritePattern
       //     template <typename Data>
       //     __device__ static void Run(const Data* p_src, Data* p_dst)
       //     {
-      //         using vector_t = typename vector_type<Data, DataPerAccess>::MemoryType;
+      //         using vector_t = typename vector_type<Data,
+      //         DataPerAccess>::MemoryType;
       //
       //         for(index_t i = 0; i < NSliceRow; ++i)
       //         {
       //             for(index_t j = 0; j < NSliceCol; j += DataPerAccess)
       //             {
-      //                 const index_t src_index = SrcMatrix::CalculateOffset(i, j);
-      //                 const index_t dst_index = DstMatrix::CalculateOffset(i, j);
+      //                 const index_t src_index = SrcMatrix::CalculateOffset(i,
+      //                 j); const index_t dst_index =
+      //                 DstMatrix::CalculateOffset(i, j);
       //
       //                 *reinterpret_cast<vector_t*>(&p_dst[dst_index]) =
-      //                     *reinterpret_cast<const vector_t*>(&p_src[src_index]);
+      //                     *reinterpret_cast<const
+      //                     vector_t*>(&p_src[src_index]);
       //             }
       //         }
       //     }
@@ -4187,7 +4190,8 @@ struct ThreadwiseCopyRewritePattern
       for (unsigned ivo = 0; ivo < NSliceRow; ++ivo) {
         auto ivo_i32 = b.create<ConstantIntOp>(loc, ivo, b.getIntegerType(32));
         for (unsigned ivi = 0; ivi < NSliceCol; ivi += DataPerAccess) {
-          auto ivi_i32 = b.create<ConstantIntOp>(loc, ivi, b.getIntegerType(32));
+          auto ivi_i32 =
+              b.create<ConstantIntOp>(loc, ivi, b.getIntegerType(32));
 
           // Compute high-level coordinate for source memref.
           // src_index = (ivo_i32, ivi_i32) + sourceCoord
@@ -4211,7 +4215,8 @@ struct ThreadwiseCopyRewritePattern
           Value scalarValue;
           // Load from source.
           // Issue scalar load.
-          scalarValue = b.create<LoadOp>(loc, sourceType.getElementType(), op.source(), srcLowerIndices);
+          scalarValue = b.create<LoadOp>(loc, sourceType.getElementType(),
+                                         op.source(), srcLowerIndices);
 
           // Compute high-level coordinate for dest memref.
           // dst_index = (ivo_i32, ivi_i32) + destCoord
@@ -4237,7 +4242,7 @@ struct ThreadwiseCopyRewritePattern
           b.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
 
         } // ivi
-      } // ivo
+      }   // ivo
     } else {
       // The more elaborated algorithm.
       // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
