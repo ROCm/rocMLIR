@@ -4370,10 +4370,10 @@ struct ThreadwiseCopyRewritePattern
         // src_index = (iv_0, iv_1, ...) + sourceCoord
         SmallVector<Value, 8> srcUpperIndices;
         for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-          auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32));
+          auto loopIV = b.create<ConstantIntOp>(
+              loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32));
           srcUpperIndices.push_back(b.create<IndexCastOp>(
-              loc,
-              b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
+              loc, b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
               b.getIndexType()));
         }
 
@@ -4381,8 +4381,9 @@ struct ThreadwiseCopyRewritePattern
         SmallVector<Value, 8> srcLowerIndices;
         SmallVector<Value, 8> srcLowerOOBIndices;
         if (sourceExternalTransform || sourceEmbeddedTransform)
-          srcLowerIndices = expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
-                                .getValue();
+          srcLowerIndices =
+              expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
+                  .getValue();
         else
           srcLowerIndices = srcUpperIndices;
 
@@ -4394,11 +4395,11 @@ struct ThreadwiseCopyRewritePattern
         Value scalarValue;
         if (toEmitOOBCheckLogic) {
           // Emit a useful constant 0f for later use.
-          Value zeroOp = createZeroConstantFloatOp(b, loc,
-                                                   sourceType.getElementType());
+          Value zeroOp =
+              createZeroConstantFloatOp(b, loc, sourceType.getElementType());
 
-          // Walkthrough all lower level indices where the dimension has padding,
-          // check if the result lies within boundaries.
+          // Walkthrough all lower level indices where the dimension has
+          // padding, check if the result lies within boundaries.
 
           // Logic in C++:
           // bool withinBounds = true;
@@ -4407,21 +4408,21 @@ struct ThreadwiseCopyRewritePattern
           //     (srcLowerIndices[dim] >= 0 &&
           //      srcLowerIndices[dim] < sourceType.getShape()[dim]) {
           // }
-          Value withinBoundsOp = b.create<ConstantIntOp>(
-              loc, 1, b.getIntegerType(1));
+          Value withinBoundsOp =
+              b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
           for (auto dim : oobCheckDims) {
             Value coord = srcLowerIndices[dim];
-            Value lowerBoundCheckOp = b.create<CmpIOp>(
-                loc, CmpIPredicate::sge, coord, zeroConstantOp);
-            Value upperBoundOp = b.create<ConstantIndexOp>(
-                loc, sourceType.getShape()[dim]);
-            Value upperBoundCheckOp = b.create<CmpIOp>(
-                loc, CmpIPredicate::slt, coord, upperBoundOp);
-            Value withinBoundInOneDimOp = b.create<AndOp>(
-                loc, lowerBoundCheckOp, upperBoundCheckOp);
+            Value lowerBoundCheckOp = b.create<CmpIOp>(loc, CmpIPredicate::sge,
+                                                       coord, zeroConstantOp);
+            Value upperBoundOp =
+                b.create<ConstantIndexOp>(loc, sourceType.getShape()[dim]);
+            Value upperBoundCheckOp =
+                b.create<CmpIOp>(loc, CmpIPredicate::slt, coord, upperBoundOp);
+            Value withinBoundInOneDimOp =
+                b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
 
-            withinBoundsOp = b.create<AndOp>(
-                loc, withinBoundsOp, withinBoundInOneDimOp);
+            withinBoundsOp =
+                b.create<AndOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
 
             // Prepare srcLowerOOBIndices.
             srcLowerOOBIndices[dim] = zeroConstantOp;
@@ -4447,11 +4448,8 @@ struct ThreadwiseCopyRewritePattern
           // Emit the first IfOp.
           auto firstIfWithinBoundsOp = b.create<scf::IfOp>(
               loc,
-              TypeRange{b.getIndexType(),
-                        b.getIndexType(),
-                        b.getIndexType(),
-                        b.getIndexType(),
-                        b.getIndexType()},
+              TypeRange{b.getIndexType(), b.getIndexType(), b.getIndexType(),
+                        b.getIndexType(), b.getIndexType()},
               withinBoundsOp, /*withElseRegion=*/true);
 
           // Then part.
@@ -4471,16 +4469,16 @@ struct ThreadwiseCopyRewritePattern
                               srcLowerOOBIndices[4]});
 
           // Issue scalar load.
-          scalarValue =
-              b.create<LoadOp>(loc, sourceElementType, op.source(),
-                                              firstIfWithinBoundsOp.results());
+          scalarValue = b.create<LoadOp>(loc, sourceElementType, op.source(),
+                                         firstIfWithinBoundsOp.results());
 
           // Emit the second IfOp.
-          auto secondIfWithinBoundsOp = b.create<scf::IfOp>(
-              loc, sourceElementType, withinBoundsOp, true);
+          auto secondIfWithinBoundsOp =
+              b.create<scf::IfOp>(loc, sourceElementType, withinBoundsOp, true);
           auto secondIfWithinBoundsThenBuilder =
               secondIfWithinBoundsOp.getThenBodyBuilder();
-          secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc, scalarValue);
+          secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc,
+                                                               scalarValue);
           auto secondIfWithinBoundsElseBuilder =
               secondIfWithinBoundsOp.getElseBodyBuilder();
           secondIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOp);
@@ -4489,40 +4487,39 @@ struct ThreadwiseCopyRewritePattern
 
         } else {
           // Issue scalar load.
-          scalarValue = b.create<LoadOp>(
-              loc, sourceElementType, op.source(), srcLowerIndices);
+          scalarValue = b.create<LoadOp>(loc, sourceElementType, op.source(),
+                                         srcLowerIndices);
         }
 
         // Convert from sourceElementType to destElementType if necessary.
-        Value convertedScalarValue =
-            createTypeConversionOp(b, loc, scalarValue,
-                                   sourceElementType, destElementType);
+        Value convertedScalarValue = createTypeConversionOp(
+            b, loc, scalarValue, sourceElementType, destElementType);
 
- 
         // Compute high-level coordinate for dest memref.
         // dst_index = (iv_0, iv_1, ...) + destCoord
         SmallVector<Value, 8> destUpperIndices;
         for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
           auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-          auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim], b.getIntegerType(32));
+          auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim],
+                                                b.getIntegerType(32));
           destUpperIndices.push_back(b.create<IndexCastOp>(
-              loc,
-              b.create<AddIOp>(loc, loopIV, destCoord[iter]),
+              loc, b.create<AddIOp>(loc, loopIV, destCoord[iter]),
               b.getIndexType()));
         }
 
         // Apply affine transformations to compute the low-level coordinate.
         SmallVector<Value, 8> destLowerIndices;
         if (destExternalTransform || destEmbeddedTransform)
-          destLowerIndices = expandAffineMap(b, loc, destTransform,
-                                             destUpperIndices)
-                                 .getValue();
+          destLowerIndices =
+              expandAffineMap(b, loc, destTransform, destUpperIndices)
+                  .getValue();
         else
           destLowerIndices = destUpperIndices;
 
         // Store to dest.
         // Issue scalar store.
-        b.create<StoreOp>(loc, convertedScalarValue, op.dest(), destLowerIndices);
+        b.create<StoreOp>(loc, convertedScalarValue, op.dest(),
+                          destLowerIndices);
 
         // increase IVs
         bool toIncreaseNextDigit = true;
@@ -4540,7 +4537,7 @@ struct ThreadwiseCopyRewritePattern
         if (iter < 0 && toIncreaseNextDigit == true) {
           toExit = true;
         }
-      } while(!toExit);
+      } while (!toExit);
     }
 
     op.erase();
