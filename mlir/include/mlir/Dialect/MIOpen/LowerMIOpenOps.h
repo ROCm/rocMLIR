@@ -6469,50 +6469,52 @@ struct ThreadwiseCopyV2RewritePattern
       // src_index = (iv_0, iv_1, ...) + sourceCoord
       SmallVector<Value, 8> srcUpperIndices;
       for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-        auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32));
+        auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[iter],
+                                              b.getIntegerType(32));
         srcUpperIndices.push_back(b.create<IndexCastOp>(
-            loc,
-            b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
+            loc, b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
             b.getIndexType()));
       }
 
       // Apply affine transformations to compute the low-level coordinate.
       SmallVector<Value, 8> srcLowerIndices;
       if (sourceExternalTransform || sourceEmbeddedTransform)
-        srcLowerIndices = expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
-                              .getValue();
+        srcLowerIndices =
+            expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
+                .getValue();
       else
         srcLowerIndices = srcUpperIndices;
 
       // Add sourceOffset to derive the position in the vector.
-      auto srcPosition = b.create<AddIOp>(loc,
-                            b.create<IndexCastOp>(loc, srcLowerIndices[0], b.getIntegerType(32)),
-                            op.sourceOffset());
+      auto srcPosition = b.create<AddIOp>(
+          loc,
+          b.create<IndexCastOp>(loc, srcLowerIndices[0], b.getIntegerType(32)),
+          op.sourceOffset());
 
       // Load from source.
       // Value vectorValue;
       Value scalarValue;
       // Issue scalar load.
-      scalarValue = b.create<vector::ExtractElementOp>(loc, sourceType.getElementType(), op.source(), srcPosition);
-      
+      scalarValue = b.create<vector::ExtractElementOp>(
+          loc, sourceType.getElementType(), op.source(), srcPosition);
+
       // Compute high-level coordinate for dest memref.
       // dst_index = (iv_0, iv_1, ...) + destCoord
       SmallVector<Value, 8> destUpperIndices;
       for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
         auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-        auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim], b.getIntegerType(32));
+        auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim],
+                                              b.getIntegerType(32));
         destUpperIndices.push_back(b.create<IndexCastOp>(
-            loc,
-            b.create<AddIOp>(loc, loopIV, destCoord[iter]),
+            loc, b.create<AddIOp>(loc, loopIV, destCoord[iter]),
             b.getIndexType()));
       }
 
       // Apply affine transformations to compute the low-level coordinate.
       SmallVector<Value, 8> destLowerIndices;
       if (destExternalTransform || destEmbeddedTransform)
-        destLowerIndices = expandAffineMap(b, loc, destTransform,
-                                           destUpperIndices)
-                               .getValue();
+        destLowerIndices =
+            expandAffineMap(b, loc, destTransform, destUpperIndices).getValue();
       else
         destLowerIndices = destUpperIndices;
 
@@ -6541,7 +6543,7 @@ struct ThreadwiseCopyV2RewritePattern
       if (iter < 0 && toIncreaseNextDigit == true) {
         toExit = true;
       }
-    } while(!toExit);
+    } while (!toExit);
 
     op.erase();
     return success();
