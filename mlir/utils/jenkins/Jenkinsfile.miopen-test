@@ -44,6 +44,8 @@ pipeline {
                     pwd
                     ls ../.. 
                     bash ../../mlir/utils/jenkins/miopen-tests/resnet50_fp16_nchw.sh
+                    bash ../../mlir/utils/jenkins/miopen-tests/resnet50_fp32_nchw.sh
+                    bash ../../mlir/utils/jenkins/miopen-tests/resnet50_fp16_nhwc.sh
                     bash ../../mlir/utils/jenkins/miopen-tests/resnet50_fp32_nhwc.sh
                     
                 '''
