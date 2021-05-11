@@ -28,8 +28,7 @@ public:
     std::string dataTypeStr;
     int dilationHeight, dilationWidth;
     int strideHeight, strideWidth;
-    int paddingHeightLeft, paddingHeightRight;
-    int paddingWidthLeft, paddingWidthRight;
+    int paddingHeight, paddingWidth;
     std::string filterLayout;
     std::string inputLayout;
     std::string outputLayout;
@@ -49,8 +48,7 @@ public:
                   const std::string &dataTypeStr = "f32",
                   int dilationHeight = 1, int dilationWidth = 1,
                   int strideHeight = 1, int strideWidth = 1,
-                  int paddingHeightLeft = 0, int paddingHeightRight = 0,
-                  int paddingWidthLeft = 0, int paddingWidthRight = 0,
+                  int paddingHeight = 0, int paddingWidth = 0,
                   const std::string &filterLayout = "kcyx",
                   const std::string &inputLayout = "nchw",
                   const std::string &outputLayout = "nkhw",
