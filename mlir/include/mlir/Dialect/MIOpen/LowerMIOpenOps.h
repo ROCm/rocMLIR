@@ -7392,7 +7392,7 @@ struct LowerIndexDiffRewritePattern
     SmallVector<Attribute, 4> indexLowerDiffTmpAttr;
     SmallVector<int64_t, 4> indexLowerDiffTmp;
     SmallVector<Value, 8> indexLowerDiffTmpOp;
-    auto map = op.template getAttrOfType<AffineMapAttr>("map").getValue();
+    auto map = op->template getAttrOfType<AffineMapAttr>("map").getValue();
     llvm::errs() << "affine transform map: ";
     map.dump();
     llvm::errs() << "\n";
@@ -7434,7 +7434,7 @@ struct LowerIndexDiffRewritePattern
     // Get bounds.
     SmallVector<int64_t, 4> bound;
     SmallVector<Value, 4> boundOp;
-    auto boundAttr = op.template getAttrOfType<ArrayAttr>("bound").getValue();
+    auto boundAttr = op->template getAttrOfType<ArrayAttr>("bound").getValue();
     llvm::errs() << "bound:\n";
     for (auto attr : boundAttr) {
       int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
