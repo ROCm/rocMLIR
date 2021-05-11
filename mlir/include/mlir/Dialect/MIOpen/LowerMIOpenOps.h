@@ -4044,7 +4044,6 @@ struct ThreadwiseCopyRewritePattern
         op.dest().getType().cast<MemRefType>().getElementType().cast<Type>();
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-    auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     auto sourceType = op.source().getType().cast<MemRefType>();
     auto destType = op.dest().getType().cast<MemRefType>();
