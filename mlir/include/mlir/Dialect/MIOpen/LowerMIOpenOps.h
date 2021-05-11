@@ -6867,7 +6867,89 @@ struct BlockwiseCopyRewritePattern : public OpRewritePattern<miopen::BlockwiseCo
       op.erase();
     return success();
   }
-}; 
+};
+
+//===----------------------------------------------------------------------===//
+// BlockwiseLoad lowering.
+//===----------------------------------------------------------------------===//
+
+struct BlockwiseLoadRewritePattern
+    : public OpRewritePattern<miopen::BlockwiseLoadOp> {
+  using OpRewritePattern<miopen::BlockwiseLoadOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::BlockwiseLoadOp op,
+                                PatternRewriter &b) const override {
+    auto loc = op.getLoc();
+    MemRefType sourceType = op.source().getType().cast<MemRefType>();
+    Type resultType = op.result().getType();
+    auto elementType = sourceType.getElementType();
+    auto sourceCoordVectorType =
+        op.sourceCoordVector().getType().cast<VectorType>();
+
+    // BlockwiseLoad only accepts the following data movement:
+    // - 0 (global) -> 5 (register) : load
+
+    // Threadwise copy from global (generic tensor) to register (naive
+    // tensor).
+    SmallVector<Value, 2> ThreadwiseCopySourceCoords;
+    for (unsigned i = 0; i < 2; ++i) {
+      auto iter = b.create<ConstantIntOp>(loc, i, b.getIntegerType(32));
+      auto coord = b.create<vector::ExtractElementOp>(
+          loc, sourceCoordVectorType.getElementType(), op.sourceCoordVector(),
+          iter);
+      ThreadwiseCopySourceCoords.push_back(coord);
+    }
+
+    auto threadwiseLoadOp = b.create<miopen::ThreadwiseLoadOp>(
+        loc, resultType, op.source(), ThreadwiseCopySourceCoords);
+    affixThreadwiseCopyAttributes(threadwiseLoadOp, op, b,
+                                  /*isThreadwiseLoad=*/true);
+
+    op.replaceAllUsesWith(threadwiseLoadOp.getResult());
+    op.erase();
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// BlockwiseStore lowering.
+//===----------------------------------------------------------------------===//
+
+struct BlockwiseStoreRewritePattern
+    : public OpRewritePattern<miopen::BlockwiseStoreOp> {
+  using OpRewritePattern<miopen::BlockwiseStoreOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::BlockwiseStoreOp op,
+                                PatternRewriter &b) const override {
+    auto loc = op.getLoc();
+    Type valueType = op.data().getType();
+    MemRefType destType = op.dest().getType().cast<MemRefType>();
+    auto elementType = destType.getElementType();
+    auto destCoordVectorType =
+        op.destCoordVector().getType().cast<VectorType>();
+
+    // BlockwiseLoad only accepts the following data movement:
+    // - 5 (register) -> 3 (LDS) : store
+
+    // Threadwise copy from register (naive tensor) to LDS (naive tensor).
+    SmallVector<Value, 2> ThreadwiseCopyDestCoords;
+    for (unsigned i = 0; i < 2; ++i) {
+      auto iter = b.create<ConstantIntOp>(loc, i, b.getIntegerType(32));
+      auto coord = b.create<vector::ExtractElementOp>(
+          loc, destCoordVectorType.getElementType(), op.destCoordVector(),
+          iter);
+      ThreadwiseCopyDestCoords.push_back(coord);
+    }
+
+    auto threadwiseCopyStoreOp = b.create<miopen::ThreadwiseStoreOp>(
+        loc, op.data(), op.dest(), ThreadwiseCopyDestCoords);
+    affixThreadwiseCopyAttributes(threadwiseCopyStoreOp, op, b,
+                                  /*isThreadwiseLoad=*/false);
+
+    op.erase();
+    return success();
+  }
+};
 
 //===----------------------------------------------------------------------===//
 // Fill lowering.
