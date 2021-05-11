@@ -46,25 +46,31 @@ AffineMap AffineTransforms::buildIndexDiffAffineMap(miopen::TransformOp op) {
 
   llvm::SmallMapVector<int64_t, AffineExpr, 8> affExprsMap;
   for (unsigned i = 0; i < layoutAttr.size(); ++i) {
-    if (auto dimLayoutAttr = layoutAttr.getValue()[i].dyn_cast<DictionaryAttr>()) {
-      auto srcDimAttr = dimLayoutAttr.get("source_dimensions").dyn_cast<ArrayAttr>();
+    if (auto dimLayoutAttr =
+            layoutAttr.getValue()[i].dyn_cast<DictionaryAttr>()) {
+      auto srcDimAttr =
+          dimLayoutAttr.get("source_dimensions").dyn_cast<ArrayAttr>();
       auto destDimAttr = dimLayoutAttr.get("dimensions").dyn_cast<ArrayAttr>();
-      auto transformAttr = dimLayoutAttr.get("transformation").dyn_cast<StringAttr>();
+      auto transformAttr =
+          dimLayoutAttr.get("transformation").dyn_cast<StringAttr>();
 
       if (transformAttr.getValue() == "PassThrough") {
         assert(srcDimAttr.size() == 1);
         assert(destDimAttr.size() == 1);
 
         auto srcDim = srcDimAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
-        auto destDim = destDimAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+        auto destDim =
+            destDimAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
         auto expr = getAffineDimExpr(destDim, op.getContext());
         affExprsMap.insert({srcDim, expr});
       } else if (transformAttr.getValue() == "Pad") {
         assert(srcDimAttr.size() == destDimAttr.size());
 
         for (unsigned j = 0; j < srcDimAttr.size(); ++j) {
-          auto srcDim = srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
-          auto destDim = destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          auto srcDim =
+              srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          auto destDim =
+              destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
 
           auto expr = getAffineDimExpr(destDim, op.getContext());
           affExprsMap.insert({srcDim, expr});
@@ -74,12 +80,14 @@ AffineMap AffineTransforms::buildIndexDiffAffineMap(miopen::TransformOp op) {
         assert(destDimAttr.size() == 1);
         assert(srcDimAttr.size() > 1);
 
-        auto destDim = destDimAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
+        auto destDim =
+            destDimAttr.getValue()[0].dyn_cast<IntegerAttr>().getInt();
 
         // Find source dimension lengths.
         llvm::SmallVector<int64_t, 4> srcDimLengthVec;
         for (unsigned j = 0; j < srcDimAttr.size(); ++j) {
-          auto srcDim = srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          auto srcDim =
+              srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
           auto srcDimLength = inputShape[srcDim];
           srcDimLengthVec.push_back(srcDimLength);
         }
@@ -97,11 +105,13 @@ AffineMap AffineTransforms::buildIndexDiffAffineMap(miopen::TransformOp op) {
         // Build affine transformation expressions.
         auto remainderExpr = getAffineDimExpr(destDim, op.getContext());
         for (unsigned j = 0; j < srcDimAttr.size(); ++j) {
-          auto strideExpr = getAffineConstantExpr(srcDimStrideVec[j], op.getContext());
+          auto strideExpr =
+              getAffineConstantExpr(srcDimStrideVec[j], op.getContext());
           auto expr = remainderExpr.floorDiv(strideExpr);
           remainderExpr = remainderExpr % strideExpr;
 
-          auto srcDim = srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          auto srcDim =
+              srcDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
           affExprsMap.insert({srcDim, expr});
         }
       } else if (transformAttr.getValue() == "Embed") {
@@ -113,14 +123,18 @@ AffineMap AffineTransforms::buildIndexDiffAffineMap(miopen::TransformOp op) {
 
         // # of parameters would always be 1 more than the # of destDim.
         // populate the initial affine expr.
-        auto param = parameters.getValue()[parameters.size() - 1].dyn_cast<IntegerAttr>().getInt();
+        auto param = parameters.getValue()[parameters.size() - 1]
+                         .dyn_cast<IntegerAttr>()
+                         .getInt();
         auto expr = getAffineConstantExpr(param, op.getContext());
 
         // Build affine transformation expressions.
         for (unsigned j = 0; j < destDimAttr.size(); ++j) {
-          auto destDim = destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
+          auto destDim =
+              destDimAttr.getValue()[j].dyn_cast<IntegerAttr>().getInt();
           param = parameters.getValue()[j].dyn_cast<IntegerAttr>().getInt();
-          auto partialExpr = getAffineDimExpr(destDim, op.getContext()) * getAffineConstantExpr(param, op.getContext());
+          auto partialExpr = getAffineDimExpr(destDim, op.getContext()) *
+                             getAffineConstantExpr(param, op.getContext());
           expr = expr + partialExpr;
         }
         affExprsMap.insert({srcDim, expr});
@@ -133,7 +147,8 @@ AffineMap AffineTransforms::buildIndexDiffAffineMap(miopen::TransformOp op) {
     affExprsVec.push_back(affExprsMap[i]);
   }
 
-  auto transformAffineMap = AffineMap::get(outputLayoutAttr.size(), 0, affExprsVec, op.getContext());
+  auto transformAffineMap =
+      AffineMap::get(outputLayoutAttr.size(), 0, affExprsVec, op.getContext());
   AffineMap outputAffineMap;
 
   if (inputAffineMaps.size() != 0) {
@@ -157,7 +172,8 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
 
   auto sourceLayoutAttr = op.template getAttrOfType<ArrayAttr>("source_layout");
   if (!sourceLayoutAttr)
-    sourceLayoutAttr = op.template getAttrOfType<ArrayAttr>("intermediate_layout");
+    sourceLayoutAttr =
+        op.template getAttrOfType<ArrayAttr>("intermediate_layout");
   auto outputLayoutAttr = op.template getAttrOfType<ArrayAttr>("output_layout");
 
   llvm::SmallMapVector<int64_t, AffineExpr, 8> affExprsMap;
