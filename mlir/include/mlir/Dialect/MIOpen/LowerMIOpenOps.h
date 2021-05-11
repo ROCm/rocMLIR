@@ -1388,7 +1388,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       // wei_g_k_c_ydot_ytilda_xdot_xtilda
       llvm::SmallVector<StringAttr, 7> firtFilterDimName;
-      auto getWei_g_k_c_ydot_ytilda_xdot_xtilda = [&]() {
+      auto getWeiGKCYDotYTildaXDotXTilda = [&]() {
         decltype(firtFilterDimName) &curOutputDimName = firtFilterDimName;
         llvm::SmallVector<int64_t, 6> transformedFilterShape;
         llvm::SmallVector<NamedAttribute, 3> transformedFilterAttrs;
@@ -1504,12 +1504,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         return gemm;
       };
 
-      auto wei_g_k_c_ydot_ytilda_xdot_xtilda =
-          getWei_g_k_c_ydot_ytilda_xdot_xtilda();
+      auto weiGKCYDotYTildaXDotXTilda = getWeiGKCYDotYTildaXDotXTilda();
       // from wei_g_k_c_ydot_ytilda_xdot_xtilda to
       // wei_g_k_c_ydotslice_ytidaslice_xdotslice_xtildaslice
       llvm::SmallVector<StringAttr, 7> secondFilterDimName;
-      auto getWei_g_k_c_ydotslice_ytidaslice_xdotslice_xtildaslice =
+      auto getWeiGKCYDotSliceYTidaSliceXDotSliceXTildaSlice =
           [&](decltype(firtFilterDimName) &preOutputDimName,
               llvm::SmallVector<StringAttr, 7> &curOutputDimName) {
             llvm::SmallVector<int64_t, 6> transformedFilterShape;
@@ -1633,15 +1632,15 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 MemRefType::get(transformedFilterShape, filterElementType);
             auto gemm = b.create<miopen::TransformOp>(
                 loc, transformedFilterMemRefType,
-                ArrayRef<Value>(wei_g_k_c_ydot_ytilda_xdot_xtilda),
+                ArrayRef<Value>(weiGKCYDotYTildaXDotXTilda),
                 transformedFilterAttrs);
             return gemm;
           };
-      auto wei_g_k_c_ydotslice_ytidaslice_xdotslice_xtildaslice =
-          getWei_g_k_c_ydotslice_ytidaslice_xdotslice_xtildaslice(
-              firtFilterDimName, secondFilterDimName);
+      auto weiGKCYDotSliceYTidaSliceXDotSliceXTildaSlice =
+          getWeiGKCYDotSliceYTidaSliceXDotSliceXTildaSlice(firtFilterDimName,
+                                                           secondFilterDimName);
 
-      auto getWei_gemmg_gemmk_gemmm =
+      auto getWeiGemmGGemmKGemmM =
           [&](decltype(secondFilterDimName) &preOutputDimName) {
             llvm::SmallVector<StringAttr, 7> curOutputDimName;
             llvm::SmallVector<int64_t, 7> transformedFilterShape;
@@ -1715,15 +1714,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 MemRefType::get(transformedFilterShape, filterElementType);
             auto gemm = b.create<miopen::TransformOp>(
                 loc, transformedFilterMemRefType,
-                ArrayRef<Value>(
-                    wei_g_k_c_ydotslice_ytidaslice_xdotslice_xtildaslice),
+                ArrayRef<Value>(weiGKCYDotSliceYTidaSliceXDotSliceXTildaSlice),
                 transformedFilterAttrs);
             return gemm;
           };
-      auto wei_gemmg_gemmk_gemmm =
-          getWei_gemmg_gemmk_gemmm(secondFilterDimName);
+      auto weiGemmGGemmKGemmM = getWeiGemmGGemmKGemmM(secondFilterDimName);
 
-      return wei_gemmg_gemmk_gemmm;
+      return weiGemmGGemmKGemmM;
     };
 
     auto getGemmB = [&]() {
@@ -1737,7 +1734,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       }
 
       llvm::SmallVector<StringAttr, 5> firstOutputDimName;
-      auto getIn_g_n_c_hip_wip = [&]() {
+      auto getInGNCHipWip = [&]() {
         decltype(firstOutputDimName) &curOutputDimName = firstOutputDimName;
         llvm::SmallVector<int64_t, 7> transformedShape;
         llvm::SmallVector<NamedAttribute, 3> transformedAttrs;
@@ -1826,10 +1823,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                   op.input(), transformedAttrs);
         return gemm;
       };
-      auto in_g_n_c_hip_wip = getIn_g_n_c_hip_wip();
+      auto inGNCHipWip = getInGNCHipWip();
 
       llvm::SmallVector<StringAttr, 7> secondOutputDimName;
-      auto getIn_g_n_c_ytilda_htilda_xtilda_wtilda =
+      auto getInGNCYTildaHTildaXTildaWTilda =
           [&](decltype(firstOutputDimName) &preOutputDimName,
               decltype(secondOutputDimName) &curOutputDimName) {
             llvm::SmallVector<int64_t, 7> transformedShape;
@@ -1937,17 +1934,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             auto transformedFilterMemRefType =
                 MemRefType::get(transformedShape, inputElementType);
             auto gemm = b.create<miopen::TransformOp>(
-                loc, transformedFilterMemRefType,
-                ArrayRef<Value>(in_g_n_c_hip_wip), transformedAttrs);
+                loc, transformedFilterMemRefType, ArrayRef<Value>(inGNCHipWip),
+                transformedAttrs);
             return gemm;
           };
 
-      auto in_g_n_c_ytilda_htilda_xtilda_wtilda =
-          getIn_g_n_c_ytilda_htilda_xtilda_wtilda(firstOutputDimName,
-                                                  secondOutputDimName);
+      auto inGNCYTildaHTildaXTildaWTilda = getInGNCYTildaHTildaXTildaWTilda(
+          firstOutputDimName, secondOutputDimName);
 
       llvm::SmallVector<StringAttr, 7> thirdOutputDimName;
-      auto getIn_g_n_c_ytildaslice_htidaslice_xtildaslice_wtildaslice =
+      auto getInGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice =
           [&](decltype(secondOutputDimName) &preOutputDimName,
               llvm::SmallVector<StringAttr, 7> &curOutputDimName) {
             llvm::SmallVector<int64_t, 6> transformedShape;
@@ -2071,15 +2067,15 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 MemRefType::get(transformedShape, inputElementType);
             auto gemm = b.create<miopen::TransformOp>(
                 loc, transformedMemRefType,
-                ArrayRef<Value>(in_g_n_c_ytilda_htilda_xtilda_wtilda),
+                ArrayRef<Value>(inGNCYTildaHTildaXTildaWTilda),
                 transformedAttrs);
             return gemm;
           };
-      auto in_g_n_c_ytildaslice_htidaslice_xtildaslice_wtildaslice =
-          getIn_g_n_c_ytildaslice_htidaslice_xtildaslice_wtildaslice(
+      auto inGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice =
+          getInGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice(
               secondOutputDimName, thirdOutputDimName);
 
-      auto getIn_gemmg_gemmm_gemmn =
+      auto getInGemmGGemmMGemmN =
           [&](decltype(thirdOutputDimName) &preOutputDimName) {
             llvm::SmallVector<StringAttr, 7> curOutputDimName;
             llvm::SmallVector<int64_t, 7> transformedShape;
@@ -2154,13 +2150,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             auto gemm = b.create<miopen::TransformOp>(
                 loc, transformedMemRefType,
                 ArrayRef<Value>(
-                    in_g_n_c_ytildaslice_htidaslice_xtildaslice_wtildaslice),
+                    inGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice),
                 transformedAttrs);
             return gemm;
           };
-      auto in_gemmg_gemmm_gemmn = getIn_gemmg_gemmm_gemmn(thirdOutputDimName);
+      auto inGemmGGemmMGemmN = getInGemmGGemmMGemmN(thirdOutputDimName);
 
-      return in_gemmg_gemmm_gemmn;
+      return inGemmGGemmMGemmN;
     };
 
     auto getGemmC = [&]() {
@@ -2175,7 +2171,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       // wei_g_k_c_ydot_ytilda_xdot_xtilda
       llvm::SmallVector<StringAttr, 7> firstOutputDimName;
-      auto getOut_g_n_k_ydot_htilda_xdot_wtilda = [&]() {
+      auto getOutGNKYDotHTildaXDotWHilda = [&]() {
         decltype(firstOutputDimName) &curOutputDimName = firstOutputDimName;
         llvm::SmallVector<int64_t, 7> transformedShape;
         llvm::SmallVector<NamedAttribute, 3> transformedAttrs;
@@ -2290,11 +2286,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         return gemm;
       };
 
-      auto out_g_n_k_ydot_htilda_xdot_wtilda =
-          getOut_g_n_k_ydot_htilda_xdot_wtilda();
+      auto outGNKYDotHTildaXDotWHilda = getOutGNKYDotHTildaXDotWHilda();
 
       llvm::SmallVector<StringAttr, 7> secondOutputDimName;
-      auto getOut_g_n_k_ydotslice_htidaslice_xdotslice_wtildaslice =
+      auto getOutGNKYDotSliceHTidaSliceXDotSliceWTildaSlice =
           [&](decltype(firstOutputDimName) &preOutputDimName,
               llvm::SmallVector<StringAttr, 7> &curOutputDimName) {
             llvm::SmallVector<int64_t, 6> transformedShape;
@@ -2418,15 +2413,14 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 MemRefType::get(transformedShape, outputElementType);
             auto gemm = b.create<miopen::TransformOp>(
                 loc, transformedMemRefType,
-                ArrayRef<Value>(out_g_n_k_ydot_htilda_xdot_wtilda),
-                transformedAttrs);
+                ArrayRef<Value>(outGNKYDotHTildaXDotWHilda), transformedAttrs);
             return gemm;
           };
-      auto out_g_n_k_ydotslice_htidaslice_xdotslice_wtildaslice =
-          getOut_g_n_k_ydotslice_htidaslice_xdotslice_wtildaslice(
-              firstOutputDimName, secondOutputDimName);
+      auto outGNKYDotSliceHTidaSliceXDotSliceWTildaSlice =
+          getOutGNKYDotSliceHTidaSliceXDotSliceWTildaSlice(firstOutputDimName,
+                                                           secondOutputDimName);
 
-      auto getOut_gemmg_gemmk_gemmn =
+      auto getOutGemmGGemmKGemmN =
           [&](decltype(secondOutputDimName) &preOutputDimName) {
             llvm::SmallVector<StringAttr, 7> curOutputDimName;
             llvm::SmallVector<int64_t, 7> transformedShape;
@@ -2500,15 +2494,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 MemRefType::get(transformedShape, outputElementType);
             auto gemm = b.create<miopen::TransformOp>(
                 loc, transformedMemRefType,
-                ArrayRef<Value>(
-                    out_g_n_k_ydotslice_htidaslice_xdotslice_wtildaslice),
+                ArrayRef<Value>(outGNKYDotSliceHTidaSliceXDotSliceWTildaSlice),
                 transformedAttrs);
             return gemm;
           };
-      auto out_gemmg_gemmk_gemmn =
-          getOut_gemmg_gemmk_gemmn(secondOutputDimName);
+      auto outGemmGGemmKGemmN = getOutGemmGGemmKGemmN(secondOutputDimName);
 
-      return out_gemmg_gemmk_gemmn;
+      return outGemmGGemmKGemmN;
     };
     auto gemmA = getGemmA();
 
