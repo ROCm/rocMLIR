@@ -1,6 +1,7 @@
 include/mlir/Dialect/GPU/GPUOps.td
 include/mlir/Dialect/LLVMIR/LLVMOps.td
 include/mlir/Dialect/LLVMIR/ROCDLOps.td
+include/mlir/ExecutionEngine/ROCm/BackendUitls.h
 include/mlir/ExecutionEngine/RunnerUtils.h
 lib/Conversion/GPUCommon/CMakeLists.txt
 lib/Conversion/GPUCommon/ConvertKernelFuncToBlob.cpp
@@ -8,7 +9,11 @@ lib/Conversion/GPUToROCDL/LowerGpuOpsToROCDLOps.cpp
 lib/Dialect/GPU/IR/GPUDialect.cpp
 lib/Dialect/LLVMIR/IR/ROCDLDialect.cpp
 lib/Dialect/Vector/VectorOps.cpp
+lib/ExecutionEngine/CMakeLists.txt
 lib/ExecutionEngine/JitRunner.cpp
+lib/ExecutionEngine/ROCm/BackendUtils.cpp
+lib/ExecutionEngine/ROCm/CMakeLists.txt
+lib/ExecutionEngine/ROCm/rocm-runtime-wrappers.cpp
 lib/ExecutionEngine/RunnerUtils.cpp
 lib/Target/LLVMIR/ConvertToROCDLIR.cpp
 test/Conversion/GPUToROCDL/gpu-to-rocdl.mlir
@@ -23,3 +28,4 @@ test/mlir-rocm-runner/vector-transferops.mlir
 test/Target/rocdl.mlir
 tools/mlir-rocm-runner/CMakeLists.txt
 tools/mlir-rocm-runner/mlir-rocm-runner.cpp
+tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp

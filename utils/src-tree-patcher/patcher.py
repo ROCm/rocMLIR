@@ -1,6 +1,16 @@
 #!/usr/bin/env python
 
+"""
+This tool is for selectively patching a tree of source code.  It
+takes as input a list of files to operate on and two directory
+locations (src and dst).  It uses a diff of the relative src and
+dst files, and patches the respective dst file.  If the specific
+src file is empty, this tool will remove the file in the dst tree.
+"""
+
+import os
 import argparse
+from pathlib2 import Path
 from diff_match_patch import diff_match_patch
 
 class SrcTreePatcher:
@@ -41,10 +51,29 @@ class SrcTreePatcher:
             dst_path = self.dst_dir_prefix + rel_fname
             print("Patching: " + dst_path + " , using " + src_path)
 
-            # Get files
-            with open(dst_path, 'r') as file1, open(src_path, 'r') as file2:
-                dst_text = file1.read()
-                src_text = file2.read()
+            # Handle dst file
+            try:
+                with open(dst_path, 'r') as file1:
+                    dst_text = file1.read()
+            except IOError as e:
+                # If the dst file DNE, just create an empty one
+                Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(dst_path).touch()
+                print("Created the missing dst file: " + dst_path)
+
+            # Handle src file
+            try:
+                with open(src_path, 'r') as file2:
+                    # If src file is empty, this signifies we should
+                    # delete the dst file
+                    if os.path.getsize(src_path) == 0:
+                        os.remove(dst_path)
+                        print("Removed dst due to empty src: " + dst_path)
+                        return
+                    src_text = file2.read()
+            except IOError as e:
+                print("Could not open or read file (%s)" % e)
+                #sys.exit()
 
             #print("dst_text:\n" + dst_text)
             #print("src_text:\n" + src_text)

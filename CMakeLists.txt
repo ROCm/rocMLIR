@@ -36,6 +36,14 @@ execute_process(
   OUTPUT_QUIET
 )
 
+# Python's pathlib2 package is currently required to
+# patch external/llvm-project
+execute_process(
+  COMMAND pip show pathlib2
+  RESULT_VARIABLE EXIT_CODE
+  OUTPUT_QUIET
+)
+
 if (NOT ${EXIT_CODE} EQUAL 0)
   message(
     FATAL_ERROR
