@@ -2287,9 +2287,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto outputAffineMap3to5 = outputType.getAffineMaps()[0];
     auto affineMap5to3to5 = outputAffineMap3to5.compose(affineMap5to3);
 
+    llvm::SmallVector<AffineMap, 2> affineMaps{affineMap5to3to5};
+    if (outputType.getAffineMaps().size() > 1)
+      affineMaps.push_back(outputType.getAffineMaps()[1]);
     // emit TransformOp for output tensor.
-    auto newOutputType = MemRefType::get(
-        {G, M0, M1, N0, N1}, outputType.getElementType(), {affineMap5to3to5});
+    auto newOutputType =
+        MemRefType::get({G, M0, M1, N0, N1}, outputType.getElementType(),
+                        {affineMaps.begin(), affineMaps.end()});
     auto newOutputTransformOp =
         b.create<miopen::TransformOp>(loc, newOutputType, op.output());
 
