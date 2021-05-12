@@ -19,6 +19,8 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Types.h"
 
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+
 namespace mlir {
 
 namespace miopen {
