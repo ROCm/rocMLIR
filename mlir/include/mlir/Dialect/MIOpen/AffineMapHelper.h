@@ -77,7 +77,15 @@ inline bool hasPadding(AffineMap map) {
   map.walkExprs([&ret](AffineExpr expr) { ret |= hasPadding(expr); });
   return ret;
 }
-
+// check expr is 1 or 0
+inline bool isOOBCheck(AffineExpr expr) {
+  if (expr.getKind() == AffineExprKind::Constant) {
+    auto constantExpr = expr.template dyn_cast<AffineConstantExpr>();
+    if (constantExpr.getValue() == 1)
+      return true;
+  }
+  return false;
+}
 } // end namespace miopen
 } // end namespace mlir
 #endif // MLIR_DIALECT_MIOPEN_AFFINEMAP_HELPER_H
