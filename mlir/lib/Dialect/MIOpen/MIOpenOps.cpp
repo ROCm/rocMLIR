@@ -390,6 +390,34 @@ static void print(OpAsmPrinter &p, MovePosV2Op op) {
 static LogicalResult verify(MovePosV2Op op) { return success(); }
 
 //===----------------------------------------------------------------------===//
+// MovePosV2Op
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseMovePosV2Op(OpAsmParser &parser,
+                                    OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 3> ops;
+  Type srcType;
+
+  auto ret = parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+             parser.parseColonType(srcType) ||
+             parser.resolveOperand(ops[0], srcType, result.operands) ||
+             parser.addTypeToList(srcType, result.types);
+
+  for (unsigned i = 1; i < ops.size(); ++i) {
+    ret &= succeeded(parser.resolveOperand(
+        ops[i], srcType.cast<VectorType>().getElementType(), result.operands));
+  }
+  return failure(ret);
+}
+
+static void print(OpAsmPrinter &p, MovePosV2Op op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p << " : " << op.getType();
+}
+
+static LogicalResult verify(MovePosV2Op op) { return success(); }
+
+//===----------------------------------------------------------------------===//
 // WorkgroupBarrierOp
 //===----------------------------------------------------------------------===//
 
@@ -526,6 +554,61 @@ static void print(OpAsmPrinter &p, BlockwiseCopyOp op) {
 static LogicalResult verify(BlockwiseCopyOp op) {
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// BlockwiseLoadOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseBlockwiseLoadOp(OpAsmParser &parser,
+                                        OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  VectorType coordVectorType =
+      VectorType::get(2, parser.getBuilder().getIntegerType(32));
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperand(ops[0], types[0], result.operands) ||
+      parser.resolveOperand(ops[1], coordVectorType, result.operands) ||
+      parser.addTypeToList(types[1], result.types));
+}
+
+static void print(OpAsmPrinter &p, BlockwiseLoadOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperand(0).getType() << ", " << op.getType();
+}
+
+static LogicalResult verify(BlockwiseLoadOp op) { return success(); }
+
+//===----------------------------------------------------------------------===//
+// BlockwiseStoreOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseBlockwiseStoreOp(OpAsmParser &parser,
+                                         OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  VectorType coordVectorType =
+      VectorType::get(2, parser.getBuilder().getIntegerType(32));
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperand(ops[0], types[0], result.operands) ||
+      parser.resolveOperand(ops[1], types[1], result.operands) ||
+      parser.resolveOperand(ops[2], coordVectorType, result.operands));
+}
+
+static void print(OpAsmPrinter &p, BlockwiseStoreOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperand(0).getType() << ", "
+    << op.getOperand(1).getType();
+}
+
+static LogicalResult verify(BlockwiseStoreOp op) { return success(); }
 
 //===----------------------------------------------------------------------===//
 // ThreadwiseCopyOp

@@ -63,7 +63,7 @@ func @miopen_transformed_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref
         dimensions = [3, 4],
         names = ["hipad", "wipad"],
         transformation = "Pad",
-        parameters = [0, 0, 0, 0],
+        parameters = [0, 0],
         source_dimensions = [3, 4],
         source_names = ["hi", "wi"]
       }

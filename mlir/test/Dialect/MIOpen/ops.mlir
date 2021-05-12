@@ -9,7 +9,7 @@ func @miopen_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf
     output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0]
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -23,7 +23,7 @@ func @miopen_conv2d_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?
     output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0]
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
@@ -37,7 +37,7 @@ func @miopen_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x
     output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0]
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -51,7 +51,7 @@ func @miopen_conv2d_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : memre
     output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0]
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
@@ -65,7 +65,7 @@ func @miopen_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memref<
     output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0]
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -79,7 +79,7 @@ func @miopen_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input : mem
     output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0]
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
@@ -94,7 +94,7 @@ func @miopen_conv2d_dummy(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?
     output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0]
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -108,7 +108,7 @@ func @miopen_conv2d_dummy_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?
     output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0]
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
@@ -261,7 +261,7 @@ func @miopen_gridwise_gemm(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C : 
     output_dimension = [10, 11, 12, 13, 14],
     strides = [1, 1],
     dilations = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0]
   } : memref<?x?x?xf32>, memref<?x?x?xf32>, memref<?x?x?xf32>
   return
 }
@@ -279,7 +279,7 @@ func @miopen_gridwise_gemm_v2(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C
     output_dimension = [10, 11, 12, 13, 14],
     strides = [1, 1],
     dilations = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0]
   } : memref<?x?x?xf32>, memref<?x?x?xf32>, memref<?x?x?xf32>
   return
 }

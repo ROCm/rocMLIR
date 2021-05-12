@@ -12,7 +12,7 @@ func @miopen_conv2d_cyxk_chwn_khwn(%filter : memref<1x8x3x3x128xf32>, %input : m
     output_layout = ["go", "ko", "ho", "wo", "no"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0]
   } : memref<1x8x3x3x128xf32>, memref<1x8x32x32x128xf32>, memref<1x128x30x30x128xf32>
   return
 }
@@ -36,7 +36,7 @@ func @miopen_conv2d_bwd_data_cyxk_chwn_khwn(%filter : memref<1x8x3x3x128xf32>, %
     output_layout = ["go", "ko", "ho", "wo", "no"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0]
   } : memref<1x8x3x3x128xf32>, memref<1x8x32x32x128xf32>, memref<1x128x30x30x128xf32>
   return
 }
@@ -60,7 +60,7 @@ func @miopen_conv2d_bwd_weight_cyxk_chwn_khwn(%filter : memref<1x8x3x3x128xf32>,
     output_layout = ["go", "ko", "ho", "wo", "no"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0]
   } : memref<1x8x3x3x128xf32>, memref<1x8x32x32x128xf32>, memref<1x128x30x30x128xf32>
   return
 }

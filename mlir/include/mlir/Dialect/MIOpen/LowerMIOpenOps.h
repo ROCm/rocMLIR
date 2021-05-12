@@ -161,12 +161,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto leftPadH =
         paddingAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
     auto leftPadW =
-        paddingAttr.getValue()[2].template dyn_cast<IntegerAttr>().getInt();
-    auto rightPadH =
         paddingAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
-    auto rightPadW =
-        paddingAttr.getValue()[3].template dyn_cast<IntegerAttr>().getInt();
-
     auto dilationH =
         dilationsAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
     auto dilationW =
@@ -283,8 +278,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     }
 
     // compute padding hi/wi.
-    auto hiPadded = hi + leftPadH + rightPadH;
-    auto wiPadded = wi + leftPadW + rightPadW;
+    auto hiPadded = 1 + (y - 1) * dilationH + (ho - 1) * strideH;
+    auto wiPadded = 1 + (x - 1) * dilationW + (wo - 1) * strideW;
+    // compute right padding parameters.
+    int rightPadH = hiPadded > (leftPadH + hi) ? hiPadded - (leftPadH + hi) : 0;
+    int rightPadW = wiPadded > (leftPadW + wi) ? wiPadded - (leftPadW + wi) : 0;
+
     // Transform filter tensor.
 
     // Y/X dimension for filter tensor.
@@ -590,9 +589,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                   b.getNamedAttr("parameters",
                                  b.getArrayAttr({
                                      b.getI32IntegerAttr(leftPadH),
-                                     b.getI32IntegerAttr(rightPadH),
                                      b.getI32IntegerAttr(leftPadW),
-                                     b.getI32IntegerAttr(rightPadW),
                                  })),
                   b.getNamedAttr("source_dimensions",
                                  b.getArrayAttr(ArrayRef<Attribute>(
@@ -1201,7 +1198,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         b.getNamedAttr("output_dimension", b.getI64ArrayAttr(outputShape)),
         b.getNamedAttr("dilations", dilationsAttr),
         b.getNamedAttr("strides", stridesAttr),
-        b.getNamedAttr("padding", paddingAttr),
+        b.getNamedAttr(
+            "padding",
+            b.getArrayAttr(
+                {paddingAttr, b.getI32ArrayAttr({rightPadH, rightPadW})})),
     };
 
     // xdlopsV2.
@@ -3920,6 +3920,40 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
     // Store fill value
     currentScope.create<StoreOp>(loc, op.value(), op.input(), range);
 
+    op.erase();
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// MovePosV2 lowering.
+//===----------------------------------------------------------------------===//
+
+struct MovePosV2RewritePattern : public OpRewritePattern<miopen::MovePosV2Op> {
+  using OpRewritePattern<miopen::MovePosV2Op>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(miopen::MovePosV2Op op,
+                                PatternRewriter &b) const override {
+    auto loc = op.getLoc();
+    auto vectorType = op.input().getType().cast<VectorType>();
+    auto vector = op.input();
+    for (unsigned i = 0; i < vectorType.getShape()[0]; ++i) {
+      auto iter = b.create<ConstantIntOp>(loc, i, b.getIntegerType(32));
+      // vector.extractelement
+      auto element = b.create<vector::ExtractElementOp>(
+          loc, vectorType.getElementType(), vector, iter);
+      // add
+      Value add;
+      if (vectorType.getElementType().isa<IntegerType>()) {
+        add = b.create<AddIOp>(loc, element, op.getOperand(1 + i));
+      } else {
+        add = b.create<AddFOp>(loc, element, op.getOperand(1 + i));
+      }
+      // vector.insertelement
+      vector =
+          b.create<vector::InsertElementOp>(loc, vectorType, add, vector, iter);
+    }
+    op.replaceAllUsesWith(vector);
     op.erase();
     return success();
   }
