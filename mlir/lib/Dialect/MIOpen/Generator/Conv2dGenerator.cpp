@@ -64,7 +64,7 @@ int Conv2dGenerator::getKernelCount() const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
     count = 1;
   } else if (config.operation == "conv2d") {
-    count = 4;
+    count = 1;
   } else if (config.operation == "conv2d_bwd_data") {
     count = 1;
   } else if (config.operation == "conv2d_bwd_weight") {
