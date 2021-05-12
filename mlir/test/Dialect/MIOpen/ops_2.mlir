@@ -87,26 +87,6 @@ func @miopen_fill(%buffer_f32 : memref<1024xf32, 5>, %buffer_i32 : memref<2xi32,
 //   CHECK: miopen.fill
 //   CHECK: miopen.fill
 
-func @miopen_move_pos(%buffer_f32 : memref<2xf32, 5>, %buffer_i32 : memref<2xi32, 5>, %buffer_f16 : memref<2xf16, 5>) {
-  %deltaY_i32 = constant 16 : i32
-  %deltaX_i32 = constant 8 : i32
-  miopen.move_pos(%buffer_i32, %deltaY_i32, %deltaX_i32) : memref<2xi32, 5>
-
-  %deltaY_f32 = constant 16.0 : f32
-  %deltaX_f32 = constant 8.0 : f32
-  miopen.move_pos(%buffer_f32, %deltaY_f32, %deltaX_f32) : memref<2xf32, 5>
-
-  %deltaY_f16 = constant 16.0 : f16
-  %deltaX_f16 = constant 8.0 : f16
-  miopen.move_pos(%buffer_f16, %deltaY_f16, %deltaX_f16) : memref<2xf16, 5>
-
-  return
-}
-
-// CHECK-LABEL: func @miopen_move_pos
-//   CHECK: miopen.move_pos(%{{.*}}, %{{.*}}, %{{.*}}) : memref<2xi32, 5>
-//   CHECK: miopen.move_pos(%{{.*}}, %{{.*}}, %{{.*}}) : memref<2xf32, 5>
-
 func @miopen_move_pos_v2(%vector_f32 : vector<2xf32>, %vector_i32 : vector<2xi32>) {
   %deltaY_i32 = constant 16 : i32
   %deltaX_i32 = constant 8 : i32
@@ -170,15 +150,13 @@ func @miopen_blockwise_gemm(%A : memref<?x?x?xf32, 3>, %B : memref<?x?x?xf32, 3>
 // CHECK-LABEL: func @miopen_blockwise_gemm
 //  CHECK: miopen.blockwise_gemm
 
-func @miopen_blockwise_copy(%source : memref<?x?xf32>, %dest : memref<?x?xf32, 3>, %source_coord : memref<2xi32>, %dest_coord : memref<2xi32>) {
-  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) : memref<?x?xf32>, memref<?x?xf32, 3>, memref<2xi32>, memref<2xi32>
-  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) { move_source_offset = 16 } : memref<?x?xf32>, memref<?x?xf32, 3>, memref<2xi32>, memref<2xi32>
+func @miopen_blockwise_copy(%source : memref<?x?xf32>, %dest : memref<?x?xf32, 3>, %source_coord : vector<3xi32>, %dest_coord : vector<3xi32>) {
+  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) : memref<?x?xf32>, memref<?x?xf32, 3>, vector<3xi32>, vector<3xi32>
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_copy
-//  CHECK-NEXT: miopen.blockwise_copy
-//  CHECK-NEXT: miopen.blockwise_copy
+//  CHECK: miopen.blockwise_copy(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<?x?xf32>, memref<?x?xf32, 3>, vector<3xi32>, vector<3xi32>
 
 // --------------------------
 // blockwise_load tests.
