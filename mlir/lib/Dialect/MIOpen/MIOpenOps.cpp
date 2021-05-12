@@ -694,6 +694,67 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
 }
 
 //===----------------------------------------------------------------------===//
+// ThreadwiseLoadOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseThreadwiseLoadOp(OpAsmParser &parser,
+                                         OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 6> ops;
+  SmallVector<Type, 2> types;
+
+  auto ret = parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+             parser.parseOptionalAttrDict(result.attributes) ||
+             parser.parseColonTypeList(types) ||
+             parser.resolveOperand(ops[0], types[0], result.operands) ||
+             parser.addTypeToList(types[1], result.types);
+
+  for (unsigned i = 1; i < ops.size(); ++i) {
+    ret &= succeeded(parser.resolveOperand(
+        ops[i], parser.getBuilder().getIntegerType(32), result.operands));
+  }
+  return failure(ret);
+}
+
+static void print(OpAsmPrinter &p, ThreadwiseLoadOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperand(0).getType() << ", " << op.getType();
+}
+
+static LogicalResult verify(ThreadwiseLoadOp op) { return success(); }
+
+//===----------------------------------------------------------------------===//
+// ThreadwiseStoreOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseThreadwiseStoreOp(OpAsmParser &parser,
+                                          OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 6> ops;
+  SmallVector<Type, 2> types;
+
+  auto ret = parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+             parser.parseOptionalAttrDict(result.attributes) ||
+             parser.parseColonTypeList(types) ||
+             parser.resolveOperand(ops[0], types[0], result.operands) ||
+             parser.resolveOperand(ops[1], types[1], result.operands);
+
+  for (unsigned i = 2; i < ops.size(); ++i) {
+    ret &= succeeded(parser.resolveOperand(
+        ops[i], parser.getBuilder().getIntegerType(32), result.operands));
+  }
+  return failure(ret);
+}
+
+static void print(OpAsmPrinter &p, ThreadwiseStoreOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperand(0).getType() << ", "
+    << op.getOperand(1).getType();
+}
+
+static LogicalResult verify(ThreadwiseStoreOp op) { return success(); }
+
+//===----------------------------------------------------------------------===//
 // ThreadwiseCopyV2Op
 //===----------------------------------------------------------------------===//
 

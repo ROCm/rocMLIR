@@ -438,6 +438,115 @@ func @miopen_threadwise_copy(%source_coord : memref<2xi32, 5>, %dest_coord : mem
 // CHECK-LABEL: func @miopen_threadwise_copy
 //  CHECK: miopen.threadwise_copy
 
+// --------------------------
+// threadwise_load tests.
+
+// CHECK-LABEL: func @miopen_threadwise_load
+func @miopen_threadwise_load(%source_coord : memref<2xi32, 5>,
+                             %source : memref<?x?xf32>,
+                             %source_with_embedded_affine : memref<?x?xf32, #map0>,
+                             %source_with_externally_defined_affine : memref<?x?x?x?xf32>) {
+  %c0 = constant 0 : index
+  %c1 = constant 1 : index
+  %source_coord_y = load %source_coord[%c0] : memref<2xi32, 5>
+  %source_coord_x = load %source_coord[%c0] : memref<2xi32, 5>
+
+  // check source as vanilla memref, dest as scalar.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}}) : memref<?x?xf32>, f32
+  %v0 = miopen.threadwise_load(%source, %source_coord_x, %source_coord_y) : memref<?x?xf32>, f32
+
+  // check source as vanilla memref, dest as vector.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}}) : memref<?x?xf32>, vector<4xf32>
+  %v1 = miopen.threadwise_load(%source, %source_coord_x, %source_coord_y) : memref<?x?xf32>, vector<4xf32>
+
+  // -----
+
+  // check source with embedded affine maps, dest as scalar.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}}) : memref<?x?xf32, #map0>, f32
+  %v2 = miopen.threadwise_load(%source_with_embedded_affine, %source_coord_x, %source_coord_y) : memref<?x?xf32, #map0>, f32
+
+  // check source with embedded affine maps, dest as vector.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}}) : memref<?x?xf32, #map0>, vector<4xf32>
+  %v3 = miopen.threadwise_load(%source_with_embedded_affine, %source_coord_x, %source_coord_y) : memref<?x?xf32, #map0>, vector<4xf32>
+
+  // -----
+
+  // check source with one externally defined affine map, dest as scalar.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}})
+  %v4 = miopen.threadwise_load(%source_with_externally_defined_affine, %source_coord_x, %source_coord_y) { coord_transforms = [ { operand = 0, transforms = [#map2] } ] } : memref<?x?x?x?xf32>, f32
+
+  // check source with one externally defined affine map, dest as vector.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}})
+  %v5 = miopen.threadwise_load(%source_with_externally_defined_affine, %source_coord_x, %source_coord_y) { coord_transforms = [ { operand = 0, transforms = [#map2] } ] } : memref<?x?x?x?xf32>, vector<4xf32>
+
+  // check source with multiple externally defined affine maps, dest as scalar.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}})
+  %v6 = miopen.threadwise_load(%source_with_externally_defined_affine, %source_coord_x, %source_coord_y) { coord_transforms = [ { operand = 0, transforms = [#map2, #map3] } ] } : memref<?x?x?x?xf32>, f32
+
+  // check source with multiple externally defined affine maps, dest as vector.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}})
+  %v7 = miopen.threadwise_load(%source_with_externally_defined_affine, %source_coord_x, %source_coord_y) { coord_transforms = [ { operand = 0, transforms = [#map2, #map3] } ] } : memref<?x?x?x?xf32>, vector<4xf32>
+
+  return
+}
+
+// --------------------------
+// threadwise_store tests.
+
+// CHECK-LABEL: func @miopen_threadwise_store
+func @miopen_threadwise_store(%data_scalar : f32,
+                              %data_vector : vector<4xf32>,
+                              %dest_coord : memref<2xi32, 5>,
+                              %dest : memref<?x?xf32>,
+                              %dest_with_embedded_affine : memref<?x?xf32, #map1>,
+                              %dest_with_externally_defined_affine : memref<?x?x?x?xf32>) {
+  %c0 = constant 0 : index
+  %c1 = constant 1 : index
+  %dest_coord_y = load %dest_coord[%c0] : memref<2xi32, 5>
+  %dest_coord_x = load %dest_coord[%c0] : memref<2xi32, 5>
+
+  // check dest as vanilla memrefs, data as scalar.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : f32, memref<?x?xf32>
+  miopen.threadwise_store(%data_scalar, %dest, %dest_coord_x, %dest_coord_y) : f32, memref<?x?xf32>
+
+  // check dest as vanilla memrefs, data as vector.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>, memref<?x?xf32>
+  miopen.threadwise_store(%data_vector, %dest, %dest_coord_x, %dest_coord_y) : vector<4xf32>, memref<?x?xf32>
+
+  // -----
+
+  // check dest with embedded affine maps, data as scalar.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : f32
+  miopen.threadwise_store(%data_scalar, %dest_with_embedded_affine, %dest_coord_x, %dest_coord_y) : f32, memref<?x?xf32, #map1>
+
+  // check dest with embedded affine maps, data as vector.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>
+  miopen.threadwise_store(%data_vector, %dest_with_embedded_affine, %dest_coord_x, %dest_coord_y) : vector<4xf32>, memref<?x?xf32, #map1>
+
+  // -----
+
+  // check destination with one externally defined affine map, data as scalar.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}})
+  miopen.threadwise_store(%data_scalar, %dest_with_externally_defined_affine, %dest_coord_x, %dest_coord_y) { coord_transforms = [ { operand = 1, transforms = [#map2] } ] } : f32, memref<?x?x?x?xf32>
+
+  // check destination with one externally defined affine map, data as vector.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}})
+  miopen.threadwise_store(%data_vector, %dest_with_externally_defined_affine, %dest_coord_x, %dest_coord_y) { coord_transforms = [ { operand = 1, transforms = [#map2] } ] } : vector<4xf32>, memref<?x?x?x?xf32>
+
+  // check destination with multiple externally defined affine map, data as scalar.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}})
+  miopen.threadwise_store(%data_scalar, %dest_with_externally_defined_affine, %dest_coord_x, %dest_coord_y) { coord_transforms = [ { operand = 1, transforms = [#map2, #map3] } ] } : f32, memref<?x?x?x?xf32>
+
+  // check destination with multiple externally defined affine map, data as vector.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}})
+  miopen.threadwise_store(%data_vector, %dest_with_externally_defined_affine, %dest_coord_x, %dest_coord_y) { coord_transforms = [ { operand = 1, transforms = [#map2, #map3] } ] } : vector<4xf32>, memref<?x?x?x?xf32>
+
+  return
+}
+
+// --------------------------
+// threadwise_copy_v2 tests.
+
 #map11 = affine_map<(d0, d1) -> (d1, d0, d1, d0)>
 
 #map12 = affine_map<(d0, d1) -> (d1, d0 floordiv 9, (d0 mod 9) floordiv 3, (d0 mod 9) mod 3)>
