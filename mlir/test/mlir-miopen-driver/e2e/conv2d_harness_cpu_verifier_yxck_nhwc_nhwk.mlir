@@ -157,12 +157,12 @@ module {
     %9 = memref_cast %6 : memref<5xi8> to memref<*xi8>
     %10 = memref_cast %7 : memref<5xi8> to memref<*xi8>
     %11 = memref_cast %8 : memref<5xi8> to memref<*xi8>
-    call @mcpuConv2d(%3, %4, %5, %9, %10, %11, %c1_i32, %c1_i32_0, %c0_i32, %c0_i32_1, %c1_i32_2, %c1_i32_3) : 
-                    ( memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32) -> ()
+    call @mcpuConv2d(%3, %4, %5, %9, %10, %11, %c1_i32, %c1_i32_0, %c0_i32, %c0_i32_1, %c0_i32, %c0_i32_1, %c1_i32_2, %c1_i32_3) : 
+                    ( memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32, i32, i32) -> ()
     
     return
   }
-  func private @mcpuConv2d(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32)
+  func private @mcpuConv2d(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32, i32, i32)
 
   func @verify_results(%arg0: memref<128x30x30x1x128xf32>, %arg1: memref<128x30x30x1x128xf32>) {
     %c0 = constant 0 : index

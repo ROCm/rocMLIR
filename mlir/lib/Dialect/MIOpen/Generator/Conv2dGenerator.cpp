@@ -14,13 +14,28 @@ Conv2dGenerator::Conv2dGenerator(
     const std::string &arch, int num_cu, bool xdlops,
     const std::string &operation, const std::string &dataTypeStr,
     int dilationHeight, int dilationWidth, int strideHeight, int strideWidth,
-    int paddingHeight, int paddingWidth, const std::string &filterLayout,
+    int paddingHeightLeft, int paddingHeightRight, int paddingWidthLeft,
+    int paddingWidthRight, const std::string &filterLayout,
     const std::string &inputLayout, const std::string &outputLayout,
     const std::string &kernelName)
-    : config{arch,        num_cu,         xdlops,        operation,
-             dataTypeStr, dilationHeight, dilationWidth, strideHeight,
-             strideWidth, paddingHeight,  paddingWidth,  filterLayout,
-             inputLayout, outputLayout,   kernelName,    -1} {}
+    : config{arch,
+             num_cu,
+             xdlops,
+             operation,
+             dataTypeStr,
+             dilationHeight,
+             dilationWidth,
+             strideHeight,
+             strideWidth,
+             paddingHeightLeft,
+             paddingHeightRight,
+             paddingWidthLeft,
+             paddingWidthRight,
+             filterLayout,
+             inputLayout,
+             outputLayout,
+             kernelName,
+             -1} {}
 
 namespace {
 
@@ -121,8 +136,10 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
     strToInt("dilation_w", config.dilationWidth);
     strToInt("conv_stride_h", config.strideHeight);
     strToInt("conv_stride_w", config.strideWidth);
-    strToInt("padding_h", config.paddingHeight);
-    strToInt("padding_w", config.paddingWidth);
+    strToInt("padding_h", config.paddingHeightLeft);
+    strToInt("padding_h", config.paddingHeightRight);
+    strToInt("padding_w", config.paddingWidthLeft);
+    strToInt("padding_w", config.paddingWidthRight);
 
     strToStr("kernel_name", config.kernelName);
 
@@ -292,11 +309,13 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
                                builder.getI32IntegerAttr(config.strideHeight),
                                builder.getI32IntegerAttr(config.strideWidth),
                            })),
-      builder.getNamedAttr("padding",
-                           builder.getArrayAttr({
-                               builder.getI32IntegerAttr(config.paddingHeight),
-                               builder.getI32IntegerAttr(config.paddingWidth),
-                           })),
+      builder.getNamedAttr(
+          "padding", builder.getArrayAttr({
+                         builder.getI32IntegerAttr(config.paddingHeightLeft),
+                         builder.getI32IntegerAttr(config.paddingHeightRight),
+                         builder.getI32IntegerAttr(config.paddingWidthLeft),
+                         builder.getI32IntegerAttr(config.paddingWidthRight),
+                     })),
   };
 
   // xdlops v2.
