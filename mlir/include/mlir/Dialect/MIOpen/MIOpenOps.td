@@ -155,13 +155,25 @@ def MIOpen_FillOp:
   }];
 }
 
+// TBD: eventually replace this with move_pos_v2.
 def MIOpen_MovePosOp:
     MIOpen_Op<"move_pos">,
     Arguments<(ins AnyMemRef:$memref,
                    Variadic<AnyTypeOf<[AnyInteger, AnyFloat]>>:$values)> {
     let summary = "Add values to indices within the memref.";
     let description = [{
-      The `miopen.fill` op adds values to indices within the memref.
+      The `miopen.move_pos` op adds values to indices within the memref.
+    }];
+}
+
+def MIOpen_MovePosV2Op:
+    MIOpen_Op<"move_pos_v2">,
+    Arguments<(ins VectorOfRankAndType<[1], [AnyInteger, AnyFloat]>:$input,
+                   Variadic<AnyTypeOf<[AnyInteger, AnyFloat]>>:$values)>,
+    Results<(outs VectorOfRankAndType<[1], [AnyInteger, AnyFloat]>:$output)> {
+    let summary = "Add values to indices within the vector.";
+    let description = [{
+      The `miopen.move_pos_v2` op adds values to indices within the vector.
     }];
 }
 

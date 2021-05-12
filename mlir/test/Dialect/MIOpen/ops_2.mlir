@@ -104,9 +104,24 @@ func @miopen_move_pos(%buffer_f32 : memref<2xf32, 5>, %buffer_i32 : memref<2xi32
 }
 
 // CHECK-LABEL: func @miopen_move_pos
-//   CHECK: miopen.move_pos
-//   CHECK: miopen.move_pos
-//   CHECK: miopen.move_pos
+//   CHECK: miopen.move_pos(%{{.*}}, %{{.*}}, %{{.*}}) : memref<2xi32, 5>
+//   CHECK: miopen.move_pos(%{{.*}}, %{{.*}}, %{{.*}}) : memref<2xf32, 5>
+
+func @miopen_move_pos_v2(%vector_f32 : vector<2xf32>, %vector_i32 : vector<2xi32>) {
+  %deltaY_i32 = constant 16 : i32
+  %deltaX_i32 = constant 8 : i32
+  %output1 = miopen.move_pos_v2(%vector_i32, %deltaY_i32, %deltaX_i32) : vector<2xi32>
+ 
+  %deltaY_f32 = constant 16.0 : f32
+  %deltaX_f32 = constant 8.0 : f32
+  %output2 = miopen.move_pos_v2(%vector_f32, %deltaY_f32, %deltaX_f32) : vector<2xf32>
+
+  return
+}
+
+// CHECK-LABEL: func @miopen_move_pos_v2
+//   CHECK: %{{.*}} = miopen.move_pos_v2(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xi32>
+//   CHECK: %{{.*}} = miopen.move_pos_v2(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf32>
 
 func @miopen_workgroup_barrier() {
   miopen.workgroup_barrier
