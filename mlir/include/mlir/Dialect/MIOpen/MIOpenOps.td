@@ -15,6 +15,7 @@
 
 include "mlir/IR/OpBase.td"
 //include "mlir/Transforms/LoopLikeInterface.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def MIOpen_Dialect : Dialect {
   let name = "miopen";
@@ -119,7 +120,7 @@ def MIOpen_GridwiseGemmV2Op :
 // Memory allocation on GPU memory hierachy.
 def MIOpen_GpuAllocOp:
     MIOpen_Op<"alloc">,
-    Results<(outs AnyMemRef:$output)> {
+    Results<(outs Res<AnyMemRef, "", [MemAlloc]>:$output)> {
   let summary = "Memory allocation on GPU";
   let description = [{
     The `miopen.alloc` op allocates memory on GPU.
