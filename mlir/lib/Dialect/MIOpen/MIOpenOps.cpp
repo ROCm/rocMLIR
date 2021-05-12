@@ -390,34 +390,6 @@ static void print(OpAsmPrinter &p, MovePosV2Op op) {
 static LogicalResult verify(MovePosV2Op op) { return success(); }
 
 //===----------------------------------------------------------------------===//
-// MovePosV2Op
-//===----------------------------------------------------------------------===//
-
-static ParseResult parseMovePosV2Op(OpAsmParser &parser,
-                                    OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 3> ops;
-  Type srcType;
-
-  auto ret = parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
-             parser.parseColonType(srcType) ||
-             parser.resolveOperand(ops[0], srcType, result.operands) ||
-             parser.addTypeToList(srcType, result.types);
-
-  for (unsigned i = 1; i < ops.size(); ++i) {
-    ret &= succeeded(parser.resolveOperand(
-        ops[i], srcType.cast<VectorType>().getElementType(), result.operands));
-  }
-  return failure(ret);
-}
-
-static void print(OpAsmPrinter &p, MovePosV2Op op) {
-  p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p << " : " << op.getType();
-}
-
-static LogicalResult verify(MovePosV2Op op) { return success(); }
-
-//===----------------------------------------------------------------------===//
 // WorkgroupBarrierOp
 //===----------------------------------------------------------------------===//
 

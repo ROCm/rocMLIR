@@ -3960,40 +3960,6 @@ struct MovePosV2RewritePattern : public OpRewritePattern<miopen::MovePosV2Op> {
 };
 
 //===----------------------------------------------------------------------===//
-// MovePosV2 lowering.
-//===----------------------------------------------------------------------===//
-
-struct MovePosV2RewritePattern : public OpRewritePattern<miopen::MovePosV2Op> {
-  using OpRewritePattern<miopen::MovePosV2Op>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(miopen::MovePosV2Op op,
-                                PatternRewriter &b) const override {
-    auto loc = op.getLoc();
-    auto vectorType = op.input().getType().cast<VectorType>();
-    auto vector = op.input();
-    for (unsigned i = 0; i < vectorType.getShape()[0]; ++i) {
-      auto iter = b.create<ConstantIntOp>(loc, i, b.getIntegerType(32));
-      // vector.extractelement
-      auto element = b.create<vector::ExtractElementOp>(
-          loc, vectorType.getElementType(), vector, iter);
-      // add
-      Value add;
-      if (vectorType.getElementType().isa<IntegerType>()) {
-        add = b.create<AddIOp>(loc, element, op.getOperand(1 + i));
-      } else {
-        add = b.create<AddFOp>(loc, element, op.getOperand(1 + i));
-      }
-      // vector.insertelement
-      vector =
-          b.create<vector::InsertElementOp>(loc, vectorType, add, vector, iter);
-    }
-    op.replaceAllUsesWith(vector);
-    op.erase();
-    return success();
-  }
-};
-
-//===----------------------------------------------------------------------===//
 // ThreadwiseGemm lowering.
 //===----------------------------------------------------------------------===//
 
