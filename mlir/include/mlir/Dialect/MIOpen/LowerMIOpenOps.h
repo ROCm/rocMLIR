@@ -1193,7 +1193,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                transformedInputAttrs);
 
     auto gemmBPad = gemmB;
-    bool is_input_pad = false;
+    bool isInputPad = false;
     // input padding start
     if (convOpType == miopen::ConvOpType::Conv2DOpType && gemmK_extra > 0) {
       llvm::SmallVector<int64_t, 3> paddingInputShape;
@@ -1249,7 +1249,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (gemmK_extra > 0) {
         if (arg1TargetLayoutName1 == "gemmK") {
-          is_input_pad = true;
+          isInputPad = true;
           isGemmDim1Pad = true;
           gemm_dim1_target_name = b.getStringAttr(gemmK_Pad_name);
           paddingInputShape[1] = paddingInputShape[1] + gemmK_extra;
@@ -1263,7 +1263,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           targetGemmDim1Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmK_Pad_name)})));
         } else if (arg1TargetLayoutName2 == "gemmK") {
-          is_input_pad = true;
+          isInputPad = true;
           isGemmDim2Pad = true;
           gemm_dim2_target_name = b.getStringAttr(gemmK_Pad_name);
 
@@ -1282,11 +1282,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (gemmM_extra > 0) {
         if (arg1TargetLayoutName1 == "gemmM") {
-          is_input_pad = false;
+          isInputPad = false;
           isGemmDim1Pad = false;
           paddingInputShape[1] = paddingInputShape[1] + gemmM_extra;
         } else if (arg1TargetLayoutName2 == "gemmM") {
-          is_input_pad = false;
+          isInputPad = false;
           isGemmDim2Pad = false;
           paddingInputShape[2] = paddingInputShape[2] + gemmM_extra;
         }
@@ -1294,11 +1294,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (gemmN_extra > 0) {
         if (arg1TargetLayoutName1 == "gemmN") {
-          is_input_pad = false;
+          isInputPad = false;
           isGemmDim1Pad = false;
           paddingInputShape[1] = paddingInputShape[1] + gemmN_extra;
         } else if (arg1TargetLayoutName2 == "gemmN") {
-          is_input_pad = false;
+          isInputPad = false;
           isGemmDim2Pad = false;
           paddingInputShape[2] = paddingInputShape[2] + gemmN_extra;
         }
@@ -1520,7 +1520,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         loc, transformedOutputMemRefType, op.output(), transformedOutputAttrs);
 
     auto gemmC_Pad = gemmC;
-    bool is_output_pad = false;
+    bool isOutputPad = false;
     // output padding start
     if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType &&
         gemmK_extra > 0) {
@@ -1577,7 +1577,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (gemmK_extra > 0) {
         if (arg2TargetLayoutName1 == "gemmK") {
-          is_output_pad = true;
+          isOutputPad = true;
           isGemmDim1Pad = true;
           gemm_dim1_target_name = b.getStringAttr(gemmK_Pad_name);
 
@@ -1592,7 +1592,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           targetGemmDim1Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmK_Pad_name)})));
         } else if (arg2TargetLayoutName2 == "gemmK") {
-          is_output_pad = true;
+          isOutputPad = true;
           isGemmDim2Pad = true;
           gemm_dim2_target_name = b.getStringAttr(gemmK_Pad_name);
 
@@ -1611,11 +1611,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (gemmM_extra > 0) {
         if (arg2TargetLayoutName1 == "gemmM") {
-          is_output_pad = false;
+          isOutputPad = false;
           isGemmDim1Pad = false;
           paddingOutputShape[1] = paddingOutputShape[1] + gemmM_extra;
         } else if (arg2TargetLayoutName2 == "gemmM") {
-          is_output_pad = false;
+          isOutputPad = false;
           isGemmDim2Pad = false;
           paddingOutputShape[2] = paddingOutputShape[2] + gemmM_extra;
         }
@@ -1623,11 +1623,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (gemmN_extra > 0) {
         if (arg2TargetLayoutName1 == "gemmN") {
-          is_output_pad = false;
+          isOutputPad = false;
           isGemmDim1Pad = false;
           paddingOutputShape[1] = paddingOutputShape[1] + gemmN_extra;
         } else if (arg2TargetLayoutName2 == "gemmN") {
-          is_output_pad = false;
+          isOutputPad = false;
           isGemmDim2Pad = false;
           paddingOutputShape[2] = paddingOutputShape[2] + gemmN_extra;
         }
@@ -1717,9 +1717,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
     if (isFilterPad)
       gemmA = gemmAPad;
-    if (is_input_pad)
+    if (isInputPad)
       gemmB = gemmBPad;
-    if (is_output_pad)
+    if (isOutputPad)
       gemmC = gemmC_Pad;
 
     auto arguments = std::array<miopen::TransformOp, 3>{gemmA, gemmB, gemmC};
