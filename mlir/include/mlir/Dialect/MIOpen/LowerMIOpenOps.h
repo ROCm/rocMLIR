@@ -4035,6 +4035,7 @@ struct ThreadwiseCopyRewritePattern
             auto constantExpr = expr.template dyn_cast<AffineConstantExpr>();
             if (constantExpr.getValue() == 1) {
               oobCheckDims.push_back(iter);
+              toEmitOOBCheckLogic = true;
             }
           }
         }
@@ -4860,17 +4861,22 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
             break;
 
         auto coordTransformAttrs = user->getAttr("coord_transforms");
-        if (!coordTransformAttrs)
-          user->setAttr(
-              "coord_transforms",
-              b.getArrayAttr({b.getDictionaryAttr(
-                  {b.getNamedAttr("operand",
-                                  b.getI32IntegerAttr(userOperandIndex)),
-                   b.getNamedAttr(
-                       "transforms",
-                       b.getAffineMapArrayAttr(outputType.getAffineMaps())),
-                   b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec))})}));
-        else {
+        if (!coordTransformAttrs) {
+          llvm::SmallVector<NamedAttribute, 4> arrayAttr{
+              b.getNamedAttr("operand", b.getI32IntegerAttr(userOperandIndex)),
+              b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
+                                               outputType.getAffineMaps()[0])),
+              b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec))};
+          if (outputType.getAffineMaps().size() > 1)
+            arrayAttr.push_back(b.getNamedAttr(
+                "limits",
+                b.getAffineMapArrayAttr(outputType.getAffineMaps()[1])));
+
+          user->setAttr("coord_transforms",
+                        b.getArrayAttr({b.getDictionaryAttr(
+                            {arrayAttr.begin(), arrayAttr.end()})}));
+
+        } else {
           // create a deep-copy of existing attributes, and amend the new one.
           // need to figure out if there's a better way than this.
           auto arrayAttr = coordTransformAttrs.cast<ArrayAttr>();
@@ -4894,23 +4900,39 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
                   AffineMapAttr::get(outputType.getAffineMaps()[0]));
 
               auto existingDomain = dictAttr.get("domain").cast<ArrayAttr>();
+              auto existingLimits = dictAttr.get("limits");
 
-              augmentedArrayAttr.push_back(b.getDictionaryAttr(
-                  {b.getNamedAttr("operand",
-                                  b.getI32IntegerAttr(userOperandIndex)),
-                   b.getNamedAttr("transforms",
-                                  b.getArrayAttr(augmentedTransforms)),
-                   b.getNamedAttr("domain", existingDomain)}));
+              llvm::SmallVector<NamedAttribute, 4> arrayAttr{
+                  b.getNamedAttr("operand",
+                                 b.getI32IntegerAttr(userOperandIndex)),
+                  b.getNamedAttr("transforms",
+                                 b.getArrayAttr(augmentedTransforms)),
+                  b.getNamedAttr("domain", existingDomain)};
+
+              if (existingLimits)
+                arrayAttr.push_back(
+                    b.getNamedAttr("limits", existingLimits.cast<ArrayAttr>()));
+
+              augmentedArrayAttr.push_back(
+                  b.getDictionaryAttr({arrayAttr.begin(), arrayAttr.end()}));
               augmented = true;
             }
           }
-          if (!augmented)
-            augmentedArrayAttr.push_back(b.getDictionaryAttr(
-                {b.getNamedAttr("operand",
-                                b.getI32IntegerAttr(userOperandIndex)),
-                 b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
-                                                  outputType.getAffineMaps())),
-                 b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec))}));
+          if (!augmented) {
+            llvm::SmallVector<NamedAttribute, 4> arrayAttr{
+                b.getNamedAttr("operand",
+                               b.getI32IntegerAttr(userOperandIndex)),
+                b.getNamedAttr(
+                    "transforms",
+                    b.getAffineMapArrayAttr(outputType.getAffineMaps()[0])),
+                b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec))};
+            if (outputType.getAffineMaps().size() > 1)
+              arrayAttr.push_back(b.getNamedAttr(
+                  "limits",
+                  b.getAffineMapArrayAttr(outputType.getAffineMaps()[1])));
+            augmentedArrayAttr.push_back(
+                b.getDictionaryAttr({arrayAttr.begin(), arrayAttr.end()}));
+          }
           user->setAttr("coord_transforms", b.getArrayAttr(augmentedArrayAttr));
         }
 
