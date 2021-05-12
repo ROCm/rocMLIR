@@ -136,10 +136,10 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
     strToInt("dilation_w", config.dilationWidth);
     strToInt("conv_stride_h", config.strideHeight);
     strToInt("conv_stride_w", config.strideWidth);
-    strToInt("padding_h_l", config.paddingHeightLeft);
-    strToInt("padding_h_r", config.paddingHeightRight);
-    strToInt("padding_w_l", config.paddingWidthLeft);
-    strToInt("padding_w_r", config.paddingWidthRight);
+    strToInt("padding_h", config.paddingHeightLeft);
+    strToInt("padding_h", config.paddingHeightRight);
+    strToInt("padding_w", config.paddingWidthLeft);
+    strToInt("padding_w", config.paddingWidthRight);
 
     strToStr("kernel_name", config.kernelName);
 
