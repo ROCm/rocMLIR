@@ -14,7 +14,6 @@
 #define MIOPEN_OPS
 
 include "mlir/IR/OpBase.td"
-//include "mlir/Transforms/LoopLikeInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def MIOpen_Dialect : Dialect {
