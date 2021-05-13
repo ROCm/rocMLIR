@@ -43,15 +43,14 @@ pipeline {
                          -DMIOPEN_TEST_FLAGS='--verbose \
                          --disable-verification-cache' ..
                     make -j MIOpenDriver
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nchw.sh &
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nchw.sh &
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nhwc.sh &
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nhwc.sh &
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nchw_xdlop.sh &
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nchw_xdlop.sh &
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nhwc_xdlop.sh &
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nhwc_xdlop.sh &
-                    wait 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nchw.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nchw.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nhwc.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nhwc.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nchw_xdlop.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nchw_xdlop.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nhwc_xdlop.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nhwc_xdlop.sh 
                     cd ../../
                     rm -rf MIOpen
                 '''
