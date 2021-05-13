@@ -39,11 +39,16 @@ func @miopen_conv2d_bwd_data_kcyx_nchw_nkhw(%filter : memref<1x128x8x3x3xf32>, %
   return
 }
 // CHECK-LABEL: func @miopen_conv2d_bwd_data
-// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*"g", "k", "c", "ydot", "ytilda", "xdot", "xtilda".*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*"g", "k", "c", "ydotslice", "ytildaslice", "xdotslice", "xtildaslice".*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*"gemmG", "gemmK", "gemmM".*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*"gi", "ni", "ci", "hipad", "wipad".*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*"gi", "ni", "ci", "ytilda", "htilda", "xtilda", "wtilda".*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*"gi", "ni", "ci", "ytildaslice", "htildaslice", "xtildaslice", "wtildaslice".*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*"gemmG", "gemmM", "gemmN".*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*"go", "no", "ko", "ydot", "htilda", "xdot", "wtilda".*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*"go", "no", "ko", "ydotslice", "htildaslice", "xdotslice", "wtildaslice".*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*"gemmG", "gemmK", "gemmN".*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.gridwise_gemm.*{.*}.*memref.*memref.*memref}}
 
 func @miopen_conv2d_bwd_weight_kcyx_nchw_nkhw(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {

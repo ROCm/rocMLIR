@@ -16,6 +16,7 @@
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
+#include "mlir/Dialect/MIOpen/utility/math.hpp"
 #include "mlir/Support/FileUtilities.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ToolOutputFile.h"
@@ -366,13 +367,54 @@ protected:
                        ctx.dimIndexVal["y"].second *
                        ctx.dimIndexVal["x"].second;
     } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      gemmSize.gemmM = ctx.dimIndexVal["c"].second *
-                       ctx.dimIndexVal["y"].second *
-                       ctx.dimIndexVal["x"].second;
-      gemmSize.gemmN = ctx.dimIndexVal["no"].second *
-                       ctx.dimIndexVal["ho"].second *
-                       ctx.dimIndexVal["wo"].second;
-      gemmSize.gemmK = ctx.dimIndexVal["k"].second;
+      int64_t y, x, ho, wo, hi, wi;
+      y = x = ho = wo = hi = wi = 0;
+      y = ctx.dimIndexVal["y"].second;
+      x = ctx.dimIndexVal["x"].second;
+      ho = ctx.dimIndexVal["ho"].second;
+      wo = ctx.dimIndexVal["wo"].second;
+      hi = ctx.dimIndexVal["hi"].second;
+      wi = ctx.dimIndexVal["wi"].second;
+      auto strideH = ctx.strideVal[0];
+      auto strideW = ctx.strideVal[1];
+      auto dilationH = ctx.dilationVal[0];
+      auto dilationW = ctx.dilationVal[1];
+      auto leftPadH = ctx.paddingVal[0];
+      auto leftPadW = ctx.paddingVal[1];
+
+      auto gcdStrideDilationH = math::gcd(strideH, dilationH);
+      auto gcdStrideDilationW = math::gcd(strideW, dilationW);
+
+      auto yTilda = dilationH / gcdStrideDilationH;
+      auto xTilda = dilationW / gcdStrideDilationW;
+
+      auto hTilda =
+          ho + math::integer_divide_ceil(dilationH * (y - 1), strideH);
+      auto wTilda =
+          wo + math::integer_divide_ceil(dilationW * (x - 1), strideW);
+
+      auto iHTildaLeft = math::integer_divide_floor(
+          std::max(0l, leftPadH - dilationH * (yTilda - 1)), strideH);
+      auto iWTildaLeft = math::integer_divide_floor(
+          std::max(0l, leftPadW - dilationW * (xTilda - 1)), strideW);
+
+      auto iHTildaRight = std::min(
+          hTilda, math::integer_divide_ceil(leftPadH + hi - 1, strideH) + 1);
+      auto iWTildaRight = std::min(
+          wTilda, math::integer_divide_ceil(leftPadW + wi - 1, strideW) + 1);
+
+      auto hTildaSlice = iHTildaRight - iHTildaLeft;
+      auto wTildaSlice = iWTildaRight - iWTildaLeft;
+
+      auto gemm_id = 0;
+      auto iYTilda = gemm_id / xTilda;
+      auto iXTilda = gemm_id % xTilda;
+      auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
+      auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
+
+      gemmSize.gemmM = ctx.dimIndexVal["c"].second;
+      gemmSize.gemmN = ctx.dimIndexVal["no"].second * hTildaSlice * wTildaSlice;
+      gemmSize.gemmK = ctx.dimIndexVal["k"].second * yDotSlice * xDotSlice;
     } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       gemmSize.gemmM = ctx.dimIndexVal["k"].second;
       gemmSize.gemmK = ctx.dimIndexVal["no"].second *

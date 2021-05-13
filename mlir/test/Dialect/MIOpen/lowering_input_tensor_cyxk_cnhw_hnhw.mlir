@@ -42,10 +42,10 @@ func @miopen_conv2d_bwd_data_cyxk_cnhw_knhw(%filter : memref<1x8x3x3x128xf32>, %
 }
 // CHECK-LABEL: func @miopen_conv2d_bwd_data
 // CHECK-NEXT:  miopen.transform(%arg0)
-// CHECK-NEXT:  miopen.transform(%arg1)
-// CHECK:       output_layout = ["gi", "ci", "ni", "hipad", "wipad"]
+// CHECK:       miopen.transform(%arg1)
+// CHECK:       output_layout = ["gi", "ni", "ci", "hipad", "wipad"]
 // CHECK-NEXT:  miopen.transform
-// CHECK:       output_layout = ["gi", "ci", "ni", "y", "ho", "x", "wo"]
+// CHECK:       output_layout = ["gi", "ni", "ci", "ytilda", "htilda", "xtilda", "wtilda"]
 // CHECK-NEXT:  miopen.transform
 // CHECK:       output_layout = ["gemmG", "gemmM", "gemmN"]
 // CHECK-NEXT:  miopen.transform(%arg2)
