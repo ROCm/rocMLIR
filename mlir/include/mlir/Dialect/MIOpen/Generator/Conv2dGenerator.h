@@ -98,6 +98,7 @@ private:
                    });
     return permutation;
   }
+  int getBwdDataKernelCount() const;
 
   // Generator config
   Config config;

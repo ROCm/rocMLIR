@@ -1345,8 +1345,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto gcdStrideDilationH = math::gcd(strideH, dilationH);
     auto gcdStrideDilationW = math::gcd(strideW, dilationW);
 
-    auto yTilda = dilationH / gcdStrideDilationH;
-    auto xTilda = dilationW / gcdStrideDilationW;
+    auto yTilda = strideH / gcdStrideDilationH;
+    auto xTilda = strideW / gcdStrideDilationW;
 
     auto yDot = math::integer_divide_ceil(y, yTilda);
     auto xDot = math::integer_divide_ceil(x, xTilda);

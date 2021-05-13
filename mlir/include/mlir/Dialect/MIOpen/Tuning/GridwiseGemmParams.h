@@ -385,8 +385,8 @@ protected:
       auto gcdStrideDilationH = math::gcd(strideH, dilationH);
       auto gcdStrideDilationW = math::gcd(strideW, dilationW);
 
-      auto yTilda = dilationH / gcdStrideDilationH;
-      auto xTilda = dilationW / gcdStrideDilationW;
+      auto yTilda = strideH / gcdStrideDilationH;
+      auto xTilda = strideW / gcdStrideDilationW;
 
       auto hTilda =
           ho + math::integer_divide_ceil(dilationH * (y - 1), strideH);
@@ -406,9 +406,9 @@ protected:
       auto hTildaSlice = iHTildaRight - iHTildaLeft;
       auto wTildaSlice = iWTildaRight - iWTildaLeft;
 
-      auto gemm_id = 0;
-      auto iYTilda = gemm_id / xTilda;
-      auto iXTilda = gemm_id % xTilda;
+      auto gemmId = 0;
+      auto iYTilda = gemmId / xTilda;
+      auto iXTilda = gemmId % xTilda;
       auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
       auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
 

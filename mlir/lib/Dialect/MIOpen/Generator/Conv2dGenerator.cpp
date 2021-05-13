@@ -1,4 +1,5 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
+#include "mlir/Dialect/MIOpen/utility/math.hpp"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
@@ -66,7 +67,7 @@ int Conv2dGenerator::getKernelCount() const {
   } else if (config.operation == "conv2d") {
     count = 1;
   } else if (config.operation == "conv2d_bwd_data") {
-    count = 1;
+    count = getBwdDataKernelCount();
   } else if (config.operation == "conv2d_bwd_weight") {
     count = 1;
   } else if (config.operation == "conv2d_dummy") {
@@ -74,7 +75,16 @@ int Conv2dGenerator::getKernelCount() const {
   }
   return count;
 }
+int Conv2dGenerator::getBwdDataKernelCount() const {
+  auto gcdStrideDilationH =
+      math::gcd(config.strideHeight, config.dilationHeight);
+  auto gcdStrideDilationW = math::gcd(config.strideWidth, config.dilationWidth);
 
+  auto yTilda = config.strideHeight / gcdStrideDilationH;
+  auto xTilda = config.strideWidth / gcdStrideDilationW;
+
+  return yTilda * xTilda;
+}
 Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   mlir::Type dataType;
   if (config.dataTypeStr == "f32" || config.dataTypeStr == "fp32") {
