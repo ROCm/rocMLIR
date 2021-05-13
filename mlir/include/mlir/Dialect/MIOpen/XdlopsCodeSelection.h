@@ -283,6 +283,16 @@ struct XdlopsCodeSelection {
         vectorNumber = 1;
         imms.push_back({ 0, 0, 0 });
         argType = VectorType::get({4}, b.getF16Type());
+      } else if (MPerWave == 32 && NPerWave == 64) {
+	mfmaInstr = "mfma_f32_32x32x4f16";
+	MPerXdlops = 32;
+	NPerXdlops = 64;
+	MRepeats = 1;
+	NRepeats = 1;
+	vectorType = VectorType::get({32}, b.getF32Type());
+	vectorNumber = 1;
+	imms.push_back({ 1, 0, 0 });
+	argType = VectorType::get({4}, b.getF16Type());
       } else if (MPerWave == 16 && NPerWave == 16) {
         mfmaInstr = "mfma_f32_16x16x16f16";
         MPerXdlops = 16;
