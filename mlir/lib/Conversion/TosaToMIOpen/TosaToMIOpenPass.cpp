@@ -30,14 +30,16 @@ struct TosaToMIOpenOnTensors
     : public TosaToMIOpenOnTensorsBase<TosaToMIOpenOnTensors> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<miopen::MIOpenDialect, StandardOpsDialect>();
+    registry.insert<miopen::MIOpenDialect, linalg::LinalgDialect,
+                    StandardOpsDialect>();
   }
 
   void runOnFunction() override {
     OwningRewritePatternList patterns;
     ConversionTarget target(getContext());
-    target.addLegalDialect<miopen::MIOpenDialect, StandardOpsDialect>();
-    //target.addIllegalDialect<tosa::TosaDialect>();
+    target.addLegalDialect<miopen::MIOpenDialect, linalg::LinalgDialect,
+                           StandardOpsDialect>();
+    // target.addIllegalDialect<tosa::TosaDialect>();
     target.addIllegalOp<tosa::Conv2DOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
@@ -55,6 +57,6 @@ std::unique_ptr<Pass> mlir::tosa::createTosaToMIOpenOnTensors() {
 }
 
 void mlir::tosa::addTosaToMIOpenOnTensorsPasses(OpPassManager &pm) {
-  //pm.addNestedPass<FuncOp>(createTosaMakeBroadcastablePass());
+  // pm.addNestedPass<FuncOp>(createTosaMakeBroadcastablePass());
   pm.addNestedPass<FuncOp>(createTosaToMIOpenOnTensors());
 }

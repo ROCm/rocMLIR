@@ -14,6 +14,7 @@
 #ifndef MLIR_CONVERSION_TOSATOMIOPEN_TOSATOMIOPEN_H
 #define MLIR_CONVERSION_TOSATOMIOPEN_TOSATOMIOPEN_H
 
+#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
