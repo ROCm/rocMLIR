@@ -14,7 +14,7 @@ a=22
 
 # Fwd
 {
-export MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmFwd
+export MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmFwdXdlops
 bin/MIOpenDriver convfp16 -F 1 -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC &
 bin/MIOpenDriver convfp16 -F 1 -n 256 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC &
 bin/MIOpenDriver convfp16 -F 1 -n 256 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC &
@@ -47,9 +47,9 @@ else
   echo "Fwd passed"
 fi;)
 
-## Wrw
+# Wrw
 {
-export MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmWrW
+export MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmWrWXdlops
 bin/MIOpenDriver convfp16 -F 4 -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC &
 bin/MIOpenDriver convfp16 -F 4 -n 256 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC &
 bin/MIOpenDriver convfp16 -F 4 -n 256 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1 -I NHWC -O NHWC -f NHWC &

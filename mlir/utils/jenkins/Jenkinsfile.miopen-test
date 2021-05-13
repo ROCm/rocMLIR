@@ -35,6 +35,7 @@ pipeline {
                     cd ~
                     git clone https://github.com/ROCmSoftwarePlatform/MIOpen.git
                     cd MIOpen
+                    git checkout igemm-bin-xdlops
                     mkdir -p build && cd build
                     CXX=/opt/rocm/llvm/bin/clang++ cmake -DMIOPEN_USE_MLIR=On \
                          -DBUILD_DEV=On \
@@ -42,11 +43,14 @@ pipeline {
                          -DMIOPEN_TEST_FLAGS='--verbose \
                          --disable-verification-cache' ..
                     make -j MIOpenDriver
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nchw.sh &
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nchw.sh &
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nhwc.sh &
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nhwc.sh &
-                    wait 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nchw.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nchw.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nhwc.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nhwc.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nchw_xdlop.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nchw_xdlop.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nhwc_xdlop.sh 
+                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nhwc_xdlop.sh 
                     cd ../../
                     rm -rf MIOpen
                 '''
