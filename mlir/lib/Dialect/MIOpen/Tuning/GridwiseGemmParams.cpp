@@ -51,6 +51,65 @@ LogicalResult PopulateParams::populateDerived(
   return success();
 }
 
+LogicalResult PopulateParams::populatePaddingKernelDerived(
+    ConvolutionContext &ctx, InitParamsNonXDL &param, GemmSize &gemmSize,
+    DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
+    DerivedBlockGemmParams &blockGemmDerivedParam, int64_t &gemmCDstPerWrite,
+    int64_t &gridSize) {
+
+  LogicalResult res = failure();
+  InitParams paddingParam = getUniversalParameters();
+
+  // find complete config for paddingParam
+  // if mblock,nblock,kblock is the same with this tuning parameter
+  if (paddingParam.gemmMPerBlock != param.gemmMPerBlock ||
+      paddingParam.gemmNPerBlock != param.gemmNPerBlock ||
+      paddingParam.gemmKPerBlock != param.gemmKPerBlock)
+    return failure();
+
+  if (gemmSize.gemmM % param.gemmMPerBlock != 0)
+    gemmSize.gemmM = gemmSize.gemmM + (param.gemmMPerBlock -
+                                       gemmSize.gemmM % param.gemmMPerBlock);
+
+  if (gemmSize.gemmN % param.gemmNPerBlock != 0)
+    gemmSize.gemmN = gemmSize.gemmN + (param.gemmNPerBlock -
+                                       gemmSize.gemmN % param.gemmNPerBlock);
+
+  if (gemmSize.gemmK % param.gemmKPerBlock != 0)
+    gemmSize.gemmK = gemmSize.gemmK + (param.gemmKPerBlock -
+                                       gemmSize.gemmK % param.gemmKPerBlock);
+
+  res = calculateGemmABlockCopyPerformanceParameters(&param, ctx,
+                                                     gemmADerivedParam);
+
+  if (failed(res)) {
+    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmA tuning parameter "
+                            << " size.\n");
+    return failure();
+  }
+
+  res = calculateGemmBBlockCopyPerformanceParameters(&param, ctx,
+                                                     gemmBDerivedParam);
+  if (failed(res)) {
+    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmB tuning parameter "
+                            << " size.\n");
+    return failure();
+  }
+
+  res = CalculateBlockGemmPerformanceParameters(param, ctx,
+                                                blockGemmDerivedParam);
+
+  if (failed(res)) {
+    LLVM_DEBUG(llvm::dbgs() << "Incoherent blockGemm tuning parameter "
+                            << " size.\n");
+    return failure();
+  }
+
+  gridSize = obtainGridSize(gemmSize, &param);
+  gemmCDstPerWrite = calculateGemmCDestDataPerWrite(param, ctx);
+  return success();
+}
+
 LogicalResult PopulateParams::paramsFromCtx(
     ConvolutionContext &ctx, int64_t blockSizeOverride,
     InitParamsNonXDL &validParams, DerivedParams &gemmADerivedParam,
@@ -116,6 +175,27 @@ LogicalResult PopulateParams::paramsFromCtx(
     // All initParameters have failed, shouldn't happen
     LLVM_DEBUG(llvm::dbgs() << "FATAL ERROR! COULD NOT FIND VALID TUNING"
                             << " PARAMETERS!\n");
+
+    InitParams paddingParam = getUniversalParameters();
+    if ((gemmSize.gemmN % paddingParam.gemmNPerBlock == 0) &&
+        (gemmSize.gemmM % paddingParam.gemmMPerBlock == 0)) {
+      LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
+
+      for (auto &params : initParameters) {
+        res = populatePaddingKernelDerived(
+            ctx, params, gemmSize, gemmADerivedParam, gemmBDerivedParam,
+            blockGemmDerivedParam, gemmCDstPerWrite, gridSize);
+
+        if (failed(res)) {
+          continue;
+        }
+
+        validParams = params;
+        break;
+      }
+    } else {
+      LLVM_DEBUG(llvm::dbgs() << "PADDING KERNEL only support gemmK now\n");
+    }
   } else {
     LLVM_DEBUG(llvm::dbgs() << "Successfully picked tuning params from backup"
                             << " path.\n");
@@ -173,6 +253,65 @@ LogicalResult PopulateParamsXDL::populateDerived(
 
   // parameters derivable from tunable parameters.
   gridSize = obtainGridSize(gemmSize, &params);
+  return success();
+}
+
+LogicalResult PopulateParamsXDL::populatePaddingKernelDerived(
+    ConvolutionContext &ctx, InitParamsXDL &param, GemmSize &gemmSize,
+    DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
+    int64_t &blockSize, int64_t &gridSize) {
+
+  LogicalResult res = failure();
+  InitParams paddingParam = getUniversalParameters();
+
+  // find complete config for paddingParam
+  // if mblock,nblock,kblock is the same with this tuning parameter
+  if (paddingParam.gemmMPerBlock != param.gemmMPerBlock ||
+      paddingParam.gemmNPerBlock != param.gemmNPerBlock ||
+      paddingParam.gemmKPerBlock != param.gemmKPerBlock)
+    return failure();
+
+  if (gemmSize.gemmM % param.gemmMPerBlock != 0)
+    gemmSize.gemmM = gemmSize.gemmM + (param.gemmMPerBlock -
+                                       gemmSize.gemmM % param.gemmMPerBlock);
+
+  if (gemmSize.gemmN % param.gemmNPerBlock != 0)
+    gemmSize.gemmN = gemmSize.gemmN + (param.gemmNPerBlock -
+                                       gemmSize.gemmN % param.gemmNPerBlock);
+
+  if (gemmSize.gemmK % param.gemmKPerBlock != 0)
+    gemmSize.gemmK = gemmSize.gemmK + (param.gemmKPerBlock -
+                                       gemmSize.gemmK % param.gemmKPerBlock);
+
+  blockSize = obtainBlockSize(param, waveSize);
+  res = calculateGemmABlockCopyPerformanceParameters(&param, ctx,
+                                                     gemmADerivedParam);
+
+  if (failed(res)) {
+    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmA tuning parameter "
+                            << " size.\n");
+    return failure();
+  }
+
+  res = calculateGemmBBlockCopyPerformanceParameters(&param, ctx,
+                                                     gemmBDerivedParam);
+
+  if (failed(res)) {
+    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmB tuning parameter "
+                            << " size.\n");
+    return failure();
+  }
+
+  std::size_t ldsSize = 0;
+  res = calculateLdsNumberOfByte(param, ctx, gemmADerivedParam,
+                                 gemmBDerivedParam, ldsSize);
+
+  if (failed(res)) {
+    LLVM_DEBUG(llvm::dbgs() << "LDS size too large.\n");
+    return failure();
+  }
+
+  gridSize = obtainGridSize(gemmSize, &param);
   return success();
 }
 
@@ -239,6 +378,25 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
     // All initParameters have failed, shouldn't happen
     LLVM_DEBUG(llvm::dbgs() << "FATAL ERROR! COULD NOT FIND VALID TUNING"
                             << " PARAMETERS!\n");
+
+    InitParams paddingParam = getUniversalParameters();
+    if ((gemmSize.gemmN % paddingParam.gemmNPerBlock == 0) &&
+        (gemmSize.gemmM % paddingParam.gemmMPerBlock == 0)) {
+      LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
+      for (auto &params : initParameters) {
+        res = populatePaddingKernelDerived(ctx, params, gemmSize,
+                                           gemmADerivedParam, gemmBDerivedParam,
+                                           blockSize, gridSize);
+
+        if (failed(res)) {
+          continue;
+        }
+        validParams = params;
+        break;
+      }
+    } else {
+      LLVM_DEBUG(llvm::dbgs() << "PADDING KERNEL only support gemmK now\n");
+    }
   } else {
     LLVM_DEBUG(llvm::dbgs() << "Successfully picked tuning params from backup"
                             << " path.\n");
