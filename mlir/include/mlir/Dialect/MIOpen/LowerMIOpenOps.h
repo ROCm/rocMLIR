@@ -1252,7 +1252,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
   LogicalResult backwardData(T op, PatternRewriter &b) const {
     auto loc = op.getLoc();
-
+    auto kernelID = op->template getAttrOfType<IntegerAttr>("gemm_id");
     auto archAttr = op->template getAttrOfType<StringAttr>("arch");
     auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
 
@@ -1367,7 +1367,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto hTildaSlice = iHTildaRight - iHTildaLeft;
     auto wTildaSlice = iWTildaRight - iWTildaLeft;
 
-    auto gemmId = 0;
+    auto gemmId = kernelID.getInt();
     auto iYTilda = gemmId / xTilda;
     auto iXTilda = gemmId % xTilda;
     auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
@@ -2506,6 +2506,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Set attributes for gridwise_gemm op.
     llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
+        b.getNamedAttr("gemm_id", kernelID),
         b.getNamedAttr("arch", archAttr),
         b.getNamedAttr("num_cu", numCuAttr),
         b.getNamedAttr("filter_layout", filterLayoutAttr),

@@ -294,6 +294,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   }
 
   std::vector<NamedAttribute> attributes{
+      builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(kernel_id)),
       builder.getNamedAttr("arch", builder.getStringAttr(config.arch)),
       builder.getNamedAttr("num_cu", builder.getI32IntegerAttr(config.num_cu)),
 
@@ -333,43 +334,34 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
     attributes.push_back(
         builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
 
-  if (kernel_id > 0) {
+  if (config.operation == "conv2d") {
+    auto convOp = builder.create<miopen::Conv2DOp>(
+        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
+        ValueRange{func.getArgument(0), func.getArgument(1),
+                   func.getArgument(2)},
+        attributes);
+    block->push_front(convOp);
+  } else if (config.operation == "conv2d_bwd_data") {
+    auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
+        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
+        ValueRange{func.getArgument(0), func.getArgument(1),
+                   func.getArgument(2)},
+        attributes);
+    block->push_front(convOp);
+  } else if (config.operation == "conv2d_bwd_weight") {
+    auto convOp = builder.create<miopen::Conv2DBwdWeightOp>(
+        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
+        ValueRange{func.getArgument(0), func.getArgument(1),
+                   func.getArgument(2)},
+        attributes);
+    block->push_back(convOp);
+  } else if (config.operation == "conv2d_dummy") {
     auto convOp = builder.create<miopen::Conv2DDummyOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{func.getArgument(0), func.getArgument(1),
                    func.getArgument(2)},
         attributes);
     block->push_front(convOp);
-  } else {
-    if (config.operation == "conv2d") {
-      auto convOp = builder.create<miopen::Conv2DOp>(
-          builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-          ValueRange{func.getArgument(0), func.getArgument(1),
-                     func.getArgument(2)},
-          attributes);
-      block->push_front(convOp);
-    } else if (config.operation == "conv2d_bwd_data") {
-      auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
-          builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-          ValueRange{func.getArgument(0), func.getArgument(1),
-                     func.getArgument(2)},
-          attributes);
-      block->push_front(convOp);
-    } else if (config.operation == "conv2d_bwd_weight") {
-      auto convOp = builder.create<miopen::Conv2DBwdWeightOp>(
-          builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-          ValueRange{func.getArgument(0), func.getArgument(1),
-                     func.getArgument(2)},
-          attributes);
-      block->push_back(convOp);
-    } else if (config.operation == "conv2d_dummy") {
-      auto convOp = builder.create<miopen::Conv2DDummyOp>(
-          builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-          ValueRange{func.getArgument(0), func.getArgument(1),
-                     func.getArgument(2)},
-          attributes);
-      block->push_front(convOp);
-    }
   }
 
   auto returnOp =
