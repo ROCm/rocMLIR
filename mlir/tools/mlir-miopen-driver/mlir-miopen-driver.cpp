@@ -2382,7 +2382,7 @@ int main(int argc, char **argv) {
   } else {
     (void)conv2dGenerator.parseConvDims(
         batchSize, groupSize, inputChannel, inputHeight, inputWidth,
-        outputChannel, outputHeight, outputWidth, filterWidth, filterHeight);
+        outputChannel, outputHeight, outputWidth, filterHeight, filterWidth);
   }
 
   const auto &genConfig = conv2dGenerator.getConfig();
