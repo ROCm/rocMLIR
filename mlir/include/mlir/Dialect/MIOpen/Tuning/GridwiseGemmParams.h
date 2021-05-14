@@ -406,7 +406,7 @@ protected:
       auto hTildaSlice = iHTildaRight - iHTildaLeft;
       auto wTildaSlice = iWTildaRight - iWTildaLeft;
 
-      auto gemmId = 0;
+      auto gemmId = ctx.gemmId;
       auto iYTilda = gemmId / xTilda;
       auto iXTilda = gemmId % xTilda;
       auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);

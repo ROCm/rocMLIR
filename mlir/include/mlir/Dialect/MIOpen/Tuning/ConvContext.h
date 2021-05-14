@@ -28,15 +28,17 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallVector<int64_t, 0> strideVal;
   llvm::SmallVector<int64_t, 0> dilationVal;
   llvm::SmallVector<int64_t, 0> paddingVal;
+  int gemmId;
 
   ConvolutionContext(const llvm::SmallString<8> &architecture, int numCu,
                      miopen::ConvOpType op,
                      llvm::StringMap<std::pair<size_t, int64_t>> dim,
                      llvm::SmallVector<int64_t, 0> stride,
                      llvm::SmallVector<int64_t, 0> dilation,
-                     llvm::SmallVector<int64_t, 0> padding)
+                     llvm::SmallVector<int64_t, 0> padding, int gemmid)
       : arch(architecture), num_cu(numCu), opType(op), dimIndexVal(dim),
-        strideVal(stride), dilationVal(dilation), paddingVal(padding) {}
+        strideVal(stride), dilationVal(dilation), paddingVal(padding),
+        gemmId(gemmid) {}
 
   llvm::StringMap<std::pair<size_t, int64_t>> getDimIndexVal() const {
     return dimIndexVal;
@@ -146,6 +148,11 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
 
   auto archVal = op->template getAttrOfType<StringAttr>("arch").getValue();
   int numCuVal = op->template getAttrOfType<IntegerAttr>("num_cu").getInt();
+  auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
+  int gemmId = 0;
+  if (gemmIdAttr) {
+    gemmId = gemmIdAttr.getInt();
+  }
 
   llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
 
@@ -176,8 +183,8 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
   llvm::SmallVector<int64_t, 0> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 
-  return {archVal,   numCuVal,    opType,    dimIndexVal,
-          strideVal, dilationVal, paddingVal};
+  return {archVal,   numCuVal,    opType,     dimIndexVal,
+          strideVal, dilationVal, paddingVal, gemmId};
 }
 
 } // namespace mlir
