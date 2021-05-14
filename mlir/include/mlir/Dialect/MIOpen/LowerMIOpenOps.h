@@ -586,6 +586,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                               hwPaddedDimNames.begin(),
                                               hwPaddedDimNames.end()))),
                   b.getNamedAttr("transformation", b.getStringAttr("Pad")),
+		  b.getNamedAttr("bound_check", b.getArrayAttr(ArrayRef<Attribute>(
+						   hwDims.begin(), hwDims.end()))),
                   b.getNamedAttr("parameters",
                                  b.getArrayAttr({
                                      b.getI32IntegerAttr(leftPadH),
@@ -761,6 +763,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                      b.getI32IntegerAttr(1),
                                      b.getI32IntegerAttr(0),
                                  })),
+		  b.getNamedAttr("bound_check", b.getArrayAttr({hDim})),
                   b.getNamedAttr("source_dimensions", b.getArrayAttr({hDim})),
                   b.getNamedAttr("source_names", b.getArrayAttr({hDimName})),
               }),
@@ -788,6 +791,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                      b.getI32IntegerAttr(1),
                                      b.getI32IntegerAttr(0),
                                  })),
+		  b.getNamedAttr("bound_check", b.getArrayAttr({wDim})),
                   b.getNamedAttr("source_dimensions", b.getArrayAttr({wDim})),
                   b.getNamedAttr("source_names", b.getArrayAttr({wDimName})),
               }),
