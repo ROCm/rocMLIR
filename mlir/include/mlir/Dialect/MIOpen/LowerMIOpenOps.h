@@ -4220,6 +4220,10 @@ struct ThreadwiseCopyRewritePattern
           scalarValue = b.create<LoadOp>(loc, sourceType.getElementType(),
                                          op.source(), srcLowerIndices);
 
+          // Convert from sourceElementType to destElementType if necessary.
+          Value convertedScalarValue = createTypeConversionOp(
+              b, loc, scalarValue, sourceElementType, destElementType);
+
           // Compute high-level coordinate for dest memref.
           // dst_index = (0, ivo_i32, ivi_i32) + destCoord
           SmallVector<Value, 8> destUpperIndices;
@@ -4244,7 +4248,8 @@ struct ThreadwiseCopyRewritePattern
 
           // Store to dest.
           // Issue scalar store.
-          b.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
+          b.create<StoreOp>(loc, convertedScalarValue, op.dest(),
+                            destLowerIndices);
 
         } // ivi
       }   // ivo
