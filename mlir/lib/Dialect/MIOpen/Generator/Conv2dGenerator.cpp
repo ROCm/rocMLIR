@@ -60,22 +60,22 @@ void strToTokens(const std::string &arguments,
 
 } // namespace
 
-int Conv2dGenerator::getKernelCount() const {
-  int count = 0;
+std::vector<int> Conv2dGenerator::getKernelCount() const {
+  std::vector<int> gemmIds;
   if (config.kernelId > 0) { // generate only 1 specified kernel
-    count = 1;
+    gemmIds.push_back(0);
   } else if (config.operation == "conv2d") {
-    count = 1;
+    gemmIds.push_back(0);
   } else if (config.operation == "conv2d_bwd_data") {
-    count = getBwdDataKernelCount();
+    gemmIds = getBwdDataKernelCount();
   } else if (config.operation == "conv2d_bwd_weight") {
-    count = 1;
+    gemmIds.push_back(0);
   } else if (config.operation == "conv2d_dummy") {
-    count = 1;
+    gemmIds.push_back(0);
   }
-  return count;
+  return gemmIds;
 }
-int Conv2dGenerator::getBwdDataKernelCount() const {
+std::vector<int> Conv2dGenerator::getBwdDataKernelCount() const {
   auto gcdStrideDilationH =
       math::gcd(config.strideHeight, config.dilationHeight);
   auto gcdStrideDilationW = math::gcd(config.strideWidth, config.dilationWidth);
@@ -83,7 +83,22 @@ int Conv2dGenerator::getBwdDataKernelCount() const {
   auto yTilda = config.strideHeight / gcdStrideDilationH;
   auto xTilda = config.strideWidth / gcdStrideDilationW;
 
-  return yTilda * xTilda;
+  auto y = config.y;
+  auto x = config.x;
+  std::vector<int> gemmIds;
+  for (int gemmId = 0; gemmId < yTilda * xTilda; gemmId++) {
+    // gemm_k size is different for each GEMM
+    const auto iYTilda = gemmId / xTilda;
+    const auto iXTilda = gemmId % xTilda;
+
+    auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
+    auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
+
+    if (yDotSlice * xDotSlice > 0)
+      gemmIds.push_back(gemmId);
+  }
+
+  return gemmIds;
 }
 Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   mlir::Type dataType;
@@ -178,7 +193,8 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
                                int64_t inputWidth, int64_t outputChannel,
                                int64_t outputHeight, int64_t outputWidth,
                                int64_t filterHeight, int64_t filterWidth) {
-
+  config.y = filterHeight;
+  config.x = filterWidth;
   static const std::string filterKeys = "kgcyx";
   int64_t filterVals[] = {outputChannel / groupSize, groupSize,
                           inputChannel / groupSize, filterHeight, filterWidth};

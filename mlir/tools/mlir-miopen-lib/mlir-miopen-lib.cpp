@@ -80,7 +80,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     OpBuilder builder(&(handle->context));
 
     handle->arch = conv2dGenerator.getConfig().arch;
-    handle->kernelCount = conv2dGenerator.getKernelCount();
+    handle->kernelCount = conv2dGenerator.getKernelCount().size();
 
     ModuleOp module = handle->getModule();
 

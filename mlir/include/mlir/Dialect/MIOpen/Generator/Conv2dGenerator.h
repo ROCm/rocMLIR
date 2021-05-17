@@ -42,6 +42,9 @@ public:
     SmallVector<int64_t, 5> filterDimension;
     SmallVector<int64_t, 5> inputDimension;
     SmallVector<int64_t, 5> outputDimension;
+
+    int y;
+    int x;
   };
 
   Conv2dGenerator(const std::string &arch = "", int num_cu = 0,
@@ -59,7 +62,7 @@ public:
   const Config &getConfig() const { return config; }
   void setKernelName(std::string newName);
 
-  int getKernelCount() const;
+  std::vector<int> getKernelCount() const;
 
   Type getDataType(OpBuilder &builder) const;
 
@@ -98,7 +101,7 @@ private:
                    });
     return permutation;
   }
-  int getBwdDataKernelCount() const;
+  std::vector<int> getBwdDataKernelCount() const;
 
   // Generator config
   Config config;

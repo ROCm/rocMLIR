@@ -2392,13 +2392,14 @@ int main(int argc, char **argv) {
   if (!populateCpuConvolution.getValue()) {
     if (genConfig.kernelId < 0) {
       // generate all sub-kernels
-      int kernelCount = conv2dGenerator.getKernelCount();
+      std::vector<int> kernelCount = conv2dGenerator.getKernelCount();
       auto knSize = genConfig.kernelName.size();
       std::string kernelBaseName = genConfig.kernelName.substr(0, knSize - 1);
-      for (int i = 0; i < kernelCount; ++i) {
+      for (int i = 0; i < kernelCount.size(); ++i) {
         std::string kName = kernelBaseName + std::to_string(i);
         conv2dGenerator.setKernelName(kName);
-        if (failed(conv2dGenerator.genConvModule(module, builder, i))) {
+        if (failed(conv2dGenerator.genConvModule(module, builder,
+                                                 kernelCount[i]))) {
           llvm::errs() << "Module population failed.\n";
           exit(1);
         }
