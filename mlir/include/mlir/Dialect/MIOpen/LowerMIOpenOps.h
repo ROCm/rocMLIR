@@ -7348,20 +7348,20 @@ struct LowerIndexDiffRewritePattern
         op.upperIndexLength().getDefiningOp<ConstantIndexOp>().getValue();
     int64_t lowerIndexLength =
         op.lowerIndexLength().getDefiningOp<ConstantIndexOp>().getValue();
-    //llvm::errs() << "upper index length: " << upperIndexLength
+    // llvm::errs() << "upper index length: " << upperIndexLength
     //             << "\nlower index length: " << lowerIndexLength << "\n";
 
     // Fetch index upper diff
     SmallVector<Attribute, 2> indexUpperDiff;
-    //llvm::errs() << "index upper diff:\n";
+    // llvm::errs() << "index upper diff:\n";
     for (int64_t iter = 0; iter < upperIndexLength; ++iter) {
       int64_t v = op.upperIndexDiffAndLowerIndexOld()[iter]
                       .getDefiningOp<ConstantIndexOp>()
                       .getValue();
-      //llvm::errs() << v << " ";
+      // llvm::errs() << v << " ";
       indexUpperDiff.push_back(b.getI32IntegerAttr(v));
     }
-    //llvm::errs() << "\n";
+    // llvm::errs() << "\n";
 
     // Fetch index lower old
 
@@ -7379,13 +7379,13 @@ struct LowerIndexDiffRewritePattern
 
     // index lower old as Value instances
     SmallVector<Value, 8> indexLowerOld;
-    //llvm::errs() << "index lower old:\n";
+    // llvm::errs() << "index lower old:\n";
     for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
       auto v = op.upperIndexDiffAndLowerIndexOld()[iter + upperIndexLength];
-      //v.dump();
+      // v.dump();
       indexLowerOld.push_back(v);
     }
-    //llvm::errs() << "\n";
+    // llvm::errs() << "\n";
 
     // Apply map to compute index lower diff tmp, from index upper diff
     // using constantFold.
@@ -7393,20 +7393,20 @@ struct LowerIndexDiffRewritePattern
     SmallVector<int64_t, 4> indexLowerDiffTmp;
     SmallVector<Value, 8> indexLowerDiffTmpOp;
     auto map = op->template getAttrOfType<AffineMapAttr>("map").getValue();
-    //llvm::errs() << "affine transform map: ";
-    //map.dump();
-    //llvm::errs() << "\n";
+    // llvm::errs() << "affine transform map: ";
+    // map.dump();
+    // llvm::errs() << "\n";
     (void)map.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
-    //llvm::errs() << "index lower diff tmp:\n";
+    // llvm::errs() << "index lower diff tmp:\n";
     for (auto attr : indexLowerDiffTmpAttr) {
       int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
-      //llvm::errs() << v << " ";
+      // llvm::errs() << v << " ";
       indexLowerDiffTmp.push_back(v);
 
       auto cv = b.create<ConstantIndexOp>(loc, v);
       indexLowerDiffTmpOp.push_back(cv);
     }
-    //llvm::errs() << "\n";
+    // llvm::errs() << "\n";
 
     // Add: index lower old + index lower diff tmp
 
@@ -7422,29 +7422,29 @@ struct LowerIndexDiffRewritePattern
 
     // index lower new as Value instances.
     SmallVector<Value, 8> indexLowerNew;
-    //llvm::errs() << "index lower new before borrow/carry:\n";
+    // llvm::errs() << "index lower new before borrow/carry:\n";
     for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
       Value v =
           b.create<AddIOp>(loc, indexLowerOld[iter], indexLowerDiffTmpOp[iter]);
-      //v.dump();
+      // v.dump();
       indexLowerNew.push_back(v);
     }
-    //llvm::errs() << "\n";
+    // llvm::errs() << "\n";
 
     // Get bounds.
     SmallVector<int64_t, 4> bound;
     SmallVector<Value, 4> boundOp;
     auto boundAttr = op->template getAttrOfType<ArrayAttr>("bound").getValue();
-    //llvm::errs() << "bound:\n";
+    // llvm::errs() << "bound:\n";
     for (auto attr : boundAttr) {
       int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
-      //llvm::errs() << v << " ";
+      // llvm::errs() << v << " ";
       bound.push_back(v);
 
       auto cv = b.create<ConstantIndexOp>(loc, v);
       boundOp.push_back(cv);
     }
-    //llvm::errs() << "\n";
+    // llvm::errs() << "\n";
 
     // Apply carry / borrow logic to compute index lower new
 
@@ -7499,7 +7499,7 @@ struct LowerIndexDiffRewritePattern
                                                     constantZeroOp);
         ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
 
-        //ifCarryOp.dump();
+        // ifCarryOp.dump();
 
         auto carriedResult = ifCarryOp.results()[0];
         indexLowerNewCarried.push_back(carriedResult);
@@ -7508,7 +7508,7 @@ struct LowerIndexDiffRewritePattern
         carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult,
                                    boundOp[iter]);
 
-        //carryOp.dump();
+        // carryOp.dump();
 
         // overflow logic.
         auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIndexType(), carryOp,
@@ -7522,7 +7522,7 @@ struct LowerIndexDiffRewritePattern
                                                        constantZeroOp);
         ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
 
-        //ifOverflowOp.dump();
+        // ifOverflowOp.dump();
 
         auto updatedResult = ifOverflowOp.results()[0];
         indexLowerNewUpdated.push_back(updatedResult);
@@ -7550,16 +7550,16 @@ struct LowerIndexDiffRewritePattern
       indexLowerDiff.push_back(op.upperIndexDiffAndLowerIndexOld()[iter]);
     }
 
-    //llvm::errs() << "index lower diff:\n";
+    // llvm::errs() << "index lower diff:\n";
     for (int64_t iter = 0; iter < lowerIndexLength; ++iter) {
       Value v = b.create<SubIOp>(loc, indexLowerNewUpdated[iter],
                                  indexLowerOld[iter]);
-      //v.dump();
+      // v.dump();
       indexLowerDiff.push_back(v);
     }
-    //llvm::errs() << "\n";
+    // llvm::errs() << "\n";
 
-    //op.getOperation()->getBlock()->dump();
+    // op.getOperation()->getBlock()->dump();
     op.replaceAllUsesWith(indexLowerDiff);
     op.erase();
     return success();
