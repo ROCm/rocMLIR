@@ -4193,13 +4193,16 @@ struct ThreadwiseCopyRewritePattern
               b.create<ConstantIntOp>(loc, ivi, b.getIntegerType(32));
 
           // Compute high-level coordinate for source memref.
-          // src_index = (ivo_i32, ivi_i32) + sourceCoord
+          // src_index = (0, ivo_i32, ivi_i32) + sourceCoord
           SmallVector<Value, 8> srcUpperIndices;
           srcUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, ivo_i32, sourceCoord[0]),
+              loc, b.create<AddIOp>(loc, zeroConstantOp, sourceCoord[0]),
               b.getIndexType()));
           srcUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, ivi_i32, sourceCoord[1]),
+              loc, b.create<AddIOp>(loc, ivo_i32, sourceCoord[1]),
+              b.getIndexType()));
+          srcUpperIndices.push_back(b.create<IndexCastOp>(
+              loc, b.create<AddIOp>(loc, ivi_i32, sourceCoord[2]),
               b.getIndexType()));
 
           // Apply affine transformations to compute the low-level coordinate.
@@ -4218,13 +4221,16 @@ struct ThreadwiseCopyRewritePattern
                                          op.source(), srcLowerIndices);
 
           // Compute high-level coordinate for dest memref.
-          // dst_index = (ivo_i32, ivi_i32) + destCoord
+          // dst_index = (0, ivo_i32, ivi_i32) + destCoord
           SmallVector<Value, 8> destUpperIndices;
           destUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, ivo_i32, destCoord[0]),
+              loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
               b.getIndexType()));
           destUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, ivi_i32, destCoord[1]),
+              loc, b.create<AddIOp>(loc, ivo_i32, destCoord[1]),
+              b.getIndexType()));
+          destUpperIndices.push_back(b.create<IndexCastOp>(
+              loc, b.create<AddIOp>(loc, ivi_i32, destCoord[2]),
               b.getIndexType()));
 
           // Apply affine transformations to compute the low-level coordinate.
