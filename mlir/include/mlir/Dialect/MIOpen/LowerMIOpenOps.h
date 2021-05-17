@@ -7627,7 +7627,7 @@ struct ThreadwiseLoadRewritePattern
     auto resultType = op.result().getType();
     auto dataType = sourceType.getElementType();
 
-    auto oneItemAttr = op.getAttr("oneItem");
+    auto oneItemAttr = op->getAttr("oneItem");
 
     // Get source and dest coordinates.
     //
@@ -7638,7 +7638,7 @@ struct ThreadwiseLoadRewritePattern
     auto sourceCoord = op.sourceCoord();
     auto sourceTypeAffineMaps = sourceType.getAffineMaps();
     auto coordTransformsAttr =
-        op.getAttr("coord_transforms").template cast<ArrayAttr>();
+        op->getAttr("coord_transforms").template cast<ArrayAttr>();
 
     unsigned sourceCoordLength = sourceType.getRank();
 
@@ -7682,15 +7682,16 @@ struct ThreadwiseLoadRewritePattern
     // llvm::errs() << "\n";
 
     auto dimAccessOrder =
-        op.getAttr("dim_access_order").template cast<ArrayAttr>();
-    auto vectorAccessDim = op.getAttr("vector_read_write_dim")
+        op->getAttr("dim_access_order").template cast<ArrayAttr>();
+    auto vectorAccessDim = op->getAttr("vector_read_write_dim")
                                .template cast<IntegerAttr>()
                                .getInt();
-    auto srcDataPerRead = op.getAttr("source_data_per_read")
+    auto srcDataPerRead = op->getAttr("source_data_per_read")
                               .template cast<IntegerAttr>()
                               .getInt();
-    auto destDataPerWrite =
-        op.getAttr("dest_data_per_write").template cast<IntegerAttr>().getInt();
+    auto destDataPerWrite = op->getAttr("dest_data_per_write")
+                                .template cast<IntegerAttr>()
+                                .getInt();
 
     auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
 
@@ -7710,8 +7711,8 @@ struct ThreadwiseLoadRewritePattern
             dictAttr.get("operand").template cast<IntegerAttr>().getInt();
         if (operandIndex == 0) {
           // bound attribute take precendence over domain attribute.
-          if (op.getAttr("bound")) {
-            auto boundAttr = op.getAttr("bound").template cast<ArrayAttr>();
+          if (op->getAttr("bound")) {
+            auto boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
             for (unsigned i = 0; i < boundAttr.size(); ++i)
               sliceLengths.push_back(
                   boundAttr[i].template cast<IntegerAttr>().getInt());
@@ -7976,7 +7977,7 @@ struct ThreadwiseStoreRewritePattern
     auto valueType = op.data().getType();
     auto dataType = destType.getElementType();
 
-    auto oneItemAttr = op.getAttr("oneItem");
+    auto oneItemAttr = op->getAttr("oneItem");
 
     // Get dest coordinates.
     //
@@ -7987,7 +7988,7 @@ struct ThreadwiseStoreRewritePattern
     auto destCoord = op.destCoord();
     auto destTypeAffineMaps = destType.getAffineMaps();
     auto coordTransformsAttr =
-        op.getAttr("coord_transforms").template cast<ArrayAttr>();
+        op->getAttr("coord_transforms").template cast<ArrayAttr>();
 
     unsigned destCoordLength = destType.getRank();
 
@@ -8031,15 +8032,16 @@ struct ThreadwiseStoreRewritePattern
     // llvm::errs() << "\n";
 
     auto dimAccessOrder =
-        op.getAttr("dim_access_order").template cast<ArrayAttr>();
-    auto vectorAccessDim = op.getAttr("vector_read_write_dim")
+        op->getAttr("dim_access_order").template cast<ArrayAttr>();
+    auto vectorAccessDim = op->getAttr("vector_read_write_dim")
                                .template cast<IntegerAttr>()
                                .getInt();
-    auto srcDataPerRead = op.getAttr("source_data_per_read")
+    auto srcDataPerRead = op->getAttr("source_data_per_read")
                               .template cast<IntegerAttr>()
                               .getInt();
-    auto destDataPerWrite =
-        op.getAttr("dest_data_per_write").template cast<IntegerAttr>().getInt();
+    auto destDataPerWrite = op->getAttr("dest_data_per_write")
+                                .template cast<IntegerAttr>()
+                                .getInt();
 
     auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
 
