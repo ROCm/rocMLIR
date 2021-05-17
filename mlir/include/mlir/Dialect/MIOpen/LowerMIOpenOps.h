@@ -6525,6 +6525,10 @@ struct ThreadwiseCopyV2RewritePattern
       } else if (dataType == b.getF16Type()) {
         auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
         b.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
+      } else if (dataType == b.getIntegerType(16)) {
+        auto convertValue =
+            b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
+        b.create<StoreOp>(loc, convertValue, op.dest(), destLowerIndices);
       }
 
       // increase IVs
