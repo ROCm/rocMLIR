@@ -7616,16 +7616,11 @@ struct ThreadwiseLoadRewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
-    auto zeroConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     auto sourceType = op.source().getType().cast<MemRefType>();
     auto resultType = op.result().getType();
-    auto dataType = sourceType.getElementType();
 
     auto oneItemAttr = op->getAttr("oneItem");
 
@@ -7805,7 +7800,8 @@ struct ThreadwiseLoadRewritePattern
           indexLowerDiffTmpAttr.assign(indexUpperDiff.begin(),
                                        indexUpperDiff.end());
         } else {
-          sourceTransform.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
+          (void)sourceTransform.constantFold(indexUpperDiff,
+                                             indexLowerDiffTmpAttr);
         }
         // llvm::errs() << "source index lower diff tmp:\n";
         for (auto attr : indexLowerDiffTmpAttr) {
@@ -7821,7 +7817,7 @@ struct ThreadwiseLoadRewritePattern
         // Add: index lower old + index lower diff tmp
         SmallVector<Value, 8> indexLowerNew;
         // llvm::errs() << "index lower new before borrow/carry:\n";
-        for (int64_t iter = 0; iter < sourceType.getShape().size(); ++iter) {
+        for (unsigned iter = 0; iter < sourceType.getShape().size(); ++iter) {
           Value v = b.create<AddIOp>(loc, srcLowerCoord[iter],
                                      indexLowerDiffTmpOp[iter]);
           // v.dump();
@@ -7966,10 +7962,6 @@ struct ThreadwiseStoreRewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
-    auto zeroConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(0.0f), b.getF32Type());
-    auto oneConstantFloatOp =
-        b.create<ConstantFloatOp>(loc, APFloat(1.0f), b.getF32Type());
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
@@ -8139,7 +8131,8 @@ struct ThreadwiseStoreRewritePattern
           // llvm::errs() << "dest affine transform map: ";
           // destTransform.dump();
           // llvm::errs() << "\n";
-          destTransform.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
+          (void)destTransform.constantFold(indexUpperDiff,
+                                           indexLowerDiffTmpAttr);
         }
         // llvm::errs() << "dest index lower diff tmp:\n";
         for (auto attr : indexLowerDiffTmpAttr) {
@@ -8155,7 +8148,7 @@ struct ThreadwiseStoreRewritePattern
         // Add: index lower old + index lower diff tmp
         SmallVector<Value, 8> indexLowerNew;
         // llvm::errs() << "index lower new before borrow/carry:\n";
-        for (int64_t iter = 0; iter < destType.getShape().size(); ++iter) {
+        for (unsigned iter = 0; iter < destType.getShape().size(); ++iter) {
           Value v = b.create<AddIOp>(loc, destLowerCoord[iter],
                                      indexLowerDiffTmpOp[iter]);
           // v.dump();
