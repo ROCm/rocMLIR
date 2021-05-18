@@ -63,7 +63,7 @@ pipeline {
                     --log-level=WARNING
                     -DCMAKE_RULE_MESSAGES=OFF
                     '''
-                            sh 'cd build; make -j $(nproc) libMLIRMIOpen all install'
+                            sh 'cd build; make -j $(nproc) libMLIRMIOpen all install >/dev/null'
                         }
                     }
                     stage('Build MIOpenDriver') {
