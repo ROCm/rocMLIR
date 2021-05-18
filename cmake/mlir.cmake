@@ -1,5 +1,7 @@
 message(STATUS "Adding LLVM git-submodule src dependency")
 
+set(CMAKE_BUILD_TYPE Release CACHE INTERNAL "")
+
 # Forbid implicit function declaration: this may lead to subtle bugs and we
 # don't have a reason to support this.
 check_c_compiler_flag("-Werror=implicit-function-declaration" C_SUPPORTS_WERROR_IMPLICIT_FUNCTION_DECLARATION)
@@ -14,24 +16,34 @@ else()
 endif()
 add_definitions(-DMLIR_ROCM_CONVERSIONS_ENABLED=${MLIR_ROCM_CONVERSIONS_ENABLED})
 
+# MLIR settings
 set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "Enable building the mlir ROCm runner")
+set(MLIR_ENABLE_SQLITE ON CACHE BOOL "")
+set(MLIR_TABLEGEN_EXE mlir-tblgen)
 
 # LLVM settings
 set(LLVM_ENABLE_PROJECTS "mlir;lld" CACHE STRING "List of default llvm targets")
 set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
 set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
-set(CMAKE_BUILD_TYPE Release CACHE INTERNAL "")
 set(LLVM_INSTALL_UTILS ON CACHE BOOL "")
 set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
 set(LLVM_ENABLE_ASSERTIONS ON CACHE BOOL "")
-set(MLIR_ENABLE_SQLITE ON CACHE BOOL "")
-
-set(MLIR_TABLEGEN_EXE mlir-tblgen)
 set(LLVM_PROJ_SRC "${CMAKE_SOURCE_DIR}/external/llvm-project")
 
-add_subdirectory("${LLVM_PROJ_SRC}/llvm" "external/llvm-project/llvm" EXCLUDE_FROM_ALL)
+# Configure ROCm support.
+if (NOT DEFINED ROCM_PATH)
+  if (NOT DEFINED ENV{ROCM_PATH})
+    set(ROCM_PATH "/opt/rocm" CACHE PATH "Path to which ROCm has been installed")
+  else()
+    set(ROCM_PATH $ENV{ROCM_PATH} CACHE PATH "Path to which ROCm has been installed")
+  endif()
+endif()
+message(STATUS "ROCM_PATH: ${ROCM_PATH}")
 
 # Cmake module paths
+list(APPEND CMAKE_MODULE_PATH
+  "${ROCM_PATH}/hip/cmake"
+)
 list(APPEND CMAKE_MODULE_PATH
   "${CMAKE_CURRENT_BINARY_DIR}/lib/cmake/mlir"
 )
@@ -53,3 +65,5 @@ list(APPEND LLVM_INCLUDE_DIRS
 list(APPEND CMAKE_EXE_LINKER_FLAGS
   " -Wl,-rpath -Wl,${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/lib"
 )
+
+add_subdirectory("${LLVM_PROJ_SRC}/llvm" "external/llvm-project/llvm" EXCLUDE_FROM_ALL)
