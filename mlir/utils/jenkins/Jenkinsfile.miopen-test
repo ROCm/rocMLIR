@@ -98,9 +98,4 @@ ${XDLOPS == '1' ? '--xdlops' : '--no-xdlops'} <${WORKSPACE}/mlir/utils/jenkins/m
             }
         }
     }
-    post {
-        always {
-            cleanWs()
-        }
-    }
 }
