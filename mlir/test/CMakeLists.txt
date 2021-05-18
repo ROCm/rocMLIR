@@ -1,8 +1,8 @@
-add_subdirectory(Bindings)
-add_subdirectory(CAPI)
-add_subdirectory(EDSC)
-add_subdirectory(SDBM)
-add_subdirectory(lib)
+#add_subdirectory(Bindings)
+#add_subdirectory(CAPI)
+#add_subdirectory(EDSC)
+#add_subdirectory(SDBM)
+#add_subdirectory(lib)
 
 llvm_canonicalize_cmake_booleans(
   MLIR_BINDINGS_PYTHON_ENABLED
@@ -22,15 +22,15 @@ set(MLIR_CMAKE_CONFIG_DIR
 
 # Passed to lit.site.cfg.py.in to set up the path where to find the libraries
 # for linalg integration tests.
-set(MLIR_DIALECT_LINALG_INTEGRATION_TEST_LIB_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+#set(MLIR_DIALECT_LINALG_INTEGRATION_TEST_LIB_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 set(MLIR_RUNNER_UTILS_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 
 # Passed to lit.site.cfg.py.in to set up the path where to find the libraries
 # for the mlir cuda / rocm / spirv / vulkan runner tests.
-set(MLIR_CUDA_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+#set(MLIR_CUDA_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 set(MLIR_ROCM_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
-set(MLIR_SPIRV_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
-set(MLIR_VULKAN_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+#set(MLIR_SPIRV_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+#set(MLIR_VULKAN_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 
 # Passed to lit.site.cfg.py.in to set the -x2 flag for the mlir E2E tests.
 set(MLIR_XDLOPS "")
@@ -65,14 +65,14 @@ configure_lit_site_cfg(
 
 set(MLIR_TEST_DEPENDS
   FileCheck count not
-  mlir-capi-ir-test
-  mlir-capi-pass-test
-  mlir-cpu-runner
-  mlir-edsc-builder-api-test
-  mlir-linalg-ods-gen
+#  mlir-capi-ir-test
+#  mlir-capi-pass-test
+#  mlir-cpu-runner
+#  mlir-edsc-builder-api-test
+#  mlir-linalg-ods-gen
   mlir-opt
   mlir-reduce
-  mlir-sdbm-api-test
+#  mlir-sdbm-api-test
   mlir-tblgen
   mlir-translate
   mlir_runner_utils
@@ -84,23 +84,23 @@ if(TARGET gtest)
   list(APPEND MLIR_TEST_DEPENDS MLIRUnitTests)
 endif()
 
-if(LLVM_BUILD_EXAMPLES)
-  list(APPEND MLIR_TEST_DEPENDS
-    toyc-ch1
-    toyc-ch2
-    toyc-ch3
-    toyc-ch4
-    toyc-ch5
-    toyc-ch6
-    toyc-ch7
-    )
-endif()
+#if(LLVM_BUILD_EXAMPLES)
+#  list(APPEND MLIR_TEST_DEPENDS
+#    toyc-ch1
+#    toyc-ch2
+#    toyc-ch3
+#    toyc-ch4
+#    toyc-ch5
+#    toyc-ch6
+#    toyc-ch7
+#    )
+#endif()
 
-if(MLIR_CUDA_RUNNER_ENABLED)
-  list(APPEND MLIR_TEST_DEPENDS
-    mlir-cuda-runner
-  )
-endif()
+#if(MLIR_CUDA_RUNNER_ENABLED)
+#  list(APPEND MLIR_TEST_DEPENDS
+#    mlir-cuda-runner
+#  )
+#endif()
 
 if(MLIR_ROCM_RUNNER_ENABLED)
   list(APPEND MLIR_TEST_DEPENDS
@@ -108,19 +108,19 @@ if(MLIR_ROCM_RUNNER_ENABLED)
   )
 endif()
 
-if(MLIR_SPIRV_CPU_RUNNER_ENABLED)
-  add_subdirectory(mlir-spirv-cpu-runner)
-  list(APPEND MLIR_TEST_DEPENDS
-    mlir-spirv-cpu-runner
-    mlir_test_spirv_cpu_runner_c_wrappers
-  )
-endif()
+#if(MLIR_SPIRV_CPU_RUNNER_ENABLED)
+#  add_subdirectory(mlir-spirv-cpu-runner)
+#  list(APPEND MLIR_TEST_DEPENDS
+#    mlir-spirv-cpu-runner
+#    mlir_test_spirv_cpu_runner_c_wrappers
+#  )
+#endif()
 
-if(MLIR_VULKAN_RUNNER_ENABLED)
-  list(APPEND MLIR_TEST_DEPENDS
-    mlir-vulkan-runner
-  )
-endif()
+#if(MLIR_VULKAN_RUNNER_ENABLED)
+#  list(APPEND MLIR_TEST_DEPENDS
+#    mlir-vulkan-runner
+#  )
+#endif()
 
 if(MLIR_BINDINGS_PYTHON_ENABLED)
   list(APPEND MLIR_TEST_DEPENDS
@@ -141,14 +141,14 @@ if(MLIR_MIOPEN_DRIVER_ENABLED)
     )
 endif()
 
-# check-mlir runs MLIR regression tests including E2E tests 
+# check-mlir-miopen runs MLIR-MIOpen regression tests including E2E tests 
 # when MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED is set
-add_lit_testsuite(check-mlir "Running the MLIR regression tests"
+add_lit_testsuite(check-mlir-miopen "Running the MLIR-MIOpen regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}
   DEPENDS ${MLIR_TEST_DEPENDS}
   )
-set_target_properties(check-mlir PROPERTIES FOLDER "Tests")
+set_target_properties(check-mlir-miopen PROPERTIES FOLDER "Tests")
 
-add_lit_testsuites(MLIR ${CMAKE_CURRENT_SOURCE_DIR}
+add_lit_testsuites(MLIR-MIOPEN ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS ${MLIR_TEST_DEPENDS}
 )
