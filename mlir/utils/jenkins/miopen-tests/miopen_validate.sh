@@ -78,8 +78,6 @@ function create_configs() {
        echo "$0: Couldn't make tempfile: $TMPFILE"
        exit 1
     fi
-    # Clever thing that makes sure the file doesn't hang around, per
-    # https://stackoverflow.com/questions/55435352
 
     local line="#"
     while IFS= read -r line; do
