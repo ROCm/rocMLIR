@@ -68,7 +68,7 @@ pipeline {
                     stage('Build MIOpenDriver') {
                         steps {
                             dir('MIOpen') {
-                                git poll: false, url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+                                git branch: 'develop', poll: false, url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                                 cmakeBuild buildDir: 'build',\
                                    buildType: 'Release',\
                                    installation: 'InDocker',\
