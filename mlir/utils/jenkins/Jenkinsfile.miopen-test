@@ -68,7 +68,7 @@ pipeline {
                     stage('Build MIOpenDriver') {
                         steps {
                             dir('MIOpen') {
-                                git branch: 'develop', poll: false, url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+                                git branch: 'igemm-bin-xdlops', poll: false, url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                                 cmakeBuild buildDir: 'build',\
                                    buildType: 'Release',\
                                    installation: 'InDocker',\
