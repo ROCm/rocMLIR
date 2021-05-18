@@ -59,10 +59,11 @@ pipeline {
                     -DBUILD_SHARED_LIBS=OFF
                     -DLLVM_BUILD_LLVM_DYLIB=OFF
                     -DLLVM_ENABLE_TERMINFO=OFF
+                    -DCMAKE_INSTALL_PREFIX=/opt/rocm
                     --log-level=WARNING
                     -DCMAKE_RULE_MESSAGES=OFF
                     '''
-                            sh 'cd build; make -j $(nproc) libMLIRMIOpen'
+                            sh 'cd build; make -j $(nproc) libMLIRMIOpen all install'
                         }
                     }
                     stage('Build MIOpenDriver') {
@@ -96,11 +97,6 @@ bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
 ${XDLOPS == '1' ? '--xdlops' : '--no-xdlops'} <${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
                             }
                         }
-                    }
-                }
-                post {
-                    always {
-                        cleanWs()
                     }
                 }
             }
