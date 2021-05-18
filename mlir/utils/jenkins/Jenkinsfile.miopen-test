@@ -1,7 +1,7 @@
 pipeline {
     agent none
     stages {
-        stage("Carry out test") {
+        stage("Resnet50 configs nightly tests") {
             // Note: the builds are reused between cases on each node
             // It may be possible to move build steps out to execute once
             // but this could cause issues with target-specific code
@@ -12,7 +12,6 @@ pipeline {
                         image 'rocm/mlir:miopen_test'
                         args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
                         label "${XDLOPS == '1' ? 'gfx908 && multi_gpu' : 'gfx908 && multi_gpu'}"
-                        // The above could have gfx900 || gfx908 in the latter half
                     }
                 }
                 axes {
@@ -36,12 +35,12 @@ pipeline {
                 stages {
                     stage('Install parallel (temp until dockerfile updated)') {
                         steps {
-                            sh 'apt-get update && apt-get install -y --no-install-recommends parallel'
+                            sh 'apt-get update 2>&1 >/dev/null && apt-get install -y --no-install-recommends parallel 2>&1 >/dev/null'
                         }
                     }
                     stage('Environment') {
                         steps {
-                            echo "Config is ($DTYPE, $LAYOUT, $XDLOPS, dir: $DIRECTION)"
+                            echo "Config is ($DTYPE, $LAYOUT, xdlops=$XDLOPS, dir=$DIRECTION)"
                             sh 'cat /etc/os-release'
                             sh '/opt/rocm/bin/rocm-smi'
                         }
@@ -60,6 +59,8 @@ pipeline {
                     -DBUILD_SHARED_LIBS=OFF
                     -DLLVM_BUILD_LLVM_DYLIB=OFF
                     -DLLVM_ENABLE_TERMINFO=OFF
+                    --log-level=WARNING
+                    -DCMAKE_RULE_MESSAGES=OFF
                     '''
                             sh 'cd build; make -j $(nproc) libMLIRMIOpen'
                         }
@@ -67,7 +68,7 @@ pipeline {
                     stage('Build MIOpenDriver') {
                         steps {
                             dir('MIOpen') {
-                                git branch: 'igemm-bin-xdlops', poll: false, url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+                                git branch:  poll: false, url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                                 cmakeBuild buildDir: 'build',\
                                    buildType: 'Release',\
                                    installation: 'InDocker',\
@@ -76,6 +77,8 @@ pipeline {
 -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
 -DBUILD_DEV=On
 -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
+--log-level=WARNING
+-DCMAKE_RULE_MESSAGES=OFF
 '''
                                 sh 'cd build; make -j $(nproc) MIOpenDriver'
                             }
@@ -83,7 +86,7 @@ pipeline {
                     }
                     stage("Test MIOpen config") {
                         steps {
-                            echo "Config is ($DTYPE, $LAYOUT, $XDLOPS, dir: $DIRECTION)"
+                            echo "Config is ($DTYPE, $LAYOUT, xdlops=$XDLOPS, dir=$DIRECTION)"
                             dir('MIOpen/build/') {
                                 sh """
 bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
