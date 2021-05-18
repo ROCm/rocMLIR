@@ -11,7 +11,7 @@ pipeline {
                     docker {
                         image 'rocm/mlir:miopen_test'
                         args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
-                        label "${XDLOPS == '1' ? 'gfx908' : 'gfx908'}"
+                        label "${XDLOPS == '1' ? 'gfx908 && multi_gpu' : 'gfx908 && multi_gpu'}"
                         // The above could have gfx900 || gfx908 in the latter half
                     }
                 }
