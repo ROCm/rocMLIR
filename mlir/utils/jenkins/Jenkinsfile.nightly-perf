@@ -1,0 +1,87 @@
+pipeline {
+    agent {
+        docker {
+            image 'rocm/mlir:rocm4.1-latest'
+            args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+            label 'mlir'
+            alwaysPull true
+        }
+    }
+    stages {
+        stage('Environment') {
+            steps {
+                sh 'cat /etc/os-release'
+                sh '/opt/rocm/bin/rocm-smi'
+            }
+        }
+        stage('Build MIOpen') {
+            steps {
+                checkout scm
+                sh '''
+                    cd ~
+                    git clone https://github.com/ROCmSoftwarePlatform/MIOpen
+                    cd MIOpen
+                    cmake -P install_deps.cmake --minimum
+                    mkdir -p build && cd build
+                    CXX=/opt/rocm/llvm/bin/clang++ cmake \
+                        -DCMAKE_BUILD_TYPE=release \
+                        -DMIOPEN_BACKEND=HIP \
+                        -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local" \
+                        -DCMAKE_INSTALL_PREFIX=/opt/rocm/ ..
+                    make -j install
+                '''
+            }
+        }
+        stage('Build MLIR') {
+            steps {
+                checkout scm
+                sh '''
+                    mkdir -p build && cd build
+                    # Set the path to llvm-symbolizer
+                    PATH=$PATH:/opt/rocm-4.1.1/llvm/bin/
+
+                    cmake -G Ninja ../llvm \
+                        -DLLVM_ENABLE_PROJECTS="mlir;lld" \
+                        -DLLVM_BUILD_EXAMPLES=ON \
+                        -DLLVM_TARGETS_TO_BUILD="X86;AMDGPU" \
+                        -DCMAKE_BUILD_TYPE=Release \
+                        -DLLVM_ENABLE_ASSERTIONS=ON \
+                        -DBUILD_SHARED_LIBS=ON \
+                        -DLLVM_BUILD_LLVM_DYLIB=ON \
+                        -DMLIR_ROCM_RUNNER_ENABLED=1 \
+                        -DMLIR_MIOPEN_DRIVER_ENABLED=1
+                        # if we open sqlite, step4 lowering failed until adding the custom db
+                        # -DMLIR_MIOPEN_SQLITE_ENABLED=1
+
+                    cmake --build . --target mlir-miopen-driver
+                    cmake --build . --target mlir-rocm-runner
+                '''
+            }
+        }
+        stage('Performance Test') {
+            steps {
+                sh '''
+                    cd build
+                    cmake --build . --target MIOpenDriver.py
+
+                    pip3 install PrettyTable
+                    # Run MLIR perf benchmarks.
+                    python3 ./MIOpenDriver.py
+                '''
+                publishHTML (target: [
+                    allowMissing: false,
+                    alwaysLinkToLastBuild: false,
+                    keepAll: true,
+                    reportDir: 'build',
+                    reportFiles: 'MLIR_vs_MIOpen.html',
+                    reportName: "MLIR vs MIOpen performance"
+                 ])
+            }
+        }
+    }
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
