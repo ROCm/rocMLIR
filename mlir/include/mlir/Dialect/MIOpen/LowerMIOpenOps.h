@@ -41,6 +41,7 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "utility/math.hpp"
 #include "llvm/ADT/SmallVector.h"
+#include <map>
 
 using namespace mlir;
 using namespace mlir::miopen;
@@ -183,6 +184,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // get y, x, ho, wo, hi, wi, k, c, n
     int64_t y, x, ho, wo, hi, wi, k, c, n;
     y = x = ho = wo = hi = wi = k = c = n = 0;
+    std::map<StringRef, int> nameToDims;
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
@@ -190,6 +192,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
       auto outputAttr =
           outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+
+      nameToDims[filterAttr.getValue()] = i;
+      nameToDims[inputAttr.getValue()] = i;
+      nameToDims[outputAttr.getValue()] = i;
 
       if (filterAttr.getValue() == "y") {
         y = filterShape[i];
@@ -721,6 +727,37 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         }
       }
 
+      llvm::SmallVector<NamedAttribute, 7> hwPad{
+          b.getNamedAttr("dimensions", b.getArrayAttr(ArrayRef<Attribute>(
+                                           hwDims.begin(), hwDims.end()))),
+          b.getNamedAttr(
+              "names", b.getArrayAttr(ArrayRef<Attribute>(
+                           hwPaddedDimNames.begin(), hwPaddedDimNames.end()))),
+          b.getNamedAttr("transformation", b.getStringAttr("Pad")),
+          b.getNamedAttr("parameters", b.getArrayAttr({
+                                           b.getI32IntegerAttr(leftPadH),
+                                           b.getI32IntegerAttr(rightPadH),
+                                           b.getI32IntegerAttr(leftPadW),
+                                           b.getI32IntegerAttr(rightPadW),
+                                       })),
+          b.getNamedAttr("source_dimensions",
+                         b.getArrayAttr(ArrayRef<Attribute>(hwDims.begin(),
+                                                            hwDims.end()))),
+          b.getNamedAttr("source_names",
+                         b.getArrayAttr(ArrayRef<Attribute>(hwDimNames.begin(),
+                                                            hwDimNames.end()))),
+      };
+      llvm::SmallVector<IntegerAttr, 2> padDim;
+      if (leftPadH || rightPadH) {
+        padDim.push_back(b.getI32IntegerAttr(nameToDims["hi"]));
+      }
+      if (leftPadW || rightPadW) {
+        padDim.push_back(b.getI32IntegerAttr(nameToDims["wi"]));
+      }
+      if (padDim.size()) {
+        hwPad.push_back(b.getNamedAttr(
+            "bound_check", b.getArrayAttr({padDim.begin(), padDim.end()})));
+      }
       paddedInputAttrs.push_back(b.getNamedAttr(
           "layout",
           b.getArrayAttr({
@@ -754,28 +791,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               }),
 
               // Part 3: Pad for h/w dimensions.
-              b.getDictionaryAttr({
-                  b.getNamedAttr("dimensions",
-                                 b.getArrayAttr(ArrayRef<Attribute>(
-                                     hwDims.begin(), hwDims.end()))),
-                  b.getNamedAttr("names", b.getArrayAttr(ArrayRef<Attribute>(
-                                              hwPaddedDimNames.begin(),
-                                              hwPaddedDimNames.end()))),
-                  b.getNamedAttr("transformation", b.getStringAttr("Pad")),
-                  b.getNamedAttr("parameters",
-                                 b.getArrayAttr({
-                                     b.getI32IntegerAttr(leftPadH),
-                                     b.getI32IntegerAttr(rightPadH),
-                                     b.getI32IntegerAttr(leftPadW),
-                                     b.getI32IntegerAttr(rightPadW),
-                                 })),
-                  b.getNamedAttr("source_dimensions",
-                                 b.getArrayAttr(ArrayRef<Attribute>(
-                                     hwDims.begin(), hwDims.end()))),
-                  b.getNamedAttr("source_names",
-                                 b.getArrayAttr(ArrayRef<Attribute>(
-                                     hwDimNames.begin(), hwDimNames.end()))),
-              }),
+              b.getDictionaryAttr({hwPad.begin(), hwPad.end()}),
           })));
     }
     // set source_layout attribute.
