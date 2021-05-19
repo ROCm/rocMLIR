@@ -107,6 +107,7 @@ function clean_miopen_caches() {
 }
 
 function setup_environment() {
+    export MIOPEN_FIND_MODE=1
     export MIOPEN_DRIVER_USE_GPU_REFERENCE=1
 
     declare -xg MIOPEN_DEBUG_FIND_ONLY_SOLVER
