@@ -4023,13 +4023,16 @@ struct ThreadwiseCopyRewritePattern
     // Determine if we need to emit codes for out-of-bound check.
     bool toEmitOOBCheckLogic = false;
     SmallVector<unsigned, 2> oobCheckDims;
-    if (limitDimTransform) {
-      auto limits = limitDimTransform.getResults();
-      for (unsigned iter = 0; iter < limits.size(); ++iter) {
-        auto expr = limits[iter];
-        if (isOOBCheck(expr)) {
-          oobCheckDims.push_back(iter);
-          toEmitOOBCheckLogic = true;
+    if (sourceTransform && limitDimTransform) {
+      if (sourceTransform.getNumResults() ==
+          limitDimTransform.getNumResults()) {
+        for (unsigned iter = 0; iter < limitDimTransform.getNumResults();
+             ++iter) {
+          auto expr = limitDimTransform.getResult(iter);
+          if (isOOBCheck(expr)) {
+            oobCheckDims.push_back(iter);
+            toEmitOOBCheckLogic = true;
+          }
         }
       }
     }
