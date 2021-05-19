@@ -9,10 +9,21 @@ declare -g LAYOUT=""
 declare -g DRIVER="./bin/MIOpenDriver"
 
 function usage() {
-    echo "$0: [-d | --direction] DIR [-t | --dtype] [fp16 | fp32] \
-[-l | --layout] LAYOUT [-x | --xdlops] [-X | --no-xdlops (default)]\
-[--driver DRIVER]\
-then pass in configs on standard input"
+    cat <<END
+$0: [-d | --direction] DIR [-t | --dtype] [fp16 | fp32]
+[-l | --layout] LAYOUT [-x | --xdlops] [-X | --no-xdlops (default)]
+[--driver DRIVER (default bin/MIOpenDriver)]
+
+DIR is either 1 (forward) or 4 (backwards with regard to weights (wrw))
+In general, it's a bitmask of these and 2 (backward),
+but other values are currently unsupported for testing.
+
+LAYOUT is a four-letter string containing the letters N, C, H, and W
+that specifies the memory layout to test.
+
+Configs (lists of arguments to the driver) should be sent on
+standard input.
+END
     exit 2
 }
 
@@ -22,8 +33,8 @@ function parse_options() {
     local -i got_direction=0
 
     local parsed_args
-    parsed_args=$(getopt -n "$0" -o d:t:l:xX \
-                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver: -- "$@")
+    parsed_args=$(getopt -n "$0" -o d:t:l:xXh \
+                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver:,help -- "$@")
     local -i valid_args=$?
     if [[ $valid_args -ne 0 ]]; then
         usage
@@ -32,6 +43,7 @@ function parse_options() {
     while :
     do
         case "$1" in
+            -h | --help ) usage ;;
             -x | --xdlops ) XDLOPS=1; shift; ;;
             -X | --no-xdlops ) XDLOPS=0; shift ;;
             -d | --direction ) got_direction=1; DIRECTION="$2"; shift 2 ;;
