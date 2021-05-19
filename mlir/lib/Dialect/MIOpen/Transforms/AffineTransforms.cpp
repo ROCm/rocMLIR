@@ -259,18 +259,22 @@ AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
 
   std::vector<AffineMap> maps;
   maps.push_back(outputAffineMap);
-
+  // if current transform and pre-tranform both have bound check, two bound
+  // check should compose if only pre-transform have bound check, current
+  // transform need inherit the bound check
   if (limitVec.size() || inputAffineMaps.size() > 1) {
     llvm::SmallVector<AffineExpr, 8> limitExprsVec;
-    if (inputAffineMaps.size() <= 1) { // only this transform have limit dim
+    if (inputAffineMaps.size() <=
+        1) { // only current transform have bound check
       for (unsigned i = 0; i < outputAffineMap.getNumResults(); i++) {
         auto expr = getAffineConstantExpr(
             limitVec.find(i) == limitVec.end() ? 0 : 1, op.getContext());
         limitExprsVec.push_back(expr);
       }
-    } else if (limitVec.empty()) { // only pre-transformat have limit dim
+    } else if (limitVec.empty()) { // only pre-transformat have bound check,
+                                   // inherit it
       maps.push_back(inputAffineMaps[1]);
-    } else {
+    } else { // compose bound check
       auto oldLimitMap = inputAffineMaps[1];
       auto results = oldLimitMap.getResults();
       for (unsigned i = 0; i < results.size(); i++) {
