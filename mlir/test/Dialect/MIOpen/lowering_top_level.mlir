@@ -16,7 +16,7 @@ func @miopen_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x3
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0]
+    padding = [0, 0, 0 ,0]
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -38,7 +38,7 @@ func @miopen_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0]
+    padding = [0, 0, 0 ,0]
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }
@@ -60,17 +60,22 @@ func @miopen_conv2d_bwd_data(%filter : memref<1x128x8x3x3xf32>, %input : memref<
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0]
+    padding = [0, 0, 0 ,0]
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
 // CHECK-LABEL: func {{@miopen_conv2d_bwd_data.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT:   miopen.conv2d_bwd_data
-// CHECK-NEXT:  miopen.transform(%arg0)
-// CHECK-NEXT:  miopen.transform(%arg1)
-// CHECK-NEXT:  miopen.transform
-// CHECK-NEXT:  miopen.transform
-// CHECK-NEXT:  miopen.transform(%arg2)
+// CHECK-NEXT:  {{miopen.transform\(%arg0\).* output_layout = \["g", "k", "c", "ydot", "ytilda", "xdot", "xtilda"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["g", "k", "c", "ydotslice", "ytildaslice", "xdotslice", "xtildaslice"\].*}}    
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["gemmG", "gemmK", "gemmM"\].*}}      
+// CHECK-NEXT:  {{miopen.transform\(%arg1\).* output_layout = \["gi", "ni", "ci", "hipad", "wipad"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["gi", "ni", "ci", "ytilda", "htilda", "xtilda", "wtilda"\].*}}    
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["gi", "ni", "ci", "ytildaslice", "htildaslice", "xtildaslice", "wtildaslice"\].*}}     
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["gemmG", "gemmM", "gemmN"\].*}}     
+// CHECK-NEXT:  {{miopen.transform\(%arg2\).* output_layout = \["go", "no", "ko", "ydot", "htilda", "xdot", "wtilda"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["go", "no", "ko", "ydotslice", "htildaslice", "xdotslice", "wtildaslice"\].*}}      
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["gemmG", "gemmK", "gemmN"\].*}}       
 // CHECK-NEXT:  miopen.gridwise_gemm
 
 func @miopen_conv2d_bwd_data_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
@@ -82,17 +87,22 @@ func @miopen_conv2d_bwd_data_f16(%filter : memref<1x128x8x3x3xf16>, %input : mem
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0]
+    padding = [0, 0, 0 ,0]
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }
 // CHECK-LABEL: func {{@miopen_conv2d_bwd_data.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT:   miopen.conv2d_bwd_data
-// CHECK-NEXT:  miopen.transform(%arg0)
-// CHECK-NEXT:  miopen.transform(%arg1)
-// CHECK-NEXT:  miopen.transform
-// CHECK-NEXT:  miopen.transform
-// CHECK-NEXT:  miopen.transform(%arg2)
+// CHECK-NEXT:  {{miopen.transform\(%arg0\).* output_layout = \["g", "k", "c", "ydot", "ytilda", "xdot", "xtilda"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["g", "k", "c", "ydotslice", "ytildaslice", "xdotslice", "xtildaslice"\].*}}    
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["gemmG", "gemmK", "gemmM"\].*}}      
+// CHECK-NEXT:  {{miopen.transform\(%arg1\).* output_layout = \["gi", "ni", "ci", "hipad", "wipad"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["gi", "ni", "ci", "ytilda", "htilda", "xtilda", "wtilda"\].*}}    
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["gi", "ni", "ci", "ytildaslice", "htildaslice", "xtildaslice", "wtildaslice"\].*}}     
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["gemmG", "gemmM", "gemmN"\].*}}     
+// CHECK-NEXT:  {{miopen.transform\(%arg2\).* output_layout = \["go", "no", "ko", "ydot", "htilda", "xdot", "wtilda"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["go", "no", "ko", "ydotslice", "htildaslice", "xdotslice", "wtildaslice"\].*}}      
+// CHECK-NEXT:  {{miopen.transform.* output_layout = \["gemmG", "gemmK", "gemmN"\].*}}       
 // CHECK-NEXT:  miopen.gridwise_gemm
 
 func @miopen_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
@@ -104,7 +114,7 @@ func @miopen_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memre
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0]
+    padding = [0, 0, 0 ,0]
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -126,7 +136,7 @@ func @miopen_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : m
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0]
+    padding = [0, 0, 0 ,0]
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }

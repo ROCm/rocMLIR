@@ -157,10 +157,29 @@ static cl::opt<int> paddingHeight("padding_h", cl::desc("Padding height"),
                                   cl::value_desc("attribute value"),
                                   cl::init(0));
 
+static cl::opt<int> paddingHeightLeft("padding_h_l",
+                                      cl::desc("Padding height Left"),
+                                      cl::value_desc("attribute value"),
+                                      cl::init(0));
+
+static cl::opt<int> paddingHeightRight("padding_h_r",
+                                       cl::desc("Padding height Right"),
+                                       cl::value_desc("attribute value"),
+                                       cl::init(0));
 // padding width
 static cl::opt<int> paddingWidth("padding_w", cl::desc("Padding width"),
                                  cl::value_desc("attribute value"),
                                  cl::init(0));
+
+static cl::opt<int> paddingWidthLeft("padding_w_l",
+                                     cl::desc("Padding width Left"),
+                                     cl::value_desc("attribute value"),
+                                     cl::init(0));
+
+static cl::opt<int> paddingWidthRight("padding_w_r",
+                                      cl::desc("Padding width Right"),
+                                      cl::value_desc("attribute value"),
+                                      cl::init(0));
 
 // conv-config
 static cl::opt<std::string> populateConvConfig(
@@ -290,6 +309,40 @@ static void correctParameters() {
     else
       inputLayout.setValue("g" + inputLayoutValue);
   }
+
+  // we can use paddingHeight or paddingHeightLeft + paddingHeightRight
+  // if use paddingHeight , paddingHeightLeft and paddingHeightRight =
+  // paddingHeight if use paddingHeightLeft + paddingHeightRight , please
+  // assigne value
+  if (paddingHeight.getValue() > 0) {
+    if (paddingHeightLeft.getValue() == 0 &&
+        paddingHeightRight.getValue() == 0) {
+      paddingHeightLeft.setValue(paddingHeight.getValue());
+      paddingHeightRight.setValue(paddingHeight.getValue());
+    } else {
+      if (paddingHeightLeft.getValue() != paddingHeight.getValue() ||
+          paddingHeightRight.getValue() != paddingHeight.getValue()) {
+        llvm::errs()
+            << "you can't use both padding_h and (padding_h_l,padding_h_r).\n";
+      }
+    }
+  }
+
+  // we can use paddingWidth or paddingWidthLeft + paddingWidthRight
+  // if use paddingWidth , paddingWidthLeft and paddingWidthRight = paddingWidth
+  // if use paddingWidthLeft + paddingWidthRight , please assigne value
+  if (paddingWidth.getValue() > 0) {
+    if (paddingWidthLeft.getValue() == 0 && paddingWidthRight.getValue() == 0) {
+      paddingWidthLeft.setValue(paddingWidth.getValue());
+      paddingWidthRight.setValue(paddingWidth.getValue());
+    } else {
+      if (paddingWidthLeft.getValue() != paddingWidth.getValue() ||
+          paddingWidthRight.getValue() != paddingWidth.getValue()) {
+        llvm::errs()
+            << "you can't use both padding_w and (padding_w_l,padding_w_r).\n";
+      }
+    }
+  }
 }
 
 static void verifyLayout() {
@@ -325,8 +378,10 @@ static void populateDefaults() {
       dilationWidth.setValue(1);
       strideHeight.setValue(1);
       strideWidth.setValue(1);
-      paddingHeight.setValue(0);
-      paddingWidth.setValue(0);
+      paddingHeightLeft.setValue(0);
+      paddingHeightRight.setValue(0);
+      paddingWidthLeft.setValue(0);
+      paddingWidthRight.setValue(0);
     } else {
       groupSize.setValue(1);
       batchSize.setValue(128);
@@ -340,8 +395,10 @@ static void populateDefaults() {
       dilationWidth.setValue(1);
       strideHeight.setValue(1);
       strideWidth.setValue(1);
-      paddingHeight.setValue(0);
-      paddingWidth.setValue(0);
+      paddingHeightLeft.setValue(0);
+      paddingHeightRight.setValue(0);
+      paddingWidthLeft.setValue(0);
+      paddingWidthRight.setValue(0);
       num_cu.setValue(120);
       arch.setValue("gfx908");
     }
@@ -352,16 +409,20 @@ static void populateDefaults() {
     arch.setValue("gfx908");
   }
 
-  auto getOutputDim = [](int64_t inputLen, int64_t filLen, int padLen,
-                         int strideLen, int dilLen) {
-    return (inputLen + 2 * padLen - (filLen - 1) * dilLen - 1) / strideLen + 1;
+  auto getOutputDim = [](int64_t inputLen, int64_t filLen, int leftPadLen,
+                         int rightPadLen, int strideLen, int dilLen) {
+    return (inputLen + leftPadLen + rightPadLen - (filLen - 1) * dilLen - 1) /
+               strideLen +
+           1;
   };
-  outputHeight.setValue(getOutputDim(
-      inputHeight.getValue(), filterHeight.getValue(), paddingHeight.getValue(),
-      strideHeight.getValue(), dilationHeight.getValue()));
-  outputWidth.setValue(getOutputDim(
-      inputWidth.getValue(), filterWidth.getValue(), paddingWidth.getValue(),
-      strideWidth.getValue(), dilationWidth.getValue()));
+  outputHeight.setValue(
+      getOutputDim(inputHeight.getValue(), filterHeight.getValue(),
+                   paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
+                   strideHeight.getValue(), dilationHeight.getValue()));
+  outputWidth.setValue(
+      getOutputDim(inputWidth.getValue(), filterWidth.getValue(),
+                   paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
+                   strideWidth.getValue(), dilationWidth.getValue()));
 }
 
 static FuncOp makeFuncDecl(OpBuilder &builder, StringRef funcName,
@@ -614,11 +675,17 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   auto strideWidthConstantOp = builder.create<ConstantIntOp>(
       builder.getUnknownLoc(), strideWidth.getValue(), intType);
 
-  auto paddingHeightConstantOp = builder.create<ConstantIntOp>(
-      builder.getUnknownLoc(), paddingHeight.getValue(), intType);
+  auto paddingHeightLeftConstantOp = builder.create<ConstantIntOp>(
+      builder.getUnknownLoc(), paddingHeightLeft.getValue(), intType);
 
-  auto paddingWidthConstantOp = builder.create<ConstantIntOp>(
-      builder.getUnknownLoc(), paddingWidth.getValue(), intType);
+  auto paddingHeightRightConstantOp = builder.create<ConstantIntOp>(
+      builder.getUnknownLoc(), paddingHeightRight.getValue(), intType);
+
+  auto paddingWidthLeftConstantOp = builder.create<ConstantIntOp>(
+      builder.getUnknownLoc(), paddingWidthLeft.getValue(), intType);
+
+  auto paddingWidthRightConstantOp = builder.create<ConstantIntOp>(
+      builder.getUnknownLoc(), paddingWidthRight.getValue(), intType);
 
   auto dilationHeightConstantOp = builder.create<ConstantIntOp>(
       builder.getUnknownLoc(), dilationHeight.getValue(), intType);
@@ -628,8 +695,10 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   cpuConvBlock->push_back(strideHeightConstantOp);
   cpuConvBlock->push_back(strideWidthConstantOp);
-  cpuConvBlock->push_back(paddingHeightConstantOp);
-  cpuConvBlock->push_back(paddingWidthConstantOp);
+  cpuConvBlock->push_back(paddingHeightLeftConstantOp);
+  cpuConvBlock->push_back(paddingHeightRightConstantOp);
+  cpuConvBlock->push_back(paddingWidthLeftConstantOp);
+  cpuConvBlock->push_back(paddingWidthRightConstantOp);
   cpuConvBlock->push_back(dilationHeightConstantOp);
   cpuConvBlock->push_back(dilationWidthConstantOp);
 
@@ -774,7 +843,7 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
                    {unrankedMemRefType, unrankedMemRefType, unrankedMemRefType,
                     unrankedLayoutMemRefType, unrankedLayoutMemRefType,
                     unrankedLayoutMemRefType, intType, intType, intType,
-                    intType, intType, intType},
+                    intType, intType, intType, intType, intType},
                    {});
 
   auto mcpuConv2dCallOp = builder.create<CallOp>(
@@ -782,8 +851,9 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
       ValueRange{filterMemRefCastOp, inputMemRefCastOp, outputMemRefCastOp,
                  filLayoutMemRefCastOp, inLayoutMemRefCastOp,
                  outLayoutMemRefCastOp, strideHeightConstantOp,
-                 strideWidthConstantOp, paddingHeightConstantOp,
-                 paddingWidthConstantOp, dilationHeightConstantOp,
+                 strideWidthConstantOp, paddingHeightLeftConstantOp,
+                 paddingHeightRightConstantOp, paddingWidthLeftConstantOp,
+                 paddingWidthRightConstantOp, dilationHeightConstantOp,
                  dilationWidthConstantOp});
 
   module.push_back(mcpuConv2dFuncOp);
@@ -2299,9 +2369,10 @@ int main(int argc, char **argv) {
       arch.getValue(), num_cu.getValue(), xdlopsV2.getValue(),
       operation.getValue(), tensorDataType.getValue(),
       dilationHeight.getValue(), dilationWidth.getValue(),
-      strideHeight.getValue(), strideWidth.getValue(), paddingHeight.getValue(),
-      paddingWidth.getValue(), filterLayout.getValue(), inputLayout.getValue(),
-      outputLayout.getValue());
+      strideHeight.getValue(), strideWidth.getValue(),
+      paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
+      paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
+      filterLayout.getValue(), inputLayout.getValue(), outputLayout.getValue());
 
   if (!convConfig.empty()) {
     if (failed(conv2dGenerator.parseConvConfig(convConfig.c_str()))) {
@@ -2311,7 +2382,7 @@ int main(int argc, char **argv) {
   } else {
     (void)conv2dGenerator.parseConvDims(
         batchSize, groupSize, inputChannel, inputHeight, inputWidth,
-        outputChannel, outputHeight, outputWidth, filterWidth, filterHeight);
+        outputChannel, outputHeight, outputWidth, filterHeight, filterWidth);
   }
 
   const auto &genConfig = conv2dGenerator.getConfig();

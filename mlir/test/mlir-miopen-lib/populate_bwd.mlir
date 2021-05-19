@@ -6,10 +6,10 @@
 // RUN: mlir-miopen-driver --conv-config "--operation conv2d_bwd_data --arch   gfx906 --num_cu 64 --in_type fp32 --fil_type fp32 --out_type fp32 --fil_layout GNCHW --in_layout NGCHW --out_layout NGCHW --batchsize 64 --in_channels 1024 --out_channels 1024 --in_h 14 --in_w 14 --out_h 14 --out_w 14 --fil_h 1 --fil_w 1 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 0 --padding_w 0 --kernel_name bar  --groupsize  1   " | FileCheck %s --check-prefix=DRIVER
 
 // CFLAGS: conv2d_bwd
-// SOURCE: void mlir_gen_igemm_conv2d_cpp_v1r1_bwd
+// SOURCE: void mlir_gen_igemm_conv2d_cpp_v4r1_bwd
 // HEADER: struct MlirGenIgemmConv2dV1r1Bwd
 // BIN: ELF
 // TUNING: globalSize{{.*}}localSize{{.*}}
-// DRIVER: miopen.conv2d_bwd_data(%arg0, %arg1, %arg2) {arch = "gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], num_cu = 64 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
+// DRIVER: miopen.conv2d_bwd_data(%arg0, %arg1, %arg2) {arch = "gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], num_cu = 64 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
 
 

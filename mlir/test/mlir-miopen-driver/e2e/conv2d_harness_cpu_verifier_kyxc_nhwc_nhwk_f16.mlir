@@ -215,11 +215,11 @@ module  {
     %6 = memref_cast %3 : memref<5xi8> to memref<*xi8>
     %7 = memref_cast %4 : memref<5xi8> to memref<*xi8>
     %8 = memref_cast %5 : memref<5xi8> to memref<*xi8>
-    call @mcpuConv2d(%0, %1, %2, %6, %7, %8, %c1_i32, %c1_i32_0, %c0_i32, %c0_i32_1, %c1_i32_2, %c1_i32_3) : (memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32) -> ()
+    call @mcpuConv2d(%0, %1, %2, %6, %7, %8, %c1_i32, %c1_i32_0, %c0_i32, %c0_i32_1, %c0_i32, %c0_i32_1, %c1_i32_2, %c1_i32_3) : (memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32, i32, i32) -> ()
     return
   }
 
-  func private @mcpuConv2d(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32)
+  func private @mcpuConv2d(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32, i32, i32)
 
   func private @mcpuMem5DFloatConvertHalf(memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf16>)
 

@@ -87,26 +87,21 @@ func @miopen_fill(%buffer_f32 : memref<1024xf32, 5>, %buffer_i32 : memref<2xi32,
 //   CHECK: miopen.fill
 //   CHECK: miopen.fill
 
-func @miopen_move_pos(%buffer_f32 : memref<2xf32, 5>, %buffer_i32 : memref<2xi32, 5>, %buffer_f16 : memref<2xf16, 5>) {
+func @miopen_move_pos_v2(%vector_f32 : vector<2xf32>, %vector_i32 : vector<2xi32>) {
   %deltaY_i32 = constant 16 : i32
   %deltaX_i32 = constant 8 : i32
-  miopen.move_pos(%buffer_i32, %deltaY_i32, %deltaX_i32) : memref<2xi32, 5>
-
+  %output1 = miopen.move_pos_v2(%vector_i32, %deltaY_i32, %deltaX_i32) : vector<2xi32>
+ 
   %deltaY_f32 = constant 16.0 : f32
   %deltaX_f32 = constant 8.0 : f32
-  miopen.move_pos(%buffer_f32, %deltaY_f32, %deltaX_f32) : memref<2xf32, 5>
-
-  %deltaY_f16 = constant 16.0 : f16
-  %deltaX_f16 = constant 8.0 : f16
-  miopen.move_pos(%buffer_f16, %deltaY_f16, %deltaX_f16) : memref<2xf16, 5>
+  %output2 = miopen.move_pos_v2(%vector_f32, %deltaY_f32, %deltaX_f32) : vector<2xf32>
 
   return
 }
 
-// CHECK-LABEL: func @miopen_move_pos
-//   CHECK: miopen.move_pos
-//   CHECK: miopen.move_pos
-//   CHECK: miopen.move_pos
+// CHECK-LABEL: func @miopen_move_pos_v2
+//   CHECK: %{{.*}} = miopen.move_pos_v2(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xi32>
+//   CHECK: %{{.*}} = miopen.move_pos_v2(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf32>
 
 func @miopen_workgroup_barrier() {
   miopen.workgroup_barrier
@@ -155,15 +150,210 @@ func @miopen_blockwise_gemm(%A : memref<?x?x?xf32, 3>, %B : memref<?x?x?xf32, 3>
 // CHECK-LABEL: func @miopen_blockwise_gemm
 //  CHECK: miopen.blockwise_gemm
 
-func @miopen_blockwise_copy(%source : memref<?x?xf32>, %dest : memref<?x?xf32, 3>, %source_coord : memref<2xi32>, %dest_coord : memref<2xi32>) {
-  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) : memref<?x?xf32>, memref<?x?xf32, 3>, memref<2xi32>, memref<2xi32>
-  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) { move_source_offset = 16 } : memref<?x?xf32>, memref<?x?xf32, 3>, memref<2xi32>, memref<2xi32>
+func @miopen_blockwise_copy(%source : memref<?x?xf32>, %dest : memref<?x?xf32, 3>, %source_coord : vector<3xi32>, %dest_coord : vector<3xi32>) {
+  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) : memref<?x?xf32>, memref<?x?xf32, 3>, vector<3xi32>, vector<3xi32>
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_copy
-//  CHECK-NEXT: miopen.blockwise_copy
-//  CHECK-NEXT: miopen.blockwise_copy
+//  CHECK: miopen.blockwise_copy(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<?x?xf32>, memref<?x?xf32, 3>, vector<3xi32>, vector<3xi32>
+
+// --------------------------
+// blockwise_load tests.
+
+// f32 tests.
+
+func @miopen_blockwise_load_f32(%source : memref<?x?xf32>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> f32  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf32>, f32
+  return %result : f32
+}
+
+// CHECK-LABEL: func @miopen_blockwise_load_f32
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf32>, f32
+
+func @miopen_blockwise_load_2xf32(%source : memref<?x?xf32>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<2xf32>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf32>, vector<2xf32>
+  return %result : vector<2xf32>
+}
+
+// CHECK-LABEL: func @miopen_blockwise_load_2xf32
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf32>, vector<2xf32>
+
+func @miopen_blockwise_load_4xf32(%source : memref<?x?xf32>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<4xf32>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf32>, vector<4xf32>
+  return %result : vector<4xf32>
+}
+
+// CHECK-LABEL: func @miopen_blockwise_load_4xf32
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf32>, vector<4xf32>
+
+// f16 tests.
+
+func @miopen_blockwise_load_f16(%source : memref<?x?xf16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> f16  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf16>, f16
+  return %result : f16
+}
+
+// CHECK-LABEL: func @miopen_blockwise_load_f16
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf16>, f16
+
+func @miopen_blockwise_load_2xf16(%source : memref<?x?xf16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<2xf16>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf16>, vector<2xf16>
+  return %result : vector<2xf16>
+}
+
+// CHECK-LABEL: func @miopen_blockwise_load_2xf16
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf16>, vector<2xf16>
+
+func @miopen_blockwise_load_4xf16(%source : memref<?x?xf16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<4xf16>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf16>, vector<4xf16>
+  return %result : vector<4xf16>
+}
+
+// CHECK-LABEL: func @miopen_blockwise_load_4xf16
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf16>, vector<4xf16>
+
+func @miopen_blockwise_load_8xf16(%source : memref<?x?xf16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<8xf16>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf16>, vector<8xf16>
+  return %result : vector<8xf16>
+}
+
+// CHECK-LABEL: func @miopen_blockwise_load_8xf16
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf16>, vector<8xf16>
+
+// i16 tests.
+
+func @miopen_blockwise_load_i16(%source : memref<?x?xi16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> i16  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xi16>, i16
+  return %result : i16
+}
+
+// CHECK-LABEL: func @miopen_blockwise_load_i16
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xi16>, i16
+
+func @miopen_blockwise_load_2xi16(%source : memref<?x?xi16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<2xi16>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xi16>, vector<2xi16>
+  return %result : vector<2xi16>
+}
+
+// CHECK-LABEL: func @miopen_blockwise_load_2xi16
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xi16>, vector<2xi16>
+
+func @miopen_blockwise_load_4xi16(%source : memref<?x?xi16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<4xi16>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xi16>, vector<4xi16>
+  return %result : vector<4xi16>
+}
+
+// CHECK-LABEL: func @miopen_blockwise_load_4xi16
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xi16>, vector<4xi16>
+
+func @miopen_blockwise_load_8xi16(%source : memref<?x?xi16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<8xi16>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xi16>, vector<8xi16>
+  return %result : vector<8xi16>
+}
+
+// CHECK-LABEL: func @miopen_blockwise_load_8xi16
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xi16>, vector<8xi16>
+
+// --------------------------
+// blockwise_store tests.
+
+// f32 tests.
+
+func @miopen_blockwise_store_f32(%data : f32, %dest : memref<?x?xf32, 3>, %dest_coord : vector<2xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : f32, memref<?x?xf32, 3>
+  return
+}
+
+// CHECK-LABEL: func @miopen_blockwise_store_f32
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : f32, memref<?x?xf32, 3>
+
+func @miopen_blockwise_store_2xf32(%data : vector<2xf32>, %dest : memref<?x?xf32, 3>, %dest_coord : vector<2xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<2xf32>, memref<?x?xf32, 3>
+  return
+}
+
+// CHECK-LABEL: func @miopen_blockwise_store_2xf32
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf32>, memref<?x?xf32, 3>
+
+func @miopen_blockwise_store_4xf32(%data : vector<4xf32>, %dest : memref<?x?xf32, 3>, %dest_coord : vector<2xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<4xf32>, memref<?x?xf32, 3>
+  return
+}
+
+// CHECK-LABEL: func @miopen_blockwise_store_4xf32
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>, memref<?x?xf32, 3>
+
+// f16 tests.
+
+func @miopen_blockwise_store_f16(%data : f16, %dest : memref<?x?xf16, 3>, %dest_coord : vector<2xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : f16, memref<?x?xf16, 3>
+  return
+}
+
+// CHECK-LABEL: func @miopen_blockwise_store_f16
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : f16, memref<?x?xf16, 3>
+
+func @miopen_blockwise_store_2xf16(%data : vector<2xf16>, %dest : memref<?x?xf16, 3>, %dest_coord : vector<2xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<2xf16>, memref<?x?xf16, 3>
+  return
+}
+
+// CHECK-LABEL: func @miopen_blockwise_store_2xf16
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf16>, memref<?x?xf16, 3>
+
+func @miopen_blockwise_store_4xf16(%data : vector<4xf16>, %dest : memref<?x?xf16, 3>, %dest_coord : vector<2xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<4xf16>, memref<?x?xf16, 3>
+  return
+}
+
+// CHECK-LABEL: func @miopen_blockwise_store_4xf16
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf16>, memref<?x?xf16, 3>
+
+func @miopen_blockwise_store_8xf16(%data : vector<8xf16>, %dest : memref<?x?xf16, 3>, %dest_coord : vector<2xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<8xf16>, memref<?x?xf16, 3>
+  return
+}
+
+// CHECK-LABEL: func @miopen_blockwise_store_8xf16
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<8xf16>, memref<?x?xf16, 3>
+
+// i16 tests.
+
+func @miopen_blockwise_store_i16(%data : i16, %dest : memref<?x?xi16, 3>, %dest_coord : vector<2xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : i16, memref<?x?xi16, 3>
+  return
+}
+
+// CHECK-LABEL: func @miopen_blockwise_store_i16
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : i16, memref<?x?xi16, 3>
+
+func @miopen_blockwise_store_2xi16(%data : vector<2xi16>, %dest : memref<?x?xi16, 3>, %dest_coord : vector<2xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<2xi16>, memref<?x?xi16, 3>
+  return
+}
+
+// CHECK-LABEL: func @miopen_blockwise_store_2xi16
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xi16>, memref<?x?xi16, 3>
+
+func @miopen_blockwise_store_4xi16(%data : vector<4xi16>, %dest : memref<?x?xi16, 3>, %dest_coord : vector<2xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<4xi16>, memref<?x?xi16, 3>
+  return
+}
+
+// CHECK-LABEL: func @miopen_blockwise_store_4xi16
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xi16>, memref<?x?xi16, 3>
+
+func @miopen_blockwise_store_8xi16(%data : vector<8xi16>, %dest : memref<?x?xi16, 3>, %dest_coord : vector<2xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<8xi16>, memref<?x?xi16, 3>
+  return
+}
+
+// CHECK-LABEL: func @miopen_blockwise_store_8xi16
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<8xi16>, memref<?x?xi16, 3>
+
+// --------------------------
+// threadwise_copy tests.
 
 #map0 = affine_map<(d0, d1) -> (d0, d1, d0, d1)>
 #map1 = affine_map<(d0, d1) -> (d1, d0, d1, d0)>
@@ -225,6 +415,115 @@ func @miopen_threadwise_copy(%source_coord : memref<2xi32, 5>, %dest_coord : mem
 
 // CHECK-LABEL: func @miopen_threadwise_copy
 //  CHECK: miopen.threadwise_copy
+
+// --------------------------
+// threadwise_load tests.
+
+// CHECK-LABEL: func @miopen_threadwise_load
+func @miopen_threadwise_load(%source_coord : memref<2xi32, 5>,
+                             %source : memref<?x?xf32>,
+                             %source_with_embedded_affine : memref<?x?xf32, #map0>,
+                             %source_with_externally_defined_affine : memref<?x?x?x?xf32>) {
+  %c0 = constant 0 : index
+  %c1 = constant 1 : index
+  %source_coord_y = load %source_coord[%c0] : memref<2xi32, 5>
+  %source_coord_x = load %source_coord[%c0] : memref<2xi32, 5>
+
+  // check source as vanilla memref, dest as scalar.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}}) : memref<?x?xf32>, f32
+  %v0 = miopen.threadwise_load(%source, %source_coord_x, %source_coord_y) : memref<?x?xf32>, f32
+
+  // check source as vanilla memref, dest as vector.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}}) : memref<?x?xf32>, vector<4xf32>
+  %v1 = miopen.threadwise_load(%source, %source_coord_x, %source_coord_y) : memref<?x?xf32>, vector<4xf32>
+
+  // -----
+
+  // check source with embedded affine maps, dest as scalar.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}}) : memref<?x?xf32, #map0>, f32
+  %v2 = miopen.threadwise_load(%source_with_embedded_affine, %source_coord_x, %source_coord_y) : memref<?x?xf32, #map0>, f32
+
+  // check source with embedded affine maps, dest as vector.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}}) : memref<?x?xf32, #map0>, vector<4xf32>
+  %v3 = miopen.threadwise_load(%source_with_embedded_affine, %source_coord_x, %source_coord_y) : memref<?x?xf32, #map0>, vector<4xf32>
+
+  // -----
+
+  // check source with one externally defined affine map, dest as scalar.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}})
+  %v4 = miopen.threadwise_load(%source_with_externally_defined_affine, %source_coord_x, %source_coord_y) { coord_transforms = [ { operand = 0, transforms = [#map2] } ] } : memref<?x?x?x?xf32>, f32
+
+  // check source with one externally defined affine map, dest as vector.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}})
+  %v5 = miopen.threadwise_load(%source_with_externally_defined_affine, %source_coord_x, %source_coord_y) { coord_transforms = [ { operand = 0, transforms = [#map2] } ] } : memref<?x?x?x?xf32>, vector<4xf32>
+
+  // check source with multiple externally defined affine maps, dest as scalar.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}})
+  %v6 = miopen.threadwise_load(%source_with_externally_defined_affine, %source_coord_x, %source_coord_y) { coord_transforms = [ { operand = 0, transforms = [#map2, #map3] } ] } : memref<?x?x?x?xf32>, f32
+
+  // check source with multiple externally defined affine maps, dest as vector.
+  // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}})
+  %v7 = miopen.threadwise_load(%source_with_externally_defined_affine, %source_coord_x, %source_coord_y) { coord_transforms = [ { operand = 0, transforms = [#map2, #map3] } ] } : memref<?x?x?x?xf32>, vector<4xf32>
+
+  return
+}
+
+// --------------------------
+// threadwise_store tests.
+
+// CHECK-LABEL: func @miopen_threadwise_store
+func @miopen_threadwise_store(%data_scalar : f32,
+                              %data_vector : vector<4xf32>,
+                              %dest_coord : memref<2xi32, 5>,
+                              %dest : memref<?x?xf32>,
+                              %dest_with_embedded_affine : memref<?x?xf32, #map1>,
+                              %dest_with_externally_defined_affine : memref<?x?x?x?xf32>) {
+  %c0 = constant 0 : index
+  %c1 = constant 1 : index
+  %dest_coord_y = load %dest_coord[%c0] : memref<2xi32, 5>
+  %dest_coord_x = load %dest_coord[%c0] : memref<2xi32, 5>
+
+  // check dest as vanilla memrefs, data as scalar.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : f32, memref<?x?xf32>
+  miopen.threadwise_store(%data_scalar, %dest, %dest_coord_x, %dest_coord_y) : f32, memref<?x?xf32>
+
+  // check dest as vanilla memrefs, data as vector.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>, memref<?x?xf32>
+  miopen.threadwise_store(%data_vector, %dest, %dest_coord_x, %dest_coord_y) : vector<4xf32>, memref<?x?xf32>
+
+  // -----
+
+  // check dest with embedded affine maps, data as scalar.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : f32
+  miopen.threadwise_store(%data_scalar, %dest_with_embedded_affine, %dest_coord_x, %dest_coord_y) : f32, memref<?x?xf32, #map1>
+
+  // check dest with embedded affine maps, data as vector.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>
+  miopen.threadwise_store(%data_vector, %dest_with_embedded_affine, %dest_coord_x, %dest_coord_y) : vector<4xf32>, memref<?x?xf32, #map1>
+
+  // -----
+
+  // check destination with one externally defined affine map, data as scalar.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}})
+  miopen.threadwise_store(%data_scalar, %dest_with_externally_defined_affine, %dest_coord_x, %dest_coord_y) { coord_transforms = [ { operand = 1, transforms = [#map2] } ] } : f32, memref<?x?x?x?xf32>
+
+  // check destination with one externally defined affine map, data as vector.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}})
+  miopen.threadwise_store(%data_vector, %dest_with_externally_defined_affine, %dest_coord_x, %dest_coord_y) { coord_transforms = [ { operand = 1, transforms = [#map2] } ] } : vector<4xf32>, memref<?x?x?x?xf32>
+
+  // check destination with multiple externally defined affine map, data as scalar.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}})
+  miopen.threadwise_store(%data_scalar, %dest_with_externally_defined_affine, %dest_coord_x, %dest_coord_y) { coord_transforms = [ { operand = 1, transforms = [#map2, #map3] } ] } : f32, memref<?x?x?x?xf32>
+
+  // check destination with multiple externally defined affine map, data as vector.
+  // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}})
+  miopen.threadwise_store(%data_vector, %dest_with_externally_defined_affine, %dest_coord_x, %dest_coord_y) { coord_transforms = [ { operand = 1, transforms = [#map2, #map3] } ] } : vector<4xf32>, memref<?x?x?x?xf32>
+
+  return
+}
+
+// --------------------------
+// threadwise_copy_v2 tests.
 
 #map11 = affine_map<(d0, d1) -> (d1, d0, d1, d0)>
 

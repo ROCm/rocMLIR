@@ -266,11 +266,13 @@
 // CHECK_ISSUE_127_4: [1]
 
 ///////////////////////////////////////////////////////////////////////////////////////////
-// Cases remained to be studied.
+// Cases reported in https://github.com/ROCmSoftwarePlatform/llvm-project-private/issues/40
 ///////////////////////////////////////////////////////////////////////////////////////////
 
-// FIXME: mlir-miopen-driver -pv %random_data %xdlops -fil_layout=yxck -in_layout=nhwc -out_layout=nhwk -batchsize=64 -in_channels=8 -out_channels=128 -in_h=16 -in_w=64 -fil_h=3 -fil_w=5 -p=false -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CHECK_ISSUE_40_5
+// RUN: mlir-miopen-driver -pv %random_data %xdlops -fil_layout=yxck -in_layout=nhwc -out_layout=nhwk -batchsize=64 -in_channels=8 -out_channels=128 -in_h=16 -in_w=64 -fil_h=3 -fil_w=5 -p=false -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CHECK_ISSUE_40_5
 
+// CHECK_ISSUE_40_5: Unranked Memref base@ = 0x{{.*}} rank = 1 offset = 0 sizes = [1] strides = [1] data =
+// CHECK_ISSUE_40_5: [1]
 
 ///////////////////////////////////////////////////////////////////////////////////////////
 // Cases reported in https://github.com/ROCmSoftwarePlatform/llvm-project-private/issues/136

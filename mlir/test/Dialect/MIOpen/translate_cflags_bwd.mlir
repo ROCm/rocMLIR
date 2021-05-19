@@ -4,7 +4,7 @@ func @basic_parsing(%filter : memref<?x?x?xf32>, %input : memref<?x?x?xf32>, %ou
   miopen.gridwise_gemm(%filter, %input, %output) {
     arch = "gfx906",
     num_cu = 64,
-    kernel_algorithm = "backward_data_v1r1",
+    kernel_algorithm = "backward_data_v4r1",
     filter_dimension = [1, 128, 8, 4, 4],
     filter_layout = ["g", "k", "c", "y", "x"],
     input_dimension = [128, 1, 8, 32, 32],
@@ -42,7 +42,7 @@ func @all_params(%filter : memref<?x?x?xf32>, %input : memref<?x?x?xf32>, %outpu
   miopen.gridwise_gemm(%filter, %input, %output) {
     arch = "gfx906",
     num_cu = 64,
-    kernel_algorithm = "backward_data_v1r1",
+    kernel_algorithm = "backward_data_v4r1",
     filter_dimension = [1, 128, 128, 3, 3],
     filter_layout = ["g", "k", "c", "y", "x"],
     input_dimension = [32, 1, 128, 32, 32],
@@ -58,7 +58,7 @@ func @all_params(%filter : memref<?x?x?xf32>, %input : memref<?x?x?xf32>, %outpu
   return
 }
 // CHECK-LABEL: all_params
-// CHECK: -DCK_PARAM_DEPENDENT_GRID_SIZE=2304
+// CHECK: -DCK_PARAM_DEPENDENT_GRID_SIZE=256
 // CHECK: -DCK_PARAM_PROBLEM_C=128
 // CHECK: -DCK_PARAM_PROBLEM_CONV_DILATION_H=1
 // CHECK: -DCK_PARAM_PROBLEM_CONV_DILATION_W=1

@@ -60,8 +60,10 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
     // Output tensor dimensions
     f(std::to_string(self.getDimIndexVal()["ko"].second), "out_channels");
     // Padding
-    f(std::to_string(self.getPaddingVal()[0]), "pad_h");
-    f(std::to_string(self.getPaddingVal()[1]), "pad_w");
+    f(std::to_string(self.getPaddingVal()[0]), "pad_h_l");
+    f(std::to_string(self.getPaddingVal()[1]), "pad_h_r");
+    f(std::to_string(self.getPaddingVal()[2]), "pad_w_l");
+    f(std::to_string(self.getPaddingVal()[3]), "pad_w_r");
     // Strides
     f(std::to_string(self.getStrideVal()[0]), "conv_stride_h");
     f(std::to_string(self.getStrideVal()[1]), "conv_stride_w");

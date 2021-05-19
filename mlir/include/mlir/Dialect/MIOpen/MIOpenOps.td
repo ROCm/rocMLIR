@@ -14,7 +14,7 @@
 #define MIOPEN_OPS
 
 include "mlir/IR/OpBase.td"
-//include "mlir/Transforms/LoopLikeInterface.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def MIOpen_Dialect : Dialect {
   let name = "miopen";
@@ -119,7 +119,7 @@ def MIOpen_GridwiseGemmV2Op :
 // Memory allocation on GPU memory hierachy.
 def MIOpen_GpuAllocOp:
     MIOpen_Op<"alloc">,
-    Results<(outs AnyMemRef:$output)> {
+    Results<(outs Res<AnyMemRef, "", [MemAlloc]>:$output)> {
   let summary = "Memory allocation on GPU";
   let description = [{
     The `miopen.alloc` op allocates memory on GPU.
@@ -155,13 +155,14 @@ def MIOpen_FillOp:
   }];
 }
 
-def MIOpen_MovePosOp:
-    MIOpen_Op<"move_pos">,
-    Arguments<(ins AnyMemRef:$memref,
-                   Variadic<AnyTypeOf<[AnyInteger, AnyFloat]>>:$values)> {
-    let summary = "Add values to indices within the memref.";
+def MIOpen_MovePosV2Op:
+    MIOpen_Op<"move_pos_v2">,
+    Arguments<(ins VectorOfRankAndType<[1], [AnyInteger, AnyFloat]>:$input,
+                   Variadic<AnyTypeOf<[AnyInteger, AnyFloat]>>:$values)>,
+    Results<(outs VectorOfRankAndType<[1], [AnyInteger, AnyFloat]>:$output)> {
+    let summary = "Add values to indices within the vector.";
     let description = [{
-      The `miopen.fill` op adds values to indices within the memref.
+      The `miopen.move_pos_v2` op adds values to indices within the vector.
     }];
 }
 
@@ -204,8 +205,8 @@ def MIOpen_BlockwiseCopyOp:
     MIOpen_Op<"blockwise_copy">,
     Arguments<(ins AnyMemRef:$source,
                    AnyMemRef:$dest,
-                   AnyMemRef:$sourceCoord,
-                   AnyMemRef:$destCoord,
+                   VectorOfLengthAndType<[3], [I32]>:$sourceCoordVector,
+                   VectorOfLengthAndType<[3], [I32]>:$destCoordVector,
                    Optional<AnyMemRef>:$buffer)> {
   let summary = "Blockwise GPU data movement";
   let description = [{
@@ -213,6 +214,40 @@ def MIOpen_BlockwiseCopyOp:
     allowed:
     - Global (generic tensor) to LDS (naive tensor).
     - Global (generic tensor) to register (naive tensor).
+    - Register (naive tensor) to LDS (naive tensor).
+  }];
+}
+
+// blockwise_load
+def MIOpen_BlockwiseLoadOp:
+    MIOpen_Op<"blockwise_load">,
+    Arguments<(ins AnyMemRef:$source,
+                   VectorOfLengthAndType<[2], [I32]>:$sourceCoordVector)>,
+    Results<(outs AnyTypeOf<[F32, F16, I16,
+                             VectorOfLengthAndType<[2, 4], [F32]>,
+                             VectorOfLengthAndType<[2, 4, 8], [F16]>, 
+                             VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$result)> {
+  let summary = "Blockwise GPU data load";
+  let description = [{
+    The `miopen.blockwise_load` op moves data on GPU. Following movements are
+    allowed:
+    - Global (generic tensor) to register (naive tensor).
+  }];
+}
+
+// blockwise_store
+def MIOpen_BlockwiseStoreOp:
+    MIOpen_Op<"blockwise_store">,
+    Arguments<(ins AnyTypeOf<[F32, F16, I16,
+                              VectorOfLengthAndType<[2, 4], [F32]>,
+                              VectorOfLengthAndType<[2, 4, 8], [F16]>, 
+                              VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$data,
+                   AnyMemRef:$dest,
+                   VectorOfLengthAndType<[2], [I32]>:$destCoordVector)> {
+  let summary = "Blockwise GPU data store";
+  let description = [{
+    The `miopen.blockwise_store` op moves data on GPU. Following movements are
+    allowed:
     - Register (naive tensor) to LDS (naive tensor).
   }];
 }
@@ -231,6 +266,40 @@ def MIOpen_ThreadwiseCopyOp:
     - Register (naive tensor) to LDS (naive tensor).
     - LDS (naive tensor) to register (naive tensor).
     - Register (naive tensor) to global (generic tensor).
+  }];
+}
+
+// threadwise_load
+def MIOpen_ThreadwiseLoadOp:
+    MIOpen_Op<"threadwise_load">,
+    Arguments<(ins AnyMemRef:$source,
+                   Variadic<I32>:$sourceCoord)>,
+    Results<(outs AnyTypeOf<[F32, F16, I16,
+                             VectorOfLengthAndType<[2, 4], [F32]>,
+                             VectorOfLengthAndType<[2, 4, 8], [F16]>,
+                             VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$result)> {
+  let summary = "Threadwise GPU data load";
+  let description = [{
+    The `miopen.threadwise_load` op moves data on GPU. Following movements are
+    allowed:
+    - Global (generic tensor) to register (naive tensor).
+  }];
+}
+
+// threadwise_store
+def MIOpen_ThreadwiseStoreOp:
+    MIOpen_Op<"threadwise_store">,
+    Arguments<(ins AnyTypeOf<[F32, F16, I16,
+                              VectorOfLengthAndType<[2, 4], [F32]>,
+                              VectorOfLengthAndType<[2, 4, 8], [F16]>,
+                              VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$data,
+                   AnyMemRef:$dest,
+                   Variadic<I32>:$destCoord)> {
+  let summary = "Threadwise GPU data store";
+  let description = [{
+    The `miopen.threadwise_store` op moves data on GPU. Following movements are
+    allowed:
+    - Register (naive tensor) to LDS (naive tensor).
   }];
 }
 
