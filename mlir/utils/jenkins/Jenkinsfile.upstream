@@ -6,6 +6,9 @@ pipeline {
             label 'rocm'
         }
     }
+    environment {
+        PATH=$PATH:/opt/rocm-4.1.1/llvm/bin/
+    }
     stages {
         stage('Environment') {
             steps {
@@ -16,26 +19,23 @@ pipeline {
         stage('Build and Test') {
             steps {
                 git 'https://github.com/llvm/llvm-project'
-                sh '''
-                    # make build directory
-                    mkdir -p build && cd build
-                    # Set the path to llvm-symbolizer
-                    PATH=$PATH:/opt/rocm-4.1.1/llvm/bin/
-
-                    # config MLIR on ROCm
-                    cmake -G Ninja ../llvm \
-                        -DLLVM_ENABLE_PROJECTS="mlir;lld" \
-                        -DLLVM_BUILD_EXAMPLES=ON \
-                        -DLLVM_TARGETS_TO_BUILD="X86;AMDGPU" \
-                        -DCMAKE_BUILD_TYPE=Release \
-                        -DLLVM_ENABLE_ASSERTIONS=ON \
-                        -DBUILD_SHARED_LIBS=ON \
-                        -DLLVM_BUILD_LLVM_DYLIB=ON \
-                        -DMLIR_ROCM_RUNNER_ENABLED=1
-
-                    # build LLVM / MLR and run tests
-                    cmake --build . --target check-mlir
-                '''
+                cmakeBuild
+                    buildDir: 'build',\
+                    buildType: 'Release',\
+                    installation: 'InSearchPath',\
+                    generator: 'Ninja',\
+                    steps: [[args: 'check-mlir', withCmake: true]],\
+                    // Reminder to keep these up to date with our cmake
+                    cmakeArgs: '''
+                    -DLLVM_ENABLE_PROJECTS="mlir;lld"
+                    -DLLVM_BUILD_EXAMPLES=ON
+                    -DLLVM_TARGETS_TO_BUILD="X86;AMDGPU"
+                    -DCMAKE_BUILD_TYPE=Release
+                    -DLLVM_ENABLE_ASSERTIONS=ON
+                    -DBUILD_SHARED_LIBS=ON
+                    -DLLVM_BUILD_LLVM_DYLIB=ON
+                    -DMLIR_ROCM_RUNNER_ENABLED=1
+                    '''
             }
         }
     }

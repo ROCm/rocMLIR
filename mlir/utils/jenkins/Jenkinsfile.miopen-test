@@ -1,15 +1,51 @@
 pipeline {
-    agent none
+    agent {
+        docker {
+            image 'rocm/mlir:4.1-latest'
+            args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+            label "rocm"
+        }
+    }
     stages {
+        stage('Build libMLIRMIOpen') {
+            steps {
+                checkout scm
+                cmakeBuild generator: 'Ninja',\
+                    buildDir: 'build',\
+                    installation: 'InSearchPath',\
+                    buildType: 'Release',\
+                    steps: [[args: 'libMLIRMIOpen']],\
+                    cmakeArgs: '-DBUILD_FAT_LIBMLIRMIOPEN=ON'
+                cmake arguments: '--install . --component libMLIRMIOpen',\
+                     installation: 'InSearchPath', workingDir: 'build'
+
+            }
+        }
+        stage('Build MIOpenDriver') {
+            steps {
+                dir('MIOpen') {
+                    git branch: 'develop', poll: false, url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+                    cmakeBuild buildDir: 'build',\
+                        buildType: 'Release',\
+                        installation: 'InSearchPath',\
+                        steps: [[args: "MIOpenDriver"]],\
+                        cmakeArgs: '''-DMIOPEN_USE_MLIR=On
+                        -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                        -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                        -DBUILD_DEV=On
+                        -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
+                        '''
+
+                    stash name:"MIOpen-build",\
+                        include: "src/kernels/**,build/bin/MIOpenDriver,build/lib/*"
+                }
+            }
+        }
         stage("Resnet50 configs nightly tests") {
-            // Note: the builds are reused between cases on each node
-            // It may be possible to move build steps out to execute once
-            // but this could cause issues with target-specific code
-            // when we run the non-xdlops tests on a gfx900
             matrix {
                 agent {
                     docker {
-                        image 'rocm/mlir:miopen_test'
+                        image 'rocm/mlir:latest'
                         args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
                         label "${XDLOPS == '1' ? 'gfx908 && multi_gpu' : 'gfx908 && multi_gpu'}"
                     }
@@ -33,11 +69,6 @@ pipeline {
                     }
                 }
                 stages {
-                    stage('Install parallel (temp until dockerfile updated)') {
-                        steps {
-                            sh 'apt-get update 2>&1 >/dev/null && apt-get install -y --no-install-recommends parallel 2>&1 >/dev/null'
-                        }
-                    }
                     stage('Environment') {
                         steps {
                             echo "Config is ($DTYPE, $LAYOUT, xdlops=$XDLOPS, dir=$DIRECTION)"
@@ -45,44 +76,9 @@ pipeline {
                             sh '/opt/rocm/bin/rocm-smi'
                         }
                     }
-                    stage('Build libMLIRMIOpen') {
-                        steps {
-                            checkout scm
-                            cmakeBuild generator: 'Unix Makefiles',\
-                               buildDir: 'build',\
-                               sourceDir: 'llvm',\
-                               installation: 'InDocker',\
-                               buildType: 'Release',\
-                               cmakeArgs: '''-DLLVM_ENABLE_PROJECTS="mlir;lld"
-                    -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                    -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                    -DBUILD_SHARED_LIBS=OFF
-                    -DLLVM_BUILD_LLVM_DYLIB=OFF
-                    -DLLVM_ENABLE_TERMINFO=OFF
-                    -DCMAKE_INSTALL_PREFIX=/opt/rocm
-                    --log-level=WARNING
-                    -DCMAKE_RULE_MESSAGES=OFF
-                    '''
-                            sh 'cd build; make -j $(nproc) libMLIRMIOpen all install >/dev/null'
-                        }
-                    }
-                    stage('Build MIOpenDriver') {
-                        steps {
-                            dir('MIOpen') {
-                                git branch: 'develop', poll: false, url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
-                                cmakeBuild buildDir: 'build',\
-                                   buildType: 'Release',\
-                                   installation: 'InDocker',\
-                                   cmakeArgs: '''-DMIOPEN_USE_MLIR=On
--DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
--DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
--DBUILD_DEV=On
--DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
---log-level=WARNING
--DCMAKE_RULE_MESSAGES=OFF
-'''
-                                sh 'cd build; make -j $(nproc) MIOpenDriver'
-                            }
+                    stage("Copy MIOpen binaries") {
+                        dir("MIOpen") {
+                            unstash name: "MIOpen-build"
                         }
                     }
                     stage("Test MIOpen config") {
@@ -105,6 +101,11 @@ ${XDLOPS == '1' ? '--xdlops' : '--no-xdlops'} <${WORKSPACE}/mlir/utils/jenkins/m
                     }
                 }
             }
+        }
+    }
+    post {
+        always {
+            cleanWs()
         }
     }
 }
