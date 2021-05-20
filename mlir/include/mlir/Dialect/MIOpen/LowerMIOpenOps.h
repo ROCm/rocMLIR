@@ -5923,17 +5923,20 @@ struct ThreadwiseCopyRewritePattern
       //     template <typename Data>
       //     __device__ static void Run(const Data* p_src, Data* p_dst)
       //     {
-      //         using vector_t = typename vector_type<Data, DataPerAccess>::MemoryType;
+      //         using vector_t = typename vector_type<Data,
+      //         DataPerAccess>::MemoryType;
       //
       //         for(index_t i = 0; i < NSliceRow; ++i)
       //         {
       //             for(index_t j = 0; j < NSliceCol; j += DataPerAccess)
       //             {
-      //                 const index_t src_index = SrcMatrix::CalculateOffset(i, j);
-      //                 const index_t dst_index = DstMatrix::CalculateOffset(i, j);
+      //                 const index_t src_index = SrcMatrix::CalculateOffset(i,
+      //                 j); const index_t dst_index =
+      //                 DstMatrix::CalculateOffset(i, j);
       //
       //                 *reinterpret_cast<vector_t*>(&p_dst[dst_index]) =
-      //                     *reinterpret_cast<const vector_t*>(&p_src[src_index]);
+      //                     *reinterpret_cast<const
+      //                     vector_t*>(&p_src[src_index]);
       //             }
       //         }
       //     }
@@ -5944,9 +5947,8 @@ struct ThreadwiseCopyRewritePattern
           b.create<ConstantIndexOp>(loc, DataPerAccess);
 
       // outer loop.
-      auto outerLoopOp =
-          b.create<scf::ForOp>(loc, zeroConstantOp,
-                               NSliceRowConstantOp, oneConstantOp);
+      auto outerLoopOp = b.create<scf::ForOp>(
+          loc, zeroConstantOp, NSliceRowConstantOp, oneConstantOp);
 
       // inside the outer loop.
       auto lob = OpBuilder::atBlockTerminator(outerLoopOp.getBody());
@@ -5954,9 +5956,8 @@ struct ThreadwiseCopyRewritePattern
       auto ivo_i32 = lob.create<IndexCastOp>(loc, ivo, b.getIntegerType(32));
 
       // inner loop
-      auto innerLoopOp = lob.create<scf::ForOp>(loc, zeroConstantOp,
-                                                NSliceColConstantOp,
-                                                DataPerAccessConstantOp);
+      auto innerLoopOp = lob.create<scf::ForOp>(
+          loc, zeroConstantOp, NSliceColConstantOp, DataPerAccessConstantOp);
 
       // inside the inner loop.
       auto lib = OpBuilder::atBlockTerminator(innerLoopOp.getBody());
