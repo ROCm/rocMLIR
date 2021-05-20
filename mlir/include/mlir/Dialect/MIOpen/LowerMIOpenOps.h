@@ -6314,9 +6314,6 @@ struct ThreadwiseCopyV2RewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
-    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-    auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
-
     auto sourceType = op.source().getType().cast<VectorType>();
     auto destType = op.dest().getType().cast<MemRefType>();
     auto dataType = destType.getElementType();
@@ -6448,109 +6445,106 @@ struct ThreadwiseCopyV2RewritePattern
     // Modify slice lenths per vector access dim.
     sliceLengths[vectorAccessDim] =
         sliceLengths[vectorAccessDim] / longVectorSize;
-    SmallVector<Value, 2> loopBounds;
-    for (unsigned iter = 0; iter < sliceLengths.size(); ++iter)
-      loopBounds.push_back(
-          b.create<ConstantIndexOp>(loc, sliceLengths[iter]));
 
     // llvm::errs() << "modified slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
     //   llvm::errs() << sliceLengths[i] << " ";
     // llvm::errs() << "\n";
 
-    // Emit loops for vector loads / stores.
-    SmallVector<scf::ForOp, 2> loopOps;
-    SmallVector<OpBuilder, 2> loopBuilders;
-    SmallVector<Value, 2> loopIVs;
-    SmallVector<Value, 2> loopIV_i32s;
+    // Emit fully unrolled loops for vector loads / stores.
+    SmallVector<int64_t, 2> loopIVsPerAccessOrder;
+    SmallVector<int64_t, 2> loopBoundsPerAccessOrder;
     for (unsigned iter = 0; iter < dimAccessOrder.size(); ++iter) {
       auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-      auto loopBuilder = (iter == 0) ? b : loopBuilders[iter - 1];
-
-      auto loopOp = loopBuilder.create<scf::ForOp>(
-          loc, zeroConstantOp, loopBounds[dim], oneConstantOp);
-      loopOps.push_back(loopOp);
-      auto loopOpBuilder = OpBuilder::atBlockTerminator(loopOp.getBody());
-      loopBuilders.push_back(loopOpBuilder);
-      auto loopIV = loopOp.getInductionVar();
-      loopIVs.push_back(loopIV);
-      auto loopIV_i32 = loopOpBuilder.create<IndexCastOp>(
-          loc, loopIV, b.getIntegerType(32));
-      loopIV_i32s.push_back(loopIV_i32);
+      loopIVsPerAccessOrder.push_back(0);
+      loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
     }
+    bool toExit = false;
+    do {
+      // Compute high-level coordinate for source memref.
+      // src_index = (iv_0, iv_1, ...) + sourceCoord
+      SmallVector<Value, 8> srcUpperIndices;
+      for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
+        auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+        auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim],
+                                              b.getIntegerType(32));
+        srcUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
+            b.getIndexType()));
+      }
 
-    // Emit loop body.
-    auto innerLoopBuilder = loopBuilders[loopBuilders.size() - 1];
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 8> srcLowerIndices;
+      if (sourceExternalTransform || sourceEmbeddedTransform)
+        srcLowerIndices =
+            expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
+                .getValue();
+      else
+        srcLowerIndices = srcUpperIndices;
 
-    // Compute high-level coordinate for source memref.
-    // src_index = (iv_0, iv_1, ...) + sourceCoord
-    SmallVector<Value, 2> srcUpperIndices = sourceCoord;
-    for (unsigned iter = 0; iter < loopIV_i32s.size(); ++iter) {
-      auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-      srcUpperIndices[dim] = innerLoopBuilder.create<IndexCastOp>(
+      // Add sourceOffset to derive the position in the vector.
+      auto srcPosition = b.create<AddIOp>(
           loc,
-          innerLoopBuilder.create<AddIOp>(loc, srcUpperIndices[dim],
-                                          loopIV_i32s[iter]),
-          b.getIndexType());
-    }
+          b.create<IndexCastOp>(loc, srcLowerIndices[0], b.getIntegerType(32)),
+          op.sourceOffset());
 
-    // Apply affine transformations to compute the low-level coordinate.
-    SmallVector<Value, 2> srcLowerIndices;
-    if (sourceExternalTransform || sourceEmbeddedTransform)
-      srcLowerIndices = expandAffineMap(innerLoopBuilder, loc,
-                                        sourceTransform, srcUpperIndices)
-                            .getValue();
-    else
-      srcLowerIndices = srcUpperIndices;
+      // Load from source.
+      // Value vectorValue;
+      Value scalarValue;
+      // Issue scalar load.
+      scalarValue = b.create<vector::ExtractElementOp>(
+          loc, sourceType.getElementType(), op.source(), srcPosition);
 
-    // Add sourceOffset to derive the position in the vector.
-    auto srcPosition = innerLoopBuilder.create<AddIOp>(loc,
-                          innerLoopBuilder.create<IndexCastOp>(loc, srcLowerIndices[0], b.getIntegerType(32)),
-                          op.sourceOffset());
+      // Compute high-level coordinate for dest memref.
+      // dst_index = (iv_0, iv_1, ...) + destCoord
+      SmallVector<Value, 8> destUpperIndices;
+      for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
+        auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+        auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim],
+                                              b.getIntegerType(32));
+        destUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, loopIV, destCoord[iter]),
+            b.getIndexType()));
+      }
 
-    // Load from source.
-    Value scalarValue;
-    // Issue scalar load.
-    scalarValue = innerLoopBuilder.create<vector::ExtractElementOp>(
-        loc, sourceType.getElementType(), op.source(), srcPosition);
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 8> destLowerIndices;
+      if (destExternalTransform || destEmbeddedTransform)
+        destLowerIndices =
+            expandAffineMap(b, loc, destTransform, destUpperIndices).getValue();
+      else
+        destLowerIndices = destUpperIndices;
 
-    // Compute high-level coordinate for dest memref.
-    // dst_index = (iv_0, iv_1, ...) + destCoord
-    SmallVector<Value, 2> destUpperIndices = destCoord;
-    for (unsigned iter = 0; iter < loopIV_i32s.size(); ++iter) {
-      auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-      destUpperIndices[dim] = innerLoopBuilder.create<IndexCastOp>(
-          loc,
-          innerLoopBuilder.create<AddIOp>(loc, destUpperIndices[dim],
-                                          loopIV_i32s[iter]),
-          b.getIndexType());
-    }
+      // Store to dest.
+      // Issue scalar store.
+      if (dataType == b.getF32Type()) {
+        b.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
+      } else if (dataType == b.getF16Type()) {
+        auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
+        b.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
+      } else if (dataType == b.getIntegerType(16)) {
+        auto convertValue =
+            b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
+        b.create<StoreOp>(loc, convertValue, op.dest(), destLowerIndices);
+      }
 
-    // Apply affine transformations to compute the low-level coordinate.
-    SmallVector<Value, 2> destLowerIndices;
-    if (destExternalTransform || destEmbeddedTransform)
-      destLowerIndices = expandAffineMap(innerLoopBuilder, loc, destTransform,
-                                         destUpperIndices)
-                             .getValue();
-    else
-      destLowerIndices = destUpperIndices;
+      // increase IVs
+      bool toIncreaseNextDigit = true;
+      int iter = loopIVsPerAccessOrder.size() - 1;
+      for (; toIncreaseNextDigit && iter >= 0; --iter) {
+        if (++loopIVsPerAccessOrder[iter] == loopBoundsPerAccessOrder[iter]) {
+          loopIVsPerAccessOrder[iter] = 0;
+          toIncreaseNextDigit = true;
+        } else {
+          toIncreaseNextDigit = false;
+        }
+      }
 
-    // Store to dest.
-    // Issue scalar store.
-    if (dataType == b.getF32Type()) {
-      innerLoopBuilder.create<StoreOp>(loc, scalarValue, op.dest(),
-                                       destLowerIndices);
-    } else if (dataType == b.getF16Type()) {
-      auto truncValue =
-          innerLoopBuilder.create<FPTruncOp>(loc, scalarValue, dataType);
-      innerLoopBuilder.create<StoreOp>(loc, truncValue, op.dest(),
-                                       destLowerIndices);
-    } else if (dataType == b.getIntegerType(16)) {
-      auto convertValue = innerLoopBuilder.create<miopen::DataConvertOp>(
-          loc, dataType, scalarValue);
-      innerLoopBuilder.create<StoreOp>(loc, convertValue, op.dest(),
-                                       destLowerIndices);
-    }
+      // check if need to exit
+      if (iter < 0 && toIncreaseNextDigit == true) {
+        toExit = true;
+      }
+    } while (!toExit);
 
     op.erase();
     return success();
