@@ -4353,8 +4353,9 @@ struct ThreadwiseCopyRewritePattern
         // src_index = (iv_0, iv_1, ...) + sourceCoord
         SmallVector<Value, 8> srcUpperIndices;
         for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-          auto loopIV = b.create<ConstantIntOp>(
-              loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32));
+          auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+          auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim],
+                                                b.getIntegerType(32));
           srcUpperIndices.push_back(b.create<IndexCastOp>(
               loc, b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
               b.getIndexType()));
