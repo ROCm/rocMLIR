@@ -19,11 +19,10 @@ pipeline {
         stage('Build and Test') {
             steps {
                 checkout scm
-                cmakeBuild
+                cmakeBuild generator: 'Ninja',\
                     buildDir: 'build',\
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
-                    generator: 'Ninja',\
                     steps: [[args: 'check-mlir', withCmake: true]],\
                     cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1
                         -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1
@@ -35,11 +34,10 @@ pipeline {
         }
         stage('Test Random E2E') {
             steps {
-                cmakeBuild
+                cmakeBuild generator: 'Ninja',\
                     buildDir: 'build',\
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
-                    generator: 'Ninja',\
                     steps: [[args: 'check-e2e', withCmake: true]],\
                     cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1
                         -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1

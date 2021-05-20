@@ -19,11 +19,10 @@ pipeline {
         stage('Build and Test') {
             steps {
                 git 'https://github.com/llvm/llvm-project'
-                cmakeBuild
+                cmakeBuild generator: 'Ninja',\
                     buildDir: 'build',\
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
-                    generator: 'Ninja',\
                     steps: [[args: 'check-mlir', withCmake: true]],\
                     // Reminder to keep these up to date with our cmake
                     cmakeArgs: '''

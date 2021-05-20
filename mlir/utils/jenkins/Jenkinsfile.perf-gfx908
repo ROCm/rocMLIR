@@ -25,11 +25,10 @@ pipeline {
                 // - fp32
                 // - resnet50 configs.
 
-                cmakeBuild
+                cmakeBuild generator: 'Ninja',\
                     buildDir: 'build',\
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
-                    generator: 'Ninja',\
                     steps: [[args: 'mlir-miopen-driver mlir-rocm-runner']],\
                     cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1
                         -DMIOPEN_SYSTEM_DB_PATH=${WORKSPACE}/mlir/utils/jenkins/perfdb/miopen_1.0.0.udb.resnet50_fp32_1013

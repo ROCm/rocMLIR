@@ -19,11 +19,10 @@ pipeline {
         stage('Build and Test') {
             steps {
                 checkout scm
-                cmakeBuild
+                cmakeBuild generator: 'Ninja',\
                     buildDir: 'build',\
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
-                    generator: 'Ninja',\
                     steps: [[args: 'check-mlir', withCmake: true]],\
                     cmakeArgs: '-DMLIR_MIOPEN_DRIVER_ENABLED=1'
             }
@@ -40,11 +39,10 @@ pipeline {
         }
         stage('Igemm Build') {
             steps {
-                cmakeBuild
+                cmakeBuild generator: 'Ninja',\
                     buildDir: 'build',\
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
-                    generator: 'Ninja',\
                     sourceDir: 'llvm',\
                     steps: [[args: 'libMLIRMIOpen']],\
                     cmakeArgs: '-DBUILD_FAT_LIBMLIRMIOPEN=ON'

@@ -16,11 +16,10 @@ pipeline {
         stage('Build and Test') {
             steps {
                 checkout scm
-                cmakeBuild
+                cmakeBuild generator: 'Ninja',\
                     buildDir: 'build',\
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
-                    generator: 'Ninja',\
                     steps: [[args: 'check-mlir', withCmake: true]],\
                     cmakeArgs: '-DMLIR_MIOPEN_DRIVER_ENABLED=1'
             }
