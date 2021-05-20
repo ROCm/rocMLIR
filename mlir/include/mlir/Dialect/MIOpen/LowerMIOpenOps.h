@@ -4333,10 +4333,6 @@ struct ThreadwiseCopyRewritePattern
       // Modify slice lenths per vector access dim.
       sliceLengths[vectorAccessDim] =
           sliceLengths[vectorAccessDim] / longVectorSize;
-      SmallVector<Value, 2> loopBounds;
-      for (unsigned iter = 0; iter < sliceLengths.size(); ++iter)
-        loopBounds.push_back(
-            b.create<ConstantIndexOp>(loc, sliceLengths[iter]));
 
       // llvm::errs() << "modified slice lengths: ";
       // for (unsigned i = 0; i < sliceLengths.size(); ++i)
