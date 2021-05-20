@@ -5799,6 +5799,7 @@ struct ThreadwiseCopyRewritePattern
         op.dest().getType().cast<MemRefType>().getElementType().cast<Type>();
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     auto sourceType = op.source().getType().cast<MemRefType>();
     auto destType = op.dest().getType().cast<MemRefType>();
@@ -5940,74 +5941,87 @@ struct ThreadwiseCopyRewritePattern
       //         }
       //     }
       // };
-      // Emit fully-unrolled loops.
-      for (unsigned ivo = 0; ivo < NSliceRow; ++ivo) {
-        auto ivo_i32 = b.create<ConstantIntOp>(loc, ivo, b.getIntegerType(32));
-        for (unsigned ivi = 0; ivi < NSliceCol; ivi += DataPerAccess) {
-          auto ivi_i32 =
-              b.create<ConstantIntOp>(loc, ivi, b.getIntegerType(32));
+      auto NSliceRowConstantOp = b.create<ConstantIndexOp>(loc, NSliceRow);
+      auto NSliceColConstantOp = b.create<ConstantIndexOp>(loc, NSliceCol);
+      auto DataPerAccessConstantOp =
+          b.create<ConstantIndexOp>(loc, DataPerAccess);
 
-          // Compute high-level coordinate for source memref.
-          // src_index = (0, ivo_i32, ivi_i32) + sourceCoord
-          SmallVector<Value, 8> srcUpperIndices;
-          srcUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, zeroConstantOp, sourceCoord[0]),
-              b.getIndexType()));
-          srcUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, ivo_i32, sourceCoord[1]),
-              b.getIndexType()));
-          srcUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, ivi_i32, sourceCoord[2]),
-              b.getIndexType()));
+      // outer loop.
+      auto outerLoopOp = b.create<scf::ForOp>(
+          loc, zeroConstantOp, NSliceRowConstantOp, oneConstantOp);
 
-          // Apply affine transformations to compute the low-level coordinate.
-          SmallVector<Value, 8> srcLowerIndices;
-          if (sourceExternalTransform || sourceEmbeddedTransform)
-            srcLowerIndices =
-                expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
-                    .getValue();
-          else
-            srcLowerIndices = srcUpperIndices;
+      // inside the outer loop.
+      auto lob = OpBuilder::atBlockTerminator(outerLoopOp.getBody());
+      auto ivo = outerLoopOp.getInductionVar();
+      auto ivo_i32 = lob.create<IndexCastOp>(loc, ivo, b.getIntegerType(32));
 
-          Value scalarValue;
-          // Load from source.
-          // Issue scalar load.
-          scalarValue = b.create<LoadOp>(loc, sourceType.getElementType(),
-                                         op.source(), srcLowerIndices);
+      // inner loop
+      auto innerLoopOp = lob.create<scf::ForOp>(
+          loc, zeroConstantOp, NSliceColConstantOp, DataPerAccessConstantOp);
 
-          // Convert from sourceElementType to destElementType if necessary.
-          Value convertedScalarValue = createTypeConversionOp(
-              b, loc, scalarValue, sourceElementType, destElementType);
+      // inside the inner loop.
+      auto lib = OpBuilder::atBlockTerminator(innerLoopOp.getBody());
+      auto ivi = innerLoopOp.getInductionVar();
+      auto ivi_i32 = lib.create<IndexCastOp>(loc, ivi, b.getIntegerType(32));
 
-          // Compute high-level coordinate for dest memref.
-          // dst_index = (0, ivo_i32, ivi_i32) + destCoord
-          SmallVector<Value, 8> destUpperIndices;
-          destUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
-              b.getIndexType()));
-          destUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, ivo_i32, destCoord[1]),
-              b.getIndexType()));
-          destUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, ivi_i32, destCoord[2]),
-              b.getIndexType()));
+      // Compute high-level coordinate for source memref.
+      // src_index = (ivo_i32, ivi_i32) + sourceCoord
+      SmallVector<Value, 8> srcUpperIndices;
+      srcUpperIndices.push_back(lib.create<IndexCastOp>(
+          loc, lib.create<AddIOp>(loc, zeroConstantOp, sourceCoord[0]),
+          b.getIndexType()));
+      srcUpperIndices.push_back(lib.create<IndexCastOp>(
+          loc, lib.create<AddIOp>(loc, ivo_i32, sourceCoord[1]),
+          b.getIndexType()));
+      srcUpperIndices.push_back(lib.create<IndexCastOp>(
+          loc, lib.create<AddIOp>(loc, ivi_i32, sourceCoord[2]),
+          b.getIndexType()));
 
-          // Apply affine transformations to compute the low-level coordinate.
-          SmallVector<Value, 8> destLowerIndices;
-          if (destExternalTransform || destEmbeddedTransform)
-            destLowerIndices =
-                expandAffineMap(b, loc, destTransform, destUpperIndices)
-                    .getValue();
-          else
-            destLowerIndices = destUpperIndices;
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 8> srcLowerIndices;
+      if (sourceExternalTransform || sourceEmbeddedTransform)
+        srcLowerIndices =
+            expandAffineMap(lib, loc, sourceTransform, srcUpperIndices)
+                .getValue();
+      else
+        srcLowerIndices = srcUpperIndices;
 
-          // Store to dest.
-          // Issue scalar store.
-          b.create<StoreOp>(loc, convertedScalarValue, op.dest(),
-                            destLowerIndices);
+      Value scalarValue;
+      // Load from source.
+      // Issue scalar load.
+      scalarValue = lib.create<LoadOp>(loc, sourceElementType, op.source(),
+                                       srcLowerIndices);
 
-        } // ivi
-      }   // ivo
+      // Convert from sourceElementType to destElementType if necessary.
+      Value convertedScalarValue = createTypeConversionOp(
+          lib, loc, scalarValue, sourceElementType, destElementType);
+
+      // Compute high-level coordinate for dest memref.
+      // dst_index = (ivo_i32, ivi_i32) + destCoord
+      SmallVector<Value, 8> destUpperIndices;
+      destUpperIndices.push_back(lib.create<IndexCastOp>(
+          loc, lib.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
+          b.getIndexType()));
+      destUpperIndices.push_back(lib.create<IndexCastOp>(
+          loc, lib.create<AddIOp>(loc, ivo_i32, destCoord[1]),
+          b.getIndexType()));
+      destUpperIndices.push_back(lib.create<IndexCastOp>(
+          loc, lib.create<AddIOp>(loc, ivi_i32, destCoord[2]),
+          b.getIndexType()));
+
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 8> destLowerIndices;
+      if (destExternalTransform || destEmbeddedTransform)
+        destLowerIndices =
+            expandAffineMap(lib, loc, destTransform, destUpperIndices)
+                .getValue();
+      else
+        destLowerIndices = destUpperIndices;
+
+      // Store to dest.
+      // Issue scalar store.
+      lib.create<StoreOp>(loc, convertedScalarValue, op.dest(),
+                          destLowerIndices);
     } else {
       // The more elaborated algorithm.
       // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
@@ -6098,188 +6112,189 @@ struct ThreadwiseCopyRewritePattern
       //   llvm::errs() << sliceLengths[i] << " ";
       // llvm::errs() << "\n";
 
-      // Emit fully unrolled loops for vector loads / stores.
-      SmallVector<int64_t, 2> loopIVsPerAccessOrder;
-      SmallVector<int64_t, 2> loopBoundsPerAccessOrder;
+      // Emit loops for vector loads / stores.
+      SmallVector<scf::ForOp, 2> loopOps;
+      SmallVector<OpBuilder, 2> loopBuilders;
+      SmallVector<Value, 2> loopIVs;
+      SmallVector<Value, 2> loopIV_i32s;
       for (unsigned iter = 0; iter < dimAccessOrder.size(); ++iter) {
         auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-        loopIVsPerAccessOrder.push_back(0);
-        loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
+        auto loopBuilder = (iter == 0) ? b : loopBuilders[iter - 1];
+
+        auto loopOp = loopBuilder.create<scf::ForOp>(
+            loc, zeroConstantOp, loopBounds[dim], oneConstantOp);
+        loopOps.push_back(loopOp);
+        auto loopOpBuilder = OpBuilder::atBlockTerminator(loopOp.getBody());
+        loopBuilders.push_back(loopOpBuilder);
+        auto loopIV = loopOp.getInductionVar();
+        loopIVs.push_back(loopIV);
+        auto loopIV_i32 = loopOpBuilder.create<IndexCastOp>(
+            loc, loopIV, b.getIntegerType(32));
+        loopIV_i32s.push_back(loopIV_i32);
       }
-      bool toExit = false;
-      do {
-        // Compute high-level coordinate for source memref.
-        // src_index = (iv_0, iv_1, ...) + sourceCoord
-        SmallVector<Value, 8> srcUpperIndices;
-        for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-          auto loopIV = b.create<ConstantIntOp>(
-              loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32));
-          srcUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
-              b.getIndexType()));
+
+      // Emit loop body.
+      auto innerLoopBuilder = loopBuilders[loopBuilders.size() - 1];
+
+      // Compute high-level coordinate for source memref.
+      // src_index = (iv_0, iv_1, ...) + sourceCoord
+      SmallVector<Value, 2> srcUpperIndices = sourceCoord;
+      for (unsigned iter = 0; iter < loopIV_i32s.size(); ++iter) {
+        auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+        srcUpperIndices[dim] = innerLoopBuilder.create<IndexCastOp>(
+            loc,
+            innerLoopBuilder.create<AddIOp>(loc, srcUpperIndices[dim],
+                                            loopIV_i32s[iter]),
+            b.getIndexType());
+      }
+
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 2> srcLowerIndices;
+      SmallVector<Value, 2> srcLowerOOBIndices;
+      if (sourceExternalTransform || sourceEmbeddedTransform)
+        srcLowerIndices = expandAffineMap(innerLoopBuilder, loc,
+                                          sourceTransform, srcUpperIndices)
+                              .getValue();
+      else
+        srcLowerIndices = srcUpperIndices;
+
+      // Pre-populate srcLowerOOBIndices. It will be modified inside
+      // toEmitOOBCheckLogic basic block.
+      srcLowerOOBIndices = srcLowerIndices;
+
+      // Load from source.
+      Value scalarValue;
+      if (toEmitOOBCheckLogic) {
+        // Emit a useful constant 0f for later use.
+        Value zeroOp = createZeroConstantFloatOp(innerLoopBuilder, loc,
+                                                 sourceType.getElementType());
+
+        // Walkthrough all lower level indices where the dimension has padding,
+        // check if the result lies within boundaries.
+
+        // Logic in C++:
+        // bool withinBounds = true;
+        // for (auto dim : oobCheckDims) {
+        //   withBounds &=
+        //     (srcLowerIndices[dim] >= 0 &&
+        //      srcLowerIndices[dim] < sourceType.getShape()[dim]) {
+        // }
+        Value withinBoundsOp = innerLoopBuilder.create<ConstantIntOp>(
+            loc, 1, innerLoopBuilder.getIntegerType(1));
+        for (auto dim : oobCheckDims) {
+          Value coord = srcLowerIndices[dim];
+          Value lowerBoundCheckOp = innerLoopBuilder.create<CmpIOp>(
+              loc, CmpIPredicate::sge, coord, zeroConstantOp);
+          Value upperBoundOp = innerLoopBuilder.create<ConstantIndexOp>(
+              loc, sourceType.getShape()[dim]);
+          Value upperBoundCheckOp = innerLoopBuilder.create<CmpIOp>(
+              loc, CmpIPredicate::slt, coord, upperBoundOp);
+          Value withinBoundInOneDimOp = innerLoopBuilder.create<AndOp>(
+              loc, lowerBoundCheckOp, upperBoundCheckOp);
+
+          withinBoundsOp = innerLoopBuilder.create<AndOp>(
+              loc, withinBoundsOp, withinBoundInOneDimOp);
+
+          // Prepare srcLowerOOBIndices.
+          srcLowerOOBIndices[dim] = zeroConstantOp;
         }
 
-        // Apply affine transformations to compute the low-level coordinate.
-        SmallVector<Value, 8> srcLowerIndices;
-        SmallVector<Value, 8> srcLowerOOBIndices;
-        if (sourceExternalTransform || sourceEmbeddedTransform)
-          srcLowerIndices =
-              expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
-                  .getValue();
-        else
-          srcLowerIndices = srcUpperIndices;
+        // Logic:
+        // if (withinBounds) {
+        //   // load address = lower indices from affine transform.
+        // } else {
+        //   // OOB. Prepare an address known NOT OOB.
+        //   // For example, in NGCHW case:
+        //   // load address = {N, G, C, 0, 0}
+        //   // In NGHWC case:
+        //   // load address = {N, G, 0, 0, C}
+        // }
+        // V = load(load address)
+        // if (withinBounds) {
+        //   return V
+        // } else {
+        //   return 0
+        // }
 
-        // Pre-populate srcLowerOOBIndices. It will be modified inside
-        // toEmitOOBCheckLogic basic block.
-        srcLowerOOBIndices = srcLowerIndices;
+        // Emit the first IfOp.
+        auto firstIfWithinBoundsOp = innerLoopBuilder.create<scf::IfOp>(
+            loc,
+            TypeRange{innerLoopBuilder.getIndexType(),
+                      innerLoopBuilder.getIndexType(),
+                      innerLoopBuilder.getIndexType(),
+                      innerLoopBuilder.getIndexType(),
+                      innerLoopBuilder.getIndexType()},
+            withinBoundsOp, /*withElseRegion=*/true);
 
-        // Load from source.
-        Value scalarValue;
-        if (toEmitOOBCheckLogic) {
-          // Emit a useful constant 0f for later use.
-          Value zeroOp =
-              createZeroConstantFloatOp(b, loc, sourceType.getElementType());
+        // Then part.
+        auto firstIfWithinBoundsThenBuilder =
+            firstIfWithinBoundsOp.getThenBodyBuilder();
+        firstIfWithinBoundsThenBuilder.create<scf::YieldOp>(
+            loc, ValueRange{srcLowerIndices[0], srcLowerIndices[1],
+                            srcLowerIndices[2], srcLowerIndices[3],
+                            srcLowerIndices[4]});
 
-          // Walkthrough all lower level indices where the dimension has
-          // padding, check if the result lies within boundaries.
+        // Else part.
+        auto firstIfWithinBoundsElseBuilder =
+            firstIfWithinBoundsOp.getElseBodyBuilder();
+        firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{srcLowerOOBIndices[0], srcLowerOOBIndices[1],
+                            srcLowerOOBIndices[2], srcLowerOOBIndices[3],
+                            srcLowerOOBIndices[4]});
 
-          // Logic in C++:
-          // bool withinBounds = true;
-          // for (auto dim : oobCheckDims) {
-          //   withBounds &=
-          //     (srcLowerIndices[dim] >= 0 &&
-          //      srcLowerIndices[dim] < sourceType.getShape()[dim]) {
-          // }
-          Value withinBoundsOp =
-              b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
-          for (auto dim : oobCheckDims) {
-            Value coord = srcLowerIndices[dim];
-            Value lowerBoundCheckOp = b.create<CmpIOp>(loc, CmpIPredicate::sge,
-                                                       coord, zeroConstantOp);
-            Value upperBoundOp =
-                b.create<ConstantIndexOp>(loc, sourceType.getShape()[dim]);
-            Value upperBoundCheckOp =
-                b.create<CmpIOp>(loc, CmpIPredicate::slt, coord, upperBoundOp);
-            Value withinBoundInOneDimOp =
-                b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
+        // Issue scalar load.
+        scalarValue =
+            innerLoopBuilder.create<LoadOp>(loc, sourceElementType, op.source(),
+                                            firstIfWithinBoundsOp.results());
 
-            withinBoundsOp =
-                b.create<AndOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
+        // Emit the second IfOp.
+        auto secondIfWithinBoundsOp = innerLoopBuilder.create<scf::IfOp>(
+            loc, sourceElementType, withinBoundsOp, true);
+        auto secondIfWithinBoundsThenBuilder =
+            secondIfWithinBoundsOp.getThenBodyBuilder();
+        secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc, scalarValue);
+        auto secondIfWithinBoundsElseBuilder =
+            secondIfWithinBoundsOp.getElseBodyBuilder();
+        secondIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOp);
 
-            // Prepare srcLowerOOBIndices.
-            srcLowerOOBIndices[dim] = zeroConstantOp;
-          }
+        scalarValue = secondIfWithinBoundsOp.results()[0];
 
-          // Logic:
-          // if (withinBounds) {
-          //   // load address = lower indices from affine transform.
-          // } else {
-          //   // OOB. Prepare an address known NOT OOB.
-          //   // For example, in NGCHW case:
-          //   // load address = {N, G, C, 0, 0}
-          //   // In NGHWC case:
-          //   // load address = {N, G, 0, 0, C}
-          // }
-          // V = load(load address)
-          // if (withinBounds) {
-          //   return V
-          // } else {
-          //   return 0
-          // }
+      } else {
+        // Issue scalar load.
+        scalarValue = innerLoopBuilder.create<LoadOp>(
+            loc, sourceElementType, op.source(), srcLowerIndices);
+      }
 
-          // Emit the first IfOp.
-          auto firstIfWithinBoundsOp = b.create<scf::IfOp>(
-              loc,
-              TypeRange{b.getIndexType(), b.getIndexType(), b.getIndexType(),
-                        b.getIndexType(), b.getIndexType()},
-              withinBoundsOp, /*withElseRegion=*/true);
+      // Convert from sourceElementType to destElementType if necessary.
+      Value convertedScalarValue =
+          createTypeConversionOp(innerLoopBuilder, loc, scalarValue,
+                                 sourceElementType, destElementType);
 
-          // Then part.
-          auto firstIfWithinBoundsThenBuilder =
-              firstIfWithinBoundsOp.getThenBodyBuilder();
-          firstIfWithinBoundsThenBuilder.create<scf::YieldOp>(
-              loc, ValueRange{srcLowerIndices[0], srcLowerIndices[1],
-                              srcLowerIndices[2], srcLowerIndices[3],
-                              srcLowerIndices[4]});
+      // Compute high-level coordinate for dest memref.
+      // dst_index = (iv_0, iv_1, ...) + destCoord
+      SmallVector<Value, 2> destUpperIndices = destCoord;
+      for (unsigned iter = 0; iter < loopIV_i32s.size(); ++iter) {
+        auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+        destUpperIndices[dim] = innerLoopBuilder.create<IndexCastOp>(
+            loc,
+            innerLoopBuilder.create<AddIOp>(loc, destUpperIndices[dim],
+                                            loopIV_i32s[iter]),
+            b.getIndexType());
+      }
 
-          // Else part.
-          auto firstIfWithinBoundsElseBuilder =
-              firstIfWithinBoundsOp.getElseBodyBuilder();
-          firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(
-              loc, ValueRange{srcLowerOOBIndices[0], srcLowerOOBIndices[1],
-                              srcLowerOOBIndices[2], srcLowerOOBIndices[3],
-                              srcLowerOOBIndices[4]});
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 2> destLowerIndices;
+      if (destExternalTransform || destEmbeddedTransform)
+        destLowerIndices = expandAffineMap(innerLoopBuilder, loc, destTransform,
+                                           destUpperIndices)
+                               .getValue();
+      else
+        destLowerIndices = destUpperIndices;
 
-          // Issue scalar load.
-          scalarValue = b.create<LoadOp>(loc, sourceElementType, op.source(),
-                                         firstIfWithinBoundsOp.results());
-
-          // Emit the second IfOp.
-          auto secondIfWithinBoundsOp =
-              b.create<scf::IfOp>(loc, sourceElementType, withinBoundsOp, true);
-          auto secondIfWithinBoundsThenBuilder =
-              secondIfWithinBoundsOp.getThenBodyBuilder();
-          secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc,
-                                                               scalarValue);
-          auto secondIfWithinBoundsElseBuilder =
-              secondIfWithinBoundsOp.getElseBodyBuilder();
-          secondIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOp);
-
-          scalarValue = secondIfWithinBoundsOp.results()[0];
-
-        } else {
-          // Issue scalar load.
-          scalarValue = b.create<LoadOp>(loc, sourceElementType, op.source(),
-                                         srcLowerIndices);
-        }
-
-        // Convert from sourceElementType to destElementType if necessary.
-        Value convertedScalarValue = createTypeConversionOp(
-            b, loc, scalarValue, sourceElementType, destElementType);
-
-        // Compute high-level coordinate for dest memref.
-        // dst_index = (iv_0, iv_1, ...) + destCoord
-        SmallVector<Value, 8> destUpperIndices;
-        for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-          auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-          auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim],
-                                                b.getIntegerType(32));
-          destUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, loopIV, destCoord[iter]),
-              b.getIndexType()));
-        }
-
-        // Apply affine transformations to compute the low-level coordinate.
-        SmallVector<Value, 8> destLowerIndices;
-        if (destExternalTransform || destEmbeddedTransform)
-          destLowerIndices =
-              expandAffineMap(b, loc, destTransform, destUpperIndices)
-                  .getValue();
-        else
-          destLowerIndices = destUpperIndices;
-
-        // Store to dest.
-        // Issue scalar store.
-        b.create<StoreOp>(loc, convertedScalarValue, op.dest(),
-                          destLowerIndices);
-
-        // increase IVs
-        bool toIncreaseNextDigit = true;
-        int iter = loopIVsPerAccessOrder.size() - 1;
-        for (; toIncreaseNextDigit && iter >= 0; --iter) {
-          if (++loopIVsPerAccessOrder[iter] == loopBoundsPerAccessOrder[iter]) {
-            loopIVsPerAccessOrder[iter] = 0;
-            toIncreaseNextDigit = true;
-          } else {
-            toIncreaseNextDigit = false;
-          }
-        }
-
-        // check if need to exit
-        if (iter < 0 && toIncreaseNextDigit == true) {
-          toExit = true;
-        }
-      } while (!toExit);
+      // Store to dest.
+      // Issue scalar store.
+      innerLoopBuilder.create<StoreOp>(loc, convertedScalarValue, op.dest(),
+                                       destLowerIndices);
     }
 
     op.erase();
