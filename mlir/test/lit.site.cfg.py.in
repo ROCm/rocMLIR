@@ -45,6 +45,7 @@ config.spirv_wrapper_library_dir = "@MLIR_SPIRV_WRAPPER_LIBRARY_DIR@"
 config.enable_spirv_cpu_runner = @MLIR_SPIRV_CPU_RUNNER_ENABLED@
 config.enable_miopen_driver = @MLIR_MIOPEN_DRIVER_ENABLED@
 config.enable_miopen_driver_e2e_test = @MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED@
+config.enable_miopen_driver_pr_e2e_test = @MLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED@
 config.enable_miopen_sqlite = @MLIR_MIOPEN_SQLITE_ENABLED@
 config.vulkan_wrapper_library_dir = "@MLIR_VULKAN_WRAPPER_LIBRARY_DIR@"
 config.enable_vulkan_runner = @MLIR_VULKAN_RUNNER_ENABLED@
