@@ -565,6 +565,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
           targetGemmDim1Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+          sourceGemmDim1Attr.push_back(b.getNamedAttr(
+              "bound_check", b.getArrayAttr({
+                                 b.getI32IntegerAttr(nameToDims["c"]),
+                                 b.getI32IntegerAttr(nameToDims["y"]),
+                                 b.getI32IntegerAttr(nameToDims["x"]),
+                             })));
         } else if (arg0TargetLayoutName2 == "gemmK") {
           isFilterPad = true;
           isGemmDim2Pad = true;
@@ -581,6 +587,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+
+          targetGemmDim2Attr.push_back(b.getNamedAttr(
+              "bound_check", b.getArrayAttr({
+                                 b.getI32IntegerAttr(nameToDims["c"]),
+                                 b.getI32IntegerAttr(nameToDims["y"]),
+                                 b.getI32IntegerAttr(nameToDims["x"]),
+                             })));
         }
       }
 
@@ -1287,6 +1300,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                             b.getI32IntegerAttr(gemmKExtra)})));
           targetGemmDim1Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+
+          targetGemmDim1Attr.push_back(b.getNamedAttr(
+              "bound_check", b.getArrayAttr({
+                                 b.getI32IntegerAttr(nameToDims["ci"]),
+                                 b.getI32IntegerAttr(nameToDims["hi"]),
+                                 b.getI32IntegerAttr(nameToDims["wi"]),
+                             })));
         } else if (arg1TargetLayoutName2 == "gemmK") {
           isInputPad = true;
           isGemmDim2Pad = true;
@@ -1301,6 +1321,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+
+          targetGemmDim2Attr.push_back(b.getNamedAttr(
+              "bound_check", b.getArrayAttr({
+                                 b.getI32IntegerAttr(nameToDims["ci"]),
+                                 b.getI32IntegerAttr(nameToDims["hi"]),
+                                 b.getI32IntegerAttr(nameToDims["wi"]),
+                             })));
         }
       }
 
@@ -1619,6 +1646,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
           targetGemmDim1Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+
+          targetGemmDim1Attr.push_back(b.getNamedAttr(
+              "bound_check", b.getArrayAttr({
+                                 b.getI32IntegerAttr(nameToDims["no"]),
+                                 b.getI32IntegerAttr(nameToDims["ho"]),
+                                 b.getI32IntegerAttr(nameToDims["wo"]),
+                             })));
         } else if (arg2TargetLayoutName2 == "gemmK") {
           isOutputPad = true;
           isGemmDim2Pad = true;
@@ -1633,6 +1667,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+
+          targetGemmDim2Attr.push_back(b.getNamedAttr(
+              "bound_check", b.getArrayAttr({
+                                 b.getI32IntegerAttr(nameToDims["no"]),
+                                 b.getI32IntegerAttr(nameToDims["ho"]),
+                                 b.getI32IntegerAttr(nameToDims["wo"]),
+                             })));
         }
       }
 
