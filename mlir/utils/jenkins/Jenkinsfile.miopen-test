@@ -77,8 +77,10 @@ pipeline {
                         }
                     }
                     stage("Copy MIOpen binaries") {
-                        dir("MIOpen") {
-                            unstash name: "MIOpen-build"
+                        steps {
+                            dir("MIOpen") {
+                                unstash name: "MIOpen-build"
+                            }
                         }
                     }
                     stage("Test MIOpen config") {
