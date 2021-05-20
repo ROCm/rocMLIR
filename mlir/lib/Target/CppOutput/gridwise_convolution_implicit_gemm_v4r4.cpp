@@ -192,7 +192,7 @@ void EmitCppPreamble(llvm::raw_ostream &output, miopen::ConvOpType opType) {
   if (opType == miopen::ConvOpType::Conv2DOpType) {
     output << R"(#include "mlir_gen_igemm_conv2d_cpp_v4r4_fwd.hpp")";
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
-    output << R"(#include "mlir_gen_igemm_conv2d_cpp_v1r1_bwd.hpp")";
+    output << R"(#include "mlir_gen_igemm_conv2d_cpp_v4r1_bwd.hpp")";
   } else if (opType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
     output << R"(#include "mlir_gen_igemm_conv2d_cpp_v4r4_wrw.hpp")";
   }
@@ -204,7 +204,7 @@ void EmitCppPreamble(llvm::raw_ostream &output, miopen::ConvOpType opType) {
     __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_cpp_v4r4_fwd)";
   } else if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
     output << R"(
-    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_cpp_v1r1_bwd)";
+    __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_cpp_v4r1_bwd)";
   } else if (opType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
     output << R"(
     __launch_bounds__(CK_PARAM_TUNABLE_BLOCK_SIZE, 2) void mlir_gen_igemm_conv2d_cpp_v4r4_wrw)";
