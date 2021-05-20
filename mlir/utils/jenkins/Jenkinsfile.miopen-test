@@ -25,6 +25,8 @@ pipeline {
             steps {
                 dir('MIOpen') {
                     git branch: 'develop', poll: false, url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+                    cmake arguments: "-P install_deps.cmake --minimum",\
+                          installation: "InSearchPath"
                     cmakeBuild buildDir: 'build',\
                         buildType: 'Release',\
                         installation: 'InSearchPath',\
