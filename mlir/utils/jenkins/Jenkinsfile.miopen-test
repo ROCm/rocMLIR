@@ -37,7 +37,7 @@ pipeline {
                         '''
 
                     stash name:"MIOpen-build",\
-                        include: "src/kernels/**,build/bin/MIOpenDriver,build/lib/*"
+                        includes: "src/kernels/**,build/bin/MIOpenDriver,build/lib/*"
                 }
             }
         }
