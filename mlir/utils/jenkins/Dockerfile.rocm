@@ -88,7 +88,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   kmod \
   file \
   cmake \
-  libsqlite3-dev && \
+  libsqlite3-dev \
+  parallel \
+  python3-venv  && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
 
