@@ -40,8 +40,8 @@
 #include "XdlopsCodeSelection.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "utility/math.hpp"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
-#include <map>
 
 using namespace mlir;
 using namespace mlir::miopen;
@@ -184,7 +184,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // get y, x, ho, wo, hi, wi, k, c, n
     int64_t y, x, ho, wo, hi, wi, k, c, n;
     y = x = ho = wo = hi = wi = k = c = n = 0;
-    std::map<StringRef, int> nameToDims;
+    llvm::DenseMap<StringRef, int> nameToDims;
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
@@ -1901,7 +1901,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // Weight tensor transformation for Conv2DOp
     auto getGemmA = [&]() {
       // key to dim
-      std::map<StringRef, int> filterKeyToDim;
+      llvm::DenseMap<StringRef, int> filterKeyToDim;
       for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
         if (auto strAttr = filterLayoutAttr.getValue()[i]
                                .template dyn_cast<StringAttr>()) {
@@ -2247,7 +2247,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto getGemmB = [&]() {
       // key to dim
-      std::map<StringRef, int> currentKeyToDim;
+      llvm::DenseMap<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
         if (auto strAttr =
                 inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
@@ -2681,7 +2681,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto getGemmC = [&]() {
       // key to dim
-      std::map<StringRef, int> currentKeyToDim;
+      llvm::DenseMap<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
         if (auto strAttr = outputLayoutAttr.getValue()[i]
                                .template dyn_cast<StringAttr>()) {

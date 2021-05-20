@@ -9,9 +9,9 @@
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/Pass.h"
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Support/raw_ostream.h"
-#include <set>
 
 using namespace mlir;
 
@@ -20,11 +20,11 @@ struct AffineTransforms : public MIOpenOpsAffineTransformPassBase<AffineTransfor
   void runOnFunction() override;
 
 private:
-  std::vector<AffineMap> buildIndexAffineMap(miopen::TransformOp);
+  llvm::SmallVector<AffineMap> buildIndexAffineMap(miopen::TransformOp);
 };
 } // anonymous namespace
 
-std::vector<AffineMap>
+llvm::SmallVector<AffineMap>
 AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
   auto inputType = op.input().getType().dyn_cast<MemRefType>();
   auto inputShape = inputType.getShape();
@@ -41,7 +41,7 @@ AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
       op->template getAttrOfType<ArrayAttr>("output_layout");
 
   llvm::SmallMapVector<int64_t, AffineExpr, 8> affExprsMap;
-  std::set<int64_t> limitVec;
+  llvm::SmallDenseSet<int64_t> limitVec;
   for (unsigned i = 0; i < layoutAttr.size(); ++i) {
     if (auto dimLayoutAttr = layoutAttr.getValue()[i].dyn_cast<DictionaryAttr>()) {
       auto srcDimAttr = dimLayoutAttr.get("source_dimensions").dyn_cast<ArrayAttr>();
@@ -257,8 +257,7 @@ AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
     outputAffineMap = transformAffineMap;
   }
 
-  std::vector<AffineMap> maps;
-  maps.push_back(outputAffineMap);
+  llvm::SmallVector<AffineMap> maps{outputAffineMap};
   // if current transform and pre-tranform both have bound check, two bound
   // check should compose if only pre-transform have bound check, current
   // transform need inherit the bound check
@@ -299,7 +298,7 @@ void AffineTransforms::runOnFunction() {
   FuncOp func = getFunction();
 
   func.walk([&](miopen::TransformOp op) {
-    std::vector<AffineMap> indexAffineMap = buildIndexAffineMap(op);
+    auto indexAffineMap = buildIndexAffineMap(op);
 
     auto outputType = op.output().getType().dyn_cast<MemRefType>();
     auto outputShape = outputType.getShape();
