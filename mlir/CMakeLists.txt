@@ -80,6 +80,7 @@ set(MLIR_VULKAN_RUNNER_ENABLED 0 CACHE BOOL "Enable building the mlir Vulkan run
 # MIOpen dialect.
 set(MLIR_MIOPEN_DRIVER_ENABLED 0 CACHE BOOL "Enable build MIOpen driver")
 set(MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for MIOpen driver")
+set(MLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build PR-triggered E2E tests for MIOpen driver")
 set(MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using random data")
 set(MLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for XDLops")
 
