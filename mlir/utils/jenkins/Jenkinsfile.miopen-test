@@ -27,7 +27,8 @@ pipeline {
                     git branch: 'develop', poll: false, url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                     cmake arguments: "-P install_deps.cmake --minimum",\
                           installation: "InSearchPath"
-                    cmakeBuild buildDir: 'build',\
+                    cmakeBuild generator: 'Ninja',\
+                        buildDir: 'build',\
                         buildType: 'Release',\
                         installation: 'InSearchPath',\
                         steps: [[args: "MIOpenDriver"]],\
