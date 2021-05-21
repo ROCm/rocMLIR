@@ -7105,20 +7105,6 @@ struct ThreadwiseCopyV2RewritePattern
       // Store to dest memref.
       SmallVector<Value, 4> destIndexLowerNewUpdated;
       {
-        // llvm::errs() << "dest upper index old:\n";
-        // for (auto& v : destUpperCoord) {
-        //   v.dump();
-        // }
-        // llvm::errs() << "dest lower index old:\n";
-        // for (auto& v : destLowerCoord) {
-        //   v.dump();
-        // }
-        // llvm::errs() << "dest upper index diff:\n";
-        // for (auto& v : loopIVsPerAccessOrder) {
-        //   llvm::errs() << v << " ";
-        // }
-        // llvm::errs() << "\n";
-
         SmallVector<Attribute, 2> indexUpperDiff;
         for (auto &v : loopIVsPerAccessOrder) {
           indexUpperDiff.push_back(b.getI32IntegerAttr(v));
@@ -7127,7 +7113,6 @@ struct ThreadwiseCopyV2RewritePattern
         // Apply map to compute index lower diff tmp, from index upper diff
         // using constantFold.
         SmallVector<Attribute, 4> indexLowerDiffTmpAttr;
-        SmallVector<int64_t, 4> indexLowerDiffTmp;
         SmallVector<Value, 8> indexLowerDiffTmpOp;
         // llvm::errs() << "dest affine transform map: ";
         // composedDestTransform.dump();
@@ -7139,42 +7124,28 @@ struct ThreadwiseCopyV2RewritePattern
           (void)composedDestTransform.constantFold(indexUpperDiff,
                                            indexLowerDiffTmpAttr);
         }
-        // llvm::errs() << "dest index lower diff tmp:\n";
         for (auto attr : indexLowerDiffTmpAttr) {
           int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
-          // llvm::errs() << v << " ";
-          indexLowerDiffTmp.push_back(v);
-
           auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
           indexLowerDiffTmpOp.push_back(cv);
         }
-        // llvm::errs() << "\n";
 
         // Add: index lower old + index lower diff tmp
         SmallVector<Value, 8> indexLowerNew;
-        // llvm::errs() << "index lower new before borrow/carry:\n";
         for (unsigned iter = 0; iter < destType.getShape().size(); ++iter) {
           Value v =
               b.create<AddIOp>(loc,
                                b.create<IndexCastOp>(loc, destLowerCoord[iter],
                                                      b.getIntegerType(32)),
                                indexLowerDiffTmpOp[iter]);
-          // v.dump();
           indexLowerNew.push_back(v);
         }
-        // llvm::errs() << "\n";
         // Get bounds for dest memref.
-        SmallVector<int64_t, 4> bound;
         SmallVector<Value, 4> boundOp;
-        // llvm::errs() << "bound:\n";
         for (auto v : destType.getShape()) {
-          // llvm::errs() << v << " ";
-          bound.push_back(v);
-
           auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
           boundOp.push_back(cv);
         }
-        // llvm::errs() << "\n";
 
         // Only use carry / borrow check logic if needed.
         if (composedDestTransform && hasDivisionOrRemainder(composedDestTransform)) {
@@ -7203,16 +7174,12 @@ struct ThreadwiseCopyV2RewritePattern
                 loc, indexLowerNew[iter], zeroConstantI32Op);
             ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
 
-            // ifCarryOp.dump();
-
             auto carriedResult = ifCarryOp.results()[0];
             indexLowerNewCarried.push_back(carriedResult);
 
             // set carry flag for the next digit.
             carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult,
                                        boundOp[iter]);
-
-            // carryOp.dump();
 
             // overflow logic.
             auto ifOverflowOp = b.create<scf::IfOp>(
@@ -7227,8 +7194,6 @@ struct ThreadwiseCopyV2RewritePattern
                                                            zeroConstantI32Op);
             ifOverflowElseBuilder.create<scf::YieldOp>(loc,
                                                        updated.getResult());
-
-            // ifOverflowOp.dump();
 
             auto updatedResult = ifOverflowOp.results()[0];
             destIndexLowerNewUpdated.insert(
