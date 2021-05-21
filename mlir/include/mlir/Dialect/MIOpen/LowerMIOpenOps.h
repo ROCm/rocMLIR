@@ -6595,37 +6595,161 @@ struct ThreadwiseCopyV2RewritePattern
       scalarValue = b.create<vector::ExtractElementOp>(
           loc, sourceType.getElementType(), op.source(), srcPosition);
 
-      // Compute high-level coordinate for dest memref.
-      // dst_index = (iv_0, iv_1, ...) + destCoord
-      SmallVector<Value, 8> destUpperIndices;
-      for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-        auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-        auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim],
-                                              b.getIntegerType(32));
-        destUpperIndices.push_back(b.create<IndexCastOp>(
-            loc, b.create<AddIOp>(loc, loopIV, destCoord[iter]),
-            b.getIndexType()));
-      }
+      // Store to dest memref.
+      SmallVector<Value, 4> destIndexLowerNewUpdated;
+      {
+        // llvm::errs() << "dest upper index old:\n";
+        // for (auto& v : destUpperCoord) {
+        //   v.dump();
+        // }
+        // llvm::errs() << "dest lower index old:\n";
+        // for (auto& v : destLowerCoord) {
+        //   v.dump();
+        // }
+        // llvm::errs() << "dest upper index diff:\n";
+        // for (auto& v : loopIVsPerAccessOrder) {
+        //   llvm::errs() << v << " ";
+        // }
+        // llvm::errs() << "\n";
 
-      // Apply affine transformations to compute the low-level coordinate.
-      SmallVector<Value, 8> destLowerIndices;
-      if (destExternalTransform || destEmbeddedTransform)
-        destLowerIndices =
-            expandAffineMap(b, loc, destTransform, destUpperIndices).getValue();
-      else
-        destLowerIndices = destUpperIndices;
+        SmallVector<Attribute, 2> indexUpperDiff;
+        for (auto &v : loopIVsPerAccessOrder) {
+          indexUpperDiff.push_back(b.getI32IntegerAttr(v));
+        }
+
+        // Apply map to compute index lower diff tmp, from index upper diff
+        // using constantFold.
+        SmallVector<Attribute, 4> indexLowerDiffTmpAttr;
+        SmallVector<int64_t, 4> indexLowerDiffTmp;
+        SmallVector<Value, 8> indexLowerDiffTmpOp;
+        // llvm::errs() << "dest affine transform map: ";
+        // destTransform.dump();
+        // llvm::errs() << "\n";
+        if (!destTransform) {
+          indexLowerDiffTmpAttr.assign(indexUpperDiff.begin(),
+                                       indexUpperDiff.end());
+        } else {
+          (void)destTransform.constantFold(indexUpperDiff,
+                                           indexLowerDiffTmpAttr);
+        }
+        // llvm::errs() << "dest index lower diff tmp:\n";
+        for (auto attr : indexLowerDiffTmpAttr) {
+          int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
+          // llvm::errs() << v << " ";
+          indexLowerDiffTmp.push_back(v);
+
+          auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
+          indexLowerDiffTmpOp.push_back(cv);
+        }
+        // llvm::errs() << "\n";
+
+        // Add: index lower old + index lower diff tmp
+        SmallVector<Value, 8> indexLowerNew;
+        // llvm::errs() << "index lower new before borrow/carry:\n";
+        for (unsigned iter = 0; iter < destType.getShape().size(); ++iter) {
+          Value v =
+              b.create<AddIOp>(loc,
+                               b.create<IndexCastOp>(loc, destLowerCoord[iter],
+                                                     b.getIntegerType(32)),
+                               indexLowerDiffTmpOp[iter]);
+          // v.dump();
+          indexLowerNew.push_back(v);
+        }
+        // llvm::errs() << "\n";
+        // Get bounds for dest memref.
+        SmallVector<int64_t, 4> bound;
+        SmallVector<Value, 4> boundOp;
+        // llvm::errs() << "bound:\n";
+        for (auto v : destType.getShape()) {
+          // llvm::errs() << v << " ";
+          bound.push_back(v);
+
+          auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
+          boundOp.push_back(cv);
+        }
+        // llvm::errs() << "\n";
+
+        // Only use carry / borrow check logic if needed.
+        if (destTransform && hasDivisionOrRemainder(destTransform)) {
+          // Apply carry / borrow logic to compute index lower new
+          // carry logic on Value instances.
+          SmallVector<Value, 4> indexLowerNewCarried;
+
+          // borrow logic would never happen as index diff would always be
+          // positive in the current algorithm.
+          assert(indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >=
+                 0);
+
+          // setup carryOp for the first iteration
+          Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
+          for (int64_t iter = destType.getShape().size() - 1; iter >= 0;
+               --iter) {
+            // carry logic.
+            auto ifCarryOp = b.create<scf::IfOp>(
+                loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
+            auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
+            auto carried = ifCarryThenBuilder.create<AddIOp>(
+                loc, indexLowerNew[iter], oneConstantI32Op);
+            ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
+            auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
+            carried = ifCarryElseBuilder.create<AddIOp>(
+                loc, indexLowerNew[iter], zeroConstantI32Op);
+            ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
+
+            // ifCarryOp.dump();
+
+            auto carriedResult = ifCarryOp.results()[0];
+            indexLowerNewCarried.push_back(carriedResult);
+
+            // set carry flag for the next digit.
+            carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult,
+                                       boundOp[iter]);
+
+            // carryOp.dump();
+
+            // overflow logic.
+            auto ifOverflowOp = b.create<scf::IfOp>(
+                loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
+            auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
+            auto updated = ifOverflowThenBuilder.create<SubIOp>(
+                loc, carriedResult, boundOp[iter]);
+            ifOverflowThenBuilder.create<scf::YieldOp>(loc,
+                                                       updated.getResult());
+            auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
+            updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult,
+                                                           zeroConstantI32Op);
+            ifOverflowElseBuilder.create<scf::YieldOp>(loc,
+                                                       updated.getResult());
+
+            // ifOverflowOp.dump();
+
+            auto updatedResult = ifOverflowOp.results()[0];
+            destIndexLowerNewUpdated.insert(
+                destIndexLowerNewUpdated.begin(),
+                b.create<IndexCastOp>(loc, updatedResult, b.getIndexType()));
+          }
+        } else {
+          // Skip carrry / borrow logic.
+          for (unsigned iter = 0; iter < destType.getShape().size(); ++iter) {
+            destIndexLowerNewUpdated.push_back(b.create<IndexCastOp>(
+                loc, indexLowerNew[iter], b.getIndexType()));
+          }
+        }
+      }
 
       // Store to dest.
       // Issue scalar store.
       if (dataType == b.getF32Type()) {
-        b.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
+        b.create<StoreOp>(loc, scalarValue, op.dest(),
+                          destIndexLowerNewUpdated);
       } else if (dataType == b.getF16Type()) {
         auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
-        b.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
+        b.create<StoreOp>(loc, truncValue, op.dest(), destIndexLowerNewUpdated);
       } else if (dataType == b.getIntegerType(16)) {
         auto convertValue =
             b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
-        b.create<StoreOp>(loc, convertValue, op.dest(), destLowerIndices);
+        b.create<StoreOp>(loc, convertValue, op.dest(),
+                          destIndexLowerNewUpdated);
       }
 
       // increase IVs
