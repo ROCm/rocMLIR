@@ -2825,6 +2825,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr("source_names",
                            b.getArrayAttr({b.getStringAttr("ho")}))};
 
+        if (y > 1) {
+          if (!((leftPadH == rightPadH) && (y - leftPadH == 1))) {
+            hoDimAttr.push_back(b.getNamedAttr(
+                "bound_check",
+                b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["ho"])})));
+          }
+        }
         // wo
         curOutputDimName.push_back(b.getStringAttr("xdot"));
         curOutputDimName.push_back(b.getStringAttr("wtilda"));
@@ -2850,6 +2857,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr("source_names",
                            b.getArrayAttr({b.getStringAttr("wo")}))};
 
+        if (x > 1) {
+          if (!((leftPadW == rightPadW) && (x - leftPadW == 1))) {
+            woDimAttr.push_back(b.getNamedAttr(
+                "bound_check",
+                b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["wo"])})));
+          }
+        }
         transformedAttrs.push_back(b.getNamedAttr(
             "layout",
             b.getArrayAttr(
