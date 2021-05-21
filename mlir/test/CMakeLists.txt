@@ -28,11 +28,13 @@ set(MLIR_SPIRV_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 set(MLIR_VULKAN_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 
 # Passed to lit.site.cfg.py.in to set the -x2 flag for the mlir E2E tests.
+set(MLIR_XDLOPS "")
 if(MLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED)
   set(MLIR_XDLOPS "-x2")
 endif()
 
 # Passed to lit.site.cfg.py.in to set the -rand flag for the mlir E2E tests.
+set(MLIR_RANDOM_DATA "")
 if(NOT MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED STREQUAL "none")
   set(MLIR_RANDOM_DATA "-rand ${MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED} ")
 endif()
