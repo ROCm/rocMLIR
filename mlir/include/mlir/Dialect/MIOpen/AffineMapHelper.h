@@ -52,6 +52,7 @@ inline AffineMap composeTransforms(ArrayAttr affineMaps) {
 //===----------------------------------------------------------------------===//
 // Check if an AffineMap has division or remainder inside.
 //===----------------------------------------------------------------------===//
+// May need more sophisticated checks to determine if we would truly go OOB.
 inline bool hasDivisionOrRemainder(AffineMap map) {
   bool ret = false;
   if (!map)
@@ -63,10 +64,7 @@ inline bool hasDivisionOrRemainder(AffineMap map) {
       ret = true;
   });
 
-  // XXX. hack. always return false for now for performance reason.
-  // May need more sophisticated checks to determine if we would truly go OOB.
-  // return ret;
-  return false;
+  return ret;
 }
 
 //===----------------------------------------------------------------------===//
