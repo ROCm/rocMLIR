@@ -2366,6 +2366,30 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr("source_names",
                            b.getArrayAttr({b.getStringAttr("hi"),
                                            b.getStringAttr("wi")}))};
+        auto isInputHipBoundCheck = [&]() {
+          // if pad = 0 , not need oob check
+          if (leftPadH == 0 && rightPadH == 0 && leftPadW == 0 &&
+              rightPadW == 0)
+            return false;
+          // if stride = 1, slice will make it not out range
+          if (strideH == 1 && strideW == 1) {
+            return false;
+          }
+          return true;
+        };
+        if (isInputHipBoundCheck()) {
+          llvm::SmallVector<IntegerAttr, 2> padDim;
+          if (leftPadH || rightPadH) {
+            padDim.push_back(b.getI32IntegerAttr(currentKeyToDim["hi"]));
+          }
+          if (leftPadW || rightPadW) {
+            padDim.push_back(b.getI32IntegerAttr(currentKeyToDim["wi"]));
+          }
+          if (padDim.size()) {
+            hwpadDimAttr.push_back(b.getNamedAttr(
+                "bound_check", b.getArrayAttr({padDim.begin(), padDim.end()})));
+          }
+        }
 
         transformedAttrs.push_back(b.getNamedAttr(
             "layout", b.getArrayAttr({b.getDictionaryAttr(gDimAttr),
