@@ -98,5 +98,6 @@ int main(int argc, char **argv) {
   mlir::JitRunnerConfig jitRunnerConfig;
   jitRunnerConfig.mlirTransformer = runMLIRPasses;
 
+  llvm::dbgs() << "This is a trivial change to test if we can easily disable CI\n";
   return mlir::JitRunnerMain(argc, argv, jitRunnerConfig);
 }
