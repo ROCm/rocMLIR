@@ -43,7 +43,6 @@ pipeline {
                     buildDir: 'build',\
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
-                    sourceDir: 'llvm',\
                     steps: [[args: 'libMLIRMIOpen']],\
                     cmakeArgs: '-DBUILD_FAT_LIBMLIRMIOPEN=ON'
 
