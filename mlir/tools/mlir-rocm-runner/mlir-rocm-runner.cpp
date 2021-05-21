@@ -99,5 +99,6 @@ int main(int argc, char **argv) {
   jitRunnerConfig.mlirTransformer = runMLIRPasses;
 
   llvm::dbgs() << "This is a trivial change to test if we can easily disable CI\n";
+  llvm::dbgs() << "It looks like Jenkins was/has been configured to support skip-ci\n";
   return mlir::JitRunnerMain(argc, argv, jitRunnerConfig);
 }
