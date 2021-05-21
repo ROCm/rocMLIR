@@ -256,8 +256,9 @@ AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
   } else {
     outputAffineMap = transformAffineMap;
   }
-
+  // maps[0] is regular affine map, maps[1] is oob check affine map
   llvm::SmallVector<AffineMap> maps{outputAffineMap};
+
   // if current transform and pre-tranform both have bound check, two bound
   // check should compose if only pre-transform have bound check, current
   // transform need inherit the bound check

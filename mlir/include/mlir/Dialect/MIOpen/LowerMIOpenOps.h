@@ -5912,6 +5912,9 @@ struct ThreadwiseCopyRewritePattern
         auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
         // Use the first affine map in the transforms array.
         auto affineMap = transforms[0].template cast<AffineMapAttr>();
+        // limits attribute include the oob check affine map(current only one
+        // affine map). but if not oob check, there will be not "limits"
+        // attribute
         auto limitsMaps = dictAttr.get("limits");
         if (limitsMaps) {
           limitDimTransform = limitsMaps.template cast<ArrayAttr>()[0]
@@ -6767,11 +6770,15 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
 
         auto coordTransformAttrs = user->getAttr("coord_transforms");
         if (!coordTransformAttrs) {
+          // AffineMaps[0] is regular affine map, AffineMaps[1] is oob check
+          // affine map
           llvm::SmallVector<NamedAttribute, 4> arrayAttr{
               b.getNamedAttr("operand", b.getI32IntegerAttr(userOperandIndex)),
               b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
                                                outputType.getAffineMaps()[0])),
               b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec))};
+          // oob check "affine map" just is saved to the second position in
+          // affineMaps of memref
           if (outputType.getAffineMaps().size() > 1)
             arrayAttr.push_back(b.getNamedAttr(
                 "limits",
@@ -6824,6 +6831,8 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
             }
           }
           if (!augmented) {
+            // AffineMaps[0] is regular affine map, AffineMaps[1] is oob check
+            // affine map
             llvm::SmallVector<NamedAttribute, 4> arrayAttr{
                 b.getNamedAttr("operand",
                                b.getI32IntegerAttr(userOperandIndex)),

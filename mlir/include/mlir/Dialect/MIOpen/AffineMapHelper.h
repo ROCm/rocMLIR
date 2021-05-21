@@ -90,7 +90,7 @@ inline bool hasPadding(AffineMap map) {
   map.walkExprs([&ret](AffineExpr expr) { ret |= hasPadding(expr); });
   return ret;
 }
-// check expr is 1 or 0
+// if expr is 1, representative needs oob check
 inline bool isOOBCheck(AffineExpr expr) {
   if (expr.getKind() == AffineExprKind::Constant) {
     auto constantExpr = expr.template dyn_cast<AffineConstantExpr>();
