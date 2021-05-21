@@ -7,7 +7,7 @@ pipeline {
         }
     }
     environment {
-        PATH=$PATH:/opt/rocm-4.1.1/llvm/bin/
+        PATH="$PATH:/opt/rocm/llvm/bin"
     }
     stages {
         stage('Environment') {
