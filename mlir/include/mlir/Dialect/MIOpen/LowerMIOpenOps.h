@@ -3357,6 +3357,8 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
   top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
   top->setAttr("dest_data_per_write",
                gop->getAttr("matrix_c_dest_data_per_write"));
+  top->setAttr("legacyLoad", b.getBoolAttr(true));
+  top->setAttr("legacyStore", b.getBoolAttr(true));
 }
 
 static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
@@ -3426,6 +3428,8 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
     // top->setAttr("dest_data_per_write", bop->getAttr("dest_data_per_write"));
     top->setAttr("dest_data_per_write", b.getI32IntegerAttr(1));
   }
+  top->setAttr("legacyLoad", b.getBoolAttr(true));
+  top->setAttr("legacyStore", b.getBoolAttr(true));
 }
 
 // XXX: figure out a better way to get rid of isMatrixA parameter.
@@ -6299,6 +6303,9 @@ struct ThreadwiseCopyRewritePattern
     auto sourceType = op.source().getType().cast<MemRefType>();
     auto destType = op.dest().getType().cast<MemRefType>();
 
+    auto legacyLoadAttr = op->getAttr("legacyLoad");
+    auto legacyStoreAttr = op->getAttr("legacyStore");
+
     // Get source and dest coordinates.
     //
     // 1. For memrefs with no externally defined affine maps in coord_transforms
@@ -6640,35 +6647,41 @@ struct ThreadwiseCopyRewritePattern
       }
       bool toExit = false;
       do {
-        // Coordinates across the layers of transformations.
-        // If the vector is of size n, 0 is the top layer, and
-        // n-1 is the bottom layer.
-        SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
+        SmallVector<Value, 8> srcLowerIndices;
+        if (legacyLoadAttr &&
+            legacyLoadAttr.template cast<BoolAttr>().getValue()) {
+          // Coordinates across the layers of transformations.
+          // If the vector is of size n, 0 is the top layer, and
+          // n-1 is the bottom layer.
+          SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
 
-        // Compute high-level coordinate for source memref.
-        // src_index = (iv_0, iv_1, ...) + sourceCoord
-        SmallVector<Value, 8> srcUpperIndices;
-        for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-          auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-          auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim],
-                                                b.getIntegerType(32));
-          srcUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
-              b.getIndexType()));
+          // Compute high-level coordinate for source memref.
+          // src_index = (iv_0, iv_1, ...) + sourceCoord
+          SmallVector<Value, 8> srcUpperIndices;
+          for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
+            auto dim =
+                dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+            auto loopIV = b.create<ConstantIntOp>(
+                loc, loopIVsPerAccessOrder[dim], b.getIntegerType(32));
+            srcUpperIndices.push_back(b.create<IndexCastOp>(
+                loc, b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
+                b.getIndexType()));
+          }
+
+          // Populate coorindates across the layers of transformations.
+          populateLayeredIndices(b, loc, layeredSourceIndices, srcUpperIndices,
+                                 layeredSourceTransform);
+
+          // Fetch low-level coordinate.
+          srcLowerIndices =
+              layeredSourceIndices[layeredSourceIndices.size() - 1];
+        } else {
+          // TBD insert index diff map codes here.
         }
-
-        // Populate coorindates across the layers of transformations.
-        populateLayeredIndices(b, loc, layeredSourceIndices, srcUpperIndices,
-                               layeredSourceTransform);
-
-        // Fetch low-level coordinate.
-        SmallVector<Value, 8> srcLowerIndices =
-            layeredSourceIndices[layeredSourceIndices.size() - 1];
 
         // Pre-populate srcLowerOOBIndices. It will be modified inside
         // toEmitOOBCheckLogic basic block.
-        SmallVector<Value, 8> srcLowerOOBIndices;
-        srcLowerOOBIndices = srcLowerIndices;
+        SmallVector<Value, 8> srcLowerOOBIndices = srcLowerIndices;
 
         // Load from source.
         Value scalarValue;
@@ -6774,35 +6787,41 @@ struct ThreadwiseCopyRewritePattern
         Value convertedScalarValue = createTypeConversionOp(
             b, loc, scalarValue, sourceElementType, destElementType);
 
-        // Coordinates across the layers of transformations.
-        // If the vector is of size n, 0 is the top layer, and
-        // n-1 is the bottom layer.
-        SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
+        if (legacyStoreAttr &&
+            legacyStoreAttr.template cast<BoolAttr>().getValue()) {
+          // Coordinates across the layers of transformations.
+          // If the vector is of size n, 0 is the top layer, and
+          // n-1 is the bottom layer.
+          SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
 
-        // Compute high-level coordinate for dest memref.
-        // dst_index = (iv_0, iv_1, ...) + destCoord
-        SmallVector<Value, 8> destUpperIndices;
-        for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-          auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-          auto loopIV = b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[dim],
-                                                b.getIntegerType(32));
-          destUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, loopIV, destCoord[iter]),
-              b.getIndexType()));
+          // Compute high-level coordinate for dest memref.
+          // dst_index = (iv_0, iv_1, ...) + destCoord
+          SmallVector<Value, 8> destUpperIndices;
+          for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
+            auto dim =
+                dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+            auto loopIV = b.create<ConstantIntOp>(
+                loc, loopIVsPerAccessOrder[dim], b.getIntegerType(32));
+            destUpperIndices.push_back(b.create<IndexCastOp>(
+                loc, b.create<AddIOp>(loc, loopIV, destCoord[iter]),
+                b.getIndexType()));
+          }
+
+          // Populate coorindates across the layers of transformations.
+          populateLayeredIndices(b, loc, layeredDestIndices, destUpperIndices,
+                                 layeredDestTransform);
+
+          // Fetch low-level coordinate.
+          SmallVector<Value, 8> destLowerIndices =
+              layeredDestIndices[layeredDestIndices.size() - 1];
+
+          // Store to dest.
+          // Issue scalar store.
+          b.create<StoreOp>(loc, convertedScalarValue, op.dest(),
+                            destLowerIndices);
+        } else {
+          // TBD insert index diff map codes here.
         }
-
-        // Populate coorindates across the layers of transformations.
-        populateLayeredIndices(b, loc, layeredDestIndices, destUpperIndices,
-                               layeredDestTransform);
-
-        // Fetch low-level coordinate.
-        SmallVector<Value, 8> destLowerIndices =
-            layeredDestIndices[layeredDestIndices.size() - 1];
-
-        // Store to dest.
-        // Issue scalar store.
-        b.create<StoreOp>(loc, convertedScalarValue, op.dest(),
-                          destLowerIndices);
 
         // increase IVs
         bool toIncreaseNextDigit = true;
