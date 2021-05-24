@@ -19,11 +19,11 @@ func @miopen_conv2d_kcyx_nchw_nkhw_padding_kernel(%filter : memref<32x128x2x3x3x
 }
 // CHECK-LABEL: func @miopen_conv2d
 // CHECK-NEXT:  {{miopen.transform.*{extraPad = "true", gemmKExtra = 14 : i32, gemmMExtra = 0 : i32,.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*bound_check = \[2 : i32, 3 : i32, 4 : i32\].*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*bound_check = \[2 : i32\].*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{extraPad = "true", gemmKExtra = 14 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*bound_check = \[2 : i32, 3 : i32, 4 : i32\].*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*bound_check = \[2 : i32\].*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{extraPad = "true", gemmMExtra = 0 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.gridwise_gemm.*{.*}.*memref.*memref.*memref}}
 
@@ -63,11 +63,11 @@ func @miopen_conv2d_kcyx_nchw_nkhw_partial_padding_kernel(%filter : memref<32x12
 }
 // CHECK-LABEL: func @miopen_conv2d
 // CHECK-NEXT:  {{miopen.transform.*{extraPad = "true", gemmKExtra = 14 : i32, gemmMExtra = 0 : i32,.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*bound_check = \[2 : i32, 3 : i32, 4 : i32\].*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*bound_check = \[2 : i32\].*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{extraPad = "true", gemmKExtra = 14 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*bound_check = \[2 : i32, 3 : i32, 4 : i32\].*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*bound_check = \[2 : i32\].*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{extraPad = "true", gemmMExtra = 0 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.gridwise_gemm.*{.*}.*memref.*memref.*memref}}
 

@@ -565,11 +565,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
           targetGemmDim1Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+          // filter of forward, gemmK=c*y*x
+          auto checkingIndex = std::min(
+              std::min(nameToDims["c"], nameToDims["y"]), nameToDims["x"]);
           sourceGemmDim1Attr.push_back(b.getNamedAttr(
               "bound_check", b.getArrayAttr({
-                                 b.getI32IntegerAttr(nameToDims["c"]),
-                                 b.getI32IntegerAttr(nameToDims["y"]),
-                                 b.getI32IntegerAttr(nameToDims["x"]),
+                                 b.getI32IntegerAttr(checkingIndex),
                              })));
         } else if (arg0TargetLayoutName2 == "gemmK") {
           isFilterPad = true;
@@ -588,11 +589,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
 
+          // filter of forward, gemmK=c*y*x
+          auto checkingIndex = std::min(
+              std::min(nameToDims["c"], nameToDims["y"]), nameToDims["x"]);
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "bound_check", b.getArrayAttr({
-                                 b.getI32IntegerAttr(nameToDims["c"]),
-                                 b.getI32IntegerAttr(nameToDims["y"]),
-                                 b.getI32IntegerAttr(nameToDims["x"]),
+                                 b.getI32IntegerAttr(checkingIndex),
                              })));
         }
       }
@@ -1301,11 +1303,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           targetGemmDim1Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
 
+          // input of forward, gemmK = ci * y * x( y x from hi wi)
+          auto checkingIndex = std::min(
+              std::min(nameToDims["ci"], nameToDims["hi"]), nameToDims["wi"]);
           targetGemmDim1Attr.push_back(b.getNamedAttr(
               "bound_check", b.getArrayAttr({
-                                 b.getI32IntegerAttr(nameToDims["ci"]),
-                                 b.getI32IntegerAttr(nameToDims["hi"]),
-                                 b.getI32IntegerAttr(nameToDims["wi"]),
+                                 b.getI32IntegerAttr(checkingIndex),
                              })));
         } else if (arg1TargetLayoutName2 == "gemmK") {
           isInputPad = true;
@@ -1322,11 +1325,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
 
+          // input of forward, gemmK = ci * y * x( y x from hi wi)
+          auto checkingIndex = std::min(
+              std::min(nameToDims["ci"], nameToDims["hi"]), nameToDims["wi"]);
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "bound_check", b.getArrayAttr({
-                                 b.getI32IntegerAttr(nameToDims["ci"]),
-                                 b.getI32IntegerAttr(nameToDims["hi"]),
-                                 b.getI32IntegerAttr(nameToDims["wi"]),
+                                 b.getI32IntegerAttr(checkingIndex),
                              })));
         }
       }
@@ -1647,11 +1651,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           targetGemmDim1Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
 
+          // output of forward, gemmK = no * ho * wo
+          auto checkingIndex = std::min(
+              std::min(nameToDims["no"], nameToDims["ho"]), nameToDims["wo"]);
           targetGemmDim1Attr.push_back(b.getNamedAttr(
               "bound_check", b.getArrayAttr({
-                                 b.getI32IntegerAttr(nameToDims["no"]),
-                                 b.getI32IntegerAttr(nameToDims["ho"]),
-                                 b.getI32IntegerAttr(nameToDims["wo"]),
+                                 b.getI32IntegerAttr(checkingIndex),
                              })));
         } else if (arg2TargetLayoutName2 == "gemmK") {
           isOutputPad = true;
@@ -1668,11 +1673,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
 
+          // output of forward, gemmK = no * ho * wo
+          auto checkingIndex = std::min(
+              std::min(nameToDims["no"], nameToDims["ho"]), nameToDims["wo"]);
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "bound_check", b.getArrayAttr({
-                                 b.getI32IntegerAttr(nameToDims["no"]),
-                                 b.getI32IntegerAttr(nameToDims["ho"]),
-                                 b.getI32IntegerAttr(nameToDims["wo"]),
+                                 b.getI32IntegerAttr(checkingIndex),
                              })));
         }
       }
