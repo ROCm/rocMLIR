@@ -33,43 +33,44 @@ pipeline {
     stages {
         stage("Builds and tests") {
             parallel {
-                stages {
-                    stage('Environment') {
-                        steps { showEnv() }
-                    }
-                    stage("Shared library build and test") {
-                        steps {
-                            buildProject('check-mlir', """
+                stage("Shared library build and test") {
+                    stages {
+                        stage('Environment') {
+                            steps { showEnv() }
+                        }
+                        stage("Shared library build and test") {
+                            steps {
+                                buildProject('check-mlir', """
                                -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
                                -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
                                -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
                                -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
                                """)
-                        }
-                        stage('Static Tests') {
-                            when allOf {
-                                equals expected: false,
-                                    actual: params.nightly;
-                                // Avoid this test running twice
-                                equals expected: false,
-                                    actual: params.canXdlops
                             }
-                            steps {
-                                sh '''
-                                if [[ ! -f ./compile_commands.json ]]; then
-                                  ln -s build/compile_commands.json compile_commands.json
-                                fi
-                                '''
-                                sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+                            stage('Static Tests') {
+                                when allOf {
+                                    equals expected: false,
+                                        actual: params.nightly;
+                                    // Avoid this test running twice
+                                    equals expected: false,
+                                        actual: params.canXdlops
+                                }
+                                steps {
+                                    sh '''
+                                    if [[ ! -f ./compile_commands.json ]]; then
+                                      ln -s build/compile_commands.json compile_commands.json
+                                    fi
+                                    '''
+                                    sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+                                }
                             }
-                        }
-                        stage("Random E2E test") {
-                            when { equals expected: true, actual: params.nightly }
-                            // Reuses previous build config
-                            buildProject('check-mlir',
-                               cmakeArgs: """-DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
-                               -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
-                               """)
+                            stage("Random E2E test") {
+                                when { equals expected: true, actual: params.nightly }
+                                // Reuses previous build config
+                                buildProject('check-mlir',
+                                             """-DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
+                                             -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0""")
+                            }
                         }
                     }
                     post {
@@ -79,51 +80,53 @@ pipeline {
                     }
                 }
 
-                stages {
-                    stage("Igemm build") {
-                        steps {
-                            buildProject('libMLIRMIOpen',
-                                         '-DBUILD_FAT_LIBMLIRMIOPEN=ON')
-                        }
-                    }
-                    stage("Install libMLIRMIOpen") {
-                        when { allOf {
-                            equals expected: true, actual: params.nightly;
-                            equals expected: true, actual: params.canXdlops
-                        }}
-                        cmake arguments: '--install . --component libMLIRMIOpen --prefix /opt/rocm',\
-                            installation: 'InSearchPath', workingDir: 'build'
-                    }
-                    stage("Build and stash MIOpen") {
-                        when { allOf {
-                            equals expected: true, actual: params.nightly;
-                            equals expected: true, actual: params.canXdlops
-                        }}
-                        steps {
-                            dir('MIOpen') {
-                                dir('build') {
-                                    deleteDir
-                                }
-                                git branch: 'develop', poll: false,\
-                                    url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
-                                cmake arguments: "-P install_deps.cmake --minimum",\
-                                    installation: "InSearchPath"
-                                cmakeBuild generator: 'Ninja',\
-                                    buildDir: 'build',\
-                                    buildType: 'Release',\
-                                    installation: 'InSearchPath',\
-                                    steps: [[args: "MIOpenDriver"]],\
-                                    cmakeArgs: '''-DMIOPEN_USE_MLIR=On
-                                    -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                    -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                                    -DBUILD_DEV=On
-                                    -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
-                                    '''
+                stage("Implicit GEMM") {
+                    stages {
+                        stage("Igemm build") {
+                            steps {
+                                buildProject('libMLIRMIOpen',
+                                             '-DBUILD_FAT_LIBMLIRMIOPEN=ON')
                             }
-                            stash name:"MIOpen-build",\
+                        }
+                        stage("Install libMLIRMIOpen") {
+                            when { allOf {
+                                equals expected: true, actual: params.nightly;
+                                equals expected: true, actual: params.canXdlops
+                            }}
+                            cmake arguments: '--install . --component libMLIRMIOpen --prefix /opt/rocm',\
+                                installation: 'InSearchPath', workingDir: 'build'
+                        }
+                        stage("Build and stash MIOpen") {
+                            when { allOf {
+                                equals expected: true, actual: params.nightly;
+                                equals expected: true, actual: params.canXdlops
+                            }}
+                            steps {
+                                dir('MIOpen') {
+                                    dir('build') {
+                                        deleteDir
+                                    }
+                                    git branch: 'develop', poll: false,\
+                                        url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+                                    cmake arguments: "-P install_deps.cmake --minimum",\
+                                        installation: "InSearchPath"
+                                    cmakeBuild generator: 'Ninja',\
+                                        buildDir: 'build',\
+                                        buildType: 'Release',\
+                                        installation: 'InSearchPath',\
+                                        steps: [[args: "MIOpenDriver"]],\
+                                        cmakeArgs: '''-DMIOPEN_USE_MLIR=On
+                                        -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                        -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                        -DBUILD_DEV=On
+                                        -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
+                                        '''
+                                }
+                                stash name:"MIOpen-build",\
                                     includes: """MIOpen/src/kernels/**,\
 MIOpen/build/bin/MIOpenDriver,build/lib/*,\
 mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+                            }
                         }
                     }
                     post {
@@ -133,7 +136,7 @@ mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
                     }
                 }
 
-                stages {
+                stage("Performance testing") {
                     when { equals expected: true, actual: params.nightly,
                           beforeAgent true }
                     agent {
@@ -143,27 +146,30 @@ mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
                             label "${params.canXdlops ? 'test-0' : 'rocm' }"
                         }
                     }
-                    stage("Environment") { showEnv() }
+                    stages {
+                        stage("Environment") { showEnv() }
 
-                    stage("Build ROCM runner for benchmarks") {
-                        // On private CI:
-                        // config MLIR on ROCm, with MIOpen dialect
-                        // with custom perf db for:
-                        // - gfx908
-                        // - fp32
-                        // - resnet50 configs.
-                        buildProject('mlir-miopen-driver mlir-rocm-runner',
-                            """${params.canXdlops ?
-                            "-DMIOPEN_SYSTEM_DB_PATH=${WORKSPACE}/mlir/utils/jenkins/perfdb/miopen_1.0.0.udb.resnet50_fp32_1013"
-                            : ""}
+                        stage("Build ROCM runner for benchmarks") {
+                            // On private CI:
+                            // config MLIR on ROCm, with MIOpen dialect
+                            // with custom perf db for:
+                            // - gfx908
+                            // - fp32
+                            // - resnet50 configs.
+                            buildProject('mlir-miopen-driver mlir-rocm-runner',
+                                         """${params.canXdlops ?
+                                         "-DMIOPEN_SYSTEM_DB_PATH=${WORKSPACE}/mlir/utils/jenkins/perfdb/miopen_1.0.0.udb.resnet50_fp32_1013"
+                                         : ""}
                             """)
-                    }
-                    stage("Benchmark") {
-                        environment {
-                            PATH="/opt/rocm/bin:$PATH"
                         }
-                        dir("build") {
+
+                        stage("Benchmark") {
+                            environment {
+                                PATH="/opt/rocm/bin:$PATH"
+                            }
                             sh """
+                            cd build
+
                             # Run 1 perf benchmark config. more to come.
                             # Ensure rocminfo can be located by rocprof.
                             ./bin/mlir-miopen-driver -p ${params.canXdlops ? '-x2' : ''} -ph -c | \
