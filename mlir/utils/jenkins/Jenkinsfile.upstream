@@ -21,6 +21,7 @@ pipeline {
                 git 'https://github.com/llvm/llvm-project'
                 cmakeBuild generator: 'Ninja',\
                     buildDir: 'build',\
+                    sourceDir: 'llvm',\
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
                     steps: [[args: 'check-mlir']],\
