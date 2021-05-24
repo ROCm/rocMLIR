@@ -23,7 +23,7 @@ pipeline {
                     buildDir: 'build',\
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
-                    steps: [[args: 'check-mlir', withCmake: true]],\
+                    steps: [[args: 'check-mlir']],\
                     // Reminder to keep these up to date with our cmake
                     cmakeArgs: '''
                     -DLLVM_ENABLE_PROJECTS="mlir;lld"

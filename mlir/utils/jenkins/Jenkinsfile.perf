@@ -20,7 +20,7 @@ pipeline {
                     buildDir: 'build',\
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
-                    steps: [[args: 'check-mlir', withCmake: true]],\
+                    steps: [[args: 'check-mlir']],\
                     cmakeArgs: '-DMLIR_MIOPEN_DRIVER_ENABLED=1'
             }
         }
