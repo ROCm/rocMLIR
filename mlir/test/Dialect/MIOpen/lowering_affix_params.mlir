@@ -1,3 +1,4 @@
+// REQUIRES: miopen-driver
 // RUN: mlir-miopen-driver -p -miopen-lowering -miopen-affine-transform -miopen-affix-params | FileCheck %s
 // RUN: mlir-miopen-driver -p --operation=conv2d_dummy -miopen-lowering -miopen-affine-transform -miopen-affix-params | FileCheck %s
 
