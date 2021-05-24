@@ -6755,8 +6755,48 @@ struct ThreadwiseCopyRewritePattern
 
         // Store to dest.
         // Issue scalar store.
-        b.create<StoreOp>(loc, convertedScalarValue, op.dest(),
-                          destLowerIndices);
+        if (destLowerIndices.size() == 5) {
+          auto iv0 = b.create<IndexCastOp>(loc, destLowerIndices[0],
+                                           b.getIntegerType(32));
+          auto iv1 = b.create<IndexCastOp>(loc, destLowerIndices[1],
+                                           b.getIntegerType(32));
+          auto iv2 = b.create<IndexCastOp>(loc, destLowerIndices[2],
+                                           b.getIntegerType(32));
+          auto iv3 = b.create<IndexCastOp>(loc, destLowerIndices[3],
+                                           b.getIntegerType(32));
+          auto iv4 = b.create<IndexCastOp>(loc, destLowerIndices[4],
+                                           b.getIntegerType(32));
+          // 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
+          // store do nothing
+          Value oobAddrOp =
+              b.create<ConstantIntOp>(loc, 2147483648, b.getIntegerType(32));
+
+          auto coordLast = destLowerIndices[4];
+          auto sevenConstantOp = b.create<ConstantIndexOp>(loc, 7);
+
+          // coordLast<7, the last PR will change to real oob check
+          Value oobCheckOp = b.create<CmpIOp>(loc, CmpIPredicate::slt,
+                                              coordLast, sevenConstantOp);
+          auto ifWithinBoundsOp = b.create<scf::IfOp>(
+              loc,
+              TypeRange{b.getIntegerType(32), b.getIntegerType(32),
+                        b.getIntegerType(32), b.getIntegerType(32),
+                        b.getIntegerType(32)},
+              oobCheckOp, true);
+
+          auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
+          thenBuilder.create<scf::YieldOp>(loc,
+                                           ValueRange{iv0, iv1, iv2, iv3, iv4});
+          auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
+          elseBuilder.create<scf::YieldOp>(
+              loc, ValueRange{iv0, iv1, iv2, iv3, oobAddrOp});
+
+          b.create<gpu::MubufStoreOp>(loc, convertedScalarValue, op.dest(),
+                                      ifWithinBoundsOp.getResults());
+        } else {
+          b.create<StoreOp>(loc, convertedScalarValue, op.dest(),
+                            destLowerIndices);
+        }
 
         // increase IVs
         bool toIncreaseNextDigit = true;
@@ -7019,15 +7059,56 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Store to dest.
       // Issue scalar store.
-      if (dataType == b.getF32Type()) {
-        b.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
-      } else if (dataType == b.getF16Type()) {
-        auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
-        b.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
-      } else if (dataType == b.getIntegerType(16)) {
-        auto convertValue =
-            b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
-        b.create<StoreOp>(loc, convertValue, op.dest(), destLowerIndices);
+      if (destLowerIndices.size() == 5) {
+        // xdlops oob only support fp32 now
+        auto iv0 = b.create<IndexCastOp>(loc, destLowerIndices[0],
+                                         b.getIntegerType(32));
+        auto iv1 = b.create<IndexCastOp>(loc, destLowerIndices[1],
+                                         b.getIntegerType(32));
+        auto iv2 = b.create<IndexCastOp>(loc, destLowerIndices[2],
+                                         b.getIntegerType(32));
+        auto iv3 = b.create<IndexCastOp>(loc, destLowerIndices[3],
+                                         b.getIntegerType(32));
+        auto iv4 = b.create<IndexCastOp>(loc, destLowerIndices[4],
+                                         b.getIntegerType(32));
+        // 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
+        // store do nothing
+        Value oobAddrOp =
+            b.create<ConstantIntOp>(loc, 2147483648, b.getIntegerType(32));
+
+        auto coordLast = destLowerIndices[4];
+        auto sevenConstantOp = b.create<ConstantIndexOp>(loc, 7);
+
+        // coordLast<7, the last PR will change to real oob check
+        Value oobCheckOp = b.create<CmpIOp>(loc, CmpIPredicate::slt, coordLast,
+                                            sevenConstantOp);
+        auto ifWithinBoundsOp = b.create<scf::IfOp>(
+            loc,
+            TypeRange{b.getIntegerType(32), b.getIntegerType(32),
+                      b.getIntegerType(32), b.getIntegerType(32),
+                      b.getIntegerType(32)},
+            oobCheckOp, true);
+
+        auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
+        thenBuilder.create<scf::YieldOp>(loc,
+                                         ValueRange{iv0, iv1, iv2, iv3, iv4});
+        auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
+        elseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{iv0, iv1, iv2, iv3, oobAddrOp});
+
+        b.create<gpu::MubufStoreOp>(loc, scalarValue, op.dest(),
+                                    ifWithinBoundsOp.getResults());
+      } else {
+        if (dataType == b.getF32Type()) {
+          b.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndices);
+        } else if (dataType == b.getF16Type()) {
+          auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
+          b.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
+        } else if (dataType == b.getIntegerType(16)) {
+          auto convertValue =
+              b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
+          b.create<StoreOp>(loc, convertValue, op.dest(), destLowerIndices);
+        }
       }
 
       // increase IVs
