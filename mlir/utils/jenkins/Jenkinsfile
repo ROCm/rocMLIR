@@ -36,7 +36,9 @@ pipeline {
                 stage("Shared library build and test") {
                     stages {
                         stage('Environment') {
-                            steps { showEnv() }
+                            steps {
+                                showEnv()
+                            }
                         }
                         stage("Shared library build and test") {
                             steps {
@@ -75,7 +77,9 @@ pipeline {
                     }
                     post {
                         always {
-                            dir("build") { deleteDir }
+                            dir("build") {
+                                deleteDir
+                            }
                         }
                     }
                 }
@@ -131,14 +135,18 @@ mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
                     }
                     post {
                         always {
-                            dir("build") { deleteDir }
+                            dir("build") {
+                                deleteDir
+                            }
                         }
                     }
                 }
 
                 stage("Performance testing") {
-                    when { equals expected: true, actual: params.nightly,
-                          beforeAgent true }
+                    when {
+                        equals expected: true, actual: params.nightly
+                        beforeAgent true
+                    }
                     agent {
                         docker {
                             image 'rocm/mlir:rocm4.1-latest'
@@ -184,7 +192,9 @@ mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
                     }
                     post {
                         always {
-                            dir('build') { deleteDir }
+                            dir('build') {
+                                deleteDir
+                            }
                         }
                     }
                 }
