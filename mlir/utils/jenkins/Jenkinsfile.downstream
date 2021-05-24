@@ -24,13 +24,15 @@ pipeline {
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
                     steps: [[args: 'check-mlir', withCmake: true]],\
-                    cmakeArgs: '-DMLIR_MIOPEN_DRIVER_ENABLED=1'
+                    cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1
+                                   -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=1
+                               '''
             }
         }
         stage('Static Test') {
             steps {
                 sh '''
-                    if [ ! -f ./compile_commands.json ]; then
+                    if [[ ! -f ./compile_commands.json ]]; then
                        ln -s build/compile_commands.json compile_commands.json
                     fi
                     '''
