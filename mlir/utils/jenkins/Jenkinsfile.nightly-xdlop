@@ -26,6 +26,7 @@ pipeline {
                     steps: [[args: 'check-mlir', withCmake: true]],\
                     cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1
                         -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1
+                        -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=1
                         -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=1
                     '''
             }
@@ -36,8 +37,10 @@ pipeline {
                     buildDir: 'build',\
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
-                    steps: [[args: "clean"], [args: 'check-e2e', withCmake: true]],\
-                    cmakeArgs: '-DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1'
+                    steps: [[args: "clean"], [args: 'check-mlir', withCmake: true]],\
+                    cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
+                    -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
+                    '''
             }
         }
     }
