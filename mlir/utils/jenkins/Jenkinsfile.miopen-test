@@ -1,46 +1,57 @@
 pipeline {
-    agent {
-        docker {
-            image 'rocm/mlir:rocm4.1-latest'
-            args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
-            label "rocm"
-        }
-    }
+    agent none
     stages {
-        stage('Build libMLIRMIOpen') {
-            steps {
-                checkout scm
-                cmakeBuild generator: 'Ninja',\
-                    buildDir: 'build',\
-                    installation: 'InSearchPath',\
-                    buildType: 'Release',\
-                    steps: [[args: 'libMLIRMIOpen']],\
-                    cmakeArgs: '-DBUILD_FAT_LIBMLIRMIOPEN=ON'
-                cmake arguments: '--install . --component libMLIRMIOpen',\
-                     installation: 'InSearchPath', workingDir: 'build'
-
+        // Workaround Durable Tasks bug, hopefully
+        stage("Library build") {
+            agent {
+                docker {
+                    image 'rocm/mlir:rocm4.1-latest'
+                    args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+                    label "rocm"
+                }
             }
-        }
-        stage('Build MIOpenDriver') {
-            steps {
-                dir('MIOpen') {
-                    git branch: 'develop', poll: false, url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
-                    cmake arguments: "-P install_deps.cmake --minimum",\
-                          installation: "InSearchPath"
-                    cmakeBuild generator: 'Ninja',\
-                        buildDir: 'build',\
-                        buildType: 'Release',\
-                        installation: 'InSearchPath',\
-                        steps: [[args: "MIOpenDriver"]],\
-                        cmakeArgs: '''-DMIOPEN_USE_MLIR=On
-                        -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                        -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                        -DBUILD_DEV=On
-                        -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
-                        '''
+            stages {
+                stage('Build libMLIRMIOpen') {
+                    steps {
+                        checkout scm
+                        cmakeBuild generator: 'Ninja',\
+                            buildDir: 'build',\
+                            installation: 'InSearchPath',\
+                            buildType: 'Release',\
+                            steps: [[args: 'libMLIRMIOpen']],\
+                            cmakeArgs: '-DBUILD_FAT_LIBMLIRMIOPEN=ON'
+                        cmake arguments: '--install . --component libMLIRMIOpen',\
+                            installation: 'InSearchPath', workingDir: 'build'
 
-                    stash name:"MIOpen-build",\
-                        includes: "src/kernels/**,build/bin/MIOpenDriver,build/lib/*"
+                    }
+                }
+                stage('Build MIOpenDriver') {
+                    steps {
+                        dir('MIOpen') {
+                            git branch: 'develop', poll: false,\
+                                url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+                            cmake arguments: "-P install_deps.cmake --minimum",\
+                                installation: "InSearchPath"
+                            cmakeBuild generator: 'Ninja',\
+                                buildDir: 'build',\
+                                buildType: 'Release',\
+                                installation: 'InSearchPath',\
+                                steps: [[args: "MIOpenDriver"]],\
+                                cmakeArgs: '''-DMIOPEN_USE_MLIR=On
+                                -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                 -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                 -DBUILD_DEV=On
+                                -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
+                                '''
+                            stash name:"MIOpen-build",\
+                                includes: "src/kernels/**,build/bin/MIOpenDriver,build/lib/*"
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    cleanWs()
                 }
             }
         }
@@ -109,11 +120,6 @@ ${XDLOPS == '1' ? '--xdlops' : '--no-xdlops'} <${WORKSPACE}/mlir/utils/jenkins/m
                     }
                 }
             }
-        }
-    }
-    post {
-        always {
-            cleanWs()
         }
     }
 }
