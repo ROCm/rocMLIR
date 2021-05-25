@@ -6415,19 +6415,13 @@ struct ThreadwiseCopyV2RewritePattern
     unsigned destCoordLength = destType.getRank();
 
     bool sourceEmbeddedTransform = false;
-    bool destEmbeddedTransform = false;
     bool sourceExternalTransform = false;
-    bool destExternalTransform = false;
     AffineMap composedSourceTransform;
-    AffineMap composedDestTransform;
     SmallVector<AffineMap> layeredSourceTransform;
     SmallVector<AffineMap> layeredDestTransform;
 
     if (destTypeAffineMaps.size()) {
       destCoordLength = destTypeAffineMaps[0].getNumInputs();
-      destEmbeddedTransform = true;
-      // Compose affine maps.
-      composedDestTransform = composeTransforms(destTypeAffineMaps);
 
       // Populate affine maps for each layer.
       layeredDestTransform.assign(destTypeAffineMaps.begin(),
@@ -6457,9 +6451,6 @@ struct ThreadwiseCopyV2RewritePattern
                                 .template cast<AffineMapAttr>()
                                 .getValue()
                                 .getNumInputs();
-          destExternalTransform = true;
-          // Compose affine maps.
-          composedDestTransform = composeTransforms(transforms);
 
           // Populate affine maps for each layer.
           for (auto &am : transforms)
