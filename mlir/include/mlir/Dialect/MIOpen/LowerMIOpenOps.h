@@ -4076,7 +4076,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // compose with output tensor affine map.
     auto outputType = op.output().getType().template dyn_cast<MemRefType>();
     auto outputAffineMap3to5 = outputType.getAffineMaps()[0];
-    auto affineMap5to3to5 = outputAffineMap3to5.compose(affineMap5to3);
 
     // emit TransformOp for output tensor.
     llvm::SmallVector<NamedAttribute, 3> transformedNewOutputAttrs;
@@ -4091,8 +4090,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         b.getArrayAttr({b.getStringAttr("g"), b.getStringAttr("m0"),
                         b.getStringAttr("m1"), b.getStringAttr("n0"),
                         b.getStringAttr("n1")})));
-    auto newOutputType = MemRefType::get(
-        {G, M0, M1, N0, N1}, outputType.getElementType(), {affineMap5to3to5});
+    auto newOutputType =
+        MemRefType::get({G, M0, M1, N0, N1}, outputType.getElementType(),
+                        {affineMap5to3, outputAffineMap3to5});
     auto newOutputTransformOp = b.create<miopen::TransformOp>(
         loc, newOutputType, op.output(), transformedNewOutputAttrs);
 
@@ -5104,7 +5104,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // compose with output tensor affine map.
     auto outputType = op.output().getType().template dyn_cast<MemRefType>();
     auto outputAffineMap3to5 = outputType.getAffineMaps()[0];
-    auto affineMap5to3to5 = outputAffineMap3to5.compose(affineMap5to3);
 
     // emit TransformOp for output tensor.
     llvm::SmallVector<NamedAttribute, 3> transformedNewOutputAttrs;
@@ -5119,8 +5118,9 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         b.getArrayAttr({b.getStringAttr("g"), b.getStringAttr("m0"),
                         b.getStringAttr("m1"), b.getStringAttr("m2"),
                         b.getStringAttr("n")})));
-    auto newOutputType = MemRefType::get(
-        {G, M0, M1, M2, N}, outputType.getElementType(), {affineMap5to3to5});
+    auto newOutputType =
+        MemRefType::get({G, M0, M1, M2, N}, outputType.getElementType(),
+                        {affineMap5to3, outputAffineMap3to5});
     auto newOutputTransformOp = b.create<miopen::TransformOp>(
         loc, newOutputType, op.output(), transformedNewOutputAttrs);
 
