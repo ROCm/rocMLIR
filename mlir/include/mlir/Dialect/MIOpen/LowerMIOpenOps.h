@@ -5868,18 +5868,28 @@ struct ThreadwiseCopyRewritePattern
     bool destExternalTransform = false;
     AffineMap composedSourceTransform;
     AffineMap composedDestTransform;
+    SmallVector<AffineMap> layeredSourceTransform;
+    SmallVector<AffineMap> layeredDestTransform;
 
     if (sourceTypeAffineMaps.size()) {
       sourceCoordLength = sourceTypeAffineMaps[0].getNumInputs();
       sourceEmbeddedTransform = true;
       // Compose affine maps.
       composedSourceTransform = composeTransforms(sourceTypeAffineMaps);
+
+      // Populate affine maps for each layer.
+      layeredSourceTransform.assign(sourceTypeAffineMaps.begin(),
+                                    sourceTypeAffineMaps.end());
     }
     if (destTypeAffineMaps.size()) {
       destCoordLength = destTypeAffineMaps[0].getNumInputs();
       destEmbeddedTransform = true;
       // Compose affine maps.
       composedDestTransform = composeTransforms(destTypeAffineMaps);
+
+      // Populate affine maps for each layer.
+      layeredDestTransform.assign(destTypeAffineMaps.begin(),
+                                  destTypeAffineMaps.end());
     }
     if (coordTransformsAttr) {
       for (auto attr : coordTransformsAttr) {
@@ -5895,6 +5905,11 @@ struct ThreadwiseCopyRewritePattern
           sourceExternalTransform = true;
           // Compose affine maps.
           composedSourceTransform = composeTransforms(transforms);
+
+          // Populate affine maps for each layer.
+          for (auto &am : transforms)
+            layeredSourceTransform.push_back(
+                am.template cast<AffineMapAttr>().getValue());
         } else {
           destCoordLength = transforms[0]
                                 .template cast<AffineMapAttr>()
@@ -5903,6 +5918,11 @@ struct ThreadwiseCopyRewritePattern
           destExternalTransform = true;
           // Compose affine maps.
           composedDestTransform = composeTransforms(transforms);
+
+          // Populate affine maps for each layer.
+          for (auto &am : transforms)
+            layeredDestTransform.push_back(
+                am.template cast<AffineMapAttr>().getValue());
         }
       }
     }
@@ -6370,12 +6390,18 @@ struct ThreadwiseCopyV2RewritePattern
     bool destExternalTransform = false;
     AffineMap composedSourceTransform;
     AffineMap composedDestTransform;
+    SmallVector<AffineMap> layeredSourceTransform;
+    SmallVector<AffineMap> layeredDestTransform;
 
     if (destTypeAffineMaps.size()) {
       destCoordLength = destTypeAffineMaps[0].getNumInputs();
       destEmbeddedTransform = true;
       // Compose affine maps.
       composedDestTransform = composeTransforms(destTypeAffineMaps);
+
+      // Populate affine maps for each layer.
+      layeredDestTransform.assign(destTypeAffineMaps.begin(),
+                                  destTypeAffineMaps.end());
     }
     if (coordTransformsAttr) {
       for (auto attr : coordTransformsAttr.template cast<ArrayAttr>()) {
@@ -6391,6 +6417,11 @@ struct ThreadwiseCopyV2RewritePattern
           sourceExternalTransform = true;
           // Compose affine maps.
           composedSourceTransform = composeTransforms(transforms);
+
+          // Populate affine maps for each layer.
+          for (auto &am : transforms)
+            layeredSourceTransform.push_back(
+                am.template cast<AffineMapAttr>().getValue());
         } else {
           destCoordLength = transforms[0]
                                 .template cast<AffineMapAttr>()
@@ -6399,6 +6430,11 @@ struct ThreadwiseCopyV2RewritePattern
           destExternalTransform = true;
           // Compose affine maps.
           composedDestTransform = composeTransforms(transforms);
+
+          // Populate affine maps for each layer.
+          for (auto &am : transforms)
+            layeredDestTransform.push_back(
+                am.template cast<AffineMapAttr>().getValue());
         }
       }
     }
