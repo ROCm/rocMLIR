@@ -5866,14 +5866,14 @@ struct ThreadwiseCopyRewritePattern
     if (sourceTypeAffineMaps.size()) {
       sourceCoordLength = sourceTypeAffineMaps[0].getNumInputs();
       sourceEmbeddedTransform = true;
-      // Compose affine maps in the attribute array.
-      sourceTransform = composeTransformsFromArrayRef(sourceTypeAffineMaps);
+      // Compose affine maps.
+      sourceTransform = composeTransforms(sourceTypeAffineMaps);
     }
     if (destTypeAffineMaps.size()) {
       destCoordLength = destTypeAffineMaps[0].getNumInputs();
       destEmbeddedTransform = true;
-      // Compose affine maps in the attribute array.
-      destTransform = composeTransformsFromArrayRef(destTypeAffineMaps);
+      // Compose affine maps.
+      destTransform = composeTransforms(destTypeAffineMaps);
     }
     if (coordTransformsAttr) {
       for (auto attr : coordTransformsAttr) {
@@ -5887,16 +5887,16 @@ struct ThreadwiseCopyRewritePattern
                                   .getValue()
                                   .getNumInputs();
           sourceExternalTransform = true;
-          // Compose affine maps in the attribute array.
-          sourceTransform = composeTransformsFromArrayAttr(transforms);
+          // Compose affine maps.
+          sourceTransform = composeTransforms(transforms);
         } else {
           destCoordLength = transforms[0]
                                 .template cast<AffineMapAttr>()
                                 .getValue()
                                 .getNumInputs();
           destExternalTransform = true;
-          // Compose affine maps in the attribute array.
-          destTransform = composeTransformsFromArrayAttr(transforms);
+          // Compose affine maps.
+          destTransform = composeTransforms(transforms);
         }
       }
     }
@@ -6365,10 +6365,10 @@ struct ThreadwiseCopyV2RewritePattern
     AffineMap destTransform;
 
     if (destTypeAffineMaps.size()) {
-      // Use the first affine map in the attribute array.
       destCoordLength = destTypeAffineMaps[0].getNumInputs();
       destEmbeddedTransform = true;
-      destTransform = destTypeAffineMaps[0];
+      // Compose affine maps.
+      destTransform = composeTransforms(destTypeAffineMaps);
     }
     if (coordTransformsAttr) {
       for (auto attr : coordTransformsAttr.template cast<ArrayAttr>()) {
@@ -6376,16 +6376,22 @@ struct ThreadwiseCopyV2RewritePattern
         auto operandIndex =
             dictAttr.get("operand").template cast<IntegerAttr>().getInt();
         auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
-        // Use the first affine map in the transforms array.
-        auto affineMap = transforms[0].template cast<AffineMapAttr>();
         if (operandIndex == 0) {
-          sourceCoordLength = affineMap.getValue().getNumInputs();
+          sourceCoordLength = transforms[0]
+                                  .template cast<AffineMapAttr>()
+                                  .getValue()
+                                  .getNumInputs();
           sourceExternalTransform = true;
-          sourceTransform = affineMap.getValue();
+          // Compose affine maps.
+          sourceTransform = composeTransforms(transforms);
         } else {
-          destCoordLength = affineMap.getValue().getNumInputs();
+          destCoordLength = transforms[0]
+                                .template cast<AffineMapAttr>()
+                                .getValue()
+                                .getNumInputs();
           destExternalTransform = true;
-          destTransform = affineMap.getValue();
+          // Compose affine maps.
+          destTransform = composeTransforms(transforms);
         }
       }
     }

@@ -25,7 +25,7 @@ namespace miopen {
 //===----------------------------------------------------------------------===//
 // Utility lambda to compose affine maps.
 //===----------------------------------------------------------------------===//
-inline AffineMap composeTransformsFromArrayRef(ArrayRef<AffineMap> affineMaps) {
+inline AffineMap composeTransforms(ArrayRef<AffineMap> affineMaps) {
   int64_t iter = affineMaps.size() - 1;
   AffineMap transform = affineMaps[iter];
   --iter;
@@ -36,7 +36,7 @@ inline AffineMap composeTransformsFromArrayRef(ArrayRef<AffineMap> affineMaps) {
   return transform;
 }
 
-inline AffineMap composeTransformsFromArrayAttr(ArrayAttr affineMaps) {
+inline AffineMap composeTransforms(ArrayAttr affineMaps) {
   int64_t iter = affineMaps.size() - 1;
   AffineMap transform =
       affineMaps[iter].template cast<AffineMapAttr>().getValue();
