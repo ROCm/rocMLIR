@@ -1,6 +1,6 @@
 // RUN: mlir-opt -miopen-lowering-step4 %s | FileCheck %s
 
-#map0 = affine_map<(d0, d1) -> (d0 * 8 + d1)>
+#map0 = affine_map<(d0, d1) -> (d0 * 8 + d1, d1)>
 #map1 = affine_map<(d0, d1) -> (d0 * 999 + d1 * 998)>
 
 #map2 = affine_map<(d0, d1, d2, d3) -> (d0 * 16 + d1 * 8 + d2 * 4 + d3)>
