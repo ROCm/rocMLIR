@@ -23,7 +23,7 @@ namespace mlir {
 namespace miopen {
 
 //===----------------------------------------------------------------------===//
-// Utility lambda to compose affine maps.
+// Utility function to compose affine maps.
 //===----------------------------------------------------------------------===//
 inline AffineMap composeTransforms(ArrayRef<AffineMap> affineMaps) {
   int64_t iter = affineMaps.size() - 1;
