@@ -6732,19 +6732,13 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
             } else {
               auto existingTransforms =
                   dictAttr.get("transforms").cast<ArrayAttr>();
-              llvm::SmallVector<Attribute, 4> augmentedTransforms;
-              augmentedTransforms.append(existingTransforms.begin(),
-                                         existingTransforms.end());
-              augmentedTransforms.push_back(
-                  AffineMapAttr::get(outputType.getAffineMaps()[0]));
 
               auto existingDomain = dictAttr.get("domain").cast<ArrayAttr>();
 
               augmentedArrayAttr.push_back(b.getDictionaryAttr(
                   {b.getNamedAttr("operand",
                                   b.getI32IntegerAttr(userOperandIndex)),
-                   b.getNamedAttr("transforms",
-                                  b.getArrayAttr(augmentedTransforms)),
+                   b.getNamedAttr("transforms", existingTransforms),
                    b.getNamedAttr("domain", existingDomain)}));
               augmented = true;
             }

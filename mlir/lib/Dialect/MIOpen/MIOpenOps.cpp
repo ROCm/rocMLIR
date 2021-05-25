@@ -636,26 +636,28 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
       auto coordTransformDictAttr = coordTransformAttr.cast<DictionaryAttr>();
       auto operandIndex =
           coordTransformDictAttr.get("operand").cast<IntegerAttr>().getInt();
-      auto transform = coordTransformDictAttr.get("transforms")
-                           .cast<ArrayAttr>()
-                           .getValue()[0]
-                           .cast<AffineMapAttr>()
-                           .getValue();
+      auto affineMapsArrayAttr =
+          coordTransformDictAttr.get("transforms").cast<ArrayAttr>().getValue();
+      auto firstTransform =
+          affineMapsArrayAttr[0].cast<AffineMapAttr>().getValue();
+      auto lastTransform = affineMapsArrayAttr[affineMapsArrayAttr.size() - 1]
+                               .cast<AffineMapAttr>()
+                               .getValue();
 
       if (operandIndex == 0) {
-        if (transform.getNumResults() != sourceRank)
+        if (lastTransform.getNumResults() != sourceRank)
           return op.emitError(
               "Number of coordindates in externally defined affine map doesn't "
               "match the rank of the source memref");
 
-        expectedSourceCoords = transform.getNumInputs();
+        expectedSourceCoords = firstTransform.getNumInputs();
       } else if (operandIndex == 1) {
-        if (transform.getNumResults() != destRank)
+        if (lastTransform.getNumResults() != destRank)
           return op.emitError(
               "Number of coordindates in externally defined affine map doesn't "
               "match the rank of the destination memref");
 
-        expectedDestCoords = transform.getNumInputs();
+        expectedDestCoords = firstTransform.getNumInputs();
       }
     }
   }
