@@ -4079,10 +4079,22 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto affineMap5to3to5 = outputAffineMap3to5.compose(affineMap5to3);
 
     // emit TransformOp for output tensor.
+    llvm::SmallVector<NamedAttribute, 3> transformedNewOutputAttrs;
+    // set source_layout attribute.
+    transformedNewOutputAttrs.push_back(b.getNamedAttr(
+        "source_layout",
+        b.getArrayAttr({b.getStringAttr("gemmG"), b.getStringAttr("gemmM"),
+                        b.getStringAttr("gemmN")})));
+    // set output_layout attribute.
+    transformedNewOutputAttrs.push_back(b.getNamedAttr(
+        "output_layout",
+        b.getArrayAttr({b.getStringAttr("g"), b.getStringAttr("m0"),
+                        b.getStringAttr("m1"), b.getStringAttr("n0"),
+                        b.getStringAttr("n1")})));
     auto newOutputType = MemRefType::get(
         {G, M0, M1, N0, N1}, outputType.getElementType(), {affineMap5to3to5});
-    auto newOutputTransformOp =
-        b.create<miopen::TransformOp>(loc, newOutputType, op.output());
+    auto newOutputTransformOp = b.create<miopen::TransformOp>(
+        loc, newOutputType, op.output(), transformedNewOutputAttrs);
 
     // build affine expression: d0 = g
     // (d0, d1, d2, d3, d4) -> (d0, d1 * MPerThread + d2, d3 * NPerThread + d4)
@@ -4098,11 +4110,25 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         op.getContext());
 
     // emit TransformOp for Matrix C on VGPR.
+    llvm::SmallVector<NamedAttribute, 3> transformedMatrixCAttrs;
+    // set source_layout attribute.
+    transformedMatrixCAttrs.push_back(b.getNamedAttr(
+        "source_layout",
+        b.getArrayAttr({b.getStringAttr("gemmG"), b.getStringAttr("gemmM"),
+                        b.getStringAttr("gemmN")})));
+    // set output_layout attribute.
+    transformedMatrixCAttrs.push_back(b.getNamedAttr(
+        "output_layout",
+        b.getArrayAttr({b.getStringAttr("g"), b.getStringAttr("gemmMRepeat"),
+                        b.getStringAttr("mPerThread"),
+                        b.getStringAttr("gemmNRepeat"),
+                        b.getStringAttr("nPerThread")})));
     auto register5DMatrixCType = MemRefType::get(
         {1, GemmMRepeat, MPerThread, GemmNRepeat, NPerThread}, elementType,
         {matrixCAffineMap5to3}, gpu::GPUDialect::getPrivateAddressSpace());
     auto matrixCTransformOp = b.create<miopen::TransformOp>(
-        loc, register5DMatrixCType, registerMatrixCAllocOp);
+        loc, register5DMatrixCType, registerMatrixCAllocOp,
+        transformedMatrixCAttrs);
 
     SmallVector<Value, 10> matrixCThreadwiseCopySourceAndDestCoords;
     matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
