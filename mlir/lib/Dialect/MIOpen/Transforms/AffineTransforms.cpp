@@ -26,7 +26,6 @@ private:
 AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
   auto inputType = op.input().getType().dyn_cast<MemRefType>();
   auto inputShape = inputType.getShape();
-  auto inputAffineMaps = inputType.getAffineMaps();
 
   auto layoutAttr = op->template getAttrOfType<ArrayAttr>("layout");
 
@@ -229,16 +228,7 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
   }
 
   auto transformAffineMap = AffineMap::get(outputLayoutAttr.size(), 0, affExprsVec, op.getContext());
-  AffineMap outputAffineMap;
-
-  if (inputAffineMaps.size() != 0) {
-    auto inputAffineMap = inputAffineMaps[0];
-    outputAffineMap = inputAffineMap.compose(transformAffineMap);
-  } else {
-    outputAffineMap = transformAffineMap;
-  }
-
-  return outputAffineMap;
+  return transformAffineMap;
 }
 
 void AffineTransforms::runOnFunction() {
@@ -246,11 +236,17 @@ void AffineTransforms::runOnFunction() {
 
   func.walk([&](miopen::TransformOp op) {
     AffineMap indexAffineMap = buildIndexAffineMap(op);
+    llvm::SmallVector<AffineMap> affineMaps;
+    affineMaps.push_back(indexAffineMap);
+    auto inputType = op.input().getType().dyn_cast<MemRefType>();
+    auto inputAffineMaps = inputType.getAffineMaps();
+    for (auto &am : inputAffineMaps)
+      affineMaps.push_back(am);
 
     auto outputType = op.output().getType().dyn_cast<MemRefType>();
     auto outputShape = outputType.getShape();
-    auto transformedOutputType = MemRefType::get(outputShape, outputType.getElementType(),
-                                                 {indexAffineMap});
+    auto transformedOutputType =
+        MemRefType::get(outputShape, outputType.getElementType(), affineMaps);
 
     OpBuilder b(op.getOperation());
     auto loc = op.getLoc();

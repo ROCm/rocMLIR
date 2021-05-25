@@ -23,6 +23,33 @@ namespace mlir {
 namespace miopen {
 
 //===----------------------------------------------------------------------===//
+// Utility lambda to compose affine maps.
+//===----------------------------------------------------------------------===//
+inline AffineMap composeTransforms(ArrayRef<AffineMap> affineMaps) {
+  int64_t iter = affineMaps.size() - 1;
+  AffineMap transform = affineMaps[iter];
+  --iter;
+  while (iter >= 0) {
+    transform = transform.compose(affineMaps[iter]);
+    --iter;
+  }
+  return transform;
+}
+
+inline AffineMap composeTransforms(ArrayAttr affineMaps) {
+  int64_t iter = affineMaps.size() - 1;
+  AffineMap transform =
+      affineMaps[iter].template cast<AffineMapAttr>().getValue();
+  --iter;
+  while (iter >= 0) {
+    transform = transform.compose(
+        affineMaps[iter].template cast<AffineMapAttr>().getValue());
+    --iter;
+  }
+  return transform;
+}
+
+//===----------------------------------------------------------------------===//
 // Check if an AffineMap has division or remainder inside.
 //===----------------------------------------------------------------------===//
 inline bool hasDivisionOrRemainder(AffineMap map) {
