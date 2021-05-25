@@ -46,6 +46,28 @@ using namespace mlir;
 using namespace mlir::miopen;
 
 //===----------------------------------------------------------------------===//
+// Utility function to repeatedly apply affine transformation to compute the
+// coordinate for the next layer.
+//===----------------------------------------------------------------------===//
+inline void
+populateLayeredIndices(OpBuilder &b, Location loc,
+                       SmallVector<SmallVector<Value, 8>, 2> &layeredIndices,
+                       const SmallVector<Value, 8> &topIndices,
+                       const SmallVector<AffineMap> &layeredTransform) {
+  SmallVector<Value, 8> currentIndices = topIndices;
+  layeredIndices.push_back(currentIndices);
+  for (auto am : layeredTransform) {
+    SmallVector<Value, 8> nextLayerIndices =
+        expandAffineMap(b, loc, am, currentIndices).getValue();
+
+    layeredIndices.push_back(nextLayerIndices);
+
+    currentIndices.clear();
+    currentIndices = nextLayerIndices;
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to emit constant float op.
 //===----------------------------------------------------------------------===//
 inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
@@ -5866,20 +5888,30 @@ struct ThreadwiseCopyRewritePattern
     bool destEmbeddedTransform = false;
     bool sourceExternalTransform = false;
     bool destExternalTransform = false;
-    AffineMap sourceTransform;
-    AffineMap destTransform;
+    AffineMap composedSourceTransform;
+    AffineMap composedDestTransform;
+    SmallVector<AffineMap> layeredSourceTransform;
+    SmallVector<AffineMap> layeredDestTransform;
 
     if (sourceTypeAffineMaps.size()) {
       sourceCoordLength = sourceTypeAffineMaps[0].getNumInputs();
       sourceEmbeddedTransform = true;
       // Compose affine maps.
-      sourceTransform = composeTransforms(sourceTypeAffineMaps);
+      composedSourceTransform = composeTransforms(sourceTypeAffineMaps);
+
+      // Populate affine maps for each layer.
+      layeredSourceTransform.assign(sourceTypeAffineMaps.begin(),
+                                    sourceTypeAffineMaps.end());
     }
     if (destTypeAffineMaps.size()) {
       destCoordLength = destTypeAffineMaps[0].getNumInputs();
       destEmbeddedTransform = true;
       // Compose affine maps.
-      destTransform = composeTransforms(destTypeAffineMaps);
+      composedDestTransform = composeTransforms(destTypeAffineMaps);
+
+      // Populate affine maps for each layer.
+      layeredDestTransform.assign(destTypeAffineMaps.begin(),
+                                  destTypeAffineMaps.end());
     }
     if (coordTransformsAttr) {
       for (auto attr : coordTransformsAttr) {
@@ -5894,7 +5926,12 @@ struct ThreadwiseCopyRewritePattern
                                   .getNumInputs();
           sourceExternalTransform = true;
           // Compose affine maps.
-          sourceTransform = composeTransforms(transforms);
+          composedSourceTransform = composeTransforms(transforms);
+
+          // Populate affine maps for each layer.
+          for (auto &am : transforms)
+            layeredSourceTransform.push_back(
+                am.template cast<AffineMapAttr>().getValue());
         } else {
           destCoordLength = transforms[0]
                                 .template cast<AffineMapAttr>()
@@ -5902,7 +5939,12 @@ struct ThreadwiseCopyRewritePattern
                                 .getNumInputs();
           destExternalTransform = true;
           // Compose affine maps.
-          destTransform = composeTransforms(transforms);
+          composedDestTransform = composeTransforms(transforms);
+
+          // Populate affine maps for each layer.
+          for (auto &am : transforms)
+            layeredDestTransform.push_back(
+                am.template cast<AffineMapAttr>().getValue());
         }
       }
     }
@@ -5910,9 +5952,10 @@ struct ThreadwiseCopyRewritePattern
     // Determine if we need to emit codes for out-of-bound check.
     bool toEmitOOBCheckLogic = false;
     SmallVector<unsigned, 2> oobCheckDims;
-    if (sourceTransform) {
-      for (unsigned iter = 0; iter < sourceTransform.getNumResults(); ++iter) {
-        auto expr = sourceTransform.getResult(iter);
+    if (composedSourceTransform) {
+      for (unsigned iter = 0; iter < composedSourceTransform.getNumResults();
+           ++iter) {
+        auto expr = composedSourceTransform.getResult(iter);
         if (hasPadding(expr)) {
           toEmitOOBCheckLogic = true;
           oobCheckDims.push_back(iter);
@@ -6013,9 +6056,9 @@ struct ThreadwiseCopyRewritePattern
           // Apply affine transformations to compute the low-level coordinate.
           SmallVector<Value, 8> srcLowerIndices;
           if (sourceExternalTransform || sourceEmbeddedTransform)
-            srcLowerIndices =
-                expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
-                    .getValue();
+            srcLowerIndices = expandAffineMap(b, loc, composedSourceTransform,
+                                              srcUpperIndices)
+                                  .getValue();
           else
             srcLowerIndices = srcUpperIndices;
 
@@ -6046,7 +6089,7 @@ struct ThreadwiseCopyRewritePattern
           SmallVector<Value, 8> destLowerIndices;
           if (destExternalTransform || destEmbeddedTransform)
             destLowerIndices =
-                expandAffineMap(b, loc, destTransform, destUpperIndices)
+                expandAffineMap(b, loc, composedDestTransform, destUpperIndices)
                     .getValue();
           else
             destLowerIndices = destUpperIndices;
@@ -6154,6 +6197,11 @@ struct ThreadwiseCopyRewritePattern
       }
       bool toExit = false;
       do {
+        // Coordinates across the layers of transformations.
+        // If the vector is of size n, 0 is the top layer, and
+        // n-1 is the bottom layer.
+        SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
+
         // Compute high-level coordinate for source memref.
         // src_index = (iv_0, iv_1, ...) + sourceCoord
         SmallVector<Value, 8> srcUpperIndices;
@@ -6166,18 +6214,17 @@ struct ThreadwiseCopyRewritePattern
               b.getIndexType()));
         }
 
-        // Apply affine transformations to compute the low-level coordinate.
-        SmallVector<Value, 8> srcLowerIndices;
-        SmallVector<Value, 8> srcLowerOOBIndices;
-        if (sourceExternalTransform || sourceEmbeddedTransform)
-          srcLowerIndices =
-              expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
-                  .getValue();
-        else
-          srcLowerIndices = srcUpperIndices;
+        // Populate coorindates across the layers of transformations.
+        populateLayeredIndices(b, loc, layeredSourceIndices, srcUpperIndices,
+                               layeredSourceTransform);
+
+        // Fetch low-level coordinate.
+        SmallVector<Value, 8> srcLowerIndices =
+            layeredSourceIndices[layeredSourceIndices.size() - 1];
 
         // Pre-populate srcLowerOOBIndices. It will be modified inside
         // toEmitOOBCheckLogic basic block.
+        SmallVector<Value, 8> srcLowerOOBIndices;
         srcLowerOOBIndices = srcLowerIndices;
 
         // Load from source.
@@ -6284,6 +6331,11 @@ struct ThreadwiseCopyRewritePattern
         Value convertedScalarValue = createTypeConversionOp(
             b, loc, scalarValue, sourceElementType, destElementType);
 
+        // Coordinates across the layers of transformations.
+        // If the vector is of size n, 0 is the top layer, and
+        // n-1 is the bottom layer.
+        SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
+
         // Compute high-level coordinate for dest memref.
         // dst_index = (iv_0, iv_1, ...) + destCoord
         SmallVector<Value, 8> destUpperIndices;
@@ -6296,14 +6348,13 @@ struct ThreadwiseCopyRewritePattern
               b.getIndexType()));
         }
 
-        // Apply affine transformations to compute the low-level coordinate.
-        SmallVector<Value, 8> destLowerIndices;
-        if (destExternalTransform || destEmbeddedTransform)
-          destLowerIndices =
-              expandAffineMap(b, loc, destTransform, destUpperIndices)
-                  .getValue();
-        else
-          destLowerIndices = destUpperIndices;
+        // Populate coorindates across the layers of transformations.
+        populateLayeredIndices(b, loc, layeredDestIndices, destUpperIndices,
+                               layeredDestTransform);
+
+        // Fetch low-level coordinate.
+        SmallVector<Value, 8> destLowerIndices =
+            layeredDestIndices[layeredDestIndices.size() - 1];
 
         // Store to dest.
         // Issue scalar store.
@@ -6364,17 +6415,17 @@ struct ThreadwiseCopyV2RewritePattern
     unsigned destCoordLength = destType.getRank();
 
     bool sourceEmbeddedTransform = false;
-    bool destEmbeddedTransform = false;
     bool sourceExternalTransform = false;
-    bool destExternalTransform = false;
-    AffineMap sourceTransform;
-    AffineMap destTransform;
+    AffineMap composedSourceTransform;
+    SmallVector<AffineMap> layeredSourceTransform;
+    SmallVector<AffineMap> layeredDestTransform;
 
     if (destTypeAffineMaps.size()) {
       destCoordLength = destTypeAffineMaps[0].getNumInputs();
-      destEmbeddedTransform = true;
-      // Compose affine maps.
-      destTransform = composeTransforms(destTypeAffineMaps);
+
+      // Populate affine maps for each layer.
+      layeredDestTransform.assign(destTypeAffineMaps.begin(),
+                                  destTypeAffineMaps.end());
     }
     if (coordTransformsAttr) {
       for (auto attr : coordTransformsAttr.template cast<ArrayAttr>()) {
@@ -6389,15 +6440,22 @@ struct ThreadwiseCopyV2RewritePattern
                                   .getNumInputs();
           sourceExternalTransform = true;
           // Compose affine maps.
-          sourceTransform = composeTransforms(transforms);
+          composedSourceTransform = composeTransforms(transforms);
+
+          // Populate affine maps for each layer.
+          for (auto &am : transforms)
+            layeredSourceTransform.push_back(
+                am.template cast<AffineMapAttr>().getValue());
         } else {
           destCoordLength = transforms[0]
                                 .template cast<AffineMapAttr>()
                                 .getValue()
                                 .getNumInputs();
-          destExternalTransform = true;
-          // Compose affine maps.
-          destTransform = composeTransforms(transforms);
+
+          // Populate affine maps for each layer.
+          for (auto &am : transforms)
+            layeredDestTransform.push_back(
+                am.template cast<AffineMapAttr>().getValue());
         }
       }
     }
@@ -6499,6 +6557,11 @@ struct ThreadwiseCopyV2RewritePattern
     }
     bool toExit = false;
     do {
+      // Coordinates across the layers of transformations.
+      // If the vector is of size n, 0 is the top layer, and
+      // n-1 is the bottom layer.
+      SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
+
       // Compute high-level coordinate for source memref.
       // src_index = (iv_0, iv_1, ...) + sourceCoord
       SmallVector<Value, 8> srcUpperIndices;
@@ -6511,14 +6574,13 @@ struct ThreadwiseCopyV2RewritePattern
             b.getIndexType()));
       }
 
-      // Apply affine transformations to compute the low-level coordinate.
-      SmallVector<Value, 8> srcLowerIndices;
-      if (sourceExternalTransform || sourceEmbeddedTransform)
-        srcLowerIndices =
-            expandAffineMap(b, loc, sourceTransform, srcUpperIndices)
-                .getValue();
-      else
-        srcLowerIndices = srcUpperIndices;
+      // Populate coorindates across the layers of transformations.
+      populateLayeredIndices(b, loc, layeredSourceIndices, srcUpperIndices,
+                             layeredSourceTransform);
+
+      // Fetch low-level coordinate.
+      SmallVector<Value, 8> srcLowerIndices =
+          layeredSourceIndices[layeredSourceIndices.size() - 1];
 
       // Add sourceOffset to derive the position in the vector.
       auto srcPosition = b.create<AddIOp>(
@@ -6533,6 +6595,11 @@ struct ThreadwiseCopyV2RewritePattern
       scalarValue = b.create<vector::ExtractElementOp>(
           loc, sourceType.getElementType(), op.source(), srcPosition);
 
+      // Coordinates across the layers of transformations.
+      // If the vector is of size n, 0 is the top layer, and
+      // n-1 is the bottom layer.
+      SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
+
       // Compute high-level coordinate for dest memref.
       // dst_index = (iv_0, iv_1, ...) + destCoord
       SmallVector<Value, 8> destUpperIndices;
@@ -6545,13 +6612,13 @@ struct ThreadwiseCopyV2RewritePattern
             b.getIndexType()));
       }
 
-      // Apply affine transformations to compute the low-level coordinate.
-      SmallVector<Value, 8> destLowerIndices;
-      if (destExternalTransform || destEmbeddedTransform)
-        destLowerIndices =
-            expandAffineMap(b, loc, destTransform, destUpperIndices).getValue();
-      else
-        destLowerIndices = destUpperIndices;
+      // Populate coorindates across the layers of transformations.
+      populateLayeredIndices(b, loc, layeredDestIndices, destUpperIndices,
+                             layeredDestTransform);
+
+      // Fetch low-level coordinate.
+      SmallVector<Value, 8> destLowerIndices =
+          layeredDestIndices[layeredDestIndices.size() - 1];
 
       // Store to dest.
       // Issue scalar store.
