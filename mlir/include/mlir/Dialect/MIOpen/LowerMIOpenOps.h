@@ -6799,7 +6799,10 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
                    b.getNamedAttr(
                        "transforms",
                        b.getAffineMapArrayAttr(outputType.getAffineMaps())),
-                   b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec))})}));
+                   b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
+                   b.getNamedAttr("metadata",
+                                  b.getArrayAttr({b.getDictionaryAttr(
+                                      op.getAttrs())}))})}));
         else {
           // create a deep-copy of existing attributes, and amend the new one.
           // need to figure out if there's a better way than this.
@@ -6819,12 +6822,20 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
                   dictAttr.get("transforms").cast<ArrayAttr>();
 
               auto existingDomain = dictAttr.get("domain").cast<ArrayAttr>();
+              auto existingMetadata =
+                  dictAttr.get("metadata").cast<ArrayAttr>();
+              llvm::SmallVector<Attribute, 5> augmentedMetadata;
+              augmentedMetadata.append(existingMetadata.begin(),
+                                       existingMetadata.end());
+              augmentedMetadata.push_back(b.getDictionaryAttr(op.getAttrs()));
 
               augmentedArrayAttr.push_back(b.getDictionaryAttr(
                   {b.getNamedAttr("operand",
                                   b.getI32IntegerAttr(userOperandIndex)),
                    b.getNamedAttr("transforms", existingTransforms),
-                   b.getNamedAttr("domain", existingDomain)}));
+                   b.getNamedAttr("domain", existingDomain),
+                   b.getNamedAttr("metadata",
+                                  b.getArrayAttr(augmentedMetadata))}));
               augmented = true;
             }
           }
@@ -6834,7 +6845,9 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
                                 b.getI32IntegerAttr(userOperandIndex)),
                  b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
                                                   outputType.getAffineMaps())),
-                 b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec))}));
+                 b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
+                 b.getNamedAttr("metadata", b.getArrayAttr({b.getDictionaryAttr(
+                                                op.getAttrs())}))}));
           user->setAttr("coord_transforms", b.getArrayAttr(augmentedArrayAttr));
         }
 
