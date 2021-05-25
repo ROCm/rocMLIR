@@ -5107,10 +5107,22 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto affineMap5to3to5 = outputAffineMap3to5.compose(affineMap5to3);
 
     // emit TransformOp for output tensor.
+    llvm::SmallVector<NamedAttribute, 3> transformedNewOutputAttrs;
+    // set source_layout attribute.
+    transformedNewOutputAttrs.push_back(b.getNamedAttr(
+        "source_layout",
+        b.getArrayAttr({b.getStringAttr("gemmG"), b.getStringAttr("gemmM"),
+                        b.getStringAttr("gemmN")})));
+    // set output_layout attribute.
+    transformedNewOutputAttrs.push_back(b.getNamedAttr(
+        "output_layout",
+        b.getArrayAttr({b.getStringAttr("g"), b.getStringAttr("m0"),
+                        b.getStringAttr("m1"), b.getStringAttr("m2"),
+                        b.getStringAttr("n")})));
     auto newOutputType = MemRefType::get(
         {G, M0, M1, M2, N}, outputType.getElementType(), {affineMap5to3to5});
-    auto newOutputTransformOp =
-        b.create<miopen::TransformOp>(loc, newOutputType, op.output());
+    auto newOutputTransformOp = b.create<miopen::TransformOp>(
+        loc, newOutputType, op.output(), transformedNewOutputAttrs);
 
     // Original C++ logic.
     // //     src descriptor
