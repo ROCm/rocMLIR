@@ -43,9 +43,14 @@ pipeline {
                                  -DBUILD_DEV=On
                                 -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
                                 '''
-                            stash name:"MIOpen-build",\
-                                includes: "src/kernels/**,build/bin/MIOpenDriver,build/lib/*"
                         }
+                        stash name:"MIOpen-test-requisites",\
+                                includes: """MIOpen/src/kernels/**,\
+MIOpen/build/bin/MIOpenDriver,\
+MIOpen/build/lib/*,\
+mlir/utils/jenkins/miopen-tests/**\
+"""
+
                     }
                 }
             }
@@ -93,11 +98,9 @@ pipeline {
                             sh '/opt/rocm/bin/rocm-smi'
                         }
                     }
-                    stage("Copy MIOpen binaries") {
+                    stage("Copy MIOpen test environment") {
                         steps {
-                            dir("MIOpen") {
-                                unstash name: "MIOpen-build"
-                            }
+                            unstash name: "MIOpen-test-requisites"
                         }
                     }
                     stage("Test MIOpen config") {
