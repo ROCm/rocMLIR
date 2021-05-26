@@ -6,6 +6,9 @@ pipeline {
             label 'test-0'
         }
     }
+    environment {
+        PATH="$PATH:/opt/rocm/llvm/bin"
+    }
     stages {
         stage('Environment') {
             steps {
@@ -16,37 +19,20 @@ pipeline {
         stage('Build and Test FP32') {
             steps {
                 checkout scm
-                sh '''
-                    # make build directory
-                    mkdir -p build && cd build
-                    # Set the path to llvm-symbolizer
-                    PATH=$PATH:/opt/rocm-4.1.1/llvm/bin/
+                // config MLIR on ROCm, with MIOpen dialect
+                // with custom perf db for:
+                // - gfx908
+                // - fp32
+                // - resnet50 configs.
 
-                    # config MLIR on ROCm, with MIOpen dialect
-                    # with custom perf db for:
-                    # - gfx908
-                    # - fp32
-                    # - resnet50 configs.
-                    cmake -G Ninja ../llvm \
-                        -DLLVM_ENABLE_PROJECTS="mlir;lld" \
-                        -DLLVM_BUILD_EXAMPLES=ON \
-                        -DLLVM_TARGETS_TO_BUILD="X86;AMDGPU" \
-                        -DCMAKE_BUILD_TYPE=Release \
-                        -DLLVM_ENABLE_ASSERTIONS=ON \
-                        -DBUILD_SHARED_LIBS=ON \
-                        -DLLVM_BUILD_LLVM_DYLIB=ON \
-                        -DMLIR_ROCM_RUNNER_ENABLED=1 \
-                        -DMLIR_MIOPEN_DRIVER_ENABLED=1 \
-                        -DMLIR_MIOPEN_SQLITE_ENABLED=1 \
-                        -DMIOPEN_SYSTEM_DB_PATH=`readlink -f ../mlir/utils/jenkins/perfdb/miopen_1.0.0.udb.resnet50_fp32_1013`
-
-
-                    # build MLIR tools needed for performance benchmarking.
-                    # due to customized perf db, tuning-related tests may not
-                    # pass.
-                    cmake --build . --target mlir-miopen-driver
-                    cmake --build . --target mlir-rocm-runner
-                '''
+                cmakeBuild generator: 'Ninja',\
+                    buildDir: 'build',\
+                    buildType: 'Release',\
+                    installation: 'InSearchPath',\
+                    steps: [[args: 'mlir-miopen-driver mlir-rocm-runner']],\
+                    cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1
+                        -DMIOPEN_SYSTEM_DB_PATH=${WORKSPACE}/mlir/utils/jenkins/perfdb/miopen_1.0.0.udb.resnet50_fp32_1013
+                    '''
             }
         }
         stage('Benchmark FP32') {
