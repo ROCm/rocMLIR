@@ -6942,7 +6942,8 @@ struct ThreadwiseCopyV2RewritePattern
     SmallVector<Value, 2> srcLowerCoord;
     if (sourceExternalTransform || sourceEmbeddedTransform)
       srcLowerCoord =
-          expandAffineMap(b, loc, composedSourceTransform, srcUpperCoord).getValue();
+          expandAffineMap(b, loc, composedSourceTransform, srcUpperCoord)
+              .getValue();
     else
       srcLowerCoord.assign(srcUpperCoord.begin(), srcUpperCoord.end());
 
@@ -6957,7 +6958,8 @@ struct ThreadwiseCopyV2RewritePattern
     SmallVector<Value, 2> destLowerCoord;
     if (destExternalTransform || destEmbeddedTransform)
       destLowerCoord =
-          expandAffineMap(b, loc, composedDestTransform, destUpperCoord).getValue();
+          expandAffineMap(b, loc, composedDestTransform, destUpperCoord)
+              .getValue();
     else
       destLowerCoord.assign(destUpperCoord.begin(), destUpperCoord.end());
 
@@ -7090,8 +7092,8 @@ struct ThreadwiseCopyV2RewritePattern
     do {
       // Load from source vector.
       SmallVector<Value, 4> srcIndexLowerNewUpdated;
-      computeIndexDiffMap(srcIndexLowerNewUpdated, composedSourceTransform, sourceType,
-                          srcLowerCoord, b.getIntegerType(32));
+      computeIndexDiffMap(srcIndexLowerNewUpdated, composedSourceTransform,
+                          sourceType, srcLowerCoord, b.getIntegerType(32));
 
       // Add sourceOffset to derive the position in the vector.
       auto srcPosition = b.create<IndexCastOp>(
@@ -7107,8 +7109,8 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Store to dest memref.
       SmallVector<Value, 4> destIndexLowerNewUpdated;
-      computeIndexDiffMap(destIndexLowerNewUpdated, composedDestTransform, destType,
-                          destLowerCoord, b.getIndexType());
+      computeIndexDiffMap(destIndexLowerNewUpdated, composedDestTransform,
+                          destType, destLowerCoord, b.getIndexType());
 
       // Store to dest.
       // Issue scalar store.
