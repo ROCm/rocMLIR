@@ -6760,6 +6760,7 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
                                 PatternRewriter &b) const override {
     auto outputType = op.output().getType().cast<MemRefType>();
     auto outputShape = outputType.getShape();
+    auto boundCheckAttr = op->template getAttrOfType<ArrayAttr>("bound_check");
 
     // determine output shape and track it in an attribute.
     llvm::SmallVector<Attribute, 4> shapeAttrVec;
@@ -6790,20 +6791,22 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
             break;
 
         auto coordTransformAttrs = user->getAttr("coord_transforms");
-        if (!coordTransformAttrs)
-          user->setAttr(
-              "coord_transforms",
-              b.getArrayAttr({b.getDictionaryAttr(
-                  {b.getNamedAttr("operand",
-                                  b.getI32IntegerAttr(userOperandIndex)),
-                   b.getNamedAttr(
-                       "transforms",
-                       b.getAffineMapArrayAttr(outputType.getAffineMaps())),
-                   b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
-                   b.getNamedAttr("metadata",
-                                  b.getArrayAttr({b.getDictionaryAttr(
-                                      op.getAttrs())}))})}));
-        else {
+        if (!coordTransformAttrs) {
+          llvm::SmallVector<NamedAttribute, 5> arrayAttr{
+              b.getNamedAttr("operand", b.getI32IntegerAttr(userOperandIndex)),
+              b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
+                                               outputType.getAffineMaps())),
+              b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
+              b.getNamedAttr("metadata", b.getArrayAttr({b.getDictionaryAttr(
+                                             op.getAttrs())}))};
+
+          if (boundCheckAttr)
+            arrayAttr.push_back(b.getNamedAttr("bound_check", boundCheckAttr));
+
+          user->setAttr("coord_transforms",
+                        b.getArrayAttr({b.getDictionaryAttr(
+                            {arrayAttr.begin(), arrayAttr.end()})}));
+        } else {
           // create a deep-copy of existing attributes, and amend the new one.
           // need to figure out if there's a better way than this.
           auto arrayAttr = coordTransformAttrs.cast<ArrayAttr>();
@@ -6829,25 +6832,56 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
                                        existingMetadata.end());
               augmentedMetadata.push_back(b.getDictionaryAttr(op.getAttrs()));
 
-              augmentedArrayAttr.push_back(b.getDictionaryAttr(
-                  {b.getNamedAttr("operand",
-                                  b.getI32IntegerAttr(userOperandIndex)),
-                   b.getNamedAttr("transforms", existingTransforms),
-                   b.getNamedAttr("domain", existingDomain),
-                   b.getNamedAttr("metadata",
-                                  b.getArrayAttr(augmentedMetadata))}));
+              llvm::SmallVector<NamedAttribute, 4> arrayAttr{
+                  b.getNamedAttr("operand",
+                                 b.getI32IntegerAttr(userOperandIndex)),
+                  b.getNamedAttr("transforms", existingTransforms),
+                  b.getNamedAttr("domain", existingDomain),
+                  b.getNamedAttr("metadata",
+                                 b.getArrayAttr(augmentedMetadata))};
+              auto existingBoundCheck = dictAttr.get("bound_check");
+              if (boundCheckAttr && !existingBoundCheck)
+                arrayAttr.push_back(
+                    b.getNamedAttr("bound_check", boundCheckAttr));
+              else if (!boundCheckAttr && existingBoundCheck)
+                arrayAttr.push_back(
+                    b.getNamedAttr("bound_check", existingBoundCheck));
+              else if (boundCheckAttr && existingBoundCheck) {
+                llvm::SmallVector<Attribute, 5> boundVector;
+                for (size_t j = 0; j < boundCheckAttr.size(); j++) {
+                  auto value = boundCheckAttr[j].cast<IntegerAttr>().getInt();
+                  if (value)
+                    boundVector.push_back(boundCheckAttr[j]);
+                  else
+                    boundVector.push_back(
+                        existingBoundCheck.cast<ArrayAttr>()[j]);
+                }
+                arrayAttr.push_back(b.getNamedAttr(
+                    "bound_check",
+                    b.getArrayAttr({boundVector.begin(), boundVector.end()})));
+              }
+              augmentedArrayAttr.push_back(
+                  b.getDictionaryAttr({arrayAttr.begin(), arrayAttr.end()}));
+
               augmented = true;
             }
           }
-          if (!augmented)
-            augmentedArrayAttr.push_back(b.getDictionaryAttr(
-                {b.getNamedAttr("operand",
-                                b.getI32IntegerAttr(userOperandIndex)),
-                 b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
-                                                  outputType.getAffineMaps())),
-                 b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
-                 b.getNamedAttr("metadata", b.getArrayAttr({b.getDictionaryAttr(
-                                                op.getAttrs())}))}));
+          if (!augmented) {
+            llvm::SmallVector<NamedAttribute, 4> arrayAttr{
+                b.getNamedAttr("operand",
+                               b.getI32IntegerAttr(userOperandIndex)),
+                b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
+                                                 outputType.getAffineMaps())),
+                b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
+                b.getNamedAttr("metadata", b.getArrayAttr({b.getDictionaryAttr(
+                                               op.getAttrs())}))};
+
+            if (boundCheckAttr)
+              arrayAttr.push_back(
+                  b.getNamedAttr("bound_check", boundCheckAttr));
+            augmentedArrayAttr.push_back(
+                b.getDictionaryAttr({arrayAttr.begin(), arrayAttr.end()}));
+          }
           user->setAttr("coord_transforms", b.getArrayAttr(augmentedArrayAttr));
         }
 
