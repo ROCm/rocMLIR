@@ -98,7 +98,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label rocm
+                            label 'rocm'
                             alwaysPull true
                         }
                     }
