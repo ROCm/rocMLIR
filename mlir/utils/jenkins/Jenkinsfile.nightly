@@ -6,9 +6,6 @@ pipeline {
             label 'rocm'
         }
     }
-    environment {
-        PATH="$PATH:/opt/rocm/llvm/bin"
-    }
     stages {
         stage('Environment') {
             steps {
@@ -19,31 +16,59 @@ pipeline {
         stage('Build and Test') {
             steps {
                 checkout scm
-                cmakeBuild generator: 'Ninja',\
-                    buildDir: 'build',\
-                    buildType: 'Release',\
-                    installation: 'InSearchPath',\
-                    steps: [[args: 'check-mlir']],\
-                    cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1
-                        -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1
+                sh '''
+                    mkdir -p build && cd build
+                    # Set the path to llvm-symbolizer
+                    PATH=$PATH:/opt/rocm-4.1.1/llvm/bin/
+
+                    cmake -G Ninja ../llvm \
+                        -DLLVM_ENABLE_PROJECTS="mlir;lld" \
+                        -DLLVM_BUILD_EXAMPLES=ON \
+                        -DLLVM_TARGETS_TO_BUILD="X86;AMDGPU" \
+                        -DCMAKE_BUILD_TYPE=Release \
+                        -DLLVM_ENABLE_ASSERTIONS=ON \
+                        -DBUILD_SHARED_LIBS=ON \
+                        -DLLVM_BUILD_LLVM_DYLIB=ON \
+                        -DMLIR_ROCM_RUNNER_ENABLED=1 \
+                        -DMLIR_MIOPEN_DRIVER_ENABLED=1 \
+                        -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1 \
                         -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=1
-                    '''
-                dir("build") {
-                    deleteDir
-                }
+                        # if we open sqlite, step4 lowering failed until adding the custom db
+                        # -DMLIR_MIOPEN_SQLITE_ENABLED=1
+
+                    # Build LLVM / MLIR and run tests
+                    cmake --build . --target check-mlir
+
+                    # Clean up build directory
+                    rm -rf build
+                '''
             }
         }
         stage('Test Random E2E') {
             steps {
-                cmakeBuild generator: 'Ninja',\
-                    buildDir: 'build',\
-                    buildType: 'Release',\
-                    installation: 'InSearchPath',\
-                    steps: [[args: 'check-mlir']],\
-                    cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1
-                        -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1
+                sh '''
+                    mkdir -p build && cd build
+                    # Set the path to llvm-symbolizer
+                    PATH=$PATH:/opt/rocm-4.1.1/llvm/bin/
+
+                    cmake -G Ninja ../llvm \
+                        -DLLVM_ENABLE_PROJECTS="mlir;lld" \
+                        -DLLVM_TARGETS_TO_BUILD="X86;AMDGPU" \
+                        -DCMAKE_BUILD_TYPE=Release \
+                        -DLLVM_ENABLE_ASSERTIONS=ON \
+                        -DBUILD_SHARED_LIBS=ON \
+                        -DLLVM_BUILD_LLVM_DYLIB=ON \
+                        -DMLIR_ROCM_RUNNER_ENABLED=1 \
+                        -DMLIR_MIOPEN_DRIVER_ENABLED=1 \
+                        -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1 \
                         -DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
-                    '''
+
+                    # Build LLVM / MLIR and run E2E tests
+                    cmake --build . --target check-mlir
+
+                    # Clean up build directory
+                    rm -rf build
+                '''
             }
         }
     }
