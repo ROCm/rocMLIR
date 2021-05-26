@@ -5892,6 +5892,8 @@ struct ThreadwiseCopyRewritePattern
     AffineMap composedDestTransform;
     SmallVector<AffineMap> layeredSourceTransform;
     SmallVector<AffineMap> layeredDestTransform;
+    ArrayAttr boundCheckSourceAttr;
+    ArrayAttr boundCheckDestAttr;
 
     if (sourceTypeAffineMaps.size()) {
       sourceCoordLength = sourceTypeAffineMaps[0].getNumInputs();
@@ -5932,6 +5934,10 @@ struct ThreadwiseCopyRewritePattern
           for (auto &am : transforms)
             layeredSourceTransform.push_back(
                 am.template cast<AffineMapAttr>().getValue());
+
+          auto boundCheckAttr = dictAttr.get("bound_check");
+          if (boundCheckAttr)
+            boundCheckSourceAttr = boundCheckAttr.template cast<ArrayAttr>();
         } else {
           destCoordLength = transforms[0]
                                 .template cast<AffineMapAttr>()
@@ -5945,6 +5951,10 @@ struct ThreadwiseCopyRewritePattern
           for (auto &am : transforms)
             layeredDestTransform.push_back(
                 am.template cast<AffineMapAttr>().getValue());
+
+          auto boundCheckAttr = dictAttr.get("bound_check");
+          if (boundCheckAttr)
+            boundCheckDestAttr = boundCheckAttr.template cast<ArrayAttr>();
         }
       }
     }
@@ -5952,13 +5962,16 @@ struct ThreadwiseCopyRewritePattern
     // Determine if we need to emit codes for out-of-bound check.
     bool toEmitOOBCheckLogic = false;
     SmallVector<unsigned, 2> oobCheckDims;
-    if (composedSourceTransform) {
-      for (unsigned iter = 0; iter < composedSourceTransform.getNumResults();
-           ++iter) {
-        auto expr = composedSourceTransform.getResult(iter);
-        if (hasPadding(expr)) {
-          toEmitOOBCheckLogic = true;
-          oobCheckDims.push_back(iter);
+    if (composedSourceTransform && boundCheckSourceAttr) {
+      if (boundCheckSourceAttr.size() ==
+          composedSourceTransform.getNumResults()) {
+        for (unsigned iter = 0; iter < boundCheckSourceAttr.size(); ++iter) {
+          if (boundCheckSourceAttr[iter]
+                  .template cast<IntegerAttr>()
+                  .getInt()) {
+            toEmitOOBCheckLogic = true;
+            oobCheckDims.push_back(iter);
+          }
         }
       }
     }
