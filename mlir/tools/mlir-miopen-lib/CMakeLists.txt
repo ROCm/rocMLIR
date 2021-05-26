@@ -48,11 +48,13 @@ install(FILES "Miir.h"
   DESTINATION include)
 
 # Static library target, enabled only when building static libs
-if( BUILD_FAT_LIBMLIRMIOPEN )
+if( NOT BUILD_SHARED_LIBS )
   function(combine_archives output_archive)
     set(mri_file ${CMAKE_CURRENT_BINARY_DIR}/${output_archive}.mri)
     set(full_output_path ${LLVM_LIBRARY_DIR}/lib${output_archive}.a)
     set(output_archive_dummy_file ./${output_archive}.dummy.cpp)
+    set(install_path /opt/rocm/lib/lib${output_archive}.a)
+    set(header_path /opt/rocm/include/)
 
     # Step one: construct mri file.
     add_custom_command(OUTPUT ${output_archive_dummy_file}
@@ -73,14 +75,9 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
     add_custom_command(TARGET ${output_archive}
                        POST_BUILD
                        COMMAND ${CMAKE_AR} -M < ${mri_file}
+                       COMMAND ${CMAKE_COMMAND} -E copy ${full_output_path} ${install_path}
+                       COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/Miir.h ${header_path}
                        DEPENDS ${output_archive_dummy_file})
-
-    install(FILES ${full_output_path}
-            TYPE LIB
-            COMPONENT libMLIRMIOpen EXCLUDE_FROM_ALL)
-    install(FILES Miir.h
-            TYPE INCLUDE
-            COMPONENT libMLIRMIOpen EXCLUDE_FROM_ALL)
   endfunction(combine_archives)
 
   combine_archives(MLIRMIOpen)

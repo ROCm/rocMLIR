@@ -1,5 +1,3 @@
-# This doesn't substitute correctly right now
-# XFAIL: *
 # RUN: %cmake %mlir_src_root/examples/standalone -DCMAKE_CXX_COMPILER=%host_cxx -DCMAKE_C_COMPILER=%host_cc -DMLIR_DIR=%llvm_lib_dir/cmake/mlir ; %cmake --build . --target check-standalone | tee %t | FileCheck %s
 
 # CHECK: Passed: 3
