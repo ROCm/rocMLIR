@@ -2331,7 +2331,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     auto getGemmB = [&]() {
-      //dim of oob check
+      // dim of oob check
       llvm::DenseSet<int> oobCheckDims;
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
