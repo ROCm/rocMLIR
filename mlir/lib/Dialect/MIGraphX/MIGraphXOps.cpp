@@ -65,15 +65,8 @@ static LogicalResult verify(AddOp op) {
 //===----------------------------------------------------------------------===//
 // LiteralOp
 //===----------------------------------------------------------------------===//
-
-static ParseResult parseLiteralOp(OpAsmParser &parser, OperationState &result) {
 /*
-  Type type;
-  return failure(
-      parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonType(type) ||
-      parser.addTypeToList(type, result.types));
-	*/  
+static ParseResult parseLiteralOp(OpAsmParser &parser, OperationState &result) {
   Attribute valueAttr;
   if (parser.parseOptionalAttrDict(result.attributes) ||
       parser.parseAttribute(valueAttr, "values", result.attributes))
@@ -92,7 +85,7 @@ static ParseResult parseLiteralOp(OpAsmParser &parser, OperationState &result) {
 
 static void print(OpAsmPrinter &p, LiteralOp &op) {
   p << "Literal ";
-  p.printOptionalAttrDict(op.getAttrs(), /*elidedAttrs=*/{"values"});
+  p.printOptionalAttrDict(op.getAttrs(), {"values"});
 
   if (op.getAttrs().size() > 1)
     p << ' ';
@@ -106,6 +99,7 @@ static void print(OpAsmPrinter &p, LiteralOp &op) {
 static LogicalResult verify(LiteralOp op) {
   return success();
 }
+*/
 
 /*
 

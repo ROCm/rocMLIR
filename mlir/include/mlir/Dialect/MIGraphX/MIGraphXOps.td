@@ -37,7 +37,7 @@ class MIGraphX_Op<string mnemonic, list<OpTrait> traits = []> :
   let extraClassDeclaration = [{
   }];
 }
-
+/*
 //@0 = @literal{ ... } -> float_type, {64, 3, 7, 7}, {147, 49, 7, 1}
 // literal data_type, dimension, strides
 def MIGraphX_LiteralOp :
@@ -54,7 +54,7 @@ def MIGraphX_LiteralOp :
   let extraClassDeclaration = [{
     Attribute getValue() { return (*this)->getAttr("values"); }
 }
-
+*/
 def MIGraphX_AddOp :
     MIGraphX_Op<"add">,
     Arguments<(ins AnyRankedTensor:$inA,
