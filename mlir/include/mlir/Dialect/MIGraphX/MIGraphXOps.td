@@ -51,6 +51,8 @@ def MIGraphX_LiteralOp :
   let description = [{
     Constant data given as literal.
   }];
+  let extraClassDeclaration = [{
+    Attribute getValue() { return (*this)->getAttr("values"); }
 }
 
 def MIGraphX_AddOp :
