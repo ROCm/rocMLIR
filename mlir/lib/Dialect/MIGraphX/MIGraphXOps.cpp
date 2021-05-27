@@ -67,11 +67,27 @@ static LogicalResult verify(AddOp op) {
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseLiteralOp(OpAsmParser &parser, OperationState &result) {
+/*
   Type type;
   return failure(
       parser.parseOptionalAttrDict(result.attributes) ||
       parser.parseColonType(type) ||
       parser.addTypeToList(type, result.types));
+	*/  
+  Attribute valueAttr;
+  if (parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseAttribute(valueAttr, "values", result.attributes))
+    return failure();
+
+  // If the attribute is a symbol reference, then we expect a trailing type.
+  Type type;
+  if (!valueAttr.isa<SymbolRefAttr>())
+    type = valueAttr.getType();
+  else if (parser.parseColonType(type))
+    return failure();
+
+  // Add the attribute type to the list.
+  return parser.addTypeToList(type, result.types);	  
 }
 
 static void print(OpAsmPrinter &p, LiteralOp &op) {
