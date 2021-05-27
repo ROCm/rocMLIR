@@ -19,7 +19,7 @@ func @miopen_test_limit(%arg0: memref<1x32x32x3x3xf32>, %arg1: memref<32x1x32x14
 // CHECK: bound_check = [0 : i32, 0 : i32, 0 : i32, 0 : i32, 1 : i32]
 // CHECK: bound_check = [0 : i32, 0 : i32, 0 : i32, 1 : i32, 0 : i32]
 // CHECK: bound_check = [0 : i32, 0 : i32, 1 : i32, 0 : i32, 0 : i32]
-// CHECK_STEP3: {{.*bound_check = \[1 : i32, 0 : i32, 0 : i32, 0 : i32, 1 : i32\].*operand = 0.*}}
-// CHECK_STEP3: {{.*bound_check = \[0 : i32, 0 : i32, 1 : i32, 0 : i32, 0 : i32\].*operand = 0.*}}
-// CHECK_STEP3: {{.*bound_check = \[0 : i32, 0 : i32, 0 : i32, 1 : i32, 0 : i32\].*operand = 1.*}}
+// CHECK_STEP3: {{.*bound_check = \[1 : i32, 0 : i32, 0 : i32, 0 : i32, 1 : i32\].*metadata.*operand = 0.*}}
+// CHECK_STEP3: {{.*bound_check = \[0 : i32, 0 : i32, 1 : i32, 0 : i32, 0 : i32\].*metadata.*operand = 0.*}}
+// CHECK_STEP3: {{.*bound_check = \[0 : i32, 0 : i32, 0 : i32, 1 : i32, 0 : i32\].*metadata.*operand = 1.*}}
 }
