@@ -71,13 +71,7 @@ static ParseResult parseLiteralOp(OpAsmParser &parser, OperationState &result) {
   return failure(
       parser.parseOptionalAttrDict(result.attributes) ||
       parser.parseColonType(type) ||
-      parser.addTypeToList(type, result.types);
-}
-
-static void print(OpAsmPrinter &p, LittOp op) {
-  p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperandTypes();
+      parser.addTypeToList(type, result.types));
 }
 
 static void print(OpAsmPrinter &p, LiteralOp &op) {
