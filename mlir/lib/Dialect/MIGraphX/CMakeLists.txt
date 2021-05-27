@@ -12,7 +12,7 @@ add_mlir_dialect_library(MLIRMIGraphXOps
   ${globbed}
 
   ADDITIONAL_HEADER_DIRS
-  ${MLIR_MAIN_INCLUDE_DIR}/mlir/MIGraphX
+  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/MIGraphX
 
   DEPENDS
   MLIRMIGraphXOpsIncGen
