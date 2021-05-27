@@ -43,6 +43,7 @@ class MIGraphX_Op<string mnemonic, list<OpTrait> traits = []> :
 def MIGraphX_LiteralOp :
     MIGraphX_Op<"literal">,
 	Arguments<(ins
+	  StrAttr:$values,
 	  Confined<I64ArrayAttr, [ArrayMinCount<1>]>:$dimension,
 	  Confined<I64ArrayAttr, [ArrayMinCount<1>]>:$Stride)>,
     Results<(outs AnyTensor:$output)> {

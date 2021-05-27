@@ -76,7 +76,7 @@ static ParseResult parseLiteralOp(OpAsmParser &parser, OperationState &result) {
 
 static void print(OpAsmPrinter &p, LiteralOp &op) {
   p << "Literal ";
-  p.printOptionalAttrDict(op.getAttrs(), /*elidedAttrs=*/{"value"});
+  p.printOptionalAttrDict(op.getAttrs(), /*elidedAttrs=*/{"values"});
 
   if (op.getAttrs().size() > 1)
     p << ' ';
