@@ -44,7 +44,7 @@ def MIGraphX_LiteralOp :
     MIGraphX_Op<"literal">,
 	Arguments<(ins
 	  Confined<I64ArrayAttr, [ArrayMinCount<1>]>:$dimension,
-	  Confined<I64ArrayAttr, [ArrayMinCount<1>]>:$Stride)>
+	  Confined<I64ArrayAttr, [ArrayMinCount<1>]>:$Stride)>,
     Results<(outs AnyTensor:$output)> {
   let summary = "Literals";
   let description = [{
@@ -55,7 +55,7 @@ def MIGraphX_LiteralOp :
 def MIGraphX_AddOp :
     MIGraphX_Op<"add">,
     Arguments<(ins AnyRankedTensor:$inA,
-                   AnyRankedTensor:$inB)>
+                   AnyRankedTensor:$inB)>,
 	Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "Elementwise binary add";
   let description = [{
