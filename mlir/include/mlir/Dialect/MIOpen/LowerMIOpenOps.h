@@ -332,6 +332,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     SmallString<4> arg0TargetLayoutName2("gemm");
     arg0TargetLayoutName2.append(fields.gemmTargetCharName[0].substr(1, 1));
 
+    // filter dims need oob check
+    llvm::DenseSet<int> filterOobCheckDims;
     // set layout attribute.
     // Weight tensor transformation for Conv2DOp
     // - Part 1: Merge non-K dimensions to dimension 0, name it as gemmK.
@@ -348,7 +350,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // Weight tensor transformation for Conv2DBwdWeightOp
     // - Part 1: Merge non-K dimensions to dimension 1, name it as gemmN.
     // - Part 2: PassThrough K dimension to dimension 0, name it as gemmM.
-    llvm::DenseSet<int> filterOobCheckDims;
     {
       llvm::SmallVector<IntegerAttr, 3> nonKDims;
       IntegerAttr kDim;
@@ -606,9 +607,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         }
         // filter of forward, gemmK=c*y*x
-        auto checkingIndex = std::min(
-            std::min(nameToDims["c"], nameToDims["y"]), nameToDims["x"]);
-        filterOobCheckDims.insert(checkingIndex);
+        filterOobCheckDims.insert(nameToDims["c"]);
+        filterOobCheckDims.insert(nameToDims["y"]);
+        filterOobCheckDims.insert(nameToDims["x"]);
       }
 
       if (gemmMExtra > 0) {
@@ -704,6 +705,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // reorderedPaddedInputDimNames would be used by the next stage.
     llvm::SmallVector<StringAttr, 5> reorderedPaddedInputDimNames;
 
+    // input dims need oob check
+    llvm::DenseSet<int> inputOobCheckDims;
     // set layout attribute.
     // Padded input tensor transformation:
     // - Part 1: PassThrough ni dimension to its original dimension, name it as
@@ -712,7 +715,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // ci.
     // - Part 3: Pad hi/wi dimensions to their original dimensions, name it as
     // hipad/wipad.
-    llvm::DenseSet<int> inputOobCheckDims;
     {
       IntegerAttr nDim, cDim, gDim;
       StringAttr nDimName, cDimName, gDimName;
@@ -1241,6 +1243,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         b.getArrayAttr({b.getStringAttr(arg1TargetLayoutName0),
                         b.getStringAttr(arg1TargetLayoutName1),
                         b.getStringAttr(arg1TargetLayoutName2)})));
+
+    if (inputOobCheckDims.size()) {
+      llvm::SmallVector<IntegerAttr, 5> boundDims;
+      for (size_t i = 0; i < inputShape.size(); i++) {
+        if (inputOobCheckDims.find(i) != inputOobCheckDims.end())
+          boundDims.push_back(b.getI32IntegerAttr(1));
+        else
+          boundDims.push_back(b.getI32IntegerAttr(0));
+      }
+      transformedInputAttrs.push_back(b.getNamedAttr(
+          "bound_check", b.getArrayAttr({boundDims.begin(), boundDims.end()})));
+    }
     // set gridwise_gemm_argument_pos attribute.
     transformedInputAttrs.push_back(b.getNamedAttr(
         "gridwise_gemm_argument_position",
@@ -1339,9 +1353,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         }
         // input of forward, gemmK = ci * y * x( y x from hi wi)
-        auto checkingIndex = std::min(
-            std::min(nameToDims["ci"], nameToDims["hi"]), nameToDims["wi"]);
-        inputOobCheckDims.insert(checkingIndex);
+        inputOobCheckDims.insert(nameToDims["ci"]);
+        inputOobCheckDims.insert(nameToDims["hi"]);
+        inputOobCheckDims.insert(nameToDims["wi"]);
       }
 
       if (gemmMExtra > 0) {
@@ -1410,7 +1424,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (inputOobCheckDims.size()) {
         llvm::SmallVector<IntegerAttr, 5> boundDims;
-        for (size_t i = 0; i < filterShape.size(); i++) {
+        for (size_t i = 0; i < inputShape.size(); i++) {
           if (inputOobCheckDims.find(i) != inputOobCheckDims.end())
             boundDims.push_back(b.getI32IntegerAttr(1));
           else
@@ -1442,6 +1456,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     SmallString<5> arg2TargetLayoutName2("gemm");
     arg2TargetLayoutName2.append(fields.gemmTargetCharName[2].substr(1, 1));
 
+    // output dims need oob ckeck
+    llvm::DenseSet<int> outputOobCheckDims;
     // set layout attribute.
     // Output tensor transformation:
     // - Part 1: PassThrough K dimension to dimension 0, name it as gemmM.
@@ -1450,7 +1466,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // Output tensor transformation for backward weight:
     // - Part 1: Merge non-K dimensions to dimension 0, name it as gemmK.
     // - Part 2: PassThrough K dimension to dimension 1, name it as gemmM.
-    llvm::DenseSet<int> outputOobCheckDims;
     {
       llvm::SmallVector<IntegerAttr, 3> nonKDims;
       IntegerAttr kDim, gDim;
@@ -1689,9 +1704,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         }
         // output of forward, gemmK = no * ho * wo
-        auto checkingIndex = std::min(
-            std::min(nameToDims["no"], nameToDims["ho"]), nameToDims["wo"]);
-        outputOobCheckDims.insert(checkingIndex);
+        outputOobCheckDims.insert(nameToDims["no"]);
+        outputOobCheckDims.insert(nameToDims["ho"]);
+        outputOobCheckDims.insert(nameToDims["wo"]);
       }
 
       if (gemmMExtra > 0) {
@@ -1760,7 +1775,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (outputOobCheckDims.size()) {
         llvm::SmallVector<IntegerAttr, 5> boundDims;
-        for (size_t i = 0; i < filterShape.size(); i++) {
+        for (size_t i = 0; i < outputShape.size(); i++) {
           if (outputOobCheckDims.find(i) != outputOobCheckDims.end())
             boundDims.push_back(b.getI32IntegerAttr(1));
           else
