@@ -2331,6 +2331,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     auto getGemmB = [&]() {
+      //dim of oob check
+      llvm::DenseSet<int> oobCheckDims;
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
@@ -2410,6 +2412,26 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr("source_names",
                            b.getArrayAttr({b.getStringAttr("hi"),
                                            b.getStringAttr("wi")}))};
+        auto isInputHipBoundCheck = [&]() {
+          // if pad = 0 , not need oob check
+          if (leftPadH == 0 && rightPadH == 0 && leftPadW == 0 &&
+              rightPadW == 0)
+            return false;
+          // if stride = 1, slice will make it not out range
+          if (strideH == 1 && strideW == 1) {
+            return false;
+          }
+          return true;
+        };
+        if (isInputHipBoundCheck()) {
+          llvm::SmallVector<IntegerAttr, 2> padDim;
+          if (leftPadH || rightPadH) {
+            oobCheckDims.insert(currentKeyToDim["hi"]);
+          }
+          if (leftPadW || rightPadW) {
+            oobCheckDims.insert(currentKeyToDim["wi"]);
+          }
+        }
 
         transformedAttrs.push_back(b.getNamedAttr(
             "layout", b.getArrayAttr({b.getDictionaryAttr(gDimAttr),
@@ -2751,6 +2773,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedAttrs.push_back(b.getNamedAttr(
             "gridwise_gemm_argument_position", b.getI32IntegerAttr(2)));
 
+        if (oobCheckDims.size()) {
+          llvm::SmallVector<IntegerAttr, 5> boundDims;
+          for (size_t i = 0; i < inputShape.size(); i++) {
+            if (oobCheckDims.find(i) != oobCheckDims.end())
+              boundDims.push_back(b.getI32IntegerAttr(1));
+            else
+              boundDims.push_back(b.getI32IntegerAttr(0));
+          }
+          transformedAttrs.push_back(b.getNamedAttr(
+              "bound_check",
+              b.getArrayAttr({boundDims.begin(), boundDims.end()})));
+        }
+
         auto transformedMemRefType =
             MemRefType::get(transformedShape, inputElementType);
         auto gemm = b.create<miopen::TransformOp>(
@@ -2765,6 +2800,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     auto getGemmC = [&]() {
+      // dim of oob ckeck
+      llvm::DenseSet<int> oobCheckDims;
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
@@ -2845,6 +2882,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr("source_names",
                            b.getArrayAttr({b.getStringAttr("ho")}))};
 
+        if (y > 1) {
+          if (!((leftPadH == rightPadH) && (y - leftPadH == 1))) {
+            oobCheckDims.insert(currentKeyToDim["ho"]);
+          }
+        }
         // wo
         curOutputDimName.push_back(b.getStringAttr("xdot"));
         curOutputDimName.push_back(b.getStringAttr("wtilda"));
@@ -2870,6 +2912,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr("source_names",
                            b.getArrayAttr({b.getStringAttr("wo")}))};
 
+        if (x > 1) {
+          if (!((leftPadW == rightPadW) && (x - leftPadW == 1))) {
+            oobCheckDims.insert(currentKeyToDim["wo"]);
+          }
+        }
         transformedAttrs.push_back(b.getNamedAttr(
             "layout",
             b.getArrayAttr(
@@ -3094,6 +3141,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedAttrs.push_back(b.getNamedAttr(
             "gridwise_gemm_argument_position", b.getI32IntegerAttr(1)));
 
+        if (oobCheckDims.size()) {
+          llvm::SmallVector<IntegerAttr, 5> boundDims;
+          for (size_t i = 0; i < outputShape.size(); i++) {
+            if (oobCheckDims.find(i) != oobCheckDims.end())
+              boundDims.push_back(b.getI32IntegerAttr(1));
+            else
+              boundDims.push_back(b.getI32IntegerAttr(0));
+          }
+          transformedAttrs.push_back(b.getNamedAttr(
+              "bound_check",
+              b.getArrayAttr({boundDims.begin(), boundDims.end()})));
+        }
         auto transformedMemRefType =
             MemRefType::get(transformedShape, outputElementType);
         auto gemm = b.create<miopen::TransformOp>(
