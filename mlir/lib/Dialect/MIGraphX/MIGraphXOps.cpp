@@ -34,7 +34,7 @@ namespace {
 void MIGraphXDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "mlir/Dialect/MIGaphX/MIGraphXOps.cpp.inc"
+#include "mlir/Dialect/MIGraphX/MIGraphXOps.cpp.inc"
       >();
 }
 
