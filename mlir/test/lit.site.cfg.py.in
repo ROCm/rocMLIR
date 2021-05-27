@@ -44,6 +44,8 @@ config.enable_rocm_runner = @MLIR_ROCM_RUNNER_ENABLED@
 config.spirv_wrapper_library_dir = "@MLIR_SPIRV_WRAPPER_LIBRARY_DIR@"
 config.enable_spirv_cpu_runner = @MLIR_SPIRV_CPU_RUNNER_ENABLED@
 config.enable_miopen_driver = @MLIR_MIOPEN_DRIVER_ENABLED@
+if config.enable_miopen_driver:
+    config.available_features.add('miopen-driver')
 config.enable_miopen_driver_e2e_test = @MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED@
 config.enable_miopen_driver_misc_e2e_test = @MLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED@
 config.enable_miopen_driver_pr_e2e_test = @MLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED@
