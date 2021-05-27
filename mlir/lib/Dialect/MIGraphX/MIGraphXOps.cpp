@@ -70,7 +70,7 @@ static ParseResult parseLiteralOp(OpAsmParser &parser, OperationState &result) {
   Type type;
   return failure(
       parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonTypeList(type) ||
+      parser.parseColonType(type) ||
       parser.addTypeToList(type, result.types);
 }
 
