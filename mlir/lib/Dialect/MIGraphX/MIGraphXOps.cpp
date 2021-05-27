@@ -38,6 +38,65 @@ void MIGraphXDialect::initialize() {
       >();
 }
 
+//===----------------------------------------------------------------------===//
+// AddOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseAddOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, AddOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(AddOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// LiteralOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseLiteralOp(OpAsmParser &parser, OperationState &result) {
+  Type type;
+  return failure(
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(type) ||
+      parser.addTypeToList(type, result.types);
+}
+
+static void print(OpAsmPrinter &p, LittOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static void print(OpAsmPrinter &p, LiteralOp &op) {
+  p << "Literal ";
+  p.printOptionalAttrDict(op.getAttrs(), /*elidedAttrs=*/{"value"});
+
+  if (op.getAttrs().size() > 1)
+    p << ' ';
+  p << op.getValue();
+
+  // If the value is a symbol reference, print a trailing type.
+  if (op.getValue().isa<SymbolRefAttr>())
+    p << " : " << op.getType();
+}
+
+static LogicalResult verify(LiteralOp op) {
+  return success();
+}
+
 /*
 
 //===----------------------------------------------------------------------===//
