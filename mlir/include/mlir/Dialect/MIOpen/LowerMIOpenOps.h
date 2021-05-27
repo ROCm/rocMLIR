@@ -40,6 +40,7 @@
 #include "XdlopsCodeSelection.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "utility/math.hpp"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 using namespace mlir;
@@ -205,6 +206,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // get y, x, ho, wo, hi, wi, k, c, n
     int64_t y, x, ho, wo, hi, wi, k, c, n;
     y = x = ho = wo = hi = wi = k = c = n = 0;
+    llvm::DenseMap<StringRef, int> nameToDims;
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
@@ -212,6 +214,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
       auto outputAttr =
           outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+
+      nameToDims[filterAttr.getValue()] = i;
+      nameToDims[inputAttr.getValue()] = i;
+      nameToDims[outputAttr.getValue()] = i;
 
       if (filterAttr.getValue() == "y") {
         y = filterShape[i];
@@ -326,6 +332,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     SmallString<4> arg0TargetLayoutName2("gemm");
     arg0TargetLayoutName2.append(fields.gemmTargetCharName[0].substr(1, 1));
 
+    // filter dims need oob check
+    llvm::DenseSet<int> filterOobCheckDims;
     // set layout attribute.
     // Weight tensor transformation for Conv2DOp
     // - Part 1: Merge non-K dimensions to dimension 0, name it as gemmK.
@@ -598,6 +606,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         }
+        // filter of forward, gemmK=c*y*x
+        filterOobCheckDims.insert(nameToDims["c"]);
+        filterOobCheckDims.insert(nameToDims["y"]);
+        filterOobCheckDims.insert(nameToDims["x"]);
       }
 
       if (gemmMExtra > 0) {
@@ -664,6 +676,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           "intermediate_layout",
           b.getArrayAttr({gemmDim0Name, gemmDim1Name, gemmDim2Name})));
 
+      if (filterOobCheckDims.size()) {
+        llvm::SmallVector<IntegerAttr, 5> boundDims;
+        for (size_t i = 0; i < filterShape.size(); i++) {
+          if (filterOobCheckDims.find(i) != filterOobCheckDims.end())
+            boundDims.push_back(b.getI32IntegerAttr(1));
+          else
+            boundDims.push_back(b.getI32IntegerAttr(0));
+        }
+        paddingFilterAttrs.push_back(b.getNamedAttr(
+            "bound_check",
+            b.getArrayAttr({boundDims.begin(), boundDims.end()})));
+      }
       auto paddingFilterMemRefType =
           MemRefType::get(paddingFilterShape, filterElementType);
       gemmAPad = b.create<miopen::TransformOp>(loc, paddingFilterMemRefType,
@@ -681,6 +705,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // reorderedPaddedInputDimNames would be used by the next stage.
     llvm::SmallVector<StringAttr, 5> reorderedPaddedInputDimNames;
 
+    // input dims need oob check
+    llvm::DenseSet<int> inputOobCheckDims;
     // set layout attribute.
     // Padded input tensor transformation:
     // - Part 1: PassThrough ni dimension to its original dimension, name it as
@@ -799,6 +825,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                      hwDimNames.begin(), hwDimNames.end()))),
               }),
           })));
+      if (leftPadH || rightPadH) {
+        inputOobCheckDims.insert(nameToDims["hi"]);
+      }
+      if (leftPadW || rightPadW) {
+        inputOobCheckDims.insert(nameToDims["wi"]);
+      }
     }
     // set source_layout attribute.
     paddedInputAttrs.push_back(
@@ -1211,6 +1243,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         b.getArrayAttr({b.getStringAttr(arg1TargetLayoutName0),
                         b.getStringAttr(arg1TargetLayoutName1),
                         b.getStringAttr(arg1TargetLayoutName2)})));
+
+    if (inputOobCheckDims.size()) {
+      llvm::SmallVector<IntegerAttr, 5> boundDims;
+      for (size_t i = 0; i < inputShape.size(); i++) {
+        if (inputOobCheckDims.find(i) != inputOobCheckDims.end())
+          boundDims.push_back(b.getI32IntegerAttr(1));
+        else
+          boundDims.push_back(b.getI32IntegerAttr(0));
+      }
+      transformedInputAttrs.push_back(b.getNamedAttr(
+          "bound_check", b.getArrayAttr({boundDims.begin(), boundDims.end()})));
+    }
     // set gridwise_gemm_argument_pos attribute.
     transformedInputAttrs.push_back(b.getNamedAttr(
         "gridwise_gemm_argument_position",
@@ -1308,6 +1352,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         }
+        // input of forward, gemmK = ci * y * x( y x from hi wi)
+        inputOobCheckDims.insert(nameToDims["ci"]);
+        inputOobCheckDims.insert(nameToDims["hi"]);
+        inputOobCheckDims.insert(nameToDims["wi"]);
       }
 
       if (gemmMExtra > 0) {
@@ -1374,6 +1422,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           "intermediate_layout",
           b.getArrayAttr({gemmDim0Name, gemmDim1Name, gemmDim2Name})));
 
+      if (inputOobCheckDims.size()) {
+        llvm::SmallVector<IntegerAttr, 5> boundDims;
+        for (size_t i = 0; i < inputShape.size(); i++) {
+          if (inputOobCheckDims.find(i) != inputOobCheckDims.end())
+            boundDims.push_back(b.getI32IntegerAttr(1));
+          else
+            boundDims.push_back(b.getI32IntegerAttr(0));
+        }
+        paddingInputAttrs.push_back(b.getNamedAttr(
+            "bound_check",
+            b.getArrayAttr({boundDims.begin(), boundDims.end()})));
+      }
+
       auto paddingInputMemRefType =
           MemRefType::get(paddingInputShape, inputElementType);
 
@@ -1395,6 +1456,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     SmallString<5> arg2TargetLayoutName2("gemm");
     arg2TargetLayoutName2.append(fields.gemmTargetCharName[2].substr(1, 1));
 
+    // output dims need oob ckeck
+    llvm::DenseSet<int> outputOobCheckDims;
     // set layout attribute.
     // Output tensor transformation:
     // - Part 1: PassThrough K dimension to dimension 0, name it as gemmM.
@@ -1640,6 +1703,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         }
+        // output of forward, gemmK = no * ho * wo
+        outputOobCheckDims.insert(nameToDims["no"]);
+        outputOobCheckDims.insert(nameToDims["ho"]);
+        outputOobCheckDims.insert(nameToDims["wo"]);
       }
 
       if (gemmMExtra > 0) {
@@ -1706,6 +1773,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           "intermediate_layout",
           b.getArrayAttr({gemmDim0Name, gemmDim1Name, gemmDim2Name})));
 
+      if (outputOobCheckDims.size()) {
+        llvm::SmallVector<IntegerAttr, 5> boundDims;
+        for (size_t i = 0; i < outputShape.size(); i++) {
+          if (outputOobCheckDims.find(i) != outputOobCheckDims.end())
+            boundDims.push_back(b.getI32IntegerAttr(1));
+          else
+            boundDims.push_back(b.getI32IntegerAttr(0));
+        }
+        paddingOutputAttrs.push_back(b.getNamedAttr(
+            "bound_check",
+            b.getArrayAttr({boundDims.begin(), boundDims.end()})));
+      }
       auto paddingOutputMemRefType =
           MemRefType::get(paddingOutputShape, outputElementType);
 
@@ -2252,6 +2331,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     auto getGemmB = [&]() {
+      // dim of oob check
+      llvm::DenseSet<int> oobCheckDims;
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
@@ -2331,6 +2412,26 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr("source_names",
                            b.getArrayAttr({b.getStringAttr("hi"),
                                            b.getStringAttr("wi")}))};
+        auto isInputHipBoundCheck = [&]() {
+          // if pad = 0 , not need oob check
+          if (leftPadH == 0 && rightPadH == 0 && leftPadW == 0 &&
+              rightPadW == 0)
+            return false;
+          // if stride = 1, slice will make it not out range
+          if (strideH == 1 && strideW == 1) {
+            return false;
+          }
+          return true;
+        };
+        if (isInputHipBoundCheck()) {
+          llvm::SmallVector<IntegerAttr, 2> padDim;
+          if (leftPadH || rightPadH) {
+            oobCheckDims.insert(currentKeyToDim["hi"]);
+          }
+          if (leftPadW || rightPadW) {
+            oobCheckDims.insert(currentKeyToDim["wi"]);
+          }
+        }
 
         transformedAttrs.push_back(b.getNamedAttr(
             "layout", b.getArrayAttr({b.getDictionaryAttr(gDimAttr),
@@ -2672,6 +2773,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedAttrs.push_back(b.getNamedAttr(
             "gridwise_gemm_argument_position", b.getI32IntegerAttr(2)));
 
+        if (oobCheckDims.size()) {
+          llvm::SmallVector<IntegerAttr, 5> boundDims;
+          for (size_t i = 0; i < inputShape.size(); i++) {
+            if (oobCheckDims.find(i) != oobCheckDims.end())
+              boundDims.push_back(b.getI32IntegerAttr(1));
+            else
+              boundDims.push_back(b.getI32IntegerAttr(0));
+          }
+          transformedAttrs.push_back(b.getNamedAttr(
+              "bound_check",
+              b.getArrayAttr({boundDims.begin(), boundDims.end()})));
+        }
+
         auto transformedMemRefType =
             MemRefType::get(transformedShape, inputElementType);
         auto gemm = b.create<miopen::TransformOp>(
@@ -2686,6 +2800,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     auto getGemmC = [&]() {
+      // dim of oob ckeck
+      llvm::DenseSet<int> oobCheckDims;
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
@@ -2766,6 +2882,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr("source_names",
                            b.getArrayAttr({b.getStringAttr("ho")}))};
 
+        if (y > 1) {
+          if (!((leftPadH == rightPadH) && (y - leftPadH == 1))) {
+            oobCheckDims.insert(currentKeyToDim["ho"]);
+          }
+        }
         // wo
         curOutputDimName.push_back(b.getStringAttr("xdot"));
         curOutputDimName.push_back(b.getStringAttr("wtilda"));
@@ -2791,6 +2912,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr("source_names",
                            b.getArrayAttr({b.getStringAttr("wo")}))};
 
+        if (x > 1) {
+          if (!((leftPadW == rightPadW) && (x - leftPadW == 1))) {
+            oobCheckDims.insert(currentKeyToDim["wo"]);
+          }
+        }
         transformedAttrs.push_back(b.getNamedAttr(
             "layout",
             b.getArrayAttr(
@@ -3015,6 +3141,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedAttrs.push_back(b.getNamedAttr(
             "gridwise_gemm_argument_position", b.getI32IntegerAttr(1)));
 
+        if (oobCheckDims.size()) {
+          llvm::SmallVector<IntegerAttr, 5> boundDims;
+          for (size_t i = 0; i < outputShape.size(); i++) {
+            if (oobCheckDims.find(i) != oobCheckDims.end())
+              boundDims.push_back(b.getI32IntegerAttr(1));
+            else
+              boundDims.push_back(b.getI32IntegerAttr(0));
+          }
+          transformedAttrs.push_back(b.getNamedAttr(
+              "bound_check",
+              b.getArrayAttr({boundDims.begin(), boundDims.end()})));
+        }
         auto transformedMemRefType =
             MemRefType::get(transformedShape, outputElementType);
         auto gemm = b.create<miopen::TransformOp>(
@@ -5892,6 +6030,8 @@ struct ThreadwiseCopyRewritePattern
     AffineMap composedDestTransform;
     SmallVector<AffineMap> layeredSourceTransform;
     SmallVector<AffineMap> layeredDestTransform;
+    ArrayAttr boundCheckSourceAttr;
+    ArrayAttr boundCheckDestAttr;
 
     if (sourceTypeAffineMaps.size()) {
       sourceCoordLength = sourceTypeAffineMaps[0].getNumInputs();
@@ -5932,6 +6072,10 @@ struct ThreadwiseCopyRewritePattern
           for (auto &am : transforms)
             layeredSourceTransform.push_back(
                 am.template cast<AffineMapAttr>().getValue());
+
+          auto boundCheckAttr = dictAttr.get("bound_check");
+          if (boundCheckAttr)
+            boundCheckSourceAttr = boundCheckAttr.template cast<ArrayAttr>();
         } else {
           destCoordLength = transforms[0]
                                 .template cast<AffineMapAttr>()
@@ -5945,6 +6089,10 @@ struct ThreadwiseCopyRewritePattern
           for (auto &am : transforms)
             layeredDestTransform.push_back(
                 am.template cast<AffineMapAttr>().getValue());
+
+          auto boundCheckAttr = dictAttr.get("bound_check");
+          if (boundCheckAttr)
+            boundCheckDestAttr = boundCheckAttr.template cast<ArrayAttr>();
         }
       }
     }
@@ -5952,13 +6100,16 @@ struct ThreadwiseCopyRewritePattern
     // Determine if we need to emit codes for out-of-bound check.
     bool toEmitOOBCheckLogic = false;
     SmallVector<unsigned, 2> oobCheckDims;
-    if (composedSourceTransform) {
-      for (unsigned iter = 0; iter < composedSourceTransform.getNumResults();
-           ++iter) {
-        auto expr = composedSourceTransform.getResult(iter);
-        if (hasPadding(expr)) {
-          toEmitOOBCheckLogic = true;
-          oobCheckDims.push_back(iter);
+    if (composedSourceTransform && boundCheckSourceAttr) {
+      if (boundCheckSourceAttr.size() ==
+          composedSourceTransform.getNumResults()) {
+        for (unsigned iter = 0; iter < boundCheckSourceAttr.size(); ++iter) {
+          if (boundCheckSourceAttr[iter]
+                  .template cast<IntegerAttr>()
+                  .getInt()) {
+            toEmitOOBCheckLogic = true;
+            oobCheckDims.push_back(iter);
+          }
         }
       }
     }
@@ -6760,6 +6911,7 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
                                 PatternRewriter &b) const override {
     auto outputType = op.output().getType().cast<MemRefType>();
     auto outputShape = outputType.getShape();
+    auto boundCheckAttr = op->template getAttrOfType<ArrayAttr>("bound_check");
 
     // determine output shape and track it in an attribute.
     llvm::SmallVector<Attribute, 4> shapeAttrVec;
@@ -6790,20 +6942,22 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
             break;
 
         auto coordTransformAttrs = user->getAttr("coord_transforms");
-        if (!coordTransformAttrs)
-          user->setAttr(
-              "coord_transforms",
-              b.getArrayAttr({b.getDictionaryAttr(
-                  {b.getNamedAttr("operand",
-                                  b.getI32IntegerAttr(userOperandIndex)),
-                   b.getNamedAttr(
-                       "transforms",
-                       b.getAffineMapArrayAttr(outputType.getAffineMaps())),
-                   b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
-                   b.getNamedAttr("metadata",
-                                  b.getArrayAttr({b.getDictionaryAttr(
-                                      op.getAttrs())}))})}));
-        else {
+        if (!coordTransformAttrs) {
+          llvm::SmallVector<NamedAttribute, 5> arrayAttr{
+              b.getNamedAttr("operand", b.getI32IntegerAttr(userOperandIndex)),
+              b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
+                                               outputType.getAffineMaps())),
+              b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
+              b.getNamedAttr("metadata", b.getArrayAttr({b.getDictionaryAttr(
+                                             op.getAttrs())}))};
+
+          if (boundCheckAttr)
+            arrayAttr.push_back(b.getNamedAttr("bound_check", boundCheckAttr));
+
+          user->setAttr("coord_transforms",
+                        b.getArrayAttr({b.getDictionaryAttr(
+                            {arrayAttr.begin(), arrayAttr.end()})}));
+        } else {
           // create a deep-copy of existing attributes, and amend the new one.
           // need to figure out if there's a better way than this.
           auto arrayAttr = coordTransformAttrs.cast<ArrayAttr>();
@@ -6829,25 +6983,56 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
                                        existingMetadata.end());
               augmentedMetadata.push_back(b.getDictionaryAttr(op.getAttrs()));
 
-              augmentedArrayAttr.push_back(b.getDictionaryAttr(
-                  {b.getNamedAttr("operand",
-                                  b.getI32IntegerAttr(userOperandIndex)),
-                   b.getNamedAttr("transforms", existingTransforms),
-                   b.getNamedAttr("domain", existingDomain),
-                   b.getNamedAttr("metadata",
-                                  b.getArrayAttr(augmentedMetadata))}));
+              llvm::SmallVector<NamedAttribute, 4> arrayAttr{
+                  b.getNamedAttr("operand",
+                                 b.getI32IntegerAttr(userOperandIndex)),
+                  b.getNamedAttr("transforms", existingTransforms),
+                  b.getNamedAttr("domain", existingDomain),
+                  b.getNamedAttr("metadata",
+                                 b.getArrayAttr(augmentedMetadata))};
+              auto existingBoundCheck = dictAttr.get("bound_check");
+              if (boundCheckAttr && !existingBoundCheck)
+                arrayAttr.push_back(
+                    b.getNamedAttr("bound_check", boundCheckAttr));
+              else if (!boundCheckAttr && existingBoundCheck)
+                arrayAttr.push_back(
+                    b.getNamedAttr("bound_check", existingBoundCheck));
+              else if (boundCheckAttr && existingBoundCheck) {
+                llvm::SmallVector<Attribute, 5> boundVector;
+                for (size_t j = 0; j < boundCheckAttr.size(); j++) {
+                  auto value = boundCheckAttr[j].cast<IntegerAttr>().getInt();
+                  if (value)
+                    boundVector.push_back(boundCheckAttr[j]);
+                  else
+                    boundVector.push_back(
+                        existingBoundCheck.cast<ArrayAttr>()[j]);
+                }
+                arrayAttr.push_back(b.getNamedAttr(
+                    "bound_check",
+                    b.getArrayAttr({boundVector.begin(), boundVector.end()})));
+              }
+              augmentedArrayAttr.push_back(
+                  b.getDictionaryAttr({arrayAttr.begin(), arrayAttr.end()}));
+
               augmented = true;
             }
           }
-          if (!augmented)
-            augmentedArrayAttr.push_back(b.getDictionaryAttr(
-                {b.getNamedAttr("operand",
-                                b.getI32IntegerAttr(userOperandIndex)),
-                 b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
-                                                  outputType.getAffineMaps())),
-                 b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
-                 b.getNamedAttr("metadata", b.getArrayAttr({b.getDictionaryAttr(
-                                                op.getAttrs())}))}));
+          if (!augmented) {
+            llvm::SmallVector<NamedAttribute, 4> arrayAttr{
+                b.getNamedAttr("operand",
+                               b.getI32IntegerAttr(userOperandIndex)),
+                b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
+                                                 outputType.getAffineMaps())),
+                b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
+                b.getNamedAttr("metadata", b.getArrayAttr({b.getDictionaryAttr(
+                                               op.getAttrs())}))};
+
+            if (boundCheckAttr)
+              arrayAttr.push_back(
+                  b.getNamedAttr("bound_check", boundCheckAttr));
+            augmentedArrayAttr.push_back(
+                b.getDictionaryAttr({arrayAttr.begin(), arrayAttr.end()}));
+          }
           user->setAttr("coord_transforms", b.getArrayAttr(augmentedArrayAttr));
         }
 
