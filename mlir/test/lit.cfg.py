@@ -56,18 +56,10 @@ config.test_exec_root = os.path.join(config.mlir_obj_root, 'test')
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment('PATH', config.llvm_tools_dir, append_path=True)
 
-tool_dirs = [config.mlir_tools_dir, config.llvm_tools_dir]
+tool_dirs = [config.mlir_tools_dir, config.mlir_miopen_tools_dir, config.llvm_tools_dir]
 tools = [
     'mlir-opt',
-    'mlir-tblgen',
     'mlir-translate',
-    'mlir-capi-ir-test',
-    'mlir-capi-pass-test',
-    'mlir-edsc-builder-api-test',
-    'mlir-cpu-runner',
-    'mlir-linalg-ods-gen',
-    'mlir-reduce',
-    'mlir-sdbm-api-test',
 ]
 
 # The following tools are optional
