@@ -4243,6 +4243,53 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // emit TransformOp for output tensor.
     llvm::SmallVector<NamedAttribute, 3> transformedNewOutputAttrs;
+    // set layout attribute.
+    transformedNewOutputAttrs.push_back(b.getNamedAttr(
+        "layout",
+        b.getArrayAttr(
+            {b.getDictionaryAttr(
+                 {b.getNamedAttr("dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                  b.getNamedAttr("names",
+                                 b.getArrayAttr({b.getStringAttr("g")})),
+                  b.getNamedAttr("source_dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                  b.getNamedAttr("source_names",
+                                 b.getArrayAttr({b.getStringAttr("gemmG")})),
+                  b.getNamedAttr("transformation",
+                                 b.getStringAttr("PassThrough"))}),
+             b.getDictionaryAttr({
+                 b.getNamedAttr("dimensions",
+                                b.getArrayAttr({b.getI32IntegerAttr(1),
+                                                b.getI32IntegerAttr(2)})),
+                 b.getNamedAttr("names",
+                                b.getArrayAttr({b.getStringAttr("m0"),
+                                                b.getStringAttr("m1")})),
+                 b.getNamedAttr("source_dimensions",
+                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                 b.getNamedAttr("source_names",
+                                b.getArrayAttr({b.getStringAttr("gemmM")})),
+                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("parameters",
+                                b.getArrayAttr({b.getI32IntegerAttr(M1),
+                                                b.getI32IntegerAttr(1)})),
+             }),
+             b.getDictionaryAttr({
+                 b.getNamedAttr("dimensions",
+                                b.getArrayAttr({b.getI32IntegerAttr(3),
+                                                b.getI32IntegerAttr(4)})),
+                 b.getNamedAttr("names",
+                                b.getArrayAttr({b.getStringAttr("n0"),
+                                                b.getStringAttr("n1")})),
+                 b.getNamedAttr("source_dimensions",
+                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                 b.getNamedAttr("source_names",
+                                b.getArrayAttr({b.getStringAttr("gemmN")})),
+                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("parameters",
+                                b.getArrayAttr({b.getI32IntegerAttr(N1),
+                                                b.getI32IntegerAttr(1)})),
+             })})));
     // set source_layout attribute.
     transformedNewOutputAttrs.push_back(b.getNamedAttr(
         "source_layout",
@@ -4274,6 +4321,53 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // emit TransformOp for Matrix C on VGPR.
     llvm::SmallVector<NamedAttribute, 3> transformedMatrixCAttrs;
+    // set layout attribute.
+    transformedMatrixCAttrs.push_back(b.getNamedAttr(
+        "layout",
+        b.getArrayAttr(
+            {b.getDictionaryAttr(
+                 {b.getNamedAttr("dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                  b.getNamedAttr("names",
+                                 b.getArrayAttr({b.getStringAttr("g")})),
+                  b.getNamedAttr("source_dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                  b.getNamedAttr("source_names",
+                                 b.getArrayAttr({b.getStringAttr("gemmG")})),
+                  b.getNamedAttr("transformation",
+                                 b.getStringAttr("PassThrough"))}),
+             b.getDictionaryAttr({
+                 b.getNamedAttr("dimensions",
+                                b.getArrayAttr({b.getI32IntegerAttr(1),
+                                                b.getI32IntegerAttr(2)})),
+                 b.getNamedAttr(
+                     "names", b.getArrayAttr({b.getStringAttr("gemmMRepeat"),
+                                              b.getStringAttr("mPerThread")})),
+                 b.getNamedAttr("source_dimensions",
+                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                 b.getNamedAttr("source_names",
+                                b.getArrayAttr({b.getStringAttr("gemmM")})),
+                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("parameters",
+                                b.getArrayAttr({b.getI32IntegerAttr(MPerThread),
+                                                b.getI32IntegerAttr(1)})),
+             }),
+             b.getDictionaryAttr({
+                 b.getNamedAttr("dimensions",
+                                b.getArrayAttr({b.getI32IntegerAttr(3),
+                                                b.getI32IntegerAttr(4)})),
+                 b.getNamedAttr(
+                     "names", b.getArrayAttr({b.getStringAttr("gemmNRepeat"),
+                                              b.getStringAttr("nPerThread")})),
+                 b.getNamedAttr("source_dimensions",
+                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                 b.getNamedAttr("source_names",
+                                b.getArrayAttr({b.getStringAttr("gemmN")})),
+                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("parameters",
+                                b.getArrayAttr({b.getI32IntegerAttr(NPerThread),
+                                                b.getI32IntegerAttr(1)})),
+             })})));
     // set source_layout attribute.
     transformedMatrixCAttrs.push_back(b.getNamedAttr(
         "source_layout",
@@ -5274,6 +5368,51 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // emit TransformOp for output tensor.
     llvm::SmallVector<NamedAttribute, 3> transformedNewOutputAttrs;
+    // set layout attribute.
+    transformedNewOutputAttrs.push_back(b.getNamedAttr(
+        "layout",
+        b.getArrayAttr(
+            {b.getDictionaryAttr(
+                 {b.getNamedAttr("dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                  b.getNamedAttr("names",
+                                 b.getArrayAttr({b.getStringAttr("g")})),
+                  b.getNamedAttr("source_dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                  b.getNamedAttr("source_names",
+                                 b.getArrayAttr({b.getStringAttr("gemmG")})),
+                  b.getNamedAttr("transformation",
+                                 b.getStringAttr("PassThrough"))}),
+             b.getDictionaryAttr({
+                 b.getNamedAttr("dimensions",
+                                b.getArrayAttr({b.getI32IntegerAttr(1),
+                                                b.getI32IntegerAttr(2),
+                                                b.getI32IntegerAttr(3)})),
+                 b.getNamedAttr("names",
+                                b.getArrayAttr({b.getStringAttr("m0"),
+                                                b.getStringAttr("m1"),
+                                                b.getStringAttr("m2")})),
+                 b.getNamedAttr("source_dimensions",
+                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                 b.getNamedAttr("source_names",
+                                b.getArrayAttr({b.getStringAttr("gemmN")})),
+                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("parameters",
+                                b.getArrayAttr({b.getI32IntegerAttr(M1 * M2),
+                                                b.getI32IntegerAttr(M2),
+                                                b.getI32IntegerAttr(1)})),
+             }),
+             b.getDictionaryAttr(
+                 {b.getNamedAttr("dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(4)})),
+                  b.getNamedAttr("names",
+                                 b.getArrayAttr({b.getStringAttr("n")})),
+                  b.getNamedAttr("source_dimensions",
+                                 b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                  b.getNamedAttr("source_names",
+                                 b.getArrayAttr({b.getStringAttr("gemmN")})),
+                  b.getNamedAttr("transformation",
+                                 b.getStringAttr("PassThrough"))})})));
     // set source_layout attribute.
     transformedNewOutputAttrs.push_back(b.getNamedAttr(
         "source_layout",
