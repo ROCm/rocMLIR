@@ -229,6 +229,17 @@ static LogicalResult verify(TransformOp op) {
   return success();
 }
 
+// Utility static member function of TransformOp to populate an ArrayAttr to
+// track the bounds of a MemRefType.
+ArrayAttr TransformOp::buildMemRefShapeAttr(OpBuilder &b,
+                                            MemRefType memRefType) {
+  auto shape = memRefType.getShape();
+  SmallVector<Attribute> shapeAttr;
+  for (auto s : shape)
+    shapeAttr.push_back(b.getI32IntegerAttr(s));
+  return b.getArrayAttr(shapeAttr);
+}
+
 //===----------------------------------------------------------------------===//
 // GridwiseGemmOp
 //===----------------------------------------------------------------------===//
