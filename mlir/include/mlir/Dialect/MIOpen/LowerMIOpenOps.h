@@ -47,6 +47,18 @@ using namespace mlir;
 using namespace mlir::miopen;
 
 //===----------------------------------------------------------------------===//
+// Utility function to build named attribute for the shape of a MemrefType.
+//===----------------------------------------------------------------------===//
+inline NamedAttribute buildMemRefShapeAttr(OpBuilder &b, MemRefType memRefType,
+                                           StringRef identifier) {
+  auto shape = memRefType.getShape();
+  SmallVector<Attribute> shapeAttr;
+  for (auto s : shape)
+    shapeAttr.push_back(b.getI32IntegerAttr(s));
+  return b.getNamedAttr(identifier, b.getArrayAttr(shapeAttr));
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to repeatedly apply affine transformation to compute the
 // coordinate for the next layer.
 //===----------------------------------------------------------------------===//
@@ -506,6 +518,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto transformedFilterMemRefType =
         MemRefType::get(transformedFilterShape, filterElementType);
+    // set domain and range attributes.
+    transformedFilterAttrs.push_back(
+        buildMemRefShapeAttr(b, filterType, "domain"));
+    transformedFilterAttrs.push_back(
+        buildMemRefShapeAttr(b, transformedFilterMemRefType, "range"));
     auto gemmA = b.create<miopen::TransformOp>(
         loc, transformedFilterMemRefType, op.filter(), transformedFilterAttrs);
 
@@ -690,6 +707,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       }
       auto paddingFilterMemRefType =
           MemRefType::get(paddingFilterShape, filterElementType);
+      // set domain and range attributes.
+      paddingFilterAttrs.push_back(
+          buildMemRefShapeAttr(b, gemmA.getType(), "domain"));
+      paddingFilterAttrs.push_back(
+          buildMemRefShapeAttr(b, paddingFilterMemRefType, "range"));
       gemmAPad = b.create<miopen::TransformOp>(loc, paddingFilterMemRefType,
                                                ArrayRef<Value>(gemmA),
                                                paddingFilterAttrs);
@@ -852,6 +874,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto paddedInputMemRefType =
         MemRefType::get(paddedInputShape, inputElementType);
+    // set domain and range attributes.
+    paddedInputAttrs.push_back(buildMemRefShapeAttr(b, inputType, "domain"));
+    paddedInputAttrs.push_back(
+        buildMemRefShapeAttr(b, paddedInputMemRefType, "range"));
     auto paddedInput = b.create<miopen::TransformOp>(
         loc, paddedInputMemRefType, op.input(), paddedInputAttrs);
 
@@ -1037,6 +1063,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                              reorderedEmbeddedInputDimNames.end()))));
     auto embeddedInputMemRefType =
         MemRefType::get(embeddedInputShape, inputElementType);
+    // set domain and range attributes.
+    embeddedInputAttrs.push_back(
+        buildMemRefShapeAttr(b, paddedInput.getType(), "domain"));
+    embeddedInputAttrs.push_back(
+        buildMemRefShapeAttr(b, embeddedInputMemRefType, "range"));
     auto embeddedInput = b.create<miopen::TransformOp>(
         loc, embeddedInputMemRefType, ArrayRef<Value>(paddedInput),
         embeddedInputAttrs);
@@ -1261,6 +1292,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         b.getI32IntegerAttr(fields.gridwiseGemmArgumentPosition[1])));
     auto transformedInputMemRefType =
         MemRefType::get(transformedInputShape, inputElementType);
+    // set domain and range attributes.
+    transformedInputAttrs.push_back(
+        buildMemRefShapeAttr(b, embeddedInput.getType(), "domain"));
+    transformedInputAttrs.push_back(
+        buildMemRefShapeAttr(b, transformedInputMemRefType, "range"));
     auto gemmB = b.create<miopen::TransformOp>(loc, transformedInputMemRefType,
                                                ArrayRef<Value>(embeddedInput),
                                                transformedInputAttrs);
@@ -1438,6 +1474,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       auto paddingInputMemRefType =
           MemRefType::get(paddingInputShape, inputElementType);
 
+      // set domain and range attributes.
+      paddingInputAttrs.push_back(
+          buildMemRefShapeAttr(b, gemmB.getType(), "domain"));
+      paddingInputAttrs.push_back(
+          buildMemRefShapeAttr(b, paddingInputMemRefType, "range"));
       gemmBPad = b.create<miopen::TransformOp>(loc, paddingInputMemRefType,
                                                ArrayRef<Value>(gemmB),
                                                paddingInputAttrs);
@@ -1609,6 +1650,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto transformedOutputMemRefType =
         MemRefType::get(transformedOutputShape, outputElementType);
+    // set domain and range attributes.
+    transformedOutputAttrs.push_back(
+        buildMemRefShapeAttr(b, outputType, "domain"));
+    transformedOutputAttrs.push_back(
+        buildMemRefShapeAttr(b, transformedOutputMemRefType, "range"));
     auto gemmC = b.create<miopen::TransformOp>(
         loc, transformedOutputMemRefType, op.output(), transformedOutputAttrs);
 
@@ -1788,6 +1834,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       auto paddingOutputMemRefType =
           MemRefType::get(paddingOutputShape, outputElementType);
 
+      // set domain and range attributes.
+      paddingOutputAttrs.push_back(
+          buildMemRefShapeAttr(b, gemmC.getType(), "domain"));
+      paddingOutputAttrs.push_back(
+          buildMemRefShapeAttr(b, paddingOutputMemRefType, "range"));
       gemmCPad = b.create<miopen::TransformOp>(loc, paddingOutputMemRefType,
                                                ArrayRef<Value>(gemmC),
                                                paddingOutputAttrs);
@@ -2106,6 +2157,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         auto transformedFilterMemRefType =
             MemRefType::get(transformedFilterShape, filterElementType);
+        // set domain and range attributes.
+        transformedFilterAttrs.push_back(
+            buildMemRefShapeAttr(b, filterType, "domain"));
+        transformedFilterAttrs.push_back(
+            buildMemRefShapeAttr(b, transformedFilterMemRefType, "range"));
         auto gemm =
             b.create<miopen::TransformOp>(loc, transformedFilterMemRefType,
                                           op.filter(), transformedFilterAttrs);
@@ -2238,6 +2294,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
             auto transformedFilterMemRefType =
                 MemRefType::get(transformedFilterShape, filterElementType);
+            // set domain and range attributes.
+            transformedFilterAttrs.push_back(buildMemRefShapeAttr(
+                b, weiGKCYDotYTildaXDotXTilda.getType(), "domain"));
+            transformedFilterAttrs.push_back(
+                buildMemRefShapeAttr(b, transformedFilterMemRefType, "range"));
             auto gemm = b.create<miopen::TransformOp>(
                 loc, transformedFilterMemRefType,
                 ArrayRef<Value>(weiGKCYDotYTildaXDotXTilda),
@@ -2319,6 +2380,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         auto transformedFilterMemRefType =
             MemRefType::get(transformedFilterShape, filterElementType);
+        // set domain and range attributes.
+        transformedFilterAttrs.push_back(buildMemRefShapeAttr(
+            b, weiGKCYDotSliceYTidaSliceXDotSliceXTildaSlice.getType(),
+            "domain"));
+        transformedFilterAttrs.push_back(
+            buildMemRefShapeAttr(b, transformedFilterMemRefType, "range"));
         auto gemm = b.create<miopen::TransformOp>(
             loc, transformedFilterMemRefType,
             ArrayRef<Value>(weiGKCYDotSliceYTidaSliceXDotSliceXTildaSlice),
@@ -2448,6 +2515,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         auto transformedMemRefType =
             MemRefType::get(transformedShape, inputElementType);
+        // set domain and range attributes.
+        transformedAttrs.push_back(
+            buildMemRefShapeAttr(b, inputType, "domain"));
+        transformedAttrs.push_back(
+            buildMemRefShapeAttr(b, transformedMemRefType, "range"));
         auto gemm = b.create<miopen::TransformOp>(loc, transformedMemRefType,
                                                   op.input(), transformedAttrs);
         return gemm;
@@ -2562,6 +2634,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
             auto transformedFilterMemRefType =
                 MemRefType::get(transformedShape, inputElementType);
+            // set domain and range attributes.
+            transformedAttrs.push_back(
+                buildMemRefShapeAttr(b, inGNCHipWip.getType(), "domain"));
+            transformedAttrs.push_back(
+                buildMemRefShapeAttr(b, transformedFilterMemRefType, "range"));
             auto gemm = b.create<miopen::TransformOp>(
                 loc, transformedFilterMemRefType, ArrayRef<Value>(inGNCHipWip),
                 transformedAttrs);
@@ -2694,6 +2771,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
             auto transformedMemRefType =
                 MemRefType::get(transformedShape, inputElementType);
+            // set domain and range attributes.
+            transformedAttrs.push_back(buildMemRefShapeAttr(
+                b, inGNCYTildaHTildaXTildaWTilda.getType(), "domain"));
+            transformedAttrs.push_back(
+                buildMemRefShapeAttr(b, transformedMemRefType, "range"));
             auto gemm = b.create<miopen::TransformOp>(
                 loc, transformedMemRefType,
                 ArrayRef<Value>(inGNCYTildaHTildaXTildaWTilda),
@@ -2788,6 +2870,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         auto transformedMemRefType =
             MemRefType::get(transformedShape, inputElementType);
+        // set domain and range attributes.
+        transformedAttrs.push_back(buildMemRefShapeAttr(
+            b, inGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice.getType(),
+            "domain"));
+        transformedAttrs.push_back(
+            buildMemRefShapeAttr(b, transformedMemRefType, "range"));
         auto gemm = b.create<miopen::TransformOp>(
             loc, transformedMemRefType,
             ArrayRef<Value>(inGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice),
@@ -2933,6 +3021,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         auto transformedFilterMemRefType =
             MemRefType::get(transformedShape, outputElementType);
+        // set domain and range attributes.
+        transformedAttrs.push_back(
+            buildMemRefShapeAttr(b, outputType, "domain"));
+        transformedAttrs.push_back(
+            buildMemRefShapeAttr(b, transformedFilterMemRefType, "range"));
         auto gemm = b.create<miopen::TransformOp>(
             loc, transformedFilterMemRefType, op.output(), transformedAttrs);
         return gemm;
@@ -3063,6 +3156,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
             auto transformedMemRefType =
                 MemRefType::get(transformedShape, outputElementType);
+            // set domain and range attributes.
+            transformedAttrs.push_back(buildMemRefShapeAttr(
+                b, outGNKYDotHTildaXDotWHilda.getType(), "domain"));
+            transformedAttrs.push_back(
+                buildMemRefShapeAttr(b, transformedMemRefType, "range"));
             auto gemm = b.create<miopen::TransformOp>(
                 loc, transformedMemRefType,
                 ArrayRef<Value>(outGNKYDotHTildaXDotWHilda), transformedAttrs);
@@ -3155,6 +3253,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         }
         auto transformedMemRefType =
             MemRefType::get(transformedShape, outputElementType);
+        // set domain and range attributes.
+        transformedAttrs.push_back(buildMemRefShapeAttr(
+            b, outGNKYDotSliceHTidaSliceXDotSliceWTildaSlice.getType(),
+            "domain"));
+        transformedAttrs.push_back(
+            buildMemRefShapeAttr(b, transformedMemRefType, "range"));
         auto gemm = b.create<miopen::TransformOp>(
             loc, transformedMemRefType,
             ArrayRef<Value>(outGNKYDotSliceHTidaSliceXDotSliceWTildaSlice),
@@ -3905,7 +4009,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Alloc for Matrix C on registers.
     // Compute register size from attributes.
     int64_t GemmMRepeat = 0, GemmNRepeat = 0;
-    Value registerMatrixCAllocOp;
 
     // Original C++ logic.
     // constexpr index_t GemmMRepeat = MPerBlock / (MPerThread * MLevel0Cluster * MLevel1Cluster);
@@ -3925,7 +4028,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto threadCRegisterMemRefType = MemRefType::get(
         {1, GemmMRepeat * MPerThread, GemmNRepeat * NPerThread},
         accumulatorType, {}, gpu::GPUDialect::getPrivateAddressSpace());
-    registerMatrixCAllocOp =
+    Value registerMatrixCAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadCRegisterMemRefType);
 
     // Alloc for Matrix A / B on registers.
@@ -4303,6 +4406,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                         b.getStringAttr("n1")})));
     auto newOutputType = MemRefType::get(
         {G, M0, M1, N0, N1}, outputType.getElementType(), newOutputAffineMaps);
+    // set domain and range attributes.
+    transformedNewOutputAttrs.push_back(
+        buildMemRefShapeAttr(b, outputType, "domain"));
+    transformedNewOutputAttrs.push_back(
+        buildMemRefShapeAttr(b, newOutputType, "range"));
     auto newOutputTransformOp = b.create<miopen::TransformOp>(
         loc, newOutputType, op.output(), transformedNewOutputAttrs);
 
@@ -4383,6 +4491,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto register5DMatrixCType = MemRefType::get(
         {1, GemmMRepeat, MPerThread, GemmNRepeat, NPerThread}, elementType,
         {matrixCAffineMap5to3}, gpu::GPUDialect::getPrivateAddressSpace());
+    // set domain and range attributes.
+    transformedMatrixCAttrs.push_back(
+        buildMemRefShapeAttr(b, threadCRegisterMemRefType, "domain"));
+    transformedMatrixCAttrs.push_back(
+        buildMemRefShapeAttr(b, register5DMatrixCType, "range"));
     auto matrixCTransformOp = b.create<miopen::TransformOp>(
         loc, register5DMatrixCType, registerMatrixCAllocOp,
         transformedMatrixCAttrs);
@@ -5426,6 +5539,11 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                         b.getStringAttr("n")})));
     auto newOutputType = MemRefType::get(
         {G, M0, M1, M2, N}, outputType.getElementType(), newOutputAffineMaps);
+    // set domain and range attributes.
+    transformedNewOutputAttrs.push_back(
+        buildMemRefShapeAttr(b, outputType, "domain"));
+    transformedNewOutputAttrs.push_back(
+        buildMemRefShapeAttr(b, newOutputType, "range"));
     auto newOutputTransformOp = b.create<miopen::TransformOp>(
         loc, newOutputType, op.output(), transformedNewOutputAttrs);
 
