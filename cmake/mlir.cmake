@@ -2,6 +2,7 @@ message(STATUS "Adding LLVM git-submodule src dependency")
 
 set(CMAKE_BUILD_TYPE Release CACHE INTERNAL "")
 
+
 # Forbid implicit function declaration: this may lead to subtle bugs and we
 # don't have a reason to support this.
 check_c_compiler_flag("-Werror=implicit-function-declaration" C_SUPPORTS_WERROR_IMPLICIT_FUNCTION_DECLARATION)
