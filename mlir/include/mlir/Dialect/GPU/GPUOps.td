@@ -973,6 +973,7 @@ def GPU_MubufStoreOp :
                               VectorOfLengthAndType<[2, 4], [F32]>,
                               VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$value,
                    AnyMemRef:$memref,
+                   I32:$shift,
                    Variadic<I32>:$indices)> {
   let summary = "AMD GPU Buffer Store";
   let description = [{
