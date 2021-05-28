@@ -20,7 +20,7 @@ func @miopen_conv2d_gcyxk_gcnhw_gknhw(%filter : memref<1x8x3x3x128xf32>, %input 
 
 // LOWERING-LABEL: func @miopen_conv2d
 // LOWERING:  miopen.transform(%arg1)
-// LOWERING:  output_layout = ["gi", "ci", "ni", "hipad", "wipad"]
+// LOWERING:  upper_layer_layout = ["gi", "ci", "ni", "hipad", "wipad"]
 // LOWERING:  memref<1x8x128x34x34xf32>
 
 // AFFINE: #map{{[0-9]+}} = affine_map<(d0, d1, d2) -> (d0, d1 floordiv 9, (d1 mod 9) floordiv 3, (d1 mod 9) mod 3, d2)>

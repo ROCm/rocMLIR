@@ -393,10 +393,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       transformedFilterShape.push_back(filterShape[kDim.getInt()]);
 
       llvm::SmallVector<NamedAttribute, 2> sourceProbCYXDimAttr{
-	      b.getNamedAttr("source_dimensions",
+	      b.getNamedAttr("lower_layer_dimensions",
 			      b.getArrayAttr(ArrayRef<Attribute>(nonKDims.begin(),
 					      nonKDims.end()))),
-		      b.getNamedAttr("source_names",
+		      b.getNamedAttr("lower_layer_names",
 				      b.getArrayAttr(ArrayRef<Attribute>(
 						      nonKDimNames.begin(), nonKDimNames.end())))};
       if (kDim.getInt() != 1 && kDim.getInt() != 4) {
@@ -409,30 +409,30 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       llvm::SmallVector<NamedAttribute, 3> sourceProbGDimAttr{
           b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
-          b.getNamedAttr("source_dimensions", b.getArrayAttr({gDim})),
-          b.getNamedAttr("source_names", b.getArrayAttr({gDimName}))};
+          b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({gDim})),
+          b.getNamedAttr("lower_layer_names", b.getArrayAttr({gDimName}))};
 
       llvm::SmallVector<NamedAttribute, 3> sourceProbKDimAttr{
 	      b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
-		      b.getNamedAttr("source_dimensions", b.getArrayAttr({kDim})),
-		      b.getNamedAttr("source_names", b.getArrayAttr({kDimName}))};
+		      b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({kDim})),
+		      b.getNamedAttr("lower_layer_names", b.getArrayAttr({kDimName}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemm0DimAttr{
-	      b.getNamedAttr("dimensions",
+	      b.getNamedAttr("upper_layer_dimensions",
 			      b.getArrayAttr({b.getI32IntegerAttr(0)})),
-		      b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+		      b.getNamedAttr("upper_layer_names", b.getArrayAttr({b.getStringAttr(
 						      arg0TargetLayoutName0)}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemm1DimAttr{
-	      b.getNamedAttr("dimensions",
+	      b.getNamedAttr("upper_layer_dimensions",
 			      b.getArrayAttr({b.getI32IntegerAttr(1)})),
-		      b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+		      b.getNamedAttr("upper_layer_names", b.getArrayAttr({b.getStringAttr(
 						      arg0TargetLayoutName1)}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemm2DimAttr{
-          b.getNamedAttr("dimensions",
+          b.getNamedAttr("upper_layer_dimensions",
                          b.getArrayAttr({b.getI32IntegerAttr(2)})),
-          b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+          b.getNamedAttr("upper_layer_names", b.getArrayAttr({b.getStringAttr(
                                       arg0TargetLayoutName2)}))};
 
       llvm::SmallVector<NamedAttribute, 0> layoutAttr0;
@@ -480,9 +480,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                     })));
     }
 
-    // set output_layout attribute.
+    // set upper_layer_layout attribute.
     transformedFilterAttrs.push_back(b.getNamedAttr(
-        "output_layout",
+        "upper_layer_layout",
         b.getArrayAttr({b.getStringAttr(arg0TargetLayoutName0),
                         b.getStringAttr(arg0TargetLayoutName1),
                         b.getStringAttr(arg0TargetLayoutName2)})));
@@ -500,12 +500,15 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     transformedFilterAttrs.push_back(b.getNamedAttr(
         "extraPad", b.getStringAttr(needExtraPad ? "true" : "false")));
 
-    // set source_layout attribute.
+    // set lower_layer_layout attribute.
     transformedFilterAttrs.push_back(
-        b.getNamedAttr("source_layout", filterLayoutAttr));
+        b.getNamedAttr("lower_layer_layout", filterLayoutAttr));
 
     auto transformedFilterMemRefType =
         MemRefType::get(transformedFilterShape, filterElementType);
+    // set lowest_layer attribute.
+    transformedFilterAttrs.push_back(
+        b.getNamedAttr("lowest_layer", b.getBoolAttr(true)));
     auto gemmA = b.create<miopen::TransformOp>(
         loc, transformedFilterMemRefType, op.filter(), transformedFilterAttrs,
         /*populateBounds=*/true);
@@ -551,26 +554,26 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       llvm::SmallVector<NamedAttribute, 3> sourceGemmDim0Attr{
           b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
-          b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim0})),
-          b.getNamedAttr("source_names", b.getArrayAttr({gemmDim0Name}))};
+          b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({GemmDim0})),
+          b.getNamedAttr("lower_layer_names", b.getArrayAttr({gemmDim0Name}))};
 
       llvm::SmallVector<NamedAttribute, 3> sourceGemmDim1Attr{
-          b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim1})),
-          b.getNamedAttr("source_names", b.getArrayAttr({gemmDim1Name}))};
+          b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({GemmDim1})),
+          b.getNamedAttr("lower_layer_names", b.getArrayAttr({gemmDim1Name}))};
 
       llvm::SmallVector<NamedAttribute, 3> sourceGemmDim2Attr{
-          b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim2})),
-          b.getNamedAttr("source_names", b.getArrayAttr({gemmDim2Name}))};
+          b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({GemmDim2})),
+          b.getNamedAttr("lower_layer_names", b.getArrayAttr({gemmDim2Name}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemmDim0Attr{
-          b.getNamedAttr("dimensions", b.getArrayAttr({GemmDim0})),
-          b.getNamedAttr("names", b.getArrayAttr({GemmDim0}))};
+          b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({GemmDim0})),
+          b.getNamedAttr("upper_layer_names", b.getArrayAttr({GemmDim0}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemmDim1Attr{
-          b.getNamedAttr("dimensions", b.getArrayAttr({GemmDim1}))};
+          b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({GemmDim1}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemmDim2Attr{
-          b.getNamedAttr("dimensions", b.getArrayAttr({GemmDim2}))};
+          b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({GemmDim2}))};
 
       // gemmdim0 is G, only pad gemmdim1 and gemmdim2
       if (gemmKExtra > 0) {
@@ -589,7 +592,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                            })));
 
           targetGemmDim1Attr.push_back(b.getNamedAttr(
-              "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+              "upper_layer_names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         } else if (arg0TargetLayoutName2 == "gemmK") {
           isFilterPad = true;
           isGemmDim2Pad = true;
@@ -605,7 +608,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                            })));
 
           targetGemmDim2Attr.push_back(b.getNamedAttr(
-              "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+              "upper_layer_names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         }
         // filter of forward, gemmK=c*y*x
         filterOobCheckDims.insert(nameToDims["c"]);
@@ -642,13 +645,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         sourceGemmDim1Attr.push_back(
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")));
         targetGemmDim1Attr.push_back(
-            b.getNamedAttr("names", b.getArrayAttr({gemmDim1Name})));
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({gemmDim1Name})));
       } else if (!isGemmDim2Pad) {
         gemmDim2TargetName = gemmDim2Name;
         sourceGemmDim2Attr.push_back(
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")));
         targetGemmDim2Attr.push_back(
-            b.getNamedAttr("names", b.getArrayAttr({gemmDim2Name})));
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({gemmDim2Name})));
       }
 
       layoutAttr0.append(targetGemmDim0Attr.begin(), targetGemmDim0Attr.end());
@@ -669,12 +672,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                     })));
 
       paddingFilterAttrs.push_back(
-          b.getNamedAttr("output_layout",
+          b.getNamedAttr("upper_layer_layout",
                          b.getArrayAttr({gemmDim0TargetName, gemmDim1TargetName,
                                          gemmDim2TargetName})));
 
       paddingFilterAttrs.push_back(b.getNamedAttr(
-          "intermediate_layout",
+          "lower_layer_layout",
           b.getArrayAttr({gemmDim0Name, gemmDim1Name, gemmDim2Name})));
 
       if (filterOobCheckDims.size()) {
@@ -775,39 +778,39 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           b.getArrayAttr({
               // Part 0: Passthrough for gi dimension.
               b.getDictionaryAttr({
-                  b.getNamedAttr("dimensions", b.getArrayAttr({gDim})),
-                  b.getNamedAttr("names", b.getArrayAttr({gDimName})),
+                  b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({gDim})),
+                  b.getNamedAttr("upper_layer_names", b.getArrayAttr({gDimName})),
                   b.getNamedAttr("transformation",
                                  b.getStringAttr("PassThrough")),
-                  b.getNamedAttr("source_dimensions", b.getArrayAttr({gDim})),
-                  b.getNamedAttr("source_names", b.getArrayAttr({gDimName})),
+                  b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({gDim})),
+                  b.getNamedAttr("lower_layer_names", b.getArrayAttr({gDimName})),
               }),
               // Part 1: Passthrough for ni dimension.
               b.getDictionaryAttr({
-                  b.getNamedAttr("dimensions", b.getArrayAttr({nDim})),
-                  b.getNamedAttr("names", b.getArrayAttr({nDimName})),
+                  b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({nDim})),
+                  b.getNamedAttr("upper_layer_names", b.getArrayAttr({nDimName})),
                   b.getNamedAttr("transformation",
                                  b.getStringAttr("PassThrough")),
-                  b.getNamedAttr("source_dimensions", b.getArrayAttr({nDim})),
-                  b.getNamedAttr("source_names", b.getArrayAttr({nDimName})),
+                  b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({nDim})),
+                  b.getNamedAttr("lower_layer_names", b.getArrayAttr({nDimName})),
               }),
 
               // Part 2: Passthrough for ci dimension.
               b.getDictionaryAttr({
-                  b.getNamedAttr("dimensions", b.getArrayAttr({cDim})),
-                  b.getNamedAttr("names", b.getArrayAttr({cDimName})),
+                  b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({cDim})),
+                  b.getNamedAttr("upper_layer_names", b.getArrayAttr({cDimName})),
                   b.getNamedAttr("transformation",
                                  b.getStringAttr("PassThrough")),
-                  b.getNamedAttr("source_dimensions", b.getArrayAttr({cDim})),
-                  b.getNamedAttr("source_names", b.getArrayAttr({cDimName})),
+                  b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({cDim})),
+                  b.getNamedAttr("lower_layer_names", b.getArrayAttr({cDimName})),
               }),
 
               // Part 3: Pad for h/w dimensions.
               b.getDictionaryAttr({
-                  b.getNamedAttr("dimensions",
+                  b.getNamedAttr("upper_layer_dimensions",
                                  b.getArrayAttr(ArrayRef<Attribute>(
                                      hwDims.begin(), hwDims.end()))),
-                  b.getNamedAttr("names", b.getArrayAttr(ArrayRef<Attribute>(
+                  b.getNamedAttr("upper_layer_names", b.getArrayAttr(ArrayRef<Attribute>(
                                               hwPaddedDimNames.begin(),
                                               hwPaddedDimNames.end()))),
                   b.getNamedAttr("transformation", b.getStringAttr("Pad")),
@@ -818,10 +821,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                      b.getI32IntegerAttr(leftPadW),
                                      b.getI32IntegerAttr(rightPadW),
                                  })),
-                  b.getNamedAttr("source_dimensions",
+                  b.getNamedAttr("lower_layer_dimensions",
                                  b.getArrayAttr(ArrayRef<Attribute>(
                                      hwDims.begin(), hwDims.end()))),
-                  b.getNamedAttr("source_names",
+                  b.getNamedAttr("lower_layer_names",
                                  b.getArrayAttr(ArrayRef<Attribute>(
                                      hwDimNames.begin(), hwDimNames.end()))),
               }),
@@ -833,12 +836,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         inputOobCheckDims.insert(nameToDims["wi"]);
       }
     }
-    // set source_layout attribute.
+    // set lower_layer_layout attribute.
     paddedInputAttrs.push_back(
-        b.getNamedAttr("source_layout", inputLayoutAttr));
-    // set output_layout attribute.
+        b.getNamedAttr("lower_layer_layout", inputLayoutAttr));
+    // set upper_layer_layout attribute.
     paddedInputAttrs.push_back(b.getNamedAttr(
-        "output_layout", b.getArrayAttr(ArrayRef<Attribute>(
+        "upper_layer_layout", b.getArrayAttr(ArrayRef<Attribute>(
                              reorderedPaddedInputDimNames.begin(),
                              reorderedPaddedInputDimNames.end()))));
 
@@ -853,6 +856,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto paddedInputMemRefType =
         MemRefType::get(paddedInputShape, inputElementType);
+    // set lowest_layer attribute.
+    paddedInputAttrs.push_back(
+        b.getNamedAttr("lowest_layer", b.getBoolAttr(true)));
     Value paddedInput = b.create<miopen::TransformOp>(
         loc, paddedInputMemRefType, op.input(), paddedInputAttrs,
         /*populateBounds=*/true);
@@ -944,41 +950,41 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           b.getArrayAttr({
               // Part 0: Passthrough for gi dimension.
               b.getDictionaryAttr({
-                  b.getNamedAttr("dimensions", b.getArrayAttr({reorderedGDim})),
-                  b.getNamedAttr("names", b.getArrayAttr({gDimName})),
+                  b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({reorderedGDim})),
+                  b.getNamedAttr("upper_layer_names", b.getArrayAttr({gDimName})),
                   b.getNamedAttr("transformation",
                                  b.getStringAttr("PassThrough")),
-                  b.getNamedAttr("source_dimensions", b.getArrayAttr({gDim})),
-                  b.getNamedAttr("source_names", b.getArrayAttr({gDimName})),
+                  b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({gDim})),
+                  b.getNamedAttr("lower_layer_names", b.getArrayAttr({gDimName})),
               }),
 
               // Part 1: Passthrough for ni dimension.
               b.getDictionaryAttr({
-                  b.getNamedAttr("dimensions", b.getArrayAttr({reorderedNDim})),
-                  b.getNamedAttr("names", b.getArrayAttr({nDimName})),
+                  b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({reorderedNDim})),
+                  b.getNamedAttr("upper_layer_names", b.getArrayAttr({nDimName})),
                   b.getNamedAttr("transformation",
                                  b.getStringAttr("PassThrough")),
-                  b.getNamedAttr("source_dimensions", b.getArrayAttr({nDim})),
-                  b.getNamedAttr("source_names", b.getArrayAttr({nDimName})),
+                  b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({nDim})),
+                  b.getNamedAttr("lower_layer_names", b.getArrayAttr({nDimName})),
               }),
 
               // Part 2: Passthrough for ci dimension.
               b.getDictionaryAttr({
-                  b.getNamedAttr("dimensions", b.getArrayAttr({reorderedCDim})),
-                  b.getNamedAttr("names", b.getArrayAttr({cDimName})),
+                  b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({reorderedCDim})),
+                  b.getNamedAttr("upper_layer_names", b.getArrayAttr({cDimName})),
                   b.getNamedAttr("transformation",
                                  b.getStringAttr("PassThrough")),
-                  b.getNamedAttr("source_dimensions", b.getArrayAttr({cDim})),
-                  b.getNamedAttr("source_names", b.getArrayAttr({cDimName})),
+                  b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({cDim})),
+                  b.getNamedAttr("lower_layer_names", b.getArrayAttr({cDimName})),
               }),
 
               // Part 3: Embed for y, ho dimensions.
               b.getDictionaryAttr({
                   b.getNamedAttr(
-                      "dimensions",
+                      "upper_layer_dimensions",
                       b.getArrayAttr(ArrayRef<Attribute>(
                           reorderedYHoDim.begin(), reorderedYHoDim.end()))),
-                  b.getNamedAttr("names", b.getArrayAttr({
+                  b.getNamedAttr("upper_layer_names", b.getArrayAttr({
                                               b.getStringAttr("y"),
                                               b.getStringAttr("ho"),
                                           })),
@@ -995,17 +1001,17 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                      b.getI32IntegerAttr(1),
                                      b.getI32IntegerAttr(0),
                                  })),
-                  b.getNamedAttr("source_dimensions", b.getArrayAttr({hDim})),
-                  b.getNamedAttr("source_names", b.getArrayAttr({hDimName})),
+                  b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({hDim})),
+                  b.getNamedAttr("lower_layer_names", b.getArrayAttr({hDimName})),
               }),
 
               // Part 4: Embed for x, wo dimensions.
               b.getDictionaryAttr({
                   b.getNamedAttr(
-                      "dimensions",
+                      "upper_layer_dimensions",
                       b.getArrayAttr(ArrayRef<Attribute>(
                           reorderedXWoDim.begin(), reorderedXWoDim.end()))),
-                  b.getNamedAttr("names", b.getArrayAttr({
+                  b.getNamedAttr("upper_layer_names", b.getArrayAttr({
                                               b.getStringAttr("x"),
                                               b.getStringAttr("wo"),
                                           })),
@@ -1022,19 +1028,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                      b.getI32IntegerAttr(1),
                                      b.getI32IntegerAttr(0),
                                  })),
-                  b.getNamedAttr("source_dimensions", b.getArrayAttr({wDim})),
-                  b.getNamedAttr("source_names", b.getArrayAttr({wDimName})),
+                  b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({wDim})),
+                  b.getNamedAttr("lower_layer_names", b.getArrayAttr({wDimName})),
               }),
           })));
     }
-    // set intermediate_layout attribute.
+    // set lower_layer_layout attribute.
     embeddedInputAttrs.push_back(b.getNamedAttr(
-        "intermediate_layout", b.getArrayAttr(ArrayRef<Attribute>(
+        "lower_layer_layout", b.getArrayAttr(ArrayRef<Attribute>(
                                    reorderedPaddedInputDimNames.begin(),
                                    reorderedPaddedInputDimNames.end()))));
-    // set output_layout attribute.
+    // set upper_layer_layout attribute.
     embeddedInputAttrs.push_back(b.getNamedAttr(
-        "output_layout", b.getArrayAttr(ArrayRef<Attribute>(
+        "upper_layer_layout", b.getArrayAttr(ArrayRef<Attribute>(
                              reorderedEmbeddedInputDimNames.begin(),
                              reorderedEmbeddedInputDimNames.end()))));
     auto embeddedInputMemRefType =
@@ -1190,27 +1196,27 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           b.getArrayAttr({
               // Part 0: g dimensions.
               b.getDictionaryAttr({
-                  b.getNamedAttr("dimensions",
+                  b.getNamedAttr("upper_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                  b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+                  b.getNamedAttr("upper_layer_names", b.getArrayAttr({b.getStringAttr(
                                               arg1TargetLayoutName0)})),
                   b.getNamedAttr("transformation",
                                  b.getStringAttr("PassThrough")),
-                  b.getNamedAttr("source_dimensions", b.getArrayAttr({gDim})),
-                  b.getNamedAttr("source_names", b.getArrayAttr({gDimName})),
+                  b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({gDim})),
+                  b.getNamedAttr("lower_layer_names", b.getArrayAttr({gDimName})),
               }),
               // Part 1: Merge ci, y, x dimensions.
               b.getDictionaryAttr({
-                  b.getNamedAttr("dimensions",
+                  b.getNamedAttr("upper_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                  b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+                  b.getNamedAttr("upper_layer_names", b.getArrayAttr({b.getStringAttr(
                                               arg1TargetLayoutName1)})),
                   b.getNamedAttr("transformation", b.getStringAttr("Merge")),
                   b.getNamedAttr(
-                      "source_dimensions",
+                      "lower_layer_dimensions",
                       b.getArrayAttr(ArrayRef<Attribute>(
                           mergedPart1Dims.begin(), mergedPart1Dims.end()))),
-                  b.getNamedAttr("source_names",
+                  b.getNamedAttr("lower_layer_names",
                                  b.getArrayAttr(ArrayRef<Attribute>(
                                      mergedPart1DimNames.begin(),
                                      mergedPart1DimNames.end()))),
@@ -1218,30 +1224,30 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
               // Part 2: Merge ni, ho, wo dimensions.
               b.getDictionaryAttr({
-                  b.getNamedAttr("dimensions",
+                  b.getNamedAttr("upper_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                  b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+                  b.getNamedAttr("upper_layer_names", b.getArrayAttr({b.getStringAttr(
                                               arg1TargetLayoutName2)})),
                   b.getNamedAttr("transformation", b.getStringAttr("Merge")),
                   b.getNamedAttr(
-                      "source_dimensions",
+                      "lower_layer_dimensions",
                       b.getArrayAttr(ArrayRef<Attribute>(
                           mergedPart2Dims.begin(), mergedPart2Dims.end()))),
-                  b.getNamedAttr("source_names",
+                  b.getNamedAttr("lower_layer_names",
                                  b.getArrayAttr(ArrayRef<Attribute>(
                                      mergedPart2DimNames.begin(),
                                      mergedPart2DimNames.end()))),
               }),
           })));
     }
-    // set intermediate_layout attribute.
+    // set lower_layer_layout attribute.
     transformedInputAttrs.push_back(b.getNamedAttr(
-        "intermediate_layout", b.getArrayAttr(ArrayRef<Attribute>(
+        "lower_layer_layout", b.getArrayAttr(ArrayRef<Attribute>(
                                    reorderedEmbeddedInputDimNames.begin(),
                                    reorderedEmbeddedInputDimNames.end()))));
-    // set output_layout attribute.
+    // set upper_layer_layout attribute.
     transformedInputAttrs.push_back(b.getNamedAttr(
-        "output_layout",
+        "upper_layer_layout",
         b.getArrayAttr({b.getStringAttr(arg1TargetLayoutName0),
                         b.getStringAttr(arg1TargetLayoutName1),
                         b.getStringAttr(arg1TargetLayoutName2)})));
@@ -1304,26 +1310,26 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       llvm::SmallVector<NamedAttribute, 3> sourceGemmDim0Attr{
           b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
-          b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim0})),
-          b.getNamedAttr("source_names", b.getArrayAttr({gemmDim0Name}))};
+          b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({GemmDim0})),
+          b.getNamedAttr("lower_layer_names", b.getArrayAttr({gemmDim0Name}))};
 
       llvm::SmallVector<NamedAttribute, 3> sourceGemmDim1Attr{
-          b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim1})),
-          b.getNamedAttr("source_names", b.getArrayAttr({gemmDim1Name}))};
+          b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({GemmDim1})),
+          b.getNamedAttr("lower_layer_names", b.getArrayAttr({gemmDim1Name}))};
 
       llvm::SmallVector<NamedAttribute, 3> sourceGemmDim2Attr{
-          b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim2})),
-          b.getNamedAttr("source_names", b.getArrayAttr({gemmDim2Name}))};
+          b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({GemmDim2})),
+          b.getNamedAttr("lower_layer_names", b.getArrayAttr({gemmDim2Name}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemmDim0Attr{
-          b.getNamedAttr("dimensions", b.getArrayAttr({GemmDim0})),
-          b.getNamedAttr("names", b.getArrayAttr({gemmDim0Name}))};
+          b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({GemmDim0})),
+          b.getNamedAttr("upper_layer_names", b.getArrayAttr({gemmDim0Name}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemmDim1Attr{
-          b.getNamedAttr("dimensions", b.getArrayAttr({GemmDim1}))};
+          b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({GemmDim1}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemmDim2Attr{
-          b.getNamedAttr("dimensions", b.getArrayAttr({GemmDim2}))};
+          b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({GemmDim2}))};
 
       if (gemmKExtra > 0) {
         if (arg1TargetLayoutName1 == "gemmK") {
@@ -1338,7 +1344,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               "parameters", b.getArrayAttr({b.getI32IntegerAttr(0),
                                             b.getI32IntegerAttr(gemmKExtra)})));
           targetGemmDim1Attr.push_back(b.getNamedAttr(
-              "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+              "upper_layer_names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         } else if (arg1TargetLayoutName2 == "gemmK") {
           isInputPad = true;
           isGemmDim2Pad = true;
@@ -1352,7 +1358,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                             b.getI32IntegerAttr(gemmKExtra)})));
 
           targetGemmDim2Attr.push_back(b.getNamedAttr(
-              "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+              "upper_layer_names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         }
         // input of forward, gemmK = ci * y * x( y x from hi wi)
         inputOobCheckDims.insert(nameToDims["ci"]);
@@ -1390,13 +1396,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         sourceGemmDim1Attr.push_back(
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")));
         targetGemmDim1Attr.push_back(
-            b.getNamedAttr("names", b.getArrayAttr({gemmDim1Name})));
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({gemmDim1Name})));
       } else if (!isGemmDim2Pad) {
         gemmDim2TargetName = gemmDim2Name;
         sourceGemmDim2Attr.push_back(
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")));
         targetGemmDim2Attr.push_back(
-            b.getNamedAttr("names", b.getArrayAttr({gemmDim2Name})));
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({gemmDim2Name})));
       }
 
       layoutAttr0.append(targetGemmDim0Attr.begin(), targetGemmDim0Attr.end());
@@ -1416,12 +1422,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                               layoutAttr2.begin(), layoutAttr2.end())})})));
 
       paddingInputAttrs.push_back(
-          b.getNamedAttr("output_layout",
+          b.getNamedAttr("upper_layer_layout",
                          b.getArrayAttr({gemmDim0TargetName, gemmDim1TargetName,
                                          gemmDim2TargetName})));
 
       paddingInputAttrs.push_back(b.getNamedAttr(
-          "intermediate_layout",
+          "lower_layer_layout",
           b.getArrayAttr({gemmDim0Name, gemmDim1Name, gemmDim2Name})));
 
       if (inputOobCheckDims.size()) {
@@ -1508,39 +1514,39 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       llvm::SmallVector<NamedAttribute, 3> sourceProbGDimAttr{
           b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
-          b.getNamedAttr("source_dimensions", b.getArrayAttr({gDim})),
-          b.getNamedAttr("source_names", b.getArrayAttr({gDimName}))};
+          b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({gDim})),
+          b.getNamedAttr("lower_layer_names", b.getArrayAttr({gDimName}))};
 
       llvm::SmallVector<NamedAttribute, 3> sourceProbNHoWoDimAttr{
-	      b.getNamedAttr("source_dimensions",
+	      b.getNamedAttr("lower_layer_dimensions",
 			      b.getArrayAttr(ArrayRef<Attribute>(nonKDims.begin(),
 					      nonKDims.end()))),
-		      b.getNamedAttr("source_names",
+		      b.getNamedAttr("lower_layer_names",
 				      b.getArrayAttr(ArrayRef<Attribute>(
 						      nonKDimNames.begin(), nonKDimNames.end()))),
 		      b.getNamedAttr("transformation", b.getStringAttr("Merge"))};
 
       llvm::SmallVector<NamedAttribute, 3> sourceProbKDimAttr{
 	      b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
-		      b.getNamedAttr("source_dimensions", b.getArrayAttr({kDim})),
-		      b.getNamedAttr("source_names", b.getArrayAttr({kDimName}))};
+		      b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({kDim})),
+		      b.getNamedAttr("lower_layer_names", b.getArrayAttr({kDimName}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemm0DimAttr{
-	      b.getNamedAttr("dimensions",
+	      b.getNamedAttr("upper_layer_dimensions",
 			      b.getArrayAttr({b.getI32IntegerAttr(0)})),
-		      b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+		      b.getNamedAttr("upper_layer_names", b.getArrayAttr({b.getStringAttr(
 						      arg2TargetLayoutName0)}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemm1DimAttr{
-	      b.getNamedAttr("dimensions",
+	      b.getNamedAttr("upper_layer_dimensions",
 			      b.getArrayAttr({b.getI32IntegerAttr(1)})),
-		      b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+		      b.getNamedAttr("upper_layer_names", b.getArrayAttr({b.getStringAttr(
 						      arg2TargetLayoutName1)}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemm2DimAttr{
-          b.getNamedAttr("dimensions",
+          b.getNamedAttr("upper_layer_dimensions",
                          b.getArrayAttr({b.getI32IntegerAttr(2)})),
-          b.getNamedAttr("names", b.getArrayAttr({b.getStringAttr(
+          b.getNamedAttr("upper_layer_names", b.getArrayAttr({b.getStringAttr(
                                       arg2TargetLayoutName2)}))};
 
       llvm::SmallVector<NamedAttribute, 0> layoutAttr0;
@@ -1586,12 +1592,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                     })));
     }
 
-    // set source_layout attribute.
+    // set lower_layer_layout attribute.
     transformedOutputAttrs.push_back(
-        b.getNamedAttr("source_layout", outputLayoutAttr));
-    // set output_layout attribute.
+        b.getNamedAttr("lower_layer_layout", outputLayoutAttr));
+    // set upper_layer_layout attribute.
     transformedOutputAttrs.push_back(b.getNamedAttr(
-        "output_layout", b.getArrayAttr({
+        "upper_layer_layout", b.getArrayAttr({
                              b.getStringAttr(arg2TargetLayoutName0),
                              b.getStringAttr(arg2TargetLayoutName1),
                              b.getStringAttr(arg2TargetLayoutName2),
@@ -1611,6 +1617,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto transformedOutputMemRefType =
         MemRefType::get(transformedOutputShape, outputElementType);
+    // set lowest_layer attribute.
+    transformedOutputAttrs.push_back(
+        b.getNamedAttr("lowest_layer", b.getBoolAttr(true)));
     auto gemmC = b.create<miopen::TransformOp>(
         loc, transformedOutputMemRefType, op.output(), transformedOutputAttrs,
         /*populateBounds=*/true);
@@ -1655,26 +1664,26 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       llvm::SmallVector<NamedAttribute, 3> sourceGemmDim0Attr{
           b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
-          b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim0})),
-          b.getNamedAttr("source_names", b.getArrayAttr({gemmDim0Name}))};
+          b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({GemmDim0})),
+          b.getNamedAttr("lower_layer_names", b.getArrayAttr({gemmDim0Name}))};
 
       llvm::SmallVector<NamedAttribute, 3> sourceGemmDim1Attr{
-          b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim1})),
-          b.getNamedAttr("source_names", b.getArrayAttr({gemmDim1Name}))};
+          b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({GemmDim1})),
+          b.getNamedAttr("lower_layer_names", b.getArrayAttr({gemmDim1Name}))};
 
       llvm::SmallVector<NamedAttribute, 3> sourceGemmDim2Attr{
-          b.getNamedAttr("source_dimensions", b.getArrayAttr({GemmDim2})),
-          b.getNamedAttr("source_names", b.getArrayAttr({gemmDim2Name}))};
+          b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({GemmDim2})),
+          b.getNamedAttr("lower_layer_names", b.getArrayAttr({gemmDim2Name}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemmDim0Attr{
-          b.getNamedAttr("dimensions", b.getArrayAttr({GemmDim0})),
-          b.getNamedAttr("names", b.getArrayAttr({GemmDim0}))};
+          b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({GemmDim0})),
+          b.getNamedAttr("upper_layer_names", b.getArrayAttr({GemmDim0}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemmDim1Attr{
-          b.getNamedAttr("dimensions", b.getArrayAttr({GemmDim1}))};
+          b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({GemmDim1}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemmDim2Attr{
-          b.getNamedAttr("dimensions", b.getArrayAttr({GemmDim2}))};
+          b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({GemmDim2}))};
 
       if (gemmKExtra > 0) {
         if (arg2TargetLayoutName1 == "gemmK") {
@@ -1690,7 +1699,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                             b.getI32IntegerAttr(gemmKExtra)})));
 
           targetGemmDim1Attr.push_back(b.getNamedAttr(
-              "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+              "upper_layer_names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         } else if (arg2TargetLayoutName2 == "gemmK") {
           isOutputPad = true;
           isGemmDim2Pad = true;
@@ -1704,7 +1713,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                             b.getI32IntegerAttr(gemmKExtra)})));
 
           targetGemmDim2Attr.push_back(b.getNamedAttr(
-              "names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+              "upper_layer_names", b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         }
         // output of forward, gemmK = no * ho * wo
         outputOobCheckDims.insert(nameToDims["no"]);
@@ -1741,13 +1750,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         sourceGemmDim1Attr.push_back(
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")));
         targetGemmDim1Attr.push_back(
-            b.getNamedAttr("names", b.getArrayAttr({gemmDim1Name})));
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({gemmDim1Name})));
       } else if (!isGemmDim2Pad) {
         gemmDim2TargetName = gemmDim2Name;
         sourceGemmDim2Attr.push_back(
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")));
         targetGemmDim2Attr.push_back(
-            b.getNamedAttr("names", b.getArrayAttr({gemmDim2Name})));
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({gemmDim2Name})));
       }
 
       layoutAttr0.append(targetGemmDim0Attr.begin(), targetGemmDim0Attr.end());
@@ -1768,12 +1777,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                     })));
 
       paddingOutputAttrs.push_back(
-          b.getNamedAttr("output_layout",
+          b.getNamedAttr("upper_layer_layout",
                          b.getArrayAttr({gemmDim0TargetName, gemmDim1TargetName,
                                          gemmDim2TargetName})));
 
       paddingOutputAttrs.push_back(b.getNamedAttr(
-          "intermediate_layout",
+          "lower_layer_layout",
           b.getArrayAttr({gemmDim0Name, gemmDim1Name, gemmDim2Name})));
 
       if (outputOobCheckDims.size()) {
@@ -2007,42 +2016,42 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         curOutputDimName.push_back(b.getStringAttr("g"));
         transformedFilterShape.push_back(g);
         llvm::SmallVector<NamedAttribute, 5> gDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[0]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(filterKeyToDim["g"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("g")}))};
 
         // k
         curOutputDimName.push_back(b.getStringAttr("k"));
         transformedFilterShape.push_back(k);
         llvm::SmallVector<NamedAttribute, 5> kDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(1)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[1]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(filterKeyToDim["k"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("k")}))};
 
         // c
         curOutputDimName.push_back(b.getStringAttr("c"));
         transformedFilterShape.push_back(c);
         llvm::SmallVector<NamedAttribute, 5> cDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(2)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[2]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(filterKeyToDim["c"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("c")}))};
 
         // y
@@ -2051,10 +2060,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedFilterShape.push_back(yDot);
         transformedFilterShape.push_back(yTilda);
         llvm::SmallVector<NamedAttribute, 6> yDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(3),
                                            b.getI32IntegerAttr(4)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[3],
                                                     curOutputDimName[4]})),
             b.getNamedAttr("transformation", b.getStringAttr("Embed")),
             b.getNamedAttr("parameters", b.getArrayAttr({
@@ -2064,9 +2073,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                              b.getI32IntegerAttr(0),
                                          })),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(filterKeyToDim["y"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("y")}))};
 
         // x
@@ -2075,10 +2084,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedFilterShape.push_back(xDot);
         transformedFilterShape.push_back(xTilda);
         llvm::SmallVector<NamedAttribute, 6> xDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(5),
                                            b.getI32IntegerAttr(6)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[5],
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[5],
                                                     curOutputDimName[6]})),
             b.getNamedAttr("transformation", b.getStringAttr("Embed")),
             b.getNamedAttr("parameters", b.getArrayAttr({
@@ -2088,9 +2097,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                              b.getI32IntegerAttr(0),
                                          })),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(filterKeyToDim["x"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("x")}))};
 
         transformedFilterAttrs.push_back(b.getNamedAttr(
@@ -2100,15 +2109,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                  b.getDictionaryAttr(cDimAttr), b.getDictionaryAttr(yDimAttr),
                  b.getDictionaryAttr(xDimAttr)})));
         transformedFilterAttrs.push_back(b.getNamedAttr(
-            "output_layout",
+            "upper_layer_layout",
             b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
                                                curOutputDimName.end()))));
 
         transformedFilterAttrs.push_back(
-            b.getNamedAttr("source_layout", filterLayoutAttr));
+            b.getNamedAttr("lower_layer_layout", filterLayoutAttr));
 
         auto transformedFilterMemRefType =
             MemRefType::get(transformedFilterShape, filterElementType);
+        // set lowest_layer attribute.
+        transformedFilterAttrs.push_back(
+            b.getNamedAttr("lowest_layer", b.getBoolAttr(true)));
         auto gemm = b.create<miopen::TransformOp>(
             loc, transformedFilterMemRefType, op.filter(),
             transformedFilterAttrs, /*populateBounds=*/true);
@@ -2127,42 +2139,42 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             curOutputDimName.push_back(b.getStringAttr("g"));
             transformedFilterShape.push_back(g);
             llvm::SmallVector<NamedAttribute, 5> gDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[0]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[0]}))};
 
             // k
             curOutputDimName.push_back(b.getStringAttr("k"));
             transformedFilterShape.push_back(k);
             llvm::SmallVector<NamedAttribute, 5> kDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[1]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[1]}))};
 
             // c
             curOutputDimName.push_back(b.getStringAttr("c"));
             transformedFilterShape.push_back(c);
             llvm::SmallVector<NamedAttribute, 5> cDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[2]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[2]}))};
 
             // slice ydot xdot
@@ -2177,10 +2189,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             transformedFilterShape.push_back(1);
 
             llvm::SmallVector<NamedAttribute, 6> yxDotSliceDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(3),
                                                b.getI32IntegerAttr(5)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[3],
                                                         curOutputDimName[5]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Slice")),
                 b.getNamedAttr("begins", b.getArrayAttr({
@@ -2191,19 +2203,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                            b.getI32IntegerAttr(yDotSlice),
                                            b.getI32IntegerAttr(xDotSlice),
                                        })),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(3),
                                                b.getI32IntegerAttr(5)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[3],
                                                preOutputDimName[5]}))};
 
             // xy tilda slice
             llvm::SmallVector<NamedAttribute, 6> yxTildaSliceDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(4),
                                                b.getI32IntegerAttr(6)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[4],
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[4],
                                                         curOutputDimName[6]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Slice")),
                 b.getNamedAttr("begins", b.getArrayAttr({
@@ -2214,10 +2226,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                            b.getI32IntegerAttr(iYTilda + 1),
                                            b.getI32IntegerAttr(iXTilda + 1),
                                        })),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(4),
                                                b.getI32IntegerAttr(6)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[4],
                                                preOutputDimName[6]}))};
 
@@ -2230,12 +2242,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                 b.getDictionaryAttr(yxDotSliceDimAttr),
                                 b.getDictionaryAttr(yxTildaSliceDimAttr)})));
             transformedFilterAttrs.push_back(b.getNamedAttr(
-                "output_layout",
+                "upper_layer_layout",
                 b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
                                                    curOutputDimName.end()))));
 
             transformedFilterAttrs.push_back(b.getNamedAttr(
-                "intermediate_layout",
+                "lower_layer_layout",
                 b.getArrayAttr(ArrayRef<Attribute>(preOutputDimName.begin(),
                                                    preOutputDimName.end()))));
 
@@ -2258,29 +2270,29 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         curOutputDimName.push_back(b.getStringAttr("gemmG"));
         transformedFilterShape.push_back(g);
         llvm::SmallVector<NamedAttribute, 5> gemmGDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[0]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
-            b.getNamedAttr("source_dimensions",
+            b.getNamedAttr("lower_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({preOutputDimName[0]}))};
 
         // gemmK
         curOutputDimName.push_back(b.getStringAttr("gemmK"));
         transformedFilterShape.push_back(k * yDotSlice * xDotSlice);
         llvm::SmallVector<NamedAttribute, 5> gemmKDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(1)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[1]})),
             b.getNamedAttr("transformation", b.getStringAttr("Merge")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(1), b.getI32IntegerAttr(3),
                                 b.getI32IntegerAttr(5)})),
             b.getNamedAttr(
-                "source_names",
+                "lower_layer_names",
                 b.getArrayAttr({preOutputDimName[1], preOutputDimName[3],
                                 preOutputDimName[5]}))};
 
@@ -2288,16 +2300,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         curOutputDimName.push_back(b.getStringAttr("gemmM"));
         transformedFilterShape.push_back(c);
         llvm::SmallVector<NamedAttribute, 5> gemmMDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(2)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[2]})),
             b.getNamedAttr("transformation", b.getStringAttr("Merge")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(2), b.getI32IntegerAttr(4),
                                 b.getI32IntegerAttr(6)})),
             b.getNamedAttr(
-                "source_names",
+                "lower_layer_names",
                 b.getArrayAttr({preOutputDimName[2], preOutputDimName[4],
                                 preOutputDimName[6]}))};
 
@@ -2307,12 +2319,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                       b.getDictionaryAttr(gemmKDimAttr),
                                       b.getDictionaryAttr(gemmMDimAttr)})));
         transformedFilterAttrs.push_back(b.getNamedAttr(
-            "output_layout",
+            "upper_layer_layout",
             b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
                                                curOutputDimName.end()))));
 
         transformedFilterAttrs.push_back(b.getNamedAttr(
-            "intermediate_layout",
+            "lower_layer_layout",
             b.getArrayAttr(ArrayRef<Attribute>(preOutputDimName.begin(),
                                                preOutputDimName.end()))));
 
@@ -2353,40 +2365,40 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         curOutputDimName.push_back(b.getStringAttr("gi"));
         transformedShape.push_back(g);
         llvm::SmallVector<NamedAttribute, 5> gDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[0]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["gi"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("gi")}))};
         // ni
         curOutputDimName.push_back(b.getStringAttr("ni"));
         transformedShape.push_back(n);
         llvm::SmallVector<NamedAttribute, 5> nDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(1)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[1]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["ni"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("ni")}))};
         // ci
         curOutputDimName.push_back(b.getStringAttr("ci"));
         transformedShape.push_back(c);
         llvm::SmallVector<NamedAttribute, 5> cDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(2)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[2]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["ci"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("ci")}))};
 
         // hip wip
@@ -2395,10 +2407,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedShape.push_back(hiPadded);
         transformedShape.push_back(wiPadded);
         llvm::SmallVector<NamedAttribute, 6> hwpadDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(3),
                                            b.getI32IntegerAttr(4)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[3],
                                                     curOutputDimName[4]})),
             b.getNamedAttr("transformation", b.getStringAttr("Pad")),
             b.getNamedAttr("parameters", b.getArrayAttr({
@@ -2408,10 +2420,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                              b.getI32IntegerAttr(rightPadW),
                                          })),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["hi"]),
                                 b.getI32IntegerAttr(currentKeyToDim["wi"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("hi"),
                                            b.getStringAttr("wi")}))};
         auto isInputHipBoundCheck = [&]() {
@@ -2441,15 +2453,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                       b.getDictionaryAttr(cDimAttr),
                                       b.getDictionaryAttr(hwpadDimAttr)})));
         transformedAttrs.push_back(b.getNamedAttr(
-            "output_layout",
+            "upper_layer_layout",
             b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
                                                curOutputDimName.end()))));
 
         transformedAttrs.push_back(
-            b.getNamedAttr("source_layout", inputLayoutAttr));
+            b.getNamedAttr("lower_layer_layout", inputLayoutAttr));
 
         auto transformedMemRefType =
             MemRefType::get(transformedShape, inputElementType);
+        // set lowest_layer attribute.
+        transformedAttrs.push_back(
+            b.getNamedAttr("lowest_layer", b.getBoolAttr(true)));
         auto gemm = b.create<miopen::TransformOp>(loc, transformedMemRefType,
                                                   op.input(), transformedAttrs,
                                                   /*populateBounds=*/true);
@@ -2467,40 +2482,40 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             curOutputDimName.push_back(b.getStringAttr("gi"));
             transformedShape.push_back(g);
             llvm::SmallVector<NamedAttribute, 5> gDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[0]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[0]}))};
             // n
             curOutputDimName.push_back(b.getStringAttr("ni"));
             transformedShape.push_back(n);
             llvm::SmallVector<NamedAttribute, 5> nDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[1]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[1]}))};
             // c
             curOutputDimName.push_back(b.getStringAttr("ci"));
             transformedShape.push_back(c);
             llvm::SmallVector<NamedAttribute, 5> cDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[2]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[2]}))};
 
             // hi
@@ -2509,10 +2524,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             transformedShape.push_back(yTilda);
             transformedShape.push_back(hTilda);
             llvm::SmallVector<NamedAttribute, 6> hiDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(3),
                                                b.getI32IntegerAttr(4)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[3],
                                                         curOutputDimName[4]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                 b.getNamedAttr("parameters", b.getArrayAttr({
@@ -2520,9 +2535,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                  b.getI32IntegerAttr(strideH),
                                                  b.getI32IntegerAttr(0),
                                              })),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(3)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[3]}))};
 
             // wi
@@ -2531,10 +2546,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             transformedShape.push_back(xTilda);
             transformedShape.push_back(wTilda);
             llvm::SmallVector<NamedAttribute, 6> wiDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(5),
                                                b.getI32IntegerAttr(6)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[5],
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[5],
                                                         curOutputDimName[6]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                 b.getNamedAttr("parameters", b.getArrayAttr({
@@ -2542,9 +2557,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                  b.getI32IntegerAttr(strideW),
                                                  b.getI32IntegerAttr(0),
                                              })),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(4)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[4]}))};
 
             transformedAttrs.push_back(b.getNamedAttr(
@@ -2554,12 +2569,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                           b.getDictionaryAttr(hiDimAttr),
                                           b.getDictionaryAttr(wiDimAttr)})));
             transformedAttrs.push_back(b.getNamedAttr(
-                "output_layout",
+                "upper_layer_layout",
                 b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
                                                    curOutputDimName.end()))));
 
             transformedAttrs.push_back(b.getNamedAttr(
-                "intermediate_layout",
+                "lower_layer_layout",
                 b.getArrayAttr(ArrayRef<Attribute>(preOutputDimName.begin(),
                                                    preOutputDimName.end()))));
 
@@ -2583,42 +2598,42 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             curOutputDimName.push_back(b.getStringAttr("gi"));
             transformedShape.push_back(g);
             llvm::SmallVector<NamedAttribute, 5> gDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[0]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[0]}))};
 
             // n
             curOutputDimName.push_back(b.getStringAttr("ni"));
             transformedShape.push_back(n);
             llvm::SmallVector<NamedAttribute, 5> nDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[1]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[1]}))};
 
             // c
             curOutputDimName.push_back(b.getStringAttr("ci"));
             transformedShape.push_back(c);
             llvm::SmallVector<NamedAttribute, 5> cDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[2]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[2]}))};
 
             // slice ytilda xtilda
@@ -2633,10 +2648,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             transformedShape.push_back(wTildaSlice);
 
             llvm::SmallVector<NamedAttribute, 6> yxTildaSliceDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(3),
                                                b.getI32IntegerAttr(5)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[3],
                                                         curOutputDimName[5]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Slice")),
                 b.getNamedAttr("begins", b.getArrayAttr({
@@ -2647,19 +2662,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                            b.getI32IntegerAttr(iYTilda + 1),
                                            b.getI32IntegerAttr(iXTilda + 1),
                                        })),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(3),
                                                b.getI32IntegerAttr(5)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[3],
                                                preOutputDimName[5]}))};
 
             // hw tilda slice
             llvm::SmallVector<NamedAttribute, 6> hwTildaSliceDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(4),
                                                b.getI32IntegerAttr(6)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[4],
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[4],
                                                         curOutputDimName[6]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Slice")),
                 b.getNamedAttr("begins", b.getArrayAttr({
@@ -2670,10 +2685,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                            b.getI32IntegerAttr(iHTildaRight),
                                            b.getI32IntegerAttr(iWTildaRight),
                                        })),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(4),
                                                b.getI32IntegerAttr(6)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[4],
                                                preOutputDimName[6]}))};
 
@@ -2686,12 +2701,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                 b.getDictionaryAttr(yxTildaSliceDimAttr),
                                 b.getDictionaryAttr(hwTildaSliceDimAttr)})));
             transformedAttrs.push_back(b.getNamedAttr(
-                "output_layout",
+                "upper_layer_layout",
                 b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
                                                    curOutputDimName.end()))));
 
             transformedAttrs.push_back(b.getNamedAttr(
-                "intermediate_layout",
+                "lower_layer_layout",
                 b.getArrayAttr(ArrayRef<Attribute>(preOutputDimName.begin(),
                                                    preOutputDimName.end()))));
 
@@ -2714,29 +2729,29 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         curOutputDimName.push_back(b.getStringAttr("gemmG"));
         transformedShape.push_back(g);
         llvm::SmallVector<NamedAttribute, 5> gemmGDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[0]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
-            b.getNamedAttr("source_dimensions",
+            b.getNamedAttr("lower_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({preOutputDimName[0]}))};
 
         // gemmM
         curOutputDimName.push_back(b.getStringAttr("gemmM"));
         transformedShape.push_back(c * 1 * 1);
         llvm::SmallVector<NamedAttribute, 5> gemmMDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(1)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[1]})),
             b.getNamedAttr("transformation", b.getStringAttr("Merge")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(2), b.getI32IntegerAttr(3),
                                 b.getI32IntegerAttr(5)})),
             b.getNamedAttr(
-                "source_names",
+                "lower_layer_names",
                 b.getArrayAttr({preOutputDimName[2], preOutputDimName[3],
                                 preOutputDimName[5]}))};
 
@@ -2744,16 +2759,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         curOutputDimName.push_back(b.getStringAttr("gemmN"));
         transformedShape.push_back(n * hTildaSlice * wTildaSlice);
         llvm::SmallVector<NamedAttribute, 5> gemmNDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(2)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[2]})),
             b.getNamedAttr("transformation", b.getStringAttr("Merge")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(1), b.getI32IntegerAttr(4),
                                 b.getI32IntegerAttr(6)})),
             b.getNamedAttr(
-                "source_names",
+                "lower_layer_names",
                 b.getArrayAttr({preOutputDimName[1], preOutputDimName[4],
                                 preOutputDimName[6]}))};
 
@@ -2763,12 +2778,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                       b.getDictionaryAttr(gemmMDimAttr),
                                       b.getDictionaryAttr(gemmNDimAttr)})));
         transformedAttrs.push_back(b.getNamedAttr(
-            "output_layout",
+            "upper_layer_layout",
             b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
                                                curOutputDimName.end()))));
 
         transformedAttrs.push_back(b.getNamedAttr(
-            "intermediate_layout",
+            "lower_layer_layout",
             b.getArrayAttr(ArrayRef<Attribute>(preOutputDimName.begin(),
                                                preOutputDimName.end()))));
 
@@ -2823,40 +2838,40 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         curOutputDimName.push_back(b.getStringAttr("go"));
         transformedShape.push_back(g);
         llvm::SmallVector<NamedAttribute, 5> gDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[0]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["go"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("go")}))};
         // no
         curOutputDimName.push_back(b.getStringAttr("no"));
         transformedShape.push_back(n);
         llvm::SmallVector<NamedAttribute, 5> nDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(1)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[1]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["no"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("no")}))};
         // ko
         curOutputDimName.push_back(b.getStringAttr("ko"));
         transformedShape.push_back(k);
         llvm::SmallVector<NamedAttribute, 5> kDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(2)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[2]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["ko"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("ko")}))};
 
         // ho
@@ -2865,10 +2880,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedShape.push_back(yDot);
         transformedShape.push_back(hTilda);
         llvm::SmallVector<NamedAttribute, 6> hoDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(3),
                                            b.getI32IntegerAttr(4)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[3],
                                                     curOutputDimName[4]})),
             b.getNamedAttr("transformation", b.getStringAttr("Embed")),
             b.getNamedAttr(
@@ -2879,9 +2894,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                     b.getI32IntegerAttr(0),
                 })),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["ho"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("ho")}))};
 
         if (y > 1) {
@@ -2895,10 +2910,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedShape.push_back(xDot);
         transformedShape.push_back(wTilda);
         llvm::SmallVector<NamedAttribute, 6> woDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(5),
                                            b.getI32IntegerAttr(6)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[5],
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[5],
                                                     curOutputDimName[6]})),
             b.getNamedAttr("transformation", b.getStringAttr("Embed")),
             b.getNamedAttr(
@@ -2909,9 +2924,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                     b.getI32IntegerAttr(0),
                 })),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["wo"])})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({b.getStringAttr("wo")}))};
 
         if (x > 1) {
@@ -2926,15 +2941,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                  b.getDictionaryAttr(kDimAttr), b.getDictionaryAttr(hoDimAttr),
                  b.getDictionaryAttr(woDimAttr)})));
         transformedAttrs.push_back(b.getNamedAttr(
-            "output_layout",
+            "upper_layer_layout",
             b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
                                                curOutputDimName.end()))));
 
         transformedAttrs.push_back(
-            b.getNamedAttr("source_layout", outputLayoutAttr));
+            b.getNamedAttr("lower_layer_layout", outputLayoutAttr));
 
         auto transformedFilterMemRefType =
             MemRefType::get(transformedShape, outputElementType);
+        // set lowest_layer attribute.
+        transformedAttrs.push_back(
+            b.getNamedAttr("lowest_layer", b.getBoolAttr(true)));
         auto gemm = b.create<miopen::TransformOp>(
             loc, transformedFilterMemRefType, op.output(), transformedAttrs,
             /*populateBounds=*/true);
@@ -2952,42 +2970,42 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             curOutputDimName.push_back(b.getStringAttr("go"));
             transformedShape.push_back(g);
             llvm::SmallVector<NamedAttribute, 5> gDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[0]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[0]}))};
 
             // no
             curOutputDimName.push_back(b.getStringAttr("no"));
             transformedShape.push_back(n);
             llvm::SmallVector<NamedAttribute, 5> nDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[1]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[1]}))};
 
             // ko
             curOutputDimName.push_back(b.getStringAttr("ko"));
             transformedShape.push_back(k);
             llvm::SmallVector<NamedAttribute, 5> kDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[2]})),
                 b.getNamedAttr("transformation",
                                b.getStringAttr("PassThrough")),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[2]}))};
 
             // slice ydot xdot
@@ -3002,10 +3020,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             transformedShape.push_back(wTildaSlice);
 
             llvm::SmallVector<NamedAttribute, 6> yxDotSliceDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(3),
                                                b.getI32IntegerAttr(5)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[3],
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[3],
                                                         curOutputDimName[5]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Slice")),
                 b.getNamedAttr("begins", b.getArrayAttr({
@@ -3016,19 +3034,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                            b.getI32IntegerAttr(yDotSlice),
                                            b.getI32IntegerAttr(xDotSlice),
                                        })),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(3),
                                                b.getI32IntegerAttr(5)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[3],
                                                preOutputDimName[5]}))};
 
             // hw tilda slice
             llvm::SmallVector<NamedAttribute, 6> hwTildaSliceDimAttr{
-                b.getNamedAttr("dimensions",
+                b.getNamedAttr("upper_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(4),
                                                b.getI32IntegerAttr(6)})),
-                b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[4],
+                b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[4],
                                                         curOutputDimName[6]})),
                 b.getNamedAttr("transformation", b.getStringAttr("Slice")),
                 b.getNamedAttr("begins", b.getArrayAttr({
@@ -3039,10 +3057,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                            b.getI32IntegerAttr(iHTildaRight),
                                            b.getI32IntegerAttr(iWTildaRight),
                                        })),
-                b.getNamedAttr("source_dimensions",
+                b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(4),
                                                b.getI32IntegerAttr(6)})),
-                b.getNamedAttr("source_names",
+                b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[4],
                                                preOutputDimName[6]}))};
 
@@ -3055,12 +3073,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                 b.getDictionaryAttr(yxDotSliceDimAttr),
                                 b.getDictionaryAttr(hwTildaSliceDimAttr)})));
             transformedAttrs.push_back(b.getNamedAttr(
-                "output_layout",
+                "upper_layer_layout",
                 b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
                                                    curOutputDimName.end()))));
 
             transformedAttrs.push_back(b.getNamedAttr(
-                "intermediate_layout",
+                "lower_layer_layout",
                 b.getArrayAttr(ArrayRef<Attribute>(preOutputDimName.begin(),
                                                    preOutputDimName.end()))));
 
@@ -3083,29 +3101,29 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         curOutputDimName.push_back(b.getStringAttr("gemmG"));
         transformedShape.push_back(g);
         llvm::SmallVector<NamedAttribute, 5> gemmGDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[0]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[0]})),
             b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
-            b.getNamedAttr("source_dimensions",
+            b.getNamedAttr("lower_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
-            b.getNamedAttr("source_names",
+            b.getNamedAttr("lower_layer_names",
                            b.getArrayAttr({preOutputDimName[0]}))};
 
         // gemmK
         curOutputDimName.push_back(b.getStringAttr("gemmK"));
         transformedShape.push_back(k * yDotSlice * xDotSlice);
         llvm::SmallVector<NamedAttribute, 5> gemmKDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(1)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[1]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[1]})),
             b.getNamedAttr("transformation", b.getStringAttr("Merge")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(2), b.getI32IntegerAttr(3),
                                 b.getI32IntegerAttr(5)})),
             b.getNamedAttr(
-                "source_names",
+                "lower_layer_names",
                 b.getArrayAttr({preOutputDimName[2], preOutputDimName[3],
                                 preOutputDimName[5]}))};
 
@@ -3113,16 +3131,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         curOutputDimName.push_back(b.getStringAttr("gemmN"));
         transformedShape.push_back(n * hTildaSlice * wTildaSlice);
         llvm::SmallVector<NamedAttribute, 5> gemmNDimAttr{
-            b.getNamedAttr("dimensions",
+            b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(2)})),
-            b.getNamedAttr("names", b.getArrayAttr({curOutputDimName[2]})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({curOutputDimName[2]})),
             b.getNamedAttr("transformation", b.getStringAttr("Merge")),
             b.getNamedAttr(
-                "source_dimensions",
+                "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(1), b.getI32IntegerAttr(4),
                                 b.getI32IntegerAttr(6)})),
             b.getNamedAttr(
-                "source_names",
+                "lower_layer_names",
                 b.getArrayAttr({preOutputDimName[1], preOutputDimName[4],
                                 preOutputDimName[6]}))};
 
@@ -3132,12 +3150,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                       b.getDictionaryAttr(gemmKDimAttr),
                                       b.getDictionaryAttr(gemmNDimAttr)})));
         transformedAttrs.push_back(b.getNamedAttr(
-            "output_layout",
+            "upper_layer_layout",
             b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
                                                curOutputDimName.end()))));
 
         transformedAttrs.push_back(b.getNamedAttr(
-            "intermediate_layout",
+            "lower_layer_layout",
             b.getArrayAttr(ArrayRef<Attribute>(preOutputDimName.begin(),
                                                preOutputDimName.end()))));
 
@@ -4250,26 +4268,26 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         "layout",
         b.getArrayAttr(
             {b.getDictionaryAttr(
-                 {b.getNamedAttr("dimensions",
+                 {b.getNamedAttr("upper_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                  b.getNamedAttr("names",
+                  b.getNamedAttr("upper_layer_names",
                                  b.getArrayAttr({b.getStringAttr("g")})),
-                  b.getNamedAttr("source_dimensions",
+                  b.getNamedAttr("lower_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                  b.getNamedAttr("source_names",
+                  b.getNamedAttr("lower_layer_names",
                                  b.getArrayAttr({b.getStringAttr("gemmG")})),
                   b.getNamedAttr("transformation",
                                  b.getStringAttr("PassThrough"))}),
              b.getDictionaryAttr({
-                 b.getNamedAttr("dimensions",
+                 b.getNamedAttr("upper_layer_dimensions",
                                 b.getArrayAttr({b.getI32IntegerAttr(1),
                                                 b.getI32IntegerAttr(2)})),
-                 b.getNamedAttr("names",
+                 b.getNamedAttr("upper_layer_names",
                                 b.getArrayAttr({b.getStringAttr("m0"),
                                                 b.getStringAttr("m1")})),
-                 b.getNamedAttr("source_dimensions",
+                 b.getNamedAttr("lower_layer_dimensions",
                                 b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                 b.getNamedAttr("source_names",
+                 b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmM")})),
                  b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
                  b.getNamedAttr("parameters",
@@ -4277,29 +4295,29 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                                 b.getI32IntegerAttr(1)})),
              }),
              b.getDictionaryAttr({
-                 b.getNamedAttr("dimensions",
+                 b.getNamedAttr("upper_layer_dimensions",
                                 b.getArrayAttr({b.getI32IntegerAttr(3),
                                                 b.getI32IntegerAttr(4)})),
-                 b.getNamedAttr("names",
+                 b.getNamedAttr("upper_layer_names",
                                 b.getArrayAttr({b.getStringAttr("n0"),
                                                 b.getStringAttr("n1")})),
-                 b.getNamedAttr("source_dimensions",
+                 b.getNamedAttr("lower_layer_dimensions",
                                 b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                 b.getNamedAttr("source_names",
+                 b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmN")})),
                  b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
                  b.getNamedAttr("parameters",
                                 b.getArrayAttr({b.getI32IntegerAttr(N1),
                                                 b.getI32IntegerAttr(1)})),
              })})));
-    // set source_layout attribute.
+    // set lower_layer_layout attribute.
     transformedNewOutputAttrs.push_back(b.getNamedAttr(
-        "source_layout",
+        "lower_layer_layout",
         b.getArrayAttr({b.getStringAttr("gemmG"), b.getStringAttr("gemmM"),
                         b.getStringAttr("gemmN")})));
-    // set output_layout attribute.
+    // set upper_layer_layout attribute.
     transformedNewOutputAttrs.push_back(b.getNamedAttr(
-        "output_layout",
+        "upper_layer_layout",
         b.getArrayAttr({b.getStringAttr("g"), b.getStringAttr("m0"),
                         b.getStringAttr("m1"), b.getStringAttr("n0"),
                         b.getStringAttr("n1")})));
@@ -4329,26 +4347,26 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         "layout",
         b.getArrayAttr(
             {b.getDictionaryAttr(
-                 {b.getNamedAttr("dimensions",
+                 {b.getNamedAttr("upper_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                  b.getNamedAttr("names",
+                  b.getNamedAttr("upper_layer_names",
                                  b.getArrayAttr({b.getStringAttr("g")})),
-                  b.getNamedAttr("source_dimensions",
+                  b.getNamedAttr("lower_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                  b.getNamedAttr("source_names",
+                  b.getNamedAttr("lower_layer_names",
                                  b.getArrayAttr({b.getStringAttr("gemmG")})),
                   b.getNamedAttr("transformation",
                                  b.getStringAttr("PassThrough"))}),
              b.getDictionaryAttr({
-                 b.getNamedAttr("dimensions",
+                 b.getNamedAttr("upper_layer_dimensions",
                                 b.getArrayAttr({b.getI32IntegerAttr(1),
                                                 b.getI32IntegerAttr(2)})),
                  b.getNamedAttr(
-                     "names", b.getArrayAttr({b.getStringAttr("gemmMRepeat"),
+                     "upper_layer_names", b.getArrayAttr({b.getStringAttr("gemmMRepeat"),
                                               b.getStringAttr("mPerThread")})),
-                 b.getNamedAttr("source_dimensions",
+                 b.getNamedAttr("lower_layer_dimensions",
                                 b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                 b.getNamedAttr("source_names",
+                 b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmM")})),
                  b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
                  b.getNamedAttr("parameters",
@@ -4356,29 +4374,29 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                                 b.getI32IntegerAttr(1)})),
              }),
              b.getDictionaryAttr({
-                 b.getNamedAttr("dimensions",
+                 b.getNamedAttr("upper_layer_dimensions",
                                 b.getArrayAttr({b.getI32IntegerAttr(3),
                                                 b.getI32IntegerAttr(4)})),
                  b.getNamedAttr(
-                     "names", b.getArrayAttr({b.getStringAttr("gemmNRepeat"),
+                     "upper_layer_names", b.getArrayAttr({b.getStringAttr("gemmNRepeat"),
                                               b.getStringAttr("nPerThread")})),
-                 b.getNamedAttr("source_dimensions",
+                 b.getNamedAttr("lower_layer_dimensions",
                                 b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                 b.getNamedAttr("source_names",
+                 b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmN")})),
                  b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
                  b.getNamedAttr("parameters",
                                 b.getArrayAttr({b.getI32IntegerAttr(NPerThread),
                                                 b.getI32IntegerAttr(1)})),
              })})));
-    // set source_layout attribute.
+    // set lower_layer_layout attribute.
     transformedMatrixCAttrs.push_back(b.getNamedAttr(
-        "source_layout",
+        "lower_layer_layout",
         b.getArrayAttr({b.getStringAttr("gemmG"), b.getStringAttr("gemmM"),
                         b.getStringAttr("gemmN")})));
-    // set output_layout attribute.
+    // set upper_layer_layout attribute.
     transformedMatrixCAttrs.push_back(b.getNamedAttr(
-        "output_layout",
+        "upper_layer_layout",
         b.getArrayAttr({b.getStringAttr("g"), b.getStringAttr("gemmMRepeat"),
                         b.getStringAttr("mPerThread"),
                         b.getStringAttr("gemmNRepeat"),
@@ -5376,28 +5394,28 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         "layout",
         b.getArrayAttr(
             {b.getDictionaryAttr(
-                 {b.getNamedAttr("dimensions",
+                 {b.getNamedAttr("upper_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                  b.getNamedAttr("names",
+                  b.getNamedAttr("upper_layer_names",
                                  b.getArrayAttr({b.getStringAttr("g")})),
-                  b.getNamedAttr("source_dimensions",
+                  b.getNamedAttr("lower_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                  b.getNamedAttr("source_names",
+                  b.getNamedAttr("lower_layer_names",
                                  b.getArrayAttr({b.getStringAttr("gemmG")})),
                   b.getNamedAttr("transformation",
                                  b.getStringAttr("PassThrough"))}),
              b.getDictionaryAttr({
-                 b.getNamedAttr("dimensions",
+                 b.getNamedAttr("upper_layer_dimensions",
                                 b.getArrayAttr({b.getI32IntegerAttr(1),
                                                 b.getI32IntegerAttr(2),
                                                 b.getI32IntegerAttr(3)})),
-                 b.getNamedAttr("names",
+                 b.getNamedAttr("upper_layer_names",
                                 b.getArrayAttr({b.getStringAttr("m0"),
                                                 b.getStringAttr("m1"),
                                                 b.getStringAttr("m2")})),
-                 b.getNamedAttr("source_dimensions",
+                 b.getNamedAttr("lower_layer_dimensions",
                                 b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                 b.getNamedAttr("source_names",
+                 b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmN")})),
                  b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
                  b.getNamedAttr("parameters",
@@ -5406,24 +5424,24 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                                 b.getI32IntegerAttr(1)})),
              }),
              b.getDictionaryAttr(
-                 {b.getNamedAttr("dimensions",
+                 {b.getNamedAttr("upper_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(4)})),
-                  b.getNamedAttr("names",
+                  b.getNamedAttr("upper_layer_names",
                                  b.getArrayAttr({b.getStringAttr("n")})),
-                  b.getNamedAttr("source_dimensions",
+                  b.getNamedAttr("lower_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                  b.getNamedAttr("source_names",
+                  b.getNamedAttr("lower_layer_names",
                                  b.getArrayAttr({b.getStringAttr("gemmN")})),
                   b.getNamedAttr("transformation",
                                  b.getStringAttr("PassThrough"))})})));
-    // set source_layout attribute.
+    // set lower_layer_layout attribute.
     transformedNewOutputAttrs.push_back(b.getNamedAttr(
-        "source_layout",
+        "lower_layer_layout",
         b.getArrayAttr({b.getStringAttr("gemmG"), b.getStringAttr("gemmM"),
                         b.getStringAttr("gemmN")})));
-    // set output_layout attribute.
+    // set upper_layer_layout attribute.
     transformedNewOutputAttrs.push_back(b.getNamedAttr(
-        "output_layout",
+        "upper_layer_layout",
         b.getArrayAttr({b.getStringAttr("g"), b.getStringAttr("m0"),
                         b.getStringAttr("m1"), b.getStringAttr("m2"),
                         b.getStringAttr("n")})));
