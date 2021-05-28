@@ -1,7 +1,7 @@
 // RUN: mlir-opt -miopen-affine-transform %s | FileCheck %s
 
 // test 1-1 dimension mappings.
-func @miopen_transform_1_to_1(%memref: memref<?x?x?x?xf32>) {
+func @miopen_transform_1_to_1(%memref: memref<1x2x3x4xf32>) {
   %transformed_memref = miopen.transform(%memref) {
     layout = [
       {
@@ -36,15 +36,17 @@ func @miopen_transform_1_to_1(%memref: memref<?x?x?x?xf32>) {
       }
     ],
     source_layout = ["n", "c", "hi", "wi"],
-    output_layout = ["n", "c", "hipad", "wipad"]
-  } : memref<?x?x?x?xf32> to memref<?x?x?x?xf32>
+    output_layout = ["n", "c", "hipad", "wipad"],
+    domain = [1, 2, 3, 4],
+    range = [1, 2, 5, 6]
+  } : memref<1x2x3x4xf32> to memref<1x2x5x6xf32>
   return
 }
 // CHECK-LABEL: func @miopen_transform_1_to_1
-//  CHECK-NEXT: miopen.transform
+//  CHECK-NEXT: %{{.*}} = miopen.transform(%{{.*}}) {domain = [1, 2, 3, 4]{{.*}}range = [1, 2, 5, 6]{{.*}}} : memref<1x2x3x4xf32> to memref<1x2x5x6xf32, #{{.*}}>
 
 // test multiple source dimensions map to 1 target dimension.
-func @miopen_transform_n_to_1(%memref : memref<?x?x?x?xf32>) {
+func @miopen_transform_n_to_1(%memref : memref<1x2x3x4xf32>) {
   %transformed_memref = miopen.transform(%memref) {
     layout = [
       {
@@ -64,15 +66,17 @@ func @miopen_transform_n_to_1(%memref : memref<?x?x?x?xf32>) {
     ],
     source_layout = ["k", "c", "y", "x"],
     output_layout = ["gemmK", "gemmM"],
-    gridwise_gemm_argument_pos = 0
-  } : memref<?x?x?x?xf32> to memref<?x?xf32>
+    gridwise_gemm_argument_pos = 0,
+    domain = [1, 2, 3, 4],
+    range = [24, 1]
+  } : memref<1x2x3x4xf32> to memref<24x1xf32>
   return
 }
 // CHECK-LABEL: func @miopen_transform_n_to_1
-//  CHECK-NEXT: miopen.transform
+//  CHECK-NEXT: %{{.*}} = miopen.transform(%{{.*}}) {domain = [1, 2, 3, 4]{{.*}}range = [24, 1]{{.*}}} : memref<1x2x3x4xf32> to memref<24x1xf32, #{{.*}}>
 
 // test 1 source dimension map to multiple target dimensions.
-func @miopen_transform_1_to_n(%memref : memref<?x?x?x?xf32>) {
+func @miopen_transform_1_to_n(%memref : memref<1x2x3x4xf32>) {
   %transformed_memref = miopen.transform(%memref) {
     layout = [
       {
@@ -107,10 +111,12 @@ func @miopen_transform_1_to_n(%memref : memref<?x?x?x?xf32>) {
       }
     ],
     intermediate_layout = ["n", "c", "hipad", "wipad"],
-    output_layout = ["n", "c", "y", "ho", "x", "wo"]
-  } : memref<?x?x?x?xf32> to memref<?x?x?x?x?x?xf32>
+    output_layout = ["n", "c", "y", "ho", "x", "wo"],
+    domain = [1, 2, 3, 4],
+    range = [1, 2, 3, 3, 3, 4]
+  } : memref<1x2x3x4xf32> to memref<1x2x3x3x3x4xf32>
   return
 }
 
 // CHECK-LABEL: func @miopen_transform_1_to_n
-//  CHECK-NEXT: miopen.transform
+//  CHECK-NEXT: %{{.*}} = miopen.transform(%{{.*}}) {domain = [1, 2, 3, 4]{{.*}}range = [1, 2, 3, 3, 3, 4]{{.*}}} : memref<1x2x3x4xf32> to memref<1x2x3x3x3x4xf32, #{{.*}}>
