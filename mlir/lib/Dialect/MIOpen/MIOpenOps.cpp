@@ -176,7 +176,9 @@ static LogicalResult verify(Conv2DBwdWeightOp op) {
     return op.emitError("Disjointed yx or hw!");
   else
     return success();
-} //===----------------------------------------------------------------------===//
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2DDummyOp
 //===----------------------------------------------------------------------===//
 
@@ -215,7 +217,6 @@ static ParseResult parseTransformOp(OpAsmParser &parser, OperationState &result)
       parser.resolveOperand(src, srcType, result.operands) ||
       parser.parseKeywordType("to", dstType) ||
       parser.addTypeToList(dstType, result.types));
-  return success();
 }
 
 static void print(OpAsmPrinter &p, TransformOp op) {
@@ -320,7 +321,6 @@ static ParseResult parseSubviewOp(OpAsmParser &parser, OperationState &result) {
       parser.resolveOperand(offset, parser.getBuilder().getIndexType(), result.operands) ||
       parser.parseKeywordType("to", dstType) ||
       parser.addTypeToList(dstType, result.types));
-  return success();
 }
 
 static void print(OpAsmPrinter &p, miopen::SubviewOp op) {
