@@ -523,8 +523,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // filter : K & CRS , if CRS is under 64 or 32
     // we pad CRS to 32 or 64, then mlir can do gemm
     // we add more one transform to do pad
-    if (convOpType == miopen::ConvOpType::Conv2DOpType &&
-        (gemmKExtra > 0 || gemmMExtra > 0)) {
+    if (convOpType == miopen::ConvOpType::Conv2DOpType && gemmKExtra > 0) {
       StringAttr gemmDim0TargetName = b.getStringAttr(arg0TargetLayoutName0);
       StringAttr gemmDim1TargetName;
       StringAttr gemmDim2TargetName;
@@ -549,6 +548,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       paddingFilterShape.push_back(transformedFilterShape[0]);
       paddingFilterShape.push_back(transformedFilterShape[1]);
       paddingFilterShape.push_back(transformedFilterShape[2]);
+
+      StringAttr gemmKDim;
+      IntegerAttr gemmKDimName;
 
       llvm::SmallVector<NamedAttribute, 3> sourceGemmDim0Attr{
           b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
@@ -618,39 +620,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (gemmMExtra > 0) {
         if (arg0TargetLayoutName1 == "gemmM") {
-          isFilterPad = true;
-          isGemmDim1Pad = true;
-          gemmDim1TargetName = b.getStringAttr(gemmMPad_name);
-
+          isFilterPad = false;
+          isGemmDim1Pad = false;
           paddingFilterShape[1] = paddingFilterShape[1] + gemmMExtra;
-          sourceGemmDim1Attr.push_back(
-              b.getNamedAttr("transformation", b.getStringAttr("Pad")));
-          sourceGemmDim1Attr.push_back(
-              b.getNamedAttr("parameters", b.getArrayAttr({
-                                               b.getI32IntegerAttr(0),
-                                               b.getI32IntegerAttr(gemmMExtra),
-                                           })));
-
-          targetGemmDim1Attr.push_back(b.getNamedAttr(
-              "names", b.getArrayAttr({b.getStringAttr(gemmMPad_name)})));
-
         } else if (arg0TargetLayoutName2 == "gemmM") {
-          llvm::errs() << "shit kevin2\n";
-          isFilterPad = true;
-          isGemmDim2Pad = true;
-          gemmDim2TargetName = b.getStringAttr(gemmMPad_name);
+          isFilterPad = false;
+          isGemmDim2Pad = false;
           paddingFilterShape[2] = paddingFilterShape[2] + gemmMExtra;
-
-          sourceGemmDim2Attr.push_back(
-              b.getNamedAttr("transformation", b.getStringAttr("Pad")));
-          sourceGemmDim2Attr.push_back(
-              b.getNamedAttr("parameters", b.getArrayAttr({
-                                               b.getI32IntegerAttr(0),
-                                               b.getI32IntegerAttr(gemmMExtra),
-                                           })));
-
-          targetGemmDim2Attr.push_back(b.getNamedAttr(
-              "names", b.getArrayAttr({b.getStringAttr(gemmMPad_name)})));
         }
       }
 
@@ -720,7 +696,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       }
       auto paddingFilterMemRefType =
           MemRefType::get(paddingFilterShape, filterElementType);
-
       gemmAPad = b.create<miopen::TransformOp>(loc, paddingFilterMemRefType,
                                                gemmA, paddingFilterAttrs,
                                                /*populateBounds=*/true);
@@ -1366,6 +1341,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       paddingInputShape.push_back(transformedInputShape[1]);
       paddingInputShape.push_back(transformedInputShape[2]);
 
+      StringAttr gemmKDim;
+      IntegerAttr gemmKDimName;
+
       llvm::SmallVector<NamedAttribute, 3> sourceGemmDim0Attr{
           b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
           b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({GemmDim0})),
@@ -1692,8 +1670,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // If Nhw is under 32 or 64 ,we pad it to 32 or 64
     // then mlir can do gemm
     // we just add more one transform to do it
-    if ((convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType &&
-         gemmKExtra > 0)) {
+    if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType &&
+        gemmKExtra > 0) {
       StringAttr gemmDim0TargetName = b.getStringAttr(arg2TargetLayoutName0);
       StringAttr gemmDim1TargetName;
       StringAttr gemmDim2TargetName;
@@ -1718,6 +1696,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       paddingOutputShape.push_back(transformedOutputShape[0]);
       paddingOutputShape.push_back(transformedOutputShape[1]);
       paddingOutputShape.push_back(transformedOutputShape[2]);
+
+      StringAttr gemmKDim;
+      IntegerAttr gemmKDimName;
 
       llvm::SmallVector<NamedAttribute, 3> sourceGemmDim0Attr{
           b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
@@ -1782,33 +1763,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (gemmMExtra > 0) {
         if (arg2TargetLayoutName1 == "gemmM") {
-          isOutputPad = true;
-          isGemmDim1Pad = true;
-          gemmDim1TargetName = b.getStringAttr(gemmMPad_name);
-
+          isOutputPad = false;
+          isGemmDim1Pad = false;
           paddingOutputShape[1] = paddingOutputShape[1] + gemmMExtra;
-          sourceGemmDim1Attr.push_back(
-              b.getNamedAttr("transformation", b.getStringAttr("Pad")));
-          sourceGemmDim1Attr.push_back(b.getNamedAttr(
-              "parameters", b.getArrayAttr({b.getI32IntegerAttr(0),
-                                            b.getI32IntegerAttr(gemmMExtra)})));
-
-          targetGemmDim1Attr.push_back(b.getNamedAttr(
-              "names", b.getArrayAttr({b.getStringAttr(gemmMPad_name)})));
         } else if (arg2TargetLayoutName2 == "gemmM") {
-          isOutputPad = true;
-          isGemmDim2Pad = true;
-          gemmDim2TargetName = b.getStringAttr(gemmMPad_name);
+          isOutputPad = false;
+          isGemmDim2Pad = false;
           paddingOutputShape[2] = paddingOutputShape[2] + gemmMExtra;
-
-          sourceGemmDim2Attr.push_back(
-              b.getNamedAttr("transformation", b.getStringAttr("Pad")));
-          sourceGemmDim2Attr.push_back(b.getNamedAttr(
-              "parameters", b.getArrayAttr({b.getI32IntegerAttr(0),
-                                            b.getI32IntegerAttr(gemmMExtra)})));
-
-          targetGemmDim2Attr.push_back(b.getNamedAttr(
-              "names", b.getArrayAttr({b.getStringAttr(gemmMPad_name)})));
         }
       }
 
@@ -6796,16 +6757,16 @@ struct ThreadwiseCopyRewritePattern
         // we do not  implement the logic of toEmitOOBStoreCheck yet
         bool toEmitOOBStoreCheckLogic = false;
         SmallVector<unsigned, 2> oobStoreCheckDims;
-        if (destLowerIndices.size() == 5) {
-          //for (unsigned iter = 0; iter < destTransform.getNumResults();
-          //     ++iter) {
-            // this code is for testing ,check dim 2
-            // if (iter == 2) {
-            //  toEmitOOBStoreCheckLogic = true;
-            //  oobStoreCheckDims.push_back(iter);
-            // }
-          //}
-        }
+        // if (destLowerIndices.size() == 5) {
+        // for (unsigned iter = 0; iter < destTransform.getNumResults();
+        //     ++iter) {
+        // this code is for testing ,check dim 2
+        // if (iter == 2) {
+        //  toEmitOOBStoreCheckLogic = true;
+        //  oobStoreCheckDims.push_back(iter);
+        // }
+        //}
+        //}
 
         // Store to dest.
         // Issue scalar store.
@@ -6832,8 +6793,9 @@ struct ThreadwiseCopyRewritePattern
           destLowerStoreOOBOp = destLowerStoreOP;
           // 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
           // store do nothing
+          const int twoGB = 2147483647;
           Value oobAddrOp =
-              b.create<ConstantIntOp>(loc, 2147483647, b.getIntegerType(32));
+              b.create<ConstantIntOp>(loc, twoGB, b.getIntegerType(32));
 
           Value zeroAddrOp =
               b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
@@ -7167,15 +7129,15 @@ struct ThreadwiseCopyV2RewritePattern
       // we do not  implement the logic of toEmitOOBStoreCheck yet
       bool toEmitOOBStoreCheckLogic = false;
       SmallVector<unsigned, 2> oobStoreCheckDims;
-      if (destLowerIndices.size() == 5) {
-        //for (unsigned iter = 0; iter < destTransform.getNumResults(); ++iter) {
-          // this code is for testing ,check dim 2
-          // if (iter == 2) {
-          //  toEmitOOBStoreCheckLogic = true;
-          //  oobStoreCheckDims.push_back(iter);
-          // }
-        //}
-      }
+      // if (destLowerIndices.size() == 5) {
+      // for (unsigned iter = 0; iter < destTransform.getNumResults(); ++iter) {
+      // this code is for testing ,check dim 2
+      // if (iter == 2) {
+      //  toEmitOOBStoreCheckLogic = true;
+      //  oobStoreCheckDims.push_back(iter);
+      // }
+      //}
+      //}
 
       // Store to dest.
       // Issue scalar store.
@@ -7203,8 +7165,9 @@ struct ThreadwiseCopyV2RewritePattern
         destLowerStoreOOBOp = destLowerStoreOP;
         // 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
         // store do nothing
+        const int twoGB = 2147483647;
         Value oobAddrOp =
-            b.create<ConstantIntOp>(loc, 2147483647, b.getIntegerType(32));
+            b.create<ConstantIntOp>(loc, twoGB, b.getIntegerType(32));
 
         Value zeroAddrOp =
             b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
