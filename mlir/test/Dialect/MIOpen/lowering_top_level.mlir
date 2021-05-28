@@ -60,7 +60,8 @@ func @miopen_conv2d_bwd_data(%filter : memref<1x128x8x3x3xf32>, %input : memref<
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    padding = [0, 0, 0 ,0],
+    gemm_id = 0
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -87,7 +88,8 @@ func @miopen_conv2d_bwd_data_f16(%filter : memref<1x128x8x3x3xf16>, %input : mem
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    padding = [0, 0, 0 ,0],
+    gemm_id = 0
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }
