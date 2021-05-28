@@ -646,6 +646,13 @@ private:
                                 DerivedBlockGemmParams &blockGemmDerivedParam,
                                 int64_t &gemmCDstPerWrite, int64_t &gridSize);
 
+  LogicalResult populatePaddingKernelDerived(
+      ConvolutionContext &ctx, InitParamsNonXDL &validParams,
+      GemmSize &gemmSize, DerivedParams &gemmADerivedParam,
+      DerivedParams &gemmBDerivedParam,
+      DerivedBlockGemmParams &blockGemmDerivedParam, int64_t &gemmCDstPerWrite,
+      int64_t &gridSize);
+
 public:
   LogicalResult paramsFromCtx(ConvolutionContext &ctx,
                               int64_t blockSizeOverride,
@@ -679,7 +686,7 @@ private:
   // if can't select config from above , use this config to do
   // padding kernel for example , GEMMK/block is 16 , if your gemmK is  13 , we
   // add more 3 gemmk
-  InitParams universal_Parameters = {128, 128, 16};
+  InitParams universal_Parameters = {32, 64, 4};
 
   int64_t obtainBlockSize(InitParamsXDL &params, int64_t waveSize) {
     return waveSize * params.gemmNPerBlock * params.gemmMPerBlock /
@@ -779,6 +786,11 @@ private:
                                 DerivedParams &gemmADerivedParam,
                                 DerivedParams &gemmBDerivedParam,
                                 int64_t &blockSize, int64_t &gridSize);
+
+  LogicalResult populatePaddingKernelDerived(
+      ConvolutionContext &ctx, InitParamsXDL &validParams, GemmSize &gemmSize,
+      DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
+      int64_t &blockSize, int64_t &gridSize);
 
 public:
   LogicalResult paramsFromCtx(ConvolutionContext &ctx,

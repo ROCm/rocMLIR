@@ -1,61 +1,110 @@
 pipeline {
-    agent {
-        docker {
-            image 'rocm/mlir:miopen_test'
-            args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
-            label 'gfx908'
-        }
-    }
+    agent none
     stages {
-        stage('Environment') {
-            steps {
-                sh 'cat /etc/os-release'
-                sh '/opt/rocm/bin/rocm-smi'
+        stage("Resnet50 configs nightly tests") {
+            // Note: the builds are reused between cases on each node
+            // It may be possible to move build steps out to execute once
+            // but this could cause issues with target-specific code
+            // when we run the non-xdlops tests on a gfx900
+            matrix {
+                agent {
+                    docker {
+                        image 'rocm/mlir:miopen_test'
+                        args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+                        label "${XDLOPS == '1' ? 'gfx908 && multi_gpu' : 'gfx908 && multi_gpu'}"
+                    }
+                }
+                axes {
+                    axis {
+                        name 'DTYPE'
+                        values 'fp16', 'fp32'
+                    }
+                    axis {
+                        name 'XDLOPS'
+                        values '1', '0'
+                    }
+                    axis {
+                        name 'LAYOUT'
+                        values 'NCHW', 'NHWC'
+                    }
+                    axis {
+                        name 'DIRECTION'
+                        values '1', '4'
+                    }
+                }
+                stages {
+                    stage('Install parallel (temp until dockerfile updated)') {
+                        steps {
+                            sh 'apt-get update 2>&1 >/dev/null && apt-get install -y --no-install-recommends parallel 2>&1 >/dev/null'
+                        }
+                    }
+                    stage('Environment') {
+                        steps {
+                            echo "Config is ($DTYPE, $LAYOUT, xdlops=$XDLOPS, dir=$DIRECTION)"
+                            sh 'cat /etc/os-release'
+                            sh '/opt/rocm/bin/rocm-smi'
+                        }
+                    }
+                    stage('Build libMLIRMIOpen') {
+                        steps {
+                            checkout scm
+                            cmakeBuild generator: 'Unix Makefiles',\
+                               buildDir: 'build',\
+                               sourceDir: 'llvm',\
+                               installation: 'InDocker',\
+                               buildType: 'Release',\
+                               cmakeArgs: '''-DLLVM_ENABLE_PROJECTS="mlir;lld"
+                    -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                    -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                    -DBUILD_SHARED_LIBS=OFF
+                    -DLLVM_BUILD_LLVM_DYLIB=OFF
+                    -DLLVM_ENABLE_TERMINFO=OFF
+                    -DCMAKE_INSTALL_PREFIX=/opt/rocm
+                    --log-level=WARNING
+                    -DCMAKE_RULE_MESSAGES=OFF
+                    '''
+                            sh 'cd build; make -j $(nproc) libMLIRMIOpen all install >/dev/null'
+                        }
+                    }
+                    stage('Build MIOpenDriver') {
+                        steps {
+                            dir('MIOpen') {
+                                git branch: 'develop', poll: false, url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+                                cmakeBuild buildDir: 'build',\
+                                   buildType: 'Release',\
+                                   installation: 'InDocker',\
+                                   cmakeArgs: '''-DMIOPEN_USE_MLIR=On
+-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+-DBUILD_DEV=On
+-DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
+--log-level=WARNING
+-DCMAKE_RULE_MESSAGES=OFF
+'''
+                                sh 'cd build; make -j $(nproc) MIOpenDriver'
+                            }
+                        }
+                    }
+                    stage("Test MIOpen config") {
+                        steps {
+                            echo "Config is ($DTYPE, $LAYOUT, xdlops=$XDLOPS, dir=$DIRECTION)"
+                            dir('MIOpen/build/') {
+                                sh """
+bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
+--layout $LAYOUT \
+--direction $DIRECTION \
+--dtype $DTYPE \
+${XDLOPS == '1' ? '--xdlops' : '--no-xdlops'} <${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+                            }
+                        }
+                    }
+                }
+                post {
+                    always {
+                        cleanWs()
+                    }
+                }
             }
-        }
-        stage('Build libMLIRMIOpen') {
-            steps {
-                checkout scm
-                sh '''
-                    mkdir -p build && cd build
-                    /usr/local/bin/cmake -G "Unix Makefiles" ../llvm \
-                         -DLLVM_ENABLE_PROJECTS="mlir;lld" \
-                         -DCMAKE_BUILD_TYPE=Release \
-                         -DBUILD_SHARED_LIBS=OFF \
-                         -DLLVM_BUILD_LLVM_DYLIB=OFF \
-                         -DLLVM_ENABLE_TERMINFO=OFF
-                    make -j$(nproc) libMLIRMIOpen
-                '''
-            }
-        }
-        stage('Build MIOpenDriver and Test') {
-            steps {
-                checkout scm
-                sh '''
-                    cd ~
-                    git clone https://github.com/ROCmSoftwarePlatform/MIOpen.git
-                    cd MIOpen
-                    mkdir -p build && cd build
-                    CXX=/opt/rocm/llvm/bin/clang++ cmake -DMIOPEN_USE_MLIR=On \
-                         -DBUILD_DEV=On \
-                         -DCMAKE_BUILD_TYPE=release \
-                         -DMIOPEN_TEST_FLAGS='--verbose \
-                         --disable-verification-cache' ..
-                    make -j MIOpenDriver
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nchw.sh &
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nchw.sh &
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp16_nhwc.sh &
-                    bash $WORKSPACE/mlir/utils/jenkins/miopen-tests/resnet50_fp32_nhwc.sh &
-                    wait 
-                    cd ../../
-                    rm -rf MIOpen
-                '''
-            }
-        }
-    }
-    post {
-        always {
-            cleanWs()
         }
     }
 }

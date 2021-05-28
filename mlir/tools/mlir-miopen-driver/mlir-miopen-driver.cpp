@@ -1311,7 +1311,7 @@ static std::tuple<short, short, int> configRandomTestData() {
       max = 1;
     }
     std::string rseed = randomSeed.getValue();
-    if (rseed[0] >= '0' and rseed[1] <= '9')
+    if (rseed[0] >= '0' and rseed[0] <= '9')
       seed = std::stoi(rseed);
     else
       seed = -1;
@@ -2382,7 +2382,7 @@ int main(int argc, char **argv) {
   } else {
     (void)conv2dGenerator.parseConvDims(
         batchSize, groupSize, inputChannel, inputHeight, inputWidth,
-        outputChannel, outputHeight, outputWidth, filterWidth, filterHeight);
+        outputChannel, outputHeight, outputWidth, filterHeight, filterWidth);
   }
 
   const auto &genConfig = conv2dGenerator.getConfig();

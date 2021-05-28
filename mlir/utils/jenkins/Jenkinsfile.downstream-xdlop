@@ -4,6 +4,7 @@ pipeline {
             image 'rocm/mlir:rocm4.1-latest'
             args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
             label 'gfx908'
+            alwaysPull true
         }
     }
     stages {
@@ -30,7 +31,9 @@ pipeline {
                         -DBUILD_SHARED_LIBS=ON \
                         -DLLVM_BUILD_LLVM_DYLIB=ON \
                         -DMLIR_ROCM_RUNNER_ENABLED=1 \
-                        -DMLIR_MIOPEN_DRIVER_ENABLED=1
+                        -DMLIR_MIOPEN_DRIVER_ENABLED=1 \
+                        -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=1 \
+                        -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=1
                         # if we open sqlite, step4 lowering failed until adding the custom db
                         # -DMLIR_MIOPEN_SQLITE_ENABLED=1
 
