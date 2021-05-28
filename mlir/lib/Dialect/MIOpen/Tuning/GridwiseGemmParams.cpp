@@ -177,7 +177,8 @@ LogicalResult PopulateParams::paramsFromCtx(
                             << " PARAMETERS!\n");
 
     InitParams paddingParam = getUniversalParameters();
-    if ((gemmSize.gemmN % paddingParam.gemmNPerBlock == 0)) {
+    if ((gemmSize.gemmN % paddingParam.gemmNPerBlock == 0) &&
+        (gemmSize.gemmM % paddingParam.gemmMPerBlock == 0)) {
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
 
       for (auto &params : initParameters) {
