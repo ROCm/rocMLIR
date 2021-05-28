@@ -47,18 +47,6 @@ using namespace mlir;
 using namespace mlir::miopen;
 
 //===----------------------------------------------------------------------===//
-// Utility function to build named attribute for the shape of a MemrefType.
-//===----------------------------------------------------------------------===//
-inline NamedAttribute buildMemRefShapeAttr(OpBuilder &b, MemRefType memRefType,
-                                           StringRef identifier) {
-  auto shape = memRefType.getShape();
-  SmallVector<Attribute> shapeAttr;
-  for (auto s : shape)
-    shapeAttr.push_back(b.getI32IntegerAttr(s));
-  return b.getNamedAttr(identifier, b.getArrayAttr(shapeAttr));
-}
-
-//===----------------------------------------------------------------------===//
 // Utility function to repeatedly apply affine transformation to compute the
 // coordinate for the next layer.
 //===----------------------------------------------------------------------===//
