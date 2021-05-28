@@ -6658,10 +6658,10 @@ struct ThreadwiseCopyRewritePattern
         SmallVector<Value, 8> srcLowerIndices =
             layeredSourceIndices[layeredSourceIndices.size() - 1];
 
-        // Pre-populate srcLowerOOBLoadIndices. It will be modified inside
+        // Pre-populate srcLowerLoadOOBIndices. It will be modified inside
         // toEmitOOBCheckLogic basic block.
-        SmallVector<Value, 8> srcLowerOOBLoadIndices;
-        srcLowerOOBLoadIndices = srcLowerIndices;
+        SmallVector<Value, 8> srcLowerLoadOOBIndices;
+        srcLowerLoadOOBIndices = srcLowerIndices;
 
         // Load from source.
         Value scalarValue;
@@ -6793,18 +6793,18 @@ struct ThreadwiseCopyRewritePattern
         SmallVector<Value, 8> destLowerIndices =
             layeredDestIndices[layeredDestIndices.size() - 1];
 
-        // we do not  implement the logic of toEmitOOBStoreCheck Logic yet
+        // we do not  implement the logic of toEmitOOBStoreCheck yet
         bool toEmitOOBStoreCheckLogic = false;
         SmallVector<unsigned, 2> oobStoreCheckDims;
         if (destLowerIndices.size() == 5) {
-          for (unsigned iter = 0; iter < destTransform.getNumResults();
-               ++iter) {
+          //for (unsigned iter = 0; iter < destTransform.getNumResults();
+          //     ++iter) {
             // this code is for testing ,check dim 2
             // if (iter == 2) {
             //  toEmitOOBStoreCheckLogic = true;
             //  oobStoreCheckDims.push_back(iter);
             // }
-          }
+          //}
         }
 
         // Store to dest.
@@ -7164,17 +7164,17 @@ struct ThreadwiseCopyV2RewritePattern
       SmallVector<Value, 8> destLowerIndices =
           layeredDestIndices[layeredDestIndices.size() - 1];
 
-      // we do not  implement the logic of toEmitOOBStoreCheck Logic yet
+      // we do not  implement the logic of toEmitOOBStoreCheck yet
       bool toEmitOOBStoreCheckLogic = false;
       SmallVector<unsigned, 2> oobStoreCheckDims;
       if (destLowerIndices.size() == 5) {
-        for (unsigned iter = 0; iter < destTransform.getNumResults(); ++iter) {
+        //for (unsigned iter = 0; iter < destTransform.getNumResults(); ++iter) {
           // this code is for testing ,check dim 2
           // if (iter == 2) {
           //  toEmitOOBStoreCheckLogic = true;
           //  oobStoreCheckDims.push_back(iter);
           // }
-        }
+        //}
       }
 
       // Store to dest.
