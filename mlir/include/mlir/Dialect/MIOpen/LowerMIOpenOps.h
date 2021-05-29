@@ -6975,8 +6975,10 @@ struct ThreadwiseCopyV2RewritePattern
     }
 
     // Lambda to compute index diff map.
-    auto computeIndexDiffMap = [&b, &loc, &loopIVsPerAccessOrder,
-                                &zeroConstantI32Op, &oneConstantI32Op](
+    auto computeIndexDiffMap = [&b, &loc, &zeroConstantI32Op,
+                                &oneConstantI32Op](
+                                   const SmallVector<int64_t, 8>
+                                       &upperIndicesDiff,
                                    SmallVector<Value, 8> &lowerIndicesUpdated,
                                    const SmallVector<AffineMap> &transforms,
                                    ShapedType inputType,
@@ -6986,19 +6988,18 @@ struct ThreadwiseCopyV2RewritePattern
       // Compose affine maps.
       AffineMap composedTransform = composeTransforms(transforms);
 
-      SmallVector<Attribute, 8> upperIndicesDiff;
-      for (auto &v : loopIVsPerAccessOrder) {
-        upperIndicesDiff.push_back(b.getI32IntegerAttr(v));
-      }
+      SmallVector<Attribute, 8> upperIndicesDiffAttr;
+      for (auto &v : upperIndicesDiff)
+        upperIndicesDiffAttr.push_back(b.getI32IntegerAttr(v));
 
       // Apply map to compute index lower diff tmp, from index upper diff
       // using constantFold.
       SmallVector<Attribute, 8> lowerIndicesDiffAttr;
       if (!composedTransform) {
-        lowerIndicesDiffAttr.assign(upperIndicesDiff.begin(),
-                                    upperIndicesDiff.end());
+        lowerIndicesDiffAttr.assign(upperIndicesDiffAttr.begin(),
+                                    upperIndicesDiffAttr.end());
       } else {
-        (void)composedTransform.constantFold(upperIndicesDiff,
+        (void)composedTransform.constantFold(upperIndicesDiffAttr,
                                              lowerIndicesDiffAttr);
       }
 
@@ -7035,8 +7036,7 @@ struct ThreadwiseCopyV2RewritePattern
 
         // borrow logic would never happen as index diff would always be
         // positive in the current algorithm.
-        assert(upperIndicesDiff[0].template dyn_cast<IntegerAttr>().getInt() >=
-               0);
+        assert(upperIndicesDiff[0] >= 0);
 
         // setup carryOp for the first iteration
         Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
@@ -7102,8 +7102,9 @@ struct ThreadwiseCopyV2RewritePattern
     do {
       // Load from source vector.
       SmallVector<Value, 8> srcLowerIndicesUpdated;
-      computeIndexDiffMap(srcLowerIndicesUpdated, layeredSourceTransform,
-                          sourceType, srcLowerIndices, b.getIntegerType(32));
+      computeIndexDiffMap(loopIVsPerAccessOrder, srcLowerIndicesUpdated,
+                          layeredSourceTransform, sourceType, srcLowerIndices,
+                          b.getIntegerType(32));
 
       // Add sourceOffset to derive the position in the vector.
       auto srcPosition = b.create<IndexCastOp>(
@@ -7119,8 +7120,9 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Store to dest memref.
       SmallVector<Value, 8> destLowerIndicesUpdated;
-      computeIndexDiffMap(destLowerIndicesUpdated, layeredDestTransform,
-                          destType, destLowerIndices, b.getIndexType());
+      computeIndexDiffMap(loopIVsPerAccessOrder, destLowerIndicesUpdated,
+                          layeredDestTransform, destType, destLowerIndices,
+                          b.getIndexType());
 
       // Store to dest.
       // Issue scalar store.
