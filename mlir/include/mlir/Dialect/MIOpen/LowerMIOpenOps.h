@@ -5791,7 +5791,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                                      "dim4")}))}) // dicitionary
                                                                   // attr inside
                                                                   // layout
-                               })), // layout
+                               })),                               // layout
                            b.getNamedAttr("lower_layer_bounds",
                                           b.getArrayAttr({b.getI32IntegerAttr(
                                               1 * M3 * 1 * M2 * 1)})),
@@ -7059,8 +7059,13 @@ struct ThreadwiseCopyV2RewritePattern
       AffineMap composedTransform = composeTransforms(transforms);
 
       // Obtain the shape of lower level memref.
-      ArrayAttr transformMetadata = transformSpec.get("metadata").template cast<ArrayAttr>();
-      ArrayAttr lowerLayerShape = transformMetadata[transformMetadata.size() - 1].template cast<DictionaryAttr>().get("lower_layer_bounds").template cast<ArrayAttr>();
+      ArrayAttr transformMetadata =
+          transformSpec.get("metadata").template cast<ArrayAttr>();
+      ArrayAttr lowerLayerShape =
+          transformMetadata[transformMetadata.size() - 1]
+              .template cast<DictionaryAttr>()
+              .get("lower_layer_bounds")
+              .template cast<ArrayAttr>();
 
       SmallVector<Attribute, 8> upperIndicesDiffAttr;
       for (auto &v : upperIndicesDiff)
@@ -7115,8 +7120,7 @@ struct ThreadwiseCopyV2RewritePattern
 
         // setup carryOp for the first iteration
         Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
-        for (int64_t iter = lowerLayerShape.size() - 1; iter >= 0;
-             --iter) {
+        for (int64_t iter = lowerLayerShape.size() - 1; iter >= 0; --iter) {
           // carry logic.
           auto ifCarryOp = b.create<scf::IfOp>(
               loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
