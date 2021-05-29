@@ -7065,15 +7065,18 @@ struct ThreadwiseCopyV2RewritePattern
                                 &oneConstantI32Op](
                                    const SmallVector<int64_t, 8>
                                        &upperIndicesDiff,
-                                   const DictionaryAttr &metadata,
+                                   const DictionaryAttr &transformSpec,
                                    SmallVector<Value, 8> &lowerIndicesUpdated,
                                    const SmallVector<AffineMap> &transforms,
-                                   ShapedType inputType,
                                    const SmallVector<Value, 8>
                                        &lowerIndicesOriginal,
                                    Type outputType) {
       // Compose affine maps.
       AffineMap composedTransform = composeTransforms(transforms);
+
+      // Obtain the shape of lower level memref.
+      ArrayAttr transformMetadata = transformSpec.get("metadata").template cast<ArrayAttr>();
+      ArrayAttr lowerLayerShape = transformMetadata[transformMetadata.size() - 1].template cast<DictionaryAttr>().get("lower_layer_bounds").template cast<ArrayAttr>();
 
       SmallVector<Attribute, 8> upperIndicesDiffAttr;
       for (auto &v : upperIndicesDiff)
@@ -7092,14 +7095,14 @@ struct ThreadwiseCopyV2RewritePattern
 
       SmallVector<Value, 8> lowerIndicesDiff;
       for (auto attr : lowerIndicesDiffAttr) {
-        int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
+        int64_t v = attr.template cast<IntegerAttr>().getInt();
         auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
         lowerIndicesDiff.push_back(cv);
       }
 
       // Add: index lower old + index lower diff tmp
       SmallVector<Value, 8> lowerIndicesNew;
-      for (unsigned iter = 0; iter < inputType.getShape().size(); ++iter) {
+      for (unsigned iter = 0; iter < lowerLayerShape.size(); ++iter) {
         Value v = b.create<AddIOp>(
             loc,
             b.create<IndexCastOp>(loc, lowerIndicesOriginal[iter],
@@ -7110,7 +7113,8 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Get bounds for source memref.
       SmallVector<Value, 8> boundOp;
-      for (auto v : inputType.getShape()) {
+      for (auto attr : lowerLayerShape) {
+        int64_t v = attr.template cast<IntegerAttr>().getInt();
         auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
         boundOp.push_back(cv);
       }
@@ -7127,7 +7131,7 @@ struct ThreadwiseCopyV2RewritePattern
 
         // setup carryOp for the first iteration
         Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
-        for (int64_t iter = inputType.getShape().size() - 1; iter >= 0;
+        for (int64_t iter = lowerLayerShape.size() - 1; iter >= 0;
              --iter) {
           // carry logic.
           auto ifCarryOp = b.create<scf::IfOp>(
@@ -7177,7 +7181,7 @@ struct ThreadwiseCopyV2RewritePattern
           lowerIndicesUpdated.assign(lowerIndicesNew.begin(),
                                      lowerIndicesNew.end());
         } else {
-          for (unsigned iter = 0; iter < inputType.getShape().size(); ++iter) {
+          for (unsigned iter = 0; iter < lowerLayerShape.size(); ++iter) {
             lowerIndicesUpdated.push_back(b.create<IndexCastOp>(
                 loc, lowerIndicesNew[iter], b.getIndexType()));
           }
@@ -7191,7 +7195,7 @@ struct ThreadwiseCopyV2RewritePattern
       SmallVector<Value, 8> srcLowerIndicesUpdated;
       computeIndexDiffMap(loopIVsPerAccessOrder, srcTransformSpec,
                           srcLowerIndicesUpdated, layeredSourceTransform,
-                          sourceType, srcLowerIndices, b.getIntegerType(32));
+                          srcLowerIndices, b.getIntegerType(32));
 
       // Add sourceOffset to derive the position in the vector.
       auto srcPosition = b.create<IndexCastOp>(
@@ -7209,7 +7213,7 @@ struct ThreadwiseCopyV2RewritePattern
       SmallVector<Value, 8> destLowerIndicesUpdated;
       computeIndexDiffMap(loopIVsPerAccessOrder, destTransformSpec,
                           destLowerIndicesUpdated, layeredDestTransform,
-                          destType, destLowerIndices, b.getIndexType());
+                          destLowerIndices, b.getIndexType());
 
       // Store to dest.
       // Issue scalar store.
