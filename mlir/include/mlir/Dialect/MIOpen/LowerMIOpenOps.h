@@ -6966,8 +6966,8 @@ struct ThreadwiseCopyV2RewritePattern
         layeredDestIndices[layeredDestIndices.size() - 1];
 
     // Emit fully unrolled loops for vector loads / stores.
-    SmallVector<int64_t, 2> loopIVsPerAccessOrder;
-    SmallVector<int64_t, 2> loopBoundsPerAccessOrder;
+    SmallVector<int64_t, 8> loopIVsPerAccessOrder;
+    SmallVector<int64_t, 8> loopBoundsPerAccessOrder;
     for (unsigned iter = 0; iter < dimAccessOrder.size(); ++iter) {
       auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
       loopIVsPerAccessOrder.push_back(0);
@@ -6977,7 +6977,7 @@ struct ThreadwiseCopyV2RewritePattern
     // Lambda to compute index diff map.
     auto computeIndexDiffMap = [&b, &loc, &loopIVsPerAccessOrder,
                                 &zeroConstantI32Op, &oneConstantI32Op](
-                                   SmallVector<Value, 4> &lowerIndicesUpdated,
+                                   SmallVector<Value, 8> &lowerIndicesUpdated,
                                    const SmallVector<AffineMap> &transforms,
                                    ShapedType inputType,
                                    const SmallVector<Value, 8>
@@ -6986,14 +6986,14 @@ struct ThreadwiseCopyV2RewritePattern
       // Compose affine maps.
       AffineMap composedTransform = composeTransforms(transforms);
 
-      SmallVector<Attribute, 2> upperIndicesDiff;
+      SmallVector<Attribute, 8> upperIndicesDiff;
       for (auto &v : loopIVsPerAccessOrder) {
         upperIndicesDiff.push_back(b.getI32IntegerAttr(v));
       }
 
       // Apply map to compute index lower diff tmp, from index upper diff
       // using constantFold.
-      SmallVector<Attribute, 4> lowerIndicesDiffAttr;
+      SmallVector<Attribute, 8> lowerIndicesDiffAttr;
       if (!composedTransform) {
         lowerIndicesDiffAttr.assign(upperIndicesDiff.begin(),
                                     upperIndicesDiff.end());
@@ -7021,7 +7021,7 @@ struct ThreadwiseCopyV2RewritePattern
       }
 
       // Get bounds for source memref.
-      SmallVector<Value, 4> boundOp;
+      SmallVector<Value, 8> boundOp;
       for (auto v : inputType.getShape()) {
         auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
         boundOp.push_back(cv);
@@ -7031,7 +7031,7 @@ struct ThreadwiseCopyV2RewritePattern
       if (composedTransform && hasDivisionOrRemainder(composedTransform)) {
         // Apply carry / borrow logic to compute index lower new
         // carry logic on Value instances.
-        SmallVector<Value, 4> lowerIndicesNewCarried;
+        SmallVector<Value, 8> lowerIndicesNewCarried;
 
         // borrow logic would never happen as index diff would always be
         // positive in the current algorithm.
@@ -7101,7 +7101,7 @@ struct ThreadwiseCopyV2RewritePattern
     bool toExit = false;
     do {
       // Load from source vector.
-      SmallVector<Value, 4> srcLowerIndicesUpdated;
+      SmallVector<Value, 8> srcLowerIndicesUpdated;
       computeIndexDiffMap(srcLowerIndicesUpdated, layeredSourceTransform,
                           sourceType, srcLowerIndices, b.getIntegerType(32));
 
@@ -7118,7 +7118,7 @@ struct ThreadwiseCopyV2RewritePattern
           loc, sourceType.getElementType(), op.source(), srcPosition);
 
       // Store to dest memref.
-      SmallVector<Value, 4> destLowerIndicesUpdated;
+      SmallVector<Value, 8> destLowerIndicesUpdated;
       computeIndexDiffMap(destLowerIndicesUpdated, layeredDestTransform,
                           destType, destLowerIndices, b.getIndexType());
 
