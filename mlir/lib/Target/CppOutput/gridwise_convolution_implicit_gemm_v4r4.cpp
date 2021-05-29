@@ -710,7 +710,8 @@ void mlir::translateModuleFromMIOpenToHeader(ModuleOp m, std::string &header) {
  
     srcLayoutAttrCtr = 0;
     // Second iteration. Output the rest.
-    f.walk([&output, &srcLayoutAttrCtr, &tensorDescs, &gridwiseGemmArguments](miopen::TransformOp op) {
+    f.walk([&output, &srcLayoutAttrCtr, &tensorDescs,
+            &gridwiseGemmArguments](miopen::TransformOp op) {
       // get lower_layer_layout attribute.
       auto srcLayoutAttr = op->getAttrOfType<ArrayAttr>("lower_layer_layout");
 
@@ -729,7 +730,8 @@ void mlir::translateModuleFromMIOpenToHeader(ModuleOp m, std::string &header) {
 
       // determine input and output tensor name.
       auto immLayoutAttr = op->getAttrOfType<ArrayAttr>("lower_layer_layout");
-      auto outputLayoutAttr = op->getAttrOfType<ArrayAttr>("upper_layer_layout");
+      auto outputLayoutAttr =
+          op->getAttrOfType<ArrayAttr>("upper_layer_layout");
       if (srcLayoutAttr && srcLayoutAttrCtr == 0) {
         inputTensorName = tensorDescs[srcLayoutAttrCtr];
         outs << kVarName[srcLayoutAttrCtr] << "_";
@@ -766,10 +768,14 @@ void mlir::translateModuleFromMIOpenToHeader(ModuleOp m, std::string &header) {
 
       for (auto layoutSpec = layoutAttr.begin(); layoutSpec != layoutAttr.end(); ) {
         if (auto layoutSpecDict = layoutSpec->dyn_cast<DictionaryAttr>()) {
-          auto srcNames = layoutSpecDict.get("lower_layer_names").dyn_cast<ArrayAttr>();
-          auto dstNames = layoutSpecDict.get("upper_layer_names").dyn_cast<ArrayAttr>();
-          auto srcDims = layoutSpecDict.get("lower_layer_dimensions").dyn_cast<ArrayAttr>();
-          auto dstDims = layoutSpecDict.get("upper_layer_dimensions").dyn_cast<ArrayAttr>();
+          auto srcNames =
+              layoutSpecDict.get("lower_layer_names").dyn_cast<ArrayAttr>();
+          auto dstNames =
+              layoutSpecDict.get("upper_layer_names").dyn_cast<ArrayAttr>();
+          auto srcDims = layoutSpecDict.get("lower_layer_dimensions")
+                             .dyn_cast<ArrayAttr>();
+          auto dstDims = layoutSpecDict.get("upper_layer_dimensions")
+                             .dyn_cast<ArrayAttr>();
 
           if (auto transform = layoutSpecDict.get("transformation").dyn_cast<StringAttr>()) {
             if (transform.getValue() == "PassThrough") {
