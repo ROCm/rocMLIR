@@ -6815,8 +6815,12 @@ struct ThreadwiseCopyV2RewritePattern
       layeredDestTransform.assign(destTypeAffineMaps.begin(),
                                   destTypeAffineMaps.end());
     }
+
+    // Obtain metadata of coordinate transformations.
+    ArrayAttr coordTransformMetadata;
     if (coordTransformsAttr) {
-      for (auto attr : coordTransformsAttr.template cast<ArrayAttr>()) {
+      coordTransformMetadata = coordTransformsAttr.template cast<ArrayAttr>();
+      for (auto attr : coordTransformMetadata) {
         auto dictAttr = attr.template cast<DictionaryAttr>();
         auto operandIndex =
             dictAttr.get("operand").template cast<IntegerAttr>().getInt();
@@ -6886,7 +6890,7 @@ struct ThreadwiseCopyV2RewritePattern
 
     if (sourceExternalTransform || sourceEmbeddedTransform) {
       // Use bound or domain attribute from source vector.
-      for (auto attr : coordTransformsAttr.template cast<ArrayAttr>()) {
+      for (auto attr : coordTransformMetadata) {
         auto dictAttr = attr.template cast<DictionaryAttr>();
         auto operandIndex =
             dictAttr.get("operand").template cast<IntegerAttr>().getInt();
@@ -6979,6 +6983,7 @@ struct ThreadwiseCopyV2RewritePattern
                                 &oneConstantI32Op](
                                    const SmallVector<int64_t, 8>
                                        &upperIndicesDiff,
+                                   const ArrayAttr &metadata,
                                    SmallVector<Value, 8> &lowerIndicesUpdated,
                                    const SmallVector<AffineMap> &transforms,
                                    ShapedType inputType,
@@ -7102,9 +7107,9 @@ struct ThreadwiseCopyV2RewritePattern
     do {
       // Load from source vector.
       SmallVector<Value, 8> srcLowerIndicesUpdated;
-      computeIndexDiffMap(loopIVsPerAccessOrder, srcLowerIndicesUpdated,
-                          layeredSourceTransform, sourceType, srcLowerIndices,
-                          b.getIntegerType(32));
+      computeIndexDiffMap(loopIVsPerAccessOrder, coordTransformMetadata,
+                          srcLowerIndicesUpdated, layeredSourceTransform,
+                          sourceType, srcLowerIndices, b.getIntegerType(32));
 
       // Add sourceOffset to derive the position in the vector.
       auto srcPosition = b.create<IndexCastOp>(
@@ -7120,9 +7125,9 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Store to dest memref.
       SmallVector<Value, 8> destLowerIndicesUpdated;
-      computeIndexDiffMap(loopIVsPerAccessOrder, destLowerIndicesUpdated,
-                          layeredDestTransform, destType, destLowerIndices,
-                          b.getIndexType());
+      computeIndexDiffMap(loopIVsPerAccessOrder, coordTransformMetadata,
+                          destLowerIndicesUpdated, layeredDestTransform,
+                          destType, destLowerIndices, b.getIndexType());
 
       // Store to dest.
       // Issue scalar store.
