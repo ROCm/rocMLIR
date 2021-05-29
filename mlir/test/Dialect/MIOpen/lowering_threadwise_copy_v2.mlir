@@ -14,10 +14,11 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
 
   // A simplified usage of threadwise_copy_v2.
   // Source vector has a transformation.
-  // Source vector has offset and bound.
+  // Source vector has no offset.
+  // Source vector has a bound.
   // Dest memref has a transformation.
   // CHECK-NOT: scf.for
-  miopen.threadwise_copy_v2(%source, %dest1D, %source_offset,
+  miopen.threadwise_copy_v2(%source, %dest1D, %c0_i32,
                             %c0_i32, %c0_i32, %c0_i32,
                             %c0_i32, %c0_i32, %c0_i32) {
     dim_access_order = [0 : i32, 1 : i32, 2 : i32],
@@ -26,27 +27,49 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
     vector_read_write_dim = 0,
     bound = [1 : i32, 8 : i32, 4 : i32],
     coord_transforms = [
-      {operand = 0 : i32, transforms = [#map0]}, 
-      {operand = 1 : i32, transforms = [#map0], 
-       domain = [1 : i32, 8 : i32, 4 : i32],
-       metadata = [
-         {
-           layout = [
-             {
-                lower_layer_dimensions = [0 : i32],
-                lower_layer_names = ["raw"],
-                transformation = "UnMerge",
-                upper_layer_dimensions = [0 : i32, 1 : i32, 2 : i32],
-                upper_layer_names = ["no", "ho", "wo"]
-             }
-           ], 
-           lower_layer_bounds = [32 : i32], 
-           lower_layer_layout = ["vector"], 
-           lowest_layer = true,
-           upper_layer_bounds = [1 : i32, 8 : i32, 4 : i32],
-           upper_layer_layout = ["no", "ho", "wo"]
-         }
-       ]}
+      {
+        operand = 0 : i32, transforms = [#map0],
+        metadata = [
+          {
+            layout = [
+              {
+                 lower_layer_dimensions = [0 : i32],
+                 lower_layer_names = ["raw"],
+                 transformation = "UnMerge",
+                 upper_layer_dimensions = [0 : i32, 1 : i32, 2 : i32],
+                 upper_layer_names = ["no", "ho", "wo"]
+              }
+            ],
+            lower_layer_bounds = [32 : i32],
+            lower_layer_layout = ["vector"],
+            lowest_layer = true,
+            upper_layer_bounds = [1 : i32, 8 : i32, 4 : i32],
+            upper_layer_layout = ["no", "ho", "wo"]
+          }
+        ]
+      }, 
+      {
+        operand = 1 : i32, transforms = [#map0], 
+        domain = [1 : i32, 8 : i32, 4 : i32],
+        metadata = [
+          {
+            layout = [
+              {
+                 lower_layer_dimensions = [0 : i32],
+                 lower_layer_names = ["raw"],
+                 transformation = "UnMerge",
+                 upper_layer_dimensions = [0 : i32, 1 : i32, 2 : i32],
+                 upper_layer_names = ["no", "ho", "wo"]
+              }
+            ], 
+            lower_layer_bounds = [32 : i32], 
+            lower_layer_layout = ["vector"], 
+            lowest_layer = true,
+            upper_layer_bounds = [1 : i32, 8 : i32, 4 : i32],
+            upper_layer_layout = ["no", "ho", "wo"]
+          }
+        ]
+      }
     ]
   } : vector<32xf32>, memref<32xf32>
 
@@ -60,57 +83,73 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
                             %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32) {
     bound = [1 : i32, 4 : i32, 1 : i32, 4 : i32, 1 : i32], 
     coord_transforms = [ 
-      {operand = 0 : i32, transforms = [#map6]},
-      {domain = [1 : i32, 128 : i32, 2 : i32, 4 : i32, 25088 : i32], 
-       metadata = [
-         {layout = [
-            {lower_layer_dimensions = [0 : i32], 
-             lower_layer_names = ["gemmG"],
-             transformation = "PassThrough",
-             upper_layer_dimensions = [0 : i32],
-             upper_layer_names = ["g"]}, 
-            {lower_layer_dimensions = [2 : i32],
-             lower_layer_names = ["gemmN"],
-             parameters = [8 : i32, 4 : i32, 1 : i32],
-             transformation = "UnMerge",
-             upper_layer_dimensions = [1 : i32, 2 : i32, 3 : i32],
-             upper_layer_names = ["m0", "m1", "m2"]},
-            {lower_layer_dimensions = [2 : i32],
-             lower_layer_names = ["gemmN"],
-             transformation = "PassThrough",
-             upper_layer_dimensions = [4 : i32],
-             upper_layer_names = ["n"]}
-          ], 
-          lower_layer_bounds = [1 : i32, 1024 : i32, 25088 : i32], 
-          lower_layer_layout = ["gemmG", "gemmM", "gemmN"],
-          upper_layer_bounds = [1 : i32, 128 : i32, 2 : i32, 4 : i32, 25088 : i32],
-          upper_layer_layout = ["g", "m0", "m1", "m2", "n"]}, 
-         {extraPad = "false", gemmMExtra = 0 : i32, gemmNExtra = 0 : i32,
-          gridwise_gemm_argument_position = 2 : i32, 
-          layout = [
-            {lower_layer_dimensions = [1 : i32], 
-             lower_layer_names = ["go"], 
-             transformation = "PassThrough",
-             upper_layer_dimensions = [0 : i32],
-             upper_layer_names = ["gemmG"]}, 
-            {lower_layer_dimensions = [2 : i32],
-             lower_layer_names = ["ko"],
-             transformation = "PassThrough",
-             upper_layer_dimensions = [1 : i32],
-             upper_layer_names = ["gemmM"]}, 
-            {lower_layer_dimensions = [0 : i32, 3 : i32, 4 : i32],
-             lower_layer_names = ["no", "ho", "wo"],
-             transformation = "Merge",
-             upper_layer_dimensions = [2 : i32],
-             upper_layer_names = ["gemmN"]}
-          ], 
-          lower_layer_bounds = [128 : i32, 1 : i32, 1024 : i32, 14 : i32, 14 : i32],
-          lower_layer_layout = ["no", "go", "ko", "ho", "wo"],
-          lowest_layer = true,
-          upper_layer_bounds = [1 : i32, 1024 : i32, 25088 : i32],
-          upper_layer_layout = ["gemmG", "gemmM", "gemmN"]}
-        ], 
-        operand = 1 : i32, transforms = [#map7, #map8]
+      {
+        operand = 0 : i32, transforms = [#map6],
+        metadata = [
+          {layout = [
+             {lower_layer_dimensions = [0 : i32],
+              lower_layer_names = ["raw"],
+              transformation = "UnMerge",
+              upper_layer_dimensions = [0 : i32, 1 : i32, 2 : i32, 3 : i32, 4 : i32],
+              upper_layer_names = ["g", "m0", "m1", "m2", "n"]}
+           ],
+           lower_layer_bounds = [32 : i32], // FIXME. CHECK THIS.
+           lower_layer_layout = ["raw"],
+           upper_layer_bounds = [1 : i32, 4 : i32, 1 : i32, 4 : i32, 1 : i32],
+           upper_layer_layout = ["g", "m0", "m1", "m2", "n"]}
+         ]
+      },
+      {
+        operand = 1 : i32, transforms = [#map7, #map8],
+        domain = [1 : i32, 128 : i32, 2 : i32, 4 : i32, 25088 : i32], 
+        metadata = [
+          {layout = [
+             {lower_layer_dimensions = [0 : i32], 
+              lower_layer_names = ["gemmG"],
+              transformation = "PassThrough",
+              upper_layer_dimensions = [0 : i32],
+              upper_layer_names = ["g"]}, 
+             {lower_layer_dimensions = [2 : i32],
+              lower_layer_names = ["gemmN"],
+              parameters = [8 : i32, 4 : i32, 1 : i32],
+              transformation = "UnMerge",
+              upper_layer_dimensions = [1 : i32, 2 : i32, 3 : i32],
+              upper_layer_names = ["m0", "m1", "m2"]},
+             {lower_layer_dimensions = [2 : i32],
+              lower_layer_names = ["gemmN"],
+              transformation = "PassThrough",
+              upper_layer_dimensions = [4 : i32],
+              upper_layer_names = ["n"]}
+           ], 
+           lower_layer_bounds = [1 : i32, 1024 : i32, 25088 : i32], 
+           lower_layer_layout = ["gemmG", "gemmM", "gemmN"],
+           upper_layer_bounds = [1 : i32, 128 : i32, 2 : i32, 4 : i32, 25088 : i32],
+           upper_layer_layout = ["g", "m0", "m1", "m2", "n"]}, 
+          {extraPad = "false", gemmMExtra = 0 : i32, gemmNExtra = 0 : i32,
+           gridwise_gemm_argument_position = 2 : i32, 
+           layout = [
+             {lower_layer_dimensions = [1 : i32], 
+              lower_layer_names = ["go"], 
+              transformation = "PassThrough",
+              upper_layer_dimensions = [0 : i32],
+              upper_layer_names = ["gemmG"]}, 
+             {lower_layer_dimensions = [2 : i32],
+              lower_layer_names = ["ko"],
+              transformation = "PassThrough",
+              upper_layer_dimensions = [1 : i32],
+              upper_layer_names = ["gemmM"]}, 
+             {lower_layer_dimensions = [0 : i32, 3 : i32, 4 : i32],
+              lower_layer_names = ["no", "ho", "wo"],
+              transformation = "Merge",
+              upper_layer_dimensions = [2 : i32],
+              upper_layer_names = ["gemmN"]}
+           ], 
+           lower_layer_bounds = [128 : i32, 1 : i32, 1024 : i32, 14 : i32, 14 : i32],
+           lower_layer_layout = ["no", "go", "ko", "ho", "wo"],
+           lowest_layer = true,
+           upper_layer_bounds = [1 : i32, 1024 : i32, 25088 : i32],
+           upper_layer_layout = ["gemmG", "gemmM", "gemmN"]}
+         ]
       }
     ], 
     dest_data_per_write = 1 : i32, 
