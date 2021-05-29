@@ -2040,8 +2040,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // key to dim
       std::map<StringRef, int> filterKeyToDim;
       for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-        if (auto strAttr = filterLayoutAttr.getValue()[i]
-                               .template cast<StringAttr>()) {
+        if (auto strAttr =
+                filterLayoutAttr.getValue()[i].template cast<StringAttr>()) {
           filterKeyToDim[strAttr.getValue()] = i;
         }
       }
@@ -2892,8 +2892,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
-        if (auto strAttr = outputLayoutAttr.getValue()[i]
-                               .template cast<StringAttr>()) {
+        if (auto strAttr =
+                outputLayoutAttr.getValue()[i].template cast<StringAttr>()) {
           currentKeyToDim[strAttr.getValue()] = i;
         }
       }
@@ -3704,14 +3704,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     // Obtain critical matrix dimensions.
-    int64_t G =
-        op.filter().getType().template cast<MemRefType>().getShape()[0];
-    int64_t K =
-        op.filter().getType().template cast<MemRefType>().getShape()[1];
-    int64_t M =
-        op.filter().getType().template cast<MemRefType>().getShape()[2];
-    int64_t N =
-        op.input().getType().template cast<MemRefType>().getShape()[2];
+    int64_t G = op.filter().getType().template cast<MemRefType>().getShape()[0];
+    int64_t K = op.filter().getType().template cast<MemRefType>().getShape()[1];
+    int64_t M = op.filter().getType().template cast<MemRefType>().getShape()[2];
+    int64_t N = op.input().getType().template cast<MemRefType>().getShape()[2];
 
     // Obtain critical tuning parameters.
     int64_t BlockSize =
@@ -3729,18 +3725,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto MPerThreadConstantOp = b.create<ConstantIndexOp>(loc, MPerThread);
     auto NPerThreadConstantOp = b.create<ConstantIndexOp>(loc, NPerThread);
 
-    int64_t MLevel0Cluster = op->getAttr("m_level0_cluster")
-                                 .template cast<IntegerAttr>()
-                                 .getInt();
-    int64_t MLevel1Cluster = op->getAttr("m_level1_cluster")
-                                 .template cast<IntegerAttr>()
-                                 .getInt();
-    int64_t NLevel0Cluster = op->getAttr("n_level0_cluster")
-                                 .template cast<IntegerAttr>()
-                                 .getInt();
-    int64_t NLevel1Cluster = op->getAttr("n_level1_cluster")
-                                 .template cast<IntegerAttr>()
-                                 .getInt();
+    int64_t MLevel0Cluster =
+        op->getAttr("m_level0_cluster").template cast<IntegerAttr>().getInt();
+    int64_t MLevel1Cluster =
+        op->getAttr("m_level1_cluster").template cast<IntegerAttr>().getInt();
+    int64_t NLevel0Cluster =
+        op->getAttr("n_level0_cluster").template cast<IntegerAttr>().getInt();
+    int64_t NLevel1Cluster =
+        op->getAttr("n_level1_cluster").template cast<IntegerAttr>().getInt();
     auto NLevel0ClusterConstantOp =
         b.create<ConstantIndexOp>(loc, NLevel0Cluster);
     auto NLevel1ClusterConstantOp =
@@ -4753,14 +4745,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     // Obtain critical matrix dimensions.
-    int64_t G =
-        op.filter().getType().template cast<MemRefType>().getShape()[0];
-    int64_t K =
-        op.filter().getType().template cast<MemRefType>().getShape()[1];
-    int64_t M =
-        op.filter().getType().template cast<MemRefType>().getShape()[2];
-    int64_t N =
-        op.input().getType().template cast<MemRefType>().getShape()[2];
+    int64_t G = op.filter().getType().template cast<MemRefType>().getShape()[0];
+    int64_t K = op.filter().getType().template cast<MemRefType>().getShape()[1];
+    int64_t M = op.filter().getType().template cast<MemRefType>().getShape()[2];
+    int64_t N = op.input().getType().template cast<MemRefType>().getShape()[2];
 
     // Obtain critical tuning parameters.
     int64_t BlockSize =
@@ -5803,7 +5791,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                                      "dim4")}))}) // dicitionary
                                                                   // attr inside
                                                                   // layout
-                               })), // layout
+                               })),                               // layout
                            b.getNamedAttr("lower_layer_bounds",
                                           b.getArrayAttr({b.getI32IntegerAttr(
                                               1 * M3 * 1 * M2 * 1)})),
@@ -5892,18 +5880,14 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     auto NPerThreadSubCConstantI32Op =
         b.create<ConstantIntOp>(loc, NPerThreadSubC, b.getIntegerType(32));
 
-    int64_t MLevel0Cluster = op->getAttr("m_level0_cluster")
-                                 .template cast<IntegerAttr>()
-                                 .getInt();
-    int64_t MLevel1Cluster = op->getAttr("m_level1_cluster")
-                                 .template cast<IntegerAttr>()
-                                 .getInt();
-    int64_t NLevel0Cluster = op->getAttr("n_level0_cluster")
-                                 .template cast<IntegerAttr>()
-                                 .getInt();
-    int64_t NLevel1Cluster = op->getAttr("n_level1_cluster")
-                                 .template cast<IntegerAttr>()
-                                 .getInt();
+    int64_t MLevel0Cluster =
+        op->getAttr("m_level0_cluster").template cast<IntegerAttr>().getInt();
+    int64_t MLevel1Cluster =
+        op->getAttr("m_level1_cluster").template cast<IntegerAttr>().getInt();
+    int64_t NLevel0Cluster =
+        op->getAttr("n_level0_cluster").template cast<IntegerAttr>().getInt();
+    int64_t NLevel1Cluster =
+        op->getAttr("n_level1_cluster").template cast<IntegerAttr>().getInt();
 
     int64_t MPerLevel1Cluster = MPerThreadSubC * MLevel0Cluster * MLevel1Cluster;
     int64_t NPerLevel1Cluster = NPerThreadSubC * NLevel0Cluster * NLevel1Cluster;
@@ -7075,8 +7059,13 @@ struct ThreadwiseCopyV2RewritePattern
       AffineMap composedTransform = composeTransforms(transforms);
 
       // Obtain the shape of lower level memref.
-      ArrayAttr transformMetadata = transformSpec.get("metadata").template cast<ArrayAttr>();
-      ArrayAttr lowerLayerShape = transformMetadata[transformMetadata.size() - 1].template cast<DictionaryAttr>().get("lower_layer_bounds").template cast<ArrayAttr>();
+      ArrayAttr transformMetadata =
+          transformSpec.get("metadata").template cast<ArrayAttr>();
+      ArrayAttr lowerLayerShape =
+          transformMetadata[transformMetadata.size() - 1]
+              .template cast<DictionaryAttr>()
+              .get("lower_layer_bounds")
+              .template cast<ArrayAttr>();
 
       SmallVector<Attribute, 8> upperIndicesDiffAttr;
       for (auto &v : upperIndicesDiff)
@@ -7131,8 +7120,7 @@ struct ThreadwiseCopyV2RewritePattern
 
         // setup carryOp for the first iteration
         Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
-        for (int64_t iter = lowerLayerShape.size() - 1; iter >= 0;
-             --iter) {
+        for (int64_t iter = lowerLayerShape.size() - 1; iter >= 0; --iter) {
           // carry logic.
           auto ifCarryOp = b.create<scf::IfOp>(
               loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
