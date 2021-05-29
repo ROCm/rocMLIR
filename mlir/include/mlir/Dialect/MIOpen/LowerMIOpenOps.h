@@ -6817,10 +6817,12 @@ struct ThreadwiseCopyV2RewritePattern
     }
 
     // Obtain metadata of coordinate transformations.
-    ArrayAttr coordTransformMetadata;
+    ArrayAttr coordTransformSpec;
+    DictionaryAttr srcTransformSpec;
+    DictionaryAttr destTransformSpec;
     if (coordTransformsAttr) {
-      coordTransformMetadata = coordTransformsAttr.template cast<ArrayAttr>();
-      for (auto attr : coordTransformMetadata) {
+      coordTransformSpec = coordTransformsAttr.template cast<ArrayAttr>();
+      for (auto attr : coordTransformSpec) {
         auto dictAttr = attr.template cast<DictionaryAttr>();
         auto operandIndex =
             dictAttr.get("operand").template cast<IntegerAttr>().getInt();
@@ -6831,6 +6833,7 @@ struct ThreadwiseCopyV2RewritePattern
                                   .getValue()
                                   .getNumInputs();
           sourceExternalTransform = true;
+          srcTransformSpec = dictAttr;
 
           // Populate affine maps for each layer.
           for (auto &am : transforms)
@@ -6842,6 +6845,7 @@ struct ThreadwiseCopyV2RewritePattern
                                 .getValue()
                                 .getNumInputs();
           destExternalTransform = true;
+          destTransformSpec = dictAttr;
 
           // Populate affine maps for each layer.
           for (auto &am : transforms)
@@ -6890,7 +6894,7 @@ struct ThreadwiseCopyV2RewritePattern
 
     if (sourceExternalTransform || sourceEmbeddedTransform) {
       // Use bound or domain attribute from source vector.
-      for (auto attr : coordTransformMetadata) {
+      for (auto attr : coordTransformSpec) {
         auto dictAttr = attr.template cast<DictionaryAttr>();
         auto operandIndex =
             dictAttr.get("operand").template cast<IntegerAttr>().getInt();
@@ -6983,7 +6987,7 @@ struct ThreadwiseCopyV2RewritePattern
                                 &oneConstantI32Op](
                                    const SmallVector<int64_t, 8>
                                        &upperIndicesDiff,
-                                   const ArrayAttr &metadata,
+                                   const DictionaryAttr &metadata,
                                    SmallVector<Value, 8> &lowerIndicesUpdated,
                                    const SmallVector<AffineMap> &transforms,
                                    ShapedType inputType,
@@ -7107,7 +7111,7 @@ struct ThreadwiseCopyV2RewritePattern
     do {
       // Load from source vector.
       SmallVector<Value, 8> srcLowerIndicesUpdated;
-      computeIndexDiffMap(loopIVsPerAccessOrder, coordTransformMetadata,
+      computeIndexDiffMap(loopIVsPerAccessOrder, srcTransformSpec,
                           srcLowerIndicesUpdated, layeredSourceTransform,
                           sourceType, srcLowerIndices, b.getIntegerType(32));
 
@@ -7125,7 +7129,7 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Store to dest memref.
       SmallVector<Value, 8> destLowerIndicesUpdated;
-      computeIndexDiffMap(loopIVsPerAccessOrder, coordTransformMetadata,
+      computeIndexDiffMap(loopIVsPerAccessOrder, destTransformSpec,
                           destLowerIndicesUpdated, layeredDestTransform,
                           destType, destLowerIndices, b.getIndexType());
 
