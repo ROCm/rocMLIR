@@ -154,17 +154,17 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
 
     // Get shape of filter tensor.
-    auto filterType = op.filter().getType().template dyn_cast<MemRefType>();
+    auto filterType = op.filter().getType().template cast<MemRefType>();
     auto filterShape = filterType.getShape();
     auto filterElementType = filterType.getElementType();
 
     // Get shape of input tensor.
-    auto inputType = op.input().getType().template dyn_cast<MemRefType>();
+    auto inputType = op.input().getType().template cast<MemRefType>();
     auto inputShape = inputType.getShape();
     auto inputElementType = inputType.getElementType();
 
     // Get shape of output tensor.
-    auto outputType = op.output().getType().template dyn_cast<MemRefType>();
+    auto outputType = op.output().getType().template cast<MemRefType>();
     auto outputShape = outputType.getShape();
     auto outputElementType = outputType.getElementType();
 
@@ -175,7 +175,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // transforming input tensor.
     for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
       if (auto strAttr =
-              outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
+              outputLayoutAttr.getValue()[i].template cast<StringAttr>()) {
         if (strAttr.getValue() == "ho") {
           outputHDim = i;
         } else if (strAttr.getValue() == "wo") {
@@ -186,22 +186,22 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Obtain convolution parameters: padding / dialtion / stride.
     auto leftPadH =
-        paddingAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+        paddingAttr.getValue()[0].template cast<IntegerAttr>().getInt();
     auto leftPadW =
-        paddingAttr.getValue()[2].template dyn_cast<IntegerAttr>().getInt();
+        paddingAttr.getValue()[2].template cast<IntegerAttr>().getInt();
     auto rightPadH =
-        paddingAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+        paddingAttr.getValue()[1].template cast<IntegerAttr>().getInt();
     auto rightPadW =
-        paddingAttr.getValue()[3].template dyn_cast<IntegerAttr>().getInt();
+        paddingAttr.getValue()[3].template cast<IntegerAttr>().getInt();
 
     auto dilationH =
-        dilationsAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+        dilationsAttr.getValue()[0].template cast<IntegerAttr>().getInt();
     auto dilationW =
-        dilationsAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+        dilationsAttr.getValue()[1].template cast<IntegerAttr>().getInt();
     auto strideH =
-        stridesAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+        stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
     auto strideW =
-        stridesAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+        stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
 
     // get y, x, ho, wo, hi, wi, k, c, n
     int64_t y, x, ho, wo, hi, wi, k, c, n;
@@ -209,11 +209,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     llvm::DenseMap<StringRef, int> nameToDims;
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
-          filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+          filterLayoutAttr.getValue()[i].template cast<StringAttr>();
       auto inputAttr =
-          inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
       auto outputAttr =
-          outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+          outputLayoutAttr.getValue()[i].template cast<StringAttr>();
 
       nameToDims[filterAttr.getValue()] = i;
       nameToDims[inputAttr.getValue()] = i;
@@ -360,7 +360,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
         if (auto strAttr =
-                filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
+                filterLayoutAttr.getValue()[i].template cast<StringAttr>()) {
           if (strAttr.getValue() == "k") {
             kDim = b.getI32IntegerAttr(i);
             kDimName = strAttr;
@@ -728,7 +728,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       llvm::SmallVector<StringAttr, 2> hwDimNames;
       for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
         if (auto strAttr =
-                inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
+                inputLayoutAttr.getValue()[i].template cast<StringAttr>()) {
           if (strAttr.getValue() == "ni") {
             nDim = b.getI32IntegerAttr(i);
             nDimName = strAttr;
@@ -764,7 +764,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         } else {
           // Set padded dimension.
           auto strAttr =
-              inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+              inputLayoutAttr.getValue()[i].template cast<StringAttr>();
           if (strAttr.getValue() == "hi") {
             paddedInputShape.push_back(hiPadded);
           } else if (strAttr.getValue() == "wi") {
@@ -1519,7 +1519,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       StringAttr kDimName, gDimName;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
         if (auto strAttr =
-                outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
+                outputLayoutAttr.getValue()[i].template cast<StringAttr>()) {
           if (strAttr.getValue() == "ko") {
             kDim = b.getI32IntegerAttr(i);
             kDimName = strAttr;
@@ -1928,48 +1928,48 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
 
     // Get shape of filter tensor.
-    auto filterType = op.filter().getType().template dyn_cast<MemRefType>();
+    auto filterType = op.filter().getType().template cast<MemRefType>();
     auto filterShape = filterType.getShape();
     auto filterElementType = filterType.getElementType();
 
     // Get shape of input tensor.
-    auto inputType = op.input().getType().template dyn_cast<MemRefType>();
+    auto inputType = op.input().getType().template cast<MemRefType>();
     auto inputShape = inputType.getShape();
     auto inputElementType = inputType.getElementType();
 
     // Get shape of output tensor.
-    auto outputType = op.output().getType().template dyn_cast<MemRefType>();
+    auto outputType = op.output().getType().template cast<MemRefType>();
     auto outputShape = outputType.getShape();
     auto outputElementType = outputType.getElementType();
 
     // Obtain convolution parameters: padding / dialtion / stride.
     auto leftPadH =
-        paddingAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+        paddingAttr.getValue()[0].template cast<IntegerAttr>().getInt();
     auto leftPadW =
-        paddingAttr.getValue()[2].template dyn_cast<IntegerAttr>().getInt();
+        paddingAttr.getValue()[2].template cast<IntegerAttr>().getInt();
     auto rightPadH =
-        paddingAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+        paddingAttr.getValue()[1].template cast<IntegerAttr>().getInt();
     auto rightPadW =
-        paddingAttr.getValue()[3].template dyn_cast<IntegerAttr>().getInt();
+        paddingAttr.getValue()[3].template cast<IntegerAttr>().getInt();
 
     auto dilationH =
-        dilationsAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+        dilationsAttr.getValue()[0].template cast<IntegerAttr>().getInt();
     auto dilationW =
-        dilationsAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+        dilationsAttr.getValue()[1].template cast<IntegerAttr>().getInt();
     auto strideH =
-        stridesAttr.getValue()[0].template dyn_cast<IntegerAttr>().getInt();
+        stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
     auto strideW =
-        stridesAttr.getValue()[1].template dyn_cast<IntegerAttr>().getInt();
+        stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
     // get y, x, ho, wo, hi, wi
     int64_t g, n, k, c, y, x, ho, wo, hi, wi;
     g = n = k = c = y = x = ho = wo = hi = wi = 0;
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
-          filterLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+          filterLayoutAttr.getValue()[i].template cast<StringAttr>();
       auto inputAttr =
-          inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
       auto outputAttr =
-          outputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>();
+          outputLayoutAttr.getValue()[i].template cast<StringAttr>();
 
       if (filterAttr.getValue() == "g") {
         g = filterShape[i];
@@ -2041,7 +2041,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       std::map<StringRef, int> filterKeyToDim;
       for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
         if (auto strAttr = filterLayoutAttr.getValue()[i]
-                               .template dyn_cast<StringAttr>()) {
+                               .template cast<StringAttr>()) {
           filterKeyToDim[strAttr.getValue()] = i;
         }
       }
@@ -2404,7 +2404,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
         if (auto strAttr =
-                inputLayoutAttr.getValue()[i].template dyn_cast<StringAttr>()) {
+                inputLayoutAttr.getValue()[i].template cast<StringAttr>()) {
           currentKeyToDim[strAttr.getValue()] = i;
         }
       }
@@ -2893,7 +2893,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
         if (auto strAttr = outputLayoutAttr.getValue()[i]
-                               .template dyn_cast<StringAttr>()) {
+                               .template cast<StringAttr>()) {
           currentKeyToDim[strAttr.getValue()] = i;
         }
       }
@@ -3472,16 +3472,16 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                             int64_t &block_space) const {
     int64_t ABlockCopyDstDataPerWrite_M =
         op->getAttr("matrix_a_dest_data_per_write_dim_m")
-            .template dyn_cast<IntegerAttr>()
+            .template cast<IntegerAttr>()
             .getInt();
     int64_t BBlockCopyDstDataPerWrite_N =
         op->getAttr("matrix_b_dest_data_per_write_dim_n")
-            .template dyn_cast<IntegerAttr>()
+            .template cast<IntegerAttr>()
             .getInt();
     int64_t ThreadGemmAThreadCopySrcDataPerRead_M =
-        op->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_thread").template cast<IntegerAttr>().getInt();
     int64_t ThreadGemmBThreadCopySrcDataPerRead_N =
-        op->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_thread").template cast<IntegerAttr>().getInt();
 
     int64_t max_lds_align =
         math::lcm(ABlockCopyDstDataPerWrite_M, BBlockCopyDstDataPerWrite_N,
@@ -3489,11 +3489,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                   ThreadGemmBThreadCopySrcDataPerRead_N);
 
     int64_t KPerBlock =
-        op->getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
     int64_t MPerBlock =
-        op->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
     int64_t NPerBlock =
-        op->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
 
     int64_t AlignedNPerBlock =
         max_lds_align *
@@ -3679,7 +3679,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                            .getType()
                            .cast<MemRefType>()
                            .getElementType()
-                           .template dyn_cast<Type>();
+                           .template cast<Type>();
 
     // Determine the type used on VGPR to act as accumulator.
     // f32: f32.
@@ -3705,41 +3705,41 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Obtain critical matrix dimensions.
     int64_t G =
-        op.filter().getType().template dyn_cast<MemRefType>().getShape()[0];
+        op.filter().getType().template cast<MemRefType>().getShape()[0];
     int64_t K =
-        op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
+        op.filter().getType().template cast<MemRefType>().getShape()[1];
     int64_t M =
-        op.filter().getType().template dyn_cast<MemRefType>().getShape()[2];
+        op.filter().getType().template cast<MemRefType>().getShape()[2];
     int64_t N =
-        op.input().getType().template dyn_cast<MemRefType>().getShape()[2];
+        op.input().getType().template cast<MemRefType>().getShape()[2];
 
     // Obtain critical tuning parameters.
     int64_t BlockSize =
-        op->getAttr("block_size").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("block_size").template cast<IntegerAttr>().getInt();
     int64_t KPerBlock =
-        op->getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
     int64_t MPerBlock =
-        op->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
     int64_t NPerBlock =
-        op->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
     int64_t MPerThread =
-        op->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_thread").template cast<IntegerAttr>().getInt();
     int64_t NPerThread =
-        op->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_thread").template cast<IntegerAttr>().getInt();
     auto MPerThreadConstantOp = b.create<ConstantIndexOp>(loc, MPerThread);
     auto NPerThreadConstantOp = b.create<ConstantIndexOp>(loc, NPerThread);
 
     int64_t MLevel0Cluster = op->getAttr("m_level0_cluster")
-                                 .template dyn_cast<IntegerAttr>()
+                                 .template cast<IntegerAttr>()
                                  .getInt();
     int64_t MLevel1Cluster = op->getAttr("m_level1_cluster")
-                                 .template dyn_cast<IntegerAttr>()
+                                 .template cast<IntegerAttr>()
                                  .getInt();
     int64_t NLevel0Cluster = op->getAttr("n_level0_cluster")
-                                 .template dyn_cast<IntegerAttr>()
+                                 .template cast<IntegerAttr>()
                                  .getInt();
     int64_t NLevel1Cluster = op->getAttr("n_level1_cluster")
-                                 .template dyn_cast<IntegerAttr>()
+                                 .template cast<IntegerAttr>()
                                  .getInt();
     auto NLevel0ClusterConstantOp =
         b.create<ConstantIndexOp>(loc, NLevel0Cluster);
@@ -3748,19 +3748,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     int64_t matrix_a_source_data_per_read =
         op->getAttr("matrix_a_source_data_per_read")
-            .template dyn_cast<IntegerAttr>()
+            .template cast<IntegerAttr>()
             .getInt();
     int64_t matrix_b_source_data_per_read =
         op->getAttr("matrix_b_source_data_per_read")
-            .template dyn_cast<IntegerAttr>()
+            .template cast<IntegerAttr>()
             .getInt();
     int64_t matrix_a_source_vector_read_dim =
         op->getAttr("matrix_a_source_vector_read_dim")
-            .template dyn_cast<IntegerAttr>()
+            .template cast<IntegerAttr>()
             .getInt();
     int64_t matrix_b_source_vector_read_dim =
         op->getAttr("matrix_b_source_vector_read_dim")
-            .template dyn_cast<IntegerAttr>()
+            .template cast<IntegerAttr>()
             .getInt();
 
     // Get current workgroup ID.
@@ -4337,7 +4337,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                        op.getContext());
 
     // compose with output tensor affine map.
-    auto outputType = op.output().getType().template dyn_cast<MemRefType>();
+    auto outputType = op.output().getType().template cast<MemRefType>();
     auto outputAffineMaps = outputType.getAffineMaps();
     SmallVector<AffineMap> newOutputAffineMaps;
     newOutputAffineMaps.assign(outputAffineMaps.begin(),
@@ -4532,22 +4532,22 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
   void computeLDSBlockSizes(miopen::GridwiseGemmV2Op op, int64_t &a_block_space, int64_t &b_block_space, int64_t &total_block_space) const {
     int64_t ABlockCopyDstDataPerWrite_M =
         op->getAttr("matrix_a_dest_data_per_write_dim_m")
-            .template dyn_cast<IntegerAttr>()
+            .template cast<IntegerAttr>()
             .getInt();
     int64_t BBlockCopyDstDataPerWrite_N =
         op->getAttr("matrix_b_dest_data_per_write_dim_n")
-            .template dyn_cast<IntegerAttr>()
+            .template cast<IntegerAttr>()
             .getInt();
 
     int64_t max_lds_align =
         math::lcm(ABlockCopyDstDataPerWrite_M, BBlockCopyDstDataPerWrite_N);
 
     int64_t KPerBlock =
-        op->getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
     int64_t MPerBlock =
-        op->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
     int64_t NPerBlock =
-        op->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
 
     int64_t AlignedNPerBlock =
         max_lds_align *
@@ -4647,13 +4647,13 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto xdlopsV2Attr = gop->template getAttrOfType<BoolAttr>("xdlopsV2");
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
       int64_t MPerBlock =
-          gop->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+          gop->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
       int64_t NPerBlock =
-          gop->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+          gop->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
       int64_t MPerWave =
-          gop->getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
+          gop->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
       int64_t NPerWave =
-          gop->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
+          gop->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
       int64_t MWaves = MPerBlock / MPerWave;
       int64_t NWaves = NPerBlock / NPerWave;
 
@@ -4672,13 +4672,13 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     bop->setAttr("block_size", gop->getAttr("block_size"));
 
     int64_t MPerBlock =
-        gop->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+        gop->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
     int64_t NPerBlock =
-        gop->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+        gop->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
     int64_t MPerWave =
-        gop->getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
+        gop->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
     int64_t NPerWave =
-        gop->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
+        gop->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
     int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
 
@@ -4688,11 +4688,11 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     bop->setAttr("n_waves", b.getI32IntegerAttr(NWaves));
 
     int64_t M =
-        bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[2];
+        bop.matrixA().getType().template cast<MemRefType>().getShape()[2];
     int64_t N =
-        bop.matrixB().getType().template dyn_cast<MemRefType>().getShape()[2];
+        bop.matrixB().getType().template cast<MemRefType>().getShape()[2];
     int64_t K =
-        bop.matrixA().getType().template dyn_cast<MemRefType>().getShape()[1];
+        bop.matrixA().getType().template cast<MemRefType>().getShape()[1];
 
     bop->setAttr("m", b.getI32IntegerAttr(M));
     bop->setAttr("n", b.getI32IntegerAttr(N));
@@ -4754,50 +4754,50 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Obtain critical matrix dimensions.
     int64_t G =
-        op.filter().getType().template dyn_cast<MemRefType>().getShape()[0];
+        op.filter().getType().template cast<MemRefType>().getShape()[0];
     int64_t K =
-        op.filter().getType().template dyn_cast<MemRefType>().getShape()[1];
+        op.filter().getType().template cast<MemRefType>().getShape()[1];
     int64_t M =
-        op.filter().getType().template dyn_cast<MemRefType>().getShape()[2];
+        op.filter().getType().template cast<MemRefType>().getShape()[2];
     int64_t N =
-        op.input().getType().template dyn_cast<MemRefType>().getShape()[2];
+        op.input().getType().template cast<MemRefType>().getShape()[2];
 
     // Obtain critical tuning parameters.
     int64_t BlockSize =
-        op->getAttr("block_size").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("block_size").template cast<IntegerAttr>().getInt();
     int64_t KPerBlock =
-        op->getAttr("k_per_block").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
     int64_t MPerBlock =
-        op->getAttr("m_per_block").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
     int64_t NPerBlock =
-        op->getAttr("n_per_block").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
 
     int64_t matrix_a_source_data_per_read =
         op->getAttr("matrix_a_source_data_per_read")
-            .template dyn_cast<IntegerAttr>()
+            .template cast<IntegerAttr>()
             .getInt();
     int64_t matrix_b_source_data_per_read =
         op->getAttr("matrix_b_source_data_per_read")
-            .template dyn_cast<IntegerAttr>()
+            .template cast<IntegerAttr>()
             .getInt();
     int64_t matrix_a_source_vector_read_dim =
         op->getAttr("matrix_a_source_vector_read_dim")
-            .template dyn_cast<IntegerAttr>()
+            .template cast<IntegerAttr>()
             .getInt();
     int64_t matrix_b_source_vector_read_dim =
         op->getAttr("matrix_b_source_vector_read_dim")
-            .template dyn_cast<IntegerAttr>()
+            .template cast<IntegerAttr>()
             .getInt();
 
     // Obtain XDLOPS-related attributes.
     int64_t MPerWave =
-        op->getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
     int64_t NPerWave =
-        op->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
     // int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
     auto dataType =
-        op.input().getType().template dyn_cast<MemRefType>().getElementType();
+        op.input().getType().template cast<MemRefType>().getElementType();
 
     auto MPerWaveConstantOp = b.create<ConstantIndexOp>(loc, MPerWave);
     auto NPerWaveConstantOp = b.create<ConstantIndexOp>(loc, NPerWave);
@@ -5465,7 +5465,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                        op.getContext());
 
     // compose with output tensor affine map.
-    auto outputType = op.output().getType().template dyn_cast<MemRefType>();
+    auto outputType = op.output().getType().template cast<MemRefType>();
     auto outputAffineMaps = outputType.getAffineMaps();
     SmallVector<AffineMap> newOutputAffineMaps;
     newOutputAffineMaps.assign(outputAffineMaps.begin(),
@@ -5810,15 +5810,15 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
  
     // Obtain critical attributes.
     int64_t KPerThread =
-        op->getAttr("k_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("k_per_thread").template cast<IntegerAttr>().getInt();
     int64_t MPerThread =
-        op.matrixC().getType().template dyn_cast<MemRefType>().getShape()[1];
+        op.matrixC().getType().template cast<MemRefType>().getShape()[1];
     int64_t NPerThread =
-        op.matrixC().getType().template dyn_cast<MemRefType>().getShape()[2];
+        op.matrixC().getType().template cast<MemRefType>().getShape()[2];
     int64_t MPerThreadSubC =
-        op->getAttr("m_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_thread").template cast<IntegerAttr>().getInt();
     int64_t NPerThreadSubC =
-        op->getAttr("n_per_thread").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_thread").template cast<IntegerAttr>().getInt();
 
     // llvm::errs() << "MPerThread: " << MPerThread << "\n";
     // llvm::errs() << "MPerThreadSubC: " << MPerThreadSubC << "\n";
@@ -5831,16 +5831,16 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
         b.create<ConstantIntOp>(loc, NPerThreadSubC, b.getIntegerType(32));
 
     int64_t MLevel0Cluster = op->getAttr("m_level0_cluster")
-                                 .template dyn_cast<IntegerAttr>()
+                                 .template cast<IntegerAttr>()
                                  .getInt();
     int64_t MLevel1Cluster = op->getAttr("m_level1_cluster")
-                                 .template dyn_cast<IntegerAttr>()
+                                 .template cast<IntegerAttr>()
                                  .getInt();
     int64_t NLevel0Cluster = op->getAttr("n_level0_cluster")
-                                 .template dyn_cast<IntegerAttr>()
+                                 .template cast<IntegerAttr>()
                                  .getInt();
     int64_t NLevel1Cluster = op->getAttr("n_level1_cluster")
-                                 .template dyn_cast<IntegerAttr>()
+                                 .template cast<IntegerAttr>()
                                  .getInt();
 
     int64_t MPerLevel1Cluster = MPerThreadSubC * MLevel0Cluster * MLevel1Cluster;
@@ -6180,12 +6180,12 @@ struct ThreadwiseGemmRewritePattern
     auto gemmB = op.matrixB();
     auto gemmC = op.matrixC();
     auto dataType =
-        gemmA.getType().template dyn_cast<MemRefType>().getElementType();
+        gemmA.getType().template cast<MemRefType>().getElementType();
 
     ArrayRef<int64_t> gemmAShape =
-        gemmA.getType().dyn_cast<MemRefType>().getShape();
+        gemmA.getType().cast<MemRefType>().getShape();
     ArrayRef<int64_t> gemmBShape =
-        gemmB.getType().dyn_cast<MemRefType>().getShape();
+        gemmB.getType().cast<MemRefType>().getShape();
 
     auto loopG = b.create<AffineForOp>(loc, 0, gemmAShape[0], 1);
     auto lbG = loopG.getBody();
@@ -7308,22 +7308,22 @@ struct XdlopsGemmV2RewritePattern
     auto loc = op.getLoc();
 
     // Obtain critical information.
-    int64_t M = op->getAttr("m").template dyn_cast<IntegerAttr>().getInt();
-    int64_t N = op->getAttr("n").template dyn_cast<IntegerAttr>().getInt();
-    int64_t K = op->getAttr("k").template dyn_cast<IntegerAttr>().getInt();
+    int64_t M = op->getAttr("m").template cast<IntegerAttr>().getInt();
+    int64_t N = op->getAttr("n").template cast<IntegerAttr>().getInt();
+    int64_t K = op->getAttr("k").template cast<IntegerAttr>().getInt();
     int64_t MPerWave =
-        op->getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
     int64_t NPerWave =
-        op->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
 
     // Obtain coordinate transforms for Matrix A and B.
     auto coordTransformsAttr =
-        op->getAttr("coord_transforms").template dyn_cast<ArrayAttr>();
+        op->getAttr("coord_transforms").template cast<ArrayAttr>();
     AffineMap transformMatrixA, transformMatrixB;
     for (auto transformAttr : coordTransformsAttr) {
-      auto dictAttr = transformAttr.template dyn_cast<DictionaryAttr>();
+      auto dictAttr = transformAttr.template cast<DictionaryAttr>();
       auto operandIndex =
-          dictAttr.get("operand").template dyn_cast<IntegerAttr>().getInt();
+          dictAttr.get("operand").template cast<IntegerAttr>().getInt();
       auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
       if (transforms.size() > 0) {
         // Use the first affine map in the transforms array.
@@ -7337,7 +7337,7 @@ struct XdlopsGemmV2RewritePattern
     }
 
     auto dataType =
-        op.matrixA().getType().template dyn_cast<MemRefType>().getElementType();
+        op.matrixA().getType().template cast<MemRefType>().getElementType();
 
     auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
     auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
@@ -7396,7 +7396,7 @@ struct XdlopsGemmV2RewritePattern
     if (dataType == b.getF32Type()) {
       KRepeats = 1 / k_base;
     } else if (dataType == b.getF16Type() || dataType == b.getIntegerType(16)) {
-      VectorType argVectorType = argType.template dyn_cast<VectorType>();
+      VectorType argVectorType = argType.template cast<VectorType>();
       KRepeats = argVectorType.getShape()[0] / k_base;
     }
 
@@ -7529,10 +7529,10 @@ struct XdlopsGemmV2RewritePattern
       } else if (dataType == b.getF16Type() ||
                  dataType == b.getIntegerType(16)) {
         argA = loopKb.create<vector::TransferReadOp>(
-            loc, argType.template dyn_cast<VectorType>(), op.bufferA(),
+            loc, argType.template cast<VectorType>(), op.bufferA(),
             ValueRange{loopKiv});
         argB = loopKb.create<vector::TransferReadOp>(
-            loc, argType.template dyn_cast<VectorType>(), op.bufferB(),
+            loc, argType.template cast<VectorType>(), op.bufferB(),
             ValueRange{loopKiv});
       }
 
@@ -7686,10 +7686,10 @@ struct XdlopsGemmV2RewritePattern
       } else if (dataType == b.getF16Type() ||
                  dataType == b.getIntegerType(16)) {
         argA = innerLoopb.create<vector::TransferReadOp>(
-            loc, argType.template dyn_cast<VectorType>(), op.bufferA(),
+            loc, argType.template cast<VectorType>(), op.bufferA(),
             ValueRange{offset});
         argB = innerLoopb.create<vector::TransferReadOp>(
-            loc, argType.template dyn_cast<VectorType>(), op.bufferB(),
+            loc, argType.template cast<VectorType>(), op.bufferB(),
             ValueRange{offset});
       }
 
@@ -7730,9 +7730,9 @@ struct BlockwiseGemmV2RewritePattern
     auto loc = op.getLoc();
 
     int64_t MPerWave =
-        op->getAttr("m_per_wave").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
     int64_t NPerWave =
-        op->getAttr("n_per_wave").template dyn_cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
 
     // Original C++ logic.
     // static constexpr index_t MRepeats = (GemmMPerWave > 64) ? (GemmMPerWave /
