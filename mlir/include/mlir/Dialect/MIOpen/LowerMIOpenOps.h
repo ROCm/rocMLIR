@@ -6820,16 +6820,12 @@ struct ThreadwiseCopyV2RewritePattern
     bool destEmbeddedTransform = false;
     bool sourceExternalTransform = false;
     bool destExternalTransform = false;
-    AffineMap composedSourceTransform;
-    AffineMap composedDestTransform;
     SmallVector<AffineMap> layeredSourceTransform;
     SmallVector<AffineMap> layeredDestTransform;
 
     if (destTypeAffineMaps.size()) {
       destCoordLength = destTypeAffineMaps[0].getNumInputs();
       destEmbeddedTransform = true;
-      // Compose affine maps.
-      composedDestTransform = composeTransforms(destTypeAffineMaps);
 
       // Populate affine maps for each layer.
       layeredDestTransform.assign(destTypeAffineMaps.begin(),
@@ -6847,8 +6843,6 @@ struct ThreadwiseCopyV2RewritePattern
                                   .getValue()
                                   .getNumInputs();
           sourceExternalTransform = true;
-          // Compose affine maps.
-          composedSourceTransform = composeTransforms(transforms);
 
           // Populate affine maps for each layer.
           for (auto &am : transforms)
@@ -6860,8 +6854,6 @@ struct ThreadwiseCopyV2RewritePattern
                                 .getValue()
                                 .getNumInputs();
           destExternalTransform = true;
-          // Compose affine maps.
-          composedDestTransform = composeTransforms(transforms);
 
           // Populate affine maps for each layer.
           for (auto &am : transforms)
@@ -7001,39 +6993,47 @@ struct ThreadwiseCopyV2RewritePattern
     // Lambda to compute index diff map.
     auto computeIndexDiffMap = [&b, &loc, &loopIVsPerAccessOrder,
                                 &zeroConstantI32Op, &oneConstantI32Op](
-                                   SmallVector<Value, 4> &indexLowerNewUpdated,
-                                   AffineMap transform, ShapedType inputType,
-                                   const SmallVector<Value, 8> &coord,
+                                   SmallVector<Value, 4> &lowerIndicesUpdated,
+                                   const SmallVector<AffineMap> &transforms,
+                                   ShapedType inputType,
+                                   const SmallVector<Value, 8>
+                                       &lowerIndicesOriginal,
                                    Type outputType) {
-      SmallVector<Attribute, 2> indexUpperDiff;
+      // Compose affine maps.
+      AffineMap composedTransform = composeTransforms(transforms);
+
+      SmallVector<Attribute, 2> upperIndicesDiff;
       for (auto &v : loopIVsPerAccessOrder) {
-        indexUpperDiff.push_back(b.getI32IntegerAttr(v));
+        upperIndicesDiff.push_back(b.getI32IntegerAttr(v));
       }
 
       // Apply map to compute index lower diff tmp, from index upper diff
       // using constantFold.
-      SmallVector<Attribute, 4> indexLowerDiffTmpAttr;
-      SmallVector<Value, 8> indexLowerDiffTmpOp;
-      if (!transform) {
-        indexLowerDiffTmpAttr.assign(indexUpperDiff.begin(),
-                                     indexUpperDiff.end());
+      SmallVector<Attribute, 4> lowerIndicesDiffAttr;
+      if (!composedTransform) {
+        lowerIndicesDiffAttr.assign(upperIndicesDiff.begin(),
+                                    upperIndicesDiff.end());
       } else {
-        (void)transform.constantFold(indexUpperDiff, indexLowerDiffTmpAttr);
+        (void)composedTransform.constantFold(upperIndicesDiff,
+                                             lowerIndicesDiffAttr);
       }
 
-      for (auto attr : indexLowerDiffTmpAttr) {
+      SmallVector<Value, 8> lowerIndicesDiff;
+      for (auto attr : lowerIndicesDiffAttr) {
         int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
         auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
-        indexLowerDiffTmpOp.push_back(cv);
+        lowerIndicesDiff.push_back(cv);
       }
 
       // Add: index lower old + index lower diff tmp
-      SmallVector<Value, 8> indexLowerNew;
+      SmallVector<Value, 8> lowerIndicesNew;
       for (unsigned iter = 0; iter < inputType.getShape().size(); ++iter) {
         Value v = b.create<AddIOp>(
-            loc, b.create<IndexCastOp>(loc, coord[iter], b.getIntegerType(32)),
-            indexLowerDiffTmpOp[iter]);
-        indexLowerNew.push_back(v);
+            loc,
+            b.create<IndexCastOp>(loc, lowerIndicesOriginal[iter],
+                                  b.getIntegerType(32)),
+            lowerIndicesDiff[iter]);
+        lowerIndicesNew.push_back(v);
       }
 
       // Get bounds for source memref.
@@ -7044,14 +7044,14 @@ struct ThreadwiseCopyV2RewritePattern
       }
 
       // Only use carry / borrow check logic if needed.
-      if (transform && hasDivisionOrRemainder(transform)) {
+      if (composedTransform && hasDivisionOrRemainder(composedTransform)) {
         // Apply carry / borrow logic to compute index lower new
         // carry logic on Value instances.
-        SmallVector<Value, 4> indexLowerNewCarried;
+        SmallVector<Value, 4> lowerIndicesNewCarried;
 
         // borrow logic would never happen as index diff would always be
         // positive in the current algorithm.
-        assert(indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >=
+        assert(upperIndicesDiff[0].template dyn_cast<IntegerAttr>().getInt() >=
                0);
 
         // setup carryOp for the first iteration
@@ -7063,15 +7063,15 @@ struct ThreadwiseCopyV2RewritePattern
               loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
           auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
           auto carried = ifCarryThenBuilder.create<AddIOp>(
-              loc, indexLowerNew[iter], oneConstantI32Op);
+              loc, lowerIndicesNew[iter], oneConstantI32Op);
           ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
           auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
-          carried = ifCarryElseBuilder.create<AddIOp>(loc, indexLowerNew[iter],
-                                                      zeroConstantI32Op);
+          carried = ifCarryElseBuilder.create<AddIOp>(
+              loc, lowerIndicesNew[iter], zeroConstantI32Op);
           ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
 
           auto carriedResult = ifCarryOp.results()[0];
-          indexLowerNewCarried.push_back(carriedResult);
+          lowerIndicesNewCarried.push_back(carriedResult);
 
           // set carry flag for the next digit.
           carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult,
@@ -7095,20 +7095,20 @@ struct ThreadwiseCopyV2RewritePattern
           if (outputType == b.getIndexType())
             updatedResult =
                 b.create<IndexCastOp>(loc, updatedResult, b.getIndexType());
-          indexLowerNewUpdated.insert(indexLowerNewUpdated.begin(),
-                                      updatedResult);
+          lowerIndicesUpdated.insert(lowerIndicesUpdated.begin(),
+                                     updatedResult);
         }
       } else {
         // Skip carrry / borrow logic.
-        // indexLowerNew is by default of i32 type, convert to index type if
+        // lowerIndicesNew is by default of i32 type, convert to index type if
         // necessary.
         if (outputType == b.getIntegerType(32)) {
-          indexLowerNewUpdated.assign(indexLowerNew.begin(),
-                                      indexLowerNew.end());
+          lowerIndicesUpdated.assign(lowerIndicesNew.begin(),
+                                     lowerIndicesNew.end());
         } else {
           for (unsigned iter = 0; iter < inputType.getShape().size(); ++iter) {
-            indexLowerNewUpdated.push_back(b.create<IndexCastOp>(
-                loc, indexLowerNew[iter], b.getIndexType()));
+            lowerIndicesUpdated.push_back(b.create<IndexCastOp>(
+                loc, lowerIndicesNew[iter], b.getIndexType()));
           }
         }
       }
@@ -7118,7 +7118,7 @@ struct ThreadwiseCopyV2RewritePattern
     do {
       // Load from source vector.
       SmallVector<Value, 4> srcLowerIndicesUpdated;
-      computeIndexDiffMap(srcLowerIndicesUpdated, composedSourceTransform,
+      computeIndexDiffMap(srcLowerIndicesUpdated, layeredSourceTransform,
                           sourceType, srcLowerIndices, b.getIntegerType(32));
 
       // Add sourceOffset to derive the position in the vector.
@@ -7135,7 +7135,7 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Store to dest memref.
       SmallVector<Value, 4> destLowerIndicesUpdated;
-      computeIndexDiffMap(destLowerIndicesUpdated, composedDestTransform,
+      computeIndexDiffMap(destLowerIndicesUpdated, layeredDestTransform,
                           destType, destLowerIndices, b.getIndexType());
 
       // Store to dest.
