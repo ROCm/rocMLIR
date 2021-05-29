@@ -5761,10 +5761,72 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
       // affix coord_transforms attributes.
       threadwiseCopyV2CMatrixOp->setAttr(
           "coord_transforms",
-          b.getArrayAttr({b.getDictionaryAttr(
-              {b.getNamedAttr("operand", b.getI32IntegerAttr(0)),
-               b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
-                                                matrixCAffineMap5to1))})}));
+          b.getArrayAttr({b.getDictionaryAttr({
+              b.getNamedAttr("operand", b.getI32IntegerAttr(0)),
+              b.getNamedAttr("transforms",
+                             b.getAffineMapArrayAttr(matrixCAffineMap5to1)),
+              b.getNamedAttr(
+                  "metadata",
+                  b.getArrayAttr({
+                      b.getDictionaryAttr(
+                          {b.getNamedAttr(
+                               "layout",
+                               b.getArrayAttr({
+                                   b.getDictionaryAttr(
+                                       {b.getNamedAttr(
+                                            "lower_layer_dimensions",
+                                            b.getArrayAttr(
+                                                {b.getI32IntegerAttr(0)})),
+                                        b.getNamedAttr(
+                                            "lower_layer_names",
+                                            b.getArrayAttr(
+                                                {b.getStringAttr("raw")})),
+                                        b.getNamedAttr(
+                                            "transformation",
+                                            b.getStringAttr("UnMerge")),
+                                        b.getNamedAttr(
+                                            "upper_layer_dimensions",
+                                            b.getArrayAttr(
+                                                {b.getI32IntegerAttr(0),
+                                                 b.getI32IntegerAttr(1),
+                                                 b.getI32IntegerAttr(2),
+                                                 b.getI32IntegerAttr(3),
+                                                 b.getI32IntegerAttr(4)})),
+                                        b.getNamedAttr(
+                                            "upper_layer_names",
+                                            b.getArrayAttr(
+                                                {b.getStringAttr("dim0"),
+                                                 b.getStringAttr("m3"),
+                                                 b.getStringAttr("dim2"),
+                                                 b.getStringAttr("m2"),
+                                                 b.getStringAttr(
+                                                     "dim4")}))}) // dicitionary
+                                                                  // attr inside
+                                                                  // layout
+                               })), // layout
+                           b.getNamedAttr("lower_layer_bounds",
+                                          b.getArrayAttr({b.getI32IntegerAttr(
+                                              1 * M3 * 1 * M2 * 1)})),
+                           b.getNamedAttr(
+                               "lower_layer_layout",
+                               b.getArrayAttr({b.getStringAttr("raw")})),
+                           b.getNamedAttr(
+                               "upper_layer_bounds",
+                               b.getArrayAttr({b.getI32IntegerAttr(1),
+                                               b.getI32IntegerAttr(M3),
+                                               b.getI32IntegerAttr(1),
+                                               b.getI32IntegerAttr(M2),
+                                               b.getI32IntegerAttr(1)})),
+                           b.getNamedAttr(
+                               "upper_layer_layout",
+                               b.getArrayAttr({b.getStringAttr("dim0"),
+                                               b.getStringAttr("m3"),
+                                               b.getStringAttr("dim2"),
+                                               b.getStringAttr("m2"),
+                                               b.getStringAttr(
+                                                   "dim4")}))}) // metadata dict
+                  }))                                           // metadata
+          })}));
 
       // affix bound attributes.
       threadwiseCopyV2CMatrixOp->setAttr("bound", b.getArrayAttr({
