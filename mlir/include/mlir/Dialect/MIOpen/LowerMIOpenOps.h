@@ -6932,36 +6932,46 @@ struct ThreadwiseCopyV2RewritePattern
     //   llvm::errs() << sliceLengths[i] << " ";
     // llvm::errs() << "\n";
 
-    // Compute low-level coordinate for source memref from sourceCoord.
-    // Apply affine transformations to compute the low-level coordinate.
-    SmallVector<Value, 2> srcUpperCoord;
+    // Compute high-level coordinate for dest memref.
+    SmallVector<Value, 8> srcUpperIndices;
     for (unsigned i = 0; i < sourceCoordLength; ++i) {
-      srcUpperCoord.push_back(
+      srcUpperIndices.push_back(
           b.create<IndexCastOp>(loc, sourceAndDestCoord[i], b.getIndexType()));
     }
-    SmallVector<Value, 2> srcLowerCoord;
-    if (sourceExternalTransform || sourceEmbeddedTransform)
-      srcLowerCoord =
-          expandAffineMap(b, loc, composedSourceTransform, srcUpperCoord)
-              .getValue();
-    else
-      srcLowerCoord.assign(srcUpperCoord.begin(), srcUpperCoord.end());
 
-    // Compute low-level coordinate for source memref from sourceCoord.
-    // Apply affine transformations to compute the low-level coordinate.
-    SmallVector<Value, 2> destUpperCoord;
+    // Coordinates across the layers of transformations.
+    // If the vector is of size n, 0 is the top layer, and
+    // n-1 is the bottom layer.
+    SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
+
+    // Populate coorindates across the layers of transformations.
+    populateLayeredIndices(b, loc, layeredSourceIndices, srcUpperIndices,
+                           layeredSourceTransform);
+
+    // Fetch low-level coordinate.
+    SmallVector<Value, 8> srcLowerIndices =
+        layeredSourceIndices[layeredSourceIndices.size() - 1];
+
+    // Compute high-level coordinate for dest memref.
+    SmallVector<Value, 8> destUpperIndices;
     for (unsigned i = sourceCoordLength;
          i < sourceCoordLength + destCoordLength; ++i) {
-      destUpperCoord.push_back(
+      destUpperIndices.push_back(
           b.create<IndexCastOp>(loc, sourceAndDestCoord[i], b.getIndexType()));
     }
-    SmallVector<Value, 2> destLowerCoord;
-    if (destExternalTransform || destEmbeddedTransform)
-      destLowerCoord =
-          expandAffineMap(b, loc, composedDestTransform, destUpperCoord)
-              .getValue();
-    else
-      destLowerCoord.assign(destUpperCoord.begin(), destUpperCoord.end());
+
+    // Coordinates across the layers of transformations.
+    // If the vector is of size n, 0 is the top layer, and
+    // n-1 is the bottom layer.
+    SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
+
+    // Populate coorindates across the layers of transformations.
+    populateLayeredIndices(b, loc, layeredDestIndices, destUpperIndices,
+                           layeredDestTransform);
+
+    // Fetch low-level coordinate.
+    SmallVector<Value, 8> destLowerIndices =
+        layeredDestIndices[layeredDestIndices.size() - 1];
 
     // Emit fully unrolled loops for vector loads / stores.
     SmallVector<int64_t, 2> loopIVsPerAccessOrder;
@@ -6977,7 +6987,7 @@ struct ThreadwiseCopyV2RewritePattern
                                 &zeroConstantI32Op, &oneConstantI32Op](
                                    SmallVector<Value, 4> &indexLowerNewUpdated,
                                    AffineMap transform, ShapedType inputType,
-                                   const SmallVector<Value, 2> &coord,
+                                   const SmallVector<Value, 8> &coord,
                                    Type outputType) {
       SmallVector<Attribute, 2> indexUpperDiff;
       for (auto &v : loopIVsPerAccessOrder) {
@@ -7091,14 +7101,14 @@ struct ThreadwiseCopyV2RewritePattern
     bool toExit = false;
     do {
       // Load from source vector.
-      SmallVector<Value, 4> srcIndexLowerNewUpdated;
-      computeIndexDiffMap(srcIndexLowerNewUpdated, composedSourceTransform,
-                          sourceType, srcLowerCoord, b.getIntegerType(32));
+      SmallVector<Value, 4> srcLowerIndicesUpdated;
+      computeIndexDiffMap(srcLowerIndicesUpdated, composedSourceTransform,
+                          sourceType, srcLowerIndices, b.getIntegerType(32));
 
       // Add sourceOffset to derive the position in the vector.
       auto srcPosition = b.create<IndexCastOp>(
           loc,
-          b.create<AddIOp>(loc, srcIndexLowerNewUpdated[0], op.sourceOffset()),
+          b.create<AddIOp>(loc, srcLowerIndicesUpdated[0], op.sourceOffset()),
           b.getIntegerType(32));
 
       // Load from source.
@@ -7108,23 +7118,22 @@ struct ThreadwiseCopyV2RewritePattern
           loc, sourceType.getElementType(), op.source(), srcPosition);
 
       // Store to dest memref.
-      SmallVector<Value, 4> destIndexLowerNewUpdated;
-      computeIndexDiffMap(destIndexLowerNewUpdated, composedDestTransform,
-                          destType, destLowerCoord, b.getIndexType());
+      SmallVector<Value, 4> destLowerIndicesUpdated;
+      computeIndexDiffMap(destLowerIndicesUpdated, composedDestTransform,
+                          destType, destLowerIndices, b.getIndexType());
 
       // Store to dest.
       // Issue scalar store.
       if (dataType == b.getF32Type()) {
-        b.create<StoreOp>(loc, scalarValue, op.dest(),
-                          destIndexLowerNewUpdated);
+        b.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndicesUpdated);
       } else if (dataType == b.getF16Type()) {
         auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
-        b.create<StoreOp>(loc, truncValue, op.dest(), destIndexLowerNewUpdated);
+        b.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndicesUpdated);
       } else if (dataType == b.getIntegerType(16)) {
         auto convertValue =
             b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
         b.create<StoreOp>(loc, convertValue, op.dest(),
-                          destIndexLowerNewUpdated);
+                          destLowerIndicesUpdated);
       }
 
       // increase IVs
