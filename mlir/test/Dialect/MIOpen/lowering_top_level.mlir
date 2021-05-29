@@ -22,11 +22,11 @@ func @miopen_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x3
 }
 // CHECK-LABEL: func {{@miopen_conv2d.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT:   miopen.conv2d
-// CHECK-NEXT:  miopen.transform(%arg0)
-// CHECK-NEXT:  miopen.transform(%arg1)
-// CHECK-NEXT:  miopen.transform
-// CHECK-NEXT:  miopen.transform
-// CHECK-NEXT:  miopen.transform(%arg2)
+// CHECK-NEXT:  %{{.*}} = miopen.transform(%arg0) {{{.*}}output_bounds = [1 : i32, 128 : i32, 8 : i32, 3 : i32, 3 : i32]{{.*}}source_bounds = [1 : i32, 72 : i32, 128 : i32]{{.*}}} : memref<1x128x8x3x3xf32> to memref<1x72x128xf32>
+// CHECK-NEXT:  %{{.*}} = miopen.transform(%arg1) {{{.*}}output_bounds = [128 : i32, 1 : i32, 8 : i32, 32 : i32, 32 : i32]{{.*}}source_bounds = [128 : i32, 1 : i32, 8 : i32, 32 : i32, 32 : i32]{{.*}}} : memref<128x1x8x32x32xf32> to memref<128x1x8x32x32xf32>
+// CHECK-NEXT:  %{{.*}} = miopen.transform(%{{.*}}) {{{.*}}output_bounds = [128 : i32, 1 : i32, 8 : i32, 32 : i32, 32 : i32]{{.*}}source_bounds = [128 : i32, 1 : i32, 8 : i32, 3 : i32, 30 : i32, 3 : i32, 30 : i32]{{.*}}} : memref<128x1x8x32x32xf32> to memref<128x1x8x3x30x3x30xf32>
+// CHECK-NEXT:  %{{.*}} = miopen.transform(%{{.*}}) {{{.*}}output_bounds = [128 : i32, 1 : i32, 8 : i32, 3 : i32, 30 : i32, 3 : i32, 30 : i32]{{.*}}source_bounds = [1 : i32, 72 : i32, 115200 : i32]{{.*}}} : memref<128x1x8x3x30x3x30xf32> to memref<1x72x115200xf32>
+// CHECK-NEXT:  %{{.*}} = miopen.transform(%arg2) {{{.*}}output_bounds = [128 : i32, 1 : i32, 128 : i32, 30 : i32, 30 : i32]{{.*}}source_bounds = [1 : i32, 128 : i32, 115200 : i32]{{.*}}} : memref<128x1x128x30x30xf32> to memref<1x128x115200xf32>
 // CHECK-NEXT:  miopen.gridwise_gemm
 
 func @miopen_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
@@ -42,13 +42,13 @@ func @miopen_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }
-// CHECK-LABEL: func {{@miopen_conv2d.*%arg0.*%arg1.*%arg2}}
+// CHECK-LABEL: func {{@miopen_conv2d_f16.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT:   miopen.conv2d
-// CHECK-NEXT:  miopen.transform(%arg0)
-// CHECK-NEXT:  miopen.transform(%arg1)
-// CHECK-NEXT:  miopen.transform
-// CHECK-NEXT:  miopen.transform
-// CHECK-NEXT:  miopen.transform(%arg2)
+// CHECK-NEXT:  %{{.*}} = miopen.transform(%arg0) {{{.*}}output_bounds = [1 : i32, 128 : i32, 8 : i32, 3 : i32, 3 : i32]{{.*}}source_bounds = [1 : i32, 72 : i32, 128 : i32]{{.*}}} : memref<1x128x8x3x3xf16> to memref<1x72x128xf16>
+// CHECK-NEXT:  %{{.*}} = miopen.transform(%arg1) {{{.*}}output_bounds = [128 : i32, 1 : i32, 8 : i32, 32 : i32, 32 : i32]{{.*}}source_bounds = [128 : i32, 1 : i32, 8 : i32, 32 : i32, 32 : i32]{{.*}}} : memref<128x1x8x32x32xf16> to memref<128x1x8x32x32xf16>
+// CHECK-NEXT:  %{{.*}} = miopen.transform(%{{.*}}) {{{.*}}output_bounds = [128 : i32, 1 : i32, 8 : i32, 32 : i32, 32 : i32]{{.*}}source_bounds = [128 : i32, 1 : i32, 8 : i32, 3 : i32, 30 : i32, 3 : i32, 30 : i32]{{.*}}} : memref<128x1x8x32x32xf16> to memref<128x1x8x3x30x3x30xf16>
+// CHECK-NEXT:  %{{.*}} = miopen.transform(%{{.*}}) {{{.*}}output_bounds = [128 : i32, 1 : i32, 8 : i32, 3 : i32, 30 : i32, 3 : i32, 30 : i32]{{.*}}source_bounds = [1 : i32, 72 : i32, 115200 : i32]{{.*}}} : memref<128x1x8x3x30x3x30xf16> to memref<1x72x115200xf16>
+// CHECK-NEXT:  %{{.*}} = miopen.transform(%arg2) {{{.*}}output_bounds = [128 : i32, 1 : i32, 128 : i32, 30 : i32, 30 : i32]{{.*}}source_bounds = [1 : i32, 128 : i32, 115200 : i32]{{.*}}} : memref<128x1x128x30x30xf16> to memref<1x128x115200xf16>
 // CHECK-NEXT:  miopen.gridwise_gemm
 
 func @miopen_conv2d_bwd_data(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {

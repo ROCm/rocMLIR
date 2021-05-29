@@ -176,7 +176,9 @@ static LogicalResult verify(Conv2DBwdWeightOp op) {
     return op.emitError("Disjointed yx or hw!");
   else
     return success();
-} //===----------------------------------------------------------------------===//
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2DDummyOp
 //===----------------------------------------------------------------------===//
 
@@ -215,7 +217,6 @@ static ParseResult parseTransformOp(OpAsmParser &parser, OperationState &result)
       parser.resolveOperand(src, srcType, result.operands) ||
       parser.parseKeywordType("to", dstType) ||
       parser.addTypeToList(dstType, result.types));
-  return success();
 }
 
 static void print(OpAsmPrinter &p, TransformOp op) {
@@ -226,6 +227,17 @@ static void print(OpAsmPrinter &p, TransformOp op) {
 
 static LogicalResult verify(TransformOp op) {
   return success();
+}
+
+// Utility static member function of TransformOp to populate an ArrayAttr to
+// track the bounds of a MemRefType.
+ArrayAttr TransformOp::buildMemRefShapeAttr(OpBuilder &b,
+                                            MemRefType memRefType) {
+  auto shape = memRefType.getShape();
+  SmallVector<Attribute> shapeAttr;
+  for (auto s : shape)
+    shapeAttr.push_back(b.getI32IntegerAttr(s));
+  return b.getArrayAttr(shapeAttr);
 }
 
 //===----------------------------------------------------------------------===//
@@ -320,7 +332,6 @@ static ParseResult parseSubviewOp(OpAsmParser &parser, OperationState &result) {
       parser.resolveOperand(offset, parser.getBuilder().getIndexType(), result.operands) ||
       parser.parseKeywordType("to", dstType) ||
       parser.addTypeToList(dstType, result.types));
-  return success();
 }
 
 static void print(OpAsmPrinter &p, miopen::SubviewOp op) {

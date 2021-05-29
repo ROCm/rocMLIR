@@ -507,7 +507,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto transformedFilterMemRefType =
         MemRefType::get(transformedFilterShape, filterElementType);
     auto gemmA = b.create<miopen::TransformOp>(
-        loc, transformedFilterMemRefType, op.filter(), transformedFilterAttrs);
+        loc, transformedFilterMemRefType, op.filter(), transformedFilterAttrs,
+        /*populateBounds=*/true);
 
     auto gemmAPad = gemmA;
     bool isFilterPad = false;
@@ -691,8 +692,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       auto paddingFilterMemRefType =
           MemRefType::get(paddingFilterShape, filterElementType);
       gemmAPad = b.create<miopen::TransformOp>(loc, paddingFilterMemRefType,
-                                               ArrayRef<Value>(gemmA),
-                                               paddingFilterAttrs);
+                                               gemmA, paddingFilterAttrs,
+                                               /*populateBounds=*/true);
       // filter pad end
     }
 
@@ -852,8 +853,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto paddedInputMemRefType =
         MemRefType::get(paddedInputShape, inputElementType);
-    auto paddedInput = b.create<miopen::TransformOp>(
-        loc, paddedInputMemRefType, op.input(), paddedInputAttrs);
+    Value paddedInput = b.create<miopen::TransformOp>(
+        loc, paddedInputMemRefType, op.input(), paddedInputAttrs,
+        /*populateBounds=*/true);
 
     // Input tensor step 2 : embedded input.
     llvm::SmallVector<int64_t, 7> embeddedInputShape;
@@ -1038,8 +1040,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto embeddedInputMemRefType =
         MemRefType::get(embeddedInputShape, inputElementType);
     auto embeddedInput = b.create<miopen::TransformOp>(
-        loc, embeddedInputMemRefType, ArrayRef<Value>(paddedInput),
-        embeddedInputAttrs);
+        loc, embeddedInputMemRefType, paddedInput, embeddedInputAttrs,
+        /*populateBounds=*/true);
 
     // Input tensor step 3: transformed input.
     llvm::SmallVector<int64_t, 3> transformedInputShape;
@@ -1261,9 +1263,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         b.getI32IntegerAttr(fields.gridwiseGemmArgumentPosition[1])));
     auto transformedInputMemRefType =
         MemRefType::get(transformedInputShape, inputElementType);
-    auto gemmB = b.create<miopen::TransformOp>(loc, transformedInputMemRefType,
-                                               ArrayRef<Value>(embeddedInput),
-                                               transformedInputAttrs);
+    auto gemmB = b.create<miopen::TransformOp>(
+        loc, transformedInputMemRefType, embeddedInput, transformedInputAttrs,
+        /*populateBounds=*/true);
 
     auto gemmBPad = gemmB;
     bool isInputPad = false;
@@ -1439,8 +1441,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           MemRefType::get(paddingInputShape, inputElementType);
 
       gemmBPad = b.create<miopen::TransformOp>(loc, paddingInputMemRefType,
-                                               ArrayRef<Value>(gemmB),
-                                               paddingInputAttrs);
+                                               gemmB, paddingInputAttrs,
+                                               /*populateBounds=*/true);
 
       // input padding end
     }
@@ -1610,7 +1612,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto transformedOutputMemRefType =
         MemRefType::get(transformedOutputShape, outputElementType);
     auto gemmC = b.create<miopen::TransformOp>(
-        loc, transformedOutputMemRefType, op.output(), transformedOutputAttrs);
+        loc, transformedOutputMemRefType, op.output(), transformedOutputAttrs,
+        /*populateBounds=*/true);
 
     auto gemmCPad = gemmC;
     bool isOutputPad = false;
@@ -1789,8 +1792,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           MemRefType::get(paddingOutputShape, outputElementType);
 
       gemmCPad = b.create<miopen::TransformOp>(loc, paddingOutputMemRefType,
-                                               ArrayRef<Value>(gemmC),
-                                               paddingOutputAttrs);
+                                               gemmC, paddingOutputAttrs,
+                                               /*populateBounds=*/true);
       // output padding end
     }
 
@@ -1834,7 +1837,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     if (isOutputPad)
       gemmC = gemmCPad;
 
-    auto arguments = std::array<miopen::TransformOp, 3>{gemmA, gemmB, gemmC};
+    auto arguments = SmallVector<Value, 3>{gemmA, gemmB, gemmC};
 
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
       b.create<miopen::GridwiseGemmV2Op>(
@@ -1984,7 +1987,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // set layout attribute.
     // Weight tensor transformation for Conv2DOp
-    auto getGemmA = [&]() {
+    auto getGemmA = [&]() -> Value {
       // key to dim
       std::map<StringRef, int> filterKeyToDim;
       for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
@@ -2106,9 +2109,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         auto transformedFilterMemRefType =
             MemRefType::get(transformedFilterShape, filterElementType);
-        auto gemm =
-            b.create<miopen::TransformOp>(loc, transformedFilterMemRefType,
-                                          op.filter(), transformedFilterAttrs);
+        auto gemm = b.create<miopen::TransformOp>(
+            loc, transformedFilterMemRefType, op.filter(),
+            transformedFilterAttrs, /*populateBounds=*/true);
         return gemm;
       };
 
@@ -2239,9 +2242,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             auto transformedFilterMemRefType =
                 MemRefType::get(transformedFilterShape, filterElementType);
             auto gemm = b.create<miopen::TransformOp>(
-                loc, transformedFilterMemRefType,
-                ArrayRef<Value>(weiGKCYDotYTildaXDotXTilda),
-                transformedFilterAttrs);
+                loc, transformedFilterMemRefType, weiGKCYDotYTildaXDotXTilda,
+                transformedFilterAttrs, /*populateBounds=*/true);
             return gemm;
           };
       auto weiGKCYDotSliceYTidaSliceXDotSliceXTildaSlice =
@@ -2321,8 +2323,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             MemRefType::get(transformedFilterShape, filterElementType);
         auto gemm = b.create<miopen::TransformOp>(
             loc, transformedFilterMemRefType,
-            ArrayRef<Value>(weiGKCYDotSliceYTidaSliceXDotSliceXTildaSlice),
-            transformedFilterAttrs);
+            weiGKCYDotSliceYTidaSliceXDotSliceXTildaSlice,
+            transformedFilterAttrs, /*populateBounds=*/true);
         return gemm;
       };
       auto weiGemmGGemmKGemmM = getWeiGemmGGemmKGemmM(secondFilterDimName);
@@ -2330,7 +2332,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       return weiGemmGGemmKGemmM;
     };
 
-    auto getGemmB = [&]() {
+    auto getGemmB = [&]() -> Value {
       // dim of oob check
       llvm::DenseSet<int> oobCheckDims;
       // key to dim
@@ -2449,7 +2451,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         auto transformedMemRefType =
             MemRefType::get(transformedShape, inputElementType);
         auto gemm = b.create<miopen::TransformOp>(loc, transformedMemRefType,
-                                                  op.input(), transformedAttrs);
+                                                  op.input(), transformedAttrs,
+                                                  /*populateBounds=*/true);
         return gemm;
       };
       auto inGNCHipWip = getInGNCHipWip();
@@ -2563,8 +2566,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             auto transformedFilterMemRefType =
                 MemRefType::get(transformedShape, inputElementType);
             auto gemm = b.create<miopen::TransformOp>(
-                loc, transformedFilterMemRefType, ArrayRef<Value>(inGNCHipWip),
-                transformedAttrs);
+                loc, transformedFilterMemRefType, inGNCHipWip, transformedAttrs,
+                /*populateBounds=*/true);
             return gemm;
           };
 
@@ -2695,9 +2698,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             auto transformedMemRefType =
                 MemRefType::get(transformedShape, inputElementType);
             auto gemm = b.create<miopen::TransformOp>(
-                loc, transformedMemRefType,
-                ArrayRef<Value>(inGNCYTildaHTildaXTildaWTilda),
-                transformedAttrs);
+                loc, transformedMemRefType, inGNCYTildaHTildaXTildaWTilda,
+                transformedAttrs, /*populateBounds=*/true);
             return gemm;
           };
       auto inGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice =
@@ -2790,8 +2792,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             MemRefType::get(transformedShape, inputElementType);
         auto gemm = b.create<miopen::TransformOp>(
             loc, transformedMemRefType,
-            ArrayRef<Value>(inGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice),
-            transformedAttrs);
+            inGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice, transformedAttrs,
+            /*populateBounds=*/true);
         return gemm;
       };
       auto inGemmGGemmMGemmN = getInGemmGGemmMGemmN(thirdOutputDimName);
@@ -2799,7 +2801,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       return inGemmGGemmMGemmN;
     };
 
-    auto getGemmC = [&]() {
+    auto getGemmC = [&]() -> Value {
       // dim of oob ckeck
       llvm::DenseSet<int> oobCheckDims;
       // key to dim
@@ -2934,7 +2936,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         auto transformedFilterMemRefType =
             MemRefType::get(transformedShape, outputElementType);
         auto gemm = b.create<miopen::TransformOp>(
-            loc, transformedFilterMemRefType, op.output(), transformedAttrs);
+            loc, transformedFilterMemRefType, op.output(), transformedAttrs,
+            /*populateBounds=*/true);
         return gemm;
       };
 
@@ -3064,8 +3067,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             auto transformedMemRefType =
                 MemRefType::get(transformedShape, outputElementType);
             auto gemm = b.create<miopen::TransformOp>(
-                loc, transformedMemRefType,
-                ArrayRef<Value>(outGNKYDotHTildaXDotWHilda), transformedAttrs);
+                loc, transformedMemRefType, outGNKYDotHTildaXDotWHilda,
+                transformedAttrs, /*populateBounds=*/true);
             return gemm;
           };
       auto outGNKYDotSliceHTidaSliceXDotSliceWTildaSlice =
@@ -3157,19 +3160,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             MemRefType::get(transformedShape, outputElementType);
         auto gemm = b.create<miopen::TransformOp>(
             loc, transformedMemRefType,
-            ArrayRef<Value>(outGNKYDotSliceHTidaSliceXDotSliceWTildaSlice),
-            transformedAttrs);
+            outGNKYDotSliceHTidaSliceXDotSliceWTildaSlice, transformedAttrs,
+            /*populateBounds=*/true);
         return gemm;
       };
       auto outGemmGGemmKGemmN = getOutGemmGGemmKGemmN(secondOutputDimName);
 
       return outGemmGGemmKGemmN;
     };
-    auto gemmA = getGemmA();
+    Value gemmA = getGemmA();
 
-    auto gemmB = getGemmB();
+    Value gemmB = getGemmB();
 
-    auto gemmC = getGemmC();
+    Value gemmC = getGemmC();
 
     // Set attributes for gridwise_gemm op.
     llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
@@ -3197,7 +3200,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Emit miopen.gridwise_gemm op.
     // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
-    auto arguments = std::array<miopen::TransformOp, 3>{gemmA, gemmB, gemmC};
+    auto arguments = SmallVector<Value, 3>{gemmA, gemmB, gemmC};
 
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
       b.create<miopen::GridwiseGemmV2Op>(
@@ -3905,7 +3908,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Alloc for Matrix C on registers.
     // Compute register size from attributes.
     int64_t GemmMRepeat = 0, GemmNRepeat = 0;
-    Value registerMatrixCAllocOp;
 
     // Original C++ logic.
     // constexpr index_t GemmMRepeat = MPerBlock / (MPerThread * MLevel0Cluster * MLevel1Cluster);
@@ -3925,7 +3927,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto threadCRegisterMemRefType = MemRefType::get(
         {1, GemmMRepeat * MPerThread, GemmNRepeat * NPerThread},
         accumulatorType, {}, gpu::GPUDialect::getPrivateAddressSpace());
-    registerMatrixCAllocOp =
+    Value registerMatrixCAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadCRegisterMemRefType);
 
     // Alloc for Matrix A / B on registers.
@@ -4304,7 +4306,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto newOutputType = MemRefType::get(
         {G, M0, M1, N0, N1}, outputType.getElementType(), newOutputAffineMaps);
     auto newOutputTransformOp = b.create<miopen::TransformOp>(
-        loc, newOutputType, op.output(), transformedNewOutputAttrs);
+        loc, newOutputType, op.output(), transformedNewOutputAttrs,
+        /*populateBounds=*/true);
 
     // build affine expression: d0 = g
     // (d0, d1, d2, d3, d4) -> (d0, d1 * MPerThread + d2, d3 * NPerThread + d4)
@@ -4385,7 +4388,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         {matrixCAffineMap5to3}, gpu::GPUDialect::getPrivateAddressSpace());
     auto matrixCTransformOp = b.create<miopen::TransformOp>(
         loc, register5DMatrixCType, registerMatrixCAllocOp,
-        transformedMatrixCAttrs);
+        transformedMatrixCAttrs, /*populateBounds=*/true);
 
     SmallVector<Value, 10> matrixCThreadwiseCopySourceAndDestCoords;
     matrixCThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
@@ -5427,7 +5430,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto newOutputType = MemRefType::get(
         {G, M0, M1, M2, N}, outputType.getElementType(), newOutputAffineMaps);
     auto newOutputTransformOp = b.create<miopen::TransformOp>(
-        loc, newOutputType, op.output(), transformedNewOutputAttrs);
+        loc, newOutputType, op.output(), transformedNewOutputAttrs,
+        /*populateBounds=*/true);
 
     // Original C++ logic.
     // //     src descriptor
