@@ -7146,6 +7146,34 @@ struct ThreadwiseCopyV2RewritePattern
       }
     };
 
+    // Lambda to progresseively apply index diff maps.
+    auto populateLayeredIndices =
+        [&computeIndexDiffMap](
+            const ArrayAttr &layeredTransformMetadata,
+            const SmallVector<AffineMap> &layeredTransform,
+            const SmallVector<SmallVector<Value, 8>, 2> &layeredIndices,
+            const SmallVector<int64_t, 8> &topDiff,
+            SmallVector<SmallVector<int64_t, 8>, 2> &layeredDiffs,
+            SmallVector<SmallVector<Value, 8>, 2> &layeredIndicesUpdated) {
+          SmallVector<int64_t, 8> upperDiff = topDiff;
+          for (unsigned layer = 0; layer < layeredTransform.size(); ++layer) {
+            SmallVector<int64_t, 8> lowerDiff;
+            SmallVector<Value, 8> lowerIndicesUpdated;
+            DictionaryAttr transformMetadata =
+                layeredTransformMetadata[layer].template cast<DictionaryAttr>();
+            AffineMap transform = layeredTransform[layer];
+            SmallVector<Value, 8> lowerIndicesOriginal =
+                layeredIndices[layer + 1];
+            computeIndexDiffMap(upperDiff, transformMetadata, transform,
+                                lowerIndicesOriginal, lowerDiff,
+                                lowerIndicesUpdated);
+            layeredDiffs.push_back(lowerDiff);
+            layeredIndicesUpdated.push_back(lowerIndicesUpdated);
+            upperDiff.clear();
+            upperDiff = lowerDiff;
+          }
+        };
+
     bool toExit = false;
     do {
       // Load from source vector.
@@ -7159,25 +7187,14 @@ struct ThreadwiseCopyV2RewritePattern
       // Populate coorindates across the layers of transformations.
       ArrayAttr layeredSourceTransformMetadata =
           srcTransformSpec.get("metadata").template cast<ArrayAttr>();
-      SmallVector<int64_t, 8> srcUpperDiff = loopIVsPerAccessOrder;
-      layeredSourceDiffs.push_back(srcUpperDiff);
-      for (unsigned layer = 0; layer < layeredSourceTransform.size(); ++layer) {
-        SmallVector<int64_t, 8> srcLowerDiff;
-        SmallVector<Value, 8> srcLowerIndicesUpdated;
-        DictionaryAttr srcTransformMetadata =
-            layeredSourceTransformMetadata[layer]
-                .template cast<DictionaryAttr>();
-        AffineMap srcTransform = layeredSourceTransform[layer];
-        SmallVector<Value, 8> srcLowerOriginal =
-            layeredSourceIndices[layer + 1];
-        computeIndexDiffMap(srcUpperDiff, srcTransformMetadata, srcTransform,
-                            srcLowerOriginal, srcLowerDiff,
-                            srcLowerIndicesUpdated);
-        layeredSourceDiffs.push_back(srcLowerDiff);
-        layeredSourceIndicesUpdated.push_back(srcLowerIndicesUpdated);
-        srcUpperDiff.clear();
-        srcUpperDiff = srcLowerDiff;
-      }
+      SmallVector<int64_t, 8> srcTopDiff = loopIVsPerAccessOrder;
+      layeredSourceDiffs.push_back(srcTopDiff);
+      // Progressively apply index diff maps across all coordinate
+      // transformation layers.
+      populateLayeredIndices(layeredSourceTransformMetadata,
+                             layeredSourceTransform, layeredSourceIndices,
+                             srcTopDiff, layeredSourceDiffs,
+                             layeredSourceIndicesUpdated);
 
       // Fetch low-level coordinate.
       SmallVector<Value, 8> srcLowerIndicesUpdated =
@@ -7203,23 +7220,13 @@ struct ThreadwiseCopyV2RewritePattern
       // Populate coorindates across the layers of transformations.
       ArrayAttr layeredDestTransformMetadata =
           destTransformSpec.get("metadata").template cast<ArrayAttr>();
-      SmallVector<int64_t, 8> destUpperDiff = loopIVsPerAccessOrder;
-      layeredDestDiffs.push_back(destUpperDiff);
-      for (unsigned layer = 0; layer < layeredDestTransform.size(); ++layer) {
-        SmallVector<int64_t, 8> destLowerDiff;
-        SmallVector<Value, 8> destLowerIndicesUpdated;
-        DictionaryAttr destTransformMetadata =
-            layeredDestTransformMetadata[layer].template cast<DictionaryAttr>();
-        AffineMap destTransform = layeredDestTransform[layer];
-        SmallVector<Value, 8> destLowerOriginal = layeredDestIndices[layer + 1];
-        computeIndexDiffMap(destUpperDiff, destTransformMetadata, destTransform,
-                            destLowerOriginal, destLowerDiff,
-                            destLowerIndicesUpdated);
-        layeredDestDiffs.push_back(destLowerDiff);
-        layeredDestIndicesUpdated.push_back(destLowerIndicesUpdated);
-        destUpperDiff.clear();
-        destUpperDiff = destLowerDiff;
-      }
+      SmallVector<int64_t, 8> destTopDiff = loopIVsPerAccessOrder;
+      layeredDestDiffs.push_back(destTopDiff);
+      // Progressively apply index diff maps across all coordinate
+      // transformation layers.
+      populateLayeredIndices(layeredDestTransformMetadata, layeredDestTransform,
+                             layeredDestIndices, destTopDiff, layeredDestDiffs,
+                             layeredDestIndicesUpdated);
 
       // Fetch low-level coordinate.
       SmallVector<Value, 8> destLowerIndicesUpdated =
