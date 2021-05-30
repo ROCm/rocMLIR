@@ -6482,6 +6482,11 @@ struct ThreadwiseCopyRewritePattern
       layeredDestTransform.assign(destTypeAffineMaps.begin(),
                                   destTypeAffineMaps.end());
     }
+
+    // Obtain metadata of coordinate transformations.
+    ArrayAttr coordTransformSpec;
+    DictionaryAttr srcTransformSpec;
+    DictionaryAttr destTransformSpec;
     if (coordTransformsAttr) {
       for (auto attr : coordTransformsAttr) {
         auto dictAttr = attr.template cast<DictionaryAttr>();
@@ -6494,6 +6499,7 @@ struct ThreadwiseCopyRewritePattern
                                   .getValue()
                                   .getNumInputs();
           sourceExternalTransform = true;
+          srcTransformSpec = dictAttr;
           // Compose affine maps.
           composedSourceTransform = composeTransforms(transforms);
 
@@ -6511,6 +6517,7 @@ struct ThreadwiseCopyRewritePattern
                                 .getValue()
                                 .getNumInputs();
           destExternalTransform = true;
+          destTransformSpec = dictAttr;
           // Compose affine maps.
           composedDestTransform = composeTransforms(transforms);
 
@@ -6767,6 +6774,50 @@ struct ThreadwiseCopyRewritePattern
       //   llvm::errs() << sliceLengths[i] << " ";
       // llvm::errs() << "\n";
 
+      SmallVector<Value, 8> srcUpperIndices;
+      SmallVector<Value, 8> srcLowerIndices;
+      SmallVector<Value, 8> destUpperIndices;
+      SmallVector<Value, 8> destLowerIndices;
+      if (!legacyLoadAttr ||
+          !legacyLoadAttr.template cast<BoolAttr>().getValue()) {
+        // Compute high-level coordinate for dest memref.
+        for (unsigned i = 0; i < sourceCoordLength; ++i) {
+          srcUpperIndices.push_back(b.create<IndexCastOp>(
+              loc, sourceAndDestCoord[i], b.getIndexType()));
+        }
+        // Coordinates across the layers of transformations.
+        // If the vector is of size n, 0 is the top layer, and
+        // n-1 is the bottom layer.
+        SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
+
+        // Populate coorindates across the layers of transformations.
+        populateLayeredIndicesWithAffineMap(b, loc, layeredSourceIndices,
+                                            srcUpperIndices,
+                                            layeredSourceTransform);
+
+        // Fetch low-level coordinate.
+        srcLowerIndices = layeredSourceIndices[layeredSourceIndices.size() - 1];
+
+        // Compute high-level coordinate for dest memref.
+        for (unsigned i = sourceCoordLength;
+             i < sourceCoordLength + destCoordLength; ++i) {
+          destUpperIndices.push_back(b.create<IndexCastOp>(
+              loc, sourceAndDestCoord[i], b.getIndexType()));
+        }
+
+        // Coordinates across the layers of transformations.
+        // If the vector is of size n, 0 is the top layer, and
+        // n-1 is the bottom layer.
+        SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
+
+        // Populate coorindates across the layers of transformations.
+        populateLayeredIndicesWithAffineMap(
+            b, loc, layeredDestIndices, destUpperIndices, layeredDestTransform);
+
+        // Fetch low-level coordinate.
+        destLowerIndices = layeredDestIndices[layeredDestIndices.size() - 1];
+      }
+
       // Emit fully unrolled loops for vector loads / stores.
       SmallVector<int64_t, 8> loopIVsPerAccessOrder;
       SmallVector<int64_t, 8> loopBoundsPerAccessOrder;
@@ -6777,7 +6828,6 @@ struct ThreadwiseCopyRewritePattern
       }
       bool toExit = false;
       do {
-        SmallVector<Value, 8> srcLowerIndices;
         if (legacyLoadAttr &&
             legacyLoadAttr.template cast<BoolAttr>().getValue()) {
           // Coordinates across the layers of transformations.
@@ -6787,7 +6837,7 @@ struct ThreadwiseCopyRewritePattern
 
           // Compute high-level coordinate for source memref.
           // src_index = (iv_0, iv_1, ...) + sourceCoord
-          SmallVector<Value, 8> srcUpperIndices;
+          srcUpperIndices.clear();
           for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
             auto dim =
                 dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
@@ -6927,7 +6977,7 @@ struct ThreadwiseCopyRewritePattern
 
           // Compute high-level coordinate for dest memref.
           // dst_index = (iv_0, iv_1, ...) + destCoord
-          SmallVector<Value, 8> destUpperIndices;
+          destUpperIndices.clear();
           for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
             auto dim =
                 dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
@@ -6944,8 +6994,7 @@ struct ThreadwiseCopyRewritePattern
                                               layeredDestTransform);
 
           // Fetch low-level coordinate.
-          SmallVector<Value, 8> destLowerIndices =
-              layeredDestIndices[layeredDestIndices.size() - 1];
+          destLowerIndices = layeredDestIndices[layeredDestIndices.size() - 1];
 
           // Store to dest.
           // Issue scalar store.
