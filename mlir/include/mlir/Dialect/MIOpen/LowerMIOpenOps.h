@@ -6631,8 +6631,8 @@ struct ThreadwiseCopyRewritePattern
       // llvm::errs() << "\n";
 
       // Emit fully unrolled loops for vector loads / stores.
-      SmallVector<int64_t, 2> loopIVsPerAccessOrder;
-      SmallVector<int64_t, 2> loopBoundsPerAccessOrder;
+      SmallVector<int64_t, 8> loopIVsPerAccessOrder;
+      SmallVector<int64_t, 8> loopBoundsPerAccessOrder;
       for (unsigned iter = 0; iter < dimAccessOrder.size(); ++iter) {
         auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
         loopIVsPerAccessOrder.push_back(0);
