@@ -7080,16 +7080,16 @@ struct ThreadwiseCopyV2RewritePattern
       // Only use carry / borrow check logic if needed.
       if (hasDivisionOrRemainder(transform)) {
         // Get bounds for source memref.
-        SmallVector<Value, 8> boundOp;
-        for (auto attr : lowerLayerShape) {
+        SmallVector<Value, 8> lowerLayerBounds;
+        for (auto &attr : lowerLayerShape) {
           int64_t v = attr.template cast<IntegerAttr>().getInt();
           auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
-          boundOp.push_back(cv);
+          lowerLayerBounds.push_back(cv);
         }
 
         // Apply carry / borrow logic to compute index lower new
         // carry logic on Value instances.
-        SmallVector<Value, 8> lowerIndicesNewCarried;
+        SmallVector<Value, 8> lowerIndicesCarried;
 
         // borrow logic would never happen as index diff would always be
         // positive in the current algorithm.
@@ -7111,18 +7111,18 @@ struct ThreadwiseCopyV2RewritePattern
           ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
 
           auto carriedResult = ifCarryOp.results()[0];
-          lowerIndicesNewCarried.push_back(carriedResult);
+          lowerIndicesCarried.push_back(carriedResult);
 
           // set carry flag for the next digit.
           carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult,
-                                     boundOp[iter]);
+                                     lowerLayerBounds[iter]);
 
           // overflow logic.
           auto ifOverflowOp = b.create<scf::IfOp>(
               loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
           auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
           auto updated = ifOverflowThenBuilder.create<SubIOp>(
-              loc, carriedResult, boundOp[iter]);
+              loc, carriedResult, lowerLayerBounds[iter]);
           ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
           auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
           updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult,
