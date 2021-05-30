@@ -7049,59 +7049,40 @@ struct ThreadwiseCopyV2RewritePattern
                                 &oneConstantI32Op](
                                    const SmallVector<int64_t, 8>
                                        &upperIndicesDiff,
-                                   const DictionaryAttr &transformSpec,
-                                   const SmallVector<AffineMap> &transforms,
+                                   const DictionaryAttr &transformMetadata,
+                                   const AffineMap &transform,
                                    const SmallVector<Value, 8>
                                        &lowerIndicesOriginal,
-                                   SmallVector<Value, 8> &lowerIndicesDiff,
-                                   SmallVector<Value, 8> &lowerIndicesUpdated,
-                                   Type outputType) {
-      // Compose affine maps.
-      AffineMap composedTransform = composeTransforms(transforms);
-
+                                   SmallVector<int64_t, 8> &lowerIndicesDiff,
+                                   SmallVector<Value, 8> &lowerIndicesUpdated) {
       // Obtain the shape of lower level memref.
-      ArrayAttr transformMetadata =
-          transformSpec.get("metadata").template cast<ArrayAttr>();
-      ArrayAttr lowerLayerShape =
-          transformMetadata[transformMetadata.size() - 1]
-              .template cast<DictionaryAttr>()
-              .get("lower_layer_bounds")
-              .template cast<ArrayAttr>();
+      ArrayAttr lowerLayerShape = transformMetadata.get("lower_layer_bounds")
+                                      .template cast<ArrayAttr>();
 
+      // Convert index upper diff to attribute for constantFold.
       SmallVector<Attribute, 8> upperIndicesDiffAttr;
       for (auto &v : upperIndicesDiff)
         upperIndicesDiffAttr.push_back(b.getI32IntegerAttr(v));
 
-      // Apply map to compute index lower diff tmp, from index upper diff
-      // using constantFold.
+      // Apply map to compute index lower diff, from index upper diff using
+      // constantFold.
       SmallVector<Attribute, 8> lowerIndicesDiffAttr;
-      if (!composedTransform) {
-        lowerIndicesDiffAttr.assign(upperIndicesDiffAttr.begin(),
-                                    upperIndicesDiffAttr.end());
-      } else {
-        (void)composedTransform.constantFold(upperIndicesDiffAttr,
-                                             lowerIndicesDiffAttr);
-      }
+      (void)transform.constantFold(upperIndicesDiffAttr, lowerIndicesDiffAttr);
+      for (auto attr : lowerIndicesDiffAttr)
+        lowerIndicesDiff.push_back(attr.template cast<IntegerAttr>().getInt());
 
-      for (auto attr : lowerIndicesDiffAttr) {
-        int64_t v = attr.template cast<IntegerAttr>().getInt();
-        auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
-        lowerIndicesDiff.push_back(cv);
-      }
-
-      // Add: index lower old + index lower diff tmp
+      // Add: index lower original + index lower diff
       SmallVector<Value, 8> lowerIndicesNew;
-      for (unsigned iter = 0; iter < lowerLayerShape.size(); ++iter) {
-        Value v = b.create<AddIOp>(
+      for (unsigned iter = 0; iter < lowerLayerShape.size(); ++iter)
+        lowerIndicesNew.push_back(b.create<AddIOp>(
             loc,
             b.create<IndexCastOp>(loc, lowerIndicesOriginal[iter],
                                   b.getIntegerType(32)),
-            lowerIndicesDiff[iter]);
-        lowerIndicesNew.push_back(v);
-      }
+            b.create<ConstantIntOp>(loc, lowerIndicesDiff[iter],
+                                    b.getIntegerType(32))));
 
       // Only use carry / borrow check logic if needed.
-      if (composedTransform && hasDivisionOrRemainder(composedTransform)) {
+      if (hasDivisionOrRemainder(transform)) {
         // Get bounds for source memref.
         SmallVector<Value, 8> boundOp;
         for (auto attr : lowerLayerShape) {
@@ -7152,71 +7133,118 @@ struct ThreadwiseCopyV2RewritePattern
                                                          zeroConstantI32Op);
           ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
 
-          // updatedResult is by default of i32 type, convert to index type if
-          // necessary.
+          // updatedResult is by default of i32 type.
           Value updatedResult = ifOverflowOp.results()[0];
-          if (outputType == b.getIndexType())
-            updatedResult =
-                b.create<IndexCastOp>(loc, updatedResult, b.getIndexType());
           lowerIndicesUpdated.insert(lowerIndicesUpdated.begin(),
                                      updatedResult);
         }
       } else {
         // Skip carrry / borrow logic.
-        // lowerIndicesNew is by default of i32 type, convert to index type if
-        // necessary.
-        if (outputType == b.getIntegerType(32)) {
-          lowerIndicesUpdated.assign(lowerIndicesNew.begin(),
-                                     lowerIndicesNew.end());
-        } else {
-          for (unsigned iter = 0; iter < lowerLayerShape.size(); ++iter) {
-            lowerIndicesUpdated.push_back(b.create<IndexCastOp>(
-                loc, lowerIndicesNew[iter], b.getIndexType()));
-          }
-        }
+        // lowerIndicesNew is by default of i32 type.
+        lowerIndicesUpdated.assign(lowerIndicesNew.begin(),
+                                   lowerIndicesNew.end());
       }
     };
 
     bool toExit = false;
     do {
       // Load from source vector.
-      SmallVector<Value, 8> srcLowerDiff;
-      SmallVector<Value, 8> srcLowerIndicesUpdated;
-      computeIndexDiffMap(loopIVsPerAccessOrder, srcTransformSpec,
-                          layeredSourceTransform, srcLowerIndices, srcLowerDiff,
-                          srcLowerIndicesUpdated, b.getIntegerType(32));
+
+      // Coordinates across the layers of transformations.
+      // If the vector is of size n, 0 is the top layer, and
+      // n-1 is the bottom layer.
+      SmallVector<SmallVector<int64_t, 8>, 2> layeredSourceDiffs;
+      SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndicesUpdated;
+
+      // Populate coorindates across the layers of transformations.
+      ArrayAttr layeredSourceTransformMetadata =
+          srcTransformSpec.get("metadata").template cast<ArrayAttr>();
+      SmallVector<int64_t, 8> srcUpperDiff = loopIVsPerAccessOrder;
+      layeredSourceDiffs.push_back(srcUpperDiff);
+      for (unsigned layer = 0; layer < layeredSourceTransform.size(); ++layer) {
+        SmallVector<int64_t, 8> srcLowerDiff;
+        SmallVector<Value, 8> srcLowerIndicesUpdated;
+        DictionaryAttr srcTransformMetadata =
+            layeredSourceTransformMetadata[layer]
+                .template cast<DictionaryAttr>();
+        AffineMap srcTransform = layeredSourceTransform[layer];
+        SmallVector<Value, 8> srcLowerOriginal =
+            layeredSourceIndices[layer + 1];
+        computeIndexDiffMap(srcUpperDiff, srcTransformMetadata, srcTransform,
+                            srcLowerOriginal, srcLowerDiff,
+                            srcLowerIndicesUpdated);
+        layeredSourceDiffs.push_back(srcLowerDiff);
+        layeredSourceIndicesUpdated.push_back(srcLowerIndicesUpdated);
+        srcUpperDiff.clear();
+        srcUpperDiff = srcLowerDiff;
+      }
+
+      // Fetch low-level coordinate.
+      SmallVector<Value, 8> srcLowerIndicesUpdated =
+          layeredSourceIndicesUpdated[layeredSourceIndicesUpdated.size() - 1];
 
       // Add sourceOffset to derive the position in the vector.
-      auto srcPosition = b.create<IndexCastOp>(
-          loc,
-          b.create<AddIOp>(loc, srcLowerIndicesUpdated[0], op.sourceOffset()),
-          b.getIntegerType(32));
+      auto srcPosition =
+          b.create<AddIOp>(loc, srcLowerIndicesUpdated[0], op.sourceOffset());
 
       // Load from source.
       // Issue scalar load.
-      Value scalarValue;
-      scalarValue = b.create<vector::ExtractElementOp>(
+      Value scalarValue = b.create<vector::ExtractElementOp>(
           loc, sourceType.getElementType(), op.source(), srcPosition);
 
       // Store to dest memref.
-      SmallVector<Value, 8> destLowerDiff;
-      SmallVector<Value, 8> destLowerIndicesUpdated;
-      computeIndexDiffMap(loopIVsPerAccessOrder, destTransformSpec,
-                          layeredDestTransform, destLowerIndices, destLowerDiff,
-                          destLowerIndicesUpdated, b.getIndexType());
+
+      // Coordinates across the layers of transformations.
+      // If the vector is of size n, 0 is the top layer, and
+      // n-1 is the bottom layer.
+      SmallVector<SmallVector<int64_t, 8>, 2> layeredDestDiffs;
+      SmallVector<SmallVector<Value, 8>, 2> layeredDestIndicesUpdated;
+
+      // Populate coorindates across the layers of transformations.
+      ArrayAttr layeredDestTransformMetadata =
+          destTransformSpec.get("metadata").template cast<ArrayAttr>();
+      SmallVector<int64_t, 8> destUpperDiff = loopIVsPerAccessOrder;
+      layeredDestDiffs.push_back(destUpperDiff);
+      for (unsigned layer = 0; layer < layeredDestTransform.size(); ++layer) {
+        SmallVector<int64_t, 8> destLowerDiff;
+        SmallVector<Value, 8> destLowerIndicesUpdated;
+        DictionaryAttr destTransformMetadata =
+            layeredDestTransformMetadata[layer].template cast<DictionaryAttr>();
+        AffineMap destTransform = layeredDestTransform[layer];
+        SmallVector<Value, 8> destLowerOriginal = layeredDestIndices[layer + 1];
+        computeIndexDiffMap(destUpperDiff, destTransformMetadata, destTransform,
+                            destLowerOriginal, destLowerDiff,
+                            destLowerIndicesUpdated);
+        layeredDestDiffs.push_back(destLowerDiff);
+        layeredDestIndicesUpdated.push_back(destLowerIndicesUpdated);
+        destUpperDiff.clear();
+        destUpperDiff = destLowerDiff;
+      }
+
+      // Fetch low-level coordinate.
+      SmallVector<Value, 8> destLowerIndicesUpdated =
+          layeredDestIndicesUpdated[layeredDestIndicesUpdated.size() - 1];
+      // computeIndexDiffMap by default emit indices of type i32, convert to
+      // index type.
+      SmallVector<Value, 8> destLowerIndicesConverted;
+      for (auto &v : destLowerIndicesUpdated)
+        destLowerIndicesConverted.push_back(
+            b.create<IndexCastOp>(loc, v, b.getIndexType()));
 
       // Store to dest.
       // Issue scalar store.
       if (dataType == b.getF32Type()) {
-        b.create<StoreOp>(loc, scalarValue, op.dest(), destLowerIndicesUpdated);
+        b.create<StoreOp>(loc, scalarValue, op.dest(),
+                          destLowerIndicesConverted);
       } else if (dataType == b.getF16Type()) {
         auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
-        b.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndicesUpdated);
+        b.create<StoreOp>(loc, truncValue, op.dest(),
+                          destLowerIndicesConverted);
       } else if (dataType == b.getIntegerType(16)) {
         auto convertValue =
             b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
         b.create<StoreOp>(loc, convertValue, op.dest(),
-                          destLowerIndicesUpdated);
+                          destLowerIndicesConverted);
       }
 
       // increase IVs
