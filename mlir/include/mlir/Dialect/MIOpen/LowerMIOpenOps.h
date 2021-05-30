@@ -47,6 +47,108 @@ using namespace mlir;
 using namespace mlir::miopen;
 
 //===----------------------------------------------------------------------===//
+// Utility function to compute index diff map.
+//===----------------------------------------------------------------------===//
+inline void computeIndexDiffMap(
+    OpBuilder &b, Location loc, const SmallVector<int64_t, 8> &upperIndicesDiff,
+    const DictionaryAttr &transformMetadata, const AffineMap &transform,
+    const SmallVector<Value, 8> &lowerIndicesOriginal,
+    SmallVector<int64_t, 8> &lowerIndicesDiff,
+    SmallVector<Value, 8> &lowerIndicesUpdated) {
+  auto zeroConstantI32Op =
+      b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
+  auto oneConstantI32Op = b.create<ConstantIntOp>(loc, 1, b.getIntegerType(32));
+
+  // Obtain the shape of lower level memref.
+  ArrayAttr lowerLayerShape =
+      transformMetadata.get("lower_layer_bounds").template cast<ArrayAttr>();
+
+  // Convert index upper diff to attribute for constantFold.
+  SmallVector<Attribute, 8> upperIndicesDiffAttr;
+  for (auto &v : upperIndicesDiff)
+    upperIndicesDiffAttr.push_back(b.getI32IntegerAttr(v));
+
+  // Apply map to compute index lower diff, from index upper diff using
+  // constantFold.
+  SmallVector<Attribute, 8> lowerIndicesDiffAttr;
+  (void)transform.constantFold(upperIndicesDiffAttr, lowerIndicesDiffAttr);
+  for (auto attr : lowerIndicesDiffAttr)
+    lowerIndicesDiff.push_back(attr.template cast<IntegerAttr>().getInt());
+
+  // Add: index lower original + index lower diff
+  SmallVector<Value, 8> lowerIndicesNew;
+  for (unsigned iter = 0; iter < lowerLayerShape.size(); ++iter)
+    lowerIndicesNew.push_back(
+        b.create<AddIOp>(loc,
+                         b.create<IndexCastOp>(loc, lowerIndicesOriginal[iter],
+                                               b.getIntegerType(32)),
+                         b.create<ConstantIntOp>(loc, lowerIndicesDiff[iter],
+                                                 b.getIntegerType(32))));
+
+  // Only use carry / borrow check logic if needed.
+  if (hasDivisionOrRemainder(transform)) {
+    // Get bounds for source memref.
+    SmallVector<Value, 8> lowerLayerBounds;
+    for (auto &attr : lowerLayerShape) {
+      int64_t v = attr.template cast<IntegerAttr>().getInt();
+      auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
+      lowerLayerBounds.push_back(cv);
+    }
+
+    // Apply carry / borrow logic to compute index lower new
+    // carry logic on Value instances.
+    SmallVector<Value, 8> lowerIndicesCarried;
+
+    // borrow logic would never happen as index diff would always be
+    // positive in the current algorithm.
+    assert(upperIndicesDiff[0] >= 0);
+
+    // setup carryOp for the first iteration
+    Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
+    for (int64_t iter = lowerLayerShape.size() - 1; iter >= 0; --iter) {
+      // carry logic.
+      auto ifCarryOp = b.create<scf::IfOp>(loc, b.getIntegerType(32), carryOp,
+                                           /*withElseRegion=*/true);
+      auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
+      auto carried = ifCarryThenBuilder.create<AddIOp>(
+          loc, lowerIndicesNew[iter], oneConstantI32Op);
+      ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
+      auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
+      carried = ifCarryElseBuilder.create<AddIOp>(loc, lowerIndicesNew[iter],
+                                                  zeroConstantI32Op);
+      ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
+
+      auto carriedResult = ifCarryOp.results()[0];
+      lowerIndicesCarried.push_back(carriedResult);
+
+      // set carry flag for the next digit.
+      carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult,
+                                 lowerLayerBounds[iter]);
+
+      // overflow logic.
+      auto ifOverflowOp = b.create<scf::IfOp>(loc, b.getIntegerType(32),
+                                              carryOp, /*withElseRegion=*/true);
+      auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
+      auto updated = ifOverflowThenBuilder.create<SubIOp>(
+          loc, carriedResult, lowerLayerBounds[iter]);
+      ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
+      auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
+      updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult,
+                                                     zeroConstantI32Op);
+      ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
+
+      // updatedResult is by default of i32 type.
+      Value updatedResult = ifOverflowOp.results()[0];
+      lowerIndicesUpdated.insert(lowerIndicesUpdated.begin(), updatedResult);
+    }
+  } else {
+    // Skip carrry / borrow logic.
+    // lowerIndicesNew is by default of i32 type.
+    lowerIndicesUpdated.assign(lowerIndicesNew.begin(), lowerIndicesNew.end());
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to repeatedly apply affine transformation to compute the
 // coordinate for the next layer.
 //===----------------------------------------------------------------------===//
@@ -6863,11 +6965,6 @@ struct ThreadwiseCopyV2RewritePattern
     auto destType = op.dest().getType().cast<MemRefType>();
     auto dataType = destType.getElementType();
 
-    auto zeroConstantI32Op =
-        b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
-    auto oneConstantI32Op =
-        b.create<ConstantIntOp>(loc, 1, b.getIntegerType(32));
-
     // Get source offset, and dest coordinates.
     //
     // 1. For memrefs with no externally defined affine maps in coord_transforms
@@ -7059,117 +7156,15 @@ struct ThreadwiseCopyV2RewritePattern
       loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
     }
 
-    // Lambda to compute index diff map.
-    auto computeIndexDiffMap = [&b, &loc, &zeroConstantI32Op,
-                                &oneConstantI32Op](
-                                   const SmallVector<int64_t, 8>
-                                       &upperIndicesDiff,
-                                   const DictionaryAttr &transformMetadata,
-                                   const AffineMap &transform,
-                                   const SmallVector<Value, 8>
-                                       &lowerIndicesOriginal,
-                                   SmallVector<int64_t, 8> &lowerIndicesDiff,
-                                   SmallVector<Value, 8> &lowerIndicesUpdated) {
-      // Obtain the shape of lower level memref.
-      ArrayAttr lowerLayerShape = transformMetadata.get("lower_layer_bounds")
-                                      .template cast<ArrayAttr>();
-
-      // Convert index upper diff to attribute for constantFold.
-      SmallVector<Attribute, 8> upperIndicesDiffAttr;
-      for (auto &v : upperIndicesDiff)
-        upperIndicesDiffAttr.push_back(b.getI32IntegerAttr(v));
-
-      // Apply map to compute index lower diff, from index upper diff using
-      // constantFold.
-      SmallVector<Attribute, 8> lowerIndicesDiffAttr;
-      (void)transform.constantFold(upperIndicesDiffAttr, lowerIndicesDiffAttr);
-      for (auto attr : lowerIndicesDiffAttr)
-        lowerIndicesDiff.push_back(attr.template cast<IntegerAttr>().getInt());
-
-      // Add: index lower original + index lower diff
-      SmallVector<Value, 8> lowerIndicesNew;
-      for (unsigned iter = 0; iter < lowerLayerShape.size(); ++iter)
-        lowerIndicesNew.push_back(b.create<AddIOp>(
-            loc,
-            b.create<IndexCastOp>(loc, lowerIndicesOriginal[iter],
-                                  b.getIntegerType(32)),
-            b.create<ConstantIntOp>(loc, lowerIndicesDiff[iter],
-                                    b.getIntegerType(32))));
-
-      // Only use carry / borrow check logic if needed.
-      if (hasDivisionOrRemainder(transform)) {
-        // Get bounds for source memref.
-        SmallVector<Value, 8> lowerLayerBounds;
-        for (auto &attr : lowerLayerShape) {
-          int64_t v = attr.template cast<IntegerAttr>().getInt();
-          auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
-          lowerLayerBounds.push_back(cv);
-        }
-
-        // Apply carry / borrow logic to compute index lower new
-        // carry logic on Value instances.
-        SmallVector<Value, 8> lowerIndicesCarried;
-
-        // borrow logic would never happen as index diff would always be
-        // positive in the current algorithm.
-        assert(upperIndicesDiff[0] >= 0);
-
-        // setup carryOp for the first iteration
-        Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
-        for (int64_t iter = lowerLayerShape.size() - 1; iter >= 0; --iter) {
-          // carry logic.
-          auto ifCarryOp = b.create<scf::IfOp>(
-              loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
-          auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
-          auto carried = ifCarryThenBuilder.create<AddIOp>(
-              loc, lowerIndicesNew[iter], oneConstantI32Op);
-          ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
-          auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
-          carried = ifCarryElseBuilder.create<AddIOp>(
-              loc, lowerIndicesNew[iter], zeroConstantI32Op);
-          ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
-
-          auto carriedResult = ifCarryOp.results()[0];
-          lowerIndicesCarried.push_back(carriedResult);
-
-          // set carry flag for the next digit.
-          carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult,
-                                     lowerLayerBounds[iter]);
-
-          // overflow logic.
-          auto ifOverflowOp = b.create<scf::IfOp>(
-              loc, b.getIntegerType(32), carryOp, /*withElseRegion=*/true);
-          auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
-          auto updated = ifOverflowThenBuilder.create<SubIOp>(
-              loc, carriedResult, lowerLayerBounds[iter]);
-          ifOverflowThenBuilder.create<scf::YieldOp>(loc, updated.getResult());
-          auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
-          updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult,
-                                                         zeroConstantI32Op);
-          ifOverflowElseBuilder.create<scf::YieldOp>(loc, updated.getResult());
-
-          // updatedResult is by default of i32 type.
-          Value updatedResult = ifOverflowOp.results()[0];
-          lowerIndicesUpdated.insert(lowerIndicesUpdated.begin(),
-                                     updatedResult);
-        }
-      } else {
-        // Skip carrry / borrow logic.
-        // lowerIndicesNew is by default of i32 type.
-        lowerIndicesUpdated.assign(lowerIndicesNew.begin(),
-                                   lowerIndicesNew.end());
-      }
-    };
-
     // Lambda to progresseively apply index diff maps.
     auto populateLayeredIndices =
-        [&computeIndexDiffMap](
-            const ArrayAttr &layeredTransformMetadata,
-            const SmallVector<AffineMap> &layeredTransform,
-            const SmallVector<SmallVector<Value, 8>, 2> &layeredIndices,
-            const SmallVector<int64_t, 8> &topDiff,
-            SmallVector<SmallVector<int64_t, 8>, 2> &layeredDiffs,
-            SmallVector<SmallVector<Value, 8>, 2> &layeredIndicesUpdated) {
+        [&b,
+         &loc](const ArrayAttr &layeredTransformMetadata,
+               const SmallVector<AffineMap> &layeredTransform,
+               const SmallVector<SmallVector<Value, 8>, 2> &layeredIndices,
+               const SmallVector<int64_t, 8> &topDiff,
+               SmallVector<SmallVector<int64_t, 8>, 2> &layeredDiffs,
+               SmallVector<SmallVector<Value, 8>, 2> &layeredIndicesUpdated) {
           SmallVector<int64_t, 8> upperDiff = topDiff;
           for (unsigned layer = 0; layer < layeredTransform.size(); ++layer) {
             SmallVector<int64_t, 8> lowerDiff;
@@ -7179,7 +7174,7 @@ struct ThreadwiseCopyV2RewritePattern
             AffineMap transform = layeredTransform[layer];
             SmallVector<Value, 8> lowerIndicesOriginal =
                 layeredIndices[layer + 1];
-            computeIndexDiffMap(upperDiff, transformMetadata, transform,
+            computeIndexDiffMap(b, loc, upperDiff, transformMetadata, transform,
                                 lowerIndicesOriginal, lowerDiff,
                                 lowerIndicesUpdated);
             layeredDiffs.push_back(lowerDiff);
