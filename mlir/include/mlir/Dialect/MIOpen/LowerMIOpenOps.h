@@ -153,26 +153,45 @@ inline void computeIndexDiffMap(
 // coordinate for the next layer.
 //===----------------------------------------------------------------------===//
 inline void populateLayeredIndicesWithIndexDiffMap(
-    OpBuilder &b, Location loc, const ArrayAttr &layeredTransformMetadata,
+    // FIXME. Study how to get rid of destType.
+    OpBuilder &b, Location loc, const ShapedType destType,
+    const ArrayAttr &layeredTransformMetadata,
     const SmallVector<AffineMap> &layeredTransform,
     const SmallVector<SmallVector<Value, 8>, 2> &layeredIndices,
     const SmallVector<int64_t, 8> &topDiff,
     SmallVector<SmallVector<int64_t, 8>, 2> &layeredDiffs,
     SmallVector<SmallVector<Value, 8>, 2> &layeredIndicesUpdated) {
   SmallVector<int64_t, 8> upperDiff = topDiff;
-  for (unsigned layer = 0; layer < layeredTransform.size(); ++layer) {
-    SmallVector<int64_t, 8> lowerDiff;
-    SmallVector<Value, 8> lowerIndicesUpdated;
-    DictionaryAttr transformMetadata =
-        layeredTransformMetadata[layer].template cast<DictionaryAttr>();
-    AffineMap transform = layeredTransform[layer];
-    SmallVector<Value, 8> lowerIndicesOriginal = layeredIndices[layer + 1];
-    computeIndexDiffMap(b, loc, upperDiff, transformMetadata, transform,
-                        lowerIndicesOriginal, lowerDiff, lowerIndicesUpdated);
-    layeredDiffs.push_back(lowerDiff);
-    layeredIndicesUpdated.push_back(lowerIndicesUpdated);
-    upperDiff.clear();
-    upperDiff = lowerDiff;
+  if (layeredTransform.size() == 0) {
+    // in case there is no transform, simply pass upper level diff and indices
+    // to lower level.
+    layeredDiffs.push_back(upperDiff);
+    layeredIndicesUpdated.push_back(layeredIndices[0]);
+  } else {
+    for (unsigned layer = 0; layer < layeredTransform.size(); ++layer) {
+      SmallVector<int64_t, 8> lowerDiff;
+      SmallVector<Value, 8> lowerIndicesUpdated;
+      DictionaryAttr transformMetadata;
+      if (layeredTransformMetadata) {
+        transformMetadata =
+            layeredTransformMetadata[layer].template cast<DictionaryAttr>();
+      } else {
+        // in case there is no metadata, populate the lower level shape.
+        SmallVector<Attribute, 4> destShapeAttr;
+        for (auto &v : destType.getShape())
+          destShapeAttr.push_back(b.getI32IntegerAttr(v));
+        transformMetadata = b.getDictionaryAttr({b.getNamedAttr(
+            "lower_layer_bounds", b.getArrayAttr({destShapeAttr}))});
+      }
+      AffineMap transform = layeredTransform[layer];
+      SmallVector<Value, 8> lowerIndicesOriginal = layeredIndices[layer + 1];
+      computeIndexDiffMap(b, loc, upperDiff, transformMetadata, transform,
+                          lowerIndicesOriginal, lowerDiff, lowerIndicesUpdated);
+      layeredDiffs.push_back(lowerDiff);
+      layeredIndicesUpdated.push_back(lowerIndicesUpdated);
+      upperDiff.clear();
+      upperDiff = lowerDiff;
+    }
   }
 }
 
@@ -7253,9 +7272,9 @@ struct ThreadwiseCopyV2RewritePattern
       // Progressively apply index diff maps across all coordinate
       // transformation layers.
       populateLayeredIndicesWithIndexDiffMap(
-          b, loc, layeredSourceTransformMetadata, layeredSourceTransform,
-          layeredSourceIndices, srcTopDiff, layeredSourceDiffs,
-          layeredSourceIndicesUpdated);
+          b, loc, /*destType=*/destType, layeredSourceTransformMetadata,
+          layeredSourceTransform, layeredSourceIndices, srcTopDiff,
+          layeredSourceDiffs, layeredSourceIndicesUpdated);
 
       // Fetch low-level coordinate.
       SmallVector<Value, 8> srcLowerIndicesUpdated =
@@ -7286,9 +7305,9 @@ struct ThreadwiseCopyV2RewritePattern
       // Progressively apply index diff maps across all coordinate
       // transformation layers.
       populateLayeredIndicesWithIndexDiffMap(
-          b, loc, layeredDestTransformMetadata, layeredDestTransform,
-          layeredDestIndices, destTopDiff, layeredDestDiffs,
-          layeredDestIndicesUpdated);
+          b, loc, /*destType=*/destType, layeredDestTransformMetadata,
+          layeredDestTransform, layeredDestIndices, destTopDiff,
+          layeredDestDiffs, layeredDestIndicesUpdated);
 
       // Fetch low-level coordinate.
       SmallVector<Value, 8> destLowerIndicesUpdated =
