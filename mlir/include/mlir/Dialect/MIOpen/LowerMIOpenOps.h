@@ -7100,16 +7100,16 @@ struct ThreadwiseCopyV2RewritePattern
         lowerIndicesNew.push_back(v);
       }
 
-      // Get bounds for source memref.
-      SmallVector<Value, 8> boundOp;
-      for (auto attr : lowerLayerShape) {
-        int64_t v = attr.template cast<IntegerAttr>().getInt();
-        auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
-        boundOp.push_back(cv);
-      }
-
       // Only use carry / borrow check logic if needed.
       if (composedTransform && hasDivisionOrRemainder(composedTransform)) {
+        // Get bounds for source memref.
+        SmallVector<Value, 8> boundOp;
+        for (auto attr : lowerLayerShape) {
+          int64_t v = attr.template cast<IntegerAttr>().getInt();
+          auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
+          boundOp.push_back(cv);
+        }
+
         // Apply carry / borrow logic to compute index lower new
         // carry logic on Value instances.
         SmallVector<Value, 8> lowerIndicesNewCarried;
