@@ -5197,8 +5197,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     affixBlockwiseCopyAttributes(blockwiseCopyOpBTop, op, b,
                                  /*isMatrixA=*/false);
 
-    // Workgroup barrier.
-    mfmalb.create<miopen::WorkgroupBarrierOp>(loc);
+    // LDS barrier.
+    mfmalb.create<miopen::LDSBarrierOp>(loc);
 
     // Emit blockwise V2 GEMM.
     auto blockwiseGemmV2Op = mfmalb.create<miopen::BlockwiseGemmV2Op>(
@@ -5234,8 +5234,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Emit loop tail.
 
-    // Workgroup barrier.
-    b.create<miopen::WorkgroupBarrierOp>(loc);
+    // LDS barrier.
+    b.create<miopen::LDSBarrierOp>(loc);
 
     // get vectorCs for loop tail.
     for (int64_t iter = 0; iter < vectorNumber; ++iter)
@@ -7433,8 +7433,9 @@ struct XdlopsGemmV2RewritePattern
             ValueRange{loopKiv});
       }
 
-      // Workgroup barrier.
-      loopKb.create<miopen::WorkgroupBarrierOp>(loc);
+      // FIXME: See if it's possible to get rid of the this barrier.
+      // LDS barrier.
+      loopKb.create<miopen::LDSBarrierOp>(loc);
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
