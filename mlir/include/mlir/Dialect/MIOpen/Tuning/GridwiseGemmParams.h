@@ -202,7 +202,7 @@ public:
       vecLen = dimIndexVal["c"].second;
     } else if (dimIndexVal["c"].first == 2) {
       // C's position is at 2, vectorization legnth depend last two dimension
-      if (dimIndexVal["y"].first == 1 && dimIndexVal["x"].first == 1) {
+      if (dimIndexVal["y"].second == 1 && dimIndexVal["x"].second == 1) {
         vecLen = dimIndexVal["c"].second;
       } else {
         vecLen = 1;
