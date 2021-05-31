@@ -65,9 +65,9 @@ static LogicalResult verify(Conv2DOp op) {
     auto layout = op->getAttr(tensor).cast<ArrayAttr>().getValue();
     auto pos1 = -1, pos2 = -1;
     for (unsigned int i = 0; i < layout.size(); ++i) {
-      if (layout[i].dyn_cast<StringAttr>().getValue() == dim1)
+      if (layout[i].cast<StringAttr>().getValue() == dim1)
         pos1 = i;
-      if (layout[i].dyn_cast<StringAttr>().getValue() == dim2)
+      if (layout[i].cast<StringAttr>().getValue() == dim2)
         pos2 = i;
     }
 
@@ -112,9 +112,9 @@ static LogicalResult verify(Conv2DBwdDataOp op) {
     auto layout = op->getAttr(tensor).cast<ArrayAttr>().getValue();
     auto pos1 = -1, pos2 = -1;
     for (unsigned int i = 0; i < layout.size(); ++i) {
-      if (layout[i].dyn_cast<StringAttr>().getValue() == dim1)
+      if (layout[i].cast<StringAttr>().getValue() == dim1)
         pos1 = i;
-      if (layout[i].dyn_cast<StringAttr>().getValue() == dim2)
+      if (layout[i].cast<StringAttr>().getValue() == dim2)
         pos2 = i;
     }
 
@@ -159,9 +159,9 @@ static LogicalResult verify(Conv2DBwdWeightOp op) {
     auto layout = op->getAttr(tensor).cast<ArrayAttr>().getValue();
     auto pos1 = -1, pos2 = -1;
     for (unsigned int i = 0; i < layout.size(); ++i) {
-      if (layout[i].dyn_cast<StringAttr>().getValue() == dim1)
+      if (layout[i].cast<StringAttr>().getValue() == dim1)
         pos1 = i;
-      if (layout[i].dyn_cast<StringAttr>().getValue() == dim2)
+      if (layout[i].cast<StringAttr>().getValue() == dim2)
         pos2 = i;
     }
 
