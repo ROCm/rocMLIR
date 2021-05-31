@@ -5991,7 +5991,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                                  b.getI32IntegerAttr(2),
                                                  b.getI32IntegerAttr(3),
                                                  b.getI32IntegerAttr(4)})),
-                                        b.getNamedAttr("parameters",
+                                        b.getNamedAttr(
+                                            "parameters",
                                             b.getArrayAttr(
                                                 {b.getI32IntegerAttr(M3 * M2),
                                                  b.getI32IntegerAttr(M2),
@@ -7535,45 +7536,53 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
 
         // Compute upper layer dimensions and bounds.
         for (unsigned iter = 0; iter < outputType.getShape().size(); ++iter) {
-          upperLayerShape.push_back(b.getI32IntegerAttr(outputType.getShape()[iter]));
+          upperLayerShape.push_back(
+              b.getI32IntegerAttr(outputType.getShape()[iter]));
           upperLayerDims.push_back(b.getI32IntegerAttr(iter));
         }
         // Compute upper layer strides.
         int64_t stride = 1;
         upperLayerStrides.push_back(b.getI32IntegerAttr(stride));
-        for (int64_t iter = outputType.getShape().size() - 1; iter > 0; --iter) {
+        for (int64_t iter = outputType.getShape().size() - 1; iter > 0;
+             --iter) {
           stride *= outputType.getShape()[iter];
-          upperLayerStrides.insert(upperLayerStrides.begin(), b.getI32IntegerAttr(stride));
+          upperLayerStrides.insert(upperLayerStrides.begin(),
+                                   b.getI32IntegerAttr(stride));
         }
 
         // Compute lower layer dimensions and bounds.
         for (unsigned iter = 0; iter < inputType.getShape().size(); ++iter) {
-          lowerLayerShape.push_back(b.getI32IntegerAttr(inputType.getShape()[iter]));
+          lowerLayerShape.push_back(
+              b.getI32IntegerAttr(inputType.getShape()[iter]));
           lowerLayerDims.push_back(b.getI32IntegerAttr(iter));
         }
 
         // Populate metadata attribute.
-        DictionaryAttr metadata = b.getDictionaryAttr({
-            b.getNamedAttr("layout", b.getArrayAttr({
-                b.getDictionaryAttr({
-                    b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr(lowerLayerDims)),
-                    b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
-                    b.getNamedAttr("parameters", b.getArrayAttr(upperLayerStrides)),
-                    b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr(upperLayerDims))
-                })
-            })),
-            b.getNamedAttr("upper_layer_bounds", b.getArrayAttr(upperLayerShape)),
-            b.getNamedAttr("lower_layer_bounds", b.getArrayAttr(lowerLayerShape))
-        });
+        DictionaryAttr metadata = b.getDictionaryAttr(
+            {b.getNamedAttr(
+                 "layout",
+                 b.getArrayAttr({b.getDictionaryAttr(
+                     {b.getNamedAttr("lower_layer_dimensions",
+                                     b.getArrayAttr(lowerLayerDims)),
+                      b.getNamedAttr("transformation",
+                                     b.getStringAttr("UnMerge")),
+                      b.getNamedAttr("parameters",
+                                     b.getArrayAttr(upperLayerStrides)),
+                      b.getNamedAttr("upper_layer_dimensions",
+                                     b.getArrayAttr(upperLayerDims))})})),
+             b.getNamedAttr("upper_layer_bounds",
+                            b.getArrayAttr(upperLayerShape)),
+             b.getNamedAttr("lower_layer_bounds",
+                            b.getArrayAttr(lowerLayerShape))});
 
-        user->setAttr("coord_transforms",
-                      b.getArrayAttr({
-                        b.getDictionaryAttr({
-                          b.getNamedAttr("operand", b.getI32IntegerAttr(userOperandIndex)),
-                          b.getNamedAttr("transforms", b.getAffineMapArrayAttr(outputType.getAffineMaps())),
-                          b.getNamedAttr("metadata", b.getArrayAttr({metadata}))
-                        })
-                      }));
+        user->setAttr(
+            "coord_transforms",
+            b.getArrayAttr({b.getDictionaryAttr(
+                {b.getNamedAttr("operand",
+                                b.getI32IntegerAttr(userOperandIndex)),
+                 b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
+                                                  outputType.getAffineMaps())),
+                 b.getNamedAttr("metadata", b.getArrayAttr({metadata}))})}));
       } else {
         // XXX. Only do this for miopen.xdlops_gemm_v2 operation.
         // miopen.threadwise_copy will NOT be affected.
