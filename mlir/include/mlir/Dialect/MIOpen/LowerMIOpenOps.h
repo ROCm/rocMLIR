@@ -5991,6 +5991,13 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                                  b.getI32IntegerAttr(2),
                                                  b.getI32IntegerAttr(3),
                                                  b.getI32IntegerAttr(4)})),
+                                        b.getNamedAttr("parameters",
+                                            b.getArrayAttr(
+                                                {b.getI32IntegerAttr(M3 * M2),
+                                                 b.getI32IntegerAttr(M2),
+                                                 b.getI32IntegerAttr(M2),
+                                                 b.getI32IntegerAttr(1),
+                                                 b.getI32IntegerAttr(1)})),
                                         b.getNamedAttr(
                                             "upper_layer_names",
                                             b.getArrayAttr(
