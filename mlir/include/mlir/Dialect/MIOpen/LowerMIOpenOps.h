@@ -2401,7 +2401,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto getGemmB = [&]() -> Value {
       // dim of oob check
-      llvm::DenseSet<int> oobStoreCheckDims;
+      llvm::DenseSet<int> inputOobCheckDims;
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
@@ -2499,10 +2499,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         if (isInputHipBoundCheck()) {
           llvm::SmallVector<IntegerAttr, 2> padDim;
           if (leftPadH || rightPadH) {
-            oobStoreCheckDims.insert(currentKeyToDim["hi"]);
+            inputOobCheckDims.insert(currentKeyToDim["hi"]);
           }
           if (leftPadW || rightPadW) {
-            oobStoreCheckDims.insert(currentKeyToDim["wi"]);
+            inputOobCheckDims.insert(currentKeyToDim["wi"]);
           }
         }
 
@@ -2862,10 +2862,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedAttrs.push_back(b.getNamedAttr(
             "gridwise_gemm_argument_position", b.getI32IntegerAttr(2)));
 
-        if (oobStoreCheckDims.size()) {
+        if (inputOobCheckDims.size()) {
           llvm::SmallVector<IntegerAttr, 5> boundDims;
           for (size_t i = 0; i < inputShape.size(); i++) {
-            if (oobStoreCheckDims.find(i) != oobStoreCheckDims.end())
+            if (inputOobCheckDims.find(i) != inputOobCheckDims.end())
               boundDims.push_back(b.getI32IntegerAttr(1));
             else
               boundDims.push_back(b.getI32IntegerAttr(0));
@@ -2890,7 +2890,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto getGemmC = [&]() -> Value {
       // dim of oob check
-      llvm::DenseSet<int> oobLoadCheckDims;
+      llvm::DenseSet<int> outputOobCheckDims;
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
@@ -2977,7 +2977,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         if (y > 1) {
           if (!((leftPadH == rightPadH) && (y - leftPadH == 1))) {
-            oobLoadCheckDims.insert(currentKeyToDim["ho"]);
+            outputOobCheckDims.insert(currentKeyToDim["ho"]);
           }
         }
         // wo
@@ -3008,7 +3008,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         if (x > 1) {
           if (!((leftPadW == rightPadW) && (x - leftPadW == 1))) {
-            oobLoadCheckDims.insert(currentKeyToDim["wo"]);
+            outputOobCheckDims.insert(currentKeyToDim["wo"]);
           }
         }
         transformedAttrs.push_back(b.getNamedAttr(
@@ -3247,10 +3247,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedAttrs.push_back(b.getNamedAttr(
             "gridwise_gemm_argument_position", b.getI32IntegerAttr(1)));
 
-        if (oobLoadCheckDims.size()) {
+        if (outputOobCheckDims.size()) {
           llvm::SmallVector<IntegerAttr, 5> boundDims;
           for (size_t i = 0; i < outputShape.size(); i++) {
-            if (oobLoadCheckDims.find(i) != oobLoadCheckDims.end())
+            if (outputOobCheckDims.find(i) != outputOobCheckDims.end())
               boundDims.push_back(b.getI32IntegerAttr(1));
             else
               boundDims.push_back(b.getI32IntegerAttr(0));
@@ -6347,7 +6347,7 @@ struct ThreadwiseCopyRewritePattern
 
     // Determine if we need to emit codes for out-of-bound check.
     bool toEmitOOBLoadCheckLogic = false;
-    SmallVector<unsigned, 2> oobLoadCheckDims;
+    SmallVector<unsigned, 2> outputOobCheckDims;
     if (composedSourceTransform && boundCheckSourceAttr) {
       if (boundCheckSourceAttr.size() ==
           composedSourceTransform.getNumResults()) {
@@ -6356,7 +6356,7 @@ struct ThreadwiseCopyRewritePattern
                   .template cast<IntegerAttr>()
                   .getInt()) {
             toEmitOOBLoadCheckLogic = true;
-            oobLoadCheckDims.push_back(iter);
+            outputOobCheckDims.push_back(iter);
           }
         }
       }
@@ -6645,7 +6645,7 @@ struct ThreadwiseCopyRewritePattern
           // }
           Value withinBoundsOp =
               b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
-          for (auto dim : oobLoadCheckDims) {
+          for (auto dim : outputOobCheckDims) {
             Value coord = srcLowerIndices[dim];
             Value lowerBoundCheckOp = b.create<CmpIOp>(loc, CmpIPredicate::sge,
                                                        coord, zeroConstantOp);
@@ -6756,19 +6756,21 @@ struct ThreadwiseCopyRewritePattern
         SmallVector<Value, 8> destLowerIndices =
             layeredDestIndices[layeredDestIndices.size() - 1];
 
-        // XXX: we do not  implement the logic of toEmitOOBStoreCheck yet
         bool toEmitOOBStoreCheckLogic = false;
         SmallVector<unsigned, 2> oobStoreCheckDims;
-        // if (destLowerIndices.size() == 5) {
-        // for (unsigned iter = 0; iter < destTransform.getNumResults();
-        //     ++iter) {
-        // this code is for testing ,check dim 2
-        // if (iter == 2) {
-        //  toEmitOOBStoreCheckLogic = true;
-        //  oobStoreCheckDims.push_back(iter);
-        // }
-        //}
-        //}
+        if (composedDestTransform && boundCheckDestAttr) {
+          if (boundCheckDestAttr.size() ==
+              composedDestTransform.getNumResults()) {
+            for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
+              if (boundCheckDestAttr[iter]
+                      .template cast<IntegerAttr>()
+                      .getInt()) {
+                toEmitOOBStoreCheckLogic = true;
+                oobStoreCheckDims.push_back(iter);
+              }
+            }
+          }
+        }
 
         // Store to dest.
         // Issue scalar store.
@@ -6912,15 +6914,17 @@ struct ThreadwiseCopyV2RewritePattern
     bool sourceEmbeddedTransform = false;
     bool sourceExternalTransform = false;
     AffineMap composedSourceTransform;
+    AffineMap composedDestTransform;
     SmallVector<AffineMap> layeredSourceTransform;
     SmallVector<AffineMap> layeredDestTransform;
+    ArrayAttr boundCheckDestAttr;
 
     if (destTypeAffineMaps.size()) {
       destCoordLength = destTypeAffineMaps[0].getNumInputs();
-
       // Populate affine maps for each layer.
       layeredDestTransform.assign(destTypeAffineMaps.begin(),
                                   destTypeAffineMaps.end());
+      composedDestTransform = composeTransforms(destTypeAffineMaps);
     }
     if (coordTransformsAttr) {
       for (auto attr : coordTransformsAttr.template cast<ArrayAttr>()) {
@@ -6946,11 +6950,15 @@ struct ThreadwiseCopyV2RewritePattern
                                 .template cast<AffineMapAttr>()
                                 .getValue()
                                 .getNumInputs();
-
+          composedDestTransform = composeTransforms(transforms);
           // Populate affine maps for each layer.
           for (auto &am : transforms)
             layeredDestTransform.push_back(
                 am.template cast<AffineMapAttr>().getValue());
+
+          auto boundCheckAttr = dictAttr.get("bound_check");
+          if (boundCheckAttr)
+            boundCheckDestAttr = boundCheckAttr.template cast<ArrayAttr>();
         }
       }
     }
@@ -7115,22 +7123,25 @@ struct ThreadwiseCopyV2RewritePattern
       SmallVector<Value, 8> destLowerIndices =
           layeredDestIndices[layeredDestIndices.size() - 1];
 
-      // XXX: we do not  implement the logic of toEmitOOBStoreCheck yet
       bool toEmitOOBStoreCheckLogic = false;
       SmallVector<unsigned, 2> oobStoreCheckDims;
-      // if (destLowerIndices.size() == 5) {
-      // for (unsigned iter = 0; iter < destTransform.getNumResults(); ++iter) {
-      // this code is for testing ,check dim 2
-      // if (iter == 2) {
-      //  toEmitOOBStoreCheckLogic = true;
-      //  oobStoreCheckDims.push_back(iter);
-      // }
-      //}
-      //}
+      if (composedDestTransform && boundCheckDestAttr) {
+        if (boundCheckDestAttr.size() ==
+            composedDestTransform.getNumResults()) {
+          for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
+            if (boundCheckDestAttr[iter]
+                    .template cast<IntegerAttr>()
+                    .getInt()) {
+              toEmitOOBStoreCheckLogic = true;
+              oobStoreCheckDims.push_back(iter);
+            }
+          }
+        }
+      }
 
       // Store to dest.
       // Issue scalar store.
-      if (toEmitOOBStoreCheckLogic) {
+      if (boundCheckDestAttr) {
         auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
         SmallVector<Value, 8> destLowerStoreOP;
         SmallVector<Value, 8> destLowerStoreOOBOp;
