@@ -63,6 +63,76 @@ inline void computeIndexDiffMap(
   ArrayAttr lowerLayerShape =
       transformMetadata.get("lower_layer_bounds").template cast<ArrayAttr>();
 
+  // Input:
+  // - upper_diff
+  // - upper_indices_original
+  // - upper_layer_bounds
+  // - lower_indices_original
+  // - lower_layer_bounds
+  // - F : a vector of functions mapping upper level dimensions to lower level dimensions.
+  // - G : metadata of F
+  //
+  // Output:
+  // - lower_diff
+  // - lower_indices_updated
+  //
+  // For each transform g specified in G:
+  //   Let p be the upper dimensions used by g.
+  //   Let q be the lower dimensions used by g.
+  //
+  //   Switch g:
+  //     Case Pad :
+  //       |p| shall be equal to |q|
+  //       For each i in p, and its counterpart j in q
+  //         lower_diff[j] = upper_diff[i]
+  //
+  //     Case PassThrough :
+  //       |p| shall be equal to |q|
+  //       For each i in p, and its counterpart j in q
+  //         lower_diff[j] = upper_diff[i]
+  //
+  //     Case Embed:
+  //     Case UnMerge:
+  //     Case Unfold:
+  //     Case Merge:
+  //
+  llvm::errs() << "Transform:\n";
+  llvm::errs() << transform << "\n";
+  llvm::errs() << "Transform metadata:\n";
+  llvm::errs() << transformMetadata << "\n";
+  llvm::errs() << "Upper indices diff size: " << upperIndicesDiff.size() << "\n";
+  llvm::errs() << "Lower indices original size: " << lowerIndicesOriginal.size() << "\n";
+  // look into layout attribute inside transform metadata.
+  auto layoutAttr = transformMetadata.get("layout");
+  if (!layoutAttr) {
+    // In case there is no layout specification, simply treat:
+    // - lower diff as applying transform with upper diff.
+    // - lower indices as index lower original + lower diff.
+
+    // Convert index upper diff to attribute for constantFold.
+    SmallVector<Attribute, 8> upperIndicesDiffAttr;
+    for (auto &v : upperIndicesDiff)
+      upperIndicesDiffAttr.push_back(b.getI32IntegerAttr(v));
+
+    // Apply map to compute index lower diff, from index upper diff using
+    // constantFold.
+    SmallVector<Attribute, 8> lowerIndicesDiffAttr;
+    (void)transform.constantFold(upperIndicesDiffAttr, lowerIndicesDiffAttr);
+    for (auto attr : lowerIndicesDiffAttr)
+      lowerIndicesDiff.push_back(attr.template cast<IntegerAttr>().getInt());
+
+    // Add: index lower original + index lower diff
+    for (unsigned iter = 0; iter < lowerLayerShape.size(); ++iter)
+      lowerIndicesUpdated.push_back(
+          b.create<AddIOp>(loc,
+                           b.create<IndexCastOp>(loc, lowerIndicesOriginal[iter],
+                                                 b.getIntegerType(32)),
+                           b.create<ConstantIntOp>(loc, lowerIndicesDiff[iter],
+                                                   b.getIntegerType(32))));
+    return;
+  }
+
+
   // Convert index upper diff to attribute for constantFold.
   SmallVector<Attribute, 8> upperIndicesDiffAttr;
   for (auto &v : upperIndicesDiff)
@@ -3566,7 +3636,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
     top->setAttr("dest_data_per_write", b.getI32IntegerAttr(1));
   }
   top->setAttr("legacyLoad", b.getBoolAttr(true));
-  top->setAttr("legacyStore", b.getBoolAttr(true));
+  top->setAttr("legacyStore", b.getBoolAttr(false));
 }
 
 // XXX: figure out a better way to get rid of isMatrixA parameter.
