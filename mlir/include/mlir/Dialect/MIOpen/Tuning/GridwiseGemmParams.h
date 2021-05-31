@@ -111,14 +111,8 @@ public:
         input1GemmKVectorizable = true;
       }
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      // When K is the fastest changing dimension(3),
-      // gemmK dimension is vectorizable, gemmM is not, and vice versa.
-      // Vectorization width depending on length of K.
-      if (dimIndexVal["k"].first == 4) {
-        input1GemmKVectorizable = true;
-      } else {
-        input1GemmKVectorizable = false;
-      }
+      // always load gemmM first
+      input1GemmKVectorizable = false;
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       // When K is the fastest changing dimension,
       // gemmM dimension is vectorizable, gemmK is not, and vice versa.
@@ -200,6 +194,23 @@ public:
     }
   }
 
+  static void obtainBwdDataFilterVecLen(ConvolutionContext &ctx,
+                                        int64_t &vecLen) {
+    auto dimIndexVal = ctx.dimIndexVal;
+    // Vectorization length logic is the same for forward and bwd_data
+    if (dimIndexVal["c"].first == 4) {
+      vecLen = dimIndexVal["c"].second;
+    } else if (dimIndexVal["c"].first == 2) {
+      // C's position is at 2, vectorization legnth depend last two dimension
+      if (dimIndexVal["y"].first == 1 && dimIndexVal["x"].first == 1) {
+        vecLen = dimIndexVal["c"].second;
+      } else {
+        vecLen = 1;
+      }
+    } else {
+      vecLen = 1;
+    }
+  }
   static void obtainInputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
     if (dimIndexVal["ni"].first == 4) {
@@ -216,6 +227,26 @@ public:
         vecLen = 1;
     }
   }
+  static void obtainBwdDataOutputVecLen(ConvolutionContext &ctx,
+                                        int64_t &vecLen) {
+    auto dimIndexVal = ctx.dimIndexVal;
+    if (dimIndexVal["ko"].first == 4) {
+      vecLen = dimIndexVal["ko"].second;
+    } else if (dimIndexVal["no"].first == 4) {
+      vecLen = dimIndexVal["no"].second;
+    } else if (dimIndexVal["no"].first == 0) {
+      if (dimIndexVal["ho"].first == 3 && dimIndexVal["wo"].first == 4) {
+        if (dimIndexVal["y"].second == 1 && dimIndexVal["x"].second == 1)
+          vecLen = dimIndexVal["ho"].second * dimIndexVal["wo"].second;
+        else
+          vecLen = 1;
+      } else
+        vecLen = 1;
+    } else {
+      vecLen = 1;
+    }
+  }
+
   static void obtainOutputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
     if (dimIndexVal["ko"].first == 4) {
@@ -250,7 +281,7 @@ public:
     if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
       obtainFilterVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      obtainFilterVecLen(ctx, vecLen);
+      obtainBwdDataFilterVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       obtainOutputVecLen(ctx, vecLen);
     }
@@ -261,7 +292,7 @@ public:
     if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
       obtainInputVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      obtainOutputVecLen(ctx, vecLen);
+      obtainBwdDataOutputVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       obtainInputVecLen(ctx, vecLen);
     }
