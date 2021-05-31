@@ -45,7 +45,9 @@
 
 using namespace mlir;
 using namespace mlir::miopen;
-
+// 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
+// store do nothing
+const int twoGB = 2147483647;
 //===----------------------------------------------------------------------===//
 // Utility function to repeatedly apply affine transformation to compute the
 // coordinate for the next layer.
@@ -2887,8 +2889,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     auto getGemmC = [&]() -> Value {
-      // dim of oob ckeck
-      llvm::DenseSet<int> oobLoadCheckDims;
+      // dim of oob check
+      llvm::DenseSet<int> oobStoreCheckDims;
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
@@ -2975,7 +2977,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         if (y > 1) {
           if (!((leftPadH == rightPadH) && (y - leftPadH == 1))) {
-            oobLoadCheckDims.insert(currentKeyToDim["ho"]);
+            oobStoreCheckDims.insert(currentKeyToDim["ho"]);
           }
         }
         // wo
@@ -3006,7 +3008,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         if (x > 1) {
           if (!((leftPadW == rightPadW) && (x - leftPadW == 1))) {
-            oobLoadCheckDims.insert(currentKeyToDim["wo"]);
+            oobStoreCheckDims.insert(currentKeyToDim["wo"]);
           }
         }
         transformedAttrs.push_back(b.getNamedAttr(
@@ -3245,10 +3247,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedAttrs.push_back(b.getNamedAttr(
             "gridwise_gemm_argument_position", b.getI32IntegerAttr(1)));
 
-        if (oobLoadCheckDims.size()) {
+        if (oobStoreCheckDims.size()) {
           llvm::SmallVector<IntegerAttr, 5> boundDims;
           for (size_t i = 0; i < outputShape.size(); i++) {
-            if (oobLoadCheckDims.find(i) != oobLoadCheckDims.end())
+            if (oobStoreCheckDims.find(i) != oobStoreCheckDims.end())
               boundDims.push_back(b.getI32IntegerAttr(1));
             else
               boundDims.push_back(b.getI32IntegerAttr(0));
@@ -6754,7 +6756,7 @@ struct ThreadwiseCopyRewritePattern
         SmallVector<Value, 8> destLowerIndices =
             layeredDestIndices[layeredDestIndices.size() - 1];
 
-        // we do not  implement the logic of toEmitOOBStoreCheck yet
+        // XXX: we do not  implement the logic of toEmitOOBStoreCheck yet
         bool toEmitOOBStoreCheckLogic = false;
         SmallVector<unsigned, 2> oobStoreCheckDims;
         // if (destLowerIndices.size() == 5) {
@@ -6774,26 +6776,13 @@ struct ThreadwiseCopyRewritePattern
           SmallVector<Value, 8> destLowerStoreOP;
           SmallVector<Value, 8> destLowerStoreOOBOp;
 
-          auto dstIndex0 = b.create<IndexCastOp>(loc, destLowerIndices[0],
-                                                 b.getIntegerType(32));
-          auto dstIndex1 = b.create<IndexCastOp>(loc, destLowerIndices[1],
-                                                 b.getIntegerType(32));
-          auto dstIndex2 = b.create<IndexCastOp>(loc, destLowerIndices[2],
-                                                 b.getIntegerType(32));
-          auto dstIndex3 = b.create<IndexCastOp>(loc, destLowerIndices[3],
-                                                 b.getIntegerType(32));
-          auto dstIndex4 = b.create<IndexCastOp>(loc, destLowerIndices[4],
-                                                 b.getIntegerType(32));
+          for (int i = 0; i < 5; i++) {
+            auto dstIndex = b.create<IndexCastOp>(loc, destLowerIndices[i],
+                                                  b.getIntegerType(32));
+            destLowerStoreOP.push_back(dstIndex);
+          }
 
-          destLowerStoreOP.push_back(dstIndex0);
-          destLowerStoreOP.push_back(dstIndex1);
-          destLowerStoreOP.push_back(dstIndex2);
-          destLowerStoreOP.push_back(dstIndex3);
-          destLowerStoreOP.push_back(dstIndex4);
           destLowerStoreOOBOp = destLowerStoreOP;
-          // 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
-          // store do nothing
-          const int twoGB = 2147483647;
           Value oobAddrOp =
               b.create<ConstantIntOp>(loc, twoGB, b.getIntegerType(32));
 
@@ -6802,7 +6791,7 @@ struct ThreadwiseCopyRewritePattern
 
           // Logic in C++:
           // bool withinBounds = true;
-          // for (auto dim : oobLoadCheckDims) {
+          // for (auto dim : oobStoreCheckDims) {
           //   withBounds &=
           //     (destLowerIndices[dim] >= 0 &&
           //      destLowerIndices[dim] < destType.getShape()[dim]) {
@@ -6825,7 +6814,7 @@ struct ThreadwiseCopyRewritePattern
                                                   withinBoundInOneDimOp);
             destLowerStoreOOBOp[dim] = zeroAddrOp;
           }
-          // if you want to test it, use this code:
+          // XXX: if you want to test it, use this code:
           // withinBounds & =  destLowerIndices[2] < 3
           // mlir:
           // Value testBoundOp =
@@ -7126,7 +7115,7 @@ struct ThreadwiseCopyV2RewritePattern
       SmallVector<Value, 8> destLowerIndices =
           layeredDestIndices[layeredDestIndices.size() - 1];
 
-      // we do not  implement the logic of toEmitOOBStoreCheck yet
+      // XXX: we do not  implement the logic of toEmitOOBStoreCheck yet
       bool toEmitOOBStoreCheckLogic = false;
       SmallVector<unsigned, 2> oobStoreCheckDims;
       // if (destLowerIndices.size() == 5) {
@@ -7145,27 +7134,13 @@ struct ThreadwiseCopyV2RewritePattern
         auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
         SmallVector<Value, 8> destLowerStoreOP;
         SmallVector<Value, 8> destLowerStoreOOBOp;
+        for (int i = 0; i < 5; i++) {
+          auto dstIndex = b.create<IndexCastOp>(loc, destLowerIndices[i],
+                                                b.getIntegerType(32));
+          destLowerStoreOP.push_back(dstIndex);
+        }
 
-        auto dstIndex0 = b.create<IndexCastOp>(loc, destLowerIndices[0],
-                                               b.getIntegerType(32));
-        auto dstIndex1 = b.create<IndexCastOp>(loc, destLowerIndices[1],
-                                               b.getIntegerType(32));
-        auto dstIndex2 = b.create<IndexCastOp>(loc, destLowerIndices[2],
-                                               b.getIntegerType(32));
-        auto dstIndex3 = b.create<IndexCastOp>(loc, destLowerIndices[3],
-                                               b.getIntegerType(32));
-        auto dstIndex4 = b.create<IndexCastOp>(loc, destLowerIndices[4],
-                                               b.getIntegerType(32));
-
-        destLowerStoreOP.push_back(dstIndex0);
-        destLowerStoreOP.push_back(dstIndex1);
-        destLowerStoreOP.push_back(dstIndex2);
-        destLowerStoreOP.push_back(dstIndex3);
-        destLowerStoreOP.push_back(dstIndex4);
         destLowerStoreOOBOp = destLowerStoreOP;
-        // 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
-        // store do nothing
-        const int twoGB = 2147483647;
         Value oobAddrOp =
             b.create<ConstantIntOp>(loc, twoGB, b.getIntegerType(32));
 
@@ -7174,7 +7149,7 @@ struct ThreadwiseCopyV2RewritePattern
 
         // Logic in C++:
         // bool withinBounds = true;
-        // for (auto dim : oobLoadCheckDims) {
+        // for (auto dim : oobStoreCheckDims) {
         //   withBounds &=
         //     (destLowerIndices[dim] >= 0 &&
         //      destLowerIndices[dim] < destType.getShape()[dim]) {
@@ -7197,7 +7172,7 @@ struct ThreadwiseCopyV2RewritePattern
               b.create<AndOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
           destLowerStoreOOBOp[dim] = zeroAddrOp;
         }
-        // if you want to test it, use this code:
+        // XXX: if you want to test it, use this code:
         // withinBounds & =  destLowerIndices[2] < 3
         // mlir:
         // Value testBoundOp =

@@ -975,6 +975,9 @@ def GPU_MubufStoreOp :
                    AnyMemRef:$memref,
                    I32:$shift,
                    Variadic<I32>:$indices)> {
+  // the destination address will add the shift, if it's zero , just store
+  // but if the value is 0x7fffffff, it will do oob store because
+  // we set the address upper bound to 2GB
   let summary = "AMD GPU Buffer Store";
   let description = [{
     The `gpu.buffer_store` op is an abstraction of AMD GPU buffer store intrinsics.
