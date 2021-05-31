@@ -2401,7 +2401,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto getGemmB = [&]() -> Value {
       // dim of oob check
-      llvm::DenseSet<int> oobLoadCheckDims;
+      llvm::DenseSet<int> oobStoreCheckDims;
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
@@ -2499,10 +2499,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         if (isInputHipBoundCheck()) {
           llvm::SmallVector<IntegerAttr, 2> padDim;
           if (leftPadH || rightPadH) {
-            oobLoadCheckDims.insert(currentKeyToDim["hi"]);
+            oobStoreCheckDims.insert(currentKeyToDim["hi"]);
           }
           if (leftPadW || rightPadW) {
-            oobLoadCheckDims.insert(currentKeyToDim["wi"]);
+            oobStoreCheckDims.insert(currentKeyToDim["wi"]);
           }
         }
 
@@ -2862,10 +2862,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedAttrs.push_back(b.getNamedAttr(
             "gridwise_gemm_argument_position", b.getI32IntegerAttr(2)));
 
-        if (oobLoadCheckDims.size()) {
+        if (oobStoreCheckDims.size()) {
           llvm::SmallVector<IntegerAttr, 5> boundDims;
           for (size_t i = 0; i < inputShape.size(); i++) {
-            if (oobLoadCheckDims.find(i) != oobLoadCheckDims.end())
+            if (oobStoreCheckDims.find(i) != oobStoreCheckDims.end())
               boundDims.push_back(b.getI32IntegerAttr(1));
             else
               boundDims.push_back(b.getI32IntegerAttr(0));
@@ -2890,7 +2890,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto getGemmC = [&]() -> Value {
       // dim of oob check
-      llvm::DenseSet<int> oobStoreCheckDims;
+      llvm::DenseSet<int> oobLoadCheckDims;
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
@@ -2977,7 +2977,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         if (y > 1) {
           if (!((leftPadH == rightPadH) && (y - leftPadH == 1))) {
-            oobStoreCheckDims.insert(currentKeyToDim["ho"]);
+            oobLoadCheckDims.insert(currentKeyToDim["ho"]);
           }
         }
         // wo
@@ -3008,7 +3008,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         if (x > 1) {
           if (!((leftPadW == rightPadW) && (x - leftPadW == 1))) {
-            oobStoreCheckDims.insert(currentKeyToDim["wo"]);
+            oobLoadCheckDims.insert(currentKeyToDim["wo"]);
           }
         }
         transformedAttrs.push_back(b.getNamedAttr(
@@ -3247,10 +3247,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedAttrs.push_back(b.getNamedAttr(
             "gridwise_gemm_argument_position", b.getI32IntegerAttr(1)));
 
-        if (oobStoreCheckDims.size()) {
+        if (oobLoadCheckDims.size()) {
           llvm::SmallVector<IntegerAttr, 5> boundDims;
           for (size_t i = 0; i < outputShape.size(); i++) {
-            if (oobStoreCheckDims.find(i) != oobStoreCheckDims.end())
+            if (oobLoadCheckDims.find(i) != oobLoadCheckDims.end())
               boundDims.push_back(b.getI32IntegerAttr(1));
             else
               boundDims.push_back(b.getI32IntegerAttr(0));
