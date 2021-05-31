@@ -99,8 +99,8 @@ def MIOpen_TransformOp :
      if (populateBounds) {
        MemRefType lowerMemRefType = input.getType().template cast<MemRefType>();
        MemRefType upperMemRefType = output.template cast<MemRefType>();
-       $_state.addAttribute("output_bounds", buildMemRefShapeAttr($_builder, lowerMemRefType));
-       $_state.addAttribute("source_bounds", buildMemRefShapeAttr($_builder, upperMemRefType));
+       $_state.addAttribute("lower_layer_bounds", buildMemRefShapeAttr($_builder, lowerMemRefType));
+       $_state.addAttribute("upper_layer_bounds", buildMemRefShapeAttr($_builder, upperMemRefType));
      }
      $_state.addAttributes(attributes);
      $_state.addTypes(output);

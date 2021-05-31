@@ -77,7 +77,7 @@ inline bool hasPadding(AffineExpr expr) {
   bool ret = false;
   auto hasMinusConstant = [](AffineExpr expr) -> bool {
     if (expr.getKind() == AffineExprKind::Constant) {
-      auto constantExpr = expr.template dyn_cast<AffineConstantExpr>();
+      auto constantExpr = expr.template cast<AffineConstantExpr>();
       if (constantExpr.getValue() < 0)
         return true;
     }
@@ -89,7 +89,7 @@ inline bool hasPadding(AffineExpr expr) {
 
     tmp.walk([&ret](AffineExpr expr_sub) {
       if (expr_sub.getKind() == AffineExprKind::Constant) {
-        auto constantSubExpr = expr_sub.template dyn_cast<AffineConstantExpr>();
+        auto constantSubExpr = expr_sub.template cast<AffineConstantExpr>();
         if (constantSubExpr.getValue() < 0)
           ret = true;
       }
