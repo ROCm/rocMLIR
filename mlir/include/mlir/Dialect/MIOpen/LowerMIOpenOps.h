@@ -6775,16 +6775,16 @@ struct ThreadwiseCopyRewritePattern
         // Store to dest.
         // Issue scalar store.
         if (toEmitOOBStoreCheckLogic) {
-          SmallVector<Value, 8> destLowerStoreOP;
-          SmallVector<Value, 8> destLowerStoreOOBOp;
+          SmallVector<Value, 8> destLowerStoreIndices;
+          SmallVector<Value, 8> destLowerStoreOOBIndices;
 
-          for (int i = 0; i < 5; i++) {
+          for (int i = 0; i < destLowerIndices.size(); i++) {
             auto dstIndex = b.create<IndexCastOp>(loc, destLowerIndices[i],
                                                   b.getIntegerType(32));
-            destLowerStoreOP.push_back(dstIndex);
+            destLowerStoreIndices.push_back(dstIndex);
           }
 
-          destLowerStoreOOBOp = destLowerStoreOP;
+          destLowerStoreOOBIndices = destLowerStoreIndices;
           Value oobAddrOp =
               b.create<ConstantIntOp>(loc, twoGB, b.getIntegerType(32));
 
@@ -6814,7 +6814,7 @@ struct ThreadwiseCopyRewritePattern
 
             withinStoreBoundsOp = b.create<AndOp>(loc, withinStoreBoundsOp,
                                                   withinBoundInOneDimOp);
-            destLowerStoreOOBOp[dim] = zeroAddrOp;
+            destLowerStoreOOBIndices[dim] = zeroAddrOp;
           }
           // XXX: if you want to test it, use this code:
           // withinBounds & =  destLowerIndices[2] < 3
@@ -6836,14 +6836,17 @@ struct ThreadwiseCopyRewritePattern
 
           auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
           thenBuilder.create<scf::YieldOp>(
-              loc, ValueRange{zeroAddrOp, destLowerStoreOP[0],
-                              destLowerStoreOP[1], destLowerStoreOP[2],
-                              destLowerStoreOP[3], destLowerStoreOP[4]});
+              loc,
+              ValueRange{zeroAddrOp, destLowerStoreIndices[0],
+                         destLowerStoreIndices[1], destLowerStoreIndices[2],
+                         destLowerStoreIndices[3], destLowerStoreIndices[4]});
           auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
           elseBuilder.create<scf::YieldOp>(
-              loc, ValueRange{oobAddrOp, destLowerStoreOOBOp[0],
-                              destLowerStoreOOBOp[1], destLowerStoreOOBOp[2],
-                              destLowerStoreOOBOp[3], destLowerStoreOOBOp[4]});
+              loc, ValueRange{oobAddrOp, destLowerStoreOOBIndices[0],
+                              destLowerStoreOOBIndices[1],
+                              destLowerStoreOOBIndices[2],
+                              destLowerStoreOOBIndices[3],
+                              destLowerStoreOOBIndices[4]});
 
           b.create<gpu::MubufStoreOp>(
               loc, convertedScalarValue, op.dest(),
@@ -7141,17 +7144,17 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Store to dest.
       // Issue scalar store.
-      if (boundCheckDestAttr) {
+      if (toEmitOOBStoreCheckLogic) {
         auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-        SmallVector<Value, 8> destLowerStoreOP;
-        SmallVector<Value, 8> destLowerStoreOOBOp;
-        for (int i = 0; i < 5; i++) {
+        SmallVector<Value, 8> destLowerStoreIndices;
+        SmallVector<Value, 8> destLowerStoreOOBIndices;
+        for (int i = 0; i < destLowerIndices.size(); i++) {
           auto dstIndex = b.create<IndexCastOp>(loc, destLowerIndices[i],
                                                 b.getIntegerType(32));
-          destLowerStoreOP.push_back(dstIndex);
+          destLowerStoreIndices.push_back(dstIndex);
         }
 
-        destLowerStoreOOBOp = destLowerStoreOP;
+        destLowerStoreOOBIndices = destLowerStoreIndices;
         Value oobAddrOp =
             b.create<ConstantIntOp>(loc, twoGB, b.getIntegerType(32));
 
@@ -7181,7 +7184,7 @@ struct ThreadwiseCopyV2RewritePattern
 
           withinStoreBoundsOp =
               b.create<AndOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
-          destLowerStoreOOBOp[dim] = zeroAddrOp;
+          destLowerStoreOOBIndices[dim] = zeroAddrOp;
         }
         // XXX: if you want to test it, use this code:
         // withinBounds & =  destLowerIndices[2] < 3
@@ -7203,14 +7206,16 @@ struct ThreadwiseCopyV2RewritePattern
 
         auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
         thenBuilder.create<scf::YieldOp>(
-            loc, ValueRange{zeroAddrOp, destLowerStoreOP[0],
-                            destLowerStoreOP[1], destLowerStoreOP[2],
-                            destLowerStoreOP[3], destLowerStoreOP[4]});
+            loc,
+            ValueRange{zeroAddrOp, destLowerStoreIndices[0],
+                       destLowerStoreIndices[1], destLowerStoreIndices[2],
+                       destLowerStoreIndices[3], destLowerStoreIndices[4]});
         auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
         elseBuilder.create<scf::YieldOp>(
-            loc, ValueRange{oobAddrOp, destLowerStoreOOBOp[0],
-                            destLowerStoreOOBOp[1], destLowerStoreOOBOp[2],
-                            destLowerStoreOOBOp[3], destLowerStoreOOBOp[4]});
+            loc, ValueRange{
+                     oobAddrOp, destLowerStoreOOBIndices[0],
+                     destLowerStoreOOBIndices[1], destLowerStoreOOBIndices[2],
+                     destLowerStoreOOBIndices[3], destLowerStoreOOBIndices[4]});
 
         b.create<gpu::MubufStoreOp>(
             loc, scalarValue, op.dest(), ifWithinBoundsOp.getResults()[0],
