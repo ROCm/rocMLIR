@@ -6773,8 +6773,9 @@ struct ThreadwiseCopyRewritePattern
         }
 
         // Store to dest.
-        // Issue scalar store.
-        if (toEmitOOBStoreCheckLogic) {
+        // Issue scalar store ,oob store only support f32 now
+        if (toEmitOOBStoreCheckLogic &&
+            destType.getElementType() == b.getF32Type()) {
           SmallVector<Value, 8> destLowerStoreIndices;
           SmallVector<Value, 8> destLowerStoreOOBIndices;
 
@@ -7144,7 +7145,9 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Store to dest.
       // Issue scalar store.
-      if (toEmitOOBStoreCheckLogic) {
+      // oob store only support f32 now
+      if (toEmitOOBStoreCheckLogic &&
+          destType.getElementType() == b.getF32Type()) {
         auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
         SmallVector<Value, 8> destLowerStoreIndices;
         SmallVector<Value, 8> destLowerStoreOOBIndices;
