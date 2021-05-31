@@ -105,7 +105,7 @@ inline void computeIndexDiffMap(
   // look into layout attribute inside transform metadata.
   auto layoutAttr = transformMetadata.get("layout");
   if (!layoutAttr) {
-    // In case there is no layout specification, simply treat:
+    // In case there is no layout specification:
     // - lower diff as applying transform with upper diff.
     // - lower indices as index lower original + lower diff.
 
@@ -6859,6 +6859,7 @@ struct ThreadwiseCopyRewritePattern
       // n-1 is the bottom layer.
       SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
       SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
+
       if (!legacyLoadAttr ||
           !legacyLoadAttr.template cast<BoolAttr>().getValue()) {
         // Compute high-level coordinate for dest memref.
