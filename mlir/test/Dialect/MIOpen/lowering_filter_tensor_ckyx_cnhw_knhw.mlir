@@ -19,12 +19,12 @@ func @miopen_conv2d_ckyx_cnhw_knhw(%filter : memref<1x8x128x3x3xf32>, %input : m
 // CHECK-LABEL: func @miopen_conv2d
 // CHECK-NEXT:  miopen.transform
 // CHECK:       gridwise_gemm_argument_position = 0
-// CHECK:       names = ["gemmG"]
-// CHECK:       source_names = ["g"]
-// CHECK:       names = ["gemmK"]
-// CHECK:       source_names = ["c", "y", "x"]
-// CHECK:       names = ["gemmM"]
-// CHECK:       source_names = ["k"]
+// CHECK:       lower_layer_names = ["g"]
+// CHECK:       upper_layer_names = ["gemmG"]
+// CHECK:       lower_layer_names = ["c", "y", "x"]
+// CHECK:       upper_layer_names = ["gemmK"]
+// CHECK:       lower_layer_names = ["k"]
+// CHECK:       upper_layer_names = ["gemmM"]
 // CHECK-NEXT:  miopen.transform
 
 func @miopen_conv2d_bwd_data_ckyx_cnhw_knhw(%filter : memref<1x8x128x3x3xf32>, %input : memref<1x8x128x32x32xf32>, %output : memref<1x128x128x30x30xf32>) {
@@ -43,12 +43,12 @@ func @miopen_conv2d_bwd_data_ckyx_cnhw_knhw(%filter : memref<1x8x128x3x3xf32>, %
 // CHECK-LABEL: func @miopen_conv2d_bwd_data
 // CHECK-NEXT:  miopen.transform(%arg0)
 // CHECK:       gridwise_gemm_argument_position = 0
-// CHECK:       names = ["gemmG"]
-// CHECK:       source_names = ["g"]
-// CHECK:       names = ["gemmK"]
-// CHECK:       source_names = ["k", "ydotslice", "xdotslice"]
-// CHECK:       names = ["gemmM"]
-// CHECK:       source_names = ["c", "ytildaslice", "xtildaslice"]
+// CHECK:       lower_layer_names = ["g"]
+// CHECK:       upper_layer_names = ["gemmG"]
+// CHECK:       lower_layer_names = ["k", "ydotslice", "xdotslice"]
+// CHECK:       upper_layer_names = ["gemmK"]
+// CHECK:       lower_layer_names = ["c", "ytildaslice", "xtildaslice"]
+// CHECK:       upper_layer_names = ["gemmM"]
 // CHECK-NEXT:  miopen.transform(%arg1)
 
 func @miopen_conv2d_bwd_weight_ckyx_cnhw_knhw(%filter : memref<1x8x128x3x3xf32>, %input : memref<1x8x128x32x32xf32>, %output : memref<1x128x128x30x30xf32>) {
@@ -67,10 +67,10 @@ func @miopen_conv2d_bwd_weight_ckyx_cnhw_knhw(%filter : memref<1x8x128x3x3xf32>,
 // CHECK-LABEL: func @miopen_conv2d_bwd_weight
 // CHECK-NEXT:  miopen.transform(%arg0)
 // CHECK:       gridwise_gemm_argument_position = 2
-// CHECK:       names = ["gemmG"]
-// CHECK:       source_names = ["g"]
-// CHECK:       names = ["gemmM"]
-// CHECK:       source_names = ["k"]
-// CHECK:       names = ["gemmN"]
-// CHECK:       source_names = ["c", "y", "x"]
+// CHECK:       lower_layer_names = ["g"]
+// CHECK:       upper_layer_names = ["gemmG"]
+// CHECK:       lower_layer_names = ["k"]
+// CHECK:       upper_layer_names = ["gemmM"]
+// CHECK:       lower_layer_names = ["c", "y", "x"]
+// CHECK:       upper_layer_names = ["gemmN"]
 // CHECK-NEXT:  miopen.transform(%arg1)

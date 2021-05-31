@@ -30,18 +30,17 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
   auto layoutAttr = op->template getAttrOfType<ArrayAttr>("layout");
 
   auto sourceLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("source_layout");
-  if (!sourceLayoutAttr)
-    sourceLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("intermediate_layout");
+      op->template getAttrOfType<ArrayAttr>("lower_layer_layout");
   auto outputLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("output_layout");
+      op->template getAttrOfType<ArrayAttr>("upper_layer_layout");
 
   llvm::SmallMapVector<int64_t, AffineExpr, 8> affExprsMap;
   for (unsigned i = 0; i < layoutAttr.size(); ++i) {
     if (auto dimLayoutAttr = layoutAttr.getValue()[i].dyn_cast<DictionaryAttr>()) {
-      auto srcDimAttr = dimLayoutAttr.get("source_dimensions").dyn_cast<ArrayAttr>();
-      auto destDimAttr = dimLayoutAttr.get("dimensions").dyn_cast<ArrayAttr>();
+      auto srcDimAttr =
+          dimLayoutAttr.get("lower_layer_dimensions").dyn_cast<ArrayAttr>();
+      auto destDimAttr =
+          dimLayoutAttr.get("upper_layer_dimensions").dyn_cast<ArrayAttr>();
       auto transformAttr = dimLayoutAttr.get("transformation").dyn_cast<StringAttr>();
 
       if (transformAttr.getValue() == "PassThrough") {
