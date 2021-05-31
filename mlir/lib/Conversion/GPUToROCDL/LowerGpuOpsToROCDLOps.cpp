@@ -362,8 +362,6 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     // word 2: fixed as -1 .
     Value constant2 = rewriter.create<LLVM::ConstantOp>(
         loc, LLVMI32Type, rewriter.getI32IntegerAttr(2));
-    Value minusOne = rewriter.create<LLVM::ConstantOp>(
-        loc, LLVMI32Type, rewriter.getI32IntegerAttr(-1));
     Value rsrc2 = rewriter.create<LLVM::InsertElementOp>(
         loc, LLVMRsrcVectorType, rsrcUndef, twoGBShift, constant2);
 

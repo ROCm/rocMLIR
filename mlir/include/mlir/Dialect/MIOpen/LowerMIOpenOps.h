@@ -6779,7 +6779,7 @@ struct ThreadwiseCopyRewritePattern
           SmallVector<Value, 8> destLowerStoreIndices;
           SmallVector<Value, 8> destLowerStoreOOBIndices;
 
-          for (int i = 0; i < destLowerIndices.size(); i++) {
+          for (unsigned i = 0; i < destLowerIndices.size(); ++i) {
             auto dstIndex = b.create<IndexCastOp>(loc, destLowerIndices[i],
                                                   b.getIntegerType(32));
             destLowerStoreIndices.push_back(dstIndex);
@@ -7151,7 +7151,7 @@ struct ThreadwiseCopyV2RewritePattern
         auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
         SmallVector<Value, 8> destLowerStoreIndices;
         SmallVector<Value, 8> destLowerStoreOOBIndices;
-        for (int i = 0; i < destLowerIndices.size(); i++) {
+        for (unsigned i = 0; i < destLowerIndices.size(); ++i) {
           auto dstIndex = b.create<IndexCastOp>(loc, destLowerIndices[i],
                                                 b.getIntegerType(32));
           destLowerStoreIndices.push_back(dstIndex);
