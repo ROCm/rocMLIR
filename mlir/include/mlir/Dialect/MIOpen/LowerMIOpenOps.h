@@ -45,7 +45,9 @@
 
 using namespace mlir;
 using namespace mlir::miopen;
-
+// 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
+// store do nothing
+const int twoGB = 2147483647;
 //===----------------------------------------------------------------------===//
 // Utility function to compute index diff map.
 //===----------------------------------------------------------------------===//
@@ -2792,7 +2794,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto getGemmB = [&]() -> Value {
       // dim of oob check
-      llvm::DenseSet<int> oobCheckDims;
+      llvm::DenseSet<int> inputOobCheckDims;
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
@@ -2890,10 +2892,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         if (isInputHipBoundCheck()) {
           llvm::SmallVector<IntegerAttr, 2> padDim;
           if (leftPadH || rightPadH) {
-            oobCheckDims.insert(currentKeyToDim["hi"]);
+            inputOobCheckDims.insert(currentKeyToDim["hi"]);
           }
           if (leftPadW || rightPadW) {
-            oobCheckDims.insert(currentKeyToDim["wi"]);
+            inputOobCheckDims.insert(currentKeyToDim["wi"]);
           }
         }
 
@@ -3253,10 +3255,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedAttrs.push_back(b.getNamedAttr(
             "gridwise_gemm_argument_position", b.getI32IntegerAttr(2)));
 
-        if (oobCheckDims.size()) {
+        if (inputOobCheckDims.size()) {
           llvm::SmallVector<IntegerAttr, 5> boundDims;
           for (size_t i = 0; i < inputShape.size(); i++) {
-            if (oobCheckDims.find(i) != oobCheckDims.end())
+            if (inputOobCheckDims.find(i) != inputOobCheckDims.end())
               boundDims.push_back(b.getI32IntegerAttr(1));
             else
               boundDims.push_back(b.getI32IntegerAttr(0));
@@ -3280,8 +3282,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     auto getGemmC = [&]() -> Value {
-      // dim of oob ckeck
-      llvm::DenseSet<int> oobCheckDims;
+      // dim of oob check
+      llvm::DenseSet<int> outputOobCheckDims;
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
@@ -3368,7 +3370,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         if (y > 1) {
           if (!((leftPadH == rightPadH) && (y - leftPadH == 1))) {
-            oobCheckDims.insert(currentKeyToDim["ho"]);
+            outputOobCheckDims.insert(currentKeyToDim["ho"]);
           }
         }
         // wo
@@ -3399,7 +3401,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         if (x > 1) {
           if (!((leftPadW == rightPadW) && (x - leftPadW == 1))) {
-            oobCheckDims.insert(currentKeyToDim["wo"]);
+            outputOobCheckDims.insert(currentKeyToDim["wo"]);
           }
         }
         transformedAttrs.push_back(b.getNamedAttr(
@@ -3638,10 +3640,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         transformedAttrs.push_back(b.getNamedAttr(
             "gridwise_gemm_argument_position", b.getI32IntegerAttr(1)));
 
-        if (oobCheckDims.size()) {
+        if (outputOobCheckDims.size()) {
           llvm::SmallVector<IntegerAttr, 5> boundDims;
           for (size_t i = 0; i < outputShape.size(); i++) {
-            if (oobCheckDims.find(i) != oobCheckDims.end())
+            if (outputOobCheckDims.find(i) != outputOobCheckDims.end())
               boundDims.push_back(b.getI32IntegerAttr(1));
             else
               boundDims.push_back(b.getI32IntegerAttr(0));
@@ -6816,8 +6818,8 @@ struct ThreadwiseCopyRewritePattern
     }
 
     // Determine if we need to emit codes for out-of-bound check.
-    bool toEmitOOBCheckLogic = false;
-    SmallVector<unsigned, 2> oobCheckDims;
+    bool toEmitOOBLoadCheckLogic = false;
+    SmallVector<unsigned, 2> outputOobCheckDims;
     if (composedSourceTransform && boundCheckSourceAttr) {
       if (boundCheckSourceAttr.size() ==
           composedSourceTransform.getNumResults()) {
@@ -6825,8 +6827,8 @@ struct ThreadwiseCopyRewritePattern
           if (boundCheckSourceAttr[iter]
                   .template cast<IntegerAttr>()
                   .getInt()) {
-            toEmitOOBCheckLogic = true;
-            oobCheckDims.push_back(iter);
+            toEmitOOBLoadCheckLogic = true;
+            outputOobCheckDims.push_back(iter);
           }
         }
       }
@@ -7188,13 +7190,14 @@ struct ThreadwiseCopyRewritePattern
                 b.create<IndexCastOp>(loc, v, b.getIndexType()));
         }
 
-        // Pre-populate srcLowerOOBIndices. It will be modified inside
+        // Pre-populate srcLowerLoadOOBIndices. It will be modified inside
         // toEmitOOBCheckLogic basic block.
-        SmallVector<Value, 8> srcLowerOOBIndices = srcLowerIndices;
+        SmallVector<Value, 8> srcLowerLoadOOBIndices;
+        srcLowerLoadOOBIndices = srcLowerIndices;
 
         // Load from source.
         Value scalarValue;
-        if (toEmitOOBCheckLogic) {
+        if (toEmitOOBLoadCheckLogic) {
           // Emit a useful constant 0f for later use.
           Value zeroOp =
               createZeroConstantFloatOp(b, loc, sourceType.getElementType());
@@ -7204,14 +7207,14 @@ struct ThreadwiseCopyRewritePattern
 
           // Logic in C++:
           // bool withinBounds = true;
-          // for (auto dim : oobCheckDims) {
+          // for (auto dim : oobLoadCheckDims) {
           //   withBounds &=
           //     (srcLowerIndices[dim] >= 0 &&
           //      srcLowerIndices[dim] < sourceType.getShape()[dim]) {
           // }
           Value withinBoundsOp =
               b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
-          for (auto dim : oobCheckDims) {
+          for (auto dim : outputOobCheckDims) {
             Value coord = srcLowerIndices[dim];
             Value lowerBoundCheckOp = b.create<CmpIOp>(loc, CmpIPredicate::sge,
                                                        coord, zeroConstantOp);
@@ -7225,8 +7228,8 @@ struct ThreadwiseCopyRewritePattern
             withinBoundsOp =
                 b.create<AndOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
 
-            // Prepare srcLowerOOBIndices.
-            srcLowerOOBIndices[dim] = zeroConstantOp;
+            // Prepare srcLowerLoadOOBIndices.
+            srcLowerLoadOOBIndices[dim] = zeroConstantOp;
           }
 
           // Logic:
@@ -7265,9 +7268,10 @@ struct ThreadwiseCopyRewritePattern
           auto firstIfWithinBoundsElseBuilder =
               firstIfWithinBoundsOp.getElseBodyBuilder();
           firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(
-              loc, ValueRange{srcLowerOOBIndices[0], srcLowerOOBIndices[1],
-                              srcLowerOOBIndices[2], srcLowerOOBIndices[3],
-                              srcLowerOOBIndices[4]});
+              loc,
+              ValueRange{srcLowerLoadOOBIndices[0], srcLowerLoadOOBIndices[1],
+                         srcLowerLoadOOBIndices[2], srcLowerLoadOOBIndices[3],
+                         srcLowerLoadOOBIndices[4]});
 
           // Issue scalar load.
           scalarValue = b.create<LoadOp>(loc, sourceElementType, op.source(),
@@ -7363,10 +7367,111 @@ struct ThreadwiseCopyRewritePattern
                 b.create<IndexCastOp>(loc, v, b.getIndexType()));
         }
 
+        bool toEmitOOBStoreCheckLogic = false;
+        SmallVector<unsigned, 2> oobStoreCheckDims;
+        if (composedDestTransform && boundCheckDestAttr) {
+          if (boundCheckDestAttr.size() ==
+              composedDestTransform.getNumResults()) {
+            for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
+              if (boundCheckDestAttr[iter]
+                      .template cast<IntegerAttr>()
+                      .getInt()) {
+                toEmitOOBStoreCheckLogic = true;
+                oobStoreCheckDims.push_back(iter);
+              }
+            }
+          }
+        }
+
         // Store to dest.
-        // Issue scalar store.
-        b.create<StoreOp>(loc, convertedScalarValue, op.dest(),
-                          destLowerIndices);
+        // Issue scalar store ,oob store only support f32 now
+        if (toEmitOOBStoreCheckLogic &&
+            destType.getElementType() == b.getF32Type()) {
+          SmallVector<Value, 8> destLowerStoreIndices;
+          SmallVector<Value, 8> destLowerStoreOOBIndices;
+
+          for (unsigned i = 0; i < destLowerIndices.size(); ++i) {
+            auto dstIndex = b.create<IndexCastOp>(loc, destLowerIndices[i],
+                                                  b.getIntegerType(32));
+            destLowerStoreIndices.push_back(dstIndex);
+          }
+
+          destLowerStoreOOBIndices = destLowerStoreIndices;
+          Value oobAddrOp =
+              b.create<ConstantIntOp>(loc, twoGB, b.getIntegerType(32));
+
+          Value zeroAddrOp =
+              b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
+
+          // Logic in C++:
+          // bool withinBounds = true;
+          // for (auto dim : oobStoreCheckDims) {
+          //   withBounds &=
+          //     (destLowerIndices[dim] >= 0 &&
+          //      destLowerIndices[dim] < destType.getShape()[dim]) {
+          // }
+
+          Value withinStoreBoundsOp =
+              b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
+          for (auto dim : oobStoreCheckDims) {
+            Value coordStore = destLowerIndices[dim];
+            Value lowerBoundCheckOp = b.create<CmpIOp>(
+                loc, CmpIPredicate::sge, coordStore, zeroConstantOp);
+            Value upperBoundOp =
+                b.create<ConstantIndexOp>(loc, destType.getShape()[dim]);
+            Value upperBoundCheckOp = b.create<CmpIOp>(
+                loc, CmpIPredicate::slt, coordStore, upperBoundOp);
+            Value withinBoundInOneDimOp =
+                b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
+
+            withinStoreBoundsOp = b.create<AndOp>(loc, withinStoreBoundsOp,
+                                                  withinBoundInOneDimOp);
+            destLowerStoreOOBIndices[dim] = zeroAddrOp;
+          }
+          // XXX: if you want to test it, use this code:
+          // withinBounds & =  destLowerIndices[2] < 3
+          // mlir:
+          // Value testBoundOp =
+          //   b.create<ConstantIndexOp>(loc, 3);
+          // Value testBoundCheckOp =
+          //   b.create<CmpIOp>(loc, CmpIPredicate::slt, destLowerIndices[2],
+          //   testBoundOp);
+          // withinStoreBoundsOp =
+          //   b.create<AndOp>(loc, withinStoreBoundsOp, testBoundCheckOp);
+
+          auto ifWithinBoundsOp = b.create<scf::IfOp>(
+              loc,
+              TypeRange{b.getIntegerType(32), b.getIntegerType(32),
+                        b.getIntegerType(32), b.getIntegerType(32),
+                        b.getIntegerType(32), b.getIntegerType(32)},
+              withinStoreBoundsOp, true);
+
+          auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
+          thenBuilder.create<scf::YieldOp>(
+              loc,
+              ValueRange{zeroAddrOp, destLowerStoreIndices[0],
+                         destLowerStoreIndices[1], destLowerStoreIndices[2],
+                         destLowerStoreIndices[3], destLowerStoreIndices[4]});
+          auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
+          elseBuilder.create<scf::YieldOp>(
+              loc, ValueRange{oobAddrOp, destLowerStoreOOBIndices[0],
+                              destLowerStoreOOBIndices[1],
+                              destLowerStoreOOBIndices[2],
+                              destLowerStoreOOBIndices[3],
+                              destLowerStoreOOBIndices[4]});
+
+          b.create<gpu::MubufStoreOp>(
+              loc, convertedScalarValue, op.dest(),
+              ifWithinBoundsOp.getResults()[0],
+              ValueRange{ifWithinBoundsOp.getResults()[1],
+                         ifWithinBoundsOp.getResults()[2],
+                         ifWithinBoundsOp.getResults()[3],
+                         ifWithinBoundsOp.getResults()[4],
+                         ifWithinBoundsOp.getResults()[5]});
+        } else {
+          b.create<StoreOp>(loc, convertedScalarValue, op.dest(),
+                            destLowerIndices);
+        }
 
         // increase IVs
         bool toIncreaseNextDigit = true;
@@ -7423,15 +7528,18 @@ struct ThreadwiseCopyV2RewritePattern
 
     bool sourceEmbeddedTransform = false;
     bool sourceExternalTransform = false;
+    AffineMap composedSourceTransform;
+    AffineMap composedDestTransform;
     SmallVector<AffineMap> layeredSourceTransform;
     SmallVector<AffineMap> layeredDestTransform;
+    ArrayAttr boundCheckDestAttr;
 
     if (destTypeAffineMaps.size()) {
       destCoordLength = destTypeAffineMaps[0].getNumInputs();
-
       // Populate affine maps for each layer.
       layeredDestTransform.assign(destTypeAffineMaps.begin(),
                                   destTypeAffineMaps.end());
+      composedDestTransform = composeTransforms(destTypeAffineMaps);
     }
 
     // Obtain metadata of coordinate transformations.
@@ -7464,10 +7572,15 @@ struct ThreadwiseCopyV2RewritePattern
                                 .getNumInputs();
           destTransformSpec = dictAttr;
 
+          composedDestTransform = composeTransforms(transforms);
           // Populate affine maps for each layer.
           for (auto &am : transforms)
             layeredDestTransform.push_back(
                 am.template cast<AffineMapAttr>().getValue());
+
+          auto boundCheckAttr = dictAttr.get("bound_check");
+          if (boundCheckAttr)
+            boundCheckDestAttr = boundCheckAttr.template cast<ArrayAttr>();
         }
       }
     }
@@ -7670,20 +7783,123 @@ struct ThreadwiseCopyV2RewritePattern
         destLowerIndicesConverted.push_back(
             b.create<IndexCastOp>(loc, v, b.getIndexType()));
 
+      bool toEmitOOBStoreCheckLogic = false;
+      SmallVector<unsigned, 2> oobStoreCheckDims;
+      if (composedDestTransform && boundCheckDestAttr) {
+        if (boundCheckDestAttr.size() ==
+            composedDestTransform.getNumResults()) {
+          for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
+            if (boundCheckDestAttr[iter]
+                    .template cast<IntegerAttr>()
+                    .getInt()) {
+              toEmitOOBStoreCheckLogic = true;
+              oobStoreCheckDims.push_back(iter);
+            }
+          }
+        }
+      }
+
       // Store to dest.
       // Issue scalar store.
-      if (dataType == b.getF32Type()) {
-        b.create<StoreOp>(loc, scalarValue, op.dest(),
-                          destLowerIndicesConverted);
-      } else if (dataType == b.getF16Type()) {
-        auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
-        b.create<StoreOp>(loc, truncValue, op.dest(),
-                          destLowerIndicesConverted);
-      } else if (dataType == b.getIntegerType(16)) {
-        auto convertValue =
-            b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
-        b.create<StoreOp>(loc, convertValue, op.dest(),
-                          destLowerIndicesConverted);
+      // oob store only support f32 now
+      if (toEmitOOBStoreCheckLogic &&
+          destType.getElementType() == b.getF32Type()) {
+        auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+        SmallVector<Value, 8> destLowerStoreIndices;
+        SmallVector<Value, 8> destLowerStoreOOBIndices;
+        for (unsigned i = 0; i < destLowerIndicesConverted.size(); ++i) {
+          auto dstIndex = b.create<IndexCastOp>(loc, 
+                                                destLowerIndicesConverted[i],
+                                                b.getIntegerType(32));
+          destLowerStoreIndices.push_back(dstIndex);
+        }
+
+        destLowerStoreOOBIndices = destLowerStoreIndices;
+        Value oobAddrOp =
+            b.create<ConstantIntOp>(loc, twoGB, b.getIntegerType(32));
+
+        Value zeroAddrOp =
+            b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
+
+        // Logic in C++:
+        // bool withinBounds = true;
+        // for (auto dim : oobStoreCheckDims) {
+        //   withBounds &=
+        //     (destLowerIndicesConverted[dim] >= 0 &&
+        //      destLowerIndicesConverted[dim] < destType.getShape()[dim]) {
+        // }
+
+        Value withinStoreBoundsOp =
+            b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
+        for (auto dim : oobStoreCheckDims) {
+          Value coordStore = destLowerIndicesConverted[dim];
+          Value lowerBoundCheckOp = b.create<CmpIOp>(
+              loc, CmpIPredicate::sge, coordStore, zeroConstantOp);
+          Value upperBoundOp =
+              b.create<ConstantIndexOp>(loc, destType.getShape()[dim]);
+          Value upperBoundCheckOp = b.create<CmpIOp>(loc, CmpIPredicate::slt,
+                                                     coordStore, upperBoundOp);
+          Value withinBoundInOneDimOp =
+              b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
+
+          withinStoreBoundsOp =
+              b.create<AndOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
+          destLowerStoreOOBIndices[dim] = zeroAddrOp;
+        }
+        // XXX: if you want to test it, use this code:
+        // withinBounds & =  destLowerIndicesConverted[2] < 3
+        // mlir:
+        // Value testBoundOp =
+        //   b.create<ConstantIndexOp>(loc, 3);
+        // Value testBoundCheckOp =
+        //   b.create<CmpIOp>(loc, CmpIPredicate::slt,
+        //   destLowerIndicesConverted[2],
+        //   testBoundOp);
+        // withinStoreBoundsOp =
+        //   b.create<AndOp>(loc, withinStoreBoundsOp, testBoundCheckOp);
+
+        auto ifWithinBoundsOp = b.create<scf::IfOp>(
+            loc,
+            TypeRange{b.getIntegerType(32), b.getIntegerType(32),
+                      b.getIntegerType(32), b.getIntegerType(32),
+                      b.getIntegerType(32), b.getIntegerType(32)},
+            withinStoreBoundsOp, true);
+
+        auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
+        thenBuilder.create<scf::YieldOp>(
+            loc,
+            ValueRange{zeroAddrOp, destLowerStoreIndices[0],
+                       destLowerStoreIndices[1], destLowerStoreIndices[2],
+                       destLowerStoreIndices[3], destLowerStoreIndices[4]});
+        auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
+        elseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{
+                     oobAddrOp, destLowerStoreOOBIndices[0],
+                     destLowerStoreOOBIndices[1], destLowerStoreOOBIndices[2],
+                     destLowerStoreOOBIndices[3], destLowerStoreOOBIndices[4]});
+
+        b.create<gpu::MubufStoreOp>(
+            loc, scalarValue, op.dest(), ifWithinBoundsOp.getResults()[0],
+            ValueRange{ifWithinBoundsOp.getResults()[1],
+                       ifWithinBoundsOp.getResults()[2],
+                       ifWithinBoundsOp.getResults()[3],
+                       ifWithinBoundsOp.getResults()[4],
+                       ifWithinBoundsOp.getResults()[5]});
+
+      } else {
+        if (dataType == b.getF32Type()) {
+          b.create<StoreOp>(loc, scalarValue, op.dest(),
+                            destLowerIndicesConverted);
+        } else if (dataType == b.getF16Type()) {
+          auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
+          b.create<StoreOp>(loc, truncValue, op.dest(),
+                            destLowerIndicesConverted);
+        } else if (dataType == b.getIntegerType(16)) {
+          auto convertValue =
+              b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
+          b.create<StoreOp>(loc, convertValue, op.dest(),
+                            destLowerIndicesConverted);
+        }
       }
 
       // increase IVs

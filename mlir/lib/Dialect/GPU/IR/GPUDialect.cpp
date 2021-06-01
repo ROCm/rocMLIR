@@ -981,10 +981,11 @@ static ParseResult parseMubufStoreOp(OpAsmParser &parser,
              parser.parseOptionalAttrDict(result.attributes) ||
              parser.parseColonTypeList(types) ||
              parser.resolveOperand(ops[0], types[0], result.operands) ||
-             parser.resolveOperand(ops[1], types[1], result.operands);
+             parser.resolveOperand(ops[1], types[1], result.operands) ||
+             parser.resolveOperand(ops[2], types[2], result.operands);
 
   // resolve source coorindates.
-  for (unsigned i = 2; i < ops.size(); ++i) {
+  for (unsigned i = 3; i < ops.size(); ++i) {
     ret &= succeeded(parser.resolveOperand(
         ops[i], parser.getBuilder().getIntegerType(32), result.operands));
   }
@@ -995,7 +996,8 @@ static ParseResult parseMubufStoreOp(OpAsmParser &parser,
 static void print(OpAsmPrinter &p, gpu::MubufStoreOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.value().getType() << ", " << op.memref().getType();
+  p << " : " << op.value().getType() << ", " << op.memref().getType() << ", "
+    << op.shift().getType();
 }
 
 static LogicalResult verify(gpu::MubufStoreOp op) { return success(); }
