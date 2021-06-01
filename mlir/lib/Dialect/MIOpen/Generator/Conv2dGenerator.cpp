@@ -76,7 +76,7 @@ llvm::SmallVector<int> Conv2dGenerator::getKernelCount() const {
   return gemmIds;
 }
 // calculate gemmId of gemm that can be runned. In some case, the gemmIds may
-// not be consecutive
+// not be consecutive.for example filter is 3x1 and stride=2, get gemmIds (0,2)
 llvm::SmallVector<int> Conv2dGenerator::getBwdDataKernelCount() const {
   auto gcdStrideDilationH =
       math::gcd(config.strideHeight, config.dilationHeight);
