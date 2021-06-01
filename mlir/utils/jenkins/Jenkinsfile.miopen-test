@@ -60,10 +60,12 @@ pipeline {
                     -DLLVM_BUILD_LLVM_DYLIB=OFF
                     -DLLVM_ENABLE_TERMINFO=OFF
                     -DCMAKE_INSTALL_PREFIX=/opt/rocm
-                    --log-level=WARNING
-                    -DCMAKE_RULE_MESSAGES=OFF
+                    -DBUILD_FAT_LIBMLIRMIOPEN=ON
                     '''
-                            sh 'cd build; make -j $(nproc) libMLIRMIOpen all install >/dev/null'
+                            sh 'cd build; make -j $(nproc) libMLIRMIOpen'
+                            cmake arguments: '--install . --component libMLIRMIOpen',\
+                                installation: 'InSearchPath', workingDir: 'build'
+
                         }
                     }
                     stage('Build MIOpenDriver') {
