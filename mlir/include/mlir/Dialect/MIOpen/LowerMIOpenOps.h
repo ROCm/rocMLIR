@@ -76,40 +76,52 @@ inline void computeIndexDiffMap(
   // - G : metadata of F
   //
   // Output:
-  // - lower_diff
-  // - lower_indices_updated
+  // - lower_diff : the computed diffs on the lower layer. such information
+  //                would be passed to the next layer below as upper diff.
+  // - lower_indices_updated : the updated lower layer indices. clients will
+  //                           use the values to issue loads / stores.
   //
   // For each transform g specified in G:
   //   Let P be the upper dimensions used by g.
   //   Let Q be the lower dimensions used by g.
+  //   Let T be upper_layer_bounds.
   //
   //   Switch g:
   //     Case Pad :
   //       |P| = |Q|
   //       For each i in P, and its counterpart j in Q
   //         lower_diff[j] = upper_diff[i]
+  //         lower_indices_updated[j] = lower_indices_origina[j] + lower_diff[j]
   //
   //     Case PassThrough :
   //       |P| = |Q|
   //       For each i in P, and its counterpart j in Q
   //         lower_diff[j] = upper_diff[i]
+  //         lower_indices_updated[j] = lower_indices_origina[j] + lower_diff[j]
   //
   //     Case Embed:
-  //       |P| shall be 2
+  //       |P| = k, currently k will be fixed as 2.
   //       |Q| shall be 1
   //       Let (p_{0}, ... , p_{k-1}) be elements in P, |P| = k
   //       Let (e_{0}, ... , e_{k-1}) be parameters of P
   //       Let j be the counterpart in q
   //       lower_diff[j] = sum_over_P(e_{i} * upper_diff[p_{i}])
+  //       lower_indices_updated[j] = lower_indices_origina[j] + lower_diff[j]
   //
   //     Case UnMerge:
   //       |Q| shall be 1
   //       Let (p_{0}, ... , p_{k-1}) be elements in P, |P| = k
   //       Let (e_{0}, ... , e_{k-1}) be parameters of P
+  //         The value of e_{i} is defined as:
+  //           e_{k-1} = 1
+  //           e_{i} = mul_over_{domain: [i+1 .. k-1], iterator=l}(T_{l})
   //       Let j be the counterpart in q
-  //       lower_diff[j] = sum_over_P(e_{i} * upper_diff[p_{i}])
+  //         lower_diff[j] = sum_over_P(e_{i} * upper_diff[p_{i}])
+  //         lower_indices_updated[j] = lower_indices_origina[j] + lower_diff[j]
   //
   //     Case Unfold:
+  //       This transformation is currently only used on filter, when c/y/x
+  //       dimensions are together.
   //       |P| shall be 1
   //       Let (q_{0}, ... , q_{k-1}) be elements in Q, |Q| = k
   //       Let (f_{0}, ... , f_{k-1}) be elements in F to compute from P to Q
@@ -119,7 +131,7 @@ inline void computeIndexDiffMap(
   //         lower_indices_modified[i] = lower_indices_original[i] +
   //           lower_diff_tilda[i]
   //       lower_diff = lower_diff_tilda
-  //       lower_indices = lower_indices_modified
+  //       lower_indices_updated = lower_indices_modified
   //
   //     Case Merge:
   //       |P| shall be 1
@@ -133,10 +145,8 @@ inline void computeIndexDiffMap(
   //       For each i in Q, starting from i-1 down to 0 in descending order
   //         lower_indices_carrychecked[i] = carry/overflow check for
   //           lower_indices_modified[i]
-  //         lower_diff_carrychecked[i] = carry/overflow check for
-  //           lower_diff_tilda[i]
-  //       lower_diff = lower_diff_carrychecked
-  //       lower_indices = lower_indices_carrychecked
+  //       lower_diff = lower_indices_carrychecked - lower_indices_original
+  //       lower_indices_updated = lower_indices_carrychecked
   //
 
   // llvm::errs() << "\nTransform:\n";
@@ -285,6 +295,7 @@ inline void computeIndexDiffMap(
         assert(lowerLayerBounds.size() == lowerIndicesModified.size());
 
         // Carry checked lower indices.
+        // FIXME: study how to properly lowerDiffsCarryChecked.
         DenseMap<int64_t, Value> lowerDiffsCarryChecked;
         DenseMap<int64_t, Value> lowerIndicesCarryChecked;
         for (unsigned iter = 0; iter < q.size(); ++iter) {
@@ -7808,9 +7819,8 @@ struct ThreadwiseCopyV2RewritePattern
         SmallVector<Value, 8> destLowerStoreIndices;
         SmallVector<Value, 8> destLowerStoreOOBIndices;
         for (unsigned i = 0; i < destLowerIndicesConverted.size(); ++i) {
-          auto dstIndex = b.create<IndexCastOp>(loc, 
-                                                destLowerIndicesConverted[i],
-                                                b.getIntegerType(32));
+          auto dstIndex = b.create<IndexCastOp>(
+              loc, destLowerIndicesConverted[i], b.getIntegerType(32));
           destLowerStoreIndices.push_back(dstIndex);
         }
 
