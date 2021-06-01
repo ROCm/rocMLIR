@@ -69,6 +69,7 @@ pipeline {
                         -DCMAKE_BUILD_TYPE=Release \
                         -DBUILD_SHARED_LIBS=OFF \
                         -DLLVM_BUILD_LLVM_DYLIB=OFF \
+                        -DBUILD_FAT_LIBMLIRMIOPEN=ON \
                         -DLLVM_ENABLE_TERMINFO=OFF
 
                     make -j libMLIRMIOpen
