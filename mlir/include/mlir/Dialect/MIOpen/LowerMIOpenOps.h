@@ -99,6 +99,12 @@ inline void computeIndexDiffMap(
   //         lower_diff[j] = upper_diff[i]
   //         lower_indices_updated[j] = lower_indices_origina[j] + lower_diff[j]
   //
+  //     Case Slice :
+  //       |P| = |Q|
+  //       For each i in P, and its counterpart j in Q
+  //         lower_diff[j] = upper_diff[i]
+  //         lower_indices_updated[j] = lower_indices_origina[j] + lower_diff[j]
+  //
   //     Case Embed:
   //       |P| = k, currently k will be fixed as 2.
   //       |Q| shall be 1
@@ -212,7 +218,8 @@ inline void computeIndexDiffMap(
                                 b.getIntegerType(32)),
           lowerDiff);
     } else if ((transformation.getValue() == "PassThrough") ||
-               (transformation.getValue() == "Pad")) {
+               (transformation.getValue() == "Pad") ||
+               (transformation.getValue() == "Slice")) {
       assert(p.size() == q.size());
       for (unsigned iter = 0; iter < q.size(); ++iter) {
         int64_t upperDim = p[iter].template cast<IntegerAttr>().getInt();
@@ -2520,7 +2527,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                              b.getI32IntegerAttr(
                                                  strideH / gcdStrideDilationH),
                                              b.getI32IntegerAttr(1),
-                                             b.getI32IntegerAttr(0),
                                          })),
             b.getNamedAttr(
                 "lower_layer_dimensions",
@@ -2545,7 +2551,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                              b.getI32IntegerAttr(
                                                  strideW / gcdStrideDilationW),
                                              b.getI32IntegerAttr(1),
-                                             b.getI32IntegerAttr(0),
                                          })),
             b.getNamedAttr(
                 "lower_layer_dimensions",
@@ -3000,7 +3005,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 b.getNamedAttr("parameters", b.getArrayAttr({
                                                  b.getI32IntegerAttr(dilationH),
                                                  b.getI32IntegerAttr(strideH),
-                                                 b.getI32IntegerAttr(0),
                                              })),
                 b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(3)})),
@@ -3023,7 +3027,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 b.getNamedAttr("parameters", b.getArrayAttr({
                                                  b.getI32IntegerAttr(dilationW),
                                                  b.getI32IntegerAttr(strideW),
-                                                 b.getI32IntegerAttr(0),
                                              })),
                 b.getNamedAttr("lower_layer_dimensions",
                                b.getArrayAttr({b.getI32IntegerAttr(4)})),
@@ -3371,7 +3374,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 b.getArrayAttr({
                     b.getI32IntegerAttr((-dilationH) / gcdStrideDilationH),
                     b.getI32IntegerAttr(1),
-                    b.getI32IntegerAttr(0),
                 })),
             b.getNamedAttr(
                 "lower_layer_dimensions",
@@ -3402,7 +3404,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 b.getArrayAttr({
                     b.getI32IntegerAttr((-dilationW) / gcdStrideDilationW),
                     b.getI32IntegerAttr(1),
-                    b.getI32IntegerAttr(0),
                 })),
             b.getNamedAttr(
                 "lower_layer_dimensions",
