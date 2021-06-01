@@ -424,6 +424,8 @@ inline void populateLayeredIndicesWithIndexDiffMap(
   // llvm::errs() << "\npopulateLayeredIndicesWithIndexDiffMap\n";
   // llvm::errs() << "layeredTransformMetadata: " << layeredTransformMetadata
   //              << "\n";
+  // llvm::errs() << "layeredTransformMetadata.size():
+  //              << layeredTransformMetadata.size() << "\n";
   // llvm::errs() << "layeredTransform.size(): " << layeredTransform.size()
   //              << "\n";
   // for (unsigned layer = 0; layer < layeredTransform.size(); ++layer) {
@@ -450,6 +452,7 @@ inline void populateLayeredIndicesWithIndexDiffMap(
     layeredDiffs.push_back(upperDiff);
     layeredIndicesUpdated.push_back(lowerIndicesUpdated);
   } else {
+    assert(layeredTransformMetadata.size() == layeredTransform.size());
     for (unsigned layer = 0; layer < layeredTransform.size(); ++layer) {
       SmallVector<Value, 8> lowerDiff;
       SmallVector<Value, 8> lowerIndicesUpdated;
