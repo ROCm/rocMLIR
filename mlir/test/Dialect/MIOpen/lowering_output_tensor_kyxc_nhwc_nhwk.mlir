@@ -18,12 +18,12 @@ func @miopen_conv2d_gkyxc_nhwgc_nhwgk(%filter : memref<1x128x3x3x8xf32>, %input 
 }
 // CHECK-LABEL: func @miopen_conv2d
 // CHECK:       miopen.transform(%arg2)
-// CHECK:       names = ["gemmG"]
-// CHECK:       source_names = ["go"]
-// CHECK:       names = ["gemmM"]
-// CHECK:       source_names = ["ko"]
-// CHECK:       names = ["gemmN"]
-// CHECK:       source_names = ["no", "ho", "wo"]
+// CHECK:       lower_layer_names = ["go"]
+// CHECK:       upper_layer_names = ["gemmG"]
+// CHECK:       lower_layer_names = ["ko"]
+// CHECK:       upper_layer_names = ["gemmM"]
+// CHECK:       lower_layer_names = ["no", "ho", "wo"]
+// CHECK:       upper_layer_names = ["gemmN"]
 // CHECK:       miopen.gridwise_gemm
 
 func @miopen_conv2d_bwd_data_gkyxc_nhwgc_nhwgk(%filter : memref<1x128x3x3x8xf32>, %input : memref<128x32x32x1x8xf32>, %output : memref<128x30x30x1x128xf32>) {
@@ -42,12 +42,12 @@ func @miopen_conv2d_bwd_data_gkyxc_nhwgc_nhwgk(%filter : memref<1x128x3x3x8xf32>
 }
 // CHECK-LABEL: func @miopen_conv2d_bwd_data
 // CHECK:       miopen.transform(%arg2)
-// CHECK:       names = ["gemmG"]
-// CHECK:       source_names = ["go"]
-// CHECK:       names = ["gemmK"]
-// CHECK:       source_names = ["ko", "ydotslice", "xdotslice"]
-// CHECK:       names = ["gemmN"]
-// CHECK:       source_names = ["no", "htildaslice", "wtildaslice"]
+// CHECK:       lower_layer_names = ["go"]
+// CHECK:       upper_layer_names = ["gemmG"]
+// CHECK:       lower_layer_names = ["ko", "ydotslice", "xdotslice"]
+// CHECK:       upper_layer_names = ["gemmK"]
+// CHECK:       lower_layer_names = ["no", "htildaslice", "wtildaslice"]
+// CHECK:       upper_layer_names = ["gemmN"]
 // CHECK:       miopen.gridwise_gemm
 
 func @miopen_conv2d_bwd_weight_gkyxc_nhwgc_nhwgk(%filter : memref<1x128x3x3x8xf32>, %input : memref<128x32x32x1x8xf32>, %output : memref<128x30x30x1x128xf32>) {
@@ -65,10 +65,10 @@ func @miopen_conv2d_bwd_weight_gkyxc_nhwgc_nhwgk(%filter : memref<1x128x3x3x8xf3
 }
 // CHECK-LABEL: func @miopen_conv2d_bwd_weight
 // CHECK:       miopen.transform(%arg2)
-// CHECK:       names = ["gemmG"]
-// CHECK:       source_names = ["go"]
-// CHECK:       names = ["gemmK"]
-// CHECK:       source_names = ["no", "ho", "wo"]
-// CHECK:       names = ["gemmM"]
-// CHECK:       source_names = ["ko"]
+// CHECK:       lower_layer_names = ["go"]
+// CHECK:       upper_layer_names = ["gemmG"]
+// CHECK:       lower_layer_names = ["no", "ho", "wo"]
+// CHECK:       upper_layer_names = ["gemmK"]
+// CHECK:       lower_layer_names = ["ko"]
+// CHECK:       upper_layer_names = ["gemmM"]
 // CHECK:       miopen.gridwise_gemm
