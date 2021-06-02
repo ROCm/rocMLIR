@@ -237,37 +237,68 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
       assert(p.size() == 1);
       int64_t upperDim = p[0].template cast<IntegerAttr>().getInt();
 
-      // Implementation detail: due to a potential bug in expandAffineMap,
-      // use index type for arguments sent to expandAffineMap.
-      // We convert everything back from index to i32 after expandAffineMap.
-      Value upperDiff = b.create<IndexCastOp>(loc, upperIndicesDiff[upperDim],
-                                              b.getIndexType());
-
-      // Populate an upper diff vector with all indices 0, other than
-      // upperDim dimension set as upperDiff.
-      SmallVector<Value, 8> upperDiffModified;
-      for (unsigned iter = 0; iter < upperIndicesDiff.size(); ++iter) {
-        Value v =
-            (iter == upperDim) ? upperDiff : b.create<ConstantIndexOp>(loc, 0);
-        upperDiffModified.push_back(v);
-      }
-      assert(upperDiffModified.size() == upperIndicesDiff.size());
-
       // Obtain the transformation.
       AffineMap transform = transformMetadata.get("map")
                                 .template cast<ArrayAttr>()[0]
                                 .template cast<AffineMapAttr>()
                                 .getValue();
-      // Apply map to compute index lower diff, from index upper diff using
-      // expandAffineMap.
-      SmallVector<Value, 8> lowerDiffModified =
-          expandAffineMap(b, loc, transform, upperDiffModified).getValue();
-      for (unsigned iter = 0; iter < lowerDiffModified.size(); ++iter) {
-        // Convert from index type to i32.
-        lowerDiffModified[iter] = b.create<IndexCastOp>(
-            loc, lowerDiffModified[iter], b.getIntegerType(32));
+
+      SmallVector<Value, 8> lowerDiffModified;
+      auto upperDiffOp = upperIndicesDiff[upperDim].getDefiningOp();
+      if (auto v = dyn_cast<ConstantIntOp>(upperDiffOp)) {
+        // In case upper level diff is a constant, use constantFold.
+        int64_t upperDiff = v.getValue();
+
+        // Populate an upper diff vector with all indices 0, other than
+        // upperDim dimension set as upperDiff.
+        SmallVector<Attribute, 8> upperDiffModified;
+        for (unsigned iter = 0; iter < upperIndicesDiff.size(); ++iter) {
+          int64_t v = (iter == upperDim) ? upperDiff : 0;
+          upperDiffModified.push_back(b.getI32IntegerAttr(v));
+        }
+        assert(upperDiffModified.size() == upperIndicesDiff.size());
+
+        // Apply map to compute index lower diff, from index upper diff using
+        // constantFold.
+        SmallVector<Attribute, 8> lowerDiffModifiedAttr;
+        (void)transform.constantFold(upperDiffModified, lowerDiffModifiedAttr);
+        assert(lowerDiffModifiedAttr.size() == lowerIndicesOriginal.size());
+
+        for (unsigned iter = 0; iter < lowerDiffModifiedAttr.size(); ++iter)
+          lowerDiffModified.push_back(b.create<ConstantIntOp>(
+              loc,
+              lowerDiffModifiedAttr[iter].template cast<IntegerAttr>().getInt(),
+              b.getIntegerType(32)));
+        assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
+      } else {
+        // In case upper level diff is not constant, use expandAffineMap.
+
+        // Implementation detail: due to a potential bug in expandAffineMap,
+        // use index type for arguments sent to expandAffineMap.
+        // We convert everything back from index to i32 after expandAffineMap.
+        Value upperDiff = b.create<IndexCastOp>(loc, upperIndicesDiff[upperDim],
+                                                b.getIndexType());
+
+        // Populate an upper diff vector with all indices 0, other than
+        // upperDim dimension set as upperDiff.
+        SmallVector<Value, 8> upperDiffModified;
+        for (unsigned iter = 0; iter < upperIndicesDiff.size(); ++iter) {
+          Value v = (iter == upperDim) ? upperDiff
+                                       : b.create<ConstantIndexOp>(loc, 0);
+          upperDiffModified.push_back(v);
+        }
+        assert(upperDiffModified.size() == upperIndicesDiff.size());
+
+        // Apply map to compute index lower diff, from index upper diff using
+        // expandAffineMap.
+        lowerDiffModified =
+            expandAffineMap(b, loc, transform, upperDiffModified).getValue();
+        for (unsigned iter = 0; iter < lowerDiffModified.size(); ++iter)
+          // Convert from index type to i32.
+          lowerDiffModified[iter] = b.create<IndexCastOp>(
+              loc, lowerDiffModified[iter], b.getIntegerType(32));
+        assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
       }
-      assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
 
       // Obtain lower diffs prior to carry check.
       SmallVector<Value, 8> lowerDiffs;
