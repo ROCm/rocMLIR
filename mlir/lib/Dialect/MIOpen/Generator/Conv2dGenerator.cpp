@@ -254,7 +254,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
                                              OpBuilder &builder,
                                              int kernel_id) {
   if (kernel_id == -1) {
-    kernel_id = config.kernelId;
+    kernel_id = std::max(config.kernelId, 0);
   }
 
   Type dataType = getDataType(builder);

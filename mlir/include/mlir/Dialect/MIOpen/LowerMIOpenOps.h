@@ -2029,7 +2029,28 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto hTildaSlice = iHTildaRight - iHTildaLeft;
     auto wTildaSlice = iWTildaRight - iWTildaLeft;
 
-    auto gemmId = gemmIdAttr.getInt();
+    auto getGemmId = [&](int kernelId) {
+      // kernelId 0 must be gemmId 0
+      if (kernelId <= 0)
+        return 0;
+
+      llvm::SmallVector<int> gemmIds;
+      for (int gemmId = 0; gemmId < yTilda * xTilda; gemmId++) {
+        // gemm_k size is different for each GEMM
+        const auto iYTilda = gemmId / xTilda;
+        const auto iXTilda = gemmId % xTilda;
+
+        auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
+        auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
+        // gemmK must > 0, otherwise not need to run
+        if (yDotSlice * xDotSlice > 0) {
+          gemmIds.push_back(gemmId);
+        }
+      }
+      assert(gemmIds.size() > kernelId);
+      return gemmIds[kernelId];
+    };
+    auto gemmId = getGemmId(gemmIdAttr.getInt());
     auto iYTilda = gemmId / xTilda;
     auto iXTilda = gemmId % xTilda;
     auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
