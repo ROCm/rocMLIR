@@ -21,6 +21,7 @@
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/Dialect/Quant/Passes.h"
 #include "mlir/Dialect/SCF/Passes.h"
 #include "mlir/Dialect/SPIRV/Transforms/Passes.h"
