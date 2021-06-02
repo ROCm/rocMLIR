@@ -16,16 +16,19 @@ set(MLIR_CMAKE_CONFIG_DIR
 
 # Passed to lit.site.cfg.py.in to set up the path where to find the libraries
 # for linalg integration tests.
-set(MLIR_DIALECT_LINALG_INTEGRATION_TEST_LIB_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
-set(MLIR_RUNNER_UTILS_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+set(MLIR_DIALECT_LINALG_INTEGRATION_TEST_LIB_DIR ${LLVM_EXTERNAL_LIB_DIR})
+set(MLIR_RUNNER_UTILS_DIR ${LLVM_EXTERNAL_BIN_DIR})
 
 # Passed to lit.site.cfg.py.in to set up the path where to find the libraries
-# for the mlir cuda / rocm / spirv / vulkan runner tests.
-set(MLIR_ROCM_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+# for the rocm runner tests.
+set(MLIR_ROCM_WRAPPER_LIBRARY_DIR ${LLVM_EXTERNAL_LIB_DIR})
 
 message(STATUS "LLVM_EXTERNAL_BIN_DIR: ${LLVM_EXTERNAL_BIN_DIR}")
 message(STATUS "MLIR_MIOPEN_BIN_DIR: ${MLIR_MIOPEN_BIN_DIR}")
 message(STATUS "MLIR_ROCM_WRAPPER_LIBRARY_DIR: ${MLIR_ROCM_WRAPPER_LIBRARY_DIR}")
+
+set(LLVM_EXTERNAL_LIT "${LLVM_EXTERNAL_BIN_DIR}/llvm-lit")
+set(LLVM_EXTERNAL_FILECHECK "${LLVM_EXTERNAL_BIN_DIR}/FileCheck")
 
 set(LLVM_LIT_TOOLS_DIR ${LLVM_EXTERNAL_BIN_DIR})
 set(LLVM_TOOLS_DIR ${LLVM_EXTERNAL_BIN_DIR})
@@ -59,11 +62,11 @@ configure_lit_site_cfg(
 
 set(MLIR_TEST_DEPENDS
   FileCheck count not
+  mlir-miopen-opt
+  mlir-miopen-translate
   mlir-opt
-  mlir-opt-miopen
   mlir-reduce
   mlir-translate
-  mlir-translate-miopen
   mlir_runner_utils
   mlir_c_runner_utils
   mlir_async_runtime

@@ -39,7 +39,25 @@ config.substitutions.append(('%pv', config.populate_validation))
 llvm_config.with_system_environment(
     ['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP'])
 
-llvm_config.use_default_substitutions()
+##############
+# FIXME: adding a path to the environment isn't appearing to work as
+#  expected, so below is a tmp workaround that inlines
+#  use_default_substitutions() and subs in the path for FileCheck.
+#llvm_config.with_environment('PATH', config.lit_tools_dir, append_path=True)
+#llvm_config.use_default_substitutions()
+##############
+tool_patterns = [
+    ToolSubst('FileCheck', config.filecheck_executable, unresolved='fatal'),
+    # Handle these specially as they are strings searched for during testing.
+    ToolSubst(r'\| \bcount\b', command=FindTool(
+          'count'), verbatim=True, unresolved='fatal'),
+    ToolSubst(r'\| \bnot\b', command=FindTool('not'), verbatim=True, unresolved='fatal')]
+
+config.substitutions.append(('%python', '"%s"' % (sys.executable)))
+
+llvm_config.add_tool_substitutions(
+   tool_patterns, [config.llvm_tools_dir])
+##############
 
 # excludes: A list of directories to exclude from the testsuite. The 'Inputs'
 # subdirectories contain auxiliary inputs for various tests in their parent
@@ -54,9 +72,11 @@ config.test_source_root = os.path.dirname(__file__)
 config.test_exec_root = os.path.join(config.mlir_obj_root, 'test')
 
 # Tweak the PATH to include the tools dir.
+llvm_config.with_environment('PATH', config.mlir_miopen_tools_dir, append_path=True)
+llvm_config.with_environment('PATH', config.lit_tools_dir, append_path=True)
 llvm_config.with_environment('PATH', config.llvm_tools_dir, append_path=True)
 
-tool_dirs = [config.mlir_tools_dir, config.mlir_miopen_tools_dir, config.llvm_tools_dir]
+tool_dirs = [config.mlir_miopen_tools_dir, config.mlir_tools_dir, config.llvm_tools_dir]
 tools = [
     'mlir-opt',
     'mlir-translate',
@@ -73,7 +93,7 @@ tools.extend([
     ToolSubst('%cuda_wrapper_library_dir', config.cuda_wrapper_library_dir, unresolved='ignore'),
     ToolSubst('%linalg_test_lib_dir', config.linalg_test_lib_dir, unresolved='ignore'),
     ToolSubst('%mlir_runner_utils_dir', config.mlir_runner_utils_dir, unresolved='ignore'),
-    ToolSubst('%rocm_wrapper_library_dir', config.rocm_wrapper_library_dir, unresolved='ignore'),
+    ToolSubst('%rocm_wrapper_library_dir', config.rocm_wrapper_library_dir, unresolved='fatal'),
     ToolSubst('%spirv_wrapper_library_dir', config.spirv_wrapper_library_dir, unresolved='ignore'),
     ToolSubst('%vulkan_wrapper_library_dir', config.vulkan_wrapper_library_dir, unresolved='ignore'),
 ])
