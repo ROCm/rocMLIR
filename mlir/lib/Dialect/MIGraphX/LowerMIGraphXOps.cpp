@@ -53,7 +53,7 @@ struct MIGraphXIRDumpPass : public MIGraphXIRDumpPassBase<MIGraphXIRDumpPass> {
 void MIGraphXIRDumpPass::runOnOperation() {
   // try module->print() here..
   // try call a function in the headerfile, header file calls json  
-  std::cout<<"xir dump pass called!\n";
+  cout<<"xir dump pass called!\n";
 }
 
 std::unique_ptr<Pass> mlir::migraphx::createMIGraphXIRDumpPass() {
