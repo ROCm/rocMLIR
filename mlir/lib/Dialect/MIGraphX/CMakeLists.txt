@@ -15,8 +15,9 @@ add_mlir_dialect_library(MLIRMIGraphXOps
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/MIGraphX
 
   DEPENDS
-  MLIRMIGraphXOpsIncGen
   MLIRMIGraphXPassIncGen
+  MLIRMIGraphXOpsIncGen
+
   )
 target_link_libraries(MLIRMIGraphXOps
   PUBLIC
