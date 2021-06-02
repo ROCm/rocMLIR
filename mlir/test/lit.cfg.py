@@ -46,15 +46,14 @@ llvm_config.with_system_environment(
 #llvm_config.with_environment('PATH', config.lit_tools_dir, append_path=True)
 #llvm_config.use_default_substitutions()
 ##############
+config.filecheck_executable = os.path.join(config.lit_tools_dir, 'FileCheck')
+config.not_executable = os.path.join(config.lit_tools_dir, 'not')
+config.count_executable = os.path.join(config.lit_tools_dir, 'count')
 tool_patterns = [
     ToolSubst('FileCheck', config.filecheck_executable, unresolved='fatal'),
-    # Handle these specially as they are strings searched for during testing.
-    ToolSubst(r'\| \bcount\b', command=FindTool(
-          'count'), verbatim=True, unresolved='fatal'),
-    ToolSubst(r'\| \bnot\b', command=FindTool('not'), verbatim=True, unresolved='fatal')]
-
+    ToolSubst('not', config.not_executable, unresolved='fatal'),
+    ToolSubst('count', config.count_executable, unresolved='fatal'),]
 config.substitutions.append(('%python', '"%s"' % (sys.executable)))
-
 llvm_config.add_tool_substitutions(
    tool_patterns, [config.llvm_tools_dir])
 ##############
