@@ -50,7 +50,7 @@ struct LowerMIGraphXIRDumpPass
 } // end anonymous namespace
 
 
-void MIGraphXIRDumpPass::runOnOperation() {
+void LowerMIGraphXIRDumpPass::runOnOperation() {
   // try module->print() here..
   // try call a function in the headerfile, header file calls json  
   std::cout<<"xir dump pass called!\n";
