@@ -60,24 +60,23 @@ void strToTokens(const std::string &arguments,
 
 } // namespace
 
-llvm::SmallVector<int> Conv2dGenerator::getKernelCount() const {
-  llvm::SmallVector<int> gemmIds;
+int Conv2dGenerator::getKernelCount() const {
+  int count = 0;
   if (config.kernelId > 0) { // generate only 1 specified kernel
-    gemmIds.push_back(0);
+    count = 1;
   } else if (config.operation == "conv2d") {
-    gemmIds.push_back(0);
+    count = 1;
   } else if (config.operation == "conv2d_bwd_data") {
-    gemmIds = getBwdDataKernelCount();
+    count = getBwdDataKernelCount();
   } else if (config.operation == "conv2d_bwd_weight") {
-    gemmIds.push_back(0);
+    count = 1;
   } else if (config.operation == "conv2d_dummy") {
-    gemmIds.push_back(0);
+    count = 1;
   }
-  return gemmIds;
+  return count;
 }
-// calculate gemmId of gemm that can be runned. In some case, the gemmIds may
-// not be consecutive.for example filter is 3x1 and stride=2, get gemmIds (0,2)
-llvm::SmallVector<int> Conv2dGenerator::getBwdDataKernelCount() const {
+
+int Conv2dGenerator::getBwdDataKernelCount() const {
   auto gcdStrideDilationH =
       math::gcd(config.strideHeight, config.dilationHeight);
   auto gcdStrideDilationW = math::gcd(config.strideWidth, config.dilationWidth);
@@ -87,7 +86,7 @@ llvm::SmallVector<int> Conv2dGenerator::getBwdDataKernelCount() const {
 
   auto y = config.filterHeight;
   auto x = config.filterWidth;
-  llvm::SmallVector<int> gemmIds;
+  int count = 0;
   for (int gemmId = 0; gemmId < yTilda * xTilda; gemmId++) {
     // gemm_k size is different for each GEMM
     const auto iYTilda = gemmId / xTilda;
@@ -97,10 +96,10 @@ llvm::SmallVector<int> Conv2dGenerator::getBwdDataKernelCount() const {
     auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
     // gemmK must > 0, otherwise not need to run
     if (yDotSlice * xDotSlice > 0)
-      gemmIds.push_back(gemmId);
+      count++;
   }
 
-  return gemmIds;
+  return count;
 }
 Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   mlir::Type dataType;

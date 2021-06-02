@@ -61,8 +61,8 @@ public:
 
   const Config &getConfig() const { return config; }
   void setKernelName(std::string newName);
-  // return gemmIds, those numbers may not be consecutive
-  llvm::SmallVector<int> getKernelCount() const;
+
+  int getKernelCount() const;
 
   Type getDataType(OpBuilder &builder) const;
 
@@ -101,7 +101,7 @@ private:
                    });
     return permutation;
   }
-  llvm::SmallVector<int> getBwdDataKernelCount() const;
+  int getBwdDataKernelCount() const;
 
   // Generator config
   Config config;
