@@ -22,6 +22,5 @@ target_link_libraries(MLIRMIGraphXOps
   PUBLIC
   MLIRGPU
   MLIRIR
-  MLIRPass
   LLVMSupport
   )
