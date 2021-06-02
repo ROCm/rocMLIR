@@ -207,9 +207,6 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
 
           auto expr = getAffineDimExpr(destDim, op.getContext()) +
                       getAffineConstantExpr(begin, op.getContext());
-          // XXX. FIXME. Get rid of this fake identity map.
-          expr = (expr + expr + getAffineConstantExpr(1, op.getContext()))
-                     .ceilDiv(getAffineConstantExpr(2, op.getContext()));
           auto srcDim = srcDimAttr.getValue()[j].cast<IntegerAttr>().getInt();
           affExprsMap.insert({srcDim, expr});
         }
@@ -223,6 +220,8 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
   }
 
   auto transformAffineMap = AffineMap::get(outputLayoutAttr.size(), 0, affExprsVec, op.getContext());
+  OpBuilder b(op.getOperation());
+  op->setAttr("map", b.getAffineMapArrayAttr(transformAffineMap));
   return transformAffineMap;
 }
 

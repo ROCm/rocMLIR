@@ -10,5 +10,4 @@ module  {
   }
 }
 
-// XXX FIXME: #map = affine_map<(d0, d1, d2) -> (d1 + 32, d2 + 64, d0)>
-// CHECK: #map = affine_map<(d0, d1, d2) -> (((d1 + 32) * 2 + 1) ceildiv 2, ((d2 + 64) * 2 + 1) ceildiv 2, d0)>
+// CHECK: #map = affine_map<(d0, d1, d2) -> (d1 + 32, d2 + 64, d0)>
