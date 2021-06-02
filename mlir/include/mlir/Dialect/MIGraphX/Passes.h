@@ -20,11 +20,11 @@
 namespace mlir {
 namespace migraphx {
 
-#define GEN_PASS_REGISTRATION
-#include "mlir/Dialect/MIGraphX/Passes.h.inc"
-
 /// Create passes for MIGraphX
 std::unique_ptr<Pass> createMIGraphXIRDumpPass();
+
+#define GEN_PASS_REGISTRATION
+#include "mlir/Dialect/MIGraphX/Passes.h.inc"
 
 } // namespace migraphx
 } // namespace mlir
