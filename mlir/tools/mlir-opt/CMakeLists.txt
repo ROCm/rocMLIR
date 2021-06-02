@@ -43,7 +43,7 @@ set(LIBS
 
 # Exclude from libMLIR.so because this has static options intended for
 # opt-like tools only.
-add_mlir_library(MLIRMlirOptMIOpenMain
+add_mlir_library(MLIRMlirMIOpenOptMain
   mlir-opt.cpp
 
   EXCLUDE_FROM_LIBMLIR
@@ -52,13 +52,20 @@ add_mlir_library(MLIRMlirOptMIOpenMain
   ${LIBS}
   )
 
-add_llvm_tool(mlir-opt-miopen
+add_llvm_tool(mlir-miopen-opt
   mlir-opt.cpp
 
   DEPENDS
   ${LIBS}
   )
-target_link_libraries(mlir-opt-miopen PRIVATE ${LIBS})
-llvm_update_compile_flags(mlir-opt-miopen)
+target_link_libraries(mlir-miopen-opt PRIVATE ${LIBS})
+llvm_update_compile_flags(mlir-miopen-opt)
 
-mlir_check_all_link_libraries(mlir-opt-miopen)
+mlir_check_all_link_libraries(mlir-miopen-opt)
+
+# Use a new/unique target name, but use the typical executable name
+set_target_properties(
+  mlir-miopen-opt
+  PROPERTIES
+    OUTPUT_NAME "mlir-opt"
+)
