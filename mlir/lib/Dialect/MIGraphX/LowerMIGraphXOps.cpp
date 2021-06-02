@@ -43,8 +43,7 @@
 using namespace mlir;
 
 namespace {
-struct MIGraphXIRDumpPass
-    : public MIGraphXIRDumpPassBase<MIGraphXIRDumpPass> {
+struct MIGraphXIRDumpPass : public MIGraphXIRDumpPassBase<MIGraphXIRDumpPass> {
   void runOnOperation() override;
 };
 } // end anonymous namespace
