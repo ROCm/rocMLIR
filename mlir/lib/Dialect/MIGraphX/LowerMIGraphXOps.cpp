@@ -18,6 +18,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "PassDetail.h"
 #include "mlir/Dialect/MIGraphX/LowerMIGraphXOps.h"
 
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
