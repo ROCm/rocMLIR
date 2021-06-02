@@ -43,7 +43,7 @@
 using namespace mlir;
 
 namespace {
-struct MIGraphXIRDumpPass
+struct LowerMIGraphXIRDumpPass
     : public MIGraphXIRDumpPassBase<MIGraphXIRDumpPass> {
   void runOnOperation() override;
 };
@@ -57,5 +57,5 @@ void MIGraphXIRDumpPass::runOnOperation() {
 }
 
 std::unique_ptr<Pass> mlir::migraphx::createMIGraphXIRDumpPass() {
-  return std::make_unique<MIGraphXIRDumpPass>();
+  return std::make_unique<LowerMIGraphXIRDumpPass>();
 }
