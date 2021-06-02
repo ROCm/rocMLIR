@@ -13,6 +13,18 @@ set(MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests us
 set(MLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for XDLops")
 set(MLIR_MIOPEN_SQLITE_ENABLED 0 CACHE BOOL "Enable SQLite integration")
 
+# Pointers to: 1) external LLVM bins/libs, and 2) MIOpen Dialect bins/libs
+set(LLVM_EXTERNAL_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/bin" CACHE PATH "")
+set(LLVM_EXTERNAL_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/lib" CACHE PATH "")
+set(MLIR_MIOPEN_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/bin" CACHE PATH "")
+set(MLIR_MIOPEN_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib" CACHE PATH "")
+message(STATUS "LLVM_EXTERNAL_BIN_DIR: ${LLVM_EXTERNAL_BIN_DIR}")
+message(STATUS "MLIR_MIOPEN_BIN_DIR: ${MLIR_MIOPEN_BIN_DIR}")
+
+# Update the build-tree RPATH
+set(CMAKE_BUILD_RPATH "${MLIR_MIOPEN_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
+message(STATUS "CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
+
 # Library type and linkage settings
 if( NOT DEFINED BUILD_FAT_LIBMLIRMIOPEN )
   set(BUILD_FAT_LIBMLIRMIOPEN OFF CACHE BOOL "Build fat libMLIRMIOpen to link into MIOpen driver")
