@@ -35,6 +35,7 @@ add_llvm_executable(mlir-miopen-driver
   ${LIBS}
 )
 
+
 llvm_update_compile_flags(mlir-miopen-driver)
 target_link_libraries(mlir-miopen-driver PRIVATE ${LIBS})
 mlir_check_link_libraries(mlir-miopen-driver)
