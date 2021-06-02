@@ -56,7 +56,7 @@ inline void registerAllPasses() {
   registerLinalgPasses();
   LLVM::registerLLVMPasses();
   miopen::registerPasses();
-  migraphx::registerMIGraphXPasses();
+  migraphx::registerPasses();
   quant::registerQuantPasses();
   registerSCFPasses();
   registerShapePasses();
