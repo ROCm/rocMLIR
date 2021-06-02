@@ -27,7 +27,7 @@ namespace mlir {
 namespace migraphx {
 
 
-} // end namespace miopen
+} // end namespace migraphx
 
 #include "mlir/Dialect/MIGraphX/MIGraphXOpsDialect.h.inc"
 

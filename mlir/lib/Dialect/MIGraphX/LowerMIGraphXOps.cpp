@@ -43,19 +43,19 @@
 using namespace mlir;
 
 namespace {
-struct LowerMIGraphXIRDumpPass
-    : public LowerMIGraphXIRDumpPassBase<LowerMIGraphXIRDumpPass> {
+struct MIGraphXIRDumpPass
+    : public MIGraphXIRDumpPassBase<MIGraphXIRDumpPass> {
   void runOnOperation() override;
 };
 } // end anonymous namespace
 
 
-void LowerMIGraphXIRDumpPass::runOnOperation() {
+void MIGraphXIRDumpPass::runOnOperation() {
   // try module->print() here..
   // try call a function in the headerfile, header file calls json  
   std::cout<<"xir dump pass called!\n";
 }
 
 std::unique_ptr<Pass> mlir::migraphx::createMIGraphXIRDumpPass() {
-  return std::make_unique<LowerMIGraphXIRDumpPass>();
+  return std::make_unique<MIGraphXIRDumpPass>();
 }

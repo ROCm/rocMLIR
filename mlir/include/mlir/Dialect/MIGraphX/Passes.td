@@ -11,7 +11,7 @@
 
 include "mlir/Pass/PassBase.td"
 
-def LowerMIGraphXIRDumpPass : Pass<"migraphx-xirdump", "ModuleOp"> {
+def MIGraphXIRDumpPass : Pass<"migraphx-xirdump", "ModuleOp"> {
   let summary = "JSON codegen migraphx IR";
   let constructor = "mlir::migraphx::createMIGraphXIRDumpPass()";
   let dependentDialects = ["migraphx::MIGraphXDialect"];
