@@ -20,8 +20,7 @@
 namespace mlir {
 namespace migraphx {
 
-/// Create a pass to convert MIOpen conv2d operations to transform and
-/// gridwise_gemm operations.
+/// Create passes for MIGraphX
 std::unique_ptr<Pass> createMIGraphXIRDumpPass();
 
 #define GEN_PASS_REGISTRATION
