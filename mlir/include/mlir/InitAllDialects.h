@@ -65,7 +65,7 @@ inline void registerAllDialects(DialectRegistry &registry) {
                   scf::SCFDialect,
                   omp::OpenMPDialect,
                   miopen::MIOpenDialect,
-				  migraphx::MIGraphXDialect,
+                  migraphx::MIGraphXDialect,
                   pdl::PDLDialect,
                   pdl_interp::PDLInterpDialect,
                   quant::QuantizationDialect,
