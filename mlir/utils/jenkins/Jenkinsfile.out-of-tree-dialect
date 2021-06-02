@@ -11,6 +11,10 @@ pipeline {
             steps {
                 sh 'cat /etc/os-release'
                 sh '/opt/rocm/bin/rocm-smi'
+
+                # Install dependencies for the out-of-tree build
+                python -m pip install diff_match_patch
+                python -m pip install pathlib2
             }
         }
         stage('Build and Test') {
