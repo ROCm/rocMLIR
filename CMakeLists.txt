@@ -43,25 +43,32 @@ endif()
 # Python's diff_match_patch package is currently required to
 # patch external/llvm-project
 execute_process(
-  COMMAND pip show diff_match_patch
+  COMMAND python -m pip show diff_match_patch
   RESULT_VARIABLE EXIT_CODE
   OUTPUT_QUIET
 )
-
-# Python's pathlib2 package is currently required to
-# patch external/llvm-project
-execute_process(
-  COMMAND pip show pathlib2
-  RESULT_VARIABLE EXIT_CODE
-  OUTPUT_QUIET
-)
-
 if (NOT ${EXIT_CODE} EQUAL 0)
   message(
     FATAL_ERROR
       "The \"diff_match_patch\" python package is not installed. \
        The following command can be used to install it: \
-       \"pip install diff_match_patch\""
+       \"python -m pip install diff_match_patch\""
+  )
+endif()
+
+# Python's pathlib2 package is currently required to
+# patch external/llvm-project
+execute_process(
+  COMMAND python -m pip show pathlib2
+  RESULT_VARIABLE EXIT_CODE
+  OUTPUT_QUIET
+)
+if (NOT ${EXIT_CODE} EQUAL 0)
+  message(
+    FATAL_ERROR
+      "The \"pathlib2\" python package is not installed. \
+       The following command can be used to install it: \
+       \"python -m pip install pathlib2\""
   )
 endif()
 
