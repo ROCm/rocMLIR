@@ -34,18 +34,22 @@ pipeline {
         }
         stage('Test: check-mlir') {
             steps {
-                sh '''
-                    echo "Running check-mlir tests"
-                    cmake --build . --target check-mlir
-                '''
+	        dir('build') {
+                    sh '''
+                        echo "Running check-mlir tests"
+                        cmake --build . --target check-mlir
+                    '''
+		}
             }
         }
         stage('Test: check-mlir-miopen') {
             steps {
-                sh '''
-                    echo "Running check-mlir tests"
-                    cmake --build . --target check-mlir-miopen
-                '''
+	        dir('build') {
+                    sh '''
+                        echo "Running check-mlir-miopen tests"
+                        cmake --build . --target check-mlir-miopen
+                    '''
+		}
             }
         }
     }
