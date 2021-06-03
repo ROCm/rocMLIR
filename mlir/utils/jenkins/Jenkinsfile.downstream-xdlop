@@ -7,9 +7,6 @@ pipeline {
             alwaysPull true
         }
     }
-    environment {
-        PATH="$PATH:/opt/rocm/llvm/bin"
-    }
     stages {
         stage('Environment') {
             steps {
@@ -20,15 +17,29 @@ pipeline {
         stage('Build and Test') {
             steps {
                 checkout scm
-                cmakeBuild generator: 'Ninja',\
-                    buildDir: 'build',\
-                    buildType: 'Release',\
-                    installation: 'InSearchPath',\
-                    steps: [[args: 'check-mlir']],\
-                    cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1
-                               -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=1
-                               -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=1
-                               '''
+                sh '''
+                    mkdir -p build && cd build
+                    # Set the path to llvm-symbolizer
+                    PATH=$PATH:/opt/rocm-4.1.1/llvm/bin/
+
+                    cmake -G Ninja ../llvm \
+                        -DLLVM_ENABLE_PROJECTS="mlir;lld" \
+                        -DLLVM_BUILD_EXAMPLES=ON \
+                        -DLLVM_TARGETS_TO_BUILD="X86;AMDGPU" \
+                        -DCMAKE_BUILD_TYPE=Release \
+                        -DLLVM_ENABLE_ASSERTIONS=ON \
+                        -DBUILD_SHARED_LIBS=ON \
+                        -DLLVM_BUILD_LLVM_DYLIB=ON \
+                        -DMLIR_ROCM_RUNNER_ENABLED=1 \
+                        -DMLIR_MIOPEN_DRIVER_ENABLED=1 \
+                        -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=1 \
+                        -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=1
+                        # if we open sqlite, step4 lowering failed until adding the custom db
+                        # -DMLIR_MIOPEN_SQLITE_ENABLED=1
+
+                    # Build LLVM / MLIR and run tests
+                    cmake --build . --target check-mlir
+                '''
             }
         }
         stage('Static Test') {
@@ -37,21 +48,36 @@ pipeline {
                     if [ ! -f ./compile_commands.json ]; then
                        ln -s build/compile_commands.json compile_commands.json
                     fi
-                    '''
-                sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+
+                    # Set the path to the clang-format executable
+                    PATH=$PATH:/opt/rocm/llvm/bin/
+
+                    python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py
+
+                    # Clean up build directory
+                    rm -rf build
+                '''
             }
         }
         stage('Igemm Build') {
             steps {
-                cmakeBuild generator: 'Ninja',\
-                    buildDir: 'build',\
-                    buildType: 'Release',\
-                    installation: 'InSearchPath',\
-                    steps: [[args: 'libMLIRMIOpen']],\
-                    cmakeArgs: '-DBUILD_FAT_LIBMLIRMIOPEN=ON'
+                sh '''
+                    mkdir -p build && cd build
 
-                cmake arguments: '--install . --component libMLIRMIOpen --prefix /opt/rocm',\
-                    installation: 'InSearchPath', workingDir: 'build'
+                    cmake -G "Unix Makefiles" ../llvm \
+                        -DLLVM_ENABLE_PROJECTS="mlir;lld" \
+                        -DLLVM_TARGETS_TO_BUILD="X86;AMDGPU" \
+                        -DCMAKE_BUILD_TYPE=Release \
+                        -DBUILD_SHARED_LIBS=OFF \
+                        -DLLVM_BUILD_LLVM_DYLIB=OFF \
+                        -DBUILD_FAT_LIBMLIRMIOPEN=ON \
+                        -DLLVM_ENABLE_TERMINFO=OFF
+
+                    make -j libMLIRMIOpen
+
+                    # Clean up build directory
+                    rm -rf build
+                '''
             }
         }
     }
