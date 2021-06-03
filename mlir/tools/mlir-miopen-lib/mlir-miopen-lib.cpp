@@ -265,7 +265,7 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   // Passes for lowering ROCDL dialect
   pm.addPass(createGpuKernelOutliningPass());
   pm.addPass(createStripDebugInfoPass());
-  pm.addPass(createLowerGpuOpsToROCDLOpsPass());
+  pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
   pm.addPass(createConvertGPUKernelToBlobPass(
       [&utils](Operation *m, llvm::LLVMContext &llvmContext,
                llvm::StringRef name) {
