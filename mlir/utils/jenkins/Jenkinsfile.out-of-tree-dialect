@@ -19,7 +19,7 @@ pipeline {
 		'''
             }
         }
-        stage('Build and Test') {
+        stage('Build') {
             steps {
                 checkout scm
                 sh '''
@@ -28,6 +28,22 @@ pipeline {
                     cmake -G Ninja ..
 
                     # Build LLVM / MLIR and run tests
+                    cmake --build .
+                '''
+            }
+        }
+        stage('Test: check-mlir') {
+            steps {
+                sh '''
+                    echo "Running check-mlir tests"
+                    cmake --build . --target check-mlir
+                '''
+            }
+        }
+        stage('Test: check-mlir-miopen') {
+            steps {
+                sh '''
+                    echo "Running check-mlir tests"
                     cmake --build . --target check-mlir-miopen
                 '''
             }
