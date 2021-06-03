@@ -27,6 +27,7 @@ struct XdlopsCodeSelection {
   int64_t NPerXdlops;
   int64_t MRepeats;
   int64_t NRepeats;
+  int64_t KPack;
   VectorType vectorType;
   int64_t vectorNumber;
   SmallVector<SmallVector<unsigned, 3>, 2> imms;
@@ -55,6 +56,7 @@ struct XdlopsCodeSelection {
     int64_t vectorNumber;
     SmallVector<SmallVector<unsigned, 3>, 2> imms;
     Type argType;
+    int64_t KPack;
 
     if (dataType == b.getF32Type()) {
       if (MPerWave == 128 && NPerWave == 64) {
@@ -63,6 +65,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 2;
         NRepeats = 1;
+        KPack = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 4;
         imms.push_back({ 1, 0, 0 });
@@ -76,6 +79,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 2;
+        KPack = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 4;
         imms.push_back({ 1, 0, 0 });
@@ -89,6 +93,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 2;
         imms.push_back({ 1, 0, 0 });
@@ -100,6 +105,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 32;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 0, 0, 1 });
@@ -110,6 +116,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 1;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 1, 0, 0 });
@@ -120,6 +127,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 16;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 1;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 0, 0, 4 });
@@ -130,6 +138,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 1;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 2, 0, 0 });
@@ -140,6 +149,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 1;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 2;
         imms.push_back({ 4, 0, 0 });
@@ -151,6 +161,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 1;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 4, 0, 0 });
@@ -161,6 +172,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 32;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 2;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 0, 0, 0 });
@@ -171,6 +183,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 16;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 4;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 0, 0, 0 });
@@ -191,6 +204,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 2;
         NRepeats = 1;
+        KPack = 4;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 4;
         imms.push_back({ 1, 0, 0 });
@@ -204,6 +218,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 2;
+        KPack = 4;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 4;
         imms.push_back({ 1, 0, 0 });
@@ -217,6 +232,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 4;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 2;
         imms.push_back({ 1, 0, 0 });
@@ -228,6 +244,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 32;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 4;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 0, 0, 1 });
@@ -238,6 +255,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 16;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 4;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 0, 0, 4 });
@@ -248,6 +266,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 4;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 2, 0, 0 });
@@ -258,6 +277,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 4;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 2;
         imms.push_back({ 4, 0, 0 });
@@ -269,6 +289,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 4;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 4, 0, 0 });
@@ -279,6 +300,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 32;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 8;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 0, 0, 0 });
@@ -289,6 +311,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 4;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({1, 0, 0});
@@ -299,6 +322,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 16;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 16;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 0, 0, 0 });
@@ -319,6 +343,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 2;
         NRepeats = 1;
+        KPack = 2;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 4;
         imms.push_back({ 1, 0, 0 });
@@ -332,6 +357,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 2;
+        KPack = 2;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 4;
         imms.push_back({ 1, 0, 0 });
@@ -345,6 +371,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 2;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 2;
         imms.push_back({ 1, 0, 0 });
@@ -356,6 +383,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 32;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 2;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 0, 0, 1 });
@@ -366,6 +394,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 2;
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 1, 0, 0 });
@@ -376,6 +405,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 16;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 2;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 0, 0, 4 });
@@ -386,6 +416,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 2;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 2, 0, 0 });
@@ -396,6 +427,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 2;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 2;
         imms.push_back({ 4, 0, 0 });
@@ -407,6 +439,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 64;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 2;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 4, 0, 0 });
@@ -417,6 +450,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 32;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 4;
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 0, 0, 0 });
@@ -427,6 +461,7 @@ struct XdlopsCodeSelection {
         NPerXdlops = 16;
         MRepeats = 1;
         NRepeats = 1;
+        KPack = 8;
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({ 0, 0, 0 });
@@ -665,6 +700,7 @@ struct XdlopsCodeSelection {
     result.NPerXdlops = NPerXdlops;
     result.MRepeats = MRepeats;
     result.NRepeats = NRepeats;
+    result.KPack = KPack;
     result.vectorType = vectorType;
     result.vectorNumber = vectorNumber;
     result.imms = imms;
@@ -690,6 +726,7 @@ struct XdlopsCodeSelection {
     // llvm::errs() << "NPerXdlops: " << NPerXdlops << "\n";
     // llvm::errs() << "MRepeats: " << MRepeats << "\n";
     // llvm::errs() << "NRepeats: " << NRepeats << "\n";
+    // llvm::errs() << "KPack: " << KPack << "\n";
     // llvm::errs() << "vectorType: " << vectorType << "\n";
     // llvm::errs() << "vectorNumber: " << vectorNumber << "\n";
     // llvm::errs() << "imms:\n";
