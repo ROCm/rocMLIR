@@ -30,7 +30,7 @@ pipeline {
                         -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=1
                     '''
                 dir("build") {
-                    deleteDir
+                    deleteDir()
                 }
             }
         }
