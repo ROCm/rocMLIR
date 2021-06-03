@@ -5031,7 +5031,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGemmV2Op> {
   using OpRewritePattern<miopen::GridwiseGemmV2Op>::OpRewritePattern;
 
-  void computeLDSBlockSizes(miopen::GridwiseGemmV2Op op, int64_t &a_block_space, int64_t &b_block_space, int64_t &total_block_space) const {
+  void computeLDSBlockSizes(miopen::GridwiseGemmV2Op op, int64_t KPerBlock,
+                            int64_t MPerBlock, int64_t NPerBlock,
+                            int64_t &a_block_space, int64_t &b_block_space,
+                            int64_t &total_block_space) const {
     int64_t ABlockCopyDstDataPerWrite_M =
         op->getAttr("matrix_a_dest_data_per_write_dim_m")
             .template cast<IntegerAttr>()
@@ -5043,13 +5046,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     int64_t max_lds_align =
         math::lcm(ABlockCopyDstDataPerWrite_M, BBlockCopyDstDataPerWrite_N);
-
-    int64_t KPerBlock =
-        op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
-    int64_t MPerBlock =
-        op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
-    int64_t NPerBlock =
-        op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
 
     int64_t AlignedNPerBlock =
         max_lds_align *
@@ -5301,6 +5297,40 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto NPerWaveConstantOp = b.create<ConstantIndexOp>(loc, NPerWave);
     auto NWavesConstantOp = b.create<ConstantIndexOp>(loc, NWaves);
 
+    // -----
+
+    // Logic to do XDLOPS code selection.
+    // llvm::errs() << "Invoke XDLOPS code selection logic:\n";
+    // llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
+    // llvm::errs() << "MPerWave: " << MPerWave << "\n";
+    // llvm::errs() << "NPerWave: " << NPerWave << "\n";
+
+    XdlopsCodeSelection xcs =
+        XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
+
+    // Extract values from XdlopsCodeSelection.
+    int64_t KPack = xcs.KPack;
+    // Update KPerBlock with KPack.
+    KPerBlock *= KPack;
+    int64_t MPerXdlops = xcs.MPerXdlops;
+    int64_t NPerXdlops = xcs.NPerXdlops;
+    int64_t MRepeats = xcs.MRepeats;
+    int64_t NRepeats = xcs.NRepeats;
+    VectorType vectorType = xcs.vectorType;
+    int64_t vectorNumber = xcs.vectorNumber;
+    SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
+
+    int64_t group_size = xcs.group_size;
+    int64_t num_groups_blk = xcs.num_groups_blk;
+    int64_t num_threads_blk = xcs.num_threads_blk;
+    int64_t wave_size = xcs.wave_size;
+    int64_t num_input_blks = xcs.num_input_blks;
+    int64_t num_output_blks = xcs.num_output_blks;
+    int64_t m = xcs.m;
+    int64_t n = xcs.n;
+
+    // -----
+
     int64_t WaveSize = 64;
     auto waveSizeConstantOp = b.create<ConstantIndexOp>(loc, WaveSize);
 
@@ -5524,7 +5554,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
-    computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize);
+    computeLDSBlockSizes(op, KPerBlock, MPerBlock, NPerBlock, ldsBlockASize,
+                         ldsBlockBSize, ldsBlockSize);
 
     // Allocate LDS.
     auto ldsMemRefType =
@@ -5670,36 +5701,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         loc, op.input(), lds2DMatrixBSubviewOp, blockwiseCopyBSrcVector,
         blockwiseCopyBDstVector, threadBAllocOp);
     affixBlockwiseCopyAttributes(blockwiseCopyB, op, b, /*isMatrixA=*/false);
-
-    // -----
-
-    // Logic to do XDLOPS code selection.
-    // llvm::errs() << "Invoke XDLOPS code selection logic:\n";
-    // llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
-    // llvm::errs() << "MPerWave: " << MPerWave << "\n";
-    // llvm::errs() << "NPerWave: " << NPerWave << "\n";
-
-    XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
-
-    // Extract values from XdlopsCodeSelection.
-    int64_t MPerXdlops = xcs.MPerXdlops;
-    int64_t NPerXdlops = xcs.NPerXdlops;
-    int64_t MRepeats = xcs.MRepeats;
-    int64_t NRepeats = xcs.NRepeats;
-    VectorType vectorType = xcs.vectorType;
-    int64_t vectorNumber = xcs.vectorNumber;
-    SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
-
-    int64_t group_size = xcs.group_size;
-    int64_t num_groups_blk = xcs.num_groups_blk;
-    int64_t num_threads_blk = xcs.num_threads_blk;
-    int64_t wave_size = xcs.wave_size;
-    int64_t num_input_blks = xcs.num_input_blks;
-    int64_t num_output_blks = xcs.num_output_blks;
-    int64_t m = xcs.m;
-    int64_t n = xcs.n;
- 
-    // -----
 
     // Logic to setup blockwise_gemm_v2 parameters.
     //
