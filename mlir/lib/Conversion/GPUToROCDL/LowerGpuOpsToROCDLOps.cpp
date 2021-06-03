@@ -359,7 +359,7 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
         rewriter.getI32ArrayAttr({0, 1, -1, -1}));
 
     Value rsrcUndef = rewriter.create<LLVM::UndefOp>(loc, LLVMRsrcVectorType);
-    // word 2: fixed as -1 .
+    // word 2: fixed as 2GB .
     Value constant2 = rewriter.create<LLVM::ConstantOp>(
         loc, LLVMI32Type, rewriter.getI32IntegerAttr(2));
     Value rsrc2 = rewriter.create<LLVM::InsertElementOp>(
@@ -435,12 +435,10 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
           loc, interimLLVMValueType, adaptorValue);
       rewriter.replaceOpWithNewOp<ROCDL::MubufStoreOp>(
           op, bitcastedValue, rsrc, vindex, voffset_shift, slc, glc);
-
     } else {
       rewriter.replaceOpWithNewOp<ROCDL::MubufStoreOp>(
           op, adaptorValue, rsrc, vindex, voffset_shift, slc, glc);
     }
-
     return success();
   }
 };
@@ -503,7 +501,7 @@ struct RawbufStoreOpLowering : ConvertToLLVMPattern {
         rewriter.getI32ArrayAttr({0, 1, -1, -1}));
 
     Value rsrcUndef = rewriter.create<LLVM::UndefOp>(loc, LLVMRsrcVectorType);
-    // word 2: fixed as -1 .
+    // word 2: fixed as 2GB .
     Value constant2 = rewriter.create<LLVM::ConstantOp>(
         loc, LLVMI32Type, rewriter.getI32IntegerAttr(2));
     Value rsrc2 = rewriter.create<LLVM::InsertElementOp>(
@@ -574,8 +572,7 @@ struct RawbufStoreOpLowering : ConvertToLLVMPattern {
         rewriter.replaceOpWithNewOp<ROCDL::RawbufStoreOp>(
             op, bitcastedValue, rsrc, voffset_shift, vindex, zeroglcslc);
       } else { // f16 and i16 (bf16) types scalar value
-               // there is a problem with bf16 when in_h is odd, will fix it in
-               // the future
+               // FIXME:there is a problem with bf16 when in_h and in_w is odd
         rewriter.replaceOpWithNewOp<ROCDL::RawbufStoreOp>(
             op, adaptorValue, rsrc, voffset_shift, vindex, zeroglcslc);
       }

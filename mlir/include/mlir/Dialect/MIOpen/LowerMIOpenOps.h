@@ -6757,7 +6757,6 @@ struct ThreadwiseCopyRewritePattern
         }
 
         // Store to dest.
-        // Issue scalar store ,oob store only support f32 now
         if (toEmitOOBStoreCheckLogic) {
           SmallVector<Value, 8> destLowerStoreIndices;
           SmallVector<Value, 8> destLowerStoreOOBIndices;
@@ -7128,7 +7127,6 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Store to dest.
       // Issue scalar store.
-      // oob store only support f32 now
       if (toEmitOOBStoreCheckLogic) {
         auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
         SmallVector<Value, 8> destLowerStoreIndices;
@@ -7220,7 +7218,7 @@ struct ThreadwiseCopyV2RewritePattern
                          ifWithinBoundsOp.getResults()[4],
                          ifWithinBoundsOp.getResults()[5]});
         } else if (dataType == b.getIntegerType(16)) {
-          // bf16 rsults not correct when in_h & in_w odd
+          // FIXME: bf16 rsults not correct when in_h & in_w odd
           auto convertValue =
               b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
           b.create<gpu::RawbufStoreOp>(
@@ -7238,7 +7236,7 @@ struct ThreadwiseCopyV2RewritePattern
           auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
           b.create<StoreOp>(loc, truncValue, op.dest(), destLowerIndices);
         } else if (dataType == b.getIntegerType(16)) {
-          // bf16 rsults not correct when in_h & in_w odd
+          // FIXME: bf16 rsults not correct when in_h & in_w odd
           auto convertValue =
               b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
           b.create<StoreOp>(loc, convertValue, op.dest(), destLowerIndices);
