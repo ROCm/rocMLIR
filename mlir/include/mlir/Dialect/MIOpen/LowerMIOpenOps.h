@@ -7731,10 +7731,6 @@ struct XdlopsGemmV2RewritePattern
             ValueRange{loopKiv});
       }
 
-      // FIXME: See if it's possible to get rid of the this barrier.
-      // LDS barrier.
-      loopKb.create<miopen::LDSBarrierOp>(loc);
-
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
         auto vectorC = loopK.getRegionIterArgs()[i];
