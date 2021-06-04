@@ -64,16 +64,9 @@ struct MIGraphXIRDumpPass : public MIGraphXIRDumpPassBase<MIGraphXIRDumpPass> {
       auto opName = getOpName(op);
       //auto opName = op->getName().getStringRef();
       for (Region &region : op.getRegions()) {
-        for (auto indexed_block : llvm::enumerate(region)) {
-          // Suffix block number if there are more than 1 block.
-          auto blockName = llvm::hasSingleElement(region)
-                               ? ""
-                               : ("__" + llvm::utostr(indexed_block.index()));
-          //llvm::WriteGraph(os, &indexed_block.value(), short_names,
-          //                 Twine(title) + opName + blockName);
-          //llvm::errs() << &indexed_block.value() << "##" << opName << "##" << blockName;
-          indexed_block.walk([&](Operation *op) { llvm::errs()<< "visiting op : " << op->getName().getStringRef() << "\n"; });
-        }
+        region.walk([&](Operation *op) {
+          llvm::errs()<< "visiting op : " << op->getName().getStringRef() << "\n"; 
+          });
       }
     }
   }
