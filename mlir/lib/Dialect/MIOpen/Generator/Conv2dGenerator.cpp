@@ -120,10 +120,10 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   auto isValid = [&argMap]() {
     // only require tensor configs
     static const std::vector<std::string> validKeys = {
-        "batchsize", "groupsize", "in_layout",  "in_type",  "in_channels",
-        "in_h",      "in_w",      "out_layout", "out_type", "out_channels",
-        "out_h",     "out_w",     "fil_layout", "fil_type", "fil_w",
-        "fil_h",     "kernel_id"};
+        "batchsize",   "groupsize",    "in_layout", "in_type",
+        "in_channels", "in_h",         "in_w",      "out_layout",
+        "out_type",    "out_channels", "out_h",     "out_w",
+        "fil_layout",  "fil_type",     "fil_w",     "fil_h"};
     return std::all_of(
         validKeys.cbegin(), validKeys.cend(),
         [&argMap](const std::string &key) { return argMap.count(key) > 0; });
