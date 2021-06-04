@@ -66,8 +66,8 @@ struct MIGraphXIRDumpPass : public MIGraphXIRDumpPassBase<MIGraphXIRDumpPass> {
       for (Region &region : op.getRegions()) {
         region.walk([&](Operation *op) {
           llvm::errs()<< "visiting op : " << op->getName().getStringRef() << "\n"; 
-          if (op->getNumOperands()) {
-            llvm::errs()<< "operand0 : " << std::string(op->getOperand(0)) << "\n"; 
+          for (auto attr : op->getAttrs()) {
+            llvm::errs() << '\n' << attr.first << ": ";
           }
         });
       }
