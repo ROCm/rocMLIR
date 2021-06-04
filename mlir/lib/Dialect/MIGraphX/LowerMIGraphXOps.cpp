@@ -72,7 +72,7 @@ struct MIGraphXIRDumpPass : public MIGraphXIRDumpPassBase<MIGraphXIRDumpPass> {
           //llvm::WriteGraph(os, &indexed_block.value(), short_names,
           //                 Twine(title) + opName + blockName);
           //llvm::errs() << &indexed_block.value() << "##" << opName << "##" << blockName;
-          region.walk([&](Operation *op) { llvm::errs()<< "visiting op : " << op->getName().getStringRef() << "\n"; });
+          indexed_block.walk([&](Operation *op) { llvm::errs()<< "visiting op : " << op->getName().getStringRef() << "\n"; });
         }
       }
     }
