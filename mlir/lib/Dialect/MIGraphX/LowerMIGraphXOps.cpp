@@ -68,7 +68,8 @@ struct MIGraphXIRDumpPass : public MIGraphXIRDumpPassBase<MIGraphXIRDumpPass> {
           llvm::errs()<< "visiting op : " << op->getName().getStringRef() << "\n"; 
           //llvm::errs()<< "dialect : " << op->getName().getDialectNamespace() << "\n"; 
           llvm::errs()<< "op : " << op->getName().stripDialect() << "\n"; 
-          llvm::errs()<< "ID : " << op->getName().getIdentifier().strref() << "\n"; 
+          //llvm::errs()<< "ID : " << op->getName().getIdentifier().strref() << "\n"; 
+          llvm::errs()<< "ID : " << op->getName().getIdentifier() << "\n"; 
           for (auto attr : op->getAttrs()) {
             llvm::errs() << '\n' << attr.first << ": ";
           }
