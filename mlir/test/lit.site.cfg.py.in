@@ -33,6 +33,7 @@ config.mlir_src_root = "@MLIR_SOURCE_DIR@"
 config.mlir_obj_root = "@MLIR_BINARY_DIR@"
 config.mlir_runner_utils_dir = "@MLIR_RUNNER_UTILS_DIR@"
 config.mlir_tools_dir = "@MLIR_TOOLS_DIR@"
+config.mlir_cmake_config_dir = "@MLIR_CMAKE_CONFIG_DIR@"
 config.linalg_test_lib_dir = "@MLIR_DIALECT_LINALG_INTEGRATION_TEST_LIB_DIR@"
 config.build_examples = @LLVM_BUILD_EXAMPLES@
 config.run_cuda_tests = @MLIR_CUDA_CONVERSIONS_ENABLED@
@@ -44,11 +45,17 @@ config.enable_rocm_runner = @MLIR_ROCM_RUNNER_ENABLED@
 config.spirv_wrapper_library_dir = "@MLIR_SPIRV_WRAPPER_LIBRARY_DIR@"
 config.enable_spirv_cpu_runner = @MLIR_SPIRV_CPU_RUNNER_ENABLED@
 config.enable_miopen_driver = @MLIR_MIOPEN_DRIVER_ENABLED@
+if config.enable_miopen_driver:
+    config.available_features.add('miopen-driver')
 config.enable_miopen_driver_e2e_test = @MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED@
+config.enable_miopen_driver_misc_e2e_test = @MLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED@
+config.enable_miopen_driver_pr_e2e_test = @MLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED@
 config.enable_miopen_sqlite = @MLIR_MIOPEN_SQLITE_ENABLED@
 config.vulkan_wrapper_library_dir = "@MLIR_VULKAN_WRAPPER_LIBRARY_DIR@"
 config.enable_vulkan_runner = @MLIR_VULKAN_RUNNER_ENABLED@
 config.enable_bindings_python = @MLIR_BINDINGS_PYTHON_ENABLED@
+config.random_data = "@MLIR_RANDOM_DATA@"
+config.xdlops = "@MLIR_XDLOPS@"
 
 # Support substitution of the tools_dir with user parameters. This is
 # used when we can't determine the tool dir at configuration time.

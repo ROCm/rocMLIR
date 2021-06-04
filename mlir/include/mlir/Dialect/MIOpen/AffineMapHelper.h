@@ -23,6 +23,33 @@ namespace mlir {
 namespace miopen {
 
 //===----------------------------------------------------------------------===//
+// Utility function to compose affine maps.
+//===----------------------------------------------------------------------===//
+inline AffineMap composeTransforms(ArrayRef<AffineMap> affineMaps) {
+  int64_t iter = affineMaps.size() - 1;
+  AffineMap transform = affineMaps[iter];
+  --iter;
+  while (iter >= 0) {
+    transform = transform.compose(affineMaps[iter]);
+    --iter;
+  }
+  return transform;
+}
+
+inline AffineMap composeTransforms(ArrayAttr affineMaps) {
+  int64_t iter = affineMaps.size() - 1;
+  AffineMap transform =
+      affineMaps[iter].template cast<AffineMapAttr>().getValue();
+  --iter;
+  while (iter >= 0) {
+    transform = transform.compose(
+        affineMaps[iter].template cast<AffineMapAttr>().getValue());
+    --iter;
+  }
+  return transform;
+}
+
+//===----------------------------------------------------------------------===//
 // Check if an AffineMap has division or remainder inside.
 //===----------------------------------------------------------------------===//
 inline bool hasDivisionOrRemainder(AffineMap map) {
@@ -50,7 +77,7 @@ inline bool hasPadding(AffineExpr expr) {
   bool ret = false;
   auto hasMinusConstant = [](AffineExpr expr) -> bool {
     if (expr.getKind() == AffineExprKind::Constant) {
-      auto constantExpr = expr.template dyn_cast<AffineConstantExpr>();
+      auto constantExpr = expr.template cast<AffineConstantExpr>();
       if (constantExpr.getValue() < 0)
         return true;
     }
@@ -62,7 +89,7 @@ inline bool hasPadding(AffineExpr expr) {
 
     tmp.walk([&ret](AffineExpr expr_sub) {
       if (expr_sub.getKind() == AffineExprKind::Constant) {
-        auto constantSubExpr = expr_sub.template dyn_cast<AffineConstantExpr>();
+        auto constantSubExpr = expr_sub.template cast<AffineConstantExpr>();
         if (constantSubExpr.getValue() < 0)
           ret = true;
       }

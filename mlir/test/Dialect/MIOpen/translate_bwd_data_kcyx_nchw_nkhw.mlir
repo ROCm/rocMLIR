@@ -9,139 +9,141 @@ func @miopen_transformed_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref
   %filter_gemmK_gemmM = miopen.transform(%filter) {
     layout = [
       {
-        dimensions = [0],
-        names = ["gemmG"],
+        upper_layer_dimensions = [0],
+        upper_layer_names = ["gemmG"],
         transformation = "PassThrough",
-        source_dimensions = [0],
-        source_names = ["g"]
+        lower_layer_dimensions = [0],
+        lower_layer_names = ["g"]
       },
       {
-        dimensions = [1],
-        names = ["gemmK"],
+        upper_layer_dimensions = [1],
+        upper_layer_names = ["gemmK"],
         transformation = "PassThrough",
-        source_dimensions = [1],
-        source_names = ["k"]
+        lower_layer_dimensions = [1],
+        lower_layer_names = ["k"]
       },
       {
-        dimensions = [2],
-        names = ["gemmM"],
+        upper_layer_dimensions = [2],
+        upper_layer_names = ["gemmM"],
         transformation = "Merge",
-        source_dimensions = [2, 3, 4],
-        source_names = ["c", "y", "x"]
+        lower_layer_dimensions = [2, 3, 4],
+        lower_layer_names = ["c", "y", "x"]
       }
     ],
-    source_layout = ["g", "k", "c", "y", "x"],
-    output_layout = ["gemmG", "gemmK", "gemmM"],
-    gridwise_gemm_argument_position = 0
+    lower_layer_layout = ["g", "k", "c", "y", "x"],
+    upper_layer_layout = ["gemmG", "gemmK", "gemmM"],
+    gridwise_gemm_argument_position = 0,
+    lowest_layer = true
   } : memref<?x?x?x?x?xf32> to memref<?x?x?xf32>
 
   // input tensor
   %input_ni_gi_ci_hipad_wipad = miopen.transform(%input) {
     layout = [
       {
-        dimensions = [0],
-        names = ["gi"],
+        upper_layer_dimensions = [0],
+        upper_layer_names = ["gi"],
         transformation = "PassThrough",
-        source_dimensions = [1],
-        source_names = ["gi"]
+        lower_layer_dimensions = [1],
+        lower_layer_names = ["gi"]
       },
       {
-        dimensions = [1],
-        names = ["ni"],
+        upper_layer_dimensions = [1],
+        upper_layer_names = ["ni"],
         transformation = "PassThrough",
-        source_dimensions = [0],
-        source_names = ["ni"]
+        lower_layer_dimensions = [0],
+        lower_layer_names = ["ni"]
       },
       {
-        dimensions = [2],
-        names = ["ci"],
+        upper_layer_dimensions = [2],
+        upper_layer_names = ["ci"],
         transformation = "PassThrough",
-        source_dimensions = [2],
-        source_names = ["ci"]
+        lower_layer_dimensions = [2],
+        lower_layer_names = ["ci"]
       },
       {
-        dimensions = [3, 4],
-        names = ["hipad", "wipad"],
+        upper_layer_dimensions = [3, 4],
+        upper_layer_names = ["hipad", "wipad"],
         transformation = "Pad",
         parameters = [0, 0, 0, 0],
-        source_dimensions = [3, 4],
-        source_names = ["hi", "wi"]
+        lower_layer_dimensions = [3, 4],
+        lower_layer_names = ["hi", "wi"]
       }
     ],
-    source_layout = ["ni", "gi", "ci", "hi", "wi"],
-    output_layout = ["gi", "ni", "ci", "hipad", "wipad"]
+    lower_layer_layout = ["ni", "gi", "ci", "hi", "wi"],
+    upper_layer_layout = ["gi", "ni", "ci", "hipad", "wipad"],
+    lowest_layer = true
   } : memref<?x?x?x?x?xf32> to memref<?x?x?x?x?xf32>
   
   %input_gi_ni_ci_y_ho_x_wo = miopen.transform(%input_ni_gi_ci_hipad_wipad) {
     layout = [
       {
-        dimensions = [0],
-        names = ["gi"],
+        upper_layer_dimensions = [0],
+        upper_layer_names = ["gi"],
         transformation = "PassThrough",
-        source_dimensions = [0],
-        source_names = ["gi"]
+        lower_layer_dimensions = [0],
+        lower_layer_names = ["gi"]
       },
       {
-        dimensions = [1],
-        names = ["ni"],
+        upper_layer_dimensions = [1],
+        upper_layer_names = ["ni"],
         transformation = "PassThrough",
-        source_dimensions = [1],
-        source_names = ["ni"]
+        lower_layer_dimensions = [1],
+        lower_layer_names = ["ni"]
       },
       {
-        dimensions = [2],
-        names = ["ci"],
+        upper_layer_dimensions = [2],
+        upper_layer_names = ["ci"],
         transformation = "PassThrough",
-        source_dimensions = [2],
-        source_names = ["ci"]
+        lower_layer_dimensions = [2],
+        lower_layer_names = ["ci"]
       },
       {
-        dimensions = [3, 4],
-        names = ["y", "ho"],
+        upper_layer_dimensions = [3, 4],
+        upper_layer_names = ["y", "ho"],
         transformation = "Embed",
         parameters = [2, [1, 1, 0]],
-        source_dimensions = [3],
-        source_names = ["hipad"]
+        lower_layer_dimensions = [3],
+        lower_layer_names = ["hipad"]
       },
       {
-        dimensions = [5, 6],
-        names = ["x", "wo"],
+        upper_layer_dimensions = [5, 6],
+        upper_layer_names = ["x", "wo"],
         transformation = "Embed",
         parameters = [2, [1, 1, 0]],
-        source_dimensions = [4],
-        source_names = ["wipad"]
+        lower_layer_dimensions = [4],
+        lower_layer_names = ["wipad"]
       }
     ],
-    intermediate_layout = ["ni", "gi", "ci", "hipad", "wipad"],
-    output_layout = ["gi", "ni", "ci", "y", "ho", "x", "wo"]
+    lower_layer_layout = ["ni", "gi", "ci", "hipad", "wipad"],
+    upper_layer_layout = ["gi", "ni", "ci", "y", "ho", "x", "wo"]
   } : memref<?x?x?x?x?xf32> to memref<?x?x?x?x?x?x?x?xf32>
   
   %input_gemmM_gemmN = miopen.transform(%input_gi_ni_ci_y_ho_x_wo) {
     layout = [
       {
-        dimensions = [0],
-        names = ["gemmG"],
+        upper_layer_dimensions = [0],
+        upper_layer_names = ["gemmG"],
         transformation = "Merge",
-        source_dimensions = [0],
-        source_names = ["gi"]
+        lower_layer_dimensions = [0],
+        lower_layer_names = ["gi"]
       },
       {
-        dimensions = [1],
-        names = ["gemmM"],
+        upper_layer_dimensions = [1],
+        upper_layer_names = ["gemmM"],
         transformation = "Merge",
-        source_dimensions = [2, 3, 5],
-        source_names = ["ci", "y", "x"]
+        lower_layer_dimensions = [2, 3, 5],
+        lower_layer_names = ["ci", "y", "x"]
       },
       {
-        dimensions = [2],
-        names = ["gemmN"],
+        upper_layer_dimensions = [2],
+        upper_layer_names = ["gemmN"],
         transformation = "Merge",
-        source_dimensions = [1, 4, 6],
-        source_names = ["ni", "ho", "wo"]
+        lower_layer_dimensions = [1, 4, 6],
+        lower_layer_names = ["ni", "ho", "wo"]
       }
     ],
-    intermediate_layout = ["gi", "ni", "ci", "y", "ho", "x", "wo"],
-    output_layout = ["gemmG", "gemmM", "gemmN"],
+    lower_layer_layout = ["gi", "ni", "ci", "y", "ho", "x", "wo"],
+    upper_layer_layout = ["gemmG", "gemmM", "gemmN"],
     gridwise_gemm_argument_position = 2
   } : memref<?x?x?x?x?x?x?x?xf32> to memref<?x?x?xf32>
   
@@ -149,30 +151,31 @@ func @miopen_transformed_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref
   %output_gemmK_gemmN = miopen.transform(%output) {
     layout = [
       {
-        dimensions = [0],
-        names = ["gemmG"],
+        upper_layer_dimensions = [0],
+        upper_layer_names = ["gemmG"],
         transformation = "PassThrough",
-        source_dimensions = [1],
-        source_names = ["go"]
+        lower_layer_dimensions = [1],
+        lower_layer_names = ["go"]
       },
       {
-        dimensions = [1],
-        names = ["gemmK"],
+        upper_layer_dimensions = [1],
+        upper_layer_names = ["gemmK"],
         transformation = "PassThrough",
-        source_dimensions = [2],
-        source_names = ["ko"]
+        lower_layer_dimensions = [2],
+        lower_layer_names = ["ko"]
       },
       {
-        dimensions = [2],
-        names = ["gemmN"],
+        upper_layer_dimensions = [2],
+        upper_layer_names = ["gemmN"],
         transformation = "Merge",
-        source_dimensions = [0, 3, 4],
-        source_names = ["no", "ho", "wo"]
+        lower_layer_dimensions = [0, 3, 4],
+        lower_layer_names = ["no", "ho", "wo"]
       }
     ],
-    source_layout = ["no", "go", "ko", "ho", "wo"],
-    output_layout = ["gemmG", "gemmK", "gemmN"],
-    gridwise_gemm_argument_position = 1
+    lower_layer_layout = ["no", "go", "ko", "ho", "wo"],
+    upper_layer_layout = ["gemmG", "gemmK", "gemmN"],
+    gridwise_gemm_argument_position = 1,
+    lowest_layer = true
   } : memref<?x?x?x?x?xf32> to memref<?x?x?xf32>
   
   // apply gridwise GEMM

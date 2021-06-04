@@ -1,6 +1,6 @@
 // RUN: mlir-opt -miopen-lowering-step4 %s | FileCheck %s
 
-#map0 = affine_map<(d0, d1) -> (d0 * 8 + d1)>
+#map0 = affine_map<(d0, d1) -> (d0 * 8 + d1, d1)>
 #map1 = affine_map<(d0, d1) -> (d0 * 999 + d1 * 998)>
 
 #map2 = affine_map<(d0, d1, d2, d3) -> (d0 * 16 + d1 * 8 + d2 * 4 + d3)>
@@ -19,7 +19,7 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
   %c0_i32 = constant 0 : i32
 
   // check dest as a vanilla memref.
-  // CHECK: scf.for
+  // CHECK-NOT: scf.for
   miopen.threadwise_copy_v2(%source, %dest1D, %c0_i32, %c0_i32, %c0_i32) {
     dim_access_order = [0 : i32],
     source_data_per_read = 1,
@@ -30,6 +30,7 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
 
   // check dest as a vanilla memref.
   // source has offset and bound.
+  // CHECK-NOT: scf.for
   miopen.threadwise_copy_v2(%source, %dest1D, %source_offset, %c0_i32, %c0_i32) {
     dim_access_order = [0],
     source_data_per_read = 1,
@@ -44,6 +45,7 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
   // ----- 
 
   // check source with one externally defined affine map.
+  // CHECK-NOT: scf.for
   miopen.threadwise_copy_v2(%source, %dest2D, %source_offset, %c0_i32, %c0_i32, %c0_i32, %c0_i32) {
     dim_access_order = [0, 1],
     source_data_per_read = 1,
@@ -57,6 +59,7 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
   } : vector<32xf32>, memref<?x?xf32>
 
   // check source with multiple externally defined affine map.
+  // CHECK-NOT: scf.for
   miopen.threadwise_copy_v2(%source, %dest2D, %source_offset, %c0_i32, %c0_i32, %c0_i32, %c0_i32) {
     dim_access_order = [0, 1],
     source_data_per_read = 1,
@@ -72,6 +75,7 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
   // -----
 
   // check source and destination with one externally defined affine map.
+  // CHECK-NOT: scf.for
   miopen.threadwise_copy_v2(%source, %dest_with_externally_defined_affine, %source_offset, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32) {
     dim_access_order = [0, 1, 2, 3],
     source_data_per_read = 1,
@@ -87,6 +91,7 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
 
   // check source and destination with one externally defined affine map.
   // only read half of the source vector with bound attribute.
+  // CHECK-NOT: scf.for
   miopen.threadwise_copy_v2(%source, %dest_with_externally_defined_affine, %source_offset, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32) {
     dim_access_order = [0, 1, 2, 3],
     source_data_per_read = 1,

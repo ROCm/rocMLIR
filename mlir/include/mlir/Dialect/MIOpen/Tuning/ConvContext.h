@@ -113,8 +113,8 @@ populateDimVal(const ArrayAttr &layoutAttr, const ArrayAttr &dimAttr,
   assert(layoutAttr.size() == dimAttr.size());
   size_t dimValSize = layoutAttr.size();
   for (size_t i = 0; i < dimValSize; ++i) {
-    auto key = layoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
-    auto value = dimAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt();
+    auto key = layoutAttr.getValue()[i].cast<StringAttr>().getValue();
+    auto value = dimAttr.getValue()[i].cast<IntegerAttr>().getInt();
     dimIndexVal[key] = std::make_pair(i, value);
   }
 }
@@ -125,16 +125,16 @@ static inline void populateSeqVal(const ArrayAttr &seqAttr,
   for (size_t i = 0; i < seqValSize; ++i) {
     // Not nested array, push back the value and be done
     if (seqAttr.getValue()[i].dyn_cast<ArrayAttr>() == nullptr) {
-      seqVal.push_back(seqAttr.getValue()[i].dyn_cast<IntegerAttr>().getInt());
+      seqVal.push_back(seqAttr.getValue()[i].cast<IntegerAttr>().getInt());
       continue;
     }
     // There is nested values, continue to populate those
-    for (size_t j = 0; j < seqAttr.getValue()[i].dyn_cast<ArrayAttr>().size();
+    for (size_t j = 0; j < seqAttr.getValue()[i].cast<ArrayAttr>().size();
          ++j) {
       seqVal.push_back(seqAttr.getValue()[i]
-                           .dyn_cast<ArrayAttr>()
+                           .cast<ArrayAttr>()
                            .getValue()[j]
-                           .dyn_cast<IntegerAttr>()
+                           .cast<IntegerAttr>()
                            .getInt());
     }
   }

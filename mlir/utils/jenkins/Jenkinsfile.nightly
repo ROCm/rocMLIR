@@ -4,6 +4,7 @@ pipeline {
             image 'rocm/mlir:rocm4.1-latest'
             args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
             label 'rocm'
+            alwaysPull true
         }
     }
     stages {
@@ -31,7 +32,8 @@ pipeline {
                         -DLLVM_BUILD_LLVM_DYLIB=ON \
                         -DMLIR_ROCM_RUNNER_ENABLED=1 \
                         -DMLIR_MIOPEN_DRIVER_ENABLED=1 \
-                        -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1
+                        -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1 \
+                        -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=1
                         # if we open sqlite, step4 lowering failed until adding the custom db
                         # -DMLIR_MIOPEN_SQLITE_ENABLED=1
 
@@ -63,7 +65,7 @@ pipeline {
                         -DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
 
                     # Build LLVM / MLIR and run E2E tests
-                    cmake --build . --target check-e2e
+                    cmake --build . --target check-mlir
 
                     # Clean up build directory
                     rm -rf build

@@ -3,7 +3,6 @@ add_subdirectory(CAPI)
 add_subdirectory(EDSC)
 add_subdirectory(SDBM)
 add_subdirectory(lib)
-add_subdirectory(auto_e2e)
 
 llvm_canonicalize_cmake_booleans(
   MLIR_BINDINGS_PYTHON_ENABLED
@@ -16,6 +15,11 @@ llvm_canonicalize_cmake_booleans(
   MLIR_VULKAN_RUNNER_ENABLED
   )
 
+# Passed to lit.site.cfg.py.so that the out of tree Standalone dialect test
+# can find MLIR's CMake configuration
+set(MLIR_CMAKE_CONFIG_DIR
+  "${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX}/cmake/mlir")
+
 # Passed to lit.site.cfg.py.in to set up the path where to find the libraries
 # for linalg integration tests.
 set(MLIR_DIALECT_LINALG_INTEGRATION_TEST_LIB_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
@@ -27,6 +31,18 @@ set(MLIR_CUDA_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 set(MLIR_ROCM_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 set(MLIR_SPIRV_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 set(MLIR_VULKAN_WRAPPER_LIBRARY_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+
+# Passed to lit.site.cfg.py.in to set the -x2 flag for the mlir E2E tests.
+set(MLIR_XDLOPS "")
+if(MLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED)
+  set(MLIR_XDLOPS "-x2")
+endif()
+
+# Passed to lit.site.cfg.py.in to set the -rand flag for the mlir E2E tests.
+set(MLIR_RANDOM_DATA "")
+if(NOT MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED STREQUAL "none")
+  set(MLIR_RANDOM_DATA "-rand ${MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED} ")
+endif()
 
 configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
@@ -120,19 +136,12 @@ if(MLIR_MIOPEN_DRIVER_ENABLED)
 endif()
 
 # check-mlir runs MLIR regression tests including E2E tests 
-# if MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED
+# when MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED is set
 add_lit_testsuite(check-mlir "Running the MLIR regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}
   DEPENDS ${MLIR_TEST_DEPENDS}
   )
 set_target_properties(check-mlir PROPERTIES FOLDER "Tests")
-
-# check-e2e only runs MLIR E2E tests in the subdirectory auto_e2e 
-if(MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED)
-  list(APPEND MLIR_TEST_DEPENDS
-      check-e2e
-      )
-endif()
 
 add_lit_testsuites(MLIR ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS ${MLIR_TEST_DEPENDS}

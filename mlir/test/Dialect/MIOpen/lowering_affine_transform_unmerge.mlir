@@ -2,11 +2,11 @@
 module  {
   func @miopen_unmerge_test(%arg0: memref<1x144x128xf32>) {
     //unmerge gemmKtotal to gemmK and gemmKpack, the dimension length is 18 and 8
-    %0 = miopen.transform(%arg0) {gridwise_gemm_argument_position = 0 : i32, layout = [{dimensions = [0 : i32], names = ["gemmG"],
-         source_dimensions = [0 : i32], source_names = ["gemmG"], transformation = "PassThrough"},
-         {dimensions = [1 : i32, 3 : i32], names = ["gemmK", "gemmKpack"], source_dimensions = [1 : i32], 
-         dimension_lengths = [18 : i32, 8 : i32], source_names = ["gemmKtotal"], transformation = "UnMerge"},{dimensions = [2 : i32], names = ["gemmM"], source_dimensions = [2 : i32], source_names = ["gemmM"], transformation = "PassThrough"}],
-         intermediate_layout = ["gemmG", "gemmKtotal", "gemmM"], output_layout = ["gemmG", "gemmK", "gemmM", "gemmKpack"]} : memref<1x144x128xf32> to memref<1x18x128x8xf32>
+    %0 = miopen.transform(%arg0) {gridwise_gemm_argument_position = 0 : i32, layout = [{upper_layer_dimensions = [0 : i32], upper_layer_names = ["gemmG"],
+         lower_layer_dimensions = [0 : i32], lower_layer_names = ["gemmG"], transformation = "PassThrough"},
+         {upper_layer_dimensions = [1 : i32, 3 : i32], upper_layer_names = ["gemmK", "gemmKpack"], lower_layer_dimensions = [1 : i32], 
+         dimension_lengths = [18 : i32, 8 : i32], lower_layer_names = ["gemmKtotal"], transformation = "UnMerge"},{upper_layer_dimensions = [2 : i32], upper_layer_names = ["gemmM"], lower_layer_dimensions = [2 : i32], lower_layer_names = ["gemmM"], transformation = "PassThrough"}],
+         lower_layer_layout = ["gemmG", "gemmKtotal", "gemmM"], upper_layer_layout = ["gemmG", "gemmK", "gemmM", "gemmKpack"]} : memref<1x144x128xf32> to memref<1x18x128x8xf32>
     return
   }
 }

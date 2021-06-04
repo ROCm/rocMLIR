@@ -1311,7 +1311,7 @@ static std::tuple<short, short, int> configRandomTestData() {
       max = 1;
     }
     std::string rseed = randomSeed.getValue();
-    if (rseed[0] >= '0' and rseed[1] <= '9')
+    if (rseed[0] >= '0' and rseed[0] <= '9')
       seed = std::stoi(rseed);
     else
       seed = -1;
@@ -2301,7 +2301,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     } else if (pipeline == "rocdl") {
       // Set up the lowering pipeline which goes down to ROCDL dialect.
       populateDefaultLoweringPipeline(pm);
-      pm.addPass(createLowerGpuOpsToROCDLOpsPass());
+      pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
     }
   } else {
     auto errorHandler = [&](const Twine &msg) {

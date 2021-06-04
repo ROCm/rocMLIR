@@ -91,6 +91,26 @@ def MIOpen_TransformOp :
   let description = [{
     The `miopen.transform` op transforms tensor coordinates.
   }];
+  let builders = [
+   // Custom builder to populate bounds of input and output memrefs as attributes.
+   OpBuilderDAG<(ins "Type": $output, "Value":$input, "ArrayRef<NamedAttribute>":$attributes, "bool":$populateBounds),
+   [{
+     $_state.addOperands({input});
+     if (populateBounds) {
+       MemRefType lowerMemRefType = input.getType().template cast<MemRefType>();
+       MemRefType upperMemRefType = output.template cast<MemRefType>();
+       $_state.addAttribute("lower_layer_bounds", buildMemRefShapeAttr($_builder, lowerMemRefType));
+       $_state.addAttribute("upper_layer_bounds", buildMemRefShapeAttr($_builder, upperMemRefType));
+     }
+     $_state.addAttributes(attributes);
+     $_state.addTypes(output);
+   }]>,
+  ];
+  let extraClassDeclaration = [{
+    // Utility static member function of TransformOp to populate an ArrayAttr to
+    // track the bounds of a MemRefType
+    static ArrayAttr buildMemRefShapeAttr(OpBuilder &b, MemRefType memRefType);
+  }];
 }
 
 def MIOpen_GridwiseGemmOp :

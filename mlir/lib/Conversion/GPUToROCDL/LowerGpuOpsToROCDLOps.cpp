@@ -311,7 +311,7 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     auto dstShape = dstMemRefType.getShape();
     auto adaptorIndices = adaptor.indices();
     auto adaptorValue = adaptor.value();
-
+    auto adaptorShift = adaptor.shift();
     Type valueType = mubufStoreOp.value().getType();
 
     // use standard store for storing scalar f16 and i16 (bf16).
@@ -340,6 +340,9 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
 
     Type I32x2Type = VectorType::get({2}, I32Type);
     Type LLVMI32x2Type = typeConverter->convertType(I32x2Type);
+    // 2GB
+    Value twoGBShift = rewriter.create<LLVM::ConstantOp>(
+        loc, LLVMI32Type, rewriter.getI32IntegerAttr(0x7fffffff));
 
     // word 0-1: pointer to memref.
     MemRefDescriptor memrefDescriptor(adaptor.memref());
@@ -359,10 +362,8 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     // word 2: fixed as -1 .
     Value constant2 = rewriter.create<LLVM::ConstantOp>(
         loc, LLVMI32Type, rewriter.getI32IntegerAttr(2));
-    Value minusOne = rewriter.create<LLVM::ConstantOp>(
-        loc, LLVMI32Type, rewriter.getI32IntegerAttr(-1));
     Value rsrc2 = rewriter.create<LLVM::InsertElementOp>(
-        loc, LLVMRsrcVectorType, rsrcUndef, minusOne, constant2);
+        loc, LLVMRsrcVectorType, rsrcUndef, twoGBShift, constant2);
 
     // word 3: fixed as 0x00027000 .
     Value constant3 = rewriter.create<LLVM::ConstantOp>(
@@ -399,6 +400,9 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     Value voffset = rewriter.create<LLVM::MulOp>(
         loc, LLVMI32Type, ArrayRef<Value>{voffsetElements, elementBytes});
 
+    Value voffset_shift =
+        rewriter.create<LLVM::AddOp>(loc, LLVMI32Type, voffset, adaptorShift);
+
     // populate slc : fixed as 0 of type i1.
     Value slc = rewriter.create<LLVM::ConstantOp>(
         loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
@@ -430,10 +434,10 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
       Value bitcastedValue = rewriter.create<LLVM::BitcastOp>(
           loc, interimLLVMValueType, adaptorValue);
       rewriter.replaceOpWithNewOp<ROCDL::MubufStoreOp>(
-          op, bitcastedValue, rsrc, vindex, voffset, slc, glc);
+          op, bitcastedValue, rsrc, vindex, voffset_shift, slc, glc);
     } else {
       rewriter.replaceOpWithNewOp<ROCDL::MubufStoreOp>(
-          op, adaptorValue, rsrc, vindex, voffset, slc, glc);
+          op, adaptorValue, rsrc, vindex, voffset_shift, slc, glc);
     }
 
     return success();
