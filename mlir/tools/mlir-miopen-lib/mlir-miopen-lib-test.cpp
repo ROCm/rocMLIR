@@ -24,6 +24,8 @@ int main(int argc, char **argv) {
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
 
   MiirStatus status = MIIR_SUCCESS;
+  // save args
+  std::string parameters = args.getValue();
 
   MiirHandle handle = miirCreateHandle(args.getValue().c_str());
 
@@ -59,32 +61,41 @@ int main(int argc, char **argv) {
               << ", localSize=" << localSize << std::endl;
 
   } else if (option.getValue() == "bin") {
-    status = miirLowerBin(handle);
-    if (status != MIIR_SUCCESS) {
-      return status;
-    }
+    int count = miirGetKernelCount(handle);
+    for (int i = 0; i < count; i++) {
+      auto arguments = parameters + " --kernel_id " + std::to_string(i);
 
-    size_t size = 0;
-    status = miirBufferGet(handle, nullptr, &size);
-    if (status != MIIR_SUCCESS) {
-      return status;
-    }
-    std::vector<char> buffer(size);
-    status = miirBufferGet(handle, buffer.data(), &size);
-    if (status != MIIR_SUCCESS) {
-      return status;
-    }
-    std::for_each(buffer.begin(), buffer.end(),
-                  [](char &c) { std::cout << c; });
-    std::cout << std::endl;
+      MiirHandle newHandle = miirCreateHandle(arguments.c_str());
 
-    size_t globalSize, localSize;
-    status = miirGetExecutionDims(handle, &globalSize, &localSize);
-    if (status != MIIR_SUCCESS) {
-      return status;
+      status = miirLowerBin(newHandle);
+      if (status != MIIR_SUCCESS) {
+        return status;
+      }
+
+      size_t size = 0;
+      status = miirBufferGet(newHandle, nullptr, &size);
+      if (status != MIIR_SUCCESS) {
+        return status;
+      }
+      std::vector<char> buffer(size);
+      status = miirBufferGet(newHandle, buffer.data(), &size);
+      if (status != MIIR_SUCCESS) {
+        return status;
+      }
+      std::for_each(buffer.begin(), buffer.end(),
+                    [](char &c) { std::cout << c; });
+      std::cout << std::endl;
+
+      size_t globalSize, localSize;
+      status = miirGetExecutionDims(newHandle, &globalSize, &localSize);
+      if (status != MIIR_SUCCESS) {
+        return status;
+      }
+      std::cout << "ExecutionDims - globalSize=" << globalSize
+                << ", localSize=" << localSize << ", kernelId = " << i
+                << std::endl;
+      miirDestroyHandle(newHandle);
     }
-    std::cout << "ExecutionDims - globalSize=" << globalSize
-              << ", localSize=" << localSize << std::endl;
   }
 
   miirDestroyHandle(handle);
