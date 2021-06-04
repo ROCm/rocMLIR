@@ -50,7 +50,7 @@ struct MIGraphXIRDumpPass : public MIGraphXIRDumpPassBase<MIGraphXIRDumpPass> {
         op.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
     if (symbolAttr)
       return std::string(symbolAttr.getValue());
-    //++unnamedOpCtr;
+    ++unnamedOpCtr;
     return (op.getName().getStringRef() + llvm::utostr(unnamedOpCtr)).str();
   }
   // Print all the ops in a module.
@@ -77,6 +77,9 @@ struct MIGraphXIRDumpPass : public MIGraphXIRDumpPassBase<MIGraphXIRDumpPass> {
     }
   }
   void runOnOperation() override;
+
+  private:
+  int unnamedOpCtr = 0;
 };
 } // end anonymous namespace
 
