@@ -45,6 +45,29 @@ using namespace mlir;
 
 namespace {
 struct MIGraphXIRDumpPass : public MIGraphXIRDumpPassBase<MIGraphXIRDumpPass> {
+  // Print all the ops in a module.
+  void processModule(ModuleOp module) {
+    for (Operation &op : module) {
+      // Modules may actually be nested, recurse on nesting.
+      if (auto nestedModule = dyn_cast<ModuleOp>(op)) {
+        processModule(nestedModule);
+        continue;
+      }
+      //auto opName = getOpName(op);
+      auto opName = op->getName().getStringRef();
+      for (Region &region : op.getRegions()) {
+        for (auto indexed_block : llvm::enumerate(region)) {
+          // Suffix block number if there are more than 1 block.
+          auto blockName = llvm::hasSingleElement(region)
+                               ? ""
+                               : ("__" + llvm::utostr(indexed_block.index()));
+          //llvm::WriteGraph(os, &indexed_block.value(), short_names,
+          //                 Twine(title) + opName + blockName);
+          llvm::errs() << &indexed_block.value() << "##" << short_names << "##" << Twine(title) << "##" << opName << "##" << blockName;
+        }
+      }
+    }
+  }
   void runOnOperation() override;
 };
 } // end anonymous namespace
@@ -54,8 +77,11 @@ void MIGraphXIRDumpPass::runOnOperation() {
   // try module->print() here..
   // try call a function in the headerfile, header file calls json  
   //cout<<"xir dump pass called!\n";
-  llvm::errs() << "xir dump pass called!\n";
-  getOperation()->walk([&](Operation *op) { llvm::errs()<< "visiting op : " << op->getName().getStringRef() << "\n"; });
+
+  //llvm::errs() << "xir dump pass called!\n";
+  //getOperation()->walk([&](Operation *op) { llvm::errs()<< "visiting op : " << op->getName().getStringRef() << "\n"; });
+
+  processModule(getOperation());
 }
 
 std::unique_ptr<Pass> mlir::migraphx::createMIGraphXIRDumpPass() {
