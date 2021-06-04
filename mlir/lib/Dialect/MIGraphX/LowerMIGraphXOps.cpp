@@ -55,6 +55,7 @@ void MIGraphXIRDumpPass::runOnOperation() {
   // try call a function in the headerfile, header file calls json  
   //cout<<"xir dump pass called!\n";
   llvm::errs() << "xir dump pass called!\n";
+  getOperation()->walk([&](Operation *op) { llvm::errs()<< "visiting op : " << op->getName().getStringRef() << "\n"; });
 }
 
 std::unique_ptr<Pass> mlir::migraphx::createMIGraphXIRDumpPass() {
