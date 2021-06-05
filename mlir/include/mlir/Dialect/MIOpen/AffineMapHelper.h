@@ -50,26 +50,6 @@ inline AffineMap composeTransforms(ArrayAttr affineMaps) {
 }
 
 //===----------------------------------------------------------------------===//
-// Check if an AffineMap has division or remainder inside.
-//===----------------------------------------------------------------------===//
-inline bool hasDivisionOrRemainder(AffineMap map) {
-  bool ret = false;
-  if (!map)
-    return false;
-  map.walkExprs([&ret](AffineExpr expr) {
-    if (expr.getKind() == AffineExprKind::Mod ||
-        expr.getKind() == AffineExprKind::FloorDiv ||
-        expr.getKind() == AffineExprKind::CeilDiv)
-      ret = true;
-  });
-
-  // XXX. hack. always return false for now for performance reason.
-  // May need more sophisticated checks to determine if we would truly go OOB.
-  // return ret;
-  return false;
-}
-
-//===----------------------------------------------------------------------===//
 // Check if an AffineExpr has padding, which is represented as a minus
 // expression with a constant operand.
 //===----------------------------------------------------------------------===//
