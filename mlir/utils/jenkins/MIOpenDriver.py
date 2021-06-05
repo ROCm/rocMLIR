@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import math
+import itertools
 from prettytable import PrettyTable
 from prettytable import from_csv 
 from datetime import date
@@ -16,7 +17,8 @@ mlirBuildDir = './bin'
 mlirMIOpenDriver = 'mlir-miopen-driver'
 mlirROCmRunner = 'mlir-rocm-runner'
 rocprof = '/opt/rocm/bin/rocprof'
-MIOpenDriver = os.path.expanduser('~/MIOpen/build/bin/MIOpenDriver')
+#MIOpenDriver = os.path.expanduser('~/MIOpen/build/bin/MIOpenDriver')
+MIOpenDriver = '../MIOpen/build/bin/MIOpenDriver'
 benchmarkingResultFileName = 'results.stats.csv'
 configurationFileName ='../mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
 roundDigits = 2
@@ -41,15 +43,12 @@ def getConfigurations(fileName):
     configFile = open(fileName, 'r')
     Lines = configFile.readlines()
     configs = [];
-    for direction in Directions: 
-        for datatype in DataTypes: 
-            for layout in Layouts: 
-               for line in Lines:
-                   line = line.strip()
-                   validConfig = not (xdlops and line in DisabledConfigs)
-                   if len(line) > 0 and line[0] != '#' and validConfig:
-                       oneConfig = datatype + ' ' + direction + ' -f ' + layout + ' -I '+ layout + ' -O ' + layout + ' '+ line
-                       configs.append(oneConfig)
+    for direction, datatype, layout, line in itertools.product(Directions, DataTypes, Layouts, Lines):
+        line = line.strip()
+        validConfig = not (xdlops and line in DisabledConfigs)
+        if len(line) > 0 and line[0] != '#' and validConfig:
+            oneConfig = f"{datatype} {direction} -f {layout } -I {layout} -O {layout} {line}"
+            configs.append(oneConfig)
     return configs
                 
 def getNanoSeconds(fileName):
@@ -71,169 +70,48 @@ class ConvConfiguration:
 
     @classmethod
     def generateCSVHeader(cls):
-        result = ''
-        # print operation.
-        result = result + 'Direction' + ','
-        # print data type.
-        result = result + 'DataType' + ','
-        # print XDLOPS
-        result = result + 'XDLOPS' + ','
-        # print filter layout.
-        result = result + 'FilterLayout' + ','
-        # print input layout.
-        result = result + 'InputLayout' + ','
-        # print output layout.
-        result = result + 'OutputLayout' + ','
-        # print N
-        result = result + 'N' + ','
-        # print C
-        result = result + 'C' + ','
-        # print Hi
-        result = result + 'H' + ','
-        # print Wi
-        result = result + 'W' + ','
-        # print K
-        result = result + 'K' + ','
-        # print Y
-        result = result + 'Y' + ','
-        # print X
-        result = result + 'X' + ','
-        # print dilation height
-        result = result + 'DilationH' + ','
-        # print dilation width
-        result = result + 'DilationW' + ','
-        # print stride height
-        result = result + 'StrideH' + ','
-        # print stride width
-        result = result + 'StrideW' + ','
-        # print padding width
-        result = result + 'PaddingH' + ','
-        # print padding height
-        result = result + 'PaddingW' + ','
-
-        # benchmarking fields
-
-        # print TFlops
-        result = result + 'TFlops'
+        result = ','.join(['Direction', 'DataType', 'XDLOPS', 'FilterLayout', 'InputLayout', 'OutputLayout', 
+                           'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW', 
+                           'PaddingH', 'PaddingW', 'TFlops'])
         return result
 
     def generateCSVContent(self, nanoSeconds):
-        result = ''
-        # print operation.
-        result = result + self.direction + ','
-        # print data type.
-        result = result + self.dataType + ','
-        # print XDLOPS
-        result = result + str(self.xdlops) + ','
-        # print filter layout.
-        result = result + self.filterLayout + ','
-        # print input layout.
-        result = result + self.inputLayout + ','
-        # print output layout.
-        result = result + self.outputLayout + ','
-        # print N
-        result = result + str(self.n) + ','
-        # print C
-        result = result + str(self.c) + ','
-        # print Hi
-        result = result + str(self.hi) + ','
-        # print Wi
-        result = result + str(self.wi) + ','
-        # print K
-        result = result + str(self.k) + ','
-        # print Y
-        result = result + str(self.y) + ','
-        # print X
-        result = result + str(self.x) + ','
-        # print dilation height
-        result = result + str(self.dilationH) + ','
-        # print dilation width
-        result = result + str(self.dilationW) + ','
-        # print stride height
-        result = result + str(self.convStrideH) + ','
-        # print stride width
-        result = result + str(self.convStrideW) + ','
-        # print padding width
-        result = result + str(self.paddingH) + ','
-        # print padding height
-        result = result + str(self.paddingW) + ','
+        result = ','.join([self.direction, self.dataType, str(self.xdlops), self.filterLayout, self.inputLayout, 
+                           self.outputLayout, str(self.n), str(self.c), str(self.hi), str(self.wi),  str(self.k), 
+                           str(self.y), str(self.x), str(self.dilationH), str(self.dilationW), str(self.convStrideH), 
+                           str(self.convStrideW), str(self.paddingH), str(self.paddingW),  str(self.computeTFlops(nanoSeconds))])
 
-        # benchmarking fields
-
-        # print TFlops
-        result = result + str(self.computeTFlops(nanoSeconds))
         return result
 
     def generateMlirDriverCommandLine(self):
-        result = ''
-        # set operation.
-        if self.direction == 'fwd':
-            result = result + '--operation conv2d'
-        elif self.direction == 'bwd':
-            result = result + '--operation conv2d_bwd_data'
-        elif self.direction == 'wrw':
-            result = result + '--operation conv2d_bwd_weight'
-        # set data type.
-        result = result + ' -t ' + self.dataType
-        # set XDLOPS
-        if self.xdlops == True:
-            result = result + ' -x2'
-        # set filter layout.
-        result = result + ' --fil_layout ' + self.filterLayout
-        # set input layout.
-        result = result + ' --in_layout ' + self.inputLayout
-        # set output layout.
-        result = result + ' --out_layout ' + self.outputLayout
-        # set N
-        result = result + ' --batchsize ' + str(self.n)
-        # set C
-        result = result + ' --in_channels ' + str(self.c)
-        # set Hi
-        result = result + ' --in_h ' + str(self.hi)
-        # set Wi
-        result = result + ' --in_w ' + str(self.wi)
-        # set K
-        result = result + ' --out_channels ' + str(self.k)
-        # set Y
-        result = result + ' --fil_w ' + str(self.y)
-        # set X
-        result = result + ' --fil_h ' + str(self.x)
-        # set dilation height
-        result = result + ' --dilation_h ' + str(self.dilationH)
-        # set dilation width
-        result = result + ' --dilation_w ' + str(self.dilationW)
-        # set stride height
-        result = result + ' --conv_stride_h ' + str(self.convStrideH)
-        # set stride width
-        result = result + ' --conv_stride_w ' + str(self.convStrideW)
-        # set padding width
-        result = result + ' --padding_h ' + str(self.paddingH)
-        # set padding height
-        result = result + ' --padding_w ' + str(self.paddingW)
+        direction = {'fwd':'--operation conv2d',
+                     'bwd':'--operation conv2d_bwd_data',
+                     'wrw':'--operation conv2d_bwd_weight'}[self.direction]
+
+        result = ' '.join([direction, 
+                           '-t', self.dataType, 
+                           '-x2' if self.xdlops else '', 
+                           '--fil_layout', self.filterLayout, 
+                           '--in_layout', self.inputLayout, 
+                           '--out_layout', self.outputLayout,
+                           '--batchsize', str(self.n), 
+                           '--in_channels', str(self.c), 
+                           '--in_h', str(self.hi), 
+                           '--in_w', str(self.wi), 
+                           '--out_channels', str(self.k), 
+                           '--fil_w', str(self.y), 
+                           '--fil_h', str(self.x), 
+                           '--dilation_h', str(self.dilationH), 
+                           '--dilation_w', str(self.dilationW), 
+                           '--conv_stride_h', str(self.convStrideH), 
+                           '--conv_stride_w', str(self.convStrideW), 
+                           '--padding_h', str(self.paddingH), 
+                           '--padding_w', str(self.paddingW)])
+
         return result
 
     def __init__(self, argv, xdlops):
-        # setup default values.
-        self.dataType = 'f32'
         self.xdlops = xdlops
-        self.direction = 'fwd' # fwd, bwd, wrw
-        self.filterLayout = 'kcyx'
-        self.inputLayout = 'nchw'
-        self.outputLayout = 'nkhw'
-        self.n = 128
-        self.c = 1024
-        self.hi = 14
-        self.wi = 14
-        self.k = 1024
-        self.y = 1
-        self.x = 1
-        self.convStrideH = 1
-        self.convStrideW = 1
-        self.paddingH = 0
-        self.paddingW = 0
-        self.dilationH = 1
-        self.dilationW = 1
-        self.group = 1
 
         mlirFilterLayout={"NCHW":"kcyx", "NHWC":"kyxc"}
         mlirOutputLayout={"NCHW":"nkhw", "NHWC":"nkhw"}
@@ -332,10 +210,10 @@ class ConvConfiguration:
         
 def runConfigWithMLIR(config):
     commandLineOptions = config.generateMlirDriverCommandLine()
-    mlirMIOpenDriverCommand = mlirBuildDir + os.sep + mlirMIOpenDriver + ' -ph -c ' + commandLineOptions
-    profilerCommand = rocprof + ' --hip-trace ' + mlirBuildDir + os.sep + mlirROCmRunner \
+    mlirMIOpenDriverCommand = os.path.join(mlirBuildDir, mlirMIOpenDriver) + ' -ph -c ' + commandLineOptions
+    profilerCommand = rocprof + ' --hip-trace ' + os.path.join(mlirBuildDir, mlirROCmRunner)\
                       + ' --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void'
-    
+
     # invoke mlir-miopen-driver.
     p1 = subprocess.Popen(mlirMIOpenDriverCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     # pipe to rocprof + mlir-rocm-runner.
@@ -388,14 +266,11 @@ def benchmarkMIOpen(commandLine, outputFile, xdlops):
     output(config.generateCSVContent(nanoSeconds), outputFile)
 
 def printPerformance(mlirFileName, miopenFileName):
-    mlirOutput = open(mlirFileName, 'r')
-    mlirResults = [line[:-1] for line in mlirOutput.readlines()]
+    with open(mlirFileName, 'r') as mlirOutput:
+        mlirResults = [line[:-1] for line in mlirOutput.readlines()]
  
-    miopenOutput = open(miopenFileName, 'r')
-    miopenFlops = [','+line.rstrip().split(',')[-1] for line in miopenOutput.readlines()]
-
-    mlirOutput.close()
-    miopenOutput.close()
+    with open(miopenFileName, 'r') as miopenOutput:
+        miopenFlops = [','+line.rstrip().split(',')[-1] for line in miopenOutput.readlines()]
 
     results = [ i+j for i, j in zip(mlirResults, miopenFlops)]
     header = ConvConfiguration.generateCSVHeader()+',MIOpenTFlops'
@@ -406,25 +281,22 @@ def printPerformance(mlirFileName, miopenFileName):
         table.add_row(res.split(','))
     print(table)
 
-    htmlOutput = open("MLIR_vs_MIOpen.html", 'w')
-    htmlOutput.write(table.get_html_string(format=True, 
-                                           attributes={'border': 1, 
-                                                       'style': 'border-width:1px; border-collapse: collapse; background-color: #dddddd;'}))
-    htmlOutput.close()
+    with open("MLIR_vs_MIOpen.html", 'w') as htmlOutput:
+        htmlOutput.write(table.get_html_string(format=True, 
+                                               attributes={'border': 1, 
+                                                           'style': 'border-width:1px; border-collapse: collapse; background-color: #dddddd;'}))
  
 def generatePerformanceResults(configs, xdlops):
     mlirFileName = date.today().strftime("mlir.%m%d%y")
-    mlirOutput = open(mlirFileName, 'w')
-    for testVector in configs:
-        benchmarkMLIR(testVector.split(sep=' '), mlirOutput, xdlops)
+    with open(mlirFileName, 'w') as mlirOutput:
+        for testVector in configs:
+            benchmarkMLIR(testVector.split(sep=' '), mlirOutput, xdlops)
 
     miopenFileName = date.today().strftime("miopen.%m%d%y")
-    miopenOutput = open(miopenFileName, 'w')
-    for testVector in configs:
-        benchmarkMIOpen(testVector.split(sep=' '), miopenOutput, xdlops)
+    with open(miopenFileName, 'w') as miopenOutput:
+        for testVector in configs:
+            benchmarkMIOpen(testVector.split(sep=' '), miopenOutput, xdlops)
 
-    mlirOutput.close()
-    miopenOutput.close()
     printPerformance(mlirFileName, miopenFileName)     
 
 # Main function.
@@ -434,8 +306,8 @@ usage examples:
   python3 MIOpenDriver.py
   python3 MIOpenDriver.py -o mlir.perf -b
   python3 MIOpenDriver.py -o miopen.perf -bmiopen
-  python3 MIOpenDriver.py -o mlir.perf conv -F 1 -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
-  python3 MIOpenDriver.py -o miopen.perf -miopen conv -F 1 -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+  python3 MIOpenDriver.py -o mlir.perf conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+  python3 MIOpenDriver.py -o miopen.perf -miopen conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
     """    
 
     xdlops = False
@@ -448,32 +320,30 @@ usage examples:
         # batch benchmark with MLIR and MIOpen.
         generatePerformanceResults(configs, xdlops)
     else:
-        outputFile = None
         if sys.argv[1] == '-o':
-            outputFile = open(sys.argv[2], 'w')
             fileName = sys.argv[2]
             sys.argv.pop(1)
             sys.argv.pop(1)
-
-        output(ConvConfiguration.generateCSVHeader(), outputFile)
-        if sys.argv[1] == '-b':
-            # CSV batch benchmarking mode with MLIR.
-            for testVector in configs:
-                benchmarkMLIR(testVector.split(sep=' '), outputFile, xdlops)
-        elif sys.argv[1] == '-bmiopen':
-            # CSV batch benchmarking mode with MIOpenDriver.
-            for testVector in configs:
-                benchmarkMIOpen(testVector.split(sep=' '), outputFile, xdlops)
-        elif sys.argv[1] == '-miopen':
-            # bechmarking one config with MIOpenDriver.
-            benchmarkMIOpen(sys.argv[2:], outputFile, xdlops)
         else:
-            # bechmarking one config with MLIR.
-            benchmarkMLIR(sys.argv[1:], outputFile, xdlops)
+            fileName = date.today().strftime("perf.%m%d%y")
 
-        if outputFile != None:
-            outputFile.close()
+        with open(fileName, 'w') as outputFile:
+            output(ConvConfiguration.generateCSVHeader(), outputFile)
+            if sys.argv[1] == '-b':
+                # CSV batch benchmarking mode with MLIR.
+                for testVector in configs:
+                    benchmarkMLIR(testVector.split(sep=' '), outputFile, xdlops)
+            elif sys.argv[1] == '-bmiopen':
+                # CSV batch benchmarking mode with MIOpenDriver.
+                for testVector in configs:
+                    benchmarkMIOpen(testVector.split(sep=' '), outputFile, xdlops)
+            elif sys.argv[1] == '-miopen':
+                # bechmarking one config with MIOpenDriver.
+                benchmarkMIOpen(sys.argv[2:], outputFile, xdlops)
+            else:
+                # bechmarking one config with MLIR.
+                benchmarkMLIR(sys.argv[1:], outputFile, xdlops)
             
-            with open(fileName) as fp:
-               table = from_csv(fp)
-               print(table)
+        with open(fileName) as fp:
+            table = from_csv(fp)
+            print(table)
