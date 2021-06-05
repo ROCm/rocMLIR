@@ -2301,7 +2301,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     } else if (pipeline == "rocdl") {
       // Set up the lowering pipeline which goes down to ROCDL dialect.
       populateDefaultLoweringPipeline(pm);
-      pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
+      pm.addPass(createLowerGpuOpsToROCDLOpsPass());
     }
   } else {
     auto errorHandler = [&](const Twine &msg) {

@@ -7493,9 +7493,7 @@ struct ThreadwiseCopyRewritePattern
         }
 
         // Store to dest.
-        // Issue scalar store ,oob store only support f32 now
-        if (toEmitOOBStoreCheckLogic &&
-            destType.getElementType() == b.getF32Type()) {
+        if (toEmitOOBStoreCheckLogic) {
           SmallVector<Value, 8> destLowerStoreIndices;
           SmallVector<Value, 8> destLowerStoreOOBIndices;
 
@@ -7569,7 +7567,7 @@ struct ThreadwiseCopyRewritePattern
                               destLowerStoreOOBIndices[3],
                               destLowerStoreOOBIndices[4]});
 
-          b.create<gpu::MubufStoreOp>(
+          b.create<gpu::RawbufStoreOp>(
               loc, convertedScalarValue, op.dest(),
               ifWithinBoundsOp.getResults()[0],
               ValueRange{ifWithinBoundsOp.getResults()[1],
@@ -7912,9 +7910,7 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Store to dest.
       // Issue scalar store.
-      // oob store only support f32 now
-      if (toEmitOOBStoreCheckLogic &&
-          destType.getElementType() == b.getF32Type()) {
+      if (toEmitOOBStoreCheckLogic) {
         auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
         SmallVector<Value, 8> destLowerStoreIndices;
         SmallVector<Value, 8> destLowerStoreOOBIndices;
@@ -7988,14 +7984,35 @@ struct ThreadwiseCopyV2RewritePattern
                      destLowerStoreOOBIndices[1], destLowerStoreOOBIndices[2],
                      destLowerStoreOOBIndices[3], destLowerStoreOOBIndices[4]});
 
-        b.create<gpu::MubufStoreOp>(
-            loc, scalarValue, op.dest(), ifWithinBoundsOp.getResults()[0],
-            ValueRange{ifWithinBoundsOp.getResults()[1],
-                       ifWithinBoundsOp.getResults()[2],
-                       ifWithinBoundsOp.getResults()[3],
-                       ifWithinBoundsOp.getResults()[4],
-                       ifWithinBoundsOp.getResults()[5]});
-
+        if (dataType == b.getF32Type()) {
+          b.create<gpu::RawbufStoreOp>(
+              loc, scalarValue, op.dest(), ifWithinBoundsOp.getResults()[0],
+              ValueRange{ifWithinBoundsOp.getResults()[1],
+                         ifWithinBoundsOp.getResults()[2],
+                         ifWithinBoundsOp.getResults()[3],
+                         ifWithinBoundsOp.getResults()[4],
+                         ifWithinBoundsOp.getResults()[5]});
+        } else if (dataType == b.getF16Type()) {
+          auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
+          b.create<gpu::RawbufStoreOp>(
+              loc, truncValue, op.dest(), ifWithinBoundsOp.getResults()[0],
+              ValueRange{ifWithinBoundsOp.getResults()[1],
+                         ifWithinBoundsOp.getResults()[2],
+                         ifWithinBoundsOp.getResults()[3],
+                         ifWithinBoundsOp.getResults()[4],
+                         ifWithinBoundsOp.getResults()[5]});
+        } else if (dataType == b.getIntegerType(16)) {
+          // FIXME: bf16 rsults not correct when in_h & in_w odd
+          auto convertValue =
+              b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
+          b.create<gpu::RawbufStoreOp>(
+              loc, convertValue, op.dest(), ifWithinBoundsOp.getResults()[0],
+              ValueRange{ifWithinBoundsOp.getResults()[1],
+                         ifWithinBoundsOp.getResults()[2],
+                         ifWithinBoundsOp.getResults()[3],
+                         ifWithinBoundsOp.getResults()[4],
+                         ifWithinBoundsOp.getResults()[5]});
+        }
       } else {
         if (dataType == b.getF32Type()) {
           b.create<StoreOp>(loc, scalarValue, op.dest(),
@@ -8005,6 +8022,7 @@ struct ThreadwiseCopyV2RewritePattern
           b.create<StoreOp>(loc, truncValue, op.dest(),
                             destLowerIndicesConverted);
         } else if (dataType == b.getIntegerType(16)) {
+          // FIXME: bf16 rsults not correct when in_h & in_w odd
           auto convertValue =
               b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
           b.create<StoreOp>(loc, convertValue, op.dest(),
