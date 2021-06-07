@@ -7535,16 +7535,6 @@ struct ThreadwiseCopyRewritePattern
                                                   withinBoundInOneDimOp);
             destLowerStoreOOBIndices[dim] = zeroAddrOp;
           }
-          // XXX: if you want to test it, use this code:
-          // withinBounds & =  destLowerIndices[2] < 3
-          // mlir:
-          // Value testBoundOp =
-          //   b.create<ConstantIndexOp>(loc, 3);
-          // Value testBoundCheckOp =
-          //   b.create<CmpIOp>(loc, CmpIPredicate::slt, destLowerIndices[2],
-          //   testBoundOp);
-          // withinStoreBoundsOp =
-          //   b.create<AndOp>(loc, withinStoreBoundsOp, testBoundCheckOp);
 
           auto ifWithinBoundsOp = b.create<scf::IfOp>(
               loc,
@@ -8634,17 +8624,6 @@ struct ThreadwiseCopyV2RewritePattern
               b.create<AndOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
           destLowerStoreOOBIndices[dim] = zeroAddrOp;
         }
-        // XXX: if you want to test it, use this code:
-        // withinBounds & =  destLowerIndicesConverted[2] < 3
-        // mlir:
-        // Value testBoundOp =
-        //   b.create<ConstantIndexOp>(loc, 3);
-        // Value testBoundCheckOp =
-        //   b.create<CmpIOp>(loc, CmpIPredicate::slt,
-        //   destLowerIndicesConverted[2],
-        //   testBoundOp);
-        // withinStoreBoundsOp =
-        //   b.create<AndOp>(loc, withinStoreBoundsOp, testBoundCheckOp);
 
         auto ifWithinBoundsOp = b.create<scf::IfOp>(
             loc,
