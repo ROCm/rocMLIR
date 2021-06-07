@@ -48,7 +48,7 @@ using namespace mlir::miopen;
 
 // 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
 // store do nothing
-const int twoGB = 2147483647;
+static constexpr int kTwoGB = 2147483647;
 
 //===----------------------------------------------------------------------===//
 // Utility function to populate the transform metadata in cases there is none.
@@ -7515,7 +7515,7 @@ struct ThreadwiseCopyRewritePattern
 
           destLowerStoreOOBIndices = destLowerStoreIndices;
           Value oobAddrOp =
-              b.create<ConstantIntOp>(loc, twoGB, b.getIntegerType(32));
+              b.create<ConstantIntOp>(loc, kTwoGB, b.getIntegerType(32));
 
           Value zeroAddrOp =
               b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
@@ -8602,7 +8602,7 @@ struct ThreadwiseCopyV2RewritePattern
 
         destLowerStoreOOBIndices = destLowerStoreIndices;
         Value oobAddrOp =
-            b.create<ConstantIntOp>(loc, twoGB, b.getIntegerType(32));
+            b.create<ConstantIntOp>(loc, kTwoGB, b.getIntegerType(32));
 
         Value zeroAddrOp =
             b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
