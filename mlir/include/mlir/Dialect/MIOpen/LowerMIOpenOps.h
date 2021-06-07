@@ -7028,42 +7028,13 @@ struct ThreadwiseCopyRewritePattern
                composedDestTransform, layeredDestTransform, destTransformSpec,
                boundCheckDestAttr);
 
-    // Determine if we need to emit codes for out-of-bound check.
-    bool toEmitOOBLoadCheckLogic = false;
-    SmallVector<unsigned, 2> oobLoadCheckDims;
-    if (composedSourceTransform && boundCheckSourceAttr) {
-      if (boundCheckSourceAttr.size() ==
-          composedSourceTransform->getNumResults()) {
-        for (unsigned iter = 0; iter < boundCheckSourceAttr.size(); ++iter) {
-          if (boundCheckSourceAttr[iter]
-                  .template cast<IntegerAttr>()
-                  .getInt()) {
-            toEmitOOBLoadCheckLogic = true;
-            oobLoadCheckDims.push_back(iter);
-          }
-        }
-      }
-    }
-
-    bool toEmitOOBStoreCheckLogic = false;
-    SmallVector<unsigned, 2> oobStoreCheckDims;
-    if (composedDestTransform && boundCheckDestAttr) {
-      if (boundCheckDestAttr.size() == composedDestTransform->getNumResults()) {
-        for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
-          if (boundCheckDestAttr[iter].template cast<IntegerAttr>().getInt()) {
-            toEmitOOBStoreCheckLogic = true;
-            oobStoreCheckDims.push_back(iter);
-          }
-        }
-      }
-    }
-
     auto sourceAndDestCoord = op.sourceAndDestCoord();
     if (sourceCoordLength + destCoordLength != sourceAndDestCoord.size()) {
       llvm::errs() << "INCORRECT source and dest coordinates assigned!";
       return failure();
     }
 
+    // Populate the vector to hold source and dest coordinate.
     SmallVector<Value, 8> sourceCoord;
     SmallVector<Value, 8> destCoord;
     for (unsigned i = 0; i < sourceCoordLength; ++i)
@@ -7071,6 +7042,33 @@ struct ThreadwiseCopyRewritePattern
     for (unsigned i = sourceCoordLength;
          i < sourceCoordLength + destCoordLength; ++i)
       destCoord.push_back(sourceAndDestCoord[i]);
+
+    auto lambda2 = [](const Optional<AffineMap> &composedTransform,
+                      const ArrayAttr &boundCheckAttr,
+                      SmallVector<unsigned, 8> oobCheckDims) -> bool {
+      // Determine if we need to emit codes for out-of-bound check.
+      bool ret = false;
+      if (composedTransform && boundCheckAttr) {
+        if (boundCheckAttr.size() == composedTransform->getNumResults()) {
+          for (unsigned iter = 0; iter < boundCheckAttr.size(); ++iter) {
+            if (boundCheckAttr[iter].template cast<IntegerAttr>().getInt()) {
+              ret = true;
+              oobCheckDims.push_back(iter);
+            }
+          }
+        }
+      }
+      return ret;
+    };
+
+    // Determine if we need to emit codes for out-of-bound check, and which
+    // dimensions need to dconduct such check.
+    SmallVector<unsigned, 8> oobLoadCheckDims;
+    bool toEmitOOBLoadCheckLogic = lambda2(
+        composedSourceTransform, boundCheckSourceAttr, oobLoadCheckDims);
+    SmallVector<unsigned, 8> oobStoreCheckDims;
+    bool toEmitOOBStoreCheckLogic =
+        lambda2(composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
 
     // Distinguish between generic <-> naive v naive <-> naive tensors.
     auto NSliceRowAttr = op->getAttr("n_slice_row");
