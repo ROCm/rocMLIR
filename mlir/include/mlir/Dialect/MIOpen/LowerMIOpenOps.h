@@ -7029,6 +7029,9 @@ struct ThreadwiseCopyRewritePattern
     auto sourceType = op.source().getType().cast<MemRefType>();
     auto destType = op.dest().getType().cast<MemRefType>();
 
+    // Debug switches.
+    // true : use the slow but proven affine map.
+    // false : use the faster index diff map.
     auto legacyLoadAttr = op->getAttr("legacy_load");
     auto legacyStoreAttr = op->getAttr("legacy_store");
 
