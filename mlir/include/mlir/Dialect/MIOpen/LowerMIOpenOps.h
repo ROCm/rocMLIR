@@ -51,6 +51,104 @@ using namespace mlir::miopen;
 static constexpr int kTwoGB = 2147483647;
 
 //===----------------------------------------------------------------------===//
+// Utility function to emit type conversion ops.
+//===----------------------------------------------------------------------===//
+inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
+                                    Type sourceType, Type destType) {
+  // Convert from sourceType to destType if necessary.
+  Value result = source;
+  if (sourceType != destType) {
+    // Possible cases:
+    // - fp16 -> fp32 : use fpext.
+    // - fp32 -> fp16 : use fptrunc.
+    if (sourceType == b.getF16Type() && destType == b.getF32Type()) {
+      result = b.create<FPExtOp>(loc, source, destType);
+    } else if (sourceType == b.getF32Type() && destType == b.getF16Type()) {
+      result = b.create<FPTruncOp>(loc, source, destType);
+    }
+  }
+  return result;
+}
+
+//===----------------------------------------------------------------------===//
+// Utility function to emit the logic to copy between naive tensors.
+// This function is used within the lowering logic of threadwise_copy.
+//===----------------------------------------------------------------------===//
+inline void emitNaiveTensorCopyLogic(
+    OpBuilder &b, Location loc, int64_t NSliceRow, int64_t NSliceCol,
+    int64_t DataPerAccess, const SmallVector<Value, 2> &sourceCoord,
+    const SmallVector<Value, 2> &destCoord,
+    const Optional<AffineMap> &composedSourceTransform,
+    const Optional<AffineMap> &composedDestTransform, Type sourceElementType,
+    Type destElementType, Value source, Value dest) {
+  auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+
+  // Emit fully-unrolled loops.
+  for (unsigned ivo = 0; ivo < NSliceRow; ++ivo) {
+    auto ivo_i32 = b.create<ConstantIntOp>(loc, ivo, b.getIntegerType(32));
+    for (unsigned ivi = 0; ivi < NSliceCol; ivi += DataPerAccess) {
+      auto ivi_i32 = b.create<ConstantIntOp>(loc, ivi, b.getIntegerType(32));
+
+      // Compute high-level coordinate for source memref.
+      // src_index = (0, ivo_i32, ivi_i32) + sourceCoord
+      SmallVector<Value, 8> srcUpperIndices;
+      srcUpperIndices.push_back(b.create<IndexCastOp>(
+          loc, b.create<AddIOp>(loc, zeroConstantOp, sourceCoord[0]),
+          b.getIndexType()));
+      srcUpperIndices.push_back(b.create<IndexCastOp>(
+          loc, b.create<AddIOp>(loc, ivo_i32, sourceCoord[1]),
+          b.getIndexType()));
+      srcUpperIndices.push_back(b.create<IndexCastOp>(
+          loc, b.create<AddIOp>(loc, ivi_i32, sourceCoord[2]),
+          b.getIndexType()));
+
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 8> srcLowerIndices;
+      if (composedSourceTransform)
+        srcLowerIndices =
+            expandAffineMap(b, loc, *composedSourceTransform, srcUpperIndices)
+                .getValue();
+      else
+        srcLowerIndices = srcUpperIndices;
+
+      // Load from source.
+      // Issue scalar load.
+      Value scalarValue =
+          b.create<LoadOp>(loc, sourceElementType, source, srcLowerIndices);
+
+      // Convert from sourceElementType to destElementType if necessary.
+      Value convertedScalarValue = createTypeConversionOp(
+          b, loc, scalarValue, sourceElementType, destElementType);
+
+      // Compute high-level coordinate for dest memref.
+      // dst_index = (0, ivo_i32, ivi_i32) + destCoord
+      SmallVector<Value, 8> destUpperIndices;
+      destUpperIndices.push_back(b.create<IndexCastOp>(
+          loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
+          b.getIndexType()));
+      destUpperIndices.push_back(b.create<IndexCastOp>(
+          loc, b.create<AddIOp>(loc, ivo_i32, destCoord[1]), b.getIndexType()));
+      destUpperIndices.push_back(b.create<IndexCastOp>(
+          loc, b.create<AddIOp>(loc, ivi_i32, destCoord[2]), b.getIndexType()));
+
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 8> destLowerIndices;
+      if (composedDestTransform)
+        destLowerIndices =
+            expandAffineMap(b, loc, *composedDestTransform, destUpperIndices)
+                .getValue();
+      else
+        destLowerIndices = destUpperIndices;
+
+      // Store to dest.
+      // Issue scalar store.
+      b.create<StoreOp>(loc, convertedScalarValue, dest, destLowerIndices);
+
+    } // ivi
+  }   // ivo
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to populate the transform metadata in cases there is none.
 // Just populate "lower_layer_bounds" attribute from the lower level shape.
 //===----------------------------------------------------------------------===//
@@ -609,31 +707,6 @@ inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
 inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc,
                                        Type elementType) {
   return createConstantFloatOp(b, loc, elementType, 0.0f);
-}
-
-inline Value createOneConstantFloatOp(OpBuilder &b, Location loc,
-                                      Type elementType) {
-  return createConstantFloatOp(b, loc, elementType, 1.0f);
-}
-
-//===----------------------------------------------------------------------===//
-// Utility function to emit type conversion ops.
-//===----------------------------------------------------------------------===//
-inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
-                                    Type sourceType, Type destType) {
-  // Convert from sourceType to destType if necessary.
-  Value result = source;
-  if (sourceType != destType) {
-    // Possible cases:
-    // - fp16 -> fp32 : use fpext.
-    // - fp32 -> fp16 : use fptrunc.
-    if (sourceType == b.getF16Type() && destType == b.getF32Type()) {
-      result = b.create<FPExtOp>(loc, source, destType);
-    } else if (sourceType == b.getF32Type() && destType == b.getF16Type()) {
-      result = b.create<FPTruncOp>(loc, source, destType);
-    }
-  }
-  return result;
 }
 
 //===----------------------------------------------------------------------===//
@@ -6966,19 +7039,17 @@ struct ThreadwiseCopyRewritePattern
     }
 
     // Distinguish between generic <-> naive v naive <-> naive tensors.
-    //
-    // In cases where attributes n_slice_row/n_slice_col/data_per_access are
-    // specified, source and dest memrefs are all on LDS or VGPR, use the
-    // simpler algorithm because they are all naive tensors.
-    //
-    // Otherwise, employ the more elaborated algorithm.
     auto NSliceRowAttr = op->getAttr("n_slice_row");
     auto NSliceColAttr = op->getAttr("n_slice_col");
     auto DataPerAccessAttr = op->getAttr("data_per_access");
     if (NSliceRowAttr && NSliceColAttr && DataPerAccessAttr) {
-      auto NSliceRow = NSliceRowAttr.template cast<IntegerAttr>().getInt();
-      auto NSliceCol = NSliceColAttr.template cast<IntegerAttr>().getInt();
-      auto DataPerAccess =
+      // In cases where attributes n_slice_row/n_slice_col/data_per_access are
+      // specified, source and dest memrefs are all on LDS or VGPR, use the
+      // simpler algorithm because they are all naive tensors.
+
+      int64_t NSliceRow = NSliceRowAttr.template cast<IntegerAttr>().getInt();
+      int64_t NSliceCol = NSliceColAttr.template cast<IntegerAttr>().getInt();
+      int64_t DataPerAccess =
           DataPerAccessAttr.template cast<IntegerAttr>().getInt();
 
       SmallVector<Value, 2> sourceCoord;
@@ -6989,92 +7060,13 @@ struct ThreadwiseCopyRewritePattern
            i < sourceCoordLength + destCoordLength; ++i)
         destCoord.push_back(sourceAndDestCoord[i]);
 
-      auto lambda = [&b, &loc, &zeroConstantOp](
-                        int64_t NSliceRow, int64_t NSliceCol,
-                        int64_t DataPerAccess,
-                        const SmallVector<Value, 2> &sourceCoord,
-                        const SmallVector<Value, 2> &destCoord,
-                        const Optional<AffineMap> &composedSourceTransform,
-                        const Optional<AffineMap> &composedDestTransform,
-                        Type sourceElementType, Type destElementType,
-                        Value source, Value dest) {
-        // Emit fully-unrolled loops.
-        for (unsigned ivo = 0; ivo < NSliceRow; ++ivo) {
-          auto ivo_i32 =
-              b.create<ConstantIntOp>(loc, ivo, b.getIntegerType(32));
-          for (unsigned ivi = 0; ivi < NSliceCol; ivi += DataPerAccess) {
-            auto ivi_i32 =
-                b.create<ConstantIntOp>(loc, ivi, b.getIntegerType(32));
-
-            // Compute high-level coordinate for source memref.
-            // src_index = (0, ivo_i32, ivi_i32) + sourceCoord
-            SmallVector<Value, 8> srcUpperIndices;
-            srcUpperIndices.push_back(b.create<IndexCastOp>(
-                loc, b.create<AddIOp>(loc, zeroConstantOp, sourceCoord[0]),
-                b.getIndexType()));
-            srcUpperIndices.push_back(b.create<IndexCastOp>(
-                loc, b.create<AddIOp>(loc, ivo_i32, sourceCoord[1]),
-                b.getIndexType()));
-            srcUpperIndices.push_back(b.create<IndexCastOp>(
-                loc, b.create<AddIOp>(loc, ivi_i32, sourceCoord[2]),
-                b.getIndexType()));
-
-            // Apply affine transformations to compute the low-level coordinate.
-            SmallVector<Value, 8> srcLowerIndices;
-            if (composedSourceTransform)
-              srcLowerIndices =
-                  expandAffineMap(b, loc, *composedSourceTransform,
-                                  srcUpperIndices)
-                      .getValue();
-            else
-              srcLowerIndices = srcUpperIndices;
-
-            // Load from source.
-            // Issue scalar load.
-            Value scalarValue = b.create<LoadOp>(loc, sourceElementType, source,
-                                                 srcLowerIndices);
-
-            // Convert from sourceElementType to destElementType if necessary.
-            Value convertedScalarValue = createTypeConversionOp(
-                b, loc, scalarValue, sourceElementType, destElementType);
-
-            // Compute high-level coordinate for dest memref.
-            // dst_index = (0, ivo_i32, ivi_i32) + destCoord
-            SmallVector<Value, 8> destUpperIndices;
-            destUpperIndices.push_back(b.create<IndexCastOp>(
-                loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
-                b.getIndexType()));
-            destUpperIndices.push_back(b.create<IndexCastOp>(
-                loc, b.create<AddIOp>(loc, ivo_i32, destCoord[1]),
-                b.getIndexType()));
-            destUpperIndices.push_back(b.create<IndexCastOp>(
-                loc, b.create<AddIOp>(loc, ivi_i32, destCoord[2]),
-                b.getIndexType()));
-
-            // Apply affine transformations to compute the low-level coordinate.
-            SmallVector<Value, 8> destLowerIndices;
-            if (composedDestTransform)
-              destLowerIndices = expandAffineMap(b, loc, *composedDestTransform,
-                                                 destUpperIndices)
-                                     .getValue();
-            else
-              destLowerIndices = destUpperIndices;
-
-            // Store to dest.
-            // Issue scalar store.
-            b.create<StoreOp>(loc, convertedScalarValue, dest,
-                              destLowerIndices);
-
-          } // ivi
-        }   // ivo
-      };    // lambda
-
-      lambda(NSliceRow, NSliceCol, DataPerAccess, sourceCoord, destCoord,
-             composedSourceTransform, composedDestTransform, sourceElementType,
-             destElementType, op.source(), op.dest());
+      emitNaiveTensorCopyLogic(b, loc, NSliceRow, NSliceCol, DataPerAccess,
+                               sourceCoord, destCoord, composedSourceTransform,
+                               composedDestTransform, sourceElementType,
+                               destElementType, op.source(), op.dest());
 
     } else {
-      // The more elaborated algorithm.
+      // Otherwise, employ the more elaborated algorithm.
       // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
       // C++ implementation.
 
