@@ -7000,6 +7000,44 @@ struct ThreadwiseCopyRewritePattern
         loopIVsPerAccessOrder.push_back(0);
         loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
       }
+
+      // Progressively use index diff map to compute the coordinate at the
+      // bottom most layer.
+      auto computeBottomIndicesWithIndexDiffMap =
+          [&b,
+           &loc](const SmallVector<int64_t, 8> &loopIVsPerAccessOrder,
+                 const ArrayAttr &layeredTransformMetadata,
+                 const SmallVector<AffineMap> &layeredTransform,
+                 const SmallVector<SmallVector<Value, 8>, 2> &layeredIndices,
+                 SmallVector<Value, 8> &bottomIndices) {
+            // Coordinates across the layers of transformations.
+            // If the vector is of size n, 0 is the top layer, and
+            // n-1 is the bottom layer.
+            SmallVector<SmallVector<Value, 8>, 2> layeredDiffs;
+            SmallVector<SmallVector<Value, 8>, 2> layeredIndicesUpdated;
+
+            SmallVector<Value, 8> topDiff;
+            for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter)
+              topDiff.push_back(b.create<ConstantIntOp>(
+                  loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32)));
+            layeredDiffs.push_back(topDiff);
+            // Progressively apply index diff maps across all coordinate
+            // transformation layers.
+            populateLayeredIndicesWithIndexDiffMap(
+                b, loc, layeredTransformMetadata, layeredTransform,
+                layeredIndices, topDiff, layeredDiffs, layeredIndicesUpdated);
+
+            // Fetch bottom most layer coordinate.
+            SmallVector<Value, 8> bottomIndicesUpdated =
+                layeredIndicesUpdated[layeredIndicesUpdated.size() - 1];
+            // computeIndexDiffMap by default emit indices of type i32, convert
+            // to index type.
+            bottomIndices.clear();
+            for (auto &v : bottomIndicesUpdated)
+              bottomIndices.push_back(
+                  b.create<IndexCastOp>(loc, v, b.getIndexType()));
+          };
+
       bool toExit = false;
       do {
         // Use the old logic in case "legacy_load" attribute is specified.
@@ -7010,35 +7048,11 @@ struct ThreadwiseCopyRewritePattern
               loopIVsPerAccessOrder, dimAccessOrder, layeredSourceTransform);
         } else {
           // New approach. Use index diff map.
-
-          // Coordinates across the layers of transformations.
-          // If the vector is of size n, 0 is the top layer, and
-          // n-1 is the bottom layer.
-          SmallVector<SmallVector<Value, 8>, 2> layeredSourceDiffs;
-          SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndicesUpdated;
-
-          SmallVector<Value, 8> srcTopDiff;
-          for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter)
-            srcTopDiff.push_back(b.create<ConstantIntOp>(
-                loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32)));
-          layeredSourceDiffs.push_back(srcTopDiff);
-          // Progressively apply index diff maps across all coordinate
-          // transformation layers.
-          populateLayeredIndicesWithIndexDiffMap(
-              b, loc, layeredSourceTransformMetadata, layeredSourceTransform,
-              layeredSourceIndices, srcTopDiff, layeredSourceDiffs,
-              layeredSourceIndicesUpdated);
-
-          // Fetch low-level coordinate.
-          SmallVector<Value, 8> srcLowerIndicesUpdated =
-              layeredSourceIndicesUpdated[layeredSourceIndicesUpdated.size() -
-                                          1];
-          // computeIndexDiffMap by default emit indices of type i32, convert to
-          // index type.
-          srcLowerIndices.clear();
-          for (auto &v : srcLowerIndicesUpdated)
-            srcLowerIndices.push_back(
-                b.create<IndexCastOp>(loc, v, b.getIndexType()));
+          // Progressively use index diff map to compute the coordinate at the
+          // bottom most layer.
+          computeBottomIndicesWithIndexDiffMap(
+              loopIVsPerAccessOrder, layeredSourceTransformMetadata,
+              layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
         }
 
         // Pre-populate srcLowerLoadOOBIndices. It will be modified inside
@@ -7157,34 +7171,11 @@ struct ThreadwiseCopyRewritePattern
               loopIVsPerAccessOrder, dimAccessOrder, layeredDestTransform);
         } else {
           // New approach. Use index diff map.
-
-          // Coordinates across the layers of transformations.
-          // If the vector is of size n, 0 is the top layer, and
-          // n-1 is the bottom layer.
-          SmallVector<SmallVector<Value, 8>, 2> layeredDestDiffs;
-          SmallVector<SmallVector<Value, 8>, 2> layeredDestIndicesUpdated;
-
-          SmallVector<Value, 8> destTopDiff;
-          for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter)
-            destTopDiff.push_back(b.create<ConstantIntOp>(
-                loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32)));
-          layeredDestDiffs.push_back(destTopDiff);
-          // Progressively apply index diff maps across all coordinate
-          // transformation layers.
-          populateLayeredIndicesWithIndexDiffMap(
-              b, loc, layeredDestTransformMetadata, layeredDestTransform,
-              layeredDestIndices, destTopDiff, layeredDestDiffs,
-              layeredDestIndicesUpdated);
-
-          // Fetch low-level coordinate.
-          SmallVector<Value, 8> destLowerIndicesUpdated =
-              layeredDestIndicesUpdated[layeredDestIndicesUpdated.size() - 1];
-          // computeIndexDiffMap by default emit indices of type i32, convert to
-          // index type.
-          destLowerIndices.clear();
-          for (auto &v : destLowerIndicesUpdated)
-            destLowerIndices.push_back(
-                b.create<IndexCastOp>(loc, v, b.getIndexType()));
+          // Progressively use index diff map to compute the coordinate at the
+          // bottom most layer.
+          computeBottomIndicesWithIndexDiffMap(
+              loopIVsPerAccessOrder, layeredDestTransformMetadata,
+              layeredDestTransform, layeredDestIndices, destLowerIndices);
         }
 
         // Store to dest.
