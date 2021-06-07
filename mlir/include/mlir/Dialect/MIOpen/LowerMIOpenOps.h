@@ -6981,46 +6981,6 @@ struct ThreadwiseCopyRewritePattern
       auto DataPerAccess =
           DataPerAccessAttr.template cast<IntegerAttr>().getInt();
 
-      // Original C++ logic:
-      // template <typename SrcMatrix,
-      //           typename DstMatrix,
-      //           index_t NSliceRow,
-      //           index_t NSliceCol,
-      //           index_t DataPerAccess>
-      // struct ThreadwiseMatrixSliceCopy
-      // {
-      //     __device__ constexpr ThreadwiseMatrixSliceCopy()
-      //     {
-      //         static_assert(SrcMatrix::RowStride() % DataPerAccess == 0 &&
-      //                       DstMatrix::RowStride() % DataPerAccess == 0,
-      //                       "wrong! wrong alignment");
-      //         static_assert(NSliceCol % DataPerAccess == 0,
-      //                       "wrong! should be NSliceCol % DataPerAccess ==
-      //                       0");
-      //     }
-      //
-      //     template <typename Data>
-      //     __device__ static void Run(const Data* p_src, Data* p_dst)
-      //     {
-      //         using vector_t = typename vector_type<Data,
-      //         DataPerAccess>::MemoryType;
-      //
-      //         for(index_t i = 0; i < NSliceRow; ++i)
-      //         {
-      //             for(index_t j = 0; j < NSliceCol; j += DataPerAccess)
-      //             {
-      //                 const index_t src_index = SrcMatrix::CalculateOffset(i,
-      //                 j); const index_t dst_index =
-      //                 DstMatrix::CalculateOffset(i, j);
-      //
-      //                 *reinterpret_cast<vector_t*>(&p_dst[dst_index]) =
-      //                     *reinterpret_cast<const
-      //                     vector_t*>(&p_src[src_index]);
-      //             }
-      //         }
-      //     }
-      // };
-
       SmallVector<Value, 2> sourceCoord;
       SmallVector<Value, 2> destCoord;
       for (unsigned i = 0; i < sourceCoordLength; ++i) {
