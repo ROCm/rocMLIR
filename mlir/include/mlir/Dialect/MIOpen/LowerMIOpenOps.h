@@ -6983,13 +6983,11 @@ struct ThreadwiseCopyRewritePattern
 
       SmallVector<Value, 2> sourceCoord;
       SmallVector<Value, 2> destCoord;
-      for (unsigned i = 0; i < sourceCoordLength; ++i) {
+      for (unsigned i = 0; i < sourceCoordLength; ++i)
         sourceCoord.push_back(sourceAndDestCoord[i]);
-      }
       for (unsigned i = sourceCoordLength;
-           i < sourceCoordLength + destCoordLength; ++i) {
+           i < sourceCoordLength + destCoordLength; ++i)
         destCoord.push_back(sourceAndDestCoord[i]);
-      }
 
       // Emit fully-unrolled loops.
       for (unsigned ivo = 0; ivo < NSliceRow; ++ivo) {
