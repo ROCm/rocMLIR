@@ -6924,7 +6924,7 @@ struct ThreadwiseCopyRewritePattern
 
     // Determine if we need to emit codes for out-of-bound check.
     bool toEmitOOBLoadCheckLogic = false;
-    SmallVector<unsigned, 2> outputOobCheckDims;
+    SmallVector<unsigned, 2> oobLoadCheckDims;
     if (composedSourceTransform && boundCheckSourceAttr) {
       if (boundCheckSourceAttr.size() ==
           composedSourceTransform.getNumResults()) {
@@ -6933,7 +6933,7 @@ struct ThreadwiseCopyRewritePattern
                   .template cast<IntegerAttr>()
                   .getInt()) {
             toEmitOOBLoadCheckLogic = true;
-            outputOobCheckDims.push_back(iter);
+            oobLoadCheckDims.push_back(iter);
           }
         }
       }
@@ -7334,7 +7334,7 @@ struct ThreadwiseCopyRewritePattern
           // }
           Value withinBoundsOp =
               b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
-          for (auto dim : outputOobCheckDims) {
+          for (auto dim : oobLoadCheckDims) {
             Value coord = srcLowerIndices[dim];
             Value lowerBoundCheckOp = b.create<CmpIOp>(loc, CmpIPredicate::sge,
                                                        coord, zeroConstantOp);
