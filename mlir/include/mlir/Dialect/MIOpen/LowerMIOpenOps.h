@@ -686,6 +686,39 @@ inline void populateLayeredIndicesWithAffineMap(
 }
 
 //===----------------------------------------------------------------------===//
+// Utility function to compute the uppermost layer and bottommost layer
+// coorindates using affine map.
+//===----------------------------------------------------------------------===//
+inline void computeTopAndBottomIndicesWithAffineMap(
+    OpBuilder &b, Location &loc, SmallVector<Value, 8> &topIndices,
+    SmallVector<Value, 8> &bottomIndices,
+    const SmallVector<Value, 8> &originalCoords,
+    const SmallVector<int64_t, 8> &loopIVsPerAccessOrder,
+    const ArrayAttr &dimAccessOrder,
+    const SmallVector<AffineMap> &layeredTransforms) {
+  // Compute high-level coordinate.
+  // index = (iv_0, iv_1, ...) + originalCoords
+  topIndices.clear();
+  for (unsigned iter = 0; iter < originalCoords.size(); ++iter)
+    topIndices.push_back(
+        b.create<IndexCastOp>(loc, originalCoords[iter], b.getIndexType()));
+
+  for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
+    auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+    auto loopIV = b.create<ConstantIndexOp>(loc, loopIVsPerAccessOrder[dim]);
+    topIndices[iter] = b.create<AddIOp>(loc, loopIV, topIndices[iter]);
+  }
+
+  // Populate coorindates across the layers of transformations.
+  SmallVector<SmallVector<Value, 8>, 2> layeredIndices;
+  populateLayeredIndicesWithAffineMap(b, loc, layeredIndices, topIndices,
+                                      layeredTransforms);
+
+  // Fetch low-level coordinate.
+  bottomIndices = layeredIndices[layeredIndices.size() - 1];
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to emit constant float op.
 //===----------------------------------------------------------------------===//
 inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
@@ -7231,46 +7264,12 @@ struct ThreadwiseCopyRewritePattern
         loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
       }
       bool toExit = false;
-
-      auto computeLowerIndicesWithAffineMap =
-          [&b, &loc](SmallVector<Value, 8> &upperIndices,
-                     SmallVector<Value, 8> &lowerIndices,
-                     const SmallVector<Value, 8> &originalCoords,
-                     const SmallVector<int64_t, 8> &loopIVsPerAccessOrder,
-                     const ArrayAttr &dimAccessOrder,
-                     const SmallVector<AffineMap> &layeredTransforms) {
-            // Compute high-level coordinate.
-            // index = (iv_0, iv_1, ...) + originalCoords
-            upperIndices.clear();
-            for (unsigned iter = 0; iter < originalCoords.size(); ++iter)
-              upperIndices.push_back(b.create<IndexCastOp>(
-                  loc, originalCoords[iter], b.getIndexType()));
-
-            for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size();
-                 ++iter) {
-              auto dim =
-                  dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-              auto loopIV =
-                  b.create<ConstantIndexOp>(loc, loopIVsPerAccessOrder[dim]);
-              upperIndices[iter] =
-                  b.create<AddIOp>(loc, loopIV, upperIndices[iter]);
-            }
-
-            // Populate coorindates across the layers of transformations.
-            SmallVector<SmallVector<Value, 8>, 2> layeredIndices;
-            populateLayeredIndicesWithAffineMap(
-                b, loc, layeredIndices, upperIndices, layeredTransforms);
-
-            // Fetch low-level coordinate.
-            lowerIndices = layeredIndices[layeredIndices.size() - 1];
-          };
-
       do {
         // Use the old logic in case "legacy_load" attribute is specified.
         if (legacyLoadAttr &&
             (legacyLoadAttr.template cast<BoolAttr>().getValue() == true)) {
-          computeLowerIndicesWithAffineMap(
-              srcUpperIndices, srcLowerIndices, sourceCoord,
+          computeTopAndBottomIndicesWithAffineMap(
+              b, loc, srcUpperIndices, srcLowerIndices, sourceCoord,
               loopIVsPerAccessOrder, dimAccessOrder, layeredSourceTransform);
         } else {
           // New approach. Use index diff map.
@@ -7415,9 +7414,9 @@ struct ThreadwiseCopyRewritePattern
 
         // Use the old logic in case "legacy_store" attribute is specified.
         if (legacyStoreAttr &&
-            legacyStoreAttr.template cast<BoolAttr>().getValue()) {
-          computeLowerIndicesWithAffineMap(
-              destUpperIndices, destLowerIndices, destCoord,
+            (legacyStoreAttr.template cast<BoolAttr>().getValue() == true)) {
+          computeTopAndBottomIndicesWithAffineMap(
+              b, loc, destUpperIndices, destLowerIndices, destCoord,
               loopIVsPerAccessOrder, dimAccessOrder, layeredDestTransform);
         } else {
           // New approach. Use index diff map.
