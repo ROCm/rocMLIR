@@ -8313,10 +8313,8 @@ struct ThreadwiseCopyV2RewritePattern
     unsigned sourceCoordLength = sourceType.getRank();
     unsigned destCoordLength = destType.getRank();
 
-    bool sourceEmbeddedTransform = false;
-    bool sourceExternalTransform = false;
-    AffineMap composedSourceTransform;
-    AffineMap composedDestTransform;
+    Optional<AffineMap> composedSourceTransform;
+    Optional<AffineMap> composedDestTransform;
     SmallVector<AffineMap> layeredSourceTransform;
     SmallVector<AffineMap> layeredDestTransform;
     ArrayAttr boundCheckDestAttr;
@@ -8345,9 +8343,9 @@ struct ThreadwiseCopyV2RewritePattern
                                   .template cast<AffineMapAttr>()
                                   .getValue()
                                   .getNumInputs();
-          sourceExternalTransform = true;
           srcTransformSpec = dictAttr;
 
+          composedSourceTransform = composeTransforms(transforms);
           // Populate affine maps for each layer.
           for (auto &am : transforms)
             layeredSourceTransform.push_back(
@@ -8376,7 +8374,7 @@ struct ThreadwiseCopyV2RewritePattern
     bool toEmitOOBStoreCheckLogic = false;
     SmallVector<unsigned, 2> oobStoreCheckDims;
     if (composedDestTransform && boundCheckDestAttr) {
-      if (boundCheckDestAttr.size() == composedDestTransform.getNumResults()) {
+      if (boundCheckDestAttr.size() == composedDestTransform->getNumResults()) {
         for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
           if (boundCheckDestAttr[iter].template cast<IntegerAttr>().getInt()) {
             toEmitOOBStoreCheckLogic = true;
@@ -8423,7 +8421,7 @@ struct ThreadwiseCopyV2RewritePattern
     // Figure out slice lengths.
     SmallVector<int64_t, 2> sliceLengths;
 
-    if (sourceExternalTransform || sourceEmbeddedTransform) {
+    if (composedSourceTransform) {
       // Use bound or domain attribute from source vector.
       for (auto attr : coordTransformSpec) {
         auto dictAttr = attr.template cast<DictionaryAttr>();
