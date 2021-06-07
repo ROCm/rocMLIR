@@ -6856,12 +6856,8 @@ struct ThreadwiseCopyRewritePattern
     unsigned sourceCoordLength = sourceType.getRank();
     unsigned destCoordLength = destType.getRank();
 
-    bool sourceEmbeddedTransform = false;
-    bool destEmbeddedTransform = false;
-    bool sourceExternalTransform = false;
-    bool destExternalTransform = false;
-    AffineMap composedSourceTransform;
-    AffineMap composedDestTransform;
+    Optional<AffineMap> composedSourceTransform;
+    Optional<AffineMap> composedDestTransform;
     SmallVector<AffineMap> layeredSourceTransform;
     SmallVector<AffineMap> layeredDestTransform;
     ArrayAttr boundCheckSourceAttr;
@@ -6869,7 +6865,6 @@ struct ThreadwiseCopyRewritePattern
 
     if (sourceTypeAffineMaps.size()) {
       sourceCoordLength = sourceTypeAffineMaps[0].getNumInputs();
-      sourceEmbeddedTransform = true;
       // Compose affine maps.
       composedSourceTransform = composeTransforms(sourceTypeAffineMaps);
 
@@ -6879,7 +6874,6 @@ struct ThreadwiseCopyRewritePattern
     }
     if (destTypeAffineMaps.size()) {
       destCoordLength = destTypeAffineMaps[0].getNumInputs();
-      destEmbeddedTransform = true;
       // Compose affine maps.
       composedDestTransform = composeTransforms(destTypeAffineMaps);
 
@@ -6903,7 +6897,6 @@ struct ThreadwiseCopyRewritePattern
                                   .template cast<AffineMapAttr>()
                                   .getValue()
                                   .getNumInputs();
-          sourceExternalTransform = true;
           srcTransformSpec = dictAttr;
           // Compose affine maps.
           composedSourceTransform = composeTransforms(transforms);
@@ -6921,7 +6914,6 @@ struct ThreadwiseCopyRewritePattern
                                 .template cast<AffineMapAttr>()
                                 .getValue()
                                 .getNumInputs();
-          destExternalTransform = true;
           destTransformSpec = dictAttr;
           // Compose affine maps.
           composedDestTransform = composeTransforms(transforms);
@@ -6943,7 +6935,7 @@ struct ThreadwiseCopyRewritePattern
     SmallVector<unsigned, 2> oobLoadCheckDims;
     if (composedSourceTransform && boundCheckSourceAttr) {
       if (boundCheckSourceAttr.size() ==
-          composedSourceTransform.getNumResults()) {
+          composedSourceTransform->getNumResults()) {
         for (unsigned iter = 0; iter < boundCheckSourceAttr.size(); ++iter) {
           if (boundCheckSourceAttr[iter]
                   .template cast<IntegerAttr>()
@@ -6958,7 +6950,7 @@ struct ThreadwiseCopyRewritePattern
     bool toEmitOOBStoreCheckLogic = false;
     SmallVector<unsigned, 2> oobStoreCheckDims;
     if (composedDestTransform && boundCheckDestAttr) {
-      if (boundCheckDestAttr.size() == composedDestTransform.getNumResults()) {
+      if (boundCheckDestAttr.size() == composedDestTransform->getNumResults()) {
         for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
           if (boundCheckDestAttr[iter].template cast<IntegerAttr>().getInt()) {
             toEmitOOBStoreCheckLogic = true;
@@ -7061,8 +7053,8 @@ struct ThreadwiseCopyRewritePattern
 
           // Apply affine transformations to compute the low-level coordinate.
           SmallVector<Value, 8> srcLowerIndices;
-          if (sourceExternalTransform || sourceEmbeddedTransform)
-            srcLowerIndices = expandAffineMap(b, loc, composedSourceTransform,
+          if (composedSourceTransform)
+            srcLowerIndices = expandAffineMap(b, loc, *composedSourceTransform,
                                               srcUpperIndices)
                                   .getValue();
           else
@@ -7092,10 +7084,10 @@ struct ThreadwiseCopyRewritePattern
 
           // Apply affine transformations to compute the low-level coordinate.
           SmallVector<Value, 8> destLowerIndices;
-          if (destExternalTransform || destEmbeddedTransform)
-            destLowerIndices =
-                expandAffineMap(b, loc, composedDestTransform, destUpperIndices)
-                    .getValue();
+          if (composedDestTransform)
+            destLowerIndices = expandAffineMap(b, loc, *composedDestTransform,
+                                               destUpperIndices)
+                                   .getValue();
           else
             destLowerIndices = destUpperIndices;
 
@@ -7140,8 +7132,8 @@ struct ThreadwiseCopyRewritePattern
       // Figure out which memref is the one without affine transformations.
       SmallVector<int64_t, 2> sliceLengths;
 
-      if (sourceExternalTransform || sourceEmbeddedTransform) {
-        if (destExternalTransform || destEmbeddedTransform) {
+      if (composedSourceTransform) {
+        if (composedDestTransform) {
           // Use domain attribute from source memref.
           for (auto attr : coordTransformsAttr) {
             auto dictAttr = attr.template cast<DictionaryAttr>();
@@ -7169,14 +7161,8 @@ struct ThreadwiseCopyRewritePattern
             sliceLengths.push_back(dim);
         }
       } else {
-        if (sourceExternalTransform || sourceEmbeddedTransform) {
-          // Couldn't happen.
-          llvm::errs()
-              << "Unsupported case: both memrefs have affine transforms!\n";
-          return failure();
-        } else
-          for (auto dim : sourceType.getShape())
-            sliceLengths.push_back(dim);
+        for (auto dim : sourceType.getShape())
+          sliceLengths.push_back(dim);
       }
       // llvm::errs() << "slice lengths: ";
       // for (unsigned i = 0; i < sliceLengths.size(); ++i)
