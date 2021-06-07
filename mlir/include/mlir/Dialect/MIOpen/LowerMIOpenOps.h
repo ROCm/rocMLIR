@@ -7212,7 +7212,7 @@ struct ThreadwiseCopyRewritePattern
                 sourceType, layeredSourceTransformMetadata);
         }
 
-        // Compute high-level coordinate for dest memref.
+        // Compute high-level coordinate for source memref.
         for (unsigned i = 0; i < sourceCoordLength; ++i) {
           srcUpperIndices.push_back(b.create<IndexCastOp>(
               loc, sourceAndDestCoord[i], b.getIndexType()));
@@ -8452,7 +8452,7 @@ struct ThreadwiseCopyV2RewritePattern
     //   llvm::errs() << sliceLengths[i] << " ";
     // llvm::errs() << "\n";
 
-    // Compute high-level coordinate for dest memref.
+    // Compute high-level coordinate for source memref.
     SmallVector<Value, 8> srcUpperIndices;
     for (unsigned i = 0; i < sourceCoordLength; ++i) {
       srcUpperIndices.push_back(
