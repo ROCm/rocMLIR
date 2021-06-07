@@ -7029,8 +7029,8 @@ struct ThreadwiseCopyRewritePattern
       //     }
       // };
 
-      llvm::SmallVector<Value, 2> sourceCoord;
-      llvm::SmallVector<Value, 2> destCoord;
+      SmallVector<Value, 2> sourceCoord;
+      SmallVector<Value, 2> destCoord;
       for (unsigned i = 0; i < sourceCoordLength; ++i) {
         sourceCoord.push_back(sourceAndDestCoord[i]);
       }
@@ -7070,7 +7070,7 @@ struct ThreadwiseCopyRewritePattern
 
           // Load from source.
           // Issue scalar load.
-          Value scalarValue = b.create<LoadOp>(loc, sourceType.getElementType(),
+          Value scalarValue = b.create<LoadOp>(loc, sourceElementType,
                                                op.source(), srcLowerIndices);
 
           // Convert from sourceElementType to destElementType if necessary.
@@ -7349,8 +7349,7 @@ struct ThreadwiseCopyRewritePattern
         Value scalarValue;
         if (toEmitOOBLoadCheckLogic) {
           // Emit a useful constant 0f for later use.
-          Value zeroOp =
-              createZeroConstantFloatOp(b, loc, sourceType.getElementType());
+          Value zeroOp = createZeroConstantFloatOp(b, loc, sourceElementType);
 
           // Walkthrough all lower level indices where the dimension has
           // padding, check if the result lies within boundaries.
@@ -8307,9 +8306,13 @@ struct ThreadwiseCopyV2RewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
+    auto sourceElementType =
+        op.source().getType().cast<VectorType>().getElementType().cast<Type>();
+    auto destElementType =
+        op.dest().getType().cast<MemRefType>().getElementType().cast<Type>();
+
     auto sourceType = op.source().getType().cast<VectorType>();
     auto destType = op.dest().getType().cast<MemRefType>();
-    auto dataType = destType.getElementType();
 
     // Get source offset, and dest coordinates.
     //
@@ -8565,7 +8568,7 @@ struct ThreadwiseCopyV2RewritePattern
       // Load from source.
       // Issue scalar load.
       Value scalarValue = b.create<vector::ExtractElementOp>(
-          loc, sourceType.getElementType(), op.source(), srcPosition);
+          loc, sourceElementType, op.source(), srcPosition);
 
       // Store to dest memref.
 
@@ -8662,7 +8665,7 @@ struct ThreadwiseCopyV2RewritePattern
                      destLowerStoreOOBIndices[1], destLowerStoreOOBIndices[2],
                      destLowerStoreOOBIndices[3], destLowerStoreOOBIndices[4]});
 
-        if (dataType == b.getF32Type()) {
+        if (destElementType == b.getF32Type()) {
           b.create<gpu::RawbufStoreOp>(
               loc, scalarValue, op.dest(), ifWithinBoundsOp.getResults()[0],
               ValueRange{ifWithinBoundsOp.getResults()[1],
@@ -8670,8 +8673,9 @@ struct ThreadwiseCopyV2RewritePattern
                          ifWithinBoundsOp.getResults()[3],
                          ifWithinBoundsOp.getResults()[4],
                          ifWithinBoundsOp.getResults()[5]});
-        } else if (dataType == b.getF16Type()) {
-          auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
+        } else if (destElementType == b.getF16Type()) {
+          auto truncValue =
+              b.create<FPTruncOp>(loc, scalarValue, destElementType);
           b.create<gpu::RawbufStoreOp>(
               loc, truncValue, op.dest(), ifWithinBoundsOp.getResults()[0],
               ValueRange{ifWithinBoundsOp.getResults()[1],
@@ -8679,10 +8683,10 @@ struct ThreadwiseCopyV2RewritePattern
                          ifWithinBoundsOp.getResults()[3],
                          ifWithinBoundsOp.getResults()[4],
                          ifWithinBoundsOp.getResults()[5]});
-        } else if (dataType == b.getIntegerType(16)) {
+        } else if (destElementType == b.getIntegerType(16)) {
           // FIXME: bf16 rsults not correct when in_h & in_w odd
-          auto convertValue =
-              b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
+          auto convertValue = b.create<miopen::DataConvertOp>(
+              loc, destElementType, scalarValue);
           b.create<gpu::RawbufStoreOp>(
               loc, convertValue, op.dest(), ifWithinBoundsOp.getResults()[0],
               ValueRange{ifWithinBoundsOp.getResults()[1],
@@ -8692,17 +8696,18 @@ struct ThreadwiseCopyV2RewritePattern
                          ifWithinBoundsOp.getResults()[5]});
         }
       } else {
-        if (dataType == b.getF32Type()) {
+        if (destElementType == b.getF32Type()) {
           b.create<StoreOp>(loc, scalarValue, op.dest(),
                             destLowerIndicesConverted);
-        } else if (dataType == b.getF16Type()) {
-          auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
+        } else if (destElementType == b.getF16Type()) {
+          auto truncValue =
+              b.create<FPTruncOp>(loc, scalarValue, destElementType);
           b.create<StoreOp>(loc, truncValue, op.dest(),
                             destLowerIndicesConverted);
-        } else if (dataType == b.getIntegerType(16)) {
+        } else if (destElementType == b.getIntegerType(16)) {
           // FIXME: bf16 rsults not correct when in_h & in_w odd
-          auto convertValue =
-              b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
+          auto convertValue = b.create<miopen::DataConvertOp>(
+              loc, destElementType, scalarValue);
           b.create<StoreOp>(loc, convertValue, op.dest(),
                             destLowerIndicesConverted);
         }
