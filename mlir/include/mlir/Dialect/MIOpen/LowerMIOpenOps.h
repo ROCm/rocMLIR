@@ -51,6 +51,27 @@ using namespace mlir::miopen;
 static constexpr int kTwoGB = 2147483647;
 
 //===----------------------------------------------------------------------===//
+// Utility function to determine if we need to emit codes for OOB checks.
+//===----------------------------------------------------------------------===//
+inline bool obtainOOBCheckInfo(const Optional<AffineMap> &composedTransform,
+                               const ArrayAttr &boundCheckAttr,
+                               SmallVector<unsigned, 8> oobCheckDims) {
+  // Determine if we need to emit codes for out-of-bound check.
+  bool ret = false;
+  if (composedTransform && boundCheckAttr) {
+    if (boundCheckAttr.size() == composedTransform->getNumResults()) {
+      for (unsigned iter = 0; iter < boundCheckAttr.size(); ++iter) {
+        if (boundCheckAttr[iter].template cast<IntegerAttr>().getInt()) {
+          ret = true;
+          oobCheckDims.push_back(iter);
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to compute various information wrt threadwise_copy.
 // - coordinate length : return value.
 // - composed affine transform.
@@ -7050,32 +7071,14 @@ struct ThreadwiseCopyRewritePattern
          i < sourceCoordLength + destCoordLength; ++i)
       destCoord.push_back(sourceAndDestCoord[i]);
 
-    auto lambda2 = [](const Optional<AffineMap> &composedTransform,
-                      const ArrayAttr &boundCheckAttr,
-                      SmallVector<unsigned, 8> oobCheckDims) -> bool {
-      // Determine if we need to emit codes for out-of-bound check.
-      bool ret = false;
-      if (composedTransform && boundCheckAttr) {
-        if (boundCheckAttr.size() == composedTransform->getNumResults()) {
-          for (unsigned iter = 0; iter < boundCheckAttr.size(); ++iter) {
-            if (boundCheckAttr[iter].template cast<IntegerAttr>().getInt()) {
-              ret = true;
-              oobCheckDims.push_back(iter);
-            }
-          }
-        }
-      }
-      return ret;
-    };
-
     // Determine if we need to emit codes for out-of-bound check, and which
     // dimensions need to dconduct such check.
     SmallVector<unsigned, 8> oobLoadCheckDims;
-    bool toEmitOOBLoadCheckLogic = lambda2(
+    bool toEmitOOBLoadCheckLogic = obtainOOBCheckInfo(
         composedSourceTransform, boundCheckSourceAttr, oobLoadCheckDims);
     SmallVector<unsigned, 8> oobStoreCheckDims;
-    bool toEmitOOBStoreCheckLogic =
-        lambda2(composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
+    bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
+        composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
 
     // Distinguish between generic <-> naive v naive <-> naive tensors.
     auto NSliceRowAttr = op->getAttr("n_slice_row");
