@@ -673,7 +673,9 @@ class PopulateParamsXDL : public PopulateParamsBase {
 private:
   llvm::SmallVector<InitParamsXDL, 4> initParameters = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      {256, 128, 16, 128, 64, 0, false, false},
+      // FIXME. Temporarily disable this config to restrict MRepeats/NRepeats
+      // to 1 to reduce potential AGPR spills.
+      //{256, 128, 16, 128, 64, 0, false, false},
       {128, 128, 16, 64, 64, 0, false, false},
       {8, 64, 8, 8, 64, 0, false, false},
       {4, 64, 16, 4, 64, 0, false, false},

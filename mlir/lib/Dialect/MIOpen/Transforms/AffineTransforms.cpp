@@ -175,17 +175,11 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
         auto srcDim = srcDimAttr.getValue()[0].cast<IntegerAttr>().getInt();
         auto parameters = dimLayoutAttr.get("parameters").cast<ArrayAttr>();
 
-        // # of parameters would always be 1 more than the # of destDim.
-        // populate the initial affine expr.
-        auto param = parameters.getValue()[parameters.size() - 1]
-                         .cast<IntegerAttr>()
-                         .getInt();
-        auto expr = getAffineConstantExpr(param, op.getContext());
-
         // Build affine transformation expressions.
+        AffineExpr expr = getAffineConstantExpr(0, op.getContext());
         for (unsigned j = 0; j < destDimAttr.size(); ++j) {
           auto destDim = destDimAttr.getValue()[j].cast<IntegerAttr>().getInt();
-          param = parameters.getValue()[j].cast<IntegerAttr>().getInt();
+          int64_t param = parameters.getValue()[j].cast<IntegerAttr>().getInt();
           auto partialExpr = getAffineDimExpr(destDim, op.getContext()) * getAffineConstantExpr(param, op.getContext());
           expr = expr + partialExpr;
         }
@@ -226,6 +220,8 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
   }
 
   auto transformAffineMap = AffineMap::get(outputLayoutAttr.size(), 0, affExprsVec, op.getContext());
+  OpBuilder b(op.getOperation());
+  op->setAttr("map", b.getAffineMapArrayAttr(transformAffineMap));
   return transformAffineMap;
 }
 

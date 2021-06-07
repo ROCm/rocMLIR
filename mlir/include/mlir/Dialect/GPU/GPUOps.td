@@ -989,6 +989,29 @@ def GPU_MubufStoreOp :
   let verifier = [{ return ::verify(*this); }];
 }
 
+// buffer store
+def GPU_RawbufStoreOp :
+    GPU_Op<"raw_buffer_store">,
+    Arguments<(ins AnyTypeOf<[I16, F16, F32,
+                              VectorOfLengthAndType<[2, 4], [F32]>,
+                              VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$value,
+                   AnyMemRef:$memref,
+                   I32:$shift,
+                   Variadic<I32>:$indices)> {
+  // the destination address will add the shift, if it's zero , just store
+  // but if the value is 0x7fffffff, it will do oob store because
+  // we set the address upper bound to 2GB
+  let summary = "AMD GPU Buffer Store";
+  let description = [{
+    The `gpu.raw_buffer_store` op is an abstraction of AMD GPU Raw buffer store intrinsics.
+    `vector.transfer_write` is too tightly coupled with masked load which is not
+    supported well on AMD GPU.
+  }];
+  let parser = [{ return parseRawbufStoreOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
+
 // atomic add
 def GPU_AtomicFAddOp :
     GPU_Op<"atomic_fadd">,
