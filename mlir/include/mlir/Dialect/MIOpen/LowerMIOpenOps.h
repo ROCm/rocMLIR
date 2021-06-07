@@ -51,6 +51,70 @@ using namespace mlir::miopen;
 static constexpr int kTwoGB = 2147483647;
 
 //===----------------------------------------------------------------------===//
+// Utility function to compute various information wrt threadwise_copy.
+// - coordinate length : return value.
+// - composed affine transform.
+// - layered affine transform.
+// - specification of transformation.
+// - bound check attribute.
+//===----------------------------------------------------------------------===//
+inline unsigned obtainGenericTensorTransformationInfo(
+    int64_t operandIndex, const MemRefType type,
+    const ArrayAttr &coordTransformsAttr,
+    Optional<AffineMap> &composedTransform,
+    SmallVector<AffineMap> &layeredTransform, DictionaryAttr &transformSpec,
+    ArrayAttr &boundCheckAttr) {
+  // Get source and dest coordinates.
+  //
+  // 1. For memrefs with no externally defined affine maps in
+  // coord_transforms
+  //    attribute, or embedded affine maps. Use its rank.
+  // 2. For memrefs with externally defined maps, use its input rank.
+  // 3. For memrefs with embedded maps, use its input rank.
+  unsigned coordLength = type.getRank();
+  auto typeAffineMaps = type.getAffineMaps();
+
+  if (typeAffineMaps.size()) {
+    coordLength = typeAffineMaps[0].getNumInputs();
+    // Compose affine maps.
+    composedTransform = composeTransforms(typeAffineMaps);
+
+    // Populate affine maps for each layer.
+    layeredTransform.assign(typeAffineMaps.begin(), typeAffineMaps.end());
+  }
+  // Obtain metadata of coordinate transformations.
+  if (coordTransformsAttr) {
+    for (auto attr : coordTransformsAttr) {
+      auto dictAttr = attr.template cast<DictionaryAttr>();
+      auto index =
+          dictAttr.get("operand").template cast<IntegerAttr>().getInt();
+      auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
+      if (index == operandIndex) {
+        coordLength = transforms[0]
+                          .template cast<AffineMapAttr>()
+                          .getValue()
+                          .getNumInputs();
+        transformSpec = dictAttr;
+        // Compose affine maps.
+        composedTransform = composeTransforms(transforms);
+
+        // Populate affine maps for each layer.
+        for (auto &am : transforms)
+          layeredTransform.push_back(
+              am.template cast<AffineMapAttr>().getValue());
+
+        auto bcAttr = dictAttr.get("bound_check");
+        if (bcAttr)
+          boundCheckAttr = bcAttr.template cast<ArrayAttr>();
+      }
+    }
+  }
+
+  // Return computed coordinate length.
+  return coordLength;
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to emit type conversion ops.
 //===----------------------------------------------------------------------===//
 inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
@@ -6957,76 +7021,19 @@ struct ThreadwiseCopyRewritePattern
     ArrayAttr boundCheckSourceAttr;
     ArrayAttr boundCheckDestAttr;
 
-    auto lambda = [](int64_t operandIndex, const MemRefType type,
-                     const ArrayAttr &coordTransformsAttr,
-                     Optional<AffineMap> &composedTransform,
-                     SmallVector<AffineMap> &layeredTransform,
-                     DictionaryAttr &transformSpec,
-                     ArrayAttr &boundCheckAttr) -> unsigned {
-      // Get source and dest coordinates.
-      //
-      // 1. For memrefs with no externally defined affine maps in
-      // coord_transforms
-      //    attribute, or embedded affine maps. Use its rank.
-      // 2. For memrefs with externally defined maps, use its input rank.
-      // 3. For memrefs with embedded maps, use its input rank.
-      unsigned coordLength = type.getRank();
-      auto typeAffineMaps = type.getAffineMaps();
-
-      if (typeAffineMaps.size()) {
-        coordLength = typeAffineMaps[0].getNumInputs();
-        // Compose affine maps.
-        composedTransform = composeTransforms(typeAffineMaps);
-
-        // Populate affine maps for each layer.
-        layeredTransform.assign(typeAffineMaps.begin(), typeAffineMaps.end());
-      }
-      // Obtain metadata of coordinate transformations.
-      if (coordTransformsAttr) {
-        for (auto attr : coordTransformsAttr) {
-          auto dictAttr = attr.template cast<DictionaryAttr>();
-          auto index =
-              dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-          auto transforms =
-              dictAttr.get("transforms").template cast<ArrayAttr>();
-          if (index == operandIndex) {
-            coordLength = transforms[0]
-                              .template cast<AffineMapAttr>()
-                              .getValue()
-                              .getNumInputs();
-            transformSpec = dictAttr;
-            // Compose affine maps.
-            composedTransform = composeTransforms(transforms);
-
-            // Populate affine maps for each layer.
-            for (auto &am : transforms)
-              layeredTransform.push_back(
-                  am.template cast<AffineMapAttr>().getValue());
-
-            auto bcAttr = dictAttr.get("bound_check");
-            if (bcAttr)
-              boundCheckAttr = bcAttr.template cast<ArrayAttr>();
-          }
-        }
-      }
-
-      // Return computed coordinate length.
-      return coordLength;
-    };
-
     auto coordTransformsAttr =
         op->getAttr("coord_transforms").template cast<ArrayAttr>();
 
     // Obtain coordinate lengths, as well as information of affine
     // transformations.
-    unsigned sourceCoordLength =
-        lambda(/*operandIndex=*/0, sourceType, coordTransformsAttr,
-               composedSourceTransform, layeredSourceTransform,
-               srcTransformSpec, boundCheckSourceAttr);
-    unsigned destCoordLength =
-        lambda(/*operandIndex=*/1, destType, coordTransformsAttr,
-               composedDestTransform, layeredDestTransform, destTransformSpec,
-               boundCheckDestAttr);
+    unsigned sourceCoordLength = obtainGenericTensorTransformationInfo(
+        /*operandIndex=*/0, sourceType, coordTransformsAttr,
+        composedSourceTransform, layeredSourceTransform, srcTransformSpec,
+        boundCheckSourceAttr);
+    unsigned destCoordLength = obtainGenericTensorTransformationInfo(
+        /*operandIndex=*/1, destType, coordTransformsAttr,
+        composedDestTransform, layeredDestTransform, destTransformSpec,
+        boundCheckDestAttr);
 
     auto sourceAndDestCoord = op.sourceAndDestCoord();
     if (sourceCoordLength + destCoordLength != sourceAndDestCoord.size()) {
