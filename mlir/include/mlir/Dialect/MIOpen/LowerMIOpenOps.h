@@ -7205,8 +7205,12 @@ struct ThreadwiseCopyRewritePattern
       ArrayAttr layeredSourceTransformMetadata;
       ArrayAttr layeredDestTransformMetadata;
 
+      // Obtain transform metadata and populate coordinates for all layers
+      // wthe the metadata.
+      // Only do such computation in the new approach where index diff maps
+      // would be used.
       if (!legacyLoadAttr ||
-          !legacyLoadAttr.template cast<BoolAttr>().getValue()) {
+          (legacyLoadAttr.template cast<BoolAttr>().getValue() == false)) {
         // Populate coorindates across the layers of transformations.
         if (srcTransformSpec) {
           Attribute metadataAttr = srcTransformSpec.get("metadata");
@@ -7233,8 +7237,12 @@ struct ThreadwiseCopyRewritePattern
         srcLowerIndices = layeredSourceIndices[layeredSourceIndices.size() - 1];
       }
 
+      // Obtain transform metadata and populate coordinates for all layers
+      // wthe the metadata.
+      // Only do such computation in the new approach where index diff maps
+      // would be used.
       if (!legacyStoreAttr ||
-          !legacyStoreAttr.template cast<BoolAttr>().getValue()) {
+          (legacyStoreAttr.template cast<BoolAttr>().getValue() == false)) {
         // Populate coorindates across the layers of transformations.
         if (destTransformSpec) {
           Attribute metadataAttr = destTransformSpec.get("metadata");
@@ -7272,8 +7280,9 @@ struct ThreadwiseCopyRewritePattern
       }
       bool toExit = false;
       do {
+        // Use the old logic in case "legacy_load" attribute is specified.
         if (legacyLoadAttr &&
-            legacyLoadAttr.template cast<BoolAttr>().getValue()) {
+            (legacyLoadAttr.template cast<BoolAttr>().getValue() == true)) {
           // Compute high-level coordinate for source memref.
           // src_index = (iv_0, iv_1, ...) + sourceCoord
           srcUpperIndices.clear();
@@ -7334,8 +7343,7 @@ struct ThreadwiseCopyRewritePattern
 
         // Pre-populate srcLowerLoadOOBIndices. It will be modified inside
         // toEmitOOBCheckLogic basic block.
-        SmallVector<Value, 8> srcLowerLoadOOBIndices;
-        srcLowerLoadOOBIndices = srcLowerIndices;
+        SmallVector<Value, 8> srcLowerLoadOOBIndices = srcLowerIndices;
 
         // Load from source.
         Value scalarValue;
@@ -7442,6 +7450,7 @@ struct ThreadwiseCopyRewritePattern
         Value convertedScalarValue = createTypeConversionOp(
             b, loc, scalarValue, sourceElementType, destElementType);
 
+        // Use the old logic in case "legacy_store" attribute is specified.
         if (legacyStoreAttr &&
             legacyStoreAttr.template cast<BoolAttr>().getValue()) {
           // Compute high-level coordinate for dest memref.
