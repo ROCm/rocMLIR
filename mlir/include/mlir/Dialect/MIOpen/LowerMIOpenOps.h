@@ -6957,16 +6957,6 @@ struct ThreadwiseCopyRewritePattern
       return failure();
     }
 
-    llvm::SmallVector<Value, 2> sourceCoord;
-    llvm::SmallVector<Value, 2> destCoord;
-    for (unsigned i = 0; i < sourceCoordLength; ++i) {
-      sourceCoord.push_back(sourceAndDestCoord[i]);
-    }
-    for (unsigned i = sourceCoordLength;
-         i < sourceCoordLength + destCoordLength; ++i) {
-      destCoord.push_back(sourceAndDestCoord[i]);
-    }
-
     // Distinguish between generic <-> naive v naive <-> naive tensors.
     //
     // In cases where attributes n_slice_row/n_slice_col/data_per_access are
@@ -7022,6 +7012,17 @@ struct ThreadwiseCopyRewritePattern
       //         }
       //     }
       // };
+
+      llvm::SmallVector<Value, 2> sourceCoord;
+      llvm::SmallVector<Value, 2> destCoord;
+      for (unsigned i = 0; i < sourceCoordLength; ++i) {
+        sourceCoord.push_back(sourceAndDestCoord[i]);
+      }
+      for (unsigned i = sourceCoordLength;
+           i < sourceCoordLength + destCoordLength; ++i) {
+        destCoord.push_back(sourceAndDestCoord[i]);
+      }
+
       // Emit fully-unrolled loops.
       for (unsigned ivo = 0; ivo < NSliceRow; ++ivo) {
         auto ivo_i32 = b.create<ConstantIntOp>(loc, ivo, b.getIntegerType(32));
@@ -7271,14 +7272,17 @@ struct ThreadwiseCopyRewritePattern
           // Compute high-level coordinate for source memref.
           // src_index = (iv_0, iv_1, ...) + sourceCoord
           srcUpperIndices.clear();
+          for (unsigned iter = 0; iter < sourceCoordLength; ++iter)
+            srcUpperIndices.push_back(b.create<IndexCastOp>(
+                loc, sourceAndDestCoord[iter], b.getIndexType()));
+
           for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
             auto dim =
                 dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-            auto loopIV = b.create<ConstantIntOp>(
-                loc, loopIVsPerAccessOrder[dim], b.getIntegerType(32));
-            srcUpperIndices.push_back(b.create<IndexCastOp>(
-                loc, b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
-                b.getIndexType()));
+            auto loopIV =
+                b.create<ConstantIndexOp>(loc, loopIVsPerAccessOrder[dim]);
+            srcUpperIndices[iter] =
+                b.create<AddIOp>(loc, loopIV, srcUpperIndices[iter]);
           }
 
           // Populate coorindates across the layers of transformations.
@@ -7438,14 +7442,18 @@ struct ThreadwiseCopyRewritePattern
           // Compute high-level coordinate for dest memref.
           // dst_index = (iv_0, iv_1, ...) + destCoord
           destUpperIndices.clear();
+          for (unsigned iter = sourceCoordLength;
+               iter < sourceCoordLength + destCoordLength; ++iter)
+            destUpperIndices.push_back(b.create<IndexCastOp>(
+                loc, sourceAndDestCoord[iter], b.getIndexType()));
+
           for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
             auto dim =
                 dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-            auto loopIV = b.create<ConstantIntOp>(
-                loc, loopIVsPerAccessOrder[dim], b.getIntegerType(32));
-            destUpperIndices.push_back(b.create<IndexCastOp>(
-                loc, b.create<AddIOp>(loc, loopIV, destCoord[iter]),
-                b.getIndexType()));
+            auto loopIV =
+                b.create<ConstantIndexOp>(loc, loopIVsPerAccessOrder[dim]);
+            destUpperIndices[iter] =
+                b.create<AddIOp>(loc, loopIV, destUpperIndices[iter]);
           }
 
           // Populate coorindates across the layers of transformations.
