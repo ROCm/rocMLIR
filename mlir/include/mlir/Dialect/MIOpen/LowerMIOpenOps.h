@@ -45,9 +45,25 @@
 
 using namespace mlir;
 using namespace mlir::miopen;
+
 // 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
 // store do nothing
 const int twoGB = 2147483647;
+
+//===----------------------------------------------------------------------===//
+// Utility function to populate the transform metadata in cases there is none.
+// Just populate "lower_layer_bounds" attribute from the lower level shape.
+//===----------------------------------------------------------------------===//
+inline void
+populateTransformMetadataFromLowerType(OpBuilder &b, ShapedType lowerType,
+                                       ArrayAttr &transformMetadata) {
+  SmallVector<Attribute, 4> lowerShapeAttr;
+  for (auto &v : lowerType.getShape())
+    lowerShapeAttr.push_back(b.getI32IntegerAttr(v));
+  transformMetadata = b.getArrayAttr({b.getDictionaryAttr({b.getNamedAttr(
+      "lower_layer_bounds", b.getArrayAttr({lowerShapeAttr}))})});
+}
+
 //===----------------------------------------------------------------------===//
 // Utility function to compute index diff map.
 //===----------------------------------------------------------------------===//
@@ -7189,17 +7205,6 @@ struct ThreadwiseCopyRewritePattern
       ArrayAttr layeredSourceTransformMetadata;
       ArrayAttr layeredDestTransformMetadata;
 
-      // In case there is no metadata, populate the lower level shape.
-      auto populateTransformMetadataFromLowerType =
-          [&b](ShapedType lowerType, ArrayAttr &transformMetadata) {
-            SmallVector<Attribute, 4> lowerShapeAttr;
-            for (auto &v : lowerType.getShape())
-              lowerShapeAttr.push_back(b.getI32IntegerAttr(v));
-            transformMetadata =
-                b.getArrayAttr({b.getDictionaryAttr({b.getNamedAttr(
-                    "lower_layer_bounds", b.getArrayAttr({lowerShapeAttr}))})});
-          };
-
       if (!legacyLoadAttr ||
           !legacyLoadAttr.template cast<BoolAttr>().getValue()) {
         // Populate coorindates across the layers of transformations.
@@ -7210,7 +7215,7 @@ struct ThreadwiseCopyRewritePattern
                 metadataAttr.template cast<ArrayAttr>();
           else
             populateTransformMetadataFromLowerType(
-                sourceType, layeredSourceTransformMetadata);
+                b, sourceType, layeredSourceTransformMetadata);
         }
 
         // Compute high-level coordinate for source memref.
@@ -7238,7 +7243,7 @@ struct ThreadwiseCopyRewritePattern
                 metadataAttr.template cast<ArrayAttr>();
           else
             populateTransformMetadataFromLowerType(
-                destType, layeredDestTransformMetadata);
+                b, destType, layeredDestTransformMetadata);
         }
 
         // Compute high-level coordinate for dest memref.
