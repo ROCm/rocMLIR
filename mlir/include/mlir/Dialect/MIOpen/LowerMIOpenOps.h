@@ -7114,14 +7114,15 @@ struct ThreadwiseCopyRewritePattern
               }
             }
           }
-        } else {
+        } else
+          // Use the shape of dest memref as initial slice lengths.
           for (auto dim : destType.getShape())
             sliceLengths.push_back(dim);
-        }
-      } else {
+      } else
+        // Use the shape of source memref as initial slice lengths.
         for (auto dim : sourceType.getShape())
           sliceLengths.push_back(dim);
-      }
+
       // llvm::errs() << "slice lengths: ";
       // for (unsigned i = 0; i < sliceLengths.size(); ++i)
       //   llvm::errs() << sliceLengths[i] << " ";
@@ -8401,10 +8402,11 @@ struct ThreadwiseCopyV2RewritePattern
           }
         }
       }
-    } else {
+    } else
+      // Use the shape of source memref as initial slice lengths.
       for (auto dim : sourceType.getShape())
         sliceLengths.push_back(dim);
-    }
+
     // llvm::errs() << "slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
     //   llvm::errs() << sliceLengths[i] << " ";
