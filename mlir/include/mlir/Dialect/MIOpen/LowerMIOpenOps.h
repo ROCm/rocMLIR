@@ -6947,94 +6947,86 @@ struct ThreadwiseCopyRewritePattern
     auto legacyLoadAttr = op->getAttr("legacy_load");
     auto legacyStoreAttr = op->getAttr("legacy_store");
 
-    // Get source and dest coordinates.
-    //
-    // 1. For memrefs with no externally defined affine maps in coord_transforms
-    //    attribute, or embedded affine maps. Use its rank.
-    // 2. For memrefs with externally defined maps, use its input rank.
-    // 3. For memrefs with embedded maps, use its input rank.
-    auto sourceAndDestCoord = op.sourceAndDestCoord();
-    auto sourceTypeAffineMaps = sourceType.getAffineMaps();
-    auto destTypeAffineMaps = destType.getAffineMaps();
-    auto coordTransformsAttr =
-        op->getAttr("coord_transforms").template cast<ArrayAttr>();
-
-    unsigned sourceCoordLength = sourceType.getRank();
-    unsigned destCoordLength = destType.getRank();
-
+    ArrayAttr coordTransformSpec;
     Optional<AffineMap> composedSourceTransform;
     Optional<AffineMap> composedDestTransform;
     SmallVector<AffineMap> layeredSourceTransform;
     SmallVector<AffineMap> layeredDestTransform;
+    DictionaryAttr srcTransformSpec;
+    DictionaryAttr destTransformSpec;
     ArrayAttr boundCheckSourceAttr;
     ArrayAttr boundCheckDestAttr;
 
-    if (sourceTypeAffineMaps.size()) {
-      sourceCoordLength = sourceTypeAffineMaps[0].getNumInputs();
-      // Compose affine maps.
-      composedSourceTransform = composeTransforms(sourceTypeAffineMaps);
+    auto lambda = [](int64_t operandIndex, const MemRefType type,
+                     const ArrayAttr &coordTransformsAttr,
+                     Optional<AffineMap> &composedTransform,
+                     SmallVector<AffineMap> &layeredTransform,
+                     DictionaryAttr &transformSpec,
+                     ArrayAttr &boundCheckAttr) -> unsigned {
+      // Get source and dest coordinates.
+      //
+      // 1. For memrefs with no externally defined affine maps in
+      // coord_transforms
+      //    attribute, or embedded affine maps. Use its rank.
+      // 2. For memrefs with externally defined maps, use its input rank.
+      // 3. For memrefs with embedded maps, use its input rank.
+      unsigned coordLength = type.getRank();
+      auto typeAffineMaps = type.getAffineMaps();
 
-      // Populate affine maps for each layer.
-      layeredSourceTransform.assign(sourceTypeAffineMaps.begin(),
-                                    sourceTypeAffineMaps.end());
-    }
-    if (destTypeAffineMaps.size()) {
-      destCoordLength = destTypeAffineMaps[0].getNumInputs();
-      // Compose affine maps.
-      composedDestTransform = composeTransforms(destTypeAffineMaps);
+      if (typeAffineMaps.size()) {
+        coordLength = typeAffineMaps[0].getNumInputs();
+        // Compose affine maps.
+        composedTransform = composeTransforms(typeAffineMaps);
 
-      // Populate affine maps for each layer.
-      layeredDestTransform.assign(destTypeAffineMaps.begin(),
-                                  destTypeAffineMaps.end());
-    }
+        // Populate affine maps for each layer.
+        layeredTransform.assign(typeAffineMaps.begin(), typeAffineMaps.end());
+      }
+      // Obtain metadata of coordinate transformations.
+      if (coordTransformsAttr) {
+        for (auto attr : coordTransformsAttr) {
+          auto dictAttr = attr.template cast<DictionaryAttr>();
+          auto index =
+              dictAttr.get("operand").template cast<IntegerAttr>().getInt();
+          auto transforms =
+              dictAttr.get("transforms").template cast<ArrayAttr>();
+          if (index == operandIndex) {
+            coordLength = transforms[0]
+                              .template cast<AffineMapAttr>()
+                              .getValue()
+                              .getNumInputs();
+            transformSpec = dictAttr;
+            // Compose affine maps.
+            composedTransform = composeTransforms(transforms);
 
-    // Obtain metadata of coordinate transformations.
-    ArrayAttr coordTransformSpec;
-    DictionaryAttr srcTransformSpec;
-    DictionaryAttr destTransformSpec;
-    if (coordTransformsAttr) {
-      for (auto attr : coordTransformsAttr) {
-        auto dictAttr = attr.template cast<DictionaryAttr>();
-        auto operandIndex =
-            dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-        auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
-        if (operandIndex == 0) {
-          sourceCoordLength = transforms[0]
-                                  .template cast<AffineMapAttr>()
-                                  .getValue()
-                                  .getNumInputs();
-          srcTransformSpec = dictAttr;
-          // Compose affine maps.
-          composedSourceTransform = composeTransforms(transforms);
+            // Populate affine maps for each layer.
+            for (auto &am : transforms)
+              layeredTransform.push_back(
+                  am.template cast<AffineMapAttr>().getValue());
 
-          // Populate affine maps for each layer.
-          for (auto &am : transforms)
-            layeredSourceTransform.push_back(
-                am.template cast<AffineMapAttr>().getValue());
-
-          auto boundCheckAttr = dictAttr.get("bound_check");
-          if (boundCheckAttr)
-            boundCheckSourceAttr = boundCheckAttr.template cast<ArrayAttr>();
-        } else {
-          destCoordLength = transforms[0]
-                                .template cast<AffineMapAttr>()
-                                .getValue()
-                                .getNumInputs();
-          destTransformSpec = dictAttr;
-          // Compose affine maps.
-          composedDestTransform = composeTransforms(transforms);
-
-          // Populate affine maps for each layer.
-          for (auto &am : transforms)
-            layeredDestTransform.push_back(
-                am.template cast<AffineMapAttr>().getValue());
-
-          auto boundCheckAttr = dictAttr.get("bound_check");
-          if (boundCheckAttr)
-            boundCheckDestAttr = boundCheckAttr.template cast<ArrayAttr>();
+            auto bcAttr = dictAttr.get("bound_check");
+            if (bcAttr)
+              boundCheckAttr = bcAttr.template cast<ArrayAttr>();
+          }
         }
       }
-    }
+
+      // Return computed coordinate length.
+      return coordLength;
+    };
+
+    auto coordTransformsAttr =
+        op->getAttr("coord_transforms").template cast<ArrayAttr>();
+
+    // Obtain coordinate lengths, as well as information of affine
+    // transformations.
+    unsigned sourceCoordLength =
+        lambda(/*operandIndex=*/0, sourceType, coordTransformsAttr,
+               composedSourceTransform, layeredSourceTransform,
+               srcTransformSpec, boundCheckSourceAttr);
+    unsigned destCoordLength =
+        lambda(/*operandIndex=*/1, destType, coordTransformsAttr,
+               composedDestTransform, layeredDestTransform, destTransformSpec,
+               boundCheckDestAttr);
 
     // Determine if we need to emit codes for out-of-bound check.
     bool toEmitOOBLoadCheckLogic = false;
@@ -7066,6 +7058,7 @@ struct ThreadwiseCopyRewritePattern
       }
     }
 
+    auto sourceAndDestCoord = op.sourceAndDestCoord();
     if (sourceCoordLength + destCoordLength != sourceAndDestCoord.size()) {
       llvm::errs() << "INCORRECT source and dest coordinates assigned!";
       return failure();
