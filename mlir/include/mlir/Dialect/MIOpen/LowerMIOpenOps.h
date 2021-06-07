@@ -6939,6 +6939,19 @@ struct ThreadwiseCopyRewritePattern
       }
     }
 
+    bool toEmitOOBStoreCheckLogic = false;
+    SmallVector<unsigned, 2> oobStoreCheckDims;
+    if (composedDestTransform && boundCheckDestAttr) {
+      if (boundCheckDestAttr.size() == composedDestTransform.getNumResults()) {
+        for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
+          if (boundCheckDestAttr[iter].template cast<IntegerAttr>().getInt()) {
+            toEmitOOBStoreCheckLogic = true;
+            oobStoreCheckDims.push_back(iter);
+          }
+        }
+      }
+    }
+
     if (sourceCoordLength + destCoordLength != sourceAndDestCoord.size()) {
       llvm::errs() << "INCORRECT source and dest coordinates assigned!";
       return failure();
@@ -7474,22 +7487,6 @@ struct ThreadwiseCopyRewritePattern
           for (auto &v : destLowerIndicesUpdated)
             destLowerIndices.push_back(
                 b.create<IndexCastOp>(loc, v, b.getIndexType()));
-        }
-
-        bool toEmitOOBStoreCheckLogic = false;
-        SmallVector<unsigned, 2> oobStoreCheckDims;
-        if (composedDestTransform && boundCheckDestAttr) {
-          if (boundCheckDestAttr.size() ==
-              composedDestTransform.getNumResults()) {
-            for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
-              if (boundCheckDestAttr[iter]
-                      .template cast<IntegerAttr>()
-                      .getInt()) {
-                toEmitOOBStoreCheckLogic = true;
-                oobStoreCheckDims.push_back(iter);
-              }
-            }
-          }
         }
 
         // Store to dest.
@@ -8364,6 +8361,20 @@ struct ThreadwiseCopyV2RewritePattern
       }
     }
 
+    // Determine if we need to emit codes for out-of-bound check.
+    bool toEmitOOBStoreCheckLogic = false;
+    SmallVector<unsigned, 2> oobStoreCheckDims;
+    if (composedDestTransform && boundCheckDestAttr) {
+      if (boundCheckDestAttr.size() == composedDestTransform.getNumResults()) {
+        for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
+          if (boundCheckDestAttr[iter].template cast<IntegerAttr>().getInt()) {
+            toEmitOOBStoreCheckLogic = true;
+            oobStoreCheckDims.push_back(iter);
+          }
+        }
+      }
+    }
+
     if (sourceCoordLength + destCoordLength != sourceAndDestCoord.size()) {
       llvm::errs() << "INCORRECT source and dest coordinates assigned!";
       return failure();
@@ -8563,22 +8574,6 @@ struct ThreadwiseCopyV2RewritePattern
       for (auto &v : destLowerIndicesUpdated)
         destLowerIndicesConverted.push_back(
             b.create<IndexCastOp>(loc, v, b.getIndexType()));
-
-      bool toEmitOOBStoreCheckLogic = false;
-      SmallVector<unsigned, 2> oobStoreCheckDims;
-      if (composedDestTransform && boundCheckDestAttr) {
-        if (boundCheckDestAttr.size() ==
-            composedDestTransform.getNumResults()) {
-          for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
-            if (boundCheckDestAttr[iter]
-                    .template cast<IntegerAttr>()
-                    .getInt()) {
-              toEmitOOBStoreCheckLogic = true;
-              oobStoreCheckDims.push_back(iter);
-            }
-          }
-        }
-      }
 
       // Store to dest.
       // Issue scalar store.
