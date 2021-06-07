@@ -4026,21 +4026,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 //===----------------------------------------------------------------------===//
 
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::GridwiseGemmOp gop, OpBuilder &b) {
-  // Add attributes from C++ template arguments and ctor arguments.
-  //
-  // in gridwise_gemm:
-  // 
-  // ThreadwiseGenericTensorSliceCopy_v4r2<decltype(c_m0_m1_n0_n1_thread_desc),              - source memref
-  //                                       decltype(c_m0_m1_n0_n1_global_desc),              - dest memref
-  //                                       decltype(c_m0_m1_n0_n1_thread_desc.GetLengths()), - source memref
-  //                                       CThreadCopySrcDstAccessOrder,                     - Sequence<0, 1, 2, 3>
-  //                                       CThreadCopySrcDstVectorReadWriteDim,              - matrix_c_source_dest_vector_read_write_dim attribute
-  //                                       1,                                                - 1
-  //                                       CThreadCopyDstDataPerWrite,                       - matrix_c_dest_data_per_write attribute
-  //                                       AddressSpace::Vgpr,                               - addrspace on source memref
-  //                                       AddressSpace::Global,                             - addrspace on dest memref
-  //                                       CGlobalMemoryDataOperation>(                      - NOT USED
-
   top->setAttr("dim_access_order", b.getArrayAttr({
                                        b.getI32IntegerAttr(0),
                                        b.getI32IntegerAttr(1),
@@ -4077,32 +4062,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
                                           miopen::BlockwiseCopyOp bop,
                                           OpBuilder &b,
                                           bool isThreadwiseLoad) {
-  // Add attributes from C++ template arguments and ctor arguments.
-  //
-  // in blockwise_copy:
-  //
-  // using ThreadwiseLoad = ThreadwiseGenericTensorSliceCopy_v4r2<BlockSrcDesc,              - source memref
-  //                                                              ThreadBufferDesc,          - dest memref
-  //                                                              ThreadSliceLengths,        - source memref
-  //                                                              SrcDimAccessOrder,         - Sequence<1, 0>
-  //                                                              SrcVectoReadDim,           - source_vector_read_dim attribute
-  //                                                              SrcDataPerRead,            - source_data_per_read attribute
-  //                                                              1,                         - 1
-  //                                                              SrcAddressSpace,           - addrspace on source memref
-  //                                                              ThreadBufferAddressSpace,  - addrspace on dest memref
-  //                                                              InMemoryDataOperation::Set>- NOT USED
-  //
-  // using ThreadwiseStore = ThreadwiseGenericTensorSliceCopy_v4r2<ThreadBufferDesc,         - source memref
-  //                                                               BlockDstDesc,             - dest memref
-  //                                                               ThreadSliceLengths,       - source memref
-  //                                                               DstDimAccessOrder,        - Sequence<0, 1>
-  //                                                               DstVectorWriteDim,        - dest_vector_write_dim attribute
-  //                                                               1,                        - 1
-  //                                                               DstDataPerWrite,          - dest_data_per_write attribute
-  //                                                               ThreadBufferAddressSpace, - addrspace of source memref
-  //                                                               DstAddressSpace,          - addrspace of dest memref
-  //                                                               DstInMemOp>;              - NOT USE
-
   if (isThreadwiseLoad) {
     top->setAttr("dim_access_order", bop->getAttr("source_dim_access_order"));
     top->setAttr("vector_read_write_dim",
@@ -4143,19 +4102,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
                                           miopen::BlockwiseGemmOp bop,
                                           OpBuilder &b, bool isMatrixA) {
-  // in blockwise_gemm:
-  //
-  // constexpr auto a_thread_copy = ThreadwiseMatrixSliceCopy<BlockMatrixA,                  - source memref
-  //                                                          decltype(a_thread_mtx),        - dest memref
-  //                                                          KPerThreadLoop,                - k_per_thread attribute
-  //                                                          MPerThreadSubC,                - m_per_thread attribute
-  //                                                          ThreadGemmADataPerRead_M>{};   - m_per_thread attribute
-  // constexpr auto b_thread_copy = ThreadwiseMatrixSliceCopy<BlockMatrixB,                  - source memref
-  //                                                          decltype(b_thread_mtx),        - dest memref
-  //                                                          KPerThreadLoop,                - k_per_thread attribute
-  //                                                          NPerThreadSubC,                - n_per_thread attribute
-  //                                                          ThreadGemmBDataPerRead_N>{};   - n_per_thread attribute
-
   if (isMatrixA) {
     top->setAttr("n_slice_row", bop->getAttr("k_per_thread"));
     top->setAttr("n_slice_col", bop->getAttr("m_per_thread"));
@@ -4246,36 +4192,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   void affixBlockwiseCopyAttributes(miopen::BlockwiseCopyOp bop,
                                     miopen::GridwiseGemmOp gop,
                                     OpBuilder &b, bool isMatrixA) const {
-    // Add attributes from C++ template arguments and ctor arguments.
-    // a_blockwise_copy:
-    // BlockSize                           - block_size attribute
-    // a_k_m_global_desc                   - source memref
-    // a_k_m_block_desc                    - dest memref
-    // a_k_m_block_desc.getLengths()       - dest memref
-    // ABlockCopyThreadSliceLengths_K_M    - logic specified in -miopen-affix-params pass
-    // ABlockCopyThreadClusterLengths_K_M  - logic specified in -miopen-affix-params pass
-    // ABlockCopyThreadClusterArrangeOrder - Sequence<1, 0>
-    // ABlockCopySrcAccessOrder            - Sequence<1, 0>
-    // Sequence<0, 1>                      - Sequence<0, 1>
-    // ABlockCopySrcVectorReadDim          - matrix_a_source_vector_read_dim attribute
-    // 1                                   - 1
-    // ABlockCopySrcDataPerRead            - matrix_a_source_data_per_read attribute
-    // ABlockCopyDstDataPerWrite_M         - matrix_a_dest_data_per_write_dim_m attribute
-
-    // b_blockwise_copy:
-    // BlockSize                           - block_size attribute
-    // b_k_n_global_desc                   - source memref
-    // b_k_n_block_desc                    - dest memref
-    // b_k_n_block_desc.getLengths()       - dest memref
-    // BBlockCopyThreadSliceLengths_K_N    - logic specified in -miopen-affix-params pass
-    // BBlockCopyThreadClusterLengths_K_N  - logic specified in -miopen-affix-params pass
-    // BBlockCopyThreadClusterArrangeOrder - Sequence<1, 0>
-    // BBlockCopySrcAccessOrder            - Sequence<1, 0>
-    // Sequence<0, 1>                      - Seuquence<0, 1>
-    // BBlockCopySrcVectorReadDim          - matrix_b_source_read_dim attribute
-    // 1                                   - 1
-    // BBlockCopySrcDataPerRead            - matrix_b_source_data_per_read attribute
-    // BBlockCopyDstDataPerWrite_N         - matrix_b_dest_data_per_write_dim_n attribute
     bop->setAttr("block_size", gop->getAttr("block_size"));
 
     if (isMatrixA) {
@@ -4323,23 +4239,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                     miopen::GridwiseGemmOp gop,
                                     OpBuilder &b) const {
     bop->setAttr("block_size", gop->getAttr("block_size"));
-
-    // Add attributes from C++ template arguments and ctor arguments.
-    //const auto blockwise_gemm = BlockwiseGemmBlockABlockBThreadCTransANormalBNormalC_v2<
-    //    BlockSize,                                - block_size attribute
-    //    decltype(a_k_m_block_mtx_desc),           - matrixA memref
-    //    decltype(b_k_n_block_mtx_desc),           - matrixB memref
-    //    decltype(c_m0m1_n0n1_thread_mtx_desc),    - matrixC memref
-    //    MPerThread,                               - m_per_thread attribute
-    //    NPerThread,                               - n_per_thread attribute
-    //    MLevel0Cluster,                           - m_level0_cluster attribute
-    //    NLevel0Cluster,                           - n_level0_cluster attribute
-    //    MLevel1Cluster,                           - m_level1_cluster attribute
-    //    NLevel1Cluster,                           - n_level1_cluster attribute
-    //    KPerThread,                               - k_per_thread attribute
-    //    ThreadGemmAThreadCopySrcDataPerRead_M,    - m_per_thread attribute
-    //    ThreadGemmBThreadCopySrcDataPerRead_N>{}; - n_per_thread attribute
- 
     // Attributes used in non-xdlops lowering path.
     bop->setAttr("m_per_thread", gop->getAttr("m_per_thread"));
     bop->setAttr("n_per_thread", gop->getAttr("n_per_thread"));
@@ -4577,7 +4476,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Get current workitem ID.
 
-    // Original logic.
     auto tid = b.create<miopen::WorkitemIdOp>(loc, b.getIndexType());
 
     // Compute thread_data_id_begin for Matrix A.
@@ -4675,11 +4573,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Get 2D subviews.
     // Compute matrix A dimension from attributes.
-    // Original C++ logic.
-    // // A matrix in LDS memory, dst of blockwise copy
-    // //   be careful of LDS alignment
-    // constexpr auto a_k_m_block_desc = make_native_tensor_descriptor_aligned(
-    //     Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
     auto lds2DMatrixAMemRefType = computeSubviewResultType(
         op, ldsBlockAMemRefType, 0, {1, KPerBlock, MPerBlock}, elementType);
 
@@ -4698,11 +4591,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Get 2D subviews.
     // Compute matrix B dimension from attributes.
-    // Original C++ logic.
-    // // B matrix in LDS memory, dst of blockwise copy
-    // //   be careful of LDS alignment
-    // constexpr auto b_k_n_block_desc = make_native_tensor_descriptor_aligned(
-    //     Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
     auto lds2DMatrixBMemRefType = computeSubviewResultType(
         op, ldsBlockBMemRefType, 0, {1, KPerBlock, NPerBlock}, elementType);
 
@@ -4712,12 +4600,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Alloc for Matrix C on registers.
     // Compute register size from attributes.
     int64_t GemmMRepeat = 0, GemmNRepeat = 0;
-
-    // Original C++ logic.
-    // constexpr index_t GemmMRepeat = MPerBlock / (MPerThread * MLevel0Cluster * MLevel1Cluster);
-    // constexpr index_t GemmNRepeat = NPerBlock / (NPerThread * NLevel0Cluster * NLevel1Cluster);
-    // constexpr auto c_m0m1_n0n1_thread_mtx_desc = make_ConstantMatrixDescriptor_packed(
-    //     Number<GemmMRepeat * MPerThread>{}, Number<GemmNRepeat * NPerThread>{});
 
     // llvm::errs() << "MPerThread: " << MPerThread << "\n";
     // llvm::errs() << "NPerThread: " << NPerThread << "\n";
@@ -4968,54 +4850,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     affixBlockwiseGemmAttributes(blockwiseGemmTailOp, op, b);
 
     // Threadwise copy from register (naive tensor) to global (generic tensor).
-    // Original C++ logic:
-    //
-    // constexpr index_t M1 = MPerThread * MLevel0Cluster * MLevel1Cluster;
-    // constexpr index_t M0 = M / M1;
-    //
-    // constexpr index_t N1 = NPerThread * NLevel0Cluster * NLevel1Cluster;
-    // constexpr index_t N0 = N / N1;
-    //
-    // // define input tensor descriptor for threadwise copy
-    // //     thread input tensor, src of threadwise copy
-    // constexpr auto c_m0_m1_n0_n1_thread_desc =
-    // make_native_tensor_descriptor_packed(
-    //     Sequence<GemmMRepeat, MPerThread, GemmNRepeat, NPerThread>{});
-    //
-    // constexpr auto c_m0_m1_n0_n1_global_desc = transform_tensor_descriptor(
-    //     c_m_n_global_desc,
-    //     make_tuple(UnMerge<Sequence<M0, M1>>{}, UnMerge<Sequence<N0, N1>>{}),
-    //     make_tuple(Sequence<0>{}, Sequence<1>{}),
-    //     make_tuple(Sequence<0, 1>{}, Sequence<2, 3>{}));
-    //
-    // // calculate origin of thread input tensor on global memory
-    // //     blockwise GEMM c matrix starting index
-    // const auto c_thread_mtx_on_block =
-    //     blockwise_gemm.GetBeginOfThreadMatrixC(get_thread_local_1d_id());
-    //
-    // const index_t m_thread_data_on_global =
-    //     m_block_data_on_global + c_thread_mtx_on_block.row;
-    //
-    // const index_t n_thread_data_on_global =
-    //     n_block_data_on_global + c_thread_mtx_on_block.col;
-    //
-    // ThreadwiseGenericTensorSliceCopy_v4r2<decltype(c_m0_m1_n0_n1_thread_desc),
-    //                                       decltype(c_m0_m1_n0_n1_global_desc),
-    //                                       decltype(c_m0_m1_n0_n1_thread_desc.GetLengths()),
-    //                                       CThreadCopySrcDstAccessOrder,
-    //                                       CThreadCopySrcDstVectorReadWriteDim,
-    //                                       1,
-    //                                       CThreadCopyDstDataPerWrite,
-    //                                       AddressSpace::Vgpr,
-    //                                       AddressSpace::Global,
-    //                                       CGlobalMemoryDataOperation>(
-    //     {0, 0, 0, 0},
-    //     {m_thread_data_on_global / M1,
-    //      m_thread_data_on_global % M1,
-    //      n_thread_data_on_global / N1,
-    //      n_thread_data_on_global % N1})
-    //     .Run(p_c_thread, p_c_global);
-
     int64_t M1 = MPerThread * MLevel0Cluster * MLevel1Cluster;
     int64_t M0 = M / M1;
     int64_t N1 = NPerThread * NLevel0Cluster * NLevel1Cluster;
@@ -5263,13 +5097,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         math::integer_divide_ceil<int64_t>(NPerBlock, max_lds_align);
 
     // A matrix in LDS memory, dst of blockwise copy
-    //   be careful of LDS alignment
-    // Original C++ logic:
-    // constexpr auto a_k_m_block_desc = make_native_tensor_descriptor_aligned(
-    //    Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
-    // constexpr index_t a_block_space =
-    //    math::integer_least_multiple(a_k_m_block_desc.GetElementSpace(),
-    //    max_lds_align);
     int64_t AlignedMPerBlock =
         max_lds_align *
         math::integer_divide_ceil<int64_t>(MPerBlock, max_lds_align);
@@ -5284,13 +5111,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                                  max_lds_align);
 
     // B matrix in LDS memory, dst of blockwise copy
-    //   be careful of LDS alignment
-    // Original C++ logic:
-    // constexpr auto b_k_n_block_desc = make_native_tensor_descriptor_aligned(
-    //    Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
-    // constexpr index_t b_block_space =
-    //    math::integer_least_multiple(b_k_n_block_desc.GetElementSpace(),
-    //    max_lds_align);
     b_block_space = math::integer_least_multiple(KPerBlock * AlignedNPerBlock,
                                                  max_lds_align);
 
@@ -5753,11 +5573,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Get 2D subviews.
     // Compute matrix A dimension from attributes.
-    // Original C++ logic.
-    // // A matrix in LDS memory, dst of blockwise copy
-    // //   be careful of LDS alignment
-    // constexpr auto a_k_m_block_desc = make_native_tensor_descriptor_aligned(
-    //     Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
     auto lds2DMatrixAMemRefType = computeSubviewResultType(
         op, ldsBlockAMemRefType, 0, {1, KPerBlock, MPerBlock}, elementType);
     auto lds2DMatrixASubviewOp = b.create<miopen::SubviewOp>(
@@ -5778,11 +5593,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Get 2D subviews.
     // Compute matrix B dimension from attributes.
-    // Original C++ logic.
-    // // B matrix in LDS memory, dst of blockwise copy
-    // //   be careful of LDS alignment
-    // constexpr auto b_k_n_block_desc = make_native_tensor_descriptor_aligned(
-    //     Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
     auto lds2DMatrixBMemRefType = computeSubviewResultType(
         op, ldsBlockBMemRefType, 0, {1, KPerBlock, NPerBlock}, elementType);
     auto lds2DMatrixBSubviewOp = b.create<miopen::SubviewOp>(
@@ -6110,27 +5920,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto NumBlksConstantOp = b.create<ConstantIndexOp>(loc, NumBlks);
 
     // Threadwise copy from register (naive tensor) to global (generic tensor).
-    // Original C++ logic:
-    //
-    // struct OutputLayout {
-    //     __device__ static constexpr index_t M1() { return mfma_type.num_groups_blk; }
-    //     __device__ static constexpr index_t M0() { return mfma_type.group_size; }
-    //     __device__ static constexpr index_t N1() { return mfma_type.num_input_blks; }
-    //     __device__ static constexpr index_t N0() { return mfma_type.num_threads_blk; }
-    //     __device__ static constexpr index_t GetBlkSize() { return mfma_type.num_regs_blk; }
-    //     __device__ static constexpr index_t GetNumBlks() {
-    //         return GetNumBlksPerXdlops() * MRepeats * NRepeats;
-    //     }
-    // };
-    //
-    // // CLayout.M1() = num_groups;
-    // // CLayout.M0() = group_size;
-    // // CLayout.N1() = num_blks_per_wave;
-    // // CLayout.N0() = num_threads_per_blks;
-    // constexpr auto CLayout = blockwise_gemm.GetOutputLayout();
-    // constexpr index_t M0   = CLayout.M1();
-    // constexpr index_t M1   = CLayout.N1();
-    // constexpr index_t M2   = CLayout.M0();
 
     int64_t M3 = num_groups_blk;
     int64_t M1 = num_input_blks;
@@ -6148,12 +5937,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         b.create<ConstantIntOp>(loc, M2, b.getIntegerType(32));
 
     auto M2TimesM1I32Op = b.create<MulIOp>(loc, M2ConstantI32Op, M1ConstantI32Op);
-
-    // constexpr auto c_m0_m1_m2_n_global_desc = transform_tensor_descriptor(
-    //     c_m_n_global_desc,
-    //     make_tuple(UnMerge<Sequence<M0, M1, M2>>{}, PassThrough<N>{}),
-    //     make_tuple(Sequence<0>{}, Sequence<1>{}),
-    //     make_tuple(Sequence<0, 1, 2>{}, Sequence<3>{}));
 
     // build affine expression: d0 = g
     // (d0, d1, d2, d3, d4) -> (d0, d1 * M1 * M2 + d2 * M2 + d3, d4)
@@ -6244,11 +6027,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         loc, newOutputType, op.output(), transformedNewOutputAttrs,
         /*populateBounds=*/true);
 
-    // Original C++ logic.
-    // //     src descriptor
-    // constexpr auto c_m0_m1_m2_n_thread_desc =
-    //     make_native_tensor_descriptor_packed(Sequence<1, M0, 1, M2, 1>{});
-
     // Build affine expression for Sequence<1, M0, 1, M2, 1>
     // (d0, d1, d2, d3, d4) -> (d1 * M2 + d3)
     auto matrixCAffineMap5to1 =
@@ -6257,34 +6035,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                             getAffineConstantExpr(M2, op.getContext()) +
                         getAffineDimExpr(3, op.getContext())},
                        op.getContext());
-
-    // Original C++ logic.
-    // for(index_t i = 0; i < NumBlks; ++i)
-    // {
-    //     // calculate origin of thread output tensor on global memory
-    //     //     blockwise GEMM c matrix starting index
-    //     const auto c_thread_mtx_on_block = blockwise_gemm.GetBeginOfThreadMatrixC(i);
-    //     const index_t m_thread_data_on_global =
-    //         m_block_data_on_global + c_thread_mtx_on_block.row;
-    //     const index_t n_thread_data_on_global =
-    //         n_block_data_on_global + c_thread_mtx_on_block.col;
-    //     ThreadwiseGenericTensorSliceCopy_v4r2<decltype(c_m0_m1_m2_n_thread_desc),
-    //                                           decltype(c_m0_m1_m2_n_global_desc),
-    //                                           CThreadCopySliceLengths,
-    //                                           arithmetic_sequence_gen<0, 4, 1>::type,
-    //                                           3,
-    //                                           1,
-    //                                           1,
-    //                                           AddressSpace::Vgpr,
-    //                                           AddressSpace::Global,
-    //                                           CGlobalMemoryDataOperation>(
-    //         {0, 0, 0, 0},
-    //         {m_thread_data_on_global / (M2 * M1),
-    //          m_thread_data_on_global % (M2 * M1) / M2,
-    //          m_thread_data_on_global % M2,
-    //          n_thread_data_on_global})
-    //         .Run(c_thread_vec.n + i * BlkSize, p_c_global);
-    // }
 
     Value c_thread_mtx_index_row, c_thread_mtx_index_col;
     Value c_thread_mtx_index_row_i32, c_thread_mtx_index_col_i32;
@@ -6461,7 +6211,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
       // Emit threadwise_copy_v2.
       auto threadwiseCopyV2CMatrixOp = b.create<miopen::ThreadwiseCopyV2Op>(
           loc, blockwiseGemmV2TailOp.getResults()[vectorCIndex], newOutputTransformOp,
-          //loc, vectorCs[vectorCIndex], newOutputTransformOp,
           vectorCOffsetConstantOp,
           matrixCThreadwiseCopySourceAndDestCoords);
       affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b);
@@ -6674,20 +6423,12 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     // Set copy sorce and dest coordinate acoording to original C++ logic:
     SmallVector<Value, 6> matrixAThreadwiseCopySourceAndDestCoords;
-    // a_thread_copy.Run(
-    //   p_a_block + a_block_mtx.CalculateOffset(0, k_begin, m_repeat *
-    //   MPerLevel1Cluster) + mMyThreadOffsetA),
-    // mMyThreadOffsetA = BlockMatrixA::GetOffsetFromMultiIndex{0, 0,
-    // c_thread_mtx_index.row} = c_thread_mtx_index_row
     matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(lab.create<AddIOp>(
         loc, lab.create<MulIOp>(loc, iva_i32, MPerLevel1ClusterConstantI32Op),
         lab.create<IndexCastOp>(loc, op.threadOffsetA(),
                                 lab.getIntegerType(32))));
-
-    //   p_a_thread + a_thread_mtx.CalculateOffset(0, 0, m_repeat *
-    //   MPerThreadSubC));
     matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(
@@ -6718,20 +6459,12 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     // Set copy sorce and dest coordinate acoording to original C++ logic:
     SmallVector<Value, 6> matrixBThreadwiseCopySourceAndDestCoords;
-    // b_thread_copy.Run(
-    //   p_b_block + b_block_mtx.CalculateOffset(0, k_begin, n_repeat *
-    //   NPerLevel1Cluster) + mMyThreadOffsetB),
-    // mMyThreadOffsetB = BlockMatrixB::GetOffsetFromMultiIndex{0, 0,
-    // c_thread_mtx_index.col} = c_thread_mtx_index_col
     matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(lbb.create<AddIOp>(
         loc, lbb.create<MulIOp>(loc, ivb_i32, NPerLevel1ClusterConstantI32Op),
         lbb.create<IndexCastOp>(loc, op.threadOffsetB(),
                                 lbb.getIntegerType(32))));
-
-    //   p_b_thread + b_thread_mtx.CalculateOffset(0, 0, n_repeat *
-    //   NPerThreadSubC));
     matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(
