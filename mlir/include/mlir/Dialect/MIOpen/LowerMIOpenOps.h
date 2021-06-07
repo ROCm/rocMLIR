@@ -8793,8 +8793,8 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
                                                   outputType.getAffineMaps())),
                  b.getNamedAttr("metadata", b.getArrayAttr({metadata}))})}));
       } else {
-        // XXX. Only do this for miopen.xdlops_gemm_v2 operation.
-        // miopen.threadwise_copy will NOT be affected.
+        // Only do this for miopen.xdlops_gemm_v2 operation.
+        // Do not alter attributes if the user is miopen.threadwise_copy.
         if ((user->getName().getStringRef() == miopen::XdlopsGemmV2Op::getOperationName())) {
 
           // create a deep-copy of existing attributes, and amend the new one.
