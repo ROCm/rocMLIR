@@ -76,8 +76,8 @@ inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
 //===----------------------------------------------------------------------===//
 inline void emitNaiveTensorCopyLogic(
     OpBuilder &b, Location loc, int64_t NSliceRow, int64_t NSliceCol,
-    int64_t DataPerAccess, const SmallVector<Value, 2> &sourceCoord,
-    const SmallVector<Value, 2> &destCoord,
+    int64_t DataPerAccess, const SmallVector<Value, 8> &sourceCoord,
+    const SmallVector<Value, 8> &destCoord,
     const Optional<AffineMap> &composedSourceTransform,
     const Optional<AffineMap> &composedDestTransform, Type sourceElementType,
     Type destElementType, Value source, Value dest) {
@@ -7038,6 +7038,14 @@ struct ThreadwiseCopyRewritePattern
       return failure();
     }
 
+    SmallVector<Value, 8> sourceCoord;
+    SmallVector<Value, 8> destCoord;
+    for (unsigned i = 0; i < sourceCoordLength; ++i)
+      sourceCoord.push_back(sourceAndDestCoord[i]);
+    for (unsigned i = sourceCoordLength;
+         i < sourceCoordLength + destCoordLength; ++i)
+      destCoord.push_back(sourceAndDestCoord[i]);
+
     // Distinguish between generic <-> naive v naive <-> naive tensors.
     auto NSliceRowAttr = op->getAttr("n_slice_row");
     auto NSliceColAttr = op->getAttr("n_slice_col");
@@ -7046,25 +7054,15 @@ struct ThreadwiseCopyRewritePattern
       // In cases where attributes n_slice_row/n_slice_col/data_per_access are
       // specified, source and dest memrefs are all on LDS or VGPR, use the
       // simpler algorithm because they are all naive tensors.
-
       int64_t NSliceRow = NSliceRowAttr.template cast<IntegerAttr>().getInt();
       int64_t NSliceCol = NSliceColAttr.template cast<IntegerAttr>().getInt();
       int64_t DataPerAccess =
           DataPerAccessAttr.template cast<IntegerAttr>().getInt();
 
-      SmallVector<Value, 2> sourceCoord;
-      SmallVector<Value, 2> destCoord;
-      for (unsigned i = 0; i < sourceCoordLength; ++i)
-        sourceCoord.push_back(sourceAndDestCoord[i]);
-      for (unsigned i = sourceCoordLength;
-           i < sourceCoordLength + destCoordLength; ++i)
-        destCoord.push_back(sourceAndDestCoord[i]);
-
       emitNaiveTensorCopyLogic(b, loc, NSliceRow, NSliceCol, DataPerAccess,
                                sourceCoord, destCoord, composedSourceTransform,
                                composedDestTransform, sourceElementType,
                                destElementType, op.source(), op.dest());
-
     } else {
       // Otherwise, employ the more elaborated algorithm.
       // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
@@ -7233,35 +7231,47 @@ struct ThreadwiseCopyRewritePattern
         loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
       }
       bool toExit = false;
+
+      auto computeLowerIndicesWithAffineMap =
+          [&b, &loc](SmallVector<Value, 8> &upperIndices,
+                     SmallVector<Value, 8> &lowerIndices,
+                     const SmallVector<Value, 8> &originalCoords,
+                     const SmallVector<int64_t, 8> &loopIVsPerAccessOrder,
+                     const ArrayAttr &dimAccessOrder,
+                     const SmallVector<AffineMap> &layeredTransforms) {
+            // Compute high-level coordinate.
+            // index = (iv_0, iv_1, ...) + originalCoords
+            upperIndices.clear();
+            for (unsigned iter = 0; iter < originalCoords.size(); ++iter)
+              upperIndices.push_back(b.create<IndexCastOp>(
+                  loc, originalCoords[iter], b.getIndexType()));
+
+            for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size();
+                 ++iter) {
+              auto dim =
+                  dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+              auto loopIV =
+                  b.create<ConstantIndexOp>(loc, loopIVsPerAccessOrder[dim]);
+              upperIndices[iter] =
+                  b.create<AddIOp>(loc, loopIV, upperIndices[iter]);
+            }
+
+            // Populate coorindates across the layers of transformations.
+            SmallVector<SmallVector<Value, 8>, 2> layeredIndices;
+            populateLayeredIndicesWithAffineMap(
+                b, loc, layeredIndices, upperIndices, layeredTransforms);
+
+            // Fetch low-level coordinate.
+            lowerIndices = layeredIndices[layeredIndices.size() - 1];
+          };
+
       do {
         // Use the old logic in case "legacy_load" attribute is specified.
         if (legacyLoadAttr &&
             (legacyLoadAttr.template cast<BoolAttr>().getValue() == true)) {
-          // Compute high-level coordinate for source memref.
-          // src_index = (iv_0, iv_1, ...) + sourceCoord
-          srcUpperIndices.clear();
-          for (unsigned iter = 0; iter < sourceCoordLength; ++iter)
-            srcUpperIndices.push_back(b.create<IndexCastOp>(
-                loc, sourceAndDestCoord[iter], b.getIndexType()));
-
-          for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-            auto dim =
-                dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-            auto loopIV =
-                b.create<ConstantIndexOp>(loc, loopIVsPerAccessOrder[dim]);
-            srcUpperIndices[iter] =
-                b.create<AddIOp>(loc, loopIV, srcUpperIndices[iter]);
-          }
-
-          // Populate coorindates across the layers of transformations.
-          SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
-          populateLayeredIndicesWithAffineMap(b, loc, layeredSourceIndices,
-                                              srcUpperIndices,
-                                              layeredSourceTransform);
-
-          // Fetch low-level coordinate.
-          srcLowerIndices =
-              layeredSourceIndices[layeredSourceIndices.size() - 1];
+          computeLowerIndicesWithAffineMap(
+              srcUpperIndices, srcLowerIndices, sourceCoord,
+              loopIVsPerAccessOrder, dimAccessOrder, layeredSourceTransform);
         } else {
           // New approach. Use index diff map.
 
@@ -7406,32 +7416,9 @@ struct ThreadwiseCopyRewritePattern
         // Use the old logic in case "legacy_store" attribute is specified.
         if (legacyStoreAttr &&
             legacyStoreAttr.template cast<BoolAttr>().getValue()) {
-          // Compute high-level coordinate for dest memref.
-          // dst_index = (iv_0, iv_1, ...) + destCoord
-          destUpperIndices.clear();
-          for (unsigned iter = sourceCoordLength;
-               iter < sourceCoordLength + destCoordLength; ++iter)
-            destUpperIndices.push_back(b.create<IndexCastOp>(
-                loc, sourceAndDestCoord[iter], b.getIndexType()));
-
-          for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-            auto dim =
-                dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-            auto loopIV =
-                b.create<ConstantIndexOp>(loc, loopIVsPerAccessOrder[dim]);
-            destUpperIndices[iter] =
-                b.create<AddIOp>(loc, loopIV, destUpperIndices[iter]);
-          }
-
-          // Populate coorindates across the layers of transformations.
-          SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
-          populateLayeredIndicesWithAffineMap(b, loc, layeredDestIndices,
-                                              destUpperIndices,
-                                              layeredDestTransform);
-
-          // Fetch low-level coordinate.
-          destLowerIndices = layeredDestIndices[layeredDestIndices.size() - 1];
-
+          computeLowerIndicesWithAffineMap(
+              destUpperIndices, destLowerIndices, destCoord,
+              loopIVsPerAccessOrder, dimAccessOrder, layeredDestTransform);
         } else {
           // New approach. Use index diff map.
 
