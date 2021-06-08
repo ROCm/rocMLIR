@@ -302,8 +302,7 @@ inline bool obtainOOBCheckInfo(const Optional<AffineMap> &composedTransform,
 // - bound check attribute.
 //===----------------------------------------------------------------------===//
 inline unsigned obtainGenericTensorTransformationInfo(
-    int64_t operandIndex, const MemRefType type,
-    const ArrayAttr &coordTransformsAttr,
+    int64_t operandIndex, const Type type, const ArrayAttr &coordTransformsAttr,
     Optional<AffineMap> &composedTransform,
     SmallVector<AffineMap> &layeredTransform, DictionaryAttr &transformSpec,
     ArrayAttr &boundCheckAttr) {
@@ -314,8 +313,19 @@ inline unsigned obtainGenericTensorTransformationInfo(
   //    attribute, or embedded affine maps. Use its rank.
   // 2. For memrefs with externally defined maps, use its input rank.
   // 3. For memrefs with embedded maps, use its input rank.
-  unsigned coordLength = type.getRank();
-  auto typeAffineMaps = type.getAffineMaps();
+  assert(type.isa<MemRefType>() || type.isa<VectorType>());
+  unsigned coordLength = 0;
+  ArrayRef<AffineMap> typeAffineMaps;
+  if (type.isa<MemRefType>()) {
+    MemRefType memrefType = type.cast<MemRefType>();
+    coordLength = memrefType.getRank();
+    typeAffineMaps = memrefType.getAffineMaps();
+  } else if (type.isa<VectorType>()) {
+    VectorType vectorType = type.cast<VectorType>();
+    coordLength = vectorType.getShape().size();
+    // Vector types doesn't have type-associated affine maps.
+    // Keep typeAffineMaps uninitialized.
+  }
 
   if (typeAffineMaps.size()) {
     coordLength = typeAffineMaps[0].getNumInputs();
@@ -7010,6 +7020,7 @@ struct ThreadwiseCopyRewritePattern
   LogicalResult matchAndRewrite(miopen::ThreadwiseCopyOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
+
     auto sourceElementType =
         op.source().getType().cast<MemRefType>().getElementType().cast<Type>();
     auto destElementType =
@@ -7024,7 +7035,6 @@ struct ThreadwiseCopyRewritePattern
     auto legacyLoadAttr = op->getAttr("legacy_load");
     auto legacyStoreAttr = op->getAttr("legacy_store");
 
-    ArrayAttr coordTransformSpec;
     Optional<AffineMap> composedSourceTransform;
     Optional<AffineMap> composedDestTransform;
     SmallVector<AffineMap> layeredSourceTransform;
@@ -8036,88 +8046,40 @@ struct ThreadwiseCopyV2RewritePattern
     //    attribute, or embedded affine maps. Use its rank.
     // 2. For memrefs with externally defined maps, use its input rank.
     // 3. For memrefs with embedded maps, use its input rank.
-    auto sourceAndDestCoord = op.sourceAndDestCoord();
-    auto destTypeAffineMaps = destType.getAffineMaps();
-    auto coordTransformsAttr = op->getAttr("coord_transforms");
-
-    unsigned sourceCoordLength = sourceType.getRank();
-    unsigned destCoordLength = destType.getRank();
-
     Optional<AffineMap> composedSourceTransform;
     Optional<AffineMap> composedDestTransform;
     SmallVector<AffineMap> layeredSourceTransform;
     SmallVector<AffineMap> layeredDestTransform;
-    ArrayAttr boundCheckDestAttr;
-
-    if (destTypeAffineMaps.size()) {
-      destCoordLength = destTypeAffineMaps[0].getNumInputs();
-      // Populate affine maps for each layer.
-      layeredDestTransform.assign(destTypeAffineMaps.begin(),
-                                  destTypeAffineMaps.end());
-      composedDestTransform = composeTransforms(destTypeAffineMaps);
-    }
-
-    // Obtain metadata of coordinate transformations.
-    ArrayAttr coordTransformSpec;
     DictionaryAttr srcTransformSpec;
     DictionaryAttr destTransformSpec;
-    if (coordTransformsAttr) {
-      coordTransformSpec = coordTransformsAttr.template cast<ArrayAttr>();
-      for (auto attr : coordTransformSpec) {
-        auto dictAttr = attr.template cast<DictionaryAttr>();
-        auto operandIndex =
-            dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-        auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
-        if (operandIndex == 0) {
-          sourceCoordLength = transforms[0]
-                                  .template cast<AffineMapAttr>()
-                                  .getValue()
-                                  .getNumInputs();
-          srcTransformSpec = dictAttr;
+    ArrayAttr boundCheckSourceAttr;
+    ArrayAttr boundCheckDestAttr;
 
-          composedSourceTransform = composeTransforms(transforms);
-          // Populate affine maps for each layer.
-          for (auto &am : transforms)
-            layeredSourceTransform.push_back(
-                am.template cast<AffineMapAttr>().getValue());
-        } else {
-          destCoordLength = transforms[0]
-                                .template cast<AffineMapAttr>()
-                                .getValue()
-                                .getNumInputs();
-          destTransformSpec = dictAttr;
+    auto coordTransformsAttr =
+        op->getAttr("coord_transforms").template cast<ArrayAttr>();
 
-          composedDestTransform = composeTransforms(transforms);
-          // Populate affine maps for each layer.
-          for (auto &am : transforms)
-            layeredDestTransform.push_back(
-                am.template cast<AffineMapAttr>().getValue());
+    // Obtain coordinate lengths, as well as information of affine
+    // transformations.
+    unsigned sourceCoordLength = obtainGenericTensorTransformationInfo(
+        /*operandIndex=*/0, sourceType, coordTransformsAttr,
+        composedSourceTransform, layeredSourceTransform, srcTransformSpec,
+        boundCheckSourceAttr);
+    unsigned destCoordLength = obtainGenericTensorTransformationInfo(
+        /*operandIndex=*/1, destType, coordTransformsAttr,
+        composedDestTransform, layeredDestTransform, destTransformSpec,
+        boundCheckDestAttr);
 
-          auto boundCheckAttr = dictAttr.get("bound_check");
-          if (boundCheckAttr)
-            boundCheckDestAttr = boundCheckAttr.template cast<ArrayAttr>();
-        }
-      }
-    }
-
-    // Determine if we need to emit codes for out-of-bound check.
-    bool toEmitOOBStoreCheckLogic = false;
-    SmallVector<unsigned, 2> oobStoreCheckDims;
-    if (composedDestTransform && boundCheckDestAttr) {
-      if (boundCheckDestAttr.size() == composedDestTransform->getNumResults()) {
-        for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
-          if (boundCheckDestAttr[iter].template cast<IntegerAttr>().getInt()) {
-            toEmitOOBStoreCheckLogic = true;
-            oobStoreCheckDims.push_back(iter);
-          }
-        }
-      }
-    }
-
+    auto sourceAndDestCoord = op.sourceAndDestCoord();
     if (sourceCoordLength + destCoordLength != sourceAndDestCoord.size()) {
       llvm::errs() << "INCORRECT source and dest coordinates assigned!";
       return failure();
     }
+
+    // Determine if we need to emit codes for out-of-bound check, and which
+    // dimensions need to dconduct such check.
+    SmallVector<unsigned, 8> oobStoreCheckDims;
+    bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
+        composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
 
     // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
     // C++ implementation.
@@ -8153,7 +8115,7 @@ struct ThreadwiseCopyV2RewritePattern
 
     if (composedSourceTransform) {
       // Use bound or domain attribute from source vector.
-      for (auto attr : coordTransformSpec) {
+      for (auto attr : coordTransformsAttr) {
         auto dictAttr = attr.template cast<DictionaryAttr>();
         auto operandIndex =
             dictAttr.get("operand").template cast<IntegerAttr>().getInt();
