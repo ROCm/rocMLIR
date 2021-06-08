@@ -45,9 +45,443 @@
 
 using namespace mlir;
 using namespace mlir::miopen;
+
 // 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
 // store do nothing
-const int twoGB = 2147483647;
+static constexpr int kTwoGB = 2147483647;
+
+//===----------------------------------------------------------------------===//
+// Utility function to emit constant float op.
+//===----------------------------------------------------------------------===//
+inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
+                                   float value) {
+  Value ret;
+  if (elementType == b.getF32Type()) {
+    ret = b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
+  } else if (elementType == b.getF16Type()) {
+    auto valueF32Op =
+        b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
+    ret = b.create<FPTruncOp>(loc, valueF32Op, elementType);
+  } else if (elementType == b.getIntegerType(16)) {
+    ret = b.create<ConstantIntOp>(loc, static_cast<int>(value),
+                                  b.getIntegerType(16));
+  }
+  return ret;
+}
+
+inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc,
+                                       Type elementType) {
+  return createConstantFloatOp(b, loc, elementType, 0.0f);
+}
+
+//===----------------------------------------------------------------------===//
+// Utility function to emit load instructions with potentially OOB checks.
+//===----------------------------------------------------------------------===//
+inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
+                           Type sourceElementType, bool toEmitOOBLoadCheckLogic,
+                           const SmallVector<unsigned, 8> &oobLoadCheckDims,
+                           const Value &source,
+                           const SmallVector<Value, 8> &srcLowerIndices) {
+  Value scalarValue;
+
+  auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+
+  if (toEmitOOBLoadCheckLogic) {
+    // Pre-populate srcLowerLoadOOBIndices. It will be modified inside
+    // toEmitOOBCheckLogic basic block.
+    SmallVector<Value, 8> srcLowerLoadOOBIndices = srcLowerIndices;
+
+    // Emit a useful constant 0f for later use.
+    Value zeroOp = createZeroConstantFloatOp(b, loc, sourceElementType);
+
+    // Walkthrough all lower level indices where the dimension has
+    // padding, check if the result lies within boundaries.
+
+    // Logic in C++:
+    // bool withinBounds = true;
+    // for (auto dim : oobLoadCheckDims) {
+    //   withBounds &=
+    //     (srcLowerIndices[dim] >= 0 &&
+    //      srcLowerIndices[dim] < sourceType.getShape()[dim]) {
+    // }
+    Value withinBoundsOp = b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
+    for (auto dim : oobLoadCheckDims) {
+      Value coord = srcLowerIndices[dim];
+      Value lowerBoundCheckOp =
+          b.create<CmpIOp>(loc, CmpIPredicate::sge, coord, zeroConstantOp);
+      Value upperBoundOp =
+          b.create<ConstantIndexOp>(loc, sourceType.getShape()[dim]);
+      Value upperBoundCheckOp =
+          b.create<CmpIOp>(loc, CmpIPredicate::slt, coord, upperBoundOp);
+      Value withinBoundInOneDimOp =
+          b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
+
+      withinBoundsOp =
+          b.create<AndOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
+
+      // Prepare srcLowerLoadOOBIndices.
+      srcLowerLoadOOBIndices[dim] = zeroConstantOp;
+    }
+
+    // Logic:
+    // if (withinBounds) {
+    //   // load address = lower indices from affine transform.
+    // } else {
+    //   // OOB. Prepare an address known NOT OOB.
+    //   // For example, in NGCHW case:
+    //   // load address = {N, G, C, 0, 0}
+    //   // In NGHWC case:
+    //   // load address = {N, G, 0, 0, C}
+    // }
+    // V = load(load address)
+    // if (withinBounds) {
+    //   return V
+    // } else {
+    //   return 0
+    // }
+
+    // Emit the first IfOp.
+    auto firstIfWithinBoundsOp = b.create<scf::IfOp>(
+        loc,
+        TypeRange{b.getIndexType(), b.getIndexType(), b.getIndexType(),
+                  b.getIndexType(), b.getIndexType()},
+        withinBoundsOp, /*withElseRegion=*/true);
+
+    // Then part.
+    auto firstIfWithinBoundsThenBuilder =
+        firstIfWithinBoundsOp.getThenBodyBuilder();
+    firstIfWithinBoundsThenBuilder.create<scf::YieldOp>(
+        loc,
+        ValueRange{srcLowerIndices[0], srcLowerIndices[1], srcLowerIndices[2],
+                   srcLowerIndices[3], srcLowerIndices[4]});
+
+    // Else part.
+    auto firstIfWithinBoundsElseBuilder =
+        firstIfWithinBoundsOp.getElseBodyBuilder();
+    firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(
+        loc, ValueRange{srcLowerLoadOOBIndices[0], srcLowerLoadOOBIndices[1],
+                        srcLowerLoadOOBIndices[2], srcLowerLoadOOBIndices[3],
+                        srcLowerLoadOOBIndices[4]});
+
+    // Issue scalar load.
+    scalarValue = b.create<LoadOp>(loc, sourceElementType, source,
+                                   firstIfWithinBoundsOp.results());
+
+    // Emit the second IfOp.
+    auto secondIfWithinBoundsOp =
+        b.create<scf::IfOp>(loc, sourceElementType, withinBoundsOp, true);
+    auto secondIfWithinBoundsThenBuilder =
+        secondIfWithinBoundsOp.getThenBodyBuilder();
+    secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc, scalarValue);
+    auto secondIfWithinBoundsElseBuilder =
+        secondIfWithinBoundsOp.getElseBodyBuilder();
+    secondIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOp);
+
+    scalarValue = secondIfWithinBoundsOp.results()[0];
+
+  } else {
+    // Issue scalar load.
+    scalarValue =
+        b.create<LoadOp>(loc, sourceElementType, source, srcLowerIndices);
+  }
+
+  return scalarValue;
+}
+
+//===----------------------------------------------------------------------===//
+// Utility function to emit store instructions with potentially OOB checks.
+//===----------------------------------------------------------------------===//
+inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
+                           Type destElementType, bool toEmitOOBStoreCheckLogic,
+                           const SmallVector<unsigned, 8> &oobStoreCheckDims,
+                           const Value &dest,
+                           const SmallVector<Value, 8> &destLowerIndices,
+                           const Value &value) {
+  auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+
+  if (toEmitOOBStoreCheckLogic) {
+    SmallVector<Value, 8> destLowerStoreIndices;
+    SmallVector<Value, 8> destLowerStoreOOBIndices;
+
+    for (unsigned i = 0; i < destLowerIndices.size(); ++i) {
+      auto dstIndex =
+          b.create<IndexCastOp>(loc, destLowerIndices[i], b.getIntegerType(32));
+      destLowerStoreIndices.push_back(dstIndex);
+    }
+
+    destLowerStoreOOBIndices = destLowerStoreIndices;
+    Value oobAddrOp =
+        b.create<ConstantIntOp>(loc, kTwoGB, b.getIntegerType(32));
+
+    Value zeroAddrOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
+
+    // Logic in C++:
+    // bool withinBounds = true;
+    // for (auto dim : oobStoreCheckDims) {
+    //   withBounds &=
+    //     (destLowerIndices[dim] >= 0 &&
+    //      destLowerIndices[dim] < destType.getShape()[dim]) {
+    // }
+
+    Value withinStoreBoundsOp =
+        b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
+    for (auto dim : oobStoreCheckDims) {
+      Value coordStore = destLowerIndices[dim];
+      Value lowerBoundCheckOp =
+          b.create<CmpIOp>(loc, CmpIPredicate::sge, coordStore, zeroConstantOp);
+      Value upperBoundOp =
+          b.create<ConstantIndexOp>(loc, destType.getShape()[dim]);
+      Value upperBoundCheckOp =
+          b.create<CmpIOp>(loc, CmpIPredicate::slt, coordStore, upperBoundOp);
+      Value withinBoundInOneDimOp =
+          b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
+
+      withinStoreBoundsOp =
+          b.create<AndOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
+      destLowerStoreOOBIndices[dim] = zeroAddrOp;
+    }
+
+    auto ifWithinBoundsOp = b.create<scf::IfOp>(
+        loc,
+        TypeRange{b.getIntegerType(32), b.getIntegerType(32),
+                  b.getIntegerType(32), b.getIntegerType(32),
+                  b.getIntegerType(32), b.getIntegerType(32)},
+        withinStoreBoundsOp, true);
+
+    auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
+    thenBuilder.create<scf::YieldOp>(
+        loc, ValueRange{zeroAddrOp, destLowerStoreIndices[0],
+                        destLowerStoreIndices[1], destLowerStoreIndices[2],
+                        destLowerStoreIndices[3], destLowerStoreIndices[4]});
+    auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
+    elseBuilder.create<scf::YieldOp>(
+        loc,
+        ValueRange{oobAddrOp, destLowerStoreOOBIndices[0],
+                   destLowerStoreOOBIndices[1], destLowerStoreOOBIndices[2],
+                   destLowerStoreOOBIndices[3], destLowerStoreOOBIndices[4]});
+
+    b.create<gpu::RawbufStoreOp>(loc, value, dest,
+                                 ifWithinBoundsOp.getResults()[0],
+                                 ValueRange{ifWithinBoundsOp.getResults()[1],
+                                            ifWithinBoundsOp.getResults()[2],
+                                            ifWithinBoundsOp.getResults()[3],
+                                            ifWithinBoundsOp.getResults()[4],
+                                            ifWithinBoundsOp.getResults()[5]});
+  } else {
+    b.create<StoreOp>(loc, value, dest, destLowerIndices);
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// Utility function to determine if we need to emit codes for OOB checks.
+//===----------------------------------------------------------------------===//
+inline bool obtainOOBCheckInfo(const Optional<AffineMap> &composedTransform,
+                               const ArrayAttr &boundCheckAttr,
+                               SmallVector<unsigned, 8> &oobCheckDims) {
+  // Determine if we need to emit codes for out-of-bound check.
+  bool ret = false;
+  if (composedTransform && boundCheckAttr) {
+    if (boundCheckAttr.size() == composedTransform->getNumResults()) {
+      for (unsigned iter = 0; iter < boundCheckAttr.size(); ++iter) {
+        if (boundCheckAttr[iter].template cast<IntegerAttr>().getInt()) {
+          ret = true;
+          oobCheckDims.push_back(iter);
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+//===----------------------------------------------------------------------===//
+// Utility function to compute various information wrt threadwise_copy.
+// - coordinate length : return value.
+// - composed affine transform.
+// - layered affine transform.
+// - specification of transformation.
+// - bound check attribute.
+//===----------------------------------------------------------------------===//
+inline unsigned obtainGenericTensorTransformationInfo(
+    int64_t operandIndex, const Type type, const ArrayAttr &coordTransformsAttr,
+    Optional<AffineMap> &composedTransform,
+    SmallVector<AffineMap> &layeredTransform, DictionaryAttr &transformSpec,
+    ArrayAttr &boundCheckAttr) {
+  // Get source and dest coordinates.
+  //
+  // 1. For memrefs with no externally defined affine maps in
+  // coord_transforms
+  //    attribute, or embedded affine maps. Use its rank.
+  // 2. For memrefs with externally defined maps, use its input rank.
+  // 3. For memrefs with embedded maps, use its input rank.
+  assert(type.isa<MemRefType>() || type.isa<VectorType>());
+  unsigned coordLength = 0;
+  ArrayRef<AffineMap> typeAffineMaps;
+  if (type.isa<MemRefType>()) {
+    MemRefType memrefType = type.cast<MemRefType>();
+    coordLength = memrefType.getRank();
+    typeAffineMaps = memrefType.getAffineMaps();
+  } else if (type.isa<VectorType>()) {
+    VectorType vectorType = type.cast<VectorType>();
+    coordLength = vectorType.getShape().size();
+    // Vector types doesn't have type-associated affine maps.
+    // Keep typeAffineMaps uninitialized.
+  }
+
+  if (typeAffineMaps.size()) {
+    coordLength = typeAffineMaps[0].getNumInputs();
+    // Compose affine maps.
+    composedTransform = composeTransforms(typeAffineMaps);
+
+    // Populate affine maps for each layer.
+    layeredTransform.assign(typeAffineMaps.begin(), typeAffineMaps.end());
+  }
+  // Obtain metadata of coordinate transformations.
+  if (coordTransformsAttr) {
+    for (auto attr : coordTransformsAttr) {
+      auto dictAttr = attr.template cast<DictionaryAttr>();
+      auto index =
+          dictAttr.get("operand").template cast<IntegerAttr>().getInt();
+      auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
+      if (index == operandIndex) {
+        coordLength = transforms[0]
+                          .template cast<AffineMapAttr>()
+                          .getValue()
+                          .getNumInputs();
+        transformSpec = dictAttr;
+        // Compose affine maps.
+        composedTransform = composeTransforms(transforms);
+
+        // Populate affine maps for each layer.
+        for (auto &am : transforms)
+          layeredTransform.push_back(
+              am.template cast<AffineMapAttr>().getValue());
+
+        auto bcAttr = dictAttr.get("bound_check");
+        if (bcAttr)
+          boundCheckAttr = bcAttr.template cast<ArrayAttr>();
+      }
+    }
+  }
+
+  // Return computed coordinate length.
+  return coordLength;
+}
+
+//===----------------------------------------------------------------------===//
+// Utility function to emit type conversion ops.
+//===----------------------------------------------------------------------===//
+inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
+                                    Type sourceType, Type destType) {
+  // Convert from sourceType to destType if necessary.
+  Value result = source;
+  if (sourceType != destType) {
+    // Possible cases:
+    // - fp16 -> fp32 : use fpext.
+    // - fp32 -> fp16 : use fptrunc.
+    // - fp16/fp32 -> bf16(i16) : use miopen.data_convert.
+    if (sourceType == b.getF16Type() && destType == b.getF32Type()) {
+      result = b.create<FPExtOp>(loc, source, destType);
+    } else if (sourceType == b.getF32Type() && destType == b.getF16Type()) {
+      result = b.create<FPTruncOp>(loc, source, destType);
+    } else if (destType == b.getIntegerType(16)) {
+      result = b.create<miopen::DataConvertOp>(loc, destType, source);
+    }
+  }
+  return result;
+}
+
+//===----------------------------------------------------------------------===//
+// Utility function to emit the logic to copy between naive tensors.
+// This function is used within the lowering logic of threadwise_copy.
+//===----------------------------------------------------------------------===//
+inline void emitNaiveTensorCopyLogic(
+    OpBuilder &b, Location loc, int64_t NSliceRow, int64_t NSliceCol,
+    int64_t DataPerAccess, const SmallVector<Value, 8> &sourceCoord,
+    const SmallVector<Value, 8> &destCoord,
+    const Optional<AffineMap> &composedSourceTransform,
+    const Optional<AffineMap> &composedDestTransform, Type sourceElementType,
+    Type destElementType, Value source, Value dest) {
+  auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+
+  // Emit fully-unrolled loops.
+  for (unsigned ivo = 0; ivo < NSliceRow; ++ivo) {
+    auto ivo_i32 = b.create<ConstantIntOp>(loc, ivo, b.getIntegerType(32));
+    for (unsigned ivi = 0; ivi < NSliceCol; ivi += DataPerAccess) {
+      auto ivi_i32 = b.create<ConstantIntOp>(loc, ivi, b.getIntegerType(32));
+
+      // Compute high-level coordinate for source memref.
+      // src_index = (0, ivo_i32, ivi_i32) + sourceCoord
+      SmallVector<Value, 8> srcUpperIndices;
+      srcUpperIndices.push_back(b.create<IndexCastOp>(
+          loc, b.create<AddIOp>(loc, zeroConstantOp, sourceCoord[0]),
+          b.getIndexType()));
+      srcUpperIndices.push_back(b.create<IndexCastOp>(
+          loc, b.create<AddIOp>(loc, ivo_i32, sourceCoord[1]),
+          b.getIndexType()));
+      srcUpperIndices.push_back(b.create<IndexCastOp>(
+          loc, b.create<AddIOp>(loc, ivi_i32, sourceCoord[2]),
+          b.getIndexType()));
+
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 8> srcLowerIndices;
+      if (composedSourceTransform)
+        srcLowerIndices =
+            expandAffineMap(b, loc, *composedSourceTransform, srcUpperIndices)
+                .getValue();
+      else
+        srcLowerIndices = srcUpperIndices;
+
+      // Load from source.
+      // Issue scalar load.
+      Value scalarValue =
+          b.create<LoadOp>(loc, sourceElementType, source, srcLowerIndices);
+
+      // Convert from sourceElementType to destElementType if necessary.
+      Value convertedScalarValue = createTypeConversionOp(
+          b, loc, scalarValue, sourceElementType, destElementType);
+
+      // Compute high-level coordinate for dest memref.
+      // dst_index = (0, ivo_i32, ivi_i32) + destCoord
+      SmallVector<Value, 8> destUpperIndices;
+      destUpperIndices.push_back(b.create<IndexCastOp>(
+          loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
+          b.getIndexType()));
+      destUpperIndices.push_back(b.create<IndexCastOp>(
+          loc, b.create<AddIOp>(loc, ivo_i32, destCoord[1]), b.getIndexType()));
+      destUpperIndices.push_back(b.create<IndexCastOp>(
+          loc, b.create<AddIOp>(loc, ivi_i32, destCoord[2]), b.getIndexType()));
+
+      // Apply affine transformations to compute the low-level coordinate.
+      SmallVector<Value, 8> destLowerIndices;
+      if (composedDestTransform)
+        destLowerIndices =
+            expandAffineMap(b, loc, *composedDestTransform, destUpperIndices)
+                .getValue();
+      else
+        destLowerIndices = destUpperIndices;
+
+      // Store to dest.
+      // Issue scalar store.
+      b.create<StoreOp>(loc, convertedScalarValue, dest, destLowerIndices);
+
+    } // ivi
+  }   // ivo
+}
+
+//===----------------------------------------------------------------------===//
+// Utility function to populate the transform metadata in cases there is none.
+// Just populate "lower_layer_bounds" attribute from the lower level shape.
+//===----------------------------------------------------------------------===//
+inline void
+populateTransformMetadataFromLowerType(OpBuilder &b, ShapedType lowerType,
+                                       ArrayAttr &transformMetadata) {
+  SmallVector<Attribute, 4> lowerShapeAttr;
+  for (auto &v : lowerType.getShape())
+    lowerShapeAttr.push_back(b.getI32IntegerAttr(v));
+  transformMetadata = b.getArrayAttr({b.getDictionaryAttr({b.getNamedAttr(
+      "lower_layer_bounds", b.getArrayAttr({lowerShapeAttr}))})});
+}
+
 //===----------------------------------------------------------------------===//
 // Utility function to compute index diff map.
 //===----------------------------------------------------------------------===//
@@ -513,6 +947,44 @@ inline void populateLayeredIndicesWithIndexDiffMap(
 }
 
 //===----------------------------------------------------------------------===//
+// Utility function to progressively use index diff map to compute the
+// coordinate at the bottom most layer.
+//===----------------------------------------------------------------------===//
+inline void computeBottomIndicesWithIndexDiffMap(
+    OpBuilder &b, Location loc,
+    const SmallVector<int64_t, 8> &loopIVsPerAccessOrder,
+    const ArrayAttr &layeredTransformMetadata,
+    const SmallVector<AffineMap> &layeredTransform,
+    const SmallVector<SmallVector<Value, 8>, 2> &layeredIndices,
+    SmallVector<Value, 8> &bottomIndices) {
+  // Coordinates across the layers of transformations.
+  // If the vector is of size n, 0 is the top layer, and
+  // n-1 is the bottom layer.
+  SmallVector<SmallVector<Value, 8>, 2> layeredDiffs;
+  SmallVector<SmallVector<Value, 8>, 2> layeredIndicesUpdated;
+
+  SmallVector<Value, 8> topDiff;
+  for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter)
+    topDiff.push_back(b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[iter],
+                                              b.getIntegerType(32)));
+  layeredDiffs.push_back(topDiff);
+  // Progressively apply index diff maps across all coordinate
+  // transformation layers.
+  populateLayeredIndicesWithIndexDiffMap(
+      b, loc, layeredTransformMetadata, layeredTransform, layeredIndices,
+      topDiff, layeredDiffs, layeredIndicesUpdated);
+
+  // Fetch bottom most layer coordinate.
+  SmallVector<Value, 8> bottomIndicesUpdated =
+      layeredIndicesUpdated[layeredIndicesUpdated.size() - 1];
+  // computeIndexDiffMap by default emit indices of type i32, convert to
+  // index type.
+  bottomIndices.clear();
+  for (auto &v : bottomIndicesUpdated)
+    bottomIndices.push_back(b.create<IndexCastOp>(loc, v, b.getIndexType()));
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to repeatedly apply affine transformation to compute the
 // coordinate for the next layer.
 //===----------------------------------------------------------------------===//
@@ -572,52 +1044,36 @@ inline void populateLayeredIndicesWithAffineMap(
 }
 
 //===----------------------------------------------------------------------===//
-// Utility function to emit constant float op.
+// Utility function to compute the uppermost layer and bottommost layer
+// coorindates using affine map.
 //===----------------------------------------------------------------------===//
-inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
-                                   float value) {
-  Value ret;
-  if (elementType == b.getF32Type()) {
-    ret = b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
-  } else if (elementType == b.getF16Type()) {
-    auto valueF32Op =
-        b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
-    ret = b.create<FPTruncOp>(loc, valueF32Op, elementType);
-  } else if (elementType == b.getIntegerType(16)) {
-    ret = b.create<ConstantIntOp>(loc, static_cast<int>(value),
-                                  b.getIntegerType(16));
+inline void computeTopAndBottomIndicesWithAffineMap(
+    OpBuilder &b, Location &loc, SmallVector<Value, 8> &topIndices,
+    SmallVector<Value, 8> &bottomIndices,
+    const SmallVector<Value, 8> &originalCoords,
+    const SmallVector<int64_t, 8> &loopIVsPerAccessOrder,
+    const ArrayAttr &dimAccessOrder,
+    const SmallVector<AffineMap> &layeredTransforms) {
+  // Compute high-level coordinate.
+  // index = (iv_0, iv_1, ...) + originalCoords
+  topIndices.clear();
+  for (unsigned iter = 0; iter < originalCoords.size(); ++iter)
+    topIndices.push_back(
+        b.create<IndexCastOp>(loc, originalCoords[iter], b.getIndexType()));
+
+  for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
+    auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+    auto loopIV = b.create<ConstantIndexOp>(loc, loopIVsPerAccessOrder[dim]);
+    topIndices[iter] = b.create<AddIOp>(loc, loopIV, topIndices[iter]);
   }
-  return ret;
-}
 
-inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc,
-                                       Type elementType) {
-  return createConstantFloatOp(b, loc, elementType, 0.0f);
-}
+  // Populate coorindates across the layers of transformations.
+  SmallVector<SmallVector<Value, 8>, 2> layeredIndices;
+  populateLayeredIndicesWithAffineMap(b, loc, layeredIndices, topIndices,
+                                      layeredTransforms);
 
-inline Value createOneConstantFloatOp(OpBuilder &b, Location loc,
-                                      Type elementType) {
-  return createConstantFloatOp(b, loc, elementType, 1.0f);
-}
-
-//===----------------------------------------------------------------------===//
-// Utility function to emit type conversion ops.
-//===----------------------------------------------------------------------===//
-inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
-                                    Type sourceType, Type destType) {
-  // Convert from sourceType to destType if necessary.
-  Value result = source;
-  if (sourceType != destType) {
-    // Possible cases:
-    // - fp16 -> fp32 : use fpext.
-    // - fp32 -> fp16 : use fptrunc.
-    if (sourceType == b.getF16Type() && destType == b.getF32Type()) {
-      result = b.create<FPExtOp>(loc, source, destType);
-    } else if (sourceType == b.getF32Type() && destType == b.getF16Type()) {
-      result = b.create<FPTruncOp>(loc, source, destType);
-    }
-  }
-  return result;
+  // Fetch low-level coordinate.
+  bottomIndices = layeredIndices[layeredIndices.size() - 1];
 }
 
 //===----------------------------------------------------------------------===//
@@ -2540,7 +2996,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           gemmIds.push_back(gemmId);
         }
       }
-      assert(gemmIds.size() > kernelId);
+      assert(gemmIds.size() > static_cast<size_t>(kernelId));
       return gemmIds[kernelId];
     };
     auto gemmId = getGemmId(gemmIdAttr.getInt());
@@ -3841,21 +4297,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 //===----------------------------------------------------------------------===//
 
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::GridwiseGemmOp gop, OpBuilder &b) {
-  // Add attributes from C++ template arguments and ctor arguments.
-  //
-  // in gridwise_gemm:
-  // 
-  // ThreadwiseGenericTensorSliceCopy_v4r2<decltype(c_m0_m1_n0_n1_thread_desc),              - source memref
-  //                                       decltype(c_m0_m1_n0_n1_global_desc),              - dest memref
-  //                                       decltype(c_m0_m1_n0_n1_thread_desc.GetLengths()), - source memref
-  //                                       CThreadCopySrcDstAccessOrder,                     - Sequence<0, 1, 2, 3>
-  //                                       CThreadCopySrcDstVectorReadWriteDim,              - matrix_c_source_dest_vector_read_write_dim attribute
-  //                                       1,                                                - 1
-  //                                       CThreadCopyDstDataPerWrite,                       - matrix_c_dest_data_per_write attribute
-  //                                       AddressSpace::Vgpr,                               - addrspace on source memref
-  //                                       AddressSpace::Global,                             - addrspace on dest memref
-  //                                       CGlobalMemoryDataOperation>(                      - NOT USED
-
   top->setAttr("dim_access_order", b.getArrayAttr({
                                        b.getI32IntegerAttr(0),
                                        b.getI32IntegerAttr(1),
@@ -3892,32 +4333,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
                                           miopen::BlockwiseCopyOp bop,
                                           OpBuilder &b,
                                           bool isThreadwiseLoad) {
-  // Add attributes from C++ template arguments and ctor arguments.
-  //
-  // in blockwise_copy:
-  //
-  // using ThreadwiseLoad = ThreadwiseGenericTensorSliceCopy_v4r2<BlockSrcDesc,              - source memref
-  //                                                              ThreadBufferDesc,          - dest memref
-  //                                                              ThreadSliceLengths,        - source memref
-  //                                                              SrcDimAccessOrder,         - Sequence<1, 0>
-  //                                                              SrcVectoReadDim,           - source_vector_read_dim attribute
-  //                                                              SrcDataPerRead,            - source_data_per_read attribute
-  //                                                              1,                         - 1
-  //                                                              SrcAddressSpace,           - addrspace on source memref
-  //                                                              ThreadBufferAddressSpace,  - addrspace on dest memref
-  //                                                              InMemoryDataOperation::Set>- NOT USED
-  //
-  // using ThreadwiseStore = ThreadwiseGenericTensorSliceCopy_v4r2<ThreadBufferDesc,         - source memref
-  //                                                               BlockDstDesc,             - dest memref
-  //                                                               ThreadSliceLengths,       - source memref
-  //                                                               DstDimAccessOrder,        - Sequence<0, 1>
-  //                                                               DstVectorWriteDim,        - dest_vector_write_dim attribute
-  //                                                               1,                        - 1
-  //                                                               DstDataPerWrite,          - dest_data_per_write attribute
-  //                                                               ThreadBufferAddressSpace, - addrspace of source memref
-  //                                                               DstAddressSpace,          - addrspace of dest memref
-  //                                                               DstInMemOp>;              - NOT USE
-
   if (isThreadwiseLoad) {
     top->setAttr("dim_access_order", bop->getAttr("source_dim_access_order"));
     top->setAttr("vector_read_write_dim",
@@ -3958,19 +4373,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
                                           miopen::BlockwiseGemmOp bop,
                                           OpBuilder &b, bool isMatrixA) {
-  // in blockwise_gemm:
-  //
-  // constexpr auto a_thread_copy = ThreadwiseMatrixSliceCopy<BlockMatrixA,                  - source memref
-  //                                                          decltype(a_thread_mtx),        - dest memref
-  //                                                          KPerThreadLoop,                - k_per_thread attribute
-  //                                                          MPerThreadSubC,                - m_per_thread attribute
-  //                                                          ThreadGemmADataPerRead_M>{};   - m_per_thread attribute
-  // constexpr auto b_thread_copy = ThreadwiseMatrixSliceCopy<BlockMatrixB,                  - source memref
-  //                                                          decltype(b_thread_mtx),        - dest memref
-  //                                                          KPerThreadLoop,                - k_per_thread attribute
-  //                                                          NPerThreadSubC,                - n_per_thread attribute
-  //                                                          ThreadGemmBDataPerRead_N>{};   - n_per_thread attribute
-
   if (isMatrixA) {
     top->setAttr("n_slice_row", bop->getAttr("k_per_thread"));
     top->setAttr("n_slice_col", bop->getAttr("m_per_thread"));
@@ -4061,36 +4463,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   void affixBlockwiseCopyAttributes(miopen::BlockwiseCopyOp bop,
                                     miopen::GridwiseGemmOp gop,
                                     OpBuilder &b, bool isMatrixA) const {
-    // Add attributes from C++ template arguments and ctor arguments.
-    // a_blockwise_copy:
-    // BlockSize                           - block_size attribute
-    // a_k_m_global_desc                   - source memref
-    // a_k_m_block_desc                    - dest memref
-    // a_k_m_block_desc.getLengths()       - dest memref
-    // ABlockCopyThreadSliceLengths_K_M    - logic specified in -miopen-affix-params pass
-    // ABlockCopyThreadClusterLengths_K_M  - logic specified in -miopen-affix-params pass
-    // ABlockCopyThreadClusterArrangeOrder - Sequence<1, 0>
-    // ABlockCopySrcAccessOrder            - Sequence<1, 0>
-    // Sequence<0, 1>                      - Sequence<0, 1>
-    // ABlockCopySrcVectorReadDim          - matrix_a_source_vector_read_dim attribute
-    // 1                                   - 1
-    // ABlockCopySrcDataPerRead            - matrix_a_source_data_per_read attribute
-    // ABlockCopyDstDataPerWrite_M         - matrix_a_dest_data_per_write_dim_m attribute
-
-    // b_blockwise_copy:
-    // BlockSize                           - block_size attribute
-    // b_k_n_global_desc                   - source memref
-    // b_k_n_block_desc                    - dest memref
-    // b_k_n_block_desc.getLengths()       - dest memref
-    // BBlockCopyThreadSliceLengths_K_N    - logic specified in -miopen-affix-params pass
-    // BBlockCopyThreadClusterLengths_K_N  - logic specified in -miopen-affix-params pass
-    // BBlockCopyThreadClusterArrangeOrder - Sequence<1, 0>
-    // BBlockCopySrcAccessOrder            - Sequence<1, 0>
-    // Sequence<0, 1>                      - Seuquence<0, 1>
-    // BBlockCopySrcVectorReadDim          - matrix_b_source_read_dim attribute
-    // 1                                   - 1
-    // BBlockCopySrcDataPerRead            - matrix_b_source_data_per_read attribute
-    // BBlockCopyDstDataPerWrite_N         - matrix_b_dest_data_per_write_dim_n attribute
     bop->setAttr("block_size", gop->getAttr("block_size"));
 
     if (isMatrixA) {
@@ -4138,23 +4510,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                     miopen::GridwiseGemmOp gop,
                                     OpBuilder &b) const {
     bop->setAttr("block_size", gop->getAttr("block_size"));
-
-    // Add attributes from C++ template arguments and ctor arguments.
-    //const auto blockwise_gemm = BlockwiseGemmBlockABlockBThreadCTransANormalBNormalC_v2<
-    //    BlockSize,                                - block_size attribute
-    //    decltype(a_k_m_block_mtx_desc),           - matrixA memref
-    //    decltype(b_k_n_block_mtx_desc),           - matrixB memref
-    //    decltype(c_m0m1_n0n1_thread_mtx_desc),    - matrixC memref
-    //    MPerThread,                               - m_per_thread attribute
-    //    NPerThread,                               - n_per_thread attribute
-    //    MLevel0Cluster,                           - m_level0_cluster attribute
-    //    NLevel0Cluster,                           - n_level0_cluster attribute
-    //    MLevel1Cluster,                           - m_level1_cluster attribute
-    //    NLevel1Cluster,                           - n_level1_cluster attribute
-    //    KPerThread,                               - k_per_thread attribute
-    //    ThreadGemmAThreadCopySrcDataPerRead_M,    - m_per_thread attribute
-    //    ThreadGemmBThreadCopySrcDataPerRead_N>{}; - n_per_thread attribute
- 
     // Attributes used in non-xdlops lowering path.
     bop->setAttr("m_per_thread", gop->getAttr("m_per_thread"));
     bop->setAttr("n_per_thread", gop->getAttr("n_per_thread"));
@@ -4392,7 +4747,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Get current workitem ID.
 
-    // Original logic.
     auto tid = b.create<miopen::WorkitemIdOp>(loc, b.getIndexType());
 
     // Compute thread_data_id_begin for Matrix A.
@@ -4490,11 +4844,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Get 2D subviews.
     // Compute matrix A dimension from attributes.
-    // Original C++ logic.
-    // // A matrix in LDS memory, dst of blockwise copy
-    // //   be careful of LDS alignment
-    // constexpr auto a_k_m_block_desc = make_native_tensor_descriptor_aligned(
-    //     Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
     auto lds2DMatrixAMemRefType = computeSubviewResultType(
         op, ldsBlockAMemRefType, 0, {1, KPerBlock, MPerBlock}, elementType);
 
@@ -4513,11 +4862,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Get 2D subviews.
     // Compute matrix B dimension from attributes.
-    // Original C++ logic.
-    // // B matrix in LDS memory, dst of blockwise copy
-    // //   be careful of LDS alignment
-    // constexpr auto b_k_n_block_desc = make_native_tensor_descriptor_aligned(
-    //     Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
     auto lds2DMatrixBMemRefType = computeSubviewResultType(
         op, ldsBlockBMemRefType, 0, {1, KPerBlock, NPerBlock}, elementType);
 
@@ -4527,12 +4871,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Alloc for Matrix C on registers.
     // Compute register size from attributes.
     int64_t GemmMRepeat = 0, GemmNRepeat = 0;
-
-    // Original C++ logic.
-    // constexpr index_t GemmMRepeat = MPerBlock / (MPerThread * MLevel0Cluster * MLevel1Cluster);
-    // constexpr index_t GemmNRepeat = NPerBlock / (NPerThread * NLevel0Cluster * NLevel1Cluster);
-    // constexpr auto c_m0m1_n0n1_thread_mtx_desc = make_ConstantMatrixDescriptor_packed(
-    //     Number<GemmMRepeat * MPerThread>{}, Number<GemmNRepeat * NPerThread>{});
 
     // llvm::errs() << "MPerThread: " << MPerThread << "\n";
     // llvm::errs() << "NPerThread: " << NPerThread << "\n";
@@ -4783,54 +5121,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     affixBlockwiseGemmAttributes(blockwiseGemmTailOp, op, b);
 
     // Threadwise copy from register (naive tensor) to global (generic tensor).
-    // Original C++ logic:
-    //
-    // constexpr index_t M1 = MPerThread * MLevel0Cluster * MLevel1Cluster;
-    // constexpr index_t M0 = M / M1;
-    //
-    // constexpr index_t N1 = NPerThread * NLevel0Cluster * NLevel1Cluster;
-    // constexpr index_t N0 = N / N1;
-    //
-    // // define input tensor descriptor for threadwise copy
-    // //     thread input tensor, src of threadwise copy
-    // constexpr auto c_m0_m1_n0_n1_thread_desc =
-    // make_native_tensor_descriptor_packed(
-    //     Sequence<GemmMRepeat, MPerThread, GemmNRepeat, NPerThread>{});
-    //
-    // constexpr auto c_m0_m1_n0_n1_global_desc = transform_tensor_descriptor(
-    //     c_m_n_global_desc,
-    //     make_tuple(UnMerge<Sequence<M0, M1>>{}, UnMerge<Sequence<N0, N1>>{}),
-    //     make_tuple(Sequence<0>{}, Sequence<1>{}),
-    //     make_tuple(Sequence<0, 1>{}, Sequence<2, 3>{}));
-    //
-    // // calculate origin of thread input tensor on global memory
-    // //     blockwise GEMM c matrix starting index
-    // const auto c_thread_mtx_on_block =
-    //     blockwise_gemm.GetBeginOfThreadMatrixC(get_thread_local_1d_id());
-    //
-    // const index_t m_thread_data_on_global =
-    //     m_block_data_on_global + c_thread_mtx_on_block.row;
-    //
-    // const index_t n_thread_data_on_global =
-    //     n_block_data_on_global + c_thread_mtx_on_block.col;
-    //
-    // ThreadwiseGenericTensorSliceCopy_v4r2<decltype(c_m0_m1_n0_n1_thread_desc),
-    //                                       decltype(c_m0_m1_n0_n1_global_desc),
-    //                                       decltype(c_m0_m1_n0_n1_thread_desc.GetLengths()),
-    //                                       CThreadCopySrcDstAccessOrder,
-    //                                       CThreadCopySrcDstVectorReadWriteDim,
-    //                                       1,
-    //                                       CThreadCopyDstDataPerWrite,
-    //                                       AddressSpace::Vgpr,
-    //                                       AddressSpace::Global,
-    //                                       CGlobalMemoryDataOperation>(
-    //     {0, 0, 0, 0},
-    //     {m_thread_data_on_global / M1,
-    //      m_thread_data_on_global % M1,
-    //      n_thread_data_on_global / N1,
-    //      n_thread_data_on_global % N1})
-    //     .Run(p_c_thread, p_c_global);
-
     int64_t M1 = MPerThread * MLevel0Cluster * MLevel1Cluster;
     int64_t M0 = M / M1;
     int64_t N1 = NPerThread * NLevel0Cluster * NLevel1Cluster;
@@ -5078,13 +5368,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         math::integer_divide_ceil<int64_t>(NPerBlock, max_lds_align);
 
     // A matrix in LDS memory, dst of blockwise copy
-    //   be careful of LDS alignment
-    // Original C++ logic:
-    // constexpr auto a_k_m_block_desc = make_native_tensor_descriptor_aligned(
-    //    Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
-    // constexpr index_t a_block_space =
-    //    math::integer_least_multiple(a_k_m_block_desc.GetElementSpace(),
-    //    max_lds_align);
     int64_t AlignedMPerBlock =
         max_lds_align *
         math::integer_divide_ceil<int64_t>(MPerBlock, max_lds_align);
@@ -5099,13 +5382,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                                  max_lds_align);
 
     // B matrix in LDS memory, dst of blockwise copy
-    //   be careful of LDS alignment
-    // Original C++ logic:
-    // constexpr auto b_k_n_block_desc = make_native_tensor_descriptor_aligned(
-    //    Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
-    // constexpr index_t b_block_space =
-    //    math::integer_least_multiple(b_k_n_block_desc.GetElementSpace(),
-    //    max_lds_align);
     b_block_space = math::integer_least_multiple(KPerBlock * AlignedNPerBlock,
                                                  max_lds_align);
 
@@ -5568,11 +5844,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Get 2D subviews.
     // Compute matrix A dimension from attributes.
-    // Original C++ logic.
-    // // A matrix in LDS memory, dst of blockwise copy
-    // //   be careful of LDS alignment
-    // constexpr auto a_k_m_block_desc = make_native_tensor_descriptor_aligned(
-    //     Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
     auto lds2DMatrixAMemRefType = computeSubviewResultType(
         op, ldsBlockAMemRefType, 0, {1, KPerBlock, MPerBlock}, elementType);
     auto lds2DMatrixASubviewOp = b.create<miopen::SubviewOp>(
@@ -5593,11 +5864,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Get 2D subviews.
     // Compute matrix B dimension from attributes.
-    // Original C++ logic.
-    // // B matrix in LDS memory, dst of blockwise copy
-    // //   be careful of LDS alignment
-    // constexpr auto b_k_n_block_desc = make_native_tensor_descriptor_aligned(
-    //     Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
     auto lds2DMatrixBMemRefType = computeSubviewResultType(
         op, ldsBlockBMemRefType, 0, {1, KPerBlock, NPerBlock}, elementType);
     auto lds2DMatrixBSubviewOp = b.create<miopen::SubviewOp>(
@@ -5925,27 +6191,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     auto NumBlksConstantOp = b.create<ConstantIndexOp>(loc, NumBlks);
 
     // Threadwise copy from register (naive tensor) to global (generic tensor).
-    // Original C++ logic:
-    //
-    // struct OutputLayout {
-    //     __device__ static constexpr index_t M1() { return mfma_type.num_groups_blk; }
-    //     __device__ static constexpr index_t M0() { return mfma_type.group_size; }
-    //     __device__ static constexpr index_t N1() { return mfma_type.num_input_blks; }
-    //     __device__ static constexpr index_t N0() { return mfma_type.num_threads_blk; }
-    //     __device__ static constexpr index_t GetBlkSize() { return mfma_type.num_regs_blk; }
-    //     __device__ static constexpr index_t GetNumBlks() {
-    //         return GetNumBlksPerXdlops() * MRepeats * NRepeats;
-    //     }
-    // };
-    //
-    // // CLayout.M1() = num_groups;
-    // // CLayout.M0() = group_size;
-    // // CLayout.N1() = num_blks_per_wave;
-    // // CLayout.N0() = num_threads_per_blks;
-    // constexpr auto CLayout = blockwise_gemm.GetOutputLayout();
-    // constexpr index_t M0   = CLayout.M1();
-    // constexpr index_t M1   = CLayout.N1();
-    // constexpr index_t M2   = CLayout.M0();
 
     int64_t M3 = num_groups_blk;
     int64_t M1 = num_input_blks;
@@ -5963,12 +6208,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         b.create<ConstantIntOp>(loc, M2, b.getIntegerType(32));
 
     auto M2TimesM1I32Op = b.create<MulIOp>(loc, M2ConstantI32Op, M1ConstantI32Op);
-
-    // constexpr auto c_m0_m1_m2_n_global_desc = transform_tensor_descriptor(
-    //     c_m_n_global_desc,
-    //     make_tuple(UnMerge<Sequence<M0, M1, M2>>{}, PassThrough<N>{}),
-    //     make_tuple(Sequence<0>{}, Sequence<1>{}),
-    //     make_tuple(Sequence<0, 1, 2>{}, Sequence<3>{}));
 
     // build affine expression: d0 = g
     // (d0, d1, d2, d3, d4) -> (d0, d1 * M1 * M2 + d2 * M2 + d3, d4)
@@ -6059,11 +6298,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         loc, newOutputType, op.output(), transformedNewOutputAttrs,
         /*populateBounds=*/true);
 
-    // Original C++ logic.
-    // //     src descriptor
-    // constexpr auto c_m0_m1_m2_n_thread_desc =
-    //     make_native_tensor_descriptor_packed(Sequence<1, M0, 1, M2, 1>{});
-
     // Build affine expression for Sequence<1, M0, 1, M2, 1>
     // (d0, d1, d2, d3, d4) -> (d1 * M2 + d3)
     auto matrixCAffineMap5to1 =
@@ -6072,34 +6306,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                             getAffineConstantExpr(M2, op.getContext()) +
                         getAffineDimExpr(3, op.getContext())},
                        op.getContext());
-
-    // Original C++ logic.
-    // for(index_t i = 0; i < NumBlks; ++i)
-    // {
-    //     // calculate origin of thread output tensor on global memory
-    //     //     blockwise GEMM c matrix starting index
-    //     const auto c_thread_mtx_on_block = blockwise_gemm.GetBeginOfThreadMatrixC(i);
-    //     const index_t m_thread_data_on_global =
-    //         m_block_data_on_global + c_thread_mtx_on_block.row;
-    //     const index_t n_thread_data_on_global =
-    //         n_block_data_on_global + c_thread_mtx_on_block.col;
-    //     ThreadwiseGenericTensorSliceCopy_v4r2<decltype(c_m0_m1_m2_n_thread_desc),
-    //                                           decltype(c_m0_m1_m2_n_global_desc),
-    //                                           CThreadCopySliceLengths,
-    //                                           arithmetic_sequence_gen<0, 4, 1>::type,
-    //                                           3,
-    //                                           1,
-    //                                           1,
-    //                                           AddressSpace::Vgpr,
-    //                                           AddressSpace::Global,
-    //                                           CGlobalMemoryDataOperation>(
-    //         {0, 0, 0, 0},
-    //         {m_thread_data_on_global / (M2 * M1),
-    //          m_thread_data_on_global % (M2 * M1) / M2,
-    //          m_thread_data_on_global % M2,
-    //          n_thread_data_on_global})
-    //         .Run(c_thread_vec.n + i * BlkSize, p_c_global);
-    // }
 
     Value c_thread_mtx_index_row, c_thread_mtx_index_col;
     Value c_thread_mtx_index_row_i32, c_thread_mtx_index_col_i32;
@@ -6276,7 +6482,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
       // Emit threadwise_copy_v2.
       auto threadwiseCopyV2CMatrixOp = b.create<miopen::ThreadwiseCopyV2Op>(
           loc, blockwiseGemmV2TailOp.getResults()[vectorCIndex], newOutputTransformOp,
-          //loc, vectorCs[vectorCIndex], newOutputTransformOp,
           vectorCOffsetConstantOp,
           matrixCThreadwiseCopySourceAndDestCoords);
       affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b);
@@ -6489,20 +6694,12 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     // Set copy sorce and dest coordinate acoording to original C++ logic:
     SmallVector<Value, 6> matrixAThreadwiseCopySourceAndDestCoords;
-    // a_thread_copy.Run(
-    //   p_a_block + a_block_mtx.CalculateOffset(0, k_begin, m_repeat *
-    //   MPerLevel1Cluster) + mMyThreadOffsetA),
-    // mMyThreadOffsetA = BlockMatrixA::GetOffsetFromMultiIndex{0, 0,
-    // c_thread_mtx_index.row} = c_thread_mtx_index_row
     matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(lab.create<AddIOp>(
         loc, lab.create<MulIOp>(loc, iva_i32, MPerLevel1ClusterConstantI32Op),
         lab.create<IndexCastOp>(loc, op.threadOffsetA(),
                                 lab.getIntegerType(32))));
-
-    //   p_a_thread + a_thread_mtx.CalculateOffset(0, 0, m_repeat *
-    //   MPerThreadSubC));
     matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(
@@ -6533,20 +6730,12 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     // Set copy sorce and dest coordinate acoording to original C++ logic:
     SmallVector<Value, 6> matrixBThreadwiseCopySourceAndDestCoords;
-    // b_thread_copy.Run(
-    //   p_b_block + b_block_mtx.CalculateOffset(0, k_begin, n_repeat *
-    //   NPerLevel1Cluster) + mMyThreadOffsetB),
-    // mMyThreadOffsetB = BlockMatrixB::GetOffsetFromMultiIndex{0, 0,
-    // c_thread_mtx_index.col} = c_thread_mtx_index_col
     matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(lbb.create<AddIOp>(
         loc, lbb.create<MulIOp>(loc, ivb_i32, NPerLevel1ClusterConstantI32Op),
         lbb.create<IndexCastOp>(loc, op.threadOffsetB(),
                                 lbb.getIntegerType(32))));
-
-    //   p_b_thread + b_thread_mtx.CalculateOffset(0, 0, n_repeat *
-    //   NPerThreadSubC));
     matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(
@@ -6834,272 +7023,87 @@ struct ThreadwiseCopyRewritePattern
   LogicalResult matchAndRewrite(miopen::ThreadwiseCopyOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
+
     auto sourceElementType =
         op.source().getType().cast<MemRefType>().getElementType().cast<Type>();
     auto destElementType =
         op.dest().getType().cast<MemRefType>().getElementType().cast<Type>();
 
-    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-
     auto sourceType = op.source().getType().cast<MemRefType>();
     auto destType = op.dest().getType().cast<MemRefType>();
 
+    // Debug switches.
+    // true : use the slow but proven affine map.
+    // false : use the faster index diff map.
     auto legacyLoadAttr = op->getAttr("legacy_load");
     auto legacyStoreAttr = op->getAttr("legacy_store");
 
-    // Get source and dest coordinates.
-    //
-    // 1. For memrefs with no externally defined affine maps in coord_transforms
-    //    attribute, or embedded affine maps. Use its rank.
-    // 2. For memrefs with externally defined maps, use its input rank.
-    // 3. For memrefs with embedded maps, use its input rank.
-    auto sourceAndDestCoord = op.sourceAndDestCoord();
-    auto sourceTypeAffineMaps = sourceType.getAffineMaps();
-    auto destTypeAffineMaps = destType.getAffineMaps();
-    auto coordTransformsAttr =
-        op->getAttr("coord_transforms").template cast<ArrayAttr>();
-
-    unsigned sourceCoordLength = sourceType.getRank();
-    unsigned destCoordLength = destType.getRank();
-
-    bool sourceEmbeddedTransform = false;
-    bool destEmbeddedTransform = false;
-    bool sourceExternalTransform = false;
-    bool destExternalTransform = false;
-    AffineMap composedSourceTransform;
-    AffineMap composedDestTransform;
+    Optional<AffineMap> composedSourceTransform;
+    Optional<AffineMap> composedDestTransform;
     SmallVector<AffineMap> layeredSourceTransform;
     SmallVector<AffineMap> layeredDestTransform;
+    DictionaryAttr srcTransformSpec;
+    DictionaryAttr destTransformSpec;
     ArrayAttr boundCheckSourceAttr;
     ArrayAttr boundCheckDestAttr;
 
-    if (sourceTypeAffineMaps.size()) {
-      sourceCoordLength = sourceTypeAffineMaps[0].getNumInputs();
-      sourceEmbeddedTransform = true;
-      // Compose affine maps.
-      composedSourceTransform = composeTransforms(sourceTypeAffineMaps);
+    auto coordTransformsAttr =
+        op->getAttr("coord_transforms").template cast<ArrayAttr>();
 
-      // Populate affine maps for each layer.
-      layeredSourceTransform.assign(sourceTypeAffineMaps.begin(),
-                                    sourceTypeAffineMaps.end());
-    }
-    if (destTypeAffineMaps.size()) {
-      destCoordLength = destTypeAffineMaps[0].getNumInputs();
-      destEmbeddedTransform = true;
-      // Compose affine maps.
-      composedDestTransform = composeTransforms(destTypeAffineMaps);
+    // Obtain coordinate lengths, as well as information of affine
+    // transformations.
+    unsigned sourceCoordLength = obtainGenericTensorTransformationInfo(
+        /*operandIndex=*/0, sourceType, coordTransformsAttr,
+        composedSourceTransform, layeredSourceTransform, srcTransformSpec,
+        boundCheckSourceAttr);
+    unsigned destCoordLength = obtainGenericTensorTransformationInfo(
+        /*operandIndex=*/1, destType, coordTransformsAttr,
+        composedDestTransform, layeredDestTransform, destTransformSpec,
+        boundCheckDestAttr);
 
-      // Populate affine maps for each layer.
-      layeredDestTransform.assign(destTypeAffineMaps.begin(),
-                                  destTypeAffineMaps.end());
-    }
-
-    // Obtain metadata of coordinate transformations.
-    ArrayAttr coordTransformSpec;
-    DictionaryAttr srcTransformSpec;
-    DictionaryAttr destTransformSpec;
-    if (coordTransformsAttr) {
-      for (auto attr : coordTransformsAttr) {
-        auto dictAttr = attr.template cast<DictionaryAttr>();
-        auto operandIndex =
-            dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-        auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
-        if (operandIndex == 0) {
-          sourceCoordLength = transforms[0]
-                                  .template cast<AffineMapAttr>()
-                                  .getValue()
-                                  .getNumInputs();
-          sourceExternalTransform = true;
-          srcTransformSpec = dictAttr;
-          // Compose affine maps.
-          composedSourceTransform = composeTransforms(transforms);
-
-          // Populate affine maps for each layer.
-          for (auto &am : transforms)
-            layeredSourceTransform.push_back(
-                am.template cast<AffineMapAttr>().getValue());
-
-          auto boundCheckAttr = dictAttr.get("bound_check");
-          if (boundCheckAttr)
-            boundCheckSourceAttr = boundCheckAttr.template cast<ArrayAttr>();
-        } else {
-          destCoordLength = transforms[0]
-                                .template cast<AffineMapAttr>()
-                                .getValue()
-                                .getNumInputs();
-          destExternalTransform = true;
-          destTransformSpec = dictAttr;
-          // Compose affine maps.
-          composedDestTransform = composeTransforms(transforms);
-
-          // Populate affine maps for each layer.
-          for (auto &am : transforms)
-            layeredDestTransform.push_back(
-                am.template cast<AffineMapAttr>().getValue());
-
-          auto boundCheckAttr = dictAttr.get("bound_check");
-          if (boundCheckAttr)
-            boundCheckDestAttr = boundCheckAttr.template cast<ArrayAttr>();
-        }
-      }
-    }
-
-    // Determine if we need to emit codes for out-of-bound check.
-    bool toEmitOOBLoadCheckLogic = false;
-    SmallVector<unsigned, 2> outputOobCheckDims;
-    if (composedSourceTransform && boundCheckSourceAttr) {
-      if (boundCheckSourceAttr.size() ==
-          composedSourceTransform.getNumResults()) {
-        for (unsigned iter = 0; iter < boundCheckSourceAttr.size(); ++iter) {
-          if (boundCheckSourceAttr[iter]
-                  .template cast<IntegerAttr>()
-                  .getInt()) {
-            toEmitOOBLoadCheckLogic = true;
-            outputOobCheckDims.push_back(iter);
-          }
-        }
-      }
-    }
-
+    auto sourceAndDestCoord = op.sourceAndDestCoord();
     if (sourceCoordLength + destCoordLength != sourceAndDestCoord.size()) {
       llvm::errs() << "INCORRECT source and dest coordinates assigned!";
       return failure();
     }
 
-    llvm::SmallVector<Value, 2> sourceCoord;
-    llvm::SmallVector<Value, 2> destCoord;
-    for (unsigned i = 0; i < sourceCoordLength; ++i) {
+    // Populate the vector to hold source and dest coordinate.
+    SmallVector<Value, 8> sourceCoord;
+    SmallVector<Value, 8> destCoord;
+    for (unsigned i = 0; i < sourceCoordLength; ++i)
       sourceCoord.push_back(sourceAndDestCoord[i]);
-    }
     for (unsigned i = sourceCoordLength;
-         i < sourceCoordLength + destCoordLength; ++i) {
+         i < sourceCoordLength + destCoordLength; ++i)
       destCoord.push_back(sourceAndDestCoord[i]);
-    }
+
+    // Determine if we need to emit codes for out-of-bound check, and which
+    // dimensions need to dconduct such check.
+    SmallVector<unsigned, 8> oobLoadCheckDims;
+    bool toEmitOOBLoadCheckLogic = obtainOOBCheckInfo(
+        composedSourceTransform, boundCheckSourceAttr, oobLoadCheckDims);
+    SmallVector<unsigned, 8> oobStoreCheckDims;
+    bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
+        composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
 
     // Distinguish between generic <-> naive v naive <-> naive tensors.
-    //
-    // In cases where attributes n_slice_row/n_slice_col/data_per_access are
-    // specified, source and dest memrefs are all on LDS or VGPR, use the
-    // simpler algorithm because they are all naive tensors.
-    //
-    // Otherwise, employ the more elaborated algorithm.
     auto NSliceRowAttr = op->getAttr("n_slice_row");
     auto NSliceColAttr = op->getAttr("n_slice_col");
     auto DataPerAccessAttr = op->getAttr("data_per_access");
     if (NSliceRowAttr && NSliceColAttr && DataPerAccessAttr) {
-      auto NSliceRow = NSliceRowAttr.template cast<IntegerAttr>().getInt();
-      auto NSliceCol = NSliceColAttr.template cast<IntegerAttr>().getInt();
-      auto DataPerAccess =
+      // In cases where attributes n_slice_row/n_slice_col/data_per_access are
+      // specified, source and dest memrefs are all on LDS or VGPR, use the
+      // simpler algorithm because they are all naive tensors.
+      int64_t NSliceRow = NSliceRowAttr.template cast<IntegerAttr>().getInt();
+      int64_t NSliceCol = NSliceColAttr.template cast<IntegerAttr>().getInt();
+      int64_t DataPerAccess =
           DataPerAccessAttr.template cast<IntegerAttr>().getInt();
 
-      // Original C++ logic:
-      // template <typename SrcMatrix,
-      //           typename DstMatrix,
-      //           index_t NSliceRow,
-      //           index_t NSliceCol,
-      //           index_t DataPerAccess>
-      // struct ThreadwiseMatrixSliceCopy
-      // {
-      //     __device__ constexpr ThreadwiseMatrixSliceCopy()
-      //     {
-      //         static_assert(SrcMatrix::RowStride() % DataPerAccess == 0 &&
-      //                       DstMatrix::RowStride() % DataPerAccess == 0,
-      //                       "wrong! wrong alignment");
-      //         static_assert(NSliceCol % DataPerAccess == 0,
-      //                       "wrong! should be NSliceCol % DataPerAccess ==
-      //                       0");
-      //     }
-      //
-      //     template <typename Data>
-      //     __device__ static void Run(const Data* p_src, Data* p_dst)
-      //     {
-      //         using vector_t = typename vector_type<Data,
-      //         DataPerAccess>::MemoryType;
-      //
-      //         for(index_t i = 0; i < NSliceRow; ++i)
-      //         {
-      //             for(index_t j = 0; j < NSliceCol; j += DataPerAccess)
-      //             {
-      //                 const index_t src_index = SrcMatrix::CalculateOffset(i,
-      //                 j); const index_t dst_index =
-      //                 DstMatrix::CalculateOffset(i, j);
-      //
-      //                 *reinterpret_cast<vector_t*>(&p_dst[dst_index]) =
-      //                     *reinterpret_cast<const
-      //                     vector_t*>(&p_src[src_index]);
-      //             }
-      //         }
-      //     }
-      // };
-      // Emit fully-unrolled loops.
-      for (unsigned ivo = 0; ivo < NSliceRow; ++ivo) {
-        auto ivo_i32 = b.create<ConstantIntOp>(loc, ivo, b.getIntegerType(32));
-        for (unsigned ivi = 0; ivi < NSliceCol; ivi += DataPerAccess) {
-          auto ivi_i32 =
-              b.create<ConstantIntOp>(loc, ivi, b.getIntegerType(32));
-
-          // Compute high-level coordinate for source memref.
-          // src_index = (0, ivo_i32, ivi_i32) + sourceCoord
-          SmallVector<Value, 8> srcUpperIndices;
-          srcUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, zeroConstantOp, sourceCoord[0]),
-              b.getIndexType()));
-          srcUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, ivo_i32, sourceCoord[1]),
-              b.getIndexType()));
-          srcUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, ivi_i32, sourceCoord[2]),
-              b.getIndexType()));
-
-          // Apply affine transformations to compute the low-level coordinate.
-          SmallVector<Value, 8> srcLowerIndices;
-          if (sourceExternalTransform || sourceEmbeddedTransform)
-            srcLowerIndices = expandAffineMap(b, loc, composedSourceTransform,
-                                              srcUpperIndices)
-                                  .getValue();
-          else
-            srcLowerIndices = srcUpperIndices;
-
-          // Load from source.
-          // Issue scalar load.
-          Value scalarValue = b.create<LoadOp>(loc, sourceType.getElementType(),
-                                               op.source(), srcLowerIndices);
-
-          // Convert from sourceElementType to destElementType if necessary.
-          Value convertedScalarValue = createTypeConversionOp(
-              b, loc, scalarValue, sourceElementType, destElementType);
-
-          // Compute high-level coordinate for dest memref.
-          // dst_index = (0, ivo_i32, ivi_i32) + destCoord
-          SmallVector<Value, 8> destUpperIndices;
-          destUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
-              b.getIndexType()));
-          destUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, ivo_i32, destCoord[1]),
-              b.getIndexType()));
-          destUpperIndices.push_back(b.create<IndexCastOp>(
-              loc, b.create<AddIOp>(loc, ivi_i32, destCoord[2]),
-              b.getIndexType()));
-
-          // Apply affine transformations to compute the low-level coordinate.
-          SmallVector<Value, 8> destLowerIndices;
-          if (destExternalTransform || destEmbeddedTransform)
-            destLowerIndices =
-                expandAffineMap(b, loc, composedDestTransform, destUpperIndices)
-                    .getValue();
-          else
-            destLowerIndices = destUpperIndices;
-
-          // Store to dest.
-          // Issue scalar store.
-          b.create<StoreOp>(loc, convertedScalarValue, op.dest(),
-                            destLowerIndices);
-
-        } // ivi
-      }   // ivo
+      emitNaiveTensorCopyLogic(b, loc, NSliceRow, NSliceCol, DataPerAccess,
+                               sourceCoord, destCoord, composedSourceTransform,
+                               composedDestTransform, sourceElementType,
+                               destElementType, op.source(), op.dest());
     } else {
-      // The more elaborated algorithm.
+      // Otherwise, employ the more elaborated algorithm.
       // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
       // C++ implementation.
 
@@ -7132,8 +7136,8 @@ struct ThreadwiseCopyRewritePattern
       // Figure out which memref is the one without affine transformations.
       SmallVector<int64_t, 2> sliceLengths;
 
-      if (sourceExternalTransform || sourceEmbeddedTransform) {
-        if (destExternalTransform || destEmbeddedTransform) {
+      if (composedSourceTransform) {
+        if (composedDestTransform) {
           // Use domain attribute from source memref.
           for (auto attr : coordTransformsAttr) {
             auto dictAttr = attr.template cast<DictionaryAttr>();
@@ -7156,20 +7160,15 @@ struct ThreadwiseCopyRewritePattern
               }
             }
           }
-        } else {
+        } else
+          // Use the shape of dest memref as initial slice lengths.
           for (auto dim : destType.getShape())
             sliceLengths.push_back(dim);
-        }
-      } else {
-        if (sourceExternalTransform || sourceEmbeddedTransform) {
-          // Couldn't happen.
-          llvm::errs()
-              << "Unsupported case: both memrefs have affine transforms!\n";
-          return failure();
-        } else
-          for (auto dim : sourceType.getShape())
-            sliceLengths.push_back(dim);
-      }
+      } else
+        // Use the shape of source memref as initial slice lengths.
+        for (auto dim : sourceType.getShape())
+          sliceLengths.push_back(dim);
+
       // llvm::errs() << "slice lengths: ";
       // for (unsigned i = 0; i < sliceLengths.size(); ++i)
       //   llvm::errs() << sliceLengths[i] << " ";
@@ -7197,19 +7196,12 @@ struct ThreadwiseCopyRewritePattern
       ArrayAttr layeredSourceTransformMetadata;
       ArrayAttr layeredDestTransformMetadata;
 
-      // In case there is no metadata, populate the lower level shape.
-      auto populateTransformMetadataFromLowerType =
-          [&b](ShapedType lowerType, ArrayAttr &transformMetadata) {
-            SmallVector<Attribute, 4> lowerShapeAttr;
-            for (auto &v : lowerType.getShape())
-              lowerShapeAttr.push_back(b.getI32IntegerAttr(v));
-            transformMetadata =
-                b.getArrayAttr({b.getDictionaryAttr({b.getNamedAttr(
-                    "lower_layer_bounds", b.getArrayAttr({lowerShapeAttr}))})});
-          };
-
+      // Obtain transform metadata and populate coordinates for all layers
+      // wthe the metadata.
+      // Only do such computation in the new approach where index diff maps
+      // would be used.
       if (!legacyLoadAttr ||
-          !legacyLoadAttr.template cast<BoolAttr>().getValue()) {
+          (legacyLoadAttr.template cast<BoolAttr>().getValue() == false)) {
         // Populate coorindates across the layers of transformations.
         if (srcTransformSpec) {
           Attribute metadataAttr = srcTransformSpec.get("metadata");
@@ -7218,10 +7210,10 @@ struct ThreadwiseCopyRewritePattern
                 metadataAttr.template cast<ArrayAttr>();
           else
             populateTransformMetadataFromLowerType(
-                sourceType, layeredSourceTransformMetadata);
+                b, sourceType, layeredSourceTransformMetadata);
         }
 
-        // Compute high-level coordinate for dest memref.
+        // Compute high-level coordinate for source memref.
         for (unsigned i = 0; i < sourceCoordLength; ++i) {
           srcUpperIndices.push_back(b.create<IndexCastOp>(
               loc, sourceAndDestCoord[i], b.getIndexType()));
@@ -7236,8 +7228,12 @@ struct ThreadwiseCopyRewritePattern
         srcLowerIndices = layeredSourceIndices[layeredSourceIndices.size() - 1];
       }
 
+      // Obtain transform metadata and populate coordinates for all layers
+      // wthe the metadata.
+      // Only do such computation in the new approach where index diff maps
+      // would be used.
       if (!legacyStoreAttr ||
-          !legacyStoreAttr.template cast<BoolAttr>().getValue()) {
+          (legacyStoreAttr.template cast<BoolAttr>().getValue() == false)) {
         // Populate coorindates across the layers of transformations.
         if (destTransformSpec) {
           Attribute metadataAttr = destTransformSpec.get("metadata");
@@ -7246,7 +7242,7 @@ struct ThreadwiseCopyRewritePattern
                 metadataAttr.template cast<ArrayAttr>();
           else
             populateTransformMetadataFromLowerType(
-                destType, layeredDestTransformMetadata);
+                b, destType, layeredDestTransformMetadata);
         }
 
         // Compute high-level coordinate for dest memref.
@@ -7273,334 +7269,53 @@ struct ThreadwiseCopyRewritePattern
         loopIVsPerAccessOrder.push_back(0);
         loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
       }
+
+      // Main code emission loop.
       bool toExit = false;
       do {
+        // Use the old logic in case "legacy_load" attribute is specified.
         if (legacyLoadAttr &&
-            legacyLoadAttr.template cast<BoolAttr>().getValue()) {
-          // Compute high-level coordinate for source memref.
-          // src_index = (iv_0, iv_1, ...) + sourceCoord
-          srcUpperIndices.clear();
-          for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-            auto dim =
-                dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-            auto loopIV = b.create<ConstantIntOp>(
-                loc, loopIVsPerAccessOrder[dim], b.getIntegerType(32));
-            srcUpperIndices.push_back(b.create<IndexCastOp>(
-                loc, b.create<AddIOp>(loc, loopIV, sourceCoord[iter]),
-                b.getIndexType()));
-          }
-
-          // Populate coorindates across the layers of transformations.
-          SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
-          populateLayeredIndicesWithAffineMap(b, loc, layeredSourceIndices,
-                                              srcUpperIndices,
-                                              layeredSourceTransform);
-
-          // Fetch low-level coordinate.
-          srcLowerIndices =
-              layeredSourceIndices[layeredSourceIndices.size() - 1];
+            (legacyLoadAttr.template cast<BoolAttr>().getValue() == true)) {
+          computeTopAndBottomIndicesWithAffineMap(
+              b, loc, srcUpperIndices, srcLowerIndices, sourceCoord,
+              loopIVsPerAccessOrder, dimAccessOrder, layeredSourceTransform);
         } else {
           // New approach. Use index diff map.
-
-          // Coordinates across the layers of transformations.
-          // If the vector is of size n, 0 is the top layer, and
-          // n-1 is the bottom layer.
-          SmallVector<SmallVector<Value, 8>, 2> layeredSourceDiffs;
-          SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndicesUpdated;
-
-          SmallVector<Value, 8> srcTopDiff;
-          for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter)
-            srcTopDiff.push_back(b.create<ConstantIntOp>(
-                loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32)));
-          layeredSourceDiffs.push_back(srcTopDiff);
-          // Progressively apply index diff maps across all coordinate
-          // transformation layers.
-          populateLayeredIndicesWithIndexDiffMap(
-              b, loc, layeredSourceTransformMetadata, layeredSourceTransform,
-              layeredSourceIndices, srcTopDiff, layeredSourceDiffs,
-              layeredSourceIndicesUpdated);
-
-          // Fetch low-level coordinate.
-          SmallVector<Value, 8> srcLowerIndicesUpdated =
-              layeredSourceIndicesUpdated[layeredSourceIndicesUpdated.size() -
-                                          1];
-          // computeIndexDiffMap by default emit indices of type i32, convert to
-          // index type.
-          srcLowerIndices.clear();
-          for (auto &v : srcLowerIndicesUpdated)
-            srcLowerIndices.push_back(
-                b.create<IndexCastOp>(loc, v, b.getIndexType()));
+          // Progressively use index diff map to compute the coordinate at the
+          // bottom most layer.
+          computeBottomIndicesWithIndexDiffMap(
+              b, loc, loopIVsPerAccessOrder, layeredSourceTransformMetadata,
+              layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
         }
-
-        // Pre-populate srcLowerLoadOOBIndices. It will be modified inside
-        // toEmitOOBCheckLogic basic block.
-        SmallVector<Value, 8> srcLowerLoadOOBIndices;
-        srcLowerLoadOOBIndices = srcLowerIndices;
 
         // Load from source.
-        Value scalarValue;
-        if (toEmitOOBLoadCheckLogic) {
-          // Emit a useful constant 0f for later use.
-          Value zeroOp =
-              createZeroConstantFloatOp(b, loc, sourceType.getElementType());
-
-          // Walkthrough all lower level indices where the dimension has
-          // padding, check if the result lies within boundaries.
-
-          // Logic in C++:
-          // bool withinBounds = true;
-          // for (auto dim : oobLoadCheckDims) {
-          //   withBounds &=
-          //     (srcLowerIndices[dim] >= 0 &&
-          //      srcLowerIndices[dim] < sourceType.getShape()[dim]) {
-          // }
-          Value withinBoundsOp =
-              b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
-          for (auto dim : outputOobCheckDims) {
-            Value coord = srcLowerIndices[dim];
-            Value lowerBoundCheckOp = b.create<CmpIOp>(loc, CmpIPredicate::sge,
-                                                       coord, zeroConstantOp);
-            Value upperBoundOp =
-                b.create<ConstantIndexOp>(loc, sourceType.getShape()[dim]);
-            Value upperBoundCheckOp =
-                b.create<CmpIOp>(loc, CmpIPredicate::slt, coord, upperBoundOp);
-            Value withinBoundInOneDimOp =
-                b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
-
-            withinBoundsOp =
-                b.create<AndOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
-
-            // Prepare srcLowerLoadOOBIndices.
-            srcLowerLoadOOBIndices[dim] = zeroConstantOp;
-          }
-
-          // Logic:
-          // if (withinBounds) {
-          //   // load address = lower indices from affine transform.
-          // } else {
-          //   // OOB. Prepare an address known NOT OOB.
-          //   // For example, in NGCHW case:
-          //   // load address = {N, G, C, 0, 0}
-          //   // In NGHWC case:
-          //   // load address = {N, G, 0, 0, C}
-          // }
-          // V = load(load address)
-          // if (withinBounds) {
-          //   return V
-          // } else {
-          //   return 0
-          // }
-
-          // Emit the first IfOp.
-          auto firstIfWithinBoundsOp = b.create<scf::IfOp>(
-              loc,
-              TypeRange{b.getIndexType(), b.getIndexType(), b.getIndexType(),
-                        b.getIndexType(), b.getIndexType()},
-              withinBoundsOp, /*withElseRegion=*/true);
-
-          // Then part.
-          auto firstIfWithinBoundsThenBuilder =
-              firstIfWithinBoundsOp.getThenBodyBuilder();
-          firstIfWithinBoundsThenBuilder.create<scf::YieldOp>(
-              loc, ValueRange{srcLowerIndices[0], srcLowerIndices[1],
-                              srcLowerIndices[2], srcLowerIndices[3],
-                              srcLowerIndices[4]});
-
-          // Else part.
-          auto firstIfWithinBoundsElseBuilder =
-              firstIfWithinBoundsOp.getElseBodyBuilder();
-          firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(
-              loc,
-              ValueRange{srcLowerLoadOOBIndices[0], srcLowerLoadOOBIndices[1],
-                         srcLowerLoadOOBIndices[2], srcLowerLoadOOBIndices[3],
-                         srcLowerLoadOOBIndices[4]});
-
-          // Issue scalar load.
-          scalarValue = b.create<LoadOp>(loc, sourceElementType, op.source(),
-                                         firstIfWithinBoundsOp.results());
-
-          // Emit the second IfOp.
-          auto secondIfWithinBoundsOp =
-              b.create<scf::IfOp>(loc, sourceElementType, withinBoundsOp, true);
-          auto secondIfWithinBoundsThenBuilder =
-              secondIfWithinBoundsOp.getThenBodyBuilder();
-          secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc,
-                                                               scalarValue);
-          auto secondIfWithinBoundsElseBuilder =
-              secondIfWithinBoundsOp.getElseBodyBuilder();
-          secondIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOp);
-
-          scalarValue = secondIfWithinBoundsOp.results()[0];
-
-        } else {
-          // Issue scalar load.
-          scalarValue = b.create<LoadOp>(loc, sourceElementType, op.source(),
-                                         srcLowerIndices);
-        }
+        Value scalarValue = emitLoadLogic(
+            b, loc, sourceType, sourceElementType, toEmitOOBLoadCheckLogic,
+            oobLoadCheckDims, op.source(), srcLowerIndices);
 
         // Convert from sourceElementType to destElementType if necessary.
         Value convertedScalarValue = createTypeConversionOp(
             b, loc, scalarValue, sourceElementType, destElementType);
 
+        // Use the old logic in case "legacy_store" attribute is specified.
         if (legacyStoreAttr &&
-            legacyStoreAttr.template cast<BoolAttr>().getValue()) {
-          // Compute high-level coordinate for dest memref.
-          // dst_index = (iv_0, iv_1, ...) + destCoord
-          destUpperIndices.clear();
-          for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-            auto dim =
-                dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-            auto loopIV = b.create<ConstantIntOp>(
-                loc, loopIVsPerAccessOrder[dim], b.getIntegerType(32));
-            destUpperIndices.push_back(b.create<IndexCastOp>(
-                loc, b.create<AddIOp>(loc, loopIV, destCoord[iter]),
-                b.getIndexType()));
-          }
-
-          // Populate coorindates across the layers of transformations.
-          SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
-          populateLayeredIndicesWithAffineMap(b, loc, layeredDestIndices,
-                                              destUpperIndices,
-                                              layeredDestTransform);
-
-          // Fetch low-level coordinate.
-          destLowerIndices = layeredDestIndices[layeredDestIndices.size() - 1];
-
+            (legacyStoreAttr.template cast<BoolAttr>().getValue() == true)) {
+          computeTopAndBottomIndicesWithAffineMap(
+              b, loc, destUpperIndices, destLowerIndices, destCoord,
+              loopIVsPerAccessOrder, dimAccessOrder, layeredDestTransform);
         } else {
           // New approach. Use index diff map.
-
-          // Coordinates across the layers of transformations.
-          // If the vector is of size n, 0 is the top layer, and
-          // n-1 is the bottom layer.
-          SmallVector<SmallVector<Value, 8>, 2> layeredDestDiffs;
-          SmallVector<SmallVector<Value, 8>, 2> layeredDestIndicesUpdated;
-
-          SmallVector<Value, 8> destTopDiff;
-          for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter)
-            destTopDiff.push_back(b.create<ConstantIntOp>(
-                loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32)));
-          layeredDestDiffs.push_back(destTopDiff);
-          // Progressively apply index diff maps across all coordinate
-          // transformation layers.
-          populateLayeredIndicesWithIndexDiffMap(
-              b, loc, layeredDestTransformMetadata, layeredDestTransform,
-              layeredDestIndices, destTopDiff, layeredDestDiffs,
-              layeredDestIndicesUpdated);
-
-          // Fetch low-level coordinate.
-          SmallVector<Value, 8> destLowerIndicesUpdated =
-              layeredDestIndicesUpdated[layeredDestIndicesUpdated.size() - 1];
-          // computeIndexDiffMap by default emit indices of type i32, convert to
-          // index type.
-          destLowerIndices.clear();
-          for (auto &v : destLowerIndicesUpdated)
-            destLowerIndices.push_back(
-                b.create<IndexCastOp>(loc, v, b.getIndexType()));
-        }
-
-        bool toEmitOOBStoreCheckLogic = false;
-        SmallVector<unsigned, 2> oobStoreCheckDims;
-        if (composedDestTransform && boundCheckDestAttr) {
-          if (boundCheckDestAttr.size() ==
-              composedDestTransform.getNumResults()) {
-            for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
-              if (boundCheckDestAttr[iter]
-                      .template cast<IntegerAttr>()
-                      .getInt()) {
-                toEmitOOBStoreCheckLogic = true;
-                oobStoreCheckDims.push_back(iter);
-              }
-            }
-          }
+          // Progressively use index diff map to compute the coordinate at the
+          // bottom most layer.
+          computeBottomIndicesWithIndexDiffMap(
+              b, loc, loopIVsPerAccessOrder, layeredDestTransformMetadata,
+              layeredDestTransform, layeredDestIndices, destLowerIndices);
         }
 
         // Store to dest.
-        if (toEmitOOBStoreCheckLogic) {
-          SmallVector<Value, 8> destLowerStoreIndices;
-          SmallVector<Value, 8> destLowerStoreOOBIndices;
-
-          for (unsigned i = 0; i < destLowerIndices.size(); ++i) {
-            auto dstIndex = b.create<IndexCastOp>(loc, destLowerIndices[i],
-                                                  b.getIntegerType(32));
-            destLowerStoreIndices.push_back(dstIndex);
-          }
-
-          destLowerStoreOOBIndices = destLowerStoreIndices;
-          Value oobAddrOp =
-              b.create<ConstantIntOp>(loc, twoGB, b.getIntegerType(32));
-
-          Value zeroAddrOp =
-              b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
-
-          // Logic in C++:
-          // bool withinBounds = true;
-          // for (auto dim : oobStoreCheckDims) {
-          //   withBounds &=
-          //     (destLowerIndices[dim] >= 0 &&
-          //      destLowerIndices[dim] < destType.getShape()[dim]) {
-          // }
-
-          Value withinStoreBoundsOp =
-              b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
-          for (auto dim : oobStoreCheckDims) {
-            Value coordStore = destLowerIndices[dim];
-            Value lowerBoundCheckOp = b.create<CmpIOp>(
-                loc, CmpIPredicate::sge, coordStore, zeroConstantOp);
-            Value upperBoundOp =
-                b.create<ConstantIndexOp>(loc, destType.getShape()[dim]);
-            Value upperBoundCheckOp = b.create<CmpIOp>(
-                loc, CmpIPredicate::slt, coordStore, upperBoundOp);
-            Value withinBoundInOneDimOp =
-                b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
-
-            withinStoreBoundsOp = b.create<AndOp>(loc, withinStoreBoundsOp,
-                                                  withinBoundInOneDimOp);
-            destLowerStoreOOBIndices[dim] = zeroAddrOp;
-          }
-          // XXX: if you want to test it, use this code:
-          // withinBounds & =  destLowerIndices[2] < 3
-          // mlir:
-          // Value testBoundOp =
-          //   b.create<ConstantIndexOp>(loc, 3);
-          // Value testBoundCheckOp =
-          //   b.create<CmpIOp>(loc, CmpIPredicate::slt, destLowerIndices[2],
-          //   testBoundOp);
-          // withinStoreBoundsOp =
-          //   b.create<AndOp>(loc, withinStoreBoundsOp, testBoundCheckOp);
-
-          auto ifWithinBoundsOp = b.create<scf::IfOp>(
-              loc,
-              TypeRange{b.getIntegerType(32), b.getIntegerType(32),
-                        b.getIntegerType(32), b.getIntegerType(32),
-                        b.getIntegerType(32), b.getIntegerType(32)},
-              withinStoreBoundsOp, true);
-
-          auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
-          thenBuilder.create<scf::YieldOp>(
-              loc,
-              ValueRange{zeroAddrOp, destLowerStoreIndices[0],
-                         destLowerStoreIndices[1], destLowerStoreIndices[2],
-                         destLowerStoreIndices[3], destLowerStoreIndices[4]});
-          auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
-          elseBuilder.create<scf::YieldOp>(
-              loc, ValueRange{oobAddrOp, destLowerStoreOOBIndices[0],
-                              destLowerStoreOOBIndices[1],
-                              destLowerStoreOOBIndices[2],
-                              destLowerStoreOOBIndices[3],
-                              destLowerStoreOOBIndices[4]});
-
-          b.create<gpu::RawbufStoreOp>(
-              loc, convertedScalarValue, op.dest(),
-              ifWithinBoundsOp.getResults()[0],
-              ValueRange{ifWithinBoundsOp.getResults()[1],
-                         ifWithinBoundsOp.getResults()[2],
-                         ifWithinBoundsOp.getResults()[3],
-                         ifWithinBoundsOp.getResults()[4],
-                         ifWithinBoundsOp.getResults()[5]});
-        } else {
-          b.create<StoreOp>(loc, convertedScalarValue, op.dest(),
-                            destLowerIndices);
-        }
+        emitStoreLogic(b, loc, destType, destElementType,
+                       toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
+                       destLowerIndices, convertedScalarValue);
 
         // increase IVs
         bool toIncreaseNextDigit = true;
@@ -7638,9 +7353,13 @@ struct ThreadwiseCopyV2RewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
+    auto sourceElementType =
+        op.source().getType().cast<VectorType>().getElementType().cast<Type>();
+    auto destElementType =
+        op.dest().getType().cast<MemRefType>().getElementType().cast<Type>();
+
     auto sourceType = op.source().getType().cast<VectorType>();
     auto destType = op.dest().getType().cast<MemRefType>();
-    auto dataType = destType.getElementType();
 
     // Get source offset, and dest coordinates.
     //
@@ -7648,76 +7367,40 @@ struct ThreadwiseCopyV2RewritePattern
     //    attribute, or embedded affine maps. Use its rank.
     // 2. For memrefs with externally defined maps, use its input rank.
     // 3. For memrefs with embedded maps, use its input rank.
-    auto sourceAndDestCoord = op.sourceAndDestCoord();
-    auto destTypeAffineMaps = destType.getAffineMaps();
-    auto coordTransformsAttr = op->getAttr("coord_transforms");
-
-    unsigned sourceCoordLength = sourceType.getRank();
-    unsigned destCoordLength = destType.getRank();
-
-    bool sourceEmbeddedTransform = false;
-    bool sourceExternalTransform = false;
-    AffineMap composedSourceTransform;
-    AffineMap composedDestTransform;
+    Optional<AffineMap> composedSourceTransform;
+    Optional<AffineMap> composedDestTransform;
     SmallVector<AffineMap> layeredSourceTransform;
     SmallVector<AffineMap> layeredDestTransform;
-    ArrayAttr boundCheckDestAttr;
-
-    if (destTypeAffineMaps.size()) {
-      destCoordLength = destTypeAffineMaps[0].getNumInputs();
-      // Populate affine maps for each layer.
-      layeredDestTransform.assign(destTypeAffineMaps.begin(),
-                                  destTypeAffineMaps.end());
-      composedDestTransform = composeTransforms(destTypeAffineMaps);
-    }
-
-    // Obtain metadata of coordinate transformations.
-    ArrayAttr coordTransformSpec;
     DictionaryAttr srcTransformSpec;
     DictionaryAttr destTransformSpec;
-    if (coordTransformsAttr) {
-      coordTransformSpec = coordTransformsAttr.template cast<ArrayAttr>();
-      for (auto attr : coordTransformSpec) {
-        auto dictAttr = attr.template cast<DictionaryAttr>();
-        auto operandIndex =
-            dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-        auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
-        if (operandIndex == 0) {
-          sourceCoordLength = transforms[0]
-                                  .template cast<AffineMapAttr>()
-                                  .getValue()
-                                  .getNumInputs();
-          sourceExternalTransform = true;
-          srcTransformSpec = dictAttr;
+    ArrayAttr boundCheckSourceAttr;
+    ArrayAttr boundCheckDestAttr;
 
-          // Populate affine maps for each layer.
-          for (auto &am : transforms)
-            layeredSourceTransform.push_back(
-                am.template cast<AffineMapAttr>().getValue());
-        } else {
-          destCoordLength = transforms[0]
-                                .template cast<AffineMapAttr>()
-                                .getValue()
-                                .getNumInputs();
-          destTransformSpec = dictAttr;
+    auto coordTransformsAttr =
+        op->getAttr("coord_transforms").template cast<ArrayAttr>();
 
-          composedDestTransform = composeTransforms(transforms);
-          // Populate affine maps for each layer.
-          for (auto &am : transforms)
-            layeredDestTransform.push_back(
-                am.template cast<AffineMapAttr>().getValue());
+    // Obtain coordinate lengths, as well as information of affine
+    // transformations.
+    unsigned sourceCoordLength = obtainGenericTensorTransformationInfo(
+        /*operandIndex=*/0, sourceType, coordTransformsAttr,
+        composedSourceTransform, layeredSourceTransform, srcTransformSpec,
+        boundCheckSourceAttr);
+    unsigned destCoordLength = obtainGenericTensorTransformationInfo(
+        /*operandIndex=*/1, destType, coordTransformsAttr,
+        composedDestTransform, layeredDestTransform, destTransformSpec,
+        boundCheckDestAttr);
 
-          auto boundCheckAttr = dictAttr.get("bound_check");
-          if (boundCheckAttr)
-            boundCheckDestAttr = boundCheckAttr.template cast<ArrayAttr>();
-        }
-      }
-    }
-
+    auto sourceAndDestCoord = op.sourceAndDestCoord();
     if (sourceCoordLength + destCoordLength != sourceAndDestCoord.size()) {
       llvm::errs() << "INCORRECT source and dest coordinates assigned!";
       return failure();
     }
+
+    // Determine if we need to emit codes for out-of-bound check, and which
+    // dimensions need to dconduct such check.
+    SmallVector<unsigned, 8> oobStoreCheckDims;
+    bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
+        composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
 
     // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
     // C++ implementation.
@@ -7751,9 +7434,9 @@ struct ThreadwiseCopyV2RewritePattern
     // Figure out slice lengths.
     SmallVector<int64_t, 2> sliceLengths;
 
-    if (sourceExternalTransform || sourceEmbeddedTransform) {
+    if (composedSourceTransform) {
       // Use bound or domain attribute from source vector.
-      for (auto attr : coordTransformSpec) {
+      for (auto attr : coordTransformsAttr) {
         auto dictAttr = attr.template cast<DictionaryAttr>();
         auto operandIndex =
             dictAttr.get("operand").template cast<IntegerAttr>().getInt();
@@ -7773,10 +7456,11 @@ struct ThreadwiseCopyV2RewritePattern
           }
         }
       }
-    } else {
+    } else
+      // Use the shape of source memref as initial slice lengths.
       for (auto dim : sourceType.getShape())
         sliceLengths.push_back(dim);
-    }
+
     // llvm::errs() << "slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
     //   llvm::errs() << sliceLengths[i] << " ";
@@ -7791,7 +7475,7 @@ struct ThreadwiseCopyV2RewritePattern
     //   llvm::errs() << sliceLengths[i] << " ";
     // llvm::errs() << "\n";
 
-    // Compute high-level coordinate for dest memref.
+    // Compute high-level coordinate for source memref.
     SmallVector<Value, 8> srcUpperIndices;
     for (unsigned i = 0; i < sourceCoordLength; ++i) {
       srcUpperIndices.push_back(
@@ -7853,204 +7537,39 @@ struct ThreadwiseCopyV2RewritePattern
     do {
       // Load from source vector.
 
-      // Coordinates across the layers of transformations.
-      // If the vector is of size n, 0 is the top layer, and
-      // n-1 is the bottom layer.
-      SmallVector<SmallVector<Value, 8>, 2> layeredSourceDiffs;
-      SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndicesUpdated;
-
-      SmallVector<Value, 8> srcTopDiff;
-      for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter)
-        srcTopDiff.push_back(b.create<ConstantIntOp>(
-            loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32)));
-      layeredSourceDiffs.push_back(srcTopDiff);
-      // Progressively apply index diff maps across all coordinate
-      // transformation layers.
-      populateLayeredIndicesWithIndexDiffMap(
-          b, loc, layeredSourceTransformMetadata, layeredSourceTransform,
-          layeredSourceIndices, srcTopDiff, layeredSourceDiffs,
-          layeredSourceIndicesUpdated);
-
-      // Fetch low-level coordinate.
-      SmallVector<Value, 8> srcLowerIndicesUpdated =
-          layeredSourceIndicesUpdated[layeredSourceIndicesUpdated.size() - 1];
+      // Progressively use index diff map to compute the coordinate at the
+      // bottom most layer.
+      computeBottomIndicesWithIndexDiffMap(
+          b, loc, loopIVsPerAccessOrder, layeredSourceTransformMetadata,
+          layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
 
       // Add sourceOffset to derive the position in the vector.
-      auto srcPosition =
-          b.create<AddIOp>(loc, srcLowerIndicesUpdated[0], op.sourceOffset());
+      auto srcPosition = b.create<AddIOp>(
+          loc,
+          b.create<IndexCastOp>(loc, srcLowerIndices[0], b.getIntegerType(32)),
+          op.sourceOffset());
 
       // Load from source.
       // Issue scalar load.
       Value scalarValue = b.create<vector::ExtractElementOp>(
-          loc, sourceType.getElementType(), op.source(), srcPosition);
+          loc, sourceElementType, op.source(), srcPosition);
+
+      // Convert from sourceElementType to destElementType if necessary.
+      Value convertedScalarValue = createTypeConversionOp(
+          b, loc, scalarValue, sourceElementType, destElementType);
 
       // Store to dest memref.
 
-      // Coordinates across the layers of transformations.
-      // If the vector is of size n, 0 is the top layer, and
-      // n-1 is the bottom layer.
-      SmallVector<SmallVector<Value, 8>, 2> layeredDestDiffs;
-      SmallVector<SmallVector<Value, 8>, 2> layeredDestIndicesUpdated;
-
-      SmallVector<Value, 8> destTopDiff;
-      for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter)
-        destTopDiff.push_back(b.create<ConstantIntOp>(
-            loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32)));
-      layeredDestDiffs.push_back(destTopDiff);
-      // Progressively apply index diff maps across all coordinate
-      // transformation layers.
-      populateLayeredIndicesWithIndexDiffMap(
-          b, loc, layeredDestTransformMetadata, layeredDestTransform,
-          layeredDestIndices, destTopDiff, layeredDestDiffs,
-          layeredDestIndicesUpdated);
-
-      // Fetch low-level coordinate.
-      SmallVector<Value, 8> destLowerIndicesUpdated =
-          layeredDestIndicesUpdated[layeredDestIndicesUpdated.size() - 1];
-      // computeIndexDiffMap by default emit indices of type i32, convert to
-      // index type.
-      SmallVector<Value, 8> destLowerIndicesConverted;
-      for (auto &v : destLowerIndicesUpdated)
-        destLowerIndicesConverted.push_back(
-            b.create<IndexCastOp>(loc, v, b.getIndexType()));
-
-      bool toEmitOOBStoreCheckLogic = false;
-      SmallVector<unsigned, 2> oobStoreCheckDims;
-      if (composedDestTransform && boundCheckDestAttr) {
-        if (boundCheckDestAttr.size() ==
-            composedDestTransform.getNumResults()) {
-          for (unsigned iter = 0; iter < boundCheckDestAttr.size(); ++iter) {
-            if (boundCheckDestAttr[iter]
-                    .template cast<IntegerAttr>()
-                    .getInt()) {
-              toEmitOOBStoreCheckLogic = true;
-              oobStoreCheckDims.push_back(iter);
-            }
-          }
-        }
-      }
+      // Progressively use index diff map to compute the coordinate at the
+      // bottom most layer.
+      computeBottomIndicesWithIndexDiffMap(
+          b, loc, loopIVsPerAccessOrder, layeredDestTransformMetadata,
+          layeredDestTransform, layeredDestIndices, destLowerIndices);
 
       // Store to dest.
-      // Issue scalar store.
-      if (toEmitOOBStoreCheckLogic) {
-        auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-        SmallVector<Value, 8> destLowerStoreIndices;
-        SmallVector<Value, 8> destLowerStoreOOBIndices;
-        for (unsigned i = 0; i < destLowerIndicesConverted.size(); ++i) {
-          auto dstIndex = b.create<IndexCastOp>(
-              loc, destLowerIndicesConverted[i], b.getIntegerType(32));
-          destLowerStoreIndices.push_back(dstIndex);
-        }
-
-        destLowerStoreOOBIndices = destLowerStoreIndices;
-        Value oobAddrOp =
-            b.create<ConstantIntOp>(loc, twoGB, b.getIntegerType(32));
-
-        Value zeroAddrOp =
-            b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
-
-        // Logic in C++:
-        // bool withinBounds = true;
-        // for (auto dim : oobStoreCheckDims) {
-        //   withBounds &=
-        //     (destLowerIndicesConverted[dim] >= 0 &&
-        //      destLowerIndicesConverted[dim] < destType.getShape()[dim]) {
-        // }
-
-        Value withinStoreBoundsOp =
-            b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
-        for (auto dim : oobStoreCheckDims) {
-          Value coordStore = destLowerIndicesConverted[dim];
-          Value lowerBoundCheckOp = b.create<CmpIOp>(
-              loc, CmpIPredicate::sge, coordStore, zeroConstantOp);
-          Value upperBoundOp =
-              b.create<ConstantIndexOp>(loc, destType.getShape()[dim]);
-          Value upperBoundCheckOp = b.create<CmpIOp>(loc, CmpIPredicate::slt,
-                                                     coordStore, upperBoundOp);
-          Value withinBoundInOneDimOp =
-              b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
-
-          withinStoreBoundsOp =
-              b.create<AndOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
-          destLowerStoreOOBIndices[dim] = zeroAddrOp;
-        }
-        // XXX: if you want to test it, use this code:
-        // withinBounds & =  destLowerIndicesConverted[2] < 3
-        // mlir:
-        // Value testBoundOp =
-        //   b.create<ConstantIndexOp>(loc, 3);
-        // Value testBoundCheckOp =
-        //   b.create<CmpIOp>(loc, CmpIPredicate::slt,
-        //   destLowerIndicesConverted[2],
-        //   testBoundOp);
-        // withinStoreBoundsOp =
-        //   b.create<AndOp>(loc, withinStoreBoundsOp, testBoundCheckOp);
-
-        auto ifWithinBoundsOp = b.create<scf::IfOp>(
-            loc,
-            TypeRange{b.getIntegerType(32), b.getIntegerType(32),
-                      b.getIntegerType(32), b.getIntegerType(32),
-                      b.getIntegerType(32), b.getIntegerType(32)},
-            withinStoreBoundsOp, true);
-
-        auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
-        thenBuilder.create<scf::YieldOp>(
-            loc,
-            ValueRange{zeroAddrOp, destLowerStoreIndices[0],
-                       destLowerStoreIndices[1], destLowerStoreIndices[2],
-                       destLowerStoreIndices[3], destLowerStoreIndices[4]});
-        auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
-        elseBuilder.create<scf::YieldOp>(
-            loc, ValueRange{
-                     oobAddrOp, destLowerStoreOOBIndices[0],
-                     destLowerStoreOOBIndices[1], destLowerStoreOOBIndices[2],
-                     destLowerStoreOOBIndices[3], destLowerStoreOOBIndices[4]});
-
-        if (dataType == b.getF32Type()) {
-          b.create<gpu::RawbufStoreOp>(
-              loc, scalarValue, op.dest(), ifWithinBoundsOp.getResults()[0],
-              ValueRange{ifWithinBoundsOp.getResults()[1],
-                         ifWithinBoundsOp.getResults()[2],
-                         ifWithinBoundsOp.getResults()[3],
-                         ifWithinBoundsOp.getResults()[4],
-                         ifWithinBoundsOp.getResults()[5]});
-        } else if (dataType == b.getF16Type()) {
-          auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
-          b.create<gpu::RawbufStoreOp>(
-              loc, truncValue, op.dest(), ifWithinBoundsOp.getResults()[0],
-              ValueRange{ifWithinBoundsOp.getResults()[1],
-                         ifWithinBoundsOp.getResults()[2],
-                         ifWithinBoundsOp.getResults()[3],
-                         ifWithinBoundsOp.getResults()[4],
-                         ifWithinBoundsOp.getResults()[5]});
-        } else if (dataType == b.getIntegerType(16)) {
-          // FIXME: bf16 rsults not correct when in_h & in_w odd
-          auto convertValue =
-              b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
-          b.create<gpu::RawbufStoreOp>(
-              loc, convertValue, op.dest(), ifWithinBoundsOp.getResults()[0],
-              ValueRange{ifWithinBoundsOp.getResults()[1],
-                         ifWithinBoundsOp.getResults()[2],
-                         ifWithinBoundsOp.getResults()[3],
-                         ifWithinBoundsOp.getResults()[4],
-                         ifWithinBoundsOp.getResults()[5]});
-        }
-      } else {
-        if (dataType == b.getF32Type()) {
-          b.create<StoreOp>(loc, scalarValue, op.dest(),
-                            destLowerIndicesConverted);
-        } else if (dataType == b.getF16Type()) {
-          auto truncValue = b.create<FPTruncOp>(loc, scalarValue, dataType);
-          b.create<StoreOp>(loc, truncValue, op.dest(),
-                            destLowerIndicesConverted);
-        } else if (dataType == b.getIntegerType(16)) {
-          // FIXME: bf16 rsults not correct when in_h & in_w odd
-          auto convertValue =
-              b.create<miopen::DataConvertOp>(loc, dataType, scalarValue);
-          b.create<StoreOp>(loc, convertValue, op.dest(),
-                            destLowerIndicesConverted);
-        }
-      }
+      emitStoreLogic(b, loc, destType, destElementType,
+                     toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
+                     destLowerIndices, convertedScalarValue);
 
       // increase IVs
       bool toIncreaseNextDigit = true;
@@ -8154,8 +7673,8 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
                                                   outputType.getAffineMaps())),
                  b.getNamedAttr("metadata", b.getArrayAttr({metadata}))})}));
       } else {
-        // XXX. Only do this for miopen.xdlops_gemm_v2 operation.
-        // miopen.threadwise_copy will NOT be affected.
+        // Only do this for miopen.xdlops_gemm_v2 operation.
+        // Do not alter attributes if the user is miopen.threadwise_copy.
         if ((user->getName().getStringRef() == miopen::XdlopsGemmV2Op::getOperationName())) {
 
           // create a deep-copy of existing attributes, and amend the new one.
