@@ -13,20 +13,20 @@ from prettytable import from_csv
 from datetime import date
 
 # global variables.
-mlirBuildDir = './llvm/bin'
-mlirMIOpenDriver = 'mlir-miopen-driver'
-mlirROCmRunner = 'mlir-rocm-runner'
-mlirROCmRunnerArgs = ' --shared-libs=./llvm/lib/librocm-runtime-wrappers.so,./llvm/lib/libmlir_runner_utils.so --entry-point-result=void'
-rocprof = '/opt/rocm/bin/rocprof'
-MIOpenDriver = '../MIOpen/build/bin/MIOpenDriver'
-benchmarkingResultFileName = 'results.stats.csv'
-configurationFileName ='../mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
-roundDigits = 2
+MLIR_BUILD_DIR = './llvm/bin'
+MLIR_MIOPEN_DRIVER = 'mlir-miopen-driver'
+MLIR_ROCM_RUNNER = 'mlir-rocm-runner'
+MLIR_ROCM_RUNNER_ARGS = ' --shared-libs=./llvm/lib/librocm-runtime-wrappers.so,./llvm/lib/libmlir_runner_utils.so --entry-point-result=void'
+ROCPROF = '/opt/rocm/bin/rocprof'
+MIOPEN_DRIVER = '../MIOpen/build/bin/MIOpenDriver'
+BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
+CONFIGURATION_FILE_NAME ='../mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
+ROUND_DIGITS = 2
 
-Directions = ['-F 1', '-F 4']
-DataTypes = ['conv', 'convfp16']
-Layouts = ['NCHW']
-#Layouts = ['NHWC', 'NCHW']
+DIRECTIONS = ['-F 1', '-F 4']
+DATA_TYPES = ['conv', 'convfp16']
+LAYOUTS = ['NCHW']
+#LAYOUTS = ['NHWC', 'NCHW']
 
 # rocprof crashed with MIOpenDriver for these configurations on gfx908
 DisabledConfigs = ['-n 256 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1',
@@ -43,7 +43,7 @@ def getConfigurations(fileName):
     configFile = open(fileName, 'r')
     Lines = configFile.readlines()
     configs = [];
-    for direction, datatype, layout, line in itertools.product(Directions, DataTypes, Layouts, Lines):
+    for direction, datatype, layout, line in itertools.product(DIRECTIONS, DATA_TYPES, LAYOUTS, Lines):
         line = line.strip()
         validConfig = not (xdlops and line in DisabledConfigs)
         if len(line) > 0 and line[0] != '#' and validConfig:
@@ -66,7 +66,7 @@ class ConvConfiguration:
     def computeTFlops(self, ns):
         if ns == 0:
             return 0.0
-        return round((2.0 * self.n * self.c * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12, roundDigits)
+        return round((2.0 * self.n * self.c * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12, ROUND_DIGITS)
 
     @classmethod
     def generateCSVHeader(cls):
@@ -193,8 +193,8 @@ class ConvConfiguration:
         
 def runConfigWithMLIR(config):
     commandLineOptions = config.generateMlirDriverCommandLine()
-    mlirMIOpenDriverCommand = os.path.join(mlirBuildDir, mlirMIOpenDriver) + ' -ph -c ' + commandLineOptions
-    profilerCommand = rocprof + ' --hip-trace ' + os.path.join(mlirBuildDir, mlirROCmRunner) + mlirROCmRunnerArgs
+    mlirMIOpenDriverCommand = os.path.join(MLIR_BUILD_DIR, MLIR_MIOPEN_DRIVER) + ' -ph -c ' + commandLineOptions
+    profilerCommand = ROCPROF + ' --hip-trace ' + os.path.join(MLIR_BUILD_DIR, MLIR_ROCM_RUNNER) + MLIR_ROCM_RUNNER_ARGS
 
     # invoke mlir-miopen-driver.
     p1 = subprocess.Popen(mlirMIOpenDriverCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -209,8 +209,8 @@ def runConfigWithMLIR(config):
         outs, errs = p2.communicate()
 
 def runConfigWithMIOpenDriver(commandLine):
-    MIOpenDriverCommand = MIOpenDriver + ' ' + ' '.join(commandLine) + ' -V 0'
-    profilerCommand = rocprof + ' --hip-trace ' + MIOpenDriverCommand
+    MIOpenDriverCommand = MIOPEN_DRIVER + ' ' + ' '.join(commandLine) + ' -V 0'
+    profilerCommand = ROCPROF + ' --hip-trace ' + MIOpenDriverCommand
 
     # invoke rocprof + MIOpenDriver.
     p1 = subprocess.Popen(profilerCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -232,7 +232,7 @@ def benchmarkMLIR(commandLine, outputFile, xdlops):
     #runConfigWithMLIR(commandLine, xdlops)
     runConfigWithMLIR(config)
     # get nanoseconds from rocprof output.
-    nanoSeconds = getNanoSeconds(benchmarkingResultFileName)
+    nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     output(config.generateCSVContent(nanoSeconds), outputFile)
 
 def benchmarkMIOpen(commandLine, outputFile, xdlops):
@@ -240,7 +240,7 @@ def benchmarkMIOpen(commandLine, outputFile, xdlops):
     if config.inputLayout == 'nchw':
         runConfigWithMIOpenDriver(commandLine)
         # get nanoseconds from rocprof output.
-        nanoSeconds = getNanoSeconds(benchmarkingResultFileName)
+        nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     else:
         # skip the test for non-supported layouts.
         # MIOpenDriver currently only support NCHW.
@@ -293,7 +293,7 @@ usage examples:
     """    
 
     xdlops = False
-    configs = getConfigurations(configurationFileName);
+    configs = getConfigurations(CONFIGURATION_FILE_NAME);
     r = subprocess.run(f'/opt/rocm/bin/rocm_agent_enumerator -t GPU|grep gfx908', shell=True)
     if r.returncode == 0:
         xdlops = True
