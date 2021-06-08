@@ -7,6 +7,9 @@ pipeline {
             alwaysPull true
         }
     }
+    environment {
+        PATH="$PATH:/opt/rocm/llvm/bin"
+    }
     stages {
         stage('Environment') {
             steps {
@@ -16,45 +19,33 @@ pipeline {
         }
         stage('Build MIOpen') {
             steps {
-                checkout scm
-                sh '''
-                    git clone https://github.com/ROCmSoftwarePlatform/MIOpen
-                    cd MIOpen
-                    cmake -P install_deps.cmake --minimum
-                    mkdir -p build && cd build
-                    CXX=/opt/rocm/llvm/bin/clang++ cmake \
-                        -DCMAKE_BUILD_TYPE=release \
-                        -DMIOPEN_BACKEND=HIP \
-                        -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local" \
-                        -DCMAKE_INSTALL_PREFIX=/opt/rocm/ ..
-                    make -j install
-                '''
+                dir('MIOpen') {
+                    git branch: 'develop', poll: false,\
+                                url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+                    cmake arguments: "-P install_deps.cmake --minimum",\
+                                installation: "InSearchPath"
+                    cmakeBuild generator: 'Ninja',\
+                                buildDir: 'build',\
+                                buildType: 'Release',\
+                                installation: 'InSearchPath',\
+                                steps: [[args: "MIOpenDriver"]],\
+                                cmakeArgs: '''
+                                 -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                 -DMIOPEN_BACKEND=HIP
+                                 -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local" \
+                                 -DCMAKE_INSTALL_PREFIX=/opt/rocm/ ..
+                                '''
+                        }
             }
         }
         stage('Build MLIR') {
             steps {
-                checkout scm
-                sh '''
-                    mkdir -p build && cd build
-                    # Set the path to llvm-symbolizer
-                    PATH=$PATH:/opt/rocm-4.1.1/llvm/bin/
-
-                    cmake -G Ninja ../llvm \
-                        -DLLVM_ENABLE_PROJECTS="mlir;lld" \
-                        -DLLVM_BUILD_EXAMPLES=ON \
-                        -DLLVM_TARGETS_TO_BUILD="X86;AMDGPU" \
-                        -DCMAKE_BUILD_TYPE=Release \
-                        -DLLVM_ENABLE_ASSERTIONS=ON \
-                        -DBUILD_SHARED_LIBS=ON \
-                        -DLLVM_BUILD_LLVM_DYLIB=ON \
-                        -DMLIR_ROCM_RUNNER_ENABLED=1 \
-                        -DMLIR_MIOPEN_DRIVER_ENABLED=1
-                        # if we open sqlite, step4 lowering failed until adding the custom db
-                        # -DMLIR_MIOPEN_SQLITE_ENABLED=1
-
-                    cmake --build . --target mlir-miopen-driver
-                    cmake --build . --target mlir-rocm-runner
-                '''
+                cmakeBuild generator: 'Ninja',\
+                    buildDir: 'build',\
+                    buildType: 'Release',\
+                    installation: 'InSearchPath',\
+                    steps: [[args: 'mlir-miopen-driver mlir-rocm-runner']],\
+                    cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1'''
             }
         }
         stage('Performance Test') {
@@ -62,10 +53,9 @@ pipeline {
                 sh '''
                     cd build
                     cmake --build . --target MIOpenDriver.py
-
                     pip3 install PrettyTable
                     # Run MLIR perf benchmarks.
-                    python3 ./MIOpenDriver.py
+                    python3 ./llvm/MIOpenDriver.py
                 '''
                 publishHTML (target: [
                     allowMissing: false,
@@ -74,7 +64,7 @@ pipeline {
                     reportDir: 'build',
                     reportFiles: 'MLIR_vs_MIOpen.html',
                     reportName: "MLIR vs MIOpen performance"
-                 ])
+                ])
             }
         }
     }

@@ -13,11 +13,11 @@ from prettytable import from_csv
 from datetime import date
 
 # global variables.
-mlirBuildDir = './bin'
+mlirBuildDir = './llvm/bin'
 mlirMIOpenDriver = 'mlir-miopen-driver'
 mlirROCmRunner = 'mlir-rocm-runner'
+mlirROCmRunnerArgs = ' --shared-libs=./llvm/lib/librocm-runtime-wrappers.so,./llvm/lib/libmlir_runner_utils.so --entry-point-result=void'
 rocprof = '/opt/rocm/bin/rocprof'
-#MIOpenDriver = os.path.expanduser('~/MIOpen/build/bin/MIOpenDriver')
 MIOpenDriver = '../MIOpen/build/bin/MIOpenDriver'
 benchmarkingResultFileName = 'results.stats.csv'
 configurationFileName ='../mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
@@ -150,55 +150,38 @@ class ConvConfiguration:
                 elif int(arg) == 4:
                     self.direction = 'wrw'
             elif opt == '-f':
-                # -f
                 self.filterLayout = mlirFilterLayout[arg]
             elif opt == '-I':
-                # -I
                 self.inputLayout = arg.lower()
             elif opt == '-O':
-                # -O
                 self.outputLayout = mlirOutputLayout[arg]
             elif opt == "-n":
-                # -n
                 self.n = int(arg)
             elif opt == '-c':
-                # -c
                 self.c = int(arg)
             elif opt == '-H':
-                # -H
                 self.hi = int(arg)
             elif opt == '-W':
-                # -W
                 self.wi = int(arg)
             elif opt == '-k':
-                # -k
                 self.k = int(arg)
             elif opt == '-y':
-                # -y
                 self.y = int(arg)
             elif opt == '-x':
-                # -x
                 self.x = int(arg)
             elif opt == '-u':
-                # -u
                 self.convStrideH = int(arg)
             elif opt == '-v':
-                # -v
                 self.convStrideW = int(arg)
             elif opt == '-p':
-                # -p
                 self.paddingH = int(arg)
             elif opt == '-q':
-                # -q
                 self.paddingW = int(arg)
             elif opt == '-l':
-                # -l
                 self.dilationH = int(arg)
             elif opt == '-j':
-                # -j
                 self.dilationW = int(arg)
             elif opt == '-g':
-                # -g
                 self.group = int(arg)
             else:
                 continue
@@ -211,8 +194,7 @@ class ConvConfiguration:
 def runConfigWithMLIR(config):
     commandLineOptions = config.generateMlirDriverCommandLine()
     mlirMIOpenDriverCommand = os.path.join(mlirBuildDir, mlirMIOpenDriver) + ' -ph -c ' + commandLineOptions
-    profilerCommand = rocprof + ' --hip-trace ' + os.path.join(mlirBuildDir, mlirROCmRunner)\
-                      + ' --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void'
+    profilerCommand = rocprof + ' --hip-trace ' + os.path.join(mlirBuildDir, mlirROCmRunner) + mlirROCmRunnerArgs
 
     # invoke mlir-miopen-driver.
     p1 = subprocess.Popen(mlirMIOpenDriverCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
