@@ -51,6 +51,144 @@ using namespace mlir::miopen;
 static constexpr int kTwoGB = 2147483647;
 
 //===----------------------------------------------------------------------===//
+// Utility function to emit constant float op.
+//===----------------------------------------------------------------------===//
+inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
+                                   float value) {
+  Value ret;
+  if (elementType == b.getF32Type()) {
+    ret = b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
+  } else if (elementType == b.getF16Type()) {
+    auto valueF32Op =
+        b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
+    ret = b.create<FPTruncOp>(loc, valueF32Op, elementType);
+  } else if (elementType == b.getIntegerType(16)) {
+    ret = b.create<ConstantIntOp>(loc, static_cast<int>(value),
+                                  b.getIntegerType(16));
+  }
+  return ret;
+}
+
+inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc,
+                                       Type elementType) {
+  return createConstantFloatOp(b, loc, elementType, 0.0f);
+}
+
+//===----------------------------------------------------------------------===//
+// Utility function to emit load instructions with potentially OOB checks.
+//===----------------------------------------------------------------------===//
+inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
+                           Type sourceElementType, bool toEmitOOBLoadCheckLogic,
+                           const SmallVector<unsigned, 8> &oobLoadCheckDims,
+                           const Value &source,
+                           const SmallVector<Value, 8> &srcLowerIndices) {
+  Value scalarValue;
+
+  auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+
+  if (toEmitOOBLoadCheckLogic) {
+    // Pre-populate srcLowerLoadOOBIndices. It will be modified inside
+    // toEmitOOBCheckLogic basic block.
+    SmallVector<Value, 8> srcLowerLoadOOBIndices = srcLowerIndices;
+
+    // Emit a useful constant 0f for later use.
+    Value zeroOp = createZeroConstantFloatOp(b, loc, sourceElementType);
+
+    // Walkthrough all lower level indices where the dimension has
+    // padding, check if the result lies within boundaries.
+
+    // Logic in C++:
+    // bool withinBounds = true;
+    // for (auto dim : oobLoadCheckDims) {
+    //   withBounds &=
+    //     (srcLowerIndices[dim] >= 0 &&
+    //      srcLowerIndices[dim] < sourceType.getShape()[dim]) {
+    // }
+    Value withinBoundsOp = b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
+    for (auto dim : oobLoadCheckDims) {
+      Value coord = srcLowerIndices[dim];
+      Value lowerBoundCheckOp =
+          b.create<CmpIOp>(loc, CmpIPredicate::sge, coord, zeroConstantOp);
+      Value upperBoundOp =
+          b.create<ConstantIndexOp>(loc, sourceType.getShape()[dim]);
+      Value upperBoundCheckOp =
+          b.create<CmpIOp>(loc, CmpIPredicate::slt, coord, upperBoundOp);
+      Value withinBoundInOneDimOp =
+          b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
+
+      withinBoundsOp =
+          b.create<AndOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
+
+      // Prepare srcLowerLoadOOBIndices.
+      srcLowerLoadOOBIndices[dim] = zeroConstantOp;
+    }
+
+    // Logic:
+    // if (withinBounds) {
+    //   // load address = lower indices from affine transform.
+    // } else {
+    //   // OOB. Prepare an address known NOT OOB.
+    //   // For example, in NGCHW case:
+    //   // load address = {N, G, C, 0, 0}
+    //   // In NGHWC case:
+    //   // load address = {N, G, 0, 0, C}
+    // }
+    // V = load(load address)
+    // if (withinBounds) {
+    //   return V
+    // } else {
+    //   return 0
+    // }
+
+    // Emit the first IfOp.
+    auto firstIfWithinBoundsOp = b.create<scf::IfOp>(
+        loc,
+        TypeRange{b.getIndexType(), b.getIndexType(), b.getIndexType(),
+                  b.getIndexType(), b.getIndexType()},
+        withinBoundsOp, /*withElseRegion=*/true);
+
+    // Then part.
+    auto firstIfWithinBoundsThenBuilder =
+        firstIfWithinBoundsOp.getThenBodyBuilder();
+    firstIfWithinBoundsThenBuilder.create<scf::YieldOp>(
+        loc,
+        ValueRange{srcLowerIndices[0], srcLowerIndices[1], srcLowerIndices[2],
+                   srcLowerIndices[3], srcLowerIndices[4]});
+
+    // Else part.
+    auto firstIfWithinBoundsElseBuilder =
+        firstIfWithinBoundsOp.getElseBodyBuilder();
+    firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(
+        loc, ValueRange{srcLowerLoadOOBIndices[0], srcLowerLoadOOBIndices[1],
+                        srcLowerLoadOOBIndices[2], srcLowerLoadOOBIndices[3],
+                        srcLowerLoadOOBIndices[4]});
+
+    // Issue scalar load.
+    scalarValue = b.create<LoadOp>(loc, sourceElementType, source,
+                                   firstIfWithinBoundsOp.results());
+
+    // Emit the second IfOp.
+    auto secondIfWithinBoundsOp =
+        b.create<scf::IfOp>(loc, sourceElementType, withinBoundsOp, true);
+    auto secondIfWithinBoundsThenBuilder =
+        secondIfWithinBoundsOp.getThenBodyBuilder();
+    secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc, scalarValue);
+    auto secondIfWithinBoundsElseBuilder =
+        secondIfWithinBoundsOp.getElseBodyBuilder();
+    secondIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOp);
+
+    scalarValue = secondIfWithinBoundsOp.results()[0];
+
+  } else {
+    // Issue scalar load.
+    scalarValue =
+        b.create<LoadOp>(loc, sourceElementType, source, srcLowerIndices);
+  }
+
+  return scalarValue;
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to determine if we need to emit codes for OOB checks.
 //===----------------------------------------------------------------------===//
 inline bool obtainOOBCheckInfo(const Optional<AffineMap> &composedTransform,
@@ -839,30 +977,6 @@ inline void computeTopAndBottomIndicesWithAffineMap(
 
   // Fetch low-level coordinate.
   bottomIndices = layeredIndices[layeredIndices.size() - 1];
-}
-
-//===----------------------------------------------------------------------===//
-// Utility function to emit constant float op.
-//===----------------------------------------------------------------------===//
-inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
-                                   float value) {
-  Value ret;
-  if (elementType == b.getF32Type()) {
-    ret = b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
-  } else if (elementType == b.getF16Type()) {
-    auto valueF32Op =
-        b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
-    ret = b.create<FPTruncOp>(loc, valueF32Op, elementType);
-  } else if (elementType == b.getIntegerType(16)) {
-    ret = b.create<ConstantIntOp>(loc, static_cast<int>(value),
-                                  b.getIntegerType(16));
-  }
-  return ret;
-}
-
-inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc,
-                                       Type elementType) {
-  return createConstantFloatOp(b, loc, elementType, 0.0f);
 }
 
 //===----------------------------------------------------------------------===//
@@ -7039,121 +7153,6 @@ struct ThreadwiseCopyRewritePattern
         loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
       }
 
-      auto emitLoadLogic =
-          [&b, &loc](MemRefType sourceType, Type sourceElementType,
-                     bool toEmitOOBLoadCheckLogic,
-                     const SmallVector<unsigned, 8> &oobLoadCheckDims,
-                     const Value &source,
-                     const SmallVector<Value, 8> &srcLowerIndices) -> Value {
-        Value scalarValue;
-
-        auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-
-        if (toEmitOOBLoadCheckLogic) {
-          // Pre-populate srcLowerLoadOOBIndices. It will be modified inside
-          // toEmitOOBCheckLogic basic block.
-          SmallVector<Value, 8> srcLowerLoadOOBIndices = srcLowerIndices;
-
-          // Emit a useful constant 0f for later use.
-          Value zeroOp = createZeroConstantFloatOp(b, loc, sourceElementType);
-
-          // Walkthrough all lower level indices where the dimension has
-          // padding, check if the result lies within boundaries.
-
-          // Logic in C++:
-          // bool withinBounds = true;
-          // for (auto dim : oobLoadCheckDims) {
-          //   withBounds &=
-          //     (srcLowerIndices[dim] >= 0 &&
-          //      srcLowerIndices[dim] < sourceType.getShape()[dim]) {
-          // }
-          Value withinBoundsOp =
-              b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
-          for (auto dim : oobLoadCheckDims) {
-            Value coord = srcLowerIndices[dim];
-            Value lowerBoundCheckOp = b.create<CmpIOp>(loc, CmpIPredicate::sge,
-                                                       coord, zeroConstantOp);
-            Value upperBoundOp =
-                b.create<ConstantIndexOp>(loc, sourceType.getShape()[dim]);
-            Value upperBoundCheckOp =
-                b.create<CmpIOp>(loc, CmpIPredicate::slt, coord, upperBoundOp);
-            Value withinBoundInOneDimOp =
-                b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
-
-            withinBoundsOp =
-                b.create<AndOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
-
-            // Prepare srcLowerLoadOOBIndices.
-            srcLowerLoadOOBIndices[dim] = zeroConstantOp;
-          }
-
-          // Logic:
-          // if (withinBounds) {
-          //   // load address = lower indices from affine transform.
-          // } else {
-          //   // OOB. Prepare an address known NOT OOB.
-          //   // For example, in NGCHW case:
-          //   // load address = {N, G, C, 0, 0}
-          //   // In NGHWC case:
-          //   // load address = {N, G, 0, 0, C}
-          // }
-          // V = load(load address)
-          // if (withinBounds) {
-          //   return V
-          // } else {
-          //   return 0
-          // }
-
-          // Emit the first IfOp.
-          auto firstIfWithinBoundsOp = b.create<scf::IfOp>(
-              loc,
-              TypeRange{b.getIndexType(), b.getIndexType(), b.getIndexType(),
-                        b.getIndexType(), b.getIndexType()},
-              withinBoundsOp, /*withElseRegion=*/true);
-
-          // Then part.
-          auto firstIfWithinBoundsThenBuilder =
-              firstIfWithinBoundsOp.getThenBodyBuilder();
-          firstIfWithinBoundsThenBuilder.create<scf::YieldOp>(
-              loc, ValueRange{srcLowerIndices[0], srcLowerIndices[1],
-                              srcLowerIndices[2], srcLowerIndices[3],
-                              srcLowerIndices[4]});
-
-          // Else part.
-          auto firstIfWithinBoundsElseBuilder =
-              firstIfWithinBoundsOp.getElseBodyBuilder();
-          firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(
-              loc,
-              ValueRange{srcLowerLoadOOBIndices[0], srcLowerLoadOOBIndices[1],
-                         srcLowerLoadOOBIndices[2], srcLowerLoadOOBIndices[3],
-                         srcLowerLoadOOBIndices[4]});
-
-          // Issue scalar load.
-          scalarValue = b.create<LoadOp>(loc, sourceElementType, source,
-                                         firstIfWithinBoundsOp.results());
-
-          // Emit the second IfOp.
-          auto secondIfWithinBoundsOp =
-              b.create<scf::IfOp>(loc, sourceElementType, withinBoundsOp, true);
-          auto secondIfWithinBoundsThenBuilder =
-              secondIfWithinBoundsOp.getThenBodyBuilder();
-          secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc,
-                                                               scalarValue);
-          auto secondIfWithinBoundsElseBuilder =
-              secondIfWithinBoundsOp.getElseBodyBuilder();
-          secondIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOp);
-
-          scalarValue = secondIfWithinBoundsOp.results()[0];
-
-        } else {
-          // Issue scalar load.
-          scalarValue =
-              b.create<LoadOp>(loc, sourceElementType, source, srcLowerIndices);
-        }
-
-        return scalarValue;
-      };
-
       // Main code emission loop.
       bool toExit = false;
       do {
@@ -7174,7 +7173,7 @@ struct ThreadwiseCopyRewritePattern
 
         // Load from source.
         Value scalarValue = emitLoadLogic(
-            sourceType, sourceElementType, toEmitOOBLoadCheckLogic,
+            b, loc, sourceType, sourceElementType, toEmitOOBLoadCheckLogic,
             oobLoadCheckDims, op.source(), srcLowerIndices);
 
         // Convert from sourceElementType to destElementType if necessary.
