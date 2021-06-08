@@ -2983,7 +2983,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           gemmIds.push_back(gemmId);
         }
       }
-      assert(gemmIds.size() > kernelId);
+      assert(gemmIds.size() > static_cast<size_t>(kernelId));
       return gemmIds[kernelId];
     };
     auto gemmId = getGemmId(gemmIdAttr.getInt());
