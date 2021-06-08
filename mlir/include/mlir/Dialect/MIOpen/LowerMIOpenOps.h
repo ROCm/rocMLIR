@@ -7039,31 +7039,21 @@ struct ThreadwiseCopyRewritePattern
         loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
       }
 
-      // Main code emission loop.
-      bool toExit = false;
-      do {
-        // Use the old logic in case "legacy_load" attribute is specified.
-        if (legacyLoadAttr &&
-            (legacyLoadAttr.template cast<BoolAttr>().getValue() == true)) {
-          computeTopAndBottomIndicesWithAffineMap(
-              b, loc, srcUpperIndices, srcLowerIndices, sourceCoord,
-              loopIVsPerAccessOrder, dimAccessOrder, layeredSourceTransform);
-        } else {
-          // New approach. Use index diff map.
-          // Progressively use index diff map to compute the coordinate at the
-          // bottom most layer.
-          computeBottomIndicesWithIndexDiffMap(
-              b, loc, loopIVsPerAccessOrder, layeredSourceTransformMetadata,
-              layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
-        }
-
-        // Pre-populate srcLowerLoadOOBIndices. It will be modified inside
-        // toEmitOOBCheckLogic basic block.
-        SmallVector<Value, 8> srcLowerLoadOOBIndices = srcLowerIndices;
-
-        // Load from source.
+      auto emitLoadLogic =
+          [&b, &loc](MemRefType sourceType, Type sourceElementType,
+                     bool toEmitOOBLoadCheckLogic,
+                     const SmallVector<unsigned, 8> &oobLoadCheckDims,
+                     const Value &source,
+                     const SmallVector<Value, 8> &srcLowerIndices) -> Value {
         Value scalarValue;
+
+        auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+
         if (toEmitOOBLoadCheckLogic) {
+          // Pre-populate srcLowerLoadOOBIndices. It will be modified inside
+          // toEmitOOBCheckLogic basic block.
+          SmallVector<Value, 8> srcLowerLoadOOBIndices = srcLowerIndices;
+
           // Emit a useful constant 0f for later use.
           Value zeroOp = createZeroConstantFloatOp(b, loc, sourceElementType);
 
@@ -7139,7 +7129,7 @@ struct ThreadwiseCopyRewritePattern
                          srcLowerLoadOOBIndices[4]});
 
           // Issue scalar load.
-          scalarValue = b.create<LoadOp>(loc, sourceElementType, op.source(),
+          scalarValue = b.create<LoadOp>(loc, sourceElementType, source,
                                          firstIfWithinBoundsOp.results());
 
           // Emit the second IfOp.
@@ -7157,9 +7147,35 @@ struct ThreadwiseCopyRewritePattern
 
         } else {
           // Issue scalar load.
-          scalarValue = b.create<LoadOp>(loc, sourceElementType, op.source(),
-                                         srcLowerIndices);
+          scalarValue =
+              b.create<LoadOp>(loc, sourceElementType, source, srcLowerIndices);
         }
+
+        return scalarValue;
+      };
+
+      // Main code emission loop.
+      bool toExit = false;
+      do {
+        // Use the old logic in case "legacy_load" attribute is specified.
+        if (legacyLoadAttr &&
+            (legacyLoadAttr.template cast<BoolAttr>().getValue() == true)) {
+          computeTopAndBottomIndicesWithAffineMap(
+              b, loc, srcUpperIndices, srcLowerIndices, sourceCoord,
+              loopIVsPerAccessOrder, dimAccessOrder, layeredSourceTransform);
+        } else {
+          // New approach. Use index diff map.
+          // Progressively use index diff map to compute the coordinate at the
+          // bottom most layer.
+          computeBottomIndicesWithIndexDiffMap(
+              b, loc, loopIVsPerAccessOrder, layeredSourceTransformMetadata,
+              layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
+        }
+
+        // Load from source.
+        Value scalarValue = emitLoadLogic(
+            sourceType, sourceElementType, toEmitOOBLoadCheckLogic,
+            oobLoadCheckDims, op.source(), srcLowerIndices);
 
         // Convert from sourceElementType to destElementType if necessary.
         Value convertedScalarValue = createTypeConversionOp(
