@@ -34,10 +34,10 @@ pipeline {
         stage('Static Test') {
             steps {
                 sh '''
-                    if [[ ! -f ./build/compile_commands.json ]]; then
+                    if [ ! -f ./build/compile_commands.json ];  then
                       echo "No compile commands, bailing."
                     fi
-                    if [[ ! -f ./compile_commands.json ]]; then
+                    if [ ! -f ./compile_commands.json ];  then
                        ln -s build/compile_commands.json compile_commands.json
                     fi
                     '''
