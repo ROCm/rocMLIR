@@ -378,10 +378,13 @@ inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
     // Possible cases:
     // - fp16 -> fp32 : use fpext.
     // - fp32 -> fp16 : use fptrunc.
+    // - fp16/fp32 -> bf16(i16) : use miopen.data_convert.
     if (sourceType == b.getF16Type() && destType == b.getF32Type()) {
       result = b.create<FPExtOp>(loc, source, destType);
     } else if (sourceType == b.getF32Type() && destType == b.getF16Type()) {
       result = b.create<FPTruncOp>(loc, source, destType);
+    } else if (destType == b.getIntegerType(16)) {
+      result = b.create<miopen::DataConvertOp>(loc, destType, source);
     }
   }
   return result;
@@ -8216,179 +8219,39 @@ struct ThreadwiseCopyV2RewritePattern
     do {
       // Load from source vector.
 
-      // Coordinates across the layers of transformations.
-      // If the vector is of size n, 0 is the top layer, and
-      // n-1 is the bottom layer.
-      SmallVector<SmallVector<Value, 8>, 2> layeredSourceDiffs;
-      SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndicesUpdated;
-
-      SmallVector<Value, 8> srcTopDiff;
-      for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter)
-        srcTopDiff.push_back(b.create<ConstantIntOp>(
-            loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32)));
-      layeredSourceDiffs.push_back(srcTopDiff);
-      // Progressively apply index diff maps across all coordinate
-      // transformation layers.
-      populateLayeredIndicesWithIndexDiffMap(
-          b, loc, layeredSourceTransformMetadata, layeredSourceTransform,
-          layeredSourceIndices, srcTopDiff, layeredSourceDiffs,
-          layeredSourceIndicesUpdated);
-
-      // Fetch low-level coordinate.
-      SmallVector<Value, 8> srcLowerIndicesUpdated =
-          layeredSourceIndicesUpdated[layeredSourceIndicesUpdated.size() - 1];
+      // Progressively use index diff map to compute the coordinate at the
+      // bottom most layer.
+      computeBottomIndicesWithIndexDiffMap(
+          b, loc, loopIVsPerAccessOrder, layeredSourceTransformMetadata,
+          layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
 
       // Add sourceOffset to derive the position in the vector.
-      auto srcPosition =
-          b.create<AddIOp>(loc, srcLowerIndicesUpdated[0], op.sourceOffset());
+      auto srcPosition = b.create<AddIOp>(
+          loc,
+          b.create<IndexCastOp>(loc, srcLowerIndices[0], b.getIntegerType(32)),
+          op.sourceOffset());
 
       // Load from source.
       // Issue scalar load.
       Value scalarValue = b.create<vector::ExtractElementOp>(
           loc, sourceElementType, op.source(), srcPosition);
 
+      // Convert from sourceElementType to destElementType if necessary.
+      Value convertedScalarValue = createTypeConversionOp(
+          b, loc, scalarValue, sourceElementType, destElementType);
+
       // Store to dest memref.
 
-      // Coordinates across the layers of transformations.
-      // If the vector is of size n, 0 is the top layer, and
-      // n-1 is the bottom layer.
-      SmallVector<SmallVector<Value, 8>, 2> layeredDestDiffs;
-      SmallVector<SmallVector<Value, 8>, 2> layeredDestIndicesUpdated;
-
-      SmallVector<Value, 8> destTopDiff;
-      for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter)
-        destTopDiff.push_back(b.create<ConstantIntOp>(
-            loc, loopIVsPerAccessOrder[iter], b.getIntegerType(32)));
-      layeredDestDiffs.push_back(destTopDiff);
-      // Progressively apply index diff maps across all coordinate
-      // transformation layers.
-      populateLayeredIndicesWithIndexDiffMap(
-          b, loc, layeredDestTransformMetadata, layeredDestTransform,
-          layeredDestIndices, destTopDiff, layeredDestDiffs,
-          layeredDestIndicesUpdated);
-
-      // Fetch low-level coordinate.
-      SmallVector<Value, 8> destLowerIndicesUpdated =
-          layeredDestIndicesUpdated[layeredDestIndicesUpdated.size() - 1];
-      // computeIndexDiffMap by default emit indices of type i32, convert to
-      // index type.
-      SmallVector<Value, 8> destLowerIndicesConverted;
-      for (auto &v : destLowerIndicesUpdated)
-        destLowerIndicesConverted.push_back(
-            b.create<IndexCastOp>(loc, v, b.getIndexType()));
+      // Progressively use index diff map to compute the coordinate at the
+      // bottom most layer.
+      computeBottomIndicesWithIndexDiffMap(
+          b, loc, loopIVsPerAccessOrder, layeredDestTransformMetadata,
+          layeredDestTransform, layeredDestIndices, destLowerIndices);
 
       // Store to dest.
-      // Issue scalar store.
-      if (toEmitOOBStoreCheckLogic) {
-        auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-        SmallVector<Value, 8> destLowerStoreIndices;
-        SmallVector<Value, 8> destLowerStoreOOBIndices;
-        for (unsigned i = 0; i < destLowerIndicesConverted.size(); ++i) {
-          auto dstIndex = b.create<IndexCastOp>(
-              loc, destLowerIndicesConverted[i], b.getIntegerType(32));
-          destLowerStoreIndices.push_back(dstIndex);
-        }
-
-        destLowerStoreOOBIndices = destLowerStoreIndices;
-        Value oobAddrOp =
-            b.create<ConstantIntOp>(loc, kTwoGB, b.getIntegerType(32));
-
-        Value zeroAddrOp =
-            b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
-
-        // Logic in C++:
-        // bool withinBounds = true;
-        // for (auto dim : oobStoreCheckDims) {
-        //   withBounds &=
-        //     (destLowerIndicesConverted[dim] >= 0 &&
-        //      destLowerIndicesConverted[dim] < destType.getShape()[dim]) {
-        // }
-
-        Value withinStoreBoundsOp =
-            b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
-        for (auto dim : oobStoreCheckDims) {
-          Value coordStore = destLowerIndicesConverted[dim];
-          Value lowerBoundCheckOp = b.create<CmpIOp>(
-              loc, CmpIPredicate::sge, coordStore, zeroConstantOp);
-          Value upperBoundOp =
-              b.create<ConstantIndexOp>(loc, destType.getShape()[dim]);
-          Value upperBoundCheckOp = b.create<CmpIOp>(loc, CmpIPredicate::slt,
-                                                     coordStore, upperBoundOp);
-          Value withinBoundInOneDimOp =
-              b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
-
-          withinStoreBoundsOp =
-              b.create<AndOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
-          destLowerStoreOOBIndices[dim] = zeroAddrOp;
-        }
-
-        auto ifWithinBoundsOp = b.create<scf::IfOp>(
-            loc,
-            TypeRange{b.getIntegerType(32), b.getIntegerType(32),
-                      b.getIntegerType(32), b.getIntegerType(32),
-                      b.getIntegerType(32), b.getIntegerType(32)},
-            withinStoreBoundsOp, true);
-
-        auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
-        thenBuilder.create<scf::YieldOp>(
-            loc,
-            ValueRange{zeroAddrOp, destLowerStoreIndices[0],
-                       destLowerStoreIndices[1], destLowerStoreIndices[2],
-                       destLowerStoreIndices[3], destLowerStoreIndices[4]});
-        auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
-        elseBuilder.create<scf::YieldOp>(
-            loc, ValueRange{
-                     oobAddrOp, destLowerStoreOOBIndices[0],
-                     destLowerStoreOOBIndices[1], destLowerStoreOOBIndices[2],
-                     destLowerStoreOOBIndices[3], destLowerStoreOOBIndices[4]});
-
-        if (destElementType == b.getF32Type()) {
-          b.create<gpu::RawbufStoreOp>(
-              loc, scalarValue, op.dest(), ifWithinBoundsOp.getResults()[0],
-              ValueRange{ifWithinBoundsOp.getResults()[1],
-                         ifWithinBoundsOp.getResults()[2],
-                         ifWithinBoundsOp.getResults()[3],
-                         ifWithinBoundsOp.getResults()[4],
-                         ifWithinBoundsOp.getResults()[5]});
-        } else if (destElementType == b.getF16Type()) {
-          auto truncValue =
-              b.create<FPTruncOp>(loc, scalarValue, destElementType);
-          b.create<gpu::RawbufStoreOp>(
-              loc, truncValue, op.dest(), ifWithinBoundsOp.getResults()[0],
-              ValueRange{ifWithinBoundsOp.getResults()[1],
-                         ifWithinBoundsOp.getResults()[2],
-                         ifWithinBoundsOp.getResults()[3],
-                         ifWithinBoundsOp.getResults()[4],
-                         ifWithinBoundsOp.getResults()[5]});
-        } else if (destElementType == b.getIntegerType(16)) {
-          // FIXME: bf16 rsults not correct when in_h & in_w odd
-          auto convertValue = b.create<miopen::DataConvertOp>(
-              loc, destElementType, scalarValue);
-          b.create<gpu::RawbufStoreOp>(
-              loc, convertValue, op.dest(), ifWithinBoundsOp.getResults()[0],
-              ValueRange{ifWithinBoundsOp.getResults()[1],
-                         ifWithinBoundsOp.getResults()[2],
-                         ifWithinBoundsOp.getResults()[3],
-                         ifWithinBoundsOp.getResults()[4],
-                         ifWithinBoundsOp.getResults()[5]});
-        }
-      } else {
-        if (destElementType == b.getF32Type()) {
-          b.create<StoreOp>(loc, scalarValue, op.dest(),
-                            destLowerIndicesConverted);
-        } else if (destElementType == b.getF16Type()) {
-          auto truncValue =
-              b.create<FPTruncOp>(loc, scalarValue, destElementType);
-          b.create<StoreOp>(loc, truncValue, op.dest(),
-                            destLowerIndicesConverted);
-        } else if (destElementType == b.getIntegerType(16)) {
-          // FIXME: bf16 rsults not correct when in_h & in_w odd
-          auto convertValue = b.create<miopen::DataConvertOp>(
-              loc, destElementType, scalarValue);
-          b.create<StoreOp>(loc, convertValue, op.dest(),
-                            destLowerIndicesConverted);
-        }
-      }
+      emitStoreLogic(b, loc, destType, destElementType,
+                     toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
+                     destLowerIndices, convertedScalarValue);
 
       // increase IVs
       bool toIncreaseNextDigit = true;
