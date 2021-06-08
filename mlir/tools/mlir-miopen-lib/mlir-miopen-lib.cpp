@@ -19,6 +19,7 @@
 
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <string>
 
@@ -65,8 +66,10 @@ bool miirLazyInit() {
 } // namespace
 
 typedef void *MiirHandle;
+static std::mutex mutex;
 
 extern "C" MiirHandle miirCreateHandle(const char *arguments) {
+  const std::lock_guard<std::mutex> lock(mutex);
   mlir::registerAllPasses();
 
   MiirHandle_s *handle = nullptr;
@@ -99,6 +102,7 @@ extern "C" int miirGetKernelCount(MiirHandle mlirHandle) {
 }
 
 extern "C" MiirStatus miirDestroyHandle(MiirHandle mlirHandle) {
+  const std::lock_guard<std::mutex> lock(mutex);
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
@@ -110,6 +114,7 @@ extern "C" MiirStatus miirDestroyHandle(MiirHandle mlirHandle) {
 extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
                                            size_t *globalSize,
                                            size_t *localSize) {
+  const std::lock_guard<std::mutex> lock(mutex);
   if (globalSize == nullptr || localSize == nullptr)
     return MIIR_INVALID_PARAM;
 
@@ -170,6 +175,7 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
 }
 
 extern "C" MiirStatus miirLowerCpp(MiirHandle mlirHandle) {
+  const std::lock_guard<std::mutex> lock(mutex);
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
@@ -183,6 +189,7 @@ extern "C" MiirStatus miirLowerCpp(MiirHandle mlirHandle) {
 }
 
 extern "C" const char *miirGenIgemmSource(MiirHandle mlirHandle) {
+  const std::lock_guard<std::mutex> lock(mutex);
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return "";
@@ -193,6 +200,7 @@ extern "C" const char *miirGenIgemmSource(MiirHandle mlirHandle) {
 }
 
 extern "C" const char *miirGenIgemmHeader(MiirHandle mlirHandle) {
+  const std::lock_guard<std::mutex> lock(mutex);
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return "";
@@ -203,6 +211,7 @@ extern "C" const char *miirGenIgemmHeader(MiirHandle mlirHandle) {
 }
 
 extern "C" const char *miirGenIgemmCflags(MiirHandle mlirHandle) {
+  const std::lock_guard<std::mutex> lock(mutex);
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return "";
@@ -213,6 +222,7 @@ extern "C" const char *miirGenIgemmCflags(MiirHandle mlirHandle) {
 }
 
 extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
+  const std::lock_guard<std::mutex> lock(mutex);
   miirLazyInit();
 
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
@@ -234,6 +244,7 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
 }
 
 extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
+  const std::lock_guard<std::mutex> lock(mutex);
   miirLazyInit();
 
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
@@ -284,6 +295,7 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
 
 extern "C" MiirStatus miirBufferGet(MiirHandle mlirHandle, char *buffer,
                                     size_t *size) {
+  const std::lock_guard<std::mutex> lock(mutex);
   if ((buffer == nullptr) && (size == nullptr))
     return MIIR_INVALID_PARAM;
 
