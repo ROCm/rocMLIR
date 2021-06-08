@@ -163,194 +163,194 @@ func @miopen_blockwise_copy(%source : memref<?x?xf32>, %dest : memref<?x?xf32, 3
 
 // f32 tests.
 
-func @miopen_blockwise_load_f32(%source : memref<?x?xf32>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> f32  {
-  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf32>, f32
+func @miopen_blockwise_load_f32(%source : memref<?x?x?xf32>, %source_coord : vector<3xi32>) -> f32  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?x?xf32>, f32
   return %result : f32
 }
 
 // CHECK-LABEL: func @miopen_blockwise_load_f32
-//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf32>, f32
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?x?xf32>, f32
 
-func @miopen_blockwise_load_2xf32(%source : memref<?x?xf32>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<2xf32>  {
-  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf32>, vector<2xf32>
+func @miopen_blockwise_load_2xf32(%source : memref<?x?x?xf32>, %source_coord : vector<3xi32>) -> vector<2xf32>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?x?xf32>, vector<2xf32>
   return %result : vector<2xf32>
 }
 
 // CHECK-LABEL: func @miopen_blockwise_load_2xf32
-//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf32>, vector<2xf32>
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?x?xf32>, vector<2xf32>
 
-func @miopen_blockwise_load_4xf32(%source : memref<?x?xf32>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<4xf32>  {
-  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf32>, vector<4xf32>
+func @miopen_blockwise_load_4xf32(%source : memref<?x?x?xf32>, %source_coord : vector<3xi32>) -> vector<4xf32>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?x?xf32>, vector<4xf32>
   return %result : vector<4xf32>
 }
 
 // CHECK-LABEL: func @miopen_blockwise_load_4xf32
-//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf32>, vector<4xf32>
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?x?xf32>, vector<4xf32>
 
 // f16 tests.
 
-func @miopen_blockwise_load_f16(%source : memref<?x?xf16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> f16  {
-  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf16>, f16
+func @miopen_blockwise_load_f16(%source : memref<?x?x?xf16>, %source_coord : vector<3xi32>) -> f16  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?x?xf16>, f16
   return %result : f16
 }
 
 // CHECK-LABEL: func @miopen_blockwise_load_f16
-//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf16>, f16
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?x?xf16>, f16
 
-func @miopen_blockwise_load_2xf16(%source : memref<?x?xf16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<2xf16>  {
-  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf16>, vector<2xf16>
+func @miopen_blockwise_load_2xf16(%source : memref<?x?x?xf16>, %source_coord : vector<3xi32>) -> vector<2xf16>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?x?xf16>, vector<2xf16>
   return %result : vector<2xf16>
 }
 
 // CHECK-LABEL: func @miopen_blockwise_load_2xf16
-//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf16>, vector<2xf16>
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?x?xf16>, vector<2xf16>
 
-func @miopen_blockwise_load_4xf16(%source : memref<?x?xf16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<4xf16>  {
-  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf16>, vector<4xf16>
+func @miopen_blockwise_load_4xf16(%source : memref<?x?x?xf16>, %source_coord : vector<3xi32>) -> vector<4xf16>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?x?xf16>, vector<4xf16>
   return %result : vector<4xf16>
 }
 
 // CHECK-LABEL: func @miopen_blockwise_load_4xf16
-//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf16>, vector<4xf16>
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?x?xf16>, vector<4xf16>
 
-func @miopen_blockwise_load_8xf16(%source : memref<?x?xf16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<8xf16>  {
-  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xf16>, vector<8xf16>
+func @miopen_blockwise_load_8xf16(%source : memref<?x?x?xf16>, %source_coord : vector<3xi32>) -> vector<8xf16>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?x?xf16>, vector<8xf16>
   return %result : vector<8xf16>
 }
 
 // CHECK-LABEL: func @miopen_blockwise_load_8xf16
-//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xf16>, vector<8xf16>
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?x?xf16>, vector<8xf16>
 
 // i16 tests.
 
-func @miopen_blockwise_load_i16(%source : memref<?x?xi16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> i16  {
-  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xi16>, i16
+func @miopen_blockwise_load_i16(%source : memref<?x?x?xi16>, %source_coord : vector<3xi32>) -> i16  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?x?xi16>, i16
   return %result : i16
 }
 
 // CHECK-LABEL: func @miopen_blockwise_load_i16
-//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xi16>, i16
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?x?xi16>, i16
 
-func @miopen_blockwise_load_2xi16(%source : memref<?x?xi16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<2xi16>  {
-  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xi16>, vector<2xi16>
+func @miopen_blockwise_load_2xi16(%source : memref<?x?x?xi16>, %source_coord : vector<3xi32>) -> vector<2xi16>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?x?xi16>, vector<2xi16>
   return %result : vector<2xi16>
 }
 
 // CHECK-LABEL: func @miopen_blockwise_load_2xi16
-//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xi16>, vector<2xi16>
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?x?xi16>, vector<2xi16>
 
-func @miopen_blockwise_load_4xi16(%source : memref<?x?xi16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<4xi16>  {
-  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xi16>, vector<4xi16>
+func @miopen_blockwise_load_4xi16(%source : memref<?x?x?xi16>, %source_coord : vector<3xi32>) -> vector<4xi16>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?x?xi16>, vector<4xi16>
   return %result : vector<4xi16>
 }
 
 // CHECK-LABEL: func @miopen_blockwise_load_4xi16
-//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xi16>, vector<4xi16>
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?x?xi16>, vector<4xi16>
 
-func @miopen_blockwise_load_8xi16(%source : memref<?x?xi16>, %source_coord : vector<2xi32>, %dest_coord : memref<2xi32>) -> vector<8xi16>  {
-  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?xi16>, vector<8xi16>
+func @miopen_blockwise_load_8xi16(%source : memref<?x?x?xi16>, %source_coord : vector<3xi32>) -> vector<8xi16>  {
+  %result = miopen.blockwise_load(%source, %source_coord) : memref<?x?x?xi16>, vector<8xi16>
   return %result : vector<8xi16>
 }
 
 // CHECK-LABEL: func @miopen_blockwise_load_8xi16
-//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?xi16>, vector<8xi16>
+//  CHECK: %{{.*}} = miopen.blockwise_load(%{{.*}}, %{{.*}}) : memref<?x?x?xi16>, vector<8xi16>
 
 // --------------------------
 // blockwise_store tests.
 
 // f32 tests.
 
-func @miopen_blockwise_store_f32(%data : f32, %dest : memref<?x?xf32, 3>, %dest_coord : vector<2xi32>) {
-  miopen.blockwise_store(%data, %dest, %dest_coord) : f32, memref<?x?xf32, 3>
+func @miopen_blockwise_store_f32(%data : f32, %dest : memref<?x?x?xf32, 3>, %dest_coord : vector<3xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : f32, memref<?x?x?xf32, 3>
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_store_f32
-//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : f32, memref<?x?xf32, 3>
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : f32, memref<?x?x?xf32, 3>
 
-func @miopen_blockwise_store_2xf32(%data : vector<2xf32>, %dest : memref<?x?xf32, 3>, %dest_coord : vector<2xi32>) {
-  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<2xf32>, memref<?x?xf32, 3>
+func @miopen_blockwise_store_2xf32(%data : vector<2xf32>, %dest : memref<?x?x?xf32, 3>, %dest_coord : vector<3xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<2xf32>, memref<?x?x?xf32, 3>
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_store_2xf32
-//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf32>, memref<?x?xf32, 3>
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf32>, memref<?x?x?xf32, 3>
 
-func @miopen_blockwise_store_4xf32(%data : vector<4xf32>, %dest : memref<?x?xf32, 3>, %dest_coord : vector<2xi32>) {
-  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<4xf32>, memref<?x?xf32, 3>
+func @miopen_blockwise_store_4xf32(%data : vector<4xf32>, %dest : memref<?x?x?xf32, 3>, %dest_coord : vector<3xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<4xf32>, memref<?x?x?xf32, 3>
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_store_4xf32
-//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>, memref<?x?xf32, 3>
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>, memref<?x?x?xf32, 3>
 
 // f16 tests.
 
-func @miopen_blockwise_store_f16(%data : f16, %dest : memref<?x?xf16, 3>, %dest_coord : vector<2xi32>) {
-  miopen.blockwise_store(%data, %dest, %dest_coord) : f16, memref<?x?xf16, 3>
+func @miopen_blockwise_store_f16(%data : f16, %dest : memref<?x?x?xf16, 3>, %dest_coord : vector<3xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : f16, memref<?x?x?xf16, 3>
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_store_f16
-//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : f16, memref<?x?xf16, 3>
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : f16, memref<?x?x?xf16, 3>
 
-func @miopen_blockwise_store_2xf16(%data : vector<2xf16>, %dest : memref<?x?xf16, 3>, %dest_coord : vector<2xi32>) {
-  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<2xf16>, memref<?x?xf16, 3>
+func @miopen_blockwise_store_2xf16(%data : vector<2xf16>, %dest : memref<?x?x?xf16, 3>, %dest_coord : vector<3xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<2xf16>, memref<?x?x?xf16, 3>
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_store_2xf16
-//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf16>, memref<?x?xf16, 3>
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf16>, memref<?x?x?xf16, 3>
 
-func @miopen_blockwise_store_4xf16(%data : vector<4xf16>, %dest : memref<?x?xf16, 3>, %dest_coord : vector<2xi32>) {
-  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<4xf16>, memref<?x?xf16, 3>
+func @miopen_blockwise_store_4xf16(%data : vector<4xf16>, %dest : memref<?x?x?xf16, 3>, %dest_coord : vector<3xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<4xf16>, memref<?x?x?xf16, 3>
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_store_4xf16
-//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf16>, memref<?x?xf16, 3>
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf16>, memref<?x?x?xf16, 3>
 
-func @miopen_blockwise_store_8xf16(%data : vector<8xf16>, %dest : memref<?x?xf16, 3>, %dest_coord : vector<2xi32>) {
-  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<8xf16>, memref<?x?xf16, 3>
+func @miopen_blockwise_store_8xf16(%data : vector<8xf16>, %dest : memref<?x?x?xf16, 3>, %dest_coord : vector<3xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<8xf16>, memref<?x?x?xf16, 3>
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_store_8xf16
-//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<8xf16>, memref<?x?xf16, 3>
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<8xf16>, memref<?x?x?xf16, 3>
 
 // i16 tests.
 
-func @miopen_blockwise_store_i16(%data : i16, %dest : memref<?x?xi16, 3>, %dest_coord : vector<2xi32>) {
-  miopen.blockwise_store(%data, %dest, %dest_coord) : i16, memref<?x?xi16, 3>
+func @miopen_blockwise_store_i16(%data : i16, %dest : memref<?x?x?xi16, 3>, %dest_coord : vector<3xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : i16, memref<?x?x?xi16, 3>
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_store_i16
-//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : i16, memref<?x?xi16, 3>
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : i16, memref<?x?x?xi16, 3>
 
-func @miopen_blockwise_store_2xi16(%data : vector<2xi16>, %dest : memref<?x?xi16, 3>, %dest_coord : vector<2xi32>) {
-  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<2xi16>, memref<?x?xi16, 3>
+func @miopen_blockwise_store_2xi16(%data : vector<2xi16>, %dest : memref<?x?x?xi16, 3>, %dest_coord : vector<3xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<2xi16>, memref<?x?x?xi16, 3>
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_store_2xi16
-//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xi16>, memref<?x?xi16, 3>
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xi16>, memref<?x?x?xi16, 3>
 
-func @miopen_blockwise_store_4xi16(%data : vector<4xi16>, %dest : memref<?x?xi16, 3>, %dest_coord : vector<2xi32>) {
-  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<4xi16>, memref<?x?xi16, 3>
+func @miopen_blockwise_store_4xi16(%data : vector<4xi16>, %dest : memref<?x?x?xi16, 3>, %dest_coord : vector<3xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<4xi16>, memref<?x?x?xi16, 3>
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_store_4xi16
-//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xi16>, memref<?x?xi16, 3>
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xi16>, memref<?x?x?xi16, 3>
 
-func @miopen_blockwise_store_8xi16(%data : vector<8xi16>, %dest : memref<?x?xi16, 3>, %dest_coord : vector<2xi32>) {
-  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<8xi16>, memref<?x?xi16, 3>
+func @miopen_blockwise_store_8xi16(%data : vector<8xi16>, %dest : memref<?x?x?xi16, 3>, %dest_coord : vector<3xi32>) {
+  miopen.blockwise_store(%data, %dest, %dest_coord) : vector<8xi16>, memref<?x?x?xi16, 3>
   return
 }
 
 // CHECK-LABEL: func @miopen_blockwise_store_8xi16
-//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<8xi16>, memref<?x?xi16, 3>
+//  CHECK: miopen.blockwise_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<8xi16>, memref<?x?x?xi16, 3>
 
 // --------------------------
 // threadwise_copy tests.

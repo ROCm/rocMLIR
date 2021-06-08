@@ -242,7 +242,7 @@ def MIOpen_BlockwiseCopyOp:
 def MIOpen_BlockwiseLoadOp:
     MIOpen_Op<"blockwise_load">,
     Arguments<(ins AnyMemRef:$source,
-                   VectorOfLengthAndType<[2], [I32]>:$sourceCoordVector)>,
+                   VectorOfLengthAndType<[3], [I32]>:$sourceCoordVector)>,
     Results<(outs AnyTypeOf<[F32, F16, I16,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16]>, 
@@ -263,7 +263,7 @@ def MIOpen_BlockwiseStoreOp:
                               VectorOfLengthAndType<[2, 4, 8], [F16]>, 
                               VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$data,
                    AnyMemRef:$dest,
-                   VectorOfLengthAndType<[2], [I32]>:$destCoordVector)> {
+                   VectorOfLengthAndType<[3], [I32]>:$destCoordVector)> {
   let summary = "Blockwise GPU data store";
   let description = [{
     The `miopen.blockwise_store` op moves data on GPU. Following movements are

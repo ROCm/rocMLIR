@@ -6873,8 +6873,8 @@ struct BlockwiseLoadRewritePattern
 
     // Threadwise copy from global (generic tensor) to register (naive
     // tensor).
-    SmallVector<Value, 2> ThreadwiseCopySourceCoords;
-    for (unsigned i = 0; i < 2; ++i) {
+    SmallVector<Value, 3> ThreadwiseCopySourceCoords;
+    for (unsigned i = 0; i < sourceCoordVectorType.getShape().size(); ++i) {
       auto iter = b.create<ConstantIntOp>(loc, i, b.getIntegerType(32));
       auto coord = b.create<vector::ExtractElementOp>(
           loc, sourceCoordVectorType.getElementType(), op.sourceCoordVector(),
@@ -6911,8 +6911,8 @@ struct BlockwiseStoreRewritePattern
     // - 5 (register) -> 3 (LDS) : store
 
     // Threadwise copy from register (naive tensor) to LDS (naive tensor).
-    SmallVector<Value, 2> ThreadwiseCopyDestCoords;
-    for (unsigned i = 0; i < 2; ++i) {
+    SmallVector<Value, 3> ThreadwiseCopyDestCoords;
+    for (unsigned i = 0; i < destCoordVectorType.getShape().size(); ++i) {
       auto iter = b.create<ConstantIntOp>(loc, i, b.getIntegerType(32));
       auto coord = b.create<vector::ExtractElementOp>(
           loc, destCoordVectorType.getElementType(), op.destCoordVector(),
