@@ -6909,8 +6909,6 @@ struct ThreadwiseCopyRewritePattern
     auto destElementType =
         op.dest().getType().cast<MemRefType>().getElementType().cast<Type>();
 
-    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-
     auto sourceType = op.source().getType().cast<MemRefType>();
     auto destType = op.dest().getType().cast<MemRefType>();
 
@@ -7153,49 +7151,16 @@ struct ThreadwiseCopyRewritePattern
         loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
       }
 
-      // Main code emission loop.
-      bool toExit = false;
-      do {
-        // Use the old logic in case "legacy_load" attribute is specified.
-        if (legacyLoadAttr &&
-            (legacyLoadAttr.template cast<BoolAttr>().getValue() == true)) {
-          computeTopAndBottomIndicesWithAffineMap(
-              b, loc, srcUpperIndices, srcLowerIndices, sourceCoord,
-              loopIVsPerAccessOrder, dimAccessOrder, layeredSourceTransform);
-        } else {
-          // New approach. Use index diff map.
-          // Progressively use index diff map to compute the coordinate at the
-          // bottom most layer.
-          computeBottomIndicesWithIndexDiffMap(
-              b, loc, loopIVsPerAccessOrder, layeredSourceTransformMetadata,
-              layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
-        }
+      auto emitStoreLogic = [&b, &loc](
+                                MemRefType destType, Type destElementType,
+                                bool toEmitOOBStoreCheckLogic,
+                                const SmallVector<unsigned, 8>
+                                    &oobStoreCheckDims,
+                                const Value &dest,
+                                const SmallVector<Value, 8> &destLowerIndices,
+                                const Value &value) {
+        auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
-        // Load from source.
-        Value scalarValue = emitLoadLogic(
-            b, loc, sourceType, sourceElementType, toEmitOOBLoadCheckLogic,
-            oobLoadCheckDims, op.source(), srcLowerIndices);
-
-        // Convert from sourceElementType to destElementType if necessary.
-        Value convertedScalarValue = createTypeConversionOp(
-            b, loc, scalarValue, sourceElementType, destElementType);
-
-        // Use the old logic in case "legacy_store" attribute is specified.
-        if (legacyStoreAttr &&
-            (legacyStoreAttr.template cast<BoolAttr>().getValue() == true)) {
-          computeTopAndBottomIndicesWithAffineMap(
-              b, loc, destUpperIndices, destLowerIndices, destCoord,
-              loopIVsPerAccessOrder, dimAccessOrder, layeredDestTransform);
-        } else {
-          // New approach. Use index diff map.
-          // Progressively use index diff map to compute the coordinate at the
-          // bottom most layer.
-          computeBottomIndicesWithIndexDiffMap(
-              b, loc, loopIVsPerAccessOrder, layeredDestTransformMetadata,
-              layeredDestTransform, layeredDestIndices, destLowerIndices);
-        }
-
-        // Store to dest.
         if (toEmitOOBStoreCheckLogic) {
           SmallVector<Value, 8> destLowerStoreIndices;
           SmallVector<Value, 8> destLowerStoreOOBIndices;
@@ -7261,17 +7226,63 @@ struct ThreadwiseCopyRewritePattern
                               destLowerStoreOOBIndices[4]});
 
           b.create<gpu::RawbufStoreOp>(
-              loc, convertedScalarValue, op.dest(),
-              ifWithinBoundsOp.getResults()[0],
+              loc, value, dest, ifWithinBoundsOp.getResults()[0],
               ValueRange{ifWithinBoundsOp.getResults()[1],
                          ifWithinBoundsOp.getResults()[2],
                          ifWithinBoundsOp.getResults()[3],
                          ifWithinBoundsOp.getResults()[4],
                          ifWithinBoundsOp.getResults()[5]});
         } else {
-          b.create<StoreOp>(loc, convertedScalarValue, op.dest(),
-                            destLowerIndices);
+          b.create<StoreOp>(loc, value, dest, destLowerIndices);
         }
+      };
+
+      // Main code emission loop.
+      bool toExit = false;
+      do {
+        // Use the old logic in case "legacy_load" attribute is specified.
+        if (legacyLoadAttr &&
+            (legacyLoadAttr.template cast<BoolAttr>().getValue() == true)) {
+          computeTopAndBottomIndicesWithAffineMap(
+              b, loc, srcUpperIndices, srcLowerIndices, sourceCoord,
+              loopIVsPerAccessOrder, dimAccessOrder, layeredSourceTransform);
+        } else {
+          // New approach. Use index diff map.
+          // Progressively use index diff map to compute the coordinate at the
+          // bottom most layer.
+          computeBottomIndicesWithIndexDiffMap(
+              b, loc, loopIVsPerAccessOrder, layeredSourceTransformMetadata,
+              layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
+        }
+
+        // Load from source.
+        Value scalarValue = emitLoadLogic(
+            b, loc, sourceType, sourceElementType, toEmitOOBLoadCheckLogic,
+            oobLoadCheckDims, op.source(), srcLowerIndices);
+
+        // Convert from sourceElementType to destElementType if necessary.
+        Value convertedScalarValue = createTypeConversionOp(
+            b, loc, scalarValue, sourceElementType, destElementType);
+
+        // Use the old logic in case "legacy_store" attribute is specified.
+        if (legacyStoreAttr &&
+            (legacyStoreAttr.template cast<BoolAttr>().getValue() == true)) {
+          computeTopAndBottomIndicesWithAffineMap(
+              b, loc, destUpperIndices, destLowerIndices, destCoord,
+              loopIVsPerAccessOrder, dimAccessOrder, layeredDestTransform);
+        } else {
+          // New approach. Use index diff map.
+          // Progressively use index diff map to compute the coordinate at the
+          // bottom most layer.
+          computeBottomIndicesWithIndexDiffMap(
+              b, loc, loopIVsPerAccessOrder, layeredDestTransformMetadata,
+              layeredDestTransform, layeredDestIndices, destLowerIndices);
+        }
+
+        // Store to dest.
+        emitStoreLogic(destType, destElementType, toEmitOOBStoreCheckLogic,
+                       oobStoreCheckDims, op.dest(), destLowerIndices,
+                       convertedScalarValue);
 
         // increase IVs
         bool toIncreaseNextDigit = true;
