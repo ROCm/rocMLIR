@@ -2850,7 +2850,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
   LogicalResult backwardData(T op, PatternRewriter &b) const {
     auto loc = op.getLoc();
-
+    auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
     auto archAttr = op->template getAttrOfType<StringAttr>("arch");
     auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
 
@@ -2943,8 +2943,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto gcdStrideDilationH = math::gcd(strideH, dilationH);
     auto gcdStrideDilationW = math::gcd(strideW, dilationW);
 
-    auto yTilda = dilationH / gcdStrideDilationH;
-    auto xTilda = dilationW / gcdStrideDilationW;
+    auto yTilda = strideH / gcdStrideDilationH;
+    auto xTilda = strideW / gcdStrideDilationW;
 
     auto yDot = math::integer_divide_ceil(y, yTilda);
     auto xDot = math::integer_divide_ceil(x, xTilda);
@@ -2965,7 +2965,28 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto hTildaSlice = iHTildaRight - iHTildaLeft;
     auto wTildaSlice = iWTildaRight - iWTildaLeft;
 
-    auto gemmId = 0;
+    auto getGemmId = [&](int kernelId) {
+      // kernelId 0 must be gemmId 0
+      if (kernelId <= 0)
+        return 0;
+
+      llvm::SmallVector<int> gemmIds;
+      for (int gemmId = 0; gemmId < yTilda * xTilda; gemmId++) {
+        // gemm_k size is different for each GEMM
+        const auto iYTilda = gemmId / xTilda;
+        const auto iXTilda = gemmId % xTilda;
+
+        auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
+        auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
+        // gemmK must > 0, otherwise not need to run
+        if (yDotSlice * xDotSlice > 0) {
+          gemmIds.push_back(gemmId);
+        }
+      }
+      assert(gemmIds.size() > kernelId);
+      return gemmIds[kernelId];
+    };
+    auto gemmId = getGemmId(gemmIdAttr.getInt());
     auto iYTilda = gemmId / xTilda;
     auto iXTilda = gemmId % xTilda;
     auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
@@ -4209,6 +4230,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Set attributes for gridwise_gemm op.
     llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
+        b.getNamedAttr("gemm_id", gemmIdAttr),
         b.getNamedAttr("arch", archAttr),
         b.getNamedAttr("num_cu", numCuAttr),
         b.getNamedAttr("filter_layout", filterLayoutAttr),

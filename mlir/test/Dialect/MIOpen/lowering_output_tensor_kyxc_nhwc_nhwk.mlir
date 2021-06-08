@@ -35,7 +35,8 @@ func @miopen_conv2d_bwd_data_gkyxc_nhwgc_nhwgk(%filter : memref<1x128x3x3x8xf32>
     output_layout = ["no", "ho", "wo", "go", "ko"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0, 0, 0],
+    gemm_id = 0
   } : memref<1x128x3x3x8xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>
   return
 }
