@@ -189,6 +189,90 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
 }
 
 //===----------------------------------------------------------------------===//
+// Utility function to emit store instructions with potentially OOB checks.
+//===----------------------------------------------------------------------===//
+inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
+                           Type destElementType, bool toEmitOOBStoreCheckLogic,
+                           const SmallVector<unsigned, 8> &oobStoreCheckDims,
+                           const Value &dest,
+                           const SmallVector<Value, 8> &destLowerIndices,
+                           const Value &value) {
+  auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+
+  if (toEmitOOBStoreCheckLogic) {
+    SmallVector<Value, 8> destLowerStoreIndices;
+    SmallVector<Value, 8> destLowerStoreOOBIndices;
+
+    for (unsigned i = 0; i < destLowerIndices.size(); ++i) {
+      auto dstIndex =
+          b.create<IndexCastOp>(loc, destLowerIndices[i], b.getIntegerType(32));
+      destLowerStoreIndices.push_back(dstIndex);
+    }
+
+    destLowerStoreOOBIndices = destLowerStoreIndices;
+    Value oobAddrOp =
+        b.create<ConstantIntOp>(loc, kTwoGB, b.getIntegerType(32));
+
+    Value zeroAddrOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
+
+    // Logic in C++:
+    // bool withinBounds = true;
+    // for (auto dim : oobStoreCheckDims) {
+    //   withBounds &=
+    //     (destLowerIndices[dim] >= 0 &&
+    //      destLowerIndices[dim] < destType.getShape()[dim]) {
+    // }
+
+    Value withinStoreBoundsOp =
+        b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
+    for (auto dim : oobStoreCheckDims) {
+      Value coordStore = destLowerIndices[dim];
+      Value lowerBoundCheckOp =
+          b.create<CmpIOp>(loc, CmpIPredicate::sge, coordStore, zeroConstantOp);
+      Value upperBoundOp =
+          b.create<ConstantIndexOp>(loc, destType.getShape()[dim]);
+      Value upperBoundCheckOp =
+          b.create<CmpIOp>(loc, CmpIPredicate::slt, coordStore, upperBoundOp);
+      Value withinBoundInOneDimOp =
+          b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
+
+      withinStoreBoundsOp =
+          b.create<AndOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
+      destLowerStoreOOBIndices[dim] = zeroAddrOp;
+    }
+
+    auto ifWithinBoundsOp = b.create<scf::IfOp>(
+        loc,
+        TypeRange{b.getIntegerType(32), b.getIntegerType(32),
+                  b.getIntegerType(32), b.getIntegerType(32),
+                  b.getIntegerType(32), b.getIntegerType(32)},
+        withinStoreBoundsOp, true);
+
+    auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
+    thenBuilder.create<scf::YieldOp>(
+        loc, ValueRange{zeroAddrOp, destLowerStoreIndices[0],
+                        destLowerStoreIndices[1], destLowerStoreIndices[2],
+                        destLowerStoreIndices[3], destLowerStoreIndices[4]});
+    auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
+    elseBuilder.create<scf::YieldOp>(
+        loc,
+        ValueRange{oobAddrOp, destLowerStoreOOBIndices[0],
+                   destLowerStoreOOBIndices[1], destLowerStoreOOBIndices[2],
+                   destLowerStoreOOBIndices[3], destLowerStoreOOBIndices[4]});
+
+    b.create<gpu::RawbufStoreOp>(loc, value, dest,
+                                 ifWithinBoundsOp.getResults()[0],
+                                 ValueRange{ifWithinBoundsOp.getResults()[1],
+                                            ifWithinBoundsOp.getResults()[2],
+                                            ifWithinBoundsOp.getResults()[3],
+                                            ifWithinBoundsOp.getResults()[4],
+                                            ifWithinBoundsOp.getResults()[5]});
+  } else {
+    b.create<StoreOp>(loc, value, dest, destLowerIndices);
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to determine if we need to emit codes for OOB checks.
 //===----------------------------------------------------------------------===//
 inline bool obtainOOBCheckInfo(const Optional<AffineMap> &composedTransform,
@@ -7151,92 +7235,6 @@ struct ThreadwiseCopyRewritePattern
         loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
       }
 
-      auto emitStoreLogic = [&b, &loc](
-                                MemRefType destType, Type destElementType,
-                                bool toEmitOOBStoreCheckLogic,
-                                const SmallVector<unsigned, 8>
-                                    &oobStoreCheckDims,
-                                const Value &dest,
-                                const SmallVector<Value, 8> &destLowerIndices,
-                                const Value &value) {
-        auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-
-        if (toEmitOOBStoreCheckLogic) {
-          SmallVector<Value, 8> destLowerStoreIndices;
-          SmallVector<Value, 8> destLowerStoreOOBIndices;
-
-          for (unsigned i = 0; i < destLowerIndices.size(); ++i) {
-            auto dstIndex = b.create<IndexCastOp>(loc, destLowerIndices[i],
-                                                  b.getIntegerType(32));
-            destLowerStoreIndices.push_back(dstIndex);
-          }
-
-          destLowerStoreOOBIndices = destLowerStoreIndices;
-          Value oobAddrOp =
-              b.create<ConstantIntOp>(loc, kTwoGB, b.getIntegerType(32));
-
-          Value zeroAddrOp =
-              b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
-
-          // Logic in C++:
-          // bool withinBounds = true;
-          // for (auto dim : oobStoreCheckDims) {
-          //   withBounds &=
-          //     (destLowerIndices[dim] >= 0 &&
-          //      destLowerIndices[dim] < destType.getShape()[dim]) {
-          // }
-
-          Value withinStoreBoundsOp =
-              b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
-          for (auto dim : oobStoreCheckDims) {
-            Value coordStore = destLowerIndices[dim];
-            Value lowerBoundCheckOp = b.create<CmpIOp>(
-                loc, CmpIPredicate::sge, coordStore, zeroConstantOp);
-            Value upperBoundOp =
-                b.create<ConstantIndexOp>(loc, destType.getShape()[dim]);
-            Value upperBoundCheckOp = b.create<CmpIOp>(
-                loc, CmpIPredicate::slt, coordStore, upperBoundOp);
-            Value withinBoundInOneDimOp =
-                b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
-
-            withinStoreBoundsOp = b.create<AndOp>(loc, withinStoreBoundsOp,
-                                                  withinBoundInOneDimOp);
-            destLowerStoreOOBIndices[dim] = zeroAddrOp;
-          }
-
-          auto ifWithinBoundsOp = b.create<scf::IfOp>(
-              loc,
-              TypeRange{b.getIntegerType(32), b.getIntegerType(32),
-                        b.getIntegerType(32), b.getIntegerType(32),
-                        b.getIntegerType(32), b.getIntegerType(32)},
-              withinStoreBoundsOp, true);
-
-          auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
-          thenBuilder.create<scf::YieldOp>(
-              loc,
-              ValueRange{zeroAddrOp, destLowerStoreIndices[0],
-                         destLowerStoreIndices[1], destLowerStoreIndices[2],
-                         destLowerStoreIndices[3], destLowerStoreIndices[4]});
-          auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
-          elseBuilder.create<scf::YieldOp>(
-              loc, ValueRange{oobAddrOp, destLowerStoreOOBIndices[0],
-                              destLowerStoreOOBIndices[1],
-                              destLowerStoreOOBIndices[2],
-                              destLowerStoreOOBIndices[3],
-                              destLowerStoreOOBIndices[4]});
-
-          b.create<gpu::RawbufStoreOp>(
-              loc, value, dest, ifWithinBoundsOp.getResults()[0],
-              ValueRange{ifWithinBoundsOp.getResults()[1],
-                         ifWithinBoundsOp.getResults()[2],
-                         ifWithinBoundsOp.getResults()[3],
-                         ifWithinBoundsOp.getResults()[4],
-                         ifWithinBoundsOp.getResults()[5]});
-        } else {
-          b.create<StoreOp>(loc, value, dest, destLowerIndices);
-        }
-      };
-
       // Main code emission loop.
       bool toExit = false;
       do {
@@ -7280,9 +7278,9 @@ struct ThreadwiseCopyRewritePattern
         }
 
         // Store to dest.
-        emitStoreLogic(destType, destElementType, toEmitOOBStoreCheckLogic,
-                       oobStoreCheckDims, op.dest(), destLowerIndices,
-                       convertedScalarValue);
+        emitStoreLogic(b, loc, destType, destElementType,
+                       toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
+                       destLowerIndices, convertedScalarValue);
 
         // increase IVs
         bool toIncreaseNextDigit = true;
