@@ -277,7 +277,7 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
 //===----------------------------------------------------------------------===//
 inline bool obtainOOBCheckInfo(const Optional<AffineMap> &composedTransform,
                                const ArrayAttr &boundCheckAttr,
-                               SmallVector<unsigned, 8> oobCheckDims) {
+                               SmallVector<unsigned, 8> &oobCheckDims) {
   // Determine if we need to emit codes for out-of-bound check.
   bool ret = false;
   if (composedTransform && boundCheckAttr) {
