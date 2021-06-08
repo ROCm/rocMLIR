@@ -4309,8 +4309,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top, miopen::
   top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
   top->setAttr("dest_data_per_write",
                gop->getAttr("matrix_c_dest_data_per_write"));
-  top->setAttr("legacy_load", b.getBoolAttr(false));
-  top->setAttr("legacy_store", b.getBoolAttr(false));
 }
 
 static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top, miopen::GridwiseGemmV2Op gop, OpBuilder &b) {
@@ -4329,9 +4327,8 @@ static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top, miop
 }
 
 // XXX: Figure out a way to do away with isThreadwiseLoad parameter.
-static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
-                                          miopen::BlockwiseCopyOp bop,
-                                          OpBuilder &b,
+template <typename T, typename U>
+static void affixThreadwiseCopyAttributes(T top, U bop, OpBuilder &b,
                                           bool isThreadwiseLoad) {
   if (isThreadwiseLoad) {
     top->setAttr("dim_access_order", bop->getAttr("source_dim_access_order"));
@@ -4353,19 +4350,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
     // XXX: TBD review how vector load/store attributes are passed down.
     // top->setAttr("dest_data_per_write", bop->getAttr("dest_data_per_write"));
     top->setAttr("dest_data_per_write", b.getI32IntegerAttr(1));
-  }
-  top->setAttr("legacy_load", b.getBoolAttr(true));
-  top->setAttr("legacy_store", b.getBoolAttr(true));
-
-  MemRefType sourceType = top.source().getType().template cast<MemRefType>();
-  MemRefType destType = top.dest().getType().template cast<MemRefType>();
-  if (sourceType.getMemorySpace() == 5 && destType.getMemorySpace() == 3) {
-    top->setAttr("legacy_load", b.getBoolAttr(false));
-    top->setAttr("legacy_store", b.getBoolAttr(false));
-  }
-  if (sourceType.getMemorySpace() == 0 && destType.getMemorySpace() == 5) {
-    top->setAttr("legacy_load", b.getBoolAttr(false));
-    top->setAttr("legacy_store", b.getBoolAttr(false));
   }
 }
 
@@ -4460,8 +4444,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   }
 
   // XXX. Figure out a way to do away with isMatrixA parameter.
-  void affixBlockwiseCopyAttributes(miopen::BlockwiseCopyOp bop,
-                                    miopen::GridwiseGemmOp gop,
+  template <typename T>
+  void affixBlockwiseCopyAttributes(T bop, miopen::GridwiseGemmOp gop,
                                     OpBuilder &b, bool isMatrixA) const {
     bop->setAttr("block_size", gop->getAttr("block_size"));
 
@@ -6880,9 +6864,7 @@ struct BlockwiseLoadRewritePattern
   LogicalResult matchAndRewrite(miopen::BlockwiseLoadOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
-    MemRefType sourceType = op.source().getType().cast<MemRefType>();
     Type resultType = op.result().getType();
-    auto elementType = sourceType.getElementType();
     auto sourceCoordVectorType =
         op.sourceCoordVector().getType().cast<VectorType>();
 
@@ -6922,9 +6904,6 @@ struct BlockwiseStoreRewritePattern
   LogicalResult matchAndRewrite(miopen::BlockwiseStoreOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
-    Type valueType = op.data().getType();
-    MemRefType destType = op.dest().getType().cast<MemRefType>();
-    auto elementType = destType.getElementType();
     auto destCoordVectorType =
         op.destCoordVector().getType().cast<VectorType>();
 
