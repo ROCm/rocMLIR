@@ -102,6 +102,8 @@ computeLoadTypeInfo(OpBuilder &b, Type elementType, int64_t length) {
   int64_t maxVectorLength = computeMaxVectorLength(b, elementType);
 
   auto vectorLength = math::gcd(length, maxVectorLength);
+  // HACK: force scalar load right now.
+  //vectorLength = 1;
   auto tupleLength = length / vectorLength;
   Type type = (vectorLength > 1) ? VectorType::get(vectorLength, elementType)
                                  : elementType;
@@ -140,11 +142,11 @@ inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc,
 // Utility function to emit load instructions with potentially OOB checks.
 //===----------------------------------------------------------------------===//
 inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
-                           Type sourceElementType, bool toEmitOOBLoadCheckLogic,
+                           Type loadedType, bool toEmitOOBLoadCheckLogic,
                            const SmallVector<unsigned, 8> &oobLoadCheckDims,
                            const Value &source,
                            const SmallVector<Value, 8> &srcLowerIndices) {
-  Value scalarValue;
+  Value loadedValue;
 
   auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
@@ -154,7 +156,7 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
     SmallVector<Value, 8> srcLowerLoadOOBIndices = srcLowerIndices;
 
     // Emit a useful constant 0f for later use.
-    Value zeroOp = createZeroConstantFloatOp(b, loc, sourceElementType);
+    Value zeroOp = createZeroConstantFloatOp(b, loc, loadedType);
 
     // Walkthrough all lower level indices where the dimension has
     // padding, check if the result lies within boundaries.
@@ -226,44 +228,37 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
                         srcLowerLoadOOBIndices[4]});
 
     // Issue scalar load.
-    scalarValue = b.create<LoadOp>(loc, sourceElementType, source,
+    loadedValue = b.create<LoadOp>(loc, loadedType, source,
                                    firstIfWithinBoundsOp.results());
 
     // Emit the second IfOp.
     auto secondIfWithinBoundsOp =
-        b.create<scf::IfOp>(loc, sourceElementType, withinBoundsOp, true);
+        b.create<scf::IfOp>(loc, loadedType, withinBoundsOp, true);
     auto secondIfWithinBoundsThenBuilder =
         secondIfWithinBoundsOp.getThenBodyBuilder();
-    secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc, scalarValue);
+    secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc, loadedValue);
     auto secondIfWithinBoundsElseBuilder =
         secondIfWithinBoundsOp.getElseBodyBuilder();
     secondIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOp);
 
-    scalarValue = secondIfWithinBoundsOp.results()[0];
+    loadedValue = secondIfWithinBoundsOp.results()[0];
 
   } else {
-    // Issue scalar load.
-    scalarValue =
-        b.create<LoadOp>(loc, sourceElementType, source, srcLowerIndices);
+    // XXX. FIXME. Thoroughly review / refactor this.
+    // Then change OOB load as well.
+    if (loadedType.isa<VectorType>()) {
+      // Issue vector load.
+      SmallVector<Value, 4> srcLowerIndicesI32;
+      for (auto v : srcLowerIndices)
+        srcLowerIndicesI32.push_back(b.create<IndexCastOp>(loc, v, b.getIntegerType(32)));
+      loadedValue = b.create<gpu::MubufLoadOp>(loc, loadedType, source, srcLowerIndicesI32);
+    } else {
+      // Issue scalar load.
+      loadedValue =
+          b.create<LoadOp>(loc, loadedType, source, srcLowerIndices);
+    }
   }
-
-  //   // TBD: fix me!
-  //   // // Load from source.
-  //   // if (srcDataPerRead > 1) {
-  //   // Issue GPU buffer load.
-  //   SmallVector<Value, 4> srcIndexLowerNewUpdatedI32;
-  //   for (auto v : srcIndexLowerNewUpdated)
-  //     srcIndexLowerNewUpdatedI32.push_back(
-  //         b.create<IndexCastOp>(loc, v, b.getIntegerType(32)));
-  //   loadedValue = b.create<gpu::MubufLoadOp>(loc, resultType, op.source(),
-  //                                            srcIndexLowerNewUpdatedI32);
-  //   // } else {
-  //   //   // Issue scalar load.
-  //   //   loadedValue = b.create<LoadOp>(loc, dataType, op.source(),
-  //   //   srcIndexLowerNewUpdated);
-  //   // }
-
-  return scalarValue;
+  return loadedValue;
 }
 
 //===----------------------------------------------------------------------===//
@@ -346,32 +341,49 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
                                             ifWithinBoundsOp.getResults()[4],
                                             ifWithinBoundsOp.getResults()[5]});
   } else {
-    b.create<StoreOp>(loc, value, dest, destLowerIndices);
+    // XXX. FIXME. Thoroughly review / refactor this.
+    // Then change OOB store as well.
+    Type valueType = value.getType();
+    if (valueType.isa<TupleType>()) {
+      auto tupleElementType = valueType.cast<TupleType>().getType(0);
+      auto tupleElement = b.create<vector::TupleGetOp>(
+          loc, tupleElementType, value, b.getI32IntegerAttr(0));
+      // use raw buffer store if the dest memref is on address space 0
+      if (destType.getMemorySpace() == 0) {
+        Value zeroAddrOp =
+            b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
+        b.create<gpu::RawbufStoreOp>(loc, tupleElement, dest, zeroAddrOp,
+                                     destLowerIndices);
+      } else {
+        if (tupleElementType.isa<VectorType>()) {
+          // Issue vector.extractelement + scalar store.
+          for (auto i = 0;
+               i < tupleElementType.cast<VectorType>().getShape()[0]; ++i) {
+            auto iter = b.create<ConstantIntOp>(loc, i, b.getIntegerType(32));
+            auto element = b.create<vector::ExtractElementOp>(
+                loc, destElementType, tupleElement, iter);
+            b.create<StoreOp>(loc, element, dest, destLowerIndices);
+          }
+        } else {
+          // Issue scalar store.
+          b.create<StoreOp>(loc, tupleElement, dest, destLowerIndices);
+        }
+      }
+    } else {
+      if (valueType.isa<VectorType>()) {
+        // Issue vector.extractelement + scalar store.
+        for (auto i = 0; i < valueType.cast<VectorType>().getShape()[0]; ++i) {
+          auto iter = b.create<ConstantIntOp>(loc, i, b.getIntegerType(32));
+          auto element = b.create<vector::ExtractElementOp>(
+              loc, destElementType, value, iter);
+          b.create<StoreOp>(loc, element, dest, destLowerIndices);
+        }
+      } else {
+        // Issue scalar store.
+        b.create<StoreOp>(loc, value, dest, destLowerIndices);
+      }
+    }
   }
-
-  //   // Store to dest.
-  //   if (destDataPerWrite > 1) {
-  //     // TBD. Issue vector store.
-  //     // auto dstExpr = getAffineDimExpr(destType.getRank() - 1,
-  //     // op.getContext()); auto dstProjection =
-  //     // AffineMap::get(destType.getRank(), 0, dstExpr);
-  //     // b.create<vector::TransferWriteOp>(
-  //     //     loc, vectorValue, op.dest(), destLowerIndices, dstProjection);
-  //   } else {
-  //     if (valueType.isa<VectorType>()) {
-  //       // Issue vector.extractelement + scalar store.
-  //       auto iter = b.create<ConstantIntOp>(
-  //           loc, loopIVsPerAccessOrder[loopIVsPerAccessOrder.size() - 1],
-  //           b.getIntegerType(32));
-  //       auto element = b.create<vector::ExtractElementOp>(loc, dataType,
-  //                                                         op.data(), iter);
-  //       b.create<StoreOp>(loc, element, op.dest(), destIndexLowerNewUpdated);
-  //     } else {
-  //       // Issue scalar store.
-  //       b.create<StoreOp>(loc, op.data(), op.dest(),
-  //                         destIndexLowerNewUpdated);
-  //     }
-  //   }
 }
 
 //===----------------------------------------------------------------------===//
@@ -7548,11 +7560,12 @@ struct ThreadwiseLoadRewritePattern
 
     auto sourceElementType =
         op.source().getType().cast<MemRefType>().getElementType().cast<Type>();
+    // The types in elements of the TupleType are all the same.
     auto destElementType =
-        op.result().getType().cast<VectorType>().getElementType().cast<Type>();
+        op.result().getType().cast<TupleType>().getType(0).cast<Type>();
 
     auto sourceType = op.source().getType().cast<MemRefType>();
-    auto destType = op.result().getType().cast<VectorType>();
+    auto destType = op.result().getType().cast<TupleType>();
 
     // Debug switches.
     // true : use the slow but proven affine map.
@@ -7598,6 +7611,8 @@ struct ThreadwiseLoadRewritePattern
     // op.dump();
     // llvm::errs() << "\n";
 
+    // --------------------------------
+
     auto dimAccessOrder =
         op->getAttr("dim_access_order").template cast<ArrayAttr>();
     auto vectorAccessDim = op->getAttr("vector_read_write_dim")
@@ -7616,17 +7631,15 @@ struct ThreadwiseLoadRewritePattern
     // llvm::errs() << "source_data_per_read: " << srcDataPerRead << "\n";
     // llvm::errs() << "longVectorSize: " << longVectorSize << "\n";
 
-    // Figure out which memref is the one without affine transformations.
+    // --------------------------------
+
     SmallVector<int64_t, 2> sliceLengths;
 
-    if (composedSourceTransform) {
-      // Use the shape of dest memref as initial slice lengths.
-      for (auto dim : destType.getShape())
-        sliceLengths.push_back(dim);
-    } else
-      // Use the shape of source memref as initial slice lengths.
-      for (auto dim : sourceType.getShape())
-        sliceLengths.push_back(dim);
+    // XXX. Logic here must be reviewed thoroughly.
+    for (unsigned i = 0; i < sourceCoord.size() - 1; ++i) {
+      sliceLengths.push_back(1);
+    }
+    sliceLengths.push_back(destType.size());
 
     // llvm::errs() << "slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
@@ -7641,6 +7654,8 @@ struct ThreadwiseLoadRewritePattern
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
     //   llvm::errs() << sliceLengths[i] << " ";
     // llvm::errs() << "\n";
+
+    // --------------------------------
 
     SmallVector<Value, 8> srcUpperIndices;
     SmallVector<Value, 8> srcLowerIndices;
@@ -7682,6 +7697,8 @@ struct ThreadwiseLoadRewritePattern
       srcLowerIndices = layeredSourceIndices[layeredSourceIndices.size() - 1];
     }
 
+    // --------------------------------
+
     // Emit fully unrolled loops for vector loads / stores.
     SmallVector<int64_t, 8> loopIVsPerAccessOrder;
     SmallVector<int64_t, 8> loopBoundsPerAccessOrder;
@@ -7691,8 +7708,10 @@ struct ThreadwiseLoadRewritePattern
       loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
     }
 
+    // --------------------------------
+
     // Main code emission loop.
-    Value loadedValue;
+    SmallVector<Value, 8> loadedValues;
     bool toExit = false;
     do {
       // Use the old logic in case "legacy_load" attribute is specified.
@@ -7710,13 +7729,10 @@ struct ThreadwiseLoadRewritePattern
       }
 
       // Load from source.
-      Value scalarValue = emitLoadLogic(
-          b, loc, sourceType, sourceElementType, toEmitOOBLoadCheckLogic,
+      Value loadedValue = emitLoadLogic(
+          b, loc, sourceType, destElementType, toEmitOOBLoadCheckLogic,
           oobLoadCheckDims, op.source(), srcLowerIndices);
-
-      // Convert from sourceElementType to destElementType if necessary.
-      loadedValue = createTypeConversionOp(b, loc, scalarValue,
-                                           sourceElementType, destElementType);
+      loadedValues.push_back(loadedValue);
 
       // increase IVs
       bool toIncreaseNextDigit = true;
@@ -7736,7 +7752,11 @@ struct ThreadwiseLoadRewritePattern
       }
     } while (!toExit);
 
-    op.replaceAllUsesWith(loadedValue);
+    // --------------------------------
+
+    // Convert the loaded values to a tuple.
+    Value tuple = b.create<vector::TupleOp>(loc, destType, loadedValues);
+    op.replaceAllUsesWith(tuple);
     op.erase();
     return success();
   }
@@ -7754,12 +7774,12 @@ struct ThreadwiseStoreRewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
-    auto sourceElementType =
-        op.data().getType().cast<VectorType>().getElementType().cast<Type>();
+    // The types in elements of the TupleType are all the same.
+    auto sourceElementType = op.data().getType().cast<TupleType>().getType(0);
     auto destElementType =
         op.dest().getType().cast<MemRefType>().getElementType().cast<Type>();
 
-    auto sourceType = op.data().getType().cast<VectorType>();
+    auto sourceType = op.data().getType().cast<TupleType>();
     auto destType = op.dest().getType().cast<MemRefType>();
 
     // Debug switches.
@@ -7806,6 +7826,8 @@ struct ThreadwiseStoreRewritePattern
     // op.dump();
     // llvm::errs() << "\n";
 
+    // --------------------------------
+
     auto dimAccessOrder =
         op->getAttr("dim_access_order").template cast<ArrayAttr>();
     auto vectorAccessDim = op->getAttr("vector_read_write_dim")
@@ -7825,22 +7847,15 @@ struct ThreadwiseStoreRewritePattern
     // llvm::errs() << "dest_data_per_write: " << destDataPerWrite << "\n";
     // llvm::errs() << "longVectorSize: " << longVectorSize << "\n";
 
-    // Figure out which memref is the one without affine transformations.
+    // --------------------------------
+
     SmallVector<int64_t, 2> sliceLengths;
 
-    // Use the shape of dest memref as initial slice lengths.
-    for (auto dim : destType.getShape())
-      sliceLengths.push_back(dim);
-
-    // for (unsigned i = 0; i < destCoord.size() - 1; ++i) {
-    //   sliceLengths.push_back(1);
-    // }
-    // if (valueType.isa<VectorType>()) {
-    //   VectorType vectorValueType = valueType.cast<VectorType>();
-    //   sliceLengths.push_back(vectorValueType.getShape()[0]);
-    // } else {
-    //   sliceLengths.push_back(1);
-    // }
+    // XXX. Logic here must be reviewed thoroughly.
+    for (unsigned i = 0; i < destCoord.size() - 1; ++i) {
+      sliceLengths.push_back(1);
+    }
+    sliceLengths.push_back(sourceType.size());
 
     // llvm::errs() << "slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
@@ -7855,6 +7870,8 @@ struct ThreadwiseStoreRewritePattern
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
     //   llvm::errs() << sliceLengths[i] << " ";
     // llvm::errs() << "\n";
+
+    // --------------------------------
 
     SmallVector<Value, 8> destUpperIndices;
     SmallVector<Value, 8> destLowerIndices;
@@ -7896,6 +7913,8 @@ struct ThreadwiseStoreRewritePattern
       destLowerIndices = layeredDestIndices[layeredDestIndices.size() - 1];
     }
 
+    // --------------------------------
+
     // Emit fully unrolled loops for vector loads / stores.
     SmallVector<int64_t, 8> loopIVsPerAccessOrder;
     SmallVector<int64_t, 8> loopBoundsPerAccessOrder;
@@ -7904,6 +7923,8 @@ struct ThreadwiseStoreRewritePattern
       loopIVsPerAccessOrder.push_back(0);
       loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
     }
+
+    // --------------------------------
 
     // Main code emission loop.
     bool toExit = false;
@@ -7944,6 +7965,8 @@ struct ThreadwiseStoreRewritePattern
         toExit = true;
       }
     } while (!toExit);
+
+    // --------------------------------
 
     op.erase();
     return success();
