@@ -38,3 +38,7 @@ add_llvm_executable(mlir-miopen-driver
 llvm_update_compile_flags(mlir-miopen-driver)
 target_link_libraries(mlir-miopen-driver PRIVATE ${LIBS})
 mlir_check_link_libraries(mlir-miopen-driver)
+
+# MIOpenDriver.py
+add_custom_target(MIOpenDriver.py ALL
+	COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/../../utils/jenkins/MIOpenDriver.py ${LLVM_BINARY_DIR})
