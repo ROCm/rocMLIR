@@ -63,10 +63,10 @@ static LogicalResult verify(AddOp op) {
 }
 
 //===----------------------------------------------------------------------===//
-// Conv2dOp
+// ConvolutionOp
 //===----------------------------------------------------------------------===//
 
-static ParseResult parseConv2dOp(OpAsmParser &parser, OperationState &result) {
+static ParseResult parseConvolutionOp(OpAsmParser &parser, OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 2> ops;
   SmallVector<Type, 2> types;
   return failure(
@@ -76,13 +76,13 @@ static ParseResult parseConv2dOp(OpAsmParser &parser, OperationState &result) {
       parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
 }
 
-static void print(OpAsmPrinter &p, Conv2dOp op) {
+static void print(OpAsmPrinter &p, ConvolutionOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
   p << " : " << op.getOperandTypes();
 }
 
-static LogicalResult verify(Conv2dOp op) {
+static LogicalResult verify(ConvolutionOp op) {
   return success();
 }
 

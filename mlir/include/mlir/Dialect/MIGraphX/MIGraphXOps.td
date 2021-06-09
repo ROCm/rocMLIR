@@ -66,8 +66,8 @@ def MIGraphX_AddOp :
   }];
 }
 
-def MIGraphX_Conv2DOp :
-    MIGraphX_Op<"conv2d">,
+def MIGraphX_ConvolutionOp :
+    MIGraphX_Op<"convolution">,
     Arguments<(ins AnyRankedTensor:$filter,
                    AnyRankedTensor:$input,
 
