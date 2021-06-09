@@ -55,6 +55,9 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
       } else if (transformAttr.getValue() == "Pad") {
         assert(srcDimAttr.size() == destDimAttr.size());
 
+        // FIXME: wrw padding kernel, rank of memref is not the same with
+        // padding transform, so close it now until issue fixing
+        bool closeRightPadding = true;
         auto parameters = dimLayoutAttr.get("parameters").cast<ArrayAttr>();
         for (unsigned j = 0; j < srcDimAttr.size(); ++j) {
           // example of h and w pad parameters [0, 2, 3, 1] :
@@ -72,7 +75,8 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
           auto destDim = destDimAttr.getValue()[j].cast<IntegerAttr>().getInt();
 
           auto expr = getAffineDimExpr(destDim, op.getContext()) + getAffineConstantExpr(-leftPad, op.getContext());
-          if (leftPad == 0 && rightPad != 0) {
+
+          if (leftPad == 0 && rightPad != 0 & !closeRightPadding) {
             // when leftPad == 0 , your original expr is just minus leftpad, but
             // leftpad is zero, affinemap do not have minus out of boundary
             // check depends on minus symbol , it will not do out of boundary
