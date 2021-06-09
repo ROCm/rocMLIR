@@ -8022,9 +8022,11 @@ struct XdlopsGemmV2RewritePattern
     // scalar loads/stores.
     int64_t KRepeats = 0;
     if (dataType == b.getF32Type()) {
+      assert(k_base == 1);
       KRepeats = 1 / k_base;
     } else if (dataType == b.getF16Type() || dataType == b.getIntegerType(16)) {
       VectorType argVectorType = argType.template cast<VectorType>();
+      assert(argVectorType.getShape()[0] % k_base == 0);
       KRepeats = argVectorType.getShape()[0] / k_base;
     }
 
