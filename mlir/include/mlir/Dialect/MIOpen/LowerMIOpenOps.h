@@ -8008,14 +8008,18 @@ struct XdlopsGemmV2RewritePattern
     auto laneId = b.create<SignedRemIOp>(
         loc, tid, b.create<ConstantIndexOp>(loc, wave_size));
 
-    // TBD. FloatA / FloatB could be vectorized via KPack tuning parameter. Ignore this for now.
+    // FIXME. FloatA / FloatB could be vectorized via KPack tuning parameter.
+    // Ignore this for now.
     // use arrayA as pa for now.
     // use arrayB as pb for now.
 
-    // TBD. FloatA / FloatB could be vectorized via KPack tuning parameter. Ignore this for now.
+    // FIXME. FloatA / FloatB could be vectorized via KPack tuning parameter.
+    // Ignore this for now.
     // This must be fixed when we test fp16 / bf16 data types.
 
-    // TBD. Existing logic for fp16/bf16 may still NOT be 100% correct.
+    // Existing logic for fp16/bf16 is correct. But the layout is not
+    // efficient, therefore in the store bufferA/B loop below we have to use
+    // scalar loads/stores.
     int64_t KRepeats = 0;
     if (dataType == b.getF32Type()) {
       KRepeats = 1 / k_base;
