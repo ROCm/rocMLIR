@@ -71,7 +71,9 @@ func @miopen_conv2d_bwd_weight_cyxk_chwn_khwn(%filter : memref<1x8x3x3x128xf32>,
 // CHECK-NEXT:  miopen.transform
 // CHECK-NEXT:  miopen.transform
 // CHECK-NEXT:  miopen.transform
+// CHECK-NEXT:  miopen.transform
 // CHECK:       gridwise_gemm_argument_position = 1
 // CHECK-NEXT:  miopen.transform
+// CHECK-NEXT:  miopen.transform
 // CHECK:       gridwise_gemm_argument_position = 0
-// CHECK-NEXT:  miopen.gridwise_gemm(%4, %3, %0)
+// CHECK-NEXT:  miopen.gridwise_gemm(%6, %5, %1)
