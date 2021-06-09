@@ -48,15 +48,17 @@ pipeline {
                     cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1'''
             }
         }
+        stage('Install PrettyTable (temporary)') {
+            sh 'pip3 install PrettyTable'
+        }
         stage('Performance Test') {
             steps {
-                sh '''
-                    cd build
-                    cmake --build . --target MIOpenDriver.py
-                    pip3 install PrettyTable
-                    # Run MLIR perf benchmarks.
-                    python3 ./llvm/MIOpenDriver.py
-                '''
+                cmake arguments: '--build . MIOpenDriver.py',\
+                    installation: 'InSearchPath', workingDir: 'build'
+                dir('build') {
+                    // Run MLIR perf benchmarks
+                    sh 'python3 ./llvm/MIOpenDriver.py'
+                }
                 publishHTML (target: [
                     allowMissing: false,
                     alwaysLinkToLastBuild: false,
