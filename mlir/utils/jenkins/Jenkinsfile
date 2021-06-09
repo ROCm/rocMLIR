@@ -7,6 +7,25 @@ void buildProject(String target, String cmakeOpts) {
         cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
 }
 
+void getAndBuildMIOpen(String cmakeOpts) {
+    dir('build') {
+        deleteDir()
+    }
+    git branch: 'develop', poll: false,\
+        url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+    cmake arguments: "-P install_deps.cmake --minimum",\
+        installation: "InSearchPath"
+    cmakeBuild generator: 'Ninja',\
+        buildDir: 'build',\
+        buildType: 'Release',\
+        installation: 'InSearchPath',\
+        steps: [[args: "MIOpenDriver"]],\
+        cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                     -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                     ${cmakeOpts}
+                     """
+}
+
 void showEnv() {
     sh 'cat /etc/os-release'
     sh '/opt/rocm/bin/rocm-smi'
@@ -56,6 +75,7 @@ pipeline {
                                -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
                                -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
                                -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+                               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
                                """)
                             }
                         }
@@ -67,7 +87,11 @@ pipeline {
                             } }
                             steps {
                                 sh '''
-                                if [[ ! -f ./compile_commands.json ]]; then
+                                if [ ! -f ./build/compile_commands.json ];  then
+                                  echo "No compile commands, bailing."
+                                  exit 1
+                                fi
+                                if [ ! -f ./compile_commands.json ]; then
                                   ln -s build/compile_commands.json compile_commands.json
                                 fi
                                 '''
@@ -131,24 +155,10 @@ pipeline {
                             }}
                             steps {
                                 dir('MIOpen') {
-                                    dir('build') {
-                                        deleteDir()
-                                    }
-                                    git branch: 'develop', poll: false,\
-                                        url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
-                                    cmake arguments: "-P install_deps.cmake --minimum",\
-                                        installation: "InSearchPath"
-                                    cmakeBuild generator: 'Ninja',\
-                                        buildDir: 'build',\
-                                        buildType: 'Release',\
-                                        installation: 'InSearchPath',\
-                                        steps: [[args: "MIOpenDriver"]],\
-                                        cmakeArgs: '''-DMIOPEN_USE_MLIR=On
-                                        -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                        -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                        getAndBuildMIOpen('''-DMIOPEN_USE_MLIR=On
                                         -DBUILD_DEV=On
                                         -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
-                                        '''
+                                        ''')
                                 }
                                 stash name:"MIOpen-test-requisites",\
                                     includes: """MIOpen/src/kernels/**,\
@@ -169,13 +179,14 @@ mlir/utils/jenkins/miopen-tests/**\
                 stage("Performance testing") {
                     when {
                         beforeAgent true;
+                        // Does this only run on private CI?
                         equals expected: true, actual: params.nightly
                     }
                     agent {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'test-0' : 'rocm' }"
+                            label 'mlir'
                             alwaysPull true
                         }
                     }
@@ -188,41 +199,38 @@ mlir/utils/jenkins/miopen-tests/**\
                                 showEnv()
                             }
                         }
-
-                        stage("Build ROCM runner for benchmarks") {
-                            // On private CI:
-                            // config MLIR on ROCm, with MIOpen dialect
-                            // with custom perf db for:
-                            // - gfx908
-                            // - fp32
-                            // - resnet50 configs.
+                        stage("Build MIOpen with HIP") {
                             steps {
-                                buildProject('mlir-miopen-driver mlir-rocm-runner',
-                                             """${params.canXdlops ?
-                                             "-DMIOPEN_SYSTEM_DB_PATH=${WORKSPACE}/mlir/utils/jenkins/perfdb/miopen_1.0.0.udb.resnet50_fp32_1013"
-                                             : ""}
-                                """)
+                                dir('MIOpen') {
+                                    getAndBuildMIOpen('''-DMIOPEN_BACKEND=HIP
+                                    -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local"
+                                    -DCMAKE_INSTALL_PREFIX=/opt/rocm/
+                                    ''')
+                                }
                             }
                         }
-
-                        stage("Benchmark") {
-                            environment {
-                                PATH="/opt/rocm/bin:$PATH"
-                            }
+                        stage("Build MLIR") {
+                            buildProject('mlir-miopen-driver mlir-rocm-runner', '')
+                        }
+                        stage('Install PrettyTable (temporary)') {
+                            sh 'pip3 install PrettyTable'
+                        }
+                        stage('Performance Test') {
                             steps {
-                                dir('build/llvm') {
-                                    sh """
-                                    # Run 1 perf benchmark config. more to come.
-                                    # Ensure rocminfo can be located by rocprof.
-                                    ./bin/mlir-miopen-driver -p ${params.canXdlops ? '-x2' : ''} -ph -c | \
-                                    rocprof --hip-trace \
-                                    ./bin/mlir-rocm-runner --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so \
-                                    --entry-point-result=void
-
-                                   # Dump perf figures.
-                                   cat results.stats.csv
-                                   """
+                                cmake arguments: '--build . MIOpenDriver.py',\
+                                    installation: 'InSearchPath', workingDir: 'build'
+                                dir('build') {
+                                    // Run MLIR perf benchmarks
+                                    sh 'python3 ./llvm/MIOpenDriver.py'
                                 }
+                                publishHTML (target: [
+                                    allowMissing: false,
+                                    alwaysLinkToLastBuild: false,
+                                    keepAll: true,
+                                    reportDir: 'build',
+                                    reportFiles: 'MLIR_vs_MIOpen.html',
+                                    reportName: "MLIR vs MIOpen performance"
+                                ])
                             }
                         }
                     }
