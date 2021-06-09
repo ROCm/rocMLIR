@@ -243,7 +243,7 @@ def MIOpen_BlockwiseLoadOp:
     MIOpen_Op<"blockwise_load">,
     Arguments<(ins AnyMemRef:$source,
                    VectorOfLengthAndType<[3], [I32]>:$sourceCoordVector)>,
-    Results<(outs AnyTypeOf<[F32, F16, I16,
+    Results<(outs TupleOf<[F32, F16, I16,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16]>, 
                              VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$result)> {
@@ -258,7 +258,7 @@ def MIOpen_BlockwiseLoadOp:
 // blockwise_store
 def MIOpen_BlockwiseStoreOp:
     MIOpen_Op<"blockwise_store">,
-    Arguments<(ins AnyTypeOf<[F32, F16, I16,
+    Arguments<(ins TupleOf<[F32, F16, I16,
                               VectorOfLengthAndType<[2, 4], [F32]>,
                               VectorOfLengthAndType<[2, 4, 8], [F16]>, 
                               VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$data,
@@ -294,7 +294,7 @@ def MIOpen_ThreadwiseLoadOp:
     MIOpen_Op<"threadwise_load">,
     Arguments<(ins AnyMemRef:$source,
                    Variadic<I32>:$sourceCoord)>,
-    Results<(outs AnyTypeOf<[F32, F16, I16,
+    Results<(outs TupleOf<[F32, F16, I16,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16]>,
                              VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$result)> {
@@ -309,7 +309,7 @@ def MIOpen_ThreadwiseLoadOp:
 // threadwise_store
 def MIOpen_ThreadwiseStoreOp:
     MIOpen_Op<"threadwise_store">,
-    Arguments<(ins AnyTypeOf<[F32, F16, I16,
+    Arguments<(ins TupleOf<[F32, F16, I16,
                               VectorOfLengthAndType<[2, 4], [F32]>,
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
                               VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$data,
