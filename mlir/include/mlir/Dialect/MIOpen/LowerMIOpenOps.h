@@ -5076,7 +5076,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadA = b.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadAType, op.filter(), blockwiseCopyASrcVector);
+        loc, blockwiseLoadATupleType, op.filter(), blockwiseCopyASrcVector);
     affixBlockwiseCopyAttributes(blockwiseLoadA, op, b, /*isMatrixA=*/true);
     // Emit blockwise_store for matrix A.
     auto blockwiseStoreA = b.create<miopen::BlockwiseStoreOp>(
@@ -5086,7 +5086,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadB = b.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadBType, op.input(), blockwiseCopyBSrcVector);
+        loc, blockwiseLoadBTupleType, op.input(), blockwiseCopyBSrcVector);
     affixBlockwiseCopyAttributes(blockwiseLoadB, op, b, /*isMatrixA=*/false);
     // Emit blockwise_store for matrix B.
     auto blockwiseStoreB = b.create<miopen::BlockwiseStoreOp>(
@@ -5141,7 +5141,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                    zeroConstantI32Op});
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadATop = lb.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadAType, op.filter(), blockwiseCopyASrcVectorUpdated);
+        loc, blockwiseLoadATupleType, op.filter(),
+        blockwiseCopyASrcVectorUpdated);
     affixBlockwiseCopyAttributes(blockwiseLoadATop, op, b,
                                  /*isMatrixA=*/true);
     Value blockwiseCopyBSrcVectorUpdated = lb.create<miopen::MovePosV2Op>(
@@ -5150,7 +5151,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                    zeroConstantI32Op});
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadBTop = lb.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadBType, op.input(), blockwiseCopyBSrcVectorUpdated);
+        loc, blockwiseLoadBTupleType, op.input(),
+        blockwiseCopyBSrcVectorUpdated);
     affixBlockwiseCopyAttributes(blockwiseLoadBTop, op, b,
                                  /*isMatrixA=*/false);
 
@@ -6017,7 +6019,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadA = b.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadAType, op.filter(), blockwiseCopyASrcVector);
+        loc, blockwiseLoadATupleType, op.filter(), blockwiseCopyASrcVector);
     affixBlockwiseCopyAttributes(blockwiseLoadA, op, b, /*isMatrixA=*/true);
     // Emit blockwise_store for matrix A.
     auto blockwiseStoreA = b.create<miopen::BlockwiseStoreOp>(
@@ -6027,7 +6029,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadB = b.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadBType, op.input(), blockwiseCopyBSrcVector);
+        loc, blockwiseLoadBTupleType, op.input(), blockwiseCopyBSrcVector);
     affixBlockwiseCopyAttributes(blockwiseLoadB, op, b, /*isMatrixA=*/false);
     // Emit blockwise_store for matrix B.
     auto blockwiseStoreB = b.create<miopen::BlockwiseStoreOp>(
@@ -6151,7 +6153,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                    zeroConstantI32Op});
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadATop = mfmalb.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadAType, op.filter(), blockwiseCopyASrcVectorUpdated);
+        loc, blockwiseLoadATupleType, op.filter(),
+        blockwiseCopyASrcVectorUpdated);
     affixBlockwiseCopyAttributes(blockwiseLoadATop, op, b,
                                  /*isMatrixA=*/true);
     Value blockwiseCopyBSrcVectorUpdated = mfmalb.create<miopen::MovePosV2Op>(
@@ -6160,7 +6163,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                    zeroConstantI32Op});
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadBTop = mfmalb.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadBType, op.input(), blockwiseCopyBSrcVectorUpdated);
+        loc, blockwiseLoadBTupleType, op.input(),
+        blockwiseCopyBSrcVectorUpdated);
     affixBlockwiseCopyAttributes(blockwiseLoadBTop, op, b,
                                  /*isMatrixA=*/false);
 
