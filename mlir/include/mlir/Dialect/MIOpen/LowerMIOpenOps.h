@@ -5108,7 +5108,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadATop = lb.create<miopen::BlockwiseLoadOp>(
         loc, blockwiseLoadAType, op.filter(), blockwiseCopyASrcVectorUpdated);
-    affixBlockwiseCopyAttributes(blockwiseLoadA, op, b,
+    affixBlockwiseCopyAttributes(blockwiseLoadATop, op, b,
                                  /*isMatrixA=*/true);
     Value blockwiseCopyBSrcVectorUpdated = lb.create<miopen::MovePosV2Op>(
         loc, blockwiseCopyVectorCoordType, loopOp.getRegionIterArgs()[2],
@@ -5117,7 +5117,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadBTop = lb.create<miopen::BlockwiseLoadOp>(
         loc, blockwiseLoadBType, op.input(), blockwiseCopyBSrcVectorUpdated);
-    affixBlockwiseCopyAttributes(blockwiseLoadB, op, b,
+    affixBlockwiseCopyAttributes(blockwiseLoadBTop, op, b,
                                  /*isMatrixA=*/false);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
@@ -5125,13 +5125,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto blockwiseStoreABottom = lb.create<miopen::BlockwiseStoreOp>(
         loc, blockwiseLoadATop.getResult(), lds2DMatrixASubviewOp,
         loopOp.getRegionIterArgs()[1]);
-    affixBlockwiseCopyAttributes(blockwiseStoreA, op, b,
+    affixBlockwiseCopyAttributes(blockwiseStoreABottom, op, b,
                                  /*isMatrixA=*/true);
     // Emit blockwise_store for matrix B.
     auto blockwiseStoreBBottom = lb.create<miopen::BlockwiseStoreOp>(
         loc, blockwiseLoadBTop.getResult(), lds2DMatrixBSubviewOp,
         loopOp.getRegionIterArgs()[3]);
-    affixBlockwiseCopyAttributes(blockwiseStoreB, op, b,
+    affixBlockwiseCopyAttributes(blockwiseStoreBBottom, op, b,
                                  /*isMatrixA=*/false);
 
     // update iter args.
