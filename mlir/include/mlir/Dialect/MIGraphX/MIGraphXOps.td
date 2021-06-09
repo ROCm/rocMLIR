@@ -66,6 +66,23 @@ def MIGraphX_AddOp :
   }];
 }
 
+def MIGraphX_Conv2DOp :
+    MIGraphX_Op<"conv2d">,
+    Arguments<(ins AnyRankedTensor:$filter,
+                   AnyRankedTensor:$input,
+
+                   Confined<I32ArrayAttr, [ArrayCount<2>]>:$pading,
+                   Confined<I32ArrayAttr, [ArrayCount<2>]>:$stride,
+                   Confined<I32ArrayAttr, [ArrayCount<2>]>:$dilation,
+                   I32ArrayAttr:$group,
+                   I32ArrayAttr:$padding_mode
+                   )>,
+	Results<(outs AnyRankedTensor:$output)> {	  
+  let summary = "2D convolution forward";
+  let description = [{
+    The `migraphx.conv2d` op computes 2D convolution forward.
+  }];
+}
 /*
 def MIGraphX_Conv2DOp :
     MIGraphX_Op<"conv2d">,

@@ -63,6 +63,30 @@ static LogicalResult verify(AddOp op) {
 }
 
 //===----------------------------------------------------------------------===//
+// Conv2dOp
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseConv2dOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, Conv2dOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(Conv2dOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // LiteralOp
 //===----------------------------------------------------------------------===//
 /*
