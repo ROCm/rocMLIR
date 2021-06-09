@@ -1456,8 +1456,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     transformedFilterAttrs.push_back(
         b.getNamedAttr("gemmKExtra", b.getI32IntegerAttr(gemmKExtra)));
     // set needExtraPad
-    transformedFilterAttrs.push_back(b.getNamedAttr(
-        "extraPad", b.getStringAttr(needExtraPad ? "true" : "false")));
+    transformedFilterAttrs.push_back(
+        b.getNamedAttr("extraPad", b.getBoolAttr(needExtraPad)));
 
     // set lower_layer_layout attribute.
     transformedFilterAttrs.push_back(
@@ -1825,8 +1825,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     paddedInputAttrs.push_back(
         b.getNamedAttr("gemmNExtra", b.getI32IntegerAttr(gemmNExtra)));
     // set needExtraPad
-    paddedInputAttrs.push_back(b.getNamedAttr(
-        "extraPad", b.getStringAttr(needExtraPad ? "true" : "false")));
+    paddedInputAttrs.push_back(
+        b.getNamedAttr("extraPad", b.getBoolAttr(needExtraPad)));
 
     auto paddedInputMemRefType =
         MemRefType::get(paddedInputShape, inputElementType);
@@ -2601,8 +2601,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     transformedOutputAttrs.push_back(
         b.getNamedAttr("gemmNExtra", b.getI32IntegerAttr(gemmNExtra)));
     // set needExtraPad
-    transformedOutputAttrs.push_back(b.getNamedAttr(
-        "extraPad", b.getStringAttr(needExtraPad ? "true" : "false")));
+    transformedOutputAttrs.push_back(
+        b.getNamedAttr("extraPad", b.getBoolAttr(needExtraPad)));
 
     auto transformedOutputMemRefType =
         MemRefType::get(transformedOutputShape, outputElementType);
