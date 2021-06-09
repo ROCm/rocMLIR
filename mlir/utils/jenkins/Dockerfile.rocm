@@ -51,6 +51,9 @@ ENV LC_ALL en_US.UTF-8
 ADD "https://raw.githubusercontent.com/google/llvm-premerge-checks/master/scripts/requirements.txt" requirements.txt
 RUN pip3 install -r requirements.txt
 
+# Needed to output performance tests
+RUN pip3 install PrettyTable
+
 RUN ln -s /usr/bin/clang-10 /usr/bin/clang;\
     ln -s /usr/bin/clang++-10 /usr/bin/clang++;\
     ln -s /usr/bin/clang-tidy-10 /usr/bin/clang-tidy;\
