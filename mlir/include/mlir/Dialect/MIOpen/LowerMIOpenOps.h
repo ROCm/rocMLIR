@@ -51,6 +51,34 @@ using namespace mlir::miopen;
 static constexpr int kTwoGB = 2147483647;
 
 //===----------------------------------------------------------------------===//
+// FIXME. XXX.
+// Workaround to obtain gemmKExtra attribute.
+// And use it to override legacy load/store debug switch.
+//===----------------------------------------------------------------------===//
+inline bool overrideLoadStoreHack(const DictionaryAttr &transformSpec) {
+  if (transformSpec) {
+    Attribute metadataAttr = transformSpec.get("metadata");
+    if (metadataAttr) {
+      ArrayAttr layeredTransformMetadata =
+          metadataAttr.template cast<ArrayAttr>();
+      for (unsigned iter = 0; iter < layeredTransformMetadata.size(); ++iter) {
+        DictionaryAttr dictAttr =
+            layeredTransformMetadata[iter].template cast<DictionaryAttr>();
+        auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
+        if (gemmKExtraAttr) {
+          auto gemmKExtra =
+              gemmKExtraAttr.template cast<IntegerAttr>().getInt();
+          if (gemmKExtra > 0) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to determine the longest vector can be loaded in one shot.
 //===----------------------------------------------------------------------===//
 inline int64_t computeMaxVectorLength(OpBuilder &b, Type elementType) {
@@ -7235,30 +7263,6 @@ struct ThreadwiseCopyRewritePattern
     // FIXME. XXX.
     // Workaround to obtain gemmKExtra attribute.
     // And use it to override legacy load/store debug switch.
-    auto overrideLoadStoreHack =
-        [](const DictionaryAttr &transformSpec) -> bool {
-      if (transformSpec) {
-        Attribute metadataAttr = transformSpec.get("metadata");
-        if (metadataAttr) {
-          ArrayAttr layeredTransformMetadata =
-              metadataAttr.template cast<ArrayAttr>();
-          for (unsigned iter = 0; iter < layeredTransformMetadata.size();
-               ++iter) {
-            DictionaryAttr dictAttr =
-                layeredTransformMetadata[iter].template cast<DictionaryAttr>();
-            auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
-            if (gemmKExtraAttr) {
-              auto gemmKExtra =
-                  gemmKExtraAttr.template cast<IntegerAttr>().getInt();
-              if (gemmKExtra > 0) {
-                return true;
-              }
-            }
-          }
-        }
-      }
-      return false;
-    };
     legacyLoad = overrideLoadStoreHack(srcTransformSpec);
     legacyStore = overrideLoadStoreHack(destTransformSpec);
 
@@ -7582,30 +7586,6 @@ struct ThreadwiseLoadRewritePattern
     // FIXME. XXX.
     // Workaround to obtain gemmKExtra attribute.
     // And use it to override legacy load/store debug switch.
-    auto overrideLoadStoreHack =
-        [](const DictionaryAttr &transformSpec) -> bool {
-      if (transformSpec) {
-        Attribute metadataAttr = transformSpec.get("metadata");
-        if (metadataAttr) {
-          ArrayAttr layeredTransformMetadata =
-              metadataAttr.template cast<ArrayAttr>();
-          for (unsigned iter = 0; iter < layeredTransformMetadata.size();
-               ++iter) {
-            DictionaryAttr dictAttr =
-                layeredTransformMetadata[iter].template cast<DictionaryAttr>();
-            auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
-            if (gemmKExtraAttr) {
-              auto gemmKExtra =
-                  gemmKExtraAttr.template cast<IntegerAttr>().getInt();
-              if (gemmKExtra > 0) {
-                return true;
-              }
-            }
-          }
-        }
-      }
-      return false;
-    };
     legacyLoad = overrideLoadStoreHack(srcTransformSpec);
 
     // Determine if we need to emit codes for out-of-bound check, and which
@@ -7814,30 +7794,6 @@ struct ThreadwiseStoreRewritePattern
     // FIXME. XXX.
     // Workaround to obtain gemmKExtra attribute.
     // And use it to override legacy load/store debug switch.
-    auto overrideLoadStoreHack =
-        [](const DictionaryAttr &transformSpec) -> bool {
-      if (transformSpec) {
-        Attribute metadataAttr = transformSpec.get("metadata");
-        if (metadataAttr) {
-          ArrayAttr layeredTransformMetadata =
-              metadataAttr.template cast<ArrayAttr>();
-          for (unsigned iter = 0; iter < layeredTransformMetadata.size();
-               ++iter) {
-            DictionaryAttr dictAttr =
-                layeredTransformMetadata[iter].template cast<DictionaryAttr>();
-            auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
-            if (gemmKExtraAttr) {
-              auto gemmKExtra =
-                  gemmKExtraAttr.template cast<IntegerAttr>().getInt();
-              if (gemmKExtra > 0) {
-                return true;
-              }
-            }
-          }
-        }
-      }
-      return false;
-    };
     legacyStore = overrideLoadStoreHack(destTransformSpec);
 
     // Determine if we need to emit codes for out-of-bound check, and which
