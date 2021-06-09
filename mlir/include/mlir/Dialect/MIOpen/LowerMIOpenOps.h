@@ -191,12 +191,14 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
 //===----------------------------------------------------------------------===//
 // Utility function to emit store instructions with potentially OOB checks.
 //===----------------------------------------------------------------------===//
-inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
-                           Type destElementType, bool toEmitOOBStoreCheckLogic,
-                           const SmallVector<unsigned, 8> &oobStoreCheckDims,
-                           const Value &dest,
-                           const SmallVector<Value, 8> &destLowerIndices,
-                           const Value &value) {
+enum InMemoryDataOperation { Set, AtomicAdd };
+inline void
+emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
+               Type destElementType, bool toEmitOOBStoreCheckLogic,
+               const SmallVector<unsigned, 8> &oobStoreCheckDims,
+               const Value &dest, const SmallVector<Value, 8> &destLowerIndices,
+               const Value &value,
+               InMemoryDataOperation memoryOp = InMemoryDataOperation::Set) {
   auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
   if (toEmitOOBStoreCheckLogic) {
@@ -268,7 +270,17 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
                                             ifWithinBoundsOp.getResults()[4],
                                             ifWithinBoundsOp.getResults()[5]});
   } else {
-    b.create<StoreOp>(loc, value, dest, destLowerIndices);
+    if (memoryOp == InMemoryDataOperation::Set)
+      b.create<StoreOp>(loc, value, dest, destLowerIndices);
+    else {
+      SmallVector<Value, 8> destLowerStoreIndices;
+      for (unsigned i = 0; i < destLowerIndices.size(); ++i) {
+        auto dstIndex = b.create<IndexCastOp>(loc, destLowerIndices[i],
+                                              b.getIntegerType(32));
+        destLowerStoreIndices.push_back(dstIndex);
+      }
+      b.create<gpu::AtomicFAddOp>(loc, value, dest, destLowerStoreIndices);
+    }
   }
 }
 
