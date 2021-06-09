@@ -111,14 +111,8 @@ public:
         input1GemmKVectorizable = true;
       }
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      // When K is the fastest changing dimension(3),
-      // gemmK dimension is vectorizable, gemmM is not, and vice versa.
-      // Vectorization width depending on length of K.
-      if (dimIndexVal["k"].first == 4) {
-        input1GemmKVectorizable = true;
-      } else {
-        input1GemmKVectorizable = false;
-      }
+      // always load gemmM first
+      input1GemmKVectorizable = false;
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       // When K is the fastest changing dimension,
       // gemmM dimension is vectorizable, gemmK is not, and vice versa.
@@ -200,6 +194,23 @@ public:
     }
   }
 
+  static void obtainBwdDataFilterVecLen(ConvolutionContext &ctx,
+                                        int64_t &vecLen) {
+    auto dimIndexVal = ctx.dimIndexVal;
+    // Vectorization length logic is the same for forward and bwd_data
+    if (dimIndexVal["c"].first == 4) {
+      vecLen = dimIndexVal["c"].second;
+    } else if (dimIndexVal["c"].first == 2) {
+      // C's position is at 2, vectorization legnth depend last two dimension
+      if (dimIndexVal["y"].second == 1 && dimIndexVal["x"].second == 1) {
+        vecLen = dimIndexVal["c"].second;
+      } else {
+        vecLen = 1;
+      }
+    } else {
+      vecLen = 1;
+    }
+  }
   static void obtainInputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
     if (dimIndexVal["ni"].first == 4) {
@@ -216,6 +227,26 @@ public:
         vecLen = 1;
     }
   }
+  static void obtainBwdDataOutputVecLen(ConvolutionContext &ctx,
+                                        int64_t &vecLen) {
+    auto dimIndexVal = ctx.dimIndexVal;
+    if (dimIndexVal["ko"].first == 4) {
+      vecLen = dimIndexVal["ko"].second;
+    } else if (dimIndexVal["no"].first == 4) {
+      vecLen = dimIndexVal["no"].second;
+    } else if (dimIndexVal["no"].first == 0) {
+      if (dimIndexVal["ho"].first == 3 && dimIndexVal["wo"].first == 4) {
+        if (dimIndexVal["y"].second == 1 && dimIndexVal["x"].second == 1)
+          vecLen = dimIndexVal["ho"].second * dimIndexVal["wo"].second;
+        else
+          vecLen = 1;
+      } else
+        vecLen = 1;
+    } else {
+      vecLen = 1;
+    }
+  }
+
   static void obtainOutputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto dimIndexVal = ctx.dimIndexVal;
     if (dimIndexVal["ko"].first == 4) {
@@ -250,7 +281,7 @@ public:
     if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
       obtainFilterVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      obtainFilterVecLen(ctx, vecLen);
+      obtainBwdDataFilterVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       obtainOutputVecLen(ctx, vecLen);
     }
@@ -261,7 +292,7 @@ public:
     if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
       obtainInputVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      obtainOutputVecLen(ctx, vecLen);
+      obtainBwdDataOutputVecLen(ctx, vecLen);
     } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       obtainInputVecLen(ctx, vecLen);
     }
@@ -385,8 +416,8 @@ protected:
       auto gcdStrideDilationH = math::gcd(strideH, dilationH);
       auto gcdStrideDilationW = math::gcd(strideW, dilationW);
 
-      auto yTilda = dilationH / gcdStrideDilationH;
-      auto xTilda = dilationW / gcdStrideDilationW;
+      auto yTilda = strideH / gcdStrideDilationH;
+      auto xTilda = strideW / gcdStrideDilationW;
 
       auto hTilda =
           ho + math::integer_divide_ceil(dilationH * (y - 1), strideH);
@@ -406,9 +437,9 @@ protected:
       auto hTildaSlice = iHTildaRight - iHTildaLeft;
       auto wTildaSlice = iWTildaRight - iWTildaLeft;
 
-      auto gemm_id = 0;
-      auto iYTilda = gemm_id / xTilda;
-      auto iXTilda = gemm_id % xTilda;
+      auto gemmId = ctx.gemmId;
+      auto iYTilda = gemmId / xTilda;
+      auto iXTilda = gemmId % xTilda;
       auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
       auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
 
@@ -673,7 +704,9 @@ class PopulateParamsXDL : public PopulateParamsBase {
 private:
   llvm::SmallVector<InitParamsXDL, 4> initParameters = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      {256, 128, 16, 128, 64, 0, false, false},
+      // FIXME. Temporarily disable this config to restrict MRepeats/NRepeats
+      // to 1 to reduce potential AGPR spills.
+      //{256, 128, 16, 128, 64, 0, false, false},
       {128, 128, 16, 64, 64, 0, false, false},
       {8, 64, 8, 8, 64, 0, false, false},
       {4, 64, 16, 4, 64, 0, false, false},

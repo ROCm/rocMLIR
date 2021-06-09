@@ -1,0 +1,78 @@
+pipeline {
+    agent {
+        docker {
+            image 'rocm/mlir:rocm4.1-latest'
+            args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+            label 'mlir'
+            alwaysPull true
+        }
+    }
+    environment {
+        PATH="$PATH:/opt/rocm/llvm/bin"
+    }
+    stages {
+        stage('Environment') {
+            steps {
+                sh 'cat /etc/os-release'
+                sh '/opt/rocm/bin/rocm-smi'
+            }
+        }
+        stage('Build MIOpen') {
+            steps {
+                dir('MIOpen') {
+                    git branch: 'develop', poll: false,\
+                                url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+                    cmake arguments: "-P install_deps.cmake --minimum",\
+                                installation: "InSearchPath"
+                    cmakeBuild generator: 'Ninja',\
+                                buildDir: 'build',\
+                                buildType: 'Release',\
+                                installation: 'InSearchPath',\
+                                steps: [[args: "MIOpenDriver"]],\
+                                cmakeArgs: '''
+                                 -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                 -DMIOPEN_BACKEND=HIP
+                                 -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local" \
+                                 -DCMAKE_INSTALL_PREFIX=/opt/rocm/ ..
+                                '''
+                        }
+            }
+        }
+        stage('Build MLIR') {
+            steps {
+                cmakeBuild generator: 'Ninja',\
+                    buildDir: 'build',\
+                    buildType: 'Release',\
+                    installation: 'InSearchPath',\
+                    steps: [[args: 'mlir-miopen-driver mlir-rocm-runner']],\
+                    cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1'''
+            }
+        }
+        stage('Install PrettyTable (temporary)') {
+            sh 'pip3 install PrettyTable'
+        }
+        stage('Performance Test') {
+            steps {
+                cmake arguments: '--build . MIOpenDriver.py',\
+                    installation: 'InSearchPath', workingDir: 'build'
+                dir('build') {
+                    // Run MLIR perf benchmarks
+                    sh 'python3 ./llvm/MIOpenDriver.py'
+                }
+                publishHTML (target: [
+                    allowMissing: false,
+                    alwaysLinkToLastBuild: false,
+                    keepAll: true,
+                    reportDir: 'build',
+                    reportFiles: 'MLIR_vs_MIOpen.html',
+                    reportName: "MLIR vs MIOpen performance"
+                ])
+            }
+        }
+    }
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}

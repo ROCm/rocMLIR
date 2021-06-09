@@ -44,9 +44,9 @@ pipeline {
                     # Run 1 perf benchmark config. more to come.
 
                     # Ensure rocminfo can be located by rocprof.
-                    ./bin/mlir-miopen-driver -p -x2 -ph -c | \
+                    ./llvm/bin/mlir-miopen-driver -p -x2 -ph -c | \
                     PATH=/opt/rocm/bin:$PATH /opt/rocm/bin/rocprof --hip-trace \
-                    ./bin/mlir-rocm-runner --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void
+                    ./llvm/bin/mlir-rocm-runner --shared-libs=./lib/librocm-runtime-wrappers.so,./lib/libmlir_runner_utils.so --entry-point-result=void
 
                     # Dump perf figures.
                     cat results.stats.csv
