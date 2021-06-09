@@ -185,6 +185,22 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
         b.create<LoadOp>(loc, sourceElementType, source, srcLowerIndices);
   }
 
+  //   // TBD: fix me!
+  //   // // Load from source.
+  //   // if (srcDataPerRead > 1) {
+  //   // Issue GPU buffer load.
+  //   SmallVector<Value, 4> srcIndexLowerNewUpdatedI32;
+  //   for (auto v : srcIndexLowerNewUpdated)
+  //     srcIndexLowerNewUpdatedI32.push_back(
+  //         b.create<IndexCastOp>(loc, v, b.getIntegerType(32)));
+  //   loadedValue = b.create<gpu::MubufLoadOp>(loc, resultType, op.source(),
+  //                                            srcIndexLowerNewUpdatedI32);
+  //   // } else {
+  //   //   // Issue scalar load.
+  //   //   loadedValue = b.create<LoadOp>(loc, dataType, op.source(),
+  //   //   srcIndexLowerNewUpdated);
+  //   // }
+
   return scalarValue;
 }
 
@@ -7444,338 +7460,227 @@ struct ThreadwiseLoadRewritePattern
 
   LogicalResult matchAndRewrite(miopen::ThreadwiseLoadOp op,
                                 PatternRewriter &b) const override {
-    // auto loc = op.getLoc();
+    auto loc = op.getLoc();
 
-    // auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-    // auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
+    auto sourceElementType =
+        op.source().getType().cast<MemRefType>().getElementType().cast<Type>();
+    auto destElementType =
+        op.result().getType().cast<VectorType>().getElementType().cast<Type>();
 
-    // auto sourceType = op.source().getType().cast<MemRefType>();
-    // auto resultType = op.result().getType();
+    auto sourceType = op.source().getType().cast<MemRefType>();
+    auto destType = op.result().getType().cast<VectorType>();
 
-    // auto oneItemAttr = op->getAttr("oneItem");
+    // Debug switches.
+    // true : use the slow but proven affine map.
+    // false : use the faster index diff map.
+    auto legacyLoadAttr = op->getAttr("legacy_load");
+    bool legacyLoad =
+        (legacyLoadAttr &&
+         legacyLoadAttr.template cast<BoolAttr>().getValue() == true);
 
-    // // Get source and dest coordinates.
-    // //
-    // // 1. For memrefs with no externally defined affine maps in coord_transforms
-    // //    attribute, or embedded affine maps. Use its rank.
-    // // 2. For memrefs with externally defined maps, use its input rank.
-    // // 3. For memrefs with embedded maps, use its input rank.
-    // auto sourceCoord = op.sourceCoord();
-    // auto sourceTypeAffineMaps = sourceType.getAffineMaps();
-    // auto coordTransformsAttr =
-    //     op->getAttr("coord_transforms").template cast<ArrayAttr>();
+    Optional<AffineMap> composedSourceTransform;
+    SmallVector<AffineMap> layeredSourceTransform;
+    DictionaryAttr srcTransformSpec;
+    ArrayAttr boundCheckSourceAttr;
 
-    // unsigned sourceCoordLength = sourceType.getRank();
+    auto coordTransformsAttr =
+        op->getAttr("coord_transforms").template cast<ArrayAttr>();
 
-    // bool sourceEmbeddedTransform = false;
-    // bool sourceExternalTransform = false;
-    // AffineMap sourceTransform;
+    // Obtain coordinate lengths, as well as information of affine
+    // transformations.
+    unsigned sourceCoordLength = obtainGenericTensorTransformationInfo(
+        /*operandIndex=*/0, sourceType, coordTransformsAttr,
+        composedSourceTransform, layeredSourceTransform, srcTransformSpec,
+        boundCheckSourceAttr);
 
-    // if (sourceTypeAffineMaps.size()) {
-    //   // Use the first affine map in the attribute array.
-    //   sourceCoordLength = sourceTypeAffineMaps[0].getNumInputs();
-    //   sourceEmbeddedTransform = true;
-    //   sourceTransform = sourceTypeAffineMaps[0];
-    // }
-    // if (coordTransformsAttr) {
-    //   for (auto attr : coordTransformsAttr) {
-    //     auto dictAttr = attr.template cast<DictionaryAttr>();
-    //     auto operandIndex =
-    //         dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-    //     auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
-    //     // Use the first affine map in the transforms array.
-    //     auto affineMap = transforms[0].template cast<AffineMapAttr>();
-    //     if (operandIndex == 0) {
-    //       sourceCoordLength = affineMap.getValue().getNumInputs();
-    //       sourceExternalTransform = true;
-    //       sourceTransform = affineMap.getValue();
-    //     }
-    //   }
-    // }
+    auto sourceCoord = op.sourceCoord();
+    if (sourceCoordLength != sourceCoord.size()) {
+      llvm::errs() << "INCORRECT source coordinates assigned!";
+      return failure();
+    }
 
-    // if (sourceCoordLength != sourceCoord.size()) {
-    //   llvm::errs() << "INCORRECT source and dest coordinates assigned!";
-    //   return failure();
-    // }
+    // FIXME. XXX.
+    // Workaround to obtain gemmKExtra attribute.
+    // And use it to override legacy load/store debug switch.
+    auto overrideLoadStoreHack =
+        [](const DictionaryAttr &transformSpec) -> bool {
+      if (transformSpec) {
+        Attribute metadataAttr = transformSpec.get("metadata");
+        if (metadataAttr) {
+          ArrayAttr layeredTransformMetadata =
+              metadataAttr.template cast<ArrayAttr>();
+          for (unsigned iter = 0; iter < layeredTransformMetadata.size();
+               ++iter) {
+            DictionaryAttr dictAttr =
+                layeredTransformMetadata[iter].template cast<DictionaryAttr>();
+            auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
+            if (gemmKExtraAttr) {
+              auto gemmKExtra =
+                  gemmKExtraAttr.template cast<IntegerAttr>().getInt();
+              if (gemmKExtra > 0) {
+                return true;
+              }
+            }
+          }
+        }
+      }
+      return false;
+    };
+    legacyLoad = overrideLoadStoreHack(srcTransformSpec);
 
-    // // The more elaborated algorithm.
-    // // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
-    // // C++ implementation.
+    // Determine if we need to emit codes for out-of-bound check, and which
+    // dimensions need to dconduct such check.
+    SmallVector<unsigned, 8> oobLoadCheckDims;
+    bool toEmitOOBLoadCheckLogic = obtainOOBCheckInfo(
+        composedSourceTransform, boundCheckSourceAttr, oobLoadCheckDims);
 
-    // // llvm::errs() << "\nthreadwise_load op:\n";
-    // // op.dump();
-    // // llvm::errs() << "\n";
+    // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
+    // C++ implementation.
 
-    // auto dimAccessOrder =
-    //     op->getAttr("dim_access_order").template cast<ArrayAttr>();
-    // auto vectorAccessDim = op->getAttr("vector_read_write_dim")
-    //                            .template cast<IntegerAttr>()
-    //                            .getInt();
-    // auto srcDataPerRead = op->getAttr("source_data_per_read")
-    //                           .template cast<IntegerAttr>()
-    //                           .getInt();
-    // auto destDataPerWrite = op->getAttr("dest_data_per_write")
-    //                             .template cast<IntegerAttr>()
-    //                             .getInt();
+    // llvm::errs() << "\nthreadwise_load op:\n";
+    // op.dump();
+    // llvm::errs() << "\n";
 
-    // auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
+    auto dimAccessOrder =
+        op->getAttr("dim_access_order").template cast<ArrayAttr>();
+    auto vectorAccessDim = op->getAttr("vector_read_write_dim")
+                               .template cast<IntegerAttr>()
+                               .getInt();
+    auto srcDataPerRead = op->getAttr("source_data_per_read")
+                              .template cast<IntegerAttr>()
+                              .getInt();
+    auto destDataPerWrite = op->getAttr("dest_data_per_write")
+                                .template cast<IntegerAttr>()
+                                .getInt();
 
-    // // llvm::errs() << "vector_read_write_dim: " << vectorAccessDim << "\n";
-    // // llvm::errs() << "source_data_per_read: " << srcDataPerRead << "\n";
-    // // llvm::errs() << "dest_data_per_write: " << destDataPerWrite << "\n";
-    // // llvm::errs() << "longVectorSize: " << longVectorSize << "\n";
+    auto longVectorSize = math::lcm(srcDataPerRead, destDataPerWrite);
 
-    // // Figure out which memref is the one without affine transformations.
-    // SmallVector<int64_t, 2> sliceLengths;
+    // llvm::errs() << "vector_read_write_dim: " << vectorAccessDim << "\n";
+    // llvm::errs() << "source_data_per_read: " << srcDataPerRead << "\n";
+    // llvm::errs() << "longVectorSize: " << longVectorSize << "\n";
 
-    // if (sourceExternalTransform || sourceEmbeddedTransform) {
-    //   // Use domain attribute from source memref.
-    //   for (auto attr : coordTransformsAttr) {
-    //     auto dictAttr = attr.template cast<DictionaryAttr>();
-    //     auto operandIndex =
-    //         dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-    //     if (operandIndex == 0) {
-    //       // bound attribute take precendence over domain attribute.
-    //       if (op->getAttr("bound")) {
-    //         auto boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
-    //         for (unsigned i = 0; i < boundAttr.size(); ++i)
-    //           sliceLengths.push_back(
-    //               boundAttr[i].template cast<IntegerAttr>().getInt());
-    //       } else {
-    //         auto domainAttr = dictAttr.get("domain").template cast<ArrayAttr>();
-    //         for (unsigned i = 0; i < domainAttr.size(); ++i)
-    //           sliceLengths.push_back(
-    //               domainAttr[i].template cast<IntegerAttr>().getInt());
-    //       }
-    //     }
-    //   }
-    // } else {
-    //   for (auto dim : sourceType.getShape())
-    //     sliceLengths.push_back(dim);
-    // }
-    // // llvm::errs() << "slice lengths: ";
-    // // for (unsigned i = 0; i < sliceLengths.size(); ++i)
-    // //   llvm::errs() << sliceLengths[i] << " ";
-    // // llvm::errs() << "\n";
+    // Figure out which memref is the one without affine transformations.
+    SmallVector<int64_t, 2> sliceLengths;
 
-    // // Modify slice lenths per vector access dim.
-    // sliceLengths[vectorAccessDim] =
-    //     sliceLengths[vectorAccessDim] / longVectorSize;
-    // SmallVector<Value, 2> loopBounds;
-    // for (unsigned iter = 0; iter < sliceLengths.size(); ++iter)
-    //   loopBounds.push_back(b.create<ConstantIndexOp>(loc, sliceLengths[iter]));
+    if (composedSourceTransform) {
+      // Use the shape of dest memref as initial slice lengths.
+      for (auto dim : destType.getShape())
+        sliceLengths.push_back(dim);
+    } else
+      // Use the shape of source memref as initial slice lengths.
+      for (auto dim : sourceType.getShape())
+        sliceLengths.push_back(dim);
 
-    // // llvm::errs() << "modified slice lengths: ";
-    // // for (unsigned i = 0; i < sliceLengths.size(); ++i)
-    // //   llvm::errs() << sliceLengths[i] << " ";
-    // // llvm::errs() << "\n";
+    // llvm::errs() << "slice lengths: ";
+    // for (unsigned i = 0; i < sliceLengths.size(); ++i)
+    //   llvm::errs() << sliceLengths[i] << " ";
+    // llvm::errs() << "\n";
 
-    // SmallVector<Value, 8> srcUpperCoord;
-    // SmallVector<Value, 8> srcLowerCoord;
-    // // Compute low-level coordinate for source memref from sourceCoord.
-    // // Apply affine transformations to compute the low-level coordinate.
-    // for (unsigned i = 0; i < sourceCoordLength; ++i) {
-    //   srcUpperCoord.push_back(
-    //       b.create<IndexCastOp>(loc, sourceCoord[i], b.getIndexType()));
-    // }
-    // if (sourceExternalTransform || sourceEmbeddedTransform)
-    //   srcLowerCoord =
-    //       expandAffineMap(b, loc, sourceTransform, srcUpperCoord).getValue();
-    // else
-    //   srcLowerCoord.assign(srcUpperCoord.begin(), srcUpperCoord.end());
+    // Modify slice lenths per vector access dim.
+    sliceLengths[vectorAccessDim] =
+        sliceLengths[vectorAccessDim] / longVectorSize;
 
-    // // Emit fully unrolled loops for vector loads / stores.
-    // SmallVector<int64_t, 2> loopIVsPerAccessOrder;
-    // SmallVector<int64_t, 2> loopBoundsPerAccessOrder;
-    // for (unsigned iter = 0; iter < dimAccessOrder.size(); ++iter) {
-    //   auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
-    //   loopIVsPerAccessOrder.push_back(0);
-    //   loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
-    // }
-    // bool toExit = false;
-    // Value loadedValue;
+    // llvm::errs() << "modified slice lengths: ";
+    // for (unsigned i = 0; i < sliceLengths.size(); ++i)
+    //   llvm::errs() << sliceLengths[i] << " ";
+    // llvm::errs() << "\n";
 
-    // do {
-    //   // Load from source vector.
-    //   SmallVector<Value, 4> srcIndexLowerNewUpdated;
-    //   {
-    //     // llvm::errs() << "source upper index old:\n";
-    //     // for (auto& v : srcUpperCoord) {
-    //     //   v.dump();
-    //     // }
-    //     // llvm::errs() << "source lower index old:\n";
-    //     // for (auto& v : srcLowerCoord) {
-    //     //   v.dump();
-    //     // }
-    //     // llvm::errs() << "source upper index diff:\n";
-    //     // for (auto& v : loopIVsPerAccessOrder) {
-    //     //   llvm::errs() << v << " ";
-    //     // }
-    //     // llvm::errs() << "\n";
+    SmallVector<Value, 8> srcUpperIndices;
+    SmallVector<Value, 8> srcLowerIndices;
+    // Coordinates across the layers of transformations.
+    // If the vector is of size n, 0 is the top layer, and
+    // n-1 is the bottom layer.
+    SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
 
-    //     SmallVector<Attribute, 2> indexUpperDiff;
-    //     for (auto &v : loopIVsPerAccessOrder) {
-    //       indexUpperDiff.push_back(b.getI32IntegerAttr(v));
-    //     }
+    ArrayAttr layeredSourceTransformMetadata;
 
-    //     // Apply map to compute index lower diff tmp, from index upper diff
-    //     // using constantFold.
-    //     SmallVector<Attribute, 4> indexLowerDiffTmpAttr;
-    //     SmallVector<int64_t, 4> indexLowerDiffTmp;
-    //     SmallVector<Value, 8> indexLowerDiffTmpOp;
-    //     // llvm::errs() << "source affine transform map: ";
-    //     // sourceTransform.dump();
-    //     // llvm::errs() << "\n";
-    //     if (!sourceTransform) {
-    //       indexLowerDiffTmpAttr.assign(indexUpperDiff.begin(),
-    //                                    indexUpperDiff.end());
-    //     } else {
-    //       (void)sourceTransform.constantFold(indexUpperDiff,
-    //                                          indexLowerDiffTmpAttr);
-    //     }
-    //     // llvm::errs() << "source index lower diff tmp:\n";
-    //     for (auto attr : indexLowerDiffTmpAttr) {
-    //       int64_t v = attr.template dyn_cast<IntegerAttr>().getInt();
-    //       // llvm::errs() << v << " ";
-    //       indexLowerDiffTmp.push_back(v);
+    // Obtain transform metadata and populate coordinates for all layers
+    // wthe the metadata.
+    // Only do such computation in the new approach where index diff maps
+    // would be used.
+    if (legacyLoad == false) {
+      // Populate coorindates across the layers of transformations.
+      if (srcTransformSpec) {
+        Attribute metadataAttr = srcTransformSpec.get("metadata");
+        if (metadataAttr)
+          layeredSourceTransformMetadata =
+              metadataAttr.template cast<ArrayAttr>();
+        else
+          populateTransformMetadataFromLowerType(
+              b, sourceType, layeredSourceTransformMetadata);
+      }
 
-    //       auto cv = b.create<ConstantIndexOp>(loc, v);
-    //       indexLowerDiffTmpOp.push_back(cv);
-    //     }
-    //     // llvm::errs() << "\n";
+      // Compute high-level coordinate for source memref.
+      for (unsigned i = 0; i < sourceCoordLength; ++i) {
+        srcUpperIndices.push_back(
+            b.create<IndexCastOp>(loc, sourceCoord[i], b.getIndexType()));
+      }
 
-    //     // Add: index lower old + index lower diff tmp
-    //     SmallVector<Value, 8> indexLowerNew;
-    //     // llvm::errs() << "index lower new before borrow/carry:\n";
-    //     for (unsigned iter = 0; iter < sourceType.getShape().size(); ++iter) {
-    //       Value v = b.create<AddIOp>(loc, srcLowerCoord[iter],
-    //                                  indexLowerDiffTmpOp[iter]);
-    //       // v.dump();
-    //       indexLowerNew.push_back(v);
-    //     }
-    //     // llvm::errs() << "\n";
+      // Populate coorindates across the layers of transformations.
+      populateLayeredIndicesWithTransformMetadata(
+          b, loc, layeredSourceIndices, srcUpperIndices,
+          layeredSourceTransformMetadata);
 
-    //     // Get bounds for source memref.
-    //     SmallVector<int64_t, 4> bound;
-    //     SmallVector<Value, 4> boundOp;
-    //     // llvm::errs() << "bound:\n";
-    //     for (auto v : sourceType.getShape()) {
-    //       // llvm::errs() << v << " ";
-    //       bound.push_back(v);
+      // Fetch low-level coordinate.
+      srcLowerIndices = layeredSourceIndices[layeredSourceIndices.size() - 1];
+    }
 
-    //       auto cv = b.create<ConstantIndexOp>(loc, v);
-    //       boundOp.push_back(cv);
-    //     }
-    //     // llvm::errs() << "\n";
+    // Emit fully unrolled loops for vector loads / stores.
+    SmallVector<int64_t, 8> loopIVsPerAccessOrder;
+    SmallVector<int64_t, 8> loopBoundsPerAccessOrder;
+    for (unsigned iter = 0; iter < dimAccessOrder.size(); ++iter) {
+      auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+      loopIVsPerAccessOrder.push_back(0);
+      loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
+    }
 
-    //     // Only use carry / borrow check logic if needed.
-    //     if (sourceTransform && hasDivisionOrRemainder(sourceTransform)) {
-    //       // Apply carry / borrow logic to compute index lower new
-    //       // carry logic on Value instances.
-    //       SmallVector<Value, 4> indexLowerNewCarried;
-    //       if (indexUpperDiff[0].template dyn_cast<IntegerAttr>().getInt() >=
-    //           0) {
-    //         // setup carryOp for the first iteration
-    //         Value carryOp =
-    //             b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
-    //         for (int64_t iter = sourceType.getShape().size() - 1; iter >= 0;
-    //              --iter) {
-    //           // carry logic.
-    //           auto ifCarryOp = b.create<scf::IfOp>(
-    //               loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
-    //           auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
-    //           auto carried = ifCarryThenBuilder.create<AddIOp>(
-    //               loc, indexLowerNew[iter], oneConstantOp);
-    //           ifCarryThenBuilder.create<scf::YieldOp>(loc, carried.getResult());
-    //           auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
-    //           carried = ifCarryElseBuilder.create<AddIOp>(
-    //               loc, indexLowerNew[iter], zeroConstantOp);
-    //           ifCarryElseBuilder.create<scf::YieldOp>(loc, carried.getResult());
+    // Main code emission loop.
+    Value loadedValue;
+    bool toExit = false;
+    do {
+      // Use the old logic in case "legacy_load" attribute is specified.
+      if (legacyLoad == true) {
+        computeTopAndBottomIndicesWithAffineMap(
+            b, loc, srcUpperIndices, srcLowerIndices, sourceCoord,
+            loopIVsPerAccessOrder, dimAccessOrder, layeredSourceTransform);
+      } else {
+        // New approach. Use index diff map.
+        // Progressively use index diff map to compute the coordinate at the
+        // bottom most layer.
+        computeBottomIndicesWithIndexDiffMap(
+            b, loc, loopIVsPerAccessOrder, layeredSourceTransformMetadata,
+            layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
+      }
 
-    //           // ifCarryOp.dump();
+      // Load from source.
+      Value scalarValue = emitLoadLogic(
+          b, loc, sourceType, sourceElementType, toEmitOOBLoadCheckLogic,
+          oobLoadCheckDims, op.source(), srcLowerIndices);
 
-    //           auto carriedResult = ifCarryOp.results()[0];
-    //           indexLowerNewCarried.push_back(carriedResult);
+      // Convert from sourceElementType to destElementType if necessary.
+      loadedValue = createTypeConversionOp(b, loc, scalarValue,
+                                           sourceElementType, destElementType);
 
-    //           // set carry flag for the next digit.
-    //           carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sgt, carriedResult,
-    //                                      boundOp[iter]);
+      // increase IVs
+      bool toIncreaseNextDigit = true;
+      int iter = loopIVsPerAccessOrder.size() - 1;
+      for (; toIncreaseNextDigit && iter >= 0; --iter) {
+        if (++loopIVsPerAccessOrder[iter] == loopBoundsPerAccessOrder[iter]) {
+          loopIVsPerAccessOrder[iter] = 0;
+          toIncreaseNextDigit = true;
+        } else {
+          toIncreaseNextDigit = false;
+        }
+      }
 
-    //           // carryOp.dump();
+      // check if need to exit
+      if (iter < 0 && toIncreaseNextDigit == true) {
+        toExit = true;
+      }
+    } while (!toExit);
 
-    //           // overflow logic.
-    //           auto ifOverflowOp = b.create<scf::IfOp>(
-    //               loc, b.getIndexType(), carryOp, /*withElseRegion=*/true);
-    //           auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
-    //           auto updated = ifOverflowThenBuilder.create<SubIOp>(
-    //               loc, carriedResult, boundOp[iter]);
-    //           ifOverflowThenBuilder.create<scf::YieldOp>(loc,
-    //                                                      updated.getResult());
-    //           auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
-    //           updated = ifOverflowElseBuilder.create<SubIOp>(loc, carriedResult,
-    //                                                          zeroConstantOp);
-    //           ifOverflowElseBuilder.create<scf::YieldOp>(loc,
-    //                                                      updated.getResult());
-
-    //           // ifOverflowOp.dump();
-
-    //           auto updatedResult = ifOverflowOp.results()[0];
-    //           srcIndexLowerNewUpdated.insert(srcIndexLowerNewUpdated.begin(),
-    //                                          updatedResult);
-    //         }
-    //       } else {
-    //         // TBD borrow logic.
-    //         // TBD revise per scf_if_v1.mlir
-    //       }
-    //     } else {
-    //       // Skip carry / borrow logic.
-    //       srcIndexLowerNewUpdated.assign(indexLowerNew.begin(),
-    //                                      indexLowerNew.end());
-    //     }
-    //   }
-
-    //   // TBD: fix me!
-    //   // // Load from source.
-    //   // if (srcDataPerRead > 1) {
-    //   // Issue GPU buffer load.
-    //   SmallVector<Value, 4> srcIndexLowerNewUpdatedI32;
-    //   for (auto v : srcIndexLowerNewUpdated)
-    //     srcIndexLowerNewUpdatedI32.push_back(
-    //         b.create<IndexCastOp>(loc, v, b.getIntegerType(32)));
-    //   loadedValue = b.create<gpu::MubufLoadOp>(loc, resultType, op.source(),
-    //                                            srcIndexLowerNewUpdatedI32);
-    //   // } else {
-    //   //   // Issue scalar load.
-    //   //   loadedValue = b.create<LoadOp>(loc, dataType, op.source(),
-    //   //   srcIndexLowerNewUpdated);
-    //   // }
-
-    //   // increase IVs
-    //   bool toIncreaseNextDigit = true;
-    //   int iter = loopIVsPerAccessOrder.size() - 1;
-    //   for (; toIncreaseNextDigit && iter >= 0; --iter) {
-    //     if (++loopIVsPerAccessOrder[iter] == loopBoundsPerAccessOrder[iter]) {
-    //       loopIVsPerAccessOrder[iter] = 0;
-    //       toIncreaseNextDigit = true;
-    //     } else {
-    //       toIncreaseNextDigit = false;
-    //     }
-    //   }
-
-    //   // check if need to exit
-    //   if (iter < 0 && toIncreaseNextDigit == true) {
-    //     toExit = true;
-    //   }
-
-    //   // TBD: fix me!
-    //   // exit if oneItemAttr exists.
-    //   if (true || oneItemAttr) {
-    //     toExit = true;
-    //   }
-    // } while (!toExit);
-
-    // op.replaceAllUsesWith(loadedValue);
-    // op.erase();
+    op.replaceAllUsesWith(loadedValue);
+    op.erase();
     return success();
   }
 };
