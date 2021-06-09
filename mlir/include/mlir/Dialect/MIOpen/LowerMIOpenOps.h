@@ -51,6 +51,40 @@ using namespace mlir::miopen;
 static constexpr int kTwoGB = 2147483647;
 
 //===----------------------------------------------------------------------===//
+// Utility function to determine the longest vector can be loaded in one shot.
+//===----------------------------------------------------------------------===//
+inline int64_t computeMaxVectorLength(OpBuilder &b, Type elementType) {
+  int maxVectorLength = 1;
+  if (elementType == b.getF32Type())
+    maxVectorLength = 4;
+  else if (elementType == b.getF16Type())
+    maxVectorLength = 8;
+  else if (elementType == b.getIntegerType(16))
+    maxVectorLength = 8;
+  return maxVectorLength;
+}
+
+//===----------------------------------------------------------------------===//
+// Utility function to determine the type to be loaded given its element type
+// and total length.
+//===----------------------------------------------------------------------===//
+inline std::tuple<Type, TupleType>
+computeLoadTypeInfo(OpBuilder &b, Type elementType, int64_t length) {
+  // Determine the longest vector can be loaded in one shot.
+  int64_t maxVectorLength = computeMaxVectorLength(b, elementType);
+
+  auto vectorLength = math::gcd(length, maxVectorLength);
+  auto tupleLength = length / vectorLength;
+  Type type = (vectorLength > 1) ? VectorType::get(vectorLength, elementType)
+                                 : elementType;
+  SmallVector<Type, 8> tupleElements;
+  for (unsigned iter = 0; iter < tupleLength; ++iter)
+    tupleElements.push_back(type);
+  TupleType tupleType = b.getTupleType(tupleElements);
+  return std::make_tuple(type, tupleType);
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to emit constant float op.
 //===----------------------------------------------------------------------===//
 inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
@@ -4914,17 +4948,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Determine vector / scalar load type for Matrix A / B.
     auto blockwiseLoadALength = GemmABlockCopyThreadSliceLengths_GemmK *
                                 GemmABlockCopyThreadSliceLengths_GemmM;
-    Type blockwiseLoadAType =
-        (blockwiseLoadALength > 1)
-            ? VectorType::get(blockwiseLoadALength, elementType)
-            : elementType;
+    Type blockwiseLoadAType;
+    TupleType blockwiseLoadATupleType;
+    std::tie(blockwiseLoadAType, blockwiseLoadATupleType) =
+        computeLoadTypeInfo(b, elementType, blockwiseLoadALength);
 
     auto blockwiseLoadBLength = GemmBBlockCopyThreadSliceLengths_GemmK *
                                 GemmBBlockCopyThreadSliceLengths_GemmN;
-    Type blockwiseLoadBType =
-        (blockwiseLoadALength > 1)
-            ? VectorType::get(blockwiseLoadBLength, elementType)
-            : elementType;
+    Type blockwiseLoadBType;
+    TupleType blockwiseLoadBTupleType;
+    std::tie(blockwiseLoadBType, blockwiseLoadBTupleType) =
+        computeLoadTypeInfo(b, elementType, blockwiseLoadBLength);
 
     // Zero init Matrix C on registers.
     b.create<miopen::FillOp>(loc, registerMatrixCAllocOp,
@@ -5907,17 +5941,17 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Determine vector / scalar load type for Matrix A / B.
     auto blockwiseLoadALength = GemmABlockCopyThreadSliceLengths_GemmK *
                                 GemmABlockCopyThreadSliceLengths_GemmM;
-    Type blockwiseLoadAType =
-        (blockwiseLoadALength > 1)
-            ? VectorType::get(blockwiseLoadALength, elementType)
-            : elementType;
+    Type blockwiseLoadAType;
+    TupleType blockwiseLoadATupleType;
+    std::tie(blockwiseLoadAType, blockwiseLoadATupleType) =
+        computeLoadTypeInfo(b, elementType, blockwiseLoadALength);
 
     auto blockwiseLoadBLength = GemmBBlockCopyThreadSliceLengths_GemmK *
                                 GemmBBlockCopyThreadSliceLengths_GemmN;
-    Type blockwiseLoadBType =
-        (blockwiseLoadALength > 1)
-            ? VectorType::get(blockwiseLoadBLength, elementType)
-            : elementType;
+    Type blockwiseLoadBType;
+    TupleType blockwiseLoadBTupleType;
+    std::tie(blockwiseLoadBType, blockwiseLoadBTupleType) =
+        computeLoadTypeInfo(b, elementType, blockwiseLoadBLength);
 
     // -----
 
@@ -7261,8 +7295,6 @@ struct ThreadwiseCopyRewritePattern
                                destElementType, op.source(), op.dest());
     } else {
       // Otherwise, employ the more elaborated algorithm.
-      // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
-      // C++ implementation.
 
       // llvm::errs() << "\nthreadwise_copy op:\n";
       // op.dump();
@@ -7578,9 +7610,6 @@ struct ThreadwiseLoadRewritePattern
     bool toEmitOOBLoadCheckLogic = obtainOOBCheckInfo(
         composedSourceTransform, boundCheckSourceAttr, oobLoadCheckDims);
 
-    // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
-    // C++ implementation.
-
     // llvm::errs() << "\nthreadwise_load op:\n";
     // op.dump();
     // llvm::errs() << "\n";
@@ -7813,9 +7842,6 @@ struct ThreadwiseStoreRewritePattern
     bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
         composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
 
-    // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
-    // C++ implementation.
-
     // llvm::errs() << "\nthreadwise_store op:\n";
     // op.dump();
     // llvm::errs() << "\n";
@@ -8024,9 +8050,6 @@ struct ThreadwiseCopyV2RewritePattern
     SmallVector<unsigned, 8> oobStoreCheckDims;
     bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
         composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
-
-    // Refer to ThreadwiseGenericTensorSliceCopy_v4r2::Run() for the original
-    // C++ implementation.
 
     // llvm::errs() << "\nthreadwise_copy_v2 op:\n";
     // op.dump();
