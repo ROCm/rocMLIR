@@ -75,31 +75,38 @@ computeSliceLengths(SmallVector<int64_t, 2> &sliceLengths,
         }
       };
 
-  if (composedSourceTransform) {
-    if (composedDestTransform) {
-      // Use domain attribute from source memref.
-      for (auto attr : coordTransformsAttr) {
-        auto dictAttr = attr.template cast<DictionaryAttr>();
-        auto operandIndex =
-            dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-        if (operandIndex == 0) {
-          // bound attribute take precendence over domain attribute.
-          if (boundAttr) {
-            for (unsigned i = 0; i < boundAttr->size(); ++i)
-              sliceLengths.push_back(
-                  (*boundAttr)[i].template cast<IntegerAttr>().getInt());
-          } else {
+  // Order to decide the slice lengths:
+  // - bound attribute.
+  // - domain attribute from the source in case both source and dest has affine
+  //   transformations.
+  // - shape of the dest in case only the source has affine transformations.
+  // - shape of the source in case the source has no affine transfromations.
+  if (boundAttr) {
+    for (unsigned i = 0; i < boundAttr->size(); ++i)
+      sliceLengths.push_back(
+          (*boundAttr)[i].template cast<IntegerAttr>().getInt());
+  } else {
+    if (composedSourceTransform) {
+      if (composedDestTransform) {
+        // Use domain attribute from source.
+        for (auto attr : coordTransformsAttr) {
+          auto dictAttr = attr.template cast<DictionaryAttr>();
+          auto operandIndex =
+              dictAttr.get("operand").template cast<IntegerAttr>().getInt();
+          if (operandIndex == 0) {
             auto domainAttr = dictAttr.get("domain").template cast<ArrayAttr>();
             for (unsigned i = 0; i < domainAttr.size(); ++i)
               sliceLengths.push_back(
                   domainAttr[i].template cast<IntegerAttr>().getInt());
           }
         }
+      } else {
+        populateSliceLengthsWithTypeShape(sliceLengths, destType);
       }
-    } else
-      populateSliceLengthsWithTypeShape(sliceLengths, destType);
-  } else
-    populateSliceLengthsWithTypeShape(sliceLengths, sourceType);
+    } else {
+      populateSliceLengthsWithTypeShape(sliceLengths, sourceType);
+    }
+  }
 }
 
 //===----------------------------------------------------------------------===//
