@@ -2391,7 +2391,7 @@ int main(int argc, char **argv) {
   // Populate the module.
   if (!populateCpuConvolution.getValue()) {
     if (genConfig.kernelId < 0) {
-      // generate all sub-kernels
+      // generate all sub-kernels, and get corresponding gemmId
       int kernelCount = conv2dGenerator.getKernelCount();
       auto knSize = genConfig.kernelName.size();
       std::string kernelBaseName = genConfig.kernelName.substr(0, knSize - 1);
