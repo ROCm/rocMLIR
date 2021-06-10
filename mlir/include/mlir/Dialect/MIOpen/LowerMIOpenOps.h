@@ -4985,7 +4985,99 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       };
 
       auto outGN0N1KHoWo = getOutGN0N1KHoWo();
-      return outGN0N1KHoWo;
+
+      auto getOutGemmGGemmKGemmM =
+          [&](llvm::SmallVector<StringAttr> &preOutputDimName) {
+            llvm::SmallVector<StringAttr, 7> curOutputDimName;
+            llvm::SmallVector<int64_t, 7> transformedShape;
+            // gemmG
+            curOutputDimName.push_back(b.getStringAttr("gemmG"));
+            transformedShape.push_back(g * gemmKBlocks);
+            llvm::SmallVector<NamedAttribute, 5> gemmGDimAttr{
+                b.getNamedAttr("upper_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                b.getNamedAttr("upper_layer_names",
+                               b.getArrayAttr({curOutputDimName[0]})),
+                b.getNamedAttr("transformation", b.getStringAttr("Merge")),
+                b.getNamedAttr("lower_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(0),
+                                               b.getI32IntegerAttr(1)})),
+                b.getNamedAttr("lower_layer_names",
+                               b.getArrayAttr({preOutputDimName[0]}))};
+
+            // gemmK
+            curOutputDimName.push_back(b.getStringAttr("gemmK"));
+            transformedShape.push_back(n / gemmKBlocks * ho * wo);
+            llvm::SmallVector<NamedAttribute, 5> gemmKDimAttr{
+                b.getNamedAttr("upper_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                b.getNamedAttr("upper_layer_names",
+                               b.getArrayAttr({curOutputDimName[1]})),
+                b.getNamedAttr("transformation", b.getStringAttr("Merge")),
+                b.getNamedAttr("lower_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(2),
+                                               b.getI32IntegerAttr(4),
+                                               b.getI32IntegerAttr(5)})),
+                b.getNamedAttr(
+                    "lower_layer_names",
+                    b.getArrayAttr({preOutputDimName[2], preOutputDimName[4],
+                                    preOutputDimName[5]}))};
+
+            // gemmM
+            curOutputDimName.push_back(b.getStringAttr("gemmM"));
+            transformedShape.push_back(k);
+            llvm::SmallVector<NamedAttribute, 5> gemmMDimAttr{
+                b.getNamedAttr("upper_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                b.getNamedAttr("upper_layer_names",
+                               b.getArrayAttr({curOutputDimName[2]})),
+                b.getNamedAttr("transformation",
+                               b.getStringAttr("PassThrough")),
+                b.getNamedAttr("lower_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(3)})),
+                b.getNamedAttr("lower_layer_names",
+                               b.getArrayAttr({preOutputDimName[3]}))};
+
+            llvm::SmallVector<NamedAttribute, 3> transformedAttrs;
+            transformedAttrs.push_back(b.getNamedAttr(
+                "layout", b.getArrayAttr({b.getDictionaryAttr(gemmGDimAttr),
+                                          b.getDictionaryAttr(gemmKDimAttr),
+                                          b.getDictionaryAttr(gemmMDimAttr)})));
+            transformedAttrs.push_back(b.getNamedAttr(
+                "upper_layer_layout",
+                b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
+                                                   curOutputDimName.end()))));
+
+            transformedAttrs.push_back(b.getNamedAttr(
+                "lower_layer_layout",
+                b.getArrayAttr(ArrayRef<Attribute>(preOutputDimName.begin(),
+                                                   preOutputDimName.end()))));
+
+            transformedAttrs.push_back(b.getNamedAttr(
+                "gridwise_gemm_argument_position", b.getI32IntegerAttr(1)));
+
+            if (outputOobCheckDims.size()) {
+              llvm::SmallVector<IntegerAttr, 5> boundDims;
+              for (size_t i = 0; i < outputShape.size(); i++) {
+                if (outputOobCheckDims.find(i) != outputOobCheckDims.end())
+                  boundDims.push_back(b.getI32IntegerAttr(1));
+                else
+                  boundDims.push_back(b.getI32IntegerAttr(0));
+              }
+              transformedAttrs.push_back(b.getNamedAttr(
+                  "bound_check",
+                  b.getArrayAttr({boundDims.begin(), boundDims.end()})));
+            }
+            auto transformedMemRefType =
+                MemRefType::get(transformedShape, outputElementType);
+            auto gemm = b.create<miopen::TransformOp>(
+                loc, transformedMemRefType, outGN0N1KHoWo, transformedAttrs,
+                /*populateBounds=*/true);
+            return gemm;
+          };
+      auto outGemmGGemmKGemmM = getOutGemmGGemmKGemmM(firstOutputDimName);
+
+      return outGemmGGemmKGemmM;
       
     };
     Value gemmA = getGemmA();
