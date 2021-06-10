@@ -4645,7 +4645,143 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       };
       auto inGN0N1CHipWip = getInGN0N1CHipWip();
 
-      return inGN0N1CHipWip;
+      llvm::SmallVector<StringAttr> secondOutputDimName;
+      auto getInGN0N1CYHoXWo =
+          [&](llvm::SmallVector<StringAttr> &preOutputDimName,
+              llvm::SmallVector<StringAttr> &curOutputDimName) {
+            llvm::SmallVector<int64_t, 7> transformedShape;
+            llvm::SmallVector<NamedAttribute, 3> transformedAttrs;
+            // g
+            curOutputDimName.push_back(b.getStringAttr("gi"));
+            transformedShape.push_back(g);
+            llvm::SmallVector<NamedAttribute, 5> gDimAttr{
+                b.getNamedAttr("upper_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                b.getNamedAttr("upper_layer_names",
+                               b.getArrayAttr({curOutputDimName[0]})),
+                b.getNamedAttr("transformation",
+                               b.getStringAttr("PassThrough")),
+                b.getNamedAttr("lower_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                b.getNamedAttr("lower_layer_names",
+                               b.getArrayAttr({preOutputDimName[0]}))};
+            // n0
+            curOutputDimName.push_back(b.getStringAttr("n0"));
+            transformedShape.push_back(gemmKBlocks);
+            llvm::SmallVector<NamedAttribute, 5> n0DimAttr{
+                b.getNamedAttr("upper_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                b.getNamedAttr("upper_layer_names",
+                               b.getArrayAttr({curOutputDimName[1]})),
+                b.getNamedAttr("transformation",
+                               b.getStringAttr("PassThrough")),
+                b.getNamedAttr("lower_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                b.getNamedAttr("lower_layer_names",
+                               b.getArrayAttr({preOutputDimName[1]}))};
+            // n1
+            curOutputDimName.push_back(b.getStringAttr("n1"));
+            transformedShape.push_back(n / gemmKBlocks);
+            llvm::SmallVector<NamedAttribute, 5> n1DimAttr{
+                b.getNamedAttr("upper_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                b.getNamedAttr("upper_layer_names",
+                               b.getArrayAttr({curOutputDimName[2]})),
+                b.getNamedAttr("transformation",
+                               b.getStringAttr("PassThrough")),
+                b.getNamedAttr("lower_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                b.getNamedAttr("lower_layer_names",
+                               b.getArrayAttr({preOutputDimName[2]}))};
+
+            // c
+            curOutputDimName.push_back(b.getStringAttr("ci"));
+            transformedShape.push_back(c);
+            llvm::SmallVector<NamedAttribute, 5> cDimAttr{
+                b.getNamedAttr("upper_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(3)})),
+                b.getNamedAttr("upper_layer_names",
+                               b.getArrayAttr({curOutputDimName[3]})),
+                b.getNamedAttr("transformation",
+                               b.getStringAttr("PassThrough")),
+                b.getNamedAttr("lower_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(3)})),
+                b.getNamedAttr("lower_layer_names",
+                               b.getArrayAttr({preOutputDimName[3]}))};
+
+            // hi
+            curOutputDimName.push_back(b.getStringAttr("y"));
+            curOutputDimName.push_back(b.getStringAttr("ho"));
+            transformedShape.push_back(y);
+            transformedShape.push_back(ho);
+            llvm::SmallVector<NamedAttribute, 6> hiDimAttr{
+                b.getNamedAttr("upper_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(4),
+                                               b.getI32IntegerAttr(5)})),
+                b.getNamedAttr(
+                    "upper_layer_names",
+                    b.getArrayAttr({curOutputDimName[4], curOutputDimName[5]})),
+                b.getNamedAttr("transformation", b.getStringAttr("Embed")),
+                b.getNamedAttr("parameters", b.getArrayAttr({
+                                                 b.getI32IntegerAttr(dilationH),
+                                                 b.getI32IntegerAttr(strideH),
+                                             })),
+                b.getNamedAttr("lower_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(4)})),
+                b.getNamedAttr("lower_layer_names",
+                               b.getArrayAttr({preOutputDimName[4]}))};
+
+            // wi
+            curOutputDimName.push_back(b.getStringAttr("x"));
+            curOutputDimName.push_back(b.getStringAttr("wo"));
+            transformedShape.push_back(x);
+            transformedShape.push_back(wo);
+            llvm::SmallVector<NamedAttribute, 6> wiDimAttr{
+                b.getNamedAttr("upper_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(6),
+                                               b.getI32IntegerAttr(7)})),
+                b.getNamedAttr(
+                    "upper_layer_names",
+                    b.getArrayAttr({curOutputDimName[6], curOutputDimName[7]})),
+                b.getNamedAttr("transformation", b.getStringAttr("Embed")),
+                b.getNamedAttr("parameters", b.getArrayAttr({
+                                                 b.getI32IntegerAttr(dilationW),
+                                                 b.getI32IntegerAttr(strideW),
+                                             })),
+                b.getNamedAttr("lower_layer_dimensions",
+                               b.getArrayAttr({b.getI32IntegerAttr(5)})),
+                b.getNamedAttr("lower_layer_names",
+                               b.getArrayAttr({preOutputDimName[5]}))};
+
+            transformedAttrs.push_back(b.getNamedAttr(
+                "layout", b.getArrayAttr({b.getDictionaryAttr(gDimAttr),
+                                          b.getDictionaryAttr(n0DimAttr),
+                                          b.getDictionaryAttr(n1DimAttr),
+                                          b.getDictionaryAttr(cDimAttr),
+                                          b.getDictionaryAttr(hiDimAttr),
+                                          b.getDictionaryAttr(wiDimAttr)})));
+            transformedAttrs.push_back(b.getNamedAttr(
+                "upper_layer_layout",
+                b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
+                                                   curOutputDimName.end()))));
+
+            transformedAttrs.push_back(b.getNamedAttr(
+                "lower_layer_layout",
+                b.getArrayAttr(ArrayRef<Attribute>(preOutputDimName.begin(),
+                                                   preOutputDimName.end()))));
+
+            auto transformedFilterMemRefType =
+                MemRefType::get(transformedShape, inputElementType);
+            auto gemm =
+                b.create<miopen::TransformOp>(loc, transformedFilterMemRefType,
+                                              inGN0N1CHipWip, transformedAttrs,
+                                              /*populateBounds=*/true);
+            return gemm;
+          };
+
+      auto inGN0N1CYHoXWo =
+          getInGN0N1CYHoXWo(firstOutputDimName, secondOutputDimName);
+      return inGN0N1CYHoXWo;
     };
 
     auto getGemmC = [&]() -> Value {
