@@ -4227,7 +4227,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         b.create<ConstantIntOp>(loc, 2, b.getIntegerType(32));
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-    auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     // Obtain critical matrix dimensions.
     int64_t G = op.filter().getType().template cast<MemRefType>().getShape()[0];
@@ -5271,7 +5270,6 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         b.create<ConstantIntOp>(loc, 2, b.getIntegerType(32));
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-    auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     // Obtain critical matrix dimensions.
     int64_t G = op.filter().getType().template cast<MemRefType>().getShape()[0];
@@ -6385,8 +6383,6 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     // Prepare some useful constants.
     auto zeroConstantI32Op =
         b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
-    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-    auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     auto blockAType = op.matrixA().getType().cast<MemRefType>();
 
@@ -6675,9 +6671,6 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
     auto loc = op.getLoc();
     auto inputType = op.input().getType().cast<MemRefType>();
     auto inputShape = inputType.getShape();
-
-    auto zero = b.create<ConstantIndexOp>(loc, 0);
-    auto one = b.create<ConstantIndexOp>(loc, 1);
 
     AffineForOp currentLoop;
     OpBuilder currentScope = b;
@@ -8458,10 +8451,6 @@ struct XdlopsGemmV2RewritePattern
     auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
     auto KBaseConstantOp = b.create<ConstantIndexOp>(loc, k_base);
 
-    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-    auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
-    auto MRepeatsConstantOp = b.create<ConstantIndexOp>(loc, MRepeats);
-    auto NRepeatsConstantOp = b.create<ConstantIndexOp>(loc, NRepeats);
     auto KRepeatsConstantOp = b.create<ConstantIndexOp>(loc, KRepeats);
 
     if (!IsKReduction) {
