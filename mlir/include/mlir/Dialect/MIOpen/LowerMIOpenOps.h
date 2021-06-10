@@ -5098,7 +5098,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     Value gemmA = getGemmA();
     Value gemmB = getGemmB();
     Value gemmC = getGemmC();
-                // Set attributes for gridwise_gemm op.
+    // Set attributes for gridwise_gemm op.
     llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
         b.getNamedAttr("gemm_id", gemmIdAttr),
         b.getNamedAttr("arch", archAttr),
