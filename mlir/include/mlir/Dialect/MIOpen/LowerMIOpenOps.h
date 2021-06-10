@@ -7169,12 +7169,6 @@ struct ThreadwiseCopyRewritePattern
     // false : use the faster index diff map.
     auto legacyLoadAttr = op->getAttr("legacy_load");
     auto legacyStoreAttr = op->getAttr("legacy_store");
-    bool legacyLoad =
-        (legacyLoadAttr &&
-         legacyLoadAttr.template cast<BoolAttr>().getValue() == true);
-    bool legacyStore =
-        (legacyStoreAttr &&
-         legacyStoreAttr.template cast<BoolAttr>().getValue() == true);
 
     Optional<AffineMap> composedSourceTransform;
     Optional<AffineMap> composedDestTransform;
@@ -7204,36 +7198,6 @@ struct ThreadwiseCopyRewritePattern
       llvm::errs() << "INCORRECT source and dest coordinates assigned!";
       return failure();
     }
-
-    // FIXME. XXX.
-    // Workaround to obtain gemmKExtra attribute.
-    // And use it to override legacy load/store debug switch.
-    auto overrideLoadStoreHack =
-        [](const DictionaryAttr &transformSpec) -> bool {
-      if (transformSpec) {
-        Attribute metadataAttr = transformSpec.get("metadata");
-        if (metadataAttr) {
-          ArrayAttr layeredTransformMetadata =
-              metadataAttr.template cast<ArrayAttr>();
-          for (unsigned iter = 0; iter < layeredTransformMetadata.size();
-               ++iter) {
-            DictionaryAttr dictAttr =
-                layeredTransformMetadata[iter].template cast<DictionaryAttr>();
-            auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
-            if (gemmKExtraAttr) {
-              auto gemmKExtra =
-                  gemmKExtraAttr.template cast<IntegerAttr>().getInt();
-              if (gemmKExtra > 0) {
-                return true;
-              }
-            }
-          }
-        }
-      }
-      return false;
-    };
-    legacyLoad = overrideLoadStoreHack(srcTransformSpec);
-    legacyStore = overrideLoadStoreHack(destTransformSpec);
 
     // Populate the vector to hold source and dest coordinate.
     SmallVector<Value, 8> sourceCoord;
@@ -7343,7 +7307,8 @@ struct ThreadwiseCopyRewritePattern
       // wthe the metadata.
       // Only do such computation in the new approach where index diff maps
       // would be used.
-      if (legacyLoad == false) {
+      if (!legacyLoadAttr ||
+          (legacyLoadAttr.template cast<BoolAttr>().getValue() == false)) {
         // Populate coorindates across the layers of transformations.
         if (srcTransformSpec) {
           Attribute metadataAttr = srcTransformSpec.get("metadata");
@@ -7374,7 +7339,8 @@ struct ThreadwiseCopyRewritePattern
       // wthe the metadata.
       // Only do such computation in the new approach where index diff maps
       // would be used.
-      if (legacyStore == false) {
+      if (!legacyStoreAttr ||
+          (legacyStoreAttr.template cast<BoolAttr>().getValue() == false)) {
         // Populate coorindates across the layers of transformations.
         if (destTransformSpec) {
           Attribute metadataAttr = destTransformSpec.get("metadata");
@@ -7415,7 +7381,8 @@ struct ThreadwiseCopyRewritePattern
       bool toExit = false;
       do {
         // Use the old logic in case "legacy_load" attribute is specified.
-        if (legacyLoad == true) {
+        if (legacyLoadAttr &&
+            (legacyLoadAttr.template cast<BoolAttr>().getValue() == true)) {
           computeTopAndBottomIndicesWithAffineMap(
               b, loc, srcUpperIndices, srcLowerIndices, sourceCoord,
               loopIVsPerAccessOrder, dimAccessOrder, layeredSourceTransform);
@@ -7438,7 +7405,8 @@ struct ThreadwiseCopyRewritePattern
             b, loc, scalarValue, sourceElementType, destElementType);
 
         // Use the old logic in case "legacy_store" attribute is specified.
-        if (legacyStore == true) {
+        if (legacyStoreAttr &&
+            (legacyStoreAttr.template cast<BoolAttr>().getValue() == true)) {
           computeTopAndBottomIndicesWithAffineMap(
               b, loc, destUpperIndices, destLowerIndices, destCoord,
               loopIVsPerAccessOrder, dimAccessOrder, layeredDestTransform);
