@@ -1667,7 +1667,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmMPad_name)})));
         }
-
+        // filter of forward, gemmM=k
         filterOobCheckDims.insert(nameToDims["k"]);
       }
 
@@ -2366,7 +2366,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // we pad CRS to 32 or 64, then mlir can do gemm
     // we add more one transform to do pad
 
-    // input do not GemmM when forward and backward weights
+    // input forward : gemmK,gemmN
+    // backward weights: gemmK,gemmN
+    // so we don't need to pad gemmK
     bool inputCheckPadGemmK = false;
     bool inputCheckPadGemmN = false;
     inputCheckPadGemmK =
@@ -2446,6 +2448,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               b.getNamedAttr("upper_layer_names",
                              b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
 
+          // input gemmK fwd: CYX   backward weights:NHW
+          // due to it's load , we can use whole dim in gemmK
+          // if it's store , use top one
           if (convOpType == miopen::ConvOpType::Conv2DOpType) {
             inputOobCheckDims.insert(nameToDims["ci"]);
           } else if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
@@ -2464,7 +2469,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           gemmDim2TargetName = b.getStringAttr(gemmNPad_name);
           paddingInputShape[2] = paddingInputShape[2] + gemmNExtra;
 
-          paddingInputShape[2] = paddingInputShape[2] + gemmNExtra;
           sourceGemmDim2Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
           sourceGemmDim2Attr.push_back(b.getNamedAttr(
@@ -2474,6 +2478,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               b.getNamedAttr("upper_layer_names",
                              b.getArrayAttr({b.getStringAttr(gemmNPad_name)})));
 
+          // input fwd gemmN: nhw
+          // backward weights :CYX
           if (convOpType == miopen::ConvOpType::Conv2DOpType) {
             inputOobCheckDims.insert(nameToDims["ni"]);
             inputOobCheckDims.insert(nameToDims["hi"]);
@@ -2806,7 +2812,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           targetGemmDim1Attr.push_back(
               b.getNamedAttr("upper_layer_names",
                              b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
-          // wrw
+          // output wrw gemmK is nhw
           outputOobCheckDims.insert(nameToDims["no"]);
           outputOobCheckDims.insert(nameToDims["ho"]);
           outputOobCheckDims.insert(nameToDims["wo"]);
@@ -2818,7 +2824,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           isOutputPad = true;
           isGemmDim1Pad = true;
           gemmDim1TargetName = b.getStringAttr(gemmMPad_name);
-          // fwd, k
+          // output forward gemmM is k
           paddingOutputShape[1] = paddingOutputShape[1] + gemmMExtra;
           sourceGemmDim1Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
@@ -2833,7 +2839,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           isOutputPad = true;
           isGemmDim2Pad = true;
           gemmDim2TargetName = b.getStringAttr(gemmMPad_name);
-          // wrw ,k
+          // output backward weights gemmM is k
           paddingOutputShape[2] = paddingOutputShape[2] + gemmMExtra;
           sourceGemmDim2Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
@@ -2849,7 +2855,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (outputCheckPadGemmN) {
         if (arg2TargetLayoutName2 == "gemmN") {
-          // fwd dim 2,nhw
+          // fwd output gemmN is nhw
           isOutputPad = true;
           isGemmDim2Pad = true;
           gemmDim2TargetName = b.getStringAttr(gemmNPad_name);
@@ -2864,6 +2870,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               "names", b.getArrayAttr({b.getStringAttr(gemmNPad_name)})));
           // FIXME: to set dim in merge transormation to oob store,
           // set only top dim or you will get zero values
+          //
           outputOobCheckDims.insert(nameToDims["no"]);
         }
       }
