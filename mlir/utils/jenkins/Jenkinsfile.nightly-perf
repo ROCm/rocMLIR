@@ -49,7 +49,9 @@ pipeline {
             }
         }
         stage('Install PrettyTable (temporary)') {
-            sh 'pip3 install PrettyTable'
+            steps {
+                sh 'pip3 install PrettyTable'
+            }
         }
         stage('Performance Test') {
             steps {
