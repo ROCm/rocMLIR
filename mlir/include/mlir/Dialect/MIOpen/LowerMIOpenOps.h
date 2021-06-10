@@ -4396,27 +4396,31 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       }
     }
 
-    // calculate parameters
+    // compute padding hi/wi.
+    auto hiPadded = hi + leftPadH + rightPadH;
+    auto wiPadded = wi + leftPadW + rightPadW;
+    // calculate gemmKBlocks
     int64_t gemmN = c * y * x;
     int64_t gemmM = k;
     int64_t gemmK = n * ho * wo;
     int64_t standardBockNum = ((gemmN + 127) / 128) * ((gemmM + 127) / 128);
-    static const int64_t MaxSubBlockNum = 2048 / standardBockNum;
+    // static const int64_t MaxSubBlockNum = 2048 / standardBockNum;
     static const int64_t sixteen = 16;
-    int64_t subGemmKNum = 1;
+    int64_t gemmKBlocks = 1;
     if (gemmK % 16 == 0) {
       auto lcm = math::lcm(ho * wo, sixteen);
-      subGemmKNum = std::min(gemmK / lcm, n);
+      gemmKBlocks = std::min(gemmK / lcm, n);
     } else if (gemmK % 8 == 0) {
       auto comm = math::lcm(ho * wo, sixteen / 2);
-      subGemmKNum = std::min(gemmK / comm, n);
+      gemmKBlocks = std::min(gemmK / comm, n);
     }
     // not more than n
-    subGemmKNum = std::min(n, subGemmKNum);
+    gemmKBlocks = std::min(n, gemmKBlocks);
     // not less than 1
-    subGemmKNum = std::max((int64_t)1, subGemmKNum);
-    // llvm::errs() << "\n subGemmKNum: " << subGemmKNum << " gemmK: " << gemmK
+    gemmKBlocks = std::max((int64_t)1, gemmKBlocks);
+    // llvm::errs() << "\n gemmKBlocks: " << gemmKBlocks << " gemmK: " << gemmK
     //             << " ho: " << ho << " wo: " << wo << "\n";
+
     // Transform filter tensor.
     // set layout attribute.
     // Weight tensor transformation for Conv2DOp
@@ -4436,9 +4440,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         llvm::SmallVector<NamedAttribute, 3> transformedFilterAttrs;
         // gemmG
         curOutputDimName.push_back(b.getStringAttr("gemmG"));
-        transformedFilterShape.push_back(g * subGemmKNum);
+        transformedFilterShape.push_back(g * gemmKBlocks);
         llvm::SmallVector<NamedAttribute, 5> gemmGDimAttr{
-            b.getNamedAttr("parameter", b.getI32IntegerAttr(g)),
+            b.getNamedAttr("parameter", b.getI32IntegerAttr(gemmKBlocks)),
             b.getNamedAttr("upper_layer_dimensions",
                            b.getArrayAttr({b.getI32IntegerAttr(0)})),
             b.getNamedAttr("upper_layer_names",
@@ -4469,10 +4473,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         curOutputDimName.push_back(b.getStringAttr("gemmN"));
         transformedFilterShape.push_back(c);
         llvm::SmallVector<NamedAttribute, 5> gemmNDimAttr{
-            b.getNamedAttr(
-                "upper_layer_dimensions",
-                b.getArrayAttr({b.getI32IntegerAttr(2), b.getI32IntegerAttr(3),
-                                b.getI32IntegerAttr(4)})),
+            b.getNamedAttr("upper_layer_dimensions",
+                           b.getArrayAttr({b.getI32IntegerAttr(2)})),
             b.getNamedAttr("upper_layer_names",
                            b.getArrayAttr({curOutputDimName[2]})),
             b.getNamedAttr("transformation", b.getStringAttr("Merge")),
@@ -4523,6 +4525,127 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           currentKeyToDim[strAttr.getValue()] = i;
         }
       }
+      llvm::SmallVector<StringAttr> firstOutputDimName;
+      auto getInGN0N1CHipWip = [&]() {
+        llvm::SmallVector<StringAttr> &curOutputDimName = firstOutputDimName;
+        llvm::SmallVector<int64_t, 7> transformedShape;
+        llvm::SmallVector<NamedAttribute, 3> transformedAttrs;
+        // gi
+        curOutputDimName.push_back(b.getStringAttr("gi"));
+        transformedShape.push_back(g);
+        llvm::SmallVector<NamedAttribute, 5> gDimAttr{
+            b.getNamedAttr("upper_layer_dimensions",
+                           b.getArrayAttr({b.getI32IntegerAttr(0)})),
+            b.getNamedAttr("upper_layer_names",
+                           b.getArrayAttr({curOutputDimName[0]})),
+            b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+            b.getNamedAttr(
+                "lower_layer_dimensions",
+                b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["gi"])})),
+            b.getNamedAttr("lower_layer_names",
+                           b.getArrayAttr({b.getStringAttr("gi")}))};
+        // ni
+        curOutputDimName.push_back(b.getStringAttr("n0"));
+        transformedShape.push_back(gemmKBlocks);
+        curOutputDimName.push_back(b.getStringAttr("n1"));
+        transformedShape.push_back(n / gemmKBlocks);
+        llvm::SmallVector<NamedAttribute, 5> nDimAttr{
+            b.getNamedAttr("upper_layer_dimensions",
+                           b.getArrayAttr({b.getI32IntegerAttr(1),
+                                           b.getI32IntegerAttr(2)})),
+            b.getNamedAttr(
+                "upper_layer_names",
+                b.getArrayAttr({curOutputDimName[1], curOutputDimName[2]})),
+            b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+            b.getNamedAttr(
+                "lower_layer_dimensions",
+                b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["ni"])})),
+            b.getNamedAttr("lower_layer_names",
+                           b.getArrayAttr({b.getStringAttr("ni")}))};
+        // ci
+        curOutputDimName.push_back(b.getStringAttr("ci"));
+        transformedShape.push_back(c);
+        llvm::SmallVector<NamedAttribute, 5> cDimAttr{
+            b.getNamedAttr("upper_layer_dimensions",
+                           b.getArrayAttr({b.getI32IntegerAttr(3)})),
+            b.getNamedAttr("upper_layer_names",
+                           b.getArrayAttr({curOutputDimName[2]})),
+            b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+            b.getNamedAttr(
+                "lower_layer_dimensions",
+                b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["ci"])})),
+            b.getNamedAttr("lower_layer_names",
+                           b.getArrayAttr({b.getStringAttr("ci")}))};
+
+        // hip wip
+        curOutputDimName.push_back(b.getStringAttr("hipad"));
+        curOutputDimName.push_back(b.getStringAttr("wipad"));
+        transformedShape.push_back(hiPadded);
+        transformedShape.push_back(wiPadded);
+        llvm::SmallVector<NamedAttribute, 6> hwpadDimAttr{
+            b.getNamedAttr("upper_layer_dimensions",
+                           b.getArrayAttr({b.getI32IntegerAttr(4),
+                                           b.getI32IntegerAttr(5)})),
+            b.getNamedAttr(
+                "upper_layer_names",
+                b.getArrayAttr({curOutputDimName[4], curOutputDimName[5]})),
+            b.getNamedAttr("transformation", b.getStringAttr("Pad")),
+            b.getNamedAttr("parameters", b.getArrayAttr({
+                                             b.getI32IntegerAttr(leftPadH),
+                                             b.getI32IntegerAttr(rightPadH),
+                                             b.getI32IntegerAttr(leftPadW),
+                                             b.getI32IntegerAttr(rightPadW),
+                                         })),
+            b.getNamedAttr(
+                "lower_layer_dimensions",
+                b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["hi"]),
+                                b.getI32IntegerAttr(currentKeyToDim["wi"])})),
+            b.getNamedAttr("lower_layer_names",
+                           b.getArrayAttr({b.getStringAttr("hi"),
+                                           b.getStringAttr("wi")}))};
+        auto isInputHipBoundCheck = [&]() {
+          // if pad = 0 , not need oob check
+          if (leftPadH == 0 && rightPadH == 0 && leftPadW == 0 &&
+              rightPadW == 0)
+            return false;
+          return true;
+        };
+        if (isInputHipBoundCheck()) {
+          llvm::SmallVector<IntegerAttr, 2> padDim;
+          if (leftPadH || rightPadH) {
+            inputOobCheckDims.insert(currentKeyToDim["hi"]);
+          }
+          if (leftPadW || rightPadW) {
+            inputOobCheckDims.insert(currentKeyToDim["wi"]);
+          }
+        }
+
+        transformedAttrs.push_back(b.getNamedAttr(
+            "layout", b.getArrayAttr({b.getDictionaryAttr(gDimAttr),
+                                      b.getDictionaryAttr(nDimAttr),
+                                      b.getDictionaryAttr(cDimAttr),
+                                      b.getDictionaryAttr(hwpadDimAttr)})));
+        transformedAttrs.push_back(b.getNamedAttr(
+            "upper_layer_layout",
+            b.getArrayAttr(ArrayRef<Attribute>(curOutputDimName.begin(),
+                                               curOutputDimName.end()))));
+
+        transformedAttrs.push_back(
+            b.getNamedAttr("lower_layer_layout", inputLayoutAttr));
+
+        auto transformedMemRefType =
+            MemRefType::get(transformedShape, inputElementType);
+        // set lowest_layer attribute.
+        transformedAttrs.push_back(
+            b.getNamedAttr("lowest_layer", b.getBoolAttr(true)));
+        auto gemm = b.create<miopen::TransformOp>(loc, transformedMemRefType,
+                                                  op.input(), transformedAttrs,
+                                                  /*populateBounds=*/true);
+        return gemm;
+      };
+      auto inGN0N1CHipWip = getInGN0N1CHipWip();
+
+      return inGN0N1CHipWip;
     };
 
     auto getGemmC = [&]() -> Value {
@@ -4536,57 +4659,58 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           currentKeyToDim[strAttr.getValue()] = i;
         }
       }
+
     };
     Value gemmA = getGemmA();
 
-    /*    Value gemmB = getGemmB();
+    Value gemmB = getGemmB();
+    /*
+            Value gemmC = getGemmC();
 
-        Value gemmC = getGemmC();
+            // Set attributes for gridwise_gemm op.
+            llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
+                b.getNamedAttr("gemm_id", gemmIdAttr),
+                b.getNamedAttr("arch", archAttr),
+                b.getNamedAttr("num_cu", numCuAttr),
+                b.getNamedAttr("filter_layout", filterLayoutAttr),
+                b.getNamedAttr("filter_dimension",
+       b.getI64ArrayAttr(filterShape)), b.getNamedAttr("input_layout",
+       inputLayoutAttr), b.getNamedAttr("input_dimension",
+       b.getI64ArrayAttr(inputShape)), b.getNamedAttr("output_layout",
+       outputLayoutAttr), b.getNamedAttr("output_dimension",
+       b.getI64ArrayAttr(outputShape)), b.getNamedAttr("dilations",
+       dilationsAttr), b.getNamedAttr("strides", stridesAttr),
+                b.getNamedAttr("padding", paddingAttr),
+            };
 
-        // Set attributes for gridwise_gemm op.
-        llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
-            b.getNamedAttr("gemm_id", gemmIdAttr),
-            b.getNamedAttr("arch", archAttr),
-            b.getNamedAttr("num_cu", numCuAttr),
-            b.getNamedAttr("filter_layout", filterLayoutAttr),
-            b.getNamedAttr("filter_dimension", b.getI64ArrayAttr(filterShape)),
-            b.getNamedAttr("input_layout", inputLayoutAttr),
-            b.getNamedAttr("input_dimension", b.getI64ArrayAttr(inputShape)),
-            b.getNamedAttr("output_layout", outputLayoutAttr),
-            b.getNamedAttr("output_dimension", b.getI64ArrayAttr(outputShape)),
-            b.getNamedAttr("dilations", dilationsAttr),
-            b.getNamedAttr("strides", stridesAttr),
-            b.getNamedAttr("padding", paddingAttr),
-        };
+            // xdlopsV2.
+            auto xdlopsV2Attr = op->template
+       getAttrOfType<BoolAttr>("xdlopsV2"); if (xdlopsV2Attr &&
+       xdlopsV2Attr.getValue() == true) gridwiseGemmAttrs.push_back(
+                  b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
 
-        // xdlopsV2.
-        auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-        if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
-          gridwiseGemmAttrs.push_back(
-              b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
+            gridwiseGemmAttrs.push_back(b.getNamedAttr(
+                "kernel_algorithm", b.getStringAttr("backward_data_v4r1")));
 
-        gridwiseGemmAttrs.push_back(b.getNamedAttr(
-            "kernel_algorithm", b.getStringAttr("backward_data_v4r1")));
+            // Emit miopen.gridwise_gemm op.
+            // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
+            auto arguments = SmallVector<Value, 3>{gemmA, gemmB, gemmC};
 
-        // Emit miopen.gridwise_gemm op.
-        // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
-        auto arguments = SmallVector<Value, 3>{gemmA, gemmB, gemmC};
-
-        if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
-          b.create<miopen::GridwiseGemmV2Op>(
-              loc, ArrayRef<Type>{},
-              ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
-                         arguments[fields.gridwiseGemmArgumentPosition[1]],
-                         arguments[fields.gridwiseGemmArgumentPosition[2]]},
-              gridwiseGemmAttrs);
-        } else {
-          b.create<miopen::GridwiseGemmOp>(
-              loc, ArrayRef<Type>{},
-              ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
-                         arguments[fields.gridwiseGemmArgumentPosition[1]],
-                         arguments[fields.gridwiseGemmArgumentPosition[2]]},
-              gridwiseGemmAttrs);
-        }*/
+            if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
+              b.create<miopen::GridwiseGemmV2Op>(
+                  loc, ArrayRef<Type>{},
+                  ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
+                             arguments[fields.gridwiseGemmArgumentPosition[1]],
+                             arguments[fields.gridwiseGemmArgumentPosition[2]]},
+                  gridwiseGemmAttrs);
+            } else {
+              b.create<miopen::GridwiseGemmOp>(
+                  loc, ArrayRef<Type>{},
+                  ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
+                             arguments[fields.gridwiseGemmArgumentPosition[1]],
+                             arguments[fields.gridwiseGemmArgumentPosition[2]]},
+                  gridwiseGemmAttrs);
+            }*/
     // Finally, erase the original Conv2D op.
     op.erase();
 
