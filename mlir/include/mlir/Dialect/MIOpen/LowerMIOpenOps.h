@@ -1509,11 +1509,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         "gridwise_gemm_argument_position",
         b.getI32IntegerAttr(fields.gridwiseGemmArgumentPosition[0])));
 
-    // set gemmMExtra & gemmKExtra
+    // set gemmMExtra & gemmKExtra & gemmNExtra
     transformedFilterAttrs.push_back(
         b.getNamedAttr("gemmMExtra", b.getI32IntegerAttr(gemmMExtra)));
     transformedFilterAttrs.push_back(
         b.getNamedAttr("gemmKExtra", b.getI32IntegerAttr(gemmKExtra)));
+    transformedFilterAttrs.push_back(
+        b.getNamedAttr("gemmNExtra", b.getI32IntegerAttr(gemmNExtra)));
     // set needExtraPad
     transformedFilterAttrs.push_back(
         b.getNamedAttr("extraPad", b.getBoolAttr(needExtraPad)));
@@ -1626,9 +1628,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                              b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         }
         // filter of forward, gemmK=c*y*x
-        filterOobCheckDims.insert(nameToDims["c"]);
-        filterOobCheckDims.insert(nameToDims["y"]);
-        filterOobCheckDims.insert(nameToDims["x"]);
+        if (filterYDim == 2) {
+          // kyxc
+          filterOobCheckDims.insert(nameToDims["y"]);
+        } else {
+          // kcyx
+          filterOobCheckDims.insert(nameToDims["c"]);
+        }
       }
 
       if (filterCheckPadGemmM) {
@@ -1918,11 +1924,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                   reorderedPaddedInputDimNames.begin(),
                                   reorderedPaddedInputDimNames.end()))));
 
-    // set gemmKExtra & gemmNExtra
+    // set gemmKExtra & gemmNExtra & gemmNExtra
     paddedInputAttrs.push_back(
         b.getNamedAttr("gemmKExtra", b.getI32IntegerAttr(gemmKExtra)));
     paddedInputAttrs.push_back(
         b.getNamedAttr("gemmNExtra", b.getI32IntegerAttr(gemmNExtra)));
+    paddedInputAttrs.push_back(
+        b.getNamedAttr("gemmMExtra", b.getI32IntegerAttr(gemmMExtra)));
     // set needExtraPad
     paddedInputAttrs.push_back(
         b.getNamedAttr("extraPad", b.getBoolAttr(needExtraPad)));
@@ -2895,6 +2903,14 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       layoutAttr1.append(sourceGemmDim1Attr.begin(), sourceGemmDim1Attr.end());
       layoutAttr2.append(targetGemmDim2Attr.begin(), targetGemmDim2Attr.end());
       layoutAttr2.append(sourceGemmDim2Attr.begin(), sourceGemmDim2Attr.end());
+
+      // set gemmKExtra & gemmNExtra & gemmNExtra
+      paddingOutputAttrs.push_back(
+          b.getNamedAttr("gemmKExtra", b.getI32IntegerAttr(gemmKExtra)));
+      paddingOutputAttrs.push_back(
+          b.getNamedAttr("gemmNExtra", b.getI32IntegerAttr(gemmNExtra)));
+      paddingOutputAttrs.push_back(
+          b.getNamedAttr("gemmMExtra", b.getI32IntegerAttr(gemmMExtra)));
 
       paddingOutputAttrs.push_back(b.getNamedAttr(
           "layout", b.getArrayAttr({
@@ -7227,10 +7243,28 @@ struct ThreadwiseCopyRewritePattern
             DictionaryAttr dictAttr =
                 layeredTransformMetadata[iter].template cast<DictionaryAttr>();
             auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
+            auto gemmMExtraAttr = dictAttr.get("gemmMExtra");
+            auto gemmNExtraAttr = dictAttr.get("gemmNExtra");
             if (gemmKExtraAttr) {
               auto gemmKExtra =
                   gemmKExtraAttr.template cast<IntegerAttr>().getInt();
               if (gemmKExtra > 0) {
+                return true;
+              }
+            }
+
+            if (gemmMExtraAttr) {
+              auto gemmMExtra =
+                  gemmMExtraAttr.template cast<IntegerAttr>().getInt();
+              if (gemmMExtra > 0) {
+                return true;
+              }
+            }
+
+            if (gemmNExtraAttr) {
+              auto gemmNExtra =
+                  gemmNExtraAttr.template cast<IntegerAttr>().getInt();
+              if (gemmNExtra > 0) {
                 return true;
               }
             }
