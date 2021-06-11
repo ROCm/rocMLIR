@@ -4681,6 +4681,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr(
                 "upper_layer_names",
                 b.getArrayAttr({curOutputDimName[1], curOutputDimName[2]})),
+            b.getNamedAttr(
+                "dimension_lengths",
+                b.getArrayAttr({b.getI32IntegerAttr(gemmKBlocks),
+                                b.getI32IntegerAttr(n / gemmKBlocks)})),
             b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
             b.getNamedAttr(
                 "lower_layer_dimensions",
@@ -5048,6 +5052,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             b.getNamedAttr(
                 "upper_layer_names",
                 b.getArrayAttr({curOutputDimName[1], curOutputDimName[2]})),
+            b.getNamedAttr(
+                "dimension_lengths",
+                b.getArrayAttr({b.getI32IntegerAttr(gemmKBlocks),
+                                b.getI32IntegerAttr(n / gemmKBlocks)})),
             b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
             b.getNamedAttr(
                 "lower_layer_dimensions",
