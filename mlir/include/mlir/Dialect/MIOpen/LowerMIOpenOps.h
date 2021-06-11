@@ -1542,7 +1542,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     int64_t nonGemmMSize = transformedFilterShape[1];
     int64_t gemmMSize = transformedFilterShape[2];
     // filter pad start
-    // filter : K & CRS , if CRS is under 64 or 32
+    // K:output channel, C:input channel,R:filter high,S:filter width
+    // filter dim : K & merge(C,R,S) , if C*R*S is under 64 or 32
     // we pad CRS to 32 or 64, then mlir can do gemm
     // we add more one transform to do pad
     bool filterCheckPadGemmM = false;
@@ -1613,7 +1614,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           isGemmDim1Pad = true;
           gemmDim1TargetName = b.getStringAttr(gemmKPad_name);
 
-          // fwd
+          // forward
           paddingFilterShape[1] = nonGemmMSize + gemmKExtra;
           sourceGemmDim1Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
@@ -1639,7 +1640,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (filterCheckPadGemmM) {
         if (arg0TargetLayoutName1 == "gemmM") {
-          // wrw
+          // backward weights
           isFilterPad = true;
           isGemmDim1Pad = true;
           gemmDim1TargetName = b.getStringAttr(gemmMPad_name);
@@ -1657,11 +1658,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           targetGemmDim1Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmMPad_name)})));
         } else if (arg0TargetLayoutName2 == "gemmM") {
-          // fwd
+          // forward
           isFilterPad = true;
           isGemmDim2Pad = true;
           gemmDim2TargetName = b.getStringAttr(gemmMPad_name);
           paddingFilterShape[2] = gemmMSize + gemmMExtra;
+          // gemmM = k when forward, padd gemmMExtra
           sourceGemmDim2Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
           sourceGemmDim2Attr.push_back(
@@ -1679,11 +1681,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (filterCheckPadGemmN) {
         if (arg0TargetLayoutName2 == "gemmN") {
-          // wrw
+          // backward weights
           isFilterPad = true;
           isGemmDim2Pad = true;
           gemmDim2TargetName = b.getStringAttr(gemmNPad_name);
           paddingFilterShape[1] = nonGemmMSize + gemmNExtra;
+          // backward weights input: gemmK, gemmN
+          // so padd gemmNExtra
           sourceGemmDim2Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
           sourceGemmDim2Attr.push_back(
@@ -2443,7 +2447,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         if (arg1TargetLayoutName1 == "gemmK") {
           isInputPad = true;
           isGemmDim1Pad = true;
-          // fwd is cyx ,wrw is nhw
+          // both forward and backward weights dim1 of input matrix
+          // are gemmK ,but forward gemmK is combining  c,y,x
+          // backward weights gemmK is combining  n,h,w
           gemmDim1TargetName = b.getStringAttr(gemmKPad_name);
           paddingInputShape[1] = paddingInputShape[1] + gemmKExtra;
 
@@ -2476,7 +2482,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           isGemmDim2Pad = true;
           gemmDim2TargetName = b.getStringAttr(gemmNPad_name);
           paddingInputShape[2] = paddingInputShape[2] + gemmNExtra;
-
+          // both forward and backward weights have the same dim2 gemmN
+          // so padding gemmNExtra
           sourceGemmDim2Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
           sourceGemmDim2Attr.push_back(b.getNamedAttr(
@@ -2486,8 +2493,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               b.getNamedAttr("upper_layer_names",
                              b.getArrayAttr({b.getStringAttr(gemmNPad_name)})));
 
-          // input fwd gemmN: nhw
-          // backward weights :CYX
+          // input forward  gemmN: n,h,w
+          // backward weights gemmN :C,Y,X
           if (convOpType == miopen::ConvOpType::Conv2DOpType) {
             inputOobCheckDims.insert(nameToDims["ni"]);
             inputOobCheckDims.insert(nameToDims["hi"]);
@@ -2739,7 +2746,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // output padding start
     // output matrix dim: K & NHW
     // when backward weight , GEMMK = NHW
-    // If Nhw is under 32 or 64 ,we pad it to 32 or 64
+    // N:batch size, H:output height ,W:output width
+    // If size of N*h*w is under 32 or 64 ,we pad it to 32 or 64
     // then mlir can do gemm
     // we just add more one transform to do it
 
@@ -2809,7 +2817,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           isOutputPad = true;
           isGemmDim1Pad = true;
           gemmDim1TargetName = b.getStringAttr(gemmKPad_name);
-          // wrw dim 1 is nhw
+          // backward weights  dim 1 is composing of (N,H,W)
+          // N:batch size, H: output height ,W:output width
           paddingOutputShape[1] = paddingOutputShape[1] + gemmKExtra;
           sourceGemmDim1Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
@@ -2834,6 +2843,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           gemmDim1TargetName = b.getStringAttr(gemmMPad_name);
           // output forward gemmM is k
           paddingOutputShape[1] = paddingOutputShape[1] + gemmMExtra;
+          // output forward gemmM is k
+          // so padding gemmMExtra
           sourceGemmDim1Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
           sourceGemmDim1Attr.push_back(b.getNamedAttr(
@@ -2848,6 +2859,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           isGemmDim2Pad = true;
           gemmDim2TargetName = b.getStringAttr(gemmMPad_name);
           // output backward weights gemmM is k
+          // so padding gemmMExtra
           paddingOutputShape[2] = paddingOutputShape[2] + gemmMExtra;
           sourceGemmDim2Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
@@ -2863,11 +2875,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (outputCheckPadGemmN) {
         if (arg2TargetLayoutName2 == "gemmN") {
-          // fwd output gemmN is nhw
+          // forward output gemmN is nhw
           isOutputPad = true;
           isGemmDim2Pad = true;
           gemmDim2TargetName = b.getStringAttr(gemmNPad_name);
           paddingOutputShape[2] = paddingOutputShape[2] + gemmNExtra;
+          // forward output gemmN is combining(N,H,W)
+          // so padding gemmNExtra
           sourceGemmDim2Attr.push_back(
               b.getNamedAttr("transformation", b.getStringAttr("Pad")));
           sourceGemmDim2Attr.push_back(b.getNamedAttr(
