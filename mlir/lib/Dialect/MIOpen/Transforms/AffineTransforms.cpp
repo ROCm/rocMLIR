@@ -34,6 +34,7 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
   auto outputLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("upper_layer_layout");
 
+  unsigned addDimNum = 0;
   llvm::SmallMapVector<int64_t, AffineExpr, 8> affExprsMap;
   for (unsigned i = 0; i < layoutAttr.size(); ++i) {
     if (auto dimLayoutAttr = layoutAttr.getValue()[i].cast<DictionaryAttr>()) {
@@ -52,6 +53,8 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
         auto destDim = destDimAttr.getValue()[0].cast<IntegerAttr>().getInt();
         auto expr = getAffineDimExpr(destDim, op.getContext());
         affExprsMap.insert({srcDim, expr});
+      } else if (transformAttr.getValue() == "AddDim") {
+        addDimNum += 1;
       } else if (transformAttr.getValue() == "Pad") {
         assert(srcDimAttr.size() == destDimAttr.size());
 
@@ -219,7 +222,8 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
     affExprsVec.push_back(affExprsMap[i]);
   }
 
-  auto transformAffineMap = AffineMap::get(outputLayoutAttr.size(), 0, affExprsVec, op.getContext());
+  auto transformAffineMap = AffineMap::get(outputLayoutAttr.size() + addDimNum,
+                                           0, affExprsVec, op.getContext());
   OpBuilder b(op.getOperation());
   op->setAttr("map", b.getAffineMapArrayAttr(transformAffineMap));
   return transformAffineMap;
