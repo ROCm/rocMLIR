@@ -51,6 +51,65 @@ using namespace mlir::miopen;
 static constexpr int kTwoGB = 2147483647;
 
 //===----------------------------------------------------------------------===//
+// Utility function to compute sliceLengths for threadwise_copy and
+// threadwise_copy_v2 to determine the bounds of load/store loops.
+//===----------------------------------------------------------------------===//
+inline void
+computeSliceLengths(SmallVector<int64_t, 2> &sliceLengths,
+                    const Optional<AffineMap> &composedSourceTransform,
+                    const Optional<AffineMap> &composedDestTransform,
+                    const ArrayAttr &coordTransformsAttr,
+                    const Optional<ArrayAttr> &boundAttr, Type sourceType,
+                    Type destType) {
+  auto populateSliceLengthsWithTypeShape =
+      [](SmallVector<int64_t, 2> &sliceLengths, Type type) {
+        assert(type.isa<MemRefType>() || type.isa<VectorType>());
+        if (type.isa<MemRefType>()) {
+          // Use the shape of memref as initial slice lengths.
+          for (auto dim : type.template cast<MemRefType>().getShape())
+            sliceLengths.push_back(dim);
+        } else if (type.isa<VectorType>()) {
+          // Use the shape of vector as initial slice lengths.
+          for (auto dim : type.template cast<VectorType>().getShape())
+            sliceLengths.push_back(dim);
+        }
+      };
+
+  // Order to decide the slice lengths:
+  // - bound attribute.
+  // - domain attribute from the source in case both source and dest has affine
+  //   transformations.
+  // - shape of the dest in case only the source has affine transformations.
+  // - shape of the source in case the source has no affine transfromations.
+  if (boundAttr) {
+    for (unsigned i = 0; i < boundAttr->size(); ++i)
+      sliceLengths.push_back(
+          (*boundAttr)[i].template cast<IntegerAttr>().getInt());
+  } else {
+    if (composedSourceTransform) {
+      if (composedDestTransform) {
+        // Use domain attribute from source.
+        for (auto attr : coordTransformsAttr) {
+          auto dictAttr = attr.template cast<DictionaryAttr>();
+          auto operandIndex =
+              dictAttr.get("operand").template cast<IntegerAttr>().getInt();
+          if (operandIndex == 0) {
+            auto domainAttr = dictAttr.get("domain").template cast<ArrayAttr>();
+            for (unsigned i = 0; i < domainAttr.size(); ++i)
+              sliceLengths.push_back(
+                  domainAttr[i].template cast<IntegerAttr>().getInt());
+          }
+        }
+      } else {
+        populateSliceLengthsWithTypeShape(sliceLengths, destType);
+      }
+    } else {
+      populateSliceLengthsWithTypeShape(sliceLengths, sourceType);
+    }
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to emit constant float op.
 //===----------------------------------------------------------------------===//
 inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
@@ -7143,41 +7202,16 @@ struct ThreadwiseCopyRewritePattern
       // llvm::errs() << "dest_data_per_write: " << destDataPerWrite << "\n";
       // llvm::errs() << "longVectorSize: " << longVectorSize << "\n";
 
-      // Figure out which memref is the one without affine transformations.
+      Optional<ArrayAttr> boundAttr;
+      if (op->getAttr("bound"))
+        boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
+
+      // Figure out the bounds of load/store loops.
       SmallVector<int64_t, 2> sliceLengths;
 
-      if (composedSourceTransform) {
-        if (composedDestTransform) {
-          // Use domain attribute from source memref.
-          for (auto attr : coordTransformsAttr) {
-            auto dictAttr = attr.template cast<DictionaryAttr>();
-            auto operandIndex =
-                dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-            if (operandIndex == 0) {
-              // bound attribute take precendence over domain attribute.
-              if (op->getAttr("bound")) {
-                auto boundAttr =
-                    op->getAttr("bound").template cast<ArrayAttr>();
-                for (unsigned i = 0; i < boundAttr.size(); ++i)
-                  sliceLengths.push_back(
-                      boundAttr[i].template cast<IntegerAttr>().getInt());
-              } else {
-                auto domainAttr =
-                    dictAttr.get("domain").template cast<ArrayAttr>();
-                for (unsigned i = 0; i < domainAttr.size(); ++i)
-                  sliceLengths.push_back(
-                      domainAttr[i].template cast<IntegerAttr>().getInt());
-              }
-            }
-          }
-        } else
-          // Use the shape of dest memref as initial slice lengths.
-          for (auto dim : destType.getShape())
-            sliceLengths.push_back(dim);
-      } else
-        // Use the shape of source memref as initial slice lengths.
-        for (auto dim : sourceType.getShape())
-          sliceLengths.push_back(dim);
+      computeSliceLengths(sliceLengths, composedSourceTransform,
+                          composedDestTransform, coordTransformsAttr, boundAttr,
+                          sourceType, destType);
 
       // llvm::errs() << "slice lengths: ";
       // for (unsigned i = 0; i < sliceLengths.size(); ++i)
@@ -7437,35 +7471,16 @@ struct ThreadwiseCopyV2RewritePattern
     // llvm::errs() << "dest_data_per_write: " << destDataPerWrite << "\n";
     // llvm::errs() << "longVectorSize: " << longVectorSize << "\n";
 
-    // Figure out slice lengths.
+    Optional<ArrayAttr> boundAttr;
+    if (op->getAttr("bound"))
+      boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
+
+    // Figure out the bounds of load/store loops.
     SmallVector<int64_t, 2> sliceLengths;
 
-    if (composedSourceTransform) {
-      // Use bound or domain attribute from source vector.
-      for (auto attr : coordTransformsAttr) {
-        auto dictAttr = attr.template cast<DictionaryAttr>();
-        auto operandIndex =
-            dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-        if (operandIndex == 0) {
-          // bound attribute take precendence over domain attribute.
-          if (op->getAttr("bound")) {
-            auto boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
-            for (unsigned i = 0; i < boundAttr.size(); ++i)
-              sliceLengths.push_back(
-                  boundAttr[i].template cast<IntegerAttr>().getInt());
-          } else {
-            auto domainAttr =
-                dictAttr.get("domain").template cast<ArrayAttr>();
-            for (unsigned i = 0; i < domainAttr.size(); ++i)
-              sliceLengths.push_back(
-                  domainAttr[i].template cast<IntegerAttr>().getInt());
-          }
-        }
-      }
-    } else
-      // Use the shape of source memref as initial slice lengths.
-      for (auto dim : sourceType.getShape())
-        sliceLengths.push_back(dim);
+    computeSliceLengths(sliceLengths, composedSourceTransform,
+                        composedDestTransform, coordTransformsAttr, boundAttr,
+                        sourceType, destType);
 
     // llvm::errs() << "slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
