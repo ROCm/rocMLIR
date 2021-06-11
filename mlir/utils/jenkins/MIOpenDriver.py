@@ -23,7 +23,7 @@ BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
 CONFIGURATION_FILE_NAME ='../mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
 ROUND_DIGITS = 2
 
-DIRECTIONS = ['-F 1', '-F 4']
+DIRECTIONS = ['-F 2']
 DATA_TYPES = ['conv', 'convfp16']
 LAYOUTS = ['NCHW']
 #LAYOUTS = ['NHWC', 'NCHW']
