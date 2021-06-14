@@ -5254,7 +5254,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
 
     gridwiseGemmAttrs.push_back(b.getNamedAttr(
-        "kernel_algorithm", b.getStringAttr("backward_data_v4r1")));
+        "kernel_algorithm", b.getStringAttr("backward_weight_v4r4")));
 
     // Emit miopen.gridwise_gemm op.
     // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
