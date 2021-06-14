@@ -79,63 +79,44 @@ inline bool overrideLoadStoreHack(const DictionaryAttr &transformSpec) {
 }
 
 //===----------------------------------------------------------------------===//
-// Utility function to determine the longest vector can be loaded in one shot.
+// Utility function to determine the type to be loaded
 //===----------------------------------------------------------------------===//
-inline int64_t computeMaxVectorLength(OpBuilder &b, Type elementType) {
-  int maxVectorLength = 1;
-  if (elementType == b.getF32Type())
-    maxVectorLength = 4;
-  else if (elementType == b.getF16Type())
-    maxVectorLength = 8;
-  else if (elementType == b.getIntegerType(16))
-    maxVectorLength = 8;
-  return maxVectorLength;
-}
-
-//===----------------------------------------------------------------------===//
-// Utility function to determine the type to be loaded given its element type
-// and total length.
-//===----------------------------------------------------------------------===//
+template <typename T>
 inline std::tuple<Type, TupleType, int, int>
-computeLoadTypeInfo(OpBuilder &b, Type elementType, int64_t length,
-                    SmallVector<int64_t, 3> &dims) {
-  // Determine the longest vector can be loaded in one shot.
-  int64_t maxVectorLength = computeMaxVectorLength(b, elementType);
+computeLoadTypeInfo(OpBuilder &b, T &gop, Type elementType,
+                    const SmallVector<int64_t, 3> &dims, bool isMatrixA) {
+  int64_t vectorLength = 1;
+  int vectorDim = dims.size() - 1;
+  if (isMatrixA) {
+    vectorLength = gop->getAttr("matrix_a_source_data_per_read")
+                       .template cast<IntegerAttr>()
+                       .getInt();
+    vectorDim = gop->getAttr("matrix_a_source_vector_read_dim")
+                    .template cast<IntegerAttr>()
+                    .getInt();
+  } else {
+    vectorLength = gop->getAttr("matrix_b_source_data_per_read")
+                       .template cast<IntegerAttr>()
+                       .getInt();
+    vectorDim = gop->getAttr("matrix_b_source_vector_read_dim")
+                    .template cast<IntegerAttr>()
+                    .getInt();
+  }
 
-  auto vectorLength = math::gcd(length, maxVectorLength);
   // HACK: force scalar loads/stores for now.
   //vectorLength = 1;
-  auto tupleLength = length / vectorLength;
+
+  int64_t loadLength = 1;
+  for (auto l : dims)
+    loadLength *= l;
+
+  auto tupleLength = loadLength / vectorLength;
   Type type = (vectorLength > 1) ? VectorType::get(vectorLength, elementType)
                                  : elementType;
   SmallVector<Type, 8> tupleElements;
   for (unsigned iter = 0; iter < tupleLength; ++iter)
     tupleElements.push_back(type);
   TupleType tupleType = b.getTupleType(tupleElements);
-
-  // Find the dimension to do vector operation.
-  int vectorDim = dims.size() - 1;
-
-  // FIXME XXX.
-  for (int64_t iter = dims.size() - 2; iter >= 0; --iter) {
-    if (dims[iter] % vectorLength == 0) {
-      vectorDim = iter;
-      // Modify the slice length on the dimension to be vectorized.
-      dims[iter] /= vectorLength;
-      break;
-    } else {
-      // FIXME XXX.
-      vectorLength = 1;
-      tupleLength = length / vectorLength;
-      type = elementType;
-      tupleElements.clear();
-      for (unsigned i = 0; i < tupleLength; ++i)
-        tupleElements.push_back(type);
-      tupleType = b.getTupleType(tupleElements);
-      vectorDim = iter;
-      break;
-    }
-  }
 
   return std::make_tuple(type, tupleType, vectorDim, vectorLength);
 }
@@ -5057,65 +5038,60 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     SmallVector<int64_t, 3> blockwiseLoadABounds = {
         1, GemmABlockCopyThreadSliceLengths_GemmK,
         GemmABlockCopyThreadSliceLengths_GemmM};
-    auto blockwiseLoadALength = GemmABlockCopyThreadSliceLengths_GemmK *
-                                GemmABlockCopyThreadSliceLengths_GemmM;
     Type blockwiseLoadAType;
     TupleType blockwiseLoadATupleType;
     int blockwiseLoadADim;
     int blockwiseLoadAVectorLength;
 
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmK: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmK << "\n";
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmM: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
-    // llvm::errs() << "original blockwise load A bounds: ";
-    // for (auto v : blockwiseLoadABounds)
-    //   llvm::errs() << v << " ";
-    // llvm::errs() << "\n";
+    llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmK: "
+                 << GemmABlockCopyThreadSliceLengths_GemmK << "\n";
+    llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmM: "
+                 << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
+    llvm::errs() << "original blockwise load A bounds: ";
+    for (auto v : blockwiseLoadABounds)
+      llvm::errs() << v << " ";
+    llvm::errs() << "\n";
 
     std::tie(blockwiseLoadAType, blockwiseLoadATupleType, blockwiseLoadADim,
              blockwiseLoadAVectorLength) =
-        computeLoadTypeInfo(b, elementType, blockwiseLoadALength,
-                            blockwiseLoadABounds);
-    // llvm::errs() << "vector load dim: " << blockwiseLoadADim << "\n";
-    // llvm::errs() << "vector load type: " << blockwiseLoadAType << "\n";
-    // llvm::errs() << "vector load size: " << blockwiseLoadAVectorLength <<
-    // "\n"; llvm::errs() << "modified blockwise load A bounds: "; for (auto v :
-    // blockwiseLoadABounds)
-    //   llvm::errs() << v << " ";
-    // llvm::errs() << "\n";
+        computeLoadTypeInfo(b, op, elementType, blockwiseLoadABounds, true);
+
+    llvm::errs() << "vector load dim: " << blockwiseLoadADim << "\n";
+    llvm::errs() << "vector load type: " << blockwiseLoadAType << "\n";
+    llvm::errs() << "vector load size: " << blockwiseLoadAVectorLength << "\n";
+    llvm::errs() << "modified blockwise load A bounds: ";
+    for (auto v : blockwiseLoadABounds)
+      llvm::errs() << v << " ";
+    llvm::errs() << "\n";
 
     SmallVector<int64_t, 3> blockwiseLoadBBounds = {
         1, GemmBBlockCopyThreadSliceLengths_GemmK,
         GemmBBlockCopyThreadSliceLengths_GemmN};
-    auto blockwiseLoadBLength = GemmBBlockCopyThreadSliceLengths_GemmK *
-                                GemmBBlockCopyThreadSliceLengths_GemmN;
     Type blockwiseLoadBType;
     TupleType blockwiseLoadBTupleType;
     int blockwiseLoadBDim;
     int blockwiseLoadBVectorLength;
 
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmK: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmK << "\n";
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmN: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
-    // llvm::errs() << "original blockwise load B bounds: ";
-    // for (auto v : blockwiseLoadBBounds)
-    //   llvm::errs() << v << " ";
-    // llvm::errs() << "\n";
+    llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmK: "
+                 << GemmBBlockCopyThreadSliceLengths_GemmK << "\n";
+    llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmN: "
+                 << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
+    llvm::errs() << "original blockwise load B bounds: ";
+    for (auto v : blockwiseLoadBBounds)
+      llvm::errs() << v << " ";
+    llvm::errs() << "\n";
 
     std::tie(blockwiseLoadBType, blockwiseLoadBTupleType, blockwiseLoadBDim,
              blockwiseLoadBVectorLength) =
-        computeLoadTypeInfo(b, elementType, blockwiseLoadBLength,
-                            blockwiseLoadBBounds);
+        computeLoadTypeInfo(b, op, elementType, blockwiseLoadBBounds, false);
 
-    // llvm::errs() << "vector load dim: " << blockwiseLoadBDim << "\n";
-    // llvm::errs() << "vector load type: " << blockwiseLoadBType << "\n";
-    // llvm::errs() << "vector load size: " << blockwiseLoadBVectorLength <<
-    // "\n"; llvm::errs() << "modified blockwise load B bounds: "; for (auto v :
-    // blockwiseLoadBBounds)
-    //   llvm::errs() << v << " ";
-    // llvm::errs() << "\n";
+    llvm::errs() << "vector load dim: " << blockwiseLoadBDim << "\n";
+    llvm::errs() << "vector load type: " << blockwiseLoadBType << "\n";
+    llvm::errs() << "vector load size: " << blockwiseLoadBVectorLength << "\n";
+    llvm::errs() << "modified blockwise load B bounds: ";
+    for (auto v : blockwiseLoadBBounds)
+      llvm::errs() << v << " ";
+    llvm::errs() << "\n";
 
     // Zero init Matrix C on registers.
     b.create<miopen::FillOp>(loc, registerMatrixCAllocOp,
@@ -5250,18 +5226,20 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadB = b.create<miopen::BlockwiseLoadOp>(
         loc, blockwiseLoadBTupleType, op.input(), blockwiseCopyBSrcVector);
-    affixBlockwiseCopyAttributes(blockwiseLoadB, op, b,
-                                 /*blockwiseCopyBounds=*/blockwiseLoadBBounds,
-                                 /*blockwiseLoadDim=*/blockwiseLoadBDim,
-                                 /*blockwiseLoadLength=*/blockwiseLoadBLength);
+    affixBlockwiseCopyAttributes(
+        blockwiseLoadB, op, b,
+        /*blockwiseCopyBounds=*/blockwiseLoadBBounds,
+        /*blockwiseLoadDim=*/blockwiseLoadBDim,
+        /*blockwiseLoadLength=*/blockwiseLoadBVectorLength);
     // Emit blockwise_store for matrix B.
     auto blockwiseStoreB = b.create<miopen::BlockwiseStoreOp>(
         loc, blockwiseLoadB.getResult(), lds2DMatrixBSubviewOp,
         blockwiseCopyBDstVector);
-    affixBlockwiseCopyAttributes(blockwiseStoreB, op, b,
-                                 /*blockwiseCopyBounds=*/blockwiseLoadBBounds,
-                                 /*blockwiseLoadDim=*/blockwiseLoadBDim,
-                                 /*blockwiseLoadLength=*/blockwiseLoadBLength);
+    affixBlockwiseCopyAttributes(
+        blockwiseStoreB, op, b,
+        /*blockwiseCopyBounds=*/blockwiseLoadBBounds,
+        /*blockwiseLoadDim=*/blockwiseLoadBDim,
+        /*blockwiseLoadLength=*/blockwiseLoadBVectorLength);
 
     // Emit loop.
     // Compute loop iterations from attributes.
@@ -6076,30 +6054,24 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     SmallVector<int64_t, 3> blockwiseLoadABounds = {
         1, GemmABlockCopyThreadSliceLengths_GemmK,
         GemmABlockCopyThreadSliceLengths_GemmM};
-    auto blockwiseLoadALength = GemmABlockCopyThreadSliceLengths_GemmK *
-                                GemmABlockCopyThreadSliceLengths_GemmM;
     Type blockwiseLoadAType;
     TupleType blockwiseLoadATupleType;
     int blockwiseLoadADim;
     int blockwiseLoadAVectorLength;
     std::tie(blockwiseLoadAType, blockwiseLoadATupleType, blockwiseLoadADim,
              blockwiseLoadAVectorLength) =
-        computeLoadTypeInfo(b, elementType, blockwiseLoadALength,
-                            blockwiseLoadABounds);
+        computeLoadTypeInfo(b, op, elementType, blockwiseLoadABounds, true);
 
     SmallVector<int64_t, 3> blockwiseLoadBBounds = {
         1, GemmBBlockCopyThreadSliceLengths_GemmK,
         GemmBBlockCopyThreadSliceLengths_GemmN};
-    auto blockwiseLoadBLength = GemmBBlockCopyThreadSliceLengths_GemmK *
-                                GemmBBlockCopyThreadSliceLengths_GemmN;
     Type blockwiseLoadBType;
     TupleType blockwiseLoadBTupleType;
     int blockwiseLoadBDim;
     int blockwiseLoadBVectorLength;
     std::tie(blockwiseLoadBType, blockwiseLoadBTupleType, blockwiseLoadBDim,
              blockwiseLoadBVectorLength) =
-        computeLoadTypeInfo(b, elementType, blockwiseLoadBLength,
-                            blockwiseLoadBBounds);
+        computeLoadTypeInfo(b, op, elementType, blockwiseLoadBBounds, false);
 
     // -----
 
@@ -7689,6 +7661,10 @@ struct ThreadwiseLoadRewritePattern
     auto dimAccessOrder =
         op->getAttr("dim_access_order").template cast<ArrayAttr>();
 
+    auto srcDataPerRead = op->getAttr("source_data_per_read")
+                              .template cast<IntegerAttr>()
+                              .getInt();
+
     Optional<ArrayAttr> boundAttr;
     if (op->getAttr("bound"))
       boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
@@ -7787,9 +7763,13 @@ struct ThreadwiseLoadRewritePattern
       // increase IVs
       bool toIncreaseNextDigit = true;
       int iter = loopIVsPerAccessOrder.size() - 1;
+      int64_t nextDigitIncrement = srcDataPerRead;
       for (; toIncreaseNextDigit && iter >= 0; --iter) {
-        if (++loopIVsPerAccessOrder[iter] == loopBoundsPerAccessOrder[iter]) {
-          loopIVsPerAccessOrder[iter] = 0;
+        loopIVsPerAccessOrder[iter] += nextDigitIncrement;
+        if (loopIVsPerAccessOrder[iter] >= loopBoundsPerAccessOrder[iter]) {
+          nextDigitIncrement =
+              loopIVsPerAccessOrder[iter] / loopBoundsPerAccessOrder[iter];
+          loopIVsPerAccessOrder[iter] %= loopBoundsPerAccessOrder[iter];
           toIncreaseNextDigit = true;
         } else {
           toIncreaseNextDigit = false;
@@ -7880,6 +7860,10 @@ struct ThreadwiseStoreRewritePattern
 
     auto dimAccessOrder =
         op->getAttr("dim_access_order").template cast<ArrayAttr>();
+
+    auto destDataPerWrite = op->getAttr("dest_data_per_write")
+                                .template cast<IntegerAttr>()
+                                .getInt();
 
     Optional<ArrayAttr> boundAttr;
     if (op->getAttr("bound"))
@@ -7981,9 +7965,13 @@ struct ThreadwiseStoreRewritePattern
       // increase IVs
       bool toIncreaseNextDigit = true;
       int iter = loopIVsPerAccessOrder.size() - 1;
+      int64_t nextDigitIncrement = destDataPerWrite;
       for (; toIncreaseNextDigit && iter >= 0; --iter) {
-        if (++loopIVsPerAccessOrder[iter] == loopBoundsPerAccessOrder[iter]) {
-          loopIVsPerAccessOrder[iter] = 0;
+        loopIVsPerAccessOrder[iter] += nextDigitIncrement;
+        if (loopIVsPerAccessOrder[iter] >= loopBoundsPerAccessOrder[iter]) {
+          nextDigitIncrement =
+              loopIVsPerAccessOrder[iter] / loopBoundsPerAccessOrder[iter];
+          loopIVsPerAccessOrder[iter] %= loopBoundsPerAccessOrder[iter];
           toIncreaseNextDigit = true;
         } else {
           toIncreaseNextDigit = false;
