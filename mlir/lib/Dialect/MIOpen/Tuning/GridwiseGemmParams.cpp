@@ -177,8 +177,7 @@ LogicalResult PopulateParams::paramsFromCtx(
                             << " PARAMETERS!\n");
 
     InitParams paddingParam = getUniversalParameters();
-    if ((gemmSize.gemmN % paddingParam.gemmNPerBlock == 0) &&
-        (gemmSize.gemmM % paddingParam.gemmMPerBlock == 0)) {
+    if (ctx.opType != miopen::ConvOpType::Conv2DBwdDataOpType) {
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
 
       for (auto &params : initParameters) {
@@ -194,7 +193,9 @@ LogicalResult PopulateParams::paramsFromCtx(
         break;
       }
     } else {
-      LLVM_DEBUG(llvm::dbgs() << "PADDING KERNEL only support gemmK now\n");
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "PADDING KERNEL only support forward, backward weights now\n");
     }
   } else {
     LLVM_DEBUG(llvm::dbgs() << "Successfully picked tuning params from backup"
@@ -380,8 +381,7 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
                             << " PARAMETERS!\n");
 
     InitParams paddingParam = getUniversalParameters();
-    if ((gemmSize.gemmN % paddingParam.gemmNPerBlock == 0) &&
-        (gemmSize.gemmM % paddingParam.gemmMPerBlock == 0)) {
+    if (ctx.opType != miopen::ConvOpType::Conv2DBwdDataOpType) {
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
       for (auto &params : initParameters) {
         res = populatePaddingKernelDerived(ctx, params, gemmSize,
@@ -395,7 +395,9 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
         break;
       }
     } else {
-      LLVM_DEBUG(llvm::dbgs() << "PADDING KERNEL only support gemmK now\n");
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "PADDING KERNEL only support forward, backward weights now\n");
     }
   } else {
     LLVM_DEBUG(llvm::dbgs() << "Successfully picked tuning params from backup"

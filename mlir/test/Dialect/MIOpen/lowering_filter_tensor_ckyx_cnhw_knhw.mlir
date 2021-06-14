@@ -74,4 +74,4 @@ func @miopen_conv2d_bwd_weight_ckyx_cnhw_knhw(%filter : memref<1x8x128x3x3xf32>,
 // CHECK:       upper_layer_names = ["gemmM"]
 // CHECK:       lower_layer_names = ["c", "y", "x"]
 // CHECK:       upper_layer_names = ["gemmN"]
-// CHECK-NEXT:  miopen.transform(%arg1)
+// CHECK-NEXT:  miopen.transform
