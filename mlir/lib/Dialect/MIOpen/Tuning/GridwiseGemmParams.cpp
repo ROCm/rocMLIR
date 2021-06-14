@@ -220,6 +220,10 @@ LogicalResult PopulateParamsXDL::populateDerived(
 
   blockSize = obtainBlockSize(params, waveSize);
 
+  int64_t nKBlocks = 1;
+  if(ctx.opType ==miopen::Conv2DBwdWeightOpType)
+    nKBlocks = getKBlocks(ctx);
+
   res = isValidblockwisegemmxdlops(params, blockSize);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs() << "Invalid XDLOps gemm.\n");
@@ -252,7 +256,7 @@ LogicalResult PopulateParamsXDL::populateDerived(
   }
 
   // parameters derivable from tunable parameters.
-  gridSize = obtainGridSize(gemmSize, &params);
+  gridSize = obtainGridSize(gemmSize, &params) * nKBlocks;
   return success();
 }
 

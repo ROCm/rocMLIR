@@ -726,6 +726,32 @@ private:
            (params.gemmMPerWave * params.gemmNPerWave);
   }
 
+  int64_t getKBlocks(ConvolutionContext &ctx)
+  {
+    int64_t n = ctx.dimIndexVal["no"].second;
+    int64_t ho = ctx.dimIndexVal["ho"].second;
+    int64_t wo = ctx.dimIndexVal["wo"].second;
+    auto gemmK = n * ho * wo;
+                 
+    int64_t gemmKBlocks = 1;
+    if (gemmK % 4 == 0) {
+      auto lcm = math::lcm(ho * wo, (int64_t)4);
+      gemmKBlocks = std::min(gemmK / lcm, n);
+    } else if (gemmK % 2 == 0) {
+      auto comm = math::lcm(ho * wo, (int64_t)2);
+      gemmKBlocks = std::min(gemmK / comm, n);
+    }
+    else{
+      auto comm = math::lcm(ho * wo, (int64_t)1);
+      gemmKBlocks = std::min(gemmK / comm, n);
+    }
+    // not more than n
+    gemmKBlocks = std::min(n, gemmKBlocks);
+    // not less than 1
+    gemmKBlocks = std::max((int64_t)1, gemmKBlocks);
+    return gemmKBlocks;
+  }
+
   LogicalResult calculateGemmABlockCopyPerformanceParameters(
       InitParamsXDL *param, ConvolutionContext &ctx, DerivedParams &derived) {
     int64_t blockSize = obtainBlockSize(*param, waveSize);
