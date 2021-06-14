@@ -4689,6 +4689,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 b.getArrayAttr({b.getI32IntegerAttr(gemmKBlocks),
                                 b.getI32IntegerAttr(n / gemmKBlocks)})),
             b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+            b.getNamedAttr("parameters",
+                           b.getArrayAttr({
+                               b.getI32IntegerAttr(gemmKBlocks),
+                               b.getI32IntegerAttr(n / gemmKBlocks),
+                           })),
             b.getNamedAttr(
                 "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["ni"])})),
@@ -5060,6 +5065,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 b.getArrayAttr({b.getI32IntegerAttr(gemmKBlocks),
                                 b.getI32IntegerAttr(n / gemmKBlocks)})),
             b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+            b.getNamedAttr("parameters",
+                           b.getArrayAttr({
+                               b.getI32IntegerAttr(gemmKBlocks),
+                               b.getI32IntegerAttr(n / gemmKBlocks),
+                           })),
             b.getNamedAttr(
                 "lower_layer_dimensions",
                 b.getArrayAttr({b.getI32IntegerAttr(currentKeyToDim["no"])})),
