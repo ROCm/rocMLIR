@@ -354,6 +354,9 @@ protected:
 
     int64_t dataPerThreadCopyGemmPos1 = 0;
     int64_t dataPerThreadCopyGemmPos2 = 0;
+    // 0 : gemmG dimension.
+    // 1 : gemmK dimension.
+    // 2 : gemmM or gemmN dimension.
     if (gemmPos1Vectorizable) {
       dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmVectorized;
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmNonvectorized;
@@ -363,6 +366,7 @@ protected:
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmVectorized;
       derived.srcVectorReadDim = 2;
     }
+    assert(derived.srcVectorReadDim != 0);
 
     // dstDataPerWrite also bounded by size of threadwise copy
     derived.dstDataPerWrite = gcd(vectorizationSize, dataPerThreadCopyGemmPos2);
@@ -379,7 +383,6 @@ protected:
       derived.clusterLenGemmPos2 =
           param->gemmNPerBlock / dataPerThreadCopyGemmPos2;
     }
-
     if (!(derived.clusterLenGemmPos1 > 0 && derived.clusterLenGemmPos2 > 0))
       return mlir::failure();
 
