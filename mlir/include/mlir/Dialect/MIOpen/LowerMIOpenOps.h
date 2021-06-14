@@ -4531,7 +4531,7 @@ static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top, miop
 
 // XXX: Figure out a way to do away with isThreadwiseLoad parameter.
 template <typename T, typename U>
-static void affixThreadwiseCopyAttributes(T top, U bop, OpBuilder &b,
+static void affixThreadwiseCopyAttributes(T &top, U &bop, OpBuilder &b,
                                           bool isThreadwiseLoad) {
   if (isThreadwiseLoad) {
     top->setAttr("dim_access_order", bop->getAttr("source_dim_access_order"));
@@ -4572,7 +4572,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
 
 template <typename T, typename U>
 void affixBlockwiseCopyAttributes(
-    T bop, U gop, OpBuilder &b,
+    T &bop, U &gop, OpBuilder &b,
     const SmallVector<int64_t, 3> &blockwiseLoadBounds, int blockwiseLoadDim,
     int blockwiseLoadLength) {
   bop->setAttr("block_size", gop->getAttr("block_size"));
@@ -4687,7 +4687,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
   }
 
   template <typename T>
-  MemRefType computeSubviewResultType(T op, MemRefType inputType,
+  MemRefType computeSubviewResultType(T &op, MemRefType inputType,
                                       unsigned offset,
                                       ArrayRef<int64_t> outputShape,
                                       Type outputElementType) const {
@@ -5702,7 +5702,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
   }
 
   template <typename T>
-  MemRefType computeSubviewResultType(T op, MemRefType inputType,
+  MemRefType computeSubviewResultType(T &op, MemRefType inputType,
                                       unsigned offset,
                                       ArrayRef<int64_t> outputShape,
                                       Type outputElementType) const {
