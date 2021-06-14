@@ -18,9 +18,9 @@ func @miopen_conv2d_kcyx_nchw_nkhw_padding_kernel(%filter : memref<32x128x2x3x3x
   return
 }
 // CHECK-LABEL: func @miopen_conv2d
-// CHECK-NEXT:  {{miopen.transform.*{.*extraPad = true, gemmKExtra = 14 : i32, gemmMExtra = 0 : i32,.*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*extraPad = true, gemmKExtra = 14 : i32, gemmMExtra = 0 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*extraPad = true, gemmKExtra = 14 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*extraPad = true, gemmKExtra = 14 : i32, gemmMExtra = 0 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
@@ -41,8 +41,8 @@ func @miopen_conv2d_kcyx_nchw_nkhw_no_extra_padding(%filter : memref<1x128x64x3x
   return
 }
 // CHECK-LABEL: func @miopen_conv2d
-// CHECK-NEXT:  {{miopen.transform.*{.*extraPad = false, gemmKExtra = 0 : i32, gemmMExtra = 0 : i32,.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*extraPad = false, gemmKExtra = 0 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*extraPad = false, gemmKExtra = 0 : i32, gemmMExtra = 0 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*extraPad = false, gemmKExtra = 0 : i32, gemmMExtra = 0 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*extraPad = false, gemmMExtra = 0 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
@@ -62,9 +62,9 @@ func @miopen_conv2d_kcyx_nchw_nkhw_partial_padding_kernel(%filter : memref<32x12
   return
 }
 // CHECK-LABEL: func @miopen_conv2d
-// CHECK-NEXT:  {{miopen.transform.*{.*extraPad = true, gemmKExtra = 14 : i32, gemmMExtra = 0 : i32,.*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*extraPad = true, gemmKExtra = 14 : i32, gemmMExtra = 0 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*extraPad = true, gemmKExtra = 14 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
+// CHECK-NEXT:  {{miopen.transform.*{.*extraPad = true, gemmKExtra = 14 : i32, gemmMExtra = 0 : i32, gemmNExtra = 0 : i32,.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
