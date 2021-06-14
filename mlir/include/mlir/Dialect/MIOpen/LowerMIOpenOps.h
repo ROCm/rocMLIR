@@ -1542,9 +1542,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     int64_t nonGemmMSize = transformedFilterShape[1];
     int64_t gemmMSize = transformedFilterShape[2];
     // filter pad start
-    // K:output channel, C:input channel,R:filter height,S:filter width
-    // filter dim : K & merge(C,R,S) , if C*R*S is under 64 or 32
-    // we pad CRS to 32 or 64, then mlir can do gemm
+    // K:output channel, C:input channel,Y:filter height,X:filter width
+    // filter dim : K & merge(C,Y,X) , if C*Y*X is under 64 or 32
+    // we pad CYX to 32 or 64, then mlir can do gemm
     // we add more one transform to do pad
     bool filterCheckPadGemmM = false;
     bool filterCheckPadGemmK = false;
@@ -1662,7 +1662,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           isFilterPad = true;
           isGemmDim2Pad = true;
           gemmDim2TargetName = b.getStringAttr(gemmMPad_name);
-          // gemmM = k when forward, padd gemmMExtra
+          // gemmM = k when forward, pad gemmMExtra
           paddingFilterShape[2] = gemmMSize + gemmMExtra;
           // gemmM = k when forward
           sourceGemmDim2Attr.push_back(
@@ -2870,7 +2870,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           sourceGemmDim2Attr.push_back(b.getNamedAttr(
               "parameters", b.getArrayAttr({b.getI32IntegerAttr(0),
                                             b.getI32IntegerAttr(gemmMExtra)})));
-          // output backward weights gemmM is k, xcv
+          // output backward weights gemmM is k,
+          // so padding gemmMExtra
           targetGemmDim2Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmMPad_name)})));
           outputOobCheckDims.insert(nameToDims["ko"]);
