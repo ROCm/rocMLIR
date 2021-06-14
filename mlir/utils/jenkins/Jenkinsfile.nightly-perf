@@ -33,7 +33,7 @@ pipeline {
                                  -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local" \
                                  -DCMAKE_INSTALL_PREFIX=/opt/rocm/ ..
                                 '''
-                    sh 'cd build; make -j install'
+                    sh 'cd build; make -j $(nproc) MIOpenDriver'
                         }
             }
         }
