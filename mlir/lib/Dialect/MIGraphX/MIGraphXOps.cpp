@@ -87,43 +87,188 @@ static LogicalResult verify(ConvolutionOp op) {
 }
 
 //===----------------------------------------------------------------------===//
-// LiteralOp
+// BatchNormOp
 //===----------------------------------------------------------------------===//
-/*
-static ParseResult parseLiteralOp(OpAsmParser &parser, OperationState &result) {
-  Attribute valueAttr;
-  if (parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseAttribute(valueAttr, "values", result.attributes))
-    return failure();
-
-  // If the attribute is a symbol reference, then we expect a trailing type.
-  Type type;
-  if (!valueAttr.isa<SymbolRefAttr>())
-    type = valueAttr.getType();
-  else if (parser.parseColonType(type))
-    return failure();
-
-  // Add the attribute type to the list.
-  return parser.addTypeToList(type, result.types);	  
+static ParseResult parseBatchNormOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
 }
 
-static void print(OpAsmPrinter &p, LiteralOp &op) {
-  p << "Literal ";
-  p.printOptionalAttrDict(op.getAttrs(), {"values"});
-
-  if (op.getAttrs().size() > 1)
-    p << ' ';
-  p << op.getValue();
-
-  // If the value is a symbol reference, print a trailing type.
-  if (op.getValue().isa<SymbolRefAttr>())
-    p << " : " << op.getType();
+static void print(OpAsmPrinter &p, BatchNormOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
 }
 
-static LogicalResult verify(LiteralOp op) {
+static LogicalResult verify(BatchNormOp op) {
   return success();
 }
-*/
+
+//===----------------------------------------------------------------------===//
+// ReluOp
+//===----------------------------------------------------------------------===//
+static ParseResult parseReluOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, ReluOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(ReluOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PoolingOp
+//===----------------------------------------------------------------------===//
+static ParseResult parsePoolingOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, PoolingOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(PoolingOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// FlattenOp
+//===----------------------------------------------------------------------===//
+static ParseResult parseFlattenOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, FlattenOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(FlattenOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// TransposeOp
+//===----------------------------------------------------------------------===//
+static ParseResult parseTransposeOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, TransposeOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(TransposeOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MultiBroadcastOp
+//===----------------------------------------------------------------------===//
+static ParseResult parseMultiBroadcastOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, MultiBroadcastOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(MultiBroadcastOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// DotOp
+//===----------------------------------------------------------------------===//
+static ParseResult parseDotOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, DotOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(DotOp op) {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ConstantOp
+//===----------------------------------------------------------------------===//
+static ParseResult parse(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> ops;
+  SmallVector<Type, 2> types;
+  return failure(
+      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonTypeList(types) ||
+      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
+}
+
+static void print(OpAsmPrinter &p, ConstantOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
+}
+
+static LogicalResult verify(ConstantOp op) {
+  return success();
+}
 
 namespace mlir {
 
