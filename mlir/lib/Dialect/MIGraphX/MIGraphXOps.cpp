@@ -125,7 +125,6 @@ static ParseResult parseReluOp(OpAsmParser &parser, OperationState &result) {
 static void print(OpAsmPrinter &p, ReluOp op) {
   p << op.getOperationName() << "(" << op.getOperand() << ")";
   p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperandTypes();
 }
 
 static LogicalResult verify(ReluOp op) {
@@ -148,7 +147,6 @@ static ParseResult parsePoolingOp(OpAsmParser &parser, OperationState &result) {
 static void print(OpAsmPrinter &p, PoolingOp op) {
   p << op.getOperationName() << "(" << op.getOperand() << ")";
   p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperandTypes();
 }
 
 static LogicalResult verify(PoolingOp op) {
@@ -171,7 +169,6 @@ static ParseResult parseFlattenOp(OpAsmParser &parser, OperationState &result) {
 static void print(OpAsmPrinter &p, FlattenOp op) {
   p << op.getOperationName() << "(" << op.getOperand() << ")";
   p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperandTypes();
 }
 
 static LogicalResult verify(FlattenOp op) {
