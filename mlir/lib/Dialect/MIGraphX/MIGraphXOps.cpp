@@ -245,7 +245,7 @@ static LogicalResult verify(DotOp op) {
 //===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
-static ParseResult parse(OpAsmParser &parser, OperationState &result) {
+static ParseResult parseConstantOp(OpAsmParser &parser, OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 2> ops;
   SmallVector<Type, 2> types;
   return failure(
