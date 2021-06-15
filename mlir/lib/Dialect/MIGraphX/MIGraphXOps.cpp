@@ -189,9 +189,8 @@ static ParseResult parseTransposeOp(OpAsmParser &parser, OperationState &result)
 }
 
 static void print(OpAsmPrinter &p, migraphx::TransposeOp op) {
-  p << op.getOperationName() << "(" << op.getOperands() << ")";
+  p << op.getOperationName() << "(" << op.getOperand() << ")";
   p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperandTypes();
 }
 
 static LogicalResult verify(migraphx::TransposeOp op) {
@@ -256,13 +255,13 @@ static ParseResult parse(OpAsmParser &parser, OperationState &result) {
       parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
 }
 
-static void print(OpAsmPrinter &p, ConstantOp op) {
+static void print(OpAsmPrinter &p, migraphx::ConstantOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
   p << " : " << op.getOperandTypes();
 }
 
-static LogicalResult verify(ConstantOp op) {
+static LogicalResult verify(migraphx::ConstantOp op) {
   return success();
 }
 
