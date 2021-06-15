@@ -37,24 +37,7 @@ class MIGraphX_Op<string mnemonic, list<OpTrait> traits = []> :
   let extraClassDeclaration = [{
   }];
 }
-/*
-//@0 = @literal{ ... } -> float_type, {64, 3, 7, 7}, {147, 49, 7, 1}
-// literal data_type, dimension, strides
-def MIGraphX_LiteralOp :
-    MIGraphX_Op<"literal">,
-	Arguments<(ins
-	  StrAttr:$values,
-	  Confined<I64ArrayAttr, [ArrayMinCount<1>]>:$dimension,
-	  Confined<I64ArrayAttr, [ArrayMinCount<1>]>:$Stride)>,
-    Results<(outs AnyTensor:$output)> {
-  let summary = "Literals";
-  let description = [{
-    Constant data given as literal.
-  }];
-  let extraClassDeclaration = [{
-    Attribute getValue() { return (*this)->getAttr("values"); }
-}
-*/
+
 def MIGraphX_AddOp :
     MIGraphX_Op<"add">,
     Arguments<(ins AnyRankedTensor:$inA,
@@ -84,8 +67,6 @@ def MIGraphX_ConvolutionOp :
   }];
 }
 
-//@268 = batch_norm_inference[epsilon=1e-05,momentum=0.9,bn_mode=1](@267,@1,@2,@3,@4) -> float_type, {1, 64, 112, 112}, {802816, 12544, 112, 1}
-
 def MIGraphX_BatchNormOp :
     MIGraphX_Op<"batch_norm_inference">,
     Arguments<(ins AnyRankedTensor:$input,
@@ -105,7 +86,6 @@ def MIGraphX_BatchNormOp :
   }];
 }
 
-//@269 = relu(@268) -> float_type, {1, 64, 112, 112}, {802816, 12544, 112, 1}
 def MIGraphX_ReluOp :
     MIGraphX_Op<"relu">,
     Arguments<(ins AnyRankedTensor:$input
@@ -117,7 +97,6 @@ def MIGraphX_ReluOp :
   }];
 }
 
-//@270 = pooling[mode=max,padding={1, 1},stride={2, 2},lengths={3, 3},ceil_mode=0](@269) -> float_type, {1, 64, 56, 56}, {200704, 3136, 56, 1}
 def MIGraphX_PoolingOp :
     MIGraphX_Op<"pooling">,
     Arguments<(ins AnyRankedTensor:$input,
@@ -135,7 +114,6 @@ def MIGraphX_PoolingOp :
   }];
 }
 
-//@440 = flatten[axis=1](@439) -> float_type, {1, 2048}, {2048, 1}
 def MIGraphX_FlattenOp :
     MIGraphX_Op<"flatten">,
     Arguments<(ins AnyRankedTensor:$input,
@@ -148,7 +126,6 @@ def MIGraphX_FlattenOp :
   }];
 }
 
-//@441 = transpose[dims={1, 0}](@265) -> float_type, {2048, 1000}, {1, 2048}
 def MIGraphX_TransposeOp :
     MIGraphX_Op<"transpose">,
     Arguments<(ins AnyRankedTensor:$input,
@@ -161,7 +138,6 @@ def MIGraphX_TransposeOp :
   }];
 }
 
-//@442 = multibroadcast[output_lens={1, 1000}](@266) -> float_type, {1, 1000}, {0, 1}
 def MIGraphX_MultiBroadcastOp :
     MIGraphX_Op<"multibroadcast">,
     Arguments<(ins AnyRankedTensor:$input,
@@ -174,7 +150,6 @@ def MIGraphX_MultiBroadcastOp :
   }];
 }
 
-//@443 = dot[alpha=1,beta=1](@440,@441,@442) -> float_type, {1, 1000}, {1000, 1}
 def MIGraphX_DotOp :
     MIGraphX_Op<"dot">,
     Arguments<(ins AnyRankedTensor:$input,
@@ -200,18 +175,6 @@ def MIGraphX_ConstantOp :
     The `migraphx.constant` op. Should be able to represent everything from literals.
   }];
 }
-/*
-def MIGraphX_Conv2DOp :
-    MIGraphX_Op<"conv2d">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [5]>:$filter,
-                   MemRefRankOf<[F32, F16, I16], [5]>:$input,
-                   MemRefRankOf<[F32, F16, I16], [5]>:$output)> {
-  let summary = "2D convolution forward";
-  let description = [{
-    The `migraphx.conv2d` op computes 2D convolution forward.
-  }];
-}
 
-*/
 
 #endif // MIGRAPHX_OPS
