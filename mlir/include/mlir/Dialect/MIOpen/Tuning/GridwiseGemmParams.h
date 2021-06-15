@@ -734,15 +734,14 @@ private:
     auto gemmK = n * ho * wo;
                  
     int64_t gemmKBlocks = 1;
-    if (gemmK % 4 == 0) {
-      auto lcm = math::lcm(ho * wo, (int64_t)4);
+    if (gemmK % 16 == 0) {
+      auto lcm = math::lcm(ho * wo, (int64_t)16);
       gemmKBlocks = std::min(gemmK / lcm, n);
-    } else if (gemmK % 2 == 0) {
-      auto comm = math::lcm(ho * wo, (int64_t)2);
+    } else if (gemmK % 8 == 0) {
+      auto comm = math::lcm(ho * wo, (int64_t)8);
       gemmKBlocks = std::min(gemmK / comm, n);
-    }
-    else{
-      auto comm = math::lcm(ho * wo, (int64_t)1);
+    } else {
+      auto comm = math::lcm(ho * wo, (int64_t)4);
       gemmKBlocks = std::min(gemmK / comm, n);
     }
     // not more than n
