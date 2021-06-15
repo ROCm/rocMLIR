@@ -36,9 +36,6 @@
 // lld headers.
 #include "lld/Common/Driver.h"
 
-// HIP headers.
-#include "hip/hip_version.h"
-
 #include <mutex>
 
 using namespace mlir;
@@ -280,7 +277,7 @@ void BackendUtils::setupDefaults(std::string &chip, std::string &features,
     triple = "amdgcn-amd-amdhsa";
   }
 
-  // Configure target features per ROCm / HIP version, and target GPU.
+  // Configure target features per ROCm version, and target GPU.
   configTargetFeatures(chip, triple, features);
 }
 
