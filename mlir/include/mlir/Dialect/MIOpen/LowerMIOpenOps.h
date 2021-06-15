@@ -4936,7 +4936,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                b.getI32IntegerAttr(1)})),
                 b.getNamedAttr("lower_layer_names",
                                b.getArrayAttr({preOutputDimName[0],
-                                               preOutputDimName[0]}))};
+                                               preOutputDimName[1]}))};
 
             // gemmK
             curOutputDimName.push_back(b.getStringAttr("gemmK"));
