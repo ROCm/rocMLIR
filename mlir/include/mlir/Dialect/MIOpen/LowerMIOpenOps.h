@@ -5246,6 +5246,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     Value gemmC = getGemmC();
     // Set attributes for gridwise_gemm op.
     llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
+        b.getNamedAttr("data_operation", b.getI32IntegerAttr(1)),
         b.getNamedAttr("gemm_id", gemmIdAttr),
         b.getNamedAttr("arch", archAttr),
         b.getNamedAttr("num_cu", numCuAttr),
@@ -7577,6 +7578,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                                       b.getI32IntegerAttr(M2),
                                                       b.getI32IntegerAttr(1),
                                                   }));
+      auto dataOperation = op->getAttr("data_operation");
+      if (dataOperation) {
+        threadwiseCopyV2CMatrixOp->setAttr("data_operation", dataOperation);
+      }
     }
 
     op.erase();
@@ -8363,6 +8368,13 @@ struct ThreadwiseCopyV2RewritePattern
 
     auto sourceType = op.source().getType().cast<VectorType>();
     auto destType = op.dest().getType().cast<MemRefType>();
+    InMemoryDataOperation dataOpration = InMemoryDataOperation::Set;
+    auto dataOpAttr = op->getAttr("data_operation");
+    if (dataOpAttr) {
+      int64_t dataOp = dataOpAttr.template cast<IntegerAttr>().getInt();
+      if (dataOp == 1)
+        dataOpration = InMemoryDataOperation::AtomicAdd;
+    }
 
     // Get source offset, and dest coordinates.
     //
@@ -8572,7 +8584,7 @@ struct ThreadwiseCopyV2RewritePattern
       // Store to dest.
       emitStoreLogic(b, loc, destType, destElementType,
                      toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
-                     destLowerIndices, convertedScalarValue);
+                     destLowerIndices, convertedScalarValue, dataOpration);
 
       // increase IVs
       bool toIncreaseNextDigit = true;
