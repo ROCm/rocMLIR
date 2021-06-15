@@ -3,11 +3,6 @@ message(STATUS "Adding LLVM git-submodule src dependency")
 set(CMAKE_BUILD_TYPE Release CACHE INTERNAL "")
 
 
-# Forbid implicit function declaration: this may lead to subtle bugs and we
-# don't have a reason to support this.
-check_c_compiler_flag("-Werror=implicit-function-declaration" C_SUPPORTS_WERROR_IMPLICIT_FUNCTION_DECLARATION)
-append_if(C_SUPPORTS_WERROR_IMPLICIT_FUNCTION_DECLARATION "-Werror=implicit-function-declaration" CMAKE_C_FLAGS)
-
 # Build the ROCm conversions and run according tests if the AMDGPU backend
 # is available
 if ("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
@@ -19,7 +14,6 @@ add_definitions(-DMLIR_ROCM_CONVERSIONS_ENABLED=${MLIR_ROCM_CONVERSIONS_ENABLED}
 
 # MLIR settings
 set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "Enable building the mlir ROCm runner")
-set(MLIR_ENABLE_SQLITE ON CACHE BOOL "")
 set(MLIR_TABLEGEN_EXE mlir-tblgen)
 
 # LLVM settings
