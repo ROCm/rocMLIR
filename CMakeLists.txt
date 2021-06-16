@@ -75,7 +75,7 @@ if (NOT ${EXIT_CODE} EQUAL 0)
   )
 endif()
 
-# Patch 'external/llvm-project/mlir' with mods in 'mlir-patch'
+# Patch 'external/llvm-project/mlir' with mods in 'mlir-patch' and 'llvm-patch'
 # FIXME: multi-line cmd + args...
 #set(PY_CMD "python utils/src-tree-patcher/patcher.py ")
 #set(PY_ARG1 "--infile utils/src-tree-patcher/filelist.txt ")
@@ -83,7 +83,9 @@ endif()
 #set(PY_ARG3 "--dstdir external/llvm-project/mlir")
 #set(PY_ARGS ${PY_ARG1} ${PY_ARG2} ${PY_ARG3})
 #execute_process(COMMAND ${PY_CMD} ${PY_ARGS}
-execute_process(COMMAND python utils/src-tree-patcher/patcher.py --infile utils/src-tree-patcher/filelist.txt --srcdir mlir-patch --dstdir external/llvm-project/mlir
+execute_process(COMMAND python utils/src-tree-patcher/patcher.py --infile utils/src-tree-patcher/filelist-mlir.txt --srcdir mlir-patch --dstdir external/llvm-project/mlir
+  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
+execute_process(COMMAND python utils/src-tree-patcher/patcher.py --infile utils/src-tree-patcher/filelist-llvm.txt --srcdir llvm-patch --dstdir external/llvm-project/llvm
   WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
 
 # Set up the build for the MLIR git-submodule
