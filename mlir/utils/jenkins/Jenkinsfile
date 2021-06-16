@@ -15,15 +15,15 @@ void getAndBuildMIOpen(String cmakeOpts) {
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
     cmake arguments: "-P install_deps.cmake --minimum",\
         installation: "InSearchPath"
-    cmakeBuild generator: 'Ninja',\
+    cmakeBuild generator: 'Unix Makefiles',\
         buildDir: 'build',\
         buildType: 'Release',\
         installation: 'InSearchPath',\
-        steps: [[args: "MIOpenDriver"]],\
         cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                      -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
                      ${cmakeOpts}
                      """
+    sh 'cd build; make -j $(nproc) MIOpenDriver'
 }
 
 void showEnv() {
