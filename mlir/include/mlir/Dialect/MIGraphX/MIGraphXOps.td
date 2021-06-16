@@ -64,7 +64,7 @@ def MIGraphX_ConvolutionOp :
     Arguments<(ins AnyRankedTensor:$input,
                    AnyRankedTensor:$filter,
 
-                   Confined<I32ArrayAttr, [ArrayCount<2>]>:$pading,
+                   Confined<I32ArrayAttr, [ArrayCount<2>]>:$padding,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$stride,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$dilation,
                    I32Attr:$group,
@@ -113,7 +113,7 @@ def MIGraphX_PoolingOp :
 
                    StrAttr:$mode,
                    //PoolingEnum:$mode,
-                   Confined<I32ArrayAttr, [ArrayCount<2>]>:$pading,
+                   Confined<I32ArrayAttr, [ArrayCount<2>]>:$padding,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$stride,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$length,
                    I32Attr:$ceil_mode
