@@ -1,5 +1,5 @@
 module {
-  func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x64x56x56xf32> {
+  func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
     %0 = "migraphx.constant"(){shape = [64:i32, 3:i32, 7:i32, 7:i32], type = f32}: () -> tensor<64x3x7x7xf32>
     %1 = "migraphx.constant"(){shape = [64:i32, 1:i32], type = f32}: () -> tensor<64x1xf32>
     %2 = "migraphx.constant"(){shape = [64:i32, 1:i32], type = f32}: () -> tensor<64x1xf32>
