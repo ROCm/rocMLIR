@@ -2,6 +2,10 @@ message(STATUS "Adding LLVM git-submodule src dependency")
 
 set(CMAKE_BUILD_TYPE Release CACHE INTERNAL "")
 
+# Passed to lit.site.cfg.py.so that the out of tree Standalone dialect test
+# can find MLIR's CMake configuration
+set(MLIR_CMAKE_CONFIG_DIR
+   "${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX}/cmake/mlir")
 
 # Build the ROCm conversions and run according tests if the AMDGPU backend
 # is available
