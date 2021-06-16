@@ -8161,7 +8161,6 @@ struct ThreadwiseStoreRewritePattern
     // --------------------------------
 
     // Main code emission loop.
-    int64_t counter = 0;
     bool toExit = false;
     do {
       // Use the old logic in case "legacy_store" attribute is specified.
@@ -8178,28 +8177,27 @@ struct ThreadwiseStoreRewritePattern
             layeredDestTransform, layeredDestIndices, destLowerIndices);
       }
 
-      // Store to dest.
+      // Find the tuple element to store, following IVs.
+      int64_t tupleIndex = 0;
+      int64_t stride = 1;
+      for (int iter = loopIVsPerAccessOrder.size() - 1; iter >= 0; --iter) {
+        tupleIndex += loopIVsPerAccessOrder[iter] * stride;
+        stride *= loopBoundsPerAccessOrder[iter];
+      }
       Value element = b.create<vector::TupleGetOp>(
-          loc, sourceElementType, op.data(), b.getI32IntegerAttr(counter));
+          loc, sourceElementType, op.data(), b.getI32IntegerAttr(tupleIndex));
+
+      // Store to dest.
       emitStoreLogic(b, loc, destType, destElementType,
                      toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
                      destLowerIndices, element);
 
-      // Move to the next item in the tuple.
-      ++counter;
-
       // increase IVs
       bool toIncreaseNextDigit = true;
       int iter = loopIVsPerAccessOrder.size() - 1;
-      int64_t nextDigitIncrement =
-          (sourceElementType.isa<VectorType>())
-              ? sourceElementType.template cast<VectorType>().getShape()[0]
-              : destDataPerWrite;
       for (; toIncreaseNextDigit && iter >= 0; --iter) {
-        loopIVsPerAccessOrder[iter] += nextDigitIncrement;
+        loopIVsPerAccessOrder[iter] += destDataPerWrite;
         if (loopIVsPerAccessOrder[iter] >= loopBoundsPerAccessOrder[iter]) {
-          nextDigitIncrement =
-              loopIVsPerAccessOrder[iter] / loopBoundsPerAccessOrder[iter];
           loopIVsPerAccessOrder[iter] %= loopBoundsPerAccessOrder[iter];
           toIncreaseNextDigit = true;
         } else {
