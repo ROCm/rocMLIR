@@ -66,10 +66,14 @@ func @miopen_conv2d_bwd_weight_cyxk_cnhw_knhw(%filter : memref<1x8x3x3x128xf32>,
 }
 // CHECK-LABEL: func @miopen_conv2d_bwd_weight
 // CHECK-NEXT:  miopen.transform(%arg0)
+// CHECK-NEXT:  miopen.transform
+// CHECK:       upper_layer_layout = ["gemmG", "gemmM", "gemmNPad"]
 // CHECK-NEXT:  miopen.transform(%arg1)
 // CHECK:       upper_layer_layout = ["gi", "ci", "ni", "hipad", "wipad"]
 // CHECK-NEXT:  miopen.transform
 // CHECK:       upper_layer_layout = ["gi", "ci", "ni", "y", "ho", "x", "wo"]
 // CHECK-NEXT:  miopen.transform
 // CHECK:       upper_layer_layout = ["gemmG", "gemmK", "gemmN"]
+// CHECK-NEXT:  miopen.transform
+// CHECK:       upper_layer_layout = ["gemmG", "gemmK", "gemmNPad"]
 // CHECK-NEXT:  miopen.transform(%arg2)

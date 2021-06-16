@@ -57,7 +57,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   pm.addPass(createGpuKernelOutliningPass());
   auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
   kernelPm.addPass(createStripDebugInfoPass());
-  kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass());
+  kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
   kernelPm.addPass(createConvertGPUKernelToBlobPass(
       [&utils](Operation *m, llvm::LLVMContext &llvmContext,
                llvm::StringRef name) {

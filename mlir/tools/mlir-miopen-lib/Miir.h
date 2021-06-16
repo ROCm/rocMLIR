@@ -36,9 +36,9 @@ typedef void *MiirHandle;
 struct StridedMemRef5D {
   void *basePtr;
   void *data;
-  int64_t offset;
-  int64_t sizes[5];
-  int64_t strides[5];
+  int32_t offset;
+  int32_t sizes[5];
+  int32_t strides[5];
 };
 
 /*! @brief Create the MLIR handle according to options string
