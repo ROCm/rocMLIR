@@ -256,7 +256,9 @@ static ParseResult parseConstantOp(OpAsmParser &parser, OperationState &result) 
 }
 
 static void print(OpAsmPrinter &p, migraphx::ConstantOp op) {
+  p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
+  p << " : " << op.getOperandTypes();
 }
 
 static LogicalResult verify(migraphx::ConstantOp op) {

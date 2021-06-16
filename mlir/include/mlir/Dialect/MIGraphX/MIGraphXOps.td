@@ -51,8 +51,8 @@ def MIGraphX_AddOp :
 
 def MIGraphX_ConvolutionOp :
     MIGraphX_Op<"convolution">,
-    Arguments<(ins AnyRankedTensor:$filter,
-                   AnyRankedTensor:$input,
+    Arguments<(ins AnyRankedTensor:$input,
+                   AnyRankedTensor:$filter,
 
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$pading,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$stride,
@@ -63,7 +63,7 @@ def MIGraphX_ConvolutionOp :
 	Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "2D convolution forward";
   let description = [{
-    The `migraphx.conv2d` op computes 2D convolution forward.
+    The `migraphx.convolution` op computes 2D convolution forward.
   }];
 }
 
@@ -167,7 +167,9 @@ def MIGraphX_DotOp :
 
 def MIGraphX_ConstantOp :
     MIGraphX_Op<"constant">,
-    Arguments<(ins ElementsAttr:$value
+    Arguments<(ins OptionalAttr<ElementsAttr>:$value
+                   OptionalAttr<I32ArrayAttr>:$shape
+                   OptionalAttr<TypeAttr>:$type
                    )>,
 	Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "constant tensor operation";
