@@ -21,6 +21,7 @@ def MIGraphX_Dialect : Dialect {
   let cppNamespace = "migraphx";
 }
 
+/*
 def average: I32EnumAttrCase<"average", 0>;
 def max: I32EnumAttrCase<"max", 1>;
 
@@ -28,6 +29,7 @@ def PoolingEnum: I32EnumAttr<"PoolingEnum", "int enum",
                            [average, max]> {
   let cppNamespace = "mlir::migraphx";
 }
+*/
 
 // Base class for MIGraphX dialect ops.
 class MIGraphX_Op<string mnemonic, list<OpTrait> traits = []> :
@@ -109,7 +111,8 @@ def MIGraphX_PoolingOp :
     MIGraphX_Op<"pooling">,
     Arguments<(ins AnyRankedTensor:$input,
 
-                   PoolingEnum:$mode,
+                   StrAttr:$mode,
+                   //PoolingEnum:$mode,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$pading,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$stride,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$length,
