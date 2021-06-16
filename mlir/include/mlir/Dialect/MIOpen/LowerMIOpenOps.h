@@ -7865,6 +7865,10 @@ struct ThreadwiseLoadRewritePattern
                               .template cast<IntegerAttr>()
                               .getInt();
 
+    auto vectorReadWriteDim = op->getAttr("vector_read_write_dim")
+                                  .template cast<IntegerAttr>()
+                                  .getInt();
+
     Optional<ArrayAttr> boundAttr;
     if (op->getAttr("bound"))
       boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
@@ -7877,6 +7881,13 @@ struct ThreadwiseLoadRewritePattern
                         coordTransformsAttr, boundAttr, sourceType, destType);
 
     // llvm::errs() << "slice lengths: ";
+    // for (unsigned i = 0; i < sliceLengths.size(); ++i)
+    //   llvm::errs() << sliceLengths[i] << " ";
+    // llvm::errs() << "\n";
+
+    sliceLengths[vectorReadWriteDim] /= srcDataPerRead;
+
+    // llvm::errs() << "modified lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
     //   llvm::errs() << sliceLengths[i] << " ";
     // llvm::errs() << "\n";
@@ -7937,9 +7948,14 @@ struct ThreadwiseLoadRewritePattern
     // --------------------------------
 
     // Main code emission loop.
-    SmallVector<Value, 8> tupleValues;
+    DenseMap<int64_t, Value> loadedValues;
     bool toExit = false;
     do {
+      // llvm::errs() << "IVs: ";
+      // for (auto v : loopIVsPerAccessOrder)
+      //   llvm::errs() << v << " ";
+      // llvm::errs() << "\n";
+
       // Use the old logic in case "legacy_load" attribute is specified.
       if (legacyLoad == true) {
         computeTopAndBottomIndicesWithAffineMap(
@@ -7965,30 +7981,47 @@ struct ThreadwiseLoadRewritePattern
           emitLoadLogic(b, loc, sourceType, loadedType, toEmitOOBLoadCheckLogic,
                         oobLoadCheckDims, op.source(), srcLowerIndices);
 
+      // Compute the final index on the loadedValues, following IVs.
+      int64_t tupleIndex = 0;
+      int64_t stride = 1;
+      int64_t vectorLoadStride = 0;
+      for (int64_t iter = loopIVsPerAccessOrder.size() - 1; iter >= 0; --iter) {
+        tupleIndex += loopIVsPerAccessOrder[iter] * stride;
+        if (iter == vectorReadWriteDim) {
+          vectorLoadStride = stride;
+          stride *= (loopBoundsPerAccessOrder[iter] * srcDataPerRead);
+        } else {
+          stride *= loopBoundsPerAccessOrder[iter];
+        }
+      }
+      // llvm::errs() << "tupleIndex: " << tupleIndex << "\n";
+
       // In case we do vector load, decompose the elements as the tuple
       // result of threadwise_load only hold scalars.
       if (srcDataPerRead > 1) {
         assert(loadedValue.getType().isa<VectorType>());
+
         for (int64_t iter = 0; iter < srcDataPerRead; ++iter) {
           auto loadedElement = b.create<vector::ExtractElementOp>(
               loc, destElementType, loadedValue,
               b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
-          tupleValues.push_back(loadedElement);
+          int64_t decomposedTupleIndex = tupleIndex + iter * vectorLoadStride;
+          // llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex
+          //              << "\n";
+
+          loadedValues[decomposedTupleIndex] = loadedElement;
         }
       } else {
-        tupleValues.push_back(loadedValue);
+        loadedValues[tupleIndex] = loadedValue;
       }
 
       // increase IVs
       bool toIncreaseNextDigit = true;
       int iter = loopIVsPerAccessOrder.size() - 1;
-      int64_t nextDigitIncrement = srcDataPerRead;
       for (; toIncreaseNextDigit && iter >= 0; --iter) {
-        loopIVsPerAccessOrder[iter] += nextDigitIncrement;
+        loopIVsPerAccessOrder[iter] += 1;
         if (loopIVsPerAccessOrder[iter] >= loopBoundsPerAccessOrder[iter]) {
-          nextDigitIncrement =
-              loopIVsPerAccessOrder[iter] / loopBoundsPerAccessOrder[iter];
-          loopIVsPerAccessOrder[iter] %= loopBoundsPerAccessOrder[iter];
+          loopIVsPerAccessOrder[iter] = 0;
           toIncreaseNextDigit = true;
         } else {
           toIncreaseNextDigit = false;
@@ -8004,7 +8037,12 @@ struct ThreadwiseLoadRewritePattern
     // --------------------------------
 
     // Convert the loaded values to a tuple.
-    assert(tupleValues.size() == destType.size());
+    assert(loadedValues.size() == destType.size());
+    SmallVector<Value, 8> tupleValues;
+    for (int64_t iter = 0; iter < loadedValues.size(); ++iter) {
+      assert(loadedValues.count(iter) == 1);
+      tupleValues.push_back(loadedValues[iter]);
+    }
     Value tuple = b.create<vector::TupleOp>(loc, destType, tupleValues);
     op.replaceAllUsesWith(tuple);
     op.erase();
