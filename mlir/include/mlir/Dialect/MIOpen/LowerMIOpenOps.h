@@ -4412,7 +4412,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     } else if (gemmK % 8 == 0) {
       auto comm = math::lcm(ho * wo, (int64_t)8);
       gemmKBlocks = std::min(gemmK / comm, n);
-    } else {
+    } else if (gemmK % 4 == 0) {
       auto comm = math::lcm(ho * wo, (int64_t)4);
       gemmKBlocks = std::min(gemmK / comm, n);
     }
