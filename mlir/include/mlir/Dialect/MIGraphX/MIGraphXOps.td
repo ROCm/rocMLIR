@@ -179,8 +179,10 @@ def MIGraphX_DotOp :
 def MIGraphX_ConstantOp :
     MIGraphX_Op<"constant">,
     Arguments<(ins OptionalAttr<ElementsAttr>:$value,
-                   OptionalAttr<I32ArrayAttr>:$shape,
-                   OptionalAttr<TypeAttr>:$type
+                   I32ArrayAttr:$shape,
+                   TypeAttr:$type
+                   //OptionalAttr<I32ArrayAttr>:$shape,
+                   //OptionalAttr<TypeAttr>:$type
                    )>,
 	Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "constant tensor operation";
