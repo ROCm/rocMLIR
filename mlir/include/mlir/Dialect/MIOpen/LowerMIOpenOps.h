@@ -131,23 +131,17 @@ computeLoadStoreTypeInfo(OpBuilder &b, T &gop, Type elementType,
                     .getInt();
   }
 
-  // HACK: force scalar loads/stores for now.
-  // loadLength = 1;
-
   int64_t itemsToCopy = 1;
   for (auto l : dims)
     itemsToCopy *= l;
 
-  // FIXME. Let tuple only contain scalars.
-  auto tupleLength = itemsToCopy / loadLength;
-  Type type =
-      (loadLength > 1) ? VectorType::get(loadLength, elementType) : elementType;
   SmallVector<Type, 8> tupleElements;
-  for (unsigned iter = 0; iter < tupleLength; ++iter)
-    tupleElements.push_back(type);
+  for (unsigned iter = 0; iter < itemsToCopy; ++iter)
+    tupleElements.push_back(elementType);
   TupleType tupleType = b.getTupleType(tupleElements);
 
-  return std::make_tuple(type, tupleType, vectorDim, loadLength, storeLength);
+  return std::make_tuple(elementType, tupleType, vectorDim, loadLength,
+                         storeLength);
 }
 
 //===----------------------------------------------------------------------===//
@@ -210,7 +204,7 @@ computeSliceLengths(SmallVector<int64_t, 2> &sliceLengths,
 }
 
 //===----------------------------------------------------------------------===//
-// Utility function to emit constant float op.
+// Utility function to emit constant float op. Returns a scalar.
 //===----------------------------------------------------------------------===//
 inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
                                    float value) {
@@ -228,9 +222,20 @@ inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
   return ret;
 }
 
-inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc,
-                                       Type elementType) {
-  return createConstantFloatOp(b, loc, elementType, 0.0f);
+//===----------------------------------------------------------------------===//
+// Utility function to emit constant zero op. Can return scalars or vectors.
+//===----------------------------------------------------------------------===//
+inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type) {
+  Type elementType = type;
+  if (type.isa<VectorType>())
+    elementType = type.template cast<VectorType>().getElementType();
+  Value zeroOp = createConstantFloatOp(b, loc, elementType, 0.0f);
+
+  Value retValue = zeroOp;
+  if (type.isa<VectorType>())
+    retValue = b.create<SplatOp>(loc, zeroOp, type);
+
+  return retValue;
 }
 
 //===----------------------------------------------------------------------===//
@@ -414,7 +419,12 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
       // Issue vector store.
       if (destType.getMemorySpace() == 0) {
         // use raw buffer store if the dest memref is on address space 0
-        b.create<gpu::RawbufStoreOp>(loc, value, dest, oob, destLowerIndices);
+        SmallVector<Value, 4> destLowerIndicesI32;
+        for (auto v : destLowerIndices)
+          destLowerIndicesI32.push_back(
+              b.create<IndexCastOp>(loc, v, b.getIntegerType(32)));
+        b.create<gpu::RawbufStoreOp>(loc, value, dest, oob,
+                                     destLowerIndicesI32);
       } else {
         // Option 2: vector.extractelement + scalar store.
         assert(destType.getRank() == 1);
@@ -438,21 +448,10 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
   };
 
   auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-  Value zeroAddrOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
+  auto oobAddrOp = b.create<ConstantIndexOp>(loc, kTwoGB);
 
   if (toEmitOOBStoreCheckLogic) {
-    SmallVector<Value, 8> destLowerStoreIndices;
-    SmallVector<Value, 8> destLowerStoreOOBIndices;
-
-    for (unsigned i = 0; i < destLowerIndices.size(); ++i) {
-      auto dstIndex =
-          b.create<IndexCastOp>(loc, destLowerIndices[i], b.getIntegerType(32));
-      destLowerStoreIndices.push_back(dstIndex);
-    }
-
-    destLowerStoreOOBIndices = destLowerStoreIndices;
-    Value oobAddrOp =
-        b.create<ConstantIntOp>(loc, kTwoGB, b.getIntegerType(32));
+    SmallVector<Value, 8> destLowerStoreOOBIndices = destLowerIndices;
 
     // Logic in C++:
     // bool withinBounds = true;
@@ -477,21 +476,21 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
 
       withinStoreBoundsOp =
           b.create<AndOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
-      destLowerStoreOOBIndices[dim] = zeroAddrOp;
+
+      destLowerStoreOOBIndices[dim] = zeroConstantOp;
     }
 
     auto ifWithinBoundsOp = b.create<scf::IfOp>(
         loc,
-        TypeRange{b.getIntegerType(32), b.getIntegerType(32),
-                  b.getIntegerType(32), b.getIntegerType(32),
-                  b.getIntegerType(32), b.getIntegerType(32)},
+        TypeRange{b.getIndexType(), b.getIndexType(), b.getIndexType(),
+                  b.getIndexType(), b.getIndexType(), b.getIndexType()},
         withinStoreBoundsOp, true);
 
     auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
     thenBuilder.create<scf::YieldOp>(
-        loc, ValueRange{zeroAddrOp, destLowerStoreIndices[0],
-                        destLowerStoreIndices[1], destLowerStoreIndices[2],
-                        destLowerStoreIndices[3], destLowerStoreIndices[4]});
+        loc, ValueRange{zeroConstantOp, destLowerIndices[0],
+                        destLowerIndices[1], destLowerIndices[2],
+                        destLowerIndices[3], destLowerIndices[4]});
     auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
     elseBuilder.create<scf::YieldOp>(
         loc,
@@ -511,7 +510,7 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
                          /*oob=*/ifWithinBoundsOp.getResults()[0]);
   } else {
     emitStoreInstruction(value, destType, destElementType, dest,
-                         destLowerIndices, /*oob=*/zeroAddrOp);
+                         destLowerIndices, /*oob=*/zeroConstantOp);
   }
 }
 
@@ -7938,7 +7937,7 @@ struct ThreadwiseLoadRewritePattern
     // --------------------------------
 
     // Main code emission loop.
-    SmallVector<Value, 8> loadedValues;
+    SmallVector<Value, 8> tupleValues;
     bool toExit = false;
     do {
       // Use the old logic in case "legacy_load" attribute is specified.
@@ -7955,11 +7954,30 @@ struct ThreadwiseLoadRewritePattern
             layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
       }
 
+      // Determine the type to be loaded.
+      // Construct a vector in case we can do vector load.
+      Type loadedType = destElementType;
+      if (srcDataPerRead > 1)
+        loadedType = VectorType::get({srcDataPerRead}, destElementType);
+
       // Load from source.
-      Value loadedValue = emitLoadLogic(
-          b, loc, sourceType, destElementType, toEmitOOBLoadCheckLogic,
-          oobLoadCheckDims, op.source(), srcLowerIndices);
-      loadedValues.push_back(loadedValue);
+      Value loadedValue =
+          emitLoadLogic(b, loc, sourceType, loadedType, toEmitOOBLoadCheckLogic,
+                        oobLoadCheckDims, op.source(), srcLowerIndices);
+
+      // In case we do vector load, decompose the elements as the tuple
+      // result of threadwise_load only hold scalars.
+      if (srcDataPerRead > 1) {
+        assert(loadedValue.getType().isa<VectorType>());
+        for (int64_t iter = 0; iter < srcDataPerRead; ++iter) {
+          auto loadedElement = b.create<vector::ExtractElementOp>(
+              loc, destElementType, loadedValue,
+              b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
+          tupleValues.push_back(loadedElement);
+        }
+      } else {
+        tupleValues.push_back(loadedValue);
+      }
 
       // increase IVs
       bool toIncreaseNextDigit = true;
@@ -7986,7 +8004,8 @@ struct ThreadwiseLoadRewritePattern
     // --------------------------------
 
     // Convert the loaded values to a tuple.
-    Value tuple = b.create<vector::TupleOp>(loc, destType, loadedValues);
+    assert(tupleValues.size() == destType.size());
+    Value tuple = b.create<vector::TupleOp>(loc, destType, tupleValues);
     op.replaceAllUsesWith(tuple);
     op.erase();
     return success();
@@ -8066,6 +8085,9 @@ struct ThreadwiseStoreRewritePattern
                                 .template cast<IntegerAttr>()
                                 .getInt();
 
+    // FIXME. Force destDataPerWrite be 1 for now.
+    destDataPerWrite = 1;
+
     Optional<ArrayAttr> boundAttr;
     if (op->getAttr("bound"))
       boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
@@ -8142,7 +8164,6 @@ struct ThreadwiseStoreRewritePattern
     int64_t counter = 0;
     bool toExit = false;
     do {
-      // llvm::errs() << "counter: " << counter << "\n";
       // Use the old logic in case "legacy_store" attribute is specified.
       if (legacyStore == true) {
         computeTopAndBottomIndicesWithAffineMap(
@@ -8160,43 +8181,10 @@ struct ThreadwiseStoreRewritePattern
       // Store to dest.
       Value element = b.create<vector::TupleGetOp>(
           loc, sourceElementType, op.data(), b.getI32IntegerAttr(counter));
-      if ((destDataPerWrite == 1) && sourceElementType.isa<VectorType>()) {
-        // HACK.
-        auto e = b.create<vector::ExtractElementOp>(
-            loc, destElementType, element,
-            b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32)));
-        emitStoreLogic(b, loc, destType, destElementType,
-                       toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
-                       destLowerIndices, e);
-        e = b.create<vector::ExtractElementOp>(
-            loc, destElementType, element,
-            b.create<ConstantIntOp>(loc, 1, b.getIntegerType(32)));
-        destLowerIndices[0] = b.create<AddIOp>(
-            loc, destLowerIndices[0], b.create<ConstantIndexOp>(loc, 128));
-        emitStoreLogic(b, loc, destType, destElementType,
-                       toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
-                       destLowerIndices, e);
-        e = b.create<vector::ExtractElementOp>(
-            loc, destElementType, element,
-            b.create<ConstantIntOp>(loc, 2, b.getIntegerType(32)));
-        destLowerIndices[0] = b.create<AddIOp>(
-            loc, destLowerIndices[0], b.create<ConstantIndexOp>(loc, 128));
-        emitStoreLogic(b, loc, destType, destElementType,
-                       toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
-                       destLowerIndices, e);
-        e = b.create<vector::ExtractElementOp>(
-            loc, destElementType, element,
-            b.create<ConstantIntOp>(loc, 3, b.getIntegerType(32)));
-        destLowerIndices[0] = b.create<AddIOp>(
-            loc, destLowerIndices[0], b.create<ConstantIndexOp>(loc, 128));
-        emitStoreLogic(b, loc, destType, destElementType,
-                       toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
-                       destLowerIndices, e);
-      } else {
-        emitStoreLogic(b, loc, destType, destElementType,
-                       toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
-                       destLowerIndices, element);
-      }
+      emitStoreLogic(b, loc, destType, destElementType,
+                     toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
+                     destLowerIndices, element);
+
       // Move to the next item in the tuple.
       ++counter;
 
