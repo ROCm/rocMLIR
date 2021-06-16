@@ -257,9 +257,9 @@ public:
                dimIndexVal["wo"].second;
     } else if (dimIndexVal["ko"].first == 2) {
       // Ko's position is at 2, vectorization legnth is last two dimensions
-      if (dimIndexVal["no"].first == 1) {
+      if (dimIndexVal["no"].first == 0) {
         vecLen = dimIndexVal["ho"].second * dimIndexVal["wo"].second;
-      } else if (dimIndexVal["ho"].first == 1) {
+      } else if (dimIndexVal["ho"].first == 0) {
         vecLen = dimIndexVal["no"].second * dimIndexVal["wo"].second;
       } else {
         vecLen = dimIndexVal["no"].second * dimIndexVal["ho"].second;
