@@ -33,17 +33,17 @@ pipeline {
                                 url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                             cmake arguments: "-P install_deps.cmake --minimum",\
                                 installation: "InSearchPath"
-                            cmakeBuild generator: 'Ninja',\
+                            cmakeBuild generator: 'Unix Makefiles',\
                                 buildDir: 'build',\
                                 buildType: 'Release',\
                                 installation: 'InSearchPath',\
-                                steps: [[args: "MIOpenDriver"]],\
                                 cmakeArgs: '''-DMIOPEN_USE_MLIR=On
                                 -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                 -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                                 -DBUILD_DEV=On
+                                -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                -DBUILD_DEV=On
                                 -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
                                 '''
+                            sh 'cd build; make -j $(nproc) MIOpenDriver'
                         }
                         stash name:"MIOpen-test-requisites",\
                                 includes: """MIOpen/src/kernels/**,\
