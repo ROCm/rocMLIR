@@ -36,7 +36,8 @@ func @miopen_conv2d_bwd_data_ckyx_cnhw_knhw(%filter : memref<1x8x128x3x3xf32>, %
     output_layout = ["go", "ko", "no", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0, 0]
+    padding = [0, 0, 0, 0],
+    gemm_id = 0
   } : memref<1x8x128x3x3xf32>, memref<1x8x128x32x32xf32>, memref<1x128x128x30x30xf32>
   return
 }
@@ -73,4 +74,4 @@ func @miopen_conv2d_bwd_weight_ckyx_cnhw_knhw(%filter : memref<1x8x128x3x3xf32>,
 // CHECK:       upper_layer_names = ["gemmM"]
 // CHECK:       lower_layer_names = ["c", "y", "x"]
 // CHECK:       upper_layer_names = ["gemmN"]
-// CHECK-NEXT:  miopen.transform(%arg1)
+// CHECK-NEXT:  miopen.transform

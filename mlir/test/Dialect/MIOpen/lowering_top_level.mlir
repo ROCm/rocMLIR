@@ -60,7 +60,8 @@ func @miopen_conv2d_bwd_data(%filter : memref<1x128x8x3x3xf32>, %input : memref<
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    padding = [0, 0, 0 ,0],
+    gemm_id = 0
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -87,7 +88,8 @@ func @miopen_conv2d_bwd_data_f16(%filter : memref<1x128x8x3x3xf16>, %input : mem
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    padding = [0, 0, 0 ,0],
+    gemm_id = 0
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }
@@ -119,12 +121,14 @@ func @miopen_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memre
   return
 }
 // CHECK-LABEL: func {{@miopen_conv2d_bwd_weight.*%arg0.*%arg1.*%arg2}}
-// CHECK-NOT:   miopen.conv2d_bwd_data
-// CHECK-NEXT:  miopen.transform(%arg0)
+// CHECK-NOT:   miopen.conv2d_bwd_weight
+// CHECK-NEXT:  {{miopen.transform\(%arg0\).* upper_layer_layout = \["gemmG", "gemmM", "gemmN"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmM", "gemmNPad"\].*}}
 // CHECK-NEXT:  miopen.transform(%arg1)
 // CHECK-NEXT:  miopen.transform
-// CHECK-NEXT:  miopen.transform
-// CHECK-NEXT:  miopen.transform(%arg2)
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmK", "gemmN"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmK", "gemmNPad"\].*}}
+// CHECK-NEXT:  {{miopen.transform\(%arg2\).* upper_layer_layout = \["gemmG", "gemmK", "gemmM"\].*}}
 // CHECK-NEXT:  miopen.gridwise_gemm
 
 func @miopen_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
@@ -140,11 +144,63 @@ func @miopen_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : m
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }
-// CHECK-LABEL: func {{@miopen_conv2d_bwd_weight.*%arg0.*%arg1.*%arg2}}
-// CHECK-NOT:   miopen.conv2d_bwd_data
-// CHECK-NEXT:  miopen.transform(%arg0)
+// CHECK-LABEL: func {{@miopen_conv2d_bwd_weight_f16.*%arg0.*%arg1.*%arg2}}
+// CHECK-NOT:   miopen.conv2d_bwd_weight
+// CHECK-NEXT:  {{miopen.transform\(%arg0\).* upper_layer_layout = \["gemmG", "gemmM", "gemmN"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmM", "gemmNPad"\].*}}
 // CHECK-NEXT:  miopen.transform(%arg1)
 // CHECK-NEXT:  miopen.transform
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmK", "gemmN"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmK", "gemmNPad"\].*}}
+// CHECK-NEXT:  {{miopen.transform\(%arg2\).* upper_layer_layout = \["gemmG", "gemmK", "gemmM"\].*}}
+// CHECK-NEXT:  miopen.gridwise_gemm
+
+func @miopen_conv2d_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %input : memref<7x1x8x32x32xf32>, %output : memref<7x1x20x30x30xf32>) {
+  miopen.conv2d_bwd_weight(%filter, %input, %output) {
+    arch = "gfx906",
+    num_cu = 64,
+    filter_layout = ["g", "k", "c", "y", "x"],
+    input_layout = ["ni", "gi", "ci", "hi", "wi"],
+    output_layout = ["no", "go", "ko", "ho", "wo"],
+    dilations = [1, 1],
+    strides = [1, 1],
+    padding = [0, 0, 0 ,0]
+  } : memref<1x20x8x3x3xf32>, memref<7x1x8x32x32xf32>, memref<7x1x20x30x30xf32>
+  return
+}
+// CHECK-LABEL: func {{@miopen_conv2d_bwd_weight_padALL.*%arg0.*%arg1.*%arg2}}
+// CHECK-NOT:   miopen.conv2d_bwd_weight
+// CHECK-NEXT:  {{miopen.transform\(%arg0\).* upper_layer_layout = \["gemmG", "gemmM", "gemmN"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmMPad", "gemmNPad"\].*}}
+// CHECK-NEXT:  miopen.transform(%arg1)
 // CHECK-NEXT:  miopen.transform
-// CHECK-NEXT:  miopen.transform(%arg2)
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmK", "gemmN"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmKPad", "gemmNPad"\].*}}
+// CHECK-NEXT:  {{miopen.transform\(%arg2\).* upper_layer_layout = \["gemmG", "gemmK", "gemmM"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmKPad", "gemmMPad"\].*}}
+// CHECK-NEXT:  miopen.gridwise_gemm
+
+func @miopen_conv2d_bwd_weight_padALL_f16(%filter : memref<1x20x8x3x3xf16>, %input : memref<7x1x8x32x32xf16>, %output : memref<7x1x20x30x30xf16>) {
+  miopen.conv2d_bwd_weight(%filter, %input, %output) {
+    arch = "gfx906",
+    num_cu = 64,
+    filter_layout = ["g", "k", "c", "y", "x"],
+    input_layout = ["ni", "gi", "ci", "hi", "wi"],
+    output_layout = ["no", "go", "ko", "ho", "wo"],
+    dilations = [1, 1],
+    strides = [1, 1],
+    padding = [0, 0, 0 ,0]
+  } : memref<1x20x8x3x3xf16>, memref<7x1x8x32x32xf16>, memref<7x1x20x30x30xf16>
+  return
+}
+// CHECK-LABEL: func {{@miopen_conv2d_bwd_weight_padALL_f16.*%arg0.*%arg1.*%arg2}}
+// CHECK-NOT:   miopen.conv2d_bwd_weight
+// CHECK-NEXT:  {{miopen.transform\(%arg0\).* upper_layer_layout = \["gemmG", "gemmM", "gemmN"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmMPad", "gemmNPad"\].*}}
+// CHECK-NEXT:  miopen.transform(%arg1)
+// CHECK-NEXT:  miopen.transform
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmK", "gemmN"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmKPad", "gemmNPad"\].*}}
+// CHECK-NEXT:  {{miopen.transform\(%arg2\).* upper_layer_layout = \["gemmG", "gemmK", "gemmM"\].*}}
+// CHECK-NEXT:  {{miopen.transform.* upper_layer_layout = \["gemmG", "gemmKPad", "gemmMPad"\].*}}
 // CHECK-NEXT:  miopen.gridwise_gemm
