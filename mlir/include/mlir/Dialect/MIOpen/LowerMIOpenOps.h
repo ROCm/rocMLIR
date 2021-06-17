@@ -721,6 +721,30 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
           b.create<IndexCastOp>(loc, lowerIndicesOriginal[lowerDim],
                                 b.getIntegerType(32)),
           lowerDiff);
+    } else if (transformation.getValue() == "UnMerge2") {
+      auto e = g.get("parameters").template cast<ArrayAttr>();
+      assert(e.size() == p.size());
+      assert(q.size() == 1);
+      int64_t upperDim = p[0].template cast<IntegerAttr>().getInt();
+      Value lowerDiff = upperIndicesDiff[upperDim];
+      for (unsigned iter = 1; iter < e.size(); ++iter) {
+        int64_t coefficient = e[iter].template cast<IntegerAttr>().getInt();
+        int64_t upperDim = p[iter].template cast<IntegerAttr>().getInt();
+        lowerDiff = b.create<AddIOp>(
+            loc, upperIndicesDiff[upperDim],
+            b.create<MulIOp>(
+                loc,
+                b.create<ConstantIntOp>(loc, coefficient, b.getIntegerType(32)),
+                lowerDiff));
+      }
+
+      int64_t lowerDim = q[0].template cast<IntegerAttr>().getInt();
+      lowerIndicesDiffMap[lowerDim] = lowerDiff;
+      lowerIndicesUpdatedMap[lowerDim] = b.create<AddIOp>(
+          loc,
+          b.create<IndexCastOp>(loc, lowerIndicesOriginal[lowerDim],
+                                b.getIntegerType(32)),
+          lowerDiff);
     } else if ((transformation.getValue() == "PassThrough") ||
                (transformation.getValue() == "Pad") ||
                (transformation.getValue() == "Slice")) {
@@ -4862,7 +4886,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 "dimension_lengths",
                 b.getArrayAttr({b.getI32IntegerAttr(gemmKBlocks),
                                 b.getI32IntegerAttr(n / gemmKBlocks)})),
-            b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+            b.getNamedAttr("transformation", b.getStringAttr("UnMerge2")),
             b.getNamedAttr("parameters",
                            b.getArrayAttr({
                                b.getI32IntegerAttr(gemmKBlocks),
@@ -5238,7 +5262,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 "dimension_lengths",
                 b.getArrayAttr({b.getI32IntegerAttr(gemmKBlocks),
                                 b.getI32IntegerAttr(n / gemmKBlocks)})),
-            b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+            b.getNamedAttr("transformation", b.getStringAttr("UnMerge2")),
             b.getNamedAttr("parameters",
                            b.getArrayAttr({
                                b.getI32IntegerAttr(gemmKBlocks),
