@@ -34,7 +34,8 @@ pipeline {
                                  -DCMAKE_INSTALL_PREFIX=/opt/rocm/ ..
                                 '''
                     sh 'cd build; make -j $(nproc) MIOpenDriver'
-                        }
+                    sh 'cd build; make install'
+                }
             }
         }
         stage('Build MLIR') {
@@ -47,17 +48,13 @@ pipeline {
                     cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1'''
             }
         }
-        stage('Install PrettyTable (temporary)') {
-            steps {
-                sh 'pip3 install PrettyTable'
-            }
-        }
         stage('Performance Test') {
             steps {
-                cmake arguments: '--build . MIOpenDriver.py',\
+                cmake arguments: '--build . --target MIOpenDriver.py',\
                     installation: 'InSearchPath', workingDir: 'build'
+
+                // Run MLIR perf benchmarks
                 dir('build') {
-                    // Run MLIR perf benchmarks
                     sh 'python3 ./llvm/MIOpenDriver.py'
                 }
 

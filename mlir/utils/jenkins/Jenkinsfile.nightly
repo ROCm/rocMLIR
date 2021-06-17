@@ -29,9 +29,7 @@ pipeline {
                         -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1
                         -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=1
                     '''
-                dir("build") {
-                    deleteDir()
-                }
+                sh 'rm -rf build' // Permissions issues when using deleteDir()
             }
         }
         stage('Test Random E2E') {
