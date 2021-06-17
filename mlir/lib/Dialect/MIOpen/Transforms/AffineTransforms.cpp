@@ -108,29 +108,8 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
           auto srcDim = srcDimAttr.getValue()[j].cast<IntegerAttr>().getInt();
           affExprsMap.insert({srcDim, expr});
         }
-      } else if (transformAttr.getValue() == "UnMerge") {
-        assert(srcDimAttr.size() == 1);
-        assert(destDimAttr.size() > 1);
-        // output data
-        auto outputType = op.output().getType().cast<MemRefType>();
-        auto outputShape = outputType.getShape();
-
-        auto srcDim = srcDimAttr.getValue()[0].cast<IntegerAttr>().getInt();
-        auto destDim = destDimAttr.getValue()[0].cast<IntegerAttr>().getInt();
-        auto expr = getAffineDimExpr(destDim, op.getContext());
-        auto dimLength =
-            dimLayoutAttr.get("dimension_lengths").cast<ArrayAttr>();
-        for (unsigned j = 1; j < destDimAttr.size(); ++j) {
-          destDim = destDimAttr.getValue()[j].cast<IntegerAttr>().getInt();
-          auto length = dimLength.getValue()[j].cast<IntegerAttr>().getInt();
-          assert(length == outputShape[destDim]);
-
-          auto lengthExpr = getAffineConstantExpr(length, op.getContext());
-          auto partialExpr = getAffineDimExpr(destDim, op.getContext());
-          expr = expr * lengthExpr + partialExpr;
-        }
-        affExprsMap.insert({srcDim, expr});
-      } else if (transformAttr.getValue() == "UnMerge2") {
+      } else if ((transformAttr.getValue() == "UnMerge2") ||
+                 (transformAttr.getValue() == "UnMerge")) {
         assert(srcDimAttr.size() == 1);
         assert(destDimAttr.size() > 1);
         // output data
