@@ -8,13 +8,11 @@ void buildProject(String target, String cmakeOpts) {
 }
 
 void getAndBuildMIOpen(String cmakeOpts) {
-    dir('build') {
-        deleteDir()
-    }
     git branch: 'develop', poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
     cmake arguments: "-P install_deps.cmake --minimum",\
         installation: "InSearchPath"
+    sh '[ ! -d build ] || rm -rf build'
     cmakeBuild generator: 'Unix Makefiles',\
         buildDir: 'build',\
         buildType: 'Release',\
@@ -179,8 +177,10 @@ mlir/utils/jenkins/miopen-tests/**\
                 stage("Performance testing") {
                     when {
                         beforeAgent true;
-                        // Does this only run on private CI?
-                        equals expected: true, actual: params.nightly
+                        allOf {
+                            equals expected: true, actual: params.nightly;
+                            equals expected: false, actual: params.canXdlops
+                        }
                     }
                     agent {
                         docker {
@@ -206,19 +206,16 @@ mlir/utils/jenkins/miopen-tests/**\
                                     -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local"
                                     -DCMAKE_INSTALL_PREFIX=/opt/rocm/
                                     ''')
+                                    // Temporary workaround for MIOpen breakage
+                                    sh 'cd build; make install'
                                 }
                             }
                         }
                         stage("Build MLIR") {
-                            buildProject('mlir-miopen-driver mlir-rocm-runner', '')
-                        }
-                        stage('Install PrettyTable (temporary)') {
-                            sh 'pip3 install PrettyTable'
+                            buildProject('mlir-miopen-driver mlir-rocm-runner MIOpenDriver.py', '')
                         }
                         stage('Performance Test') {
                             steps {
-                                cmake arguments: '--build . MIOpenDriver.py',\
-                                    installation: 'InSearchPath', workingDir: 'build'
                                 dir('build') {
                                     // Run MLIR perf benchmarks
                                     sh 'python3 ./llvm/MIOpenDriver.py'
@@ -236,9 +233,7 @@ mlir/utils/jenkins/miopen-tests/**\
                     }
                     post {
                         always {
-                            dir('build') {
-                                deleteDir()
-                            }
+                            cleanWs()
                         }
                     }
                 }
