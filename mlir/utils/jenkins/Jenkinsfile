@@ -212,7 +212,9 @@ mlir/utils/jenkins/miopen-tests/**\
                             }
                         }
                         stage("Build MLIR") {
-                            buildProject('mlir-miopen-driver mlir-rocm-runner MIOpenDriver.py', '')
+                            steps {
+                                buildProject('mlir-miopen-driver mlir-rocm-runner MIOpenDriver.py', '')
+                            }
                         }
                         stage('Performance Test') {
                             steps {
