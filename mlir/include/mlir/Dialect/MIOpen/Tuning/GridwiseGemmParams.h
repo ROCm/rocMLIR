@@ -16,6 +16,7 @@
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
+#include "mlir/Dialect/MIOpen/utility/BackwardWeightV4R4Helper.h"
 #include "mlir/Dialect/MIOpen/utility/math.hpp"
 #include "mlir/Support/FileUtilities.h"
 #include "llvm/Support/CommandLine.h"
@@ -731,24 +732,7 @@ private:
     int64_t n = ctx.dimIndexVal["no"].second;
     int64_t ho = ctx.dimIndexVal["ho"].second;
     int64_t wo = ctx.dimIndexVal["wo"].second;
-    auto gemmK = n * ho * wo;
-                 
-    int64_t gemmKBlocks = 1;
-    if (gemmK % 16 == 0) {
-      auto lcm = math::lcm(ho * wo, (int64_t)16);
-      gemmKBlocks = std::min(gemmK / lcm, n);
-    } else if (gemmK % 8 == 0) {
-      auto comm = math::lcm(ho * wo, (int64_t)8);
-      gemmKBlocks = std::min(gemmK / comm, n);
-    } else if (gemmK % 4 == 0) {
-      auto comm = math::lcm(ho * wo, (int64_t)4);
-      gemmKBlocks = std::min(gemmK / comm, n);
-    }
-    // not more than n
-    gemmKBlocks = std::min(n, gemmKBlocks);
-    // not less than 1
-    gemmKBlocks = std::max((int64_t)1, gemmKBlocks);
-    return gemmKBlocks;
+    return miopen::calculateKBlockNum(n, ho, wo);
   }
 
   LogicalResult calculateGemmABlockCopyPerformanceParameters(

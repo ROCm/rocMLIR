@@ -39,7 +39,8 @@
 
 #include "XdlopsCodeSelection.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
-#include "utility/math.hpp"
+#include "mlir/Dialect/MIOpen/utility/BackwardWeightV4R4Helper.h"
+#include "mlir/Dialect/MIOpen/utility/math.hpp"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -4599,28 +4600,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto hiPadded = hi + leftPadH + rightPadH;
     auto wiPadded = wi + leftPadW + rightPadW;
     // calculate gemmKBlocks
-    int64_t gemmN = c * y * x;
-    int64_t gemmM = k;
-    int64_t gemmK = n * ho * wo;
-    int64_t standardBockNum = ((gemmN + 127) / 128) * ((gemmM + 127) / 128);
+
     // static const int64_t MaxSubBlockNum = 2048 / standardBockNum;
-    int64_t gemmKBlocks = 1;
-    if (gemmK % 16 == 0) {
-      auto lcm = math::lcm(ho * wo, (int64_t)16);
-      gemmKBlocks = std::min(gemmK / lcm, n);
-    } else if (gemmK % 8 == 0) {
-      auto comm = math::lcm(ho * wo, (int64_t)8);
-      gemmKBlocks = std::min(gemmK / comm, n);
-    } else if (gemmK % 4 == 0) {
-      auto comm = math::lcm(ho * wo, (int64_t)4);
-      gemmKBlocks = std::min(gemmK / comm, n);
-    }
-    // not more than n
-    gemmKBlocks = std::min(n, gemmKBlocks);
-    // not less than 1
-    gemmKBlocks = std::max((int64_t)1, gemmKBlocks);
-    //llvm::errs() << "\n gemmKBlocks: " << gemmKBlocks << " gemmK: " << gemmK
-    //             << " ho: " << ho << " wo: " << wo << "\n";
+    int64_t gemmKBlocks = calculateKBlockNum(n, ho, wo);
 
     // Transform filter tensor.
     // set layout attribute.

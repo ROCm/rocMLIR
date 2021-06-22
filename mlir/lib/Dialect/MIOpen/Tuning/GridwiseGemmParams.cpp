@@ -221,9 +221,6 @@ LogicalResult PopulateParamsXDL::populateDerived(
 
   blockSize = obtainBlockSize(params, waveSize);
 
-  int64_t nKBlocks = 1;
-  if(ctx.opType ==miopen::Conv2DBwdWeightOpType)
-    nKBlocks = getKBlocks(ctx);
 
   res = isValidblockwisegemmxdlops(params, blockSize);
   if (failed(res)) {
@@ -257,6 +254,9 @@ LogicalResult PopulateParamsXDL::populateDerived(
   }
 
   // parameters derivable from tunable parameters.
+  int64_t nKBlocks = 1;
+  if (ctx.opType == miopen::Conv2DBwdWeightOpType)
+    nKBlocks = getKBlocks(ctx);
   gridSize = obtainGridSize(gemmSize, &params) * nKBlocks;
   return success();
 }
