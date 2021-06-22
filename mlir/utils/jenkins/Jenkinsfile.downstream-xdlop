@@ -3,7 +3,7 @@ pipeline {
         docker {
             image 'rocm/mlir:rocm4.1-latest'
             args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
-            label 'gfx908'
+            label 'gfx908-trial'
             alwaysPull true
         }
     }
