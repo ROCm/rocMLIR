@@ -43,37 +43,25 @@ else()
   set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "")
 endif()
 
-# Python's diff_match_patch package is currently required to
-# patch external/llvm-project
-execute_process(
-  COMMAND python -m pip show diff_match_patch
-  RESULT_VARIABLE EXIT_CODE
-  OUTPUT_QUIET
-)
-if (NOT ${EXIT_CODE} EQUAL 0)
-  message(
-    FATAL_ERROR
-      "The \"diff_match_patch\" python package is not installed. \
-       The following command can be used to install it: \
-       \"python -m pip install diff_match_patch\""
-  )
-endif()
 
-# Python's pathlib2 package is currently required to
-# patch external/llvm-project
-execute_process(
-  COMMAND python -m pip show pathlib2
-  RESULT_VARIABLE EXIT_CODE
-  OUTPUT_QUIET
-)
-if (NOT ${EXIT_CODE} EQUAL 0)
-  message(
-    FATAL_ERROR
-      "The \"pathlib2\" python package is not installed. \
+# Check for pip pkgs that are required to selectively patch external/llvm-project
+function(check_pip_package pkg_name)
+  execute_process(
+    COMMAND python -m pip show ${pkg_name}
+    RESULT_VARIABLE EXIT_CODE
+    OUTPUT_QUIET
+    )
+  if (NOT ${EXIT_CODE} EQUAL 0)
+    message(
+      FATAL_ERROR
+      "The \"${pkg_name}\" python package is not installed. \
        The following command can be used to install it: \
-       \"python -m pip install pathlib2\""
-  )
-endif()
+       \"python -m pip install ${pkg_name}\""
+      )
+  endif()
+endfunction()
+check_pip_package(diff-match-patch)
+check_pip_package(pathlib2)
 
 # Patch 'external/llvm-project/mlir' with mods in 'mlir-patch' and 'llvm-patch'
 # FIXME: multi-line cmd + args...
