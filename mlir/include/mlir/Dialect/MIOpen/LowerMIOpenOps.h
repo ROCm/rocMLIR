@@ -1199,6 +1199,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       return backwardData(op, b);
     } else if (miopen::ConvOpType::Conv2DBwdWeightOpType == convOpType &&
                isXdlops && dataType == b.getF32Type()) {
+      // current backward weight with atomic_add can only run under xdlops +
+      // fp32
       return backwardWeightAtomicAdd(op, b);
     }
     auto loc = op.getLoc();
