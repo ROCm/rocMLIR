@@ -13,6 +13,7 @@
 
 #ifndef BACKWARD_WEIGHT_V4R4_HELPER_H
 #define BACKWARD_WEIGHT_V4R4_HELPER_H
+#include "mlir/Dialect/MIOpen/utility/math.hpp"
 
 using namespace mlir;
 
