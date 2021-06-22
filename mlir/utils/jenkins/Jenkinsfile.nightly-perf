@@ -34,7 +34,7 @@ pipeline {
                                  -DCMAKE_INSTALL_PREFIX=/opt/rocm/ ..
                                 '''
                     sh 'cd build; make -j $(nproc) MIOpenDriver'
-                    # A temporary workaround for MIOpenDriver seg fault
+                    //A temporary workaround for MIOpenDriver seg fault
                     sh 'cd build; make -j install'
                         }
             }
