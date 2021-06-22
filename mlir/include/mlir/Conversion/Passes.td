@@ -441,6 +441,21 @@ def TosaToLinalgOnTensors : FunctionPass<"tosa-to-linalg-on-tensors"> {
 }
 
 //===----------------------------------------------------------------------===//
+// TosaToMIGraphX
+//===----------------------------------------------------------------------===//
+
+def TosaToMIGraphXRandom : FunctionPass<"tosa-to-migraphx-random-constant"> {
+  let summary = "Convert TOSA constant into randomized MIGraphX constant";
+  let description = [{
+    Pass that converts TOSA constant operations to the MIGraphX constant operation
+    which has the same shape but filled with random numbers.
+  }];
+
+  let constructor = "tosa::createTosaToMIGraphXRandom()";
+  let dependentDialects = ["migraphx::MIGraphXDialect"];
+}
+
+//===----------------------------------------------------------------------===//
 // VectorToSCF
 //===----------------------------------------------------------------------===//
 

@@ -39,6 +39,10 @@ namespace miopen {
 class MIOpenDialect;
 } // namespace miopen
 
+namespace migraphx {
+class MIGraphXDialect;
+} // namespace migraphx
+
 namespace NVVM {
 class NVVMDialect;
 } // end namespace NVVM
