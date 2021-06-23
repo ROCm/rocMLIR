@@ -404,18 +404,17 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
 // Utility function to emit store instructions with potentially OOB checks.
 //===----------------------------------------------------------------------===//
 inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
-                           Type destElementType, bool toEmitOOBStoreCheckLogic,
+                           Type typeToStore, bool toEmitOOBStoreCheckLogic,
                            const SmallVector<unsigned, 8> &oobStoreCheckDims,
                            const Value &dest,
                            const SmallVector<Value, 8> &destLowerIndices,
                            const Value &value) {
   auto emitStoreInstruction = [&b, &loc](
                                   const Value &value, MemRefType destType,
-                                  Type destElementType, const Value &dest,
+                                  Type typeToStore, const Value &dest,
                                   const SmallVector<Value, 8> &destLowerIndices,
                                   const Value &oob) {
-    Type valueType = value.getType();
-    if (valueType.isa<VectorType>()) {
+    if (typeToStore.isa<VectorType>()) {
       // Issue vector store.
       if (destType.getMemorySpace() == 0) {
         // use raw buffer store if the dest memref is on address space 0
@@ -429,14 +428,15 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
         // Option 2: vector.extractelement + scalar store.
         assert(destType.getRank() == 1);
         assert(destLowerIndices.size() == 1);
-        VectorType valueVectorType = valueType.template cast<VectorType>();
+        VectorType valueVectorType = typeToStore.template cast<VectorType>();
+        Type elementType = destType.getElementType();
         int64_t vectorLength = valueVectorType.getShape()[0];
         SmallVector<Value, 8> destLowerIndicesUpdated = destLowerIndices;
         for (int64_t iter = 0; iter < vectorLength; ++iter) {
           destLowerIndicesUpdated[0] = b.create<AddIOp>(
               loc, destLowerIndices[0], b.create<ConstantIndexOp>(loc, iter));
           auto element = b.create<vector::ExtractElementOp>(
-              loc, destElementType, value,
+              loc, elementType, value,
               b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
           b.create<StoreOp>(loc, element, dest, destLowerIndicesUpdated);
         }
@@ -505,11 +505,11 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
     for (unsigned iter = 1; iter <= 5; ++iter)
       destLowerIndicesUpdated.push_back(ifWithinBoundsOp.getResults()[iter]);
 
-    emitStoreInstruction(value, destType, destElementType, dest,
+    emitStoreInstruction(value, destType, typeToStore, dest,
                          destLowerIndicesUpdated,
                          /*oob=*/ifWithinBoundsOp.getResults()[0]);
   } else {
-    emitStoreInstruction(value, destType, destElementType, dest,
+    emitStoreInstruction(value, destType, typeToStore, dest,
                          destLowerIndices, /*oob=*/zeroConstantOp);
   }
 }
@@ -7885,6 +7885,7 @@ struct ThreadwiseLoadRewritePattern
     // llvm::errs() << "\n";
 
     sliceLengths[vectorReadWriteDim] /= srcDataPerRead;
+    assert(sliceLengths[vectorReadWriteDim] != 0);
 
     // llvm::errs() << "modified lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
@@ -8063,8 +8064,6 @@ struct ThreadwiseStoreRewritePattern
 
     // The types in elements of the TupleType are all the same.
     auto sourceElementType = op.data().getType().cast<TupleType>().getType(0);
-    auto destElementType =
-        op.dest().getType().cast<MemRefType>().getElementType().cast<Type>();
 
     auto sourceType = op.data().getType().cast<TupleType>();
     auto destType = op.dest().getType().cast<MemRefType>();
@@ -8109,21 +8108,22 @@ struct ThreadwiseStoreRewritePattern
     bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
         composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
 
-    // llvm::errs() << "\nthreadwise_store op:\n";
-    // op.dump();
-    // llvm::errs() << "\n";
+    llvm::errs() << "\nthreadwise_store op:\n";
+    op.dump();
+    llvm::errs() << "\n";
 
     // --------------------------------
 
     auto dimAccessOrder =
         op->getAttr("dim_access_order").template cast<ArrayAttr>();
 
-    auto destDataPerWrite = op->getAttr("dest_data_per_write")
+    auto dstDataPerWrite = op->getAttr("dest_data_per_write")
                                 .template cast<IntegerAttr>()
                                 .getInt();
 
-    // FIXME. Force destDataPerWrite be 1 for now.
-    destDataPerWrite = 1;
+    auto vectorReadWriteDim = op->getAttr("vector_read_write_dim")
+                                  .template cast<IntegerAttr>()
+                                  .getInt();
 
     Optional<ArrayAttr> boundAttr;
     if (op->getAttr("bound"))
@@ -8138,6 +8138,17 @@ struct ThreadwiseStoreRewritePattern
                         sourceType, destType);
 
     // llvm::errs() << "slice lengths: ";
+    // for (unsigned i = 0; i < sliceLengths.size(); ++i)
+    //   llvm::errs() << sliceLengths[i] << " ";
+    // llvm::errs() << "\n";
+
+    // llvm::errs() << "vector dim: " << vectorReadWriteDim << "\n";
+    // llvm::errs() << "dest data per write: " << dstDataPerWrite << "\n";
+
+    sliceLengths[vectorReadWriteDim] /= dstDataPerWrite;
+    assert(sliceLengths[vectorReadWriteDim] != 0);
+
+    // llvm::errs() << "modified lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
     //   llvm::errs() << sliceLengths[i] << " ";
     // llvm::errs() << "\n";
@@ -8200,6 +8211,11 @@ struct ThreadwiseStoreRewritePattern
     // Main code emission loop.
     bool toExit = false;
     do {
+      llvm::errs() << "IVs: ";
+      for (auto v : loopIVsPerAccessOrder)
+        llvm::errs() << v << " ";
+      llvm::errs() << "\n";
+
       // Use the old logic in case "legacy_store" attribute is specified.
       if (legacyStore == true) {
         computeTopAndBottomIndicesWithAffineMap(
@@ -8214,26 +8230,55 @@ struct ThreadwiseStoreRewritePattern
             layeredDestTransform, layeredDestIndices, destLowerIndices);
       }
 
-      // Find the tuple element to store, following IVs.
+      // Determine the type to be stored.
+      // Construct a vector in case we can do vector store.
+      Type typeToStore = sourceElementType;
+      if (dstDataPerWrite > 1)
+        typeToStore = VectorType::get({dstDataPerWrite}, sourceElementType);
+
+      // Compute the starting index inside the tuple, following IVs.
       int64_t tupleIndex = 0;
       int64_t stride = 1;
+      int64_t vectorDimStride = 0;
       for (int iter = loopIVsPerAccessOrder.size() - 1; iter >= 0; --iter) {
         tupleIndex += loopIVsPerAccessOrder[iter] * stride;
-        stride *= loopBoundsPerAccessOrder[iter];
+        if (iter == vectorReadWriteDim) {
+          vectorDimStride = stride;
+          stride *= (loopBoundsPerAccessOrder[iter] * dstDataPerWrite);
+        } else {
+          stride *= loopBoundsPerAccessOrder[iter];
+        }
       }
-      Value element = b.create<vector::TupleGetOp>(
-          loc, sourceElementType, op.data(), b.getI32IntegerAttr(tupleIndex));
+      // llvm::errs() << "tupleIndex: " << tupleIndex << "\n";
+
+      // In case we do vector store, decompose the elements as the tuple
+      // only hold scalars.
+      Value valueToStore;
+      if (dstDataPerWrite > 1) {
+        assert(typeToStore.isa<VectorType>());
+
+        Value zeroOp = createZeroConstantFloatOp(b, loc, sourceElementType);
+        valueToStore = b.create<SplatOp>(loc, zeroOp, typeToStore);
+        for (int64_t iter = 0; iter < dstDataPerWrite; ++iter) {
+          int64_t decomposedTupleIndex = tupleIndex + iter * vectorDimStride;
+          // llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex << "\n";
+          Value element = b.create<vector::TupleGetOp>(loc, sourceElementType, op.data(), b.getI32IntegerAttr(decomposedTupleIndex));
+          valueToStore = b.create<vector::InsertElementOp>(loc, typeToStore, element, valueToStore, b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
+        }
+      } else {
+        valueToStore = b.create<vector::TupleGetOp>(loc, sourceElementType, op.data(), b.getI32IntegerAttr(tupleIndex));
+      }
 
       // Store to dest.
-      emitStoreLogic(b, loc, destType, destElementType,
+      emitStoreLogic(b, loc, destType, typeToStore,
                      toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
-                     destLowerIndices, element);
+                     destLowerIndices, valueToStore);
 
       // increase IVs
       bool toIncreaseNextDigit = true;
       int iter = loopIVsPerAccessOrder.size() - 1;
       for (; toIncreaseNextDigit && iter >= 0; --iter) {
-        loopIVsPerAccessOrder[iter] += destDataPerWrite;
+        loopIVsPerAccessOrder[iter] += 1;
         if (loopIVsPerAccessOrder[iter] >= loopBoundsPerAccessOrder[iter]) {
           loopIVsPerAccessOrder[iter] %= loopBoundsPerAccessOrder[iter];
           toIncreaseNextDigit = true;
