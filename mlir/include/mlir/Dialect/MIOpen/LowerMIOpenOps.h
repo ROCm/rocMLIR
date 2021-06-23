@@ -5025,13 +5025,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     int64_t GemmABlockCopyThreadSliceLengths_GemmK;
     int64_t GemmABlockCopyThreadSliceLengths_GemmM;
-    assert(matrix_a_source_vector_read_dim != 0);
-    if (matrix_a_source_vector_read_dim == 1) {
+    assert(matrix_a_source_vector_read_dim != GemmG);
+    if (matrix_a_source_vector_read_dim == GemmK) {
       GemmABlockCopyThreadSliceLengths_GemmK = matrix_a_source_data_per_read;
       GemmABlockCopyThreadSliceLengths_GemmM =
           GemmABlockCopyNumberDataPerThread /
           GemmABlockCopyThreadSliceLengths_GemmK;
-    } else if (matrix_a_source_vector_read_dim == 2) {
+    } else if (matrix_a_source_vector_read_dim == GemmMorN) {
       GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
       GemmABlockCopyThreadSliceLengths_GemmK =
           GemmABlockCopyNumberDataPerThread /
@@ -5058,13 +5058,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     int64_t GemmBBlockCopyThreadSliceLengths_GemmK;
     int64_t GemmBBlockCopyThreadSliceLengths_GemmN;
-    assert(matrix_b_source_vector_read_dim != 0);
-    if (matrix_b_source_vector_read_dim == 1) {
+    assert(matrix_b_source_vector_read_dim != GemmG);
+    if (matrix_b_source_vector_read_dim == GemmK) {
       GemmBBlockCopyThreadSliceLengths_GemmK = matrix_b_source_data_per_read;
       GemmBBlockCopyThreadSliceLengths_GemmN =
           GemmBBlockCopyNumberDataPerThread /
           GemmBBlockCopyThreadSliceLengths_GemmK;
-    } else if (matrix_b_source_vector_read_dim == 2) {
+    } else if (matrix_b_source_vector_read_dim == GemmMorN) {
       GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
       GemmBBlockCopyThreadSliceLengths_GemmK =
           GemmBBlockCopyNumberDataPerThread /
@@ -6061,13 +6061,13 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     int64_t GemmABlockCopyThreadSliceLengths_GemmK;
     int64_t GemmABlockCopyThreadSliceLengths_GemmM;
-    assert(matrix_a_source_vector_read_dim != 0);
-    if (matrix_a_source_vector_read_dim == 1) {
+    assert(matrix_a_source_vector_read_dim != GemmG);
+    if (matrix_a_source_vector_read_dim == GemmK) {
       GemmABlockCopyThreadSliceLengths_GemmK = matrix_a_source_data_per_read;
       GemmABlockCopyThreadSliceLengths_GemmM =
           GemmABlockCopyNumberDataPerThread /
           GemmABlockCopyThreadSliceLengths_GemmK;
-    } else if (matrix_a_source_vector_read_dim == 2) {
+    } else if (matrix_a_source_vector_read_dim == GemmMorN) {
       GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
       GemmABlockCopyThreadSliceLengths_GemmK =
           GemmABlockCopyNumberDataPerThread /
@@ -6094,13 +6094,13 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
 
     int64_t GemmBBlockCopyThreadSliceLengths_GemmK;
     int64_t GemmBBlockCopyThreadSliceLengths_GemmN;
-    assert(matrix_b_source_vector_read_dim != 0);
-    if (matrix_b_source_vector_read_dim == 1) {
+    assert(matrix_b_source_vector_read_dim != GemmG);
+    if (matrix_b_source_vector_read_dim == GemmK) {
       GemmBBlockCopyThreadSliceLengths_GemmK = matrix_b_source_data_per_read;
       GemmBBlockCopyThreadSliceLengths_GemmN =
           GemmBBlockCopyNumberDataPerThread /
           GemmBBlockCopyThreadSliceLengths_GemmK;
-    } else if (matrix_b_source_vector_read_dim == 2) {
+    } else if (matrix_b_source_vector_read_dim == GemmMorN) {
       GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
       GemmBBlockCopyThreadSliceLengths_GemmK =
           GemmBBlockCopyNumberDataPerThread /
