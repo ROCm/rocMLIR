@@ -29,6 +29,11 @@ using namespace mlir;
 
 LLVM_YAML_IS_STRING_MAP(int)
 
+// 0 : gemmG dimension.
+// 1 : gemmK dimension.
+// 2 : gemmM or gemmN dimension.
+enum GemmDimensions { GemmG = 0, GemmK = 1, GemmMorN = 2 };
+
 // greatest common divisor, aka highest common factor
 template <typename T> T gcd(T x, T y) {
   if (x == y || x == 0) {
@@ -88,7 +93,7 @@ struct DerivedParams {
   int64_t clusterLenGemmPos1; // K
   int64_t clusterLenGemmPos2; // M or N
   DerivedParams()
-      : srcVectorReadDim(0), srcDataPerRead(1),
+      : srcVectorReadDim(GemmG), srcDataPerRead(1),
         dstDataPerWrite(1), clusterLenGemmPos1(0), clusterLenGemmPos2(0) {}
 };
 
@@ -363,19 +368,16 @@ protected:
 
     int64_t dataPerThreadCopyGemmPos1 = 0;
     int64_t dataPerThreadCopyGemmPos2 = 0;
-    // 0 : gemmG dimension.
-    // 1 : gemmK dimension.
-    // 2 : gemmM or gemmN dimension.
     if (gemmKVectorizable) {
       dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmVectorized;
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmNonvectorized;
-      derived.srcVectorReadDim = 1;
+      derived.srcVectorReadDim = GemmK;
     } else {
       dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmNonvectorized;
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmVectorized;
-      derived.srcVectorReadDim = 2;
+      derived.srcVectorReadDim = GemmMorN;
     }
-    assert(derived.srcVectorReadDim != 0);
+    assert(derived.srcVectorReadDim != GemmG);
 
     // FIXME: force scalar write for now. Logic being commented out would
     // need to be scrutinized.
