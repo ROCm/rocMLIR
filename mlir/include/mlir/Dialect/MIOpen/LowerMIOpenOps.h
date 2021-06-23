@@ -7983,11 +7983,11 @@ struct ThreadwiseLoadRewritePattern
       // Compute the final index on the loadedValues, following IVs.
       int64_t tupleIndex = 0;
       int64_t stride = 1;
-      int64_t vectorLoadStride = 0;
+      int64_t vectorDimStride = 0;
       for (int64_t iter = loopIVsPerAccessOrder.size() - 1; iter >= 0; --iter) {
         tupleIndex += loopIVsPerAccessOrder[iter] * stride;
         if (iter == vectorReadWriteDim) {
-          vectorLoadStride = stride;
+          vectorDimStride = stride;
           stride *= (loopBoundsPerAccessOrder[iter] * srcDataPerRead);
         } else {
           stride *= loopBoundsPerAccessOrder[iter];
@@ -8004,7 +8004,7 @@ struct ThreadwiseLoadRewritePattern
           auto loadedElement = b.create<vector::ExtractElementOp>(
               loc, destElementType, loadedValue,
               b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
-          int64_t decomposedTupleIndex = tupleIndex + iter * vectorLoadStride;
+          int64_t decomposedTupleIndex = tupleIndex + iter * vectorDimStride;
           // llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex
           //              << "\n";
 
@@ -8165,8 +8165,8 @@ struct ThreadwiseStoreRewritePattern
           layeredDestTransformMetadata =
               metadataAttr.template cast<ArrayAttr>();
         else
-          populateTransformMetadataFromLowerType(b, destType,
-                                                 layeredDestTransformMetadata);
+          populateTransformMetadataFromLowerType(
+            b, destType, layeredDestTransformMetadata);
       }
 
       // Compute high-level coordinate for dest memref.
