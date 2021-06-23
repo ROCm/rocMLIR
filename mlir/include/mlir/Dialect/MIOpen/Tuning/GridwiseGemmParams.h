@@ -370,8 +370,12 @@ protected:
     }
     assert(derived.srcVectorReadDim != 0);
 
+    // FIXME: force scalar write for now. Logic being commented out would
+    // need to be scrutinized.
+    //
     // dstDataPerWrite also bounded by size of threadwise copy
-    derived.dstDataPerWrite = gcd(vectorizationSize, dataPerThreadCopyGemmPos2);
+    // derived.dstDataPerWrite = gcd(vectorizationSize, dataPerThreadCopyGemmPos2);
+    derived.dstDataPerWrite = 1;
 
     // calculate blockwise copy thread cluster lengths
     if (isGemmA) {
