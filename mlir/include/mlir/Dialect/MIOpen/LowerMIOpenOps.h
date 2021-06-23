@@ -5026,7 +5026,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
           GemmABlockCopyThreadSliceLengths_GemmM;
     }
 
-    // llvm::errs() << "slice lengths for Matrix A\n";
+    // llvm::errs() << "thread slice lengths for Matrix A\n";
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
 
@@ -6062,7 +6062,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
           GemmABlockCopyThreadSliceLengths_GemmM;
     }
 
-    // llvm::errs() << "slice lengths for Matrix A\n";
+    // llvm::errs() << "thread slice lengths for Matrix A\n";
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
 
@@ -7884,6 +7884,9 @@ struct ThreadwiseLoadRewritePattern
     //   llvm::errs() << sliceLengths[i] << " ";
     // llvm::errs() << "\n";
 
+    // llvm::errs() << "vector dim: " << vectorReadWriteDim << "\n";
+    // llvm::errs() << "source data per read: " << srcDataPerRead << "\n";
+
     sliceLengths[vectorReadWriteDim] /= srcDataPerRead;
     assert(sliceLengths[vectorReadWriteDim] != 0);
 
@@ -8108,9 +8111,9 @@ struct ThreadwiseStoreRewritePattern
     bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
         composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
 
-    llvm::errs() << "\nthreadwise_store op:\n";
-    op.dump();
-    llvm::errs() << "\n";
+    // llvm::errs() << "\nthreadwise_store op:\n";
+    // op.dump();
+    // llvm::errs() << "\n";
 
     // --------------------------------
 
@@ -8211,10 +8214,10 @@ struct ThreadwiseStoreRewritePattern
     // Main code emission loop.
     bool toExit = false;
     do {
-      llvm::errs() << "IVs: ";
-      for (auto v : loopIVsPerAccessOrder)
-        llvm::errs() << v << " ";
-      llvm::errs() << "\n";
+      // llvm::errs() << "IVs: ";
+      // for (auto v : loopIVsPerAccessOrder)
+      //   llvm::errs() << v << " ";
+      // llvm::errs() << "\n";
 
       // Use the old logic in case "legacy_store" attribute is specified.
       if (legacyStore == true) {
