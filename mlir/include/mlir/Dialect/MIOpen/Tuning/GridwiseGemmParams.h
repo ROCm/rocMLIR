@@ -342,6 +342,9 @@ protected:
       return mlir::failure();
 
     // srcDataPerRead bounded by size of threadwise copy
+    // FIXME: vectorizationSize is fixed to begin from 4 for now.
+    // Change ConvolutionContext so it carries data type information
+    // so we can possibly use 8 in case of f16.
     const int64_t vectorizationSize = 4;
     if ((vectorizableLength > 0) && (vectorizableLength % 4 == 0)) {
       derived.srcDataPerRead = gcd(vectorizationSize, dataPerThreadCopy);
