@@ -29,6 +29,7 @@ pipeline {
                         -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1
                         -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=1
                         -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=1
+                        -DMLIR_MIOPEN_DRIVER_GPU_VALIDATION_ENABLED=1
                     '''
             }
         }

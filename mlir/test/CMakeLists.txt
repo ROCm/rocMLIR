@@ -44,6 +44,12 @@ if(NOT MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED STREQUAL "none")
   set(MLIR_RANDOM_DATA "-rand ${MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED} ")
 endif()
 
+# Passed to lit.site.cfg.py.in to set the -pv or -pv_with_gpu flag for the mlir E2E tests.
+set(MLIR_POPULATE_VALIDATION "-pv")
+if(MLIR_MIOPEN_DRIVER_GPU_VALIDATION_ENABLED)
+  set(MLIR_POPULATE_VALIDATION "-pv_with_gpu")
+endif()
+
 configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
   ${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg.py

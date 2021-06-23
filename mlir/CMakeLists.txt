@@ -84,6 +84,7 @@ set(MLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build miscella
 set(MLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build PR-triggered E2E tests for MIOpen driver")
 set(MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using random data")
 set(MLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for XDLops")
+set(MLIR_MIOPEN_DRIVER_GPU_VALIDATION_ENABLED 0 CACHE BOOL "Enable E2E tests with GPU validation")
 
 set(MLIR_MIOPEN_SQLITE_ENABLED 0 CACHE BOOL "Enable SQLite integration")
 

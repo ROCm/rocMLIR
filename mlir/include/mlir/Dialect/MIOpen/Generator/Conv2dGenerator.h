@@ -66,6 +66,10 @@ public:
 
   Type getDataType(OpBuilder &builder) const;
 
+  void setDataType(std::string dataTypeStr);
+
+  void flipXdlops();
+
   LogicalResult parseConvConfig(const char *arguments);
 
   LogicalResult parseConvDims(int64_t batchSize, int64_t groupSize,

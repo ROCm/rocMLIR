@@ -250,6 +250,12 @@ void Conv2dGenerator::setKernelName(std::string newName) {
   config.kernelName = newName;
 }
 
+void Conv2dGenerator::setDataType(std::string newType) {
+  config.dataTypeStr = newType;
+}
+
+void Conv2dGenerator::flipXdlops() { config.xdlops = !config.xdlops; }
+
 LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
                                              OpBuilder &builder,
                                              int kernel_id) {
@@ -279,7 +285,6 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
       builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
 
   std::string kernelName = config.kernelName;
-
   // Annotate kernel attribute to the FuncOp.
   SmallVector<NamedAttribute, 1> kernelAttrs{
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernel_id)),
@@ -289,7 +294,6 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   auto func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                              ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
-
   if (func.getName() != kernelName) {
     return failure();
   }
