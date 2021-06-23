@@ -340,11 +340,18 @@ protected:
     if (!(dataPerThreadCopy > 0))
       return mlir::failure();
 
-    // srcDataPerRead bounded by size of threadwise copy
     // FIXME: vectorizationSize is fixed to begin from 4 for now.
     // Change ConvolutionContext so it carries data type information
     // so we can possibly use 8 in case of f16.
-    const int64_t vectorizationSize = 4;
+    int64_t vectorizationSize = 4;
+    // FIXME: set vectorizationSize be 1 for backward data for now.
+    // The logic for deciding vectorization size and dimension for
+    // backward data has to be reviewed.
+    auto opType = ctx.opType;
+    if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+      vectorizationSize = 1;
+    }
+    // srcDataPerRead bounded by size of threadwise copy
     if ((vectorizableLength > 0) && (vectorizableLength % 4 == 0)) {
       derived.srcDataPerRead = gcd(vectorizationSize, dataPerThreadCopy);
     }
