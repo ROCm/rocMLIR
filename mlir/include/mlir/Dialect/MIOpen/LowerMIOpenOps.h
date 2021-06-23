@@ -4728,7 +4728,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
 template <typename T, typename U>
 void affixBlockwiseCopyAttributes(
     T &bop, U &gop, OpBuilder &b,
-    const SmallVector<int64_t, 3> &blockwiseCopyBounds, int blockwiseLoadDim,
+    const SmallVector<int64_t, 3> &blockwiseCopyBounds, int vectorDim,
     int blockwiseLoadLength, int blockwiseStoreLength) {
   bop->setAttr("block_size", gop->getAttr("block_size"));
 
@@ -4742,9 +4742,8 @@ void affixBlockwiseCopyAttributes(
                                             b.getI32IntegerAttr(1),
                                             b.getI32IntegerAttr(2),
                                         }));
-  bop->setAttr("source_vector_read_dim", b.getI32IntegerAttr(blockwiseLoadDim));
-  // TBD.
-  bop->setAttr("dest_vector_write_dim", b.getI32IntegerAttr(blockwiseLoadDim));
+  bop->setAttr("source_vector_read_dim", b.getI32IntegerAttr(vectorDim));
+  bop->setAttr("dest_vector_write_dim", b.getI32IntegerAttr(vectorDim));
   bop->setAttr("source_data_per_read",
                b.getI32IntegerAttr(blockwiseLoadLength));
   bop->setAttr("dest_data_per_write",
@@ -5222,7 +5221,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         GemmABlockCopyThreadSliceLengths_GemmM};
     Type blockwiseLoadAType;
     TupleType blockwiseLoadATupleType;
-    int blockwiseLoadADim;
+    int blockwiseAVectorDim;
     int blockwiseLoadAVectorLength;
     int blockwiseStoreAVectorLength;
 
@@ -5235,12 +5234,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //   llvm::errs() << v << " ";
     // llvm::errs() << "\n";
 
-    std::tie(blockwiseLoadAType, blockwiseLoadATupleType, blockwiseLoadADim,
+    std::tie(blockwiseLoadAType, blockwiseLoadATupleType, blockwiseAVectorDim,
              blockwiseLoadAVectorLength, blockwiseStoreAVectorLength) =
         computeLoadStoreTypeInfo(b, op, elementType, blockwiseCopyABounds,
                                  true);
 
-    // llvm::errs() << "vector load dim: " << blockwiseLoadADim << "\n";
+    // llvm::errs() << "vector load dim: " << blockwiseAVectorDim << "\n";
     // llvm::errs() << "element type: " << blockwiseLoadAType << "\n";
     // llvm::errs() << "load size: " << blockwiseLoadAVectorLength << "\n";
     // llvm::errs() << "store size: " << blockwiseStoreAVectorLength << "\n";
@@ -5250,7 +5249,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         GemmBBlockCopyThreadSliceLengths_GemmN};
     Type blockwiseLoadBType;
     TupleType blockwiseLoadBTupleType;
-    int blockwiseLoadBDim;
+    int blockwiseBVectorDim;
     int blockwiseLoadBVectorLength;
     int blockwiseStoreBVectorLength;
 
@@ -5263,12 +5262,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //   llvm::errs() << v << " ";
     // llvm::errs() << "\n";
 
-    std::tie(blockwiseLoadBType, blockwiseLoadBTupleType, blockwiseLoadBDim,
+    std::tie(blockwiseLoadBType, blockwiseLoadBTupleType, blockwiseBVectorDim,
              blockwiseLoadBVectorLength, blockwiseStoreBVectorLength) =
         computeLoadStoreTypeInfo(b, op, elementType, blockwiseCopyBBounds,
                                  false);
 
-    // llvm::errs() << "vector load dim: " << blockwiseLoadBDim << "\n";
+    // llvm::errs() << "vector load dim: " << blockwiseBVectorDim << "\n";
     // llvm::errs() << "element type: " << blockwiseLoadBType << "\n";
     // llvm::errs() << "load size: " << blockwiseLoadBVectorLength << "\n";
     // llvm::errs() << "store size: " << blockwiseStoreBVectorLength << "\n";
@@ -5392,7 +5391,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         loc, blockwiseLoadATupleType, op.filter(), blockwiseCopyASrcVector);
     affixBlockwiseCopyAttributes(
         blockwiseLoadA, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
-        /*blockwiseLoadDim=*/blockwiseLoadADim,
+        /*vectorDim=*/blockwiseAVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
     // Emit blockwise_store for matrix A.
@@ -5401,7 +5400,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         blockwiseCopyADstVector);
     affixBlockwiseCopyAttributes(
         blockwiseStoreA, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
-        /*blockwiseLoadDim=*/blockwiseLoadADim,
+        /*vectorDim=*/blockwiseAVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
 
@@ -5411,7 +5410,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     affixBlockwiseCopyAttributes(
         blockwiseLoadB, op, b,
         /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
-        /*blockwiseLoadDim=*/blockwiseLoadBDim,
+        /*vectorDim=*/blockwiseBVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
     // Emit blockwise_store for matrix B.
@@ -5421,7 +5420,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     affixBlockwiseCopyAttributes(
         blockwiseStoreB, op, b,
         /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
-        /*blockwiseLoadDim=*/blockwiseLoadBDim,
+        /*vectorDim=*/blockwiseBVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
 
@@ -5476,7 +5475,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         blockwiseCopyASrcVectorUpdated);
     affixBlockwiseCopyAttributes(
         blockwiseLoadATop, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
-        /*blockwiseLoadDim=*/blockwiseLoadADim,
+        /*vectorDim=*/blockwiseAVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
     Value blockwiseCopyBSrcVectorUpdated = lb.create<miopen::MovePosV2Op>(
@@ -5489,7 +5488,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         blockwiseCopyBSrcVectorUpdated);
     affixBlockwiseCopyAttributes(
         blockwiseLoadBTop, op, b, /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
-        /*blockwiseLoadDim=*/blockwiseLoadBDim,
+        /*vectorDim=*/blockwiseBVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
 
@@ -5501,7 +5500,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     affixBlockwiseCopyAttributes(
         blockwiseStoreABottom, op, b,
         /*blockwiseCopyBounds=*/blockwiseCopyABounds,
-        /*blockwiseLoadDim=*/blockwiseLoadADim,
+        /*vectorDim=*/blockwiseAVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
     // Emit blockwise_store for matrix B.
@@ -5511,7 +5510,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     affixBlockwiseCopyAttributes(
         blockwiseStoreBBottom, op, b,
         /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
-        /*blockwiseLoadDim=*/blockwiseLoadBDim,
+        /*vectorDim=*/blockwiseBVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
 
@@ -6246,10 +6245,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         GemmABlockCopyThreadSliceLengths_GemmM};
     Type blockwiseLoadAType;
     TupleType blockwiseLoadATupleType;
-    int blockwiseLoadADim;
+    int blockwiseAVectorDim;
     int blockwiseLoadAVectorLength;
     int blockwiseStoreAVectorLength;
-    std::tie(blockwiseLoadAType, blockwiseLoadATupleType, blockwiseLoadADim,
+    std::tie(blockwiseLoadAType, blockwiseLoadATupleType, blockwiseAVectorDim,
              blockwiseLoadAVectorLength, blockwiseStoreAVectorLength) =
         computeLoadStoreTypeInfo(b, op, elementType, blockwiseCopyABounds,
                                  true);
@@ -6259,10 +6258,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         GemmBBlockCopyThreadSliceLengths_GemmN};
     Type blockwiseLoadBType;
     TupleType blockwiseLoadBTupleType;
-    int blockwiseLoadBDim;
+    int blockwiseBVectorDim;
     int blockwiseLoadBVectorLength;
     int blockwiseStoreBVectorLength;
-    std::tie(blockwiseLoadBType, blockwiseLoadBTupleType, blockwiseLoadBDim,
+    std::tie(blockwiseLoadBType, blockwiseLoadBTupleType, blockwiseBVectorDim,
              blockwiseLoadBVectorLength, blockwiseStoreBVectorLength) =
         computeLoadStoreTypeInfo(b, op, elementType, blockwiseCopyBBounds,
                                  false);
@@ -6334,7 +6333,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         loc, blockwiseLoadATupleType, op.filter(), blockwiseCopyASrcVector);
     affixBlockwiseCopyAttributes(
         blockwiseLoadA, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
-        /*blockwiseLoadDim=*/blockwiseLoadADim,
+        /*vectorDim=*/blockwiseAVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
     // Emit blockwise_store for matrix A.
@@ -6343,7 +6342,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         blockwiseCopyADstVector);
     affixBlockwiseCopyAttributes(
         blockwiseStoreA, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
-        /*blockwiseLoadDim=*/blockwiseLoadADim,
+        /*vectorDim=*/blockwiseAVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
 
@@ -6352,7 +6351,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         loc, blockwiseLoadBTupleType, op.input(), blockwiseCopyBSrcVector);
     affixBlockwiseCopyAttributes(
         blockwiseLoadB, op, b, /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
-        /*blockwiseLoadDim=*/blockwiseLoadBDim,
+        /*vectorDim=*/blockwiseBVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
     // Emit blockwise_store for matrix B.
@@ -6361,7 +6360,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         blockwiseCopyBDstVector);
     affixBlockwiseCopyAttributes(
         blockwiseStoreB, op, b, /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
-        /*blockwiseLoadDim=*/blockwiseLoadBDim,
+        /*vectorDim=*/blockwiseBVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
 
@@ -6485,7 +6484,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         blockwiseCopyASrcVectorUpdated);
     affixBlockwiseCopyAttributes(
         blockwiseLoadATop, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
-        /*blockwiseLoadDim=*/blockwiseLoadADim,
+        /*vectorDim=*/blockwiseAVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
     Value blockwiseCopyBSrcVectorUpdated = mfmalb.create<miopen::MovePosV2Op>(
@@ -6498,7 +6497,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         blockwiseCopyBSrcVectorUpdated);
     affixBlockwiseCopyAttributes(
         blockwiseLoadBTop, op, b, /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
-        /*blockwiseLoadDim=*/blockwiseLoadBDim,
+        /*vectorDim=*/blockwiseBVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
 
@@ -6519,7 +6518,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     affixBlockwiseCopyAttributes(
         blockwiseStoreABottom, op, b,
         /*blockwiseCopyBounds=*/blockwiseCopyABounds,
-        /*blockwiseLoadDim=*/blockwiseLoadADim,
+        /*vectorDim=*/blockwiseAVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
     // Emit blockwise_store for matrix B.
@@ -6529,7 +6528,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     affixBlockwiseCopyAttributes(
         blockwiseStoreBBottom, op, b,
         /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
-        /*blockwiseLoadDim=*/blockwiseLoadBDim,
+        /*vectorDim=*/blockwiseBVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
 
