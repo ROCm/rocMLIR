@@ -23,6 +23,9 @@ pipeline {
             steps {
                 checkout scm
                 sh '''
+                    # Workaround for git submodule not getting cleaned out between jobs
+                    git clean -xffd
+
                     mkdir -p build && cd build
 
                     cmake -G Ninja ..
