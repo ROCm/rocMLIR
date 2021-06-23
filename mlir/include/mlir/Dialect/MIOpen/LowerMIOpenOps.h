@@ -418,11 +418,12 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
       // Issue vector store.
       if (destType.getMemorySpace() == 0) {
         // use raw buffer store if the dest memref is on address space 0
+	Value oobI32 = b.create<IndexCastOp>(loc, oob, b.getIntegerType(32));
         SmallVector<Value, 4> destLowerIndicesI32;
         for (auto v : destLowerIndices)
           destLowerIndicesI32.push_back(
               b.create<IndexCastOp>(loc, v, b.getIntegerType(32)));
-        b.create<gpu::RawbufStoreOp>(loc, value, dest, oob,
+        b.create<gpu::RawbufStoreOp>(loc, value, dest, oobI32,
                                      destLowerIndicesI32);
       } else {
         // Option 2: vector.extractelement + scalar store.
@@ -443,7 +444,18 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
       }
     } else {
       // Issue scalar store.
-      b.create<StoreOp>(loc, value, dest, destLowerIndices);
+      if (destType.getMemorySpace() == 0) {
+        // use raw buffer store if the dest memref is on address space 0
+        SmallVector<Value, 4> destLowerIndicesI32;
+	Value oobI32 = b.create<IndexCastOp>(loc, oob, b.getIntegerType(32));
+        for (auto v : destLowerIndices)
+          destLowerIndicesI32.push_back(
+              b.create<IndexCastOp>(loc, v, b.getIntegerType(32)));
+        b.create<gpu::RawbufStoreOp>(loc, value, dest, oobI32,
+                                     destLowerIndicesI32);
+      } else {
+        b.create<StoreOp>(loc, value, dest, destLowerIndices);
+      }
     }
   };
 
