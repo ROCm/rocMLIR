@@ -315,15 +315,15 @@ protected:
                                                   bool isGemmA,
                                                   DerivedParams &derived) {
 
-    bool gemmPos1Vectorizable = false;
+    bool gemmKVectorizable = false;
     int64_t vectorizableLength = 0;
     if (isGemmA) {
       obtainGemmADimKVectorizable(ctx.opType, ctx.dimIndexVal,
-                                  gemmPos1Vectorizable);
+                                  gemmKVectorizable);
       obtainGemmAVecLen(ctx, vectorizableLength);
     } else {
       obtainGemmBDimKVectorizable(ctx.opType, ctx.dimIndexVal,
-                                  gemmPos1Vectorizable);
+                                  gemmKVectorizable);
       obtainGemmBVecLen(ctx, vectorizableLength);
     }
 
@@ -359,7 +359,7 @@ protected:
     // 0 : gemmG dimension.
     // 1 : gemmK dimension.
     // 2 : gemmM or gemmN dimension.
-    if (gemmPos1Vectorizable) {
+    if (gemmKVectorizable) {
       dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmVectorized;
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmNonvectorized;
       derived.srcVectorReadDim = 1;
