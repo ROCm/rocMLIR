@@ -349,11 +349,13 @@ protected:
     // Change ConvolutionContext so it carries data type information
     // so we can possibly use 8 in case of f16.
     int64_t vectorizationSize = 4;
-    // FIXME: set vectorizationSize be 1 for backward data for now.
+    // FIXME: set vectorizationSize be 1 for backward data and backward
+    // weight for now.
     // The logic for deciding vectorization size and dimension for
-    // backward data has to be reviewed.
+    // backward data and backward weight has to be reviewed.
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType ||
+	opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       vectorizationSize = 1;
     }
     // srcDataPerRead bounded by size of threadwise copy
