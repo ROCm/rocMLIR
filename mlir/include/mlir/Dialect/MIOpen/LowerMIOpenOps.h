@@ -418,7 +418,7 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
       // Issue vector store.
       if (destType.getMemorySpace() == 0) {
         // use raw buffer store if the dest memref is on address space 0
-	Value oobI32 = b.create<IndexCastOp>(loc, oob, b.getIntegerType(32));
+        Value oobI32 = b.create<IndexCastOp>(loc, oob, b.getIntegerType(32));
         SmallVector<Value, 4> destLowerIndicesI32;
         for (auto v : destLowerIndices)
           destLowerIndicesI32.push_back(
@@ -447,7 +447,7 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
       if (destType.getMemorySpace() == 0) {
         // use raw buffer store if the dest memref is on address space 0
         SmallVector<Value, 4> destLowerIndicesI32;
-	Value oobI32 = b.create<IndexCastOp>(loc, oob, b.getIntegerType(32));
+        Value oobI32 = b.create<IndexCastOp>(loc, oob, b.getIntegerType(32));
         for (auto v : destLowerIndices)
           destLowerIndicesI32.push_back(
               b.create<IndexCastOp>(loc, v, b.getIntegerType(32)));
@@ -521,8 +521,8 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
                          destLowerIndicesUpdated,
                          /*oob=*/ifWithinBoundsOp.getResults()[0]);
   } else {
-    emitStoreInstruction(value, destType, typeToStore, dest,
-                         destLowerIndices, /*oob=*/zeroConstantOp);
+    emitStoreInstruction(value, destType, typeToStore, dest, destLowerIndices,
+                         /*oob=*/zeroConstantOp);
   }
 }
 
@@ -7388,7 +7388,8 @@ struct BlockwiseStoreRewritePattern
 struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
   using OpRewritePattern<miopen::FillOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(miopen::FillOp op, PatternRewriter &b) const override {
+  LogicalResult matchAndRewrite(miopen::FillOp op,
+                                PatternRewriter &b) const override {
     auto loc = op.getLoc();
     auto inputType = op.input().getType().cast<MemRefType>();
     auto inputShape = inputType.getShape();
@@ -8133,8 +8134,8 @@ struct ThreadwiseStoreRewritePattern
         op->getAttr("dim_access_order").template cast<ArrayAttr>();
 
     auto dstDataPerWrite = op->getAttr("dest_data_per_write")
-                                .template cast<IntegerAttr>()
-                                .getInt();
+                               .template cast<IntegerAttr>()
+                               .getInt();
 
     auto vectorReadWriteDim = op->getAttr("vector_read_write_dim")
                                   .template cast<IntegerAttr>()
@@ -8191,8 +8192,8 @@ struct ThreadwiseStoreRewritePattern
           layeredDestTransformMetadata =
               metadataAttr.template cast<ArrayAttr>();
         else
-          populateTransformMetadataFromLowerType(
-            b, destType, layeredDestTransformMetadata);
+          populateTransformMetadataFromLowerType(b, destType,
+                                                 layeredDestTransformMetadata);
       }
 
       // Compute high-level coordinate for dest memref.
@@ -8276,18 +8277,24 @@ struct ThreadwiseStoreRewritePattern
         valueToStore = b.create<SplatOp>(loc, zeroOp, typeToStore);
         for (int64_t iter = 0; iter < dstDataPerWrite; ++iter) {
           int64_t decomposedTupleIndex = tupleIndex + iter * vectorDimStride;
-          // llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex << "\n";
-          Value element = b.create<vector::TupleGetOp>(loc, sourceElementType, op.data(), b.getI32IntegerAttr(decomposedTupleIndex));
-          valueToStore = b.create<vector::InsertElementOp>(loc, typeToStore, element, valueToStore, b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
+          // llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex <<
+          // "\n";
+          Value element = b.create<vector::TupleGetOp>(
+              loc, sourceElementType, op.data(),
+              b.getI32IntegerAttr(decomposedTupleIndex));
+          valueToStore = b.create<vector::InsertElementOp>(
+              loc, typeToStore, element, valueToStore,
+              b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
         }
       } else {
-        valueToStore = b.create<vector::TupleGetOp>(loc, sourceElementType, op.data(), b.getI32IntegerAttr(tupleIndex));
+        valueToStore = b.create<vector::TupleGetOp>(
+            loc, sourceElementType, op.data(), b.getI32IntegerAttr(tupleIndex));
       }
 
       // Store to dest.
-      emitStoreLogic(b, loc, destType, typeToStore,
-                     toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
-                     destLowerIndices, valueToStore);
+      emitStoreLogic(b, loc, destType, typeToStore, toEmitOOBStoreCheckLogic,
+                     oobStoreCheckDims, op.dest(), destLowerIndices,
+                     valueToStore);
 
       // increase IVs
       bool toIncreaseNextDigit = true;

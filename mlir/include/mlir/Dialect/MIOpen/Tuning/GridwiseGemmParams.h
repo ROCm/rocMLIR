@@ -93,8 +93,8 @@ struct DerivedParams {
   int64_t clusterLenGemmPos1; // K
   int64_t clusterLenGemmPos2; // M or N
   DerivedParams()
-      : srcVectorReadDim(GemmG), srcDataPerRead(1),
-        dstDataPerWrite(1), clusterLenGemmPos1(0), clusterLenGemmPos2(0) {}
+      : srcVectorReadDim(GemmG), srcDataPerRead(1), dstDataPerWrite(1),
+        clusterLenGemmPos1(0), clusterLenGemmPos2(0) {}
 };
 
 class PopulateParamsBase {
@@ -355,7 +355,7 @@ protected:
     // backward data and backward weight has to be reviewed.
     auto opType = ctx.opType;
     if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType ||
-	opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+        opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       vectorizationSize = 1;
     }
     // srcDataPerRead bounded by size of threadwise copy
@@ -385,7 +385,8 @@ protected:
     // need to be scrutinized.
     //
     // dstDataPerWrite also bounded by size of threadwise copy
-    // derived.dstDataPerWrite = gcd(vectorizationSize, dataPerThreadCopyGemmPos2);
+    // derived.dstDataPerWrite = gcd(vectorizationSize,
+    // dataPerThreadCopyGemmPos2);
     derived.dstDataPerWrite = 1;
 
     // calculate blockwise copy thread cluster lengths
