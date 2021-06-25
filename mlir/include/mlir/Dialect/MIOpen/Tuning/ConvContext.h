@@ -20,8 +20,6 @@
 
 namespace mlir {
 
-enum class DataType { f32, f16, bf16 };
-
 struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallString<8> arch;
   int num_cu;
@@ -31,7 +29,7 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallVector<int64_t, 0> dilationVal;
   llvm::SmallVector<int64_t, 0> paddingVal;
   int gemmId;
-  DataType dataType;
+  mlir::Type dataType;
 
   ConvolutionContext(const llvm::SmallString<8> &architecture, int numCu,
                      miopen::ConvOpType op,
@@ -39,7 +37,7 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
                      llvm::SmallVector<int64_t, 0> stride,
                      llvm::SmallVector<int64_t, 0> dilation,
                      llvm::SmallVector<int64_t, 0> padding, int gemmid,
-                     DataType type)
+                     mlir::Type type)
       : arch(architecture), num_cu(numCu), opType(op), dimIndexVal(dim),
         strideVal(stride), dilationVal(dilation), paddingVal(padding),
         gemmId(gemmid), dataType(type) {}
@@ -51,7 +49,7 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallVector<int64_t, 0> getStrideVal() const { return strideVal; }
   llvm::SmallVector<int64_t, 0> getDilationVal() const { return dilationVal; }
   miopen::ConvOpType getOpType() const { return opType; }
-  DataType getDataType() const { return dataType; }
+  mlir::Type getDataType() const { return dataType; }
 
   static std::string tableName() { return "config"; }
 
@@ -84,12 +82,12 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
     // TODO use dimIndexVal to generate layout
     f("'" + std::string("NCHW") + "'", "layout");
 
-    DataType dataType = self.getDataType();
-    if (dataType == DataType::f32) {
+    mlir::Type dataType = self.getDataType();
+    if (dataType.isF32()) {
       f("'" + std::string("FP32") + "'", "data_type");
-    } else if (dataType == DataType::f16) {
+    } else if (dataType.isF16()) {
       f("'" + std::string("FP16") + "'", "data_type");
-    } else if (dataType == DataType::bf16) {
+    } else if (dataType.isBF16()) {
       f("'" + std::string("BF16") + "'", "data_type");
     }
 
@@ -123,17 +121,8 @@ template <typename T> static miopen::ConvOpType ObtainConvDirection(T &op) {
   return opType;
 }
 
-template <typename T> static DataType obtainDataType(T &op) {
-  DataType ret = DataType::f32;
-  Type type = op.input().getType().template cast<MemRefType>().getElementType();
-  if (type.isF32()) {
-    ret = DataType::f32;
-  } else if (type.isF16()) {
-    ret = DataType::f16;
-  } else if (type.isBF16()) {
-    ret = DataType::bf16;
-  }
-  return ret;
+template <typename T> static mlir::Type obtainDataType(T &op) {
+  return op.input().getType().template cast<MemRefType>().getElementType();
 }
 
 static inline void

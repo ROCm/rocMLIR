@@ -348,11 +348,10 @@ protected:
     // Compute the maximum possible vectorization size for the data type used
     // in the algorithm.
     int64_t vectorizationSize = 1;
-    if (ctx.dataType == DataType::f32) {
+    auto dataType = ctx.getDataType();
+    if (dataType.isF32()) {
       vectorizationSize = 4;
-    } else if (ctx.dataType == DataType::f16) {
-      vectorizationSize = 8;
-    } else if (ctx.dataType == DataType::bf16) {
+    } else if (dataType.isF16() || dataType.isBF16()) {
       vectorizationSize = 8;
     }
     // FIXME: set vectorizationSize be 1 for backward data and backward
