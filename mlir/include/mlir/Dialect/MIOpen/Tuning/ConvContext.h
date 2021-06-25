@@ -20,6 +20,8 @@
 
 namespace mlir {
 
+enum class DataType { f32, f16, bf16 };
+
 struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallString<8> arch;
   int num_cu;
@@ -29,16 +31,18 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallVector<int64_t, 0> dilationVal;
   llvm::SmallVector<int64_t, 0> paddingVal;
   int gemmId;
+  DataType dataType;
 
   ConvolutionContext(const llvm::SmallString<8> &architecture, int numCu,
                      miopen::ConvOpType op,
                      llvm::StringMap<std::pair<size_t, int64_t>> dim,
                      llvm::SmallVector<int64_t, 0> stride,
                      llvm::SmallVector<int64_t, 0> dilation,
-                     llvm::SmallVector<int64_t, 0> padding, int gemmid)
+                     llvm::SmallVector<int64_t, 0> padding, int gemmid,
+                     DataType type)
       : arch(architecture), num_cu(numCu), opType(op), dimIndexVal(dim),
         strideVal(stride), dilationVal(dilation), paddingVal(padding),
-        gemmId(gemmid) {}
+        gemmId(gemmid), dataType(type) {}
 
   llvm::StringMap<std::pair<size_t, int64_t>> getDimIndexVal() const {
     return dimIndexVal;
@@ -47,6 +51,8 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallVector<int64_t, 0> getStrideVal() const { return strideVal; }
   llvm::SmallVector<int64_t, 0> getDilationVal() const { return dilationVal; }
   miopen::ConvOpType getOpType() const { return opType; }
+  DataType getDataType() const { return dataType; }
+
   static std::string tableName() { return "config"; }
 
   // Note: Keep it in sync with miopen/conv/problem_description
@@ -77,7 +83,15 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
     f(std::to_string(1), "group_count");
     // TODO use dimIndexVal to generate layout
     f("'" + std::string("NCHW") + "'", "layout");
-    f("'" + std::string("FP32") + "'", "data_type");
+
+    DataType dataType = self.getDataType();
+    if (dataType == DataType::f32) {
+      f("'" + std::string("FP32") + "'", "data_type");
+    } else if (dataType == DataType::f16) {
+      f("'" + std::string("FP16") + "'", "data_type");
+    } else if (dataType == DataType::bf16) {
+      f("'" + std::string("BF16") + "'", "data_type");
+    }
 
     switch (self.getOpType()) {
     case miopen::ConvOpType::Conv2DOpType:
@@ -107,6 +121,19 @@ template <typename T> static miopen::ConvOpType ObtainConvDirection(T &op) {
     opType = miopen::ConvOpType::Conv2DOpType;
   }
   return opType;
+}
+
+template <typename T> static DataType obtainDataType(T &op) {
+  DataType ret = DataType::f32;
+  Type type = op.input().getType().template cast<MemRefType>().getElementType();
+  if (type.isF32()) {
+    ret = DataType::f32;
+  } else if (type.isF16()) {
+    ret = DataType::f16;
+  } else if (type.isBF16()) {
+    ret = DataType::bf16;
+  }
+  return ret;
 }
 
 static inline void
@@ -183,8 +210,10 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
   llvm::SmallVector<int64_t, 0> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 
-  return {archVal,   numCuVal,    opType,     dimIndexVal,
-          strideVal, dilationVal, paddingVal, gemmId};
+  auto dataType = obtainDataType(op);
+
+  return {archVal,     numCuVal,   opType, dimIndexVal, strideVal,
+          dilationVal, paddingVal, gemmId, dataType};
 }
 
 } // namespace mlir

@@ -345,10 +345,16 @@ protected:
     if (!(dataPerThreadCopy > 0))
       return mlir::failure();
 
-    // FIXME: vectorizationSize is fixed to begin from 4 for now.
-    // Change ConvolutionContext so it carries data type information
-    // so we can possibly use 8 in case of f16.
-    int64_t vectorizationSize = 4;
+    // Compute the maximum possible vectorization size for the data type used
+    // in the algorithm.
+    int64_t vectorizationSize = 1;
+    if (ctx.dataType == DataType::f32) {
+      vectorizationSize = 4;
+    } else if (ctx.dataType == DataType::f16) {
+      vectorizationSize = 8;
+    } else if (ctx.dataType == DataType::bf16) {
+      vectorizationSize = 8;
+    }
     // FIXME: set vectorizationSize be 1 for backward data and backward
     // weight for now.
     // The logic for deciding vectorization size and dimension for
