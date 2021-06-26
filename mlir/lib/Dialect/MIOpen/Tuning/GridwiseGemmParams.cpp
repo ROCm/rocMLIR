@@ -20,6 +20,13 @@ LogicalResult PopulateParams::populateDerived(
     return failure();
   }
 
+  if (  ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType
+      &&!(gemmSize.gemmM % 32 == 0 && gemmSize.gemmN % 32 == 0  && gemmSize.gemmK % 4 == 0)) {
+    LLVM_DEBUG(llvm::dbgs() << "Improper Gemm sizes for backward data.\n");
+    return failure();
+  }
+  
+
   res = calculateGemmABlockCopyPerformanceParameters(&params, ctx,
                                                      gemmADerivedParam);
   if (failed(res)) {
