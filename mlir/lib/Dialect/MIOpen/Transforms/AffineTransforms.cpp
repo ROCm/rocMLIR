@@ -108,8 +108,7 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
           auto srcDim = srcDimAttr.getValue()[j].cast<IntegerAttr>().getInt();
           affExprsMap.insert({srcDim, expr});
         }
-      } else if ((transformAttr.getValue() == "UnMerge2") ||
-                 (transformAttr.getValue() == "UnMerge")) {
+      } else if (transformAttr.getValue() == "UnMerge") {
         assert(srcDimAttr.size() == 1);
         assert(destDimAttr.size() > 1);
         // output data

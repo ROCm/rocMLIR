@@ -696,11 +696,8 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
     auto p = g.get("upper_layer_dimensions").template cast<ArrayAttr>();
     auto q = g.get("lower_layer_dimensions").template cast<ArrayAttr>();
 
-    if ((transformation.getValue() == "UnMerge") ||
-        (transformation.getValue() == "Embed")) {
+    if (transformation.getValue() == "Embed") {
       auto e = g.get("parameters").template cast<ArrayAttr>();
-      if (transformation.getValue() == "Embed")
-        assert(p.size() == 2);
       assert(e.size() == p.size());
       assert(q.size() == 1);
       Value lowerDiff = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
@@ -722,7 +719,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
           b.create<IndexCastOp>(loc, lowerIndicesOriginal[lowerDim],
                                 b.getIntegerType(32)),
           lowerDiff);
-    } else if (transformation.getValue() == "UnMerge2") {
+    } else if (transformation.getValue() == "UnMerge") {
       auto e = g.get("parameters").template cast<ArrayAttr>();
       assert(e.size() == p.size());
       assert(q.size() == 1);
@@ -4870,7 +4867,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 "dimension_lengths",
                 b.getArrayAttr({b.getI32IntegerAttr(gemmKBlocks),
                                 b.getI32IntegerAttr(n / gemmKBlocks)})),
-            b.getNamedAttr("transformation", b.getStringAttr("UnMerge2")),
+            b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
             b.getNamedAttr("parameters",
                            b.getArrayAttr({
                                b.getI32IntegerAttr(gemmKBlocks),
@@ -5246,7 +5243,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                 "dimension_lengths",
                 b.getArrayAttr({b.getI32IntegerAttr(gemmKBlocks),
                                 b.getI32IntegerAttr(n / gemmKBlocks)})),
-            b.getNamedAttr("transformation", b.getStringAttr("UnMerge2")),
+            b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
             b.getNamedAttr("parameters",
                            b.getArrayAttr({
                                b.getI32IntegerAttr(gemmKBlocks),
@@ -6369,7 +6366,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                 b.getArrayAttr({b.getI32IntegerAttr(1)})),
                  b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmM")})),
-                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                  b.getNamedAttr("parameters",
                                 b.getArrayAttr({b.getI32IntegerAttr(M1),
                                                 b.getI32IntegerAttr(1)})),
@@ -6385,7 +6382,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                 b.getArrayAttr({b.getI32IntegerAttr(2)})),
                  b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmN")})),
-                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                  b.getNamedAttr("parameters",
                                 b.getArrayAttr({b.getI32IntegerAttr(N1),
                                                 b.getI32IntegerAttr(1)})),
@@ -6452,7 +6449,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                 b.getArrayAttr({b.getI32IntegerAttr(1)})),
                  b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmM")})),
-                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                  b.getNamedAttr("parameters",
                                 b.getArrayAttr({b.getI32IntegerAttr(MPerThread),
                                                 b.getI32IntegerAttr(1)})),
@@ -6469,7 +6466,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                 b.getArrayAttr({b.getI32IntegerAttr(2)})),
                  b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmN")})),
-                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                  b.getNamedAttr("parameters",
                                 b.getArrayAttr({b.getI32IntegerAttr(NPerThread),
                                                 b.getI32IntegerAttr(1)})),
@@ -7450,7 +7447,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                 b.getArrayAttr({b.getI32IntegerAttr(1)})),
                  b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmM")})),
-                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                  b.getNamedAttr("parameters",
                                 b.getArrayAttr({b.getI32IntegerAttr(M1 * M2),
                                                 b.getI32IntegerAttr(M2),
@@ -7699,7 +7696,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                                 {b.getStringAttr("raw")})),
                                         b.getNamedAttr(
                                             "transformation",
-                                            b.getStringAttr("UnMerge")),
+                                            b.getStringAttr("Embed")),
                                         b.getNamedAttr(
                                             "upper_layer_dimensions",
                                             b.getArrayAttr(
@@ -8860,7 +8857,7 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
                      {b.getNamedAttr("lower_layer_dimensions",
                                      b.getArrayAttr(lowerLayerDims)),
                       b.getNamedAttr("transformation",
-                                     b.getStringAttr("UnMerge")),
+                                     b.getStringAttr("Embed")),
                       b.getNamedAttr("parameters",
                                      b.getArrayAttr(upperLayerStrides)),
                       b.getNamedAttr("upper_layer_dimensions",
