@@ -29,6 +29,11 @@ using namespace mlir;
 
 LLVM_YAML_IS_STRING_MAP(int)
 
+// 0 : gemmG dimension.
+// 1 : gemmK dimension.
+// 2 : gemmM or gemmN dimension.
+enum GemmDimensions { GemmG = 0, GemmK = 1, GemmMorN = 2 };
+
 // greatest common divisor, aka highest common factor
 template <typename T> T gcd(T x, T y) {
   if (x == y || x == 0) {
@@ -82,15 +87,14 @@ struct GemmSize {
 
 struct DerivedParams {
   int64_t srcVectorReadDim;
-  int64_t dstVectorWriteDim;
   int64_t srcDataPerRead;
   int64_t dstDataPerWrite;
   int64_t clusterLenGemmPos0; // G
-  int64_t clusterLenGemmPos1;
-  int64_t clusterLenGemmPos2;
+  int64_t clusterLenGemmPos1; // K
+  int64_t clusterLenGemmPos2; // M or N
   DerivedParams()
-      : srcVectorReadDim(0), dstVectorWriteDim(0), srcDataPerRead(1),
-        dstDataPerWrite(1), clusterLenGemmPos1(0), clusterLenGemmPos2(0) {}
+      : srcVectorReadDim(GemmG), srcDataPerRead(1), dstDataPerWrite(1),
+        clusterLenGemmPos1(0), clusterLenGemmPos2(0) {}
 };
 
 class PopulateParamsBase {
@@ -316,15 +320,15 @@ protected:
                                                   bool isGemmA,
                                                   DerivedParams &derived) {
 
-    bool gemmPos1Vectorizable = false;
+    bool gemmKVectorizable = false;
     int64_t vectorizableLength = 0;
     if (isGemmA) {
       obtainGemmADimKVectorizable(ctx.opType, ctx.dimIndexVal,
-                                  gemmPos1Vectorizable);
+                                  gemmKVectorizable);
       obtainGemmAVecLen(ctx, vectorizableLength);
     } else {
       obtainGemmBDimKVectorizable(ctx.opType, ctx.dimIndexVal,
-                                  gemmPos1Vectorizable);
+                                  gemmKVectorizable);
       obtainGemmBVecLen(ctx, vectorizableLength);
     }
 
@@ -341,8 +345,20 @@ protected:
     if (!(dataPerThreadCopy > 0))
       return mlir::failure();
 
+    // FIXME: vectorizationSize is fixed to begin from 4 for now.
+    // Change ConvolutionContext so it carries data type information
+    // so we can possibly use 8 in case of f16.
+    int64_t vectorizationSize = 4;
+    // FIXME: set vectorizationSize be 1 for backward data and backward
+    // weight for now.
+    // The logic for deciding vectorization size and dimension for
+    // backward data and backward weight has to be reviewed.
+    auto opType = ctx.opType;
+    if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType ||
+        opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+      vectorizationSize = 1;
+    }
     // srcDataPerRead bounded by size of threadwise copy
-    const int64_t vectorizationSize = 4;
     if ((vectorizableLength > 0) && (vectorizableLength % 4 == 0)) {
       derived.srcDataPerRead = gcd(vectorizationSize, dataPerThreadCopy);
     }
@@ -354,18 +370,24 @@ protected:
 
     int64_t dataPerThreadCopyGemmPos1 = 0;
     int64_t dataPerThreadCopyGemmPos2 = 0;
-    if (gemmPos1Vectorizable) {
+    if (gemmKVectorizable) {
       dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmVectorized;
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmNonvectorized;
-      derived.srcVectorReadDim = 1;
+      derived.srcVectorReadDim = GemmK;
     } else {
       dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmNonvectorized;
       dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmVectorized;
-      derived.srcVectorReadDim = 2;
+      derived.srcVectorReadDim = GemmMorN;
     }
+    assert(derived.srcVectorReadDim != GemmG);
 
+    // FIXME: force scalar write for now. Logic being commented out would
+    // need to be scrutinized.
+    //
     // dstDataPerWrite also bounded by size of threadwise copy
-    derived.dstDataPerWrite = gcd(vectorizationSize, dataPerThreadCopyGemmPos2);
+    // derived.dstDataPerWrite = gcd(vectorizationSize,
+    // dataPerThreadCopyGemmPos2);
+    derived.dstDataPerWrite = 1;
 
     // calculate blockwise copy thread cluster lengths
     if (isGemmA) {
@@ -379,7 +401,6 @@ protected:
       derived.clusterLenGemmPos2 =
           param->gemmNPerBlock / dataPerThreadCopyGemmPos2;
     }
-
     if (!(derived.clusterLenGemmPos1 > 0 && derived.clusterLenGemmPos2 > 0))
       return mlir::failure();
 

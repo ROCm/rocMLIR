@@ -1850,8 +1850,8 @@ def Vector_CreateMaskOp :
 
 def Vector_TupleOp :
   Vector_Op<"tuple", [NoSideEffect]>,
-    Arguments<(ins Variadic<AnyVector>:$vectors)>,
-    Results<(outs TupleOf<[AnyVector]>)> {
+    Arguments<(ins Variadic<AnyType>:$vectors)>,
+    Results<(outs TupleOf<[AnyType]>)> {
   let summary = "make tuple of vectors operation";
   let description = [{
     Returns a tuple of its operands 'vectors'.

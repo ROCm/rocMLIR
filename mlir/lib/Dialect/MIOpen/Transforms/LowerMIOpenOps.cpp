@@ -141,6 +141,8 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
   patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
   patterns.insert<BlockwiseGemmV2RewritePattern>(&getContext());
   patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
+  patterns.insert<BlockwiseLoadRewritePattern>(&getContext());
+  patterns.insert<BlockwiseStoreRewritePattern>(&getContext());
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }
@@ -149,6 +151,8 @@ void LowerMIOpenOpsStep4Pass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<ThreadwiseGemmRewritePattern>(&getContext());
   patterns.insert<ThreadwiseCopyRewritePattern>(&getContext());
+  patterns.insert<ThreadwiseLoadRewritePattern>(&getContext());
+  patterns.insert<ThreadwiseStoreRewritePattern>(&getContext());
   patterns.insert<ThreadwiseCopyV2RewritePattern>(&getContext());
   patterns.insert<XdlopsGemmV2RewritePattern>(&getContext());
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))

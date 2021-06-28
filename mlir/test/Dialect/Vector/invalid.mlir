@@ -869,14 +869,6 @@ func @extract_slices_invalid_tuple_element_type(%arg0 : vector<4x2xf32>) {
 
 // -----
 
-func @tuple_of_non_vectors(%arg0 : vector<4x2xf32>) {
-  %c0 = constant 0 : index
-  // expected-error@+1 {{must be vector of any type values}}
-  %0 = vector.tuple %arg0, %c0 : vector<4x2xf32>, index
-}
-
-// -----
-
 func @tuple_get_of_non_vectors(%arg0 : tuple<vector<4x2xf32>, index>) {
   // expected-error@+1 {{vector of any type values}}
   %0 = vector.tuple_get %arg0, 0 : tuple<vector<4x2xf32>, index>
