@@ -808,7 +808,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
   //         lower_indices_updated[j] = lower_indices_origina[j] + lower_diff[j]
   //
   //     Case Embed:
-  //       |P| = k, currently k will be fixed as 2.
+  //       |P| = k, currently k will be >= 2.
   //       |Q| shall be 1
   //       Let (p_{0}, ... , p_{k-1}) be elements in P, |P| = k
   //       Let (e_{0}, ... , e_{k-1}) be parameters of P
@@ -820,11 +820,12 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
   //       |Q| shall be 1
   //       Let (p_{0}, ... , p_{k-1}) be elements in P, |P| = k
   //       Let (e_{0}, ... , e_{k-1}) be parameters of P
-  //         The value of e_{i} is defined as:
-  //           e_{k-1} = 1
-  //           e_{i} = mul_over_{domain: [i+1 .. k-1], iterator=l}(T_{l})
+  //       Let (f_{0}, ... , f_{k-1})
+  //         The value of f_{i} is defined as:
+  //           f_{k-1} = 1
+  //           f_{i} = mul_over_{domain: e_[i+1 .. k-1], iterator=l}(T_{l})
   //       Let j be the counterpart in q
-  //         lower_diff[j] = sum_over_P(e_{i} * upper_diff[p_{i}])
+  //         lower_diff[j] = sum_over_P(f_{i} * upper_diff[p_{i}])
   //         lower_indices_updated[j] = lower_indices_origina[j] + lower_diff[j]
   //
   //     Case Unfold:
