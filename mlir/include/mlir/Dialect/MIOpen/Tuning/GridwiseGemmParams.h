@@ -852,6 +852,22 @@ private:
       DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
       int64_t &blockSize, int64_t &gridSize);
 
+  LogicalResult isValidGridGemmXdlops(GemmSize &gemmSize) {
+    auto gemmM = gemmSize.gemmM;
+    auto gemmN = gemmSize.gemmN;
+    auto gemmK = gemmSize.gemmK;
+
+    // unsupported xdlops-gemm
+    if (gemmM % 16 != 0 && gemmN % 64 != 0)
+      return failure();
+
+    if ((gemmM * gemmN) % 256 == 0 && (gemmK * gemmM) % waveSize == 0 &&
+        (gemmK * gemmN) % waveSize == 0 && gemmN % 16 == 0 && gemmM % 4 == 0 &&
+        gemmK % 4 == 0)
+      return success();
+    return failure();
+  }
+
 public:
   LogicalResult paramsFromCtx(ConvolutionContext &ctx,
                               int64_t blockSizeOverride,
