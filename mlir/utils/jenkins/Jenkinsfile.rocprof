@@ -1,0 +1,57 @@
+pipeline {
+    agent {
+        docker {
+            image 'rocm/mlir:rocm4.1-latest'
+            args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+            label 'rocm-frameworks-v340i-1'
+            alwaysPull true
+        }
+    }
+    environment {
+        PATH="$PATH:/opt/rocm/llvm/bin"
+    }
+    stages {
+        stage('Environment') {
+            steps {
+                sh 'cat /etc/os-release'
+                sh '/opt/rocm/bin/rocm-smi'
+            }
+        }
+        stage('Build MIOpen') {
+            steps {
+                dir('MIOpen') {
+                    git branch: 'develop', poll: false,\
+                                url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+                    cmake arguments: "-P install_deps.cmake --minimum",\
+                                installation: "InSearchPath"
+                    cmakeBuild buildDir: 'build',\
+                                buildType: 'Release',\
+                                installation: 'InSearchPath',\
+                                cmakeArgs: '''
+                                 -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                 -DMIOPEN_BACKEND=HIP
+                                 -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local" \
+                                 -DCMAKE_INSTALL_PREFIX=/opt/rocm/ ..
+                                '''
+                    sh 'cd build; make -j $(nproc) MIOpenDriver'
+                    //A temporary workaround for MIOpenDriver seg fault
+                    sh 'cd build; make -j install'
+                        }
+            }
+        }
+        stage('Performance Test') {
+            steps {
+                sh '''
+                    cd MIOpen/build
+                    ./bin/MIOpenDriver conv -F 2 -f NCHW -I NCHW -O NCHW -n 256 -c 256 -H 30 -W 30 -k 256 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1 -V 0
+                    /opt/rocm/bin/rocprof  --hip-trace ./bin/MIOpenDriver conv -F 2 -f NCHW -I NCHW -O NCHW -n 256 -c 256 -H 30 -W 30 -k 256 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1 -V 0
+                '''
+            }
+        }
+    }
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
