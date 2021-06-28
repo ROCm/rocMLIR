@@ -28,6 +28,10 @@ class GPUDialect;
 class GPUModuleOp;
 } // end namespace gpu
 
+namespace linalg {
+class LinalgDialect;
+} // namespace linalg
+
 namespace LLVM {
 class LLVMArmNeonDialect;
 class LLVMArmSVEDialect;

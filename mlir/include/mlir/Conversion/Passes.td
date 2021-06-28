@@ -456,6 +456,20 @@ def TosaToMIGraphXRandom : FunctionPass<"tosa-to-migraphx-random-constant"> {
 }
 
 //===----------------------------------------------------------------------===//
+// TosaToMIOpen
+//===----------------------------------------------------------------------===//
+
+def TosaToMIOpenOnTensors : FunctionPass<"tosa-to-miopen-on-tensors"> {
+  let summary = "Lower TOSA to MIOpen on tensors";
+  let description = [{
+    Pass that converts TOSA operations to the equivalent operations using the
+    tensor operations in MIOpen.
+  }];
+
+  let constructor = "tosa::createTosaToMIOpenOnTensors()";
+}
+
+//===----------------------------------------------------------------------===//
 // VectorToSCF
 //===----------------------------------------------------------------------===//
 
