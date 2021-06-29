@@ -211,7 +211,9 @@ def runConfigWithMIOpenDriver(commandLine):
     os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
     MIOpenDriverCommand = MIOPEN_DRIVER + ' ' + ' '.join(commandLine) + ' -V 0'
     profilerCommand = ROCPROF + ' --hip-trace ' + MIOpenDriverCommand
-
+    print(MIOpenDriverCommand)
+    subprocess.Popen(MIOpenDriverCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    print(profilerCommand)
     # invoke rocprof + MIOpenDriver.
     p1 = subprocess.Popen(profilerCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     # get output.
