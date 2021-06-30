@@ -176,7 +176,16 @@ LogicalResult PopulateParams::paramsFromCtx(
     LLVM_DEBUG(llvm::dbgs() << "FATAL ERROR! COULD NOT FIND VALID TUNING"
                             << " PARAMETERS!\n");
 
-    if (ctx.opType != miopen::ConvOpType::Conv2DBwdDataOpType) {
+    bool isPaddingKernelSupport = false;
+    if (ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+      auto dimIndexVal = ctx.dimIndexVal;
+      isPaddingKernelSupport =
+          (dimIndexVal["y"].second == 1) & (dimIndexVal["x"].second == 1);
+    } else {
+      isPaddingKernelSupport = true;
+    }
+
+    if (isPaddingKernelSupport) {
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
 
       for (auto &params : initParameters) {
@@ -379,7 +388,16 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
     LLVM_DEBUG(llvm::dbgs() << "FATAL ERROR! COULD NOT FIND VALID TUNING"
                             << " PARAMETERS!\n");
 
-    if (ctx.opType != miopen::ConvOpType::Conv2DBwdDataOpType) {
+    bool isPaddingKernelSupport = false;
+    if (ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+      auto dimIndexVal = ctx.dimIndexVal;
+      isPaddingKernelSupport =
+          (dimIndexVal["y"].second == 1) & (dimIndexVal["x"].second == 1);
+    } else {
+      isPaddingKernelSupport = true;
+    }
+
+    if (isPaddingKernelSupport) {
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
       for (auto &params : initParameters) {
         res = populatePaddingKernelDerived(ctx, params, gemmSize,

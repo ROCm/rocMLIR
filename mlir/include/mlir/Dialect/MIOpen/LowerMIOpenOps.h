@@ -3292,6 +3292,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // get y, x, ho, wo, hi, wi
     int64_t g, n, k, c, y, x, ho, wo, hi, wi;
     g = n = k = c = y = x = ho = wo = hi = wi = 0;
+
+    llvm::DenseMap<StringRef, int> nameToDims;
+    llvm::DenseSet<int> filterOobCheckDims;
+    int64_t filterYDim, filterXDim;
+
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template cast<StringAttr>();
@@ -3299,6 +3304,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           inputLayoutAttr.getValue()[i].template cast<StringAttr>();
       auto outputAttr =
           outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+
+      nameToDims[filterAttr.getValue()] = i;
+      nameToDims[inputAttr.getValue()] = i;
+      nameToDims[outputAttr.getValue()] = i;
 
       if (filterAttr.getValue() == "g") {
         g = filterShape[i];
@@ -3308,8 +3317,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         c = filterShape[i];
       } else if (filterAttr.getValue() == "y") {
         y = filterShape[i];
+        filterYDim = i;
       } else if (filterAttr.getValue() == "x") {
         x = filterShape[i];
+        filterXDim = i;
       }
 
       if (inputAttr.getValue() == "ni") {
@@ -3382,6 +3393,66 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto iXTilda = gemmId % xTilda;
     auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
     auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
+
+    bool needExtraPad = false;
+    int64_t gemmM_size, gemmN_size, gemmK_size;
+    int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+    gemmMExtra = gemmNExtra = gemmKExtra = 0;
+    gemmM_size = c;
+    gemmK_size = k * yDotSlice * xDotSlice;
+    gemmN_size = n * hTildaSlice * wTildaSlice;
+
+    auto calculatePaddingKernelSize = [&needExtraPad, gemmM_size, gemmN_size,
+                                       gemmK_size, &gemmMExtra, &gemmNExtra,
+                                       &gemmKExtra, y, x](auto populateParams) {
+      auto config_params = populateParams.getTuningParameters();
+      unsigned numOfFailedConfigs = 0;
+      for (auto &params : config_params) {
+        if (gemmM_size % params.gemmMPerBlock == 0 &&
+            gemmK_size % params.gemmKPerBlock == 0 &&
+            gemmN_size % params.gemmNPerBlock == 0) {
+          break;
+        } else {
+          numOfFailedConfigs++;
+        }
+      }
+
+      auto extraParams = populateParams.getUniversalParameters();
+      // padding kernel of backward data only support (x=1, y=1)
+      if (numOfFailedConfigs == config_params.size() && y == 1 && x == 1) {
+        needExtraPad = true;
+        int gemmM_remain, gemmK_remain, gemmN_remain;
+
+        gemmM_remain = gemmM_size % extraParams.gemmMPerBlock;
+        if (gemmM_remain != 0)
+          gemmMExtra = extraParams.gemmMPerBlock - gemmM_remain;
+
+        gemmN_remain = gemmN_size % extraParams.gemmNPerBlock;
+        if (gemmN_remain != 0)
+          gemmNExtra = extraParams.gemmNPerBlock - gemmN_remain;
+
+        gemmK_remain = gemmK_size % extraParams.gemmKPerBlock;
+        if (gemmK_remain != 0)
+          gemmKExtra = extraParams.gemmKPerBlock - gemmK_remain;
+
+        // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
+        // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
+      }
+    };
+
+    bool isXdlops = false;
+    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
+    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
+      isXdlops = true;
+
+    if (!isXdlops) {
+      PopulateParams populateParams;
+      calculatePaddingKernelSize(populateParams);
+    } else { // xdlops
+      PopulateParamsXDL populateParamsXDL;
+      calculatePaddingKernelSize(populateParamsXDL);
+    }
+
     // Transform filter tensor.
 
     // set layout attribute.
@@ -3742,6 +3813,198 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       };
       auto weiGemmGGemmKGemmM = getWeiGemmGGemmKGemmM(secondFilterDimName);
 
+      // below is padding kernel for backward data
+      bool filterCheckPadGemmM = false;
+      bool filterCheckPadGemmK = false;
+      bool filterCheckPadGemmN = false;
+
+      filterCheckPadGemmM = (gemmMExtra > 0);
+      filterCheckPadGemmK = (gemmKExtra > 0);
+      // below is padding kernel for backward data
+      if (filterCheckPadGemmM || filterCheckPadGemmK) {
+        auto gemmAPad = weiGemmGGemmKGemmM;
+        SmallString<5> arg0TargetLayoutName0("gemmG");
+        SmallString<5> arg0TargetLayoutName1("gemmK");
+        SmallString<5> arg0TargetLayoutName2("gemmM");
+
+        SmallString<8> gemmKPad_name("gemmKPad");
+        SmallString<8> gemmMPad_name("gemmMPad");
+
+        bool isGemmDim1Pad = false;
+        bool isGemmDim2Pad = false;
+        int64_t nonGemmMSize = k * yDotSlice * xDotSlice;
+        int64_t gemmMSize = c;
+
+        StringAttr gemmDim0TargetName = b.getStringAttr(arg0TargetLayoutName0);
+        StringAttr gemmDim1TargetName = b.getStringAttr(arg0TargetLayoutName1);
+        StringAttr gemmDim2TargetName = b.getStringAttr(arg0TargetLayoutName2);
+
+        llvm::SmallVector<NamedAttribute, 3> paddingFilterAttrs;
+        llvm::SmallVector<int64_t, 2> paddingFilterShape;
+
+        paddingFilterAttrs.push_back(
+            b.getNamedAttr("gemmMExtra", b.getI32IntegerAttr(gemmMExtra)));
+
+        paddingFilterAttrs.push_back(
+            b.getNamedAttr("gemmNExtra", b.getI32IntegerAttr(gemmNExtra)));
+
+        paddingFilterAttrs.push_back(
+            b.getNamedAttr("gemmKExtra", b.getI32IntegerAttr(gemmKExtra)));
+
+        paddingFilterAttrs.push_back(
+            b.getNamedAttr("extraPad", b.getBoolAttr(true)));
+
+        llvm::SmallVector<NamedAttribute, 0> layoutAttr0;
+        llvm::SmallVector<NamedAttribute, 0> layoutAttr1;
+        llvm::SmallVector<NamedAttribute, 0> layoutAttr2;
+
+        StringAttr gemmDim0Name = b.getStringAttr(arg0TargetLayoutName0);
+        IntegerAttr GemmDim0 = b.getI32IntegerAttr(0);
+        StringAttr gemmDim1Name = b.getStringAttr(arg0TargetLayoutName1);
+        IntegerAttr GemmDim1 = b.getI32IntegerAttr(1);
+        StringAttr gemmDim2Name = b.getStringAttr(arg0TargetLayoutName2);
+        IntegerAttr GemmDim2 = b.getI32IntegerAttr(2);
+
+        paddingFilterShape.push_back(g);
+        paddingFilterShape.push_back(k * yDotSlice * xDotSlice);
+        paddingFilterShape.push_back(c);
+
+        llvm::SmallVector<NamedAttribute, 3> sourceGemmDim0Attr{
+            b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+            b.getNamedAttr("lower_layer_dimensions",
+                           b.getArrayAttr({GemmDim0})),
+            b.getNamedAttr("lower_layer_names",
+                           b.getArrayAttr({gemmDim0Name}))};
+
+        llvm::SmallVector<NamedAttribute, 3> sourceGemmDim1Attr{
+            b.getNamedAttr("lower_layer_dimensions",
+                           b.getArrayAttr({GemmDim1})),
+            b.getNamedAttr("lower_layer_names",
+                           b.getArrayAttr({gemmDim1Name}))};
+
+        llvm::SmallVector<NamedAttribute, 3> sourceGemmDim2Attr{
+            b.getNamedAttr("lower_layer_dimensions",
+                           b.getArrayAttr({GemmDim2})),
+            b.getNamedAttr("lower_layer_names",
+                           b.getArrayAttr({gemmDim2Name}))};
+
+        llvm::SmallVector<NamedAttribute, 3> targetGemmDim0Attr{
+            b.getNamedAttr("upper_layer_dimensions",
+                           b.getArrayAttr({GemmDim0})),
+            b.getNamedAttr("upper_layer_names", b.getArrayAttr({GemmDim0}))};
+
+        llvm::SmallVector<NamedAttribute, 3> targetGemmDim1Attr{b.getNamedAttr(
+            "upper_layer_dimensions", b.getArrayAttr({GemmDim1}))};
+
+        llvm::SmallVector<NamedAttribute, 3> targetGemmDim2Attr{b.getNamedAttr(
+            "upper_layer_dimensions", b.getArrayAttr({GemmDim2}))};
+
+        if (filterCheckPadGemmK) {
+          isGemmDim1Pad = true;
+          gemmDim1TargetName = b.getStringAttr(gemmKPad_name);
+          paddingFilterShape[1] = nonGemmMSize + gemmKExtra;
+          sourceGemmDim1Attr.push_back(
+              b.getNamedAttr("transformation", b.getStringAttr("Pad")));
+          sourceGemmDim1Attr.push_back(
+              b.getNamedAttr("parameters", b.getArrayAttr({
+                                               b.getI32IntegerAttr(0),
+                                               b.getI32IntegerAttr(gemmKExtra),
+                                           })));
+
+          // we only set k dim intead of k, y,x due to optimization of compiler
+          // will mess up it
+          targetGemmDim1Attr.push_back(
+              b.getNamedAttr("upper_layer_names",
+                             b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+          filterOobCheckDims.insert(nameToDims["k"]);
+        }
+
+        if (filterCheckPadGemmM) {
+          isGemmDim2Pad = true;
+          gemmDim2TargetName = b.getStringAttr(gemmMPad_name);
+          paddingFilterShape[2] = gemmMSize + gemmMExtra;
+          sourceGemmDim2Attr.push_back(
+              b.getNamedAttr("transformation", b.getStringAttr("Pad")));
+          sourceGemmDim2Attr.push_back(
+              b.getNamedAttr("parameters", b.getArrayAttr({
+                                               b.getI32IntegerAttr(0),
+                                               b.getI32IntegerAttr(gemmMExtra),
+                                           })));
+
+          targetGemmDim2Attr.push_back(b.getNamedAttr(
+              "names", b.getArrayAttr({b.getStringAttr(gemmMPad_name)})));
+
+          filterOobCheckDims.insert(nameToDims["c"]);
+        }
+
+        if (!isGemmDim1Pad) {
+          gemmDim1TargetName = gemmDim1Name;
+          sourceGemmDim1Attr.push_back(
+              b.getNamedAttr("transformation", b.getStringAttr("PassThrough")));
+          targetGemmDim1Attr.push_back(b.getNamedAttr(
+              "upper_layer_names", b.getArrayAttr({gemmDim1Name})));
+        } else if (!isGemmDim2Pad) {
+          gemmDim2TargetName = gemmDim2Name;
+          sourceGemmDim2Attr.push_back(
+              b.getNamedAttr("transformation", b.getStringAttr("PassThrough")));
+          targetGemmDim2Attr.push_back(b.getNamedAttr(
+              "upper_layer_names", b.getArrayAttr({gemmDim2Name})));
+        }
+
+        layoutAttr0.append(targetGemmDim0Attr.begin(),
+                           targetGemmDim0Attr.end());
+        layoutAttr0.append(sourceGemmDim0Attr.begin(),
+                           sourceGemmDim0Attr.end());
+        layoutAttr1.append(targetGemmDim1Attr.begin(),
+                           targetGemmDim1Attr.end());
+        layoutAttr1.append(sourceGemmDim1Attr.begin(),
+                           sourceGemmDim1Attr.end());
+        layoutAttr2.append(targetGemmDim2Attr.begin(),
+                           targetGemmDim2Attr.end());
+        layoutAttr2.append(sourceGemmDim2Attr.begin(),
+                           sourceGemmDim2Attr.end());
+
+        paddingFilterAttrs.push_back(b.getNamedAttr(
+            "layout", b.getArrayAttr({
+                          b.getDictionaryAttr({ArrayRef<NamedAttribute>(
+                              layoutAttr0.begin(), layoutAttr0.end())}),
+                          b.getDictionaryAttr({ArrayRef<NamedAttribute>(
+                              layoutAttr1.begin(), layoutAttr1.end())}),
+                          b.getDictionaryAttr({ArrayRef<NamedAttribute>(
+                              layoutAttr2.begin(), layoutAttr2.end())}),
+                      })));
+
+        paddingFilterAttrs.push_back(b.getNamedAttr(
+            "upper_layer_layout",
+            b.getArrayAttr(
+                {gemmDim0TargetName, gemmDim1TargetName, gemmDim2TargetName})));
+
+        paddingFilterAttrs.push_back(b.getNamedAttr(
+            "lower_layer_layout",
+            b.getArrayAttr({gemmDim0Name, gemmDim1Name, gemmDim2Name})));
+
+        if (filterOobCheckDims.size()) {
+          llvm::SmallVector<IntegerAttr, 5> boundDims;
+          for (size_t i = 0; i < filterShape.size(); i++) {
+            if (filterOobCheckDims.find(i) != filterOobCheckDims.end())
+              boundDims.push_back(b.getI32IntegerAttr(1));
+            else
+              boundDims.push_back(b.getI32IntegerAttr(0));
+          }
+
+          paddingFilterAttrs.push_back(b.getNamedAttr(
+              "bound_check",
+              b.getArrayAttr({boundDims.begin(), boundDims.end()})));
+        }
+
+        auto paddingFilterMemRefType =
+            MemRefType::get(paddingFilterShape, filterElementType);
+        gemmAPad = b.create<miopen::TransformOp>(
+            loc, paddingFilterMemRefType, gemmAPad, paddingFilterAttrs, true);
+        return gemmAPad;
+      }
+
+      // if we don't need padding kernel, directly return
       return weiGemmGGemmKGemmM;
     };
 
@@ -4225,6 +4488,192 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             loc, transformedMemRefType,
             inGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice, transformedAttrs,
             /*populateBounds=*/true);
+
+        // with padding kernel
+        bool inputCheckPadGemmM = (gemmMExtra > 0);
+        bool inputCheckPadGemmN = (gemmNExtra > 0);
+        if (inputCheckPadGemmM || inputCheckPadGemmN) {
+          auto gemmBPad = gemm;
+          SmallString<8> gemmMPad_name("gemmMPad");
+          SmallString<8> gemmNPad_name("gemmNPad");
+
+          llvm::SmallVector<int64_t, 3> paddingInputShape;
+          llvm::SmallVector<NamedAttribute, 3> paddingInputAttrs;
+
+          paddingInputAttrs.push_back(
+              b.getNamedAttr("gemmMExtra", b.getI32IntegerAttr(gemmMExtra)));
+
+          paddingInputAttrs.push_back(
+              b.getNamedAttr("gemmKExtra", b.getI32IntegerAttr(gemmKExtra)));
+          paddingInputAttrs.push_back(
+              b.getNamedAttr("gemmNExtra", b.getI32IntegerAttr(gemmNExtra)));
+
+          llvm::SmallVector<NamedAttribute, 0> layoutAttr0;
+          llvm::SmallVector<NamedAttribute, 0> layoutAttr1;
+          llvm::SmallVector<NamedAttribute, 0> layoutAttr2;
+
+          SmallString<5> arg1TargetLayoutName0("gemmG");
+          SmallString<5> arg1TargetLayoutName1("gemmM");
+          SmallString<5> arg1TargetLayoutName2("gemmN");
+          StringAttr gemmDim0TargetName =
+              b.getStringAttr(arg1TargetLayoutName0);
+          StringAttr gemmDim1TargetName;
+          StringAttr gemmDim2TargetName;
+
+          bool isGemmDim1Pad = false;
+          bool isGemmDim2Pad = false;
+
+          StringAttr gemmDim0Name = b.getStringAttr(arg1TargetLayoutName0);
+          IntegerAttr GemmDim0 = b.getI32IntegerAttr(0);
+          StringAttr gemmDim1Name = b.getStringAttr(arg1TargetLayoutName1);
+          IntegerAttr GemmDim1 = b.getI32IntegerAttr(1);
+          StringAttr gemmDim2Name = b.getStringAttr(arg1TargetLayoutName2);
+          IntegerAttr GemmDim2 = b.getI32IntegerAttr(2);
+
+          paddingInputShape.push_back(transformedShape[0]);
+          paddingInputShape.push_back(transformedShape[1]);
+          paddingInputShape.push_back(transformedShape[2]);
+
+          StringAttr gemmKDim;
+          IntegerAttr gemmKDimName;
+
+          llvm::SmallVector<NamedAttribute, 3> sourceGemmDim0Attr{
+              b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+              b.getNamedAttr("lower_layer_dimensions",
+                             b.getArrayAttr({GemmDim0})),
+              b.getNamedAttr("lower_layer_names",
+                             b.getArrayAttr({gemmDim0Name}))};
+
+          llvm::SmallVector<NamedAttribute, 3> sourceGemmDim1Attr{
+              b.getNamedAttr("lower_layer_dimensions",
+                             b.getArrayAttr({GemmDim1})),
+              b.getNamedAttr("lower_layer_names",
+                             b.getArrayAttr({gemmDim1Name}))};
+
+          llvm::SmallVector<NamedAttribute, 3> sourceGemmDim2Attr{
+              b.getNamedAttr("lower_layer_dimensions",
+                             b.getArrayAttr({GemmDim2})),
+              b.getNamedAttr("lower_layer_names",
+                             b.getArrayAttr({gemmDim2Name}))};
+
+          llvm::SmallVector<NamedAttribute, 3> targetGemmDim0Attr{
+              b.getNamedAttr("upper_layer_dimensions",
+                             b.getArrayAttr({GemmDim0})),
+              b.getNamedAttr("upper_layer_names",
+                             b.getArrayAttr({gemmDim0Name}))};
+
+          llvm::SmallVector<NamedAttribute, 3> targetGemmDim1Attr{
+              b.getNamedAttr("upper_layer_dimensions",
+                             b.getArrayAttr({GemmDim1}))};
+
+          llvm::SmallVector<NamedAttribute, 3> targetGemmDim2Attr{
+              b.getNamedAttr("upper_layer_dimensions",
+                             b.getArrayAttr({GemmDim2}))};
+
+          if (inputCheckPadGemmM) {
+            isGemmDim1Pad = true;
+            gemmDim1TargetName = b.getStringAttr(gemmMPad_name);
+            paddingInputShape[1] = paddingInputShape[1] + gemmMExtra;
+            sourceGemmDim1Attr.push_back(
+                b.getNamedAttr("transformation", b.getStringAttr("Pad")));
+            sourceGemmDim1Attr.push_back(b.getNamedAttr(
+                "parameters",
+                b.getArrayAttr({b.getI32IntegerAttr(0),
+                                b.getI32IntegerAttr(gemmMExtra)})));
+            targetGemmDim1Attr.push_back(b.getNamedAttr(
+                "upper_layer_names",
+                b.getArrayAttr({b.getStringAttr(gemmMPad_name)})));
+            // gemmM is c
+            inputOobCheckDims.insert(nameToDims["ci"]);
+          }
+
+          if (inputCheckPadGemmN) {
+            isGemmDim2Pad = true;
+            gemmDim2TargetName = b.getStringAttr(gemmNPad_name);
+
+            paddingInputShape[2] = paddingInputShape[2] + gemmNExtra;
+            sourceGemmDim2Attr.push_back(
+                b.getNamedAttr("transformation", b.getStringAttr("Pad")));
+            sourceGemmDim2Attr.push_back(b.getNamedAttr(
+                "parameters",
+                b.getArrayAttr({b.getI32IntegerAttr(0),
+                                b.getI32IntegerAttr(gemmNExtra)})));
+            targetGemmDim2Attr.push_back(b.getNamedAttr(
+                "upper_layer_names",
+                b.getArrayAttr({b.getStringAttr(gemmNPad_name)})));
+            // gemmN is NHW , we use top dim N to do check,
+            // if we use all dims (n,h,w), compiler will mess up
+            inputOobCheckDims.insert(nameToDims["ni"]);
+          }
+
+          if (!isGemmDim1Pad) {
+            gemmDim1TargetName = gemmDim1Name;
+            sourceGemmDim1Attr.push_back(b.getNamedAttr(
+                "transformation", b.getStringAttr("PassThrough")));
+            targetGemmDim1Attr.push_back(b.getNamedAttr(
+                "upper_layer_names", b.getArrayAttr({gemmDim1Name})));
+          } else if (!isGemmDim2Pad) {
+            gemmDim2TargetName = gemmDim2Name;
+            sourceGemmDim2Attr.push_back(b.getNamedAttr(
+                "transformation", b.getStringAttr("PassThrough")));
+            targetGemmDim2Attr.push_back(b.getNamedAttr(
+                "upper_layer_names", b.getArrayAttr({gemmDim2Name})));
+          }
+
+          layoutAttr0.append(targetGemmDim0Attr.begin(),
+                             targetGemmDim0Attr.end());
+          layoutAttr0.append(sourceGemmDim0Attr.begin(),
+                             sourceGemmDim0Attr.end());
+          layoutAttr1.append(targetGemmDim1Attr.begin(),
+                             targetGemmDim1Attr.end());
+          layoutAttr1.append(sourceGemmDim1Attr.begin(),
+                             sourceGemmDim1Attr.end());
+          layoutAttr2.append(targetGemmDim2Attr.begin(),
+                             targetGemmDim2Attr.end());
+          layoutAttr2.append(sourceGemmDim2Attr.begin(),
+                             sourceGemmDim2Attr.end());
+
+          paddingInputAttrs.push_back(b.getNamedAttr(
+              "layout",
+              b.getArrayAttr({b.getDictionaryAttr({ArrayRef<NamedAttribute>(
+                                  layoutAttr0.begin(), layoutAttr0.end())}),
+                              b.getDictionaryAttr({ArrayRef<NamedAttribute>(
+                                  layoutAttr1.begin(), layoutAttr1.end())}),
+                              b.getDictionaryAttr({ArrayRef<NamedAttribute>(
+                                  layoutAttr2.begin(), layoutAttr2.end())})})));
+
+          paddingInputAttrs.push_back(b.getNamedAttr(
+              "upper_layer_layout",
+              b.getArrayAttr({gemmDim0TargetName, gemmDim1TargetName,
+                              gemmDim2TargetName})));
+
+          paddingInputAttrs.push_back(b.getNamedAttr(
+              "lower_layer_layout",
+              b.getArrayAttr({gemmDim0Name, gemmDim1Name, gemmDim2Name})));
+
+          if (inputOobCheckDims.size()) {
+            llvm::SmallVector<IntegerAttr, 5> boundDims;
+            for (size_t i = 0; i < inputShape.size(); i++) {
+              if (inputOobCheckDims.find(i) != inputOobCheckDims.end())
+                boundDims.push_back(b.getI32IntegerAttr(1));
+              else
+                boundDims.push_back(b.getI32IntegerAttr(0));
+            }
+            paddingInputAttrs.push_back(b.getNamedAttr(
+                "bound_check",
+                b.getArrayAttr({boundDims.begin(), boundDims.end()})));
+          }
+
+          auto paddingInputMemRefType =
+              MemRefType::get(paddingInputShape, inputElementType);
+
+          gemmBPad = b.create<miopen::TransformOp>(loc, paddingInputMemRefType,
+                                                   gemmBPad, paddingInputAttrs,
+                                                   /*populateBounds=*/true);
+          return gemmBPad;
+        }
+
+        // without padding kernel, directlyreturn
         return gemm;
       };
       auto inGemmGGemmMGemmN = getInGemmGGemmMGemmN(thirdOutputDimName);
@@ -4607,6 +5056,193 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             loc, transformedMemRefType,
             outGNKYDotSliceHTidaSliceXDotSliceWTildaSlice, transformedAttrs,
             /*populateBounds=*/true);
+
+        // padding kernel
+
+        bool outputCheckPadGemmK = (gemmKExtra > 0);
+        bool outputCheckPadGemmN = (gemmNExtra > 0);
+
+        if (outputCheckPadGemmK || outputCheckPadGemmN) {
+          auto gemmCPad = gemm;
+          SmallString<5> arg2TargetLayoutName0("gemmG");
+          SmallString<5> arg2TargetLayoutName1("gemmK");
+          SmallString<5> arg2TargetLayoutName2("gemmN");
+
+          StringAttr gemmDim0TargetName =
+              b.getStringAttr(arg2TargetLayoutName0);
+          StringAttr gemmDim1TargetName;
+          StringAttr gemmDim2TargetName;
+
+          bool isGemmDim1Pad = false;
+          bool isGemmDim2Pad = false;
+          SmallString<8> gemmKPad_name("gemmKPad");
+          SmallString<8> gemmMPad_name("gemmMPad");
+          SmallString<8> gemmNPad_name("gemmNPad");
+
+          llvm::SmallVector<NamedAttribute, 3> paddingOutputAttrs;
+          llvm::SmallVector<int64_t, 2> paddingOutputShape;
+
+          paddingOutputAttrs.push_back(
+              b.getNamedAttr("extraPad", b.getBoolAttr(needExtraPad)));
+          paddingOutputAttrs.push_back(
+              b.getNamedAttr("gemmKExtra", b.getI32IntegerAttr(gemmKExtra)));
+          paddingOutputAttrs.push_back(
+              b.getNamedAttr("gemmNExtra", b.getI32IntegerAttr(gemmNExtra)));
+          paddingOutputAttrs.push_back(
+              b.getNamedAttr("gemmMExtra", b.getI32IntegerAttr(gemmMExtra)));
+
+          llvm::SmallVector<NamedAttribute, 0> layoutAttr0;
+          llvm::SmallVector<NamedAttribute, 0> layoutAttr1;
+          llvm::SmallVector<NamedAttribute, 0> layoutAttr2;
+
+          StringAttr gemmDim0Name = b.getStringAttr(arg2TargetLayoutName0);
+          IntegerAttr GemmDim0 = b.getI32IntegerAttr(0);
+          StringAttr gemmDim1Name = b.getStringAttr(arg2TargetLayoutName1);
+          IntegerAttr GemmDim1 = b.getI32IntegerAttr(1);
+          StringAttr gemmDim2Name = b.getStringAttr(arg2TargetLayoutName2);
+          IntegerAttr GemmDim2 = b.getI32IntegerAttr(2);
+
+          paddingOutputShape.push_back(transformedShape[0]);
+          paddingOutputShape.push_back(transformedShape[1]);
+          paddingOutputShape.push_back(transformedShape[2]);
+
+          llvm::SmallVector<NamedAttribute, 3> sourceGemmDim0Attr{
+              b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
+              b.getNamedAttr("lower_layer_dimensions",
+                             b.getArrayAttr({GemmDim0})),
+              b.getNamedAttr("lower_layer_names",
+                             b.getArrayAttr({gemmDim0Name}))};
+
+          llvm::SmallVector<NamedAttribute, 3> sourceGemmDim1Attr{
+              b.getNamedAttr("lower_layer_dimensions",
+                             b.getArrayAttr({GemmDim1})),
+              b.getNamedAttr("lower_layer_names",
+                             b.getArrayAttr({gemmDim1Name}))};
+
+          llvm::SmallVector<NamedAttribute, 3> sourceGemmDim2Attr{
+              b.getNamedAttr("lower_layer_dimensions",
+                             b.getArrayAttr({GemmDim2})),
+              b.getNamedAttr("lower_layer_names",
+                             b.getArrayAttr({gemmDim2Name}))};
+
+          llvm::SmallVector<NamedAttribute, 3> targetGemmDim0Attr{
+              b.getNamedAttr("upper_layer_dimensions",
+                             b.getArrayAttr({GemmDim0})),
+              b.getNamedAttr("upper_layer_names", b.getArrayAttr({GemmDim0}))};
+
+          llvm::SmallVector<NamedAttribute, 3> targetGemmDim1Attr{
+              b.getNamedAttr("upper_layer_dimensions",
+                             b.getArrayAttr({GemmDim1}))};
+
+          llvm::SmallVector<NamedAttribute, 3> targetGemmDim2Attr{
+              b.getNamedAttr("upper_layer_dimensions",
+                             b.getArrayAttr({GemmDim2}))};
+
+          if (outputCheckPadGemmK) {
+            isGemmDim1Pad = true;
+            gemmDim1TargetName = b.getStringAttr(gemmKPad_name);
+            paddingOutputShape[1] = paddingOutputShape[1] + gemmKExtra;
+            sourceGemmDim1Attr.push_back(
+                b.getNamedAttr("transformation", b.getStringAttr("Pad")));
+            sourceGemmDim1Attr.push_back(b.getNamedAttr(
+                "parameters",
+                b.getArrayAttr({b.getI32IntegerAttr(0),
+                                b.getI32IntegerAttr(gemmKExtra)})));
+            targetGemmDim1Attr.push_back(b.getNamedAttr(
+                "upper_layer_names",
+                b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
+
+            // gemmK is (K, Y, X), we only set top dim K due to if we use all
+            // dims compiler can't generate correct code
+            outputOobCheckDims.insert(nameToDims["ko"]);
+          }
+
+          if (outputCheckPadGemmN) {
+            isGemmDim2Pad = true;
+            gemmDim2TargetName = b.getStringAttr(gemmNPad_name);
+
+            paddingOutputShape[2] = paddingOutputShape[2] + gemmNExtra;
+            sourceGemmDim2Attr.push_back(
+                b.getNamedAttr("transformation", b.getStringAttr("Pad")));
+            sourceGemmDim2Attr.push_back(b.getNamedAttr(
+                "parameters",
+                b.getArrayAttr({b.getI32IntegerAttr(0),
+                                b.getI32IntegerAttr(gemmNExtra)})));
+
+            targetGemmDim2Attr.push_back(b.getNamedAttr(
+                "names", b.getArrayAttr({b.getStringAttr(gemmNPad_name)})));
+
+            outputOobCheckDims.insert(nameToDims["no"]);
+          }
+
+          if (!isGemmDim1Pad) {
+            gemmDim1TargetName = gemmDim1Name;
+            sourceGemmDim1Attr.push_back(b.getNamedAttr(
+                "transformation", b.getStringAttr("PassThrough")));
+            targetGemmDim1Attr.push_back(b.getNamedAttr(
+                "upper_layer_names", b.getArrayAttr({gemmDim1Name})));
+          } else if (!isGemmDim2Pad) {
+            gemmDim2TargetName = gemmDim2Name;
+            sourceGemmDim2Attr.push_back(b.getNamedAttr(
+                "transformation", b.getStringAttr("PassThrough")));
+            targetGemmDim2Attr.push_back(b.getNamedAttr(
+                "upper_layer_names", b.getArrayAttr({gemmDim2Name})));
+          }
+
+          layoutAttr0.append(targetGemmDim0Attr.begin(),
+                             targetGemmDim0Attr.end());
+          layoutAttr0.append(sourceGemmDim0Attr.begin(),
+                             sourceGemmDim0Attr.end());
+          layoutAttr1.append(targetGemmDim1Attr.begin(),
+                             targetGemmDim1Attr.end());
+          layoutAttr1.append(sourceGemmDim1Attr.begin(),
+                             sourceGemmDim1Attr.end());
+          layoutAttr2.append(targetGemmDim2Attr.begin(),
+                             targetGemmDim2Attr.end());
+          layoutAttr2.append(sourceGemmDim2Attr.begin(),
+                             sourceGemmDim2Attr.end());
+
+          paddingOutputAttrs.push_back(b.getNamedAttr(
+              "layout", b.getArrayAttr({
+                            b.getDictionaryAttr({ArrayRef<NamedAttribute>(
+                                layoutAttr0.begin(), layoutAttr0.end())}),
+                            b.getDictionaryAttr({ArrayRef<NamedAttribute>(
+                                layoutAttr1.begin(), layoutAttr1.end())}),
+                            b.getDictionaryAttr({ArrayRef<NamedAttribute>(
+                                layoutAttr2.begin(), layoutAttr2.end())}),
+                        })));
+
+          paddingOutputAttrs.push_back(b.getNamedAttr(
+              "upper_layer_layout",
+              b.getArrayAttr({gemmDim0TargetName, gemmDim1TargetName,
+                              gemmDim2TargetName})));
+
+          paddingOutputAttrs.push_back(b.getNamedAttr(
+              "lower_layer_layout",
+              b.getArrayAttr({gemmDim0Name, gemmDim1Name, gemmDim2Name})));
+
+          if (outputOobCheckDims.size()) {
+            llvm::SmallVector<IntegerAttr, 5> boundDims;
+            for (size_t i = 0; i < outputShape.size(); i++) {
+              if (outputOobCheckDims.find(i) != outputOobCheckDims.end())
+                boundDims.push_back(b.getI32IntegerAttr(1));
+              else
+                boundDims.push_back(b.getI32IntegerAttr(0));
+            }
+            paddingOutputAttrs.push_back(b.getNamedAttr(
+                "bound_check",
+                b.getArrayAttr({boundDims.begin(), boundDims.end()})));
+          }
+
+          auto paddingOutputMemRefType =
+              MemRefType::get(paddingOutputShape, outputElementType);
+
+          gemmCPad = b.create<miopen::TransformOp>(loc, paddingOutputMemRefType,
+                                                   gemm, paddingOutputAttrs,
+                                                   /*populateBounds=*/true);
+          return gemmCPad;
+        }
+        // without padding kernel ,directly return
         return gemm;
       };
       auto outGemmGGemmKGemmN = getOutGemmGGemmKGemmN(secondOutputDimName);
@@ -4636,7 +5272,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     // xdlopsV2.
-    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
