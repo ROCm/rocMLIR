@@ -40,8 +40,8 @@
 #include "XdlopsCodeSelection.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/utility/BackwardWeightV4R4Helper.h"
-#include "mlir/Dialect/MIOpen/utility/common.hpp"
-#include "mlir/Dialect/MIOpen/utility/math.hpp"
+#include "mlir/Dialect/MIOpen/utility/common.h"
+#include "mlir/Dialect/MIOpen/utility/math.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -1369,7 +1369,6 @@ inline void computeTopAndBottomIndicesWithAffineMap(
 // Conv2D (forward, backward) lowering.
 //===----------------------------------------------------------------------===//
 
-// The ArgumentFields keep track of differences between conv operations
 template <typename T>
 struct Conv2DRewritePattern : public OpRewritePattern<T> {
   const static ArgumentFields fields;

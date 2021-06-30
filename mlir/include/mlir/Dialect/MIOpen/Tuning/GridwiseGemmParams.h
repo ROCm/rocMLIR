@@ -17,7 +17,7 @@
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
 #include "mlir/Dialect/MIOpen/utility/BackwardWeightV4R4Helper.h"
-#include "mlir/Dialect/MIOpen/utility/math.hpp"
+#include "mlir/Dialect/MIOpen/utility/math.h"
 #include "mlir/Support/FileUtilities.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ToolOutputFile.h"
