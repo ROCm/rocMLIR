@@ -39,7 +39,9 @@
 
 #include "XdlopsCodeSelection.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
-#include "utility/math.hpp"
+#include "mlir/Dialect/MIOpen/utility/BackwardWeightV4R4Helper.h"
+#include "mlir/Dialect/MIOpen/utility/common.h"
+#include "mlir/Dialect/MIOpen/utility/math.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -403,13 +405,15 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
 //===----------------------------------------------------------------------===//
 // Utility function to emit store instructions with potentially OOB checks.
 //===----------------------------------------------------------------------===//
-inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
-                           Type typeToStore, bool toEmitOOBStoreCheckLogic,
-                           const SmallVector<unsigned, 8> &oobStoreCheckDims,
-                           const Value &dest,
-                           const SmallVector<Value, 8> &destLowerIndices,
-                           const Value &value) {
-  auto emitStoreInstruction = [&b, &loc](
+enum InMemoryDataOperation { Set, AtomicAdd };
+inline void
+emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
+               Type typeToStore, bool toEmitOOBStoreCheckLogic,
+               const SmallVector<unsigned, 8> &oobStoreCheckDims,
+               const Value &dest, const SmallVector<Value, 8> &destLowerIndices,
+               const Value &value,
+               InMemoryDataOperation memoryOp = InMemoryDataOperation::Set) {
+  auto emitStoreInstruction = [&b, &loc, &memoryOp](
                                   const Value &value, MemRefType destType,
                                   Type typeToStore, const Value &dest,
                                   const SmallVector<Value, 8> &destLowerIndices,
@@ -521,11 +525,20 @@ inline void emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
                          destLowerIndicesUpdated,
                          /*oob=*/ifWithinBoundsOp.getResults()[0]);
   } else {
-    emitStoreInstruction(value, destType, typeToStore, dest, destLowerIndices,
-                         /*oob=*/zeroConstantOp);
+    if (memoryOp == InMemoryDataOperation::AtomicAdd) {
+      SmallVector<Value, 8> destLowerStoreIndices;
+      for (unsigned i = 0; i < destLowerIndices.size(); ++i) {
+        auto dstIndex = b.create<IndexCastOp>(loc, destLowerIndices[i],
+                                              b.getIntegerType(32));
+        destLowerStoreIndices.push_back(dstIndex);
+      }
+      b.create<gpu::AtomicFAddOp>(loc, value, dest, destLowerStoreIndices);
+
+    } else
+      emitStoreInstruction(value, destType, typeToStore, dest, destLowerIndices,
+                           /*oob=*/zeroConstantOp);
   }
 }
-
 //===----------------------------------------------------------------------===//
 // Utility function to determine if we need to emit codes for OOB checks.
 //===----------------------------------------------------------------------===//
@@ -795,7 +808,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
   //         lower_indices_updated[j] = lower_indices_origina[j] + lower_diff[j]
   //
   //     Case Embed:
-  //       |P| = k, currently k will be fixed as 2.
+  //       |P| = k, currently k will be >= 2.
   //       |Q| shall be 1
   //       Let (p_{0}, ... , p_{k-1}) be elements in P, |P| = k
   //       Let (e_{0}, ... , e_{k-1}) be parameters of P
@@ -807,11 +820,12 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
   //       |Q| shall be 1
   //       Let (p_{0}, ... , p_{k-1}) be elements in P, |P| = k
   //       Let (e_{0}, ... , e_{k-1}) be parameters of P
-  //         The value of e_{i} is defined as:
-  //           e_{k-1} = 1
-  //           e_{i} = mul_over_{domain: [i+1 .. k-1], iterator=l}(T_{l})
+  //       Let (f_{0}, ... , f_{k-1})
+  //         The value of f_{i} is defined as:
+  //           f_{k-1} = 1
+  //           f_{i} = mul_over_{domain: e_[i+1 .. k-1], iterator=l}(T_{l})
   //       Let j be the counterpart in q
-  //         lower_diff[j] = sum_over_P(e_{i} * upper_diff[p_{i}])
+  //         lower_diff[j] = sum_over_P(f_{i} * upper_diff[p_{i}])
   //         lower_indices_updated[j] = lower_indices_origina[j] + lower_diff[j]
   //
   //     Case Unfold:
@@ -878,11 +892,8 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
     auto p = g.get("upper_layer_dimensions").template cast<ArrayAttr>();
     auto q = g.get("lower_layer_dimensions").template cast<ArrayAttr>();
 
-    if ((transformation.getValue() == "UnMerge") ||
-        (transformation.getValue() == "Embed")) {
+    if (transformation.getValue() == "Embed") {
       auto e = g.get("parameters").template cast<ArrayAttr>();
-      if (transformation.getValue() == "Embed")
-        assert(p.size() == 2);
       assert(e.size() == p.size());
       assert(q.size() == 1);
       Value lowerDiff = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
@@ -895,6 +906,30 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
                 loc,
                 b.create<ConstantIntOp>(loc, coefficient, b.getIntegerType(32)),
                 upperIndicesDiff[upperDim]));
+      }
+
+      int64_t lowerDim = q[0].template cast<IntegerAttr>().getInt();
+      lowerIndicesDiffMap[lowerDim] = lowerDiff;
+      lowerIndicesUpdatedMap[lowerDim] = b.create<AddIOp>(
+          loc,
+          b.create<IndexCastOp>(loc, lowerIndicesOriginal[lowerDim],
+                                b.getIntegerType(32)),
+          lowerDiff);
+    } else if (transformation.getValue() == "UnMerge") {
+      auto e = g.get("parameters").template cast<ArrayAttr>();
+      assert(e.size() == p.size());
+      assert(q.size() == 1);
+      int64_t upperDim = p[0].template cast<IntegerAttr>().getInt();
+      Value lowerDiff = upperIndicesDiff[upperDim];
+      for (unsigned iter = 1; iter < e.size(); ++iter) {
+        int64_t coefficient = e[iter].template cast<IntegerAttr>().getInt();
+        int64_t upperDim = p[iter].template cast<IntegerAttr>().getInt();
+        lowerDiff = b.create<AddIOp>(
+            loc, upperIndicesDiff[upperDim],
+            b.create<MulIOp>(
+                loc,
+                b.create<ConstantIntOp>(loc, coefficient, b.getIntegerType(32)),
+                lowerDiff));
       }
 
       int64_t lowerDim = q[0].template cast<IntegerAttr>().getInt();
@@ -1334,12 +1369,6 @@ inline void computeTopAndBottomIndicesWithAffineMap(
 // Conv2D (forward, backward) lowering.
 //===----------------------------------------------------------------------===//
 
-// The ArgumentFields keep track of differences between conv operations
-struct ArgumentFields {
-  int gridwiseGemmArgumentPosition[3];
-  StringRef gemmTargetCharName[3];
-};
-
 template <typename T>
 struct Conv2DRewritePattern : public OpRewritePattern<T> {
   const static ArgumentFields fields;
@@ -1347,8 +1376,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   using OpRewritePattern<T>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
+    bool isXdlops = false;
+    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
+    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
+      isXdlops = true;
+    auto dataType =
+        op.input().getType().template cast<MemRefType>().getElementType();
     if (miopen::ConvOpType::Conv2DBwdDataOpType == convOpType) {
       return backwardData(op, b);
+    } else if (miopen::ConvOpType::Conv2DBwdWeightOpType == convOpType &&
+               isXdlops && dataType == b.getF32Type()) {
+      // current backward weight with atomic_add can only run under xdlops +
+      // fp32
+      return backwardWeightAtomicAdd(op, b, fields);
     }
     auto loc = op.getLoc();
 
@@ -1477,10 +1517,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     }
 
     bool needExtraPad = false;
-    bool isXdlops = false;
-    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
-      isXdlops = true;
 
     auto calculatePaddingKernelSize = [&needExtraPad, gemmM_size, gemmN_size,
                                        gemmK_size, &gemmMExtra, &gemmNExtra,
@@ -4660,6 +4696,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     return success();
   }
+
 };
 
 //===----------------------------------------------------------------------===//
@@ -5603,7 +5640,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                 b.getArrayAttr({b.getI32IntegerAttr(1)})),
                  b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmM")})),
-                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                  b.getNamedAttr("parameters",
                                 b.getArrayAttr({b.getI32IntegerAttr(M1),
                                                 b.getI32IntegerAttr(1)})),
@@ -5619,7 +5656,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                 b.getArrayAttr({b.getI32IntegerAttr(2)})),
                  b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmN")})),
-                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                  b.getNamedAttr("parameters",
                                 b.getArrayAttr({b.getI32IntegerAttr(N1),
                                                 b.getI32IntegerAttr(1)})),
@@ -5686,7 +5723,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                 b.getArrayAttr({b.getI32IntegerAttr(1)})),
                  b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmM")})),
-                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                  b.getNamedAttr("parameters",
                                 b.getArrayAttr({b.getI32IntegerAttr(MPerThread),
                                                 b.getI32IntegerAttr(1)})),
@@ -5703,7 +5740,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                 b.getArrayAttr({b.getI32IntegerAttr(2)})),
                  b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmN")})),
-                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                  b.getNamedAttr("parameters",
                                 b.getArrayAttr({b.getI32IntegerAttr(NPerThread),
                                                 b.getI32IntegerAttr(1)})),
@@ -6691,7 +6728,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                 b.getArrayAttr({b.getI32IntegerAttr(1)})),
                  b.getNamedAttr("lower_layer_names",
                                 b.getArrayAttr({b.getStringAttr("gemmM")})),
-                 b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                  b.getNamedAttr("parameters",
                                 b.getArrayAttr({b.getI32IntegerAttr(M1 * M2),
                                                 b.getI32IntegerAttr(M2),
@@ -6940,7 +6977,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                                 {b.getStringAttr("raw")})),
                                         b.getNamedAttr(
                                             "transformation",
-                                            b.getStringAttr("UnMerge")),
+                                            b.getStringAttr("Embed")),
                                         b.getNamedAttr(
                                             "upper_layer_dimensions",
                                             b.getArrayAttr(
@@ -7001,6 +7038,10 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
                                                       b.getI32IntegerAttr(M2),
                                                       b.getI32IntegerAttr(1),
                                                   }));
+      auto dataOperation = op->getAttr("data_operation");
+      if (dataOperation) {
+        threadwiseCopyV2CMatrixOp->setAttr("data_operation", dataOperation);
+      }
     }
 
     op.erase();
@@ -8315,6 +8356,13 @@ struct ThreadwiseCopyV2RewritePattern
 
     auto sourceType = op.source().getType().cast<VectorType>();
     auto destType = op.dest().getType().cast<MemRefType>();
+    InMemoryDataOperation dataOpration = InMemoryDataOperation::Set;
+    auto dataOpAttr = op->getAttr("data_operation");
+    if (dataOpAttr) {
+      int64_t dataOp = dataOpAttr.template cast<IntegerAttr>().getInt();
+      if (dataOp == 1)
+        dataOpration = InMemoryDataOperation::AtomicAdd;
+    }
 
     // Get source offset, and dest coordinates.
     //
@@ -8474,7 +8522,7 @@ struct ThreadwiseCopyV2RewritePattern
       // Store to dest.
       emitStoreLogic(b, loc, destType, destElementType,
                      toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
-                     destLowerIndices, convertedScalarValue);
+                     destLowerIndices, convertedScalarValue, dataOpration);
 
       // increase IVs
       bool toIncreaseNextDigit = true;
@@ -8559,7 +8607,7 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
                      {b.getNamedAttr("lower_layer_dimensions",
                                      b.getArrayAttr(lowerLayerDims)),
                       b.getNamedAttr("transformation",
-                                     b.getStringAttr("UnMerge")),
+                                     b.getStringAttr("Embed")),
                       b.getNamedAttr("parameters",
                                      b.getArrayAttr(upperLayerStrides)),
                       b.getNamedAttr("upper_layer_dimensions",
