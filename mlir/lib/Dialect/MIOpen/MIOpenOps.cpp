@@ -268,7 +268,8 @@ static LogicalResult verify(GridwiseGemmOp op) {
 // GridwiseGemmV2Op
 //===----------------------------------------------------------------------===//
 
-static ParseResult parseGridwiseGemmV2Op(OpAsmParser &parser, OperationState &result) {
+static ParseResult parseGridwiseGemmV2Op(OpAsmParser &parser,
+                                         OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 3> ops;
   SmallVector<Type, 3> types;
   return failure(
@@ -284,9 +285,7 @@ static void print(OpAsmPrinter &p, GridwiseGemmV2Op op) {
   p << " : " << op.getOperandTypes();
 }
 
-static LogicalResult verify(GridwiseGemmV2Op op) {
-  return success();
-}
+static LogicalResult verify(GridwiseGemmV2Op op) { return success(); }
 
 //===----------------------------------------------------------------------===//
 // GpuAllocOp
@@ -745,7 +744,8 @@ static LogicalResult verify(ThreadwiseStoreOp op) { return success(); }
 // ThreadwiseCopyV2Op
 //===----------------------------------------------------------------------===//
 
-static ParseResult parseThreadwiseCopyV2Op(OpAsmParser &parser, OperationState &result) {
+static ParseResult parseThreadwiseCopyV2Op(OpAsmParser &parser,
+                                           OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 5> ops;
   SmallVector<Type, 2> types;
 
@@ -771,9 +771,7 @@ static void print(OpAsmPrinter &p, ThreadwiseCopyV2Op op) {
     << op.getOperands()[1].getType();
 }
 
-static LogicalResult verify(ThreadwiseCopyV2Op op) {
-  return success();
-}
+static LogicalResult verify(ThreadwiseCopyV2Op op) { return success(); }
 
 //===----------------------------------------------------------------------===//
 // MFMAV2Op
@@ -782,14 +780,13 @@ static LogicalResult verify(ThreadwiseCopyV2Op op) {
 static ParseResult parseMFMAV2Op(OpAsmParser &parser, OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 4> ops;
   SmallVector<Type, 2> types;
-  return failure(
-      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
-      parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonTypeList(types) ||
-      parser.resolveOperand(ops[0], types[0], result.operands) ||
-      parser.resolveOperand(ops[1], types[0], result.operands) ||
-      parser.resolveOperand(ops[2], types[1], result.operands) ||
-      parser.addTypeToList(types[1], result.types));
+  return failure(parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
+                 parser.parseOptionalAttrDict(result.attributes) ||
+                 parser.parseColonTypeList(types) ||
+                 parser.resolveOperand(ops[0], types[0], result.operands) ||
+                 parser.resolveOperand(ops[1], types[0], result.operands) ||
+                 parser.resolveOperand(ops[2], types[1], result.operands) ||
+                 parser.addTypeToList(types[1], result.types));
 }
 
 static void print(OpAsmPrinter &p, MFMAV2Op op) {
@@ -798,15 +795,14 @@ static void print(OpAsmPrinter &p, MFMAV2Op op) {
   p << " : " << op.getOperand(0).getType() << ", " << op.getType();
 }
 
-static LogicalResult verify(miopen::MFMAV2Op op) {
-  return success();
-}
+static LogicalResult verify(miopen::MFMAV2Op op) { return success(); }
 
 //===----------------------------------------------------------------------===//
 // XdlopsGemmV2Op
 //===----------------------------------------------------------------------===//
 
-static ParseResult parseXdlopsGemmV2Op(OpAsmParser &parser, OperationState &result) {
+static ParseResult parseXdlopsGemmV2Op(OpAsmParser &parser,
+                                       OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 6> ops;
   SmallVector<Type, 4> types;
 
@@ -833,15 +829,14 @@ static void print(OpAsmPrinter &p, XdlopsGemmV2Op op) {
   p << " : " << op.getOperandTypes();
 }
 
-static LogicalResult verify(XdlopsGemmV2Op op) {
-  return success();
-}
+static LogicalResult verify(XdlopsGemmV2Op op) { return success(); }
 
 //===----------------------------------------------------------------------===//
 // BlockwiseGemmV2Op
 //===----------------------------------------------------------------------===//
 
-static ParseResult parseBlockwiseGemmV2Op(OpAsmParser &parser, OperationState &result) {
+static ParseResult parseBlockwiseGemmV2Op(OpAsmParser &parser,
+                                          OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 6> ops;
   SmallVector<Type, 4> types;
 
@@ -868,9 +863,7 @@ static void print(OpAsmPrinter &p, BlockwiseGemmV2Op op) {
   p << " : " << op.getOperandTypes();
 }
 
-static LogicalResult verify(BlockwiseGemmV2Op op) {
-  return success();
-}
+static LogicalResult verify(BlockwiseGemmV2Op op) { return success(); }
 
 //===----------------------------------------------------------------------===//
 // DataConverOp
