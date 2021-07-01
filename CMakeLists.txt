@@ -76,8 +76,8 @@ execute_process(COMMAND python utils/src-tree-patcher/patcher.py --infile utils/
 execute_process(COMMAND python utils/src-tree-patcher/patcher.py --infile utils/src-tree-patcher/filelist-llvm.txt --srcdir llvm-patch --dstdir external/llvm-project/llvm
   WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
 
-# Set up the build for the MLIR git-submodule
-include(cmake/mlir.cmake)
+# Set up the build for the LLVM/MLIR git-submodule
+include(cmake/llvm-project.cmake)
 
 # Set up the build for the official MLIR 'standalone' example
 #add_subdirectory(mlir-standalone-example)
