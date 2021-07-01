@@ -61,11 +61,10 @@ inline bool overrideLoadStoreHack(const DictionaryAttr &transformSpec) {
   if (transformSpec) {
     Attribute metadataAttr = transformSpec.get("metadata");
     if (metadataAttr) {
-      ArrayAttr layeredTransformMetadata =
-          metadataAttr.template cast<ArrayAttr>();
+      ArrayAttr layeredTransformMetadata = metadataAttr.cast<ArrayAttr>();
       for (unsigned iter = 0; iter < layeredTransformMetadata.size(); ++iter) {
         DictionaryAttr dictAttr =
-            layeredTransformMetadata[iter].template cast<DictionaryAttr>();
+            layeredTransformMetadata[iter].cast<DictionaryAttr>();
         // enable workaround when padding kernel,
         // if gemmKExtra || gemmMExtra || gemmNExtraAttr
         // use workaround to skip index map errors
@@ -73,24 +72,21 @@ inline bool overrideLoadStoreHack(const DictionaryAttr &transformSpec) {
         auto gemmMExtraAttr = dictAttr.get("gemmMExtra");
         auto gemmNExtraAttr = dictAttr.get("gemmNExtra");
         if (gemmKExtraAttr) {
-          auto gemmKExtra =
-              gemmKExtraAttr.template cast<IntegerAttr>().getInt();
+          auto gemmKExtra = gemmKExtraAttr.cast<IntegerAttr>().getInt();
           if (gemmKExtra > 0) {
             return true;
           }
         }
 
         if (gemmMExtraAttr) {
-          auto gemmMExtra =
-              gemmMExtraAttr.template cast<IntegerAttr>().getInt();
+          auto gemmMExtra = gemmMExtraAttr.cast<IntegerAttr>().getInt();
           if (gemmMExtra > 0) {
             return true;
           }
         }
 
         if (gemmNExtraAttr) {
-          auto gemmNExtra =
-              gemmNExtraAttr.template cast<IntegerAttr>().getInt();
+          auto gemmNExtra = gemmNExtraAttr.cast<IntegerAttr>().getInt();
           if (gemmNExtra > 0) {
             return true;
           }
@@ -113,23 +109,23 @@ computeLoadStoreTypeInfo(OpBuilder &b, T &gop, Type elementType,
   int vectorDim = dims.size() - 1;
   if (isMatrixA) {
     loadLength = gop->getAttr("matrix_a_source_data_per_read")
-                     .template cast<IntegerAttr>()
+                     .cast<IntegerAttr>()
                      .getInt();
     storeLength = gop->getAttr("matrix_a_dest_data_per_write_dim_m")
-                      .template cast<IntegerAttr>()
+                      .cast<IntegerAttr>()
                       .getInt();
     vectorDim = gop->getAttr("matrix_a_source_vector_read_dim")
-                    .template cast<IntegerAttr>()
+                    .cast<IntegerAttr>()
                     .getInt();
   } else {
     loadLength = gop->getAttr("matrix_b_source_data_per_read")
-                     .template cast<IntegerAttr>()
+                     .cast<IntegerAttr>()
                      .getInt();
     storeLength = gop->getAttr("matrix_b_dest_data_per_write_dim_n")
-                      .template cast<IntegerAttr>()
+                      .cast<IntegerAttr>()
                       .getInt();
     vectorDim = gop->getAttr("matrix_b_source_vector_read_dim")
-                    .template cast<IntegerAttr>()
+                    .cast<IntegerAttr>()
                     .getInt();
   }
 
@@ -162,11 +158,11 @@ computeSliceLengths(SmallVector<int64_t, 2> &sliceLengths,
         assert(type.isa<MemRefType>() || type.isa<VectorType>());
         if (type.isa<MemRefType>()) {
           // Use the shape of memref as initial slice lengths.
-          for (auto dim : type.template cast<MemRefType>().getShape())
+          for (auto dim : type.cast<MemRefType>().getShape())
             sliceLengths.push_back(dim);
         } else if (type.isa<VectorType>()) {
           // Use the shape of vector as initial slice lengths.
-          for (auto dim : type.template cast<VectorType>().getShape())
+          for (auto dim : type.cast<VectorType>().getShape())
             sliceLengths.push_back(dim);
         }
       };
@@ -179,21 +175,20 @@ computeSliceLengths(SmallVector<int64_t, 2> &sliceLengths,
   // - shape of the source in case the source has no affine transfromations.
   if (boundAttr) {
     for (unsigned i = 0; i < boundAttr->size(); ++i)
-      sliceLengths.push_back(
-          (*boundAttr)[i].template cast<IntegerAttr>().getInt());
+      sliceLengths.push_back((*boundAttr)[i].cast<IntegerAttr>().getInt());
   } else {
     if (composedSourceTransform) {
       if (composedDestTransform) {
         // Use domain attribute from source.
         for (auto attr : coordTransformsAttr) {
-          auto dictAttr = attr.template cast<DictionaryAttr>();
+          auto dictAttr = attr.cast<DictionaryAttr>();
           auto operandIndex =
-              dictAttr.get("operand").template cast<IntegerAttr>().getInt();
+              dictAttr.get("operand").cast<IntegerAttr>().getInt();
           if (operandIndex == 0) {
-            auto domainAttr = dictAttr.get("domain").template cast<ArrayAttr>();
+            auto domainAttr = dictAttr.get("domain").cast<ArrayAttr>();
             for (unsigned i = 0; i < domainAttr.size(); ++i)
               sliceLengths.push_back(
-                  domainAttr[i].template cast<IntegerAttr>().getInt());
+                  domainAttr[i].cast<IntegerAttr>().getInt());
           }
         }
       } else {
@@ -230,7 +225,7 @@ inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
 inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type) {
   Type elementType = type;
   if (type.isa<VectorType>())
-    elementType = type.template cast<VectorType>().getElementType();
+    elementType = type.cast<VectorType>().getElementType();
   Value zeroOp = createConstantFloatOp(b, loc, elementType, 0.0f);
 
   Value retValue = zeroOp;
@@ -266,7 +261,7 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
                                                  srcLowerIndicesI32);
       } else {
         // Option 2: scalar load + vector.insertelement
-        VectorType loadedVectorType = loadedType.template cast<VectorType>();
+        VectorType loadedVectorType = loadedType.cast<VectorType>();
         Type elementType = loadedVectorType.getElementType();
         int64_t vectorLength = loadedVectorType.getShape()[0];
 
@@ -433,7 +428,7 @@ emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
         // Option 2: vector.extractelement + scalar store.
         assert(destType.getRank() == 1);
         assert(destLowerIndices.size() == 1);
-        VectorType valueVectorType = typeToStore.template cast<VectorType>();
+        VectorType valueVectorType = typeToStore.cast<VectorType>();
         Type elementType = destType.getElementType();
         int64_t vectorLength = valueVectorType.getShape()[0];
         SmallVector<Value, 8> destLowerIndicesUpdated = destLowerIndices;
@@ -550,7 +545,7 @@ inline bool obtainOOBCheckInfo(const Optional<AffineMap> &composedTransform,
   if (composedTransform && boundCheckAttr) {
     if (boundCheckAttr.size() == composedTransform->getNumResults()) {
       for (unsigned iter = 0; iter < boundCheckAttr.size(); ++iter) {
-        if (boundCheckAttr[iter].template cast<IntegerAttr>().getInt()) {
+        if (boundCheckAttr[iter].cast<IntegerAttr>().getInt()) {
           ret = true;
           oobCheckDims.push_back(iter);
         }
@@ -605,27 +600,23 @@ inline unsigned obtainGenericTensorTransformationInfo(
   // Obtain metadata of coordinate transformations.
   if (coordTransformsAttr) {
     for (auto attr : coordTransformsAttr) {
-      auto dictAttr = attr.template cast<DictionaryAttr>();
-      auto index =
-          dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-      auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
+      auto dictAttr = attr.cast<DictionaryAttr>();
+      auto index = dictAttr.get("operand").cast<IntegerAttr>().getInt();
+      auto transforms = dictAttr.get("transforms").cast<ArrayAttr>();
       if (index == operandIndex) {
-        coordLength = transforms[0]
-                          .template cast<AffineMapAttr>()
-                          .getValue()
-                          .getNumInputs();
+        coordLength =
+            transforms[0].cast<AffineMapAttr>().getValue().getNumInputs();
         transformSpec = dictAttr;
         // Compose affine maps.
         composedTransform = composeTransforms(transforms);
 
         // Populate affine maps for each layer.
         for (auto &am : transforms)
-          layeredTransform.push_back(
-              am.template cast<AffineMapAttr>().getValue());
+          layeredTransform.push_back(am.cast<AffineMapAttr>().getValue());
 
         auto bcAttr = dictAttr.get("bound_check");
         if (bcAttr)
-          boundCheckAttr = bcAttr.template cast<ArrayAttr>();
+          boundCheckAttr = bcAttr.cast<ArrayAttr>();
       }
     }
   }
@@ -765,7 +756,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
 
   // Obtain the shape of lower level memref.
   ArrayAttr lowerLayerShape =
-      transformMetadata.get("lower_layer_bounds").template cast<ArrayAttr>();
+      transformMetadata.get("lower_layer_bounds").cast<ArrayAttr>();
 
   // Input:
   // - upper_diff
@@ -869,7 +860,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
   auto layoutAttr = transformMetadata.get("layout");
   assert(layoutAttr);
   // layoutArrayAttr is G in the pseudo code above.
-  ArrayAttr layoutArrayAttr = layoutAttr.template cast<ArrayAttr>();
+  ArrayAttr layoutArrayAttr = layoutAttr.cast<ArrayAttr>();
 
   // lower level diff map
   // key : lower level dimension value.
@@ -883,23 +874,22 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
 
   // Iterate through all transformations specified in g.
   for (auto &mapping : layoutArrayAttr) {
-    DictionaryAttr g = mapping.template cast<DictionaryAttr>();
+    DictionaryAttr g = mapping.cast<DictionaryAttr>();
     // llvm::errs() << "g: " << g << "\n";
 
     // Obtain transformation information from g.
-    StringAttr transformation =
-        g.get("transformation").template cast<StringAttr>();
-    auto p = g.get("upper_layer_dimensions").template cast<ArrayAttr>();
-    auto q = g.get("lower_layer_dimensions").template cast<ArrayAttr>();
+    StringAttr transformation = g.get("transformation").cast<StringAttr>();
+    auto p = g.get("upper_layer_dimensions").cast<ArrayAttr>();
+    auto q = g.get("lower_layer_dimensions").cast<ArrayAttr>();
 
     if (transformation.getValue() == "Embed") {
-      auto e = g.get("parameters").template cast<ArrayAttr>();
+      auto e = g.get("parameters").cast<ArrayAttr>();
       assert(e.size() == p.size());
       assert(q.size() == 1);
       Value lowerDiff = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
       for (unsigned iter = 0; iter < e.size(); ++iter) {
-        int64_t coefficient = e[iter].template cast<IntegerAttr>().getInt();
-        int64_t upperDim = p[iter].template cast<IntegerAttr>().getInt();
+        int64_t coefficient = e[iter].cast<IntegerAttr>().getInt();
+        int64_t upperDim = p[iter].cast<IntegerAttr>().getInt();
         lowerDiff = b.create<AddIOp>(
             loc, lowerDiff,
             b.create<MulIOp>(
@@ -908,7 +898,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
                 upperIndicesDiff[upperDim]));
       }
 
-      int64_t lowerDim = q[0].template cast<IntegerAttr>().getInt();
+      int64_t lowerDim = q[0].cast<IntegerAttr>().getInt();
       lowerIndicesDiffMap[lowerDim] = lowerDiff;
       lowerIndicesUpdatedMap[lowerDim] = b.create<AddIOp>(
           loc,
@@ -916,14 +906,14 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
                                 b.getIntegerType(32)),
           lowerDiff);
     } else if (transformation.getValue() == "UnMerge") {
-      auto e = g.get("parameters").template cast<ArrayAttr>();
+      auto e = g.get("parameters").cast<ArrayAttr>();
       assert(e.size() == p.size());
       assert(q.size() == 1);
-      int64_t upperDim = p[0].template cast<IntegerAttr>().getInt();
+      int64_t upperDim = p[0].cast<IntegerAttr>().getInt();
       Value lowerDiff = upperIndicesDiff[upperDim];
       for (unsigned iter = 1; iter < e.size(); ++iter) {
-        int64_t coefficient = e[iter].template cast<IntegerAttr>().getInt();
-        int64_t upperDim = p[iter].template cast<IntegerAttr>().getInt();
+        int64_t coefficient = e[iter].cast<IntegerAttr>().getInt();
+        int64_t upperDim = p[iter].cast<IntegerAttr>().getInt();
         lowerDiff = b.create<AddIOp>(
             loc, upperIndicesDiff[upperDim],
             b.create<MulIOp>(
@@ -932,7 +922,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
                 lowerDiff));
       }
 
-      int64_t lowerDim = q[0].template cast<IntegerAttr>().getInt();
+      int64_t lowerDim = q[0].cast<IntegerAttr>().getInt();
       lowerIndicesDiffMap[lowerDim] = lowerDiff;
       lowerIndicesUpdatedMap[lowerDim] = b.create<AddIOp>(
           loc,
@@ -944,8 +934,8 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
                (transformation.getValue() == "Slice")) {
       assert(p.size() == q.size());
       for (unsigned iter = 0; iter < q.size(); ++iter) {
-        int64_t upperDim = p[iter].template cast<IntegerAttr>().getInt();
-        int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+        int64_t upperDim = p[iter].cast<IntegerAttr>().getInt();
+        int64_t lowerDim = q[iter].cast<IntegerAttr>().getInt();
         Value upperDiff = upperIndicesDiff[upperDim];
         Value lowerDiff = upperDiff;
         lowerIndicesDiffMap[lowerDim] = lowerDiff;
@@ -958,12 +948,12 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
     } else if ((transformation.getValue() == "Merge") ||
                (transformation.getValue() == "Unfold")) {
       assert(p.size() == 1);
-      int64_t upperDim = p[0].template cast<IntegerAttr>().getInt();
+      int64_t upperDim = p[0].cast<IntegerAttr>().getInt();
 
       // Obtain the transformation.
       AffineMap transform = transformMetadata.get("map")
-                                .template cast<ArrayAttr>()[0]
-                                .template cast<AffineMapAttr>()
+                                .cast<ArrayAttr>()[0]
+                                .cast<AffineMapAttr>()
                                 .getValue();
 
       SmallVector<Value, 8> lowerDiffModified;
@@ -989,8 +979,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
 
         for (unsigned iter = 0; iter < lowerDiffModifiedAttr.size(); ++iter)
           lowerDiffModified.push_back(b.create<ConstantIntOp>(
-              loc,
-              lowerDiffModifiedAttr[iter].template cast<IntegerAttr>().getInt(),
+              loc, lowerDiffModifiedAttr[iter].cast<IntegerAttr>().getInt(),
               b.getIntegerType(32)));
         assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
       } else {
@@ -1026,7 +1015,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
       // Obtain lower diffs prior to carry check.
       SmallVector<Value, 8> lowerDiffs;
       for (unsigned iter = 0; iter < q.size(); ++iter) {
-        int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+        int64_t lowerDim = q[iter].cast<IntegerAttr>().getInt();
         Value lowerDiff = lowerDiffModified[lowerDim];
         lowerDiffs.push_back(lowerDiff);
       }
@@ -1036,7 +1025,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
       // lower diffs.
       SmallVector<Value, 8> lowerIndicesModified;
       for (unsigned iter = 0; iter < q.size(); ++iter) {
-        int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+        int64_t lowerDim = q[iter].cast<IntegerAttr>().getInt();
         lowerIndicesModified.push_back(b.create<AddIOp>(
             loc,
             b.create<IndexCastOp>(loc, lowerIndicesOriginal[lowerDim],
@@ -1051,9 +1040,8 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         // Get lower layer bounds.
         SmallVector<Value, 8> lowerLayerBounds;
         for (unsigned iter = 0; iter < q.size(); ++iter) {
-          int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
-          int64_t v =
-              lowerLayerShape[lowerDim].template cast<IntegerAttr>().getInt();
+          int64_t lowerDim = q[iter].cast<IntegerAttr>().getInt();
+          int64_t v = lowerLayerShape[lowerDim].cast<IntegerAttr>().getInt();
           auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
           lowerLayerBounds.push_back(cv);
         }
@@ -1064,7 +1052,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         DenseMap<int64_t, Value> lowerDiffsCarryChecked;
         DenseMap<int64_t, Value> lowerIndicesCarryChecked;
         for (unsigned iter = 0; iter < q.size(); ++iter) {
-          int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+          int64_t lowerDim = q[iter].cast<IntegerAttr>().getInt();
           lowerDiffsCarryChecked[lowerDim] = lowerDiffs[iter];
           lowerIndicesCarryChecked[lowerDim] = lowerIndicesModified[iter];
         }
@@ -1077,7 +1065,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         // setup carryOp for the first iteration
         Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
         for (int64_t iter = q.size() - 1; iter >= 0; --iter) {
-          int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+          int64_t lowerDim = q[iter].cast<IntegerAttr>().getInt();
 
           // carry logic.
           auto ifCarryOp = b.create<scf::IfOp>(
@@ -1139,7 +1127,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         lowerDiffs.clear();
         lowerIndicesModified.clear();
         for (unsigned iter = 0; iter < q.size(); ++iter) {
-          int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+          int64_t lowerDim = q[iter].cast<IntegerAttr>().getInt();
           lowerDiffs.push_back(lowerDiffsCarryChecked[lowerDim]);
           lowerIndicesModified.push_back(lowerIndicesCarryChecked[lowerDim]);
         }
@@ -1149,7 +1137,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
 
       // Set lowerIndicesDiffMap and lowerIndicesUpdatedMap.
       for (unsigned iter = 0; iter < q.size(); ++iter) {
-        int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+        int64_t lowerDim = q[iter].cast<IntegerAttr>().getInt();
         lowerIndicesDiffMap[lowerDim] = lowerDiffs[iter];
         lowerIndicesUpdatedMap[lowerDim] = lowerIndicesModified[iter];
       }
@@ -1223,7 +1211,7 @@ inline void populateLayeredIndicesWithIndexDiffMap(
       SmallVector<Value, 8> lowerDiff;
       SmallVector<Value, 8> lowerIndicesUpdated;
       DictionaryAttr transformMetadata =
-          layeredTransformMetadata[layer].template cast<DictionaryAttr>();
+          layeredTransformMetadata[layer].cast<DictionaryAttr>();
       SmallVector<Value, 8> lowerIndicesOriginal = layeredIndices[layer + 1];
       computeIndexDiffMap(b, loc, upperDiff, transformMetadata,
                           lowerIndicesOriginal, lowerDiff, lowerIndicesUpdated);
@@ -1294,10 +1282,10 @@ inline void populateLayeredIndicesWithTransformMetadata(
     // and apply it to obtain the indices for the next layer.
     for (unsigned layer = 0; layer < layeredTransformMetadata.size(); ++layer) {
       DictionaryAttr transformMetadata =
-          layeredTransformMetadata[layer].template cast<DictionaryAttr>();
+          layeredTransformMetadata[layer].cast<DictionaryAttr>();
       AffineMap am = transformMetadata.get("map")
-                         .template cast<ArrayAttr>()[0]
-                         .template cast<AffineMapAttr>()
+                         .cast<ArrayAttr>()[0]
+                         .cast<AffineMapAttr>()
                          .getValue();
       SmallVector<Value, 8> nextLayerIndices =
           expandAffineMap(b, loc, am, currentIndices).getValue();
@@ -1351,7 +1339,7 @@ inline void computeTopAndBottomIndicesWithAffineMap(
         b.create<IndexCastOp>(loc, originalCoords[iter], b.getIndexType()));
 
   for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
-    auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+    auto dim = dimAccessOrder[iter].cast<IntegerAttr>().getInt();
     auto loopIV = b.create<ConstantIndexOp>(loc, loopIVsPerAccessOrder[dim]);
     topIndices[iter] = b.create<AddIOp>(loc, loopIV, topIndices[iter]);
   }
@@ -1380,8 +1368,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
       isXdlops = true;
-    auto dataType =
-        op.input().getType().template cast<MemRefType>().getElementType();
+    auto dataType = op.input().getType().cast<MemRefType>().getElementType();
     if (miopen::ConvOpType::Conv2DBwdDataOpType == convOpType) {
       return backwardData(op, b);
     } else if (miopen::ConvOpType::Conv2DBwdWeightOpType == convOpType &&
@@ -1407,17 +1394,17 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
 
     // Get shape of filter tensor.
-    auto filterType = op.filter().getType().template cast<MemRefType>();
+    auto filterType = op.filter().getType().cast<MemRefType>();
     auto filterShape = filterType.getShape();
     auto filterElementType = filterType.getElementType();
 
     // Get shape of input tensor.
-    auto inputType = op.input().getType().template cast<MemRefType>();
+    auto inputType = op.input().getType().cast<MemRefType>();
     auto inputShape = inputType.getShape();
     auto inputElementType = inputType.getElementType();
 
     // Get shape of output tensor.
-    auto outputType = op.output().getType().template cast<MemRefType>();
+    auto outputType = op.output().getType().cast<MemRefType>();
     auto outputShape = outputType.getShape();
     auto outputElementType = outputType.getElementType();
 
@@ -1427,8 +1414,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // Find Ho/Wo dimension for output tensor. They will be used in
     // transforming input tensor.
     for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
-      if (auto strAttr =
-              outputLayoutAttr.getValue()[i].template cast<StringAttr>()) {
+      if (auto strAttr = outputLayoutAttr.getValue()[i].cast<StringAttr>()) {
         if (strAttr.getValue() == "ho") {
           outputHDim = i;
         } else if (strAttr.getValue() == "wo") {
@@ -1438,35 +1424,24 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     }
 
     // Obtain convolution parameters: padding / dialtion / stride.
-    auto leftPadH =
-        paddingAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-    auto leftPadW =
-        paddingAttr.getValue()[2].template cast<IntegerAttr>().getInt();
-    auto rightPadH =
-        paddingAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-    auto rightPadW =
-        paddingAttr.getValue()[3].template cast<IntegerAttr>().getInt();
+    auto leftPadH = paddingAttr.getValue()[0].cast<IntegerAttr>().getInt();
+    auto leftPadW = paddingAttr.getValue()[2].cast<IntegerAttr>().getInt();
+    auto rightPadH = paddingAttr.getValue()[1].cast<IntegerAttr>().getInt();
+    auto rightPadW = paddingAttr.getValue()[3].cast<IntegerAttr>().getInt();
 
-    auto dilationH =
-        dilationsAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-    auto dilationW =
-        dilationsAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-    auto strideH =
-        stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-    auto strideW =
-        stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
+    auto dilationH = dilationsAttr.getValue()[0].cast<IntegerAttr>().getInt();
+    auto dilationW = dilationsAttr.getValue()[1].cast<IntegerAttr>().getInt();
+    auto strideH = stridesAttr.getValue()[0].cast<IntegerAttr>().getInt();
+    auto strideW = stridesAttr.getValue()[1].cast<IntegerAttr>().getInt();
 
     // get y, x, ho, wo, hi, wi, k, c, n
     int64_t y, x, ho, wo, hi, wi, k, c, n;
     y = x = ho = wo = hi = wi = k = c = n = 0;
     llvm::DenseMap<StringRef, int> nameToDims;
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-      auto filterAttr =
-          filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto inputAttr =
-          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto outputAttr =
-          outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      auto filterAttr = filterLayoutAttr.getValue()[i].cast<StringAttr>();
+      auto inputAttr = inputLayoutAttr.getValue()[i].cast<StringAttr>();
+      auto outputAttr = outputLayoutAttr.getValue()[i].cast<StringAttr>();
 
       nameToDims[filterAttr.getValue()] = i;
       nameToDims[inputAttr.getValue()] = i;
@@ -1608,8 +1583,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       StringAttr gDimName;
 
       for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-        if (auto strAttr =
-                filterLayoutAttr.getValue()[i].template cast<StringAttr>()) {
+        if (auto strAttr = filterLayoutAttr.getValue()[i].cast<StringAttr>()) {
           if (strAttr.getValue() == "k") {
             kDim = b.getI32IntegerAttr(i);
             kDimName = strAttr;
@@ -2028,8 +2002,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       llvm::SmallVector<IntegerAttr, 2> hwDims;
       llvm::SmallVector<StringAttr, 2> hwDimNames;
       for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
-        if (auto strAttr =
-                inputLayoutAttr.getValue()[i].template cast<StringAttr>()) {
+        if (auto strAttr = inputLayoutAttr.getValue()[i].cast<StringAttr>()) {
           if (strAttr.getValue() == "ni") {
             nDim = b.getI32IntegerAttr(i);
             nDimName = strAttr;
@@ -2064,8 +2037,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           paddedInputShape.push_back(inputShape[cDim.getInt()]);
         } else {
           // Set padded dimension.
-          auto strAttr =
-              inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+          auto strAttr = inputLayoutAttr.getValue()[i].cast<StringAttr>();
           if (strAttr.getValue() == "hi") {
             paddedInputShape.push_back(hiPadded);
           } else if (strAttr.getValue() == "wi") {
@@ -2839,8 +2811,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       llvm::SmallVector<StringAttr, 3> nonKDimNames;
       StringAttr kDimName, gDimName;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
-        if (auto strAttr =
-                outputLayoutAttr.getValue()[i].template cast<StringAttr>()) {
+        if (auto strAttr = outputLayoutAttr.getValue()[i].cast<StringAttr>()) {
           if (strAttr.getValue() == "ko") {
             kDim = b.getI32IntegerAttr(i);
             kDimName = strAttr;
@@ -3293,48 +3264,37 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
 
     // Get shape of filter tensor.
-    auto filterType = op.filter().getType().template cast<MemRefType>();
+    auto filterType = op.filter().getType().cast<MemRefType>();
     auto filterShape = filterType.getShape();
     auto filterElementType = filterType.getElementType();
 
     // Get shape of input tensor.
-    auto inputType = op.input().getType().template cast<MemRefType>();
+    auto inputType = op.input().getType().cast<MemRefType>();
     auto inputShape = inputType.getShape();
     auto inputElementType = inputType.getElementType();
 
     // Get shape of output tensor.
-    auto outputType = op.output().getType().template cast<MemRefType>();
+    auto outputType = op.output().getType().cast<MemRefType>();
     auto outputShape = outputType.getShape();
     auto outputElementType = outputType.getElementType();
 
     // Obtain convolution parameters: padding / dialtion / stride.
-    auto leftPadH =
-        paddingAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-    auto leftPadW =
-        paddingAttr.getValue()[2].template cast<IntegerAttr>().getInt();
-    auto rightPadH =
-        paddingAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-    auto rightPadW =
-        paddingAttr.getValue()[3].template cast<IntegerAttr>().getInt();
+    auto leftPadH = paddingAttr.getValue()[0].cast<IntegerAttr>().getInt();
+    auto leftPadW = paddingAttr.getValue()[2].cast<IntegerAttr>().getInt();
+    auto rightPadH = paddingAttr.getValue()[1].cast<IntegerAttr>().getInt();
+    auto rightPadW = paddingAttr.getValue()[3].cast<IntegerAttr>().getInt();
 
-    auto dilationH =
-        dilationsAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-    auto dilationW =
-        dilationsAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-    auto strideH =
-        stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-    auto strideW =
-        stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
+    auto dilationH = dilationsAttr.getValue()[0].cast<IntegerAttr>().getInt();
+    auto dilationW = dilationsAttr.getValue()[1].cast<IntegerAttr>().getInt();
+    auto strideH = stridesAttr.getValue()[0].cast<IntegerAttr>().getInt();
+    auto strideW = stridesAttr.getValue()[1].cast<IntegerAttr>().getInt();
     // get y, x, ho, wo, hi, wi
     int64_t g, n, k, c, y, x, ho, wo, hi, wi;
     g = n = k = c = y = x = ho = wo = hi = wi = 0;
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-      auto filterAttr =
-          filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto inputAttr =
-          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto outputAttr =
-          outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      auto filterAttr = filterLayoutAttr.getValue()[i].cast<StringAttr>();
+      auto inputAttr = inputLayoutAttr.getValue()[i].cast<StringAttr>();
+      auto outputAttr = outputLayoutAttr.getValue()[i].cast<StringAttr>();
 
       if (filterAttr.getValue() == "g") {
         g = filterShape[i];
@@ -3426,8 +3386,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // key to dim
       std::map<StringRef, int> filterKeyToDim;
       for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-        if (auto strAttr =
-                filterLayoutAttr.getValue()[i].template cast<StringAttr>()) {
+        if (auto strAttr = filterLayoutAttr.getValue()[i].cast<StringAttr>()) {
           filterKeyToDim[strAttr.getValue()] = i;
         }
       }
@@ -3787,8 +3746,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
-        if (auto strAttr =
-                inputLayoutAttr.getValue()[i].template cast<StringAttr>()) {
+        if (auto strAttr = inputLayoutAttr.getValue()[i].cast<StringAttr>()) {
           currentKeyToDim[strAttr.getValue()] = i;
         }
       }
@@ -4274,8 +4232,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // key to dim
       std::map<StringRef, int> currentKeyToDim;
       for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
-        if (auto strAttr =
-                outputLayoutAttr.getValue()[i].template cast<StringAttr>()) {
+        if (auto strAttr = outputLayoutAttr.getValue()[i].cast<StringAttr>()) {
           currentKeyToDim[strAttr.getValue()] = i;
         }
       }
@@ -4829,28 +4786,25 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                             int64_t &block_space) const {
     int64_t ABlockCopyDstDataPerWrite_M =
         op->getAttr("matrix_a_dest_data_per_write_dim_m")
-            .template cast<IntegerAttr>()
+            .cast<IntegerAttr>()
             .getInt();
     int64_t BBlockCopyDstDataPerWrite_N =
         op->getAttr("matrix_b_dest_data_per_write_dim_n")
-            .template cast<IntegerAttr>()
+            .cast<IntegerAttr>()
             .getInt();
     int64_t ThreadGemmAThreadCopySrcDataPerRead_M =
-        op->getAttr("m_per_thread").template cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_thread").cast<IntegerAttr>().getInt();
     int64_t ThreadGemmBThreadCopySrcDataPerRead_N =
-        op->getAttr("n_per_thread").template cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_thread").cast<IntegerAttr>().getInt();
 
     int64_t max_lds_align =
         math::lcm(ABlockCopyDstDataPerWrite_M, BBlockCopyDstDataPerWrite_N,
                   ThreadGemmAThreadCopySrcDataPerRead_M,
                   ThreadGemmBThreadCopySrcDataPerRead_N);
 
-    int64_t KPerBlock =
-        op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
-    int64_t MPerBlock =
-        op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
-    int64_t NPerBlock =
-        op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
+    int64_t KPerBlock = op->getAttr("k_per_block").cast<IntegerAttr>().getInt();
+    int64_t MPerBlock = op->getAttr("m_per_block").cast<IntegerAttr>().getInt();
+    int64_t NPerBlock = op->getAttr("n_per_block").cast<IntegerAttr>().getInt();
 
     int64_t AlignedNPerBlock =
         max_lds_align *
@@ -4938,11 +4892,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto loc = op.getLoc();
 
     // Determine the type used in the filter/input/output tensors.
-    auto elementType = op.output()
-                           .getType()
-                           .cast<MemRefType>()
-                           .getElementType()
-                           .template cast<Type>();
+    auto elementType =
+        op.output().getType().cast<MemRefType>().getElementType().cast<Type>();
 
     // Determine the type used on VGPR to act as accumulator.
     // f32: f32.
@@ -4967,35 +4918,31 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     // Obtain critical matrix dimensions.
-    int64_t G = op.filter().getType().template cast<MemRefType>().getShape()[0];
-    int64_t K = op.filter().getType().template cast<MemRefType>().getShape()[1];
-    int64_t M = op.filter().getType().template cast<MemRefType>().getShape()[2];
-    int64_t N = op.input().getType().template cast<MemRefType>().getShape()[2];
+    int64_t G = op.filter().getType().cast<MemRefType>().getShape()[0];
+    int64_t K = op.filter().getType().cast<MemRefType>().getShape()[1];
+    int64_t M = op.filter().getType().cast<MemRefType>().getShape()[2];
+    int64_t N = op.input().getType().cast<MemRefType>().getShape()[2];
 
     // Obtain critical tuning parameters.
-    int64_t BlockSize =
-        op->getAttr("block_size").template cast<IntegerAttr>().getInt();
-    int64_t KPerBlock =
-        op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
-    int64_t MPerBlock =
-        op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
-    int64_t NPerBlock =
-        op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
+    int64_t BlockSize = op->getAttr("block_size").cast<IntegerAttr>().getInt();
+    int64_t KPerBlock = op->getAttr("k_per_block").cast<IntegerAttr>().getInt();
+    int64_t MPerBlock = op->getAttr("m_per_block").cast<IntegerAttr>().getInt();
+    int64_t NPerBlock = op->getAttr("n_per_block").cast<IntegerAttr>().getInt();
     int64_t MPerThread =
-        op->getAttr("m_per_thread").template cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_thread").cast<IntegerAttr>().getInt();
     int64_t NPerThread =
-        op->getAttr("n_per_thread").template cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_thread").cast<IntegerAttr>().getInt();
     auto MPerThreadConstantOp = b.create<ConstantIndexOp>(loc, MPerThread);
     auto NPerThreadConstantOp = b.create<ConstantIndexOp>(loc, NPerThread);
 
     int64_t MLevel0Cluster =
-        op->getAttr("m_level0_cluster").template cast<IntegerAttr>().getInt();
+        op->getAttr("m_level0_cluster").cast<IntegerAttr>().getInt();
     int64_t MLevel1Cluster =
-        op->getAttr("m_level1_cluster").template cast<IntegerAttr>().getInt();
+        op->getAttr("m_level1_cluster").cast<IntegerAttr>().getInt();
     int64_t NLevel0Cluster =
-        op->getAttr("n_level0_cluster").template cast<IntegerAttr>().getInt();
+        op->getAttr("n_level0_cluster").cast<IntegerAttr>().getInt();
     int64_t NLevel1Cluster =
-        op->getAttr("n_level1_cluster").template cast<IntegerAttr>().getInt();
+        op->getAttr("n_level1_cluster").cast<IntegerAttr>().getInt();
     auto NLevel0ClusterConstantOp =
         b.create<ConstantIndexOp>(loc, NLevel0Cluster);
     auto NLevel1ClusterConstantOp =
@@ -5003,19 +4950,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     int64_t matrix_a_source_data_per_read =
         op->getAttr("matrix_a_source_data_per_read")
-            .template cast<IntegerAttr>()
+            .cast<IntegerAttr>()
             .getInt();
     int64_t matrix_b_source_data_per_read =
         op->getAttr("matrix_b_source_data_per_read")
-            .template cast<IntegerAttr>()
+            .cast<IntegerAttr>()
             .getInt();
     int64_t matrix_a_source_vector_read_dim =
         op->getAttr("matrix_a_source_vector_read_dim")
-            .template cast<IntegerAttr>()
+            .cast<IntegerAttr>()
             .getInt();
     int64_t matrix_b_source_vector_read_dim =
         op->getAttr("matrix_b_source_vector_read_dim")
-            .template cast<IntegerAttr>()
+            .cast<IntegerAttr>()
             .getInt();
 
     // Get current workgroup ID.
@@ -5616,7 +5563,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                        op.getContext());
 
     // compose with output tensor affine map.
-    auto outputType = op.output().getType().template cast<MemRefType>();
+    auto outputType = op.output().getType().cast<MemRefType>();
     auto outputAffineMaps = outputType.getAffineMaps();
     SmallVector<AffineMap> newOutputAffineMaps;
     newOutputAffineMaps.assign(outputAffineMaps.begin(),
@@ -5820,22 +5767,19 @@ struct GridwiseGemmV2RewritePattern
                             int64_t &total_block_space) const {
     int64_t ABlockCopyDstDataPerWrite_M =
         op->getAttr("matrix_a_dest_data_per_write_dim_m")
-            .template cast<IntegerAttr>()
+            .cast<IntegerAttr>()
             .getInt();
     int64_t BBlockCopyDstDataPerWrite_N =
         op->getAttr("matrix_b_dest_data_per_write_dim_n")
-            .template cast<IntegerAttr>()
+            .cast<IntegerAttr>()
             .getInt();
 
     int64_t max_lds_align =
         math::lcm(ABlockCopyDstDataPerWrite_M, BBlockCopyDstDataPerWrite_N);
 
-    int64_t KPerBlock =
-        op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
-    int64_t MPerBlock =
-        op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
-    int64_t NPerBlock =
-        op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
+    int64_t KPerBlock = op->getAttr("k_per_block").cast<IntegerAttr>().getInt();
+    int64_t MPerBlock = op->getAttr("m_per_block").cast<IntegerAttr>().getInt();
+    int64_t NPerBlock = op->getAttr("n_per_block").cast<IntegerAttr>().getInt();
 
     int64_t AlignedNPerBlock =
         max_lds_align *
@@ -5874,13 +5818,13 @@ struct GridwiseGemmV2RewritePattern
     auto xdlopsV2Attr = gop->template getAttrOfType<BoolAttr>("xdlopsV2");
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
       int64_t MPerBlock =
-          gop->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
+          gop->getAttr("m_per_block").cast<IntegerAttr>().getInt();
       int64_t NPerBlock =
-          gop->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
+          gop->getAttr("n_per_block").cast<IntegerAttr>().getInt();
       int64_t MPerWave =
-          gop->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
+          gop->getAttr("m_per_wave").cast<IntegerAttr>().getInt();
       int64_t NPerWave =
-          gop->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
+          gop->getAttr("n_per_wave").cast<IntegerAttr>().getInt();
       int64_t MWaves = MPerBlock / MPerWave;
       int64_t NWaves = NPerBlock / NPerWave;
 
@@ -5899,13 +5843,11 @@ struct GridwiseGemmV2RewritePattern
     bop->setAttr("block_size", gop->getAttr("block_size"));
 
     int64_t MPerBlock =
-        gop->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
+        gop->getAttr("m_per_block").cast<IntegerAttr>().getInt();
     int64_t NPerBlock =
-        gop->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
-    int64_t MPerWave =
-        gop->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
-    int64_t NPerWave =
-        gop->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
+        gop->getAttr("n_per_block").cast<IntegerAttr>().getInt();
+    int64_t MPerWave = gop->getAttr("m_per_wave").cast<IntegerAttr>().getInt();
+    int64_t NPerWave = gop->getAttr("n_per_wave").cast<IntegerAttr>().getInt();
     int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
 
@@ -5914,12 +5856,9 @@ struct GridwiseGemmV2RewritePattern
     bop->setAttr("m_waves", b.getI32IntegerAttr(MWaves));
     bop->setAttr("n_waves", b.getI32IntegerAttr(NWaves));
 
-    int64_t M =
-        bop.matrixA().getType().template cast<MemRefType>().getShape()[2];
-    int64_t N =
-        bop.matrixB().getType().template cast<MemRefType>().getShape()[2];
-    int64_t K =
-        bop.matrixA().getType().template cast<MemRefType>().getShape()[1];
+    int64_t M = bop.matrixA().getType().cast<MemRefType>().getShape()[2];
+    int64_t N = bop.matrixB().getType().cast<MemRefType>().getShape()[2];
+    int64_t K = bop.matrixA().getType().cast<MemRefType>().getShape()[1];
 
     bop->setAttr("m", b.getI32IntegerAttr(M));
     bop->setAttr("n", b.getI32IntegerAttr(N));
@@ -5982,47 +5921,40 @@ struct GridwiseGemmV2RewritePattern
     auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     // Obtain critical matrix dimensions.
-    int64_t G = op.filter().getType().template cast<MemRefType>().getShape()[0];
-    int64_t K = op.filter().getType().template cast<MemRefType>().getShape()[1];
-    int64_t M = op.filter().getType().template cast<MemRefType>().getShape()[2];
-    int64_t N = op.input().getType().template cast<MemRefType>().getShape()[2];
+    int64_t G = op.filter().getType().cast<MemRefType>().getShape()[0];
+    int64_t K = op.filter().getType().cast<MemRefType>().getShape()[1];
+    int64_t M = op.filter().getType().cast<MemRefType>().getShape()[2];
+    int64_t N = op.input().getType().cast<MemRefType>().getShape()[2];
 
     // Obtain critical tuning parameters.
-    int64_t BlockSize =
-        op->getAttr("block_size").template cast<IntegerAttr>().getInt();
-    int64_t KPerBlock =
-        op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
-    int64_t MPerBlock =
-        op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
-    int64_t NPerBlock =
-        op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
+    int64_t BlockSize = op->getAttr("block_size").cast<IntegerAttr>().getInt();
+    int64_t KPerBlock = op->getAttr("k_per_block").cast<IntegerAttr>().getInt();
+    int64_t MPerBlock = op->getAttr("m_per_block").cast<IntegerAttr>().getInt();
+    int64_t NPerBlock = op->getAttr("n_per_block").cast<IntegerAttr>().getInt();
 
     int64_t matrix_a_source_data_per_read =
         op->getAttr("matrix_a_source_data_per_read")
-            .template cast<IntegerAttr>()
+            .cast<IntegerAttr>()
             .getInt();
     int64_t matrix_b_source_data_per_read =
         op->getAttr("matrix_b_source_data_per_read")
-            .template cast<IntegerAttr>()
+            .cast<IntegerAttr>()
             .getInt();
     int64_t matrix_a_source_vector_read_dim =
         op->getAttr("matrix_a_source_vector_read_dim")
-            .template cast<IntegerAttr>()
+            .cast<IntegerAttr>()
             .getInt();
     int64_t matrix_b_source_vector_read_dim =
         op->getAttr("matrix_b_source_vector_read_dim")
-            .template cast<IntegerAttr>()
+            .cast<IntegerAttr>()
             .getInt();
 
     // Obtain XDLOPS-related attributes.
-    int64_t MPerWave =
-        op->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
-    int64_t NPerWave =
-        op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
+    int64_t MPerWave = op->getAttr("m_per_wave").cast<IntegerAttr>().getInt();
+    int64_t NPerWave = op->getAttr("n_per_wave").cast<IntegerAttr>().getInt();
     // int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
-    auto dataType =
-        op.input().getType().template cast<MemRefType>().getElementType();
+    auto dataType = op.input().getType().cast<MemRefType>().getElementType();
 
     auto MPerWaveConstantOp = b.create<ConstantIndexOp>(loc, MPerWave);
     auto NPerWaveConstantOp = b.create<ConstantIndexOp>(loc, NPerWave);
@@ -6718,7 +6650,7 @@ struct GridwiseGemmV2RewritePattern
                        op.getContext());
 
     // compose with output tensor affine map.
-    auto outputType = op.output().getType().template cast<MemRefType>();
+    auto outputType = op.output().getType().cast<MemRefType>();
     auto outputAffineMaps = outputType.getAffineMaps();
     SmallVector<AffineMap> newOutputAffineMaps;
     newOutputAffineMaps.assign(outputAffineMaps.begin(),
@@ -7142,15 +7074,15 @@ struct BlockwiseGemmRewritePattern
 
     // Obtain critical attributes.
     int64_t KPerThread =
-        op->getAttr("k_per_thread").template cast<IntegerAttr>().getInt();
+        op->getAttr("k_per_thread").cast<IntegerAttr>().getInt();
     int64_t MPerThread =
-        op.matrixC().getType().template cast<MemRefType>().getShape()[1];
+        op.matrixC().getType().cast<MemRefType>().getShape()[1];
     int64_t NPerThread =
-        op.matrixC().getType().template cast<MemRefType>().getShape()[2];
+        op.matrixC().getType().cast<MemRefType>().getShape()[2];
     int64_t MPerThreadSubC =
-        op->getAttr("m_per_thread").template cast<IntegerAttr>().getInt();
+        op->getAttr("m_per_thread").cast<IntegerAttr>().getInt();
     int64_t NPerThreadSubC =
-        op->getAttr("n_per_thread").template cast<IntegerAttr>().getInt();
+        op->getAttr("n_per_thread").cast<IntegerAttr>().getInt();
 
     // llvm::errs() << "MPerThread: " << MPerThread << "\n";
     // llvm::errs() << "MPerThreadSubC: " << MPerThreadSubC << "\n";
@@ -7163,13 +7095,13 @@ struct BlockwiseGemmRewritePattern
         b.create<ConstantIntOp>(loc, NPerThreadSubC, b.getIntegerType(32));
 
     int64_t MLevel0Cluster =
-        op->getAttr("m_level0_cluster").template cast<IntegerAttr>().getInt();
+        op->getAttr("m_level0_cluster").cast<IntegerAttr>().getInt();
     int64_t MLevel1Cluster =
-        op->getAttr("m_level1_cluster").template cast<IntegerAttr>().getInt();
+        op->getAttr("m_level1_cluster").cast<IntegerAttr>().getInt();
     int64_t NLevel0Cluster =
-        op->getAttr("n_level0_cluster").template cast<IntegerAttr>().getInt();
+        op->getAttr("n_level0_cluster").cast<IntegerAttr>().getInt();
     int64_t NLevel1Cluster =
-        op->getAttr("n_level1_cluster").template cast<IntegerAttr>().getInt();
+        op->getAttr("n_level1_cluster").cast<IntegerAttr>().getInt();
 
     int64_t MPerLevel1Cluster =
         MPerThreadSubC * MLevel0Cluster * MLevel1Cluster;
@@ -7572,8 +7504,7 @@ struct ThreadwiseGemmRewritePattern
     auto gemmA = op.matrixA();
     auto gemmB = op.matrixB();
     auto gemmC = op.matrixC();
-    auto dataType =
-        gemmA.getType().template cast<MemRefType>().getElementType();
+    auto dataType = gemmA.getType().cast<MemRefType>().getElementType();
 
     ArrayRef<int64_t> gemmAShape =
         gemmA.getType().cast<MemRefType>().getShape();
@@ -7651,11 +7582,9 @@ struct ThreadwiseCopyRewritePattern
     auto legacyLoadAttr = op->getAttr("legacy_load");
     auto legacyStoreAttr = op->getAttr("legacy_store");
     bool legacyLoad =
-        (legacyLoadAttr &&
-         legacyLoadAttr.template cast<BoolAttr>().getValue() == true);
-    bool legacyStore =
-        (legacyStoreAttr &&
-         legacyStoreAttr.template cast<BoolAttr>().getValue() == true);
+        (legacyLoadAttr && legacyLoadAttr.cast<BoolAttr>().getValue() == true);
+    bool legacyStore = (legacyStoreAttr &&
+                        legacyStoreAttr.cast<BoolAttr>().getValue() == true);
 
     Optional<AffineMap> composedSourceTransform;
     Optional<AffineMap> composedDestTransform;
@@ -7667,7 +7596,7 @@ struct ThreadwiseCopyRewritePattern
     ArrayAttr boundCheckDestAttr;
 
     auto coordTransformsAttr =
-        op->getAttr("coord_transforms").template cast<ArrayAttr>();
+        op->getAttr("coord_transforms").cast<ArrayAttr>();
 
     // Obtain coordinate lengths, as well as information of affine
     // transformations.
@@ -7716,10 +7645,9 @@ struct ThreadwiseCopyRewritePattern
       // In cases where attributes n_slice_row/n_slice_col/data_per_access are
       // specified, source and dest memrefs are all on LDS or VGPR, use the
       // simpler algorithm because they are all naive tensors.
-      int64_t NSliceRow = NSliceRowAttr.template cast<IntegerAttr>().getInt();
-      int64_t NSliceCol = NSliceColAttr.template cast<IntegerAttr>().getInt();
-      int64_t DataPerAccess =
-          DataPerAccessAttr.template cast<IntegerAttr>().getInt();
+      int64_t NSliceRow = NSliceRowAttr.cast<IntegerAttr>().getInt();
+      int64_t NSliceCol = NSliceColAttr.cast<IntegerAttr>().getInt();
+      int64_t DataPerAccess = DataPerAccessAttr.cast<IntegerAttr>().getInt();
 
       emitNaiveTensorCopyLogic(b, loc, NSliceRow, NSliceCol, DataPerAccess,
                                sourceCoord, destCoord, composedSourceTransform,
@@ -7732,12 +7660,11 @@ struct ThreadwiseCopyRewritePattern
       // op.dump();
       // llvm::errs() << "\n";
 
-      auto dimAccessOrder =
-          op->getAttr("dim_access_order").template cast<ArrayAttr>();
+      auto dimAccessOrder = op->getAttr("dim_access_order").cast<ArrayAttr>();
 
       Optional<ArrayAttr> boundAttr;
       if (op->getAttr("bound"))
-        boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
+        boundAttr = op->getAttr("bound").cast<ArrayAttr>();
 
       // Figure out the bounds of load/store loops.
       SmallVector<int64_t, 2> sliceLengths;
@@ -7773,8 +7700,7 @@ struct ThreadwiseCopyRewritePattern
         if (srcTransformSpec) {
           Attribute metadataAttr = srcTransformSpec.get("metadata");
           if (metadataAttr)
-            layeredSourceTransformMetadata =
-                metadataAttr.template cast<ArrayAttr>();
+            layeredSourceTransformMetadata = metadataAttr.cast<ArrayAttr>();
           else
             populateTransformMetadataFromLowerType(
                 b, sourceType, layeredSourceTransformMetadata);
@@ -7804,8 +7730,7 @@ struct ThreadwiseCopyRewritePattern
         if (destTransformSpec) {
           Attribute metadataAttr = destTransformSpec.get("metadata");
           if (metadataAttr)
-            layeredDestTransformMetadata =
-                metadataAttr.template cast<ArrayAttr>();
+            layeredDestTransformMetadata = metadataAttr.cast<ArrayAttr>();
           else
             populateTransformMetadataFromLowerType(
                 b, destType, layeredDestTransformMetadata);
@@ -7831,7 +7756,7 @@ struct ThreadwiseCopyRewritePattern
       SmallVector<int64_t, 8> loopIVsPerAccessOrder;
       SmallVector<int64_t, 8> loopBoundsPerAccessOrder;
       for (unsigned iter = 0; iter < dimAccessOrder.size(); ++iter) {
-        auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+        auto dim = dimAccessOrder[iter].cast<IntegerAttr>().getInt();
         loopIVsPerAccessOrder.push_back(0);
         loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
       }
@@ -7929,8 +7854,7 @@ struct ThreadwiseLoadRewritePattern
     // false : use the faster index diff map.
     auto legacyLoadAttr = op->getAttr("legacy_load");
     bool legacyLoad =
-        (legacyLoadAttr &&
-         legacyLoadAttr.template cast<BoolAttr>().getValue() == true);
+        (legacyLoadAttr && legacyLoadAttr.cast<BoolAttr>().getValue() == true);
 
     Optional<AffineMap> composedSourceTransform;
     SmallVector<AffineMap> layeredSourceTransform;
@@ -7938,7 +7862,7 @@ struct ThreadwiseLoadRewritePattern
     ArrayAttr boundCheckSourceAttr;
 
     auto coordTransformsAttr =
-        op->getAttr("coord_transforms").template cast<ArrayAttr>();
+        op->getAttr("coord_transforms").cast<ArrayAttr>();
 
     // Obtain coordinate lengths, as well as information of affine
     // transformations.
@@ -7970,20 +7894,17 @@ struct ThreadwiseLoadRewritePattern
 
     // --------------------------------
 
-    auto dimAccessOrder =
-        op->getAttr("dim_access_order").template cast<ArrayAttr>();
+    auto dimAccessOrder = op->getAttr("dim_access_order").cast<ArrayAttr>();
 
-    auto srcDataPerRead = op->getAttr("source_data_per_read")
-                              .template cast<IntegerAttr>()
-                              .getInt();
+    auto srcDataPerRead =
+        op->getAttr("source_data_per_read").cast<IntegerAttr>().getInt();
 
-    auto vectorReadWriteDim = op->getAttr("vector_read_write_dim")
-                                  .template cast<IntegerAttr>()
-                                  .getInt();
+    auto vectorReadWriteDim =
+        op->getAttr("vector_read_write_dim").cast<IntegerAttr>().getInt();
 
     Optional<ArrayAttr> boundAttr;
     if (op->getAttr("bound"))
-      boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
+      boundAttr = op->getAttr("bound").cast<ArrayAttr>();
 
     // Figure out the bounds of load/store loops.
     SmallVector<int64_t, 2> sliceLengths;
@@ -8028,8 +7949,7 @@ struct ThreadwiseLoadRewritePattern
       if (srcTransformSpec) {
         Attribute metadataAttr = srcTransformSpec.get("metadata");
         if (metadataAttr)
-          layeredSourceTransformMetadata =
-              metadataAttr.template cast<ArrayAttr>();
+          layeredSourceTransformMetadata = metadataAttr.cast<ArrayAttr>();
         else
           populateTransformMetadataFromLowerType(
               b, sourceType, layeredSourceTransformMetadata);
@@ -8056,7 +7976,7 @@ struct ThreadwiseLoadRewritePattern
     SmallVector<int64_t, 8> loopIVsPerAccessOrder;
     SmallVector<int64_t, 8> loopBoundsPerAccessOrder;
     for (unsigned iter = 0; iter < dimAccessOrder.size(); ++iter) {
-      auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+      auto dim = dimAccessOrder[iter].cast<IntegerAttr>().getInt();
       loopIVsPerAccessOrder.push_back(0);
       loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
     }
@@ -8188,9 +8108,8 @@ struct ThreadwiseStoreRewritePattern
     // true : use the slow but proven affine map.
     // false : use the faster index diff map.
     auto legacyStoreAttr = op->getAttr("legacy_store");
-    bool legacyStore =
-        (legacyStoreAttr &&
-         legacyStoreAttr.template cast<BoolAttr>().getValue() == true);
+    bool legacyStore = (legacyStoreAttr &&
+                        legacyStoreAttr.cast<BoolAttr>().getValue() == true);
 
     Optional<AffineMap> composedDestTransform;
     SmallVector<AffineMap> layeredDestTransform;
@@ -8198,7 +8117,7 @@ struct ThreadwiseStoreRewritePattern
     ArrayAttr boundCheckDestAttr;
 
     auto coordTransformsAttr =
-        op->getAttr("coord_transforms").template cast<ArrayAttr>();
+        op->getAttr("coord_transforms").cast<ArrayAttr>();
 
     // Obtain coordinate lengths, as well as information of affine
     // transformations.
@@ -8230,20 +8149,17 @@ struct ThreadwiseStoreRewritePattern
 
     // --------------------------------
 
-    auto dimAccessOrder =
-        op->getAttr("dim_access_order").template cast<ArrayAttr>();
+    auto dimAccessOrder = op->getAttr("dim_access_order").cast<ArrayAttr>();
 
-    auto dstDataPerWrite = op->getAttr("dest_data_per_write")
-                               .template cast<IntegerAttr>()
-                               .getInt();
+    auto dstDataPerWrite =
+        op->getAttr("dest_data_per_write").cast<IntegerAttr>().getInt();
 
-    auto vectorReadWriteDim = op->getAttr("vector_read_write_dim")
-                                  .template cast<IntegerAttr>()
-                                  .getInt();
+    auto vectorReadWriteDim =
+        op->getAttr("vector_read_write_dim").cast<IntegerAttr>().getInt();
 
     Optional<ArrayAttr> boundAttr;
     if (op->getAttr("bound"))
-      boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
+      boundAttr = op->getAttr("bound").cast<ArrayAttr>();
 
     // Figure out the bounds of load/store loops.
     SmallVector<int64_t, 2> sliceLengths;
@@ -8289,8 +8205,7 @@ struct ThreadwiseStoreRewritePattern
       if (destTransformSpec) {
         Attribute metadataAttr = destTransformSpec.get("metadata");
         if (metadataAttr)
-          layeredDestTransformMetadata =
-              metadataAttr.template cast<ArrayAttr>();
+          layeredDestTransformMetadata = metadataAttr.cast<ArrayAttr>();
         else
           populateTransformMetadataFromLowerType(b, destType,
                                                  layeredDestTransformMetadata);
@@ -8317,7 +8232,7 @@ struct ThreadwiseStoreRewritePattern
     SmallVector<int64_t, 8> loopIVsPerAccessOrder;
     SmallVector<int64_t, 8> loopBoundsPerAccessOrder;
     for (unsigned iter = 0; iter < dimAccessOrder.size(); ++iter) {
-      auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+      auto dim = dimAccessOrder[iter].cast<IntegerAttr>().getInt();
       loopIVsPerAccessOrder.push_back(0);
       loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
     }
@@ -8444,7 +8359,7 @@ struct ThreadwiseCopyV2RewritePattern
     InMemoryDataOperation dataOpration = InMemoryDataOperation::Set;
     auto dataOpAttr = op->getAttr("data_operation");
     if (dataOpAttr) {
-      int64_t dataOp = dataOpAttr.template cast<IntegerAttr>().getInt();
+      int64_t dataOp = dataOpAttr.cast<IntegerAttr>().getInt();
       if (dataOp == 1)
         dataOpration = InMemoryDataOperation::AtomicAdd;
     }
@@ -8465,7 +8380,7 @@ struct ThreadwiseCopyV2RewritePattern
     ArrayAttr boundCheckDestAttr;
 
     auto coordTransformsAttr =
-        op->getAttr("coord_transforms").template cast<ArrayAttr>();
+        op->getAttr("coord_transforms").cast<ArrayAttr>();
 
     // Obtain coordinate lengths, as well as information of affine
     // transformations.
@@ -8494,12 +8409,11 @@ struct ThreadwiseCopyV2RewritePattern
     // op.dump();
     // llvm::errs() << "\n";
 
-    auto dimAccessOrder =
-        op->getAttr("dim_access_order").template cast<ArrayAttr>();
+    auto dimAccessOrder = op->getAttr("dim_access_order").cast<ArrayAttr>();
 
     Optional<ArrayAttr> boundAttr;
     if (op->getAttr("bound"))
-      boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
+      boundAttr = op->getAttr("bound").cast<ArrayAttr>();
 
     // Figure out the bounds of load/store loops.
     SmallVector<int64_t, 2> sliceLengths;
@@ -8527,7 +8441,7 @@ struct ThreadwiseCopyV2RewritePattern
 
     // Populate coorindates across the layers of transformations.
     ArrayAttr layeredSourceTransformMetadata =
-        srcTransformSpec.get("metadata").template cast<ArrayAttr>();
+        srcTransformSpec.get("metadata").cast<ArrayAttr>();
     // Populate coorindates across the layers of transformations.
     populateLayeredIndicesWithTransformMetadata(b, loc, layeredSourceIndices,
                                                 srcUpperIndices,
@@ -8552,7 +8466,7 @@ struct ThreadwiseCopyV2RewritePattern
 
     // Populate coorindates across the layers of transformations.
     ArrayAttr layeredDestTransformMetadata =
-        destTransformSpec.get("metadata").template cast<ArrayAttr>();
+        destTransformSpec.get("metadata").cast<ArrayAttr>();
     // Populate coorindates across the layers of transformations.
     populateLayeredIndicesWithTransformMetadata(b, loc, layeredDestIndices,
                                                 destUpperIndices,
@@ -8566,7 +8480,7 @@ struct ThreadwiseCopyV2RewritePattern
     SmallVector<int64_t, 8> loopIVsPerAccessOrder;
     SmallVector<int64_t, 8> loopBoundsPerAccessOrder;
     for (unsigned iter = 0; iter < dimAccessOrder.size(); ++iter) {
-      auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
+      auto dim = dimAccessOrder[iter].cast<IntegerAttr>().getInt();
       loopIVsPerAccessOrder.push_back(0);
       loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
     }
@@ -8939,26 +8853,23 @@ struct XdlopsGemmV2RewritePattern
     auto loc = op.getLoc();
 
     // Obtain critical information.
-    int64_t M = op->getAttr("m").template cast<IntegerAttr>().getInt();
-    int64_t N = op->getAttr("n").template cast<IntegerAttr>().getInt();
-    int64_t K = op->getAttr("k").template cast<IntegerAttr>().getInt();
-    int64_t MPerWave =
-        op->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
-    int64_t NPerWave =
-        op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
+    int64_t M = op->getAttr("m").cast<IntegerAttr>().getInt();
+    int64_t N = op->getAttr("n").cast<IntegerAttr>().getInt();
+    int64_t K = op->getAttr("k").cast<IntegerAttr>().getInt();
+    int64_t MPerWave = op->getAttr("m_per_wave").cast<IntegerAttr>().getInt();
+    int64_t NPerWave = op->getAttr("n_per_wave").cast<IntegerAttr>().getInt();
 
     // Obtain coordinate transforms for Matrix A and B.
     auto coordTransformsAttr =
-        op->getAttr("coord_transforms").template cast<ArrayAttr>();
+        op->getAttr("coord_transforms").cast<ArrayAttr>();
     AffineMap transformMatrixA, transformMatrixB;
     for (auto transformAttr : coordTransformsAttr) {
-      auto dictAttr = transformAttr.template cast<DictionaryAttr>();
-      auto operandIndex =
-          dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-      auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
+      auto dictAttr = transformAttr.cast<DictionaryAttr>();
+      auto operandIndex = dictAttr.get("operand").cast<IntegerAttr>().getInt();
+      auto transforms = dictAttr.get("transforms").cast<ArrayAttr>();
       if (transforms.size() > 0) {
         // Use the first affine map in the transforms array.
-        auto affineMap = transforms[0].template cast<AffineMapAttr>();
+        auto affineMap = transforms[0].cast<AffineMapAttr>();
         if (operandIndex == 0) {
           transformMatrixA = affineMap.getValue();
         } else if (operandIndex == 1) {
@@ -8967,8 +8878,7 @@ struct XdlopsGemmV2RewritePattern
       }
     }
 
-    auto dataType =
-        op.matrixA().getType().template cast<MemRefType>().getElementType();
+    auto dataType = op.matrixA().getType().cast<MemRefType>().getElementType();
 
     auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
     auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
@@ -9026,7 +8936,7 @@ struct XdlopsGemmV2RewritePattern
     if (dataType == b.getF32Type()) {
       KRepeats = 1 / k_base;
     } else if (dataType == b.getF16Type() || dataType == b.getIntegerType(16)) {
-      VectorType argVectorType = argType.template cast<VectorType>();
+      VectorType argVectorType = argType.cast<VectorType>();
       KRepeats = argVectorType.getShape()[0] / k_base;
     }
 
@@ -9165,11 +9075,9 @@ struct XdlopsGemmV2RewritePattern
       } else if (dataType == b.getF16Type() ||
                  dataType == b.getIntegerType(16)) {
         argA = loopKb.create<vector::TransferReadOp>(
-            loc, argType.template cast<VectorType>(), op.bufferA(),
-            ValueRange{loopKiv});
+            loc, argType.cast<VectorType>(), op.bufferA(), ValueRange{loopKiv});
         argB = loopKb.create<vector::TransferReadOp>(
-            loc, argType.template cast<VectorType>(), op.bufferB(),
-            ValueRange{loopKiv});
+            loc, argType.cast<VectorType>(), op.bufferB(), ValueRange{loopKiv});
       }
 
       // FIXME: See if it's possible to get rid of the this barrier.
@@ -9327,11 +9235,9 @@ struct XdlopsGemmV2RewritePattern
       } else if (dataType == b.getF16Type() ||
                  dataType == b.getIntegerType(16)) {
         argA = innerLoopb.create<vector::TransferReadOp>(
-            loc, argType.template cast<VectorType>(), op.bufferA(),
-            ValueRange{offset});
+            loc, argType.cast<VectorType>(), op.bufferA(), ValueRange{offset});
         argB = innerLoopb.create<vector::TransferReadOp>(
-            loc, argType.template cast<VectorType>(), op.bufferB(),
-            ValueRange{offset});
+            loc, argType.cast<VectorType>(), op.bufferB(), ValueRange{offset});
       }
 
       SmallVector<Value, 4> mfmas;
@@ -9371,10 +9277,8 @@ struct BlockwiseGemmV2RewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
-    int64_t MPerWave =
-        op->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
-    int64_t NPerWave =
-        op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
+    int64_t MPerWave = op->getAttr("m_per_wave").cast<IntegerAttr>().getInt();
+    int64_t NPerWave = op->getAttr("n_per_wave").cast<IntegerAttr>().getInt();
 
     // Original C++ logic.
     // static constexpr index_t MRepeats = (GemmMPerWave > 64) ? (GemmMPerWave /

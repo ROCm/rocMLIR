@@ -38,12 +38,11 @@ inline AffineMap composeTransforms(ArrayRef<AffineMap> affineMaps) {
 
 inline AffineMap composeTransforms(ArrayAttr affineMaps) {
   int64_t iter = affineMaps.size() - 1;
-  AffineMap transform =
-      affineMaps[iter].template cast<AffineMapAttr>().getValue();
+  AffineMap transform = affineMaps[iter].cast<AffineMapAttr>().getValue();
   --iter;
   while (iter >= 0) {
-    transform = transform.compose(
-        affineMaps[iter].template cast<AffineMapAttr>().getValue());
+    transform =
+        transform.compose(affineMaps[iter].cast<AffineMapAttr>().getValue());
     --iter;
   }
   return transform;
@@ -57,7 +56,7 @@ inline bool hasPadding(AffineExpr expr) {
   bool ret = false;
   auto hasMinusConstant = [](AffineExpr expr) -> bool {
     if (expr.getKind() == AffineExprKind::Constant) {
-      auto constantExpr = expr.template cast<AffineConstantExpr>();
+      auto constantExpr = expr.cast<AffineConstantExpr>();
       if (constantExpr.getValue() < 0)
         return true;
     }
@@ -69,7 +68,7 @@ inline bool hasPadding(AffineExpr expr) {
 
     tmp.walk([&ret](AffineExpr expr_sub) {
       if (expr_sub.getKind() == AffineExprKind::Constant) {
-        auto constantSubExpr = expr_sub.template cast<AffineConstantExpr>();
+        auto constantSubExpr = expr_sub.cast<AffineConstantExpr>();
         if (constantSubExpr.getValue() < 0)
           ret = true;
       }

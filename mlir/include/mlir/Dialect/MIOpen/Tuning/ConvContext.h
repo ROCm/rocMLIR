@@ -122,7 +122,7 @@ template <typename T> static miopen::ConvOpType ObtainConvDirection(T &op) {
 }
 
 template <typename T> static mlir::Type obtainDataType(T &op) {
-  return op.input().getType().template cast<MemRefType>().getElementType();
+  return op.input().getType().cast<MemRefType>().getElementType();
 }
 
 static inline void

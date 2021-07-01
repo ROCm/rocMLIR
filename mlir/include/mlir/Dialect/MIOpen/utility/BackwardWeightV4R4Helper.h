@@ -92,47 +92,37 @@ LogicalResult backwardWeightAtomicAdd(T op, PatternRewriter &b,
   auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
 
   // Get shape of filter tensor.
-  auto filterType = op.filter().getType().template cast<MemRefType>();
+  auto filterType = op.filter().getType().cast<MemRefType>();
   auto filterShape = filterType.getShape();
   auto filterElementType = filterType.getElementType();
 
   // Get shape of input tensor.
-  auto inputType = op.input().getType().template cast<MemRefType>();
+  auto inputType = op.input().getType().cast<MemRefType>();
   auto inputShape = inputType.getShape();
   auto inputElementType = inputType.getElementType();
 
   // Get shape of output tensor.
-  auto outputType = op.output().getType().template cast<MemRefType>();
+  auto outputType = op.output().getType().cast<MemRefType>();
   auto outputShape = outputType.getShape();
   auto outputElementType = outputType.getElementType();
 
   // Obtain convolution parameters: padding / dialtion / stride.
-  auto leftPadH =
-      paddingAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-  auto leftPadW =
-      paddingAttr.getValue()[2].template cast<IntegerAttr>().getInt();
-  auto rightPadH =
-      paddingAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-  auto rightPadW =
-      paddingAttr.getValue()[3].template cast<IntegerAttr>().getInt();
+  auto leftPadH = paddingAttr.getValue()[0].cast<IntegerAttr>().getInt();
+  auto leftPadW = paddingAttr.getValue()[2].cast<IntegerAttr>().getInt();
+  auto rightPadH = paddingAttr.getValue()[1].cast<IntegerAttr>().getInt();
+  auto rightPadW = paddingAttr.getValue()[3].cast<IntegerAttr>().getInt();
 
-  auto dilationH =
-      dilationsAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-  auto dilationW =
-      dilationsAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-  auto strideH =
-      stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-  auto strideW =
-      stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
+  auto dilationH = dilationsAttr.getValue()[0].cast<IntegerAttr>().getInt();
+  auto dilationW = dilationsAttr.getValue()[1].cast<IntegerAttr>().getInt();
+  auto strideH = stridesAttr.getValue()[0].cast<IntegerAttr>().getInt();
+  auto strideW = stridesAttr.getValue()[1].cast<IntegerAttr>().getInt();
   // get y, x, ho, wo, hi, wi
   int64_t g, n, k, c, y, x, ho, wo, hi, wi;
   g = n = k = c = y = x = ho = wo = hi = wi = 0;
   for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-    auto filterAttr =
-        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto outputAttr =
-        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+    auto filterAttr = filterLayoutAttr.getValue()[i].cast<StringAttr>();
+    auto inputAttr = inputLayoutAttr.getValue()[i].cast<StringAttr>();
+    auto outputAttr = outputLayoutAttr.getValue()[i].cast<StringAttr>();
 
     if (filterAttr.getValue() == "g") {
       g = filterShape[i];
@@ -176,8 +166,7 @@ LogicalResult backwardWeightAtomicAdd(T op, PatternRewriter &b,
     // key to dim
     std::map<StringRef, int> filterKeyToDim;
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-      if (auto strAttr =
-              filterLayoutAttr.getValue()[i].template cast<StringAttr>()) {
+      if (auto strAttr = filterLayoutAttr.getValue()[i].cast<StringAttr>()) {
         filterKeyToDim[strAttr.getValue()] = i;
       }
     }
@@ -393,8 +382,7 @@ LogicalResult backwardWeightAtomicAdd(T op, PatternRewriter &b,
     // key to dim
     std::map<StringRef, int> currentKeyToDim;
     for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
-      if (auto strAttr =
-              inputLayoutAttr.getValue()[i].template cast<StringAttr>()) {
+      if (auto strAttr = inputLayoutAttr.getValue()[i].cast<StringAttr>()) {
         currentKeyToDim[strAttr.getValue()] = i;
       }
     }
@@ -762,8 +750,7 @@ LogicalResult backwardWeightAtomicAdd(T op, PatternRewriter &b,
     // key to dim
     std::map<StringRef, int> currentKeyToDim;
     for (unsigned i = 0; i < outputLayoutAttr.size(); ++i) {
-      if (auto strAttr =
-              outputLayoutAttr.getValue()[i].template cast<StringAttr>()) {
+      if (auto strAttr = outputLayoutAttr.getValue()[i].cast<StringAttr>()) {
         currentKeyToDim[strAttr.getValue()] = i;
       }
     }
