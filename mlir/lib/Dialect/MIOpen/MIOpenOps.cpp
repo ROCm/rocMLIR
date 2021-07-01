@@ -547,7 +547,7 @@ static ParseResult parseBlockwiseLoadOp(OpAsmParser &parser,
   SmallVector<OpAsmParser::OperandType, 2> ops;
   SmallVector<Type, 2> types;
   VectorType coordVectorType =
-      VectorType::get(2, parser.getBuilder().getIntegerType(32));
+      VectorType::get(3, parser.getBuilder().getIntegerType(32));
   return failure(
       parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
       parser.parseOptionalAttrDict(result.attributes) ||
@@ -574,7 +574,7 @@ static ParseResult parseBlockwiseStoreOp(OpAsmParser &parser,
   SmallVector<OpAsmParser::OperandType, 2> ops;
   SmallVector<Type, 2> types;
   VectorType coordVectorType =
-      VectorType::get(2, parser.getBuilder().getIntegerType(32));
+      VectorType::get(3, parser.getBuilder().getIntegerType(32));
   return failure(
       parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
       parser.parseOptionalAttrDict(result.attributes) ||

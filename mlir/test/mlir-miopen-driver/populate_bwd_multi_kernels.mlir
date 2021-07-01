@@ -12,10 +12,10 @@
 // STRIDE2: {{miopen.gridwise_gemm.*gemm_id = 3 : i32.*matrix_a_source_data_per_read = 1 : i32, matrix_a_source_vector_read_dim = 2 : i32.*matrix_b_source_data_per_read = 1 : i32, matrix_b_source_vector_read_dim = 2 : i32.*}}
 
 
-// STRIDE2_GKYXC: {{miopen.gridwise_gemm.*gemm_id = 0 : i32.*matrix_a_source_data_per_read = 4 : i32, matrix_a_source_vector_read_dim = 2 : i32.*matrix_b_source_data_per_read = 4 : i32, matrix_b_source_vector_read_dim = 1 : i32.*}}
-// STRIDE2_GKYXC: {{miopen.gridwise_gemm.*gemm_id = 1 : i32.*matrix_a_source_data_per_read = 4 : i32, matrix_a_source_vector_read_dim = 2 : i32.*matrix_b_source_data_per_read = 4 : i32, matrix_b_source_vector_read_dim = 1 : i32.*}}
-// STRIDE2_GKYXC: {{miopen.gridwise_gemm.*gemm_id = 2 : i32.*matrix_a_source_data_per_read = 4 : i32, matrix_a_source_vector_read_dim = 2 : i32.*matrix_b_source_data_per_read = 4 : i32, matrix_b_source_vector_read_dim = 1 : i32.*}}
-// STRIDE2_GKYXC: {{miopen.gridwise_gemm.*gemm_id = 3 : i32.*matrix_a_source_data_per_read = 4 : i32, matrix_a_source_vector_read_dim = 2 : i32.*matrix_b_source_data_per_read = 4 : i32, matrix_b_source_vector_read_dim = 1 : i32.*}}
+// STRIDE2_GKYXC: {{miopen.gridwise_gemm.*gemm_id = 0 : i32.*matrix_a_source_data_per_read = 1 : i32, matrix_a_source_vector_read_dim = 2 : i32.*matrix_b_source_data_per_read = 1 : i32, matrix_b_source_vector_read_dim = 1 : i32.*}}
+// STRIDE2_GKYXC: {{miopen.gridwise_gemm.*gemm_id = 1 : i32.*matrix_a_source_data_per_read = 1 : i32, matrix_a_source_vector_read_dim = 2 : i32.*matrix_b_source_data_per_read = 1 : i32, matrix_b_source_vector_read_dim = 1 : i32.*}}
+// STRIDE2_GKYXC: {{miopen.gridwise_gemm.*gemm_id = 2 : i32.*matrix_a_source_data_per_read = 1 : i32, matrix_a_source_vector_read_dim = 2 : i32.*matrix_b_source_data_per_read = 1 : i32, matrix_b_source_vector_read_dim = 1 : i32.*}}
+// STRIDE2_GKYXC: {{miopen.gridwise_gemm.*gemm_id = 3 : i32.*matrix_a_source_data_per_read = 1 : i32, matrix_a_source_vector_read_dim = 2 : i32.*matrix_b_source_data_per_read = 1 : i32, matrix_b_source_vector_read_dim = 1 : i32.*}}
 
 
-// STRIDE2_1x1: {{miopen.gridwise_gemm.*gemm_id = 0 : i32.*matrix_a_source_data_per_read = 4 : i32, matrix_a_source_vector_read_dim = 2 : i32.*matrix_b_source_data_per_read = 4 : i32, matrix_b_source_vector_read_dim = 2 : i32.*}}
+// STRIDE2_1x1: {{miopen.gridwise_gemm.*gemm_id = 0 : i32.*matrix_a_source_data_per_read = 1 : i32, matrix_a_source_vector_read_dim = 2 : i32.*matrix_b_source_data_per_read = 1 : i32, matrix_b_source_vector_read_dim = 2 : i32.*}}
