@@ -4953,6 +4953,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         b.create<ConstantIntOp>(loc, 2, b.getIntegerType(32));
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     // Obtain critical matrix dimensions.
     int64_t G = op.filter().getType().template cast<MemRefType>().getShape()[0];
@@ -5479,6 +5480,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         b.create<ConstantIntOp>(loc, KPerBlock, b.getIntegerType(32));
 
     int64_t loopIteration = (K - KPerBlock) / KPerBlock;
+    auto loopIterationConstantOp =
+        b.create<ConstantIndexOp>(loc, loopIteration);
 
     // Assign iter args.
     // 0: blockwise copy A src.
@@ -5491,7 +5494,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     iterArgs.push_back(blockwiseCopyBSrcVector);
     iterArgs.push_back(blockwiseCopyBDstVector);
 
-    auto loopOp = b.create<AffineForOp>(loc, 0, loopIteration, 1, iterArgs);
+    auto loopOp = b.create<scf::ForOp>(
+        loc, zeroConstantOp, loopIterationConstantOp, oneConstantOp, iterArgs);
 
     // inside the loop.
     auto lb = OpBuilder::atBlockBegin(loopOp.getBody());
@@ -5564,7 +5568,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     iterArgs[0] = blockwiseCopyASrcVectorUpdated;
     iterArgs[2] = blockwiseCopyBSrcVectorUpdated;
     // emit loop yield so iter args can be passed to the next iteration.
-    lb.create<AffineYieldOp>(loc, iterArgs);
+    lb.create<scf::YieldOp>(loc, iterArgs);
 
     // outside the loop.
 
@@ -5960,6 +5964,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
         b.create<ConstantIntOp>(loc, 2, b.getIntegerType(32));
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     // Obtain critical matrix dimensions.
     int64_t G = op.filter().getType().template cast<MemRefType>().getShape()[0];
@@ -6490,6 +6495,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // Emit loop.
 
     int64_t loopIteration = (K - KPerBlock) / KPerBlock;
+    auto loopIterationConstantOp =
+        b.create<ConstantIndexOp>(loc, loopIteration);
 
     // Assign iter args.
     // 0: blockwise copy A src.
@@ -6505,7 +6512,8 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     for (int64_t iter = 0; iter < vectorNumber; ++iter)
       iterArgs.push_back(vectorCs[iter]);
 
-    auto mfmaLoopOp = b.create<AffineForOp>(loc, 0, loopIteration, 1, iterArgs);
+    auto mfmaLoopOp = b.create<scf::ForOp>(
+        loc, zeroConstantOp, loopIterationConstantOp, oneConstantOp, iterArgs);
 
     // inside the loop.
     auto mfmalb = OpBuilder::atBlockBegin(mfmaLoopOp.getBody());
@@ -6582,7 +6590,7 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
       iterArgs[4 + iter] = blockwiseGemmV2Op.getResults()[iter];
 
     // emit loop yield so iter args can be passed to the next iteration.
-    mfmalb.create<AffineYieldOp>(loc, iterArgs);
+    mfmalb.create<scf::YieldOp>(loc, iterArgs);
     // outside the loop.
 
     // Emit loop tail.
@@ -7064,6 +7072,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
     // Prepare some useful constants.
     auto zeroConstantI32Op =
         b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
+    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
     auto blockAType = op.matrixA().getType().cast<MemRefType>();
 
@@ -7130,7 +7140,11 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     // Main loop.
     auto loopIteration = K / KPerThread;
-    auto loopOp = b.create<AffineForOp>(loc, 0, loopIteration);
+    auto loopIterationConstantOp =
+        b.create<ConstantIndexOp>(loc, loopIteration);
+    auto loopOp =
+        b.create<scf::ForOp>(loc, zeroConstantOp,
+                             loopIterationConstantOp, oneConstantOp);
 
     // inside the main loop.
     auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
@@ -7140,8 +7154,11 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     // read matrix A loop.
     auto loopReadMatrixAIteration = MRepeat;
-    auto loopReadMatrixAOp =
-        lb.create<AffineForOp>(loc, 0, loopReadMatrixAIteration);
+    auto loopReadMatrixAIterationConstantOp =
+        lb.create<ConstantIndexOp>(loc, loopReadMatrixAIteration);
+    auto loopReadMatrixAOp = lb.create<scf::ForOp>(
+        loc, zeroConstantOp, loopReadMatrixAIterationConstantOp,
+        oneConstantOp);
 
     // inside read matrix A loop.
     auto lab = OpBuilder::atBlockTerminator(loopReadMatrixAOp.getBody());
@@ -7173,8 +7190,11 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<miopen::BlockwiseGe
 
     // read matrix B loop.
     auto loopReadMatrixBIteration = NRepeat;
-    auto loopReadMatrixBOp =
-        lb.create<AffineForOp>(loc, 0, loopReadMatrixBIteration);
+    auto loopReadMatrixBIterationConstantOp =
+        lb.create<ConstantIndexOp>(loc, loopReadMatrixBIteration);
+    auto loopReadMatrixBOp = lb.create<scf::ForOp>(
+        loc, zeroConstantOp, loopReadMatrixBIterationConstantOp,
+        oneConstantOp);
 
     // inside read matrix B loop.
     auto lbb = OpBuilder::atBlockTerminator(loopReadMatrixBOp.getBody());
@@ -7415,13 +7435,19 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
     auto inputType = op.input().getType().cast<MemRefType>();
     auto inputShape = inputType.getShape();
 
-    AffineForOp currentLoop;
+    auto zero = b.create<ConstantIndexOp>(loc, 0);
+    auto one = b.create<ConstantIndexOp>(loc, 1);
+
+    scf::ForOp currentLoop;
     OpBuilder currentScope = b;
     std::vector<mlir::Value> range;
 
     for (unsigned i = 0; i < inputShape.size(); ++i) {
       // Rank 1 loop.
-      currentLoop = currentScope.create<AffineForOp>(loc, 0, inputShape[i]);
+      auto loopIterCount =
+          currentScope.create<ConstantIndexOp>(loc, inputShape[i]);
+      currentLoop =
+          currentScope.create<scf::ForOp>(loc, zero, loopIterCount, one);
 
       // collect current loop induction var for store indexes
       range.push_back(currentLoop.getInductionVar());
@@ -7495,19 +7521,19 @@ struct ThreadwiseGemmRewritePattern
     ArrayRef<int64_t> gemmBShape =
         gemmB.getType().cast<MemRefType>().getShape();
 
-    auto loopG = b.create<AffineForOp>(loc, 0, gemmAShape[0]);
+    auto loopG = b.create<AffineForOp>(loc, 0, gemmAShape[0], 1);
     auto lbG = loopG.getBody();
     b.setInsertionPointToStart(lbG);
 
-    auto loopK = b.create<AffineForOp>(loc, 0, gemmAShape[1]);
+    auto loopK = b.create<AffineForOp>(loc, 0, gemmAShape[1], 1);
     auto lbK = loopK.getBody();
     b.setInsertionPointToStart(lbK);
 
-    auto loopM = b.create<AffineForOp>(loopK.getLoc(), 0, gemmAShape[2]);
+    auto loopM = b.create<AffineForOp>(loopK.getLoc(), 0, gemmAShape[2], 1);
     auto lbM = loopM.getBody();
     b.setInsertionPointToStart(lbM);
 
-    auto loopN = b.create<AffineForOp>(loc, 0, gemmBShape[2]);
+    auto loopN = b.create<AffineForOp>(loc, 0, gemmBShape[2], 1);
     auto lbN = loopN.getBody();
     b.setInsertionPointToStart(lbN);
 
@@ -8949,6 +8975,10 @@ struct XdlopsGemmV2RewritePattern
     auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
     auto KBaseConstantOp = b.create<ConstantIndexOp>(loc, k_base);
 
+    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
+    auto MRepeatsConstantOp = b.create<ConstantIndexOp>(loc, MRepeats);
+    auto NRepeatsConstantOp = b.create<ConstantIndexOp>(loc, NRepeats);
     auto KRepeatsConstantOp = b.create<ConstantIndexOp>(loc, KRepeats);
 
     if (!IsKReduction) {
@@ -8962,10 +8992,10 @@ struct XdlopsGemmV2RewritePattern
       //             m_i];
       // p_a_wave need to be offseted by waveOffsetA.
 
-      auto outerLoopM = b.create<AffineForOp>(loc, 0, MRepeats);
+      auto outerLoopM = b.create<scf::ForOp>(loc, zeroConstantOp, MRepeatsConstantOp, oneConstantOp);
       auto olmb = OpBuilder::atBlockTerminator(outerLoopM.getBody());
       auto olmiv = outerLoopM.getInductionVar();
-      auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, K);
+      auto innerLoopMK = olmb.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, oneConstantOp);
       auto ilmkb = OpBuilder::atBlockTerminator(innerLoopMK.getBody());
       auto ilmkiv = innerLoopMK.getInductionVar();
 
@@ -9006,10 +9036,10 @@ struct XdlopsGemmV2RewritePattern
       //             n_i];
       // p_b_wave need to be offseted by waveOffsetB.
 
-      auto outerLoopN = b.create<AffineForOp>(loc, 0, NRepeats);
+      auto outerLoopN = b.create<scf::ForOp>(loc, zeroConstantOp, NRepeatsConstantOp, oneConstantOp);
       auto olnb = OpBuilder::atBlockTerminator(outerLoopN.getBody());
       auto olniv = outerLoopN.getInductionVar();
-      auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, K);
+      auto innerLoopNK = olnb.create<scf::ForOp>(loc, zeroConstantOp, KConstantOp, oneConstantOp);
       auto ilnkb = OpBuilder::atBlockTerminator(innerLoopNK.getBody());
       auto ilnkiv = innerLoopNK.getInductionVar();
 
@@ -9054,8 +9084,10 @@ struct XdlopsGemmV2RewritePattern
       // Instead of following C++ logic where the induction variable is
       // increased by one, increase by k_base. Mathmetically they are
       // equivalent.
+      auto loopIterationConstantOp = b.create<ConstantIndexOp>(loc, K * KRepeats);
       auto loopK =
-          b.create<AffineForOp>(loc, 0, K * KRepeats, k_base, op.vectorCs());
+          b.create<scf::ForOp>(loc, zeroConstantOp, loopIterationConstantOp,
+                               KBaseConstantOp, op.vectorCs());
       auto loopKb = OpBuilder::atBlockBegin(loopK.getBody());
       auto loopKiv = loopK.getInductionVar();
 
@@ -9094,7 +9126,7 @@ struct XdlopsGemmV2RewritePattern
                                         loopKb.getI32IntegerAttr(imms[i][2])}));
         mfmas.push_back(mfma);
       }
-      loopKb.create<AffineYieldOp>(loc, mfmas);
+      loopKb.create<scf::YieldOp>(loc, mfmas);
       op.replaceAllUsesWith(loopK.results());
       op.erase();
     } else {
@@ -9116,8 +9148,10 @@ struct XdlopsGemmV2RewritePattern
       // p_b_wave need to be offseted by waveOffsetB.
 
       // Instead loop to K, change loop bound to K / num_input_blks.
-      auto loopKLoadIteration = K / num_input_blks;
-      auto loopKLoad = b.create<AffineForOp>(loc, 0, loopKLoadIteration);
+      auto loopKLoadIteration =
+          b.create<ConstantIndexOp>(loc, K / num_input_blks);
+      auto loopKLoad = b.create<scf::ForOp>(loc, zeroConstantOp,
+                                            loopKLoadIteration, oneConstantOp);
 
       auto NumInputBlksConstantOp = b.create<ConstantIndexOp>(loc, num_input_blks);
 
@@ -9197,13 +9231,15 @@ struct XdlopsGemmV2RewritePattern
 
       // Change loop bound to the same as loopKLoadIteration.
       // Instead of increasing num_input_blks, increase k_base.
-      auto outerLoop = b.create<AffineForOp>(loc, 0, loopKLoadIteration, k_base,
-                                             op.vectorCs());
+      auto outerLoop =
+          b.create<scf::ForOp>(loc, zeroConstantOp, loopKLoadIteration,
+                               KBaseConstantOp, op.vectorCs());
       auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
       auto outerLoopiv = outerLoop.getInductionVar();
 
-      auto innerLoop = outerLoopb.create<AffineForOp>(
-          loc, 0, KRepeats, 1, outerLoop.getRegionIterArgs());
+      auto innerLoop = outerLoopb.create<scf::ForOp>(
+          loc, zeroConstantOp, KRepeatsConstantOp, oneConstantOp,
+          outerLoop.getRegionIterArgs());
       auto innerLoopb = OpBuilder::atBlockBegin(innerLoop.getBody());
       auto innerLoopiv = innerLoop.getInductionVar();
 
@@ -9241,9 +9277,9 @@ struct XdlopsGemmV2RewritePattern
                                   innerLoopb.getI32IntegerAttr(imms[i][2])}));
         mfmas.push_back(mfma);
       }
-      innerLoopb.create<AffineYieldOp>(loc, mfmas);
+      innerLoopb.create<scf::YieldOp>(loc, mfmas);
 
-      outerLoopb.create<AffineYieldOp>(loc, innerLoop.results());
+      outerLoopb.create<scf::YieldOp>(loc, innerLoop.results());
 
       op.replaceAllUsesWith(outerLoop.results());
       op.erase();
