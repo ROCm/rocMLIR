@@ -444,14 +444,13 @@ def TosaToLinalgOnTensors : FunctionPass<"tosa-to-linalg-on-tensors"> {
 // TosaToMIOpen
 //===----------------------------------------------------------------------===//
 
-def TosaToMIOpenOnTensors : FunctionPass<"tosa-to-miopen-on-tensors"> {
-  let summary = "Lower TOSA to MIOpen on tensors";
+def TosaToMIOpen : FunctionPass<"tosa-to-miopen"> {
+  let summary = "Lower TOSA to MIOpen";
   let description = [{
-    Pass that converts TOSA operations to the equivalent operations using the
-    tensor operations in MIOpen.
+    Pass that converts TOSA operations to bufferized MIOpen operations.
   }];
 
-  let constructor = "tosa::createTosaToMIOpenOnTensors()";
+  let constructor = "tosa::createTosaToMIOpen()";
 }
 
 //===----------------------------------------------------------------------===//

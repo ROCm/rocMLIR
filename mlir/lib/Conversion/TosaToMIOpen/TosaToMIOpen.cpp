@@ -154,7 +154,7 @@ public:
 
 } // namespace
 
-void mlir::tosa::populateTosaToMIOpenOnTensorsConversionPatterns(
+void mlir::tosa::populateTosaToMIOpenConversionPatterns(
     MLIRContext *context, OwningRewritePatternList *patterns) {
   static BufferizeTypeConverter bufferizer;
   patterns->insert<ConvConverter>(bufferizer, context);
