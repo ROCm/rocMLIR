@@ -232,9 +232,10 @@ static cl::opt<bool> populateValidation(
     "pv", cl::desc("To populate host validation logic for conv2d"),
     cl::value_desc("To populate host validation logic"), cl::init(false));
 
-static cl::opt<bool> printResultTensor(
-    "pr", cl::desc("To print result tensor for verification"),
-     cl::value_desc("To print result tensor for verification"), cl::init(false));
+static cl::opt<bool>
+    printResultTensor("pr", cl::desc("To print result tensor for verification"),
+                      cl::value_desc("To print result tensor for verification"),
+                      cl::init(false));
 
 static cl::opt<bool> populateCpuConvolution(
     "prc", cl::desc("To run cpu conv2d and print results for verification"),
@@ -248,14 +249,16 @@ static cl::opt<int> gridSize("grid_size", cl::desc("Grid size"),
                              cl::value_desc("Grid size"), cl::init(0));
 
 // use XDLOPS
-static cl::opt<bool> xdlopsV2("x2", cl::desc("To use XDLOPS V2 lowering pipeline"),
-                             cl::value_desc("To use XDLOPS V2 lowering pipeline"),
-                             cl::init(false));
+static cl::opt<bool>
+    xdlopsV2("x2", cl::desc("To use XDLOPS V2 lowering pipeline"),
+             cl::value_desc("To use XDLOPS V2 lowering pipeline"),
+             cl::init(false));
 
 // data type
-static cl::opt<std::string> tensorDataType("t", cl::desc("Data type for convolution"),
-                                           cl::value_desc("Data type for convolution"),
-                                           cl::init("f32"));
+static cl::opt<std::string>
+    tensorDataType("t", cl::desc("Data type for convolution"),
+                   cl::value_desc("Data type for convolution"),
+                   cl::init("f32"));
 
 static cl::opt<std::string> randomSeed(
     "rand",

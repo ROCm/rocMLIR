@@ -753,8 +753,7 @@ private:
            (params.gemmMPerWave * params.gemmNPerWave);
   }
 
-  int64_t getKBlocks(ConvolutionContext &ctx)
-  {
+  int64_t getKBlocks(ConvolutionContext &ctx) {
     int64_t n = ctx.dimIndexVal["no"].second;
     int64_t ho = ctx.dimIndexVal["ho"].second;
     int64_t wo = ctx.dimIndexVal["wo"].second;
@@ -824,15 +823,15 @@ private:
         // std::make_tuple(4, 128, 1),
         std::make_tuple(4, 64, 1)};
 
-    if (!std::any_of(validWaveGemmSize.cbegin(), validWaveGemmSize.cend(),
-                     [param](const auto it) noexcept -> bool {
-                       int validMPerWave, validNPerWave, validKPerWave;
-                       std::tie(validMPerWave, validNPerWave, validKPerWave) =
-                           it;
-                       return (param.gemmMPerWave == validMPerWave) &&
-                              (param.gemmNPerWave == validNPerWave) &&
-                              (param.gemmKPerBlock % validKPerWave == 0);
-                     }))
+    if (!std::any_of(
+            validWaveGemmSize.cbegin(),
+            validWaveGemmSize.cend(), [param](const auto it) noexcept->bool {
+              int validMPerWave, validNPerWave, validKPerWave;
+              std::tie(validMPerWave, validNPerWave, validKPerWave) = it;
+              return (param.gemmMPerWave == validMPerWave) &&
+                     (param.gemmNPerWave == validNPerWave) &&
+                     (param.gemmKPerBlock % validKPerWave == 0);
+            }))
       return failure();
 
     // fail with blockSize >= 512

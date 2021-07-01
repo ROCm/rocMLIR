@@ -220,7 +220,6 @@ LogicalResult PopulateParamsXDL::populateDerived(
 
   blockSize = obtainBlockSize(params, waveSize);
 
-
   res = isValidblockwisegemmxdlops(params, blockSize);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs() << "Invalid XDLOps gemm.\n");
