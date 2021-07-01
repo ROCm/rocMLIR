@@ -44,11 +44,12 @@ pipeline {
                                 -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
                                 '''
                             sh 'cd build; make -j $(nproc) MIOpenDriver'
+                            sh 'cd build; echo Hashes; sha256sum ./bin/MIOpenDriver ./lib/libMIOpen.so'
                         }
+                        // TODO: package less of MIOpen build once system library bug is fixed
                         stash name:"MIOpen-test-requisites",\
                                 includes: """MIOpen/src/kernels/**,\
-MIOpen/build/bin/MIOpenDriver,\
-MIOpen/build/lib/*,\
+MIOpen/build/**,\
 mlir/utils/jenkins/miopen-tests/**\
 """
 
@@ -103,6 +104,9 @@ mlir/utils/jenkins/miopen-tests/**\
                     stage("Copy MIOpen test environment") {
                         steps {
                             unstash name: "MIOpen-test-requisites"
+                            sh 'cd MIOpen/build; sha256sum ./bin/MIOpenDriver ./lib/libMIOpen.so'
+                            sh 'ldd MIOpen/build/bin/MIOpenDriver'
+                            sh 'ldd MIOpen/build/lib/libMIOpen.so'
                         }
                     }
                     stage("Test MIOpen config") {
