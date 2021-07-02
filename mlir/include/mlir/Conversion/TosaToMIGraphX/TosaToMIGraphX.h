@@ -15,6 +15,7 @@
 #define MLIR_CONVERSION_TOSATOMIGRAPHX_H
 
 #include "mlir/Pass/Pass.h"
+#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h.inc"
 
 namespace mlir {
 namespace tosa {
