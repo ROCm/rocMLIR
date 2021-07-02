@@ -353,7 +353,8 @@ protected:
     if (dataType.isF32()) {
       vectorizationSize = 4;
     } else if (dataType.isF16() || dataType.isBF16()) {
-      vectorizationSize = 8;
+      // FIXME: figure out the best vectorization length for f16 and bf16.
+      vectorizationSize = 4;
     }
     // FIXME: set vectorizationSize be 1 for backward data and backward
     // weight for now.
