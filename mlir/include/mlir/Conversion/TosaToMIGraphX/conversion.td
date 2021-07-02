@@ -8,7 +8,7 @@
 
 //#ifndef MLIR_DIALECT_MIGRAPHX_PASSES
 //#define MLIR_DIALECT_MIGRAPHX_PASSES
-//include "mlir/Pass/PassBase.td"
+include "mlir/Pass/PassBase.td"
 
 def : Pat<(Tosa_AddOp $input1, $input2), (MIGraphX_AddOp $input1, $input2)>
 
