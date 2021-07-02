@@ -38,20 +38,14 @@ public:
     ConversionTarget target(getContext());
     target.addLegalDialect<tosa::TosaDialect, migraphx::MIGraphXDialect, StandardOpsDialect>();
     target.addIllegalOp<tosa::ConstOp>();
-
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     FuncOp func = getFunction();
     mlir::tosa::populateConstRandomPatterns(
         func.getContext(), &patterns);
 
-//llvm::errs()<< "run on function!!\n"; 
-
     if (failed(applyPartialConversion(func, target, std::move(patterns)))) {
-
-        llvm::errs()<< "fully conv failed!!\n"; 
       signalPassFailure();
-
     }
   }
 };
