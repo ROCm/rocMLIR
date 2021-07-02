@@ -20,6 +20,7 @@ namespace mlir {
 namespace tosa {
 
 std::unique_ptr<Pass> createTosaToMIGraphXRandom();
+std::unique_ptr<Pass> createTosaToMIGraphXOnTensors();
 
 /// Populates passes to convert from TOSA to MIOpen on buffers. At the end of
 /// the pass, the function will only contain MIOpen ops or standard ops if the
