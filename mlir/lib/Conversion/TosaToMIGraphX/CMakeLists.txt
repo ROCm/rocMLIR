@@ -8,6 +8,7 @@ add_mlir_conversion_library(MLIRTosaToMIGraphX
 
   DEPENDS
   MLIRConversionPassIncGen
+  MLIRTosaToMIGraphXConversionIncGen
 
   LINK_LIBS PUBLIC
   MLIRIR
