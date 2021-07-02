@@ -22,13 +22,14 @@ namespace tosa {
 std::unique_ptr<Pass> createTosaToMIGraphXRandom();
 std::unique_ptr<Pass> createTosaToMIGraphXOnTensors();
 
-/// Populates passes to convert from TOSA to MIOpen on buffers. At the end of
-/// the pass, the function will only contain MIOpen ops or standard ops if the
-/// pipeline succeeds.
+/// 
 void addTosaToMIGraphXRandomPasses(OpPassManager &pm);
+void addTosaToMIGraphXOnTensorsPasses(OpPassManager &pm);
 
-/// Populates conversion passes from TOSA dialect to MIOpen dialect.
+/// Populates conversion passes from TOSA dialect to MIGraphX dialect.
 void populateConstRandomPatterns(
+    MLIRContext *context, OwningRewritePatternList *patterns);
+void populateOPConversionPatterns(
     MLIRContext *context, OwningRewritePatternList *patterns);
 
 } // namespace tosa
