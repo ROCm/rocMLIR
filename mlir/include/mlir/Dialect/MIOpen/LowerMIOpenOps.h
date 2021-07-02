@@ -3293,9 +3293,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     int64_t g, n, k, c, y, x, ho, wo, hi, wi;
     g = n = k = c = y = x = ho = wo = hi = wi = 0;
 
-    llvm::DenseMap<StringRef, int> nameToDims;
+    // nameToDims can store <dim name ,dim index> ,we can use it to do oob check
     llvm::DenseSet<int> filterOobCheckDims;
-    int64_t filterYDim, filterXDim;
+    llvm::DenseMap<StringRef, int> nameToDims;
 
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
@@ -3317,10 +3317,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         c = filterShape[i];
       } else if (filterAttr.getValue() == "y") {
         y = filterShape[i];
-        filterYDim = i;
       } else if (filterAttr.getValue() == "x") {
         x = filterShape[i];
-        filterXDim = i;
       }
 
       if (inputAttr.getValue() == "ni") {
@@ -3397,14 +3395,21 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     bool needExtraPad = false;
     int64_t gemmM_size, gemmN_size, gemmK_size;
     int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+    // backward data only, it's igemm v4r1 algo
+    // c is input chaneels , k is output channels
+    // n is batch , yDotSlice,xDotSlice computed in above
     gemmMExtra = gemmNExtra = gemmKExtra = 0;
     gemmM_size = c;
     gemmK_size = k * yDotSlice * xDotSlice;
     gemmN_size = n * hTildaSlice * wTildaSlice;
 
+    // we use this lamda to compute extra padding size
+    // for example, if gemmM size is 3 and gemmMPerBlock is 64
+    // we gemmMExtra is 64 so (gemmM + gemmMExtra )%gemmMPerBlock =0
     auto calculatePaddingKernelSize = [&needExtraPad, gemmM_size, gemmN_size,
                                        gemmK_size, &gemmMExtra, &gemmNExtra,
-                                       &gemmKExtra, y, x](auto populateParams) {
+                                       &gemmKExtra, strideH,
+                                       strideW](auto &populateParams) {
       auto config_params = populateParams.getTuningParameters();
       unsigned numOfFailedConfigs = 0;
       for (auto &params : config_params) {
@@ -3418,8 +3423,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       }
 
       auto extraParams = populateParams.getUniversalParameters();
-      // padding kernel of backward data only support (x=1, y=1)
-      if (numOfFailedConfigs == config_params.size() && y == 1 && x == 1) {
+      // padding kernel of backward data only support (stride 1)
+      if (numOfFailedConfigs == config_params.size() && strideH == 1 &&
+          strideW == 1) {
         needExtraPad = true;
         int gemmM_remain, gemmK_remain, gemmN_remain;
 
