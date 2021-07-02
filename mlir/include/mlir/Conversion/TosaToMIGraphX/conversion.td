@@ -11,6 +11,6 @@
 //include "mlir/Pass/PassBase.td"
 include "mlir/IR/OpBase.td"
 
-def : Pat<(Tosa_AddOp $input1, $input2), (MIGraphX_AddOp $input1, $input2)>;
+def : Pat<(mlir::tosa::Tosa_AddOp $input1, $input2), (mlir::migraphx::MIGraphX_AddOp $input1, $input2)>;
 
 //#endif // MLIR_DIALECT_MIGRAPHX_PASSES
