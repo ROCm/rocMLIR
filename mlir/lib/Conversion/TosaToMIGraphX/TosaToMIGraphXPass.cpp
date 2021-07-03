@@ -65,7 +65,7 @@ public:
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     FuncOp func = getFunction();
-    populateWithGenerated(getContext(), patterns);
+    populateWithGenerated(func.getContext(), patterns);
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
     }
