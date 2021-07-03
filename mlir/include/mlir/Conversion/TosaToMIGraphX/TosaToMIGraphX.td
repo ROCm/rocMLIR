@@ -9,7 +9,7 @@
 //#ifndef MLIR_DIALECT_MIGRAPHX_PASSES
 //#define MLIR_DIALECT_MIGRAPHX_PASSES
 include "mlir/Pass/PassBase.td"
-//include "mlir/IR/OpBase.td"
+include "mlir/IR/OpBase.td"
 include "mlir/Dialect/Tosa/IR/TosaOps.td"
 include "mlir/Dialect/MIGraphX/MIGraphXOps.td"
 
