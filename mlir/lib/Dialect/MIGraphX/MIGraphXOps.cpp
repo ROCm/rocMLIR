@@ -18,7 +18,7 @@
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 
 using namespace mlir;
-using namespace mlir::migraphx;
+//using namespace mlir::migraphx;
 
 //===----------------------------------------------------------------------===//
 // MIGraphXDialect Interfaces
