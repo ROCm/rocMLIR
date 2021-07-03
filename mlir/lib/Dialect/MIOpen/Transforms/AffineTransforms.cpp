@@ -181,7 +181,8 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
     affExprsVec.push_back(affExprsMap[i]);
   }
 
-  auto transformAffineMap = AffineMap::get(outputLayoutAttr.size(), 0, affExprsVec, op.getContext());
+  auto transformAffineMap =
+      AffineMap::get(outputLayoutAttr.size(), 0, affExprsVec, op.getContext());
   OpBuilder b(op.getOperation());
   op->setAttr("map", b.getAffineMapArrayAttr(transformAffineMap));
   return transformAffineMap;
