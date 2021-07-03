@@ -266,9 +266,9 @@ static LogicalResult verify(migraphx::ConstantOp op) {
   return success();
 }
 
-namespace mlir {
+//namespace mlir {
 
 #define GET_OP_CLASSES
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.cpp.inc"
 
-} // namespace mlir
+//} // namespace mlir
