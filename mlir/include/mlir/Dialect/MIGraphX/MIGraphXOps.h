@@ -23,17 +23,14 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 namespace mlir {
-
 namespace migraphx {
 
-
 } // end namespace migraphx
+} // end namespace mlir
 
 #include "mlir/Dialect/MIGraphX/MIGraphXOpsDialect.h.inc"
 
 #define GET_OP_CLASSES
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h.inc"
-
-} // end namespace mlir
 
 #endif // MLIR_MIGRAPHXOPS_OPS_H_
