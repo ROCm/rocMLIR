@@ -18,7 +18,7 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def MIGraphX_Dialect : Dialect {
   let name = "migraphx";
-  let cppNamespace = "migraphx";
+  let cppNamespace = "mlir::migraphx";
 }
 
 // Base class for MIGraphX dialect ops.
