@@ -16,9 +16,9 @@
 
 #include "mlir/Pass/Pass.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h.inc"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h.inc"
 
 //#include "mlir/Dialect/Tosa/IR/TosaOps.h.inc"
 
