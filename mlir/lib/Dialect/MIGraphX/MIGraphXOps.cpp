@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
@@ -15,9 +16,8 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/MathExtras.h"
-#include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 
-//using namespace mlir;
+using namespace mlir;
 using namespace mlir::migraphx;
 
 //===----------------------------------------------------------------------===//
