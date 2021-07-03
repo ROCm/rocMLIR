@@ -16,6 +16,7 @@
 
 #include "mlir/Pass/Pass.h"
 #include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h.inc"
+#include "mlir/Dialect/MIGraphX/MIGraphXOpsDialect.h.inc"
 
 namespace mlir {
 namespace tosa {
