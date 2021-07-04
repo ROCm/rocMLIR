@@ -57,9 +57,3 @@ void mlir::tosa::addTosaToMIGraphXRandomPasses(OpPassManager &pm) {
   pm.addNestedPass<FuncOp>(createTosaToMIGraphXRandom());
 }
 
-std::unique_ptr<Pass> mlir::tosa::createTosaToMIGraphXOnTensors() {
-  return std::make_unique<TosaToMIGraphXOnTensors>();
-}
-void mlir::tosa::addTosaToMIGraphXOnTensorsPasses(OpPassManager &pm) {
-  pm.addNestedPass<FuncOp>(createTosaToMIGraphXOnTensors());
-}
