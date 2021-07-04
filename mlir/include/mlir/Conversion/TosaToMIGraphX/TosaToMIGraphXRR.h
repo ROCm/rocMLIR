@@ -22,6 +22,7 @@
 namespace mlir {
 namespace tosa {
 #include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphXRR.h.inc"
+
 std::unique_ptr<Pass> createTosaToMIGraphXOnTensors();
 void addTosaToMIGraphXOnTensorsPasses(OpPassManager &pm);
 
