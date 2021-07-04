@@ -24,7 +24,8 @@ namespace tosa {
 //#include "mlir/Conversion/TosaToMIGraphX/conversion.h.inc"
 
 } // namespace tosa
-} // namespace mlir
+
 #include "mlir/Conversion/TosaToMIGraphX/conversion.h.inc"
+} // namespace mlir
 
 #endif // MLIR_CONVERSION_TOSATOMIGRAPHX_H
