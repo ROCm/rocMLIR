@@ -12,9 +12,8 @@
 
 #include "../PassDetail.h"
 #include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h"
-//#include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
+#include "mlir/Conversion/TosaToMIGraphX/conversion.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-//#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"

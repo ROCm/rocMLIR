@@ -6,14 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-//#ifndef MLIR_DIALECT_MIGRAPHX_PASSES
-//#define MLIR_DIALECT_MIGRAPHX_PASSES
-//include "mlir/Pass/PassBase.td"
-//include "mlir/IR/OpBase.td"
+#ifndef MLIR_DIALECT_MIGRAPHX_PASSES
+#define MLIR_DIALECT_MIGRAPHX_PASSES
 include "mlir/Dialect/Tosa/IR/TosaOps.td"
 include "mlir/Dialect/MIGraphX/MIGraphXOps.td"
 
-//def : Pat<(mlir::tosa::Tosa_AddOp $input1, $input2), (mlir::migraphx::MIGraphX_AddOp $input1, $input2)>;
 def : Pat<(Tosa_AddOp $input1, $input2), (MIGraphX_AddOp $input1, $input2)>;
 
-//#endif // MLIR_DIALECT_MIGRAPHX_PASSES
+#endif // MLIR_DIALECT_MIGRAPHX_PASSES

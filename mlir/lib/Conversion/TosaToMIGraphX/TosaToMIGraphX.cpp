@@ -11,9 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h"
-//#include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-//#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
