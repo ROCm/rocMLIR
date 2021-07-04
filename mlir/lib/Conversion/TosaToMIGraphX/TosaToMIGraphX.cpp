@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h"
+//#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
