@@ -1,3 +1,0 @@
-set(LLVM_TARGET_DEFINITIONS TosaToMIGraphX.td)
-mlir_tablegen(TosaToMIGraphX.h.inc -gen-rewriters)
-add_public_tablegen_target(MLIRTosaToMIGraphXConversionIncGen)

@@ -19,6 +19,7 @@
 using namespace mlir;
 
 namespace {
+#include "TosaToMIGraphX.cpp.inc"
 
 class ConstRandomPattern : public OpRewritePattern<tosa::ConstOp> {
 public:

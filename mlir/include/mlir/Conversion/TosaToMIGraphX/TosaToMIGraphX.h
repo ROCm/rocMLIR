@@ -31,7 +31,6 @@ void populateConstRandomPatterns(
 
 std::unique_ptr<Pass> createTosaToMIGraphXOnTensors();
 void addTosaToMIGraphXOnTensorsPasses(OpPassManager &pm);
-#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h.inc"
 
 } // namespace tosa
 } // namespace mlir
