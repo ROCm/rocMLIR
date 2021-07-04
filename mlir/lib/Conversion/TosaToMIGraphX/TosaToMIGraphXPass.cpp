@@ -63,7 +63,7 @@ public:
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     FuncOp func = getFunction();
-    mlir::tosa::populateWithGenerated(func.getContext(), patterns);
+    tosa::populateWithGenerated(func.getContext(), patterns);
    
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
