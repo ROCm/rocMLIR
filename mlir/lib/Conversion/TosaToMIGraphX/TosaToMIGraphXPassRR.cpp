@@ -40,7 +40,7 @@ public:
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     FuncOp func = getFunction();
-    populateWithGenerated(func.getContext(), patterns);
+    tosa::populateWithGenerated(func.getContext(), patterns);
    
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
@@ -49,9 +49,9 @@ public:
 };
 } // namespace
 
-std::unique_ptr<Pass> mlir::createTosaToMIGraphXOnTensors() {
+std::unique_ptr<Pass> mlir::tosa::createTosaToMIGraphXOnTensors() {
   return std::make_unique<TosaToMIGraphXOnTensors>();
 }
-void mlir::addTosaToMIGraphXOnTensorsPasses(OpPassManager &pm) {
+void mlir::tosa::addTosaToMIGraphXOnTensorsPasses(OpPassManager &pm) {
   pm.addNestedPass<FuncOp>(createTosaToMIGraphXOnTensors());
 }

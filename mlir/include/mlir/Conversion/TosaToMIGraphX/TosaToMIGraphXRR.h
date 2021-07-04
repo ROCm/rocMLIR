@@ -20,11 +20,12 @@
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 
 namespace mlir {
+namespace tosa {
 #include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphXRR.h.inc"
 
 std::unique_ptr<Pass> createTosaToMIGraphXOnTensors();
 void addTosaToMIGraphXOnTensorsPasses(OpPassManager &pm);
-
+} // namespace tosa
 } // namespace mlir
 
 #endif // MLIR_CONVERSION_TOSATOMIGRAPHX_H
