@@ -451,7 +451,7 @@ def TosaToMIGraphXOnTensors : FunctionPass<"tosa-to-migraphx-on-tensors"> {
     tensor operations in MIGraphX operations.
   }];
 
-  let constructor = "tosa::createTosaToMIGraphXOnTensors()";
+  let constructor = "mlir::createTosaToMIGraphXOnTensors()";
   let dependentDialects = ["migraphx::MIGraphXDialect"];
 }
 
