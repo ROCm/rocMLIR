@@ -21,7 +21,7 @@
 
 namespace mlir {
 namespace tosa {
-#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h.inc"
+#include "mlir/Conversion/TosaToMIGraphX/conversion.h.inc"
 
 } // namespace tosa
 } // namespace mlir
