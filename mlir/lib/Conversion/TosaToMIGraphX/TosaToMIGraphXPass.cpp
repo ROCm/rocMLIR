@@ -24,6 +24,9 @@
 using namespace mlir;
 
 namespace {
+// import tablegen'ed populate function
+#include "TosaToMIGraphX.cpp.inc"
+
 struct TosaToMIGraphXRandom
     : public TosaToMIGraphXRandomBase<TosaToMIGraphXRandom> {
 public:
@@ -63,7 +66,7 @@ public:
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     FuncOp func = getFunction();
-    tosa::populateWithGenerated(func.getContext(), patterns);
+    populateWithGenerated(func.getContext(), patterns);
    
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
