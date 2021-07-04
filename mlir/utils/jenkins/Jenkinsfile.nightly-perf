@@ -35,8 +35,8 @@ pipeline {
                                 '''
                     sh 'cd build; make -j $(nproc) MIOpenDriver'
                     //A temporary workaround for MIOpenDriver seg fault
-                    sh 'cd build; make -j install'
-                        }
+                    sh 'cd build; make install'
+                }
             }
         }
         stage('Build MLIR') {
@@ -51,12 +51,14 @@ pipeline {
         }
         stage('Performance Test') {
             steps {
-                sh '''
-                    cd build
-                    cmake --build . --target MIOpenDriver.py
-                    # Run MLIR perf benchmarks.
-                    python3 ./llvm/MIOpenDriver.py
-                '''
+                cmake arguments: '--build . --target MIOpenDriver.py',\
+                    installation: 'InSearchPath', workingDir: 'build'
+
+                // Run MLIR perf benchmarks
+                dir('build') {
+                    sh 'python3 ./llvm/MIOpenDriver.py'
+                }
+
                 publishHTML (target: [
                     allowMissing: false,
                     alwaysLinkToLastBuild: false,
