@@ -13,4 +13,4 @@ include "mlir/Dialect/MIGraphX/MIGraphXOps.td"
 
 def : Pat<(Tosa_AddOp $input1, $input2), (MIGraphX_AddOp $input1, $input2)>;
 
-#endif // MLIR_DIALECT_MIGRAPHX_PASSES
+#endif // MLIR_CONVERSION_TOSA_TO_MIGRAPHX
