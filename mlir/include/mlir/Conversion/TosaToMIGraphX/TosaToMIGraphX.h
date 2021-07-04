@@ -19,8 +19,6 @@
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 
-//#include "mlir/Dialect/Tosa/IR/TosaOps.h.inc"
-
 namespace mlir {
 namespace tosa {
 
@@ -36,6 +34,7 @@ void populateConstRandomPatterns(
     MLIRContext *context, OwningRewritePatternList *patterns);
 void populateOPConversionPatterns(
     MLIRContext *context, OwningRewritePatternList *patterns);
+#include "mlir/Conversion/TosaToMIGraphX/conversion.h.inc"
 
 } // namespace tosa
 } // namespace mlir

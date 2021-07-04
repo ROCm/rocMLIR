@@ -11,8 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h"
-#include "mlir/Conversion/TosaToMIGraphX/conversion.h"
-
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
