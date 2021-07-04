@@ -11,8 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "../PassDetail.h"
-#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h"
 #include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphXRR.h"
+#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
