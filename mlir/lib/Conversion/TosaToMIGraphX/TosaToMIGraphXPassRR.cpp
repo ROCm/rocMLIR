@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "../PassDetail.h"
-#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h"
+#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphXRR.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
@@ -24,8 +24,9 @@
 using namespace mlir;
 
 namespace {
-struct TosaToMIGraphXRandom
-    : public TosaToMIGraphXRandomBase<TosaToMIGraphXRandom> {
+
+struct TosaToMIGraphXOnTensors
+    : public TosaToMIGraphXOnTensorsBase<TosaToMIGraphXOnTensors> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<migraphx::MIGraphXDialect, StandardOpsDialect>();
@@ -35,31 +36,15 @@ public:
     OwningRewritePatternList patterns;
     ConversionTarget target(getContext());
     target.addLegalDialect<tosa::TosaDialect, migraphx::MIGraphXDialect, StandardOpsDialect>();
-    target.addIllegalOp<tosa::ConstOp>();
+    target.addIllegalOp<tosa::AddOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     FuncOp func = getFunction();
-    mlir::tosa::populateConstRandomPatterns(
-        func.getContext(), &patterns);
-
-    if (failed(applyPartialConversion(func, target, std::move(patterns)))) {
+    tosa::populateWithGenerated(func.getContext(), patterns);
+   
+    if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
     }
   }
 };
-
 } // namespace
-
-std::unique_ptr<Pass> mlir::tosa::createTosaToMIGraphXRandom() {
-  return std::make_unique<TosaToMIGraphXRandom>();
-}
-void mlir::tosa::addTosaToMIGraphXRandomPasses(OpPassManager &pm) {
-  pm.addNestedPass<FuncOp>(createTosaToMIGraphXRandom());
-}
-
-std::unique_ptr<Pass> mlir::tosa::createTosaToMIGraphXOnTensors() {
-  return std::make_unique<TosaToMIGraphXOnTensors>();
-}
-void mlir::tosa::addTosaToMIGraphXOnTensorsPasses(OpPassManager &pm) {
-  pm.addNestedPass<FuncOp>(createTosaToMIGraphXOnTensors());
-}
