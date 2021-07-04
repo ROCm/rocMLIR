@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_DIALECT_MIGRAPHX_PASSES
-#define MLIR_DIALECT_MIGRAPHX_PASSES
+#ifndef MLIR_CONVERSION_TOSA_TO_MIGRAPHX
+#define MLIR_CONVERSION_TOSA_TO_MIGRAPHX
 include "mlir/Dialect/Tosa/IR/TosaOps.td"
 include "mlir/Dialect/MIGraphX/MIGraphXOps.td"
 
