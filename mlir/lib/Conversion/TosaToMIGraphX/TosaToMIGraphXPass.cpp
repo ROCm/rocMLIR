@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "../PassDetail.h"
+#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphXRR.h"
 #include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
@@ -84,9 +85,4 @@ std::unique_ptr<Pass> mlir::tosa::createTosaToMIGraphXOnTensors() {
 }
 void mlir::tosa::addTosaToMIGraphXOnTensorsPasses(OpPassManager &pm) {
   pm.addNestedPass<FuncOp>(createTosaToMIGraphXOnTensors());
-}
-
-void mlir::tosa::populateConstRandomPatterns(
-    MLIRContext *context, OwningRewritePatternList *patterns) {
-  patterns->insert<ConstRandomPattern>(context);
 }

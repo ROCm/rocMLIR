@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -67,3 +68,8 @@ public:
 };
 
 } // namespace
+
+void mlir::tosa::populateConstRandomPatterns(
+    MLIRContext *context, OwningRewritePatternList *patterns) {
+  patterns->insert<ConstRandomPattern>(context);
+}
