@@ -36,4 +36,6 @@ void addTosaToMIGraphXOnTensorsPasses(OpPassManager &pm);
 } // namespace tosa
 } // namespace mlir
 
+#else
+  #error
 #endif // MLIR_CONVERSION_TOSATOMIGRAPHX_H
