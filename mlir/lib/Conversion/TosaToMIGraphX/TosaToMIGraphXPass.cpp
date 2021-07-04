@@ -48,6 +48,29 @@ public:
   }
 };
 
+struct TosaToMIGraphXOnTensors
+    : public TosaToMIGraphXOnTensorsBase<TosaToMIGraphXOnTensors> {
+public:
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<migraphx::MIGraphXDialect, StandardOpsDialect>();
+  }
+
+  void runOnFunction() override {
+    OwningRewritePatternList patterns;
+    ConversionTarget target(getContext());
+    target.addLegalDialect<tosa::TosaDialect, migraphx::MIGraphXDialect, StandardOpsDialect>();
+    target.addIllegalOp<tosa::AddOp>();
+    target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
+
+    FuncOp func = getFunction();
+    tosa::populateWithGenerated(func.getContext(), patterns);
+   
+    if (failed(applyFullConversion(func, target, std::move(patterns)))) {
+      signalPassFailure();
+    }
+  }
+};
+
 } // namespace
 
 std::unique_ptr<Pass> mlir::tosa::createTosaToMIGraphXRandom() {
@@ -57,3 +80,9 @@ void mlir::tosa::addTosaToMIGraphXRandomPasses(OpPassManager &pm) {
   pm.addNestedPass<FuncOp>(createTosaToMIGraphXRandom());
 }
 
+std::unique_ptr<Pass> mlir::tosa::createTosaToMIGraphXOnTensors() {
+  return std::make_unique<TosaToMIGraphXOnTensors>();
+}
+void mlir::tosa::addTosaToMIGraphXOnTensorsPasses(OpPassManager &pm) {
+  pm.addNestedPass<FuncOp>(createTosaToMIGraphXOnTensors());
+}

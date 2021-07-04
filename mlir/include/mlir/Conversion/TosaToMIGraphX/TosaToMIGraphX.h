@@ -23,14 +23,15 @@ namespace mlir {
 namespace tosa {
 
 std::unique_ptr<Pass> createTosaToMIGraphXRandom();
-
 void addTosaToMIGraphXRandomPasses(OpPassManager &pm);
 
 /// Populates conversion passes from TOSA dialect to MIGraphX dialect.
 void populateConstRandomPatterns(
     MLIRContext *context, OwningRewritePatternList *patterns);
-void populateOPConversionPatterns(
-    MLIRContext *context, OwningRewritePatternList *patterns);
+
+std::unique_ptr<Pass> createTosaToMIGraphXOnTensors();
+void addTosaToMIGraphXOnTensorsPasses(OpPassManager &pm);
+#include "mlir/Conversion/TosaToMIGraphX/TosaToMIGraphX.h.inc"
 
 } // namespace tosa
 } // namespace mlir
