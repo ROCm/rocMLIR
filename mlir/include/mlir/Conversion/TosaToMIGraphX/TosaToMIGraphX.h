@@ -34,7 +34,6 @@ void populateConstRandomPatterns(
     MLIRContext *context, OwningRewritePatternList *patterns);
 void populateOPConversionPatterns(
     MLIRContext *context, OwningRewritePatternList *patterns);
-#include "mlir/Conversion/TosaToMIGraphX/conversion.h.inc"
 
 } // namespace tosa
 } // namespace mlir
