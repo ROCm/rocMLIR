@@ -60,7 +60,8 @@ def MIGraphX_SubOp :
   let description = [{
     Subtract two tensors elementwise
   }];
-  let assemblyFormat = "attr-dict `:` type($output)";
+  let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
+  //let assemblyFormat = "attr-dict `:` type($output)";
 }
 /*
 def MIGraphX_MulOp :
