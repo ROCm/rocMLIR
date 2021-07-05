@@ -38,6 +38,8 @@ class MIGraphX_Op<string mnemonic, list<OpTrait> traits = []> :
   }];
 }
 
+// Elementwise binary operations
+
 def MIGraphX_AddOp :
     MIGraphX_Op<"add">,
     Arguments<(ins AnyRankedTensor:$inA,
@@ -48,6 +50,64 @@ def MIGraphX_AddOp :
     Add two tensors elementwise
   }];
 }
+
+def MIGraphX_SubOp :
+    MIGraphX_Op<"sub">,
+    Arguments<(ins AnyRankedTensor:$inA,
+                   AnyRankedTensor:$inB)>,
+	Results<(outs AnyRankedTensor:$output)> {	  
+  let summary = "Elementwise binary sub";
+  let description = [{
+    Subtract two tensors elementwise
+  }];
+  let assemblyFormat = "attr-dict `:` type($result)";
+}
+/*
+def MIGraphX_MulOp :
+    MIGraphX_Op<"mul">,
+    Arguments<(ins AnyRankedTensor:$inA,
+                   AnyRankedTensor:$inB)>,
+	Results<(outs AnyRankedTensor:$output)> {	  
+  let summary = "Elementwise binary mul";
+  let description = [{
+    Multiply two tensors elementwise
+  }];
+}
+
+// Elementwise unary operations
+
+def MIGraphX_RsqrtOp :
+    MIGraphX_Op<"rsqrt">,
+    Arguments<(ins AnyRankedTensor:$inA>,
+	Results<(outs AnyRankedTensor:$output)> {	  
+  let summary = "Elementwise rsqrt";
+  let description = [{
+    Reciprocal square root elementwise
+  }];
+}
+
+def MIGraphX_CeilOp :
+    MIGraphX_Op<"ceil">,
+    Arguments<(ins AnyRankedTensor:$inA>,
+	Results<(outs AnyRankedTensor:$output)> {	  
+  let summary = "Elementwise ceil";
+  let description = [{
+    Ceil tensor elementwise
+  }];
+}
+
+def MIGraphX_FloorOp :
+    MIGraphX_Op<"floor">,
+    Arguments<(ins AnyRankedTensor:$inA>,
+	Results<(outs AnyRankedTensor:$output)> {	  
+  let summary = "Elementwise floor";
+  let description = [{
+    Floor tensor elementwise
+  }];
+}
+*/
+
+// Convolution operations
 
 def MIGraphX_ConvolutionOp :
     MIGraphX_Op<"convolution">,
@@ -96,7 +156,22 @@ def MIGraphX_ReluOp :
     The `migraphx.relu` op computes relu op.
   }];
 }
+/*
+def MIGraphX_PadOp :
+    MIGraphX_Op<"pad">,
+    Arguments<(ins AnyRankedTensor:$input,
 
+                   I64ArrayAttr:$pads,
+                   F32Attr:$value,
+                   I32Attr:$mode
+                   )>,
+	Results<(outs AnyRankedTensor:$output)> {	  
+  let summary = "Pad operation";
+  let description = [{
+    The `migraphx.pad` op adds padding to the tensor.
+  }];
+}
+*/
 def MIGraphX_PoolingOp :
     MIGraphX_Op<"pooling">,
     Arguments<(ins AnyRankedTensor:$input,
@@ -130,7 +205,7 @@ def MIGraphX_FlattenOp :
 def MIGraphX_TransposeOp :
     MIGraphX_Op<"transpose">,
     Arguments<(ins AnyRankedTensor:$input,
-                   I32ArrayAttr:$dims
+                   I64ArrayAttr:$dims
                    )>,
 	Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "transpose dimensions";
@@ -138,7 +213,19 @@ def MIGraphX_TransposeOp :
     The `migraphx.transpose` op.
   }];
 }
-
+/*
+def MIGraphX_ReshapeOp :
+    MIGraphX_Op<"reshape">,
+    Arguments<(ins AnyRankedTensor:$input,
+                   I64ArrayAttr:$dims
+                   )>,
+	Results<(outs AnyRankedTensor:$output)> {	  
+  let summary = "reshape a tensor";
+  let description = [{
+    The `migraphx.reshape` op.
+  }];
+}
+*/
 def MIGraphX_MultiBroadcastOp :
     MIGraphX_Op<"multibroadcast">,
     Arguments<(ins AnyRankedTensor:$input,
