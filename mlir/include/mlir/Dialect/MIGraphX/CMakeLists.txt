@@ -1,10 +1,6 @@
 add_mlir_dialect(MIGraphXOps migraphx)
 add_mlir_doc(MIGraphXOps -gen-dialect-doc MIGraphXDialect Dialects/)
 
-set(LLVM_TARGET_DEFINITIONS MIGraphXOps.td)
-mlir_tablegen(MIGraphXOps.h.inc -gen-ops-decls -gen-enum-decls)
-add_public_tablegen_target(MLIRMIGraphXOpsIncGen)
-
 set(LLVM_TARGET_DEFINITIONS Passes.td)
 mlir_tablegen(Passes.h.inc -gen-pass-decls)
 add_public_tablegen_target(MLIRMIGraphXPassIncGen)
