@@ -60,7 +60,7 @@ def MIGraphX_SubOp :
   let description = [{
     Subtract two tensors elementwise
   }];
-  let assemblyFormat = "`(`$inA `,` $inB`)` `{`attr-dict`}` `: (` type($inA) `,` type($inB)`) ->` type($output)";
+  let assemblyFormat = "`(`$inA `,` $inB`)` `{`attr-dict`}`" ": (" "type($inA) `,` type($inB)`)'" " -> " "type($output)";
   let verifier = [{ return success(); }];
 }
 /*
