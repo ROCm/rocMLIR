@@ -13,7 +13,8 @@ include "mlir/Dialect/MIGraphX/MIGraphXOps.td"
 
 def : Pat<(Tosa_AddOp $input1, $input2), (MIGraphX_AddOp $input1, $input2)>;
 def : Pat<(Tosa_SubOp $input1, $input2), (MIGraphX_SubOp $input1, $input2)>;
-def : Pat<(Tosa_MulOp $input1, $input2), (MIGraphX_MulOp $input1, $input2)>;
+//tosa.mul has attr shift which right_shift the result.
+//def : Pat<(Tosa_MulOp $input1, $input2), (MIGraphX_MulOp $input1, $input2)>;
 
 
 def : Pat<(Tosa_RsqrtOp $input1), (MIGraphX_RsqrtOp $input1)>;
