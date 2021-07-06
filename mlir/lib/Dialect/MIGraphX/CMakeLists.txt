@@ -16,7 +16,7 @@ add_mlir_dialect_library(MLIRMIGraphXOps
 
   DEPENDS
   MLIRMIGraphXPassIncGen
-  MLIRMIGraphXTypesIncGen
+  MLIRMIGraphXTypeIncGen
   MLIRMIGraphXOpsIncGen
 
   )
