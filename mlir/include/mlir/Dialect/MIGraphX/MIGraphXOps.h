@@ -24,13 +24,13 @@
 
 namespace mlir {
 namespace migraphx {
-
+/*
 enum PaddingModeAttr {
   default_,
   same,
   valid
 }
-
+*/
 } // end namespace migraphx
 } // end namespace mlir
 
