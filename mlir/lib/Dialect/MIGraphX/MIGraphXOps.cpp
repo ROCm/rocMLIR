@@ -17,6 +17,7 @@
 #include "mlir/Support/MathExtras.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 
+#include "mlir/Dialect/MIGraphX/MIGraphXTypes.cpp.inc"
 using namespace mlir;
 //using namespace mlir::migraphx;
 using namespace migraphx;
