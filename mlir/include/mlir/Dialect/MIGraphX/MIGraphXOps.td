@@ -21,10 +21,10 @@ def MIGraphX_Dialect : Dialect {
   let cppNamespace = "mlir::migraphx";
 }
 
-def default_: I32EnumAttrCase<"default_", 0>;
-def same: I32EnumAttrCase<"same", 1>;
-def valid: I32EnumAttrCase<"valid", 2>;
-def padding_mode_t: I32EnumAttr<"padding_mode_t", "enum padding mode for the convolution",
+def default_ : I32EnumAttrCase<"default_", 0>;
+def same     : I32EnumAttrCase<"same", 1>;
+def valid    : I32EnumAttrCase<"valid", 2>;
+def padding_mode_t : I32EnumAttr<"padding_mode_t", "enum padding mode for the convolution",
                            [default_, same, valid]> {
   let cppNamespace = "mlir::migraphx";
 }
