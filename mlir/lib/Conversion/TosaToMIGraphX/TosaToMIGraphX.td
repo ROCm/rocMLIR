@@ -13,5 +13,6 @@ include "mlir/Dialect/MIGraphX/MIGraphXOps.td"
 
 def : Pat<(Tosa_AddOp $input1, $input2), (MIGraphX_AddOp $input1, $input2)>;
 def : Pat<(Tosa_SubOp $input1, $input2), (MIGraphX_SubOp $input1, $input2)>;
+def : Pat<(Tosa_ReshapeOp $input1, $newshape), (MIGraphX_ReshapeOp $input1, $newshape)>;
 
 #endif // MLIR_CONVERSION_TOSA_TO_MIGRAPHX
