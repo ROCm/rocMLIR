@@ -21,6 +21,14 @@ def MIGraphX_Dialect : Dialect {
   let cppNamespace = "mlir::migraphx";
 }
 
+def default_: I32EnumAttrCase<"default_", 0>;
+def same: I32EnumAttrCase<"same", 1>;
+def valid: I32EnumAttrCase<"valid", 2>;
+def padding_mode_t: I32EnumAttr<"padding_mode_t", "enum padding mode for the convolution",
+                           [default_, same, valid]> {
+  let cppNamespace = "mlir::migraphx";
+}
+
 // Base class for MIGraphX dialect ops.
 class MIGraphX_Op<string mnemonic, list<OpTrait> traits = []> :
     Op<MIGraphX_Dialect, mnemonic, traits> {
@@ -126,7 +134,7 @@ def MIGraphX_ConvolutionOp :
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$stride,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$dilation,
                    I32Attr:$group,
-                   I32Attr:$padding_mode
+                   padding_mode_t:$padding_mode
                    )>,
 	  Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "2D convolution forward";
