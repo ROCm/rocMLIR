@@ -101,7 +101,6 @@ pipeline {
                                 equals expected: true, actual: params.nightly
                             }
                             steps {
-                                sh 'rm -rf build' // Permissions issues when using deleteDir()
                                 buildProject('check-mlir',
                                              """-DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
                                              -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0""")
