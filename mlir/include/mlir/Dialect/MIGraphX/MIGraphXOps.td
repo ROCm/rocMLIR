@@ -60,7 +60,7 @@ def MIGraphX_SubOp :
   let description = [{
     Subtract two tensors elementwise
   }];
-  let assemblyFormat = "`(`$inA `,` $inB`)` `{`attr-dict`}` `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
+  let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
   let verifier = [{ return success(); }];
 }
 
@@ -73,7 +73,7 @@ def MIGraphX_MulOp :
   let description = [{
     Multiply two tensors elementwise
   }];
-  let assemblyFormat = "`(`$inA `,` $inB`)` `{`attr-dict`}` `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
+  let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
   let verifier = [{ return success(); }];
 }
 
@@ -87,7 +87,7 @@ def MIGraphX_RsqrtOp :
   let description = [{
     Reciprocal square root elementwise
   }];
-  let assemblyFormat = "`(`$inA`)` `{`attr-dict`}` `:` `(`type($inA)`)` `->` type($output)";
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
   let verifier = [{ return success(); }];
 }
 
@@ -99,7 +99,7 @@ def MIGraphX_CeilOp :
   let description = [{
     Ceil tensor elementwise
   }];
-  let assemblyFormat = "`(`$inA`)` `{`attr-dict`}` `:` `(`type($inA)`)` `->` type($output)";
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
   let verifier = [{ return success(); }];
 }
 
@@ -111,7 +111,7 @@ def MIGraphX_FloorOp :
   let description = [{
     Floor tensor elementwise
   }];
-  let assemblyFormat = "`(`$inA`)` `{`attr-dict`}` `:` `(`type($inA)`)` `->` type($output)";
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
   let verifier = [{ return success(); }];
 }
 
@@ -178,7 +178,7 @@ def MIGraphX_PadOp :
   let description = [{
     The `migraphx.pad` op adds padding to the tensor.
   }];
-  let assemblyFormat = "`(`$input`)` `{`attr-dict`}` `:` `(`type($input)`)` `->` type($output)";
+  let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
   let verifier = [{ return success(); }];
 }
 
@@ -234,7 +234,7 @@ def MIGraphX_ReshapeOp :
   let description = [{
     The `migraphx.reshape` op.
   }];
-  let assemblyFormat = "`(`$input`)` `{`attr-dict`}` `:` `(`type($input)`)` `->` type($output)";
+  let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
   let verifier = [{ return success(); }];
 }
 
