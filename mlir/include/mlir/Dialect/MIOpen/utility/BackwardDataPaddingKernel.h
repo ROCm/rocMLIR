@@ -40,8 +40,6 @@
 
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/XdlopsCodeSelection.h"
-#include "mlir/Dialect/MIOpen/utility/common.h"
-#include "mlir/Dialect/MIOpen/utility/math.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
