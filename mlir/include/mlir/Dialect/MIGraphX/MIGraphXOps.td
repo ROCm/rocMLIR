@@ -44,7 +44,7 @@ def MIGraphX_AddOp :
     MIGraphX_Op<"add">,
     Arguments<(ins AnyRankedTensor:$inA,
                    AnyRankedTensor:$inB)>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "Elementwise binary add";
   let description = [{
     Add two tensors elementwise
@@ -55,7 +55,7 @@ def MIGraphX_SubOp :
     MIGraphX_Op<"sub">,
     Arguments<(ins AnyRankedTensor:$inA,
                    AnyRankedTensor:$inB)>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "Elementwise binary sub";
   let description = [{
     Subtract two tensors elementwise
@@ -68,7 +68,7 @@ def MIGraphX_MulOp :
     MIGraphX_Op<"mul">,
     Arguments<(ins AnyRankedTensor:$inA,
                    AnyRankedTensor:$inB)>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "Elementwise binary mul";
   let description = [{
     Multiply two tensors elementwise
@@ -81,8 +81,8 @@ def MIGraphX_MulOp :
 
 def MIGraphX_RsqrtOp :
     MIGraphX_Op<"rsqrt">,
-    Arguments<(ins AnyRankedTensor:$inA>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "Elementwise rsqrt";
   let description = [{
     Reciprocal square root elementwise
@@ -93,8 +93,8 @@ def MIGraphX_RsqrtOp :
 
 def MIGraphX_CeilOp :
     MIGraphX_Op<"ceil">,
-    Arguments<(ins AnyRankedTensor:$inA>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "Elementwise ceil";
   let description = [{
     Ceil tensor elementwise
@@ -105,8 +105,8 @@ def MIGraphX_CeilOp :
 
 def MIGraphX_FloorOp :
     MIGraphX_Op<"floor">,
-    Arguments<(ins AnyRankedTensor:$inA>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "Elementwise floor";
   let description = [{
     Floor tensor elementwise
@@ -128,7 +128,7 @@ def MIGraphX_ConvolutionOp :
                    I32Attr:$group,
                    I32Attr:$padding_mode
                    )>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "2D convolution forward";
   let description = [{
     The `migraphx.convolution` op computes 2D convolution forward.
@@ -147,7 +147,7 @@ def MIGraphX_BatchNormOp :
                    F32Attr:$momentum,
                    I32Attr:$bn_mode
                    )>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "batch_norm_inference";
   let description = [{
     The `migraphx.batch_norm_inference` op computes batch_norm.
@@ -158,13 +158,13 @@ def MIGraphX_ReluOp :
     MIGraphX_Op<"relu">,
     Arguments<(ins AnyRankedTensor:$input
                    )>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "RELU activation";
   let description = [{
     The `migraphx.relu` op computes relu op.
   }];
 }
-/*
+
 def MIGraphX_PadOp :
     MIGraphX_Op<"pad">,
     Arguments<(ins AnyRankedTensor:$input,
@@ -178,8 +178,10 @@ def MIGraphX_PadOp :
   let description = [{
     The `migraphx.pad` op adds padding to the tensor.
   }];
+  let assemblyFormat = "`(`$input`)` `{`attr-dict`}` `:` `(`type($input)`)` `->` type($output)";
+  let verifier = [{ return success(); }];
 }
-*/
+
 def MIGraphX_PoolingOp :
     MIGraphX_Op<"pooling">,
     Arguments<(ins AnyRankedTensor:$input,
@@ -221,7 +223,7 @@ def MIGraphX_TransposeOp :
     The `migraphx.transpose` op.
   }];
 }
-/*
+
 def MIGraphX_ReshapeOp :
     MIGraphX_Op<"reshape">,
     Arguments<(ins AnyRankedTensor:$input,
@@ -232,8 +234,10 @@ def MIGraphX_ReshapeOp :
   let description = [{
     The `migraphx.reshape` op.
   }];
+  let assemblyFormat = "`(`$input`)` `{`attr-dict`}` `:` `(`type($input)`)` `->` type($output)";
+  let verifier = [{ return success(); }];
 }
-*/
+
 def MIGraphX_MultiBroadcastOp :
     MIGraphX_Op<"multibroadcast">,
     Arguments<(ins AnyRankedTensor:$input,
