@@ -26,7 +26,7 @@ def same     : I32EnumAttrCase<"same", 1>;
 def valid    : I32EnumAttrCase<"valid", 2>;
 def PaddingModeAttr : I32EnumAttr<"padding_mode_t", "enum padding mode for the convolution",
                            [default_, same, valid]> {
-  let cppNamespace = "mlir::migraphx";
+  let cppNamespace = "::mlir";
 }
 
 // Base class for MIGraphX dialect ops.
