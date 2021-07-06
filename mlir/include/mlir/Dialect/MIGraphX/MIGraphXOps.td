@@ -63,7 +63,7 @@ def MIGraphX_SubOp :
   let assemblyFormat = "`(`$inA `,` $inB`)` `{`attr-dict`}` `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
   let verifier = [{ return success(); }];
 }
-/*
+
 def MIGraphX_MulOp :
     MIGraphX_Op<"mul">,
     Arguments<(ins AnyRankedTensor:$inA,
@@ -73,6 +73,8 @@ def MIGraphX_MulOp :
   let description = [{
     Multiply two tensors elementwise
   }];
+  let assemblyFormat = "`(`$inA `,` $inB`)` `{`attr-dict`}` `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
+  let verifier = [{ return success(); }];
 }
 
 // Elementwise unary operations
@@ -85,6 +87,8 @@ def MIGraphX_RsqrtOp :
   let description = [{
     Reciprocal square root elementwise
   }];
+  let assemblyFormat = "`(`$inA`)` `{`attr-dict`}` `:` `(`type($inA)`)` `->` type($output)";
+  let verifier = [{ return success(); }];
 }
 
 def MIGraphX_CeilOp :
@@ -95,6 +99,8 @@ def MIGraphX_CeilOp :
   let description = [{
     Ceil tensor elementwise
   }];
+  let assemblyFormat = "`(`$inA`)` `{`attr-dict`}` `:` `(`type($inA)`)` `->` type($output)";
+  let verifier = [{ return success(); }];
 }
 
 def MIGraphX_FloorOp :
@@ -105,8 +111,9 @@ def MIGraphX_FloorOp :
   let description = [{
     Floor tensor elementwise
   }];
+  let assemblyFormat = "`(`$inA`)` `{`attr-dict`}` `:` `(`type($inA)`)` `->` type($output)";
+  let verifier = [{ return success(); }];
 }
-*/
 
 // Convolution operations
 
