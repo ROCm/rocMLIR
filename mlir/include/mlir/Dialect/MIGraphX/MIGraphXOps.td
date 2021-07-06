@@ -24,7 +24,7 @@ def MIGraphX_Dialect : Dialect {
 def default_ : I32EnumAttrCase<"default_", 0>;
 def same     : I32EnumAttrCase<"same", 1>;
 def valid    : I32EnumAttrCase<"valid", 2>;
-def PaddingModeAttr : I32EnumAttr<"padding_mode_t", "enum padding mode for the convolution",
+def PaddingModeAttr : I32EnumAttr<"PaddingModeAttr", "enum padding mode for the convolution",
                            [default_, same, valid]> {
   let cppNamespace = "::mlir";
 }
