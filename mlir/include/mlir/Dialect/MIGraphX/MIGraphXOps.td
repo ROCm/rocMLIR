@@ -24,7 +24,7 @@ def MIGraphX_Dialect : Dialect {
 def default_ : I32EnumAttrCase<"default_", 0>;
 def same     : I32EnumAttrCase<"same", 1>;
 def valid    : I32EnumAttrCase<"valid", 2>;
-def padding_mode_t : I32EnumAttr<"padding_mode_t", "enum padding mode for the convolution",
+def PaddingModeAttr : I32EnumAttr<"padding_mode_t", "enum padding mode for the convolution",
                            [default_, same, valid]> {
   let cppNamespace = "mlir::migraphx";
 }
@@ -134,7 +134,7 @@ def MIGraphX_ConvolutionOp :
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$stride,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$dilation,
                    I32Attr:$group,
-                   padding_mode_t:$padding_mode
+                   PaddingModeAttr:$padding_mode
                    )>,
 	  Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "2D convolution forward";
