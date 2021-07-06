@@ -466,9 +466,6 @@ struct RawbufStoreOpLowering : ConvertToLLVMPattern {
     auto adaptorShift = adaptor.shift();
     Type valueType = rawbufStoreOp.value().getType();
 
-    Type I1Type = rewriter.getI1Type();
-    Type LLVMI1Type = typeConverter->convertType(I1Type);
-
     Type I32Type = rewriter.getIntegerType(32);
     Type LLVMI32Type = typeConverter->convertType(I32Type);
 

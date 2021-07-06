@@ -36,7 +36,11 @@
 // lld headers.
 #include "lld/Common/Driver.h"
 
+// TODO: remove this once the rocm_agent_enumerator is ready
+#include "hip/hip_runtime.h"
+
 #include <mutex>
+#include <numeric>
 
 using namespace mlir;
 
@@ -281,11 +285,71 @@ void BackendUtils::setupDefaults(std::string &chip, std::string &features,
   configTargetFeatures(chip, triple, features);
 }
 
+namespace {
+// TODO: remove this once the rocm_agent_enumerator is ready
+void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
+  hipDeviceProp_t props;
+  hipError_t result = hipGetDeviceProperties(&props, device);
+  if (result != hipSuccess) {
+    gcnArchName = "";
+    return;
+  }
+
+  const char *pArchName = props.gcnArchName;
+  gcnArchName.assign(pArchName);
+}
+
+// This function convert the arch name to target features:
+// gfx908:sramecc+:xnack- to +sramecc,-xnack
+std::string convertToFeatureString(const std::string &gcnArchName) {
+  std::string gcnArchDelimiter = ":";
+  std::string features;
+
+  // First step: get rid of the arch name in feature string
+  std::size_t firstSeperatorLoc = gcnArchName.find(gcnArchDelimiter);
+  if (firstSeperatorLoc == std::string::npos) {
+    return features;
+  }
+  std::string gcnArchFeature = gcnArchName.substr(firstSeperatorLoc + 1);
+
+  // Second step: put each feature name to the vector
+  std::string token;
+  std::vector<std::string> featureTokens;
+  auto convertFeatureToken = [](std::string &token) {
+    if (token.back() != '+' && token.back() != '-') {
+      llvm::errs() << "malformed token: " << token << ", must end with +/-.\n";
+      return token;
+    }
+    token.insert(token.begin(), token.back());
+    token.pop_back();
+    return token;
+  };
+
+  size_t featureEnd = 0;
+  while ((featureEnd = gcnArchFeature.find(gcnArchDelimiter)) !=
+         std::string::npos) {
+    token = gcnArchFeature.substr(0, featureEnd);
+    featureTokens.push_back(convertFeatureToken(token));
+    gcnArchFeature.erase(0, featureEnd + gcnArchDelimiter.size());
+  }
+  featureTokens.push_back(convertFeatureToken(gcnArchFeature));
+
+  // Third step: join processed token back to feature string
+  std::string gcnFeatureDelimiter = ",";
+  features = std::accumulate(
+      std::next(featureTokens.begin()), featureTokens.end(), featureTokens[0],
+      [&gcnFeatureDelimiter](const std::string &features,
+                             const std::string &token) {
+        return std::move(features) + gcnFeatureDelimiter + token;
+      });
+  return features;
+}
+} // namespace
+
 void BackendUtils::configTargetFeatures(const std::string &chip,
                                         const std::string &triple,
                                         std::string &features) {
-  // For gfx908, add +sramecc by default to be compatible with ROCm 4.1+.
-  if (chip == "gfx908") {
-    features += "+sramecc";
-  }
+  std::string gcnArchName;
+  getGpuGCNArchName(0, gcnArchName);
+  features = convertToFeatureString(gcnArchName);
 }

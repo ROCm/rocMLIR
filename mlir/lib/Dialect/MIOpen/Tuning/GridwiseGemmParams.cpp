@@ -176,7 +176,6 @@ LogicalResult PopulateParams::paramsFromCtx(
     LLVM_DEBUG(llvm::dbgs() << "FATAL ERROR! COULD NOT FIND VALID TUNING"
                             << " PARAMETERS!\n");
 
-    InitParams paddingParam = getUniversalParameters();
     if (ctx.opType != miopen::ConvOpType::Conv2DBwdDataOpType) {
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
 
@@ -380,7 +379,6 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
     LLVM_DEBUG(llvm::dbgs() << "FATAL ERROR! COULD NOT FIND VALID TUNING"
                             << " PARAMETERS!\n");
 
-    InitParams paddingParam = getUniversalParameters();
     if (ctx.opType != miopen::ConvOpType::Conv2DBwdDataOpType) {
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
       for (auto &params : initParameters) {
