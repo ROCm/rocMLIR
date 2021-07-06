@@ -50,6 +50,8 @@ def MIGraphX_AddOp :
   let description = [{
     Add two tensors elementwise
   }];
+  let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
+  let verifier = [{ return success(); }];
 }
 
 def MIGraphX_SubOp :

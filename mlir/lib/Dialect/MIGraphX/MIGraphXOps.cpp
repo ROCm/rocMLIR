@@ -43,7 +43,7 @@ void MIGraphXDialect::initialize() {
 //===----------------------------------------------------------------------===//
 // AddOp
 //===----------------------------------------------------------------------===//
-
+/*
 static ParseResult parseAddOp(OpAsmParser &parser, OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 2> ops;
   SmallVector<Type, 2> types;
@@ -53,16 +53,7 @@ static ParseResult parseAddOp(OpAsmParser &parser, OperationState &result) {
       parser.parseColonTypeList(types) ||
       parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
 }
-
-static void print(OpAsmPrinter &p, AddOp op) {
-  p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperandTypes();
-}
-
-static LogicalResult verify(AddOp op) {
-  return success();
-}
+*/
 
 //===----------------------------------------------------------------------===//
 // ConvolutionOp
