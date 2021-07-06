@@ -24,19 +24,14 @@
 
 namespace mlir {
 namespace migraphx {
-/*
-enum PaddingModeAttr {
-  default_,
-  same,
-  valid
-}
-*/
+
 } // end namespace migraphx
 } // end namespace mlir
 
 #include "mlir/Dialect/MIGraphX/MIGraphXOpsDialect.h.inc"
 
 #define GET_OP_CLASSES
+#include "mlir/Dialect/MIGraphX/MIGraphXTypes.h.inc"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h.inc"
 
 #endif // MLIR_MIGRAPHXOPS_OPS_H_
