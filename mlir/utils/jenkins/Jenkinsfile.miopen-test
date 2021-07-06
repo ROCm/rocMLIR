@@ -89,7 +89,7 @@ mlir/utils/jenkins/miopen-tests/**\
                     }
                     axis {
                         name 'DIRECTION'
-                        values '1', '4'
+                        values '1', '2', '4'
                     }
                 }
                 stages {
