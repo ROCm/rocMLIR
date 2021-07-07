@@ -46,7 +46,7 @@ endif()
 
 # Passed to lit.site.cfg.py.in to set the -pv or -pv_with_gpu flag for the mlir E2E tests.
 set(MLIR_POPULATE_VALIDATION "-pv")
-if(MLIR_MIOPEN_DRIVER_GPU_VALIDATION_ENABLED)
+if(MLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION)
   set(MLIR_POPULATE_VALIDATION "-pv_with_gpu")
 endif()
 

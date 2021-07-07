@@ -27,7 +27,7 @@ pipeline {
                     steps: [[args: 'check-mlir']],\
                     cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1
                                    -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=1
-                                   -DMLIR_MIOPEN_DRIVER_GPU_VALIDATION_ENABLED=1
+                                   -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
                                    -DCMAKE_EXPORT_COMPILE_COMMANDS=1
                                '''
             }

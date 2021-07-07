@@ -1923,7 +1923,7 @@ static LogicalResult populateValidationLogic(
 
   // Populate host validation logic
   if (populateValidationWithGPU.getValue() &&
-      (xdlopsV2.getValue() || dataType != builder.getF32Type())) {
+      (!(!xdlopsV2.getValue() && dataType == builder.getF32Type()))) {
     // Verify with GPU convolution of f32
     auto verifierConvFuncOp = launchGPUConvolution(
         module, builder, floatType, verifierFilterHostAllocOp,
@@ -1937,7 +1937,8 @@ static LogicalResult populateValidationLogic(
                    verifierOutputHostAllocOp});
     block->push_back(verifierConvCallOp);
   } else {
-    // Verity with CPU convolution of f32
+    // Otherwise (-pv, or -pv_with_gpu with non-XDLops and f32 ), verity with
+    // CPU convolution of f32
     auto cpuConvFuncOp = createCPUConvolution(
         module, builder, filterMemRefType, inputMemRefType, outputMemRefType);
 
@@ -1961,12 +1962,13 @@ static LogicalResult populateValidationLogic(
 
   // Convert CPU results
   mlir::Value verifierConvertedResults;
-  if (dataType == builder.getF32Type())
+  if (dataType == builder.getF32Type()) {
     verifierConvertedResults = verifierResults;
-  else
+  } else {
     verifierConvertedResults =
         getConvertedCpuResults(module, builder, block, verifierResults,
                                gpuOriginalResultType, convertFuncs);
+  }
 
   mlir::FuncOp verifyFuncOp;
   if (operation.getValue() == "conv2d" ||
