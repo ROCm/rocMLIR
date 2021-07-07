@@ -25,7 +25,7 @@ func @miopen_conv2d_kcyx_nchw_nkhw(%filter : memref<1x128x8x3x3xf32>, %input : m
 // CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
 // CHECK-NEXT:  {{miopen.gridwise_gemm.*{.*}.*memref.*memref.*memref}}
 
-func @miopen_conv2d_bwd_data_kcyx_nchw_nkhw(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
+func @miopen_conv2d_bwd_data_kcyx_nchw_nkhw(%filter : memref<1x128x64x3x3xf32>, %input : memref<128x1x64x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
     arch = "gfx906",
     num_cu = 64,
@@ -36,7 +36,7 @@ func @miopen_conv2d_bwd_data_kcyx_nchw_nkhw(%filter : memref<1x128x8x3x3xf32>, %
     strides = [1, 1],
     padding = [0, 0, 0, 0],
     gemm_id = 0
-  } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
+  } : memref<1x128x64x3x3xf32>, memref<128x1x64x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
 // CHECK-LABEL: func @miopen_conv2d_bwd_data

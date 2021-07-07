@@ -176,7 +176,9 @@ LogicalResult PopulateParams::paramsFromCtx(
     LLVM_DEBUG(llvm::dbgs() << "FATAL ERROR! COULD NOT FIND VALID TUNING"
                             << " PARAMETERS!\n");
 
-    if (ctx.opType != miopen::ConvOpType::Conv2DBwdDataOpType) {
+    bool isPaddingKernelSupport = ctx.isPaddingKernelSupport();
+
+    if (isPaddingKernelSupport) {
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
 
       for (auto &params : initParameters) {
@@ -379,7 +381,9 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
     LLVM_DEBUG(llvm::dbgs() << "FATAL ERROR! COULD NOT FIND VALID TUNING"
                             << " PARAMETERS!\n");
 
-    if (ctx.opType != miopen::ConvOpType::Conv2DBwdDataOpType) {
+    bool isPaddingKernelSupport = ctx.isPaddingKernelSupport();
+
+    if (isPaddingKernelSupport) {
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
       for (auto &params : initParameters) {
         res = populatePaddingKernelDerived(ctx, params, gemmSize,
