@@ -30,6 +30,14 @@ void showEnv() {
     sh '/opt/rocm/bin/rocm-smi'
 }
 
+void installProjectDeps() {
+    sh '''
+        # Install dependencies for the out-of-tree build
+        python -m pip install diff_match_patch
+        python -m pip install pathlib2
+    '''
+}
+
 String dockerArgs() {
     return '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
 }
@@ -64,16 +72,12 @@ pipeline {
                     stages {
                         stage('Environment') {
                             steps {
-			        sh '''
-                                    # Install dependencies for the out-of-tree build
-                                    python -m pip install diff_match_patch
-                                    python -m pip install pathlib2
-                                '''
                                 showEnv()
                             }
                         }
                         stage("Shared library build and test") {
                             steps {
+                                installProjectDeps()
                                 buildProject('check-mlir check-mlir-miopen', """
                                   -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
                                   -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
