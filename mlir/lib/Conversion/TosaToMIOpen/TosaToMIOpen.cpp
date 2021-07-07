@@ -80,11 +80,12 @@ public:
     Value output_mr = rewriter.create<AllocOp>(loc, outputType);
     auto outputExpanded = expandTensor(op, output_mr, rewriter);
 
-    ValueRange args({filterExpanded, inputExpanded, outputExpanded});
+    SmallVector<Value, 4> args({filterExpanded, inputExpanded, outputExpanded});
 
     // Construct a new Conv2DOp.
     TypeRange resultTypes;
-    auto cop = rewriter.create<mlir::miopen::Conv2DOp>(loc, resultTypes, args);
+    auto cop = rewriter.create<mlir::miopen::Conv2DOp>(
+        loc, resultTypes, ValueRange{args[0], args[1], args[2]});
 
     // TODO(sjw): get these from options
     StringRef arch = "gfx906";
