@@ -26,6 +26,11 @@ pipeline {
 
                     }
                 }
+                state('TEMPORARY Install rocblas') {
+                    steps {
+                        sh 'apt install recblas'
+                    }
+                }
                 stage('Build MIOpenDriver') {
                     steps {
                         dir('MIOpen') {

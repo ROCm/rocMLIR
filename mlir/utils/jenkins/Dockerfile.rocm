@@ -83,6 +83,7 @@ RUN apt-add-repository 'deb https://apt.kitware.com/ubuntu/ bionic main'
 RUN apt-get update && apt-get install -y --no-install-recommends \
   rocm-dev \
   rocminfo \
+  rocblas \
   rocprofiler-dev \
   libelf1 \
   sudo \
