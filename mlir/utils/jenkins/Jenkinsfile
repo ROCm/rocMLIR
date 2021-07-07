@@ -64,19 +64,24 @@ pipeline {
                     stages {
                         stage('Environment') {
                             steps {
+			        sh '''
+                                    # Install dependencies for the out-of-tree build
+                                    python -m pip install diff_match_patch
+                                    python -m pip install pathlib2
+                                '''
                                 showEnv()
                             }
                         }
                         stage("Shared library build and test") {
                             steps {
-                                buildProject('check-mlir', """
-                               -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
-                               -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
-                               -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                               -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                               -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
-                               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-                               """)
+                                buildProject('check-mlir check-mlir-miopen', """
+                                  -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
+                                  -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
+                                  -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+                                  -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+				  -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
+                                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+                                """)
                             }
                         }
                         stage('Static Tests') {
@@ -103,7 +108,7 @@ pipeline {
                                 equals expected: true, actual: params.nightly
                             }
                             steps {
-                                buildProject('check-mlir',
+                                buildProject('check-mlir-miopen',
                                              """-DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
                                              -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
                                              -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=0""")
