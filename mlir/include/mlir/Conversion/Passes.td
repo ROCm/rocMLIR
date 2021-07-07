@@ -441,6 +441,19 @@ def TosaToLinalgOnTensors : FunctionPass<"tosa-to-linalg-on-tensors"> {
 }
 
 //===----------------------------------------------------------------------===//
+// TosaToMIOpen
+//===----------------------------------------------------------------------===//
+
+def TosaToMIOpen : FunctionPass<"tosa-to-miopen"> {
+  let summary = "Lower TOSA to MIOpen";
+  let description = [{
+    Pass that converts TOSA operations to bufferized MIOpen operations.
+  }];
+
+  let constructor = "tosa::createTosaToMIOpen()";
+}
+
+//===----------------------------------------------------------------------===//
 // VectorToSCF
 //===----------------------------------------------------------------------===//
 
