@@ -1,6 +1,7 @@
 include/mlir/Dialect/GPU/GPUOps.td
 include/mlir/Dialect/LLVMIR/LLVMOps.td
 include/mlir/Dialect/LLVMIR/ROCDLOps.td
+include/mlir/Dialect/Vector/VectorOps.td
 include/mlir/ExecutionEngine/ROCm/BackendUitls.h
 include/mlir/ExecutionEngine/RunnerUtils.h
 include/mlir/IR/Types.h
@@ -23,6 +24,7 @@ test/CMakeLists.txt
 test/Conversion/GPUToROCDL/gpu-to-rocdl.mlir
 test/Dialect/GPU/ops.mlir
 test/Dialect/LLVMIR/rocdl.mlir
+test/Dialect/Vector/invalid.mlir
 test/Examples/standalone/lit.local.cfg
 test/Examples/standalone/test.toy
 test/lib/Transforms/TestConvertGPUKernelToHsaco.cpp
