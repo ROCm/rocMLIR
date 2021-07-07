@@ -18,7 +18,7 @@ def IsZero : AttrConstraint<
     CPred<"$_self.cast<IntegerAttr>().getInt() == 0">, "no rshift">;
 def : Pat<(Tosa_MulOp $input1, $input2, IsZero:$_), (MIGraphX_MulOp $input1, $input2)>;
 def : Pat<(Tosa_MulOp $input1, $input2, $rshift), 
-   (Tosa_ArithmeticRightShiftOp (MIGraphX_MulOp $input1, $input2), $rshift, ($_builder.getBoolAttr(false)))>;
+   (Tosa_ArithmeticRightShiftOp (MIGraphX_MulOp $input1, $input2), $rshift, ConstantAttr<BoolAttr, "false">)>;
 
 def : Pat<(Tosa_RsqrtOp $input1), (MIGraphX_RsqrtOp $input1)>;
 
