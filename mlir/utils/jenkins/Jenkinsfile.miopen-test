@@ -1,7 +1,6 @@
 pipeline {
     agent none
     stages {
-        // Workaround Durable Tasks bug, hopefully
         stage("Library build") {
             agent {
                 docker {
@@ -46,12 +45,10 @@ pipeline {
                             sh 'cd build; make -j $(nproc) MIOpenDriver'
                         }
                         stash name:"MIOpen-test-requisites",\
-                                includes: """MIOpen/src/kernels/**,\
-MIOpen/build/bin/MIOpenDriver,\
-MIOpen/build/lib/*,\
-mlir/utils/jenkins/miopen-tests/**\
-"""
-
+                            includes: """
+                            MIOpen/build/**,\
+                            mlir/utils/jenkins/miopen-tests/**\
+                            """
                     }
                 }
             }
@@ -67,7 +64,7 @@ mlir/utils/jenkins/miopen-tests/**\
                     docker {
                         image 'rocm/mlir:latest'
                         args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
-                        label "${XDLOPS == '1' ? 'gfx908' : 'gfx908'} && multi_gpu"
+                        label 'gfx908'
                         alwaysPull true
                     }
                 }
@@ -89,7 +86,7 @@ mlir/utils/jenkins/miopen-tests/**\
                     }
                     axis {
                         name 'DIRECTION'
-                        values '1', '4'
+                        values '1', '2', '4'
                     }
                 }
                 stages {
@@ -106,15 +103,21 @@ mlir/utils/jenkins/miopen-tests/**\
                         }
                     }
                     stage("Test MIOpen config") {
+                        environment {
+                            // Make libMIOpen.so accessible to the test driver
+                            LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${WORKSPACE}/MIOpen/build/lib"
+                        }
                         steps {
                             echo "Config is ($DTYPE, $LAYOUT, xdlops=$XDLOPS, dir=$DIRECTION)"
+                            sh 'ldconfig'
                             dir('MIOpen/build/') {
                                 sh """
-bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
---layout $LAYOUT \
---direction $DIRECTION \
---dtype $DTYPE \
-${XDLOPS == '1' ? '--xdlops' : '--no-xdlops'} <${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+                                bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
+                                --layout $LAYOUT \
+                                --direction $DIRECTION \
+                                --dtype $DTYPE \
+                                ${XDLOPS == '1' ? '--xdlops' : '--no-xdlops'} \
+                                < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
                             }
                         }
                     }
