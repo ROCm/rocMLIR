@@ -27,8 +27,7 @@
 using namespace mlir;
 
 namespace {
-struct TosaToMIOpen
-    : public TosaToMIOpenBase<TosaToMIOpen> {
+struct TosaToMIOpen : public TosaToMIOpenBase<TosaToMIOpen> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<miopen::MIOpenDialect, linalg::LinalgDialect,
@@ -44,8 +43,8 @@ public:
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     FuncOp func = getFunction();
-    mlir::tosa::populateTosaToMIOpenConversionPatterns(
-        func.getContext(), &patterns);
+    mlir::tosa::populateTosaToMIOpenConversionPatterns(func.getContext(),
+                                                       &patterns);
     if (failed(applyFullConversion(func, target, std::move(patterns))))
       signalPassFailure();
   }
