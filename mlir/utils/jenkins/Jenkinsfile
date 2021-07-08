@@ -177,16 +177,13 @@ mlir/utils/jenkins/miopen-tests/**\
                 stage("Performance testing") {
                     when {
                         beforeAgent true;
-                        allOf {
-                            equals expected: true, actual: params.nightly;
-                            equals expected: false, actual: params.canXdlops
-                        }
+                        equals expected: true, actual: params.nightly;
                     }
                     agent {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label 'mlir'
+                            label "${params.canXdlops ? 'gfx908' : 'rocm' }"
                             alwaysPull true
                         }
                     }
@@ -287,9 +284,10 @@ mlir/utils/jenkins/miopen-tests/**\
         }
 
         stage("MIOpen resnet50 config test") {
-            when {
+            when { allOf {
                 equals expected: true, actual: params.nightly
-            }
+                equals expected: true, actual: params.canXdlops
+            }}
             matrix {
                 agent {
                     docker {
