@@ -1384,11 +1384,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         op.input().getType().template cast<MemRefType>().getElementType();
     if (miopen::ConvOpType::Conv2DBwdDataOpType == convOpType) {
       return backwardData(op, b);
-    } else if (miopen::ConvOpType::Conv2DBwdWeightOpType == convOpType &&
-               isXdlops && dataType == b.getF32Type()) {
-      // current backward weight with atomic_add can only run under xdlops +
-      // fp32
-      return backwardWeightAtomicAdd(op, b, fields);
     }
     auto loc = op.getLoc();
 
@@ -1561,6 +1556,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     } else { // xdlops
       PopulateParamsXDL populateParamsXDL;
       calculatePaddingKernelSize(populateParamsXDL);
+    }
+    if (miopen::ConvOpType::Conv2DBwdWeightOpType == convOpType && isXdlops &&
+        dataType == b.getF32Type() && needExtraPad == false) {
+      // current backward weight with atomic_add can only run under xdlops +
+      // fp32
+      return backwardWeightAtomicAdd(op, b, fields);
     }
 
     // compute padding hi/wi.
