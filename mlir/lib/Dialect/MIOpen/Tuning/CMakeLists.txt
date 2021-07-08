@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRMIOpenTuning
   SqliteDb.cpp
   GridwiseGemmParams.cpp
+  BackwardDataPaddingKernel.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/MIOpen/Tuning
@@ -37,6 +38,7 @@ target_include_directories(MLIRMIOpenTuning
 target_link_libraries(MLIRMIOpenTuning
   PRIVATE
   MLIRIR
+  MLIRMIOpenOps
   ${SQLITE3_LIBRARIES}
   ${CMAKE_DL_LIBS}
 )
