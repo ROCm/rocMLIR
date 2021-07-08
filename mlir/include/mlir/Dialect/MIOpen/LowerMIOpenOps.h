@@ -3737,8 +3737,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           getWeiGKCYDotSliceYTidaSliceXDotSliceXTildaSlice(firtFilterDimName,
                                                            secondFilterDimName);
 
-      auto getWeiGemmGGemmKGemmM = [&](decltype(
-                                       secondFilterDimName) &preOutputDimName) {
+      auto getWeiGemmGGemmKGemmM =
+          [&](decltype(secondFilterDimName) &preOutputDimName) -> Value {
         llvm::SmallVector<StringAttr, 7> curOutputDimName;
         llvm::SmallVector<int64_t, 7> transformedFilterShape;
         // gemmG
@@ -3821,15 +3821,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       // if the config do not do padding kernel,
       // gemmAPad = weiGemmGGemmKGemmM
-      auto gemmAPad = padFilter(gemmMExtra, gemmNExtra, gemmKExtra, weiGemmGGemmKGemmM, b, 
-		     loc, filterOobCheckDims, nameToDims, filterShape, filterElementType,
-		     g, k, c, yDotSlice, xDotSlice);
+      Value gemmAPad =
+          padFilter(gemmMExtra, gemmNExtra, gemmKExtra, weiGemmGGemmKGemmM, b,
+                    loc, filterOobCheckDims, nameToDims, filterShape,
+                    filterElementType, g, k, c, yDotSlice, xDotSlice);
       return gemmAPad;
     };
-
-
-
-
 
     auto getGemmB = [&]() -> Value {
       // dim of oob check
@@ -4310,17 +4307,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         auto transformedMemRefType =
             MemRefType::get(transformedShape, inputElementType);
-        auto gemm = b.create<miopen::TransformOp>(
+        Value gemm = b.create<miopen::TransformOp>(
             loc, transformedMemRefType,
             inGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice, transformedAttrs,
             /*populateBounds=*/true);
 
         // if the config do not do padding kernel,
         // gemmBPad = gemm
-	
-	auto gemmBPad = padInput(gemmMExtra, gemmNExtra, gemmKExtra, gemm,
-                b, loc, inputOobCheckDims, nameToDims,
-                transformedShape, inputShape, inputElementType);
+        Value gemmBPad = padInput(
+            gemmMExtra, gemmNExtra, gemmKExtra, gemm, b, loc, inputOobCheckDims,
+            nameToDims, transformedShape, inputShape, inputElementType);
 
         return gemmBPad;
       };
@@ -4700,16 +4696,17 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         }
         auto transformedMemRefType =
             MemRefType::get(transformedShape, outputElementType);
-        auto gemm = b.create<miopen::TransformOp>(
+        Value gemm = b.create<miopen::TransformOp>(
             loc, transformedMemRefType,
             outGNKYDotSliceHTidaSliceXDotSliceWTildaSlice, transformedAttrs,
             /*populateBounds=*/true);
 
-	// if the config do not do padding kernel,
+        // if the config do not do padding kernel,
 	// gemmCPad = gemm
-	auto gemmCPad = padOutput(gemmMExtra, gemmNExtra, gemmKExtra, gemm,
-                b, loc, outputOobCheckDims, nameToDims,
-                transformedShape, outputShape, outputElementType);
+        Value gemmCPad =
+            padOutput(gemmMExtra, gemmNExtra, gemmKExtra, gemm, b, loc,
+                      outputOobCheckDims, nameToDims, transformedShape,
+                      outputShape, outputElementType);
         return gemmCPad;
       };
       auto outGemmGGemmKGemmN = getOutGemmGGemmKGemmN(secondOutputDimName);
