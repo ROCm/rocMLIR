@@ -51,55 +51,6 @@ using namespace mlir::miopen;
 static constexpr int kTwoGB = 2147483647;
 
 //===----------------------------------------------------------------------===//
-// FIXME. XXX.
-// Workaround to obtain gemmKExtra / gemmMExtra / gemmNExtra attribute.
-// And use it to override legacy load/store debug switch.
-//===----------------------------------------------------------------------===//
-inline bool overrideLoadStoreHack(const DictionaryAttr &transformSpec) {
-  if (transformSpec) {
-    Attribute metadataAttr = transformSpec.get("metadata");
-    if (metadataAttr) {
-      ArrayAttr layeredTransformMetadata =
-          metadataAttr.template cast<ArrayAttr>();
-      for (unsigned iter = 0; iter < layeredTransformMetadata.size(); ++iter) {
-        DictionaryAttr dictAttr =
-            layeredTransformMetadata[iter].template cast<DictionaryAttr>();
-        // enable workaround when padding kernel,
-        // if gemmKExtra || gemmMExtra || gemmNExtraAttr
-        // use workaround to skip index map errors
-        auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
-        auto gemmMExtraAttr = dictAttr.get("gemmMExtra");
-        auto gemmNExtraAttr = dictAttr.get("gemmNExtra");
-        if (gemmKExtraAttr) {
-          auto gemmKExtra =
-              gemmKExtraAttr.template cast<IntegerAttr>().getInt();
-          if (gemmKExtra > 0) {
-            return true;
-          }
-        }
-
-        if (gemmMExtraAttr) {
-          auto gemmMExtra =
-              gemmMExtraAttr.template cast<IntegerAttr>().getInt();
-          if (gemmMExtra > 0) {
-            return true;
-          }
-        }
-
-        if (gemmNExtraAttr) {
-          auto gemmNExtra =
-              gemmNExtraAttr.template cast<IntegerAttr>().getInt();
-          if (gemmNExtra > 0) {
-            return true;
-          }
-        }
-      }
-    }
-  }
-  return false;
-}
-
-//===----------------------------------------------------------------------===//
 // Utility function to determine the type to be loaded
 //===----------------------------------------------------------------------===//
 template <typename T>
@@ -1824,13 +1775,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                              b.getArrayAttr({b.getStringAttr(gemmKPad_name)})));
         }
         // filter of forward, gemmK=c*y*x
-        if (filterYDim == 2) {
-          // kyxc
-          filterOobCheckDims.insert(nameToDims["y"]);
-        } else {
-          // kcyx
-          filterOobCheckDims.insert(nameToDims["c"]);
-        }
+        filterOobCheckDims.insert(nameToDims["c"]);
+        filterOobCheckDims.insert(nameToDims["y"]);
+        filterOobCheckDims.insert(nameToDims["x"]);
       }
 
       if (filterCheckPadGemmM) {
@@ -1949,7 +1896,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (filterOobCheckDims.size()) {
         llvm::SmallVector<IntegerAttr, 5> boundDims;
-        for (size_t i = 0; i < filterShape.size(); i++) {
+        for (size_t i = 0; i < filterShape.size(); ++i) {
           if (filterOobCheckDims.find(i) != filterOobCheckDims.end())
             boundDims.push_back(b.getI32IntegerAttr(1));
           else
@@ -2557,7 +2504,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     if (inputOobCheckDims.size()) {
       llvm::SmallVector<IntegerAttr, 5> boundDims;
-      for (size_t i = 0; i < inputShape.size(); i++) {
+      for (size_t i = 0; i < inputShape.size(); ++i) {
         if (inputOobCheckDims.find(i) != inputOobCheckDims.end())
           boundDims.push_back(b.getI32IntegerAttr(1));
         else
@@ -2755,7 +2702,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (inputOobCheckDims.size()) {
         llvm::SmallVector<IntegerAttr, 5> boundDims;
-        for (size_t i = 0; i < inputShape.size(); i++) {
+        for (size_t i = 0; i < inputShape.size(); ++i) {
           if (inputOobCheckDims.find(i) != inputOobCheckDims.end())
             boundDims.push_back(b.getI32IntegerAttr(1));
           else
@@ -3156,7 +3103,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       if (outputOobCheckDims.size()) {
         llvm::SmallVector<IntegerAttr, 5> boundDims;
-        for (size_t i = 0; i < outputShape.size(); i++) {
+        for (size_t i = 0; i < outputShape.size(); ++i) {
           if (outputOobCheckDims.find(i) != outputOobCheckDims.end())
             boundDims.push_back(b.getI32IntegerAttr(1));
           else
@@ -4294,7 +4241,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         if (inputOobCheckDims.size()) {
           llvm::SmallVector<IntegerAttr, 5> boundDims;
-          for (size_t i = 0; i < inputShape.size(); i++) {
+          for (size_t i = 0; i < inputShape.size(); ++i) {
             if (inputOobCheckDims.find(i) != inputOobCheckDims.end())
               boundDims.push_back(b.getI32IntegerAttr(1));
             else
@@ -4684,7 +4631,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         if (outputOobCheckDims.size()) {
           llvm::SmallVector<IntegerAttr, 5> boundDims;
-          for (size_t i = 0; i < outputShape.size(); i++) {
+          for (size_t i = 0; i < outputShape.size(); ++i) {
             if (outputOobCheckDims.find(i) != outputOobCheckDims.end())
               boundDims.push_back(b.getI32IntegerAttr(1));
             else
@@ -7722,10 +7669,6 @@ struct ThreadwiseCopyRewritePattern
       return failure();
     }
 
-    // FIXME. XXX.
-    legacyLoad = overrideLoadStoreHack(srcTransformSpec);
-    legacyStore = overrideLoadStoreHack(destTransformSpec);
-
     // Populate the vector to hold source and dest coordinate.
     SmallVector<Value, 8> sourceCoord;
     SmallVector<Value, 8> destCoord;
@@ -7989,13 +7932,8 @@ struct ThreadwiseLoadRewritePattern
       return failure();
     }
 
-    // FIXME. XXX.
-    // Workaround to obtain gemmKExtra attribute.
-    // And use it to override legacy load/store debug switch.
-    legacyLoad = overrideLoadStoreHack(srcTransformSpec);
-
     // Determine if we need to emit codes for out-of-bound check, and which
-    // dimensions need to dconduct such check.
+    // dimensions need to conduct such checks.
     SmallVector<unsigned, 8> oobLoadCheckDims;
     bool toEmitOOBLoadCheckLogic = obtainOOBCheckInfo(
         composedSourceTransform, boundCheckSourceAttr, oobLoadCheckDims);
@@ -8249,13 +8187,8 @@ struct ThreadwiseStoreRewritePattern
       return failure();
     }
 
-    // FIXME. XXX.
-    // Workaround to obtain gemmKExtra attribute.
-    // And use it to override legacy load/store debug switch.
-    legacyStore = overrideLoadStoreHack(destTransformSpec);
-
     // Determine if we need to emit codes for out-of-bound check, and which
-    // dimensions need to dconduct such check.
+    // dimensions need to conduct such checks.
     SmallVector<unsigned, 8> oobStoreCheckDims;
     bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
         composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
@@ -8514,7 +8447,7 @@ struct ThreadwiseCopyV2RewritePattern
     }
 
     // Determine if we need to emit codes for out-of-bound check, and which
-    // dimensions need to dconduct such check.
+    // dimensions need to conduct such checks.
     SmallVector<unsigned, 8> oobStoreCheckDims;
     bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
         composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
