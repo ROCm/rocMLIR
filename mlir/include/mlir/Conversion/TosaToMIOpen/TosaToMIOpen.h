@@ -27,8 +27,8 @@ std::unique_ptr<Pass> createTosaToMIOpen();
 void addTosaToMIOpenPasses(OpPassManager &pm);
 
 /// Populates conversion passes from TOSA dialect to MIOpen dialect.
-void populateTosaToMIOpenConversionPatterns(
-    MLIRContext *context, OwningRewritePatternList *patterns);
+void populateTosaToMIOpenConversionPatterns(MLIRContext *context,
+                                            OwningRewritePatternList *patterns);
 
 } // namespace tosa
 } // namespace mlir
