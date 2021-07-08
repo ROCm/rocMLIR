@@ -84,6 +84,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   rocm-dev \
   rocminfo \
   rocprofiler-dev \
+  rocblas \
   libelf1 \
   sudo \
   vim \
