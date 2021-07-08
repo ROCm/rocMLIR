@@ -28,6 +28,7 @@ pipeline {
                     cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1
                         -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1
                         -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=1
+                        -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
                     '''
                 sh 'rm -rf build' // Permissions issues when using deleteDir()
             }
