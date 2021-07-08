@@ -64,7 +64,8 @@ public:
     auto loc = op->getLoc();
     auto input_t = operands[0];
     auto filter_t = operands[1];
-    auto bias_t = operands[2]; // TODO(sjw): add bias op linalg
+    // TODO(sjw): add bias op linalg.
+    // auto bias_t = operands[2];
     auto results = op->getResults();
 
     assert(results.size() == 1);
