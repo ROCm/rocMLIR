@@ -124,9 +124,13 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
         "in_channels", "in_h",         "in_w",      "out_layout",
         "out_type",    "out_channels", "out_h",     "out_w",
         "fil_layout",  "fil_type",     "fil_w",     "fil_h"};
-    return std::all_of(
+    if (!std::all_of(
         validKeys.cbegin(), validKeys.cend(),
-        [&argMap](const std::string &key) { return argMap.count(key) > 0; });
+        [&argMap](const std::string &key) { return argMap.count(key) > 0; })) {
+          return false;
+    }
+    bool noMixedTypes = argMap["in_type"] == argMap["out_type"] && argMap["fil_type"] == argMap["out_type"];
+    return noMixedTypes;
   };
 
   // Proceed only if we have a valid argMap. Otherwise leave the handle to be

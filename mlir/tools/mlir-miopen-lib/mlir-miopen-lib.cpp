@@ -5,6 +5,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/MIOpenCPP.h"
 
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
@@ -20,6 +21,7 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <string>
 
@@ -63,6 +65,21 @@ bool miirLazyInit() {
   return once;
 }
 
+LogicalResult MIOpenEnabled(const Conv2dGenerator::Config& conf) {
+  const std::string& inLayout = conf.inputLayout;
+  const std::string& filLayout = conf.filterLayout;
+  const std::string& outLayout = conf.outputLayout;
+
+  const static std::set<std::tuple<std::string, std::string, std::string>> supportedLayouts = {
+    {"ngchw", "gkcyx", "ngkhw"},
+    {"nhwgc", "gkyxc", "nhwgk"}
+  };
+
+  bool layoutSupported = supportedLayouts.count(std::make_tuple(inLayout, filLayout, outLayout)) > 0;
+  bool noBF16 = conf.dataTypeStr != "bf16";
+  return LogicalResult::success(layoutSupported && noBF16);
+}
+
 } // namespace
 
 typedef void *MiirHandle;
@@ -75,22 +92,27 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   MiirHandle_s *handle = nullptr;
 
   Conv2dGenerator conv2dGenerator;
-  LogicalResult result = LogicalResult::failure();
 
   if (succeeded(conv2dGenerator.parseConvConfig(arguments))) {
 
     handle = new MiirHandle_s;
     OpBuilder builder(&(handle->context));
 
-    handle->arch = conv2dGenerator.getConfig().arch;
+    const auto& config = conv2dGenerator.getConfig();
+    if (failed(MIOpenEnabled(config))) {
+      return nullptr;
+    }
+
+    handle->arch = config.arch;
     handle->kernelCount = conv2dGenerator.getKernelCount();
 
     ModuleOp module = handle->getModule();
 
-    result = conv2dGenerator.genConvModule(module, builder);
+    if (succeeded(conv2dGenerator.genConvModule(module, builder))) {
+      return handle;
+    }
   }
-
-  return (result.succeeded()) ? handle : nullptr;
+  return nullptr;
 }
 
 extern "C" int miirGetKernelCount(MiirHandle mlirHandle) {

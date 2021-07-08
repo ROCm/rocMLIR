@@ -38,7 +38,6 @@ public:
 
     int kernelId;
 
-    int outputSize;
     SmallVector<int64_t, 5> filterDimension;
     SmallVector<int64_t, 5> inputDimension;
     SmallVector<int64_t, 5> outputDimension;
