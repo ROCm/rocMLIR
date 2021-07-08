@@ -53,7 +53,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908' : 'rocm' } && multi_gpu"
+                            label "${params.canXdlops ? 'gfx908' : 'rocm' } && !single_gpu"
                             alwaysPull true
                         }
                     }
@@ -295,7 +295,7 @@ mlir/utils/jenkins/miopen-tests/**\
                     docker {
                         image dockerImage()
                         args dockerArgs()
-                        label "${XDLOPS == '1' ? 'gfx908' : 'gfx908'} && multi_gpu"
+                        label "${XDLOPS == '1' ? 'gfx908' : 'gfx908'} && !single_gpu"
                         alwaysPull true
                     }
                 }
