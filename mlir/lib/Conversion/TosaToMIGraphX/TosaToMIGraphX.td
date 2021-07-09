@@ -27,6 +27,6 @@ def : Pat<(Tosa_RsqrtOp $input1), (MIGraphX_RsqrtOp $input1)>;
 // Clamp to Relu if it clamps to max/min number, otherwise convert to ceil + floor
 
 def : Pat<(Tosa_ReshapeOp $input1, $newshape), (MIGraphX_ReshapeOp $input1, $newshape)>;
-def : Pat<(Tosa_TransposeOp $input1, (Tosa_ConstOp $permAttr)), (MIGraphX_TransposeOp $input1, $permAttr.getI64ArrayAttr())>;
+def : Pat<(Tosa_TransposeOp $input1, (Tosa_ConstOp $permAttr)), (MIGraphX_TransposeOp $input1, $_builder.getI64ArrayAttr($permAttr.getIntValues()))>;
 
 #endif // MLIR_CONVERSION_TOSA_TO_MIGRAPHX
