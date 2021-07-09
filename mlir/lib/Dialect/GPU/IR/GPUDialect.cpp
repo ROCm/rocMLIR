@@ -1017,8 +1017,11 @@ static ParseResult parseRawMubufLoadOp(OpAsmParser &parser,
              parser.resolveOperand(ops[0], types[0], result.operands) ||
              parser.addTypeToList(types[1], result.types);
 
+  // resolve shift operand.
+  ret &= succeeded(parser.resolveOperand(ops[1], parser.getBuilder().getIntegerType(32), result.operands));
+
   // resolve source coorindates.
-  for (unsigned i = 1; i < ops.size(); ++i) {
+  for (unsigned i = 2; i < ops.size(); ++i) {
     ret &= succeeded(parser.resolveOperand(
         ops[i], parser.getBuilder().getIntegerType(32), result.operands));
   }

@@ -993,10 +993,14 @@ def GPU_MubufStoreOp :
 def GPU_RawMubufLoadOp :
     GPU_Op<"raw_buffer_load">,
     Arguments<(ins AnyMemRef:$memref,
+                   I32:$shift,
                    Variadic<I32>:$indices)>,
     Results<(outs AnyTypeOf<[I16, F16, F32,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$result)> {
+  // The destination address will add the shift operand, if it's zero, just
+  // load normally. But if the value is 0x7fffffff, it will do OOB load because
+  // we set the address upper bound to 2GB.
   let summary = "AMD GPU Raw Buffer Load";
   let description = [{
     The `gpu.raw_buffer_load` op is an abstraction of AMD GPU raw buffer load
@@ -1017,9 +1021,9 @@ def GPU_RawbufStoreOp :
                    AnyMemRef:$memref,
                    I32:$shift,
                    Variadic<I32>:$indices)> {
-  // the destination address will add the shift, if it's zero , just store
-  // but if the value is 0x7fffffff, it will do oob store because
-  // we set the address upper bound to 2GB
+  // The destination address will add the shift operand, if it's zero, just
+  // store normally. But if the value is 0x7fffffff, it will do OOB store
+  // because we set the address upper bound to 2GB.
   let summary = "AMD GPU Raw Buffer Store";
   let description = [{
     The `gpu.raw_buffer_store` op is an abstraction of AMD GPU raw buffer store intrinsics.
