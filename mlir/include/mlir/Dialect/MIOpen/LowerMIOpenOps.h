@@ -4702,7 +4702,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             /*populateBounds=*/true);
 
         // if the config do not do padding kernel,
-	// gemmCPad = gemm
+        // gemmCPad = gemm
         Value gemmCPad =
             padOutput(gemmMExtra, gemmNExtra, gemmKExtra, gemm, b, loc,
                       outputOobCheckDims, nameToDims, transformedShape,
