@@ -1006,10 +1006,10 @@ static void print(OpAsmPrinter &p, gpu::MubufStoreOp op) {
 static LogicalResult verify(gpu::MubufStoreOp op) { return success(); }
 
 //===----------------------------------------------------------------------===//
-// RawMubufLoadOp
+// RawbufLoadOp
 //===----------------------------------------------------------------------===//
 
-static ParseResult parseRawMubufLoadOp(OpAsmParser &parser,
+static ParseResult parseRawbufLoadOp(OpAsmParser &parser,
                                        OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 5> ops;
   SmallVector<Type, 5> types;
@@ -1033,13 +1033,13 @@ static ParseResult parseRawMubufLoadOp(OpAsmParser &parser,
   return failure(ret);
 }
 
-static void print(OpAsmPrinter &p, gpu::RawMubufLoadOp op) {
+static void print(OpAsmPrinter &p, gpu::RawbufLoadOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
   p << " : " << op.memref().getType() << ", " << op.getResult().getType();
 }
 
-static LogicalResult verify(gpu::RawMubufLoadOp op) { return success(); }
+static LogicalResult verify(gpu::RawbufLoadOp op) { return success(); }
 
 //===----------------------------------------------------------------------===//
 // RawbufStoreOp

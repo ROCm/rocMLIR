@@ -990,7 +990,7 @@ def GPU_MubufStoreOp :
 }
 
 // raw buffer load
-def GPU_RawMubufLoadOp :
+def GPU_RawbufLoadOp :
     GPU_Op<"raw_buffer_load">,
     Arguments<(ins AnyMemRef:$memref,
                    I32:$shift,
@@ -1007,7 +1007,7 @@ def GPU_RawMubufLoadOp :
     intrinsics. `vector.transfer_read` is too tightly coupled with LLVM masked
     load intrinsic, which is not supported well on AMD GPU.
   }];
-  let parser = [{ return parseRawMubufLoadOp(parser, result); }];
+  let parser = [{ return parseRawbufLoadOp(parser, result); }];
   let printer = [{ return ::print(p, *this); }];
   let verifier = [{ return ::verify(*this); }];
 }
