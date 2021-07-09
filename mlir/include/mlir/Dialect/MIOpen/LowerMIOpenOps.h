@@ -289,8 +289,20 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
         loadedValue = loadedVector;
       }
     } else {
-      // Issue scalar load.
-      loadedValue = b.create<LoadOp>(loc, loadedType, source, srcLowerIndices);
+      // Issue vector load.
+      if (sourceType.getMemorySpace() == 0) {
+        // use raw buffer load if the source memref is on address space 0
+        Value oobI32 = b.create<IndexCastOp>(loc, oob, b.getIntegerType(32));
+        SmallVector<Value, 4> srcLowerIndicesI32;
+        for (auto v : srcLowerIndices)
+          srcLowerIndicesI32.push_back(
+              b.create<IndexCastOp>(loc, v, b.getIntegerType(32)));
+        loadedValue = b.create<gpu::RawbufLoadOp>(loc, loadedType, source,
+                                                  oobI32, srcLowerIndicesI32);
+      } else {
+        loadedValue =
+            b.create<LoadOp>(loc, loadedType, source, srcLowerIndices);
+      }
     }
     return loadedValue;
   };
