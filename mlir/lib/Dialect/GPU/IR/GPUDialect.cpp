@@ -1051,8 +1051,11 @@ static ParseResult parseRawbufStoreOp(OpAsmParser &parser,
              parser.parseOptionalAttrDict(result.attributes) ||
              parser.parseColonTypeList(types) ||
              parser.resolveOperand(ops[0], types[0], result.operands) ||
-             parser.resolveOperand(ops[1], types[1], result.operands) ||
-             parser.resolveOperand(ops[2], types[2], result.operands);
+             parser.resolveOperand(ops[1], types[1], result.operands);
+
+  // resolve shift operand.
+  ret &= succeeded(parser.resolveOperand(
+      ops[2], parser.getBuilder().getIntegerType(32), result.operands));
 
   // resolve source coorindates.
   for (unsigned i = 3; i < ops.size(); ++i) {
