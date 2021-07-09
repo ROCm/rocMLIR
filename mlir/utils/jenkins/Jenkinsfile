@@ -1,4 +1,6 @@
 void buildProject(String target, String cmakeOpts) {
+    sh 'python -m pip install diff-match-patch'
+    sh 'python -m pip install pathlib2'
     cmakeBuild generator: 'Ninja',\
         buildDir: 'build',\
         buildType: 'Release',\
