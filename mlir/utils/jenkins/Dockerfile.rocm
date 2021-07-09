@@ -54,6 +54,9 @@ RUN pip3 install -r requirements.txt
 # Needed to output performance tests
 RUN pip3 install PrettyTable
 
+# Needed for out-of-tree patching
+RUN pip3 install diff-match-patch pathlib2
+
 RUN ln -s /usr/bin/clang-10 /usr/bin/clang;\
     ln -s /usr/bin/clang++-10 /usr/bin/clang++;\
     ln -s /usr/bin/clang-tidy-10 /usr/bin/clang-tidy;\
