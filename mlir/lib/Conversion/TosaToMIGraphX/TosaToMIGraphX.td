@@ -25,7 +25,7 @@ def : Pat<(Tosa_RsqrtOp $input1), (MIGraphX_RsqrtOp $input1)>;
 //Pat<(convop (padop), ...), (convop pad)
 
 // Clamp to Relu if it clamps to max/min number, otherwise convert to ceil + floor
-def ConvertElemToArrayAttr: NativeCodeCall<"$_builder.getI64ArrayAttr(ArrayRef<int64_t>(llvm::to_vector<6>($0.getValues<IntegerAttr>())))">;
+def ConvertElemToArrayAttr: NativeCodeCall<"$_builder.getI64ArrayAttr(ArrayRef<int64_t>(llvm::to_vector<6>($0.getValues<int64_t>())))">;
 //def ConvertElemToArrayAttr: NativeCodeCall<"$_builder.getI64ArrayAttr($0.getIntValues())">;
 def : Pat<(Tosa_ReshapeOp $input1, $newshape), (MIGraphX_ReshapeOp $input1, $newshape)>;
 def : Pat<(Tosa_TransposeOp $input1, (Tosa_ConstOp $permAttr)), (MIGraphX_TransposeOp $input1, (ConvertElemToArrayAttr $permAttr))>;
