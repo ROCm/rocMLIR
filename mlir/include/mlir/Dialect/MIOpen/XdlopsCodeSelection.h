@@ -15,6 +15,7 @@
 #define MLIR_XDLOPS_CODE_SELECTION_H
 
 #include "mlir/Dialect/GPU/GPUDialect.h"
+#include "llvm/Support/ErrorHandling.h"
 #include <stdint.h>
 
 using namespace mlir;
@@ -184,6 +185,7 @@ struct XdlopsCodeSelection {
         llvm::errs() << "dataType: ";
         dataType.dump();
         llvm::errs() << "\n";
+        llvm_unreachable("Can't meaningfully continue xdlop generation");
       }
     } else if (dataType == b.getF16Type()) {
       if (MPerWave == 128 && NPerWave == 64) {
@@ -312,6 +314,7 @@ struct XdlopsCodeSelection {
         llvm::errs() << "dataType: ";
         dataType.dump();
         llvm::errs() << "\n";
+        llvm_unreachable("Can't meaningfully continue xdlop generation");
       }
     } else if (dataType == b.getIntegerType(16)) {
       if (MPerWave == 128 && NPerWave == 64) {
@@ -440,7 +443,10 @@ struct XdlopsCodeSelection {
         llvm::errs() << "dataType: ";
         dataType.dump();
         llvm::errs() << "\n";
+        llvm_unreachable("Can't meaningfully continue xdlop generation");
       }
+    } else {
+      llvm_unreachable("XDLOPs for unsupported data types should be rejected");
     }
 
     // Obtain properties of MFMA instructions.
@@ -658,7 +664,7 @@ struct XdlopsCodeSelection {
       cycles = 8;
       k_base = 2;
     } else {
-      llvm::errs() << "Unsupported case as mfmaInstr not selected!\n";
+      llvm_unreachable("Unsupported case as mfmaInstr not selected!\n");
     }
 
     // Populate result.

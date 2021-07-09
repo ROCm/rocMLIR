@@ -281,9 +281,6 @@ inline Value padInput(int64_t gemmMExtra, int64_t gemmNExtra,
     paddingInputShape.push_back(transformedShape[1]);
     paddingInputShape.push_back(transformedShape[2]);
 
-    StringAttr gemmKDim;
-    IntegerAttr gemmKDimName;
-
     llvm::SmallVector<NamedAttribute, 3> sourceGemmDim0Attr{
         b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
         b.getNamedAttr("lower_layer_dimensions", b.getArrayAttr({GemmDim0})),

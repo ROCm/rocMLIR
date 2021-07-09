@@ -390,7 +390,8 @@ short randomIntegerValue(short min, short max) {
 float randomFloatValue(short min, short max) {
   if (min == max)
     return (float)min;
-  return (max - min) * (float)(std::rand()) / RAND_MAX + (float)min;
+  return (float)((max - min) * (double)(std::rand()) / (double)RAND_MAX) +
+         (float)min;
 }
 
 // 3D float memref utility routines.

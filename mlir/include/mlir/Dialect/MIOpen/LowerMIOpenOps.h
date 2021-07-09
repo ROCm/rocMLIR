@@ -39,9 +39,12 @@
 
 #include "XdlopsCodeSelection.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
+#include "utility/BackwardDataPaddingKernel.h"
 #include "utility/math.hpp"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 using namespace mlir::miopen;
@@ -1462,18 +1465,22 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     gemmMExtra = gemmNExtra = gemmKExtra = 0;
     // compute we should use extra padding kernel or not
     // c,k already / g ,so we can skip / g here
-    if (convOpType == miopen::ConvOpType::Conv2DOpType) {
+    switch (convOpType) {
+    case miopen::ConvOpType::Conv2DOpType:
       gemmM_size = k;
       gemmK_size = c * y * x;
       gemmN_size = n * ho * wo;
-    } else if (convOpType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+      break;
+    case miopen::ConvOpType::Conv2DBwdDataOpType:
       gemmM_size = c;
       gemmK_size = k * y * x;
       gemmN_size = n * ho * wo;
-    } else if (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType) {
+      break;
+    case miopen::ConvOpType::Conv2DBwdWeightOpType:
       gemmM_size = k;
       gemmK_size = n * ho * wo;
       gemmN_size = c * y * x;
+      break;
     }
 
     bool needExtraPad = false;
@@ -2621,9 +2628,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       paddingInputShape.push_back(transformedInputShape[0]);
       paddingInputShape.push_back(transformedInputShape[1]);
       paddingInputShape.push_back(transformedInputShape[2]);
-
-      StringAttr gemmKDim;
-      IntegerAttr gemmKDimName;
 
       llvm::SmallVector<NamedAttribute, 3> sourceGemmDim0Attr{
           b.getNamedAttr("transformation", b.getStringAttr("PassThrough")),
@@ -4769,6 +4773,20 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   }
 };
 
+// Forward-declare field values to suppress warnings
+template <> const ArgumentFields Conv2DRewritePattern<miopen::Conv2DOp>::fields;
+template <>
+const miopen::ConvOpType Conv2DRewritePattern<miopen::Conv2DOp>::convOpType;
+template <>
+const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::fields;
+template <>
+const miopen::ConvOpType
+    Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::convOpType;
+template <>
+const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>::fields;
+template <>
+const miopen::ConvOpType
+    Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>::convOpType;
 //===----------------------------------------------------------------------===//
 // Assigning attributes.
 //===----------------------------------------------------------------------===//
@@ -5071,14 +5089,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         op->getAttr("matrix_b_source_data_per_read")
             .template cast<IntegerAttr>()
             .getInt();
-    int64_t matrix_a_source_vector_read_dim =
+    auto matrix_a_source_vector_read_dim = static_cast<GemmDimensions>(
         op->getAttr("matrix_a_source_vector_read_dim")
             .template cast<IntegerAttr>()
-            .getInt();
-    int64_t matrix_b_source_vector_read_dim =
+            .getInt());
+    auto matrix_b_source_vector_read_dim = static_cast<GemmDimensions>(
         op->getAttr("matrix_b_source_vector_read_dim")
             .template cast<IntegerAttr>()
-            .getInt();
+            .getInt());
 
     // Get current workgroup ID.
     auto bid = b.create<miopen::WorkgroupIdOp>(loc, b.getIndexType());
@@ -5135,17 +5153,21 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     int64_t GemmABlockCopyThreadSliceLengths_GemmK;
     int64_t GemmABlockCopyThreadSliceLengths_GemmM;
-    assert(matrix_a_source_vector_read_dim != GemmG);
-    if (matrix_a_source_vector_read_dim == GemmK) {
+    switch (matrix_a_source_vector_read_dim) {
+    case GemmK:
       GemmABlockCopyThreadSliceLengths_GemmK = matrix_a_source_data_per_read;
       GemmABlockCopyThreadSliceLengths_GemmM =
           GemmABlockCopyNumberDataPerThread /
           GemmABlockCopyThreadSliceLengths_GemmK;
-    } else if (matrix_a_source_vector_read_dim == GemmMorN) {
+      break;
+    case GemmMorN:
       GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
       GemmABlockCopyThreadSliceLengths_GemmK =
           GemmABlockCopyNumberDataPerThread /
           GemmABlockCopyThreadSliceLengths_GemmM;
+      break;
+    case GemmG:
+      llvm_unreachable("Group matrix unimplemented");
     }
 
     // llvm::errs() << "thread slice lengths for Matrix A\n";
@@ -5169,16 +5191,21 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t GemmBBlockCopyThreadSliceLengths_GemmK;
     int64_t GemmBBlockCopyThreadSliceLengths_GemmN;
     assert(matrix_b_source_vector_read_dim != GemmG);
-    if (matrix_b_source_vector_read_dim == GemmK) {
+    switch (matrix_b_source_vector_read_dim) {
+    case GemmK:
       GemmBBlockCopyThreadSliceLengths_GemmK = matrix_b_source_data_per_read;
       GemmBBlockCopyThreadSliceLengths_GemmN =
           GemmBBlockCopyNumberDataPerThread /
           GemmBBlockCopyThreadSliceLengths_GemmK;
-    } else if (matrix_b_source_vector_read_dim == GemmMorN) {
+      break;
+    case GemmMorN:
       GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
       GemmBBlockCopyThreadSliceLengths_GemmK =
           GemmBBlockCopyNumberDataPerThread /
           GemmBBlockCopyThreadSliceLengths_GemmN;
+      break;
+    case GemmG:
+      llvm_unreachable("Group matrix unimplemented");
     }
 
     // llvm::errs() << "thread slice lengths for Matrix B\n";
@@ -6063,14 +6090,14 @@ struct GridwiseGemmV2RewritePattern
         op->getAttr("matrix_b_source_data_per_read")
             .template cast<IntegerAttr>()
             .getInt();
-    int64_t matrix_a_source_vector_read_dim =
+    auto matrix_a_source_vector_read_dim = static_cast<GemmDimensions>(
         op->getAttr("matrix_a_source_vector_read_dim")
             .template cast<IntegerAttr>()
-            .getInt();
-    int64_t matrix_b_source_vector_read_dim =
+            .getInt());
+    auto matrix_b_source_vector_read_dim = static_cast<GemmDimensions>(
         op->getAttr("matrix_b_source_vector_read_dim")
             .template cast<IntegerAttr>()
-            .getInt();
+            .getInt());
 
     // Obtain XDLOPS-related attributes.
     int64_t MPerWave =
@@ -6178,17 +6205,21 @@ struct GridwiseGemmV2RewritePattern
 
     int64_t GemmABlockCopyThreadSliceLengths_GemmK;
     int64_t GemmABlockCopyThreadSliceLengths_GemmM;
-    assert(matrix_a_source_vector_read_dim != GemmG);
-    if (matrix_a_source_vector_read_dim == GemmK) {
+    switch (matrix_a_source_vector_read_dim) {
+    case GemmK:
       GemmABlockCopyThreadSliceLengths_GemmK = matrix_a_source_data_per_read;
       GemmABlockCopyThreadSliceLengths_GemmM =
           GemmABlockCopyNumberDataPerThread /
           GemmABlockCopyThreadSliceLengths_GemmK;
-    } else if (matrix_a_source_vector_read_dim == GemmMorN) {
+      break;
+    case GemmMorN:
       GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
       GemmABlockCopyThreadSliceLengths_GemmK =
           GemmABlockCopyNumberDataPerThread /
           GemmABlockCopyThreadSliceLengths_GemmM;
+      break;
+    case GemmG:
+      llvm_unreachable("Group matrix not supported");
     }
 
     // llvm::errs() << "thread slice lengths for Matrix A\n";
@@ -6211,17 +6242,21 @@ struct GridwiseGemmV2RewritePattern
 
     int64_t GemmBBlockCopyThreadSliceLengths_GemmK;
     int64_t GemmBBlockCopyThreadSliceLengths_GemmN;
-    assert(matrix_b_source_vector_read_dim != GemmG);
-    if (matrix_b_source_vector_read_dim == GemmK) {
+    switch (matrix_b_source_vector_read_dim) {
+    case GemmK:
       GemmBBlockCopyThreadSliceLengths_GemmK = matrix_b_source_data_per_read;
       GemmBBlockCopyThreadSliceLengths_GemmN =
           GemmBBlockCopyNumberDataPerThread /
           GemmBBlockCopyThreadSliceLengths_GemmK;
-    } else if (matrix_b_source_vector_read_dim == GemmMorN) {
+      break;
+    case GemmMorN:
       GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
       GemmBBlockCopyThreadSliceLengths_GemmK =
           GemmBBlockCopyNumberDataPerThread /
           GemmBBlockCopyThreadSliceLengths_GemmN;
+      break;
+    case GemmG:
+      llvm_unreachable("Group matrix not supported");
     }
 
     // llvm::errs() << "thread slice lengths for Matrix B\n";
