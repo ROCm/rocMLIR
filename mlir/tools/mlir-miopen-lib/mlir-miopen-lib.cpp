@@ -89,30 +89,28 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   const std::lock_guard<std::mutex> lock(mutex);
   mlir::registerAllPasses();
 
-  MiirHandle_s *handle = nullptr;
-
   Conv2dGenerator conv2dGenerator;
-
-  if (succeeded(conv2dGenerator.parseConvConfig(arguments))) {
-
-    handle = new MiirHandle_s;
-    OpBuilder builder(&(handle->context));
-
-    const auto& config = conv2dGenerator.getConfig();
-    if (failed(MIOpenEnabled(config))) {
-      return nullptr;
-    }
-
-    handle->arch = config.arch;
-    handle->kernelCount = conv2dGenerator.getKernelCount();
-
-    ModuleOp module = handle->getModule();
-
-    if (succeeded(conv2dGenerator.genConvModule(module, builder))) {
-      return handle;
-    }
+  if (failed(conv2dGenerator.parseConvConfig(arguments))) {
+    return nullptr;
   }
-  return nullptr;
+
+  MiirHandle_s *handle = new MiirHandle_s;
+  OpBuilder builder(&(handle->context));
+
+  const auto &config = conv2dGenerator.getConfig();
+  if (failed(MIOpenEnabled(config))) {
+    return nullptr;
+  }
+
+  handle->arch = config.arch;
+  handle->kernelCount = conv2dGenerator.getKernelCount();
+
+  ModuleOp module = handle->getModule();
+
+  if (failed(conv2dGenerator.genConvModule(module, builder))) {
+    return nullptr;
+  }
+  return handle;
 }
 
 extern "C" int miirGetKernelCount(MiirHandle mlirHandle) {
@@ -147,12 +145,11 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
   ModuleOp module = handle->getModule();
 
   auto getSizeAttr = [](const Attribute &attr, int32_t &size) {
-    if (attr) {
-      size = attr.template dyn_cast<IntegerAttr>().getInt();
-      return success();
-    } else {
+    if (!attr) {
       return failure();
     }
+    size = attr.template dyn_cast<IntegerAttr>().getInt();
+    return success();
   };
 
   auto setReturn = [&](int32_t blockSize, int32_t gridSize) {
