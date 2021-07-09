@@ -1010,7 +1010,7 @@ static LogicalResult verify(gpu::MubufStoreOp op) { return success(); }
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseRawbufLoadOp(OpAsmParser &parser,
-                                       OperationState &result) {
+                                     OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 5> ops;
   SmallVector<Type, 5> types;
 

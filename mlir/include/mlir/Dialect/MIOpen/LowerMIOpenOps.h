@@ -248,20 +248,21 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
                            const SmallVector<Value, 8> &srcLowerIndices) {
   auto emitLoadInstruction =
       [&b, &loc](const SmallVector<Value, 8> &srcLowerIndices,
-                 MemRefType sourceType, Type loadedType,
-                 const Value &source) -> Value {
+                 MemRefType sourceType, Type loadedType, const Value &source,
+                 const Value &oob) -> Value {
     Value loadedValue;
     if (loadedType.isa<VectorType>()) {
       // Issue vector load.
       if (sourceType.getMemorySpace() == 0) {
         // Option 1: buffer load.
         // use buffer load if the source memref is on address space 0
+        Value oobI32 = b.create<IndexCastOp>(loc, oob, b.getIntegerType(32));
         SmallVector<Value, 4> srcLowerIndicesI32;
         for (auto v : srcLowerIndices)
           srcLowerIndicesI32.push_back(
               b.create<IndexCastOp>(loc, v, b.getIntegerType(32)));
-        loadedValue = b.create<gpu::MubufLoadOp>(loc, loadedType, source,
-                                                 srcLowerIndicesI32);
+        loadedValue = b.create<gpu::RawbufLoadOp>(loc, loadedType, source,
+                                                  oobI32, srcLowerIndicesI32);
       } else {
         // Option 2: scalar load + vector.insertelement
         VectorType loadedVectorType = loadedType.template cast<VectorType>();
@@ -296,6 +297,7 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
 
   Value loadedValue;
   auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+  auto oobAddrOp = b.create<ConstantIndexOp>(loc, kTwoGB);
 
   if (toEmitOOBLoadCheckLogic) {
     // Pre-populate srcLowerLoadOOBIndices. It will be modified inside
@@ -355,7 +357,7 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
     auto firstIfWithinBoundsOp = b.create<scf::IfOp>(
         loc,
         TypeRange{b.getIndexType(), b.getIndexType(), b.getIndexType(),
-                  b.getIndexType(), b.getIndexType()},
+                  b.getIndexType(), b.getIndexType(), b.getIndexType()},
         withinBoundsOp, /*withElseRegion=*/true);
 
     // Then part.
@@ -363,23 +365,24 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
         firstIfWithinBoundsOp.getThenBodyBuilder();
     firstIfWithinBoundsThenBuilder.create<scf::YieldOp>(
         loc,
-        ValueRange{srcLowerIndices[0], srcLowerIndices[1], srcLowerIndices[2],
-                   srcLowerIndices[3], srcLowerIndices[4]});
+        ValueRange{zeroConstantOp, srcLowerIndices[0], srcLowerIndices[1],
+                   srcLowerIndices[2], srcLowerIndices[3], srcLowerIndices[4]});
 
     // Else part.
     auto firstIfWithinBoundsElseBuilder =
         firstIfWithinBoundsOp.getElseBodyBuilder();
     firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(
-        loc, ValueRange{srcLowerLoadOOBIndices[0], srcLowerLoadOOBIndices[1],
-                        srcLowerLoadOOBIndices[2], srcLowerLoadOOBIndices[3],
-                        srcLowerLoadOOBIndices[4]});
+        loc, ValueRange{oobAddrOp, srcLowerLoadOOBIndices[0],
+                        srcLowerLoadOOBIndices[1], srcLowerLoadOOBIndices[2],
+                        srcLowerLoadOOBIndices[3], srcLowerLoadOOBIndices[4]});
 
     // Issue scalar load.
     SmallVector<Value, 8> srcLowerIndicesUpdated;
-    for (unsigned iter = 0; iter < 5; ++iter)
+    for (unsigned iter = 1; iter <= 5; ++iter)
       srcLowerIndicesUpdated.push_back(firstIfWithinBoundsOp.results()[iter]);
-    loadedValue = emitLoadInstruction(srcLowerIndicesUpdated, sourceType,
-                                      loadedType, source);
+    loadedValue = emitLoadInstruction(
+        srcLowerIndicesUpdated, sourceType, loadedType, source,
+        /*oob=*/firstIfWithinBoundsOp.getResults()[0]);
 
     // Emit the second IfOp.
     auto secondIfWithinBoundsOp =
@@ -394,8 +397,8 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
     loadedValue = secondIfWithinBoundsOp.results()[0];
 
   } else {
-    loadedValue =
-        emitLoadInstruction(srcLowerIndices, sourceType, loadedType, source);
+    loadedValue = emitLoadInstruction(srcLowerIndices, sourceType, loadedType,
+                                      source, /*oob=*/zeroConstantOp);
   }
   return loadedValue;
 }

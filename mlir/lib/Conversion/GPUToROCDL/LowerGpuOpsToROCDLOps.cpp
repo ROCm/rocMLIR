@@ -445,7 +445,7 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
 
 struct RawbufLoadOpLowering : ConvertToLLVMPattern {
   explicit RawbufLoadOpLowering(MLIRContext *context,
-                               LLVMTypeConverter &typeConverter)
+                                LLVMTypeConverter &typeConverter)
       : ConvertToLLVMPattern(gpu::RawbufLoadOp::getOperationName(), context,
                              typeConverter) {}
 
@@ -565,7 +565,8 @@ struct RawbufLoadOpLowering : ConvertToLLVMPattern {
             typeConverter->convertType(interimResultType);
 
         Value interimLoad = rewriter.create<ROCDL::RawbufLoadOp>(
-            loc, interimLLVMResultType, rsrc, voffset_shift, vindex, zeroglcslc);
+            loc, interimLLVMResultType, rsrc, voffset_shift, vindex,
+            zeroglcslc);
 
         rewriter.replaceOpWithNewOp<LLVM::BitcastOp>(op, LLVMResultType,
                                                      interimLoad);
@@ -1103,7 +1104,7 @@ void mlir::populateGpuToROCDLConversionPatterns(
   patterns.insert<MubufStoreOpLowering>(converter.getDialect()->getContext(),
                                         converter);
   patterns.insert<RawbufLoadOpLowering>(converter.getDialect()->getContext(),
-                                         converter);
+                                        converter);
   patterns.insert<RawbufStoreOpLowering>(converter.getDialect()->getContext(),
                                          converter);
   patterns.insert<AtomicFAddOpLowering>(converter.getDialect()->getContext(),
