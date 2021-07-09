@@ -957,9 +957,9 @@ def GPU_MubufLoadOp :
                              VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$result)> {
   let summary = "AMD GPU Buffer Load";
   let description = [{
-    The `gpu.buffer_load` op is an abstraction of AMD GPU buffer load intrinsics.
-    `vector.transfer_read` is too tightly coupled with masked load which is not
-    supported well on AMD GPU.
+    The `gpu.buffer_load` op is an abstraction of AMD GPU buffer load
+    intrinsics. `vector.transfer_read` is too tightly coupled with LLVM masked
+    load intrinsic, which is not supported well on AMD GPU.
   }];
   let parser = [{ return parseMubufLoadOp(parser, result); }];
   let printer = [{ return ::print(p, *this); }];
@@ -980,16 +980,35 @@ def GPU_MubufStoreOp :
   // we set the address upper bound to 2GB
   let summary = "AMD GPU Buffer Store";
   let description = [{
-    The `gpu.buffer_store` op is an abstraction of AMD GPU buffer store intrinsics.
-    `vector.transfer_write` is too tightly coupled with masked load which is not
-    supported well on AMD GPU.
+    The `gpu.buffer_store` op is an abstraction of AMD GPU buffer store
+    intrinsics. `vector.transfer_write` is too tightly coupled with LLVM masked
+    store intrinsic, which is not supported well on AMD GPU.
   }];
   let parser = [{ return parseMubufStoreOp(parser, result); }];
   let printer = [{ return ::print(p, *this); }];
   let verifier = [{ return ::verify(*this); }];
 }
 
-// buffer store
+// raw buffer load
+def GPU_RawMubufLoadOp :
+    GPU_Op<"raw_buffer_load">,
+    Arguments<(ins AnyMemRef:$memref,
+                   Variadic<I32>:$indices)>,
+    Results<(outs AnyTypeOf<[I16, F16, F32,
+                             VectorOfLengthAndType<[2, 4], [F32]>,
+                             VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$result)> {
+  let summary = "AMD GPU Raw Buffer Load";
+  let description = [{
+    The `gpu.raw_buffer_load` op is an abstraction of AMD GPU raw buffer load
+    intrinsics. `vector.transfer_read` is too tightly coupled with LLVM masked
+    load intrinsic, which is not supported well on AMD GPU.
+  }];
+  let parser = [{ return parseRawMubufLoadOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
+
+// raw buffer store
 def GPU_RawbufStoreOp :
     GPU_Op<"raw_buffer_store">,
     Arguments<(ins AnyTypeOf<[I16, F16, F32,
@@ -1001,10 +1020,10 @@ def GPU_RawbufStoreOp :
   // the destination address will add the shift, if it's zero , just store
   // but if the value is 0x7fffffff, it will do oob store because
   // we set the address upper bound to 2GB
-  let summary = "AMD GPU Buffer Store";
+  let summary = "AMD GPU Raw Buffer Store";
   let description = [{
-    The `gpu.raw_buffer_store` op is an abstraction of AMD GPU Raw buffer store intrinsics.
-    `vector.transfer_write` is too tightly coupled with masked load which is not
+    The `gpu.raw_buffer_store` op is an abstraction of AMD GPU raw buffer store intrinsics.
+    `vector.transfer_write` is too tightly coupled with masked store which is not
     supported well on AMD GPU.
   }];
   let parser = [{ return parseRawbufStoreOp(parser, result); }];
