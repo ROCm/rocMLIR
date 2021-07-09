@@ -30,14 +30,6 @@ void showEnv() {
     sh '/opt/rocm/bin/rocm-smi'
 }
 
-void installProjectDeps() {
-    sh '''
-        # Install dependencies for the out-of-tree build
-        python -m pip install diff_match_patch
-        python -m pip install pathlib2
-    '''
-}
-
 String dockerArgs() {
     return '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
 }
