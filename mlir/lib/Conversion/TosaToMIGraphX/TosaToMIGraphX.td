@@ -28,6 +28,6 @@ def : Pat<(Tosa_RsqrtOp $input1), (MIGraphX_RsqrtOp $input1)>;
 def ConvertElemToArrayAttr: NativeCodeCall<"$_builder.getI64ArrayAttr($0.getIntValues())">;
 
 def : Pat<(Tosa_ReshapeOp $input1, $newshape), (MIGraphX_ReshapeOp $input1, $newshape)>;
-def : Pat<(Tosa_TransposeOp $input1, (Tosa_ConstOp $permAttr)), (MIGraphX_TransposeOp $input1, (ConvertElemToArrayAttr $permAttr)))>;
+def : Pat<(Tosa_TransposeOp $input1, (Tosa_ConstOp $permAttr)), (MIGraphX_TransposeOp $input1, (ConvertElemToArrayAttr $permAttr))>;
 
 #endif // MLIR_CONVERSION_TOSA_TO_MIGRAPHX
