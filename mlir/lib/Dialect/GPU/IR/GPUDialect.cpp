@@ -1007,7 +1007,7 @@ static LogicalResult verify(gpu::MubufStoreOp op) { return success(); }
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseRawMubufLoadOp(OpAsmParser &parser,
-                                    OperationState &result) {
+                                       OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 5> ops;
   SmallVector<Type, 5> types;
 
@@ -1018,7 +1018,8 @@ static ParseResult parseRawMubufLoadOp(OpAsmParser &parser,
              parser.addTypeToList(types[1], result.types);
 
   // resolve shift operand.
-  ret &= succeeded(parser.resolveOperand(ops[1], parser.getBuilder().getIntegerType(32), result.operands));
+  ret &= succeeded(parser.resolveOperand(
+      ops[1], parser.getBuilder().getIntegerType(32), result.operands));
 
   // resolve source coorindates.
   for (unsigned i = 2; i < ops.size(); ++i) {
