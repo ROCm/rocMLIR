@@ -65,17 +65,18 @@ bool miirLazyInit() {
   return once;
 }
 
-LogicalResult MIOpenEnabled(const Conv2dGenerator::Config& conf) {
-  const std::string& inLayout = conf.inputLayout;
-  const std::string& filLayout = conf.filterLayout;
-  const std::string& outLayout = conf.outputLayout;
+LogicalResult MIOpenEnabled(const Conv2dGenerator::Config &conf) {
+  const std::string &inLayout = conf.inputLayout;
+  const std::string &filLayout = conf.filterLayout;
+  const std::string &outLayout = conf.outputLayout;
 
-  const static std::set<std::tuple<std::string, std::string, std::string>> supportedLayouts = {
-    {"ngchw", "gkcyx", "ngkhw"},
-    {"nhwgc", "gkyxc", "nhwgk"}
-  };
+  const static std::set<std::tuple<std::string, std::string, std::string>>
+      supportedLayouts = {{"ngchw", "gkcyx", "ngkhw"},
+                          {"nhwgc", "gkyxc", "nhwgk"}};
 
-  bool layoutSupported = supportedLayouts.count(std::make_tuple(inLayout, filLayout, outLayout)) > 0;
+  bool layoutSupported =
+      supportedLayouts.count(std::make_tuple(inLayout, filLayout, outLayout)) >
+      0;
   bool noBF16 = conf.dataTypeStr != "bf16";
   return LogicalResult::success(layoutSupported && noBF16);
 }
@@ -98,7 +99,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     handle = new MiirHandle_s;
     OpBuilder builder(&(handle->context));
 
-    const auto& config = conv2dGenerator.getConfig();
+    const auto &config = conv2dGenerator.getConfig();
     if (failed(MIOpenEnabled(config))) {
       return nullptr;
     }
