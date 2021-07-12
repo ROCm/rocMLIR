@@ -62,7 +62,7 @@ public:
     ConversionTarget target(getContext());
     target.addLegalDialect<tosa::TosaDialect, migraphx::MIGraphXDialect, StandardOpsDialect>();
     target.addIllegalOp<tosa::AddOp, tosa::SubOp, tosa::ReshapeOp, tosa::RsqrtOp
-                       ,tosa::MulOp, tosa::TransposeOp, tosa::PadOp>();
+                       ,tosa::MulOp, tosa::TransposeOp, tosa::PadOp, tosa::Conv2DOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     FuncOp func = getFunction();
