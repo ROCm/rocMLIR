@@ -33,5 +33,6 @@ def : Pat<(Tosa_TransposeOp $input1, (Tosa_ConstOp $permAttr)),
     (MIGraphX_TransposeOp $input1, (ConvertElemToArrayAttr $permAttr))>;
 def : Pat<(Tosa_ReshapeOp $input1, $newshape), (MIGraphX_ReshapeOp $input1, $newshape)>;
 def : Pat<(Tosa_PadOp $input1, (Tosa_ConstOp $padDims)),
-    (MIGraphX_PadOp $input1, (ConvertElemToArrayAttr $padDims), 0:F32Attr, constant_pad:PadOpModeAttr)>;
+    (MIGraphX_PadOp $input1, (ConvertElemToArrayAttr $padDims), ConstantAttr<F32Attr, "0">:$value, 
+    EnumAttr(PadOpModeAttr:"constant_pad"):$padMode)>;
 #endif // MLIR_CONVERSION_TOSA_TO_MIGRAPHX
