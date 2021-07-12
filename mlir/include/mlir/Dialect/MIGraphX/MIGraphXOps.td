@@ -125,7 +125,8 @@ def MIGraphX_ConvolutionOp :
     Arguments<(ins AnyRankedTensor:$input,
                    AnyRankedTensor:$filter,
 
-                   Confined<I32ArrayAttr, [ArrayCount<2>]>:$padding,
+                   //Confined<I32ArrayAttr, [ArrayCount<2>]>:$padding,
+                   I32ArrayAttr:$padding,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$stride,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$dilation,
                    I32Attr:$group,
