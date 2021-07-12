@@ -62,7 +62,7 @@ pipeline {
                     sh '${WORKSPACE}/MIOpen/build/bin/MIOpenDriver conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1 -V 0'
                     sh '${WORKSPACE}/MIOpen/build/bin/MIOpenDriver conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1 -V 0'
                     sh '${WORKSPACE}/MIOpen/build/bin/MIOpenDriver conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1 -V 0'
-                    #sh 'python3 ./llvm/MIOpenDriver.py'
+                    //sh 'python3 ./llvm/MIOpenDriver.py'
                 }
 
                 publishHTML (target: [
