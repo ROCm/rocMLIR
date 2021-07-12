@@ -129,6 +129,16 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
         [&argMap](const std::string &key) { return argMap.count(key) > 0; })) {
           return false;
     }
+    static const std::vector<std::string> layoutArgs = {
+        "fil_layout", "in_layout", "out_layout"};
+
+    if (!std::all_of(layoutArgs.cbegin(), layoutArgs.cend(),
+                     [&argMap](const std::string &key) {
+                       return argMap[key].length() == 5;
+                     })) {
+      return false;
+    }
+
     bool noMixedTypes = argMap["in_type"] == argMap["out_type"] && argMap["fil_type"] == argMap["out_type"];
     return noMixedTypes;
   };
@@ -175,11 +185,11 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
 
     // MIOpen has NCHW as layout string for all three tensors
     config.inputLayout = translateLayout(
-        argMap["in_layout"], std::string("NGCDHW"), std::string("ngcdhw"));
+        argMap["in_layout"], std::string("NGCHW"), std::string("ngchw"));
     config.filterLayout = translateLayout(
-        argMap["fil_layout"], std::string("GNCDHW"), std::string("gkczyx"));
+        argMap["fil_layout"], std::string("GNCHW"), std::string("gkcyx"));
     config.outputLayout = translateLayout(
-        argMap["out_layout"], std::string("NGCDHW"), std::string("ngkdhw"));
+        argMap["out_layout"], std::string("NGCHW"), std::string("ngkhw"));
 
     // Determine tensor dimensions.
     return parseConvDims(strToLong("batchsize"), strToLong("groupsize"),
