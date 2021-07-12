@@ -17,7 +17,6 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
-#include "mlir/Dialect/MIGraphX/MIGraphXTypes.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 
 namespace mlir {
