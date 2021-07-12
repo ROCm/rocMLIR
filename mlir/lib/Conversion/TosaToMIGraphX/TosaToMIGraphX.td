@@ -28,7 +28,7 @@ def : Pat<(Tosa_RsqrtOp $input1), (MIGraphX_RsqrtOp $input1)>;
 
 // To extract elements in ElementsAttr and construct ArrayAttr from it. e.g., tosa const to attributes
 def ConvertElemToArrayAttr: NativeCodeCall<
-    "$_builder.getI64ArrayAttr(ArrayRef(llvm::to_vector<8>($0.getValues())))">;
+    "$_builder.getI64ArrayAttr(ArrayRef<int32_t>(llvm::to_vector<8>($0.getValues<int32_t>())))">;
     //"$_builder.getI64ArrayAttr(ArrayRef<int64_t>(llvm::to_vector<8>($0.getValues<int64_t>())))">;
 def : Pat<(Tosa_TransposeOp $input1, (Tosa_ConstOp $permAttr)), 
     (MIGraphX_TransposeOp $input1, (ConvertElemToArrayAttr $permAttr))>;
