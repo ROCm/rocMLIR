@@ -136,6 +136,15 @@ def MIGraphX_ConvolutionOp :
   let description = [{
     The `migraphx.convolution` op computes 2D convolution forward.
   }];
+  let builders = [
+    OpBuilderDAG<(ins "Value":$input, "Value":$filter, "ArrayAttr":$padding
+      "ArrayAttr":$stride, "ArrayAttr":$dilation, "IntegerAttr":$group, 
+      "mlir::migraphx::padding_mode_t":$padding_mode),
+    [{
+      //auto rangeType = RangeType::get($_builder.getContext());
+      build($_builder, $_state, input, filter, padding, stride, dilation,
+        group, padding_mode);
+    }]>];
 }
 
 def MIGraphX_BatchNormOp :
