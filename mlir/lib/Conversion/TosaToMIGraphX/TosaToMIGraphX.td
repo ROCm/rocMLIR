@@ -16,7 +16,7 @@ def : Pat<(Tosa_SubOp $input1, $input2), (MIGraphX_SubOp $input1, $input2)>;
 
 // tosa.mul has attr shift which right_shift the result.
 // FIXME: NativeCodeCall to convert attr:rshift to operand:rshift, create const tensor.
-//def : Pat<(Tosa_MulOp $input1, $input2, $rshift), 
+// def : Pat<(Tosa_MulOp $input1, $input2, $rshift), 
 //   (Tosa_ArithmeticRightShiftOp (MIGraphX_MulOp $input1, $input2), $rshift, ConstBoolAttrFalse)>;
 def : Pat<(Tosa_MulOp $input1, $input2, ConstantAttr<I32Attr, "0">), (MIGraphX_MulOp $input1, $input2)>;
 
@@ -25,9 +25,17 @@ def : Pat<(Tosa_RsqrtOp $input1), (MIGraphX_RsqrtOp $input1)>;
 //Pat<(convop (padop), ...), (convop pad)
 
 // Clamp to Relu if it clamps to max/min number, otherwise convert to ceil + floor
-def ConvertElemToArrayAttr: NativeCodeCall<"$_builder.getI64ArrayAttr(ArrayRef<int64_t>(llvm::to_vector<6>($0.getValues<int64_t>())))">;
-//def ConvertElemToArrayAttr: NativeCodeCall<"$_builder.getI64ArrayAttr($0.getIntValues())">;
-def : Pat<(Tosa_ReshapeOp $input1, $newshape), (MIGraphX_ReshapeOp $input1, $newshape)>;
-def : Pat<(Tosa_TransposeOp $input1, (Tosa_ConstOp $permAttr)), (MIGraphX_TransposeOp $input1, (ConvertElemToArrayAttr $permAttr))>;
 
+// To extract elements in ElementsAttr and construct ArrayAttr from it. e.g., tosa const to attributes
+def ConvertElemToArrayAttr: NativeCodeCall<
+    "$_builder.getI64ArrayAttr(ArrayRef<int64_t>(llvm::to_vector<8>($0.getValues<int64_t>())))">;
+def : Pat<(Tosa_TransposeOp $input1, (Tosa_ConstOp $permAttr)), 
+    (MIGraphX_TransposeOp $input1, (ConvertElemToArrayAttr $permAttr))>;
+def : Pat<(Tosa_ReshapeOp $input1, $newshape), (MIGraphX_ReshapeOp $input1, $newshape)>;
+//FIXME: ignore quantization for now.
+def : Pat<(Tosa_PadOp $input1, (Tosa_ConstOp $padDims), $_),
+    (MIGraphX_PadOp $input1, (ConvertElemToArrayAttr $padDims), ConstantAttr<F32Attr, "0">:$value, 
+    ConstantAttr<I32Attr, "0">:$padMode)>;
+// Fixme: fix using enum type
+//    migraphx::PadOpModeAttr<"migraphx::constant_pad">:$padMode)>;
 #endif // MLIR_CONVERSION_TOSA_TO_MIGRAPHX
