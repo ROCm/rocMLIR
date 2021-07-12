@@ -200,10 +200,7 @@ pipeline {
                                 dir('MIOpen') {
                                     getAndBuildMIOpen('''-DMIOPEN_BACKEND=HIP
                                     -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local"
-                                    -DCMAKE_INSTALL_PREFIX=/opt/rocm/
                                     ''')
-                                    // Temporary workaround for MIOpen breakage
-                                    sh 'cd build; make install'
                                 }
                             }
                         }
@@ -213,7 +210,12 @@ pipeline {
                             }
                         }
                         stage('Performance Test') {
+                            environment {
+                                // Make libMIOpen.so accessible to the test driver
+                                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                            }
                             steps {
+                                sh 'ldconfig'
                                 dir('build') {
                                     // Run MLIR perf benchmarks
                                     sh 'python3 ./llvm/MIOpenDriver.py'

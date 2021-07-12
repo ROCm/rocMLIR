@@ -216,7 +216,7 @@ def runConfigWithMIOpenDriver(commandLine):
     p1 = subprocess.Popen(profilerCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     # get output.
     try:
-        outs, errs = p1.communicate(timeout=30)
+        outs, errs = p1.communicate(timeout=180)
     except TimeoutExpired:
         p1.kill()
         outs, errs = p1.communicate()
