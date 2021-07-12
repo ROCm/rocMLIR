@@ -138,7 +138,7 @@ def MIGraphX_ConvolutionOp :
   }];
   let builders = [
     OpBuilderDAG<(ins "Value":$input, "Value":$filter, "ArrayAttr":$padding,
-      "ArrayAttr":$stride, "ArrayAttr":$dilation, "IntegerAttr":$group, 
+      "ArrayAttr&":$stride, "ArrayAttr&":$dilation, "IntegerAttr":$group, 
       "mlir::migraphx::padding_mode_t":$padding_mode),
     [{
       //auto rangeType = RangeType::get($_builder.getContext());
