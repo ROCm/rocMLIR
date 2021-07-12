@@ -3,7 +3,7 @@ pipeline {
         docker {
             image 'rocm/mlir:rocm4.1-latest'
             args '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
-            label 'mlir'
+            label 'ixt-hq-15'
             alwaysPull true
         }
     }
@@ -58,7 +58,8 @@ pipeline {
                 sh 'ldconfig'
                 dir('build') {
                     sh 'ldd ${WORKSPACE}/MIOpen/build/bin/MIOpenDriver'
-                    sh 'python3 ./llvm/MIOpenDriver.py -o miopen.perf -miopen conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1'
+                    sh '${WORKSPACE}/MIOpen/build/bin/MIOpenDriver conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1'
+                    sh 'python3 ./llvm/MIOpenDriver.py'
                 }
 
                 publishHTML (target: [
