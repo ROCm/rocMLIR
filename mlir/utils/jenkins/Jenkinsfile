@@ -71,7 +71,6 @@ pipeline {
                         }
                         stage("Shared library build and test") {
                             steps {
-                                installProjectDeps()
                                 buildProject('check-mlir check-mlir-miopen', """
                                   -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
                                   -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
