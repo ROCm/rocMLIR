@@ -24,7 +24,7 @@ def : Pat<(Tosa_RsqrtOp $input1), (MIGraphX_RsqrtOp $input1)>;
 
 //def ExtractAttr : NativeCodeCall<
 //    "$0.getValue()[($1)]">;
-def CreateArrayAttr : NativeCodeCall<
+def Convert4DTo2DSymmPad : NativeCodeCall<
     "$_builder.getI64ArrayAttr({($0.getValue()[0]), ($0.getValue()[2])})">;
 
 def : Pat<(Tosa_Conv2DOp $input1, $filter, $bias, $pad, $stride, $dilation, $_),
