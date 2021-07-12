@@ -10,6 +10,7 @@
 #define MLIR_CONVERSION_TOSA_TO_MIGRAPHX
 include "mlir/Dialect/Tosa/IR/TosaOps.td"
 include "mlir/Dialect/MIGraphX/MIGraphXOps.td"
+include "mlir/Dialect/MIGraphX/MIGraphXTypes.td"
 
 def : Pat<(Tosa_AddOp $input1, $input2), (MIGraphX_AddOp $input1, $input2)>;
 def : Pat<(Tosa_SubOp $input1, $input2), (MIGraphX_SubOp $input1, $input2)>;
