@@ -21,6 +21,7 @@ target_link_libraries(mlir-miopen-translate
   MLIRParser
   MLIRPass
   MLIRSPIRV
+  MLIRTosaToMIOpen
   MLIRTranslation
   MLIRSupport
   MLIRTargetMIOpenCppTranslation
