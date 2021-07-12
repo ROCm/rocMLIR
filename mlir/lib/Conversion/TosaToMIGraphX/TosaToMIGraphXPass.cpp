@@ -25,6 +25,7 @@ using namespace mlir;
 
 namespace {
 // import tablegen'ed populate function
+#include "mlir/Dialect/MIGraphX/MIGraphXTypes.cpp.inc"
 #include "TosaToMIGraphX.cpp.inc"
 
 struct TosaToMIGraphXRandom
