@@ -174,7 +174,7 @@ def MIGraphX_PadOp :
 
                    I64ArrayAttr:$pads,
                    F32Attr:$value,
-                   I32Attr:$mode
+                   PadOpModeAttr:$mode
                    )>,
 	Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "Pad operation";
