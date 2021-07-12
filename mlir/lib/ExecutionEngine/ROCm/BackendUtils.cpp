@@ -41,17 +41,94 @@
 
 #include <mutex>
 #include <numeric>
+#include <string.h>
 
 using namespace mlir;
 
 static constexpr const char kRunnerProgram[] = "mlir-rocm-runner";
 static constexpr const char kRocmAgentEnumerator[] = "rocm_agent_enumerator";
+static constexpr const char gcnArchDelimiter[] = ":";
+static constexpr const char targetTriple[] = "amdgcn-amd-amdhsa";
+
+namespace {
+// TODO: remove this once the rocm_agent_enumerator is ready
+void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
+  hipDeviceProp_t props;
+  hipError_t result = hipGetDeviceProperties(&props, device);
+  if (result != hipSuccess) {
+    gcnArchName = "";
+    return;
+  }
+
+  const char *pArchName = props.gcnArchName;
+  gcnArchName.assign(pArchName);
+}
+
+// This function convert the arch name to target features:
+// gfx908:sramecc+:xnack- to +sramecc,-xnack
+std::string getFeaturesFromArchName(const std::string &gcnArchName) {
+  std::string features;
+
+  // First step: get rid of the arch name in feature string
+  std::size_t firstSeperatorLoc = gcnArchName.find(gcnArchDelimiter);
+  if (firstSeperatorLoc == std::string::npos) {
+    return features;
+  }
+  std::string gcnArchFeature = gcnArchName.substr(firstSeperatorLoc + 1);
+
+  // Second step: put each feature name to the vector
+  std::string token;
+  std::vector<std::string> featureTokens;
+  auto convertFeatureToken = [](std::string &token) {
+    if (token.back() != '+' && token.back() != '-') {
+      llvm::errs() << "malformed token: " << token << ", must end with +/-.\n";
+      return token;
+    }
+    token.insert(token.begin(), token.back());
+    token.pop_back();
+    return token;
+  };
+
+  size_t featureEnd = 0;
+  while ((featureEnd = gcnArchFeature.find(gcnArchDelimiter)) !=
+         std::string::npos) {
+    token = gcnArchFeature.substr(0, featureEnd);
+    featureTokens.push_back(convertFeatureToken(token));
+    gcnArchFeature.erase(0, featureEnd + strlen(gcnArchDelimiter));
+  }
+  featureTokens.push_back(convertFeatureToken(gcnArchFeature));
+
+  // Third step: join processed token back to feature string
+  std::string gcnFeatureDelimiter = ",";
+  features = std::accumulate(
+      std::next(featureTokens.begin()), featureTokens.end(), featureTokens[0],
+      [&gcnFeatureDelimiter](const std::string &features,
+                             const std::string &token) {
+        return std::move(features) + gcnFeatureDelimiter + token;
+      });
+  return features;
+}
+} // namespace
 
 BackendUtils::BackendUtils(const std::string &defaultTriple,
                            const std::string &defaultChip,
                            const std::string &defaultFeatures)
     : triple(defaultTriple), chip(defaultChip), features(defaultFeatures) {
-  setupDefaults(chip, features, triple);
+  if (!chip.size())
+    configTargetChip(chip);
+
+  if (!triple.size()) {
+    triple = targetTriple;
+  }
+
+  // Configure target features per ROCm version, and target GPU.
+  configTargetFeatures(features);
+}
+
+BackendUtils::BackendUtils(const std::string &archName) {
+  triple = targetTriple;
+  features = getFeaturesFromArchName(archName);
+  chip = getChipFromArchName(archName);
 }
 
 BackendUtils::BackendUtils() : BackendUtils("", "", "") {}
@@ -271,85 +348,19 @@ void BackendUtils::configTargetChip(std::string &targetChip) {
   }
 }
 
-void BackendUtils::setupDefaults(std::string &chip, std::string &features,
-                                 std::string &triple) {
-  // Configure target chip ISA version if it has not been specified.
-  if (!chip.size())
-    configTargetChip(chip);
-
-  if (!triple.size()) {
-    triple = "amdgcn-amd-amdhsa";
-  }
-
-  // Configure target features per ROCm version, and target GPU.
-  configTargetFeatures(chip, triple, features);
-}
-
-namespace {
-// TODO: remove this once the rocm_agent_enumerator is ready
-void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
-  hipDeviceProp_t props;
-  hipError_t result = hipGetDeviceProperties(&props, device);
-  if (result != hipSuccess) {
-    gcnArchName = "";
-    return;
-  }
-
-  const char *pArchName = props.gcnArchName;
-  gcnArchName.assign(pArchName);
-}
-
-// This function convert the arch name to target features:
-// gfx908:sramecc+:xnack- to +sramecc,-xnack
-std::string convertToFeatureString(const std::string &gcnArchName) {
-  std::string gcnArchDelimiter = ":";
-  std::string features;
-
-  // First step: get rid of the arch name in feature string
-  std::size_t firstSeperatorLoc = gcnArchName.find(gcnArchDelimiter);
-  if (firstSeperatorLoc == std::string::npos) {
-    return features;
-  }
-  std::string gcnArchFeature = gcnArchName.substr(firstSeperatorLoc + 1);
-
-  // Second step: put each feature name to the vector
-  std::string token;
-  std::vector<std::string> featureTokens;
-  auto convertFeatureToken = [](std::string &token) {
-    if (token.back() != '+' && token.back() != '-') {
-      llvm::errs() << "malformed token: " << token << ", must end with +/-.\n";
-      return token;
-    }
-    token.insert(token.begin(), token.back());
-    token.pop_back();
-    return token;
-  };
-
-  size_t featureEnd = 0;
-  while ((featureEnd = gcnArchFeature.find(gcnArchDelimiter)) !=
-         std::string::npos) {
-    token = gcnArchFeature.substr(0, featureEnd);
-    featureTokens.push_back(convertFeatureToken(token));
-    gcnArchFeature.erase(0, featureEnd + gcnArchDelimiter.size());
-  }
-  featureTokens.push_back(convertFeatureToken(gcnArchFeature));
-
-  // Third step: join processed token back to feature string
-  std::string gcnFeatureDelimiter = ",";
-  features = std::accumulate(
-      std::next(featureTokens.begin()), featureTokens.end(), featureTokens[0],
-      [&gcnFeatureDelimiter](const std::string &features,
-                             const std::string &token) {
-        return std::move(features) + gcnFeatureDelimiter + token;
-      });
-  return features;
-}
-} // namespace
-
-void BackendUtils::configTargetFeatures(const std::string &chip,
-                                        const std::string &triple,
-                                        std::string &features) {
+void BackendUtils::configTargetFeatures(std::string &features) {
   std::string gcnArchName;
   getGpuGCNArchName(0, gcnArchName);
-  features = convertToFeatureString(gcnArchName);
+  features = getFeaturesFromArchName(gcnArchName);
+}
+
+std::string BackendUtils::getChipFromArchName(const std::string &gcnArchName) {
+  std::string chip;
+
+  std::size_t firstSeperatorLoc = gcnArchName.find(gcnArchDelimiter);
+  if (firstSeperatorLoc == std::string::npos) {
+    return gcnArchName;
+  }
+
+  return gcnArchName.substr(0, firstSeperatorLoc);
 }

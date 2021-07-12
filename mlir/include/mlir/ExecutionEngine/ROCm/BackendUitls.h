@@ -27,16 +27,28 @@ namespace mlir {
 class BackendUtils {
 public:
   BackendUtils();
+
+  // The Miir API use this constructor. Clinet needs to pass in the
+  // hip property of gcnArchName as is, in the format of arch:features
+  // i.e.: gfx908:sramecc+:xnack-
+  BackendUtils(const std::string &archName);
+
+  // mlir-rocm-runner use this constructor. It is set by the command
+  // line arguments
   BackendUtils(const std::string &triple, const std::string &chip,
                const std::string &feature);
+
   OwnedBlob compileISAToHsaco(const std::string isa, Location loc,
                               StringRef name);
   std::unique_ptr<llvm::Module>
   compileModuleToROCDLIR(Operation *m, llvm::LLVMContext &llvmContext,
                          llvm::StringRef name);
+
   std::string getChip() { return chip; }
   std::string getFeatures() { return features; }
   std::string getTriple() { return triple; }
+
+  static std::string getChipFromArchName(const std::string &gcnArchName);
 
 private:
   std::string triple;
@@ -55,8 +67,7 @@ private:
   LogicalResult createHsaco(const Blob &isaBlob, StringRef name,
                             Blob &hsacoBlob);
   void configTargetChip(std::string &targetChip);
-  void configTargetFeatures(const std::string &chip, const std::string &triple,
-                            std::string &features);
+  void configTargetFeatures(std::string &features);
 };
 } // namespace mlir
 

@@ -167,8 +167,16 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
       }
     };
 
-    // arch settings
-    strToStr("arch", config.arch);
+    // arch settings, use only the arch but not features
+    std::string archName;
+    strToStr("arch", archName);
+    std::size_t firstSeperatorLoc = archName.find(':');
+    if (firstSeperatorLoc == std::string::npos) {
+      config.arch = archName;
+    } else {
+      config.arch = archName.substr(0, firstSeperatorLoc);
+    }
+
     strToInt("num_cu", config.num_cu);
     strToInt("x2", config.xdlops);
 

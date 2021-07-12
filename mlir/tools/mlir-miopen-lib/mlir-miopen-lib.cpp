@@ -274,8 +274,7 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-  std::string triple = "amdgcn-amd-amdhsa";
-  BackendUtils utils(triple, handle->arch, "");
+  BackendUtils utils(handle->arch);
 
   // Passes for lowering MIOpen dialect.
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
