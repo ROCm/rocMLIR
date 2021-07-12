@@ -128,8 +128,8 @@ def MIGraphX_ConvolutionOp :
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$padding,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$stride,
                    Confined<I32ArrayAttr, [ArrayCount<2>]>:$dilation,
-                   I32Attr:$group,
-                   PaddingModeAttr:$padding_mode
+                   DefaultValuedAttr<I32Attr, "1">:$group,
+                   DefaultValuedAttr<PaddingModeAttr, "0">:$padding_mode
                    )>,
 	  Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "2D convolution forward";
