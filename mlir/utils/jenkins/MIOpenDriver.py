@@ -201,7 +201,7 @@ def runConfigWithMLIR(config):
     p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
     # get output.
     try:
-        outs, errs = p2.communicate(timeout=300)
+        outs, errs = p2.communicate(timeout=60)
     except TimeoutExpired:
         p2.kill()
         outs, errs = p2.communicate()

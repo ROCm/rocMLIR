@@ -57,7 +57,8 @@ pipeline {
                 // Run MLIR perf benchmarks
                 sh 'ldconfig'
                 dir('build') {
-                    sh 'python3 ./llvm/MIOpenDriver.py'
+                    sh 'ldd ./bin/MIOpenDriver'
+                    sh 'python3 ./llvm/MIOpenDriver.py -o miopen.perf -miopen conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1'
                 }
 
                 publishHTML (target: [
