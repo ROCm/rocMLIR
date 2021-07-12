@@ -20,7 +20,6 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/Dialect/MIGraphX/MIGraphXTypes.cpp.inc"
 
 using namespace mlir;
 namespace {
