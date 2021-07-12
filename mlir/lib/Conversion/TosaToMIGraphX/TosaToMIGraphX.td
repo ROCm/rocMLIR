@@ -36,5 +36,5 @@ def : Pat<(Tosa_ReshapeOp $input1, $newshape), (MIGraphX_ReshapeOp $input1, $new
 //FIXME: ignore quantization for now.
 def : Pat<(Tosa_PadOp $input1, (Tosa_ConstOp $padDims), $_),
     (MIGraphX_PadOp $input1, (ConvertElemToArrayAttr $padDims), ConstantAttr<F32Attr, "0">:$value, 
-    ConstantAttr<PadOpModeAttr, "constant_pad">:$padMode)>;
+    ConstantAttr<PadOpModeAttr, "migraphx::constant_pad">:$padMode)>;
 #endif // MLIR_CONVERSION_TOSA_TO_MIGRAPHX
