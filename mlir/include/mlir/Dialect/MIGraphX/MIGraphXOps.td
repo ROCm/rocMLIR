@@ -137,7 +137,7 @@ def MIGraphX_ConvolutionOp :
     The `migraphx.convolution` op computes 2D convolution forward.
   }];
   let builders = [
-    OpBuilderDAG<(ins "Value":$input, "Value":$filter, "ArrayAttr":$padding
+    OpBuilderDAG<(ins "Value":$input, "Value":$filter, "ArrayAttr":$padding,
       "ArrayAttr":$stride, "ArrayAttr":$dilation, "IntegerAttr":$group, 
       "mlir::migraphx::padding_mode_t":$padding_mode),
     [{
