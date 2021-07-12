@@ -142,7 +142,7 @@ def MIGraphX_ConvolutionOp :
       "::mlir::IntegerAttr":$padding_mode),
     [{
       //auto rangeType = RangeType::get($_builder.getContext());
-      build($_builder, $_state, input, filter, padding, stride, dilation,
+      return build($_builder, $_state, input, filter, padding, stride, dilation,
         group, padding_mode);
     }]>];
 }
