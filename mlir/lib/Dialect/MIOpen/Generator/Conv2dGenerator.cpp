@@ -175,11 +175,11 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
 
     // MIOpen has NCHW as layout string for all three tensors
     config.inputLayout = translateLayout(
-        argMap["in_layout"], std::string("NGCHW"), std::string("ngchw"));
+        argMap["in_layout"], std::string("NGCDHW"), std::string("ngcdhw"));
     config.filterLayout = translateLayout(
-        argMap["fil_layout"], std::string("GNCHW"), std::string("gkcyx"));
+        argMap["fil_layout"], std::string("GNCDHW"), std::string("gkczyx"));
     config.outputLayout = translateLayout(
-        argMap["out_layout"], std::string("NGCHW"), std::string("ngkhw"));
+        argMap["out_layout"], std::string("NGCDHW"), std::string("ngkdhw"));
 
     // Determine tensor dimensions.
     return parseConvDims(strToLong("batchsize"), strToLong("groupsize"),
@@ -227,8 +227,13 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
     return true;
   };
 
+  size_t layoutLen = config.filterLayout.length();
+  if (layoutLen != config.inputLayout.length() ||
+      layoutLen != config.outputLayout.length()) {
+    return failure();
+  }
   // Determine dimensions.
-  for (size_t i = 0; i < 5; ++i) {
+  for (size_t i = 0; i < layoutLen; ++i) {
     if (!convertLayout(config.filterLayout[i], filterKeys, filterVals,
                        config.filterDimension) ||
         !convertLayout(config.inputLayout[i], inputKeys, inputVals,
