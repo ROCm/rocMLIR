@@ -17,7 +17,7 @@ module  {
     %pad_param = "tosa.const"() {value = dense<[[0, 0], [3, 3], [3, 3], [0, 0]]> : tensor<4x2xi32>} : () -> tensor<4x2xi32>
     %padded = "tosa.pad"(%arg0, %pad_param) : (tensor<1x32x32x8xf32>, tensor<4x2xi32>) -> tensor<1x38x38x8xf32>
     %2 = "tosa.transpose"(%arg1, %1) : (tensor<1x1x8x16xf32>, tensor<4xi64>) -> tensor<16x1x1x8xf32>
-    %3 = "tosa.conv2d"(%arg0, %2, %0) {dilation = [1, 1], pad = [0, 0, 0, 0], stride = [1, 1]} : (tensor<1x38x38x8xf32>, tensor<16x1x1x8xf32>, tensor<16xf32>) -> tensor<1x38x38x16xf32>
+    %3 = "tosa.conv2d"(%padded, %2, %0) {dilation = [1, 1], pad = [0, 0, 0, 0], stride = [1, 1]} : (tensor<1x38x38x8xf32>, tensor<16x1x1x8xf32>, tensor<16xf32>) -> tensor<1x38x38x16xf32>
     return %3 : tensor<1x38x38x16xf32>
   }
 }
