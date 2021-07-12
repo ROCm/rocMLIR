@@ -253,7 +253,12 @@ def geo_mean(data):
     prod = 1
     n = len(data)
     for i in data:
-       prod = prod * float(i[1:])
+       if i == ',0.0' or i == ',-1.0':
+           # ignore invalid data
+           n = n - 1
+       else:
+           tflop = float(i[1:])
+           prod = prod * float(i[1:])
     geoMean = prod ** (1/n)
     return round(geoMean, ROUND_DIGITS)
 
