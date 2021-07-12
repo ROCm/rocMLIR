@@ -388,10 +388,12 @@ short randomIntegerValue(short min, short max) {
 }
 
 float randomFloatValue(short min, short max) {
+  float minAsF = static_cast<float>(min);
   if (min == max)
-    return (float)min;
-  return (float)((max - min) * (double)(std::rand()) / (double)RAND_MAX) +
-         (float)min;
+    return minAsF;
+  return static_cast<float>((max - min) * static_cast<double>(std::rand()) /
+                            static_cast<double>(RAND_MAX)) +
+         minAsF;
 }
 
 // 3D float memref utility routines.

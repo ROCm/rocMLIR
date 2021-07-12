@@ -5167,7 +5167,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
           GemmABlockCopyThreadSliceLengths_GemmM;
       break;
     case GemmG:
-      llvm_unreachable("Group matrix unimplemented");
+      llvm_unreachable("Vector loads/stores aren't possible in the G dimension "
+                       "and should not haven been attempted");
     }
 
     // llvm::errs() << "thread slice lengths for Matrix A\n";
@@ -5205,7 +5206,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
           GemmBBlockCopyThreadSliceLengths_GemmN;
       break;
     case GemmG:
-      llvm_unreachable("Group matrix unimplemented");
+      llvm_unreachable("Vector loads/stores aren't possible in the G dimension "
+                       "and should not haven been attempted");
     }
 
     // llvm::errs() << "thread slice lengths for Matrix B\n";
@@ -6219,7 +6221,8 @@ struct GridwiseGemmV2RewritePattern
           GemmABlockCopyThreadSliceLengths_GemmM;
       break;
     case GemmG:
-      llvm_unreachable("Group matrix not supported");
+      llvm_unreachable("Vector loads/stores aren't possible in the G dimension "
+                       "and should not haven been attempted");
     }
 
     // llvm::errs() << "thread slice lengths for Matrix A\n";
@@ -6256,7 +6259,8 @@ struct GridwiseGemmV2RewritePattern
           GemmBBlockCopyThreadSliceLengths_GemmN;
       break;
     case GemmG:
-      llvm_unreachable("Group matrix not supported");
+      llvm_unreachable("Vector loads/stores aren't possible in the G dimension "
+                       "and should not haven been attempted");
     }
 
     // llvm::errs() << "thread slice lengths for Matrix B\n";
