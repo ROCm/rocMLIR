@@ -31,7 +31,7 @@ def : Pat<(Tosa_Conv2DOp $input1, $filter, $bias, $pad, $stride, $dilation, $_),
     (MIGraphX_AddOp $bias,
     (MIGraphX_ConvolutionOp $input1, $filter, (Convert4DTo2DSymmPad $pad), $stride, $dilation,
     ConstantAttr<I32Attr, "1">:$group,
-    ConstantAttr<PaddingModeAttr, "0">:$padmode ))>;
+    ConstantAttr<PaddingModeAttr, default_>:$padmode ))>;
 
 // Clamp to Relu if it clamps to max/min number, otherwise convert to ceil + floor
 
