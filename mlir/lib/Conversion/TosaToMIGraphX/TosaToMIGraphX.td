@@ -23,7 +23,7 @@ def : Pat<(Tosa_MulOp $input1, $input2, ConstantAttr<I32Attr, "0">), (MIGraphX_M
 def : Pat<(Tosa_RsqrtOp $input1), (MIGraphX_RsqrtOp $input1)>;
 
 def Convert4DTo2DSymmPad: NativeCodeCall<
-     "$_builder.getI64ArrayAttr({$0.getValue(0), $0.getValue(2)})">;
+     "$_builder.getI64ArrayAttr({$0.getValue()[0], $0.getValue()[2]})">;
 
 def : Pat<(Tosa_Conv2DOp $input1, $filter, $bias, $pad, $stride, $dilation, $_),
     (MIGraphX_AddOp $bias,
