@@ -37,6 +37,7 @@ void MIGraphXDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.cpp.inc"
+#include "mlir/Dialect/MIGraphX/MIGraphXTypes.cpp.inc"
       >();
 }
 
