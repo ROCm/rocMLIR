@@ -129,6 +129,16 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
         [&argMap](const std::string &key) { return argMap.count(key) > 0; })) {
           return false;
     }
+    static const std::vector<std::string> layoutArgs = {
+        "fil_layout", "in_layout", "out_layout"};
+
+    if (!std::all_of(layoutArgs.cbegin(), layoutArgs.cend(),
+                     [&argMap](const std::string &key) {
+                       return argMap[key].length() == 5;
+                     })) {
+      return false;
+    }
+
     bool noMixedTypes = argMap["in_type"] == argMap["out_type"] && argMap["fil_type"] == argMap["out_type"];
     return noMixedTypes;
   };
@@ -227,8 +237,13 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
     return true;
   };
 
+  size_t layoutLen = config.filterLayout.length();
+  if (layoutLen != config.inputLayout.length() ||
+      layoutLen != config.outputLayout.length()) {
+    return failure();
+  }
   // Determine dimensions.
-  for (size_t i = 0; i < 5; ++i) {
+  for (size_t i = 0; i < layoutLen; ++i) {
     if (!convertLayout(config.filterLayout[i], filterKeys, filterVals,
                        config.filterDimension) ||
         !convertLayout(config.inputLayout[i], inputKeys, inputVals,
