@@ -29,7 +29,7 @@ def Convert4DTo2DSymmPad : NativeCodeCall<
 
 def : Pat<(Tosa_Conv2DOp $input1, $filter, $bias, $pad, $stride, $dilation, $_),
     (MIGraphX_AddOp $bias,
-    (MIGraphX_ConvolutionOp $input1, $filter, (Convert4DTo2DSymmPad $pad), $stride, $dilation, $_, $_))>;
+    (MIGraphX_ConvolutionOp $input1, $filter, (Convert4DTo2DSymmPad $pad), $stride, $dilation, , ))>;
 
 // Clamp to Relu if it clamps to max/min number, otherwise convert to ceil + floor
 
