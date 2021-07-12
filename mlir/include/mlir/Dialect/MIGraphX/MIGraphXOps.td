@@ -126,9 +126,9 @@ def MIGraphX_ConvolutionOp :
                    AnyRankedTensor:$filter,
 
                    //Confined<I32ArrayAttr, [ArrayCount<2>]>:$padding,
-                   I32ArrayAttr:$padding,
-                   Confined<I32ArrayAttr, [ArrayCount<2>]>:$stride,
-                   Confined<I32ArrayAttr, [ArrayCount<2>]>:$dilation,
+                   I64ArrayAttr:$padding,
+                   Confined<I64ArrayAttr, [ArrayCount<2>]>:$stride,
+                   Confined<I64ArrayAttr, [ArrayCount<2>]>:$dilation,
                    I32Attr:$group,
                    PaddingModeAttr:$padding_mode
                    )>,
