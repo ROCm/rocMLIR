@@ -28,11 +28,11 @@ def Convert4DTo2DSymmPad : NativeCodeCall<
     "$_builder.getArrayAttr({($0.getValue()[0]), ($0.getValue()[2])})">;
 
 def : Pat<(Tosa_Conv2DOp $input1, $filter, $bias, $pad, $stride, $dilation, $_),
-    (MIGraphX_AddOp $bias,
+    (MIGraphX_AddOp 
 //    (MIGraphX_ConvolutionOp $input1, $filter, (Convert4DTo2DSymmPad $pad), $stride, $dilation,
     (MIGraphX_ConvolutionOp $input1, $filter, $pad, $stride, $dilation,
     ConstantAttr<I32Attr, "1">:$group,
-    ConstantAttr<PaddingModeAttr, "mlir::migraphx::padding_mode_t::default_">:$padmode ))>;
+    ConstantAttr<PaddingModeAttr, "mlir::migraphx::padding_mode_t::default_">:$padmode ), $bias)>;
 
 // Clamp to Relu if it clamps to max/min number, otherwise convert to ceil + floor
 
