@@ -34,8 +34,9 @@ def : Pat<(Tosa_Conv2DOp $input1, $filter, $bias, $pad, $stride, $dilation, $_),
 
 // Clamp to Relu if it clamps to max/min number, otherwise convert to ceil + floor
 // {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} 
-def : Pat<(Tosa_ClampOp $input1, ConstantAttr<F32Attr, "3.40282347E+38">:$maxf, $maxi, 
-  ConstantAttr<F32Attr, "0">:$minf, $mini), (MIGraphX_ReluOp $input1)>;
+def : Pat<(Tosa_ClampOp $input1, $mini, $maxi,  
+  ConstantAttr<F32Attr, "0">:$minf, ConstantAttr<F32Attr, "3.40282347E+38">:$maxf), 
+  (MIGraphX_ReluOp $input1)>;
 
 // To extract elements in ElementsAttr and construct ArrayAttr from it. e.g., tosa const to attributes
 def ConvertElemToArrayAttr: NativeCodeCall<
