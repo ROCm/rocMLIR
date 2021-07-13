@@ -36,6 +36,11 @@ Conv2dGenerator::Conv2dGenerator(
              inputLayout,
              outputLayout,
              kernelName,
+             -1,
+             {},
+             {},
+             {},
+             -1,
              -1} {}
 
 namespace {
