@@ -18,7 +18,7 @@ module  {
     %padded = "tosa.pad"(%arg0, %pad_param) : (tensor<1x32x32x8xf32>, tensor<4x2xi64>) -> tensor<1x38x38x8xf32>
     %2 = "tosa.transpose"(%arg1, %1) : (tensor<1x1x8x16xf32>, tensor<4xi64>) -> tensor<16x1x1x8xf32>
     %3 = "tosa.conv2d"(%padded, %2, %0) {dilation = [1, 1], pad = [0, 0, 0, 0], stride = [1, 1]} : (tensor<1x38x38x8xf32>, tensor<16x1x1x8xf32>, tensor<16xf32>) -> tensor<1x38x38x16xf32>
-    %4 = "tosa.clamp"(%3) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x38x38x16xf32>) -> tensor<1x38x38x16xf32>
+    %4 = "tosa.clamp"(%3) {min_int = 0 : i64, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, max_fp = 3.40282347E+38 : f32} : (tensor<1x38x38x16xf32>) -> tensor<1x38x38x16xf32>
     return %4 : tensor<1x38x38x16xf32>
   }
 }
