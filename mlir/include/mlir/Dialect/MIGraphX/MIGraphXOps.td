@@ -145,7 +145,7 @@ def MIGraphX_ConvolutionOp :
       auto inShape = input.getType().cast<ShapedType>(); //NHWC
       auto filterShape = filter.getType().cast<ShapedType>(); //kHWC
       // output shape = kHWN
-      auto outputType = mlir::ShapedType::clone(
+      auto outputType = llvm::ShapedType::clone(
         {inShape.getDimSize(3), 
         inShape.getDimSize(1), 
         inShape.getDimSize(2), 
