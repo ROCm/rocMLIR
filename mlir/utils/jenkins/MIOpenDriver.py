@@ -215,10 +215,10 @@ def runConfigWithMIOpenDriver(commandLine):
     MIOpenDriverCommand = MIOPEN_DRIVER + ' ' + ' '.join(commandLine) + ' -V 0'
     profilerCommand = ROCPROF + ' --stats ' + MIOpenDriverCommand
     #print(MIOpenDriverCommand)
-    subprocess.Popen(MIOpenDriverCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    #subprocess.Popen(MIOpenDriverCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     print(profilerCommand)
     # invoke rocprof + MIOpenDriver.
-    p1 = subprocess.Popen(profilerCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    p1 = subprocess.Popen(profilerCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     # get output.
     try:
         outs, errs = p1.communicate(timeout=180)
