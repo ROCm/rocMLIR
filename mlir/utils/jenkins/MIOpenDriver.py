@@ -23,8 +23,10 @@ BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
 CONFIGURATION_FILE_NAME ='../mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
 ROUND_DIGITS = 2
 
-DIRECTIONS = ['-F 1', '-F 2', '-F 4']
-DATA_TYPES = ['conv', 'convfp16']
+#DIRECTIONS = ['-F 1', '-F 2', '-F 4']
+#DATA_TYPES = ['conv', 'convfp16']
+DIRECTIONS = ['-F 1']
+DATA_TYPES = ['conv']
 LAYOUTS = ['NCHW']
 #LAYOUTS = ['NHWC', 'NCHW']
 
@@ -223,6 +225,7 @@ def runConfigWithMIOpenDriver(commandLine):
     except TimeoutExpired:
         p1.kill()
         outs, errs = p1.communicate()
+    os.system("cat "+BENCHMARKING_RESULT_FILE_NAME)
     
 def output(string, outputFile):
     if outputFile != None:
