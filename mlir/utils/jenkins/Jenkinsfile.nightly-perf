@@ -30,11 +30,11 @@ pipeline {
                                 cmakeArgs: '''
                                  -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                  -DMIOPEN_BACKEND=HIP
-                                 //-DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local"
-                                 ..
+                                 -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local"
+                                 -DCMAKE_INSTALL_PREFIX=/opt/rocm/ ..
                                 '''
                     sh 'cd build; make -j $(nproc) MIOpenDriver'
-                    //sh 'cd build; make install'
+                    sh 'cd build; make install'
                 }
             }
         }
