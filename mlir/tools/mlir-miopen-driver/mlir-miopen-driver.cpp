@@ -439,6 +439,20 @@ static void populateDefaults() {
                    strideWidth.getValue(), dilationWidth.getValue()));
 }
 
+static LogicalResult detectMissingArguments() {
+  const static std::vector<const cl::opt<int64_t> *> requiredArgs = {
+      &groupSize,     &batchSize,   &inputChannel, &inputHeight,  &inputWidth,
+      &outputChannel, &filterWidth, &filterHeight, &outputHeight, &outputWidth,
+  };
+  for (auto *arg : requiredArgs) {
+    if (arg->getValue() < 0) {
+      llvm::errs() << "Value for: " << arg->ArgStr << " not specified\n";
+      return failure();
+    }
+  }
+  return success();
+}
+
 static FuncOp makeFuncDecl(OpBuilder &builder, StringRef funcName,
                            TypeRange inputs, TypeRange results) {
   auto func = FuncOp::create(builder.getUnknownLoc(), funcName,
@@ -2447,6 +2461,10 @@ int main(int argc, char **argv) {
   populateDefaults();
 
   auto convConfig = populateConvConfig.getValue();
+
+  if (convConfig.empty() && failed(detectMissingArguments())) {
+    exit(1);
+  }
 
   Conv2dGenerator conv2dGenerator(
       arch.getValue(), num_cu.getValue(), xdlopsV2.getValue(),
