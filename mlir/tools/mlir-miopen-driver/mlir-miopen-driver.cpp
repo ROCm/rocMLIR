@@ -199,6 +199,12 @@ static cl::opt<std::string>
                        cl::value_desc("Populate entry point function"),
                        cl::init("conv2d"));
 
+// populate entry point function for gpu validation
+static cl::opt<std::string> populateValidateEntryPoint(
+    "validate-entry-point",
+    cl::desc("Populate entry point function for validation"),
+    cl::value_desc("Populate entry point function for validation"),
+    cl::init("conv2d_1"));
 // Set up lowering pipeline.
 // The default lowering pipeline compiles down to GPU dialect.
 // The output of the pipeline can be piped to mlir-rocm-runner for execution.
@@ -232,9 +238,15 @@ static cl::opt<bool> populateValidation(
     "pv", cl::desc("To populate host validation logic for conv2d"),
     cl::value_desc("To populate host validation logic"), cl::init(false));
 
-static cl::opt<bool> printResultTensor(
-    "pr", cl::desc("To print result tensor for verification"),
-     cl::value_desc("To print result tensor for verification"), cl::init(false));
+static cl::opt<bool> populateValidationWithGPU(
+    "pv_with_gpu",
+    cl::desc("To populate host validation logic using gpu kernels"),
+    cl::value_desc("To populate host validation logic"), cl::init(false));
+
+static cl::opt<bool>
+    printResultTensor("pr", cl::desc("To print result tensor for verification"),
+                      cl::value_desc("To print result tensor for verification"),
+                      cl::init(false));
 
 static cl::opt<bool> populateCpuConvolution(
     "prc", cl::desc("To run cpu conv2d and print results for verification"),
@@ -248,14 +260,16 @@ static cl::opt<int> gridSize("grid_size", cl::desc("Grid size"),
                              cl::value_desc("Grid size"), cl::init(0));
 
 // use XDLOPS
-static cl::opt<bool> xdlopsV2("x2", cl::desc("To use XDLOPS V2 lowering pipeline"),
-                             cl::value_desc("To use XDLOPS V2 lowering pipeline"),
-                             cl::init(false));
+static cl::opt<bool>
+    xdlopsV2("x2", cl::desc("To use XDLOPS V2 lowering pipeline"),
+             cl::value_desc("To use XDLOPS V2 lowering pipeline"),
+             cl::init(false));
 
 // data type
-static cl::opt<std::string> tensorDataType("t", cl::desc("Data type for convolution"),
-                                           cl::value_desc("Data type for convolution"),
-                                           cl::init("f32"));
+static cl::opt<std::string>
+    tensorDataType("t", cl::desc("Data type for convolution"),
+                   cl::value_desc("Data type for convolution"),
+                   cl::init("f32"));
 
 static cl::opt<std::string> randomSeed(
     "rand",
@@ -1108,7 +1122,8 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
                                    mlir::Type dataType,
                                    mlir::Value filterHostAllocOp,
                                    mlir::Value inputHostAllocOp,
-                                   mlir::Value outputHostAllocOp) {
+                                   mlir::Value outputHostAllocOp,
+                                   StringRef entryPoint) {
   auto filterMemRefType =
       filterHostAllocOp.getType().template dyn_cast<MemRefType>();
   auto inputMemRefType =
@@ -1116,8 +1131,12 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   auto outputMemRefType =
       outputHostAllocOp.getType().template dyn_cast<MemRefType>();
   // Create gpu_conv function
+
+  std::string funcName = "gpu_conv";
+  if (entryPoint == populateValidateEntryPoint.getValue())
+    funcName += "_verifier";
   auto gpuConvFuncOp = FuncOp::create(
-      builder.getUnknownLoc(), StringRef("gpu_conv"),
+      builder.getUnknownLoc(), StringRef(funcName),
       builder.getFunctionType(
           {filterMemRefType, inputMemRefType, outputMemRefType}, {}));
   module.push_back(gpuConvFuncOp);
@@ -1151,11 +1170,24 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   } else if (dataType == builder.getIntegerType(16)) {
     gpuMemAllocFuncName = "mgpuMemAlloc5DBF16";
   }
-  auto mgpuMemAlloc5DFuncOp =
-      makeFuncDecl(builder, gpuMemAllocFuncName, {fiveDimUnknownSizeMemRefType},
-                   {fiveDimUnknownSizeMemRefType});
 
-  module.push_back(mgpuMemAlloc5DFuncOp);
+  FuncOp mgpuMemAlloc5DFuncOp;
+  bool allocFuncExist = false;
+  module.walk([&](FuncOp funcOp) -> WalkResult {
+    if (funcOp.getName() == gpuMemAllocFuncName) {
+      mgpuMemAlloc5DFuncOp = funcOp;
+      allocFuncExist = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (!allocFuncExist) {
+    mgpuMemAlloc5DFuncOp = makeFuncDecl(builder, gpuMemAllocFuncName,
+                                        {fiveDimUnknownSizeMemRefType},
+                                        {fiveDimUnknownSizeMemRefType});
+
+    module.push_back(mgpuMemAlloc5DFuncOp);
+  }
 
   auto filterGpuAllocOp =
       builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemAlloc5DFuncOp,
@@ -1187,12 +1219,25 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   } else if (dataType == builder.getIntegerType(16)) {
     gpuMemCopyFuncName = "mgpuMemCopy5DBF16";
   }
-  auto mgpuMemCopy5DFuncOp =
-      makeFuncDecl(builder, gpuMemCopyFuncName,
-                   {fiveDimUnknownSizeMemRefType, fiveDimUnknownSizeMemRefType,
-                    builder.getIntegerType(32)},
-                   {});
-  module.push_back(mgpuMemCopy5DFuncOp);
+
+  FuncOp mgpuMemCopy5DFuncOp;
+  bool copyFuncExist = false;
+  module.walk([&](FuncOp funcOp) -> WalkResult {
+    if (funcOp.getName() == gpuMemCopyFuncName) {
+      mgpuMemCopy5DFuncOp = funcOp;
+      copyFuncExist = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (!copyFuncExist) {
+    mgpuMemCopy5DFuncOp =
+        makeFuncDecl(builder, gpuMemCopyFuncName,
+                     {fiveDimUnknownSizeMemRefType,
+                      fiveDimUnknownSizeMemRefType, builder.getIntegerType(32)},
+                     {});
+    module.push_back(mgpuMemCopy5DFuncOp);
+  }
 
   auto filterCpuToGpuCopyOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mgpuMemCopy5DFuncOp,
@@ -1224,7 +1269,7 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   // Emit host stub function.
   auto kernelStubFuncOp = FuncOp::create(
-      builder.getUnknownLoc(), populateEntryPoint,
+      builder.getUnknownLoc(), entryPoint, // populateEntryPoint,
       builder.getFunctionType(
           {filterMemRefType, inputMemRefType, outputMemRefType}, {}));
   module.push_back(kernelStubFuncOp);
@@ -1269,9 +1314,22 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   } else if (dataType == builder.getIntegerType(16)) {
     gpuMemDeallocFuncName = "mgpuMemDealloc5DBF16";
   }
-  auto mgpuMemDealloc5DFuncOp = makeFuncDecl(
-      builder, gpuMemDeallocFuncName, {fiveDimUnknownSizeMemRefType}, {});
-  module.push_back(mgpuMemDealloc5DFuncOp);
+
+  FuncOp mgpuMemDealloc5DFuncOp;
+  bool deallocFuncExist = false;
+  module.walk([&](FuncOp funcOp) -> WalkResult {
+    if (funcOp.getName() == gpuMemDeallocFuncName) {
+      mgpuMemDealloc5DFuncOp = funcOp;
+      deallocFuncExist = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (!deallocFuncExist) {
+    mgpuMemDealloc5DFuncOp = makeFuncDecl(builder, gpuMemDeallocFuncName,
+                                          {fiveDimUnknownSizeMemRefType}, {});
+    module.push_back(mgpuMemDealloc5DFuncOp);
+  }
 
   auto filterGpuDeallocOp =
       builder.create<CallOp>(builder.getUnknownLoc(), mgpuMemDealloc5DFuncOp,
@@ -1554,9 +1612,9 @@ static LogicalResult populateHostHarnessLogic(
   block->push_back(outputCpuMemsetOp);
 
   // launch gpu_conv
-  auto gpuConvFuncOp =
-      launchGPUConvolution(module, builder, dataType, filterHostAllocOp,
-                           inputHostAllocOp, outputHostAllocOp);
+  auto gpuConvFuncOp = launchGPUConvolution(
+      module, builder, dataType, filterHostAllocOp, inputHostAllocOp,
+      outputHostAllocOp, populateEntryPoint);
 
   auto gpuConvCallOp = builder.create<CallOp>(
       builder.getUnknownLoc(), gpuConvFuncOp,
@@ -1741,9 +1799,9 @@ static LogicalResult populateValidationLogic(
   block->push_back(outputCpuMemsetOp);
 
   // Populate host harness logic
-  auto gpuConvFuncOp =
-      launchGPUConvolution(module, builder, dataType, filterHostAllocOp,
-                           inputHostAllocOp, outputHostAllocOp);
+  auto gpuConvFuncOp = launchGPUConvolution(
+      module, builder, dataType, filterHostAllocOp, inputHostAllocOp,
+      outputHostAllocOp, populateEntryPoint);
 
   auto gpuConvCallOp = builder.create<CallOp>(
       builder.getUnknownLoc(), gpuConvFuncOp,
@@ -1764,7 +1822,7 @@ static LogicalResult populateValidationLogic(
     gpuOriginalResultType = filterMemRefType;
   }
 
-  // Produce CPU convolution logic on F32 type
+  // Produce CPU or GPU convolution logic on F32 type
   auto floatType = builder.getF32Type();
 
   filterMemRefType = MemRefType::get(
@@ -1806,18 +1864,19 @@ static LogicalResult populateValidationLogic(
     module.push_back(mcpuMemset5DFuncOp);
   }
 
-  // Prepare input data for cpu convolution.
+  // Prepare input data for verifier convolution.
   std::unordered_map<std::string, FuncOp> convertFuncs;
-  mlir::Value cpuFilterHostAllocOp, cpuInputHostAllocOp, cpuOutputHostAllocOp;
+  mlir::Value verifierFilterHostAllocOp, verifierInputHostAllocOp,
+      verifierOutputHostAllocOp;
   if (randomSeed.getValue() == "none") {
     // If not using random data, emit CPU alloc and initialization
-    cpuFilterHostAllocOp = allocAndInitializeTensor(
+    verifierFilterHostAllocOp = allocAndInitializeTensor(
         builder, block, floatType, mcpuMemset5DFuncOp, filterMemRefType,
         filterMemsetMinValue, filterMemsetMaxValue, seedConstantIntOp);
-    cpuInputHostAllocOp = allocAndInitializeTensor(
+    verifierInputHostAllocOp = allocAndInitializeTensor(
         builder, block, floatType, mcpuMemset5DFuncOp, inputMemRefType,
         inputMemsetMinValue, inputMemsetMaxValue, seedConstantIntOp);
-    cpuOutputHostAllocOp = allocAndInitializeTensor(
+    verifierOutputHostAllocOp = allocAndInitializeTensor(
         builder, block, floatType, mcpuMemset5DFuncOp, outputMemRefType,
         outputMemsetMinValue, outputMemsetMaxValue, seedConstantIntOp);
   } else {
@@ -1830,102 +1889,124 @@ static LogicalResult populateValidationLogic(
     // If using random data, emit CPU alloc and copy input data
     if (operation.getValue() == "conv2d" ||
         operation.getValue() == "conv2d_dummy") {
-      cpuFilterHostAllocOp =
+      verifierFilterHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              filterHostAllocOp, filterDimension, convertFuncs);
-      cpuInputHostAllocOp =
+      verifierInputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              inputHostAllocOp, inputDimension, convertFuncs);
-      cpuOutputHostAllocOp = allocAndInitializeTensor(
+      verifierOutputHostAllocOp = allocAndInitializeTensor(
           builder, block, floatType, mcpuMemset5DFuncOp, outputMemRefType,
           memsetValue, memsetValue, seedConstantIntOp);
     } else if (operation.getValue() == "conv2d_bwd_data") {
-      cpuFilterHostAllocOp =
+      verifierFilterHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              filterHostAllocOp, filterDimension, convertFuncs);
-      cpuInputHostAllocOp = allocAndInitializeTensor(
+      verifierInputHostAllocOp = allocAndInitializeTensor(
           builder, block, floatType, mcpuMemset5DFuncOp, inputMemRefType,
           memsetValue, memsetValue, seedConstantIntOp);
-      cpuOutputHostAllocOp =
+      verifierOutputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              outputHostAllocOp, outputDimension, convertFuncs);
     } else if (operation.getValue() == "conv2d_bwd_weight") {
-      cpuFilterHostAllocOp = allocAndInitializeTensor(
+      verifierFilterHostAllocOp = allocAndInitializeTensor(
           builder, block, floatType, mcpuMemset5DFuncOp, filterMemRefType,
           memsetValue, memsetValue, seedConstantIntOp);
-      cpuInputHostAllocOp =
+      verifierInputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              inputHostAllocOp, inputDimension, convertFuncs);
-      cpuOutputHostAllocOp =
+      verifierOutputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              outputHostAllocOp, outputDimension, convertFuncs);
     }
   }
 
   // Populate host validation logic
-  auto cpuConvFuncOp = createCPUConvolution(module, builder, filterMemRefType,
-                                            inputMemRefType, outputMemRefType);
+  if (populateValidationWithGPU.getValue() &&
+      (!(!xdlopsV2.getValue() && dataType == builder.getF32Type()))) {
+    // Verify with GPU convolution of f32
+    auto verifierConvFuncOp = launchGPUConvolution(
+        module, builder, floatType, verifierFilterHostAllocOp,
+        verifierInputHostAllocOp, verifierOutputHostAllocOp,
+        populateValidateEntryPoint);
 
-  // Emit conv2d_host function call.
-  auto cpuConvCallOp = builder.create<CallOp>(
-      builder.getUnknownLoc(), cpuConvFuncOp,
-      ValueRange{cpuFilterHostAllocOp, cpuInputHostAllocOp,
-                 cpuOutputHostAllocOp});
-  block->push_back(cpuConvCallOp);
+    // Emit gpu_conv_verifier function call
+    auto verifierConvCallOp = builder.create<CallOp>(
+        builder.getUnknownLoc(), verifierConvFuncOp,
+        ValueRange{verifierFilterHostAllocOp, verifierInputHostAllocOp,
+                   verifierOutputHostAllocOp});
+    block->push_back(verifierConvCallOp);
+  } else {
+    // Otherwise (-pv, or -pv_with_gpu with non-XDLops and f32 ), verity with
+    // CPU convolution of f32
+    auto cpuConvFuncOp = createCPUConvolution(
+        module, builder, filterMemRefType, inputMemRefType, outputMemRefType);
 
-  mlir::Value cpuResults;
+    // Emit conv2d_host function call.
+    auto cpuConvCallOp = builder.create<CallOp>(
+        builder.getUnknownLoc(), cpuConvFuncOp,
+        ValueRange{verifierFilterHostAllocOp, verifierInputHostAllocOp,
+                   verifierOutputHostAllocOp});
+    block->push_back(cpuConvCallOp);
+  }
+
+  mlir::Value verifierResults;
   if (operation.getValue() == "conv2d" ||
       operation.getValue() == "conv2d_dummy") {
-    cpuResults = cpuOutputHostAllocOp;
+    verifierResults = verifierOutputHostAllocOp;
   } else if (operation.getValue() == "conv2d_bwd_data") {
-    cpuResults = cpuInputHostAllocOp;
+    verifierResults = verifierInputHostAllocOp;
   } else if (operation.getValue() == "conv2d_bwd_weight") {
-    cpuResults = cpuFilterHostAllocOp;
+    verifierResults = verifierFilterHostAllocOp;
   }
 
   // Convert CPU results
-  mlir::Value cpuConvertedResults;
-  if (dataType == builder.getF32Type())
-    cpuConvertedResults = cpuResults;
-  else
-    cpuConvertedResults =
-        getConvertedCpuResults(module, builder, block, cpuResults,
+  mlir::Value verifierConvertedResults;
+  if (dataType == builder.getF32Type()) {
+    verifierConvertedResults = verifierResults;
+  } else {
+    verifierConvertedResults =
+        getConvertedCpuResults(module, builder, block, verifierResults,
                                gpuOriginalResultType, convertFuncs);
+  }
 
   mlir::FuncOp verifyFuncOp;
   if (operation.getValue() == "conv2d" ||
       operation.getValue() == "conv2d_dummy") {
-    verifyFuncOp = createVerifyFuncOp(module, builder, outputDimension,
-                                      cpuConvertedResults, outputHostAllocOp);
+    verifyFuncOp =
+        createVerifyFuncOp(module, builder, outputDimension,
+                           verifierConvertedResults, outputHostAllocOp);
   } else if (operation.getValue() == "conv2d_bwd_data") {
-    verifyFuncOp = createVerifyFuncOp(module, builder, inputDimension,
-                                      cpuConvertedResults, inputHostAllocOp);
+    verifyFuncOp =
+        createVerifyFuncOp(module, builder, inputDimension,
+                           verifierConvertedResults, inputHostAllocOp);
   } else if (operation.getValue() == "conv2d_bwd_weight") {
-    verifyFuncOp = createVerifyFuncOp(module, builder, filterDimension,
-                                      cpuConvertedResults, filterHostAllocOp);
+    verifyFuncOp =
+        createVerifyFuncOp(module, builder, filterDimension,
+                           verifierConvertedResults, filterHostAllocOp);
   }
 
   // Compare the results
   auto verifyCallOp = builder.create<CallOp>(
       builder.getUnknownLoc(), verifyFuncOp,
-      ValueRange{cpuConvertedResults, gpuOriginalResults});
+      ValueRange{verifierConvertedResults, gpuOriginalResults});
   block->push_back(verifyCallOp);
 
   // Emit CPU dealloc.
   if (dataType != builder.getF32Type()) {
-    auto cpuResultsDeallocOp =
-        builder.create<DeallocOp>(builder.getUnknownLoc(), cpuConvertedResults);
-    block->push_back(cpuResultsDeallocOp);
+    auto verifierResultsDeallocOp = builder.create<DeallocOp>(
+        builder.getUnknownLoc(), verifierConvertedResults);
+    block->push_back(verifierResultsDeallocOp);
 
-    auto cpuFilterHostDeallocOp = builder.create<DeallocOp>(
-        builder.getUnknownLoc(), cpuFilterHostAllocOp);
-    auto cpuInputHostDeallocOp =
-        builder.create<DeallocOp>(builder.getUnknownLoc(), cpuInputHostAllocOp);
-    auto cpuOutputHostDeallocOp = builder.create<DeallocOp>(
-        builder.getUnknownLoc(), cpuOutputHostAllocOp);
-    block->push_back(cpuFilterHostDeallocOp);
-    block->push_back(cpuInputHostDeallocOp);
-    block->push_back(cpuOutputHostDeallocOp);
+    auto verifierFilterHostDeallocOp = builder.create<DeallocOp>(
+        builder.getUnknownLoc(), verifierFilterHostAllocOp);
+    auto verifierInputHostDeallocOp = builder.create<DeallocOp>(
+        builder.getUnknownLoc(), verifierInputHostAllocOp);
+    auto verifierOutputHostDeallocOp = builder.create<DeallocOp>(
+        builder.getUnknownLoc(), verifierOutputHostAllocOp);
+    block->push_back(verifierFilterHostDeallocOp);
+    block->push_back(verifierInputHostDeallocOp);
+    block->push_back(verifierOutputHostDeallocOp);
   }
 
   auto filterHostDeallocOp =
@@ -2177,15 +2258,14 @@ static LogicalResult populateCpuConvolutionLogic(
   return success();
 }
 
-static LogicalResult
-populateKernelLaunchLogic(ModuleOp &module, OpBuilder &builder,
-                          MLIRContext &context,
-                          const SmallVector<std::string, 4> &kernels) {
+static LogicalResult populateKernelLaunchLogic(
+    ModuleOp &module, OpBuilder &builder, MLIRContext &context,
+    const SmallVector<std::string, 4> &kernels, const std::string entryPoint) {
   // Check if populate entry point exist.
   FuncOp theFunc;
   bool entryPointExist = false;
   module.walk([&](FuncOp funcOp) -> WalkResult {
-    if (funcOp.getName() == populateEntryPoint.getValue()) {
+    if (funcOp.getName() == entryPoint) {
       entryPointExist = true;
       theFunc = funcOp;
       return WalkResult::interrupt();
@@ -2332,6 +2412,9 @@ int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect driver\n");
 
+  if (populateValidationWithGPU.getValue())
+    populateValidation.setValue(true);
+
   OpBuilder builder(&context);
   ModuleOp module;
 
@@ -2388,6 +2471,7 @@ int main(int argc, char **argv) {
   const auto &genConfig = conv2dGenerator.getConfig();
 
   SmallVector<std::string, 4> kernels;
+
   // Populate the module.
   if (!populateCpuConvolution.getValue()) {
     if (genConfig.kernelId < 0) {
@@ -2427,6 +2511,47 @@ int main(int argc, char **argv) {
     }
   }
 
+  // Populate the module for gpu validation.
+  SmallVector<std::string, 4> kernels_v;
+  if (populateValidationWithGPU.getValue() &&
+      (xdlopsV2.getValue() || dataType != builder.getF32Type())) {
+    // use non-xdlops kernels to verify xdlops kernels
+    if (xdlopsV2.getValue())
+      conv2dGenerator.flipXdlops();
+    // use f32 data type to verify non-f32 or xdlops f32 kernels
+    conv2dGenerator.setDataType("f32");
+
+    if (genConfig.kernelId < 0) {
+      // generate all sub-kernels, and get corresponding gemmId
+      int kernelCount = conv2dGenerator.getKernelCount();
+      if (kernelCount > 1000) {
+        llvm::errs() << "Populating gpu kernels for validation failed.\n";
+        exit(1);
+      }
+
+      auto knSize = genConfig.kernelName.size();
+      std::string kernelBaseName = genConfig.kernelName.substr(0, knSize - 1);
+      for (int i = 0; i < kernelCount; ++i) {
+        std::string kName = kernelBaseName + std::to_string(1000 + i);
+        conv2dGenerator.setKernelName(kName);
+        if (failed(conv2dGenerator.genConvModule(module, builder, i))) {
+          llvm::errs() << "Module population failed.\n";
+          exit(1);
+        }
+        kernels_v.push_back(kName);
+      }
+    } else {
+      // generate a specific kernel (kernel_id >= 0)
+      std::string kName = genConfig.kernelName + std::to_string(1000);
+      conv2dGenerator.setKernelName(kName);
+      if (failed(conv2dGenerator.genConvModule(module, builder))) {
+        llvm::errs() << "Module population failed.\n";
+        exit(1);
+      }
+      kernels_v.push_back(kName);
+    }
+  }
+
   // populate CPU convolution and print the results.
   if (populateCpuConvolution.getValue()) {
     if (failed(populateCpuConvolutionLogic(
@@ -2456,7 +2581,17 @@ int main(int argc, char **argv) {
   // populate host launch logic.
   if (useHostHarness.getValue() || populateHostHarness.getValue() ||
       populateValidation.getValue()) {
-    if (failed(populateKernelLaunchLogic(module, builder, context, kernels))) {
+    if (failed(populateKernelLaunchLogic(module, builder, context, kernels,
+                                         populateEntryPoint.getValue()))) {
+      llvm::errs() << "Host kernel launch logic populated failed.\n";
+      exit(1);
+    }
+  }
+
+  if (populateValidationWithGPU.getValue()) {
+    if (failed(
+            populateKernelLaunchLogic(module, builder, context, kernels_v,
+                                      populateValidateEntryPoint.getValue()))) {
       llvm::errs() << "Host kernel launch logic populated failed.\n";
       exit(1);
     }

@@ -35,6 +35,7 @@ public:
     if (!oprType.hasStaticShape()) {
       (void)rewriter.notifyMatchFailure(
           op, "tosa to miopen conversion expects statically shaped tensors");
+      return Value();
     }
     auto shape = oprType.getShape();
     SmallVector<int64_t, 5> expShape(shape.begin(), shape.end());
@@ -46,6 +47,7 @@ public:
     for (; dim < shape.size() - 1; ++dim) {
       reassociations.push_back({getAffineDimExpr(dim, context)});
     }
+
     // last dimension + g dimension
     reassociations.push_back(
         {getAffineDimExpr(dim, context), getAffineDimExpr(dim + 1, context)});
@@ -62,7 +64,8 @@ public:
     auto loc = op->getLoc();
     auto input_t = operands[0];
     auto filter_t = operands[1];
-    auto bias_t = operands[2]; // TODO(sjw): add bias op linalg
+    // TODO(sjw): add bias op linalg.
+    // auto bias_t = operands[2];
     auto results = op->getResults();
 
     assert(results.size() == 1);
@@ -78,12 +81,14 @@ public:
     Value output_mr = rewriter.create<AllocOp>(loc, outputType);
     auto outputExpanded = expandTensor(op, output_mr, rewriter);
 
-    ValueRange args({filterExpanded, inputExpanded, outputExpanded});
+    SmallVector<Value, 4> args({filterExpanded, inputExpanded, outputExpanded});
 
     // Construct a new Conv2DOp.
-    TypeRange resTypes;
-    auto cop = rewriter.create<mlir::miopen::Conv2DOp>(loc, resTypes, args);
+    TypeRange resultTypes;
+    auto cop = rewriter.create<mlir::miopen::Conv2DOp>(
+        loc, resultTypes, ValueRange{args[0], args[1], args[2]});
 
+    // TODO(sjw): get these from options
     StringRef arch = "gfx906";
     int32_t num_cu = 64;
 
@@ -97,6 +102,7 @@ public:
     int32_t dilationHeight = op.dilation()[0].dyn_cast<IntegerAttr>().getInt();
     int32_t dilationWidth = op.dilation()[1].dyn_cast<IntegerAttr>().getInt();
 
+    // specify layout attributes
     const char *filterLayout = "kyxcg";
     const char *inputLayout = "nhwcg";
     const char *outputLayout = "nhwkg";
@@ -112,9 +118,11 @@ public:
           rewriter.getStringAttr((StringRef(&outputLayout[i], 1) + "o").str()));
     }
 
+    // arch-specific attributes
     cop->setAttr("arch", rewriter.getStringAttr(arch));
     cop->setAttr("num_cu", rewriter.getI32IntegerAttr(num_cu));
 
+    // convolution config attributes
     cop->setAttr("filter_layout",
                  rewriter.getArrayAttr(ArrayRef<mlir::Attribute>(
                      filterLayoutSpec.begin(), filterLayoutSpec.end())));
@@ -148,7 +156,7 @@ public:
 
 } // namespace
 
-void mlir::tosa::populateTosaToMIOpenOnTensorsConversionPatterns(
+void mlir::tosa::populateTosaToMIOpenConversionPatterns(
     MLIRContext *context, OwningRewritePatternList *patterns) {
   static BufferizeTypeConverter bufferizer;
   patterns->insert<ConvConverter>(bufferizer, context);

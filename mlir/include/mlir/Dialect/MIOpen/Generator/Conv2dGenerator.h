@@ -38,7 +38,6 @@ public:
 
     int kernelId;
 
-    int outputSize;
     SmallVector<int64_t, 5> filterDimension;
     SmallVector<int64_t, 5> inputDimension;
     SmallVector<int64_t, 5> outputDimension;
@@ -65,6 +64,10 @@ public:
   int getKernelCount() const;
 
   Type getDataType(OpBuilder &builder) const;
+
+  void setDataType(std::string dataTypeStr);
+
+  void flipXdlops();
 
   LogicalResult parseConvConfig(const char *arguments);
 

@@ -455,10 +455,6 @@ def TosaToMIGraphXOnTensors : FunctionPass<"tosa-to-migraphx-on-tensors"> {
   let dependentDialects = ["migraphx::MIGraphXDialect"];
 }
 
-//===----------------------------------------------------------------------===//
-// TosaToMIGraphX
-//===----------------------------------------------------------------------===//
-
 def TosaToMIGraphXRandom : FunctionPass<"tosa-to-migraphx-random-constant"> {
   let summary = "Convert TOSA constant into randomized MIGraphX constant";
   let description = [{
@@ -474,14 +470,13 @@ def TosaToMIGraphXRandom : FunctionPass<"tosa-to-migraphx-random-constant"> {
 // TosaToMIOpen
 //===----------------------------------------------------------------------===//
 
-def TosaToMIOpenOnTensors : FunctionPass<"tosa-to-miopen-on-tensors"> {
-  let summary = "Lower TOSA to MIOpen on tensors";
+def TosaToMIOpen : FunctionPass<"tosa-to-miopen"> {
+  let summary = "Lower TOSA to MIOpen";
   let description = [{
-    Pass that converts TOSA operations to the equivalent operations using the
-    tensor operations in MIOpen.
+    Pass that converts TOSA operations to bufferized MIOpen operations.
   }];
 
-  let constructor = "tosa::createTosaToMIOpenOnTensors()";
+  let constructor = "tosa::createTosaToMIOpen()";
 }
 
 //===----------------------------------------------------------------------===//

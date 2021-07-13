@@ -17,7 +17,7 @@ pipeline {
                 sh '/opt/rocm/bin/rocm-smi'
             }
         }
-        stage('Build MIOpen') {
+        stage('Build MIOpenDriver') {
             steps {
                 dir('MIOpen') {
                     git branch: 'develop', poll: false,\
@@ -30,13 +30,10 @@ pipeline {
                                 cmakeArgs: '''
                                  -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                  -DMIOPEN_BACKEND=HIP
-                                 -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local" \
-                                 -DCMAKE_INSTALL_PREFIX=/opt/rocm/ ..
+                                 -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local" ..
                                 '''
                     sh 'cd build; make -j $(nproc) MIOpenDriver'
-                    //A temporary workaround for MIOpenDriver seg fault
-                    sh 'cd build; make -j install'
-                        }
+                }
             }
         }
         stage('Build MLIR') {
@@ -50,13 +47,19 @@ pipeline {
             }
         }
         stage('Performance Test') {
+            environment {
+               LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${WORKSPACE}/MIOpen/build/lib"
+            }
             steps {
-                sh '''
-                    cd build
-                    cmake --build . --target MIOpenDriver.py
-                    # Run MLIR perf benchmarks.
-                    python3 ./llvm/MIOpenDriver.py
-                '''
+                cmake arguments: '--build . --target MIOpenDriver.py',\
+                    installation: 'InSearchPath', workingDir: 'build'
+
+                // Run MLIR perf benchmarks
+                sh 'ldconfig'
+                dir('build') {
+                    sh 'python3 ./llvm/MIOpenDriver.py'
+                }
+
                 publishHTML (target: [
                     allowMissing: false,
                     alwaysLinkToLastBuild: false,

@@ -113,6 +113,7 @@ function setup_environment() {
     declare -xg MIOPEN_DEBUG_FIND_ONLY_SOLVER
     case "$DIRECTION" in
         1) MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmFwd ;;
+        2) MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmBwd ;;
         4) MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmWrW ;;
         *) echo "$0: Unsupported direction flag $DIRECTION"; exit 2
     esac

@@ -83,8 +83,8 @@ RUN apt-add-repository 'deb https://apt.kitware.com/ubuntu/ bionic main'
 RUN apt-get update && apt-get install -y --no-install-recommends \
   rocm-dev \
   rocminfo \
-  miopen-hip \
   rocprofiler-dev \
+  rocblas \
   libelf1 \
   sudo \
   vim \
@@ -96,8 +96,3 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   python3-venv  && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
-
-# Manually install the latest perfdb from MIOpen/develop branch
-RUN cd ~ && git clone https://github.com/ROCmSoftwarePlatform/MIOpen.git && \
-  cp ~/MIOpen/src/kernels/miopen.db /opt/rocm/miopen/share/miopen/db/miopen.db && \
-  rm -rf MIOpen

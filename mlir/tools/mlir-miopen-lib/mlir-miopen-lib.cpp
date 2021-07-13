@@ -5,6 +5,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/MIOpenCPP.h"
 
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
@@ -20,6 +21,7 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <string>
 
@@ -63,6 +65,21 @@ bool miirLazyInit() {
   return once;
 }
 
+LogicalResult MIOpenEnabled(const Conv2dGenerator::Config& conf) {
+  const std::string& inLayout = conf.inputLayout;
+  const std::string& filLayout = conf.filterLayout;
+  const std::string& outLayout = conf.outputLayout;
+
+  const static std::set<std::tuple<std::string, std::string, std::string>> supportedLayouts = {
+    {"ngchw", "gkcyx", "ngkhw"},
+    {"nhwgc", "gkyxc", "nhwgk"}
+  };
+
+  bool layoutSupported = supportedLayouts.count(std::make_tuple(inLayout, filLayout, outLayout)) > 0;
+  bool noBF16 = conf.dataTypeStr != "bf16";
+  return LogicalResult::success(layoutSupported && noBF16);
+}
+
 } // namespace
 
 typedef void *MiirHandle;
@@ -72,25 +89,28 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   const std::lock_guard<std::mutex> lock(mutex);
   mlir::registerAllPasses();
 
-  MiirHandle_s *handle = nullptr;
-
   Conv2dGenerator conv2dGenerator;
-  LogicalResult result = LogicalResult::failure();
-
-  if (succeeded(conv2dGenerator.parseConvConfig(arguments))) {
-
-    handle = new MiirHandle_s;
-    OpBuilder builder(&(handle->context));
-
-    handle->arch = conv2dGenerator.getConfig().arch;
-    handle->kernelCount = conv2dGenerator.getKernelCount();
-
-    ModuleOp module = handle->getModule();
-
-    result = conv2dGenerator.genConvModule(module, builder);
+  if (failed(conv2dGenerator.parseConvConfig(arguments))) {
+    return nullptr;
   }
 
-  return (result.succeeded()) ? handle : nullptr;
+  MiirHandle_s *handle = new MiirHandle_s;
+  OpBuilder builder(&(handle->context));
+
+  const auto &config = conv2dGenerator.getConfig();
+  if (failed(MIOpenEnabled(config))) {
+    return nullptr;
+  }
+
+  handle->arch = config.arch;
+  handle->kernelCount = conv2dGenerator.getKernelCount();
+
+  ModuleOp module = handle->getModule();
+
+  if (failed(conv2dGenerator.genConvModule(module, builder))) {
+    return nullptr;
+  }
+  return handle;
 }
 
 extern "C" int miirGetKernelCount(MiirHandle mlirHandle) {
@@ -125,12 +145,11 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
   ModuleOp module = handle->getModule();
 
   auto getSizeAttr = [](const Attribute &attr, int32_t &size) {
-    if (attr) {
-      size = attr.template dyn_cast<IntegerAttr>().getInt();
-      return success();
-    } else {
+    if (!attr) {
       return failure();
     }
+    size = attr.template dyn_cast<IntegerAttr>().getInt();
+    return success();
   };
 
   auto setReturn = [&](int32_t blockSize, int32_t gridSize) {

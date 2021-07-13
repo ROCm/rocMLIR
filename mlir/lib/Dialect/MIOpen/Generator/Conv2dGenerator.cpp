@@ -124,9 +124,23 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
         "in_channels", "in_h",         "in_w",      "out_layout",
         "out_type",    "out_channels", "out_h",     "out_w",
         "fil_layout",  "fil_type",     "fil_w",     "fil_h"};
-    return std::all_of(
+    if (!std::all_of(
         validKeys.cbegin(), validKeys.cend(),
-        [&argMap](const std::string &key) { return argMap.count(key) > 0; });
+        [&argMap](const std::string &key) { return argMap.count(key) > 0; })) {
+          return false;
+    }
+    static const std::vector<std::string> layoutArgs = {
+        "fil_layout", "in_layout", "out_layout"};
+
+    if (!std::all_of(layoutArgs.cbegin(), layoutArgs.cend(),
+                     [&argMap](const std::string &key) {
+                       return argMap[key].length() == 5;
+                     })) {
+      return false;
+    }
+
+    bool noMixedTypes = argMap["in_type"] == argMap["out_type"] && argMap["fil_type"] == argMap["out_type"];
+    return noMixedTypes;
   };
 
   // Proceed only if we have a valid argMap. Otherwise leave the handle to be
@@ -223,8 +237,13 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
     return true;
   };
 
+  size_t layoutLen = config.filterLayout.length();
+  if (layoutLen != config.inputLayout.length() ||
+      layoutLen != config.outputLayout.length()) {
+    return failure();
+  }
   // Determine dimensions.
-  for (size_t i = 0; i < 5; ++i) {
+  for (size_t i = 0; i < layoutLen; ++i) {
     if (!convertLayout(config.filterLayout[i], filterKeys, filterVals,
                        config.filterDimension) ||
         !convertLayout(config.inputLayout[i], inputKeys, inputVals,
@@ -249,6 +268,12 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
 void Conv2dGenerator::setKernelName(std::string newName) {
   config.kernelName = newName;
 }
+
+void Conv2dGenerator::setDataType(std::string newType) {
+  config.dataTypeStr = newType;
+}
+
+void Conv2dGenerator::flipXdlops() { config.xdlops = !config.xdlops; }
 
 LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
                                              OpBuilder &builder,
@@ -279,7 +304,6 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
       builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
 
   std::string kernelName = config.kernelName;
-
   // Annotate kernel attribute to the FuncOp.
   SmallVector<NamedAttribute, 1> kernelAttrs{
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernel_id)),
@@ -289,7 +313,6 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   auto func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                              ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
-
   if (func.getName() != kernelName) {
     return failure();
   }

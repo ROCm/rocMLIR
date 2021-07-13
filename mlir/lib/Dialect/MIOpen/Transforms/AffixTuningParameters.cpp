@@ -37,8 +37,7 @@ private:
   int64_t gridSizeOverride;
 
   // Actual implementation.
-  template<typename T>
-  void affixTuningParametersImpl(T &op);
+  template <typename T> void affixTuningParametersImpl(T &op);
 };
 } // anonymous namespace
 
@@ -119,13 +118,10 @@ void AffixTuningParameters::runOnFunction() {
   //           index_t CThreadCopySrcDstVectorReadWriteDim,      - matrix_c_source_dest_vector_read_write_dim attribute
   //           index_t CThreadCopyDstDataPerWrite>               - matrix_c_dest_data_per_write attribute
 
-  func.walk([&](miopen::GridwiseGemmOp op) {
-    affixTuningParametersImpl(op);
-  });
+  func.walk([&](miopen::GridwiseGemmOp op) { affixTuningParametersImpl(op); });
 
-  func.walk([&](miopen::GridwiseGemmV2Op op) {
-    affixTuningParametersImpl(op);
-  });
+  func.walk(
+      [&](miopen::GridwiseGemmV2Op op) { affixTuningParametersImpl(op); });
 
   func.walk([&](miopen::Conv2DDummyOp op) {
     OpBuilder b(op.getContext());
@@ -135,8 +131,7 @@ void AffixTuningParameters::runOnFunction() {
   });
 }
 
-
-template<typename T>
+template <typename T>
 void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   OpBuilder b(op.getContext());
 

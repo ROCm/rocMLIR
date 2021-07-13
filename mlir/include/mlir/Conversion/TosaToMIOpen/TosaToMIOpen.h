@@ -14,22 +14,22 @@
 #ifndef MLIR_CONVERSION_TOSATOMIOPEN_TOSATOMIOPEN_H
 #define MLIR_CONVERSION_TOSATOMIOPEN_TOSATOMIOPEN_H
 
-#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
 namespace tosa {
 
-std::unique_ptr<Pass> createTosaToMIOpenOnTensors();
+std::unique_ptr<Pass> createTosaToMIOpen();
 
 /// Populates passes to convert from TOSA to MIOpen on buffers. At the end of
 /// the pass, the function will only contain MIOpen ops or standard ops if the
 /// pipeline succeeds.
-void addTosaToMIOpenOnTensorsPasses(OpPassManager &pm);
+
+void addTosaToMIOpenPasses(OpPassManager &pm);
 
 /// Populates conversion passes from TOSA dialect to MIOpen dialect.
-void populateTosaToMIOpenOnTensorsConversionPatterns(
-    MLIRContext *context, OwningRewritePatternList *patterns);
+void populateTosaToMIOpenConversionPatterns(MLIRContext *context,
+                                            OwningRewritePatternList *patterns);
 
 } // namespace tosa
 } // namespace mlir

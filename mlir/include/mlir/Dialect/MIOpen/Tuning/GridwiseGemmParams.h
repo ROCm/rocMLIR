@@ -16,6 +16,7 @@
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
+#include "mlir/Dialect/MIOpen/utility/BackwardDataPaddingKernel.h"
 #include "mlir/Dialect/MIOpen/utility/math.hpp"
 #include "mlir/Support/FileUtilities.h"
 #include "llvm/Support/CommandLine.h"
@@ -352,7 +353,8 @@ protected:
     if (dataType.isF32()) {
       vectorizationSize = 4;
     } else if (dataType.isF16() || dataType.isBF16()) {
-      vectorizationSize = 8;
+      // FIXME: figure out the best vectorization length for f16 and bf16.
+      vectorizationSize = 4;
     }
     // FIXME: set vectorizationSize be 1 for backward data and backward
     // weight for now.
@@ -815,15 +817,15 @@ private:
         // std::make_tuple(4, 128, 1),
         std::make_tuple(4, 64, 1)};
 
-    if (!std::any_of(validWaveGemmSize.cbegin(), validWaveGemmSize.cend(),
-                     [param](const auto it) noexcept -> bool {
-                       int validMPerWave, validNPerWave, validKPerWave;
-                       std::tie(validMPerWave, validNPerWave, validKPerWave) =
-                           it;
-                       return (param.gemmMPerWave == validMPerWave) &&
-                              (param.gemmNPerWave == validNPerWave) &&
-                              (param.gemmKPerBlock % validKPerWave == 0);
-                     }))
+    if (!std::any_of(
+            validWaveGemmSize.cbegin(),
+            validWaveGemmSize.cend(), [param](const auto it) noexcept->bool {
+              int validMPerWave, validNPerWave, validKPerWave;
+              std::tie(validMPerWave, validNPerWave, validKPerWave) = it;
+              return (param.gemmMPerWave == validMPerWave) &&
+                     (param.gemmNPerWave == validNPerWave) &&
+                     (param.gemmKPerBlock % validKPerWave == 0);
+            }))
       return failure();
 
     // fail with blockSize >= 512

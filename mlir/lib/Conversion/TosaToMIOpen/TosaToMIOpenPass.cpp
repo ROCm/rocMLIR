@@ -12,6 +12,7 @@
 
 #include "../PassDetail.h"
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
+#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -26,8 +27,7 @@
 using namespace mlir;
 
 namespace {
-struct TosaToMIOpenOnTensors
-    : public TosaToMIOpenOnTensorsBase<TosaToMIOpenOnTensors> {
+struct TosaToMIOpen : public TosaToMIOpenBase<TosaToMIOpen> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<miopen::MIOpenDialect, linalg::LinalgDialect,
@@ -39,24 +39,22 @@ public:
     ConversionTarget target(getContext());
     target.addLegalDialect<miopen::MIOpenDialect, linalg::LinalgDialect,
                            StandardOpsDialect>();
-    // target.addIllegalDialect<tosa::TosaDialect>();
     target.addIllegalOp<tosa::Conv2DOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     FuncOp func = getFunction();
-    mlir::tosa::populateTosaToMIOpenOnTensorsConversionPatterns(
-        func.getContext(), &patterns);
+    mlir::tosa::populateTosaToMIOpenConversionPatterns(func.getContext(),
+                                                       &patterns);
     if (failed(applyFullConversion(func, target, std::move(patterns))))
       signalPassFailure();
   }
 };
 } // namespace
 
-std::unique_ptr<Pass> mlir::tosa::createTosaToMIOpenOnTensors() {
-  return std::make_unique<TosaToMIOpenOnTensors>();
+std::unique_ptr<Pass> mlir::tosa::createTosaToMIOpen() {
+  return std::make_unique<TosaToMIOpen>();
 }
 
-void mlir::tosa::addTosaToMIOpenOnTensorsPasses(OpPassManager &pm) {
-  // pm.addNestedPass<FuncOp>(createTosaMakeBroadcastablePass());
-  pm.addNestedPass<FuncOp>(createTosaToMIOpenOnTensors());
+void mlir::tosa::addTosaToMIOpenPasses(OpPassManager &pm) {
+  pm.addNestedPass<FuncOp>(createTosaToMIOpen());
 }
