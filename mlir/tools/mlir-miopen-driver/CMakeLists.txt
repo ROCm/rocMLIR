@@ -42,4 +42,4 @@ mlir_check_link_libraries(mlir-miopen-driver)
 
 # MIOpenDriver.py
 add_custom_target(MIOpenDriver.py ALL
-	COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/../../utils/jenkins/MIOpenDriver.py ${LLVM_BINARY_DIR})
+	COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/../../utils/jenkins/MIOpenDriver.py ${MLIR_MIOPEN_BIN_DIR})

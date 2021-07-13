@@ -220,7 +220,7 @@ pipeline {
                                 sh 'ldconfig'
                                 dir('build') {
                                     // Run MLIR perf benchmarks
-                                    sh 'python3 ./llvm/MIOpenDriver.py'
+                                    sh 'python3 ./bin/MIOpenDriver.py'
                                 }
                                 publishHTML (target: [
                                     allowMissing: false,
