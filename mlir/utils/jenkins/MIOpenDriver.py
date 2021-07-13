@@ -225,7 +225,7 @@ def runConfigWithMIOpenDriver(commandLine):
     except TimeoutExpired:
         p1.kill()
         outs, errs = p1.communicate()
-    os.system("cat "+BENCHMARKING_RESULT_FILE_NAME)
+    os.system("echo; cat "+BENCHMARKING_RESULT_FILE_NAME)
     
 def output(string, outputFile):
     if outputFile != None:
