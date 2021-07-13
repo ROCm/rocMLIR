@@ -125,8 +125,7 @@ def MIGraphX_ConvolutionOp :
     Arguments<(ins AnyRankedTensor:$input,
                    AnyRankedTensor:$filter,
 
-                   //Confined<I32ArrayAttr, [ArrayCount<2>]>:$padding,
-                   I64ArrayAttr:$padding,
+                   Confined<I64ArrayAttr, [ArrayCount<2>]>:$padding,
                    Confined<I64ArrayAttr, [ArrayCount<2>]>:$stride,
                    Confined<I64ArrayAttr, [ArrayCount<2>]>:$dilation,
                    I32Attr:$group,
@@ -142,8 +141,14 @@ def MIGraphX_ConvolutionOp :
       "::mlir::ArrayAttr":$stride, "::mlir::ArrayAttr":$dilation, "::mlir::IntegerAttr":$group, 
       "::mlir::IntegerAttr":$padding_mode),
     [{
-      //auto rangeType = RangeType::get($_builder.getContext());
-      auto outputType = input.getType().cast<ShapedType>();
+      auto inType = input.getType().cast<ShapedType>().getElementType();
+      auto inShape = input.getType().cast<ShapedType>().getShape(); //NHWC
+      auto filterShape = filter.getType().cast<ShapedType>().getShape(); //kHWC
+      // output shape = kHWN
+      inShape[0] = inShape[3];
+      inShape[3] = filterShape[3];
+      auto outputType = input.getType().cast<ShapedType>().clone(inShape, inType);
+      
       return build($_builder, $_state, outputType, input, filter, padding, stride, dilation,
         group, padding_mode);
     }]>];
