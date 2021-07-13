@@ -142,12 +142,16 @@ def MIGraphX_ConvolutionOp :
       "::mlir::IntegerAttr":$padding_mode),
     [{
       auto inType = input.getType().cast<ShapedType>().getElementType();
-      auto inShape = input.getType().cast<ShapedType>().getShape(); //NHWC
-      auto filterShape = filter.getType().cast<ShapedType>().getShape(); //kHWC
+      auto inShape = input.getType().cast<ShapedType>(); //NHWC
+      auto filterShape = filter.getType().cast<ShapedType>(); //kHWC
       // output shape = kHWN
       inShape[0] = inShape[3];
       inShape[3] = filterShape[3];
-      auto outputType = input.getType().cast<ShapedType>().clone(inShape, inType);
+      auto outputType = mlir::ShapedType::clone(
+        {inShape.getDimSize(3), 
+        inShape.getDimSize(1), 
+        inShape.getDimSize(2), 
+        filterShape.getDimSize(3)}, inType);
       
       return build($_builder, $_state, outputType, input, filter, padding, stride, dilation,
         group, padding_mode);
