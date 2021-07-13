@@ -440,9 +440,9 @@ static void populateDefaults() {
 }
 
 static LogicalResult detectMissingArguments() {
-  const static std::vector<const cl::opt<int64_t>*> requiredArgs = {
-    &groupSize, &batchSize, &inputChannel, &inputHeight, &inputWidth,
-    &outputChannel, &filterWidth, &filterHeight, &outputHeight, &outputWidth,
+  const static std::vector<const cl::opt<int64_t> *> requiredArgs = {
+      &groupSize,     &batchSize,   &inputChannel, &inputHeight,  &inputWidth,
+      &outputChannel, &filterWidth, &filterHeight, &outputHeight, &outputWidth,
   };
   for (auto *arg : requiredArgs) {
     if (arg->getValue() < 0) {
