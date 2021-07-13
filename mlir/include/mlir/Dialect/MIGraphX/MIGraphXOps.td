@@ -154,8 +154,7 @@ def MIGraphX_ConvolutionOp :
         group, padding_mode);
     }]>];
 
-  let assemblyFormat = "`(`$input `,` $filter`)` attr-dict `:` \
-    `(`type($input) `,` type($filter) `)` `->` type($output)";
+  let assemblyFormat = "`(`$input `,` $filter`)` attr-dict `:` `(`type($input) `,` type($filter) `)` `->` type($output)";
   let verifier = [{ return success(); }];
 }
 
