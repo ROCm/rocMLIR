@@ -41,43 +41,8 @@ void MIGraphXDialect::initialize() {
 }
 
 //===----------------------------------------------------------------------===//
-// AddOp
-//===----------------------------------------------------------------------===//
-/*
-static ParseResult parseAddOp(OpAsmParser &parser, OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 2> ops;
-  SmallVector<Type, 2> types;
-  return failure(
-      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
-      parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonTypeList(types) ||
-      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
-}
-*/
-
-//===----------------------------------------------------------------------===//
 // ConvolutionOp
 //===----------------------------------------------------------------------===//
-
-static ParseResult parseConvolutionOp(OpAsmParser &parser, OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 2> ops;
-  SmallVector<Type, 2> types;
-  return failure(
-      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
-      parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonTypeList(types) ||
-      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
-}
-
-static void print(OpAsmPrinter &p, ConvolutionOp op) {
-  p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperandTypes();
-}
-
-static LogicalResult verify(ConvolutionOp op) {
-  return success();
-}
 
 //===----------------------------------------------------------------------===//
 // BatchNormOp
@@ -105,24 +70,6 @@ static LogicalResult verify(BatchNormOp op) {
 //===----------------------------------------------------------------------===//
 // ReluOp
 //===----------------------------------------------------------------------===//
-static ParseResult parseReluOp(OpAsmParser &parser, OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 2> ops;
-  SmallVector<Type, 2> types;
-  return failure(
-      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
-      parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonTypeList(types) ||
-      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
-}
-
-static void print(OpAsmPrinter &p, ReluOp op) {
-  p << op.getOperationName() << "(" << op.getOperand() << ")";
-  p.printOptionalAttrDict(op.getAttrs());
-}
-
-static LogicalResult verify(ReluOp op) {
-  return success();
-}
 
 //===----------------------------------------------------------------------===//
 // PoolingOp
@@ -171,24 +118,6 @@ static LogicalResult verify(FlattenOp op) {
 //===----------------------------------------------------------------------===//
 // TransposeOp
 //===----------------------------------------------------------------------===//
-static ParseResult parseTransposeOp(OpAsmParser &parser, OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 2> ops;
-  SmallVector<Type, 2> types;
-  return failure(
-      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
-      parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonTypeList(types) ||
-      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
-}
-
-static void print(OpAsmPrinter &p, migraphx::TransposeOp op) {
-  p << op.getOperationName() << "(" << op.getOperand() << ")";
-  p.printOptionalAttrDict(op.getAttrs());
-}
-
-static LogicalResult verify(migraphx::TransposeOp op) {
-  return success();
-}
 
 //===----------------------------------------------------------------------===//
 // MultiBroadcastOp

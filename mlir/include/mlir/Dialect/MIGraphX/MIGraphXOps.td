@@ -153,6 +153,10 @@ def MIGraphX_ConvolutionOp :
       return build($_builder, $_state, outputType, input, filter, padding, stride, dilation,
         group, padding_mode);
     }]>];
+
+  let assemblyFormat = "`(`$input `,` $filter`)` attr-dict `:` 
+    `(`type($input) `,` type($filter) `)` `->` type($output)";
+  let verifier = [{ return success(); }];
 }
 
 def MIGraphX_BatchNormOp :
@@ -183,6 +187,8 @@ def MIGraphX_ReluOp :
   let description = [{
     The `migraphx.relu` op computes relu op.
   }];
+  let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
+  let verifier = [{ return success(); }];  
 }
 
 def MIGraphX_PadOp :
@@ -242,6 +248,8 @@ def MIGraphX_TransposeOp :
   let description = [{
     The `migraphx.transpose` op.
   }];
+  let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
+  let verifier = [{ return success(); }];  
 }
 
 def MIGraphX_ReshapeOp :
