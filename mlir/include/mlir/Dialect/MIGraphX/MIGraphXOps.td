@@ -150,7 +150,7 @@ def MIGraphX_ConvolutionOp :
         inShape.getDimSize(1), 
         inShape.getDimSize(2), 
         filterShape.getDimSize(3)}, inType);
-      return build($_builder, $_state, inShape, input, filter, padding, stride, dilation,
+      return build($_builder, $_state, outputType, input, filter, padding, stride, dilation,
         group, padding_mode);
     }]>];
 }
