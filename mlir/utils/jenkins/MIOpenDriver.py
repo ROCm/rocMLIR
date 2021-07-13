@@ -62,6 +62,7 @@ class ConvConfiguration:
     def computeTFlops(self, ns):
         if ns == 0:
             return -1.0
+        print(ns)
         return round((2.0 * self.n * self.c * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12, ROUND_DIGITS)
 
     @classmethod
