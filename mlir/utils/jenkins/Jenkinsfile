@@ -239,9 +239,9 @@ pipeline {
                                 dir('build') {
                                     sh 'date --utc +%Y-%m-%d > perf-run-date'
                                     // Run MLIR perf benchmarks
-                                    sh 'python3 ./llvm/MIOpenDriver.py'
+                                    sh 'python3 ./bin/MIOpenDriver.py'
                                     // Generate report on performance changes
-                                    sh 'python3 ./llvm/perfRegressionReport.py'
+                                    sh 'python3 ./bin/perfRegressionReport.py'
                                 }
                                 publishHTML (target: [
                                     allowMissing: false,
