@@ -61,8 +61,9 @@ public:
     OwningRewritePatternList patterns;
     ConversionTarget target(getContext());
     target.addLegalDialect<tosa::TosaDialect, migraphx::MIGraphXDialect, StandardOpsDialect>();
-    target.addIllegalOp<tosa::AddOp, tosa::SubOp, tosa::ReshapeOp, tosa::RsqrtOp
-                       ,tosa::MulOp, tosa::TransposeOp, tosa::PadOp, tosa::Conv2DOp>();
+    target.addIllegalOp<tosa::AddOp, tosa::SubOp, tosa::ReshapeOp, tosa::RsqrtOp,
+                        tosa::MulOp, tosa::TransposeOp, tosa::PadOp, tosa::Conv2DOp
+                        tosa::ClampOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     FuncOp func = getFunction();
