@@ -146,10 +146,10 @@ def MIGraphX_ConvolutionOp :
       auto filterShape = filter.getType().cast<ShapedType>(); //kHWC
       // output shape = kHWN
       auto outputType = RankedTensorType::get(
-        {inShape.getDimSize(3), 
+        {inShape.getDimSize(0), 
         inShape.getDimSize(1), 
         inShape.getDimSize(2), 
-        filterShape.getDimSize(3)}, inType);
+        filterShape.getDimSize(0)}, inType);
       return build($_builder, $_state, outputType, input, filter, padding, stride, dilation,
         group, padding_mode);
     }]>];
