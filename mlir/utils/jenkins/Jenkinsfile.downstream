@@ -1,3 +1,5 @@
+def MLIR_ARTIFACTS_DIR = 'artifactory'
+
 pipeline {
     agent {
         docker {
@@ -17,37 +19,10 @@ pipeline {
                 sh '/opt/rocm/bin/rocm-smi'
             }
         }
-        stage('Build and Test') {
-            steps {
-                checkout scm
-                cmakeBuild generator: 'Ninja',\
-                    buildDir: 'build',\
-                    buildType: 'Release',\
-                    installation: 'InSearchPath',\
-                    steps: [[args: 'check-mlir']],\
-                    cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1
-                                   -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=1
-                                   -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
-                                   -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-                               '''
-            }
-        }
-        stage('Static Test') {
-            steps {
-                sh '''
-                    if [ ! -f ./build/compile_commands.json ];  then
-                      echo "No compile commands, bailing."
-                      exit 1
-                    fi
-                    if [ ! -f ./compile_commands.json ];  then
-                       ln -s build/compile_commands.json compile_commands.json
-                    fi
-                    '''
-                sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
-            }
-        }
         stage('Igemm Build') {
             steps {
+                sh "mkdir -p ${MLIR_ARTIFACTS_DIR}"
+
                 cmakeBuild generator: 'Ninja',\
                     buildDir: 'build',\
                     buildType: 'Release',\
@@ -57,6 +32,10 @@ pipeline {
 
                 cmake arguments: '--install . --component libMLIRMIOpen --prefix /opt/rocm',\
                     installation: 'InSearchPath', workingDir: 'build'
+
+                sh "cp /opt/rocm/lib/libMLIRMIOpen.a ${MLIR_ARTIFACTS_DIR}"
+                sh "cp /opt/rocm/include/Miir.h ${MLIR_ARTIFACTS_DIR}"
+                archiveArtifacts artifacts: "${MLIR_ARTIFACTS_DIR}/*", fingerprint: true
             }
         }
     }
