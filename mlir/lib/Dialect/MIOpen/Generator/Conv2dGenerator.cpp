@@ -167,16 +167,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
       }
     };
 
-    // arch settings, use only the arch but not features
-    std::string archName;
-    strToStr("arch", archName);
-    std::size_t firstSeperatorLoc = archName.find(':');
-    if (firstSeperatorLoc == std::string::npos) {
-      config.arch = archName;
-    } else {
-      config.arch = archName.substr(0, firstSeperatorLoc);
-    }
-
+    strToStr("arch", config.arch);
     strToInt("num_cu", config.num_cu);
     strToInt("x2", config.xdlops);
 
@@ -350,9 +341,16 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
         (StringRef(&config.outputLayout[i], 1) + "o").str()));
   }
 
+  // Use only the arch in the lowering process
+  std::string archName = config.arch;
+  std::size_t firstSeperatorLoc = archName.find(':');
+  if (firstSeperatorLoc != std::string::npos) {
+    archName = archName.substr(0, firstSeperatorLoc);
+  }
+
   std::vector<NamedAttribute> attributes{
       builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(kernel_id)),
-      builder.getNamedAttr("arch", builder.getStringAttr(config.arch)),
+      builder.getNamedAttr("arch", builder.getStringAttr(archName)),
       builder.getNamedAttr("num_cu", builder.getI32IntegerAttr(config.num_cu)),
 
       builder.getNamedAttr(

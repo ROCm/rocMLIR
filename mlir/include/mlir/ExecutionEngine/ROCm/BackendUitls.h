@@ -28,8 +28,8 @@ class BackendUtils {
 public:
   BackendUtils();
 
-  // The Miir API use this constructor. Clinet needs to pass in the
-  // hip property of gcnArchName as is, in the format of arch:features
+  // The Miir API use this constructor. Client needs to pass in the
+  // HIP property string of gcnArchName as is, in the format of arch:features
   // i.e.: gfx908:sramecc+:xnack-
   BackendUtils(const std::string &archName);
 

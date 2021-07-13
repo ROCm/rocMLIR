@@ -39,9 +39,9 @@
 // TODO: remove this once the rocm_agent_enumerator is ready
 #include "hip/hip_runtime.h"
 
+#include <cstring>
 #include <mutex>
 #include <numeric>
-#include <string.h>
 
 using namespace mlir;
 
@@ -74,7 +74,7 @@ std::string getFeaturesFromArchName(const std::string &gcnArchName) {
   if (firstSeperatorLoc == std::string::npos) {
     return features;
   }
-  std::string gcnArchFeature = gcnArchName.substr(firstSeperatorLoc + 1);
+  std::string gcnArchFeature = gcnArchName.substr(firstSeperatorLoc);
 
   // Second step: put each feature name to the vector
   std::string token;
@@ -89,22 +89,32 @@ std::string getFeaturesFromArchName(const std::string &gcnArchName) {
     return token;
   };
 
+  size_t len = strlen(gcnArchDelimiter);
+  size_t featureStart = 0;
   size_t featureEnd = 0;
-  while ((featureEnd = gcnArchFeature.find(gcnArchDelimiter)) !=
-         std::string::npos) {
-    token = gcnArchFeature.substr(0, featureEnd);
-    featureTokens.push_back(convertFeatureToken(token));
-    gcnArchFeature.erase(0, featureEnd + strlen(gcnArchDelimiter));
+  for (size_t found = 0;
+       (found = gcnArchFeature.find(gcnArchDelimiter, found)) !=
+       std::string::npos;
+       ++found) {
+    featureStart = found;
+    featureEnd = gcnArchFeature.find(gcnArchDelimiter, found + 1) - len;
+    if (featureEnd == std::string::npos) {
+      featureEnd = gcnArchFeature.size() - 1;
+    }
+    if (featureStart != featureEnd) {
+      std::string token =
+          gcnArchFeature.substr(featureStart + len, featureEnd - featureStart);
+      featureTokens.push_back(convertFeatureToken(token));
+    }
   }
-  featureTokens.push_back(convertFeatureToken(gcnArchFeature));
 
   // Third step: join processed token back to feature string
-  std::string gcnFeatureDelimiter = ",";
+  const static std::string gcnFeatureDelimiter = ",";
   features = std::accumulate(
-      std::next(featureTokens.begin()), featureTokens.end(), featureTokens[0],
-      [&gcnFeatureDelimiter](const std::string &features,
-                             const std::string &token) {
-        return std::move(features) + gcnFeatureDelimiter + token;
+      featureTokens.begin(), featureTokens.end(), std::string(),
+      [](const std::string &features, const std::string &token) {
+        return features.empty() ? token
+                                : features + gcnFeatureDelimiter + token;
       });
   return features;
 }
@@ -114,10 +124,10 @@ BackendUtils::BackendUtils(const std::string &defaultTriple,
                            const std::string &defaultChip,
                            const std::string &defaultFeatures)
     : triple(defaultTriple), chip(defaultChip), features(defaultFeatures) {
-  if (!chip.size())
+  if (chip.empty())
     configTargetChip(chip);
 
-  if (!triple.size()) {
+  if (triple.empty()) {
     triple = targetTriple;
   }
 
