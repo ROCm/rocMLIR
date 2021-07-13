@@ -25,6 +25,7 @@ def : Pat<(Tosa_RsqrtOp $input1), (MIGraphX_RsqrtOp $input1)>;
 def Convert4DTo2DSymmPad : NativeCodeCall<
     "$_builder.getArrayAttr({($0.getValue()[0]), ($0.getValue()[2])})">;
 
+//FIXME: handle the unsupported pad using extra PadOp
 def : Pat<(Tosa_Conv2DOp $input1, $filter, $bias, $pad, $stride, $dilation, $_),
     (MIGraphX_AddOp $bias, 
     (MIGraphX_ConvolutionOp $input1, $filter, (Convert4DTo2DSymmPad $pad), $stride, $dilation,
@@ -32,6 +33,9 @@ def : Pat<(Tosa_Conv2DOp $input1, $filter, $bias, $pad, $stride, $dilation, $_),
       ConstantAttr<PaddingModeAttr, "mlir::migraphx::padding_mode_t::default_">:$padmode):$conv2d)>;
 
 // Clamp to Relu if it clamps to max/min number, otherwise convert to ceil + floor
+// {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} 
+def : Pat<(Tosa_ClampOp $input1, ConstantAttr<F32Attr, "3.40282347E+38">:$maxf, $maxi, 
+  ConstantAttr<F32Attr, "0">:$minf, $mini), (MIGraphX_ReluOp $input1)>;
 
 // To extract elements in ElementsAttr and construct ArrayAttr from it. e.g., tosa const to attributes
 def ConvertElemToArrayAttr: NativeCodeCall<
@@ -43,6 +47,6 @@ def : Pat<(Tosa_ReshapeOp $input1, $newshape), (MIGraphX_ReshapeOp $input1, $new
 def : Pat<(Tosa_PadOp $input1, (Tosa_ConstOp $padDims), $_),
     (MIGraphX_PadOp $input1, (ConvertElemToArrayAttr $padDims), ConstantAttr<F32Attr, "0">:$value, 
     ConstantAttr<I32Attr, "0">:$padMode)>;
-// Fixme: fix using enum type PadOpModeAttr<"migraphx::constant_pad">:$padMode
+//FIXME: fix using enum type PadOpModeAttr<"migraphx::constant_pad">:$padMode
 
 #endif // MLIR_CONVERSION_TOSA_TO_MIGRAPHX
