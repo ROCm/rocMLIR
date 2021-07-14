@@ -305,5 +305,29 @@ def MIGraphX_ConstantOp :
   }];
 }
 
+//--------- Execution layer Ops
+def MIGraphX_FusedGroupOp :
+    MIGraphX_Op<"fused_group">,
+    Arguments<(ins Variadic<AnyType>:$kernelArgs
+                   )>,
+	Results<(outs Variadic<AnyType>:$output)> {	  
+  let summary = "Partitioned region of fused ops";
+  let description = [{
+    The `migraphx.fused_group` op. Collects fusable ops together.
+
+  let regions = (region AnyRegion:$body);
+
+  let assemblyFormat = [{
+    `[` `]` ``
+    `(` $kernelArgs `)` `:`
+    custom<ShapedFunctionType>(ref($kernelArgs),
+                               type($kernelArgs),
+                               type($results))
+    attr-dict-with-keyword
+    `=` `\n` ` ` ` ` ` `
+    custom<customFuncBody>(ref(type($kernelArgs)),
+                                  ref(type($results)),
+                                  $body)
+  }];
 
 #endif // MIGRAPHX_OPS
