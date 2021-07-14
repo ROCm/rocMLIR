@@ -3919,6 +3919,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            b.getArrayAttr({b.getStringAttr("hi"),
                                            b.getStringAttr("wi")}))};
         auto isInputHipBoundCheck = [&]() {
+          if (wTildaSlice > wo || hTildaSlice > ho)
+              return true;
           // if pad = 0 , not need oob check
           if (leftPadH == 0 && rightPadH == 0 && leftPadW == 0 &&
               rightPadW == 0)
@@ -3931,10 +3933,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         };
         if (isInputHipBoundCheck()) {
           llvm::SmallVector<IntegerAttr, 2> padDim;
-          if (leftPadH || rightPadH) {
+          if (leftPadH || rightPadH || hTildaSlice > ho) {
             inputOobCheckDims.insert(currentKeyToDim["hi"]);
           }
-          if (leftPadW || rightPadW) {
+          if (leftPadW || rightPadW || wTildaSlice > wo) {
             inputOobCheckDims.insert(currentKeyToDim["wi"]);
           }
         }
