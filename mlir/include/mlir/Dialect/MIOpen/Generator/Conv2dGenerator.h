@@ -17,14 +17,20 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "llvm/ADT/Optional.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+
 namespace mlir {
+
 class Conv2dGenerator {
 public:
+  enum Op { Fwd, Dummy, BwdData, BwdWeight };
   struct Config {
     std::string arch;
     int num_cu;
     bool xdlops;
-    std::string operation;
+    Op operation;
     std::string dataTypeStr;
     int dilationHeight, dilationWidth;
     int strideHeight, strideWidth;
@@ -47,7 +53,7 @@ public:
   };
 
   Conv2dGenerator(const std::string &arch = "", int num_cu = 0,
-                  bool xdlops = false, const std::string &operation = "conv2d",
+                  bool xdlops = false, const Op operation = Fwd,
                   const std::string &dataTypeStr = "f32",
                   int dilationHeight = 1, int dilationWidth = 1,
                   int strideHeight = 1, int strideWidth = 1,
@@ -68,6 +74,9 @@ public:
   void setDataType(std::string dataTypeStr);
 
   void flipXdlops();
+
+  static Optional<Op> getOpForName(const StringRef name);
+  static const char *getNameForOp(const Op);
 
   LogicalResult parseConvConfig(const char *arguments);
 

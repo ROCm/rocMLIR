@@ -50,11 +50,17 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"),
                                            cl::init("-"));
 
-static cl::opt<std::string>
-    operation("operation",
-              cl::desc("Convolution operation, eg: conv2d, conv2d_bwd_data, "
-                       "conv2d_bwd_weight..."),
-              cl::value_desc("convolution flavor string"), cl::init("conv2d"));
+static cl::opt<mlir::Conv2dGenerator::Op> operation(
+    "operation", cl::desc("Convolution operation,"),
+    cl::values(clEnumValN(Conv2dGenerator::Op::Fwd, "conv2d",
+                          "Forward convolution"),
+               clEnumValN(Conv2dGenerator::Op::Dummy, "conv2d_dummy",
+                          "Pretend to perform a forward convolution"),
+               clEnumValN(Conv2dGenerator::Op::BwdData, "conv2d_bwd_data",
+                          "Backpropogate convolution data"),
+               clEnumValN(Conv2dGenerator::Op::BwdWeight, "conv2d_bwd_weight",
+                          "Backpropogate convolution weights")),
+    cl::value_desc("convolution type"), cl::init(Conv2dGenerator::Op::Fwd));
 
 static cl::opt<std::string>
     arch("arch",
@@ -857,12 +863,19 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   std::string mcpuFuncName;
 
-  if (operation.getValue() == "conv2d") {
+  switch (operation.getValue()) {
+  case mlir::Conv2dGenerator::Op::Fwd:
     mcpuFuncName = "mcpuConv2d";
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case Conv2dGenerator::Op::BwdData:
     mcpuFuncName = "mcpuConv2dBwdData";
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case Conv2dGenerator::Op::BwdWeight:
     mcpuFuncName = "mcpuConv2dBwdWeight";
+    break;
+  case Conv2dGenerator::Op::Dummy:
+    mcpuFuncName = "";
+    break;
   }
 
   // Emit cpu convolution function call op
@@ -1303,17 +1316,22 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   // Emit mgpuMemCopy5DFloat function call.
   mlir::Value resultGpuValue, resultCpuValue;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case Conv2dGenerator::Op::Fwd:
+  case Conv2dGenerator::Op::Dummy:
     resultGpuValue = outputGpuAllocOp.getResult(0);
     resultCpuValue = outputMemRefCastOp;
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case Conv2dGenerator::Op::BwdData:
     resultGpuValue = inputGpuAllocOp.getResult(0);
     resultCpuValue = inputMemRefCastOp;
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case Conv2dGenerator::Op::BwdWeight:
     resultGpuValue = filterGpuAllocOp.getResult(0);
     resultCpuValue = filterMemRefCastOp;
+    break;
   }
+
   auto outputGpuToCpuCopyOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mgpuMemCopy5DFuncOp,
       ValueRange{resultGpuValue, resultCpuValue, twoConstantI32Op});
@@ -1441,8 +1459,9 @@ static void generateTensorInitValues(
   block->push_back(maxConstantIntOp);
   block->push_back(seedConstantIntOp);
 
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case Conv2dGenerator::Op::Fwd:
+  case Conv2dGenerator::Op::Dummy:
     if (randomSeed.getValue() == "none" || // min & max are already set to 1
         (randomSeed.getValue() != "none" &&
          (randomSide.getValue() == "filter" ||
@@ -1467,7 +1486,8 @@ static void generateTensorInitValues(
 
     outputMemsetMinValue = zeroConstantIntOp;
     outputMemsetMaxValue = zeroConstantIntOp;
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case Conv2dGenerator::Op::BwdData:
     if (randomSeed.getValue() == "none" ||
         (randomSeed.getValue() != "none" &&
          (randomSide.getValue() == "filter" ||
@@ -1492,7 +1512,8 @@ static void generateTensorInitValues(
 
     inputMemsetMinValue = zeroConstantIntOp;
     inputMemsetMaxValue = zeroConstantIntOp;
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case Conv2dGenerator::Op::BwdWeight:
     if (randomSeed.getValue() == "none" ||
         (randomSeed.getValue() != "none" &&
          (randomSide.getValue() == "input" ||
@@ -1517,6 +1538,7 @@ static void generateTensorInitValues(
 
     filterMemsetMinValue = zeroConstantIntOp;
     filterMemsetMaxValue = zeroConstantIntOp;
+    break;
   }
   return;
 }
@@ -1551,19 +1573,23 @@ static LogicalResult populateHostHarnessLogic(
   // Backward data convolution: input tensor.
   // Backward weight convolution: filter tensor.
   MemRefType printMemRefType;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case Conv2dGenerator::Op::Fwd:
+  case Conv2dGenerator::Op::Dummy:
     printMemRefType = MemRefType::get(
         ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
         builder.getF32Type());
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case Conv2dGenerator::Op::BwdData:
     printMemRefType = MemRefType::get(
         ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
         builder.getF32Type());
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case Conv2dGenerator::Op::BwdWeight:
     printMemRefType = MemRefType::get(
         ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
         builder.getF32Type());
+    break;
   }
 
   // Emit CPU alloc.
@@ -1637,19 +1663,23 @@ static LogicalResult populateHostHarnessLogic(
 
   mlir::Value resultCpuValue, resultOriginalCpuValue;
   mlir::MemRefType resultOriginalCpuType;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case Conv2dGenerator::Op::Fwd:
+  case Conv2dGenerator::Op::Dummy:
     resultCpuValue = outputMemRefCastOp;
     resultOriginalCpuValue = outputHostAllocOp;
     resultOriginalCpuType = outputMemRefType;
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case Conv2dGenerator::Op::BwdData:
     resultCpuValue = inputMemRefCastOp;
     resultOriginalCpuValue = inputHostAllocOp;
     resultOriginalCpuType = inputMemRefType;
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case Conv2dGenerator::Op::BwdWeight:
     resultCpuValue = filterMemRefCastOp;
     resultOriginalCpuValue = filterHostAllocOp;
     resultOriginalCpuType = filterMemRefType;
+    break;
   }
 
   // Print the result if be specified.
@@ -1824,16 +1854,20 @@ static LogicalResult populateValidationLogic(
 
   mlir::Value gpuOriginalResults;
   MemRefType gpuOriginalResultType;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case Conv2dGenerator::Op::Fwd:
+  case Conv2dGenerator::Op::Dummy:
     gpuOriginalResults = outputHostAllocOp;
     gpuOriginalResultType = outputMemRefType;
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case Conv2dGenerator::Op::BwdData:
     gpuOriginalResults = inputHostAllocOp;
     gpuOriginalResultType = inputMemRefType;
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case Conv2dGenerator::Op::BwdWeight:
     gpuOriginalResults = filterHostAllocOp;
     gpuOriginalResultType = filterMemRefType;
+    break;
   }
 
   // Produce CPU or GPU convolution logic on F32 type
@@ -1901,8 +1935,9 @@ static LogicalResult populateValidationLogic(
     mlir::Value memsetValue = zeroConstantIntOp;
 
     // If using random data, emit CPU alloc and copy input data
-    if (operation.getValue() == "conv2d" ||
-        operation.getValue() == "conv2d_dummy") {
+    switch (operation.getValue()) {
+    case Conv2dGenerator::Op::Fwd:
+    case Conv2dGenerator::Op::Dummy:
       verifierFilterHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              filterHostAllocOp, filterDimension, convertFuncs);
@@ -1912,7 +1947,8 @@ static LogicalResult populateValidationLogic(
       verifierOutputHostAllocOp = allocAndInitializeTensor(
           builder, block, floatType, mcpuMemset5DFuncOp, outputMemRefType,
           memsetValue, memsetValue, seedConstantIntOp);
-    } else if (operation.getValue() == "conv2d_bwd_data") {
+      break;
+    case Conv2dGenerator::Op::BwdData:
       verifierFilterHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              filterHostAllocOp, filterDimension, convertFuncs);
@@ -1922,7 +1958,8 @@ static LogicalResult populateValidationLogic(
       verifierOutputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              outputHostAllocOp, outputDimension, convertFuncs);
-    } else if (operation.getValue() == "conv2d_bwd_weight") {
+      break;
+    case Conv2dGenerator::Op::BwdWeight:
       verifierFilterHostAllocOp = allocAndInitializeTensor(
           builder, block, floatType, mcpuMemset5DFuncOp, filterMemRefType,
           memsetValue, memsetValue, seedConstantIntOp);
@@ -1932,6 +1969,7 @@ static LogicalResult populateValidationLogic(
       verifierOutputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              outputHostAllocOp, outputDimension, convertFuncs);
+      break;
     }
   }
 
@@ -1965,13 +2003,17 @@ static LogicalResult populateValidationLogic(
   }
 
   mlir::Value verifierResults;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case Conv2dGenerator::Op::Fwd:
+  case Conv2dGenerator::Op::Dummy:
     verifierResults = verifierOutputHostAllocOp;
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case Conv2dGenerator::Op::BwdData:
     verifierResults = verifierInputHostAllocOp;
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case Conv2dGenerator::Op::BwdWeight:
     verifierResults = verifierFilterHostAllocOp;
+    break;
   }
 
   // Convert CPU results
@@ -1985,19 +2027,23 @@ static LogicalResult populateValidationLogic(
   }
 
   mlir::FuncOp verifyFuncOp;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case Conv2dGenerator::Op::Fwd:
+  case Conv2dGenerator::Op::Dummy:
     verifyFuncOp =
         createVerifyFuncOp(module, builder, outputDimension,
                            verifierConvertedResults, outputHostAllocOp);
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case Conv2dGenerator::Op::BwdData:
     verifyFuncOp =
         createVerifyFuncOp(module, builder, inputDimension,
                            verifierConvertedResults, inputHostAllocOp);
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case Conv2dGenerator::Op::BwdWeight:
     verifyFuncOp =
         createVerifyFuncOp(module, builder, filterDimension,
                            verifierConvertedResults, filterHostAllocOp);
+    break;
   }
 
   // Compare the results
@@ -2156,25 +2202,29 @@ static LogicalResult populateCpuConvolutionLogic(
 
   auto cpuResults = cpuOutputHostAllocOp;
   mlir::MemRefType dataTypeMemRefType, floatMemRefType;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case Conv2dGenerator::Op::Fwd:
+  case Conv2dGenerator::Op::Dummy:
     cpuResults = cpuOutputHostAllocOp;
     floatMemRefType = outputMemRefFloatType;
     dataTypeMemRefType = MemRefType::get(
         ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
         dataType);
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case Conv2dGenerator::Op::BwdData:
     cpuResults = cpuInputHostAllocOp;
     floatMemRefType = inputMemRefFloatType;
     dataTypeMemRefType = MemRefType::get(
         ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
         dataType);
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case Conv2dGenerator::Op::BwdWeight:
     cpuResults = cpuFilterHostAllocOp;
     floatMemRefType = filterMemRefFloatType;
     dataTypeMemRefType = MemRefType::get(
         ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
         dataType);
+    break;
   }
 
   // mlir::Value cpuConvertedResults;
