@@ -58,7 +58,7 @@ pipeline {
 
                 // Run MLIR perf benchmarks
                 sh 'ldconfig'
-                sh 'ls ${WORKSPACE}/MIOpen/build/bin/MIOpenDriver/build/lib'
+                sh 'ls ${WORKSPACE}/MIOpen/build/lib'
                 dir('build') {
                     sh 'ldd ${WORKSPACE}/MIOpen/build/bin/MIOpenDriver'
                     sh 'export LD_LIBRARY_PATH'
