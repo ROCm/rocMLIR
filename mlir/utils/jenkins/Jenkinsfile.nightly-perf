@@ -34,7 +34,7 @@ pipeline {
                                  -DCMAKE_INSTALL_PREFIX=/opt/rocm/ ..
                                 '''
                     sh 'cd build; make -j $(nproc) MIOpenDriver'
-                    sh 'cd build; make install'
+                    //sh 'cd build; make install'
                 }
             }
         }
@@ -58,6 +58,7 @@ pipeline {
 
                 // Run MLIR perf benchmarks
                 sh 'ldconfig'
+                sh 'ls ${WORKSPACE}/MIOpen/build/bin/MIOpenDriver/build/lib'
                 dir('build') {
                     sh 'ldd ${WORKSPACE}/MIOpen/build/bin/MIOpenDriver'
                     sh 'export LD_LIBRARY_PATH'
