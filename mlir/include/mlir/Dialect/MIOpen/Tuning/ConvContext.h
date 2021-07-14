@@ -53,16 +53,6 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
 
   static std::string tableName() { return "config"; }
 
-  bool isPaddingKernelSupport() {
-    bool isSupport = false;
-    if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
-      isSupport = (getStrideVal()[0] == 1) & (getStrideVal()[1] == 1);
-    } else {
-      isSupport = true;
-    }
-    return isSupport;
-  }
-
   // Note: Keep it in sync with miopen/conv/problem_description
   template <class Self, class F> static void visit(Self &&self, F f) {
     // Input tensor dimensions
