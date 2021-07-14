@@ -39,7 +39,6 @@
 
 #include "XdlopsCodeSelection.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
-#include "utility/BackwardDataPaddingKernel.h"
 #include "utility/math.hpp"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
