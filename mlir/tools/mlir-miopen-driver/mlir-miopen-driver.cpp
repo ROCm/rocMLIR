@@ -357,6 +357,39 @@ static void correctParameters() {
       }
     }
   }
+
+  // adjust the padding size
+  auto getOutputDim = [](int64_t inputLen, int64_t filLen, int leftPadLen,
+                         int rightPadLen, int strideLen, int dilLen) {
+    return (inputLen + leftPadLen + rightPadLen - (filLen - 1) * dilLen - 1) /
+               strideLen +
+           1;
+  };
+
+  int hi = inputHeight.getValue();
+  int y = filterHeight.getValue();
+  int in_left_pad_h = paddingHeightLeft.getValue();
+  int conv_stride_h = strideHeight.getValue();
+  int conv_dilation_h = dilationHeight.getValue();
+  int ho = getOutputDim(hi, y, in_left_pad_h, paddingHeightRight.getValue(),
+                        conv_stride_h, conv_dilation_h);
+  int hi_padded = 1 + (y - 1) * conv_dilation_h + (ho - 1) * conv_stride_h;
+  int in_right_pad_h =
+      hi_padded > (hi + in_left_pad_h) ? hi_padded - (hi + in_left_pad_h) : 0;
+  paddingHeightRight.setValue(in_right_pad_h);
+
+  int wi = inputWidth.getValue();
+  int x = filterWidth.getValue();
+  int in_left_pad_w = paddingWidthLeft.getValue();
+  int conv_stride_w = strideWidth.getValue();
+  int conv_dilation_w = dilationWidth.getValue();
+  int wo = getOutputDim(wi, x, in_left_pad_w, paddingWidthRight.getValue(),
+                        conv_stride_w, conv_dilation_w);
+
+  int wi_padded = 1 + (x - 1) * conv_dilation_w + (wo - 1) * conv_stride_w;
+  int in_right_pad_w =
+      wi_padded > (wi + in_left_pad_w) ? wi_padded - (wi + in_left_pad_w) : 0;
+  paddingWidthRight.setValue(in_right_pad_w);
 }
 
 static void verifyLayout() {

@@ -3920,7 +3920,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                            b.getStringAttr("wi")}))};
         auto isInputHipBoundCheck = [&]() {
           if (wTildaSlice > wo || hTildaSlice > ho)
-              return true;
+            return true;
           // if pad = 0 , not need oob check
           if (leftPadH == 0 && rightPadH == 0 && leftPadW == 0 &&
               rightPadW == 0)
