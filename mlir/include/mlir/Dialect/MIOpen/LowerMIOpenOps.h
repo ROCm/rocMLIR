@@ -39,7 +39,6 @@
 
 #include "XdlopsCodeSelection.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
-#include "utility/BackwardDataPaddingKernel.h"
 #include "utility/math.hpp"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -3296,11 +3295,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // get y, x, ho, wo, hi, wi
     int64_t g, n, k, c, y, x, ho, wo, hi, wi;
     g = n = k = c = y = x = ho = wo = hi = wi = 0;
-
-    // nameToDims can store <dim name ,dim index> ,we can use it to do oob check
-    llvm::DenseSet<int> filterOobCheckDims;
-    llvm::DenseMap<StringRef, int> nameToDims;
-
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template cast<StringAttr>();
@@ -3308,10 +3302,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           inputLayoutAttr.getValue()[i].template cast<StringAttr>();
       auto outputAttr =
           outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-      nameToDims[filterAttr.getValue()] = i;
-      nameToDims[inputAttr.getValue()] = i;
-      nameToDims[outputAttr.getValue()] = i;
 
       if (filterAttr.getValue() == "g") {
         g = filterShape[i];
@@ -3395,74 +3385,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto iXTilda = gemmId % xTilda;
     auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
     auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
-
-    bool needExtraPad = false;
-    int64_t gemmM_size, gemmN_size, gemmK_size;
-    int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-    // backward data only, it's igemm v4r1 algo
-    // c is input chaneels , k is output channels
-    // n is batch , yDotSlice,xDotSlice computed in above
-    gemmMExtra = gemmNExtra = gemmKExtra = 0;
-    gemmM_size = c;
-    gemmK_size = k * yDotSlice * xDotSlice;
-    gemmN_size = n * hTildaSlice * wTildaSlice;
-
-    // we use this lamda to compute extra padding size
-    // for example, if gemmM size is 3 and gemmMPerBlock is 64
-    // we gemmMExtra is 64 so (gemmM + gemmMExtra )%gemmMPerBlock =0
-    auto calculatePaddingKernelSize = [&needExtraPad, gemmM_size, gemmN_size,
-                                       gemmK_size, &gemmMExtra, &gemmNExtra,
-                                       &gemmKExtra, strideH,
-                                       strideW](auto &populateParams) {
-      auto config_params = populateParams.getTuningParameters();
-      unsigned numOfFailedConfigs = 0;
-      for (auto &params : config_params) {
-        if (gemmM_size % params.gemmMPerBlock == 0 &&
-            gemmK_size % params.gemmKPerBlock == 0 &&
-            gemmN_size % params.gemmNPerBlock == 0) {
-          break;
-        } else {
-          numOfFailedConfigs++;
-        }
-      }
-
-      auto extraParams = populateParams.getUniversalParameters();
-      // padding kernel of backward data only support (stride 1)
-      if (numOfFailedConfigs == config_params.size() && strideH == 1 &&
-          strideW == 1) {
-        needExtraPad = true;
-        int gemmM_remain, gemmK_remain, gemmN_remain;
-
-        gemmM_remain = gemmM_size % extraParams.gemmMPerBlock;
-        if (gemmM_remain != 0)
-          gemmMExtra = extraParams.gemmMPerBlock - gemmM_remain;
-
-        gemmN_remain = gemmN_size % extraParams.gemmNPerBlock;
-        if (gemmN_remain != 0)
-          gemmNExtra = extraParams.gemmNPerBlock - gemmN_remain;
-
-        gemmK_remain = gemmK_size % extraParams.gemmKPerBlock;
-        if (gemmK_remain != 0)
-          gemmKExtra = extraParams.gemmKPerBlock - gemmK_remain;
-
-        // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
-        // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
-      }
-    };
-
-    bool isXdlops = false;
-    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
-      isXdlops = true;
-
-    if (!isXdlops) {
-      PopulateParams populateParams;
-      calculatePaddingKernelSize(populateParams);
-    } else { // xdlops
-      PopulateParamsXDL populateParamsXDL;
-      calculatePaddingKernelSize(populateParamsXDL);
-    }
-
     // Transform filter tensor.
 
     // set layout attribute.
@@ -3823,13 +3745,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       };
       auto weiGemmGGemmKGemmM = getWeiGemmGGemmKGemmM(secondFilterDimName);
 
-      // if the config do not do padding kernel,
-      // gemmAPad = weiGemmGGemmKGemmM
-      Value gemmAPad =
-          padFilter(gemmMExtra, gemmNExtra, gemmKExtra, weiGemmGGemmKGemmM, b,
-                    loc, filterOobCheckDims, nameToDims, filterShape,
-                    filterElementType, g, k, c, yDotSlice, xDotSlice);
-      return gemmAPad;
+      return weiGemmGGemmKGemmM;
     };
 
     auto getGemmB = [&]() -> Value {
@@ -3962,9 +3878,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                   /*populateBounds=*/true);
         return gemm;
       };
-
-
-
       auto inGNCHipWip = getInGNCHipWip();
 
       llvm::SmallVector<StringAttr, 7> secondOutputDimName;
@@ -4315,14 +4228,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             loc, transformedMemRefType,
             inGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice, transformedAttrs,
             /*populateBounds=*/true);
-
-        // if the config do not do padding kernel,
-        // gemmBPad = gemm
-        Value gemmBPad = padInput(
-            gemmMExtra, gemmNExtra, gemmKExtra, gemm, b, loc, inputOobCheckDims,
-            nameToDims, transformedShape, inputShape, inputElementType);
-
-        return gemmBPad;
+        return gemm;
       };
       auto inGemmGGemmMGemmN = getInGemmGGemmMGemmN(thirdOutputDimName);
 
@@ -4704,14 +4610,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             loc, transformedMemRefType,
             outGNKYDotSliceHTidaSliceXDotSliceWTildaSlice, transformedAttrs,
             /*populateBounds=*/true);
-
-        // if the config do not do padding kernel,
-        // gemmCPad = gemm
-        Value gemmCPad =
-            padOutput(gemmMExtra, gemmNExtra, gemmKExtra, gemm, b, loc,
-                      outputOobCheckDims, nameToDims, transformedShape,
-                      outputShape, outputElementType);
-        return gemmCPad;
+        return gemm;
       };
       auto outGemmGGemmKGemmN = getOutGemmGGemmKGemmN(secondOutputDimName);
 
@@ -4740,6 +4639,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     // xdlopsV2.
+    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
