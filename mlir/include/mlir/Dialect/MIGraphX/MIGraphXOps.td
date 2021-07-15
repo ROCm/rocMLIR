@@ -319,8 +319,8 @@ def MIGraphX_FusedGroupOp :
 
   let assemblyFormat = [{
     `(` $kernelArgs `)` `:`
-    ref($kernelArgs) type($kernelArgs) `->`
-    ref(type($results) type($results))
+    type($kernelArgs) `->`
+    type($results))
     attr-dict-with-keyword
     `=` `\n` ` ` ` `
     $body)
