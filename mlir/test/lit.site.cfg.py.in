@@ -1,6 +1,7 @@
 @LIT_SITE_CFG_IN_HEADER@
 
 import sys
+import subprocess
 
 config.host_triple = "@LLVM_HOST_TRIPLE@"
 config.target_triple = "@TARGET_TRIPLE@"
@@ -58,6 +59,7 @@ config.enable_bindings_python = @MLIR_BINDINGS_PYTHON_ENABLED@
 config.random_data = "@MLIR_RANDOM_DATA@"
 config.xdlops = "@MLIR_XDLOPS@"
 config.populate_validation = "@MLIR_POPULATE_VALIDATION@"
+config.rocm_path = "@ROCM_PATH@"
 
 # Support substitution of the tools_dir with user parameters. This is
 # used when we can't determine the tool dir at configuration time.
@@ -68,6 +70,20 @@ except KeyError:
     e = sys.exc_info()[1]
     key, = e.args
     lit_config.fatal("unable to find %r parameter, use '--param=%s=VALUE'" % (key,key))
+
+# If rocm_agent_enumerator shows no viable GPUs, skip tests that need one,
+# because the default target will lead to compilation failures.
+config.no_AMD_GPU = False
+if config.rocm_path:
+   try:
+       p = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator"],
+                          check=True, stdout=subprocess.PIPE)
+   except subprocess.CalledProcessError:
+       config.no_AMD_GPU = True
+
+   agents = [x for x in p.stdout.split() if x != b'gfx000']
+   if not agents:
+       config.no_AMD_GPU = True
 
 import lit.llvm
 lit.llvm.initialize(lit_config, config)
