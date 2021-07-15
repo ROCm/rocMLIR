@@ -328,8 +328,8 @@ def MIGraphX_FusedGroupOp :
     custom<customFuncBody>(ref(type($kernelArgs)),
                                   ref(type($results)),
                                   $body)
-  }
+  }];
+  
   let verifier = [{ return success(); }];
-  ];
 }
 #endif // MIGRAPHX_OPS
