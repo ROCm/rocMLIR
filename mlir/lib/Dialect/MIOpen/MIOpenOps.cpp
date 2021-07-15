@@ -52,6 +52,7 @@ const char *getNameForConvOpType(const miopen::ConvOpType op) {
   case Conv2DBwdWeightOpType:
     return "conv2d_bwd_weight";
   }
+  llvm_unreachable("Invalid ConvOp type");
 }
 } // namespace miopen
 } // namespace mlir

@@ -208,6 +208,7 @@ int Conv2dGenerator::getKernelCount() const {
   case miopen::Conv2DBwdWeightOpType:
     return 1;
   }
+  llvm_unreachable("Invalid conv2d operation");
 }
 
 int Conv2dGenerator::getBwdDataKernelCount() const {
