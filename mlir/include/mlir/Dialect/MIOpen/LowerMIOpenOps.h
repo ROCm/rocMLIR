@@ -6237,16 +6237,28 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize);
 
     // Allocate LDS.
+    auto ldsMemorySize =
+        std::max(ldsBlockSize * elementType.getIntOrFloatBitWidth() / 8,
+                 (int64_t)64 * 4 * 4);
+    auto ldsMemRefType_raw =
+        MemRefType::get({ldsMemorySize}, b.getIntegerType(8), {},
+                        gpu::GPUDialect::getWorkgroupAddressSpace());
+    auto ldsGpuAllocOp_raw =
+        b.create<miopen::GpuAllocOp>(loc, ldsMemRefType_raw);
+
     auto ldsMemRefType =
         MemRefType::get({ldsBlockSize}, elementType, {},
                         gpu::GPUDialect::getWorkgroupAddressSpace());
-    auto ldsGpuAllocOp = b.create<miopen::GpuAllocOp>(loc, ldsMemRefType);
-
-    // Subviews for Matrix A.
     auto ldsBlockAOffset = 0;
 
     auto ldsBlockAOffsetConstantOp =
         b.create<ConstantIndexOp>(loc, ldsBlockAOffset);
+
+    SmallVector<Value, 4> newOperands;
+    auto ldsGpuAllocOp =
+        b.create<ViewOp>(loc, ldsMemRefType, ldsGpuAllocOp_raw,
+                         ldsBlockAOffsetConstantOp, newOperands);
+    // Subviews for Matrix A.
     auto ldsBlockAMemRefType =
         computeSubviewResultType(op, ldsMemRefType, ldsBlockAOffset,
                                  {ldsBlockASize}, elementType);
