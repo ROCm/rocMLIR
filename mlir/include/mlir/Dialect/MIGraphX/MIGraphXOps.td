@@ -315,9 +315,9 @@ def MIGraphX_FusedGroupOp :
   let description = [{
     The `migraphx.fused_group` op. Collects fusable ops together.
 
-  let regions = (region AnyRegion:$body);
+  //let regions = (region AnyRegion:$body);
 
-  let assemblyFormat = "`(` $kernelArgs `)` `:` type($kernelArgs) `->` type($results) attr-dict-with-keyword `=` `\n` ` ` ` ` $body";
+  let assemblyFormat = "`(` $kernelArgs `)` `:` type($kernelArgs) `->` type($results) attr-dict-with-keyword `=` `\n` ` ` ` ` ";
 
   let verifier = [{ return success(); }];
 }
