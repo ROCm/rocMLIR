@@ -329,5 +329,5 @@ def MIGraphX_FusedGroupOp :
                                   ref(type($results)),
                                   $body)
   }];
-
+}
 #endif // MIGRAPHX_OPS
