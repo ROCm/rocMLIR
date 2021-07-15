@@ -58,6 +58,7 @@ config.enable_bindings_python = @MLIR_BINDINGS_PYTHON_ENABLED@
 config.random_data = "@MLIR_RANDOM_DATA@"
 config.xdlops = "@MLIR_XDLOPS@"
 config.populate_validation = "@MLIR_POPULATE_VALIDATION@"
+config.rocm_path = "@ROCM_PATH@"
 
 # Support substitution of the tools_dir with user parameters. This is
 # used when we can't determine the tool dir at configuration time.
