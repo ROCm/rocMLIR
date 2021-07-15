@@ -55,6 +55,13 @@ target_link_libraries(rocm-runtime-wrappers
   LLVMSupport
   ${ROCM_RUNTIME_LIBRARY}
 )
+# Suppress some compiler warnings when building with clang.  The first two
+# suppressions regard a GNU extension, the third an incomplete-type warning
+# that apparently works out okay.
+set_source_files_properties(rocm-runtime-wrappers.cpp PROPERTIES
+  COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types;-Wno-return-type-c-linkage")
+set_source_files_properties(BackendUtils.cpp PROPERTIES
+  COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types")
 
 set(LIBS
   lldCommon
@@ -93,4 +100,3 @@ target_include_directories(LLVMROCmBackendUtils
   "${HIP_PATH}/include"
 )
 target_link_libraries(LLVMROCmBackendUtils PRIVATE ${LIBS} ${targets_to_link})
-
