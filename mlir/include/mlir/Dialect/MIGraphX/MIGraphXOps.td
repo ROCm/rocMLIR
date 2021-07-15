@@ -328,7 +328,7 @@ def MIGraphX_FusedGroupOp :
     $body)
   }];
 */
-  let assemblyFormat = "`(`$kernelArgs`)` attr-dict `:` `(`type($kernelArgs)`)` `->` type($output)";
+  let assemblyFormat = "`(`$kernelArgs`)` attr-dict `:` `(`type($kernelArgs)`)` `->` type($output) `=` $body";
 
   let verifier = [{ return success(); }];
 }
