@@ -20,6 +20,7 @@ pipeline {
         stage('Build MIOpenDriver') {
             steps {
                 dir('MIOpen') {
+                    sh 'mkdir install'
                     git branch: 'develop', poll: false,\
                                 url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                     cmake arguments: "-P install_deps.cmake --minimum --prefix ./MIOpen_deps",\
@@ -31,9 +32,10 @@ pipeline {
                                  -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                  -DMIOPEN_BACKEND=HIP
                                  -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpen_deps" ..
-                     //            -DCMAKE_INSTALL_PREFIX=/opt/rocm/ ..
+                                 -DCMAKE_INSTALL_PREFIX=../install/ ..
                                 '''
-                    sh 'cd build; make -j MIOpenDriver'
+                    //sh 'cd build; make -j MIOpenDriver'
+                    sh 'cd build; make -j install'
                 }
             }
         }
