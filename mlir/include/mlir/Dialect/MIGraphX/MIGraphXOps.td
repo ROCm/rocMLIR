@@ -328,7 +328,7 @@ def MIGraphX_FusedGroupOp :
     $body)
   }];
 */
-  let assemblyFormat = " `(` $kernelArgs `)` `:` attr-dict ";
+  let assemblyFormat = [{ `(` $kernelArgs `)` `:` type($output) attr-dict `:` functional-type($kernelArgs, results)}];
 
   let verifier = [{ return success(); }];
 }
