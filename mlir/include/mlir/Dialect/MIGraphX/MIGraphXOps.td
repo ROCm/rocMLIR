@@ -317,7 +317,8 @@ def MIGraphX_FusedGroupOp :
 
   //let regions = (region AnyRegion:$body);
 
-  let assemblyFormat = "`(` $kernelArgs `)` `:` type($kernelArgs) `->` type($results) attr-dict-with-keyword `=` `\n` ` ` ` ` ";
+  //let assemblyFormat = "`(` $kernelArgs `)` `:` type($kernelArgs) `->` type($results) attr-dict-with-keyword `=` `\n` ` ` ` ` ";
+  let assemblyFormat = "`(` $kernelArgs `)` ";
 
   let verifier = [{ return success(); }];
 }
