@@ -318,18 +318,14 @@ def MIGraphX_FusedGroupOp :
   let regions = (region AnyRegion:$body);
 
   let assemblyFormat = [{
-    `[` `]` ``
     `(` $kernelArgs `)` `:`
-    custom<ShapedFunctionType>(ref($kernelArgs),
-                               type($kernelArgs),
-                               type($results))
+    ref($kernelArgs) type($kernelArgs) `->`
+    ref(type($results) type($results))
     attr-dict-with-keyword
-    `=` `\n` ` ` ` ` ` `
-    custom<customFuncBody>(ref(type($kernelArgs)),
-                                  ref(type($results)),
-                                  $body)
+    `=` `\n` ` ` ` `
+    $body)
   }];
-  
+
   let verifier = [{ return success(); }];
 }
 #endif // MIGRAPHX_OPS
