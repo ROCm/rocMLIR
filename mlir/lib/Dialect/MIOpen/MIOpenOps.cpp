@@ -27,6 +27,33 @@ namespace {
 
 } // namespace
 
+namespace mlir {
+namespace miopen {
+Optional<ConvOpType> getConvOpTypeForName(const StringRef name) {
+  if (name == "conv2d") {
+    return Conv2DOpType;
+  }
+  if (name == "conv2d_bwd_data") {
+    return Conv2DBwdDataOpType;
+  }
+  if (name == "conv2d_bwd_weight") {
+    return Conv2DBwdWeightOpType;
+  }
+  return llvm::None;
+}
+
+const char *getNameForConvOpType(const miopen::ConvOpType op) {
+  switch (op) {
+  case Conv2DOpType:
+    return "conv2d";
+  case Conv2DBwdDataOpType:
+    return "conv2d_bwd_data";
+  case Conv2DBwdWeightOpType:
+    return "conv2d_bwd_weight";
+  }
+}
+} // namespace miopen
+} // namespace mlir
 //===----------------------------------------------------------------------===//
 // MIOpenDialect
 //===----------------------------------------------------------------------===//

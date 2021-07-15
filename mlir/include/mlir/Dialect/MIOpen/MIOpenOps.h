@@ -21,11 +21,17 @@
 
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
+#include "llvm/ADT/Optional.h"
+#include "llvm/ADT/StringRef.h"
+
 namespace mlir {
 
 namespace miopen {
 
 enum ConvOpType { Conv2DOpType, Conv2DBwdDataOpType, Conv2DBwdWeightOpType };
+
+llvm::Optional<ConvOpType> getConvOpTypeForName(llvm::StringRef name);
+const char *getNameForConvOpType(const ConvOpType);
 } // end namespace miopen
 
 #include "mlir/Dialect/MIOpen/MIOpenOpsDialect.h.inc"

@@ -117,31 +117,6 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   return dataType;
 }
 
-Optional<miopen::ConvOpType>
-Conv2dGenerator::getOpForName(const StringRef name) {
-  if (name == "conv2d") {
-    return miopen::Conv2DOpType;
-  }
-  if (name == "conv2d_bwd_data") {
-    return miopen::Conv2DBwdDataOpType;
-  }
-  if (name == "conv2d_bwd_weight") {
-    return miopen::Conv2DBwdWeightOpType;
-  }
-  return llvm::None;
-}
-
-const char *Conv2dGenerator::getNameForOp(const miopen::ConvOpType op) {
-  switch (op) {
-  case miopen::Conv2DOpType:
-    return "conv2d";
-  case miopen::Conv2DBwdDataOpType:
-    return "conv2d_bwd_data";
-  case miopen::Conv2DBwdWeightOpType:
-    return "conv2d_bwd_weight";
-  }
-}
-
 LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   std::map<std::string, std::string> argMap;
   strToTokens(arguments, argMap);
@@ -198,7 +173,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
     strToInt("x2", config.xdlops);
 
     // conv settings
-    auto const op = getOpForName(argMap["operation"]);
+    auto const op = miopen::getConvOpTypeForName(argMap["operation"]);
     if (!op.hasValue()) {
       return failure();
     }
@@ -291,7 +266,7 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
   if (config.kernelName.empty()) {
     int id = std::max(config.kernelId, 0);
     config.kernelName = std::string("miopen_") +
-                        getNameForOp(config.operation) + "_" +
+                        miopen::getNameForConvOpType(config.operation) + "_" +
                         config.filterLayout + "_" + config.inputLayout + "_" +
                         config.outputLayout + "_" + std::to_string(id);
   }
