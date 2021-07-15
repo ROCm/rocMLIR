@@ -34,6 +34,7 @@ test/Examples/standalone/test.toy
 test/lib/Transforms/TestConvertGPUKernelToHsaco.cpp
 test/lit.site.cfg.py.in
 test/mlir-opt/commandline.mlir
+test/mlir-rocm-runner/lit.local.cfg
 test/mlir-rocm-runner/gpu-to-hsaco.mlir
 test/mlir-rocm-runner/two-modules.mlir
 test/mlir-rocm-runner/vecadd.mlir
