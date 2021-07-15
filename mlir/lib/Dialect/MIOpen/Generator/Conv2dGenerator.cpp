@@ -1,4 +1,5 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
+#include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/utility/math.hpp"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
@@ -14,7 +15,7 @@ using namespace mlir;
 
 Conv2dGenerator::Conv2dGenerator(
     const std::string &arch, int num_cu, bool xdlops,
-    const Conv2dGenerator::Op operation, const std::string &dataTypeStr,
+    const miopen::ConvOpType operation, const std::string &dataTypeStr,
     int dilationHeight, int dilationWidth, int strideHeight, int strideWidth,
     int paddingHeightLeft, int paddingHeightRight, int paddingWidthLeft,
     int paddingWidthRight, const std::string &filterLayout,
@@ -71,11 +72,10 @@ int Conv2dGenerator::getKernelCount() const {
     return 1;
   }
   switch (config.operation) {
-  case BwdData:
+  case miopen::Conv2DBwdDataOpType:
     return getBwdDataKernelCount();
-  case Fwd:
-  case Dummy:
-  case BwdWeight:
+  case miopen::Conv2DOpType:
+  case miopen::Conv2DBwdWeightOpType:
     return 1;
   }
 }
@@ -117,32 +117,27 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   return dataType;
 }
 
-Optional<Conv2dGenerator::Op>
+Optional<miopen::ConvOpType>
 Conv2dGenerator::getOpForName(const StringRef name) {
   if (name == "conv2d") {
-    return Conv2dGenerator::Op::Fwd;
-  }
-  if (name == "conv2d_dummy") {
-    return Conv2dGenerator::Op::Dummy;
+    return miopen::Conv2DOpType;
   }
   if (name == "conv2d_bwd_data") {
-    return Conv2dGenerator::Op::BwdData;
+    return miopen::Conv2DBwdDataOpType;
   }
   if (name == "conv2d_bwd_weight") {
-    return Conv2dGenerator::Op::BwdWeight;
+    return miopen::Conv2DBwdWeightOpType;
   }
   return llvm::None;
 }
 
-const char *Conv2dGenerator::getNameForOp(const Op op) {
+const char *Conv2dGenerator::getNameForOp(const miopen::ConvOpType op) {
   switch (op) {
-  case Fwd:
+  case miopen::Conv2DOpType:
     return "conv2d";
-  case Dummy:
-    return "conv2d_dummy";
-  case BwdData:
+  case miopen::Conv2DBwdDataOpType:
     return "conv2d_bwd_data";
-  case BwdWeight:
+  case miopen::Conv2DBwdWeightOpType:
     return "conv2d_bwd_weight";
   }
 }
@@ -414,7 +409,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
         builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
 
   switch (config.operation) {
-  case Fwd: {
+  case miopen::Conv2DOpType: {
     auto convOp = builder.create<miopen::Conv2DOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{func.getArgument(0), func.getArgument(1),
@@ -422,7 +417,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
         attributes);
     block->push_front(convOp);
   } break;
-  case BwdData: {
+  case miopen::Conv2DBwdDataOpType: {
     auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{func.getArgument(0), func.getArgument(1),
@@ -430,21 +425,13 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
         attributes);
     block->push_front(convOp);
   } break;
-  case BwdWeight: {
+  case miopen::Conv2DBwdWeightOpType: {
     auto convOp = builder.create<miopen::Conv2DBwdWeightOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{func.getArgument(0), func.getArgument(1),
                    func.getArgument(2)},
         attributes);
     block->push_back(convOp);
-  } break;
-  case Dummy: {
-    auto convOp = builder.create<miopen::Conv2DDummyOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
-    block->push_front(convOp);
   } break;
   }
 

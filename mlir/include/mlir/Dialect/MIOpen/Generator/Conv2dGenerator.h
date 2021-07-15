@@ -25,12 +25,11 @@ namespace mlir {
 
 class Conv2dGenerator {
 public:
-  enum Op { Fwd, Dummy, BwdData, BwdWeight };
   struct Config {
     std::string arch;
     int num_cu;
     bool xdlops;
-    Op operation;
+    miopen::ConvOpType operation;
     std::string dataTypeStr;
     int dilationHeight, dilationWidth;
     int strideHeight, strideWidth;
@@ -53,7 +52,8 @@ public:
   };
 
   Conv2dGenerator(const std::string &arch = "", int num_cu = 0,
-                  bool xdlops = false, const Op operation = Fwd,
+                  bool xdlops = false,
+                  const miopen::ConvOpType operation = miopen::Conv2DOpType,
                   const std::string &dataTypeStr = "f32",
                   int dilationHeight = 1, int dilationWidth = 1,
                   int strideHeight = 1, int strideWidth = 1,
@@ -75,8 +75,8 @@ public:
 
   void flipXdlops();
 
-  static Optional<Op> getOpForName(const StringRef name);
-  static const char *getNameForOp(const Op);
+  static Optional<miopen::ConvOpType> getOpForName(const StringRef name);
+  static const char *getNameForOp(const miopen::ConvOpType);
 
   LogicalResult parseConvConfig(const char *arguments);
 
