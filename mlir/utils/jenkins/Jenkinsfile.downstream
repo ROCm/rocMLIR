@@ -1,5 +1,3 @@
-def MLIR_ARTIFACTS_DIR = 'artifactory'
-
 pipeline {
     agent {
         docker {
@@ -21,8 +19,6 @@ pipeline {
         }
         stage('Igemm Build') {
             steps {
-                sh "mkdir -p ${MLIR_ARTIFACTS_DIR}"
-
                 cmakeBuild generator: 'Ninja',\
                     buildDir: 'build',\
                     buildType: 'Release',\
@@ -33,9 +29,10 @@ pipeline {
                 cmake arguments: '--install . --component libMLIRMIOpen --prefix /opt/rocm',\
                     installation: 'InSearchPath', workingDir: 'build'
 
-                sh "cp /opt/rocm/lib/libMLIRMIOpen.a ${MLIR_ARTIFACTS_DIR}"
-                sh "cp /opt/rocm/include/Miir.h ${MLIR_ARTIFACTS_DIR}"
-                archiveArtifacts artifacts: "${MLIR_ARTIFACTS_DIR}/*", fingerprint: true
+                sh "cp /opt/rocm/lib/libMLIRMIOpen.a ${WORKSPACE}"
+                sh "cp /opt/rocm/include/Miir.h ${WORKSPACE}"
+                archiveArtifacts artifacts: "libMLIRMIOpen.a,Miir.h",\
+                    fingerprint: true
             }
         }
     }
