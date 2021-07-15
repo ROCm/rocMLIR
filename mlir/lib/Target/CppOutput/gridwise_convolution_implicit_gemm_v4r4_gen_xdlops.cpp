@@ -676,7 +676,7 @@ std::string mlir::translateModuleFromMIOpenToHeaderXDLOPS(ModuleOp m) {
       auto filterLayoutAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
       auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
 
-      size_t dimKF, dimNI, dimCI;
+      size_t dimKF = 0, dimNI = 0, dimCI = 0;
       for (size_t i = 0; i < 5; ++i) {
         auto filterDim = filterLayoutAttr.getValue()[i].dyn_cast<StringAttr>().getValue();
 

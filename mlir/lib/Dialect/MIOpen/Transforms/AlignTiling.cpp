@@ -26,10 +26,10 @@
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
+#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -50,7 +50,8 @@
 using namespace mlir;
 
 namespace {
-struct MIOpenLinalgAlignPass : public MIOpenLinalgAlignPassBase<MIOpenLinalgAlignPass> {
+struct MIOpenLinalgAlignPass
+    : public MIOpenLinalgAlignPassBase<MIOpenLinalgAlignPass> {
   void runOnOperation() override;
 };
 
@@ -58,12 +59,10 @@ struct MIOpenLinalgAlignPass : public MIOpenLinalgAlignPassBase<MIOpenLinalgAlig
 
 //===- MILARewritePattern -------------------------------------------------===//
 //===-  ------------------------------------------------===//
-template <typename T>
-struct MILARewritePattern : public OpRewritePattern<T> {
+template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
   using OpRewritePattern<T>::OpRewritePattern;
 
-  template <typename Top>
-  Value getOpResult(OpOperand &use) const {
+  template <typename Top> Value getOpResult(OpOperand &use) const {
     Value v;
     auto *ownr = use.getOwner();
     if (auto op = dyn_cast<Top>(ownr)) {
@@ -72,16 +71,14 @@ struct MILARewritePattern : public OpRewritePattern<T> {
     return v;
   }
 
-  template <typename Top>
-  Value backtrace(Value inv) const {
+  template <typename Top> Value backtrace(Value inv) const {
     if (inv.hasOneUse()) {
       return getOpResult<Top>(*inv.use_begin());
     }
     return Value();
   }
 
-  template <typename Top>
-  Value getOpOperand(OpOperand &use, int idx) const {
+  template <typename Top> Value getOpOperand(OpOperand &use, int idx) const {
     Value v;
     auto *ownr = use.getOwner();
     if (auto op = dyn_cast<Top>(ownr)) {
@@ -90,15 +87,15 @@ struct MILARewritePattern : public OpRewritePattern<T> {
     return v;
   }
 
-  template <typename Top>
-  Value backtrace(Value inv, int idx) const {
+  template <typename Top> Value backtrace(Value inv, int idx) const {
     if (inv.hasOneUse()) {
       return getOpOperand<Top>(*inv.use_begin(), idx);
     }
     return Value();
   }
 
-  Value makeSubview(PatternRewriter &b, miopen::ThreadwiseCopyOp &twcopy, Value inp) const {
+  Value makeSubview(PatternRewriter &b, miopen::ThreadwiseCopyOp &twcopy,
+                    Value inp) const {
     Value subview;
 
     auto ctx = b.getContext();
@@ -115,21 +112,25 @@ struct MILARewritePattern : public OpRewritePattern<T> {
     SmallVector<OpFoldResult, 5> offsets(outputDims, zero);
     SmallVector<OpFoldResult, 5> sizes(outputDims, zeroA);
     SmallVector<OpFoldResult, 5> strides(outputDims, zeroA);
-    
-    // 1. flatten input affine map with miopen::transform, (subview only allows 1 affine map)
+
+    // 1. flatten input affine map with miopen::transform, (subview only allows
+    // 1 affine map)
     auto expr = getAffineConstantExpr(0, ctx);
     unsigned stride = 1;
     for (int i = outputDims - 1; i >= 0; --i) {
-      expr = expr + getAffineDimExpr(i, ctx) *
-                 getAffineConstantExpr(stride, ctx);
+      expr =
+          expr + getAffineDimExpr(i, ctx) * getAffineConstantExpr(stride, ctx);
       strides[i] = b.getIndexAttr(stride);
       stride *= outputShape[i];
     }
-    AffineMap outputAffineMap = AffineMap::get(outputDims, 0, ArrayRef<AffineExpr>{expr}, ctx);
-    auto transformedOutputType = MemRefType::get(outputShape, outputElementType, {outputAffineMap});
-    
+    AffineMap outputAffineMap =
+        AffineMap::get(outputDims, 0, ArrayRef<AffineExpr>{expr}, ctx);
+    auto transformedOutputType =
+        MemRefType::get(outputShape, outputElementType, {outputAffineMap});
+
     llvm::SmallVector<NamedAttribute, 3> transformedNewOutputAttrs;
-    auto transform = b.create<miopen::TransformOp>(loc, transformedOutputType, inp, transformedNewOutputAttrs, true);
+    auto transform = b.create<miopen::TransformOp>(
+        loc, transformedOutputType, inp, transformedNewOutputAttrs, true);
 
     // 2. reduce scope of inp to tile size
     //      - use subview:
@@ -138,7 +139,8 @@ struct MILARewritePattern : public OpRewritePattern<T> {
     auto regShape = regs.getType().template cast<MemRefType>().getShape();
     auto regDims = regShape.size();
     for (uint32_t i = 0; i < regDims; ++i) {
-      Value idx = b.create<IndexCastOp>(loc, twcopy.getOperand(2 + regDims + i), b.getIndexType());
+      Value idx = b.create<IndexCastOp>(loc, twcopy.getOperand(2 + regDims + i),
+                                        b.getIndexType());
       offsets[i] = idx;
       sizes[i] = b.getIndexAttr(regShape[i]);
     }
@@ -146,7 +148,8 @@ struct MILARewritePattern : public OpRewritePattern<T> {
     return b.create<SubViewOp>(loc, transform, offsets, sizes, strides);
   }
 
-  Value traceToThreadwiseCopy(Value inp, SmallVector<Value, 5> &transforms) const {
+  Value traceToThreadwiseCopy(Value inp,
+                              SmallVector<Value, 5> &transforms) const {
     Value ret;
     Value laReshape;
     // 1. get reader (linagl.reshape), return result
@@ -169,14 +172,16 @@ struct MILARewritePattern : public OpRewritePattern<T> {
       transforms.push_back(miTransform);
       Value miTransform2 = backtrace<miopen::TransformOp>(miTransform);
       transforms.push_back(miTransform2);
-      auto twcopy = dyn_cast<miopen::ThreadwiseCopyOp>(miTransform2.use_begin()->getOwner());
+      auto twcopy = dyn_cast<miopen::ThreadwiseCopyOp>(
+          miTransform2.use_begin()->getOwner());
       if (twcopy)
         ret = inp;
     }
     return ret;
   }
-  
-  Value applyTransforms(PatternRewriter &b, miopen::ThreadwiseCopyOp &twcopy, Value inp, SmallVector<Value, 5> &transforms) const {
+
+  Value applyTransforms(PatternRewriter &b, miopen::ThreadwiseCopyOp &twcopy,
+                        Value inp, SmallVector<Value, 5> &transforms) const {
     Value ret = inp;
     BlockAndValueMapping cloningMap;
     // 1. clone the same transforms applied to the output memory and
@@ -187,7 +192,8 @@ struct MILARewritePattern : public OpRewritePattern<T> {
       if (auto miTransform = transform.getDefiningOp<miopen::TransformOp>()) {
         cloningMap.map(miTransform->getOperand(0), ret);
         tcopy = b.clone(*miTransform, cloningMap);
-      } else if (auto laReshape = transform.getDefiningOp<linalg::ReshapeOp>()) {
+      } else if (auto laReshape =
+                     transform.getDefiningOp<linalg::ReshapeOp>()) {
         cloningMap.map(laReshape->getOperand(0), ret);
         tcopy = b.clone(*laReshape, cloningMap);
       } else {
@@ -199,7 +205,7 @@ struct MILARewritePattern : public OpRewritePattern<T> {
     // 2. also create sub-view based on threadwise_copy
     return makeSubview(b, twcopy, ret);
   }
-  
+
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
     LogicalResult res = failure();
     auto loc = op.getLoc();
@@ -221,7 +227,8 @@ struct MILARewritePattern : public OpRewritePattern<T> {
 
     Value twinp;
     SmallVector<Value, 5> transforms;
-    // 1. Trace input to threadwise_copy. Collect transforms (to be applied to other inputs). test compatibility
+    // 1. Trace input to threadwise_copy. Collect transforms (to be applied to
+    // other inputs). test compatibility
     for (auto inp : op.inputs()) {
       // 1.1. Test aligned input with output type
       if (inp.getType() != out.getType()) {
@@ -238,7 +245,8 @@ struct MILARewritePattern : public OpRewritePattern<T> {
     // 2. Apply if input found
     if (twinp) {
       auto lastTransform = transforms.back();
-      auto twcopy = dyn_cast<miopen::ThreadwiseCopyOp>(lastTransform.use_begin()->getOwner());
+      auto twcopy = dyn_cast<miopen::ThreadwiseCopyOp>(
+          lastTransform.use_begin()->getOwner());
 
       // 2.0. Reset insertion point to just before threadwise_copy
       b.setInsertionPoint(twcopy);
@@ -260,9 +268,11 @@ struct MILARewritePattern : public OpRewritePattern<T> {
             newInput = applyTransforms(b, twcopy, inp, transforms);
           }
           newInputs.push_back(newInput);
-          laGenericAMaps.push_back(AffineMap::getMultiDimIdentityMap(newInput.getType().template cast<MemRefType>().getRank(), ctx));
+          laGenericAMaps.push_back(AffineMap::getMultiDimIdentityMap(
+              newInput.getType().template cast<MemRefType>().getRank(), ctx));
         }
-        laGenericAMaps.push_back(AffineMap::getMultiDimIdentityMap(regType.getRank(), ctx));
+        laGenericAMaps.push_back(
+            AffineMap::getMultiDimIdentityMap(regType.getRank(), ctx));
 
         op.inputsMutable().assign(newInputs);
         op.outputsMutable().assign(oRegs);
@@ -271,8 +281,10 @@ struct MILARewritePattern : public OpRewritePattern<T> {
         op.indexing_mapsAttr(b.getAffineMapArrayAttr(laGenericAMaps));
 
         // 2.3. Reset iterator types
-        SmallVector<StringAttr, 5> laGenericIteratorArr(regType.getRank(), b.getStringAttr("parallel"));
-        op.iterator_typesAttr(b.getArrayAttr(ArrayRef<Attribute>(laGenericIteratorArr.begin(), laGenericIteratorArr.end())));
+        SmallVector<StringAttr, 5> laGenericIteratorArr(
+            regType.getRank(), b.getStringAttr("parallel"));
+        op.iterator_typesAttr(b.getArrayAttr(ArrayRef<Attribute>(
+            laGenericIteratorArr.begin(), laGenericIteratorArr.end())));
 
         // 2.4. Move linalg.generic
         op->moveBefore(twcopy);
@@ -289,7 +301,7 @@ struct MILARewritePattern : public OpRewritePattern<T> {
         res = success();
       }
     }
-    
+
     return res;
   }
 };
@@ -304,8 +316,6 @@ void MIOpenLinalgAlignPass::runOnOperation() {
     signalPassFailure();
 }
 
-
 std::unique_ptr<Pass> mlir::miopen::createMIOpenLinalgAlignPass() {
   return std::make_unique<MIOpenLinalgAlignPass>();
 }
-

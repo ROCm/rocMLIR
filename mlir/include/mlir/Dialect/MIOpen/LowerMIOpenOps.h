@@ -415,7 +415,7 @@ emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
                const Value &dest, const SmallVector<Value, 8> &destLowerIndices,
                const Value &value,
                InMemoryDataOperation memoryOp = InMemoryDataOperation::Set) {
-  auto emitStoreInstruction = [&b, &loc, &memoryOp](
+  auto emitStoreInstruction = [&b, &loc](
                                   const Value &value, MemRefType destType,
                                   Type typeToStore, const Value &dest,
                                   const SmallVector<Value, 8> &destLowerIndices,
@@ -1419,7 +1419,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto outputElementType = outputType.getElementType();
 
     // HO/WO dimension for output tensor.
-    int64_t outputHDim, outputWDim;
+    int64_t outputHDim = 0, outputWDim = 0;
 
     // Find Ho/Wo dimension for output tensor. They will be used in
     // transforming input tensor.
@@ -1496,6 +1496,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     int64_t gemmM_size, gemmN_size, gemmK_size;
     int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+    gemmM_size = gemmN_size = gemmK_size = 0;
     gemmMExtra = gemmNExtra = gemmKExtra = 0;
     // compute we should use extra padding kernel or not
     // c,k already / g ,so we can skip / g here
@@ -1576,7 +1577,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // Transform filter tensor.
 
     // Y/X dimension for filter tensor.
-    int64_t filterYDim, filterXDim;
+    int64_t filterYDim = 0, filterXDim = 0;
 
     llvm::SmallVector<int64_t, 2> transformedFilterShape;
 
