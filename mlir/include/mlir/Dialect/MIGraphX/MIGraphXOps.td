@@ -318,7 +318,7 @@ def MIGraphX_FusedGroupOp :
 
   let regions = (region AnyRegion:$body);
 
-  let assemblyFormat = "`(` $kernelArgs `)` `:`
+  let assemblyFormat = [{ `(` $kernelArgs `)` `:`
     ref($kernelArgs) type($kernelArgs)
     ref($results) type($results)
     attr-dict
