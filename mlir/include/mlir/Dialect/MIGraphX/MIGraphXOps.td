@@ -314,11 +314,20 @@ def MIGraphX_FusedGroupOp :
   let summary = "Partitioned region of fused ops";
   let description = [{
     The `migraphx.fused_group` op. Collects fusable ops together.
+  }];
 
-  //let regions = (region AnyRegion:$body);
+  let regions = (region AnyRegion:$body);
 
-  //let assemblyFormat = "`(` $kernelArgs `)` `:` type($kernelArgs) `->` type($results) attr-dict-with-keyword `=` `\n` ` ` ` ` ";
-  let assemblyFormat = "`(` $kernelArgs `)` ";
+  let assemblyFormat = [{
+    `(` $kernelArgs `)` `:`
+    ref($kernelArgs) type($kernelArgs),
+    ref(type($results) type($results))
+    attr-dict-with-keyword
+    `=` `\n` ` ` ` `
+    (ref(type($kernelArgs)),
+    ref(type($results)),
+    $body)
+  }];
 
   let verifier = [{ return success(); }];
 }
