@@ -42,6 +42,7 @@ pipeline {
                     steps: [[args: "clean"], [args: 'check-mlir']],\
                     cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
                     -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
+                    -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=0
                     '''
             }
         }
