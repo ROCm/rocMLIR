@@ -87,34 +87,6 @@ func @miopen_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input : mem
 // CHECK-LABEL: func @miopen_conv2d_bwd_weight_f16
 // CHECK-NEXT: miopen.conv2d_bwd_weight
 
-func @miopen_conv2d_dummy(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
-  miopen.conv2d_dummy(%filter, %input, %output) {
-    filter_layout = ["g", "k", "c", "y", "x"],
-    input_layout = ["n", "gi", "c", "hi", "wi"],
-    output_layout = ["n", "go", "k", "ho", "wo"],
-    dilations = [1, 1],
-    strides = [1, 1],
-    padding = [0, 0, 0, 0]
-  } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
-  return
-}
-// CHECK-LABEL: func @miopen_conv2d_dummy
-// CHECK-NEXT: miopen.conv2d_dummy
-
-func @miopen_conv2d_dummy_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
-  miopen.conv2d_dummy(%filter, %input, %output) {
-    filter_layout = ["g", "k", "c", "y", "x"],
-    input_layout = ["n", "gi", "c", "hi", "wi"],
-    output_layout = ["n", "go", "k", "ho", "wo"],
-    dilations = [1, 1],
-    strides = [1, 1],
-    padding = [0, 0, 0, 0]
-  } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
-  return
-}
-// CHECK-LABEL: func @miopen_conv2d_dummy_f16
-// CHECK-NEXT: miopen.conv2d_dummy
-
 // test 1-1 dimension mappings.
 func @miopen_transform_1_to_1(%memref: memref<?x?x?x?x?xf32>) {
   %transformed_memref = miopen.transform(%memref) {
