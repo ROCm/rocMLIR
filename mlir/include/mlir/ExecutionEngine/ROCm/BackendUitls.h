@@ -28,12 +28,14 @@ class BackendUtils {
 public:
   BackendUtils();
   BackendUtils(const std::string &triple, const std::string &chip,
-               const std::string &feature);
-  OwnedBlob compileISAToHsaco(const std::string isa, Location loc,
+               const std::string &feature, bool systemOverride = false);
+
+  OwnedBlob compileISAToHsaco(const std::string &isa, Location loc,
                               StringRef name);
   std::unique_ptr<llvm::Module>
   compileModuleToROCDLIR(Operation *m, llvm::LLVMContext &llvmContext,
                          llvm::StringRef name);
+
   std::string getChip() { return chip; }
   std::string getFeatures() { return features; }
   std::string getTriple() { return triple; }
@@ -55,8 +57,7 @@ private:
   LogicalResult createHsaco(const Blob &isaBlob, StringRef name,
                             Blob &hsacoBlob);
   void configTargetChip(std::string &targetChip);
-  void configTargetFeatures(const std::string &chip, const std::string &triple,
-                            std::string &features);
+  void configTargetFeatures(std::string &features);
 };
 } // namespace mlir
 

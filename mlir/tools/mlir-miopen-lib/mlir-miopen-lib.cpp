@@ -1,5 +1,6 @@
 #include "Miir.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
+#include "mlir/Dialect/MIOpen/Generator/IsaNameParser.h"
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/IR/Builders.h"
@@ -274,8 +275,16 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-  std::string triple = "amdgcn-amd-amdhsa";
-  BackendUtils utils(triple, handle->arch, "");
+  IsaNameParser parser(handle->arch);
+  std::string chip;
+  std::string triple;
+  std::string features;
+  auto status = parser.parseIsaName(chip, triple, features);
+  if (status.failed()) {
+    return MIIR_INVALID_PARAM;
+  }
+
+  BackendUtils utils(triple, chip, features);
 
   // Passes for lowering MIOpen dialect.
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
@@ -307,7 +316,7 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
       utils.getTriple(), utils.getChip(), utils.getFeatures(),
       /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
 
-  auto status = pm.run(module);
+  status = pm.run(module);
 
   return status.succeeded() ? MIIR_SUCCESS : MIIR_BUILD_FAILURE;
 }
