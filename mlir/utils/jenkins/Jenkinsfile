@@ -7,10 +7,10 @@ void buildProject(String target, String cmakeOpts) {
         cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
 }
 
-void getAndBuildMIOpen(String cmakeOpts) {
+void getAndBuildMIOpen(Strig prefixOpt, String cmakeOpts) {
     git branch: 'develop', poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
-    cmake arguments: "-P install_deps.cmake --minimum",\
+    cmake arguments: "-P install_deps.cmake --minimum ${prefixOpt}",\
         installation: "InSearchPath"
     sh '[ ! -d build ] || rm -rf build'
     cmakeBuild generator: 'Unix Makefiles',\
@@ -153,7 +153,7 @@ pipeline {
                             }}
                             steps {
                                 dir('MIOpen') {
-                                        getAndBuildMIOpen('''-DMIOPEN_USE_MLIR=On
+                                        getAndBuildMIOpen('', '''-DMIOPEN_USE_MLIR=On
                                         -DBUILD_DEV=On
                                         -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
                                         ''')
@@ -198,9 +198,13 @@ pipeline {
                         stage("Build MIOpen with HIP") {
                             steps {
                                 dir('MIOpen') {
-                                    getAndBuildMIOpen('''-DMIOPEN_BACKEND=HIP
-                                    -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local"
+                                    sh 'mkdir MIOpenInstallDir'
+                                    getAndBuildMIOpen('--prefix ./MIOpenDeps', 
+                                                      '''-DMIOPEN_BACKEND=HIP
+                                    -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
+                                    -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/MIOpenInstallDir
                                     ''')
+                                    sh 'cd build; make install'
                                 }
                             }
                         }
@@ -210,10 +214,6 @@ pipeline {
                             }
                         }
                         stage('Performance Test') {
-                            environment {
-                                // Make libMIOpen.so accessible to the test driver
-                                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                            }
                             steps {
                                 sh 'ldconfig'
                                 dir('build') {
