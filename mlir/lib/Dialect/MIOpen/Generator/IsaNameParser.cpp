@@ -15,7 +15,6 @@
 
 #include <cstring>
 #include <numeric>
-#include <vector>
 
 using namespace mlir;
 
@@ -46,7 +45,7 @@ std::string getChipFromArchName(const std::string &gcnArchName) {
 LogicalResult parseTargetFeatures(std::string &gcnArchFeatures) {
   // First step: put each feature name to the vector
   std::string token;
-  std::vector<std::string> featureTokens;
+  SmallVector<std::string, 2> featureTokens;
   auto convertFeatureToken =
       [](std::string &token) -> llvm::Expected<std::string> {
     if (token.back() != '+' && token.back() != '-') {
