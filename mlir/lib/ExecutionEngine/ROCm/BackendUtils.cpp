@@ -47,7 +47,7 @@ using namespace mlir;
 
 static constexpr const char kRunnerProgram[] = "mlir-rocm-runner";
 static constexpr const char kRocmAgentEnumerator[] = "rocm_agent_enumerator";
-static constexpr const char targetTriple[] = "amdgcn-amd-amdhsa";
+static constexpr const char kTargetTriple[] = "amdgcn-amd-amdhsa";
 
 namespace {
 // TODO: remove this once the rocm_agent_enumerator is ready
@@ -65,19 +65,19 @@ void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
 }
 } // namespace
 
-BackendUtils::BackendUtils(bool systemOverride,
-                           const std::string &defaultTriple,
+BackendUtils::BackendUtils(const std::string &defaultTriple,
                            const std::string &defaultChip,
-                           const std::string &defaultFeatures)
+                           const std::string &defaultFeatures,
+                           bool systemOverride)
     : triple(defaultTriple), chip(defaultChip), features(defaultFeatures) {
   if (systemOverride) {
-    triple = targetTriple;
+    triple = kTargetTriple;
     configTargetChip(chip);
     configTargetFeatures(features);
   }
 }
 
-BackendUtils::BackendUtils() : BackendUtils(true, "", "", "") {}
+BackendUtils::BackendUtils() : BackendUtils("", "", "", true) {}
 
 LogicalResult BackendUtils::assembleIsa(const std::string isa, StringRef name,
                                         Blob &result,

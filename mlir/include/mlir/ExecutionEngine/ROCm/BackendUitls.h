@@ -27,8 +27,8 @@ namespace mlir {
 class BackendUtils {
 public:
   BackendUtils();
-  BackendUtils(bool systemOverride, const std::string &triple,
-               const std::string &chip, const std::string &feature);
+  BackendUtils(const std::string &triple, const std::string &chip,
+               const std::string &feature, bool systemOverride = false);
 
   OwnedBlob compileISAToHsaco(const std::string &isa, Location loc,
                               StringRef name);

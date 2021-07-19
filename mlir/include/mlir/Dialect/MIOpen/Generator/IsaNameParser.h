@@ -1,4 +1,4 @@
-//===- BackendUtils.h - MLIR to C++ option parsing ---------------===//
+//===- IsaNameParser.h - MLIR to C++ option parsing ---------------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.

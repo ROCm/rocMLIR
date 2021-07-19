@@ -44,15 +44,15 @@ std::string getChipFromArchName(const std::string &gcnArchName) {
 // This function converts the arch name to target features:
 // sramecc+:xnack- to +sramecc,-xnack
 LogicalResult parseTargetFeatures(std::string &gcnArchFeatures) {
-  LogicalResult status = success();
   // First step: put each feature name to the vector
   std::string token;
   std::vector<std::string> featureTokens;
-  auto convertFeatureToken = [&status](std::string &token) {
+  auto convertFeatureToken =
+      [](std::string &token) -> llvm::Expected<std::string> {
     if (token.back() != '+' && token.back() != '-') {
-      // malformed token: token must end with +/-.
-      status = failure();
-      return token;
+      return llvm::make_error<llvm::StringError>(
+          "Malformed token: must end with +/-.",
+          llvm::inconvertibleErrorCode());
     }
     token.insert(token.begin(), token.back());
     token.pop_back();
@@ -72,8 +72,10 @@ LogicalResult parseTargetFeatures(std::string &gcnArchFeatures) {
     if (featureStart <= featureEnd) {
       std::string token =
           gcnArchFeatures.substr(featureStart, featureEnd - featureStart + 1);
-      featureTokens.push_back(convertFeatureToken(token));
-      if (status.failed()) {
+      auto tokenOrErr = convertFeatureToken(token);
+      if (tokenOrErr) {
+        featureTokens.push_back(*tokenOrErr);
+      } else {
         return failure();
       }
     }
