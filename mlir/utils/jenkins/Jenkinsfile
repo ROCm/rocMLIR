@@ -8,7 +8,7 @@ void buildProject(String target, String cmakeOpts) {
 }
 
 void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
-    git branch: 'develop', poll: false,\
+    git branch: 'mlir-pass-isaname', poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
     cmake arguments: "-P install_deps.cmake --minimum ${prefixOpt}",\
         installation: "InSearchPath"
