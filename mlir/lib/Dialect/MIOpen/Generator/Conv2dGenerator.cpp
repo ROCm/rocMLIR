@@ -1,4 +1,5 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
+#include "mlir/Dialect/MIOpen/Generator/IsaNameParser.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/utility/math.hpp"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -341,16 +342,19 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
         (StringRef(&config.outputLayout[i], 1) + "o").str()));
   }
 
-  // Use only the arch in the lowering process
-  std::string archName = config.arch;
-  std::size_t firstSeperatorLoc = archName.find(':');
-  if (firstSeperatorLoc != std::string::npos) {
-    archName = archName.substr(0, firstSeperatorLoc);
+  // Use only the chip in the lowering process
+  IsaNameParser parser(config.arch);
+  std::string chip;
+  std::string triple;
+  std::string features;
+  auto status = parser.parseIsaName(chip, triple, features);
+  if (status.failed()) {
+    return failure();
   }
 
   std::vector<NamedAttribute> attributes{
       builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(kernel_id)),
-      builder.getNamedAttr("arch", builder.getStringAttr(archName)),
+      builder.getNamedAttr("arch", builder.getStringAttr(chip)),
       builder.getNamedAttr("num_cu", builder.getI32IntegerAttr(config.num_cu)),
 
       builder.getNamedAttr(

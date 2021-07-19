@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/MIOpen/Generator/IsaNameParser.h"
 #include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
 
 #include "llvm/Support/FileUtilities.h"
@@ -39,7 +40,6 @@
 // TODO: remove this once the rocm_agent_enumerator is ready
 #include "hip/hip_runtime.h"
 
-#include <cstring>
 #include <mutex>
 #include <numeric>
 
@@ -47,7 +47,6 @@ using namespace mlir;
 
 static constexpr const char kRunnerProgram[] = "mlir-rocm-runner";
 static constexpr const char kRocmAgentEnumerator[] = "rocm_agent_enumerator";
-static constexpr const char gcnArchDelimiter[] = ":";
 static constexpr const char targetTriple[] = "amdgcn-amd-amdhsa";
 
 namespace {
@@ -57,91 +56,28 @@ void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
   hipError_t result = hipGetDeviceProperties(&props, device);
   if (result != hipSuccess) {
     gcnArchName = "";
+    llvm_unreachable("hipGetDeviceProperties() should never fail");
     return;
   }
 
   const char *pArchName = props.gcnArchName;
   gcnArchName.assign(pArchName);
 }
-
-// This function convert the arch name to target features:
-// gfx908:sramecc+:xnack- to +sramecc,-xnack
-std::string getFeaturesFromArchName(const std::string &gcnArchName) {
-  std::string features;
-
-  // First step: get rid of the arch name in feature string
-  std::size_t firstSeperatorLoc = gcnArchName.find(gcnArchDelimiter);
-  if (firstSeperatorLoc == std::string::npos) {
-    return features;
-  }
-  std::string gcnArchFeature = gcnArchName.substr(firstSeperatorLoc);
-
-  // Second step: put each feature name to the vector
-  std::string token;
-  std::vector<std::string> featureTokens;
-  auto convertFeatureToken = [](std::string &token) {
-    if (token.back() != '+' && token.back() != '-') {
-      llvm::errs() << "malformed token: " << token << ", must end with +/-.\n";
-      return token;
-    }
-    token.insert(token.begin(), token.back());
-    token.pop_back();
-    return token;
-  };
-
-  size_t len = strlen(gcnArchDelimiter);
-  size_t featureStart = 0;
-  size_t featureEnd = 0;
-  for (size_t found = 0;
-       (found = gcnArchFeature.find(gcnArchDelimiter, found)) !=
-       std::string::npos;
-       ++found) {
-    featureStart = found;
-    featureEnd = gcnArchFeature.find(gcnArchDelimiter, found + 1) - len;
-    if (featureEnd == std::string::npos) {
-      featureEnd = gcnArchFeature.size() - 1;
-    }
-    if (featureStart != featureEnd) {
-      std::string token =
-          gcnArchFeature.substr(featureStart + len, featureEnd - featureStart);
-      featureTokens.push_back(convertFeatureToken(token));
-    }
-  }
-
-  // Third step: join processed token back to feature string
-  const static std::string gcnFeatureDelimiter = ",";
-  features = std::accumulate(
-      featureTokens.begin(), featureTokens.end(), std::string(),
-      [](const std::string &features, const std::string &token) {
-        return features.empty() ? token
-                                : features + gcnFeatureDelimiter + token;
-      });
-  return features;
-}
 } // namespace
 
-BackendUtils::BackendUtils(const std::string &defaultTriple,
+BackendUtils::BackendUtils(bool systemOverride,
+                           const std::string &defaultTriple,
                            const std::string &defaultChip,
                            const std::string &defaultFeatures)
     : triple(defaultTriple), chip(defaultChip), features(defaultFeatures) {
-  if (chip.empty())
-    configTargetChip(chip);
-
-  if (triple.empty()) {
+  if (systemOverride) {
     triple = targetTriple;
+    configTargetChip(chip);
+    configTargetFeatures(features);
   }
-
-  // Configure target features per ROCm version, and target GPU.
-  configTargetFeatures(features);
 }
 
-BackendUtils::BackendUtils(const std::string &archName) {
-  triple = targetTriple;
-  features = getFeaturesFromArchName(archName);
-  chip = getChipFromArchName(archName);
-}
-
-BackendUtils::BackendUtils() : BackendUtils("", "", "") {}
+BackendUtils::BackendUtils() : BackendUtils(true, "", "", "") {}
 
 LogicalResult BackendUtils::assembleIsa(const std::string isa, StringRef name,
                                         Blob &result,
@@ -268,7 +204,7 @@ LogicalResult BackendUtils::createHsaco(const Blob &isaBlob, StringRef name,
   return success();
 }
 
-OwnedBlob BackendUtils::compileISAToHsaco(const std::string isa, Location loc,
+OwnedBlob BackendUtils::compileISAToHsaco(const std::string &isa, Location loc,
                                           StringRef name) {
   // ISA -> ISA in binary form via MC.
   // Use lld to create HSA code object.
@@ -361,16 +297,9 @@ void BackendUtils::configTargetChip(std::string &targetChip) {
 void BackendUtils::configTargetFeatures(std::string &features) {
   std::string gcnArchName;
   getGpuGCNArchName(0, gcnArchName);
-  features = getFeaturesFromArchName(gcnArchName);
-}
-
-std::string BackendUtils::getChipFromArchName(const std::string &gcnArchName) {
   std::string chip;
-
-  std::size_t firstSeperatorLoc = gcnArchName.find(gcnArchDelimiter);
-  if (firstSeperatorLoc == std::string::npos) {
-    return gcnArchName;
+  auto status = IsaNameParser::parseArchName(gcnArchName, chip, features);
+  if (status.failed()) {
+    llvm_unreachable("HIP ArchName parsing should never fail.");
   }
-
-  return gcnArchName.substr(0, firstSeperatorLoc);
 }

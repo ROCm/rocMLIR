@@ -382,6 +382,14 @@ static void verifyLayout() {
 }
 
 static void populateDefaults() {
+  // arch is a required field to make lowering succeed. However,
+  // 1. mlir-miopen-lib get it from client
+  // 2. mlir-rocm-runner get it from the host machine
+  // We don't particularly care about this field in the lowering
+  // process unless it is tuning related. Therefore, setting this
+  // field to a default value regardless.
+  arch.setValue("amdgcn-amd-amdhsa:gfx900");
+
   if (populateDefaultValues == true) {
     if (xdlopsV2.getValue() == false) {
       groupSize.setValue(1);
@@ -418,13 +426,13 @@ static void populateDefaults() {
       paddingWidthLeft.setValue(0);
       paddingWidthRight.setValue(0);
       num_cu.setValue(120);
-      arch.setValue("gfx908");
+      arch.setValue("amdgcn-amd-amdhsa:gfx908");
     }
   }
 
   if (xdlopsV2.getValue() == true) {
     num_cu.setValue(120);
-    arch.setValue("gfx908");
+    arch.setValue("amdgcn-amd-amdhsa:gfx908");
   }
 
   auto getOutputDim = [](int64_t inputLen, int64_t filLen, int leftPadLen,

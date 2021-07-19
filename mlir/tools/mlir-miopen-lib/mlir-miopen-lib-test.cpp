@@ -62,6 +62,11 @@ int main(int argc, char **argv) {
 
   } else if (option.getValue() == "bin") {
     int count = miirGetKernelCount(handle);
+
+    if (count < 1) {
+      return MIIR_INVALID_PARAM;
+    }
+
     for (int i = 0; i < count; i++) {
       auto arguments = parameters + " --kernel_id " + std::to_string(i);
 

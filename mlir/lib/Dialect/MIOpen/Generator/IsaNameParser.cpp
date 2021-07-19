@@ -1,0 +1,128 @@
+//===- IsaNameParser.cpp - MLIR to C++ option parsing ---------------===//
+//
+// Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// This file implements isa name string parser
+//
+//===----------------------------------------------------------------------===//
+
+#include "mlir/Dialect/MIOpen/Generator/IsaNameParser.h"
+#include "llvm/Support/Error.h"
+
+#include <cstring>
+#include <numeric>
+#include <vector>
+
+using namespace mlir;
+
+static constexpr const char gcnArchDelimiter[] = ":";
+
+namespace {
+LogicalResult getTripleFromIsaName(const std::string &isaName,
+                                   std::string &triple) {
+  std::size_t firstSeperatorLoc = isaName.find(gcnArchDelimiter);
+  if (firstSeperatorLoc == std::string::npos) {
+    return failure();
+  }
+  triple = isaName.substr(0, firstSeperatorLoc);
+  return success();
+}
+
+std::string getChipFromArchName(const std::string &gcnArchName) {
+  std::size_t firstSeperatorLoc = gcnArchName.find(gcnArchDelimiter);
+  if (firstSeperatorLoc == std::string::npos) {
+    return gcnArchName;
+  }
+
+  return gcnArchName.substr(0, firstSeperatorLoc);
+}
+
+// This function converts the arch name to target features:
+// sramecc+:xnack- to +sramecc,-xnack
+LogicalResult parseTargetFeatures(std::string &gcnArchFeatures) {
+  LogicalResult status = success();
+  // First step: put each feature name to the vector
+  std::string token;
+  std::vector<std::string> featureTokens;
+  auto convertFeatureToken = [&status](std::string &token) {
+    if (token.back() != '+' && token.back() != '-') {
+      // malformed token: token must end with +/-.
+      status = failure();
+      return token;
+    }
+    token.insert(token.begin(), token.back());
+    token.pop_back();
+    return token;
+  };
+
+  size_t len = strlen(gcnArchDelimiter);
+  size_t featureStart = 0;
+  size_t featureEnd = 0;
+  for (size_t found = 0; featureStart < gcnArchFeatures.size(); ++found) {
+    found = gcnArchFeatures.find(gcnArchDelimiter, found);
+    if (found == std::string::npos) {
+      featureEnd = gcnArchFeatures.size() - 1;
+    } else {
+      featureEnd = found - len;
+    }
+    if (featureStart <= featureEnd) {
+      std::string token =
+          gcnArchFeatures.substr(featureStart, featureEnd - featureStart + 1);
+      featureTokens.push_back(convertFeatureToken(token));
+      if (status.failed()) {
+        return failure();
+      }
+    }
+
+    featureStart = featureEnd + len + 1;
+  }
+
+  // Second step: join processed token back to feature string
+  const static std::string gcnFeatureDelimiter = ",";
+  gcnArchFeatures = std::accumulate(
+      featureTokens.begin(), featureTokens.end(), std::string(),
+      [](const std::string &features, const std::string &token) {
+        return features.empty() ? token
+                                : features + gcnFeatureDelimiter + token;
+      });
+  return success();
+}
+
+} // namespace
+
+IsaNameParser::IsaNameParser(const std::string &isa) : isaName(isa) {}
+
+LogicalResult IsaNameParser::parseIsaName(std::string &chip,
+                                          std::string &triple,
+                                          std::string &features) {
+  size_t len = strlen(gcnArchDelimiter);
+  auto status = getTripleFromIsaName(isaName, triple);
+  if (status.failed()) {
+    return failure();
+  }
+  std::string archName = isaName.substr(triple.size() + len);
+  return parseArchName(archName, chip, features);
+}
+
+LogicalResult IsaNameParser::parseArchName(const std::string &archName,
+                                           std::string &chip,
+                                           std::string &features) {
+  size_t len = strlen(gcnArchDelimiter);
+  chip = getChipFromArchName(archName);
+
+  if (archName == chip) {
+    features = "";
+  } else {
+    features = archName.substr(chip.size() + len);
+    auto status = parseTargetFeatures(features);
+    if (status.failed()) {
+      return failure();
+    }
+  }
+
+  return success();
+}
