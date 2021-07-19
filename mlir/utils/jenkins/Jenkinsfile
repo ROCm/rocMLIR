@@ -7,7 +7,7 @@ void buildProject(String target, String cmakeOpts) {
         cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
 }
 
-void getAndBuildMIOpen(Strig prefixOpt, String cmakeOpts) {
+void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
     git branch: 'develop', poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
     cmake arguments: "-P install_deps.cmake --minimum ${prefixOpt}",\
@@ -25,6 +25,7 @@ void getAndBuildMIOpen(Strig prefixOpt, String cmakeOpts) {
 }
 
 void showEnv() {
+    sh 'hostname'
     sh 'cat /etc/os-release'
     sh '/opt/rocm/bin/rocm-smi'
 }
