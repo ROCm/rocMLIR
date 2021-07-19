@@ -19,12 +19,12 @@
 
 using namespace mlir;
 
-static constexpr const char gcnArchDelimiter[] = ":";
+static constexpr const char kGcnArchDelimiter[] = ":";
 
 namespace {
 LogicalResult getTripleFromIsaName(const std::string &isaName,
                                    std::string &triple) {
-  std::size_t firstSeperatorLoc = isaName.find(gcnArchDelimiter);
+  std::size_t firstSeperatorLoc = isaName.find(kGcnArchDelimiter);
   if (firstSeperatorLoc == std::string::npos) {
     return failure();
   }
@@ -33,7 +33,7 @@ LogicalResult getTripleFromIsaName(const std::string &isaName,
 }
 
 std::string getChipFromArchName(const std::string &gcnArchName) {
-  std::size_t firstSeperatorLoc = gcnArchName.find(gcnArchDelimiter);
+  std::size_t firstSeperatorLoc = gcnArchName.find(kGcnArchDelimiter);
   if (firstSeperatorLoc == std::string::npos) {
     return gcnArchName;
   }
@@ -59,11 +59,11 @@ LogicalResult parseTargetFeatures(std::string &gcnArchFeatures) {
     return token;
   };
 
-  size_t len = strlen(gcnArchDelimiter);
+  size_t len = strlen(kGcnArchDelimiter);
   size_t featureStart = 0;
   size_t featureEnd = 0;
   for (size_t found = 0; featureStart < gcnArchFeatures.size(); ++found) {
-    found = gcnArchFeatures.find(gcnArchDelimiter, found);
+    found = gcnArchFeatures.find(kGcnArchDelimiter, found);
     if (found == std::string::npos) {
       featureEnd = gcnArchFeatures.size() - 1;
     } else {
@@ -101,7 +101,7 @@ IsaNameParser::IsaNameParser(const std::string &isa) : isaName(isa) {}
 LogicalResult IsaNameParser::parseIsaName(std::string &chip,
                                           std::string &triple,
                                           std::string &features) {
-  size_t len = strlen(gcnArchDelimiter);
+  size_t len = strlen(kGcnArchDelimiter);
   auto status = getTripleFromIsaName(isaName, triple);
   if (status.failed()) {
     return failure();
@@ -113,7 +113,7 @@ LogicalResult IsaNameParser::parseIsaName(std::string &chip,
 LogicalResult IsaNameParser::parseArchName(const std::string &archName,
                                            std::string &chip,
                                            std::string &features) {
-  size_t len = strlen(gcnArchDelimiter);
+  size_t len = strlen(kGcnArchDelimiter);
   chip = getChipFromArchName(archName);
 
   if (archName == chip) {
