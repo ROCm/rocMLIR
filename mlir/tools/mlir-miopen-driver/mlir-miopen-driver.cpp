@@ -494,11 +494,9 @@ static mlir::Value allocAndInitializeTensor(OpBuilder &builder, Block *block,
   return cpuAllocOp;
 }
 
-static FuncOp
-createConvertTensor(ModuleOp &module, OpBuilder &builder,
-                    mlir::MemRefType &originalMemRefType,
-                    mlir::MemRefType &convertedMemRefType,
-                    std::unordered_map<std::string, FuncOp> &convertFuncs) {
+static FuncOp createConvertTensor(ModuleOp &module, OpBuilder &builder,
+                                  mlir::MemRefType &originalMemRefType,
+                                  mlir::MemRefType &convertedMemRefType) {
   std::string funcName = "convert_tensor";
   auto originalMemRefShape = originalMemRefType.getShape();
   funcName += std::to_string(originalMemRefShape[0]);
@@ -514,19 +512,24 @@ createConvertTensor(ModuleOp &module, OpBuilder &builder,
   else
     funcName += "xi16";
 
+  FuncOp convertFuncOp;
   // Does a conversion function already exist?
-  std::unordered_map<std::string, FuncOp>::const_iterator it =
-      convertFuncs.find(funcName);
-
-  if (it != convertFuncs.end()) // Reuse an existing function
-    return it->second;
+  auto walkResult = module.walk([&](FuncOp funcOp) -> WalkResult {
+    if (funcOp.getName() == funcName) {
+      convertFuncOp = funcOp;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (walkResult.wasInterrupted()) { // Reuse an existing function
+    return convertFuncOp;
+  }
 
   // Otherwise create a new conversion function
   auto convertResultFuncOp = FuncOp::create(
       builder.getUnknownLoc(), StringRef(funcName),
       builder.getFunctionType({originalMemRefType, convertedMemRefType}, {}));
   module.push_back(convertResultFuncOp);
-  convertFuncs[funcName] = convertResultFuncOp;
 
   // Construct a new Block.
   Block *block = convertResultFuncOp.addEntryBlock();
@@ -612,8 +615,7 @@ static mlir::Value
 allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
                    mlir::FuncOp &mcpuMemCopy5DFuncOp,
                    mlir::Value sourceOriginalAllocOp,
-                   const SmallVector<int64_t, 5> &sourceDimension,
-                   std::unordered_map<std::string, FuncOp> &convertFuncs) {
+                   const SmallVector<int64_t, 5> &sourceDimension) {
   auto sourceMemRefType =
       sourceOriginalAllocOp.getType().template dyn_cast<MemRefType>();
   auto dataType = sourceMemRefType.getElementType();
@@ -635,8 +637,8 @@ allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
 
   if (dataType == builder.getF16Type()) { // f16
     // Create conversion routine
-    auto convertResultFuncOp = createConvertTensor(
-        module, builder, sourceMemRefType, floatMemRefType, convertFuncs);
+    auto convertResultFuncOp =
+        createConvertTensor(module, builder, sourceMemRefType, floatMemRefType);
     auto convertResultCallOp =
         builder.create<CallOp>(builder.getUnknownLoc(), convertResultFuncOp,
                                ValueRange{sourceOriginalAllocOp, cpuAllocOp});
@@ -907,8 +909,7 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
 static mlir::Value
 getConvertedCpuResults(ModuleOp &module, OpBuilder &builder, Block *block,
                        mlir::Value cpuOriginalAllocOp,
-                       mlir::MemRefType &convertedMemRefType,
-                       std::unordered_map<std::string, FuncOp> &convertFuncs) {
+                       mlir::MemRefType &convertedMemRefType) {
   auto dataType = convertedMemRefType.getElementType();
 
   if (dataType == builder.getF32Type())
@@ -925,7 +926,7 @@ getConvertedCpuResults(ModuleOp &module, OpBuilder &builder, Block *block,
 
     // Create conversion routine f32->f16
     auto convertFuncOp = createConvertTensor(
-        module, builder, originalMemRefType, convertedMemRefType, convertFuncs);
+        module, builder, originalMemRefType, convertedMemRefType);
     auto convertResultCallOp = builder.create<CallOp>(
         builder.getUnknownLoc(), convertFuncOp,
         ValueRange{cpuOriginalAllocOp, cpuConvertedResults});
@@ -1194,16 +1195,15 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   }
 
   FuncOp mgpuMemAlloc5DFuncOp;
-  bool allocFuncExist = false;
-  module.walk([&](FuncOp funcOp) -> WalkResult {
+  auto walkResult = module.walk([&](FuncOp funcOp) -> WalkResult {
     if (funcOp.getName() == gpuMemAllocFuncName) {
       mgpuMemAlloc5DFuncOp = funcOp;
-      allocFuncExist = true;
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
-  if (!allocFuncExist) {
+  // Build an alloc function if it didn't already exist
+  if (!walkResult.wasInterrupted()) {
     mgpuMemAlloc5DFuncOp = makeFuncDecl(builder, gpuMemAllocFuncName,
                                         {fiveDimUnknownSizeMemRefType},
                                         {fiveDimUnknownSizeMemRefType});
@@ -1243,16 +1243,14 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   }
 
   FuncOp mgpuMemCopy5DFuncOp;
-  bool copyFuncExist = false;
-  module.walk([&](FuncOp funcOp) -> WalkResult {
+  walkResult = module.walk([&](FuncOp funcOp) -> WalkResult {
     if (funcOp.getName() == gpuMemCopyFuncName) {
       mgpuMemCopy5DFuncOp = funcOp;
-      copyFuncExist = true;
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
-  if (!copyFuncExist) {
+  if (!walkResult.wasInterrupted()) {
     mgpuMemCopy5DFuncOp =
         makeFuncDecl(builder, gpuMemCopyFuncName,
                      {fiveDimUnknownSizeMemRefType,
@@ -1342,16 +1340,14 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   }
 
   FuncOp mgpuMemDealloc5DFuncOp;
-  bool deallocFuncExist = false;
-  module.walk([&](FuncOp funcOp) -> WalkResult {
+  walkResult = module.walk([&](FuncOp funcOp) -> WalkResult {
     if (funcOp.getName() == gpuMemDeallocFuncName) {
       mgpuMemDealloc5DFuncOp = funcOp;
-      deallocFuncExist = true;
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
-  if (!deallocFuncExist) {
+  if (!walkResult.wasInterrupted()) {
     mgpuMemDealloc5DFuncOp = makeFuncDecl(builder, gpuMemDeallocFuncName,
                                           {fiveDimUnknownSizeMemRefType}, {});
     module.push_back(mgpuMemDealloc5DFuncOp);
@@ -1702,10 +1698,8 @@ static LogicalResult populateHostHarnessLogic(
 
     } else { // f32 or f16
       // Emit type conversion routine to convert every element to f32.
-      std::unordered_map<std::string, FuncOp> convertFuncs;
-      auto convertResultFuncOp =
-          createConvertTensor(module, builder, resultOriginalCpuType,
-                              printMemRefType, convertFuncs);
+      auto convertResultFuncOp = createConvertTensor(
+          module, builder, resultOriginalCpuType, printMemRefType);
       auto convertResultCallOp = builder.create<CallOp>(
           builder.getUnknownLoc(), convertResultFuncOp,
           ValueRange{resultOriginalCpuValue, printHostAllocOp});
@@ -1903,7 +1897,6 @@ static LogicalResult populateValidationLogic(
   }
 
   // Prepare input data for verifier convolution.
-  std::unordered_map<std::string, FuncOp> convertFuncs;
   mlir::Value verifierFilterHostAllocOp, verifierInputHostAllocOp,
       verifierOutputHostAllocOp;
   if (randomSeed.getValue() == "none") {
@@ -1929,10 +1922,10 @@ static LogicalResult populateValidationLogic(
     case miopen::Conv2DOpType:
       verifierFilterHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                             filterHostAllocOp, filterDimension, convertFuncs);
+                             filterHostAllocOp, filterDimension);
       verifierInputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                             inputHostAllocOp, inputDimension, convertFuncs);
+                             inputHostAllocOp, inputDimension);
       verifierOutputHostAllocOp = allocAndInitializeTensor(
           builder, block, floatType, mcpuMemset5DFuncOp, outputMemRefType,
           memsetValue, memsetValue, seedConstantIntOp);
@@ -1940,13 +1933,13 @@ static LogicalResult populateValidationLogic(
     case miopen::Conv2DBwdDataOpType:
       verifierFilterHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                             filterHostAllocOp, filterDimension, convertFuncs);
+                             filterHostAllocOp, filterDimension);
       verifierInputHostAllocOp = allocAndInitializeTensor(
           builder, block, floatType, mcpuMemset5DFuncOp, inputMemRefType,
           memsetValue, memsetValue, seedConstantIntOp);
       verifierOutputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                             outputHostAllocOp, outputDimension, convertFuncs);
+                             outputHostAllocOp, outputDimension);
       break;
     case miopen::Conv2DBwdWeightOpType:
       verifierFilterHostAllocOp = allocAndInitializeTensor(
@@ -1954,10 +1947,10 @@ static LogicalResult populateValidationLogic(
           memsetValue, memsetValue, seedConstantIntOp);
       verifierInputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                             inputHostAllocOp, inputDimension, convertFuncs);
+                             inputHostAllocOp, inputDimension);
       verifierOutputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                             outputHostAllocOp, outputDimension, convertFuncs);
+                             outputHostAllocOp, outputDimension);
       break;
     }
   }
@@ -2009,9 +2002,8 @@ static LogicalResult populateValidationLogic(
   if (dataType == builder.getF32Type()) {
     verifierConvertedResults = verifierResults;
   } else {
-    verifierConvertedResults =
-        getConvertedCpuResults(module, builder, block, verifierResults,
-                               gpuOriginalResultType, convertFuncs);
+    verifierConvertedResults = getConvertedCpuResults(
+        module, builder, block, verifierResults, gpuOriginalResultType);
   }
 
   mlir::FuncOp verifyFuncOp;
@@ -2143,7 +2135,6 @@ static LogicalResult populateCpuConvolutionLogic(
   auto cpuOutputHostAllocOp = cpuOutputAllocOp;
 
   mlir::FuncOp mcpuMemCopy5DFuncOp;
-  std::unordered_map<std::string, FuncOp> convertFuncs;
   if (dataType != builder.getF32Type()) {
     // CPU bf16->f32 conversion function
     mcpuMemCopy5DFuncOp = makeFuncDecl(
@@ -2155,13 +2146,13 @@ static LogicalResult populateCpuConvolutionLogic(
     // Emit CPU alloc and conversion function calls
     cpuFilterHostAllocOp =
         allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                           cpuFilterAllocOp, filterDimension, convertFuncs);
+                           cpuFilterAllocOp, filterDimension);
     cpuInputHostAllocOp =
         allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                           cpuInputAllocOp, inputDimension, convertFuncs);
+                           cpuInputAllocOp, inputDimension);
     cpuOutputHostAllocOp =
         allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                           cpuOutputAllocOp, outputDimension, convertFuncs);
+                           cpuOutputAllocOp, outputDimension);
   }
 
   //
@@ -2218,7 +2209,7 @@ static LogicalResult populateCpuConvolutionLogic(
   if (dataType != builder.getF32Type())
     // Convert Cpu results of f32 to desired dataType
     cpuConvertedResults = getConvertedCpuResults(
-        module, builder, block, cpuResults, dataTypeMemRefType, convertFuncs);
+        module, builder, block, cpuResults, dataTypeMemRefType);
 
   // Convert CPU results to f32 for printing
   auto printAllocOp = cpuConvertedResults;
@@ -2248,7 +2239,7 @@ static LogicalResult populateCpuConvolutionLogic(
     } else { // f16
       // Emit type conversion routine to convert every element to f32.
       auto convertResultFuncOp = createConvertTensor(
-          module, builder, dataTypeMemRefType, floatMemRefType, convertFuncs);
+          module, builder, dataTypeMemRefType, floatMemRefType);
       auto convertResultCallOp =
           builder.create<CallOp>(builder.getUnknownLoc(), convertResultFuncOp,
                                  ValueRange{cpuConvertedResults, printAllocOp});
@@ -2313,17 +2304,15 @@ static LogicalResult populateKernelLaunchLogic(
     const SmallVector<std::string, 4> &kernels, const std::string entryPoint) {
   // Check if populate entry point exist.
   FuncOp theFunc;
-  bool entryPointExist = false;
-  module.walk([&](FuncOp funcOp) -> WalkResult {
+  auto walkResult = module.walk([&](FuncOp funcOp) -> WalkResult {
     if (funcOp.getName() == entryPoint) {
-      entryPointExist = true;
       theFunc = funcOp;
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
 
-  if (!entryPointExist) {
+  if (!walkResult.wasInterrupted()) {
     // do not fail for now. silent exit.
     // return failure();
     return success();
