@@ -318,16 +318,6 @@ def MIGraphX_FusedGroupOp :
 
   let regions = (region AnyRegion:$body);
 
-/*
-  let assemblyFormat = [{ `(` $kernelArgs `)` `:`
-    ref($kernelArgs) type($kernelArgs)
-    ref($results) type($results)
-    attr-dict
-    `=` `\n` ` ` ` `
-    (ref(type($kernelArgs)), ref(type($results)) 
-    $body)
-  }];
-*/
   let assemblyFormat = "`(`$kernelArgs`)` attr-dict `:` `(`type($kernelArgs)`)` `->` type($output) `=` $body";
 
   let verifier = [{ return success(); }];

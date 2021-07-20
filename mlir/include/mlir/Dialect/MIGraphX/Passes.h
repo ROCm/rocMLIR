@@ -22,6 +22,7 @@ namespace migraphx {
 
 /// Create passes for MIGraphX
 std::unique_ptr<Pass> createMIGraphXIRDumpPass();
+std::unique_ptr<Pass> createGroupFusablesPass();
 
 #define GEN_PASS_REGISTRATION
 #include "mlir/Dialect/MIGraphX/Passes.h.inc"
