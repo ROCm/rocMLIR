@@ -359,6 +359,10 @@ static void correctParameters() {
   }
 
   // adjust the padding size
+  // getOutputDim can give us correct output size
+  // output size = input size+ padding size
+  // then -(filter size-1) * dilation size -1
+  // ,/ stride size and add 1
   auto getOutputDim = [](int64_t inputLen, int64_t filLen, int leftPadLen,
                          int rightPadLen, int strideLen, int dilLen) {
     return (inputLen + leftPadLen + rightPadLen - (filLen - 1) * dilLen - 1) /
@@ -374,6 +378,11 @@ static void correctParameters() {
   int ho = getOutputDim(hi, y, in_left_pad_h, paddingHeightRight.getValue(),
                         conv_stride_h, conv_dilation_h);
   int hi_padded = 1 + (y - 1) * conv_dilation_h + (ho - 1) * conv_stride_h;
+  // we got correct output size via getOutputDim, before adjusting size
+  // we have original output size from user , but we need to check the padding
+  // size so we use output size to calculate original input size add pad size,
+  // hi_padded if hi_padded is equal to hi + in_left_pad_h , no adjusting but if
+  // not equal, need extra padding hi_padded - (hi + in_left_pad_h)
   int in_right_pad_h =
       hi_padded > (hi + in_left_pad_h) ? hi_padded - (hi + in_left_pad_h) : 0;
   paddingHeightRight.setValue(in_right_pad_h);

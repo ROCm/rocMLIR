@@ -3919,12 +3919,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            b.getArrayAttr({b.getStringAttr("hi"),
                                            b.getStringAttr("wi")}))};
         auto isInputHipBoundCheck = [&]() {
-          // FIXME:  wTildaSlice > wo will let padding kernel fail,
-          // we need to fix the padding kernel in next step
-          // but this logic(wTildaSlice > wo) is correct
-          // when using padding kernel, don't add hi,wi at this moment
-          // if stride =1 and wTildaSlice > wo , don't do additional check
-          // or the padding kernel will fail due to it only check dim no
+          // FIXME:  wTildaSlice > wo will let stride2 backwaed data kernel
+          // fail, so when (wTildaSlice > wo),  h and w dim check is must but if
+          // stride =1 and wTildaSlice > wo , don't do additional check or the
+          // padding kernel will fail due compiler issue
           if ((wTildaSlice > wo && strideW > 1) ||
               (hTildaSlice > ho && strideH > 1))
             return true;
