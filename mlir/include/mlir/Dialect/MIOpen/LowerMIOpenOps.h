@@ -3835,6 +3835,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            b.getArrayAttr({b.getStringAttr("hi"),
                                            b.getStringAttr("wi")}))};
         auto isInputHipBoundCheck = [&]() {
+          // FIXME:  wTildaSlice > wo will let stride2 backwaed data kernel
+          // fail, so when (wTildaSlice > wo),  h and w dim check is must but if
+          // stride =1 and wTildaSlice > wo , don't do additional check or the
+          // padding kernel will fail due compiler issue
+          if ((wTildaSlice > wo && strideW > 1) ||
+              (hTildaSlice > ho && strideH > 1))
+            return true;
           // if pad = 0 , not need oob check
           if (leftPadH == 0 && rightPadH == 0 && leftPadW == 0 &&
               rightPadW == 0)
@@ -3847,10 +3854,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         };
         if (isInputHipBoundCheck()) {
           llvm::SmallVector<IntegerAttr, 2> padDim;
-          if (leftPadH || rightPadH) {
+          if (leftPadH || rightPadH || (hTildaSlice > ho && strideH > 1)) {
             inputOobCheckDims.insert(currentKeyToDim["hi"]);
           }
-          if (leftPadW || rightPadW) {
+          if (leftPadW || rightPadW || (wTildaSlice > wo && strideW > 1)) {
             inputOobCheckDims.insert(currentKeyToDim["wi"]);
           }
         }
