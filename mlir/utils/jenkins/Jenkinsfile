@@ -206,13 +206,29 @@ pipeline {
                                     -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
                                     -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/MIOpenInstallDir
                                     ''')
+                                    sh 'cd build; make -j $(nproc)'
                                     sh 'cd build; make install'
                                 }
                             }
                         }
                         stage("Build MLIR") {
                             steps {
-                                buildProject('mlir-miopen-driver mlir-rocm-runner MIOpenDriver.py', '')
+                                buildProject('mlir-miopen-driver mlir-rocm-runner ci-performance-scripts', '')
+                            }
+                        }
+                        stage("TEMPORARY Install python dependencies") {
+                            steps {
+                                sh 'pip3 install pandas numpy scipy jinja2'
+                            }
+                        }
+                        stage('Copy earlier performance results') {
+                            steps {
+                                copyArtifacts filter: 'build/*.csv',\
+                                                optional: true,\
+                                                flatten: true,\
+                                                projectName: "${JOB_BASE_NAME}",\
+                                                selector: lastSuccessful(),\
+                                                target: 'oldData'
                             }
                         }
                         stage('Performance Test') {
@@ -221,15 +237,27 @@ pipeline {
                                 dir('build') {
                                     // Run MLIR perf benchmarks
                                     sh 'python3 ./llvm/MIOpenDriver.py'
+                                    // Generate report on performance changes
+                                    sh 'python3 ./llvm/perfRegressionReport.py'
                                 }
                                 publishHTML (target: [
                                     allowMissing: false,
                                     alwaysLinkToLastBuild: false,
                                     keepAll: true,
                                     reportDir: 'build',
-                                    reportFiles: 'MLIR_vs_MIOpen.html',
-                                    reportName: "MLIR vs MIOpen performance"
+                                    reportFiles: ['MLIR_Performance_Changes.html', 'MLIR_vs_MIOpen.html']
+                                    reportName: "Performance report"
                                 ])
+                                
+                                plot csvFiileName: 'plot-nightly-perf-results-000001.csv',\
+                                    csvSeries: [[file: 'build/mlir_vs_miopen_perf_means.csv', displayTableFlag: false]],\
+                                    title: 'Test performance summary',\
+                                    yaxis: 'TFlops',\
+                                    hasLegend: true,\
+                                    series: ['MLIR', 'MIOpen']\
+
+                                // Save results for future comparison
+                                archiveArtifacts artifacts: 'build/*.csv', onlyIfSuccessful: true
                             }
                         }
                     }
