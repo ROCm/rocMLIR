@@ -1377,6 +1377,17 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   const static miopen::ConvOpType convOpType;
   using OpRewritePattern<T>::OpRewritePattern;
 
+  int64_t computeKPack(PatternRewriter &b, int64_t gemmK_size,
+                       Type inputElementType) const {
+    // FIXME. Only support f16 type for now.
+    // FIXME. Hard-code KPack as 4 for now.
+    int64_t KPack = (inputElementType == b.getF16Type()) ? 4 : 1;
+    while (gemmK_size % KPack != 0)
+      KPack /= 2;
+    // llvm::errs() << "KPack: " << KPack << "\n";
+    return KPack;
+  }
+
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
     bool isXdlops = false;
     auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
@@ -1384,6 +1395,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       isXdlops = true;
     auto dataType =
         op.input().getType().template cast<MemRefType>().getElementType();
+    // FIXME: implement KPACK logic for backward data.
     if (miopen::ConvOpType::Conv2DBwdDataOpType == convOpType) {
       return backwardData(op, b);
     }
@@ -1574,6 +1586,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // compute padding hi/wi.
     auto hiPadded = hi + leftPadH + rightPadH;
     auto wiPadded = wi + leftPadW + rightPadW;
+
+    // Compute KPACK.
+    assert(filterElementType == inputElementType);
+    // FIXME. Take gemmKExtra into consideration.
+    int64_t KPACK = computeKPack(b, gemmK_size, filterElementType);
+
     // Transform filter tensor.
 
     // Y/X dimension for filter tensor.
@@ -3374,6 +3392,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto hiPadded = hi + leftPadH + rightPadH;
     auto wiPadded = wi + leftPadW + rightPadW;
 
+    // Compute how to dissect backward data into smaller convolutions.
     auto gcdStrideDilationH = math::gcd(strideH, dilationH);
     auto gcdStrideDilationW = math::gcd(strideW, dilationW);
 
