@@ -1746,8 +1746,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           "layout", b.getArrayAttr({
                         b.getDictionaryAttr({ArrayRef<NamedAttribute>(
                             layoutAttr0.begin(), layoutAttr0.end())}),
-
-                        // Part 2: Passthrough part.
                         b.getDictionaryAttr({ArrayRef<NamedAttribute>(
                             layoutAttr1.begin(), layoutAttr1.end())}),
                         b.getDictionaryAttr({ArrayRef<NamedAttribute>(
@@ -1786,11 +1784,14 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // set lowest_layer attribute.
     transformedFilterAttrs.push_back(
         b.getNamedAttr("lowest_layer", b.getBoolAttr(true)));
-    auto gemmA = b.create<miopen::TransformOp>(
+    Value gemmA = b.create<miopen::TransformOp>(
         loc, transformedFilterMemRefType, op.filter(), transformedFilterAttrs,
         /*populateBounds=*/true);
 
-    auto gemmAPad = gemmA;
+    Value gemmAPad = gemmA;
+    llvm::SmallVector<NamedAttribute, 3> paddingFilterAttrs;
+    llvm::SmallVector<int64_t, 2> paddingFilterShape;
+
     bool isFilterPad = false;
     SmallString<8> gemmKPad_name("gemmKPad");
     SmallString<8> gemmMPad_name("gemmMPad");
@@ -1822,9 +1823,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       bool isGemmDim1Pad = false;
       bool isGemmDim2Pad = false;
-
-      llvm::SmallVector<NamedAttribute, 3> paddingFilterAttrs;
-      llvm::SmallVector<int64_t, 2> paddingFilterShape;
 
       llvm::SmallVector<NamedAttribute, 0> layoutAttr0;
       llvm::SmallVector<NamedAttribute, 0> layoutAttr1;
@@ -2635,11 +2633,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         b.getI32IntegerAttr(fields.gridwiseGemmArgumentPosition[1])));
     auto transformedInputMemRefType =
         MemRefType::get(transformedInputShape, inputElementType);
-    auto gemmB = b.create<miopen::TransformOp>(
+    Value gemmB = b.create<miopen::TransformOp>(
         loc, transformedInputMemRefType, embeddedInput, transformedInputAttrs,
         /*populateBounds=*/true);
 
-    auto gemmBPad = gemmB;
+    Value gemmBPad = gemmB;
     bool isInputPad = false;
     // input padding start
     // input : NHW & CRS , if CRS is under 64 or 32
@@ -3004,11 +3002,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // set lowest_layer attribute.
     transformedOutputAttrs.push_back(
         b.getNamedAttr("lowest_layer", b.getBoolAttr(true)));
-    auto gemmC = b.create<miopen::TransformOp>(
+    Value gemmC = b.create<miopen::TransformOp>(
         loc, transformedOutputMemRefType, op.output(), transformedOutputAttrs,
         /*populateBounds=*/true);
 
-    auto gemmCPad = gemmC;
+    Value gemmCPad = gemmC;
     bool isOutputPad = false;
     // output padding start
     // output matrix dim: K & NHW
