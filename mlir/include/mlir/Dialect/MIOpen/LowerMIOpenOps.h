@@ -1601,11 +1601,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     llvm::SmallVector<NamedAttribute, 3> transformedFilterAttrs;
 
-    SmallString<5> arg0TargetLayoutName0("gemmG");
-    SmallString<4> arg0TargetLayoutName1("gemm");
-    arg0TargetLayoutName1.append(fields.gemmTargetCharName[0].substr(0, 1));
-    SmallString<4> arg0TargetLayoutName2("gemm");
-    arg0TargetLayoutName2.append(fields.gemmTargetCharName[0].substr(1, 1));
+    llvm::SmallVector<SmallString<8>, 3> arg0TargetLayoutName;
+    arg0TargetLayoutName.push_back(SmallString<8>{"gemmG"});
+    arg0TargetLayoutName.push_back(SmallString<8>{"gemm"});
+    arg0TargetLayoutName[1].append(fields.gemmTargetCharName[0].substr(0, 1));
+    arg0TargetLayoutName.push_back(SmallString<8>{"gemm"});
+    arg0TargetLayoutName[2].append(fields.gemmTargetCharName[0].substr(1, 1));
 
     // filter dims need oob check
     llvm::DenseSet<int> filterOobCheckDims;
@@ -1696,19 +1697,19 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           b.getNamedAttr("upper_layer_dimensions",
                          b.getArrayAttr({b.getI32IntegerAttr(0)})),
           b.getNamedAttr("upper_layer_names", b.getArrayAttr({b.getStringAttr(
-                                                  arg0TargetLayoutName0)}))};
+                                                  arg0TargetLayoutName[0])}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemm1DimAttr{
           b.getNamedAttr("upper_layer_dimensions",
                          b.getArrayAttr({b.getI32IntegerAttr(1)})),
           b.getNamedAttr("upper_layer_names", b.getArrayAttr({b.getStringAttr(
-                                                  arg0TargetLayoutName1)}))};
+                                                  arg0TargetLayoutName[1])}))};
 
       llvm::SmallVector<NamedAttribute, 3> targetGemm2DimAttr{
           b.getNamedAttr("upper_layer_dimensions",
                          b.getArrayAttr({b.getI32IntegerAttr(2)})),
           b.getNamedAttr("upper_layer_names", b.getArrayAttr({b.getStringAttr(
-                                                  arg0TargetLayoutName2)}))};
+                                                  arg0TargetLayoutName[2])}))};
 
       llvm::SmallVector<NamedAttribute, 0> layoutAttr0;
       llvm::SmallVector<NamedAttribute, 0> layoutAttr1;
@@ -1758,9 +1759,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // set upper_layer_layout attribute.
     transformedFilterAttrs.push_back(b.getNamedAttr(
         "upper_layer_layout",
-        b.getArrayAttr({b.getStringAttr(arg0TargetLayoutName0),
-                        b.getStringAttr(arg0TargetLayoutName1),
-                        b.getStringAttr(arg0TargetLayoutName2)})));
+        b.getArrayAttr({b.getStringAttr(arg0TargetLayoutName[0]),
+                        b.getStringAttr(arg0TargetLayoutName[1]),
+                        b.getStringAttr(arg0TargetLayoutName[2])})));
     // set gridwise_gemm_argument_pos attribute.
     transformedFilterAttrs.push_back(b.getNamedAttr(
         "gridwise_gemm_argument_position",
@@ -1816,7 +1817,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         (convOpType == miopen::ConvOpType::Conv2DBwdWeightOpType &&
          gemmNExtra > 0);
     if (filterCheckPadGemmM || filterCheckPadGemmK || filterCheckPadGemmN) {
-      StringAttr gemmDim0TargetName = b.getStringAttr(arg0TargetLayoutName0);
+      StringAttr gemmDim0TargetName = b.getStringAttr(arg0TargetLayoutName[0]);
       StringAttr gemmDim1TargetName;
       StringAttr gemmDim2TargetName;
 
@@ -1830,11 +1831,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       llvm::SmallVector<NamedAttribute, 0> layoutAttr1;
       llvm::SmallVector<NamedAttribute, 0> layoutAttr2;
 
-      StringAttr gemmDim0Name = b.getStringAttr(arg0TargetLayoutName0);
+      StringAttr gemmDim0Name = b.getStringAttr(arg0TargetLayoutName[0]);
       IntegerAttr GemmDim0 = b.getI32IntegerAttr(0);
-      StringAttr gemmDim1Name = b.getStringAttr(arg0TargetLayoutName1);
+      StringAttr gemmDim1Name = b.getStringAttr(arg0TargetLayoutName[1]);
       IntegerAttr GemmDim1 = b.getI32IntegerAttr(1);
-      StringAttr gemmDim2Name = b.getStringAttr(arg0TargetLayoutName2);
+      StringAttr gemmDim2Name = b.getStringAttr(arg0TargetLayoutName[2]);
       IntegerAttr GemmDim2 = b.getI32IntegerAttr(2);
 
       paddingFilterShape.push_back(transformedFilterShape[0]);
@@ -1866,7 +1867,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
       // gemmdim0 is G, only pad gemmdim1 and gemmdim2
       if (filterCheckPadGemmK) {
-        if (arg0TargetLayoutName1 == "gemmK") {
+        if (arg0TargetLayoutName[1] == "gemmK") {
           isFilterPad = true;
           isGemmDim1Pad = true;
           gemmDim1TargetName = b.getStringAttr(gemmKPad_name);
@@ -1896,7 +1897,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       }
 
       if (filterCheckPadGemmM) {
-        if (arg0TargetLayoutName1 == "gemmM") {
+        if (arg0TargetLayoutName[1] == "gemmM") {
           // backward weights
           isFilterPad = true;
           isGemmDim1Pad = true;
@@ -1914,7 +1915,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
           targetGemmDim1Attr.push_back(b.getNamedAttr(
               "names", b.getArrayAttr({b.getStringAttr(gemmMPad_name)})));
-        } else if (arg0TargetLayoutName2 == "gemmM") {
+        } else if (arg0TargetLayoutName[2] == "gemmM") {
           // forward
           isFilterPad = true;
           isGemmDim2Pad = true;
@@ -1938,7 +1939,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       }
 
       if (filterCheckPadGemmN) {
-        if (arg0TargetLayoutName2 == "gemmN") {
+        if (arg0TargetLayoutName[2] == "gemmN") {
           // backward weights
           isFilterPad = true;
           isGemmDim2Pad = true;
