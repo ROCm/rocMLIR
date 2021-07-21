@@ -3434,6 +3434,11 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     if (isOutputPad)
       gemmC = gemmCPad;
 
+    // Supply KPack information into gridwiseGemmAttrs.
+    if (KPack > 1)
+      gridwiseGemmAttrs.push_back(
+          b.getNamedAttr("kpack", b.getI32IntegerAttr(KPack)));
+
     auto arguments = SmallVector<Value, 3>{gemmA, gemmB, gemmC};
 
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
