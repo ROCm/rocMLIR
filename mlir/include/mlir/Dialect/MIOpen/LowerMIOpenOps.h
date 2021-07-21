@@ -2407,11 +2407,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     llvm::SmallVector<NamedAttribute, 3> transformedInputAttrs;
 
-    SmallString<5> arg1TargetLayoutName0("gemmG");
-    SmallString<4> arg1TargetLayoutName1("gemm");
-    arg1TargetLayoutName1.append(fields.gemmTargetCharName[1].substr(0, 1));
-    SmallString<4> arg1TargetLayoutName2("gemm");
-    arg1TargetLayoutName2.append(fields.gemmTargetCharName[1].substr(1, 1));
+    llvm::SmallVector<SmallString<8>, 3> arg1TargetLayoutName;
+    arg1TargetLayoutName.push_back(SmallString<8>{"gemmG"});
+    arg1TargetLayoutName.push_back(SmallString<8>{"gemm"});
+    arg1TargetLayoutName[1].append(fields.gemmTargetCharName[1].substr(0, 1));
+    arg1TargetLayoutName.push_back(SmallString<8>{"gemm"});
+    arg1TargetLayoutName[2].append(fields.gemmTargetCharName[1].substr(1, 1));
 
     // set layout attribute.
     // Transformed input tensor transformation:
@@ -2559,9 +2560,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               b.getDictionaryAttr({
                   b.getNamedAttr("upper_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                  b.getNamedAttr(
-                      "upper_layer_names",
-                      b.getArrayAttr({b.getStringAttr(arg1TargetLayoutName0)})),
+                  b.getNamedAttr("upper_layer_names",
+                                 b.getArrayAttr({b.getStringAttr(
+                                     arg1TargetLayoutName[0])})),
                   b.getNamedAttr("transformation",
                                  b.getStringAttr("PassThrough")),
                   b.getNamedAttr("lower_layer_dimensions",
@@ -2573,9 +2574,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               b.getDictionaryAttr({
                   b.getNamedAttr("upper_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                  b.getNamedAttr(
-                      "upper_layer_names",
-                      b.getArrayAttr({b.getStringAttr(arg1TargetLayoutName1)})),
+                  b.getNamedAttr("upper_layer_names",
+                                 b.getArrayAttr({b.getStringAttr(
+                                     arg1TargetLayoutName[1])})),
                   b.getNamedAttr("transformation", b.getStringAttr("Merge")),
                   b.getNamedAttr(
                       "lower_layer_dimensions",
@@ -2591,9 +2592,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
               b.getDictionaryAttr({
                   b.getNamedAttr("upper_layer_dimensions",
                                  b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                  b.getNamedAttr(
-                      "upper_layer_names",
-                      b.getArrayAttr({b.getStringAttr(arg1TargetLayoutName2)})),
+                  b.getNamedAttr("upper_layer_names",
+                                 b.getArrayAttr({b.getStringAttr(
+                                     arg1TargetLayoutName[2])})),
                   b.getNamedAttr("transformation", b.getStringAttr("Merge")),
                   b.getNamedAttr(
                       "lower_layer_dimensions",
@@ -2614,9 +2615,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // set upper_layer_layout attribute.
     transformedInputAttrs.push_back(b.getNamedAttr(
         "upper_layer_layout",
-        b.getArrayAttr({b.getStringAttr(arg1TargetLayoutName0),
-                        b.getStringAttr(arg1TargetLayoutName1),
-                        b.getStringAttr(arg1TargetLayoutName2)})));
+        b.getArrayAttr({b.getStringAttr(arg1TargetLayoutName[0]),
+                        b.getStringAttr(arg1TargetLayoutName[1]),
+                        b.getStringAttr(arg1TargetLayoutName[2])})));
 
     if (inputOobCheckDims.size()) {
       llvm::SmallVector<IntegerAttr, 5> boundDims;
@@ -2667,18 +2668,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       llvm::SmallVector<NamedAttribute, 0> layoutAttr1;
       llvm::SmallVector<NamedAttribute, 0> layoutAttr2;
 
-      StringAttr gemmDim0TargetName = b.getStringAttr(arg1TargetLayoutName0);
+      StringAttr gemmDim0TargetName = b.getStringAttr(arg1TargetLayoutName[0]);
       StringAttr gemmDim1TargetName;
       StringAttr gemmDim2TargetName;
 
       bool isGemmDim1Pad = false;
       bool isGemmDim2Pad = false;
 
-      StringAttr gemmDim0Name = b.getStringAttr(arg1TargetLayoutName0);
+      StringAttr gemmDim0Name = b.getStringAttr(arg1TargetLayoutName[0]);
       IntegerAttr GemmDim0 = b.getI32IntegerAttr(0);
-      StringAttr gemmDim1Name = b.getStringAttr(arg1TargetLayoutName1);
+      StringAttr gemmDim1Name = b.getStringAttr(arg1TargetLayoutName[1]);
       IntegerAttr GemmDim1 = b.getI32IntegerAttr(1);
-      StringAttr gemmDim2Name = b.getStringAttr(arg1TargetLayoutName2);
+      StringAttr gemmDim2Name = b.getStringAttr(arg1TargetLayoutName[2]);
       IntegerAttr GemmDim2 = b.getI32IntegerAttr(2);
 
       paddingInputShape.push_back(transformedInputShape[0]);
@@ -2709,7 +2710,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           b.getNamedAttr("upper_layer_dimensions", b.getArrayAttr({GemmDim2}))};
 
       if (inputCheckPadGemmK) {
-        if (arg1TargetLayoutName1 == "gemmK") {
+        if (arg1TargetLayoutName[1] == "gemmK") {
           isInputPad = true;
           isGemmDim1Pad = true;
           // both forward and backward weights dim1 of input matrix
@@ -2742,7 +2743,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       }
 
       if (inputCheckPadGemmN) {
-        if (arg1TargetLayoutName2 == "gemmN") {
+        if (arg1TargetLayoutName[2] == "gemmN") {
           isInputPad = true;
           isGemmDim2Pad = true;
           gemmDim2TargetName = b.getStringAttr(gemmNPad_name);
