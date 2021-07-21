@@ -1788,6 +1788,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         loc, transformedFilterMemRefType, op.filter(), transformedFilterAttrs,
         /*populateBounds=*/true);
 
+    // Deal with padding filter tensor.
     Value gemmAPad = gemmA;
     llvm::SmallVector<NamedAttribute, 3> paddingFilterAttrs;
     llvm::SmallVector<int64_t, 2> paddingFilterShape;
@@ -2025,6 +2026,82 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                                gemmA, paddingFilterAttrs,
                                                /*populateBounds=*/true);
       // filter pad end
+    }
+
+    // KPack for filter tensor.
+    Value gemmAKPack = gemmA;
+    llvm::SmallVector<int64_t, 2> kpackFilterShape;
+    llvm::SmallVector<NamedAttribute, 3> kpackFilterAttrs;
+
+    // FIXME. consider backward weight.
+    if ((KPack > 1) && (convOpType == miopen::ConvOpType::Conv2DOpType)) {
+      Value gemmASource = (isFilterPad) ? gemmAPad : gemmA;
+      llvm::SmallVector<int64_t, 2> &filterShape =
+          (isFilterPad) ? paddingFilterShape : transformedFilterShape;
+      llvm::SmallVector<NamedAttribute, 3> filterAttrs =
+          (isFilterPad) ? paddingFilterAttrs : transformedFilterAttrs;
+
+      assert(arg0TargetLayoutName[1] == "gemmK");
+      for (unsigned iter = 0; iter < filterShape.size(); ++iter) {
+        if (iter != 1) { // dim 1 is gemmK in forward convolution.
+          kpackFilterShape.push_back(filterShape[iter]);
+        } else {
+          kpackFilterShape.push_back(filterShape[iter] / KPack);
+        }
+      }
+      kpackFilterShape.push_back(KPack);
+
+      ArrayAttr gemmASourceDimNames;
+      for (auto &attr : filterAttrs) {
+        if (attr.first == "upper_layer_layout") {
+          gemmASourceDimNames = attr.second.cast<ArrayAttr>();
+          break;
+        }
+      }
+
+      kpackFilterAttrs.push_back(b.getNamedAttr(
+          "layout",
+          b.getArrayAttr(
+              {b.getDictionaryAttr(
+                   {b.getNamedAttr("upper_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(0),
+                                                   b.getI32IntegerAttr(2)})),
+                    b.getNamedAttr("upper_layer_names",
+                                   b.getArrayAttr({gemmASourceDimNames[0],
+                                                   gemmASourceDimNames[2]})),
+                    b.getNamedAttr("lower_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(0),
+                                                   b.getI32IntegerAttr(2)})),
+                    b.getNamedAttr("lower_layer_names",
+                                   b.getArrayAttr({gemmASourceDimNames[0],
+                                                   gemmASourceDimNames[2]})),
+
+                    b.getNamedAttr("transform",
+                                   b.getStringAttr("PassThrough"))}),
+               b.getDictionaryAttr({
+                   b.getNamedAttr("upper_layer_dimensions",
+                                  b.getArrayAttr({b.getI32IntegerAttr(1),
+                                                  b.getI32IntegerAttr(3)})),
+                   b.getNamedAttr(
+                       "upper_layer_names",
+                       b.getArrayAttr({gemmASourceDimNames[1],
+                                       b.getStringAttr("gemmKPack")})),
+                   b.getNamedAttr("lower_layer_dimensions",
+                                  b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                   b.getNamedAttr("lower_layer_names",
+                                  b.getArrayAttr({gemmASourceDimNames[1]})),
+
+                   b.getNamedAttr("transform", b.getStringAttr("UnMerge")),
+                   b.getNamedAttr("parameters",
+                                  b.getArrayAttr({b.getI32IntegerAttr(KPack),
+                                                  b.getI32IntegerAttr(1)})),
+               })})));
+
+      auto kpackFilterMemRefType =
+          MemRefType::get(kpackFilterShape, filterElementType);
+      gemmAKPack = b.create<miopen::TransformOp>(loc, kpackFilterMemRefType,
+                                                 gemmASource, kpackFilterAttrs,
+                                                 /*populateBounds=*/true);
     }
 
     // Transform input tensor.
@@ -3269,6 +3346,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
     if (isFilterPad)
       gemmA = gemmAPad;
+    // FIXME. consider backward weight.
+    if ((KPack > 1) && (convOpType == miopen::ConvOpType::Conv2DOpType))
+      gemmA = gemmAKPack;
+
     if (isInputPad)
       gemmB = gemmBPad;
     if (isOutputPad)

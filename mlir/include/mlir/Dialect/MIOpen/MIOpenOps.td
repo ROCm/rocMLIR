@@ -115,9 +115,9 @@ def MIOpen_TransformOp :
 
 def MIOpen_GridwiseGemmOp :
     MIOpen_Op<"gridwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$filter,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$input,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3, 4]>:$filter,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$input,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$output)> {
   let summary = "Gridwise GEMM";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM.
@@ -130,9 +130,9 @@ def MIOpen_GridwiseGemmOp :
 // gridwise_gemm_v2
 def MIOpen_GridwiseGemmV2Op :
     MIOpen_Op<"gridwise_gemm_v2">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$filter,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$input,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3, 4]>:$filter,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$input,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$output)> {
   let summary = "Gridwise GEMM V2";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
