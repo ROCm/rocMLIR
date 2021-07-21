@@ -1377,12 +1377,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   const static miopen::ConvOpType convOpType;
   using OpRewritePattern<T>::OpRewritePattern;
 
-  int64_t computeKPack(PatternRewriter &b, int64_t gemmK_size,
+  int64_t computeKPack(PatternRewriter &b, int64_t gemmK,
                        Type inputElementType) const {
     // FIXME. Only support f16 type for now.
-    // FIXME. Hard-code KPack as 4 for now.
+    // FIXME. Hard-code initial KPack as 4 for now.
     int64_t KPack = (inputElementType == b.getF16Type()) ? 4 : 1;
-    while (gemmK_size % KPack != 0)
+    while (gemmK % KPack != 0)
       KPack /= 2;
     // llvm::errs() << "KPack: " << KPack << "\n";
     return KPack;
@@ -1589,8 +1589,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Compute KPACK.
     assert(filterElementType == inputElementType);
-    // FIXME. Take gemmKExtra into consideration.
-    int64_t KPACK = computeKPack(b, gemmK_size, filterElementType);
+    int64_t KPack = computeKPack(b, gemmK_size + gemmKExtra, filterElementType);
 
     // Transform filter tensor.
 
