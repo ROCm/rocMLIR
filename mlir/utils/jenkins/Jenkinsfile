@@ -245,19 +245,19 @@ pipeline {
                                     alwaysLinkToLastBuild: false,
                                     keepAll: true,
                                     reportDir: 'build',
-                                    reportFiles: ['MLIR_Performance_Changes.html', 'MLIR_vs_MIOpen.html']
-                                    reportName: "Performance report"
+                                    reportFiles: 'MLIR_Performance_Changes.html,MLIR_vs_MIOpen.html',
+                                    reportName: 'Performance report'
                                 ])
                                 
-                                plot csvFiileName: 'plot-nightly-perf-results-000001.csv',\
+                                plot csvFileName: 'plot-nightly-perf-results-000001.csv',\
                                     csvSeries: [[file: 'build/mlir_vs_miopen_perf_means.csv', displayTableFlag: false]],\
                                     title: 'Test performance summary',\
                                     yaxis: 'TFlops',\
-                                    hasLegend: true,\
-                                    series: ['MLIR', 'MIOpen']\
+                                    style: 'line',\
+                                    group: 'Performance plots'
 
                                 // Save results for future comparison
-                                archiveArtifacts artifacts: 'build/*.csv', onlyIfSuccessful: true
+                                archiveArtifacts artifacts: 'build/mlir_*.csv', onlyIfSuccessful: true
                             }
                         }
                     }
