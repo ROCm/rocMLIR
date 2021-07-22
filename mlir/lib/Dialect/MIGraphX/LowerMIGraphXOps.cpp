@@ -110,7 +110,7 @@ using namespace migraphx;
 namespace {
 
 static bool isRootOp(Operation *op) {
-  return isa<migraphx::MIGraphX_ConvolutionOp>(op);
+//  return isa<migraphx::MIGraphX_ConvolutionOp>(op);
 }
 
 static unsigned decideFusableMIGOps(FuncOp funcOp){
@@ -137,7 +137,7 @@ struct GroupFusablesPass : public GroupFusablesPassBase<GroupFusablesPass> {
     MLIRContext *context = funcOp->getContext();
     context->allowUnregisteredDialects(true);
 
-    unsigned numRoots = decideFusableLinalgOps(funcOp);
+    unsigned numRoots = decideFusableMIGOps(funcOp);
 
 
     
