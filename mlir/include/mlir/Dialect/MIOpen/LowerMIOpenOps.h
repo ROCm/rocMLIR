@@ -6679,6 +6679,55 @@ struct GridwiseGemmV2RewritePattern : public OpRewritePattern<miopen::GridwiseGe
     // llvm::errs() << "M2: group_size: " << M2 << "\n";
     // llvm::errs() << "M3: num_groups_blk: " << M3 << "\n\n";
 
+    ////////////////////////////////////////shuffle by lds
+    // review lds buffer
+    auto ldsMemRefF32Type =
+        MemRefType::get({64 * 4}, b.getF32Type(), {},
+                        gpu::GPUDialect::getWorkgroupAddressSpace());
+    auto ldsF32Buffer =
+        b.create<ViewOp>(loc, ldsMemRefF32Type, ldsGpuAllocOp_raw,
+                         ldsBlockAOffsetConstantOp, newOperands);
+    auto ldsShuffleMemRefType = computeSubviewResultType(
+        op, ldsMemRefF32Type, 0, {4, 64}, b.getF32Type());
+
+    auto ldsShuffleSubviewOp = b.create<miopen::SubviewOp>(
+        loc, ldsShuffleMemRefType, ldsF32Buffer, ldsBlockAOffsetConstantOp);
+
+    // register to lds
+    auto vectorOffsetConstantOp =
+        b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
+    SmallVector<Value, 10> ldsThreadwiseCopySourceAndDestCoords;
+    ldsThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+    ldsThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+
+    ldsThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+    auto tidConstantI32Op =
+        b.create<ConstantIntOp>(loc, tid, b.getIntegerType(32));
+    ldsThreadwiseCopySourceAndDestCoords.push_back(tidConstantI32Op);
+
+    auto registerToLds = b.create<miopen::ThreadwiseCopyV2Op>(
+        loc, blockwiseGemmV2TailOp.getResults()[0], ldsShuffleSubviewOp,
+        vectorOffsetConstantOp, ldsThreadwiseCopySourceAndDestCoords);
+
+    // (d0, d1) -> (d0)
+    auto matrixCAffineMap2to1 = AffineMap::get(
+        2, 0, {getAffineDimExpr(0, op.getContext())}, op.getContext());
+    registerToLds->setAttr(
+        "coord_transforms",
+        b.getArrayAttr({b.getDictionaryAttr({
+            b.getNamedAttr("operand", b.getI32IntegerAttr(0)),
+            b.getNamedAttr("transforms",
+                           b.getAffineMapArrayAttr(matrixCAffineMap2to1)),
+        })}));
+    registerToLds->setAttr("dim_access_order", b.getArrayAttr({
+                                                   b.getI32IntegerAttr(1),
+                                                   b.getI32IntegerAttr(0),
+                                               }));
+    registerToLds->setAttr("vector_read_write_dim", b.getI32IntegerAttr(0));
+    registerToLds->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
+    registerToLds->setAttr("dest_data_per_write", b.getI32IntegerAttr(1));
+
+    ////////////////////////////////////////////////////////////////////
     auto M1ConstantI32Op =
         b.create<ConstantIntOp>(loc, M1, b.getIntegerType(32));
     auto M2ConstantI32Op =
@@ -8454,8 +8503,10 @@ struct ThreadwiseCopyV2RewritePattern
     SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
 
     // Populate coorindates across the layers of transformations.
-    ArrayAttr layeredSourceTransformMetadata =
-        srcTransformSpec.get("metadata").template cast<ArrayAttr>();
+    ArrayAttr layeredSourceTransformMetadata;
+    Attribute metadataAttr = srcTransformSpec.get("metadata");
+    if (metadataAttr)
+      layeredSourceTransformMetadata = metadataAttr.template cast<ArrayAttr>();
     // Populate coorindates across the layers of transformations.
     populateLayeredIndicesWithTransformMetadata(b, loc, layeredSourceIndices,
                                                 srcUpperIndices,
@@ -8479,8 +8530,11 @@ struct ThreadwiseCopyV2RewritePattern
     SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
 
     // Populate coorindates across the layers of transformations.
-    ArrayAttr layeredDestTransformMetadata =
-        destTransformSpec.get("metadata").template cast<ArrayAttr>();
+    ArrayAttr layeredDestTransformMetadata;
+    Attribute destMetadataAttr = srcTransformSpec.get("metadata");
+    if (destMetadataAttr)
+      layeredDestTransformMetadata =
+          destMetadataAttr.template cast<ArrayAttr>();
     // Populate coorindates across the layers of transformations.
     populateLayeredIndicesWithTransformMetadata(b, loc, layeredDestIndices,
                                                 destUpperIndices,
