@@ -9,7 +9,6 @@ TEST_PARAMETERS = ['Direction', 'DataType', 'XDLOPS', 'FilterLayout', 'InputLayo
                        'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW', 
                        'PaddingH', 'PaddingW']
 ROUND_DIGITS = 2
-pd.set_option('precision', ROUND_DIGITS)
 
 def geoMean(data):
     maskedData = np.ma.masked_where(~(np.isfinite(data) & (data != 0)), data)
@@ -19,7 +18,7 @@ def geoMean(data):
 
 def colorForSpeedups(value):
     if not np.isfinite(value):
-        return 'background-color: #aaaaaa'
+        return 'background-color: #ff00ff'
 
     if value <= 0.7:
         return 'background-color: #ff0000; color: #ffffff'
@@ -33,7 +32,8 @@ def colorForSpeedups(value):
         return ''
 
 def setCommonStyles(styler: 'pd.io.formats.style.Styler'):
-    styler.format(formatter=None, na_rep="N/A")
+    styler.set_precision(ROUND_DIGITS)
+    styler.set_na_rep("FAILED")
     if 'Speedup' in styler.columns:
         styler.applymap(colorForSpeedups, subset=['Speedup'])
 
