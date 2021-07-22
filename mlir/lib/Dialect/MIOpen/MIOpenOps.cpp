@@ -27,6 +27,33 @@ namespace {
 
 } // namespace
 
+namespace mlir {
+namespace miopen {
+Optional<ConvOpType> getConvOpTypeForName(const StringRef name) {
+  if (name == "conv2d") {
+    return Conv2DOpType;
+  }
+  if (name == "conv2d_bwd_data") {
+    return Conv2DBwdDataOpType;
+  }
+  if (name == "conv2d_bwd_weight") {
+    return Conv2DBwdWeightOpType;
+  }
+  return llvm::None;
+}
+
+const char *getNameForConvOpType(const miopen::ConvOpType op) {
+  switch (op) {
+  case Conv2DOpType:
+    return "conv2d";
+  case Conv2DBwdDataOpType:
+    return "conv2d_bwd_data";
+  case Conv2DBwdWeightOpType:
+    return "conv2d_bwd_weight";
+  }
+}
+} // namespace miopen
+} // namespace mlir
 //===----------------------------------------------------------------------===//
 // MIOpenDialect
 //===----------------------------------------------------------------------===//
@@ -177,29 +204,6 @@ static LogicalResult verify(Conv2DBwdWeightOp op) {
   else
     return success();
 }
-
-//===----------------------------------------------------------------------===//
-// Conv2DDummyOp
-//===----------------------------------------------------------------------===//
-
-static ParseResult parseConv2DDummyOp(OpAsmParser &parser,
-                                      OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 3> ops;
-  SmallVector<Type, 3> types;
-  return failure(
-      parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
-      parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonTypeList(types) ||
-      parser.resolveOperands(ops, types, parser.getNameLoc(), result.operands));
-}
-
-static void print(OpAsmPrinter &p, Conv2DDummyOp op) {
-  p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperandTypes();
-}
-
-static LogicalResult verify(Conv2DDummyOp op) { return success(); }
 
 //===----------------------------------------------------------------------===//
 // TransformOp

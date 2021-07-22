@@ -1,5 +1,7 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
-#include "mlir/Dialect/MIOpen/utility/math.h"
+#include "mlir/Dialect/MIOpen/Generator/IsaNameParser.h"
+#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/utility/math.hpp"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
@@ -8,12 +10,13 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/PassManager.h"
+#include "llvm/ADT/None.h"
 
 using namespace mlir;
 
 Conv2dGenerator::Conv2dGenerator(
     const std::string &arch, int num_cu, bool xdlops,
-    const std::string &operation, const std::string &dataTypeStr,
+    const miopen::ConvOpType operation, const std::string &dataTypeStr,
     int dilationHeight, int dilationWidth, int strideHeight, int strideWidth,
     int paddingHeightLeft, int paddingHeightRight, int paddingWidthLeft,
     int paddingWidthRight, const std::string &filterLayout,
@@ -66,19 +69,16 @@ void strToTokens(const std::string &arguments,
 } // namespace
 
 int Conv2dGenerator::getKernelCount() const {
-  int count = 0;
   if (config.kernelId > 0) { // generate only 1 specified kernel
-    count = 1;
-  } else if (config.operation == "conv2d") {
-    count = 1;
-  } else if (config.operation == "conv2d_bwd_data") {
-    count = getBwdDataKernelCount();
-  } else if (config.operation == "conv2d_bwd_weight") {
-    count = 1;
-  } else if (config.operation == "conv2d_dummy") {
-    count = 1;
+    return 1;
   }
-  return count;
+  switch (config.operation) {
+  case miopen::Conv2DBwdDataOpType:
+    return getBwdDataKernelCount();
+  case miopen::Conv2DOpType:
+  case miopen::Conv2DBwdWeightOpType:
+    return 1;
+  }
 }
 
 int Conv2dGenerator::getBwdDataKernelCount() const {
@@ -168,13 +168,16 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
       }
     };
 
-    // arch settings
     strToStr("arch", config.arch);
     strToInt("num_cu", config.num_cu);
     strToInt("x2", config.xdlops);
 
     // conv settings
-    config.operation = argMap["operation"];
+    auto const op = miopen::getConvOpTypeForName(argMap["operation"]);
+    if (!op.hasValue()) {
+      return failure();
+    }
+    config.operation = op.getValue();
     strToInt("kernel_id", config.kernelId);
     config.dataTypeStr = argMap["out_type"];
     strToInt("dilation_h", config.dilationHeight);
@@ -262,7 +265,8 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
   // Determine kernel name, if there isn't one.
   if (config.kernelName.empty()) {
     int id = std::max(config.kernelId, 0);
-    config.kernelName = "miopen_" + config.operation + "_" +
+    config.kernelName = std::string("miopen_") +
+                        miopen::getNameForConvOpType(config.operation) + "_" +
                         config.filterLayout + "_" + config.inputLayout + "_" +
                         config.outputLayout + "_" + std::to_string(id);
   }
@@ -338,9 +342,19 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
         (StringRef(&config.outputLayout[i], 1) + "o").str()));
   }
 
+  // Use only the chip in the lowering process
+  IsaNameParser parser(config.arch);
+  std::string chip;
+  std::string triple;
+  std::string features;
+  auto status = parser.parseIsaName(chip, triple, features);
+  if (status.failed()) {
+    return failure();
+  }
+
   std::vector<NamedAttribute> attributes{
       builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(kernel_id)),
-      builder.getNamedAttr("arch", builder.getStringAttr(config.arch)),
+      builder.getNamedAttr("arch", builder.getStringAttr(chip)),
       builder.getNamedAttr("num_cu", builder.getI32IntegerAttr(config.num_cu)),
 
       builder.getNamedAttr(
@@ -379,34 +393,31 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
     attributes.push_back(
         builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
 
-  if (config.operation == "conv2d") {
+  switch (config.operation) {
+  case miopen::Conv2DOpType: {
     auto convOp = builder.create<miopen::Conv2DOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{func.getArgument(0), func.getArgument(1),
                    func.getArgument(2)},
         attributes);
     block->push_front(convOp);
-  } else if (config.operation == "conv2d_bwd_data") {
+  } break;
+  case miopen::Conv2DBwdDataOpType: {
     auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{func.getArgument(0), func.getArgument(1),
                    func.getArgument(2)},
         attributes);
     block->push_front(convOp);
-  } else if (config.operation == "conv2d_bwd_weight") {
+  } break;
+  case miopen::Conv2DBwdWeightOpType: {
     auto convOp = builder.create<miopen::Conv2DBwdWeightOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
         ValueRange{func.getArgument(0), func.getArgument(1),
                    func.getArgument(2)},
         attributes);
     block->push_back(convOp);
-  } else if (config.operation == "conv2d_dummy") {
-    auto convOp = builder.create<miopen::Conv2DDummyOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
-    block->push_front(convOp);
+  } break;
   }
 
   auto returnOp =

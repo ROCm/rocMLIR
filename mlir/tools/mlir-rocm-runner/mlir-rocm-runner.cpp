@@ -50,7 +50,11 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   PassManager pm(m.getContext());
   applyPassManagerCLOptions(pm);
 
-  BackendUtils utils(tripleName, targetChip, features);
+  bool systemOverride = false;
+  if (tripleName.empty() && targetChip.empty() && features.empty()) {
+    systemOverride = true;
+  }
+  BackendUtils utils(tripleName, targetChip, features, systemOverride);
 
   const char gpuBinaryAnnotation[] = "rocdl.hsaco";
   pm.addPass(createLowerToCFGPass());

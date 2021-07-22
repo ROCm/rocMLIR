@@ -50,11 +50,15 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"),
                                            cl::init("-"));
 
-static cl::opt<std::string>
-    operation("operation",
-              cl::desc("Convolution operation, eg: conv2d, conv2d_bwd_data, "
-                       "conv2d_bwd_weight..."),
-              cl::value_desc("convolution flavor string"), cl::init("conv2d"));
+static cl::opt<mlir::miopen::ConvOpType> operation(
+    "operation", cl::desc("Convolution operation,"),
+    cl::values(clEnumValN(miopen::Conv2DOpType, "conv2d",
+                          "Forward convolution"),
+               clEnumValN(miopen::Conv2DBwdDataOpType, "conv2d_bwd_data",
+                          "Backpropogate convolution data"),
+               clEnumValN(miopen::Conv2DBwdWeightOpType, "conv2d_bwd_weight",
+                          "Backpropogate convolution weights")),
+    cl::value_desc("convolution type"), cl::init(miopen::Conv2DOpType));
 
 static cl::opt<std::string>
     arch("arch",
@@ -357,6 +361,48 @@ static void correctParameters() {
       }
     }
   }
+
+  // adjust the padding size
+  // getOutputDim can give us correct output size
+  // output size = input size+ padding size
+  // then -(filter size-1) * dilation size -1
+  // ,/ stride size and add 1
+  auto getOutputDim = [](int64_t inputLen, int64_t filLen, int leftPadLen,
+                         int rightPadLen, int strideLen, int dilLen) {
+    return (inputLen + leftPadLen + rightPadLen - (filLen - 1) * dilLen - 1) /
+               strideLen +
+           1;
+  };
+
+  int hi = inputHeight.getValue();
+  int y = filterHeight.getValue();
+  int in_left_pad_h = paddingHeightLeft.getValue();
+  int conv_stride_h = strideHeight.getValue();
+  int conv_dilation_h = dilationHeight.getValue();
+  int ho = getOutputDim(hi, y, in_left_pad_h, paddingHeightRight.getValue(),
+                        conv_stride_h, conv_dilation_h);
+  int hi_padded = 1 + (y - 1) * conv_dilation_h + (ho - 1) * conv_stride_h;
+  // we got correct output size via getOutputDim, before adjusting size
+  // we have original output size from user , but we need to check the padding
+  // size so we use output size to calculate original input size add pad size,
+  // hi_padded if hi_padded is equal to hi + in_left_pad_h , no adjusting but if
+  // not equal, need extra padding hi_padded - (hi + in_left_pad_h)
+  int in_right_pad_h =
+      hi_padded > (hi + in_left_pad_h) ? hi_padded - (hi + in_left_pad_h) : 0;
+  paddingHeightRight.setValue(in_right_pad_h);
+
+  int wi = inputWidth.getValue();
+  int x = filterWidth.getValue();
+  int in_left_pad_w = paddingWidthLeft.getValue();
+  int conv_stride_w = strideWidth.getValue();
+  int conv_dilation_w = dilationWidth.getValue();
+  int wo = getOutputDim(wi, x, in_left_pad_w, paddingWidthRight.getValue(),
+                        conv_stride_w, conv_dilation_w);
+
+  int wi_padded = 1 + (x - 1) * conv_dilation_w + (wo - 1) * conv_stride_w;
+  int in_right_pad_w =
+      wi_padded > (wi + in_left_pad_w) ? wi_padded - (wi + in_left_pad_w) : 0;
+  paddingWidthRight.setValue(in_right_pad_w);
 }
 
 static void verifyLayout() {
@@ -378,6 +424,14 @@ static void verifyLayout() {
 }
 
 static void populateDefaults() {
+  // arch is a required field to make lowering succeed. However,
+  // 1. mlir-miopen-lib get it from client
+  // 2. mlir-rocm-runner get it from the host machine
+  // We don't particularly care about this field in the lowering
+  // process unless it is tuning related. Therefore, setting this
+  // field to a default value regardless.
+  arch.setValue("amdgcn-amd-amdhsa:gfx900");
+
   if (populateDefaultValues == true) {
     if (xdlopsV2.getValue() == false) {
       groupSize.setValue(1);
@@ -414,13 +468,13 @@ static void populateDefaults() {
       paddingWidthLeft.setValue(0);
       paddingWidthRight.setValue(0);
       num_cu.setValue(120);
-      arch.setValue("gfx908");
+      arch.setValue("amdgcn-amd-amdhsa:gfx908");
     }
   }
 
   if (xdlopsV2.getValue() == true) {
     num_cu.setValue(120);
-    arch.setValue("gfx908");
+    arch.setValue("amdgcn-amd-amdhsa:gfx908");
   }
 
   auto getOutputDim = [](int64_t inputLen, int64_t filLen, int leftPadLen,
@@ -490,11 +544,9 @@ static mlir::Value allocAndInitializeTensor(OpBuilder &builder, Block *block,
   return cpuAllocOp;
 }
 
-static FuncOp
-createConvertTensor(ModuleOp &module, OpBuilder &builder,
-                    mlir::MemRefType &originalMemRefType,
-                    mlir::MemRefType &convertedMemRefType,
-                    std::unordered_map<std::string, FuncOp> &convertFuncs) {
+static FuncOp createConvertTensor(ModuleOp &module, OpBuilder &builder,
+                                  mlir::MemRefType &originalMemRefType,
+                                  mlir::MemRefType &convertedMemRefType) {
   std::string funcName = "convert_tensor";
   auto originalMemRefShape = originalMemRefType.getShape();
   funcName += std::to_string(originalMemRefShape[0]);
@@ -510,19 +562,24 @@ createConvertTensor(ModuleOp &module, OpBuilder &builder,
   else
     funcName += "xi16";
 
+  FuncOp convertFuncOp;
   // Does a conversion function already exist?
-  std::unordered_map<std::string, FuncOp>::const_iterator it =
-      convertFuncs.find(funcName);
-
-  if (it != convertFuncs.end()) // Reuse an existing function
-    return it->second;
+  auto walkResult = module.walk([&](FuncOp funcOp) -> WalkResult {
+    if (funcOp.getName() == funcName) {
+      convertFuncOp = funcOp;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (walkResult.wasInterrupted()) { // Reuse an existing function
+    return convertFuncOp;
+  }
 
   // Otherwise create a new conversion function
   auto convertResultFuncOp = FuncOp::create(
       builder.getUnknownLoc(), StringRef(funcName),
       builder.getFunctionType({originalMemRefType, convertedMemRefType}, {}));
   module.push_back(convertResultFuncOp);
-  convertFuncs[funcName] = convertResultFuncOp;
 
   // Construct a new Block.
   Block *block = convertResultFuncOp.addEntryBlock();
@@ -608,8 +665,7 @@ static mlir::Value
 allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
                    mlir::FuncOp &mcpuMemCopy5DFuncOp,
                    mlir::Value sourceOriginalAllocOp,
-                   const SmallVector<int64_t, 5> &sourceDimension,
-                   std::unordered_map<std::string, FuncOp> &convertFuncs) {
+                   const SmallVector<int64_t, 5> &sourceDimension) {
   auto sourceMemRefType =
       sourceOriginalAllocOp.getType().template dyn_cast<MemRefType>();
   auto dataType = sourceMemRefType.getElementType();
@@ -631,8 +687,8 @@ allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
 
   if (dataType == builder.getF16Type()) { // f16
     // Create conversion routine
-    auto convertResultFuncOp = createConvertTensor(
-        module, builder, sourceMemRefType, floatMemRefType, convertFuncs);
+    auto convertResultFuncOp =
+        createConvertTensor(module, builder, sourceMemRefType, floatMemRefType);
     auto convertResultCallOp =
         builder.create<CallOp>(builder.getUnknownLoc(), convertResultFuncOp,
                                ValueRange{sourceOriginalAllocOp, cpuAllocOp});
@@ -857,12 +913,16 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   std::string mcpuFuncName;
 
-  if (operation.getValue() == "conv2d") {
+  switch (operation.getValue()) {
+  case mlir::miopen::Conv2DOpType:
     mcpuFuncName = "mcpuConv2d";
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case miopen::Conv2DBwdDataOpType:
     mcpuFuncName = "mcpuConv2dBwdData";
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case miopen::Conv2DBwdWeightOpType:
     mcpuFuncName = "mcpuConv2dBwdWeight";
+    break;
   }
 
   // Emit cpu convolution function call op
@@ -899,8 +959,7 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
 static mlir::Value
 getConvertedCpuResults(ModuleOp &module, OpBuilder &builder, Block *block,
                        mlir::Value cpuOriginalAllocOp,
-                       mlir::MemRefType &convertedMemRefType,
-                       std::unordered_map<std::string, FuncOp> &convertFuncs) {
+                       mlir::MemRefType &convertedMemRefType) {
   auto dataType = convertedMemRefType.getElementType();
 
   if (dataType == builder.getF32Type())
@@ -917,7 +976,7 @@ getConvertedCpuResults(ModuleOp &module, OpBuilder &builder, Block *block,
 
     // Create conversion routine f32->f16
     auto convertFuncOp = createConvertTensor(
-        module, builder, originalMemRefType, convertedMemRefType, convertFuncs);
+        module, builder, originalMemRefType, convertedMemRefType);
     auto convertResultCallOp = builder.create<CallOp>(
         builder.getUnknownLoc(), convertFuncOp,
         ValueRange{cpuOriginalAllocOp, cpuConvertedResults});
@@ -1186,16 +1245,15 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   }
 
   FuncOp mgpuMemAlloc5DFuncOp;
-  bool allocFuncExist = false;
-  module.walk([&](FuncOp funcOp) -> WalkResult {
+  auto walkResult = module.walk([&](FuncOp funcOp) -> WalkResult {
     if (funcOp.getName() == gpuMemAllocFuncName) {
       mgpuMemAlloc5DFuncOp = funcOp;
-      allocFuncExist = true;
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
-  if (!allocFuncExist) {
+  // Build an alloc function if it didn't already exist
+  if (!walkResult.wasInterrupted()) {
     mgpuMemAlloc5DFuncOp = makeFuncDecl(builder, gpuMemAllocFuncName,
                                         {fiveDimUnknownSizeMemRefType},
                                         {fiveDimUnknownSizeMemRefType});
@@ -1235,16 +1293,14 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   }
 
   FuncOp mgpuMemCopy5DFuncOp;
-  bool copyFuncExist = false;
-  module.walk([&](FuncOp funcOp) -> WalkResult {
+  walkResult = module.walk([&](FuncOp funcOp) -> WalkResult {
     if (funcOp.getName() == gpuMemCopyFuncName) {
       mgpuMemCopy5DFuncOp = funcOp;
-      copyFuncExist = true;
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
-  if (!copyFuncExist) {
+  if (!walkResult.wasInterrupted()) {
     mgpuMemCopy5DFuncOp =
         makeFuncDecl(builder, gpuMemCopyFuncName,
                      {fiveDimUnknownSizeMemRefType,
@@ -1303,17 +1359,21 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   // Emit mgpuMemCopy5DFloat function call.
   mlir::Value resultGpuValue, resultCpuValue;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case miopen::Conv2DOpType:
     resultGpuValue = outputGpuAllocOp.getResult(0);
     resultCpuValue = outputMemRefCastOp;
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case miopen::Conv2DBwdDataOpType:
     resultGpuValue = inputGpuAllocOp.getResult(0);
     resultCpuValue = inputMemRefCastOp;
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case miopen::Conv2DBwdWeightOpType:
     resultGpuValue = filterGpuAllocOp.getResult(0);
     resultCpuValue = filterMemRefCastOp;
+    break;
   }
+
   auto outputGpuToCpuCopyOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mgpuMemCopy5DFuncOp,
       ValueRange{resultGpuValue, resultCpuValue, twoConstantI32Op});
@@ -1330,16 +1390,14 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   }
 
   FuncOp mgpuMemDealloc5DFuncOp;
-  bool deallocFuncExist = false;
-  module.walk([&](FuncOp funcOp) -> WalkResult {
+  walkResult = module.walk([&](FuncOp funcOp) -> WalkResult {
     if (funcOp.getName() == gpuMemDeallocFuncName) {
       mgpuMemDealloc5DFuncOp = funcOp;
-      deallocFuncExist = true;
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
-  if (!deallocFuncExist) {
+  if (!walkResult.wasInterrupted()) {
     mgpuMemDealloc5DFuncOp = makeFuncDecl(builder, gpuMemDeallocFuncName,
                                           {fiveDimUnknownSizeMemRefType}, {});
     module.push_back(mgpuMemDealloc5DFuncOp);
@@ -1441,8 +1499,8 @@ static void generateTensorInitValues(
   block->push_back(maxConstantIntOp);
   block->push_back(seedConstantIntOp);
 
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case miopen::Conv2DOpType:
     if (randomSeed.getValue() == "none" || // min & max are already set to 1
         (randomSeed.getValue() != "none" &&
          (randomSide.getValue() == "filter" ||
@@ -1467,7 +1525,8 @@ static void generateTensorInitValues(
 
     outputMemsetMinValue = zeroConstantIntOp;
     outputMemsetMaxValue = zeroConstantIntOp;
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case miopen::Conv2DBwdDataOpType:
     if (randomSeed.getValue() == "none" ||
         (randomSeed.getValue() != "none" &&
          (randomSide.getValue() == "filter" ||
@@ -1492,7 +1551,8 @@ static void generateTensorInitValues(
 
     inputMemsetMinValue = zeroConstantIntOp;
     inputMemsetMaxValue = zeroConstantIntOp;
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case miopen::Conv2DBwdWeightOpType:
     if (randomSeed.getValue() == "none" ||
         (randomSeed.getValue() != "none" &&
          (randomSide.getValue() == "input" ||
@@ -1517,6 +1577,7 @@ static void generateTensorInitValues(
 
     filterMemsetMinValue = zeroConstantIntOp;
     filterMemsetMaxValue = zeroConstantIntOp;
+    break;
   }
   return;
 }
@@ -1551,19 +1612,22 @@ static LogicalResult populateHostHarnessLogic(
   // Backward data convolution: input tensor.
   // Backward weight convolution: filter tensor.
   MemRefType printMemRefType;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case miopen::Conv2DOpType:
     printMemRefType = MemRefType::get(
         ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
         builder.getF32Type());
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case miopen::Conv2DBwdDataOpType:
     printMemRefType = MemRefType::get(
         ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
         builder.getF32Type());
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case miopen::Conv2DBwdWeightOpType:
     printMemRefType = MemRefType::get(
         ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
         builder.getF32Type());
+    break;
   }
 
   // Emit CPU alloc.
@@ -1637,19 +1701,22 @@ static LogicalResult populateHostHarnessLogic(
 
   mlir::Value resultCpuValue, resultOriginalCpuValue;
   mlir::MemRefType resultOriginalCpuType;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case miopen::Conv2DOpType:
     resultCpuValue = outputMemRefCastOp;
     resultOriginalCpuValue = outputHostAllocOp;
     resultOriginalCpuType = outputMemRefType;
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case miopen::Conv2DBwdDataOpType:
     resultCpuValue = inputMemRefCastOp;
     resultOriginalCpuValue = inputHostAllocOp;
     resultOriginalCpuType = inputMemRefType;
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case miopen::Conv2DBwdWeightOpType:
     resultCpuValue = filterMemRefCastOp;
     resultOriginalCpuValue = filterHostAllocOp;
     resultOriginalCpuType = filterMemRefType;
+    break;
   }
 
   // Print the result if be specified.
@@ -1681,10 +1748,8 @@ static LogicalResult populateHostHarnessLogic(
 
     } else { // f32 or f16
       // Emit type conversion routine to convert every element to f32.
-      std::unordered_map<std::string, FuncOp> convertFuncs;
-      auto convertResultFuncOp =
-          createConvertTensor(module, builder, resultOriginalCpuType,
-                              printMemRefType, convertFuncs);
+      auto convertResultFuncOp = createConvertTensor(
+          module, builder, resultOriginalCpuType, printMemRefType);
       auto convertResultCallOp = builder.create<CallOp>(
           builder.getUnknownLoc(), convertResultFuncOp,
           ValueRange{resultOriginalCpuValue, printHostAllocOp});
@@ -1824,16 +1889,19 @@ static LogicalResult populateValidationLogic(
 
   mlir::Value gpuOriginalResults;
   MemRefType gpuOriginalResultType;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case miopen::Conv2DOpType:
     gpuOriginalResults = outputHostAllocOp;
     gpuOriginalResultType = outputMemRefType;
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case miopen::Conv2DBwdDataOpType:
     gpuOriginalResults = inputHostAllocOp;
     gpuOriginalResultType = inputMemRefType;
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case miopen::Conv2DBwdWeightOpType:
     gpuOriginalResults = filterHostAllocOp;
     gpuOriginalResultType = filterMemRefType;
+    break;
   }
 
   // Produce CPU or GPU convolution logic on F32 type
@@ -1879,7 +1947,6 @@ static LogicalResult populateValidationLogic(
   }
 
   // Prepare input data for verifier convolution.
-  std::unordered_map<std::string, FuncOp> convertFuncs;
   mlir::Value verifierFilterHostAllocOp, verifierInputHostAllocOp,
       verifierOutputHostAllocOp;
   if (randomSeed.getValue() == "none") {
@@ -1901,37 +1968,40 @@ static LogicalResult populateValidationLogic(
     mlir::Value memsetValue = zeroConstantIntOp;
 
     // If using random data, emit CPU alloc and copy input data
-    if (operation.getValue() == "conv2d" ||
-        operation.getValue() == "conv2d_dummy") {
+    switch (operation.getValue()) {
+    case miopen::Conv2DOpType:
       verifierFilterHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                             filterHostAllocOp, filterDimension, convertFuncs);
+                             filterHostAllocOp, filterDimension);
       verifierInputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                             inputHostAllocOp, inputDimension, convertFuncs);
+                             inputHostAllocOp, inputDimension);
       verifierOutputHostAllocOp = allocAndInitializeTensor(
           builder, block, floatType, mcpuMemset5DFuncOp, outputMemRefType,
           memsetValue, memsetValue, seedConstantIntOp);
-    } else if (operation.getValue() == "conv2d_bwd_data") {
+      break;
+    case miopen::Conv2DBwdDataOpType:
       verifierFilterHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                             filterHostAllocOp, filterDimension, convertFuncs);
+                             filterHostAllocOp, filterDimension);
       verifierInputHostAllocOp = allocAndInitializeTensor(
           builder, block, floatType, mcpuMemset5DFuncOp, inputMemRefType,
           memsetValue, memsetValue, seedConstantIntOp);
       verifierOutputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                             outputHostAllocOp, outputDimension, convertFuncs);
-    } else if (operation.getValue() == "conv2d_bwd_weight") {
+                             outputHostAllocOp, outputDimension);
+      break;
+    case miopen::Conv2DBwdWeightOpType:
       verifierFilterHostAllocOp = allocAndInitializeTensor(
           builder, block, floatType, mcpuMemset5DFuncOp, filterMemRefType,
           memsetValue, memsetValue, seedConstantIntOp);
       verifierInputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                             inputHostAllocOp, inputDimension, convertFuncs);
+                             inputHostAllocOp, inputDimension);
       verifierOutputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                             outputHostAllocOp, outputDimension, convertFuncs);
+                             outputHostAllocOp, outputDimension);
+      break;
     }
   }
 
@@ -1965,13 +2035,16 @@ static LogicalResult populateValidationLogic(
   }
 
   mlir::Value verifierResults;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case miopen::Conv2DOpType:
     verifierResults = verifierOutputHostAllocOp;
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case miopen::Conv2DBwdDataOpType:
     verifierResults = verifierInputHostAllocOp;
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case miopen::Conv2DBwdWeightOpType:
     verifierResults = verifierFilterHostAllocOp;
+    break;
   }
 
   // Convert CPU results
@@ -1979,25 +2052,27 @@ static LogicalResult populateValidationLogic(
   if (dataType == builder.getF32Type()) {
     verifierConvertedResults = verifierResults;
   } else {
-    verifierConvertedResults =
-        getConvertedCpuResults(module, builder, block, verifierResults,
-                               gpuOriginalResultType, convertFuncs);
+    verifierConvertedResults = getConvertedCpuResults(
+        module, builder, block, verifierResults, gpuOriginalResultType);
   }
 
   mlir::FuncOp verifyFuncOp;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case miopen::Conv2DOpType:
     verifyFuncOp =
         createVerifyFuncOp(module, builder, outputDimension,
                            verifierConvertedResults, outputHostAllocOp);
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case miopen::Conv2DBwdDataOpType:
     verifyFuncOp =
         createVerifyFuncOp(module, builder, inputDimension,
                            verifierConvertedResults, inputHostAllocOp);
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case miopen::Conv2DBwdWeightOpType:
     verifyFuncOp =
         createVerifyFuncOp(module, builder, filterDimension,
                            verifierConvertedResults, filterHostAllocOp);
+    break;
   }
 
   // Compare the results
@@ -2110,7 +2185,6 @@ static LogicalResult populateCpuConvolutionLogic(
   auto cpuOutputHostAllocOp = cpuOutputAllocOp;
 
   mlir::FuncOp mcpuMemCopy5DFuncOp;
-  std::unordered_map<std::string, FuncOp> convertFuncs;
   if (dataType != builder.getF32Type()) {
     // CPU bf16->f32 conversion function
     mcpuMemCopy5DFuncOp = makeFuncDecl(
@@ -2122,13 +2196,13 @@ static LogicalResult populateCpuConvolutionLogic(
     // Emit CPU alloc and conversion function calls
     cpuFilterHostAllocOp =
         allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                           cpuFilterAllocOp, filterDimension, convertFuncs);
+                           cpuFilterAllocOp, filterDimension);
     cpuInputHostAllocOp =
         allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                           cpuInputAllocOp, inputDimension, convertFuncs);
+                           cpuInputAllocOp, inputDimension);
     cpuOutputHostAllocOp =
         allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
-                           cpuOutputAllocOp, outputDimension, convertFuncs);
+                           cpuOutputAllocOp, outputDimension);
   }
 
   //
@@ -2156,25 +2230,28 @@ static LogicalResult populateCpuConvolutionLogic(
 
   auto cpuResults = cpuOutputHostAllocOp;
   mlir::MemRefType dataTypeMemRefType, floatMemRefType;
-  if (operation.getValue() == "conv2d" ||
-      operation.getValue() == "conv2d_dummy") {
+  switch (operation.getValue()) {
+  case miopen::Conv2DOpType:
     cpuResults = cpuOutputHostAllocOp;
     floatMemRefType = outputMemRefFloatType;
     dataTypeMemRefType = MemRefType::get(
         ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
         dataType);
-  } else if (operation.getValue() == "conv2d_bwd_data") {
+    break;
+  case miopen::Conv2DBwdDataOpType:
     cpuResults = cpuInputHostAllocOp;
     floatMemRefType = inputMemRefFloatType;
     dataTypeMemRefType = MemRefType::get(
         ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
         dataType);
-  } else if (operation.getValue() == "conv2d_bwd_weight") {
+    break;
+  case miopen::Conv2DBwdWeightOpType:
     cpuResults = cpuFilterHostAllocOp;
     floatMemRefType = filterMemRefFloatType;
     dataTypeMemRefType = MemRefType::get(
         ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
         dataType);
+    break;
   }
 
   // mlir::Value cpuConvertedResults;
@@ -2182,7 +2259,7 @@ static LogicalResult populateCpuConvolutionLogic(
   if (dataType != builder.getF32Type())
     // Convert Cpu results of f32 to desired dataType
     cpuConvertedResults = getConvertedCpuResults(
-        module, builder, block, cpuResults, dataTypeMemRefType, convertFuncs);
+        module, builder, block, cpuResults, dataTypeMemRefType);
 
   // Convert CPU results to f32 for printing
   auto printAllocOp = cpuConvertedResults;
@@ -2212,7 +2289,7 @@ static LogicalResult populateCpuConvolutionLogic(
     } else { // f16
       // Emit type conversion routine to convert every element to f32.
       auto convertResultFuncOp = createConvertTensor(
-          module, builder, dataTypeMemRefType, floatMemRefType, convertFuncs);
+          module, builder, dataTypeMemRefType, floatMemRefType);
       auto convertResultCallOp =
           builder.create<CallOp>(builder.getUnknownLoc(), convertResultFuncOp,
                                  ValueRange{cpuConvertedResults, printAllocOp});
@@ -2277,17 +2354,15 @@ static LogicalResult populateKernelLaunchLogic(
     const SmallVector<std::string, 4> &kernels, const std::string entryPoint) {
   // Check if populate entry point exist.
   FuncOp theFunc;
-  bool entryPointExist = false;
-  module.walk([&](FuncOp funcOp) -> WalkResult {
+  auto walkResult = module.walk([&](FuncOp funcOp) -> WalkResult {
     if (funcOp.getName() == entryPoint) {
-      entryPointExist = true;
       theFunc = funcOp;
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
 
-  if (!entryPointExist) {
+  if (!walkResult.wasInterrupted()) {
     // do not fail for now. silent exit.
     // return failure();
     return success();

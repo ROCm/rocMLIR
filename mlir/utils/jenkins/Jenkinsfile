@@ -7,10 +7,10 @@ void buildProject(String target, String cmakeOpts) {
         cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
 }
 
-void getAndBuildMIOpen(String cmakeOpts) {
-    git branch: 'develop', poll: false,\
+void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
+    git branch: 'mlir-pass-isaname', poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
-    cmake arguments: "-P install_deps.cmake --minimum",\
+    cmake arguments: "-P install_deps.cmake --minimum ${prefixOpt}",\
         installation: "InSearchPath"
     sh '[ ! -d build ] || rm -rf build'
     cmakeBuild generator: 'Unix Makefiles',\
@@ -25,6 +25,7 @@ void getAndBuildMIOpen(String cmakeOpts) {
 }
 
 void showEnv() {
+    sh 'hostname'
     sh 'cat /etc/os-release'
     sh '/opt/rocm/bin/rocm-smi'
 }
@@ -104,7 +105,8 @@ pipeline {
                             steps {
                                 buildProject('check-mlir',
                                              """-DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
-                                             -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0""")
+                                             -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
+                                             -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=0""")
                             }
                         }
                     }
@@ -153,7 +155,7 @@ pipeline {
                             }}
                             steps {
                                 dir('MIOpen') {
-                                        getAndBuildMIOpen('''-DMIOPEN_USE_MLIR=On
+                                        getAndBuildMIOpen('', '''-DMIOPEN_USE_MLIR=On
                                         -DBUILD_DEV=On
                                         -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
                                         ''')
@@ -198,9 +200,13 @@ pipeline {
                         stage("Build MIOpen with HIP") {
                             steps {
                                 dir('MIOpen') {
-                                    getAndBuildMIOpen('''-DMIOPEN_BACKEND=HIP
-                                    -DCMAKE_PREFIX_PATH="/opt/rocm/hip;/opt/rocm/;/usr/local"
+                                    sh 'mkdir MIOpenInstallDir'
+                                    getAndBuildMIOpen('--prefix ./MIOpenDeps', 
+                                                      '''-DMIOPEN_BACKEND=HIP
+                                    -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
+                                    -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/MIOpenInstallDir
                                     ''')
+                                    sh 'cd build; make install'
                                 }
                             }
                         }
@@ -210,10 +216,6 @@ pipeline {
                             }
                         }
                         stage('Performance Test') {
-                            environment {
-                                // Make libMIOpen.so accessible to the test driver
-                                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                            }
                             steps {
                                 sh 'ldconfig'
                                 dir('build') {

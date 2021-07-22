@@ -71,18 +71,6 @@ def MIOpen_Conv2DBwdWeightOp :
   }];
 }
 
-def MIOpen_Conv2DDummyOp :
-    MIOpen_Op<"conv2d_dummy">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [5]>:$filter,
-                   MemRefRankOf<[F32, F16, I16], [5]>:$input,
-                   MemRefRankOf<[F32, F16, I16], [5]>:$output)> {
-  let summary = "Dummy op for 2D convolution";
-  let description = [{
-    The `miopen.conv2d_dummy` op is an empty op which takes the same operands as a regular 2D conv op.
-  }];
-}
-
-
 def MIOpen_TransformOp :
     MIOpen_Op<"transform">,
     Arguments<(ins AnyMemRef:$input)>,

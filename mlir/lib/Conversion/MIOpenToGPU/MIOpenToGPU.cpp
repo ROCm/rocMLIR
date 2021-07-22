@@ -155,16 +155,6 @@ struct MIMFMARewritePattern : public OpRewritePattern<miopen::MFMAV2Op> {
   }
 };
 
-struct MIDummyRewritePattern : public OpRewritePattern<miopen::Conv2DDummyOp> {
-  using OpRewritePattern<miopen::Conv2DDummyOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(miopen::Conv2DDummyOp op,
-                                PatternRewriter &b) const override {
-    op.erase();
-    return success();
-  }
-};
-
 } // namespace
 
 void LowerMIOpenOpsToGPUPass::runOnOperation() {
@@ -273,7 +263,6 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     patterns.insert<MIOpRewritePattern<ReturnOp, gpu::ReturnOp>>(&getContext());
 
     patterns.insert<MIMFMARewritePattern>(&getContext());
-    patterns.insert<MIDummyRewritePattern>(&getContext());
     if (failed(applyPatternsAndFoldGreedily(gpuMod, std::move(patterns))))
       signalPassFailure();
   });
