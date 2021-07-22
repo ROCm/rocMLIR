@@ -17,9 +17,4 @@ def MIGraphXIRDumpPass : Pass<"migraphx-xirdump", "ModuleOp"> {
   let dependentDialects = ["migraphx::MIGraphXDialect"];
 }
 
-def GroupFusablesPass : Pass<"migraphx-group-fusable-ops-pass", "FuncOp"> {
-  let summary = "Group fusable migraphx Ops on tensors";
-  let constructor = "mlir::migraphx::createGroupFusablesPass()";
-}
-
 #endif // MLIR_DIALECT_MIGRAPHX_PASSES
