@@ -313,4 +313,5 @@ usage examples:
             df = pd.DataFrame([benchmarkMLIR(sys.argv[1:], xdlops)])
 
         df.to_csv(fileName)
-        print(df) # for interactive consumption
+        with pd.option_context('precision', reportUtils.ROUND_DIGITS):
+            print(df) # for interactive consumption
