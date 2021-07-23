@@ -7,8 +7,11 @@ func @test_fusion(%arg0: tensor<128x8x32x32xf32>, %arg1: tensor<128x8x3x3xf32>, 
   %0 = "tosa.conv2d"(%arg0, %arg1, %arg2) {dilation = [1, 1], pad = [0, 0, 0, 0], stride = [1, 1]} : (tensor<128x8x32x32xf32>, tensor<128x8x3x3xf32>, tensor<8xf32>) -> tensor<128x128x30x30xf32>
   %1 = "tosa.abs"(%0) {} : (tensor<128x128x30x30xf32>) -> tensor<128x128x30x30xf32>
   %2 = "tosa.abs"(%1) {} : (tensor<128x128x30x30xf32>) -> tensor<128x128x30x30xf32>
+  %3 = "tosa.conv2d"(%2, %arg1, %arg2) {dilation = [1, 1], pad = [1, 1, 1, 1], stride = [1, 1]} : (tensor<128x8x30x30xf32>, tensor<128x8x3x3xf32>, tensor<8xf32>) -> tensor<128x128x30x30xf32>
+  %4 = "tosa.abs"(%3) {} : (tensor<128x128x30x30xf32>) -> tensor<128x128x30x30xf32>
+  %5 = "tosa.abs"(%4) {} : (tensor<128x128x30x30xf32>) -> tensor<128x128x30x30xf32>
 
-  return %2 : tensor<128x128x30x30xf32>
+  return %5 : tensor<128x128x30x30xf32>
 }
 
 // -----
