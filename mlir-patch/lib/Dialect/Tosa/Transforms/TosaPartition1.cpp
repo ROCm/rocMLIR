@@ -12,6 +12,7 @@
 
 #include <iostream>
 #include <algorithm>
+#include <deque>
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/IR//TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
@@ -30,7 +31,6 @@
 #include "llvm/ADT/STLExtras.h"
 
 using llvm::SmallVector;
-using llvm::SetVector;
 using llvm::errs;
 
 using namespace mlir;
@@ -52,7 +52,8 @@ bool isElementwiseOp(Operation *op) {
 
 // Inspired by / adapted from outlineIfOp() in SCF/Transforms/Utils.cpp.
 void outlineConvPartOps(Operation *convOp,
-                        SetVector<Operation*> &secondOps,
+                        llvm::SetVector<Operation*> &secondOps,
+                        ArrayRef<Operation*> frontOps,
                         ArrayRef<Value> params,
                         ArrayRef<Value> returnVals,
                         StringRef partFnName) {
@@ -80,11 +81,16 @@ void outlineConvPartOps(Operation *convOp,
   BlockAndValueMapping bvm;
   for (auto it : llvm::zip(values, outlinedFunc.getArguments()))
     bvm.map(std::get<0>(it), std::get<1>(it));
+
+  for (auto *op : llvm::reverse(frontOps)) {
+    b.clone(*op, bvm);
+  }
+
   b.clone(*convOp, bvm);
 
   // Since secondOps is a SetVector, it's in the order that the ops were
   // seen in the main function, which is safe to iterate through.
-  Operation *lastOp = nullptr;
+  Operation *lastOp = convOp;
   for (auto *op : secondOps) {
     assert(llvm::all_of(op->getOperands(), [&](Value v) {
           return bvm.lookupOrNull(v);
@@ -117,6 +123,10 @@ void outlineConvPartOps(Operation *convOp,
   }
   assert(convOp->use_empty() && "expected 'op' to have no uses");
   convOp->erase();
+  for (auto &op : llvm::make_early_inc_range(frontOps)) {
+//    assert(op->use_empty() && "expected 'op' to have no uses");
+    op->erase();
+  }
 }
 
 // OperationEquivalence::isEquivalentTo() doesn't do what I want because
@@ -145,8 +155,10 @@ bool isFunctionallyEquivalentTo(Operation *lhs, Operation *rhs) {
 //   if (lhs->getAttrDictionary() != rhs->getAttrDictionary())
 //     return false;
   // Compare result types.
-  ArrayRef<Type> lhsResultTypes = lhs->getResultTypes();
-  ArrayRef<Type> rhsResultTypes = rhs->getResultTypes();
+//  SmallVector<Type> lhsResultTypes(lhs->getResultTypes());
+//  SmallVector<Type> rhsResultTypes(rhs->getResultTypes());
+   ArrayRef<Type> lhsResultTypes = lhs->getResultTypes();
+   ArrayRef<Type> rhsResultTypes = rhs->getResultTypes();
   if (lhsResultTypes.size() != rhsResultTypes.size())
     return false;
   switch (lhsResultTypes.size()) {
@@ -218,7 +230,11 @@ void collapseIdenticalFunctions(ModuleOp module) {
 class TosaPartition1Pass
     : public PassWrapper<TosaPartition1Pass, FunctionPass> {
 public:
-  explicit TosaPartition1Pass() {}
+  TosaPartition1Pass() {}
+  TosaPartition1Pass(const TosaPartition1Pass &pass) {}
+
+  Option<bool> nofront{*this, "nofront", llvm::cl::desc("Only gather ops behind conv2d"),
+                       llvm::cl::init(false)};
 
   void runOnFunction() override {
     int count = 0;
@@ -242,11 +258,37 @@ public:
       //
       // These are SetVectors because we test with contains() a lot, but still
       // want to preserve order.
-      SetVector<Operation *> secondOps;
-      SetVector<Value> inputNodes(convOp->getOperands().begin(),
-                                  convOp->getOperands().end());
-      SetVector<Value> resultNodes(convOp->getResults().begin(),
-                                   convOp->getResults().end());
+      llvm::SetVector<Operation *> secondOps;
+      llvm::SetVector<Value> inputNodes(convOp->getOperands().begin(),
+                                        convOp->getOperands().end());
+      llvm::SetVector<Value> resultNodes(convOp->getResults().begin(),
+                                         convOp->getResults().end());
+
+
+
+      // Experiment:  can we grab a useful set of leading ops, like we do
+      // for trailing?
+      //
+      // Let's limit it to only first arguments, with single uses.
+      SmallVector<Operation*> frontOps;
+      if (!nofront) {
+        Operation *op = convOp;
+        while (true) {
+          if (op->getNumOperands() < 1) break;
+          Operation *usedOp = op->getOpOperand(0).get().getDefiningOp();
+          if (!usedOp) break;
+          if (!isElementwiseOp(usedOp) || !usedOp->hasOneUse()) break;
+          // Remove the first operand from the function inputs, if present.
+          // Add usedOp's operands to the function inputs.
+          inputNodes.remove(op->getOpOperand(0).get());
+          inputNodes.insert(usedOp->getOperands().begin(),
+                            usedOp->getOperands().end());
+          frontOps.push_back(usedOp);
+          op = usedOp;
+        }
+      }
+
+
       DominanceInfo domInfo(func);
       std::deque<Operation *> worklist; // cuz I want to pull from the front.
 
@@ -300,9 +342,10 @@ public:
         }
       }
 
-      if (!secondOps.empty()) {
+      if (!secondOps.empty() || !frontOps.empty()) {
         // Make the outlined function from the ops we've gathered.
-        outlineConvPartOps(convOp, secondOps, inputNodes.getArrayRef(),
+        outlineConvPartOps(convOp, secondOps, frontOps,
+                           inputNodes.getArrayRef(),
                            resultNodes.getArrayRef(),
                            std::string(func.sym_name()) + strCount);
         // Outlining will erase nodes and thus perturb the walk, so
@@ -321,236 +364,6 @@ public:
   }
 };
 
-////////////////////////////////////////////////////////////////////////////////
-
-struct PartitionConv2D : public RewritePattern {
-  explicit PartitionConv2D(MLIRContext* context)
-      : RewritePattern(tosa::Conv2DOp::getOperationName(), 1, context) {}
-  LogicalResult matchAndRewrite(Operation *op,
-                                PatternRewriter& rewriter) const override;
-};
-
-// Inspired by / adapted from TestSCFIfUtilsPass in
-// test/lib/Transforms/TestSCFUtils.cpp.
-class TosaPartition2Pass
-    : public PassWrapper<TosaPartition2Pass, FunctionPass> {
-public:
-  explicit TosaPartition2Pass() {}
-
-  void runOnFunction() override {
-    FuncOp func = getFunction();
-    OwningRewritePatternList patterns;
-    auto* ctx = func->getContext();
-
-    // Add the generated patterns to the list.
-    patterns.insert<PartitionConv2D>(ctx);
-    (void)applyPatternsAndFoldGreedily(func, std::move(patterns));
-  }
-};
-
-LogicalResult PartitionConv2D::matchAndRewrite(Operation *op,
-                                               PatternRewriter& rw) const {
-  auto convOp = cast<tosa::Conv2DOp>(op);
-
-  // Insert outlined function before current function.
-  auto func = op->getParentOfType<FuncOp>();
-
-  errs() << "inside function: ";
-  func->dump();
-
-  // We're using the PatternRewriter for changes to the current function,
-  // and the OpBuilder for nodes in the outlined function.  One thing that
-  // split avoids is notifyOperationInserted() calls on nodes cloned into
-  // the outlined functions.
-  OpBuilder b(func->getContext());
-  OpBuilder::InsertionGuard g(b);
-  b.setInsertionPoint(func);
-//   // Need arrays for params and returnVals, so they can become
-//   // ValueRanges to make the FuncOp.
-//   SmallVector<Value> params;
-//   SmallVector<Value> returnVals;
-//   ValueRange values(params);
-//   ValueRange results(returnVals);
-
-  llvm::SetVector<mlir::Value> functionInputs(convOp->getOperands().begin(),
-                                              convOp->getOperands().end());
-  auto typesRange = llvm::map_range(
-      functionInputs, [](Value value) { return value.getType(); });
-  SmallVector<Type, 4> inputTypes(typesRange.begin(), typesRange.end());
-  auto outputTypes = convOp->getResultTypes();
-
-  FunctionType type = FunctionType::get(func->getContext(), inputTypes, outputTypes);
-  SmallVector<NamedAttribute, 1> kernelAttrs{b.getNamedAttr("kernel", b.getUnitAttr())};
-  auto outlinedFunc = b.create<FuncOp>(op->getLoc(),
-                                       std::string(func.sym_name()) + "_foo" + std::to_string(rand()),
-                                       type, ArrayRef<NamedAttribute>(kernelAttrs));
-  b.setInsertionPointToStart(outlinedFunc.addEntryBlock());
-  BlockAndValueMapping bvm;
-  for (auto it : llvm::zip(functionInputs, outlinedFunc.getArguments()))
-    bvm.map(std::get<0>(it), std::get<1>(it));
-  auto* newOp = b.clone(*convOp, bvm);
-
-  // for each use
-  //    if it qualifies
-  //       clone into new function
-  //       check its uses
-  // look for operands that aren't included in the parameters
-  // look for users outside the function
-  // insert call
-
-#if 0
-  std::deque<Operation *> worklist; // cuz I want to pull from the front.
-  worklist.push_back(convOp);
-  while (!worklist.empty()) {
-    Operation *op = worklist.front();
-    worklist.pop_front();
-    for (auto *userOp : op->getUsers()) {
-      // If it has no uses, it was part of another convOp's chain.
-      // (Need a better test here.)
-      // All three of these traits indicate element-wise ops.
-      if ((   userOp->hasTrait<OpTrait::ElementwiseMappable>()
-              || userOp->hasTrait<OpTrait::ResultsBroadcastableShape>()
-              || userOp->hasTrait<OpTrait::SameOperandsAndResultType>())
-          && !op->use_empty()) {
-        secondOps.insert(userOp);
-        worklist.push_back(userOp);
-      }
-    }
-  }
-#endif  /* 0 */
-
-
-
-
-  Operation *lastOp = convOp;
-  for (auto *userOp : convOp->getUsers()) {
-    errs() << "user?\n";
-    if (isElementwiseOp(userOp)) {
-      errs() << "  cloned\n";
-      newOp  = b.clone(*userOp, bvm);
-      lastOp = userOp;
-    }
-  }
-
-  llvm::SetVector<Value> valuesSet;
-  mlir::getUsedValuesDefinedAbove(outlinedFunc.getBody(), valuesSet);
-  errs() << "defined above:\n";
-  for (Value val : valuesSet) {
-    errs() << "  ";
-    val.dump();
-  }
-  if (!valuesSet.empty()) {
-    errs() << "will need to add parameters\n";
-  }
-
-  b.create<ReturnOp>(outlinedFunc->getLoc(), newOp->getResults());
-  rw.setInsertionPoint(convOp);
-  CallOp callOp = rw.create<CallOp>(convOp->getLoc(), outlinedFunc, functionInputs.getArrayRef());
-  rw.replaceOp(lastOp, callOp->getResults());
-
-//  for (auto it : llvm::zip(returnVals, callOp->getResults())) {
-//    std::get<0>(it).replaceAllUsesWith(std::get<1>(it));
-//  }
-
-//   SmallVector<Operation*> ops;
-//   for (auto &op : func.getBody().getOps()) {
-//     ops.push_back(&op);
-//   }
-//   for (auto &op : llvm::make_early_inc_range(llvm::reverse(ops))) {
-//     if (op->use_empty() && !op->isKnownTerminator())
-//       rw.eraseOp(op);
-//   }
-
-
-
-
-  errs() << "main function:\n";
-  func->dump();
-  errs() << "outlined function:\n";
-  outlinedFunc->dump();
-
-
-//   if (!result) {
-//     return failure();
-//   }
-
-//  rewriter.replaceOp(convOp, {result.getValue()});
-  return success();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-// Inspired by / adapted from TestSCFIfUtilsPass in
-// test/lib/Transforms/TestSCFUtils.cpp.
-class TosaPartition3Pass
-    : public PassWrapper<TosaPartition3Pass, FunctionPass> {
-public:
-  explicit TosaPartition3Pass() {}
-
-  void runOnFunction() override {
-    FuncOp func = getFunction();
-    OpBuilder b(func->getContext());
-
-    SmallVector<Operation*> convOps;
-
-    func.walk([&](tosa::Conv2DOp convOp) {
-                if (llvm::any_of(convOp->getUsers(), isElementwiseOp)) {
-                  convOps.push_back(convOp);
-                }
-              });
-
-    for (Operation *op : convOps) {
-      Block *block, *beforeBlock, *afterBlock;
-      if (op->getPrevNode()) {
-        beforeBlock = op->getBlock();
-        block = beforeBlock->splitBlock(op);
-      } else {
-        beforeBlock = nullptr;
-        block = op->getBlock();
-      }
-      assert(op->getNextNode());
-      afterBlock = block->splitBlock(op->getNextNode());
-
-      // Insert outlined function before current function.
-      OpBuilder::InsertionGuard g(b);
-      b.setInsertionPoint(op->getParentOfType<FuncOp>());
-      // Need arrays for params and returnVals, so they can become
-      // ValueRanges to make the FuncOp.
-      SmallVector<Value> params;
-      SmallVector<Value> returnVals;
-      ValueRange values(params);
-      ValueRange results(returnVals);
-//       FunctionType type =
-//         FunctionType::get(func->getContext(), values.getTypes(), results.getTypes());
-      SmallVector<NamedAttribute, 1> kernelAttrs{b.getNamedAttr("kernel", b.getUnitAttr())};
-//       auto outlinedFunc =
-//           b.create<FuncOp>(op->getLoc(), std::string(func.sym_name()) + "_out",
-//                            type, ArrayRef<NamedAttribute>(kernelAttrs));
-
-//       // Clone convOp and secondOps into the body of the new function.
-//       b.setInsertionPointToStart(outlinedFunc.addEntryBlock());
-//       BlockAndValueMapping bvm;
-//       b.clone(*convOp, bvm);
-
-
-      if (beforeBlock) {
-        b.setInsertionPointToEnd(beforeBlock);
-        b.create<BranchOp>(op->getLoc(), block);
-      }
-      b.setInsertionPointToEnd(block);
-      b.create<BranchOp>(afterBlock->begin()->getLoc(), afterBlock);
-
-      for (auto *userOp : op->getUsers()) {
-        if (isElementwiseOp(userOp)) {
-          userOp->moveAfter(op);
-        }
-      }
-
-    }
-
-    func.dump();
-  }
-};
 } // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -560,14 +373,6 @@ namespace test {
 void registerTosaPartition1Pass() {
   PassRegistration<TosaPartition1Pass>("tosa-partition1",
                                        "tosa partition1");
-}
-void registerTosaPartition2Pass() {
-  PassRegistration<TosaPartition2Pass>("tosa-partition2",
-                                       "tosa partition2");
-}
-void registerTosaPartition3Pass() {
-  PassRegistration<TosaPartition3Pass>("tosa-partition3",
-                                       "tosa partition3");
 }
 } // namespace test
 } // namespace mlir
