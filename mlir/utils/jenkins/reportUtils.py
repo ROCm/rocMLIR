@@ -31,13 +31,12 @@ def colorForSpeedups(value):
     else:
         return ''
 
-def setCommonStyles(styler: 'pd.io.formats.style.Styler'):
+def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCol: str):
     styler.set_precision(ROUND_DIGITS)
     styler.set_na_rep("FAILED")
-    if 'Speedup' in styler.columns:
-        styler.applymap(colorForSpeedups, subset=['Speedup'])
+    styler.applymap(colorForSpeedups, subset=[speedupCol])
 
-def htmlReport(data: pd.DataFrame, stats: pd.DataFrame, title: str, stream=None):
+def htmlReport(data: pd.DataFrame, stats: pd.DataFrame, title: str, speedupCol: str, stream=None):
     print(f"""
 <!doctype html>
 <html lang="en_US">
@@ -60,7 +59,7 @@ caption {{
     statsPrinter.set_table_styles([
         {'selector': 'th, td', 'props': [('padding', '0.5em'), ('text-align', 'center')]},
         {'selector': 'table', 'props': [('background-color', '#eeeeee'), ('border-collapse', 'collapse')]}])
-    setCommonStyles(statsPrinter)
+    setCommonStyles(statsPrinter, speedupCol)
     print(statsPrinter.render(), file=stream)
 
     print("<h2>Details</h2>", file=stream)
@@ -72,7 +71,7 @@ caption {{
         {'selector': 'tbody tr:nth-child(even)', 'props': [('background-color', '#eeeeee')]},
         {'selector': 'table', 'props': [('background-color', '#dddddd'), ('border-collapse', 'collapse')]},
         {'selector': 'th, td', 'props': [('padding', '0.5em'), ('text-align', 'center')]}])
-    setCommonStyles(dataPrinter)
+    setCommonStyles(dataPrinter, speedupCol)
     print(dataPrinter.render(), file=stream)
     print("""
 </body>
