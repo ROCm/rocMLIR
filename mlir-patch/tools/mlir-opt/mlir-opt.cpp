@@ -95,8 +95,6 @@ void registerTestSCFUtilsPass();
 void registerTestSparsification();
 void registerTestVectorConversions();
 void registerTosaPartition1Pass();
-void registerTosaPartition2Pass();
-void registerTosaPartition3Pass();
 } // namespace test
 } // namespace mlir
 
@@ -169,8 +167,6 @@ void registerTestPasses() {
   test::registerTestSparsification();
   test::registerTestVectorConversions();
   test::registerTosaPartition1Pass();
-  test::registerTosaPartition2Pass();
-  test::registerTosaPartition3Pass();
 }
 #endif
 
