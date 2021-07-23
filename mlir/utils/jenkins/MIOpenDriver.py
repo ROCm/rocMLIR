@@ -65,7 +65,7 @@ class ConvConfiguration:
         # NaN will propagate as expected
         return (2.0 * self.n * self.c * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12
 
-    TABLE_COLUMNS = reportUtils.TEST_PARAMETERS + ['MLIR TFlops']
+    TABLE_COLUMNS = reportUtils.TEST_PARAMETERS + ['TFlops']
 
     def tableEntry(self, nanoSeconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
@@ -252,7 +252,7 @@ def benchmarkMIOpen(commandLine, xdlops):
 def printPerformance(mlir_df, miopen_df):
     df = mlir_df.merge(miopen_df, on=ConvConfiguration.TABLE_COLUMNS[:-1],
                            suffixes=('', ' (MIOpen)'))
-    df.rename(columns={'TFlops (MIOpen)': 'MIOpen TFlops'}, inplace=True)
+    df.rename(columns={'TFlops': 'MLIR TFlops', 'TFlops (MIOpen)': 'MIOpen TFlops'}, inplace=True)
 
     df['MLIR/MIOpen'] = df['MLIR TFlops'] / df['MIOpen TFlops']
     df.to_csv(reportUtils.PERF_REPORT_FILE, index=False)
