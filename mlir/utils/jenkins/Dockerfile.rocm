@@ -52,7 +52,7 @@ ADD "https://raw.githubusercontent.com/google/llvm-premerge-checks/master/script
 RUN pip3 install -r requirements.txt
 
 # Needed to output performance tests
-RUN pip3 install PrettyTable
+RUN pip3 install pandas numpy scipy jinja2
 
 RUN ln -s /usr/bin/clang-10 /usr/bin/clang;\
     ln -s /usr/bin/clang++-10 /usr/bin/clang++;\
