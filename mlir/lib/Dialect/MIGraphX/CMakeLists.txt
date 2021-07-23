@@ -8,7 +8,7 @@
 #endif()
 
 file(GLOB globbed *.c *.cpp)
-add_mlir_dialect_library(MLIRMIGraphXOps
+add_mlir_dialect_library(MLIRMIGraphX
   ${globbed}
 
   ADDITIONAL_HEADER_DIRS
@@ -20,7 +20,7 @@ add_mlir_dialect_library(MLIRMIGraphXOps
   MLIRMIGraphXOpsIncGen
 
   )
-target_link_libraries(MLIRMIGraphXOps
+target_link_libraries(MLIRMIGraphX
   PUBLIC
   MLIRGPU
   MLIRIR

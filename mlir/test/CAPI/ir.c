@@ -17,6 +17,7 @@
 #include "mlir-c/BuiltinTypes.h"
 #include "mlir-c/Diagnostics.h"
 #include "mlir-c/Dialect/Standard.h"
+#include "mlir-c/Dialect/MIGraphX.h"
 #include "mlir-c/IntegerSet.h"
 #include "mlir-c/Registration.h"
 
@@ -179,6 +180,73 @@ MlirModule makeAndDumpAdd(MlirContext ctx, MlirLocation location) {
   // CHECK:   }
   // CHECK: }
   // clang-format on
+
+  return moduleOp;
+}
+
+MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
+  MlirModule moduleOp = mlirModuleCreateEmpty(location);
+  MlirBlock moduleBody = mlirModuleGetBody(moduleOp);
+
+  int64_t inRank[] = {4};
+  int64_t inDims[] = {1, 3, 224, 224};
+  int64_t filterDims[] = {64, 3, 7, 7};
+
+  MlirType inType = mlirRankedTensorTypeGet(4, inDims, mlirF32TypeGet(ctx));
+  MlirType filterType = mlirRankedTensorTypeGet(4, inDims, mlirF32TypeGet(ctx));
+
+  MlirType funcBodyArgTypes[] = {inType, inType};
+  MlirRegion funcBodyRegion = mlirRegionCreate();
+  MlirBlock funcBody = mlirBlockCreate(
+      sizeof(funcBodyArgTypes) / sizeof(MlirType), funcBodyArgTypes);
+  mlirRegionAppendOwnedBlock(funcBodyRegion, funcBody);
+
+  MlirAttribute funcTypeAttr = mlirAttributeParseGet(
+      ctx,
+      mlirStringRefCreateFromCString("(tensor<1x3x224x224xf32>, tensor<1x3x224x224xf32>) -> (tensor<1x3x224x224xf32>)"));
+  MlirAttribute funcNameAttr =
+      mlirAttributeParseGet(ctx, mlirStringRefCreateFromCString("\"simple_conv\""));
+  MlirNamedAttribute funcAttrs[] = {
+      mlirNamedAttributeGet(
+          mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("type")),
+          funcTypeAttr),
+      mlirNamedAttributeGet(
+          mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("sym_name")),
+          funcNameAttr)};
+  MlirOperationState funcState =
+      mlirOperationStateGet(mlirStringRefCreateFromCString("func"), location);
+  mlirOperationStateAddAttributes(&funcState, 2, funcAttrs);
+  mlirOperationStateAddOwnedRegions(&funcState, 1, &funcBodyRegion);
+  MlirOperation func = mlirOperationCreate(&funcState);
+  mlirBlockInsertOwnedOperation(moduleBody, 0, func);
+  
+  MlirValue funcArg0 = mlirBlockGetArgument(funcBody, 0);
+  MlirValue funcArg1 = mlirBlockGetArgument(funcBody, 1);
+  MlirValue convOperands[] = {funcArg0, funcArg1};
+
+  MlirOperationState convOpState = mlirOperationStateGet(
+      mlirStringRefCreateFromCString("migraphx.add"), location);
+  mlirOperationStateAddResults(&convOpState, 1, &inType);
+  mlirOperationStateAddOperands(&convOpState, 2, convOperands);
+  MlirOperation convOp0 = mlirOperationCreate(&convOpState);
+  mlirBlockAppendOwnedOperation(funcBody, convOp0);
+
+  MlirValue retOperands[] = {mlirOperationGetResult(convOp0, 0)};
+  MlirOperationState retState = mlirOperationStateGet(
+      mlirStringRefCreateFromCString("std.return"), location);
+  mlirOperationStateAddOperands(&retState, 1, retOperands);
+  MlirOperation ret = mlirOperationCreate(&retState);
+  mlirBlockAppendOwnedOperation(funcBody, ret);
+
+  MlirOperation module = mlirModuleGetOperation(moduleOp);
+  mlirOperationDump(module);
+
+//module  {
+//  func @simple_conv(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<1x3x224x224xf32>) -> tensor<1x3x224x224xf32> {
+//    %0 = migraphx.add(%arg0, %arg1) : (tensor<1x3x224x224xf32>, tensor<1x3x224x224xf32>) -> tensor<1x3x224x224xf32>
+//    return %0 : tensor<1x3x224x224xf32>
+//  }
+//}
 
   return moduleOp;
 }
@@ -466,8 +534,20 @@ static int constructAndTraverseIr(MlirContext ctx) {
     return errcode;
 
   printFirstOfEach(ctx, module);
-
   mlirModuleDestroy(moduleOp);
+
+  MlirLocation location1 = mlirLocationUnknownGet(ctx);
+
+  MlirModule moduleOp1 = makeAndDumpMIXR(ctx, location1);
+  MlirOperation module1 = mlirModuleGetOperation(moduleOp1);
+
+  int errcode1 = collectStats(module1);
+  if (errcode1)
+    return errcode1;
+
+  mlirModuleDestroy(moduleOp1);
+
+
   return 0;
 }
 

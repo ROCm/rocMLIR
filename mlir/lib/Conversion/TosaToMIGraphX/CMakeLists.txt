@@ -20,5 +20,5 @@ add_mlir_conversion_library(MLIRTosaToMIGraphX
   MLIRTosa
   MLIRTosaTransforms
   MLIRSupport
-  MLIRMIGraphXOps
+  MLIRMIGraphX
   )

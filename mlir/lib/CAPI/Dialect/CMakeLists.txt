@@ -5,6 +5,7 @@ set(LLVM_OPTIONAL_SOURCES
   Shape.cpp
   Standard.cpp
   Tensor.cpp
+  MIGraphX.cpp
 )
 
 add_mlir_public_c_api_library(MLIRCAPILinalg
@@ -45,4 +46,13 @@ add_mlir_public_c_api_library(MLIRCAPITensor
   LINK_LIBS PUBLIC
   MLIRCAPIIR
   MLIRTensor
+)
+
+add_mlir_public_c_api_library(MLIRCAPIMIGraphX
+  MIGraphX.cpp
+
+  LINK_LIBS PUBLIC
+  MLIRCAPIIR
+  MLIRMIGraphX
+
 )
