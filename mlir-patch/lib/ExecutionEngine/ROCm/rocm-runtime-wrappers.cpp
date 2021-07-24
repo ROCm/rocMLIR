@@ -19,7 +19,10 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/raw_ostream.h"
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
 #include "hip/hip_runtime.h"
+#pragma GCC diagnostic pop
 #include <unordered_map>
 
 namespace {
