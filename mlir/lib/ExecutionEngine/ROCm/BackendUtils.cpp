@@ -38,7 +38,10 @@
 #include "lld/Common/Driver.h"
 
 // TODO: remove this once the rocm_agent_enumerator is ready
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
 #include "hip/hip_runtime.h"
+#pragma GCC diagnostic pop
 
 #include <mutex>
 #include <numeric>
