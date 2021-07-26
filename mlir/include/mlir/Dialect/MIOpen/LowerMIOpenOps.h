@@ -2041,11 +2041,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           (isFilterPad) ? paddingFilterAttrs : transformedFilterAttrs;
 
       assert(arg0TargetLayoutName[1] == "gemmK");
+      int64_t dividedGemmKLen = 0;
       for (unsigned iter = 0; iter < filterShape.size(); ++iter) {
         if (iter != 1) { // dim 1 is gemmK in forward convolution.
           kpackFilterShape.push_back(filterShape[iter]);
         } else {
-          kpackFilterShape.push_back(filterShape[iter] / KPack);
+          dividedGemmKLen = filterShape[iter] / KPack;
+          kpackFilterShape.push_back(dividedGemmKLen);
         }
       }
       kpackFilterShape.push_back(KPack);
@@ -2063,19 +2065,25 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           b.getArrayAttr(
               {b.getDictionaryAttr(
                    {b.getNamedAttr("upper_layer_dimensions",
-                                   b.getArrayAttr({b.getI32IntegerAttr(0),
-                                                   b.getI32IntegerAttr(2)})),
+                                   b.getArrayAttr({b.getI32IntegerAttr(0)})),
                     b.getNamedAttr("upper_layer_names",
-                                   b.getArrayAttr({gemmASourceDimNames[0],
-                                                   gemmASourceDimNames[2]})),
+                                   b.getArrayAttr({gemmASourceDimNames[0]})),
                     b.getNamedAttr("lower_layer_dimensions",
-                                   b.getArrayAttr({b.getI32IntegerAttr(0),
-                                                   b.getI32IntegerAttr(2)})),
+                                   b.getArrayAttr({b.getI32IntegerAttr(0)})),
                     b.getNamedAttr("lower_layer_names",
-                                   b.getArrayAttr({gemmASourceDimNames[0],
-                                                   gemmASourceDimNames[2]})),
-
-                    b.getNamedAttr("transform",
+                                   b.getArrayAttr({gemmASourceDimNames[0]})),
+                    b.getNamedAttr("transformation",
+                                   b.getStringAttr("PassThrough"))}),
+               b.getDictionaryAttr(
+                   {b.getNamedAttr("upper_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                    b.getNamedAttr("upper_layer_names",
+                                   b.getArrayAttr({gemmASourceDimNames[2]})),
+                    b.getNamedAttr("lower_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                    b.getNamedAttr("lower_layer_names",
+                                   b.getArrayAttr({gemmASourceDimNames[2]})),
+                    b.getNamedAttr("transformation",
                                    b.getStringAttr("PassThrough"))}),
                b.getDictionaryAttr({
                    b.getNamedAttr("upper_layer_dimensions",
@@ -2090,11 +2098,23 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                    b.getNamedAttr("lower_layer_names",
                                   b.getArrayAttr({gemmASourceDimNames[1]})),
 
-                   b.getNamedAttr("transform", b.getStringAttr("UnMerge")),
-                   b.getNamedAttr("parameters",
-                                  b.getArrayAttr({b.getI32IntegerAttr(KPack),
-                                                  b.getI32IntegerAttr(1)})),
+                   b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                   b.getNamedAttr(
+                       "dimension_lengths",
+                       b.getArrayAttr({b.getI32IntegerAttr(dividedGemmKLen),
+                                       b.getI32IntegerAttr(KPack)})),
                })})));
+
+      // set upper_layer_layout attribute.
+      kpackFilterAttrs.push_back(b.getNamedAttr(
+          "upper_layer_layout",
+          b.getArrayAttr({gemmASourceDimNames[0], gemmASourceDimNames[1],
+                          gemmASourceDimNames[2],
+                          b.getStringAttr("gemmKPack")})));
+
+      // set lower_layer_layout attribute.
+      kpackFilterAttrs.push_back(
+          b.getNamedAttr("lower_layer_layout", gemmASourceDimNames));
 
       auto kpackFilterMemRefType =
           MemRefType::get(kpackFilterShape, filterElementType);
@@ -2924,11 +2944,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           (isInputPad) ? paddingInputAttrs : transformedInputAttrs;
 
       assert(arg1TargetLayoutName[1] == "gemmK");
+      int64_t dividedGemmKLen = 0;
       for (unsigned iter = 0; iter < inputShape.size(); ++iter) {
         if (iter != 1) { // dim 1 is gemmK in forward convolution.
           kpackInputShape.push_back(inputShape[iter]);
         } else {
-          kpackInputShape.push_back(inputShape[iter] / KPack);
+          dividedGemmKLen = inputShape[iter] / KPack;
+          kpackInputShape.push_back(dividedGemmKLen);
         }
       }
       kpackInputShape.push_back(KPack);
@@ -2946,19 +2968,25 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           b.getArrayAttr(
               {b.getDictionaryAttr(
                    {b.getNamedAttr("upper_layer_dimensions",
-                                   b.getArrayAttr({b.getI32IntegerAttr(0),
-                                                   b.getI32IntegerAttr(2)})),
+                                   b.getArrayAttr({b.getI32IntegerAttr(0)})),
                     b.getNamedAttr("upper_layer_names",
-                                   b.getArrayAttr({gemmBSourceDimNames[0],
-                                                   gemmBSourceDimNames[2]})),
+                                   b.getArrayAttr({gemmBSourceDimNames[0]})),
                     b.getNamedAttr("lower_layer_dimensions",
-                                   b.getArrayAttr({b.getI32IntegerAttr(0),
-                                                   b.getI32IntegerAttr(2)})),
+                                   b.getArrayAttr({b.getI32IntegerAttr(0)})),
                     b.getNamedAttr("lower_layer_names",
-                                   b.getArrayAttr({gemmBSourceDimNames[0],
-                                                   gemmBSourceDimNames[2]})),
-
-                    b.getNamedAttr("transform",
+                                   b.getArrayAttr({gemmBSourceDimNames[0]})),
+                    b.getNamedAttr("transformation",
+                                   b.getStringAttr("PassThrough"))}),
+               b.getDictionaryAttr(
+                   {b.getNamedAttr("upper_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                    b.getNamedAttr("upper_layer_names",
+                                   b.getArrayAttr({gemmBSourceDimNames[2]})),
+                    b.getNamedAttr("lower_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                    b.getNamedAttr("lower_layer_names",
+                                   b.getArrayAttr({gemmBSourceDimNames[2]})),
+                    b.getNamedAttr("transformation",
                                    b.getStringAttr("PassThrough"))}),
                b.getDictionaryAttr({
                    b.getNamedAttr("upper_layer_dimensions",
@@ -2973,11 +3001,23 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                    b.getNamedAttr("lower_layer_names",
                                   b.getArrayAttr({gemmBSourceDimNames[1]})),
 
-                   b.getNamedAttr("transform", b.getStringAttr("UnMerge")),
-                   b.getNamedAttr("parameters",
-                                  b.getArrayAttr({b.getI32IntegerAttr(KPack),
-                                                  b.getI32IntegerAttr(1)})),
+                   b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
+                   b.getNamedAttr(
+                       "dimension_lengths",
+                       b.getArrayAttr({b.getI32IntegerAttr(dividedGemmKLen),
+                                       b.getI32IntegerAttr(KPack)})),
                })})));
+
+      // set upper_layer_layout attribute.
+      kpackInputAttrs.push_back(b.getNamedAttr(
+          "upper_layer_layout",
+          b.getArrayAttr({gemmBSourceDimNames[0], gemmBSourceDimNames[1],
+                          gemmBSourceDimNames[2],
+                          b.getStringAttr("gemmKPack")})));
+
+      // set lower_layer_layout attribute.
+      kpackInputAttrs.push_back(
+          b.getNamedAttr("lower_layer_layout", gemmBSourceDimNames));
 
       auto kpackInputMemRefType =
           MemRefType::get(kpackInputShape, inputElementType);
