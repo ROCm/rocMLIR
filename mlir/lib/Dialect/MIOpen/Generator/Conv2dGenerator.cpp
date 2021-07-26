@@ -1,7 +1,7 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/Generator/IsaNameParser.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
-#include "mlir/Dialect/MIOpen/utility/math.hpp"
+#include "mlir/Dialect/MIOpen/utility/math.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
