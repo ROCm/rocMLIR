@@ -5184,6 +5184,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t N = op.input().getType().template cast<MemRefType>().getShape()[2];
 
     // Obtain critical tuning parameters.
+    int64_t KPack =
+        op->hasAttr("kpack")
+            ? op->getAttr("kpack").template cast<IntegerAttr>().getInt()
+            : 1;
     int64_t BlockSize =
         op->getAttr("block_size").template cast<IntegerAttr>().getInt();
     int64_t KPerBlock =
@@ -5247,6 +5251,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
     // llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
     // llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
+    // llvm::errs() << "KPack: " << KPack << "\n";
     // llvm::errs() << "MPerThread: " << MPerThread << "\n";
     // llvm::errs() << "NPerThread: " << NPerThread << "\n";
     // llvm::errs() << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n";
@@ -5275,8 +5280,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
     // llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
     // llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
-    // llvm::errs() << "matrix_a_source_data_per_read: " << matrix_a_source_data_per_read << "\n";
-    // llvm::errs() << "matrix_b_source_data_per_read: " << matrix_b_source_data_per_read << "\n";
+    // llvm::errs() << "KPack: " << KPack << "\n";
+    // llvm::errs() << "matrix_a_source_data_per_read: " <<
+    // matrix_a_source_data_per_read << "\n"; llvm::errs() <<
+    // "matrix_b_source_data_per_read: " << matrix_b_source_data_per_read <<
+    // "\n";
 
     // Compute ThreadSliceLengths for Matrix A.
     int64_t GemmABlockCopyNumberDataPerThread =
@@ -6206,6 +6214,10 @@ struct GridwiseGemmV2RewritePattern
     int64_t N = op.input().getType().template cast<MemRefType>().getShape()[2];
 
     // Obtain critical tuning parameters.
+    int64_t KPack =
+        op->hasAttr("kpack")
+            ? op->getAttr("kpack").template cast<IntegerAttr>().getInt()
+            : 1;
     int64_t BlockSize =
         op->getAttr("block_size").template cast<IntegerAttr>().getInt();
     int64_t KPerBlock =
@@ -6268,6 +6280,7 @@ struct GridwiseGemmV2RewritePattern
     // llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
     // llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
     // llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
+    // llvm::errs() << "KPack: " << KPack << "\n";
     // llvm::errs() << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n";
     // llvm::errs() << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n";
     // llvm::errs() << "MPerWave: " << MPerWave << "\n";
