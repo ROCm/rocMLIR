@@ -226,7 +226,7 @@ pipeline {
                                 copyArtifacts filter: 'build/*.csv',\
                                                 optional: true,\
                                                 flatten: true,\
-                                                projectName: "${JOB_NAME}",\
+                                                projectName: "/${JOB_NAME}",\
                                                 selector: lastSuccessful(),\
                                                 target: 'oldData'
                             }
