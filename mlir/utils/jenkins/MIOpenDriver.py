@@ -20,7 +20,7 @@ MLIR_BIN_DIR = './bin'
 LLVM_BIN_DIR = './external/llvm-project/llvm/bin'
 MLIR_MIOPEN_DRIVER = 'mlir-miopen-driver'
 MLIR_ROCM_RUNNER = 'mlir-rocm-runner'
-MLIR_ROCM_RUNNER_ARGS = ' --shared-libs=./external/llvm-project/llvm/lib/librocm-runtime-wrappers.so,./external/llvm-project/llvm/lib/libmlir_runner_utils.so --entry-point-result=void'
+MLIR_ROCM_RUNNER_ARGS = ['--shared-libs=./llvm/lib/librocm-runtime-wrappers.so,./llvm/lib/libmlir_runner_utils.so', '--entry-point-result=void']
 ROCPROF = '/opt/rocm/bin/rocprof'
 MIOPEN_DRIVER = '../MIOpen/build/bin/MIOpenDriver'
 BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
@@ -81,6 +81,12 @@ class ConvConfiguration:
             result[k] = v
         return result
 
+    def __repr__(self):
+        return f"""ConvConiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
+                n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
+                convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingH={self.paddingH!r}, paddingW={self.paddingW!r},
+                dilationH={self.dilationH!r}, dilationW={self.dilationW!r}, group={self.group!r}, xdlops={self.xdlops!r})"""
+
     def generateMlirDriverCommandLine(self):
         direction = {'fwd':'--operation conv2d',
                      'bwd':'--operation conv2d_bwd_data',
@@ -108,19 +114,20 @@ class ConvConfiguration:
 
         return result
 
-    def __init__(self, argv, xdlops):
-        self.xdlops = xdlops
+    MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NHWC": "kyxc"}
+    MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NHWC": "nkhw"}
 
-        mlirFilterLayout={"NCHW":"kcyx", "NHWC":"kyxc"}
-        mlirOutputLayout={"NCHW":"nkhw", "NHWC":"nkhw"}
+    @classmethod
+    def fromCommandLine(cls, argv, xdlops):
         # determine dataType from argv[1]
         if argv[0] == 'conv':
-            self.dataType = 'f32'
+            dataType = 'f32'
         elif argv[0] == 'convfp16':
-            self.dataType = 'f16'
+            dataType = 'f16'
         elif argv[0] == 'convbfp16':
-            self.dataType = 'bf16'
+            dataType = 'bf16'
 
+        layout = None
         try:
             # TBD:
             # implement -m ?
@@ -128,7 +135,7 @@ class ConvConfiguration:
             opts, args = getopt.getopt(argv[1:], "F:f:I:O:n:c:H:W:k:y:x:p:q:l:j:u:v:g:m:t:")
         except getopt.GetOptError:
             print('getopt error')
-            sys.exit(-1)
+            sys.exit(1)
 
         for opt, arg in opts:
             if opt == '-F':
@@ -142,70 +149,117 @@ class ConvConfiguration:
                 # 5 fwd+wrw
                 # 6 bwd+wrw
                 if int(arg) == 1:
-                    self.direction = 'fwd'
+                    direction = 'fwd'
                 elif int(arg) == 2:
-                    self.direction = 'bwd'
+                    direction = 'bwd'
                 elif int(arg) == 4:
-                    self.direction = 'wrw'
+                    direction = 'wrw'
             elif opt == '-f':
-                self.filterLayout = mlirFilterLayout[arg]
+                if layout is not None and layout != arg:
+                    raise ValueError("Mixed layouts")
+                layout = arg
             elif opt == '-I':
-                self.inputLayout = arg.lower()
+                if layout is not None and layout != arg:
+                    raise ValueError("Mixed layouts")
+                layout = arg
             elif opt == '-O':
-                self.outputLayout = mlirOutputLayout[arg]
+                if layout is not None and layout != arg:
+                    raise ValueError("Mixed layouts")
+                layout = arg
             elif opt == "-n":
-                self.n = int(arg)
+                n = int(arg)
             elif opt == '-c':
-                self.c = int(arg)
+                c = int(arg)
             elif opt == '-H':
-                self.hi = int(arg)
+                hi = int(arg)
             elif opt == '-W':
-                self.wi = int(arg)
+                wi = int(arg)
             elif opt == '-k':
-                self.k = int(arg)
+                k = int(arg)
             elif opt == '-y':
-                self.y = int(arg)
+                y = int(arg)
             elif opt == '-x':
-                self.x = int(arg)
+                x = int(arg)
             elif opt == '-u':
-                self.convStrideH = int(arg)
+                convStrideH = int(arg)
             elif opt == '-v':
-                self.convStrideW = int(arg)
+                convStrideW = int(arg)
             elif opt == '-p':
-                self.paddingH = int(arg)
+                paddingH = int(arg)
             elif opt == '-q':
-                self.paddingW = int(arg)
+                paddingW = int(arg)
             elif opt == '-l':
-                self.dilationH = int(arg)
+                dilationH = int(arg)
             elif opt == '-j':
-                self.dilationW = int(arg)
+                dilationW = int(arg)
             elif opt == '-g':
-                self.group = int(arg)
+                group = int(arg)
             else:
                 continue
 
-        # Ho and Wo are computed.
+        return cls(dataType, direction, layout, n, c, hi, wi, k, y, x,
+            convStrideH, convStrideW, paddingH, paddingW, dilationH, dilationW,
+            group, xdlops)
+
+    def __init__(self, dtype: str, direction: str, layout: str,
+                    n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
+                    convStrideH: int, convStrideW: int, paddingH: int, paddingW: int, dilationH: int, dilationW: int,
+                    group: int, xdlops: bool):
+        if dtype not in {"f16", "f32", "bf16"}:
+            raise ValueError(f"Invalid datatype: {dtype}")
+        if direction not in {"fwd", "bwd", "wrw"}:
+            raise ValueError(f"Invalid direction: {direction}")
+        if layout not in self.MLIR_OUTPUT_LAYOUTS:
+            raise ValueError(f"Invalid layout: {layout}")
+
+        self.dataType = dtype
+        self.direction = direction
+
+        self.filterLayout = self.MLIR_FILTER_LAYOUTS[layout]
+        self.inputLayout = layout.lower()
+        self.outputLayout = self.MLIR_OUTPUT_LAYOUTS[layout]
+
+        self.n = n
+        self.c = c
+        self.hi = hi
+        self.wi = wi
+        self.k = k
+        self.y = y
+        self.x = x
+
+        self.convStrideH = convStrideH
+        self.convStrideW = convStrideW
+        self.paddingH = paddingH
+        self.paddingW = paddingW
+        self.dilationH = dilationH
+        self.dilationW = dilationW
+
+        self.group = group
+        self.xdlops = xdlops
         self.ho = math.floor((self.hi + self.paddingH * 2 - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
         self.wo = math.floor((self.wi + self.paddingW * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
-
 
 def runConfigWithMLIR(config):
     # remove the result file generated by rocprof in previous benchmarking
     os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
     commandLineOptions = config.generateMlirDriverCommandLine()
-    print("Running MLIR Benchmark: ", commandLineOptions)
-    mlirMIOpenDriverCommand = os.path.join(MLIR_BIN_DIR, MLIR_MIOPEN_DRIVER) + ' -ph -c ' + commandLineOptions
-    profilerCommand = ROCPROF + ' --stats ' + os.path.join(LLVM_BIN_DIR, MLIR_ROCM_RUNNER) + MLIR_ROCM_RUNNER_ARGS
+    print("Running MLIR Benchmark: ", repr(config))
+    mlirMIOpenDriverCommand = os.path.join(MLIR_BUILD_DIR, MLIR_MIOPEN_DRIVER) + ' -ph -c ' + commandLineOptions
+    profilerCommand = [ROCPROF, '--stats', os.path.join(MLIR_BUILD_DIR, MLIR_ROCM_RUNNER)] + MLIR_ROCM_RUNNER_ARGS
 
     # invoke mlir-miopen-driver.
     p1 = subprocess.Popen(mlirMIOpenDriverCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     # pipe to rocprof + mlir-rocm-runner.
-    p2 = subprocess.Popen(profilerCommand.split(), stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    p2 = subprocess.Popen(profilerCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
     # get output.
     try:
         outs, errs = p2.communicate(timeout=60)
+        if len(errs) > 0:
+            print("Test printed errors: ", errs.decode('utf-8'))
+            print("Failing command line: ", mlirMIOpenDriverCommand)
     except subprocess.TimeoutExpired:
+        print("Test timed out: ", mlirMIOpenDriverCommand())
         p2.kill()
         outs, errs = p2.communicate()
 
@@ -220,18 +274,16 @@ def runConfigWithMIOpenDriver(commandLine):
     # get output.
     try:
         outs, errs = p1.communicate(timeout=180)
+        if len(errs) > 0:
+            print("MIOpen benchmark produced errors: ", errs.decode('utf-8'))
     except subprocess.TimeoutExpired:
         p1.kill()
+        print("MIOpen benchmark timed out")
         outs, errs = p1.communicate()
-
-def output(string, outputFile):
-    if outputFile != None:
-        outputFile.write(string)
-        outputFile.write('\n')
 
 # Benchmarking function.
 def benchmarkMLIR(commandLine, xdlops):
-    config = ConvConfiguration(commandLine, xdlops)
+    config = ConvConfiguration.fromCommandLine(commandLine, xdlops)
     #runConfigWithMLIR(commandLine, xdlops)
     runConfigWithMLIR(config)
     # get nanoseconds from rocprof output.
@@ -239,7 +291,7 @@ def benchmarkMLIR(commandLine, xdlops):
     return config.tableEntry(nanoSeconds)
 
 def benchmarkMIOpen(commandLine, xdlops):
-    config = ConvConfiguration(commandLine, xdlops)
+    config = ConvConfiguration.fromCommandLine(commandLine, xdlops)
     if config.inputLayout == 'nchw':
         runConfigWithMIOpenDriver(commandLine)
         # get nanoseconds from rocprof output.
