@@ -3,6 +3,7 @@ include/mlir/Dialect/LLVMIR/LLVMOps.td
 include/mlir/Dialect/LLVMIR/ROCDLOps.td
 include/mlir/Dialect/Vector/VectorOps.td
 include/mlir/ExecutionEngine/ROCm/BackendUitls.h
+include/mlir/ExecutionEngine/ROCm/IsaNameParser.h
 include/mlir/ExecutionEngine/RunnerUtils.h
 include/mlir/IR/Types.h
 lib/Conversion/GPUCommon/CMakeLists.txt
@@ -16,6 +17,7 @@ lib/ExecutionEngine/CMakeLists.txt
 lib/ExecutionEngine/JitRunner.cpp
 lib/ExecutionEngine/ROCm/BackendUtils.cpp
 lib/ExecutionEngine/ROCm/CMakeLists.txt
+lib/ExecutionEngine/ROCm/IsaNameParser.cpp
 lib/ExecutionEngine/ROCm/rocm-runtime-wrappers.cpp
 lib/ExecutionEngine/RunnerUtils.cpp
 lib/IR/Types.cpp
