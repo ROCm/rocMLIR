@@ -25,8 +25,35 @@
 #include "mlir/IR/TypeUtilities.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+#include "mlir/Transforms/InliningUtils.h"
+
 using namespace mlir;
 using namespace mlir::gpu;
+
+namespace {
+//===----------------------------------------------------------------------===//
+// Dialect Function Inliner Interface.
+//===----------------------------------------------------------------------===//
+struct GPUInlinerInterface : public DialectInlinerInterface {
+  using DialectInlinerInterface::DialectInlinerInterface;
+
+  //===--------------------------------------------------------------------===//
+  // Analysis Hooks.
+  //===--------------------------------------------------------------------===//
+
+  /// All operations can be inlined by default.
+  bool isLegalToInline(Operation *op, Region *region, bool wouldBeCloned,
+                       BlockAndValueMapping &map) const final {
+    return true;
+  }
+
+  /// All regions with If and While parent operators can be inlined.
+  bool isLegalToInline(Region *dest, Region *src, bool wouldBeCloned,
+                       BlockAndValueMapping &map) const final {
+    return true;
+  }
+};
+} // end anonymous namespace
 
 //===----------------------------------------------------------------------===//
 // GPUDialect
@@ -43,6 +70,7 @@ void GPUDialect::initialize() {
 #define GET_OP_LIST
 #include "mlir/Dialect/GPU/GPUOps.cpp.inc"
       >();
+  addInterfaces<GPUInlinerInterface>();
 }
 
 Type GPUDialect::parseType(DialectAsmParser &parser) const {
