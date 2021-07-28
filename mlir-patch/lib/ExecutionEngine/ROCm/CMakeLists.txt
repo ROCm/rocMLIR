@@ -1,5 +1,6 @@
 set(LLVM_OPTIONAL_SOURCES
   BackendUtils.cpp
+  IsaNameParser.cpp
   rocm-runtime-wrappers.cpp
   )
 
@@ -86,6 +87,7 @@ ENDFOREACH(t)
 
 add_llvm_library(LLVMROCmBackendUtils
   BackendUtils.cpp
+  IsaNameParser.cpp
   )
 
 llvm_update_compile_flags(LLVMROCmBackendUtils)

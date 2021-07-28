@@ -8,6 +8,7 @@ get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 set(LIBS
   ${dialect_libs}
   ${conversion_libs}
+  LLVMROCmBackendUtils
   MLIRAnalysis
   MLIRMIOpenOps
   MLIRParser
@@ -23,7 +24,6 @@ set(LIBS
 
 add_mlir_dialect_library(MLIRMIOpenConv2dGenerator
   Conv2dGenerator.cpp
-  IsaNameParser.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/MIOpen/Generator
