@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/MIOpen/Generator/IsaNameParser.h"
 #include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
+#include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/LineIterator.h"
