@@ -14,8 +14,8 @@ module {
         affine.for %j = 0 to 10 {
         affine.for %ii = 2 to 16 {
             affine.for %jj = 5 to 17 {
-            %0 = load %0[%i, %j, %ii, %jj] : memref<?x?x?x?xf32>
-            store %0, %1[%i, %j, %ii, %jj] : memref<?x?x?x?xf32>
+            %2 = load %0[%i, %j, %ii, %jj] : memref<?x?x?x?xf32>
+            store %2, %1[%i, %j, %ii, %jj] : memref<?x?x?x?xf32>
             }
         }
         }
