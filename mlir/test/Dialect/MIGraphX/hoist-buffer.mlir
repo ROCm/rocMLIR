@@ -1,0 +1,26 @@
+module {
+    func @main(%arg0 : tensor<?x?x?x?xf32>, %arg1 : tensor<?x?x?x?xf32>){
+      //%0 = alloc() : memref<128x8x30x30xf32>
+      //%1 = alloc() : memref<128x8x30x30xf32>
+      call @step_1(%arg0, %arg1) : (tensor<?x?x?x?xf32>, tensor<?x?x?x?xf32>) -> ()
+      return
+    }
+
+    func @step_1(%A : tensor<?x?x?x?xf32>, %B : tensor<?x?x?x?xf32>) {
+    %0 = tensor_to_memref %A : memref<?x?x?x?xf32>
+    %1 = tensor_to_memref %B : memref<?x?x?x?xf32>
+
+    affine.for %i = 0 to 42 {
+        affine.for %j = 0 to 10 {
+        affine.for %ii = 2 to 16 {
+            affine.for %jj = 5 to 17 {
+            %0 = load %0[%i, %j, %ii, %jj] : memref<?x?x?x?xf32>
+            store %0, %1[%i, %j, %ii, %jj] : memref<?x?x?x?xf32>
+            }
+        }
+        }
+    }
+    return
+    }
+    
+}
