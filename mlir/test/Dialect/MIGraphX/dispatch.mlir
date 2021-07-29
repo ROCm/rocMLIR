@@ -1,3 +1,6 @@
+// RUN: mlir-opt -convert-affine-for-to-gpu="gpu-block-dims=1 gpu-thread-dims=1" %s
+// RUN: mlir-opt -inline %s
+
 module {
     func @main(%arg0 : memref<?x?x?x?xf32>, %arg1 : memref<?x?x?x?xf32>){
       //%0 = alloc() : memref<128x8x30x30xf32>
