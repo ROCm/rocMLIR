@@ -20,7 +20,9 @@ lib/ExecutionEngine/ROCm/CMakeLists.txt
 lib/ExecutionEngine/ROCm/IsaNameParser.cpp
 lib/ExecutionEngine/ROCm/rocm-runtime-wrappers.cpp
 lib/ExecutionEngine/RunnerUtils.cpp
+lib/IR/MLIRContext.cpp
 lib/IR/Types.cpp
+lib/Support/StorageUniquer.cpp
 lib/Target/LLVMIR/ConvertToROCDLIR.cpp
 test/CMakeLists.txt
 test/Conversion/GPUToROCDL/gpu-to-rocdl.mlir
