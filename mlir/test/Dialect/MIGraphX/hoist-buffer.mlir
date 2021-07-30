@@ -6,7 +6,7 @@ module {
       return
     }
 
-    func @step_1(%A : tensor<?x?x?x?xf32>, %B : tensor<?x?x?x?xf32>) {
+    func private @step_1(%A : tensor<?x?x?x?xf32>, %B : tensor<?x?x?x?xf32>) {
     %0 = tensor_to_memref %A : memref<?x?x?x?xf32>
     %1 = tensor_to_memref %B : memref<?x?x?x?xf32>
 
