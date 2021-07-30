@@ -62,7 +62,7 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
                        COMMAND if [ -f ${output_archive}.mri ]\; then rm ${output_archive}.mri\; fi
                        COMMAND touch ${output_archive}.mri
                        COMMAND echo "create ${full_output_path}" >> ${output_archive}.mri
-                       COMMAND for archive in ${MLIR_MIOPEN_LIB_DIR}/*.a\;
+                       COMMAND for archive in ${MLIR_MIOPEN_LIB_DIR}/*.a ${LLVM_EXTERNAL_LIB_DIR}/*.a\;
                        do echo "addlib $$archive" >> ${output_archive}.mri \; done
                        COMMAND echo "save" >> ${output_archive}.mri
                        COMMAND echo "end" >> ${output_archive}.mri
