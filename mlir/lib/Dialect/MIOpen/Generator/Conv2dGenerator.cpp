@@ -10,7 +10,10 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/PassManager.h"
-#include "llvm/ADT/None.h"
+
+#include "llvm/ADT/Optional.h"
+
+#include <algorithm>
 
 using namespace mlir;
 
@@ -66,7 +69,102 @@ void strToTokens(const std::string &arguments,
   }
 }
 
+Optional<SmallVector<int64_t, 5>> canonicalizeDims(const SmallVector<int64_t, 5>& dims, const StringRef layout, const StringRef canonicalLayout) {
+  SmallVector<int64_t, 5> ret;
+  for (const char& c : canonicalLayout) {
+    auto location = layout.find(c);
+    if (location == StringRef::npos) {
+      return None;
+    }
+    ret.push_back(dims[location]);
+  }
+  return ret;
+}
+
 } // namespace
+
+
+
+LogicalResult Conv2dGenerator::isValidConvolution() const {
+  static const SmallVector<int64_t, 4> strictlyPositiveParams { config.dilationHeight, config.dilationWidth, config.strideHeight, config.strideWidth };
+  if (std::any_of(strictlyPositiveParams.begin(), strictlyPositiveParams.end(), [](const int64_t& a) { return a <= 0; })) {
+    llvm::errs() << "Dilation and stride must be a positive integer\n";
+    return failure();
+  }
+
+  static const SmallVector<int64_t, 4> nonNegativeParams { config.paddingHeightLeft, config.paddingHeightRight, config.paddingWidthLeft, config.paddingWidthRight };
+  if (std::any_of(nonNegativeParams.begin(), nonNegativeParams.end(), [](const int64_t& a) { return a < 0; })) {
+    llvm::errs() << "Padding values cannot be negative\n";
+    return failure();
+  }
+
+  auto checkDimSizes = [](const SmallVector<int64_t, 5>& dims) -> bool {
+    return std::all_of(dims.begin(), dims.end(), [](const int64_t& a) { return a > 0; });
+  };
+
+  if (!checkDimSizes(config.inputDimension)) {
+    llvm::errs() << "Input tensor dimensions must be strictly positive\n";
+    return failure();
+  }
+  if (!checkDimSizes(config.filterDimension)) {
+    llvm::errs() << "Filter tensoor dimensions must be strictly positive\n";
+  }
+  if (!checkDimSizes(config.outputDimension)) {
+    llvm::errs() << "Output tensor dimensions must be strictly positive\n";
+    return failure();
+  }
+
+  auto inDimMaybe = canonicalizeDims(config.inputDimension, config.inputLayout, "ngchw");
+  auto filDimMaybe = canonicalizeDims(config.filterDimension, config.filterLayout, "gkcyx");
+  auto outDimMaybe = canonicalizeDims(config.outputDimension, config.outputLayout, "ngkhw");
+  if (!(inDimMaybe.hasValue() && filDimMaybe.hasValue() && outDimMaybe.hasValue())) {
+    llvm_unreachable("Tensor dimensions should have been checked before now in isValidConvolution()!");
+  }
+  auto inDim = inDimMaybe.getValue();
+  auto filDim = filDimMaybe.getValue();
+  auto outDim = outDimMaybe.getValue();
+
+
+  if (inDim[0] != outDim[0]) {
+    llvm::errs() << "Input and output batch sizes don't match\n";
+    return failure();
+  }
+  if (inDim[1] != outDim[1] || inDim[1] != filDim[0]) {
+    llvm::errs() << "Group sizes are not consistent between input, output, and filter\n";
+    return failure();
+  }
+  if (inDim[2] != filDim[2]) {
+    llvm::errs() << "Number of channels in input doesn't match number of channels in filter\n";
+    return failure();
+  }
+  if (filDim[1] != outDim[2]) {
+    llvm::errs() << "Number of channels in output doesn't match number of channels in filter\n";
+    return failure();
+  }
+
+  int64_t expectedOutHeight = outputDim(inDim[3], filDim[3], config.paddingHeightLeft, config.paddingHeightRight, config.strideHeight, config.dilationHeight);
+  int64_t expectedOutWidth = outputDim(inDim[4], filDim[4], config.paddingWidthLeft, config.paddingWidthRight, config.strideWidth, config.dilationWidth);
+  if (outDim[3] != expectedOutHeight) {
+    llvm::errs() << "Output height " << outDim[3] << " doesn't match height " << expectedOutHeight << " computed from other parameters\n";
+    return failure();
+  }
+  if (outDim[4] != expectedOutWidth) {
+    llvm::errs() << "Output width " << outDim[4] << " doesn't match width " << expectedOutWidth << " computed from other parameters\n";
+    return failure();
+  }
+
+  if (inDim[3] + config.paddingHeightLeft + config.paddingHeightRight < filDim[3]) {
+    llvm::errs() << "Input, including padding, is shorter than the filter\n";
+    return failure();
+  }
+
+  if (inDim[4] + config.paddingWidthLeft + config.paddingWidthRight < filDim[4]) {
+    llvm::errs() << "Input, including padding, is narrower than the filter\n";
+    return failure();
+  }
+
+  return success();
+}
 
 int Conv2dGenerator::getKernelCount() const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
@@ -271,7 +369,7 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
                         config.outputLayout + "_" + std::to_string(id);
   }
 
-  return success();
+  return isValidConvolution();
 }
 
 void Conv2dGenerator::setKernelName(std::string newName) {

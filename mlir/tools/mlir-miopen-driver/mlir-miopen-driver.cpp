@@ -480,26 +480,24 @@ static void populateDefaults() {
     arch.setValue("amdgcn-amd-amdhsa:gfx908");
   }
 
-  auto getOutputDim = [](int64_t inputLen, int64_t filLen, int leftPadLen,
-                         int rightPadLen, int strideLen, int dilLen) {
-    return (inputLen + leftPadLen + rightPadLen - (filLen - 1) * dilLen - 1) /
-               strideLen +
-           1;
-  };
-  outputHeight.setValue(
-      getOutputDim(inputHeight.getValue(), filterHeight.getValue(),
+  if (outputHeight.getNumOccurrences() == 0) {
+    outputHeight.setValue(
+        Conv2dGenerator::outputDim(inputHeight.getValue(), filterHeight.getValue(),
                    paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
                    strideHeight.getValue(), dilationHeight.getValue()));
-  outputWidth.setValue(
-      getOutputDim(inputWidth.getValue(), filterWidth.getValue(),
+  }
+  if (outputWidth.getNumOccurrences() == 0) {
+    outputWidth.setValue(
+      Conv2dGenerator::outputDim(inputWidth.getValue(), filterWidth.getValue(),
                    paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
                    strideWidth.getValue(), dilationWidth.getValue()));
+  }
 }
 
 static LogicalResult detectMissingArguments() {
   const static std::vector<const cl::opt<int64_t> *> requiredArgs = {
       &groupSize,     &batchSize,   &inputChannel, &inputHeight,  &inputWidth,
-      &outputChannel, &filterWidth, &filterHeight, &outputHeight, &outputWidth,
+      &outputChannel, &filterWidth, &filterHeight
   };
   for (auto *arg : requiredArgs) {
     if (arg->getValue() < 0) {
@@ -2561,9 +2559,13 @@ int main(int argc, char **argv) {
       exit(1);
     }
   } else {
-    (void)conv2dGenerator.parseConvDims(
+    LogicalResult parseSucceded = conv2dGenerator.parseConvDims(
         batchSize, groupSize, inputChannel, inputHeight, inputWidth,
         outputChannel, outputHeight, outputWidth, filterHeight, filterWidth);
+    if (failed(parseSucceded)) {
+      llvm::errs() << "Could not form a valid convolution\n";
+      exit(1);
+    }
   }
 
   const auto &genConfig = conv2dGenerator.getConfig();

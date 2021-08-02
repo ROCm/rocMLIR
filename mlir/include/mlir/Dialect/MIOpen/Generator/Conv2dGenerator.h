@@ -78,7 +78,14 @@ public:
   static Optional<miopen::ConvOpType> getOpForName(const StringRef name);
   static const char *getNameForOp(const miopen::ConvOpType);
 
+  static inline constexpr int64_t outputDim(int64_t inputLen, int64_t filLen,
+                                            int64_t leftPadLen,
+                                            int64_t rightPadLen,
+                                            int64_t strideLen, int64_t dilLen);
+
   LogicalResult parseConvConfig(const char *arguments);
+
+  LogicalResult isValidConvolution() const;
 
   LogicalResult parseConvDims(int64_t batchSize, int64_t groupSize,
                               int64_t inputChannel, int64_t inputHeight,
@@ -118,6 +125,15 @@ private:
   // Generator config
   Config config;
 };
+
+inline constexpr int64_t
+Conv2dGenerator::outputDim(int64_t inputLen, int64_t filLen,
+                                 int64_t leftPadLen, int64_t rightPadLen,
+                                 int64_t strideLen, int64_t dilLen) {
+  return (inputLen + leftPadLen + rightPadLen - (filLen - 1) * dilLen - 1) /
+             strideLen +
+         1;
+}
 
 } // namespace mlir
 #endif // MLIR_DIALECT_MIOPEN_CONV2DGENERATOR_H_
