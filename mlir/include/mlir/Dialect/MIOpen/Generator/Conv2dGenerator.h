@@ -127,9 +127,9 @@ private:
 };
 
 inline constexpr int64_t
-Conv2dGenerator::outputDim(int64_t inputLen, int64_t filLen,
-                                 int64_t leftPadLen, int64_t rightPadLen,
-                                 int64_t strideLen, int64_t dilLen) {
+Conv2dGenerator::outputDim(int64_t inputLen, int64_t filLen, int64_t leftPadLen,
+                           int64_t rightPadLen, int64_t strideLen,
+                           int64_t dilLen) {
   return (inputLen + leftPadLen + rightPadLen - (filLen - 1) * dilLen - 1) /
              strideLen +
          1;

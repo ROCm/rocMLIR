@@ -481,24 +481,23 @@ static void populateDefaults() {
   }
 
   if (outputHeight.getNumOccurrences() == 0) {
-    outputHeight.setValue(
-        Conv2dGenerator::outputDim(inputHeight.getValue(), filterHeight.getValue(),
-                   paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
-                   strideHeight.getValue(), dilationHeight.getValue()));
+    outputHeight.setValue(Conv2dGenerator::outputDim(
+        inputHeight.getValue(), filterHeight.getValue(),
+        paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
+        strideHeight.getValue(), dilationHeight.getValue()));
   }
   if (outputWidth.getNumOccurrences() == 0) {
-    outputWidth.setValue(
-      Conv2dGenerator::outputDim(inputWidth.getValue(), filterWidth.getValue(),
-                   paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
-                   strideWidth.getValue(), dilationWidth.getValue()));
+    outputWidth.setValue(Conv2dGenerator::outputDim(
+        inputWidth.getValue(), filterWidth.getValue(),
+        paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
+        strideWidth.getValue(), dilationWidth.getValue()));
   }
 }
 
 static LogicalResult detectMissingArguments() {
   const static std::vector<const cl::opt<int64_t> *> requiredArgs = {
-      &groupSize,     &batchSize,   &inputChannel, &inputHeight,  &inputWidth,
-      &outputChannel, &filterWidth, &filterHeight
-  };
+      &groupSize,  &batchSize,     &inputChannel, &inputHeight,
+      &inputWidth, &outputChannel, &filterWidth,  &filterHeight};
   for (auto *arg : requiredArgs) {
     if (arg->getValue() < 0) {
       llvm::errs() << "Value for: " << arg->ArgStr << " not specified\n";
