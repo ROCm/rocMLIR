@@ -3,7 +3,7 @@ void buildProject(String target, String cmakeOpts) {
     sh 'python -m pip install pathlib2'
     cmakeBuild generator: 'Ninja',\
         buildDir: 'build',\
-        buildType: 'Release',\
+        buildType: 'RelWithDebInfo',\
         installation: 'InSearchPath',\
         steps: [[args: target]],\
         cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
@@ -59,9 +59,6 @@ pipeline {
                             label "${params.canXdlops ? 'gfx908' : 'rocm' } && !single_gpu"
                             alwaysPull true
                         }
-                    }
-                    environment {
-                        PATH="$PATH:/opt/rocm/llvm/bin"
                     }
                     stages {
                         stage('Environment') {
@@ -131,7 +128,7 @@ pipeline {
                         }
                     }
                     environment {
-                        PATH="$PATH:/opt/rocm/llvm/bin"
+                        PATH="/opt/rocm/llvm/bin:$PATH"
                     }
                     stages {
                         stage("Igemm build") {
@@ -193,7 +190,7 @@ pipeline {
                         }
                     }
                     environment {
-                        PATH="$PATH:/opt/rocm/llvm/bin"
+                        PATH="/opt/rocm/llvm/bin:$PATH"
                     }
                     stages {
                         stage("Environment") {
@@ -205,7 +202,7 @@ pipeline {
                             steps {
                                 dir('MIOpen') {
                                     sh 'mkdir MIOpenInstallDir'
-                                    getAndBuildMIOpen('--prefix ./MIOpenDeps', 
+                                    getAndBuildMIOpen('--prefix ./MIOpenDeps',
                                                       '''-DMIOPEN_BACKEND=HIP
                                     -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
                                     -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/MIOpenInstallDir
@@ -248,7 +245,7 @@ pipeline {
                                     reportFiles: 'MLIR_Performance_Changes.html,MLIR_vs_MIOpen.html',
                                     reportName: 'Performance report'
                                 ])
-                                
+
                                 plot csvFileName: 'plot-nightly-perf-results-000001.csv',\
                                     csvSeries: [[file: 'build/mlir_vs_miopen_perf_means.csv', displayTableFlag: false]],\
                                     title: 'Test performance summary',\
