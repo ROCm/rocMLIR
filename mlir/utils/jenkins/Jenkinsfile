@@ -216,11 +216,6 @@ pipeline {
                                 buildProject('mlir-miopen-driver mlir-rocm-runner ci-performance-scripts', '')
                             }
                         }
-                        stage("TEMPORARY Install python dependencies") {
-                            steps {
-                                sh 'pip3 install pandas numpy scipy jinja2'
-                            }
-                        }
                         stage('Copy earlier performance results') {
                             steps {
                                 copyArtifacts filter: 'build/*.csv',\

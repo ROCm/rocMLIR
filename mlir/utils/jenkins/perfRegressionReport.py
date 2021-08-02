@@ -11,8 +11,6 @@ import pandas as pd
 def loadMlirData(filename: str):
     df = pd.read_csv(filename, sep=',', header=0, index_col=False)
     df.drop(columns=['MIOpen TFlops'], inplace=True, errors='ignore')
-    # Future: remove this once the job is stable, this is to accomodate a name change
-    df.rename(columns={'Speedup': 'MLIR/MIOpen', 'TFlops': 'MLIR TFlops'}, inplace=True)
     return df
 
 def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, newLabel: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
