@@ -715,6 +715,7 @@ private:
 public:
   LogicalResult paramsFromCtx(ConvolutionContext &ctx,
                               int64_t blockSizeOverride,
+                              const std::string &perfConfig,
                               InitParamsNonXDL &validParams,
                               DerivedParams &gemmADerivedParam,
                               DerivedParams &gemmBDerivedParam,

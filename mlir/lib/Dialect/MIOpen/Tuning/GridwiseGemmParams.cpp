@@ -119,13 +119,36 @@ LogicalResult PopulateParams::populatePaddingKernelDerived(
 
 LogicalResult PopulateParams::paramsFromCtx(
     ConvolutionContext &ctx, int64_t blockSizeOverride,
-    InitParamsNonXDL &validParams, DerivedParams &gemmADerivedParam,
-    DerivedParams &gemmBDerivedParam,
+    const std::string &perfConfig, InitParamsNonXDL &validParams,
+    DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
     DerivedBlockGemmParams &blockGemmDerivedParam, int64_t &gemmCDstPerWrite,
     int64_t &gridSize) {
 
   GemmSize gemmSize;
   obtainGemmSize(ctx, gemmSize);
+
+  if (!perfConfig.empty()) {
+    // Under two scenarios can we receive a perfConfig:
+    // 1. This is tuning mode
+    // 2. This is running mode and we have succeeded with a perfdb load
+    bool isValidPerfConfig = validParams.deserialize(perfConfig);
+    if (isValidPerfConfig) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "PerfConfig load succeed,"
+                 << " block size: " << validParams.blockSize
+                 << " M/block: " << validParams.gemmMPerBlock
+                 << " N/block: " << validParams.gemmNPerBlock
+                 << " K/block: " << validParams.gemmKPerBlock
+                 << " M/thread: " << validParams.gemmMPerThread
+                 << " N/thread: " << validParams.gemmNPerThread << "\n");
+      return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
+                             gemmBDerivedParam, blockGemmDerivedParam,
+                             gemmCDstPerWrite, gridSize);
+    } else {
+      // Signal the client if perfCofnig is passed in but is invalid
+      return failure();
+    }
+  }
 
 #if __MLIR_ENABLE_SQLITE__
   std::string solverId;
