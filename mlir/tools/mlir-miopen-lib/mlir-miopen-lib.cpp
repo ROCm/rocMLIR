@@ -39,6 +39,7 @@ struct MiirHandle_s {
   MLIRContext context;
   mlir::OwningModuleRef module;
   std::string arch;
+  std::string perfConfig;
   std::string genTxt;
   int kernelCount;
 };
@@ -105,6 +106,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   }
 
   handle->arch = config.arch;
+  handle->perfConfig = config.perfConfig;
   handle->kernelCount = conv2dGenerator.getKernelCount();
 
   ModuleOp module = handle->getModule();
@@ -257,7 +259,8 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
   // Passes for lowering MIOpen dialect.
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(mlir::miopen::createAffineTransformPass());
-  pm.addPass(mlir::miopen::createAffixTuningParametersPass(0, 0));
+  pm.addPass(
+      mlir::miopen::createAffixTuningParametersPass(0, 0, handle->perfConfig));
 
   auto status = pm.run(module);
 
@@ -290,7 +293,8 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   // Passes for lowering MIOpen dialect.
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(mlir::miopen::createAffineTransformPass());
-  pm.addPass(mlir::miopen::createAffixTuningParametersPass(0, 0));
+  pm.addPass(
+      mlir::miopen::createAffixTuningParametersPass(0, 0, handle->perfConfig));
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
