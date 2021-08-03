@@ -5107,11 +5107,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto GStridOp = b.create<ConstantIndexOp>(loc, GStride);
     auto block_work_id_g =
         b.create<SignedDivIOp>(loc, bid, GStridOp); // id_g of coordinate
-    auto block_work_rem = b.create<SignedRemIOp>(loc, bid, GStridOp);
+    auto block_work_rem = b.create<UnsignedRemIOp>(loc, bid, GStridOp);
     auto block_work_id_m =
         b.create<SignedDivIOp>(loc, block_work_rem, NBlockWorkConstantOp);
     auto block_work_id_n =
-        b.create<SignedRemIOp>(loc, block_work_rem, NBlockWorkConstantOp);
+        b.create<UnsignedRemIOp>(loc, block_work_rem, NBlockWorkConstantOp);
     auto MPerBlockConstantOp = b.create<ConstantIndexOp>(loc, MPerBlock);
     auto NPerBlockConstantOp = b.create<ConstantIndexOp>(loc, NPerBlock);
     auto m_block_data_on_global =
@@ -5209,7 +5209,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto GemmABlockCopyThreadSliceLengths_GemmMConstantOp =
         b.create<ConstantIndexOp>(loc, GemmABlockCopyThreadSliceLengths_GemmM);
 
-    auto GemmABlockCopyThreadClusterId_Y = b.create<SignedRemIOp>(
+    auto GemmABlockCopyThreadClusterId_Y = b.create<UnUnsignedRemIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
     auto GemmABlockCopyThreadClusterId_X = b.create<SignedDivIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
@@ -5245,7 +5245,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     auto GemmBBlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
         loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
-    auto GemmBBlockCopyThreadClusterId_X = b.create<SignedRemIOp>(
+    auto GemmBBlockCopyThreadClusterId_X = b.create<UnsignedRemIOp>(
         loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
     auto GemmBThreadDataIdBegin_Y =
         b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
@@ -5468,14 +5468,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto level1_m_id =
         b.create<SignedDivIOp>(loc, level1_id, NLevel1ClusterConstantOp);
     auto level1_n_id =
-        b.create<SignedRemIOp>(loc, level1_id, NLevel1ClusterConstantOp);
+        b.create<UnsignedRemIOp>(loc, level1_id, NLevel1ClusterConstantOp);
 
     auto level0_id =
-        b.create<SignedRemIOp>(loc, tid, ThreadPerLevel0ClusterConstantOp);
+        b.create<UnsignedRemIOp>(loc, tid, ThreadPerLevel0ClusterConstantOp);
     auto level0_m_id =
         b.create<SignedDivIOp>(loc, level0_id, NLevel0ClusterConstantOp);
     auto level0_n_id =
-        b.create<SignedRemIOp>(loc, level0_id, NLevel0ClusterConstantOp);
+        b.create<UnsignedRemIOp>(loc, level0_id, NLevel0ClusterConstantOp);
 
     int64_t MPerLevel0Cluster = MPerThread * MLevel0Cluster;
     int64_t NPerLevel0Cluster = NPerThread * NLevel0Cluster;
@@ -5848,11 +5848,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     matrixCThreadwiseCopySourceAndDestCoords.push_back(GemmDataIdBegin_G_i32);
     matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<SignedDivIOp>(
         loc, m_thread_data_on_global_i32, M1ConstantI32Op));
-    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<SignedRemIOp>(
+    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<UnsignedRemIOp>(
         loc, m_thread_data_on_global_i32, M1ConstantI32Op));
     matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<SignedDivIOp>(
         loc, n_thread_data_on_global_i32, N1ConstantI32Op));
-    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<SignedRemIOp>(
+    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<UnsignedRemIOp>(
         loc, n_thread_data_on_global_i32, N1ConstantI32Op));
 
     auto threadwiseCopyCMatrixOp = b.create<miopen::ThreadwiseCopyOp>(
@@ -6152,9 +6152,9 @@ struct GridwiseGemmV2RewritePattern
     // Result block_work_desc is <NBlockWorkd, MBlockWork>
 
     auto block_work_id_g = b.create<SignedDivIOp>(loc, bid, GStridOp);
-    auto block_work_rem = b.create<SignedRemIOp>(loc, bid, GStridOp);
+    auto block_work_rem = b.create<UnsignedRemIOp>(loc, bid, GStridOp);
     auto block_work_id_m =
-        b.create<SignedRemIOp>(loc, block_work_rem, MBlockWorkConstantOp);
+        b.create<UnsignedRemIOp>(loc, block_work_rem, MBlockWorkConstantOp);
     auto block_work_id_n =
         b.create<SignedDivIOp>(loc, block_work_rem, MBlockWorkConstantOp);
 
@@ -6248,7 +6248,7 @@ struct GridwiseGemmV2RewritePattern
     auto GemmABlockCopyThreadSliceLengths_GemmMConstantOp =
         b.create<ConstantIndexOp>(loc, GemmABlockCopyThreadSliceLengths_GemmM);
 
-    auto GemmABlockCopyThreadClusterId_Y = b.create<SignedRemIOp>(
+    auto GemmABlockCopyThreadClusterId_Y = b.create<UnsignedRemIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
     auto GemmABlockCopyThreadClusterId_X = b.create<SignedDivIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
@@ -6284,7 +6284,7 @@ struct GridwiseGemmV2RewritePattern
 
     auto GemmBBlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
         loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
-    auto GemmBBlockCopyThreadClusterId_X = b.create<SignedRemIOp>(
+    auto GemmBBlockCopyThreadClusterId_X = b.create<UnsignedRemIOp>(
         loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
     auto GemmBThreadDataIdBegin_Y =
         b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
@@ -6530,7 +6530,7 @@ struct GridwiseGemmV2RewritePattern
     // mMyWaveOffsetB = waveId_n * GemmNPerWave;
     auto waveId = b.create<SignedDivIOp>(loc, tid, waveSizeConstantOp);
     auto waveId_m = b.create<SignedDivIOp>(loc, waveId, NWavesConstantOp);
-    auto waveId_n = b.create<SignedRemIOp>(loc, waveId, NWavesConstantOp);
+    auto waveId_n = b.create<UnsignedRemIOp>(loc, waveId, NWavesConstantOp);
 
     Value mMyWaveOffsetA, mMyWaveOffsetB;
     mMyWaveOffsetA = b.create<MulIOp>(loc, waveId_m, MPerWaveConstantOp);
@@ -6904,23 +6904,23 @@ struct GridwiseGemmV2RewritePattern
       auto xdlops_i_xdlops_gemm =
           b.create<SignedDivIOp>(loc, iv, NumBlksPerXdlopsConstantOp);
       auto j_xdlops_gemm =
-          b.create<SignedRemIOp>(loc, iv, NumBlksPerXdlopsConstantOp);
+          b.create<UnsignedRemIOp>(loc, iv, NumBlksPerXdlopsConstantOp);
       auto m_i_xdlops_gemm =
           b.create<SignedDivIOp>(loc, xdlops_i_xdlops_gemm, NRepeatsConstantOp);
       auto n_i_xdlops_gemm =
-          b.create<SignedRemIOp>(loc, xdlops_i_xdlops_gemm, NRepeatsConstantOp);
+          b.create<UnsignedRemIOp>(loc, xdlops_i_xdlops_gemm, NRepeatsConstantOp);
 
       auto laneId_xdlops_gemm =
-          b.create<SignedRemIOp>(loc, tid, wave_size_ConstantOp);
+          b.create<UnsignedRemIOp>(loc, tid, wave_size_ConstantOp);
       auto blk_id_xdlops_gemm = b.create<SignedDivIOp>(
           loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
-      auto blk_td_xdlops_gemm = b.create<SignedRemIOp>(
+      auto blk_td_xdlops_gemm = b.create<UnsignedRemIOp>(
           loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
       Value col_blk_xdlops_gemm, row_blk_xdlops_gemm;
       bool IsABroadcast = (NPerXdlops >= MPerXdlops);
       if (IsABroadcast) {
         // IsABroadcast
-        col_blk_xdlops_gemm = b.create<SignedRemIOp>(
+        col_blk_xdlops_gemm = b.create<UnsignedRemIOp>(
             loc, j_xdlops_gemm, num_output_blks_ConstantOp);
         row_blk_xdlops_gemm = b.create<SignedDivIOp>(
             loc, j_xdlops_gemm, num_output_blks_ConstantOp);
@@ -6928,7 +6928,7 @@ struct GridwiseGemmV2RewritePattern
         // !IsABroadcast
         col_blk_xdlops_gemm = b.create<SignedDivIOp>(
             loc, j_xdlops_gemm, num_output_blks_ConstantOp);
-        row_blk_xdlops_gemm = b.create<SignedRemIOp>(
+        row_blk_xdlops_gemm = b.create<UnsignedRemIOp>(
             loc, j_xdlops_gemm, num_output_blks_ConstantOp);
       }
 
@@ -6979,7 +6979,7 @@ struct GridwiseGemmV2RewritePattern
           b.create<SignedDivIOp>(loc, iv, NumBlksConstantOp);
       auto m_blockwise_gemm = b.create<SignedDivIOp>(
           loc, xdlops_i_blockwise_gemm, NRepeatsConstantOp);
-      auto n_blockwise_gemm = b.create<SignedRemIOp>(
+      auto n_blockwise_gemm = b.create<UnsignedRemIOp>(
           loc, xdlops_i_blockwise_gemm, NRepeatsConstantOp);
 
       // Original C++ logic.
@@ -6990,7 +6990,7 @@ struct GridwiseGemmV2RewritePattern
           b.create<AddIOp>(
               loc,
               b.create<MulIOp>(
-                  loc, b.create<SignedRemIOp>(loc, waveId, NWavesConstantOp),
+                  loc, b.create<UnsignedRemIOp>(loc, waveId, NWavesConstantOp),
                   NPerWaveConstantOp),
               b.create<MulIOp>(loc, n_blockwise_gemm, NPerXdlopsConstantOp)),
           thread_mtx_on_blk_col);
@@ -7042,12 +7042,12 @@ struct GridwiseGemmV2RewritePattern
       // m_thread_data_on_global % (M2 * M1) / M2
       matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<SignedDivIOp>(
           loc,
-          b.create<SignedRemIOp>(loc, m_thread_data_on_global_i32,
+          b.create<UnsignedRemIOp>(loc, m_thread_data_on_global_i32,
                                  M2TimesM1I32Op),
           M2ConstantI32Op));
 
       // m_thread_data_on_global % M2
-      matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<SignedRemIOp>(
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<UnsignedRemIOp>(
           loc, m_thread_data_on_global_i32, M2ConstantI32Op));
 
       // n_thread_data_on_global
@@ -9040,7 +9040,7 @@ struct XdlopsGemmV2RewritePattern
     // K * KRepeats; constexpr index_t BStride = K * KRepeats;
 
     auto tid = b.create<miopen::WorkitemIdOp>(loc, b.getIndexType());
-    auto laneId = b.create<SignedRemIOp>(
+    auto laneId = b.create<UnsignedRemIOp>(
         loc, tid, b.create<ConstantIndexOp>(loc, wave_size));
 
     // TBD. FloatA / FloatB could be vectorized via KPack tuning parameter.
@@ -9220,7 +9220,7 @@ struct XdlopsGemmV2RewritePattern
 
       auto NumThreadsBlkConstantOp = b.create<ConstantIndexOp>(loc, num_threads_blk);
       auto blk_id = b.create<SignedDivIOp>(loc, laneId, NumThreadsBlkConstantOp);
-      auto blk_td = b.create<SignedRemIOp>(loc, laneId, NumThreadsBlkConstantOp);
+      auto blk_td = b.create<UnsignedRemIOp>(loc, laneId, NumThreadsBlkConstantOp);
 
       // Original C++ logic.
       //     // load into registers
