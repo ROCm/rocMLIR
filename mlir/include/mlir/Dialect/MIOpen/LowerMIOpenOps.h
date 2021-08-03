@@ -5209,7 +5209,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto GemmABlockCopyThreadSliceLengths_GemmMConstantOp =
         b.create<ConstantIndexOp>(loc, GemmABlockCopyThreadSliceLengths_GemmM);
 
-    auto GemmABlockCopyThreadClusterId_Y = b.create<UnUnsignedRemIOp>(
+    auto GemmABlockCopyThreadClusterId_Y = b.create<UnsignedRemIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
     auto GemmABlockCopyThreadClusterId_X = b.create<SignedDivIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
