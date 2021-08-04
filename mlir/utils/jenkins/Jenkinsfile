@@ -56,7 +56,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908' : 'rocm' } && !single_gpu"
+                            label "${params.canXdlops ? 'gfx908-mlir-tmp' : 'rocm' } && !single_gpu"
                             alwaysPull true
                         }
                     }
@@ -186,7 +186,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908' : 'rocm' }"
+                            label "${params.canXdlops ? 'gfx908-mlir-tmp' : 'rocm' }"
                             alwaysPull true
                         }
                     }
@@ -327,7 +327,7 @@ pipeline {
                     docker {
                         image dockerImage()
                         args dockerArgs()
-                        label "${XDLOPS == '1' ? 'gfx908' : 'gfx908'} && !single_gpu"
+                        label "${XDLOPS == '1' ? 'gfx908-mlir-tmp' : 'gfx908-mlir-tmp'} && !single_gpu"
                         alwaysPull true
                     }
                 }
