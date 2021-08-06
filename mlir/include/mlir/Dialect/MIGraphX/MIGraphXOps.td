@@ -315,7 +315,7 @@ def MIGraphX_CodeObjOp :
   let description = [{
     The `migraphx.code_object` op. Holds the compiled kernel binary and arguments.
   }];
-  let assemblyFormat = "`(`$kernelArgs`)` attr-dict `:` `(`type($kernelArgs)`)` `->` type($outputs) `=` $body";
+  let assemblyFormat = "`(`$kernelArgs`)` attr-dict `:` `(`type($kernelArgs)`)` `->` type($outputs)";
   let verifier = [{ return success(); }];
 }
 
