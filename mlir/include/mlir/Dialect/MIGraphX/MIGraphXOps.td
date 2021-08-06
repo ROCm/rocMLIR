@@ -306,6 +306,19 @@ def MIGraphX_ConstantOp :
 }
 
 //--------- Execution layer Ops
+def MIGraphX_CodeObjOp :
+    MIGraphX_Op<"code_object">,
+    Arguments<(ins Variadic<AnyType>:$kernelArgs
+                   )>,
+	Results<(outs Variadic<AnyType>:$outputs)> {	  
+  let summary = "OP representing a code object";
+  let description = [{
+    The `migraphx.code_object` op. Holds the compiled kernel binary and arguments.
+  }];
+  let assemblyFormat = "`(`$kernelArgs`)` attr-dict `:` `(`type($kernelArgs)`)` `->` type($output) `=` $body";
+  let verifier = [{ return success(); }];
+}
+
 def MIGraphX_FusedGroupOp :
     MIGraphX_Op<"fused_group">,
     Arguments<(ins Variadic<AnyType>:$kernelArgs
@@ -318,16 +331,6 @@ def MIGraphX_FusedGroupOp :
 
   let regions = (region AnyRegion:$body);
 
-/*
-  let assemblyFormat = [{ `(` $kernelArgs `)` `:`
-    ref($kernelArgs) type($kernelArgs)
-    ref($results) type($results)
-    attr-dict
-    `=` `\n` ` ` ` `
-    (ref(type($kernelArgs)), ref(type($results)) 
-    $body)
-  }];
-*/
   let assemblyFormat = "`(`$kernelArgs`)` attr-dict `:` `(`type($kernelArgs)`)` `->` type($output) `=` $body";
 
   let verifier = [{ return success(); }];

@@ -112,6 +112,13 @@ def GpuToLLVMConversionPass : Pass<"gpu-to-llvm", "ModuleOp"> {
   ];
 }
 
+def GpuKernelToBlobPass : Pass<"gpu-kernel-to-blob", "ModuleOp"> {
+  let summary = "Convert GPU kernel to blob";
+  let constructor = "mlir::createConvertGPUKernelToBlobPass()";
+  let dependentDialects = ["LLVM::LLVMDialect"];
+  
+}
+
 def LowerHostCodeToLLVM : Pass<"lower-host-to-llvm", "ModuleOp"> {
   let summary = "Lowers the host module code and `gpu.launch_func` to LLVM";
   let constructor = "mlir::createLowerHostCodeToLLVMPass()";
