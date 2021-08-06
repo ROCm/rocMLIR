@@ -930,7 +930,7 @@ void mlir::translateModuleFromMIOpenToCFlags(ModuleOp m, std::string &cflags) {
       int64_t gridSize;
       PopulateParams populateParams;
       (void)populateParams.paramsFromCtx(
-          ctx, 0, validParams, gemmADerivedParam, gemmBDerivedParam,
+          ctx, 0, "", validParams, gemmADerivedParam, gemmBDerivedParam,
           blockGemmDerivedParam, gemmCDstPerWrite, gridSize);
 
       std::map<std::string, int> parameters;

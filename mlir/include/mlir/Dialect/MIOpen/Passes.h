@@ -47,7 +47,8 @@ std::unique_ptr<Pass> createTestAffineTransformPass();
 /// Create a pass to affix tuning parameters to gridwise gemm ops.
 std::unique_ptr<Pass>
 createAffixTuningParametersPass(int64_t blockSizeOverride = 0,
-                                int64_t gridSizeOverride = 0);
+                                int64_t gridSizeOverride = 0,
+                                std::string perfConfig = "");
 
 #define GEN_PASS_REGISTRATION
 #include "mlir/Dialect/MIOpen/Passes.h.inc"
