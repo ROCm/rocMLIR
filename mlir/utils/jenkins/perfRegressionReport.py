@@ -13,25 +13,27 @@ def loadMlirData(filename: str):
     df.drop(columns=['MIOpen TFlops'], inplace=True, errors='ignore')
     return df
 
+def summarizeStat(grouped, func, data):
+    ret = grouped.agg(func)
+    ret.loc[("All", "All"),:] = data.agg(func)
+    return ret
+
 def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, newLabel: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     oldLabel = f"MLIR TFlops ({oldLabel})"
     newLabel = f"MLIR TFlops ({newLabel})"
 
     data = newDf.merge(oldDf, on=reportUtils.TEST_PARAMETERS, suffixes=('_new', '_old'))
-    data.rename(columns={'MLIR TFlops_old': oldLabel, 'MLIR TFlops_new': newLabel}, inplace=True)
+    data.rename(columns={'MLIR TFlops_old': oldLabel,
+        'MLIR TFlops_new': newLabel}, inplace=True)
     data.drop(columns=['MLIR/MIOpen_old', 'MLIR/MIOpen_new'], inplace=True)
     data['Current/Previous'] = data[newLabel] / data[oldLabel]
 
-    COLUMNS_TO_AVERAGE = [oldLabel, newLabel, 'Current/Previous']
-    means = reportUtils.geoMean(data[COLUMNS_TO_AVERAGE])
-    means = pd.Series(means, index=COLUMNS_TO_AVERAGE)
-    means.name = "Geo. mean"
-    arithMeans = data[COLUMNS_TO_AVERAGE].mean(axis=0)
-    arithMeans.name = "Arith. mean"
-    stdDevs = data[COLUMNS_TO_AVERAGE].std(axis = 0)
-    stdDevs.name = "Std. dev"
-
-    stats = pd.DataFrame([means, arithMeans, stdDevs])
+    columnsToAverage = [oldLabel, newLabel, 'Current/Previous']
+    STATISTICS = [("Geo. mean", reportUtils.geoMean),
+        ("Arith. mean", "mean")]
+    grouped = data.groupby(["Direction", "DataType"])[columnsToAverage]
+    stats = pd.concat({name: summarizeStat(grouped, func, data[columnsToAverage])
+            for name, func in STATISTICS}, axis=0).unstack(level=0)
 
     return data, stats
 
@@ -44,9 +46,12 @@ def getPerfDate(statsPath: PurePath, default="???"):
         return default
 
 if __name__ == '__main__':
-    oldDataPath = PurePath(sys.argv[1]) if len(sys.argv) >= 2 else PurePath('./', 'oldData/', reportUtils.PERF_REPORT_FILE)
-    newDataPath = PurePath(sys.argv[2]) if len(sys.argv) >= 3 else PurePath('./', reportUtils.PERF_REPORT_FILE)
-    outputPath = PurePath(sys.argv[3]) if len(sys.argv) >= 4 else PurePath('./', 'MLIR_Performance_Changes.html')
+    oldDataPath = PurePath(sys.argv[1]) if len(sys.argv) >= 2\
+        else PurePath('./', 'oldData/', reportUtils.PERF_REPORT_FILE)
+    newDataPath = PurePath(sys.argv[2]) if len(sys.argv) >= 3\
+        else PurePath('./', reportUtils.PERF_REPORT_FILE)
+    outputPath = PurePath(sys.argv[3]) if len(sys.argv) >= 4\
+        else PurePath('./', 'MLIR_Performance_Changes.html')
 
     try:
         newDf = loadMlirData(str(newDataPath))
@@ -61,7 +66,7 @@ if __name__ == '__main__':
         print("Warning: No old performance data, reusing new one", file=sys.stderr)
         oldDf = newDf.copy()
         oldLabel = "copy"
-    
+
     data, summary = computePerfStats(oldDf, newDf, oldLabel, newLabel)
     with open(outputPath, "w") as outputStream:
         reportUtils.htmlReport(data, summary, "MLIR Performance Changes", "Current/Previous", outputStream)
