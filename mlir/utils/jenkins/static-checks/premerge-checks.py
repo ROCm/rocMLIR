@@ -87,7 +87,7 @@ def run_clang_tidy(base_commit, ignore_config):
     diff = remove_ignored(diff.splitlines(keepends=True), open(ignore_config, 'r'))
   else:
     ignore = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern, [])
-  p = subprocess.Popen(['./clang-tools-extra/clang-tidy/tool/clang-tidy-diff.py', '-p0', '-quiet'],
+  p = subprocess.Popen(['./external/llvm-project/clang-tools-extra/clang-tidy/tool/clang-tidy-diff.py', '-p0', '-quiet'],
                        stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
   a = ''.join(diff)
   out = p.communicate(input=a.encode())[0].decode()
