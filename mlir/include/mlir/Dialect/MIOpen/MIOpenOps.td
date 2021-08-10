@@ -16,12 +16,6 @@
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
-// TODO: upstream this
-class Fixed1DVector<int length, Type type> :
-  VectorOfLengthAndType<[length], [type]>,
-  SameBuildabilityAs<type, "::mlir::VectorType::get(" # length # ", "
-  # type.builderCall # ")"> {}
-
 def MIOpen_Dialect : Dialect {
   let name = "miopen";
   let cppNamespace = "miopen";
@@ -254,8 +248,8 @@ def MIOpen_BlockwiseCopyOp:
     MIOpen_Op<"blockwise_copy">,
     Arguments<(ins AnyMemRef:$source,
                    AnyMemRef:$dest,
-                   Fixed1DVector<3, I32>:$sourceCoordVector,
-                   Fixed1DVector<3, I32>:$destCoordVector,
+                   VectorOfLengthAndType<[3], [I32]>:$sourceCoordVector,
+                   VectorOfLengthAndType<[3], [I32]>:$destCoordVector,
                    Optional<AnyMemRef>:$buffer)> {
   let summary = "Blockwise GPU data movement";
   let description = [{
@@ -274,7 +268,7 @@ def MIOpen_BlockwiseCopyOp:
 def MIOpen_BlockwiseLoadOp:
     MIOpen_Op<"blockwise_load">,
     Arguments<(ins AnyMemRef:$source,
-                  Fixed1DVector<3, I32>:$sourceCoordVector)>,
+                  VectorOfLengthAndType<[3], [I32]>:$sourceCoordVector)>,
     Results<(outs TupleOf<[F32, F16, I16,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16]>,
@@ -286,7 +280,7 @@ def MIOpen_BlockwiseLoadOp:
     - Global (generic tensor) to register (naive tensor).
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type($source) `,` type($result)
+    `(` operands `)` attr-dict `:` type(operands)  `->` type(results)
   }];
 }
 
@@ -298,7 +292,7 @@ def MIOpen_BlockwiseStoreOp:
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
                               VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$data,
                    AnyMemRef:$dest,
-                   Fixed1DVector<3, I32>:$destCoordVector)> {
+                   VectorOfLengthAndType<[3], [I32]>:$destCoordVector)> {
   let summary = "Blockwise GPU data store";
   let description = [{
     The `miopen.blockwise_store` op moves data on GPU. Following movements are
@@ -306,7 +300,7 @@ def MIOpen_BlockwiseStoreOp:
     - Register (naive tensor) to LDS (naive tensor).
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type($data) `,` type($dest)
+    `(` operands `)` attr-dict `:` type(operands)
   }];
 }
 

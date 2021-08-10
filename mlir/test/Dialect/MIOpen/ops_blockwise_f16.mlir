@@ -47,7 +47,7 @@ func @miopen_xdlops_gemm_v2_one_result_f16(%matrixA : memref<12288xf16, 3>, %mat
     m_per_wave = 128,
     n_per_wave = 64,
     coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
-  } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16> -> vector<32xf32>, vector<32xf32>
+  } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16> -> vector<32xf16>
   return %vectorD0 : vector<32xf16>
 }
 
