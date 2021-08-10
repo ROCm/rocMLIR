@@ -248,8 +248,8 @@ def MIOpen_BlockwiseCopyOp:
     MIOpen_Op<"blockwise_copy">,
     Arguments<(ins AnyMemRef:$source,
                    AnyMemRef:$dest,
-                   VectorOfLengthAndType<[3], [I32]>:$sourceCoordVector,
-                   VectorOfLengthAndType<[3], [I32]>:$destCoordVector,
+                   VectorOfLengthAndType<[3, 4], [I32]>:$sourceCoordVector,
+                   VectorOfLengthAndType<[3, 4], [I32]>:$destCoordVector,
                    Optional<AnyMemRef>:$buffer)> {
   let summary = "Blockwise GPU data movement";
   let description = [{
@@ -268,7 +268,7 @@ def MIOpen_BlockwiseCopyOp:
 def MIOpen_BlockwiseLoadOp:
     MIOpen_Op<"blockwise_load">,
     Arguments<(ins AnyMemRef:$source,
-                  VectorOfLengthAndType<[3], [I32]>:$sourceCoordVector)>,
+                   VectorOfLengthAndType<[3, 4], [I32]>:$sourceCoordVector)>,
     Results<(outs TupleOf<[F32, F16, I16,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16]>,
@@ -292,7 +292,7 @@ def MIOpen_BlockwiseStoreOp:
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
                               VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$data,
                    AnyMemRef:$dest,
-                   VectorOfLengthAndType<[3], [I32]>:$destCoordVector)> {
+                   VectorOfLengthAndType<[3, 4], [I32]>:$destCoordVector)> {
   let summary = "Blockwise GPU data store";
   let description = [{
     The `miopen.blockwise_store` op moves data on GPU. Following movements are
@@ -390,8 +390,8 @@ def MIOpen_ThreadwiseCopyV2Op:
 // blockwise_gemm
 def MIOpen_BlockwiseGemmOp:
     MIOpen_Op<"blockwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$matrixA,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixB,
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3, 4]>:$matrixA,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$matrixB,
                    AnyMemRef:$matrixC,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB)> {
@@ -431,9 +431,9 @@ def MIOpen_BlockwiseGemmV2Op:
 // threadwise_gemm
 def MIOpen_ThreadwiseGemmOp:
     MIOpen_Op<"threadwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$matrixA,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixB,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixC)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3, 4]>:$matrixA,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$matrixB,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$matrixC)> {
   let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.
