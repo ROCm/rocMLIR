@@ -1,7 +1,5 @@
 message(STATUS "Adding LLVM git-submodule src dependency")
 
-set(CMAKE_BUILD_TYPE Release CACHE INTERNAL "")
-
 # Passed to lit.site.cfg.py.so that the out of tree Standalone dialect test
 # can find MLIR's CMake configuration
 set(MLIR_CMAKE_CONFIG_DIR
