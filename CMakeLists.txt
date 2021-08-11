@@ -16,6 +16,18 @@ set(MLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION 1 CACHE BOOL "Enable E2E tests with G
 set(MLIR_MIOPEN_SQLITE_ENABLED 0 CACHE BOOL "Enable SQLite integration")
 set(MLIR_ENABLE_SQLITE "${MLIR_MIOPEN_SQLITE_ENABLED}")
 
+# LLVM settings that have an effect on the MLIR dialect
+set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
+
+# Build the ROCm conversions and run according tests if the AMDGPU backend
+# is available
+if ("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
+  set(MLIR_ROCM_CONVERSIONS_ENABLED 1)
+else()
+  set(MLIR_ROCM_CONVERSIONS_ENABLED 0)
+endif()
+add_definitions(-DMLIR_ROCM_CONVERSIONS_ENABLED=${MLIR_ROCM_CONVERSIONS_ENABLED})
+
 # Pointers to: 1) external LLVM bins/libs, and 2) MIOpen Dialect bins/libs
 set(LLVM_EXTERNAL_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/bin" CACHE PATH "")
 set(LLVM_EXTERNAL_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/lib" CACHE PATH "")
