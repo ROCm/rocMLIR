@@ -64,7 +64,8 @@ RUN ln -s /usr/bin/clang-10 /usr/bin/clang;\
     ln -s /usr/bin/clang-format-10 /usr/bin/clang-format;\
     ln -s /usr/bin/git-clang-format-10 /usr/bin/git-clang-format;\
     ln -s /usr/bin/clang-format-diff-10 /usr/bin/clang-format-diff;\
-    ln -s /usr/bin/lld-10 /usr/bin/lld
+    ln -s /usr/bin/lld-10 /usr/bin/lld;\
+    ln -s /usr/bin/llvm-symbolizer-10 /usr/bin/llvm-symbolizer
 
 # --------------------- Section 2: MIOpen dialect setups -----------------
 
@@ -99,3 +100,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   python3-venv  && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
+
