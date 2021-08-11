@@ -53,6 +53,7 @@ pipeline {
                 cmakeBuild generator: 'Ninja',\
                     buildDir: 'build',\
                     buildType: 'Release',\
+                    cleanBuild: true,\
                     installation: 'InSearchPath',\
                     steps: [[args: 'libMLIRMIOpen']],\
                     cmakeArgs: '-DBUILD_FAT_LIBMLIRMIOPEN=ON'
