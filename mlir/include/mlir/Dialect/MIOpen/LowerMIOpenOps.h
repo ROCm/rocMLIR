@@ -687,15 +687,30 @@ inline void emitNaiveTensorCopyLogic(
       // Compute high-level coordinate for source memref.
       // src_index = (0, ivo_i32, ivi_i32) + sourceCoord
       SmallVector<Value, 8> srcUpperIndices;
-      srcUpperIndices.push_back(b.create<IndexCastOp>(
-          loc, b.create<AddIOp>(loc, zeroConstantOp, sourceCoord[0]),
-          b.getIndexType()));
-      srcUpperIndices.push_back(b.create<IndexCastOp>(
-          loc, b.create<AddIOp>(loc, ivo_i32, sourceCoord[1]),
-          b.getIndexType()));
-      srcUpperIndices.push_back(b.create<IndexCastOp>(
-          loc, b.create<AddIOp>(loc, ivi_i32, sourceCoord[2]),
-          b.getIndexType()));
+      if (sourceCoord.size() == 3) {
+        srcUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, zeroConstantOp, sourceCoord[0]),
+            b.getIndexType()));
+        srcUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, ivo_i32, sourceCoord[1]),
+            b.getIndexType()));
+        srcUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, ivi_i32, sourceCoord[2]),
+            b.getIndexType()));
+      } else if (sourceCoord.size() == 4) {
+        srcUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, zeroConstantOp, sourceCoord[0]),
+            b.getIndexType()));
+        srcUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, zeroConstantOp, sourceCoord[1]),
+            b.getIndexType()));
+        srcUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, ivo_i32, sourceCoord[2]),
+            b.getIndexType()));
+        srcUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, ivi_i32, sourceCoord[3]),
+            b.getIndexType()));
+      }
 
       // Apply affine transformations to compute the low-level coordinate.
       SmallVector<Value, 8> srcLowerIndices;
@@ -718,13 +733,26 @@ inline void emitNaiveTensorCopyLogic(
       // Compute high-level coordinate for dest memref.
       // dst_index = (0, ivo_i32, ivi_i32) + destCoord
       SmallVector<Value, 8> destUpperIndices;
-      destUpperIndices.push_back(b.create<IndexCastOp>(
-          loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
-          b.getIndexType()));
-      destUpperIndices.push_back(b.create<IndexCastOp>(
-          loc, b.create<AddIOp>(loc, ivo_i32, destCoord[1]), b.getIndexType()));
-      destUpperIndices.push_back(b.create<IndexCastOp>(
-          loc, b.create<AddIOp>(loc, ivi_i32, destCoord[2]), b.getIndexType()));
+      if (destCoord.size() == 3) {
+        destUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
+            b.getIndexType()));
+        destUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, ivo_i32, destCoord[1]), b.getIndexType()));
+        destUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, ivi_i32, destCoord[2]), b.getIndexType()));
+      } else {
+        destUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
+            b.getIndexType()));
+        destUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[1]),
+            b.getIndexType()));
+        destUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, ivo_i32, destCoord[2]), b.getIndexType()));
+        destUpperIndices.push_back(b.create<IndexCastOp>(
+            loc, b.create<AddIOp>(loc, ivi_i32, destCoord[3]), b.getIndexType()));
+      }
 
       // Apply affine transformations to compute the low-level coordinate.
       SmallVector<Value, 8> destLowerIndices;
@@ -8765,6 +8793,9 @@ struct ThreadwiseLoadRewritePattern
 
     ArrayAttr layeredSourceTransformMetadata;
 
+    // XXX FIXME.
+    legacyLoad = true;
+
     // Obtain transform metadata and populate coordinates for all layers
     // wthe the metadata.
     // Only do such computation in the new approach where index diff maps
@@ -9025,6 +9056,9 @@ struct ThreadwiseStoreRewritePattern
     SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
 
     ArrayAttr layeredDestTransformMetadata;
+
+    // XXX FIXME.
+    legacyStore = true;
 
     // Obtain transform metadata and populate coordinates for all layers
     // wthe the metadata.
