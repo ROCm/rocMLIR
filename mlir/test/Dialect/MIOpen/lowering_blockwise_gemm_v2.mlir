@@ -13,6 +13,6 @@ func @miopen_blockwise_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %mat
     m_per_wave = 64,
     n_per_wave = 64,
     coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
-  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, vector<32xf32>, vector<32xf32>
+  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, vector<32xf32>, vector<32xf32> -> vector<32xf32>, vector<32xf32>
   return %vectorD0, %vectorD1 : vector<32xf32>, vector<32xf32>
 }

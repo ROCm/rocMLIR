@@ -47,13 +47,13 @@ func @miopen_xdlops_gemm_v2_one_result_f16(%matrixA : memref<12288xf16, 3>, %mat
     m_per_wave = 128,
     n_per_wave = 64,
     coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
-  } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16>
+  } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16> -> vector<32xf16>
   return %vectorD0 : vector<32xf16>
 }
 
 // CHECK-LABEL: func @miopen_xdlops_gemm_v2_one_result_f16
 //  CHECK: miopen.xdlops_gemm_v2
- 
+
 // ----
 
 func @miopen_xdlops_gemm_v2_two_results_f16(%matrixA : memref<12288xf16, 3>, %matrixB : memref<12288xf16, 3>,
@@ -69,7 +69,7 @@ func @miopen_xdlops_gemm_v2_two_results_f16(%matrixA : memref<12288xf16, 3>, %ma
     m_per_wave = 128,
     n_per_wave = 64,
     coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
-  } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16>, vector<32xf16>
+  } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16>, vector<32xf16> -> vector<32xf16>, vector<32xf16>
   return %vectorD0, %vectorD1 : vector<32xf16>, vector<32xf16>
 }
 
@@ -90,7 +90,7 @@ func @miopen_blockwise_gemm_v2_one_result_f16(%matrixA : memref<12288xf16, 3>, %
     m_per_wave = 128,
     n_per_wave = 64,
     coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
-  } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16>
+  } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16> -> vector<32xf16>
   return %vectorD0 : vector<32xf16>
 }
 
@@ -112,7 +112,7 @@ func @miopen_blockwise_gemm_v2_two_results_f16(%matrixA : memref<12288xf16, 3>, 
     m_per_wave = 128,
     n_per_wave = 64,
     coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
-  } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16>, vector<32xf16>
+  } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16>, vector<32xf16> -> vector<32xf16>, vector<32xf16>
   return %vectorD0, %vectorD1 : vector<32xf16>, vector<32xf16>
 }
 

@@ -30,9 +30,6 @@ class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
   //   * ParseResult parse${C++ class of Op}(OpAsmParser &parser,
   //                                         OperationState &result)
   // functions.
-  let printer = [{ return ::print(p, *this); }];
-  let verifier = [{ return ::verify(*this); }];
-  let parser = [{ return ::parse$cppClass(parser, result); }];
 
   let extraClassDeclaration = [{
   }];
@@ -47,6 +44,10 @@ def MIOpen_Conv2DOp :
   let description = [{
     The `miopen.conv2d` op computes 2D convolution forward.
   }];
+  let verifier = "{ return ::verifyConvOp(*this); }";
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
+  }];
 }
 
 def MIOpen_Conv2DBwdDataOp :
@@ -58,6 +59,10 @@ def MIOpen_Conv2DBwdDataOp :
   let description = [{
     The `miopen.conv2d_bwd_data` op computes 2D convolution backward data.
   }];
+  let verifier = "{ return ::verifyConvOp(*this); }";
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
+  }];
 }
 
 def MIOpen_Conv2DBwdWeightOp :
@@ -68,6 +73,10 @@ def MIOpen_Conv2DBwdWeightOp :
   let summary = "2D convolution backward weight";
   let description = [{
     The `miopen.conv2d_bwd_weight` op computes 2D convolution backward weight.
+  }];
+  let verifier = "{ return ::verifyConvOp(*this); }";
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
   }];
 }
 
@@ -99,6 +108,9 @@ def MIOpen_TransformOp :
     // track the bounds of a MemRefType
     static ArrayAttr buildMemRefShapeAttr(OpBuilder &b, MemRefType memRefType);
   }];
+  let assemblyFormat = [{
+    `(` $input `)` attr-dict `:` type($input) `to` type($output)
+  }];
 }
 
 def MIOpen_GridwiseGemmOp :
@@ -109,6 +121,9 @@ def MIOpen_GridwiseGemmOp :
   let summary = "Gridwise GEMM";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM.
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
   }];
 }
 
@@ -121,6 +136,9 @@ def MIOpen_GridwiseGemmV2Op :
   let summary = "Gridwise GEMM V2";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
   }];
 }
 
@@ -136,6 +154,9 @@ def MIOpen_GpuAllocOp:
     - Address space 5 : private (VGPR).
     All other values would be considered as allocation on global.
   }];
+  let assemblyFormat = [{
+    `(` `)` attr-dict `:` type($output)
+  }];
 }
 
 // subview provides a subsection view of a memref.
@@ -150,27 +171,37 @@ def MIOpen_SubviewOp:
     The memref must be on either LDS (address space 3) or private (address
     space 5).
   }];
+  let assemblyFormat = [{
+    `(` $input `,` $offset `)` attr-dict `:` type($input) `to` type($output)
+  }];
 }
 
 // TBD: eventually replace this with linalg.fill?
 def MIOpen_FillOp:
-    MIOpen_Op<"fill">,
+    MIOpen_Op<"fill", [AllElementTypesMatch<["input", "value"]>]>,
     Arguments<(ins AnyMemRef:$input,
                    AnyTypeOf<[AnyInteger, AnyFloat]>:$value)> {
   let summary = "Fill memory with constant value on GPU";
   let description = [{
     The `miopen.fill` op fills a memref on GPU with a constant value.
   }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
+  }];
 }
 
 def MIOpen_MovePosV2Op:
-    MIOpen_Op<"move_pos_v2">,
+    MIOpen_Op<"move_pos_v2", [SameOperandsElementType,
+      AllTypesMatch<["input", "output"]>]>,
     Arguments<(ins VectorOfRankAndType<[1], [AnyInteger, AnyFloat]>:$input,
                    Variadic<AnyTypeOf<[AnyInteger, AnyFloat]>>:$values)>,
     Results<(outs VectorOfRankAndType<[1], [AnyInteger, AnyFloat]>:$output)> {
     let summary = "Add values to indices within the vector.";
     let description = [{
       The `miopen.move_pos_v2` op adds values to indices within the vector.
+    }];
+    let assemblyFormat = [{
+      `(` operands `)` attr-dict `:` type($input) `,` type($values)
     }];
 }
 
@@ -180,6 +211,7 @@ def MIOpen_WorkgroupBarrierOp:
   let description = [{
     The `miopen.workgroup_barrier` op sets up a workgroup-level barrier.
   }];
+  let assemblyFormat = "attr-dict";
 }
 
 def MIOpen_LDSBarrierOp:
@@ -188,6 +220,7 @@ def MIOpen_LDSBarrierOp:
   let description = [{
     The `miopen.lds_barrier` op sets up a workgroup-level barrier on LDS activities.
   }];
+  let assemblyFormat = "attr-dict";
 }
 
 def MIOpen_WorkgroupIdOp:
@@ -197,6 +230,7 @@ def MIOpen_WorkgroupIdOp:
   let description = [{
     The `miopen.workgroup_id` op gets the current workgroup ID.
   }];
+  let assemblyFormat = "attr-dict `:` type($id)";
 }
 
 def MIOpen_WorkitemIdOp:
@@ -206,6 +240,7 @@ def MIOpen_WorkitemIdOp:
   let description = [{
     The `miopen.workgroup_id` op gets the current workitem ID.
   }];
+  let assemblyFormat = "attr-dict `:` type($id)";
 }
 
 // blockwise_copy
@@ -224,22 +259,28 @@ def MIOpen_BlockwiseCopyOp:
     - Global (generic tensor) to register (naive tensor).
     - Register (naive tensor) to LDS (naive tensor).
   }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
+  }];
 }
 
 // blockwise_load
 def MIOpen_BlockwiseLoadOp:
     MIOpen_Op<"blockwise_load">,
     Arguments<(ins AnyMemRef:$source,
-                   VectorOfLengthAndType<[3], [I32]>:$sourceCoordVector)>,
+                  VectorOfLengthAndType<[3], [I32]>:$sourceCoordVector)>,
     Results<(outs TupleOf<[F32, F16, I16,
                              VectorOfLengthAndType<[2, 4], [F32]>,
-                             VectorOfLengthAndType<[2, 4, 8], [F16]>, 
+                             VectorOfLengthAndType<[2, 4, 8], [F16]>,
                              VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$result)> {
   let summary = "Blockwise GPU data load";
   let description = [{
     The `miopen.blockwise_load` op moves data on GPU. Following movements are
     allowed:
     - Global (generic tensor) to register (naive tensor).
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)  `->` type(results)
   }];
 }
 
@@ -248,7 +289,7 @@ def MIOpen_BlockwiseStoreOp:
     MIOpen_Op<"blockwise_store">,
     Arguments<(ins TupleOf<[F32, F16, I16,
                               VectorOfLengthAndType<[2, 4], [F32]>,
-                              VectorOfLengthAndType<[2, 4, 8], [F16]>, 
+                              VectorOfLengthAndType<[2, 4, 8], [F16]>,
                               VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$data,
                    AnyMemRef:$dest,
                    VectorOfLengthAndType<[3], [I32]>:$destCoordVector)> {
@@ -257,6 +298,9 @@ def MIOpen_BlockwiseStoreOp:
     The `miopen.blockwise_store` op moves data on GPU. Following movements are
     allowed:
     - Register (naive tensor) to LDS (naive tensor).
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
   }];
 }
 
@@ -275,6 +319,11 @@ def MIOpen_ThreadwiseCopyOp:
     - LDS (naive tensor) to register (naive tensor).
     - Register (naive tensor) to global (generic tensor).
   }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type($source) `,` type($dest)
+    `,` type($sourceAndDestCoord)
+  }];
+  let verifier = [{ return ::verify(*this); }];
 }
 
 // threadwise_load
@@ -291,6 +340,9 @@ def MIOpen_ThreadwiseLoadOp:
     The `miopen.threadwise_load` op moves data on GPU. Following movements are
     allowed:
     - Global (generic tensor) to register (naive tensor).
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type($source) `,` type($sourceCoord) `->` type($result)
   }];
 }
 
@@ -309,6 +361,9 @@ def MIOpen_ThreadwiseStoreOp:
     allowed:
     - Register (naive tensor) to LDS (naive tensor).
   }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type($data) `,` type($dest) `,` type($destCoord)
+  }];
 }
 
 // threadwise_copy_v2
@@ -326,6 +381,10 @@ def MIOpen_ThreadwiseCopyV2Op:
 
     The op is used to store C matrices, stored as vectors, back to global VMEM.
   }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type($source) `,` type($dest)
+    `,` type($sourceOffset) `,` type($sourceAndDestCoord)
+  }];
 }
 
 // blockwise_gemm
@@ -341,6 +400,9 @@ def MIOpen_BlockwiseGemmOp:
     The `miopen.block_gemm` op does GEMM at workgroup (block) level.
     - Matrix A and Matrix B shall reside on LDS (naive tensor).
     - Matrix C shall reside on register (naive tensor).
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
   }];
 }
 
@@ -361,6 +423,9 @@ def MIOpen_BlockwiseGemmV2Op:
     - Matrix A and Matrix B shall reside on LDS (naive tensor).
     - Matrix C shall be vectors.
   }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands) `->` type($vectorDs)
+  }];
 }
 
 // threadwise_gemm
@@ -375,11 +440,15 @@ def MIOpen_ThreadwiseGemmOp:
     - Matrix A and Matrix B shall reside on register (naive tensor).
     - Matrix C shall reside on LDS (naive tensor).
   }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
+  }];
 }
 
 // mfma_v2
 def MIOpen_MFMAV2Op:
-    MIOpen_Op<"mfma_v2">,
+    MIOpen_Op<"mfma_v2", [AllTypesMatch<["sourceA", "sourceB"]>,
+      AllTypesMatch<["destC", "destD"]>]>,
     Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>]>: $sourceA,
                    AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>]>: $sourceB,
                    VectorOfRankAndType<[1], [F32, F16]>: $destC)>,
@@ -387,6 +456,9 @@ def MIOpen_MFMAV2Op:
   let summary = "XDLOPS MFMA V2";
   let description = [{
     The `miopen.mfma_v2` op is an abstraction of XDLOPS.
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type($sourceA) `,` type($destD)
   }];
 }
 
@@ -400,11 +472,14 @@ def MIOpen_XdlopsGemmV2Op:
                    MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferA,
                    MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferB,
                    Variadic<VectorOfRankAndType<[1], [F32, F16]>>:$vectorCs)>,
-    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16]>>: $vectorDs)> {
+    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16]>>:$vectorDs)> {
   let summary = "XDLOPS GEMM V2";
   let description = [{
     The `miopen.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.
     It would employ a series of `miopen.mfma` operations.
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands) `->` type(results)
   }];
 }
 
@@ -415,6 +490,9 @@ def MIOpen_DataConvertOp :
   let summary = "data type conversion";
   let description = [{
     The `miopen.data_convert` op will convert f32 to bf16, but we use i16 to replace bf16 here.
+  }];
+  let assemblyFormat = [{
+    $in attr-dict `:` type($in) `to` type($out)
   }];
 }
 #endif // MIOPEN_OPS
