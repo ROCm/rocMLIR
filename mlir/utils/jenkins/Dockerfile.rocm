@@ -65,6 +65,9 @@ RUN ln -s /usr/bin/clang-10 /usr/bin/clang;\
     ln -s /usr/bin/git-clang-format-10 /usr/bin/git-clang-format;\
     ln -s /usr/bin/clang-format-diff-10 /usr/bin/clang-format-diff;\
     ln -s /usr/bin/lld-10 /usr/bin/lld
+RUN for binary in /usr/bin/llvm-*-10; do\
+    ln -s "$binary" "$(echo $binary | sed -e 's/-10//')";\
+    done
 
 # --------------------- Section 2: MIOpen dialect setups -----------------
 
@@ -99,3 +102,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   python3-venv  && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
+
