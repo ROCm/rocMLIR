@@ -5050,18 +5050,38 @@ void affixBlockwiseCopyAttributes(
     T &bop, U &gop, OpBuilder &b,
     const SmallVector<uint64_t, 3> &blockwiseCopyBounds, int vectorDim,
     int blockwiseLoadLength, int blockwiseStoreLength) {
+  int64_t KPack =
+      gop->hasAttr("kpack")
+          ? gop->getAttr("kpack").template cast<IntegerAttr>().getInt()
+          : 1;
+
   bop->setAttr("block_size", gop->getAttr("block_size"));
 
-  bop->setAttr("source_dim_access_order", b.getArrayAttr({
+  if (KPack > 1) {
+    bop->setAttr("source_dim_access_order", b.getArrayAttr({
+                                                b.getI32IntegerAttr(0),
+                                                b.getI32IntegerAttr(1),
+                                                b.getI32IntegerAttr(2),
+                                                b.getI32IntegerAttr(3),
+                                            }));
+    bop->setAttr("dest_dim_access_order", b.getArrayAttr({
+                                              b.getI32IntegerAttr(0),
+                                              b.getI32IntegerAttr(1),
+                                              b.getI32IntegerAttr(2),
+                                              b.getI32IntegerAttr(3),
+                                          }));
+  } else {
+    bop->setAttr("source_dim_access_order", b.getArrayAttr({
+                                                b.getI32IntegerAttr(0),
+                                                b.getI32IntegerAttr(1),
+                                                b.getI32IntegerAttr(2),
+                                            }));
+    bop->setAttr("dest_dim_access_order", b.getArrayAttr({
                                               b.getI32IntegerAttr(0),
                                               b.getI32IntegerAttr(1),
                                               b.getI32IntegerAttr(2),
                                           }));
-  bop->setAttr("dest_dim_access_order", b.getArrayAttr({
-                                            b.getI32IntegerAttr(0),
-                                            b.getI32IntegerAttr(1),
-                                            b.getI32IntegerAttr(2),
-                                        }));
+  }
   bop->setAttr("source_vector_read_dim", b.getI32IntegerAttr(vectorDim));
   bop->setAttr("dest_vector_write_dim", b.getI32IntegerAttr(vectorDim));
   bop->setAttr("source_data_per_read",
