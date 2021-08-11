@@ -4,6 +4,11 @@ add_subdirectory(EDSC)
 add_subdirectory(SDBM)
 add_subdirectory(lib)
 
+# Passed to lit.site.cfg.py.so that the out of tree Standalone dialect test
+# can find MLIR's CMake configuration
+set(MLIR_CMAKE_CONFIG_DIR
+  "${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX}/cmake/mlir")
+
 llvm_canonicalize_cmake_booleans(
   MLIR_BINDINGS_PYTHON_ENABLED
   LLVM_BUILD_EXAMPLES
