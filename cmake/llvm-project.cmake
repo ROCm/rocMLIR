@@ -7,15 +7,6 @@ set(CMAKE_BUILD_TYPE Release CACHE INTERNAL "")
 set(MLIR_CMAKE_CONFIG_DIR
    "${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX}/cmake/mlir")
 
-# Build the ROCm conversions and run according tests if the AMDGPU backend
-# is available
-if ("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
-  set(MLIR_ROCM_CONVERSIONS_ENABLED 1)
-else()
-  set(MLIR_ROCM_CONVERSIONS_ENABLED 0)
-endif()
-add_definitions(-DMLIR_ROCM_CONVERSIONS_ENABLED=${MLIR_ROCM_CONVERSIONS_ENABLED})
-
 # MLIR settings
 set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "Enable building the mlir ROCm runner")
 set(MLIR_TABLEGEN_EXE mlir-tblgen)
@@ -23,7 +14,6 @@ set(MLIR_TABLEGEN_EXE mlir-tblgen)
 # LLVM settings
 set(LLVM_ENABLE_PROJECTS "mlir;lld" CACHE STRING "List of default llvm targets")
 set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
-set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
 set(LLVM_INSTALL_UTILS ON CACHE BOOL "")
 set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
 set(LLVM_ENABLE_ASSERTIONS ON CACHE BOOL "")
