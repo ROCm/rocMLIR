@@ -38,13 +38,19 @@
 #include <cstdint>
 #include <numeric>
 
+#include "llvm/Support/CommandLine.h"
+
 using namespace mlir;
 using llvm::Error;
 
 namespace {
+
+typedef std::list<std::string> SharedLibsList;
+
 /// This options struct prevents the need for global static initializers, and
 /// is only initialized if the JITRunner is invoked.
 struct Options {
+
   llvm::cl::opt<std::string> inputFilename{llvm::cl::Positional,
                                            llvm::cl::desc("<input file>"),
                                            llvm::cl::init("-")};
@@ -148,8 +154,8 @@ static Optional<unsigned> getCommandLineOptLevel(Options &options) {
 }
 
 // JIT-compile the given module and run "entryPoint" with "args" as arguments.
-static Error compileAndExecute(Options &options, ModuleOp module,
-                               StringRef entryPoint,
+static Error compileAndExecute(Options &options, SharedLibsList &sharedLibs,
+                               ModuleOp module, StringRef entryPoint,
                                CompileAndExecuteConfig config, void **args) {
   Optional<llvm::CodeGenOpt::Level> jitCodeGenOptLevel;
   if (auto clOptLevel = getCommandLineOptLevel(options))
@@ -159,8 +165,6 @@ static Error compileAndExecute(Options &options, ModuleOp module,
   // If shared library implements custom mlir-runner library init and destroy
   // functions, we'll use them to register the library with the execution
   // engine. Otherwise we'll pass library directly to the execution engine.
-  SmallVector<StringRef, 4> libs(options.clSharedLibs.begin(),
-                                 options.clSharedLibs.end());
 
   // Libraries that we'll pass to the ExecutionEngine for loading.
   SmallVector<StringRef, 4> executionEngineLibs;
@@ -172,7 +176,7 @@ static Error compileAndExecute(Options &options, ModuleOp module,
   SmallVector<MlirRunnerDestroyFn> destroyFns;
 
   // Handle libraries that do support mlir-runner init/destroy callbacks.
-  for (auto libPath : libs) {
+  for (auto &libPath : sharedLibs) {
     auto lib = llvm::sys::DynamicLibrary::getPermanentLibrary(libPath.data());
     void *initSym = lib.getAddressOfSymbol("__mlir_runner_init");
     void *destroySim = lib.getAddressOfSymbol("__mlir_runner_destroy");
@@ -227,14 +231,17 @@ static Error compileAndExecute(Options &options, ModuleOp module,
   return Error::success();
 }
 
-static Error compileAndExecuteVoidFunction(Options &options, ModuleOp module,
+static Error compileAndExecuteVoidFunction(Options &options,
+                                           SharedLibsList &sharedLibs,
+                                           ModuleOp module,
                                            StringRef entryPoint,
                                            CompileAndExecuteConfig config) {
   auto mainFunction = module.lookupSymbol<LLVM::LLVMFuncOp>(entryPoint);
   if (!mainFunction || mainFunction.empty())
     return make_string_error("entry point not found");
   void *empty = nullptr;
-  return compileAndExecute(options, module, entryPoint, config, &empty);
+  return compileAndExecute(options, sharedLibs, module, entryPoint, config,
+                           &empty);
 }
 
 template <typename Type>
@@ -269,7 +276,9 @@ Error checkCompatibleReturnType<float>(LLVM::LLVMFuncOp mainFunction) {
   return Error::success();
 }
 template <typename Type>
-Error compileAndExecuteSingleReturnFunction(Options &options, ModuleOp module,
+Error compileAndExecuteSingleReturnFunction(Options &options,
+                                            SharedLibsList &sharedLibs,
+                                            ModuleOp module,
                                             StringRef entryPoint,
                                             CompileAndExecuteConfig config) {
   auto mainFunction = module.lookupSymbol<LLVM::LLVMFuncOp>(entryPoint);
@@ -287,8 +296,8 @@ Error compileAndExecuteSingleReturnFunction(Options &options, ModuleOp module,
     void *data;
   } data;
   data.data = &res;
-  if (auto error = compileAndExecute(options, module, entryPoint, config,
-                                     (void **)&data))
+  if (auto error = compileAndExecute(options, sharedLibs, module, entryPoint,
+                                     config, (void **)&data))
     return error;
 
   // Intentional printing of the output so we can test.
@@ -304,6 +313,10 @@ int mlir::JitRunnerMain(int argc, char **argv, JitRunnerConfig config) {
   // runner. This must come before the command line options are parsed.
   Options options;
   llvm::cl::ParseCommandLineOptions(argc, argv, "MLIR CPU execution driver\n");
+
+  std::string mainFuncType = options.mainFuncType;
+  SharedLibsList sharedLibs =
+      SharedLibsList(options.clSharedLibs.begin(), options.clSharedLibs.end());
 
   Optional<unsigned> optLevel = getCommandLineOptLevel(options);
   SmallVector<std::reference_wrapper<llvm::cl::opt<bool>>, 4> optFlags{
@@ -363,10 +376,10 @@ int mlir::JitRunnerMain(int argc, char **argv, JitRunnerConfig config) {
   compileAndExecuteConfig.runtimeSymbolMap = config.runtimesymbolMap;
 
   // Get the function used to compile and execute the module.
-  using CompileAndExecuteFnT =
-      Error (*)(Options &, ModuleOp, StringRef, CompileAndExecuteConfig);
+  using CompileAndExecuteFnT = Error (*)(Options &, SharedLibsList &, ModuleOp,
+                                         StringRef, CompileAndExecuteConfig);
   auto compileAndExecuteFn =
-      StringSwitch<CompileAndExecuteFnT>(options.mainFuncType.getValue())
+      StringSwitch<CompileAndExecuteFnT>(mainFuncType)
           .Case("i32", compileAndExecuteSingleReturnFunction<int32_t>)
           .Case("i64", compileAndExecuteSingleReturnFunction<int64_t>)
           .Case("f32", compileAndExecuteSingleReturnFunction<float>)
@@ -374,7 +387,7 @@ int mlir::JitRunnerMain(int argc, char **argv, JitRunnerConfig config) {
           .Default(nullptr);
 
   Error error = compileAndExecuteFn
-                    ? compileAndExecuteFn(options, m.get(),
+                    ? compileAndExecuteFn(options, sharedLibs, m.get(),
                                           options.mainFuncName.getValue(),
                                           compileAndExecuteConfig)
                     : make_string_error("unsupported function type");
