@@ -738,9 +738,11 @@ inline void emitNaiveTensorCopyLogic(
             loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
             b.getIndexType()));
         destUpperIndices.push_back(b.create<IndexCastOp>(
-            loc, b.create<AddIOp>(loc, ivo_i32, destCoord[1]), b.getIndexType()));
+            loc, b.create<AddIOp>(loc, ivo_i32, destCoord[1]),
+            b.getIndexType()));
         destUpperIndices.push_back(b.create<IndexCastOp>(
-            loc, b.create<AddIOp>(loc, ivi_i32, destCoord[2]), b.getIndexType()));
+            loc, b.create<AddIOp>(loc, ivi_i32, destCoord[2]),
+            b.getIndexType()));
       } else {
         destUpperIndices.push_back(b.create<IndexCastOp>(
             loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
@@ -749,9 +751,11 @@ inline void emitNaiveTensorCopyLogic(
             loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[1]),
             b.getIndexType()));
         destUpperIndices.push_back(b.create<IndexCastOp>(
-            loc, b.create<AddIOp>(loc, ivo_i32, destCoord[2]), b.getIndexType()));
+            loc, b.create<AddIOp>(loc, ivo_i32, destCoord[2]),
+            b.getIndexType()));
         destUpperIndices.push_back(b.create<IndexCastOp>(
-            loc, b.create<AddIOp>(loc, ivi_i32, destCoord[3]), b.getIndexType()));
+            loc, b.create<AddIOp>(loc, ivi_i32, destCoord[3]),
+            b.getIndexType()));
       }
 
       // Apply affine transformations to compute the low-level coordinate.
