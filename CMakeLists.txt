@@ -55,39 +55,6 @@ else()
   set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "")
 endif()
 
-
-# Check for pip pkgs that are required to selectively patch external/llvm-project
-function(check_pip_package pkg_name)
-  execute_process(
-    COMMAND python -m pip show ${pkg_name}
-    RESULT_VARIABLE EXIT_CODE
-    OUTPUT_QUIET
-    )
-  if (NOT ${EXIT_CODE} EQUAL 0)
-    message(
-      FATAL_ERROR
-      "The \"${pkg_name}\" python package is not installed. \
-       The following command can be used to install it: \
-       \"python -m pip install ${pkg_name}\""
-      )
-  endif()
-endfunction()
-check_pip_package(diff-match-patch)
-check_pip_package(pathlib2)
-
-# Patch 'external/llvm-project/mlir' with mods in 'mlir-patch' and 'llvm-patch'
-# FIXME: multi-line cmd + args...
-#set(PY_CMD "python utils/src-tree-patcher/patcher.py ")
-#set(PY_ARG1 "--infile utils/src-tree-patcher/filelist.txt ")
-#set(PY_ARG2 "--srcdir mlir-patch ")
-#set(PY_ARG3 "--dstdir external/llvm-project/mlir")
-#set(PY_ARGS ${PY_ARG1} ${PY_ARG2} ${PY_ARG3})
-#execute_process(COMMAND ${PY_CMD} ${PY_ARGS}
-execute_process(COMMAND python utils/src-tree-patcher/patcher.py --infile utils/src-tree-patcher/filelist-mlir.txt --srcdir mlir-patch --dstdir external/llvm-project/mlir
-  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
-execute_process(COMMAND python utils/src-tree-patcher/patcher.py --infile utils/src-tree-patcher/filelist-llvm.txt --srcdir llvm-patch --dstdir external/llvm-project/llvm
-  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
-
 # Set up the build for the LLVM/MLIR git-submodule
 include(cmake/llvm-project.cmake)
 
