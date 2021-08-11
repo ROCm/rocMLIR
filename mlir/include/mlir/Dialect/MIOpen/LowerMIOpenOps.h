@@ -8474,7 +8474,7 @@ struct ThreadwiseCopyRewritePattern
       destCoord.push_back(sourceAndDestCoord[i]);
 
     // Determine if we need to emit codes for out-of-bound check, and which
-    // dimensions need to dconduct such check.
+    // dimensions need to conduct such check.
     SmallVector<unsigned, 8> oobLoadCheckDims;
     bool toEmitOOBLoadCheckLogic = obtainOOBCheckInfo(
         composedSourceTransform, boundCheckSourceAttr, oobLoadCheckDims);
