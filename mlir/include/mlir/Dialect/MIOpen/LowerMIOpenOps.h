@@ -5117,6 +5117,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     bop->setAttr("m_level1_cluster", gop->getAttr("m_level1_cluster"));
     bop->setAttr("n_level0_cluster", gop->getAttr("n_level0_cluster"));
     bop->setAttr("n_level1_cluster", gop->getAttr("n_level1_cluster"));
+
+    if (gop->hasAttr("kpack"))
+      bop->setAttr("kpack", gop->getAttr("kpack"));
   }
 
   template <typename T>
@@ -7642,6 +7645,10 @@ struct BlockwiseGemmRewritePattern
     // Non-xdlops path.
 
     // Obtain critical attributes.
+    int64_t KPack =
+        op->hasAttr("kpack")
+            ? op->getAttr("kpack").template cast<IntegerAttr>().getInt()
+            : 1;
     int64_t KPerThread =
         op->getAttr("k_per_thread").template cast<IntegerAttr>().getInt();
     int64_t MPerThread =
@@ -7685,15 +7692,23 @@ struct BlockwiseGemmRewritePattern
     int64_t NRepeat = NPerThread / NPerThreadSubC;
 
     // Alloc register for thread_a and thread_b.
-    auto threadARegisterMemRefType =
-        MemRefType::get({1, KPerThread, MPerThread}, elementType, {},
-                        gpu::GPUDialect::getPrivateAddressSpace());
+    Type threadARegisterMemRefType;
+    if (KPack > 1) {
+      threadARegisterMemRefType = MemRefType::get({1, KPerThread, MPerThread, KPack}, elementType, {},
+                      gpu::GPUDialect::getPrivateAddressSpace());
+    } else {
+      threadARegisterMemRefType = MemRefType::get({1, KPerThread, MPerThread}, elementType, {},
+                      gpu::GPUDialect::getPrivateAddressSpace());
+    }
     auto threadAAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadARegisterMemRefType);
 
-    auto threadBRegisterMemRefType =
-        MemRefType::get({1, KPerThread, NPerThread}, elementType, {},
-                        gpu::GPUDialect::getPrivateAddressSpace());
+    Type threadBRegisterMemRefType;
+    if (KPack > 1) {
+      threadBRegisterMemRefType = MemRefType::get({1, KPerThread, NPerThread, KPack}, elementType, {}, gpu::GPUDialect::getPrivateAddressSpace());
+    } else {
+      threadBRegisterMemRefType = MemRefType::get({1, KPerThread, NPerThread}, elementType, {}, gpu::GPUDialect::getPrivateAddressSpace());
+    }
     auto threadBAllocOp =
         b.create<miopen::GpuAllocOp>(loc, threadBRegisterMemRefType);
 
@@ -7722,12 +7737,20 @@ struct BlockwiseGemmRewritePattern
 
     // Set copy sorce and dest coordinate acoording to original C++ logic:
     SmallVector<Value, 6> matrixAThreadwiseCopySourceAndDestCoords;
+
+    if (KPack > 1)
+      matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+
     matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(lab.create<AddIOp>(
         loc, lab.create<MulIOp>(loc, iva_i32, MPerLevel1ClusterConstantI32Op),
         lab.create<IndexCastOp>(loc, op.threadOffsetA(),
                                 lab.getIntegerType(32))));
+
+    if (KPack > 1)
+      matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+
     matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixAThreadwiseCopySourceAndDestCoords.push_back(
@@ -7755,12 +7778,20 @@ struct BlockwiseGemmRewritePattern
 
     // Set copy sorce and dest coordinate acoording to original C++ logic:
     SmallVector<Value, 6> matrixBThreadwiseCopySourceAndDestCoords;
+
+    if (KPack > 1)
+      matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+
     matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(iv_i32);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(lbb.create<AddIOp>(
         loc, lbb.create<MulIOp>(loc, ivb_i32, NPerLevel1ClusterConstantI32Op),
         lbb.create<IndexCastOp>(loc, op.threadOffsetB(),
                                 lbb.getIntegerType(32))));
+
+    if (KPack > 1)
+      matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
+
     matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(zeroConstantI32Op);
     matrixBThreadwiseCopySourceAndDestCoords.push_back(
