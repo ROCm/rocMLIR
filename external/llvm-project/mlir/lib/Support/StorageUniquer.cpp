@@ -127,24 +127,18 @@ public:
     if (!threadingIsEnabled)
       return getOrCreateUnsafe(shard, lookupKey, ctorFn);
 
-    // Check for a instance of this object in the local cache.
-    auto localIt = localCache->insert_as({hashValue}, lookupKey);
-    BaseStorage *&localInst = localIt.first->storage;
-    if (localInst)
-      return localInst;
-
     // Check for an existing instance in read-only mode.
     {
       llvm::sys::SmartScopedReader<true> typeLock(shard.mutex);
       auto it = shard.instances.find_as(lookupKey);
       if (it != shard.instances.end())
-        return localInst = it->storage;
+        return it->storage;
     }
 
     // Acquire a writer-lock so that we can safely create the new storage
     // instance.
     llvm::sys::SmartScopedWriter<true> typeLock(shard.mutex);
-    return localInst = getOrCreateUnsafe(shard, lookupKey, ctorFn);
+    return getOrCreateUnsafe(shard, lookupKey, ctorFn);
   }
   /// Run a mutation function on the provided storage object in a thread-safe
   /// way.
