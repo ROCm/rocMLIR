@@ -892,22 +892,23 @@ static void printAsyncDependencies(OpAsmPrinter &printer, Operation *op,
 static ParseResult parseMFMAOp(OpAsmParser &parser, OperationState &result) {
   OpAsmParser::OperandType sourceA, sourceB, destC;
   SmallVector<Type, 2> types;
-  return failure(
-      parser.parseLParen() || parser.parseOperand(sourceA) ||
-      parser.parseComma() || parser.parseOperand(sourceB) ||
-      parser.parseComma() || parser.parseOperand(destC) || parser.parseRParen() ||
-      parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonTypeList(types) ||
-      parser.resolveOperand(sourceA, types[0], result.operands) ||
-      parser.resolveOperand(sourceB, types[0], result.operands) ||
-      parser.resolveOperand(destC, types[1], result.operands) ||
-      parser.addTypeToList(types[1], result.types));
+  return failure(parser.parseLParen() || parser.parseOperand(sourceA) ||
+                 parser.parseComma() || parser.parseOperand(sourceB) ||
+                 parser.parseComma() || parser.parseOperand(destC) ||
+                 parser.parseRParen() ||
+                 parser.parseOptionalAttrDict(result.attributes) ||
+                 parser.parseColonTypeList(types) ||
+                 parser.resolveOperand(sourceA, types[0], result.operands) ||
+                 parser.resolveOperand(sourceB, types[0], result.operands) ||
+                 parser.resolveOperand(destC, types[1], result.operands) ||
+                 parser.addTypeToList(types[1], result.types));
 }
 
 static void print(OpAsmPrinter &p, gpu::MFMAOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
   p.printOptionalAttrDict(op.getAttrs());
-  p << " : " << op.getOperand(0).getType() << ", " << op.getOperand(2).getType();
+  p << " : " << op.getOperand(0).getType() << ", "
+    << op.getOperand(2).getType();
 }
 
 static LogicalResult verify(gpu::MFMAOp op) { return success(); }
