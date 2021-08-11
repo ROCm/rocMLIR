@@ -1,4 +1,6 @@
 // RUN: mlir-translate -mlir-to-rocdlir %s | FileCheck %s
+// CHECK: target datalayout = "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-ni:7"
+// CHECK-NEXT: target triple = "amdgcn-amd-amdhsa"
 
 llvm.func @rocdl_special_regs() -> i32 {
   // CHECK-LABEL: rocdl_special_regs
@@ -39,6 +41,12 @@ llvm.func @rocdl.barrier() {
   // CHECK-NEXT: call void @llvm.amdgcn.s.barrier()
   // CHECK-NEXT: fence syncscope("workgroup") acquire
   rocdl.barrier
+  llvm.return
+}
+
+llvm.func @rocdl.lds_barrier() {
+  // CHECK: call void asm sideeffect "s_waitcnt lgkmcnt(0) \0A s_barrier", ""()
+  rocdl.lds_barrier
   llvm.return
 }
 
@@ -170,6 +178,28 @@ llvm.func @rocdl.mubuf(%rsrc : vector<4xi32>, %vindex : i32,
   rocdl.buffer.store %vdata2, %rsrc, %vindex, %offset, %glc, %slc : vector<2xf32>
   // CHECK: call void @llvm.amdgcn.buffer.store.v4f32(<4 x float> %{{.*}}, <4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i1 %{{.*}}, i1 %{{.*}})
   rocdl.buffer.store %vdata4, %rsrc, %vindex, %offset, %glc, %slc : vector<4xf32>
+
+  llvm.return
+}
+
+llvm.func @rocdl.rawbuf(%rsrc : vector<4xi32>,
+                        %offset : i32, %soffset : i32,
+                        %aux : i32, %vdata1 : vector<1xf32>,
+                        %vdata2 : vector<2xf32>, %vdata4 : vector<4xf32>) {
+  // CHECK-LABEL: rocdl.rawbuf
+  // CHECK: call <1 x float> @llvm.amdgcn.raw.buffer.load.v1f32(<4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 %{{.*}})
+  %r1 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<1xf32>
+  // CHECK: call <2 x float> @llvm.amdgcn.raw.buffer.load.v2f32(<4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 %{{.*}})
+  %r2 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<2xf32>
+  // CHECK: call <4 x float> @llvm.amdgcn.raw.buffer.load.v4f32(<4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 %{{.*}})
+  %r4 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<4xf32>
+
+  // CHECK: call void @llvm.amdgcn.raw.buffer.store.v1f32(<1 x float> %{{.*}}, <4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 %{{.*}})
+  rocdl.raw.buffer.store %vdata1, %rsrc, %offset, %soffset, %aux : vector<1xf32>
+  // CHECK: call void @llvm.amdgcn.raw.buffer.store.v2f32(<2 x float> %{{.*}}, <4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 %{{.*}})
+  rocdl.raw.buffer.store %vdata2, %rsrc, %offset, %soffset, %aux : vector<2xf32>
+  // CHECK: call void @llvm.amdgcn.raw.buffer.store.v4f32(<4 x float> %{{.*}}, <4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 %{{.*}})
+  rocdl.raw.buffer.store %vdata4, %rsrc, %offset, %soffset, %aux : vector<4xf32>
 
   llvm.return
 }

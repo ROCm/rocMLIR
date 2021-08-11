@@ -35,6 +35,12 @@ func @rocdl.barrier() {
   llvm.return
 }
 
+func @rocdl.lds_barrier() {
+  // CHECK: rocdl.lds_barrier
+  rocdl.lds_barrier
+  llvm.return
+}
+
 func @rocdl.xdlops(%arg0 : f32, %arg1 : f32,
                    %arg2 : vector<32xf32>, %arg3 : i32,
                    %arg4 : vector<16xf32>, %arg5 : vector<4xf32>,
@@ -163,6 +169,41 @@ llvm.func @rocdl.mubuf(%rsrc : vector<4xi32>, %vindex : i32,
   rocdl.buffer.store %vdata2, %rsrc, %vindex, %offset, %glc, %slc : vector<2xf32>
   // CHECK: rocdl.buffer.store %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<4xf32>
   rocdl.buffer.store %vdata4, %rsrc, %vindex, %offset, %glc, %slc : vector<4xf32>
+
+  llvm.return
+}
+
+llvm.func @rocdl.rawbuf(%rsrc : vector<4xi32>,
+                       %offset : i32, %soffset : i32,
+                       %aux : i32, %vdata1 : vector<1xf32>,
+                       %vdata2 : vector<2xf32>, %vdata4 : vector<4xf32>) {
+  // CHECK-LABEL: rocdl.rawbuf
+  // CHECK: %{{.*}} = rocdl.raw.buffer.load %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<1xf32>
+  %r1 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<1xf32>
+  // CHECK: %{{.*}} = rocdl.raw.buffer.load %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<2xf32>
+  %r2 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<2xf32>
+  // CHECK: %{{.*}} = rocdl.raw.buffer.load %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<4xf32>
+  %r4 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<4xf32>
+
+  // CHECK: rocdl.raw.buffer.store %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<1xf32>
+  rocdl.raw.buffer.store %vdata1, %rsrc, %offset, %soffset, %aux : vector<1xf32>
+  // CHECK: rocdl.raw.buffer.store %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<2xf32>
+  rocdl.raw.buffer.store %vdata2, %rsrc, %offset, %soffset, %aux : vector<2xf32>
+  // CHECK: rocdl.raw.buffer.store %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<4xf32>
+  rocdl.raw.buffer.store %vdata4, %rsrc, %offset, %offset, %aux : vector<4xf32>
+
+  llvm.return
+}
+
+llvm.func @rocdl.atomic.fadd(%rsrc : vector<4xi32>, %vindex : i32,
+                             %offset : i32, %slc : i1,
+                             %vdata1 : f32, %vdata2 : vector<2xf16>) {
+  // CHECK-LABEL: rocdl.atomic.fadd
+
+  // CHECK: rocdl.atomic.fadd %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : f32
+  rocdl.atomic.fadd %vdata1, %rsrc, %vindex, %offset, %slc : f32
+  // CHECK: rocdl.atomic.fadd %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<2xf16>
+  rocdl.atomic.fadd %vdata2, %rsrc, %vindex, %offset, %slc : vector<2xf16>
 
   llvm.return
 }

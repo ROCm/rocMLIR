@@ -21,6 +21,7 @@
 #include "mlir/Translation.h"
 
 #include "llvm/ADT/StringRef.h"
+#include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ToolOutputFile.h"
@@ -77,9 +78,27 @@ protected:
 std::unique_ptr<llvm::Module>
 mlir::translateModuleToROCDLIR(Operation *m, llvm::LLVMContext &llvmContext,
                                StringRef name) {
+  // Locate a GPU module within a Module. Use it if we find one.
+  if (auto module = dyn_cast<ModuleOp>(m)) {
+    auto *block = module.getBody();
+    for (auto op = block->begin(); op != block->end(); ++op)
+      if (auto gpuModule = dyn_cast<gpu::GPUModuleOp>(op)) {
+        m = gpuModule;
+        break;
+      }
+  }
+
   // lower MLIR (with RODL Dialect) to LLVM IR (with ROCDL intrinsics)
   auto llvmModule = LLVM::ModuleTranslation::translateModule<ModuleTranslation>(
       m, llvmContext, name);
+
+  StringRef amdgcnTriple = "amdgcn-amd-amdhsa";
+  StringRef amdgcnDataLayout =
+      "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-i64:64-"
+      "v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:"
+      "1024-v2048:2048-n32:64-S32-A5-ni:7";
+  llvmModule->setTargetTriple(amdgcnTriple);
+  llvmModule->setDataLayout(amdgcnDataLayout);
 
   // foreach GPU kernel
   // 1. Insert AMDGPU_KERNEL calling convention.
@@ -94,7 +113,7 @@ mlir::translateModuleToROCDLIR(Operation *m, llvm::LLVMContext &llvmContext,
 
     llvmFunc->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
 
-    llvmFunc->addFnAttr("amdgpu-flat-work-group-size", "1, 1024");
+    llvmFunc->addFnAttr("amdgpu-flat-work-group-size", "1, 256");
   }
 
   return llvmModule;
@@ -114,7 +133,8 @@ void registerToROCDLIRTranslation() {
         return success();
       },
       [](DialectRegistry &registry) {
-        registry.insert<ROCDL::ROCDLDialect, LLVM::LLVMDialect>();
+        registry
+            .insert<gpu::GPUDialect, ROCDL::ROCDLDialect, LLVM::LLVMDialect>();
       });
 }
 } // namespace mlir

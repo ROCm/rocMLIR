@@ -693,6 +693,15 @@ def GPU_BarrierOp : GPU_Op<"barrier"> {
   let printer = [{ p << getOperationName(); }];
 }
 
+def GPU_LDSBarrierOp : GPU_Op<"lds_barrier"> {
+  let summary = "Synchronizes all LDS activities.";
+  let description = [{
+    The "lds_barrier" op synchronizes all LDS activities of a workgroup.
+  }];
+  let parser = [{ return success(); }];
+  let printer = [{ p << getOperationName(); }];
+}
+
 def GPU_GPUModuleOp : GPU_Op<"module", [
   IsolatedFromAbove, SymbolTable, Symbol,
   SingleBlockImplicitTerminator<"ModuleEndOp">
@@ -909,4 +918,113 @@ def GPU_MemcpyOp : GPU_Op<"memcpy", [GPU_AsyncOpInterface]> {
   let verifier = [{ return ::verify(*this); }];
 }
 
+// mfma
+def GPU_MFMAOp:
+    GPU_Op<"mfma">,
+    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>, VectorOfLengthAndType<[4], [I16]>]>: $sourceA,
+                   AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>, VectorOfLengthAndType<[4], [I16]>]>: $sourceB,
+                   VectorOfRankAndType<[1], [F32, F16]>: $destC)>,
+    Results<(outs VectorOfRankAndType<[1], [F32, F16]>: $destD)> {
+  let summary = "XDLOPS MFMA";
+  let description = [{
+    The `gpu.mfma` op is an abstraction of XDLOPS.
+  }];
+  let parser = [{ return parseMFMAOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
+
+def GPU_BFConvertOp :
+    GPU_Op<"bf_convert">,
+    Arguments<(ins F32:$in)>,
+    Results<(outs I16:$out)> {
+  let summary = "from fp32 to bf16";
+  let description = [{
+    The 'gpu.bf_convert' op converts an fp32 value to bf16 value. Stored as i16 for usage compatibility.
+  }];
+  let parser = [{ return parseBFConvertOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
+
+// buffer load
+def GPU_MubufLoadOp :
+    GPU_Op<"buffer_load">,
+    Arguments<(ins AnyMemRef:$memref,
+                   Variadic<I32>:$indices)>,
+    Results<(outs AnyTypeOf<[I16, F16, F32,
+                             VectorOfLengthAndType<[2, 4], [F32]>,
+                             VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$result)> {
+  let summary = "AMD GPU Buffer Load";
+  let description = [{
+    The `gpu.buffer_load` op is an abstraction of AMD GPU buffer load intrinsics.
+    `vector.transfer_read` is too tightly coupled with masked load which is not
+    supported well on AMD GPU.
+  }];
+  let parser = [{ return parseMubufLoadOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
+
+// buffer store
+def GPU_MubufStoreOp :
+    GPU_Op<"buffer_store">,
+    Arguments<(ins AnyTypeOf<[I16, F16, F32,
+                              VectorOfLengthAndType<[2, 4], [F32]>,
+                              VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$value,
+                   AnyMemRef:$memref,
+                   I32:$shift,
+                   Variadic<I32>:$indices)> {
+  // the destination address will add the shift, if it's zero , just store
+  // but if the value is 0x7fffffff, it will do oob store because
+  // we set the address upper bound to 2GB
+  let summary = "AMD GPU Buffer Store";
+  let description = [{
+    The `gpu.buffer_store` op is an abstraction of AMD GPU buffer store intrinsics.
+    `vector.transfer_write` is too tightly coupled with masked load which is not
+    supported well on AMD GPU.
+  }];
+  let parser = [{ return parseMubufStoreOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
+
+// buffer store
+def GPU_RawbufStoreOp :
+    GPU_Op<"raw_buffer_store">,
+    Arguments<(ins AnyTypeOf<[I16, F16, F32,
+                              VectorOfLengthAndType<[2, 4], [F32]>,
+                              VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$value,
+                   AnyMemRef:$memref,
+                   I32:$shift,
+                   Variadic<I32>:$indices)> {
+  // the destination address will add the shift, if it's zero , just store
+  // but if the value is 0x7fffffff, it will do oob store because
+  // we set the address upper bound to 2GB
+  let summary = "AMD GPU Buffer Store";
+  let description = [{
+    The `gpu.raw_buffer_store` op is an abstraction of AMD GPU Raw buffer store intrinsics.
+    `vector.transfer_write` is too tightly coupled with masked load which is not
+    supported well on AMD GPU.
+  }];
+  let parser = [{ return parseRawbufStoreOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
+
+// atomic add
+def GPU_AtomicFAddOp :
+    GPU_Op<"atomic_fadd">,
+    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[2, 4], [F32]>]>:$value,
+                   AnyMemRef:$memref,
+                   Variadic<I32>:$indices)> {
+  let summary = "AMD GPU Atomic Floating Point Add";
+  let description = [{
+    The `gpu.atomic_add` op is an abstraction of AMD GPU atomic floating point add
+    intrinsics.
+  }];
+  let parser = [{ return parseAtomicFAddOp(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
+}
 #endif // GPU_OPS
