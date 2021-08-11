@@ -222,7 +222,8 @@ extern "C" void mgpuMemHostRegisterMemRef(int64_t rank,
   mgpuMemHostRegister(ptr, sizeBytes);
 }
 
-template <typename T> void mgpuMemGetDevicePointer(T *hostPtr, T **devicePtr) {
+template <typename T>
+void mgpuMemGetDevicePointer(T *hostPtr, T **devicePtr) {
   reportErrorIfAny(hipSetDevice(0), "hipSetDevice");
   reportErrorIfAny(
       hipHostGetDevicePointer((void **)devicePtr, hostPtr, /*flags=*/0),

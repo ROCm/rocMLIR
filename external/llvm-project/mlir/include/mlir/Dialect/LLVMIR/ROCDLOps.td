@@ -103,6 +103,25 @@ def ROCDL_BarrierOp : ROCDL_Op<"barrier"> {
   let assemblyFormat = "attr-dict";
 }
 
+def ROCDL_LDSBarrierOp : ROCDL_Op<"lds_barrier"> {
+  string llvmBuilder = [{
+    llvm::LLVMContext &llvmContext = builder.getContext();
+    llvm::FunctionType *function_type = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(llvmContext), // return type.
+        false);                             // no variadic arguments.
+    llvm::Value *inlineAsm = llvm::InlineAsm::get(
+        function_type,                       // FunctionType *Ty,
+        "s_waitcnt lgkmcnt(0) \n s_barrier", // const std::string &AsmString,
+        "",                                  // const std::string &Constraints,
+        true,                                // bool hasSideEffects,
+        false,                               // bool isAlignStack,
+        llvm::InlineAsm::AD_ATT              // AsmDialect asmDialect
+        );
+    builder.CreateCall(function_type, inlineAsm);
+  }];
+  let assemblyFormat = "attr-dict";
+}
+
 //===---------------------------------------------------------------------===//
 // Xdlops intrinsics
 
@@ -175,6 +194,74 @@ def ROCDL_MubufStoreOp :
           $offset, $glc, $slc}, {vdataType});
   }];
   let parser = [{ return parseROCDLMubufStoreOp(parser, result); }];
+  let printer = [{
+    Operation *op = this->getOperation();
+    p << op->getName() << " " << op->getOperands()
+      << " : " << vdata().getType();
+  }];
+}
+
+//===---------------------------------------------------------------------===//
+// Vector Raw buffer load/store intrinsics
+
+def ROCDL_RawbufLoadOp :
+  ROCDL_Op<"raw.buffer.load">,
+  Results<(outs LLVM_Type:$res)>,
+  Arguments<(ins LLVM_Type:$rsrc,
+                 LLVM_Type:$offset,
+                 LLVM_Type:$soffset,
+                 LLVM_Type:$aux)>{
+  string llvmBuilder = [{
+      $res = createIntrinsicCall(builder,
+          llvm::Intrinsic::amdgcn_raw_buffer_load, {$rsrc, $offset, $soffset,
+          $aux}, {$_resultType});
+  }];
+  let parser = [{ return parseROCDLRawbufLoadOp(parser, result); }];
+  let printer = [{
+    Operation *op = this->getOperation();
+    p << op->getName() << " " << op->getOperands()
+      << " : " << op->getResultTypes();
+  }];
+}
+
+def ROCDL_RawbufStoreOp :
+  ROCDL_Op<"raw.buffer.store">,
+  Arguments<(ins LLVM_Type:$vdata,
+                 LLVM_Type:$rsrc,
+                 LLVM_Type:$offset,
+                 LLVM_Type:$soffset,
+                 LLVM_Type:$aux)>{
+  string llvmBuilder = [{
+    auto vdataType = convertType(op.vdata().getType());
+    createIntrinsicCall(builder,
+          llvm::Intrinsic::amdgcn_raw_buffer_store, {$vdata, $rsrc, $offset,
+          $soffset, $aux}, {vdataType});
+  }];
+  let parser = [{ return parseROCDLRawbufStoreOp(parser, result); }];
+  let printer = [{
+    Operation *op = this->getOperation();
+    p << op->getName() << " " << op->getOperands()
+      << " : " << vdata().getType();
+  }];
+}
+
+//===---------------------------------------------------------------------===//
+// Float atomic add intrinsic
+
+def ROCDL_AtomicFAddOp :
+  ROCDL_Op<"atomic.fadd">,
+  Arguments<(ins LLVM_Type:$vdata,
+                 LLVM_Type:$rsrc,
+                 LLVM_Type:$vindex,
+                 LLVM_Type:$offset,
+                 LLVM_Type:$slc)>{
+  string llvmBuilder = [{
+      auto vdataType = convertType(op.vdata().getType());
+      createIntrinsicCall(builder,
+          llvm::Intrinsic::amdgcn_buffer_atomic_fadd, {$vdata, $rsrc, $vindex, $offset,
+            $slc}, {vdataType});
+  }];
+  let parser = [{ return parseROCDLAtomicFAddOp(parser, result); }];
   let printer = [{
     Operation *op = this->getOperation();
     p << op->getName() << " " << op->getOperands()

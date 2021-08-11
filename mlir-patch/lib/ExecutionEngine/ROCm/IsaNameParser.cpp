@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Support/Error.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
+#include "llvm/Support/Error.h"
 
 #include <cstring>
 #include <numeric>
