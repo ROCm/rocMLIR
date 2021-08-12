@@ -5453,6 +5453,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       }
       break;
     case GemmMorN:
+      // TBD: FIXME. Review logic here.
       if (KPack > 1) {
         GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
         GemmABlockCopyThreadSliceLengths_GemmK =
@@ -5514,6 +5515,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       }
       break;
     case GemmMorN:
+      // TBD: FIXME. Review logic here.
       if (KPack > 1) {
         GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
         GemmBBlockCopyThreadSliceLengths_GemmK =
@@ -6669,6 +6671,8 @@ struct GridwiseGemmV2RewritePattern
         b.create<ConstantIntOp>(loc, 1, b.getIntegerType(32));
     auto twoConstantI32Op =
         b.create<ConstantIntOp>(loc, 2, b.getIntegerType(32));
+    auto threeConstantI32Op =
+        b.create<ConstantIntOp>(loc, 3, b.getIntegerType(32));
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
@@ -6714,7 +6718,7 @@ struct GridwiseGemmV2RewritePattern
         op->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
     int64_t NPerWave =
         op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
-    // int64_t MWaves = MPerBlock / MPerWave;
+    int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
     auto dataType =
         op.input().getType().template cast<MemRefType>().getElementType();
@@ -6736,37 +6740,28 @@ struct GridwiseGemmV2RewritePattern
     int64_t NBlockWork = N / NPerBlock;
     int64_t GStride = MBlockWork * NBlockWork;
 
-    // int64_t MWavePerBlock = MPerBlock / MPerWave;
-    // int64_t NWavePerBlock = NPerBlock / NPerWave;
+    llvm::errs() << "M: " << M << "\n";
+    llvm::errs() << "N: " << N << "\n";
+    llvm::errs() << "K: " << K << "\n";
+    llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
+    llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
+    llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
+    llvm::errs() << "KPack: " << KPack << "\n";
+    llvm::errs() << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n";
+    llvm::errs() << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n";
+    llvm::errs() << "MPerWave: " << MPerWave << "\n";
+    llvm::errs() << "NPerWave: " << NPerWave << "\n";
+    llvm::errs() << "MWaves = MPerBlock / MPerWave: " << MWaves << "\n";
+    llvm::errs() << "NWaves = NPerBlock / NPerWave: " << NWaves << "\n";
 
-    // llvm::errs() << "M: " << M << "\n";
-    // llvm::errs() << "N: " << N << "\n";
-    // llvm::errs() << "K: " << K << "\n";
-    // llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
-    // llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
-    // llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
-    // llvm::errs() << "KPack: " << KPack << "\n";
-    // llvm::errs() << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n";
-    // llvm::errs() << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n";
-    // llvm::errs() << "MPerWave: " << MPerWave << "\n";
-    // llvm::errs() << "NPerWave: " << NPerWave << "\n";
-    // llvm::errs() << "MWaves = MPerBlock / MPerWave: " << MWaves << "\n";
-    // llvm::errs() << "NWaves = NPerBlock / NPerWave: " << NWaves << "\n";
-    // llvm::errs() << "MWavesPerBlock = MPerBlock / MPerWave: " <<
-    // MWavePerBlock
-    //              << "\n";
-    // llvm::errs() << "NWavesPerBlock = NPerBlock / NPerWave: " <<
-    // NWavePerBlock
-    //              << "\n";
-
-    // llvm::errs() << "matrix_a_source_data_per_read: "
-    //              << matrix_a_source_data_per_read << "\n";
-    // llvm::errs() << "matrix_b_source_data_per_read: "
-    //              << matrix_b_source_data_per_read << "\n";
-    // llvm::errs() << "matrix_a_source_vector_read_dim: "
-    //              << matrix_a_source_vector_read_dim << "\n";
-    // llvm::errs() << "matrix_b_source_vector_read_dim: "
-    //              << matrix_b_source_vector_read_dim << "\n";
+    llvm::errs() << "matrix_a_source_data_per_read: "
+                 << matrix_a_source_data_per_read << "\n";
+    llvm::errs() << "matrix_b_source_data_per_read: "
+                 << matrix_b_source_data_per_read << "\n";
+    llvm::errs() << "matrix_a_source_vector_read_dim: "
+                 << matrix_a_source_vector_read_dim << "\n";
+    llvm::errs() << "matrix_b_source_vector_read_dim: "
+                 << matrix_b_source_vector_read_dim << "\n";
 
     auto MPerBlockConstantOp = b.create<ConstantIndexOp>(loc, MPerBlock);
     auto NPerBlockConstantOp = b.create<ConstantIndexOp>(loc, NPerBlock);
@@ -6814,20 +6809,42 @@ struct GridwiseGemmV2RewritePattern
     uint64_t GemmABlockCopyNumberDataPerThread =
         MPerBlock * KPerBlock / BlockSize;
 
+    llvm::errs() << "GemmABlockCopyNumberDataPerThread: "
+                 << GemmABlockCopyNumberDataPerThread << "\n";
+
     uint64_t GemmABlockCopyThreadSliceLengths_GemmK;
     uint64_t GemmABlockCopyThreadSliceLengths_GemmM;
+    uint64_t GemmABlockCopyThreadSliceLengths_GemmKPack = 1;
     switch (matrix_a_source_vector_read_dim) {
     case GemmK:
-      GemmABlockCopyThreadSliceLengths_GemmK = matrix_a_source_data_per_read;
-      GemmABlockCopyThreadSliceLengths_GemmM =
-          GemmABlockCopyNumberDataPerThread /
-          GemmABlockCopyThreadSliceLengths_GemmK;
+      if (KPack > 1) {
+        GemmABlockCopyThreadSliceLengths_GemmKPack =
+            matrix_a_source_data_per_read;
+        GemmABlockCopyThreadSliceLengths_GemmK =
+            KPack / matrix_a_source_data_per_read;
+        GemmABlockCopyThreadSliceLengths_GemmM =
+            GemmABlockCopyNumberDataPerThread / KPack;
+      } else {
+        GemmABlockCopyThreadSliceLengths_GemmK = matrix_a_source_data_per_read;
+        GemmABlockCopyThreadSliceLengths_GemmM =
+            GemmABlockCopyNumberDataPerThread /
+            GemmABlockCopyThreadSliceLengths_GemmK;
+      }
       break;
     case GemmMorN:
-      GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
-      GemmABlockCopyThreadSliceLengths_GemmK =
-          GemmABlockCopyNumberDataPerThread /
-          GemmABlockCopyThreadSliceLengths_GemmM;
+      // TBD: FIXME. Review logic here.
+      if (KPack > 1) {
+        GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
+        GemmABlockCopyThreadSliceLengths_GemmK =
+            GemmABlockCopyNumberDataPerThread /
+            GemmABlockCopyThreadSliceLengths_GemmM / KPack;
+        GemmABlockCopyThreadSliceLengths_GemmKPack = KPack;
+      } else {
+        GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
+        GemmABlockCopyThreadSliceLengths_GemmK =
+            GemmABlockCopyNumberDataPerThread /
+            GemmABlockCopyThreadSliceLengths_GemmM;
+      }
       break;
     case GemmG:
       llvm_unreachable("Vector loads/stores aren't possible in the G dimension "
@@ -6836,32 +6853,50 @@ struct GridwiseGemmV2RewritePattern
 
     llvm::errs() << "thread slice lengths for Matrix A\n";
     llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
-    llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
+    llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << " ";
+    llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
 
     // Compute ThreadClusterLengths for Matrix A.
+    uint64_t GemmABlockCopyClusterLengths_GemmKPack =
+        KPack / GemmABlockCopyThreadSliceLengths_GemmKPack;
     uint64_t GemmABlockCopyClusterLengths_GemmK =
-        KPerBlock / GemmABlockCopyThreadSliceLengths_GemmK;
-    int64_t GemmABlockCopyClusterLengths_GemmM =
+        KPerBlock / (GemmABlockCopyThreadSliceLengths_GemmK * KPack);
+    uint64_t GemmABlockCopyClusterLengths_GemmM =
         MPerBlock / GemmABlockCopyThreadSliceLengths_GemmM;
 
     llvm::errs() << "thread cluster lengths for Matrix A\n";
     llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
-    llvm::errs() << GemmABlockCopyClusterLengths_GemmM << "\n";
+    llvm::errs() << GemmABlockCopyClusterLengths_GemmM << " ";
+    llvm::errs() << GemmABlockCopyClusterLengths_GemmKPack << "\n";
 
     // Compute ThreadSliceLengths for Matrix B.
     uint64_t GemmBBlockCopyNumberDataPerThread =
         NPerBlock * KPerBlock / BlockSize;
 
+    llvm::errs() << "GemmBBlockCopyNumberDataPerThread: "
+                 << GemmBBlockCopyNumberDataPerThread << "\n";
+
     uint64_t GemmBBlockCopyThreadSliceLengths_GemmK;
     uint64_t GemmBBlockCopyThreadSliceLengths_GemmN;
+    uint64_t GemmBBlockCopyThreadSliceLengths_GemmKPack = 1;
     switch (matrix_b_source_vector_read_dim) {
     case GemmK:
-      GemmBBlockCopyThreadSliceLengths_GemmK = matrix_b_source_data_per_read;
-      GemmBBlockCopyThreadSliceLengths_GemmN =
-          GemmBBlockCopyNumberDataPerThread /
-          GemmBBlockCopyThreadSliceLengths_GemmK;
+      if (KPack > 1) {
+        GemmBBlockCopyThreadSliceLengths_GemmKPack =
+            matrix_b_source_data_per_read;
+        GemmBBlockCopyThreadSliceLengths_GemmK =
+            KPack / matrix_b_source_data_per_read;
+        GemmBBlockCopyThreadSliceLengths_GemmN =
+            GemmBBlockCopyNumberDataPerThread / KPack;
+      } else {
+        GemmBBlockCopyThreadSliceLengths_GemmK = matrix_b_source_data_per_read;
+        GemmBBlockCopyThreadSliceLengths_GemmN =
+            GemmBBlockCopyNumberDataPerThread /
+            GemmBBlockCopyThreadSliceLengths_GemmK;
+      }
       break;
     case GemmMorN:
+      // TBD: FIXME. Review logic here.
       GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
       GemmBBlockCopyThreadSliceLengths_GemmK =
           GemmBBlockCopyNumberDataPerThread /
@@ -6874,17 +6909,24 @@ struct GridwiseGemmV2RewritePattern
 
     llvm::errs() << "thread slice lengths for Matrix B\n";
     llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
-    llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
+    llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << " ";
+    llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
 
+    assert(GemmBBlockCopyThreadSliceLengths_GemmK > 0);
+    assert(GemmBBlockCopyThreadSliceLengths_GemmN > 0);
+    assert(GemmBBlockCopyThreadSliceLengths_GemmKPack > 0);
     // Compute ThreadClusterLengths for Matrix B.
+    uint64_t GemmBBlockCopyClusterLengths_GemmKPack =
+        KPack / GemmBBlockCopyThreadSliceLengths_GemmKPack;
     uint64_t GemmBBlockCopyClusterLengths_GemmK =
-        KPerBlock / GemmBBlockCopyThreadSliceLengths_GemmK;
+        KPerBlock / (GemmBBlockCopyThreadSliceLengths_GemmK * KPack);
     uint64_t GemmBBlockCopyClusterLengths_GemmN =
         NPerBlock / GemmBBlockCopyThreadSliceLengths_GemmN;
 
     llvm::errs() << "thread cluster lengths for Matrix B\n";
     llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
-    llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << "\n";
+    llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << " ";
+    llvm::errs() << GemmBBlockCopyClusterLengths_GemmKPack << "\n";
 
     // Compute thread_data_id_begin for Matrix A.
     // ClusterArrangeOrder for Matrix A is <1, 0>.
@@ -6896,28 +6938,104 @@ struct GridwiseGemmV2RewritePattern
     auto GemmABlockCopyThreadSliceLengths_GemmMConstantOp =
         b.create<ConstantIndexOp>(loc, GemmABlockCopyThreadSliceLengths_GemmM);
 
-    auto GemmABlockCopyThreadClusterId_Y = b.create<UnsignedRemIOp>(
-        loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
-    auto GemmABlockCopyThreadClusterId_X = b.create<UnsignedDivIOp>(
-        loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
-    auto GemmAThreadDataIdBegin_Y =
-        b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
-                         GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
-    auto GemmAThreadDataIdBegin_X =
-        b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_X,
-                         GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
-    auto GemmAThreadDataIdBegin_Y_i32 = b.create<IndexCastOp>(
+    Value GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp;
+    Value GemmABlockCopyClusterLengths_GemmKPackConstantOp;
+    Value GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp;
+    if (KPack > 1) {
+      GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp =
+          b.create<ConstantIndexOp>(loc,
+                                    GemmABlockCopyClusterLengths_GemmK *
+                                        GemmABlockCopyClusterLengths_GemmKPack);
+      GemmABlockCopyClusterLengths_GemmKPackConstantOp =
+          b.create<ConstantIndexOp>(loc,
+                                    GemmABlockCopyClusterLengths_GemmKPack);
+      GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp =
+          b.create<ConstantIndexOp>(loc,
+                                    GemmABlockCopyThreadSliceLengths_GemmKPack);
+    }
+
+    Value GemmABlockCopyThreadClusterId_Y;
+    Value GemmABlockCopyThreadClusterId_X;
+    Value GemmAThreadDataIdBegin_Y;
+    Value GemmAThreadDataIdBegin_X;
+
+    Value GemmABlockCopyThreadClusterId_Z;
+    Value GemmAThreadDataIdBegin_Z;
+    if (KPack > 1) {
+      GemmABlockCopyThreadClusterId_Z = b.create<SignedRemIOp>(
+          loc,
+          b.create<SignedRemIOp>(
+              loc, tid,
+              GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp),
+          GemmABlockCopyClusterLengths_GemmKPackConstantOp);
+      GemmABlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
+          loc,
+          b.create<SignedRemIOp>(
+              loc, tid,
+              GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp),
+          GemmABlockCopyClusterLengths_GemmKPackConstantOp);
+      GemmABlockCopyThreadClusterId_X = b.create<SignedDivIOp>(
+          loc, tid, GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp);
+
+      GemmAThreadDataIdBegin_Z = b.create<MulIOp>(
+          loc, GemmABlockCopyThreadClusterId_Z,
+          GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp);
+      GemmAThreadDataIdBegin_Y =
+          b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
+                           GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
+      GemmAThreadDataIdBegin_X =
+          b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_X,
+                           GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
+    } else {
+      GemmABlockCopyThreadClusterId_Y = b.create<SignedRemIOp>(
+          loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
+      GemmABlockCopyThreadClusterId_X = b.create<SignedDivIOp>(
+          loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
+      GemmAThreadDataIdBegin_Y =
+          b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
+                           GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
+      GemmAThreadDataIdBegin_X =
+          b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_X,
+                           GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
+    }
+
+    Value GemmAThreadDataIdBegin_Y_i32;
+    Value GemmAThreadDataIdBegin_X_i32;
+
+    Value GemmAThreadDataIdBegin_Z_i32;
+    if (KPack > 1) {
+      GemmAThreadDataIdBegin_Z_i32 = b.create<IndexCastOp>(
+          loc, GemmAThreadDataIdBegin_Z, b.getIntegerType(32));
+    }
+    GemmAThreadDataIdBegin_Y_i32 = b.create<IndexCastOp>(
         loc, GemmAThreadDataIdBegin_Y, b.getIntegerType(32));
-    auto GemmAThreadDataIdBegin_X_i32 = b.create<IndexCastOp>(
+    GemmAThreadDataIdBegin_X_i32 = b.create<IndexCastOp>(
         loc, GemmAThreadDataIdBegin_X, b.getIntegerType(32));
 
-    auto GemmABlockCopySourceCoord_Y_i32 =
+    Value GemmABlockCopySourceCoord_Y_i32;
+    Value GemmABlockCopySourceCoord_X_i32;
+
+    Value GemmABlockCopySourceCoord_Z_i32;
+    if (KPack > 1) {
+      GemmABlockCopySourceCoord_Z_i32 = b.create<AddIOp>(
+          loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Z_i32);
+    }
+    GemmABlockCopySourceCoord_Y_i32 =
         b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
-    auto GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
+    GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
         loc, m_block_data_on_global_i32, GemmAThreadDataIdBegin_X_i32);
-    auto GemmABlockCopyDestCoord_Y_i32 =
+
+    Value GemmABlockCopyDestCoord_Y_i32;
+    Value GemmABlockCopyDestCoord_X_i32;
+
+    Value GemmABlockCopyDestCoord_Z_i32;
+    if (KPack > 1) {
+      GemmABlockCopyDestCoord_Z_i32 = b.create<AddIOp>(
+          loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Z_i32);
+    }
+    GemmABlockCopyDestCoord_Y_i32 =
         b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
-    auto GemmABlockCopyDestCoord_X_i32 =
+    GemmABlockCopyDestCoord_X_i32 =
         b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_X_i32);
 
     // Compute thread_data_id_begin for Matrix B.
@@ -6930,28 +7048,103 @@ struct GridwiseGemmV2RewritePattern
     auto GemmBBlockCopyThreadSliceLengths_GemmNConstantOp =
         b.create<ConstantIndexOp>(loc, GemmBBlockCopyThreadSliceLengths_GemmN);
 
-    auto GemmBBlockCopyThreadClusterId_Y = b.create<UnsignedDivIOp>(
-        loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
-    auto GemmBBlockCopyThreadClusterId_X = b.create<UnsignedRemIOp>(
-        loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
-    auto GemmBThreadDataIdBegin_Y =
-        b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
-                         GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
-    auto GemmBThreadDataIdBegin_X =
-        b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_X,
-                         GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
-    auto GemmBThreadDataIdBegin_Y_i32 = b.create<IndexCastOp>(
+    Value GemmBBlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp;
+    Value GemmBBlockCopyClusterLengths_GemmKPackConstantOp;
+    Value GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp;
+    if (KPack > 1) {
+      GemmBBlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp =
+          b.create<ConstantIndexOp>(loc,
+                                    GemmBBlockCopyClusterLengths_GemmK *
+                                        GemmBBlockCopyClusterLengths_GemmKPack);
+      GemmBBlockCopyClusterLengths_GemmKPackConstantOp =
+          b.create<ConstantIndexOp>(loc,
+                                    GemmBBlockCopyClusterLengths_GemmKPack);
+      GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp =
+          b.create<ConstantIndexOp>(loc,
+                                    GemmBBlockCopyThreadSliceLengths_GemmKPack);
+    }
+
+    Value GemmBBlockCopyThreadClusterId_Y;
+    Value GemmBBlockCopyThreadClusterId_X;
+    Value GemmBThreadDataIdBegin_Y;
+    Value GemmBThreadDataIdBegin_X;
+
+    Value GemmBBlockCopyThreadClusterId_Z;
+    Value GemmBThreadDataIdBegin_Z;
+
+    if (KPack > 1) {
+      GemmBBlockCopyThreadClusterId_Z = b.create<SignedRemIOp>(
+          loc,
+          b.create<SignedDivIOp>(loc, tid,
+                                 GemmBBlockCopyClusterLengths_GemmNConstantOp),
+          GemmBBlockCopyClusterLengths_GemmKPackConstantOp);
+      GemmBBlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
+          loc,
+          b.create<SignedDivIOp>(loc, tid,
+                                 GemmBBlockCopyClusterLengths_GemmNConstantOp),
+          GemmBBlockCopyClusterLengths_GemmKPackConstantOp);
+      GemmBBlockCopyThreadClusterId_X = b.create<SignedRemIOp>(
+          loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
+
+      GemmBThreadDataIdBegin_Z = b.create<MulIOp>(
+          loc, GemmBBlockCopyThreadClusterId_Z,
+          GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp);
+      GemmBThreadDataIdBegin_Y =
+          b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
+                           GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
+      GemmBThreadDataIdBegin_X =
+          b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_X,
+                           GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
+    } else {
+      GemmBBlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
+          loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
+      GemmBBlockCopyThreadClusterId_X = b.create<SignedRemIOp>(
+          loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
+      GemmBThreadDataIdBegin_Y =
+          b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
+                           GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
+      GemmBThreadDataIdBegin_X =
+          b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_X,
+                           GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
+    }
+
+    Value GemmBThreadDataIdBegin_Y_i32;
+    Value GemmBThreadDataIdBegin_X_i32;
+
+    Value GemmBThreadDataIdBegin_Z_i32;
+    if (KPack > 1) {
+      GemmBThreadDataIdBegin_Z_i32 = b.create<IndexCastOp>(
+          loc, GemmBThreadDataIdBegin_Z, b.getIntegerType(32));
+    }
+    GemmBThreadDataIdBegin_Y_i32 = b.create<IndexCastOp>(
         loc, GemmBThreadDataIdBegin_Y, b.getIntegerType(32));
-    auto GemmBThreadDataIdBegin_X_i32 = b.create<IndexCastOp>(
+    GemmBThreadDataIdBegin_X_i32 = b.create<IndexCastOp>(
         loc, GemmBThreadDataIdBegin_X, b.getIntegerType(32));
 
-    auto GemmBBlockCopySourceCoord_Y_i32 =
+    Value GemmBBlockCopySourceCoord_Y_i32;
+    Value GemmBBlockCopySourceCoord_X_i32;
+
+    Value GemmBBlockCopySourceCoord_Z_i32;
+    if (KPack > 1) {
+      GemmBBlockCopySourceCoord_Z_i32 = b.create<AddIOp>(
+          loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Z_i32);
+    }
+    GemmBBlockCopySourceCoord_Y_i32 =
         b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
-    auto GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
+    GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
         loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_X_i32);
-    auto GemmBBlockCopyDestCoord_Y_i32 =
+
+    Value GemmBBlockCopyDestCoord_Y_i32;
+    Value GemmBBlockCopyDestCoord_X_i32;
+
+    Value GemmBBlockCopyDestCoord_Z_i32;
+    if (KPack > 1) {
+      GemmBBlockCopyDestCoord_Z_i32 = b.create<AddIOp>(
+          loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Z_i32);
+    }
+    GemmBBlockCopyDestCoord_Y_i32 =
         b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
-    auto GemmBBlockCopyDestCoord_X_i32 =
+    GemmBBlockCopyDestCoord_X_i32 =
         b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_X_i32);
 
     auto GemmDataIdBegin_G_i32 =
@@ -6967,6 +7160,9 @@ struct GridwiseGemmV2RewritePattern
     // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
     computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize);
+
+    llvm::errs() << "LDS block size:" << ldsBlockASize << " " << ldsBlockBSize
+                 << " " << ldsBlockSize << "\n";
 
     // Allocate LDS.
     auto ldsMemRefType =
@@ -6984,10 +7180,17 @@ struct GridwiseGemmV2RewritePattern
     auto ldsBlockASubviewOp = b.create<miopen::SubviewOp>(
         loc, ldsBlockAMemRefType, ldsGpuAllocOp, ldsBlockAOffsetConstantOp);
 
-    // Get 2D subviews.
+    // Get matrix subviews.
     // Compute matrix A dimension from attributes.
-    auto ldsMatrixAMemRefType = computeSubviewResultType(
-        op, ldsBlockAMemRefType, 0, {1, KPerBlock, MPerBlock}, elementType);
+    Type ldsMatrixAMemRefType;
+    if (KPack > 1) {
+      ldsMatrixAMemRefType = computeSubviewResultType(
+          op, ldsBlockAMemRefType, 0, {1, KPerBlock, MPerBlock, KPack},
+          elementType);
+    } else {
+      ldsMatrixAMemRefType = computeSubviewResultType(
+          op, ldsBlockAMemRefType, 0, {1, KPerBlock, MPerBlock}, elementType);
+    }
     auto ldsMatrixASubviewOp = b.create<miopen::SubviewOp>(
         loc, ldsMatrixAMemRefType, ldsBlockASubviewOp, zeroConstantOp);
 
@@ -7001,19 +7204,32 @@ struct GridwiseGemmV2RewritePattern
     auto ldsBlockBSubviewOp = b.create<miopen::SubviewOp>(
         loc, ldsBlockBMemRefType, ldsGpuAllocOp, ldsBlockBOffsetConstantOp);
 
-    // Get 2D subviews.
+    // Get matrix subviews.
     // Compute matrix B dimension from attributes.
-    auto ldsMatrixBMemRefType = computeSubviewResultType(
-        op, ldsBlockBMemRefType, 0, {1, KPerBlock, NPerBlock}, elementType);
+    Type ldsMatrixBMemRefType;
+    if (KPack > 1) {
+      ldsMatrixBMemRefType = computeSubviewResultType(
+          op, ldsBlockBMemRefType, 0, {1, KPerBlock, NPerBlock, KPack},
+          elementType);
+    } else {
+      ldsMatrixBMemRefType = computeSubviewResultType(
+          op, ldsBlockBMemRefType, 0, {1, KPerBlock, NPerBlock}, elementType);
+    }
     auto ldsMatrixBSubviewOp = b.create<miopen::SubviewOp>(
         loc, ldsMatrixBMemRefType, ldsBlockBSubviewOp, zeroConstantOp);
 
     // -----
 
     // Determine vector / scalar load type for Matrix A / B.
-    SmallVector<uint64_t, 3> blockwiseCopyABounds = {
-        1, GemmABlockCopyThreadSliceLengths_GemmK,
-        GemmABlockCopyThreadSliceLengths_GemmM};
+    SmallVector<uint64_t, 3> blockwiseCopyABounds;
+    if (KPack > 1) {
+      blockwiseCopyABounds = {1, GemmABlockCopyThreadSliceLengths_GemmK,
+                              GemmABlockCopyThreadSliceLengths_GemmM,
+                              GemmABlockCopyThreadSliceLengths_GemmKPack};
+    } else {
+      blockwiseCopyABounds = {1, GemmABlockCopyThreadSliceLengths_GemmK,
+                              GemmABlockCopyThreadSliceLengths_GemmM};
+    }
     Type blockwiseLoadAType;
     TupleType blockwiseLoadATupleType;
     int blockwiseAVectorDim;
@@ -7024,9 +7240,15 @@ struct GridwiseGemmV2RewritePattern
         computeLoadStoreTypeInfo(b, op, elementType, blockwiseCopyABounds, true,
                                  KPack);
 
-    SmallVector<uint64_t, 3> blockwiseCopyBBounds = {
-        1, GemmBBlockCopyThreadSliceLengths_GemmK,
-        GemmBBlockCopyThreadSliceLengths_GemmN};
+    SmallVector<uint64_t, 3> blockwiseCopyBBounds;
+    if (KPack > 1) {
+      blockwiseCopyBBounds = {1, GemmBBlockCopyThreadSliceLengths_GemmK,
+                              GemmBBlockCopyThreadSliceLengths_GemmN,
+                              GemmBBlockCopyThreadSliceLengths_GemmKPack};
+    } else {
+      blockwiseCopyBBounds = {1, GemmBBlockCopyThreadSliceLengths_GemmK,
+                              GemmBBlockCopyThreadSliceLengths_GemmN};
+    }
     Type blockwiseLoadBType;
     TupleType blockwiseLoadBTupleType;
     int blockwiseBVectorDim;
@@ -7041,58 +7263,122 @@ struct GridwiseGemmV2RewritePattern
 
     // Compute source and destination coordinates for BlockwiseCopy ops.
 
-    auto blockwiseCopyVectorCoordType =
-        VectorType::get({3}, b.getIntegerType(32));
+    Type blockwiseCopyVectorCoordType;
+    if (KPack > 1) {
+      blockwiseCopyVectorCoordType = VectorType::get({4}, b.getIntegerType(32));
+    } else {
+      blockwiseCopyVectorCoordType = VectorType::get({3}, b.getIntegerType(32));
+    }
 
     // Matrix A: {0, 0, m_block_data_on_global}, {0, 0, 0}
     Value blockwiseCopyASrcVector =
         b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
-    blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
-        loc, blockwiseCopyVectorCoordType, GemmBlockCoord_G_i32,
-        blockwiseCopyASrcVector, zeroConstantI32Op);
-    blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
-        loc, blockwiseCopyVectorCoordType, GemmABlockCopySourceCoord_Y_i32,
-        blockwiseCopyASrcVector, oneConstantI32Op);
-    blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
-        loc, blockwiseCopyVectorCoordType, GemmABlockCopySourceCoord_X_i32,
-        blockwiseCopyASrcVector, twoConstantI32Op);
+    if (KPack > 1) {
+      blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBlockCoord_G_i32,
+          blockwiseCopyASrcVector, zeroConstantI32Op);
+      blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmABlockCopySourceCoord_Z_i32,
+          blockwiseCopyASrcVector, oneConstantI32Op);
+      blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmABlockCopySourceCoord_Y_i32,
+          blockwiseCopyASrcVector, twoConstantI32Op);
+      blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmABlockCopySourceCoord_X_i32,
+          blockwiseCopyASrcVector, threeConstantI32Op);
+    } else {
+      blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBlockCoord_G_i32,
+          blockwiseCopyASrcVector, zeroConstantI32Op);
+      blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmABlockCopySourceCoord_Y_i32,
+          blockwiseCopyASrcVector, oneConstantI32Op);
+      blockwiseCopyASrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmABlockCopySourceCoord_X_i32,
+          blockwiseCopyASrcVector, twoConstantI32Op);
+    }
 
     Value blockwiseCopyADstVector =
         b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
-    blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
-        loc, blockwiseCopyVectorCoordType, GemmBlockCoord_Zero_i32,
-        blockwiseCopyADstVector, zeroConstantI32Op);
-    blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
-        loc, blockwiseCopyVectorCoordType, GemmABlockCopyDestCoord_Y_i32,
-        blockwiseCopyADstVector, oneConstantI32Op);
-    blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
-        loc, blockwiseCopyVectorCoordType, GemmABlockCopyDestCoord_X_i32,
-        blockwiseCopyADstVector, twoConstantI32Op);
+    if (KPack > 1) {
+      blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBlockCoord_Zero_i32,
+          blockwiseCopyADstVector, zeroConstantI32Op);
+      blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmABlockCopyDestCoord_Z_i32,
+          blockwiseCopyADstVector, oneConstantI32Op);
+      blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmABlockCopyDestCoord_Y_i32,
+          blockwiseCopyADstVector, twoConstantI32Op);
+      blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmABlockCopyDestCoord_X_i32,
+          blockwiseCopyADstVector, threeConstantI32Op);
+    } else {
+      blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBlockCoord_Zero_i32,
+          blockwiseCopyADstVector, zeroConstantI32Op);
+      blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmABlockCopyDestCoord_Y_i32,
+          blockwiseCopyADstVector, oneConstantI32Op);
+      blockwiseCopyADstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmABlockCopyDestCoord_X_i32,
+          blockwiseCopyADstVector, twoConstantI32Op);
+    }
 
     // Matrix B: {0, 0, n_block_data_on_global}, {0, 0, 0}
     Value blockwiseCopyBSrcVector =
         b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
-    blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
-        loc, blockwiseCopyVectorCoordType, GemmBlockCoord_G_i32,
-        blockwiseCopyBSrcVector, zeroConstantI32Op);
-    blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
-        loc, blockwiseCopyVectorCoordType, GemmBBlockCopySourceCoord_Y_i32,
-        blockwiseCopyBSrcVector, oneConstantI32Op);
-    blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
-        loc, blockwiseCopyVectorCoordType, GemmBBlockCopySourceCoord_X_i32,
-        blockwiseCopyBSrcVector, twoConstantI32Op);
+    if (KPack > 1) {
+      blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBlockCoord_G_i32,
+          blockwiseCopyBSrcVector, zeroConstantI32Op);
+      blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBBlockCopySourceCoord_Z_i32,
+          blockwiseCopyBSrcVector, oneConstantI32Op);
+      blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBBlockCopySourceCoord_Y_i32,
+          blockwiseCopyBSrcVector, twoConstantI32Op);
+      blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBBlockCopySourceCoord_X_i32,
+          blockwiseCopyBSrcVector, threeConstantI32Op);
+    } else {
+      blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBlockCoord_G_i32,
+          blockwiseCopyBSrcVector, zeroConstantI32Op);
+      blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBBlockCopySourceCoord_Y_i32,
+          blockwiseCopyBSrcVector, oneConstantI32Op);
+      blockwiseCopyBSrcVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBBlockCopySourceCoord_X_i32,
+          blockwiseCopyBSrcVector, twoConstantI32Op);
+    }
 
     Value blockwiseCopyBDstVector =
         b.create<SplatOp>(loc, zeroConstantI32Op, blockwiseCopyVectorCoordType);
-    blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
-        loc, blockwiseCopyVectorCoordType, GemmBlockCoord_Zero_i32,
-        blockwiseCopyBDstVector, zeroConstantI32Op);
-    blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
-        loc, blockwiseCopyVectorCoordType, GemmBBlockCopyDestCoord_Y_i32,
-        blockwiseCopyBDstVector, oneConstantI32Op);
-    blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
-        loc, blockwiseCopyVectorCoordType, GemmBBlockCopyDestCoord_X_i32,
-        blockwiseCopyBDstVector, twoConstantI32Op);
+    if (KPack > 1) {
+      blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBlockCoord_Zero_i32,
+          blockwiseCopyBDstVector, zeroConstantI32Op);
+      blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBBlockCopyDestCoord_Z_i32,
+          blockwiseCopyBDstVector, oneConstantI32Op);
+      blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBBlockCopyDestCoord_Y_i32,
+          blockwiseCopyBDstVector, twoConstantI32Op);
+      blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBBlockCopyDestCoord_X_i32,
+          blockwiseCopyBDstVector, threeConstantI32Op);
+    } else {
+      blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBlockCoord_Zero_i32,
+          blockwiseCopyBDstVector, zeroConstantI32Op);
+      blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBBlockCopyDestCoord_Y_i32,
+          blockwiseCopyBDstVector, oneConstantI32Op);
+      blockwiseCopyBDstVector = b.create<vector::InsertElementOp>(
+          loc, blockwiseCopyVectorCoordType, GemmBBlockCopyDestCoord_X_i32,
+          blockwiseCopyBDstVector, twoConstantI32Op);
+    }
 
     // -----
 
@@ -7215,6 +7501,8 @@ struct GridwiseGemmV2RewritePattern
 
     // -----
 
+    // TBD: FIXME for KPACK.
+
     // Emit loop.
 
     int64_t loopIteration = (K - KPerBlock) / KPerBlock;
@@ -7243,10 +7531,18 @@ struct GridwiseGemmV2RewritePattern
       vectorCs[iter] = mfmaLoopOp.getRegionIterArgs()[4 + iter];
 
     // Blockwise copy from global (generic tensor) to register (naive tensor).
-    Value blockwiseCopyASrcVectorUpdated = mfmalb.create<miopen::MovePosV2Op>(
-        loc, blockwiseCopyVectorCoordType, mfmaLoopOp.getRegionIterArgs()[0],
-        ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op,
-                   zeroConstantI32Op});
+    Value blockwiseCopyASrcVectorUpdated;
+    if (KPack > 1) {
+      blockwiseCopyASrcVectorUpdated = mfmalb.create<miopen::MovePosV2Op>(
+          loc, blockwiseCopyVectorCoordType, mfmaLoopOp.getRegionIterArgs()[0],
+          ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op,
+                     zeroConstantI32Op, zeroConstantI32Op});
+    } else {
+      blockwiseCopyASrcVectorUpdated = mfmalb.create<miopen::MovePosV2Op>(
+          loc, blockwiseCopyVectorCoordType, mfmaLoopOp.getRegionIterArgs()[0],
+          ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op,
+                     zeroConstantI32Op});
+    }
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadATop = mfmalb.create<miopen::BlockwiseLoadOp>(
         loc, blockwiseLoadATupleType, op.filter(),
@@ -7256,10 +7552,19 @@ struct GridwiseGemmV2RewritePattern
         /*vectorDim=*/blockwiseAVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
-    Value blockwiseCopyBSrcVectorUpdated = mfmalb.create<miopen::MovePosV2Op>(
-        loc, blockwiseCopyVectorCoordType, mfmaLoopOp.getRegionIterArgs()[2],
-        ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op,
-                   zeroConstantI32Op});
+
+    Value blockwiseCopyBSrcVectorUpdated;
+    if (KPack > 1) {
+      blockwiseCopyBSrcVectorUpdated = mfmalb.create<miopen::MovePosV2Op>(
+          loc, blockwiseCopyVectorCoordType, mfmaLoopOp.getRegionIterArgs()[2],
+          ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op,
+                     zeroConstantI32Op, zeroConstantI32Op});
+    } else {
+      blockwiseCopyBSrcVectorUpdated = mfmalb.create<miopen::MovePosV2Op>(
+          loc, blockwiseCopyVectorCoordType, mfmaLoopOp.getRegionIterArgs()[2],
+          ValueRange{zeroConstantI32Op, KPerBlockConstantI32Op,
+                     zeroConstantI32Op});
+    }
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadBTop = mfmalb.create<miopen::BlockwiseLoadOp>(
         loc, blockwiseLoadBTupleType, op.input(),
