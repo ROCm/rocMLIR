@@ -81,7 +81,11 @@ public:
   static inline constexpr int64_t outputDim(int64_t inputLen, int64_t filLen,
                                             int64_t leftPadLen,
                                             int64_t rightPadLen,
-                                            int64_t strideLen, int64_t dilLen);
+                                            int64_t strideLen, int64_t dilLen) {
+    return (inputLen + leftPadLen + rightPadLen - (filLen - 1) * dilLen - 1) /
+               strideLen +
+           1;
+  }
 
   LogicalResult parseConvConfig(const char *arguments);
 
@@ -125,15 +129,6 @@ private:
   // Generator config
   Config config;
 };
-
-inline constexpr int64_t
-Conv2dGenerator::outputDim(int64_t inputLen, int64_t filLen, int64_t leftPadLen,
-                           int64_t rightPadLen, int64_t strideLen,
-                           int64_t dilLen) {
-  return (inputLen + leftPadLen + rightPadLen - (filLen - 1) * dilLen - 1) /
-             strideLen +
-         1;
-}
 
 } // namespace mlir
 #endif // MLIR_DIALECT_MIOPEN_CONV2DGENERATOR_H_

@@ -11,7 +11,9 @@
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/PassManager.h"
 
-#include "llvm/ADT/Optional.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringMap.h"
 
 #include <algorithm>
 
@@ -69,18 +71,28 @@ void strToTokens(const std::string &arguments,
   }
 }
 
-Optional<SmallVector<int64_t, 5>>
-canonicalizeDims(const SmallVector<int64_t, 5> &dims, const StringRef layout,
-                 const StringRef canonicalLayout) {
-  SmallVector<int64_t, 5> ret;
-  for (const char &c : canonicalLayout) {
-    auto location = layout.find(c);
-    if (location == StringRef::npos) {
-      return None;
-    }
-    ret.push_back(dims[location]);
+llvm::StringMap<int64_t> canonicalizeDims(const ArrayRef<int64_t> dims,
+                                          const StringRef layout) {
+  llvm::StringMap<int64_t> ret;
+  for (const auto &tuple : llvm::zip(layout, dims)) {
+    StringRef key(&std::get<0>(tuple), 1);
+    ret.insert_or_assign(key, std::get<1>(tuple));
   }
   return ret;
+}
+
+LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
+                            const StringRef wantedLayout,
+                            const StringRef operation) {
+  for (size_t i = 0; i < wantedLayout.size(); ++i) {
+    auto key = wantedLayout.slice(i, i + 1);
+    if (map.count(key) == 0) {
+      llvm::errs() << "Layout for " << operation
+                   << " tensor missing dimension: " << key;
+      return failure();
+    }
+  }
+  return success();
 }
 
 } // namespace
@@ -121,66 +133,62 @@ LogicalResult Conv2dGenerator::isValidConvolution() const {
     return failure();
   }
 
-  auto inDimMaybe =
-      canonicalizeDims(config.inputDimension, config.inputLayout, "ngchw");
-  auto filDimMaybe =
-      canonicalizeDims(config.filterDimension, config.filterLayout, "gkcyx");
-  auto outDimMaybe =
-      canonicalizeDims(config.outputDimension, config.outputLayout, "ngkhw");
-  if (!(inDimMaybe.hasValue() && filDimMaybe.hasValue() &&
-        outDimMaybe.hasValue())) {
-    llvm_unreachable("Tensor dimensions should have been checked before now in "
-                     "isValidConvolution()!");
-  }
-  auto inDim = inDimMaybe.getValue();
-  auto filDim = filDimMaybe.getValue();
-  auto outDim = outDimMaybe.getValue();
+  auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
+  auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
+  auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
 
-  if (inDim[0] != outDim[0]) {
+  // Note: hasDimensions() prints error messages
+  if (failed(hasDimensions(inDim, "ngchw", "input")) ||
+      failed(hasDimensions(filDim, "gkcyx", "filter")) ||
+      failed(hasDimensions(outDim, "ngkhw", "output"))) {
+    return failure();
+  }
+
+  if (inDim["n"] != outDim["n"]) {
     llvm::errs() << "Input and output batch sizes don't match\n";
     return failure();
   }
-  if (inDim[1] != outDim[1] || inDim[1] != filDim[0]) {
+  if (inDim["g"] != outDim["g"] || inDim["g"] != filDim["g"]) {
     llvm::errs()
         << "Group sizes are not consistent between input, output, and filter\n";
     return failure();
   }
-  if (inDim[2] != filDim[2]) {
+  if (inDim["c"] != filDim["c"]) {
     llvm::errs() << "Number of channels in input doesn't match number of "
                     "channels in filter\n";
     return failure();
   }
-  if (filDim[1] != outDim[2]) {
+  if (filDim["k"] != outDim["k"]) {
     llvm::errs() << "Number of channels in output doesn't match number of "
                     "channels in filter\n";
     return failure();
   }
 
   int64_t expectedOutHeight = outputDim(
-      inDim[3], filDim[3], config.paddingHeightLeft, config.paddingHeightRight,
-      config.strideHeight, config.dilationHeight);
+      inDim["h"], filDim["y"], config.paddingHeightLeft,
+      config.paddingHeightRight, config.strideHeight, config.dilationHeight);
   int64_t expectedOutWidth = outputDim(
-      inDim[4], filDim[4], config.paddingWidthLeft, config.paddingWidthRight,
-      config.strideWidth, config.dilationWidth);
-  if (outDim[3] != expectedOutHeight) {
-    llvm::errs() << "Output height " << outDim[3] << " doesn't match height "
+      inDim["w"], filDim["x"], config.paddingWidthLeft,
+      config.paddingWidthRight, config.strideWidth, config.dilationWidth);
+  if (outDim["h"] != expectedOutHeight) {
+    llvm::errs() << "Output height " << outDim["h"] << " doesn't match height "
                  << expectedOutHeight << " computed from other parameters\n";
     return failure();
   }
-  if (outDim[4] != expectedOutWidth) {
-    llvm::errs() << "Output width " << outDim[4] << " doesn't match width "
+  if (outDim["w"] != expectedOutWidth) {
+    llvm::errs() << "Output width " << outDim["w"] << " doesn't match width "
                  << expectedOutWidth << " computed from other parameters\n";
     return failure();
   }
 
-  if (inDim[3] + config.paddingHeightLeft + config.paddingHeightRight <
-      filDim[3]) {
+  if (inDim["h"] + config.paddingHeightLeft + config.paddingHeightRight <
+      filDim["y"]) {
     llvm::errs() << "Input, including padding, is shorter than the filter\n";
     return failure();
   }
 
-  if (inDim[4] + config.paddingWidthLeft + config.paddingWidthRight <
-      filDim[4]) {
+  if (inDim["w"] + config.paddingWidthLeft + config.paddingWidthRight <
+      filDim["x"]) {
     llvm::errs() << "Input, including padding, is narrower than the filter\n";
     return failure();
   }
