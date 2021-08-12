@@ -38,7 +38,7 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
               {
                  lower_layer_dimensions = [0 : i32],
                  lower_layer_names = ["raw"],
-                 transformation = "Embed",
+                 transformation = "UnMerge",
                  parameters = [32 : i32, 4 : i32, 1 : i32],
                  upper_layer_dimensions = [0 : i32, 1 : i32, 2 : i32],
                  upper_layer_names = ["no", "ho", "wo"]
@@ -62,7 +62,7 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
               {
                  lower_layer_dimensions = [0 : i32],
                  lower_layer_names = ["raw"],
-                 transformation = "Embed",
+                 transformation = "UnMerge",
                  parameters = [32 : i32, 4 : i32, 1 : i32],
                  upper_layer_dimensions = [0 : i32, 1 : i32, 2 : i32],
                  upper_layer_names = ["no", "ho", "wo"]
@@ -94,7 +94,7 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
               {
                 lower_layer_dimensions = [0 : i32], lower_layer_names = ["raw"],
                 parameters = [16 : i32, 4 : i32, 4 : i32, 1 : i32, 1 : i32],
-                transformation = "Embed",
+                transformation = "UnMerge",
                 upper_layer_dimensions = [0 : i32, 1 : i32, 2 : i32, 3 : i32, 4 : i32],
                 upper_layer_names = ["dim0", "m3", "dim2", "m2", "dim4"]
               }],
@@ -118,7 +118,7 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
               lower_layer_dimensions = [1 : i32],
               lower_layer_names = ["gemmM"],
               parameters = [8 : i32, 4 : i32, 1 : i32],
-              transformation = "Embed",
+              transformation = "UnMerge",
               upper_layer_dimensions = [1 : i32, 2 : i32, 3 : i32],
               upper_layer_names = ["m0", "m1", "m2"]
             },

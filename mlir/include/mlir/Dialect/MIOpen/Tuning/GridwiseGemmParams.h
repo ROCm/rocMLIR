@@ -16,8 +16,7 @@
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
-#include "mlir/Dialect/MIOpen/utility/BackwardWeightV4R4Helper.h"
-#include "mlir/Dialect/MIOpen/utility/math.h"
+#include "mlir/Dialect/MIOpen/utility/math.hpp"
 #include "mlir/Support/FileUtilities.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ToolOutputFile.h"
@@ -262,9 +261,9 @@ public:
                dimIndexVal["wo"].second;
     } else if (dimIndexVal["ko"].first == 2) {
       // Ko's position is at 2, vectorization legnth is last two dimensions
-      if (dimIndexVal["no"].first == 0) {
+      if (dimIndexVal["no"].first == 1) {
         vecLen = dimIndexVal["ho"].second * dimIndexVal["wo"].second;
-      } else if (dimIndexVal["ho"].first == 0) {
+      } else if (dimIndexVal["ho"].first == 1) {
         vecLen = dimIndexVal["no"].second * dimIndexVal["wo"].second;
       } else {
         vecLen = dimIndexVal["no"].second * dimIndexVal["ho"].second;
@@ -752,13 +751,6 @@ private:
   int64_t obtainBlockSize(InitParamsXDL &params, int64_t waveSize) {
     return waveSize * params.gemmNPerBlock * params.gemmMPerBlock /
            (params.gemmMPerWave * params.gemmNPerWave);
-  }
-
-  int64_t getKBlocks(ConvolutionContext &ctx) {
-    int64_t n = ctx.dimIndexVal["no"].second;
-    int64_t ho = ctx.dimIndexVal["ho"].second;
-    int64_t wo = ctx.dimIndexVal["wo"].second;
-    return miopen::calculateKBlockNum(n, ho, wo);
   }
 
   LogicalResult calculateGemmABlockCopyPerformanceParameters(
