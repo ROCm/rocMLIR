@@ -10,7 +10,12 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/PassManager.h"
-#include "llvm/ADT/None.h"
+
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringMap.h"
+
+#include <algorithm>
 
 using namespace mlir;
 
@@ -66,7 +71,130 @@ void strToTokens(const std::string &arguments,
   }
 }
 
+llvm::StringMap<int64_t> canonicalizeDims(const ArrayRef<int64_t> dims,
+                                          const StringRef layout) {
+  llvm::StringMap<int64_t> ret;
+  for (const auto &tuple : llvm::zip(layout, dims)) {
+    StringRef key(&std::get<0>(tuple), 1);
+    ret.insert_or_assign(key, std::get<1>(tuple));
+  }
+  return ret;
+}
+
+LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
+                            const StringRef wantedLayout,
+                            const StringRef operation) {
+  for (size_t i = 0; i < wantedLayout.size(); ++i) {
+    auto key = wantedLayout.slice(i, i + 1);
+    if (map.count(key) == 0) {
+      llvm::errs() << "Layout for " << operation
+                   << " tensor missing dimension: " << key;
+      return failure();
+    }
+  }
+  return success();
+}
+
 } // namespace
+
+LogicalResult Conv2dGenerator::isValidConvolution() const {
+  static const SmallVector<int64_t, 4> strictlyPositiveParams{
+      config.dilationHeight, config.dilationWidth, config.strideHeight,
+      config.strideWidth};
+  if (std::any_of(strictlyPositiveParams.begin(), strictlyPositiveParams.end(),
+                  [](const int64_t &a) { return a <= 0; })) {
+    llvm::errs() << "Dilation and stride must be a positive integer\n";
+    return failure();
+  }
+
+  static const SmallVector<int64_t, 4> nonNegativeParams{
+      config.paddingHeightLeft, config.paddingHeightRight,
+      config.paddingWidthLeft, config.paddingWidthRight};
+  if (std::any_of(nonNegativeParams.begin(), nonNegativeParams.end(),
+                  [](const int64_t &a) { return a < 0; })) {
+    llvm::errs() << "Padding values cannot be negative\n";
+    return failure();
+  }
+
+  auto checkDimSizes = [](const SmallVector<int64_t, 5> &dims) -> bool {
+    return std::all_of(dims.begin(), dims.end(),
+                       [](const int64_t &a) { return a > 0; });
+  };
+
+  if (!checkDimSizes(config.inputDimension)) {
+    llvm::errs() << "Input tensor dimensions must be strictly positive\n";
+    return failure();
+  }
+  if (!checkDimSizes(config.filterDimension)) {
+    llvm::errs() << "Filter tensoor dimensions must be strictly positive\n";
+  }
+  if (!checkDimSizes(config.outputDimension)) {
+    llvm::errs() << "Output tensor dimensions must be strictly positive\n";
+    return failure();
+  }
+
+  auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
+  auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
+  auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
+
+  // Note: hasDimensions() prints error messages
+  if (failed(hasDimensions(inDim, "ngchw", "input")) ||
+      failed(hasDimensions(filDim, "gkcyx", "filter")) ||
+      failed(hasDimensions(outDim, "ngkhw", "output"))) {
+    return failure();
+  }
+
+  if (inDim["n"] != outDim["n"]) {
+    llvm::errs() << "Input and output batch sizes don't match\n";
+    return failure();
+  }
+  if (inDim["g"] != outDim["g"] || inDim["g"] != filDim["g"]) {
+    llvm::errs()
+        << "Group sizes are not consistent between input, output, and filter\n";
+    return failure();
+  }
+  if (inDim["c"] != filDim["c"]) {
+    llvm::errs() << "Number of channels in input doesn't match number of "
+                    "channels in filter\n";
+    return failure();
+  }
+  if (filDim["k"] != outDim["k"]) {
+    llvm::errs() << "Number of channels in output doesn't match number of "
+                    "channels in filter\n";
+    return failure();
+  }
+
+  int64_t expectedOutHeight = outputDim(
+      inDim["h"], filDim["y"], config.paddingHeightLeft,
+      config.paddingHeightRight, config.strideHeight, config.dilationHeight);
+  int64_t expectedOutWidth = outputDim(
+      inDim["w"], filDim["x"], config.paddingWidthLeft,
+      config.paddingWidthRight, config.strideWidth, config.dilationWidth);
+  if (outDim["h"] != expectedOutHeight) {
+    llvm::errs() << "Output height " << outDim["h"] << " doesn't match height "
+                 << expectedOutHeight << " computed from other parameters\n";
+    return failure();
+  }
+  if (outDim["w"] != expectedOutWidth) {
+    llvm::errs() << "Output width " << outDim["w"] << " doesn't match width "
+                 << expectedOutWidth << " computed from other parameters\n";
+    return failure();
+  }
+
+  if (inDim["h"] + config.paddingHeightLeft + config.paddingHeightRight <
+      filDim["y"]) {
+    llvm::errs() << "Input, including padding, is shorter than the filter\n";
+    return failure();
+  }
+
+  if (inDim["w"] + config.paddingWidthLeft + config.paddingWidthRight <
+      filDim["x"]) {
+    llvm::errs() << "Input, including padding, is narrower than the filter\n";
+    return failure();
+  }
+
+  return success();
+}
 
 int Conv2dGenerator::getKernelCount() const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
@@ -271,7 +399,7 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
                         config.outputLayout + "_" + std::to_string(id);
   }
 
-  return success();
+  return isValidConvolution();
 }
 
 void Conv2dGenerator::setKernelName(std::string newName) {
