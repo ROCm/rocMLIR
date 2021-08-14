@@ -716,15 +716,30 @@ allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
   return cpuAllocOp;
 }
 
-static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
-                                   mlir::MemRefType &filterMemRefType,
-                                   mlir::MemRefType &inputMemRefType,
-                                   mlir::MemRefType &cpuOutputMemRefType) {
+static FuncOp
+createCPUConvolution(ModuleOp &module, OpBuilder &builder,
+                     const mlir::Conv2dGenerator::Config &genConfig) {
+  auto filterDimension = genConfig.filterDimension;
+  auto inputDimension = genConfig.inputDimension;
+  auto outputDimension = genConfig.outputDimension;
+  auto convOpType = genConfig.operation;
+
+  auto floatType = builder.getF32Type();
+  auto filterMemRefType = MemRefType::get(
+      ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
+      floatType);
+  auto inputMemRefType = MemRefType::get(
+      ArrayRef<int64_t>(inputDimension.begin(), inputDimension.end()),
+      floatType);
+  auto outputMemRefType = MemRefType::get(
+      ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
+      floatType);
+
   // Create conv2d_host function
   auto cpuConvFuncOp = FuncOp::create(
       builder.getUnknownLoc(), StringRef("conv2d_host"),
       builder.getFunctionType(
-          {filterMemRefType, inputMemRefType, cpuOutputMemRefType}, {}));
+          {filterMemRefType, inputMemRefType, outputMemRefType}, {}));
   module.push_back(cpuConvFuncOp);
 
   // Construct a new Block.
@@ -754,28 +769,28 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   auto intType = builder.getIntegerType(32);
 
   auto strideHeightConstantOp = builder.create<ConstantIntOp>(
-      builder.getUnknownLoc(), strideHeight.getValue(), intType);
+      builder.getUnknownLoc(), genConfig.strideHeight, intType);
 
   auto strideWidthConstantOp = builder.create<ConstantIntOp>(
-      builder.getUnknownLoc(), strideWidth.getValue(), intType);
+      builder.getUnknownLoc(), genConfig.strideWidth, intType);
 
   auto paddingHeightLeftConstantOp = builder.create<ConstantIntOp>(
-      builder.getUnknownLoc(), paddingHeightLeft.getValue(), intType);
+      builder.getUnknownLoc(), genConfig.paddingHeightLeft, intType);
 
   auto paddingHeightRightConstantOp = builder.create<ConstantIntOp>(
-      builder.getUnknownLoc(), paddingHeightRight.getValue(), intType);
+      builder.getUnknownLoc(), genConfig.paddingHeightRight, intType);
 
   auto paddingWidthLeftConstantOp = builder.create<ConstantIntOp>(
-      builder.getUnknownLoc(), paddingWidthLeft.getValue(), intType);
+      builder.getUnknownLoc(), genConfig.paddingWidthLeft, intType);
 
   auto paddingWidthRightConstantOp = builder.create<ConstantIntOp>(
-      builder.getUnknownLoc(), paddingWidthRight.getValue(), intType);
+      builder.getUnknownLoc(), genConfig.paddingWidthRight, intType);
 
   auto dilationHeightConstantOp = builder.create<ConstantIntOp>(
-      builder.getUnknownLoc(), dilationHeight.getValue(), intType);
+      builder.getUnknownLoc(), genConfig.dilationHeight, intType);
 
   auto dilationWidthConstantOp = builder.create<ConstantIntOp>(
-      builder.getUnknownLoc(), dilationWidth.getValue(), intType);
+      builder.getUnknownLoc(), genConfig.dilationWidth, intType);
 
   cpuConvBlock->push_back(strideHeightConstantOp);
   cpuConvBlock->push_back(strideWidthConstantOp);
@@ -871,9 +886,9 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   // Store layouts into layoutAllocOp
   // store %k, %3[%c_0]: memref<5xi32>
-  std::string fil_layout = filterLayout.getValue();
-  std::string in_layout = inputLayout.getValue();
-  std::string out_layout = outputLayout.getValue();
+  std::string fil_layout = genConfig.filterLayout;
+  std::string in_layout = genConfig.inputLayout;
+  std::string out_layout = genConfig.outputLayout;
   for (int i = 0; i < 5; i++) {
     auto storeOp = builder.create<StoreOp>(
         builder.getUnknownLoc(), layoutConstOps[fil_layout[i]],
@@ -913,7 +928,7 @@ static FuncOp createCPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   std::string mcpuFuncName;
 
-  switch (operation.getValue()) {
+  switch (convOpType) {
   case mlir::miopen::Conv2DOpType:
     mcpuFuncName = "mcpuConv2d";
     break;
@@ -1193,6 +1208,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
 
 static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
                                    mlir::Type dataType,
+                                   mlir::miopen::ConvOpType convOpType,
                                    mlir::Value filterHostAllocOp,
                                    mlir::Value inputHostAllocOp,
                                    mlir::Value outputHostAllocOp,
@@ -1359,7 +1375,7 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   // Emit mgpuMemCopy5DFloat function call.
   mlir::Value resultGpuValue, resultCpuValue;
-  switch (operation.getValue()) {
+  switch (convOpType) {
   case miopen::Conv2DOpType:
     resultGpuValue = outputGpuAllocOp.getResult(0);
     resultCpuValue = outputMemRefCastOp;
@@ -1470,7 +1486,7 @@ static void generateTensorInitValues(
     mlir::Value &filterMemsetMinValue, mlir::Value &filterMemsetMaxValue,
     mlir::Value &inputMemsetMinValue, mlir::Value &inputMemsetMaxValue,
     mlir::Value &outputMemsetMinValue, mlir::Value &outputMemsetMaxValue,
-    mlir::ConstantOp &seedConstantIntOp) {
+    mlir::ConstantOp &seedConstantIntOp, mlir::miopen::ConvOpType convOpType) {
   auto int16Type = builder.getIntegerType(16);
   auto int32Type = builder.getIntegerType(32);
   unsigned short zero = 0, one = 1;
@@ -1499,7 +1515,7 @@ static void generateTensorInitValues(
   block->push_back(maxConstantIntOp);
   block->push_back(seedConstantIntOp);
 
-  switch (operation.getValue()) {
+  switch (convOpType) {
   case miopen::Conv2DOpType:
     if (randomSeed.getValue() == "none" || // min & max are already set to 1
         (randomSeed.getValue() != "none" &&
@@ -1584,9 +1600,13 @@ static void generateTensorInitValues(
 
 static LogicalResult populateHostHarnessLogic(
     ModuleOp &module, OpBuilder &builder, MLIRContext &context,
-    const SmallVector<int64_t, 5> &filterDimension,
-    const SmallVector<int64_t, 5> &inputDimension,
-    const SmallVector<int64_t, 5> &outputDimension, mlir::Type dataType) {
+    const mlir::Conv2dGenerator::Config &genConfig, mlir::Type dataType) {
+
+  auto filterDimension = genConfig.filterDimension;
+  auto inputDimension = genConfig.inputDimension;
+  auto outputDimension = genConfig.outputDimension;
+  auto convOpType = genConfig.operation;
+
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -1612,7 +1632,7 @@ static LogicalResult populateHostHarnessLogic(
   // Backward data convolution: input tensor.
   // Backward weight convolution: filter tensor.
   MemRefType printMemRefType;
-  switch (operation.getValue()) {
+  switch (convOpType) {
   case miopen::Conv2DOpType:
     printMemRefType = MemRefType::get(
         ArrayRef<int64_t>(outputDimension.begin(), outputDimension.end()),
@@ -1668,10 +1688,11 @@ static LogicalResult populateHostHarnessLogic(
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
   mlir::ConstantOp seedConstantIntOp;
 
-  generateTensorInitValues(
-      builder, block, mcpuMemset5DFuncOp, filterMemsetMinValue,
-      filterMemsetMaxValue, inputMemsetMinValue, inputMemsetMaxValue,
-      outputMemsetMinValue, outputMemsetMaxValue, seedConstantIntOp);
+  generateTensorInitValues(builder, block, mcpuMemset5DFuncOp,
+                           filterMemsetMinValue, filterMemsetMaxValue,
+                           inputMemsetMinValue, inputMemsetMaxValue,
+                           outputMemsetMinValue, outputMemsetMaxValue,
+                           seedConstantIntOp, convOpType);
 
   auto filterCpuMemsetOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mcpuMemset5DFuncOp,
@@ -1691,8 +1712,8 @@ static LogicalResult populateHostHarnessLogic(
 
   // launch gpu_conv
   auto gpuConvFuncOp = launchGPUConvolution(
-      module, builder, dataType, filterHostAllocOp, inputHostAllocOp,
-      outputHostAllocOp, populateEntryPoint);
+      module, builder, dataType, convOpType, filterHostAllocOp,
+      inputHostAllocOp, outputHostAllocOp, populateEntryPoint);
 
   auto gpuConvCallOp = builder.create<CallOp>(
       builder.getUnknownLoc(), gpuConvFuncOp,
@@ -1701,7 +1722,7 @@ static LogicalResult populateHostHarnessLogic(
 
   mlir::Value resultCpuValue, resultOriginalCpuValue;
   mlir::MemRefType resultOriginalCpuType;
-  switch (operation.getValue()) {
+  switch (convOpType) {
   case miopen::Conv2DOpType:
     resultCpuValue = outputMemRefCastOp;
     resultOriginalCpuValue = outputHostAllocOp;
@@ -1795,9 +1816,14 @@ static LogicalResult populateHostHarnessLogic(
 
 static LogicalResult populateValidationLogic(
     ModuleOp &module, OpBuilder &builder, MLIRContext &context,
-    const SmallVector<int64_t, 5> &filterDimension,
-    const SmallVector<int64_t, 5> &inputDimension,
-    const SmallVector<int64_t, 5> &outputDimension, mlir::Type dataType) {
+    const mlir::Conv2dGenerator::Config &genConfig, mlir::Type dataType) {
+
+  auto filterDimension = genConfig.filterDimension;
+  auto inputDimension = genConfig.inputDimension;
+  auto outputDimension = genConfig.outputDimension;
+  auto convOpType = genConfig.operation;
+  auto xdlops = genConfig.xdlops;
+
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -1856,10 +1882,11 @@ static LogicalResult populateValidationLogic(
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
   mlir::ConstantOp seedConstantIntOp;
 
-  generateTensorInitValues(
-      builder, block, mcpuMemset5DFuncOp, filterMemsetMinValue,
-      filterMemsetMaxValue, inputMemsetMinValue, inputMemsetMaxValue,
-      outputMemsetMinValue, outputMemsetMaxValue, seedConstantIntOp);
+  generateTensorInitValues(builder, block, mcpuMemset5DFuncOp,
+                           filterMemsetMinValue, filterMemsetMaxValue,
+                           inputMemsetMinValue, inputMemsetMaxValue,
+                           outputMemsetMinValue, outputMemsetMaxValue,
+                           seedConstantIntOp, convOpType);
 
   auto filterCpuMemsetOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mcpuMemset5DFuncOp,
@@ -1879,8 +1906,8 @@ static LogicalResult populateValidationLogic(
 
   // Populate host harness logic
   auto gpuConvFuncOp = launchGPUConvolution(
-      module, builder, dataType, filterHostAllocOp, inputHostAllocOp,
-      outputHostAllocOp, populateEntryPoint);
+      module, builder, dataType, convOpType, filterHostAllocOp,
+      inputHostAllocOp, outputHostAllocOp, populateEntryPoint);
 
   auto gpuConvCallOp = builder.create<CallOp>(
       builder.getUnknownLoc(), gpuConvFuncOp,
@@ -1889,7 +1916,7 @@ static LogicalResult populateValidationLogic(
 
   mlir::Value gpuOriginalResults;
   MemRefType gpuOriginalResultType;
-  switch (operation.getValue()) {
+  switch (convOpType) {
   case miopen::Conv2DOpType:
     gpuOriginalResults = outputHostAllocOp;
     gpuOriginalResultType = outputMemRefType;
@@ -1968,7 +1995,7 @@ static LogicalResult populateValidationLogic(
     mlir::Value memsetValue = zeroConstantIntOp;
 
     // If using random data, emit CPU alloc and copy input data
-    switch (operation.getValue()) {
+    switch (convOpType) {
     case miopen::Conv2DOpType:
       verifierFilterHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
@@ -2007,10 +2034,10 @@ static LogicalResult populateValidationLogic(
 
   // Populate host validation logic
   if (populateValidationWithGPU.getValue() &&
-      (!(!xdlopsV2.getValue() && dataType == builder.getF32Type()))) {
+      (!(!xdlops && dataType == builder.getF32Type()))) {
     // Verify with GPU convolution of f32
     auto verifierConvFuncOp = launchGPUConvolution(
-        module, builder, floatType, verifierFilterHostAllocOp,
+        module, builder, floatType, convOpType, verifierFilterHostAllocOp,
         verifierInputHostAllocOp, verifierOutputHostAllocOp,
         populateValidateEntryPoint);
 
@@ -2023,8 +2050,7 @@ static LogicalResult populateValidationLogic(
   } else {
     // Otherwise (-pv, or -pv_with_gpu with non-XDLops and f32 ), verity with
     // CPU convolution of f32
-    auto cpuConvFuncOp = createCPUConvolution(
-        module, builder, filterMemRefType, inputMemRefType, outputMemRefType);
+    auto cpuConvFuncOp = createCPUConvolution(module, builder, genConfig);
 
     // Emit conv2d_host function call.
     auto cpuConvCallOp = builder.create<CallOp>(
@@ -2035,7 +2061,7 @@ static LogicalResult populateValidationLogic(
   }
 
   mlir::Value verifierResults;
-  switch (operation.getValue()) {
+  switch (convOpType) {
   case miopen::Conv2DOpType:
     verifierResults = verifierOutputHostAllocOp;
     break;
@@ -2057,7 +2083,7 @@ static LogicalResult populateValidationLogic(
   }
 
   mlir::FuncOp verifyFuncOp;
-  switch (operation.getValue()) {
+  switch (convOpType) {
   case miopen::Conv2DOpType:
     verifyFuncOp =
         createVerifyFuncOp(module, builder, outputDimension,
@@ -2117,9 +2143,13 @@ static LogicalResult populateValidationLogic(
 
 static LogicalResult populateCpuConvolutionLogic(
     ModuleOp &module, OpBuilder &builder, MLIRContext &context,
-    const SmallVector<int64_t, 5> &filterDimension,
-    const SmallVector<int64_t, 5> &inputDimension,
-    const SmallVector<int64_t, 5> &outputDimension, mlir::Type dataType) {
+    const mlir::Conv2dGenerator::Config &genConfig, mlir::Type dataType) {
+
+  auto filterDimension = genConfig.filterDimension;
+  auto inputDimension = genConfig.inputDimension;
+  auto outputDimension = genConfig.outputDimension;
+  auto convOpType = genConfig.operation;
+
   // Construct main function.
   auto func = FuncOp::create(builder.getUnknownLoc(), "main",
                              builder.getFunctionType({}, {}));
@@ -2157,10 +2187,11 @@ static LogicalResult populateCpuConvolutionLogic(
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
   mlir::ConstantOp seedConstantIntOp;
 
-  generateTensorInitValues(
-      builder, block, mcpuMemset5DFuncOp, filterMemsetMinValue,
-      filterMemsetMaxValue, inputMemsetMinValue, inputMemsetMaxValue,
-      outputMemsetMinValue, outputMemsetMaxValue, seedConstantIntOp);
+  generateTensorInitValues(builder, block, mcpuMemset5DFuncOp,
+                           filterMemsetMinValue, filterMemsetMaxValue,
+                           inputMemsetMinValue, inputMemsetMaxValue,
+                           outputMemsetMinValue, outputMemsetMaxValue,
+                           seedConstantIntOp, convOpType);
 
   // Emit CPU alloc and populate initial values.
   auto cpuFilterAllocOp = allocAndInitializeTensor(
@@ -2217,9 +2248,7 @@ static LogicalResult populateCpuConvolutionLogic(
       floatType);
 
   // Populate host validation logic
-  auto cpuConvFuncOp =
-      createCPUConvolution(module, builder, filterMemRefFloatType,
-                           inputMemRefFloatType, outputMemRefFloatType);
+  auto cpuConvFuncOp = createCPUConvolution(module, builder, genConfig);
 
   // Emit conv2d_host function call.
   auto cpuConvCallOp = builder.create<CallOp>(
@@ -2230,7 +2259,7 @@ static LogicalResult populateCpuConvolutionLogic(
 
   auto cpuResults = cpuOutputHostAllocOp;
   mlir::MemRefType dataTypeMemRefType, floatMemRefType;
-  switch (operation.getValue()) {
+  switch (convOpType) {
   case miopen::Conv2DOpType:
     cpuResults = cpuOutputHostAllocOp;
     floatMemRefType = outputMemRefFloatType;
@@ -2436,12 +2465,14 @@ static LogicalResult populateKernelLaunchLogic(
   return success();
 }
 
-static void populateDefaultLoweringPipeline(PassManager &pm) {
-  // Passes for lowering MIOpen dialect.
+static void populateTuningPipeline(PassManager &pm) {
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(mlir::miopen::createAffineTransformPass());
   pm.addPass(
       mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
+}
+
+static void populateDefaultLoweringPipeline(PassManager &pm) {
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
@@ -2602,9 +2633,8 @@ int main(int argc, char **argv) {
 
   // populate host harness and host validation.
   if (populateValidation.getValue()) {
-    if (failed(populateValidationLogic(
-            module, builder, context, genConfig.filterDimension,
-            genConfig.inputDimension, genConfig.outputDimension, dataType))) {
+    if (failed(populateValidationLogic(module, builder, context, genConfig,
+                                       dataType))) {
       llvm::errs() << "Host validation populated failed.\n";
       exit(1);
     }
@@ -2613,9 +2643,9 @@ int main(int argc, char **argv) {
   // Populate the module for gpu validation.
   SmallVector<std::string, 4> kernels_v;
   if (populateValidationWithGPU.getValue() &&
-      (xdlopsV2.getValue() || dataType != builder.getF32Type())) {
+      (genConfig.xdlops || dataType != builder.getF32Type())) {
     // use non-xdlops kernels to verify xdlops kernels
-    if (xdlopsV2.getValue())
+    if (genConfig.xdlops)
       conv2dGenerator.flipXdlops();
     // use f32 data type to verify non-f32 or xdlops f32 kernels
     conv2dGenerator.setDataType("f32");
@@ -2653,9 +2683,8 @@ int main(int argc, char **argv) {
 
   // populate CPU convolution and print the results.
   if (populateCpuConvolution.getValue()) {
-    if (failed(populateCpuConvolutionLogic(
-            module, builder, context, genConfig.filterDimension,
-            genConfig.inputDimension, genConfig.outputDimension, dataType))) {
+    if (failed(populateCpuConvolutionLogic(module, builder, context, genConfig,
+                                           dataType))) {
       llvm::errs() << "Cpu Convolution populated failed.\n";
       exit(1);
     }
@@ -2669,9 +2698,8 @@ int main(int argc, char **argv) {
 
   // populate host logic.
   if (populateHostHarness.getValue()) {
-    if (failed(populateHostHarnessLogic(
-            module, builder, context, genConfig.filterDimension,
-            genConfig.inputDimension, genConfig.outputDimension, dataType))) {
+    if (failed(populateHostHarnessLogic(module, builder, context, genConfig,
+                                        dataType))) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);
     }
