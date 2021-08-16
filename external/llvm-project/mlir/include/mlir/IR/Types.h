@@ -115,7 +115,6 @@ public:
   // derived types should use isa/dyn_cast.
   bool isIndex() const;
   bool isBF16() const;
-  bool isI16() const;
   bool isF16() const;
   bool isF32() const;
   bool isF64() const;
