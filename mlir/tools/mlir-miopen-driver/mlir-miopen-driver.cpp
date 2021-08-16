@@ -2465,14 +2465,12 @@ static LogicalResult populateKernelLaunchLogic(
   return success();
 }
 
-static void populateTuningPipeline(PassManager &pm) {
+static void populateDefaultLoweringPipeline(PassManager &pm) {
+  // Passes for lowering MIOpen dialect.
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(mlir::miopen::createAffineTransformPass());
   pm.addPass(
       mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
-}
-
-static void populateDefaultLoweringPipeline(PassManager &pm) {
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
