@@ -224,7 +224,7 @@ pipeline {
                                                 flatten: true,\
                                                 projectName: "/${JOB_NAME}",\
                                                 selector: lastSuccessful(),\
-                                                target: 'oldData'
+                                                target: 'build/oldData'
                             }
                         }
                         stage('Performance Test') {
@@ -247,7 +247,7 @@ pipeline {
                                 ])
 
                                 plot csvFileName: 'plot-nightly-perf-results-000001.csv',\
-                                    csvSeries: [[file: 'build/mlir_vs_miopen_perf_means.csv', displayTableFlag: false]],\
+                                    csvSeries: [[file: 'build/mlir_vs_miopen_perf_for_plot.csv', displayTableFlag: false]],\
                                     title: 'Test performance summary',\
                                     yaxis: 'TFlops',\
                                     style: 'line',\
