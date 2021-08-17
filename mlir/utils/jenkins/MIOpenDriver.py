@@ -244,8 +244,8 @@ def runConfigWithMLIR(config):
     os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
     commandLineOptions = config.generateMlirDriverCommandLine()
     print("Running MLIR Benchmark: ", repr(config))
-    mlirMIOpenDriverCommand = os.path.join(MLIR_BUILD_DIR, MLIR_MIOPEN_DRIVER) + ' -ph -c ' + commandLineOptions
-    profilerCommand = [ROCPROF, '--stats', os.path.join(MLIR_BUILD_DIR, MLIR_ROCM_RUNNER)] + MLIR_ROCM_RUNNER_ARGS
+    mlirMIOpenDriverCommand = os.path.join(MLIR_BIN_DIR, MLIR_MIOPEN_DRIVER) + ' -ph -c ' + commandLineOptions
+    profilerCommand = [ROCPROF, '--stats', os.path.join(LLVM_BIN_DIR, MLIR_ROCM_RUNNER)] + MLIR_ROCM_RUNNER_ARGS
 
     # invoke mlir-miopen-driver.
     p1 = subprocess.Popen(mlirMIOpenDriverCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
