@@ -36,7 +36,7 @@ void registerTestConvertGPUKernelToHsacoPass() {
 
         pm.addPass(createConvertGPUKernelToBlobPass(
             translateModuleToROCDLIR, compileIsaToHsacoForTesting,
-            "amdgcn-amd-amdhsa", "gfx900", "-code-object-v3", "rocdl.hsaco"));
+            "amdgcn-amd-amdhsa", "gfx900", "", "rocdl.hsaco"));
       });
 }
 } // namespace test
