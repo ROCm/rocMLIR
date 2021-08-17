@@ -20,7 +20,7 @@ MLIR_BIN_DIR = './bin'
 LLVM_BIN_DIR = './external/llvm-project/llvm/bin'
 MLIR_MIOPEN_DRIVER = 'mlir-miopen-driver'
 MLIR_ROCM_RUNNER = 'mlir-rocm-runner'
-MLIR_ROCM_RUNNER_ARGS = ['--shared-libs=./llvm/lib/librocm-runtime-wrappers.so,./llvm/lib/libmlir_runner_utils.so', '--entry-point-result=void']
+MLIR_ROCM_RUNNER_ARGS = ['--shared-libs=./external/llvm-project/llvm/lib/librocm-runtime-wrappers.so,./external/llvm-project/llvm/lib/libmlir_runner_utils.so', '--entry-point-result=void']
 ROCPROF = '/opt/rocm/bin/rocprof'
 MIOPEN_DRIVER = '../MIOpen/build/bin/MIOpenDriver'
 BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
