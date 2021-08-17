@@ -415,7 +415,7 @@ emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
                const Value &dest, const SmallVector<Value, 8> &destLowerIndices,
                const Value &value,
                InMemoryDataOperation memoryOp = InMemoryDataOperation::Set) {
-  auto emitStoreInstruction = [&b, &loc, &memoryOp](
+  auto emitStoreInstruction = [&b, &loc](
                                   const Value &value, MemRefType destType,
                                   Type typeToStore, const Value &dest,
                                   const SmallVector<Value, 8> &destLowerIndices,
