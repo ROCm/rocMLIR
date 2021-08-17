@@ -54,6 +54,27 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
 
   static std::string tableName() { return "config"; }
 
+  // here is xdlops part,non xdlops have different limitations
+  bool isPaddingKernelSupport() {
+    bool isSupport = false;
+    if (opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+      isSupport = true;
+      if (getStrideVal()[0] > 1 && getStrideVal()[1] > 1) {
+        // nhwc stride 2 only support gemmN padding , so disable it now
+        if (getDimIndexVal()["ci"].first == 4)
+          isSupport = false;
+        // nchw stride2 and padh,padw>0 fail ,diable it now
+        if (getPaddingVal()[0] > 1 || getPaddingVal()[1] > 1 ||
+            getPaddingVal()[2] > 1 || getPaddingVal()[3] > 1) {
+          isSupport = false;
+        }
+      }
+    } else {
+      isSupport = true;
+    }
+    return isSupport;
+  }
+
   // Note: Keep it in sync with miopen/conv/problem_description
   template <class Self, class F> static void visit(Self &&self, F f) {
     // Input tensor dimensions
