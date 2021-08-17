@@ -1,5 +1,13 @@
-project(miopen-mlir CXX C)
 cmake_minimum_required(VERSION 3.15.1)
+
+# Allow VERSION for projects, as expected in CMake 3.0+
+cmake_policy(SET CMP0048 NEW)
+project(miopen-mlir VERSION 0.202108 LANGUAGES CXX C)
+
+# New in CMake 3.20. https://cmake.org/cmake/help/latest/policy/CMP0116.html
+if(POLICY CMP0116)
+  cmake_policy(SET CMP0116 OLD)
+endif()
 
 # Adapted from https://blog.kitware.com/cmake-and-the-default-build-type/
 set(default_build_type "Release")
