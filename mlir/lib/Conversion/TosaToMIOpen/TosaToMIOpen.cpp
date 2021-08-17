@@ -68,6 +68,10 @@ public:
     // auto bias_t = operands[2];
     auto results = op->getResults();
 
+    // attach kernel attr to parent function
+    auto func = op->getParentOfType<FuncOp>();
+    func->setAttr("kernel", rewriter.getUnitAttr());
+
     assert(results.size() == 1);
 
     // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
@@ -78,6 +82,7 @@ public:
     auto outputType = getTypeConverter<BufferizeTypeConverter>()
                           ->convertType(results[0].getType())
                           .cast<MemRefType>();
+
     Value output_mr = rewriter.create<AllocOp>(loc, outputType);
     auto outputExpanded = expandTensor(op, output_mr, rewriter);
 
