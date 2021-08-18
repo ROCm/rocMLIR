@@ -1,4 +1,4 @@
-//===- LowerMIOpenOps.cpp - MLIR MIOpen ops lowering passes ---------------===//
+//===- AlignTiling.cpp - Align Linalg ops with MIOpen ops ------------------===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -15,8 +15,8 @@
 // limitations under the License.
 // =============================================================================
 //
-// This pass converts miopen.conv2d into miopen.transform and
-// miopen.gridwise_gemm.
+// This pass refactors linalg.generic ops from global scope to tiled scope
+// based on miopen lowering step2.
 //
 //===----------------------------------------------------------------------===//
 
@@ -45,8 +45,6 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "llvm/ADT/SmallVector.h"
-
-#include <iostream>
 
 using namespace mlir;
 
@@ -99,15 +97,6 @@ struct MILARewritePattern : public OpRewritePattern<T> {
     return Value();
   }
 
-  template <typename Top>
-  Top backtraceOp(Value inv) const {
-    if (inv.hasOneUse()) {
-      auto *ownr = inv.use_begin()->getOwner();
-      return dyn_cast<Top>(ownr);
-    }
-    return Top();
-  }
-
   Value makeSubview(PatternRewriter &b, miopen::ThreadwiseCopyOp &twcopy, Value inp) const {
     Value subview;
 
@@ -141,7 +130,8 @@ struct MILARewritePattern : public OpRewritePattern<T> {
     llvm::SmallVector<NamedAttribute, 3> transformedNewOutputAttrs;
     auto transform = b.create<miopen::TransformOp>(loc, transformedOutputType, inp, transformedNewOutputAttrs, true);
 
-    // 2. reduce scope of inp to tile size (use subview: https://mlir.llvm.org/docs/Dialects/MemRef/#memrefsubview-mlirmemrefsubviewop Ex 3)
+    // 2. reduce scope of inp to tile size
+    //      - use subview: https://mlir.llvm.org/docs/Dialects/MemRef/#memrefsubview-mlirmemrefsubviewop, Ex 3
     auto regs = twcopy.getOperand(0);
     auto regShape = regs.getType().template cast<MemRefType>().getShape();
     auto regDims = regShape.size();
@@ -157,7 +147,7 @@ struct MILARewritePattern : public OpRewritePattern<T> {
   Value traceToThreadwiseCopy(Value inp, SmallVector<Value, 5> &transforms) const {
     Value ret;
     Value laReshape;
-    // get reader (linagl.reshape), return result
+    // 1. get reader (linagl.reshape), return result
     int cnt = 0;
     for (auto &use : inp.getUses()) {
       if (auto op = dyn_cast<linalg::GenericOp>(use.getOwner())) {
@@ -172,7 +162,7 @@ struct MILARewritePattern : public OpRewritePattern<T> {
     }
     if (laReshape) {
       transforms.push_back(laReshape);
-      // get reader (miopen.transform), return result
+      // 2. get reader (miopen.transform), return result
       Value miTransform = backtrace<miopen::TransformOp>(laReshape);
       transforms.push_back(miTransform);
       Value miTransform2 = backtrace<miopen::TransformOp>(miTransform);
@@ -187,6 +177,8 @@ struct MILARewritePattern : public OpRewritePattern<T> {
   Value applyTransforms(PatternRewriter &b, miopen::ThreadwiseCopyOp &twcopy, Value inp, SmallVector<Value, 5> &transforms) const {
     Value ret = inp;
     BlockAndValueMapping cloningMap;
+    // 1. clone the same transforms applied to the output memory and
+    //    apply to all other inputs to the linalg.generic
     for (auto transform : transforms) {
       assert(transform.hasOneUse());
       Operation *tcopy;
@@ -202,7 +194,7 @@ struct MILARewritePattern : public OpRewritePattern<T> {
       ret = tcopy->getResult(0);
     }
 
-    // create sub-view based on threadwise_copy
+    // 2. also create sub-view based on threadwise_copy
     return makeSubview(b, twcopy, ret);
   }
   
