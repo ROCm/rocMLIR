@@ -133,7 +133,7 @@ struct MILARewritePattern : public OpRewritePattern<T> {
 
     // 2. reduce scope of inp to tile size
     //      - use subview:
-    //      - https://mlir.llvm.org/docs/Dialects/MemRef/#memrefsubview-mlirmemrefsubviewop
+    //      https://mlir.llvm.org/docs/Dialects/MemRef/#memrefsubview-mlirmemrefsubviewop
     auto regs = twcopy.getOperand(0);
     auto regShape = regs.getType().template cast<MemRefType>().getShape();
     auto regDims = regShape.size();
