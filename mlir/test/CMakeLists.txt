@@ -21,7 +21,7 @@ set(MLIR_RUNNER_UTILS_DIR ${LLVM_EXTERNAL_BIN_DIR})
 
 # Passed to lit.site.cfg.py.in to set up the path where to find the libraries
 # for the rocm runner tests.
-set(MLIR_ROCM_WRAPPER_LIBRARY_DIR ${LLVM_EXTERNAL_LIB_DIR})
+set(MLIR_ROCM_WRAPPER_LIBRARY_DIR ${MLIR_MIOPEN_LIB_DIR})
 
 message(STATUS "LLVM_EXTERNAL_BIN_DIR: ${LLVM_EXTERNAL_BIN_DIR}")
 message(STATUS "MLIR_MIOPEN_BIN_DIR: ${MLIR_MIOPEN_BIN_DIR}")
