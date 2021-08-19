@@ -1,4 +1,5 @@
-//===- AlignTiling.cpp - Align Linalg ops with MIOpen ops ------------------===//
+//===- AlignTiling.cpp - Align Linalg ops with MIOpen ops
+//------------------===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -131,7 +132,8 @@ struct MILARewritePattern : public OpRewritePattern<T> {
     auto transform = b.create<miopen::TransformOp>(loc, transformedOutputType, inp, transformedNewOutputAttrs, true);
 
     // 2. reduce scope of inp to tile size
-    //      - use subview: https://mlir.llvm.org/docs/Dialects/MemRef/#memrefsubview-mlirmemrefsubviewop, Ex 3
+    //      - use subview:
+    //      - https://mlir.llvm.org/docs/Dialects/MemRef/#memrefsubview-mlirmemrefsubviewop
     auto regs = twcopy.getOperand(0);
     auto regShape = regs.getType().template cast<MemRefType>().getShape();
     auto regDims = regShape.size();
