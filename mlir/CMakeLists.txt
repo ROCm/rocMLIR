@@ -31,5 +31,7 @@ add_subdirectory(docs)
 add_subdirectory(examples)
 add_subdirectory(include/mlir)
 add_subdirectory(lib)
+# C API needs all dialects for registration, but should be built before tests.
+add_subdirectory(lib/CAPI)
 add_subdirectory(test)
 add_subdirectory(tools)

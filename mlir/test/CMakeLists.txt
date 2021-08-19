@@ -1,3 +1,5 @@
+add_subdirectory(CAPI)
+
 llvm_canonicalize_cmake_booleans(
   MLIR_BINDINGS_PYTHON_ENABLED
   LLVM_BUILD_EXAMPLES
