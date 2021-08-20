@@ -16,9 +16,10 @@ using namespace mlir;
 namespace {
 struct AffixTuningParameters : public MIOpenOpsAffixTuningParametersPassBase<AffixTuningParameters> {
 public:
-  AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride)
+  AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride,
+                        std::string perfConfig)
       : blockSizeOverride(blockSizeOverride),
-        gridSizeOverride(gridSizeOverride) {}
+        gridSizeOverride(gridSizeOverride), perfConfig(perfConfig) {}
   void runOnFunction() override;
 
 private:
@@ -35,6 +36,7 @@ private:
   //   coherent tuning parameters with the pre-set block size.
   int64_t blockSizeOverride;
   int64_t gridSizeOverride;
+  std::string perfConfig;
 
   // Actual implementation.
   template <typename T> void affixTuningParametersImpl(T &op);
@@ -190,8 +192,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
     PopulateParams populateParams;
     LogicalResult status = populateParams.paramsFromCtx(
-        convContext, blockSizeOverride, validParams, gemmADerivedParam,
-        gemmBDerivedParam, blockGemmDerivedParam, gemmCDstPerWrite, gridSize);
+        convContext, blockSizeOverride, perfConfig, validParams,
+        gemmADerivedParam, gemmBDerivedParam, blockGemmDerivedParam,
+        gemmCDstPerWrite, gridSize);
 
     if (failed(status)) {
       signalPassFailure();
@@ -255,7 +258,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
 std::unique_ptr<Pass>
 mlir::miopen::createAffixTuningParametersPass(int64_t blockSizeOverride,
-                                              int64_t gridSizeOverride) {
+                                              int64_t gridSizeOverride,
+                                              std::string perfConfig) {
   return std::make_unique<AffixTuningParameters>(blockSizeOverride,
-                                                 gridSizeOverride);
+                                                 gridSizeOverride, perfConfig);
 }

@@ -68,6 +68,11 @@ static cl::opt<std::string>
          cl::desc("amdgpu architecture, eg: gfx803, gfx900, gfx906, gfx908"),
          cl::value_desc("GFX architecture string"), cl::init("gfx906"));
 
+static cl::opt<std::string>
+    perfConfig("perf_config",
+               cl::desc("performance config data used for tuning"),
+               cl::value_desc("Serialized tuning parameters"), cl::init(""));
+
 static cl::opt<int>
     num_cu("num_cu",
            cl::desc("Number of compute units, valid combinations include: "
@@ -2465,12 +2470,18 @@ static LogicalResult populateKernelLaunchLogic(
   return success();
 }
 
-static void populateDefaultLoweringPipeline(PassManager &pm) {
-  // Passes for lowering MIOpen dialect.
+static void populateTuningPipeline(PassManager &pm,
+                                   const std::string &perfConfig) {
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(mlir::miopen::createAffineTransformPass());
-  pm.addPass(
-      mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
+  pm.addPass(mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize,
+                                                           perfConfig));
+}
+
+static void populateDefaultLoweringPipeline(PassManager &pm,
+                                            const std::string &perfConfig) {
+  // Passes for lowering MIOpen dialect.
+  populateTuningPipeline(pm, perfConfig);
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
@@ -2485,7 +2496,8 @@ static void populateDefaultLoweringPipeline(PassManager &pm) {
 }
 
 static LogicalResult runMLIRPasses(ModuleOp &module,
-                                   mlir::PassPipelineCLParser &passPipeline) {
+                                   mlir::PassPipelineCLParser &passPipeline,
+                                   const std::string &perfConfig) {
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
   applyPassManagerCLOptions(pm);
 
@@ -2493,12 +2505,16 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   bool toUseBuiltinPipeline = loweringWithBuiltinPipeline.getValue();
   if (toUseBuiltinPipeline) {
     StringRef pipeline = loweringTargetDialect.getValue();
-    if (pipeline == "gpu") {
+    if (pipeline == "tuning") {
+      // Set up the default lowering pipeline which goes down to affix tuning
+      // parameters
+      populateTuningPipeline(pm, perfConfig);
+    } else if (pipeline == "gpu") {
       // Set up the default lowering pipeline which goes down to GPU dialect.
-      populateDefaultLoweringPipeline(pm);
+      populateDefaultLoweringPipeline(pm, perfConfig);
     } else if (pipeline == "rocdl") {
       // Set up the lowering pipeline which goes down to ROCDL dialect.
-      populateDefaultLoweringPipeline(pm);
+      populateDefaultLoweringPipeline(pm, perfConfig);
       pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
     }
   } else {
@@ -2573,8 +2589,8 @@ int main(int argc, char **argv) {
   }
 
   Conv2dGenerator conv2dGenerator(
-      arch.getValue(), num_cu.getValue(), xdlopsV2.getValue(),
-      operation.getValue(), tensorDataType.getValue(),
+      arch.getValue(), perfConfig.getValue(), num_cu.getValue(),
+      xdlopsV2.getValue(), operation.getValue(), tensorDataType.getValue(),
       dilationHeight.getValue(), dilationWidth.getValue(),
       strideHeight.getValue(), strideWidth.getValue(),
       paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
@@ -2688,8 +2704,8 @@ int main(int argc, char **argv) {
     }
   }
 
-  // Apply passes.
-  if (failed(runMLIRPasses(module, passPipeline))) {
+  // Run MLIR passes with passed in tuning parameters
+  if (failed(runMLIRPasses(module, passPipeline, genConfig.perfConfig))) {
     llvm::errs() << "Lowering failed.\n";
     exit(1);
   }

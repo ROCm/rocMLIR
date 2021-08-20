@@ -27,6 +27,7 @@ class Conv2dGenerator {
 public:
   struct Config {
     std::string arch;
+    std::string perfConfig;
     int num_cu;
     bool xdlops;
     miopen::ConvOpType operation;
@@ -51,7 +52,8 @@ public:
     int filterWidth;
   };
 
-  Conv2dGenerator(const std::string &arch = "", int num_cu = 0,
+  Conv2dGenerator(const std::string &arch = "",
+                  const std::string &perfConfig = "", int num_cu = 0,
                   bool xdlops = false,
                   const miopen::ConvOpType operation = miopen::Conv2DOpType,
                   const std::string &dataTypeStr = "f32",

@@ -20,14 +20,15 @@
 using namespace mlir;
 
 Conv2dGenerator::Conv2dGenerator(
-    const std::string &arch, int num_cu, bool xdlops,
-    const miopen::ConvOpType operation, const std::string &dataTypeStr,
-    int dilationHeight, int dilationWidth, int strideHeight, int strideWidth,
-    int paddingHeightLeft, int paddingHeightRight, int paddingWidthLeft,
-    int paddingWidthRight, const std::string &filterLayout,
-    const std::string &inputLayout, const std::string &outputLayout,
-    const std::string &kernelName)
+    const std::string &arch, const std::string &perfConfig, int num_cu,
+    bool xdlops, const miopen::ConvOpType operation,
+    const std::string &dataTypeStr, int dilationHeight, int dilationWidth,
+    int strideHeight, int strideWidth, int paddingHeightLeft,
+    int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
+    const std::string &filterLayout, const std::string &inputLayout,
+    const std::string &outputLayout, const std::string &kernelName)
     : config{arch,
+             perfConfig,
              num_cu,
              xdlops,
              operation,
@@ -297,6 +298,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
     };
 
     strToStr("arch", config.arch);
+    strToStr("perf_config", config.perfConfig);
     strToInt("num_cu", config.num_cu);
     strToInt("x2", config.xdlops);
 
