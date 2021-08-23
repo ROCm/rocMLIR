@@ -28,6 +28,10 @@ std::unique_ptr<Pass> createLowerMIOpenOpsStep1Pass();
 /// operations.
 std::unique_ptr<Pass> createLowerMIOpenOpsStep2Pass();
 
+/// Create a pass to align tiling of subsequent linalg.generic ops with
+/// the miopen.conv2d op after lowering step2.
+std::unique_ptr<Pass> createMIOpenLinalgAlignPass();
+
 /// Create a pass to convert MIOpen blockwise operations to threadwise
 /// operations.
 std::unique_ptr<Pass> createLowerMIOpenOpsStep3Pass();

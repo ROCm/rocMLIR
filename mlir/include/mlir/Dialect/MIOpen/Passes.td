@@ -44,6 +44,12 @@ def MIOpenOpsStep2Pass : Pass<"miopen-lowering-step2", "ModuleOp"> {
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "vector::VectorDialect"];
 }
 
+def MIOpenLinalgAlignPass : Pass<"miopen-linalg-align", "ModuleOp"> {
+  let summary = "expand linalg ops aligned with threadwise copy";
+  let constructor = "mlir::miopen::createMIOpenLinalgAlignPass()";
+  let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "linalg::LinalgDialect"];
+}
+
 def MIOpenOpsStep3Pass : Pass<"miopen-lowering-step3", "ModuleOp"> {
   let summary = "expand blockwise copy into threadwise copy, blockwise gemm into threadwise gemm";
   let constructor = "mlir::miopen::createLowerMIOpenOpsStep3Pass()";
