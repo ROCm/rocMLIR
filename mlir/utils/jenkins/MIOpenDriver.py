@@ -270,7 +270,7 @@ def runConfigWithMIOpenDriver(commandLine):
     print("Running MIOpen Benchmark: ", commandLine)
     profilerCommand = ROCPROF + ' --stats ' + MIOpenDriverCommand
     # invoke rocprof + MIOpenDriver.
-    p1 = subprocess.Popen(profilerCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    p1 = subprocess.Popen(profilerCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     # get output.
     try:
         outs, errs = p1.communicate(timeout=180)
