@@ -56,8 +56,7 @@ private:
                             const std::string &features);
   LogicalResult createHsaco(const Blob &isaBlob, StringRef name,
                             Blob &hsacoBlob);
-  void configTargetChip(std::string &targetChip);
-  void configTargetFeatures(std::string &features);
+  void configTargetChip(std::string &targetChip, std::string &features);
 };
 } // namespace mlir
 

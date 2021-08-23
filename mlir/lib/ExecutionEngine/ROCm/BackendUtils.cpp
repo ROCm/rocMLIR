@@ -52,22 +52,6 @@ static constexpr const char kRunnerProgram[] = "mlir-rocm-runner";
 static constexpr const char kRocmAgentEnumerator[] = "rocm_agent_enumerator";
 static constexpr const char kTargetTriple[] = "amdgcn-amd-amdhsa";
 
-namespace {
-// TODO: remove this once the rocm_agent_enumerator is ready
-void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
-  hipDeviceProp_t props;
-  hipError_t result = hipGetDeviceProperties(&props, device);
-  if (result != hipSuccess) {
-    gcnArchName = "";
-    llvm_unreachable("hipGetDeviceProperties() should never fail");
-    return;
-  }
-
-  const char *pArchName = props.gcnArchName;
-  gcnArchName.assign(pArchName);
-}
-} // namespace
-
 BackendUtils::BackendUtils(const std::string &defaultTriple,
                            const std::string &defaultChip,
                            const std::string &defaultFeatures,
@@ -75,8 +59,7 @@ BackendUtils::BackendUtils(const std::string &defaultTriple,
     : triple(defaultTriple), chip(defaultChip), features(defaultFeatures) {
   if (systemOverride) {
     triple = kTargetTriple;
-    configTargetChip(chip);
-    configTargetFeatures(features);
+    configTargetChip(chip, features);
   }
 }
 
@@ -240,7 +223,7 @@ std::unique_ptr<llvm::Module> BackendUtils::compileModuleToROCDLIR(
   return llvmModule;
 }
 
-void BackendUtils::configTargetChip(std::string &targetChip) {
+void BackendUtils::configTargetChip(std::string &targetChip, std::string &features) {
   // Locate rocm_agent_enumerator.
   llvm::ErrorOr<std::string> rocmAgentEnumerator = llvm::sys::findProgramByName(
       kRocmAgentEnumerator, {__ROCM_PATH__ "/bin"});
@@ -269,6 +252,7 @@ void BackendUtils::configTargetChip(std::string &targetChip) {
   std::string errorMessage;
   SmallVector<StringRef, 2> args{"-t", "GPU"};
   Optional<StringRef> redirects[3] = {{""}, tempFilename.str(), {""}};
+
   int result =
       llvm::sys::ExecuteAndWait(rocmAgentEnumerator.get(), args, llvm::None,
                                 redirects, 0, 0, &errorMessage);
@@ -295,14 +279,34 @@ void BackendUtils::configTargetChip(std::string &targetChip) {
     targetChip = lines->str();
     break;
   }
-}
 
-void BackendUtils::configTargetFeatures(std::string &features) {
+  // Invoke rocm_agent_enumerator to get arch name
+  args = {rocmAgentEnumerator.get(), "-name"};
+  result =
+      llvm::sys::ExecuteAndWait(rocmAgentEnumerator.get(), args, llvm::None,
+                                redirects, 0, 0, &errorMessage);
+  if  (result) {
+    llvm::WithColor::warning(llvm::errs(), kRunnerProgram)
+        << kRocmAgentEnumerator << " invocation error: " << errorMessage
+        << ", set features as " << chip << "\n";
+    return;
+  }
+  auto gfxArchList = mlir::openInputFile(tempFilename);
+  if (!gfxArchList) {
+    llvm::WithColor::error(llvm::errs(), kRunnerProgram)
+        << "read ROCm agent list temp file error, set features as " << chip
+        << "\n";
+    return;
+  }
   std::string gcnArchName;
-  getGpuGCNArchName(0, gcnArchName);
+  for (llvm::line_iterator lines(*gfxArchList); !lines.is_at_end(); ++lines) {
+    // Use the first Arch name found.
+    gcnArchName = lines->str();
+    break;
+  }
   std::string chip;
   auto status = IsaNameParser::parseArchName(gcnArchName, chip, features);
   if (status.failed()) {
-    llvm_unreachable("HIP ArchName parsing should never fail.");
+    llvm_unreachable("ArchName parsing failed.");
   }
 }
