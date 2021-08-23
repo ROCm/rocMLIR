@@ -136,7 +136,12 @@ computeLoadStoreTypeInfo(OpBuilder &b, T &gop, Type elementType,
 
   // In case KPack and vector load is used, use the last dimensions.
   if (loadLength > 1 && KPack > 1) {
-    vectorDim = dims.size() - 1;
+    // XXX.
+    if (isMatrixA) {
+      vectorDim = dims.size() - 1;
+    } else {
+      vectorDim = dims.size() - 2;
+    }
   }
 
   int64_t itemsToCopy = 1;
