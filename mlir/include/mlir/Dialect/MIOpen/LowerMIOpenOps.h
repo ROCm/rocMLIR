@@ -6485,33 +6485,6 @@ struct GridwiseGemmV2RewritePattern
     // llvm::errs() << "total_block_space: " << total_block_space << "\n\n";
   }
 
-  void affixXdlopsGemmV2Attributes(miopen::XdlopsGemmV2Op xop,
-                                   miopen::GridwiseGemmV2Op gop,
-                                   OpBuilder &b) const {
-    xop->setAttr("block_size", gop->getAttr("block_size"));
-    // xdlopsV2.
-    auto xdlopsV2Attr = gop->template getAttrOfType<BoolAttr>("xdlopsV2");
-    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
-      int64_t MPerBlock =
-          gop->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
-      int64_t NPerBlock =
-          gop->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
-      int64_t MPerWave =
-          gop->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
-      int64_t NPerWave =
-          gop->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
-      int64_t MWaves = MPerBlock / MPerWave;
-      int64_t NWaves = NPerBlock / NPerWave;
-
-      xop->setAttr("m_per_wave", gop->getAttr("m_per_wave"));
-      xop->setAttr("n_per_wave", gop->getAttr("n_per_wave"));
-      xop->setAttr("m_waves", b.getI32IntegerAttr(MWaves));
-      xop->setAttr("n_waves", b.getI32IntegerAttr(NWaves));
-
-      xop->setAttr("xdlopsV2", b.getBoolAttr(true));
-    }
-  }
-
   void affixBlockwiseGemmV2Attributes(miopen::BlockwiseGemmV2Op bop,
                                       miopen::GridwiseGemmV2Op gop,
                                       OpBuilder &b) const {
