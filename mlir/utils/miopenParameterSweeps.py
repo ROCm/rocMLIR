@@ -37,7 +37,7 @@ Errors = {errors.decode('utf-8')}
 Return code = {compiler.returncode}""", file=sys.stderr)
         return False
 
-    runner = await asyncio.create_subprocess_exec(os.path.join(MIOpenDriver.LLVM_BIN_DIR, MIOpenDriver.MLIR_ROCM_RUNNER), *MIOpenDriver.MLIR_ROCM_RUNNER_ARGS,
+    runner = await asyncio.create_subprocess_exec(os.path.join(MIOpenDriver.MLIR_BIN_DIR, MIOpenDriver.MLIR_ROCM_RUNNER), *MIOpenDriver.MLIR_ROCM_RUNNER_ARGS,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, stdin=asyncio.subprocess.PIPE)
     output, errors = await runner.communicate(input=program)
     output = output.decode('utf-8')
