@@ -6518,6 +6518,9 @@ struct GridwiseGemmV2RewritePattern
     bop->setAttr("k", b.getI32IntegerAttr(K));
 
     bop->setAttr("coord_transforms", b.getArrayAttr({}));
+
+    if (gop->hasAttr("kpack"))
+      bop->setAttr("kpack", gop->getAttr("kpack"));
   }
 
   template <typename T>
@@ -7377,13 +7380,21 @@ struct GridwiseGemmV2RewritePattern
     int64_t arrayBSize = (!IsKReduction)
                              ? (KPerBlock * NRepeats)
                              : (KPerBlock / num_input_blks * NRepeats);
-    // TBD. Determine registerFloatABType.
-    // Refer to commit 7bc1fcd1f8fd9ba39b12f8ec9deec3c0e3ed085b .
-    auto arrayAType = MemRefType::get(
-        {arrayASize}, dataType, {}, gpu::GPUDialect::getPrivateAddressSpace());
+    Type arrayAType, arrayBType;
+    if (KPack > 1) {
+      arrayAType = MemRefType::get({arrayASize / KPack},
+                                   VectorType::get({KPack}, dataType), {},
+                                   gpu::GPUDialect::getPrivateAddressSpace());
+      arrayBType = MemRefType::get({arrayBSize / KPack},
+                                   VectorType::get({KPack}, dataType), {},
+                                   gpu::GPUDialect::getPrivateAddressSpace());
+    } else {
+      arrayAType = MemRefType::get({arrayASize}, dataType, {},
+                                   gpu::GPUDialect::getPrivateAddressSpace());
+      arrayBType = MemRefType::get({arrayBSize}, dataType, {},
+                                   gpu::GPUDialect::getPrivateAddressSpace());
+    }
     auto arrayA = b.create<miopen::GpuAllocOp>(loc, arrayAType);
-    auto arrayBType = MemRefType::get(
-        {arrayBSize}, dataType, {}, gpu::GPUDialect::getPrivateAddressSpace());
     auto arrayB = b.create<miopen::GpuAllocOp>(loc, arrayBType);
 
     // -----
@@ -9911,6 +9922,10 @@ struct XdlopsGemmV2RewritePattern
     auto loc = op.getLoc();
 
     // Obtain critical information.
+    int64_t KPack =
+        op->hasAttr("kpack")
+            ? op->getAttr("kpack").template cast<IntegerAttr>().getInt()
+            : 1;
     int64_t M = op->getAttr("m").template cast<IntegerAttr>().getInt();
     int64_t N = op->getAttr("n").template cast<IntegerAttr>().getInt();
     int64_t K = op->getAttr("k").template cast<IntegerAttr>().getInt();
@@ -10362,6 +10377,8 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op->setAttr("n_per_wave", op->getAttr("n_per_wave"));
       xdlopsGemmV2Op->setAttr("coord_transforms",
                               op->getAttr("coord_transforms"));
+      if (op->hasAttr("kpack"))
+        xdlopsGemmV2Op->setAttr("kpack", op->getAttr("kpack"));
 
       op.replaceAllUsesWith(xdlopsGemmV2Op.vectorDs());
       op.erase();
@@ -10389,6 +10406,8 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op0->setAttr("n_per_wave", op->getAttr("n_per_wave"));
       xdlopsGemmV2Op0->setAttr("coord_transforms",
                                op->getAttr("coord_transforms"));
+      if (op->hasAttr("kpack"))
+        xdlopsGemmV2Op0->setAttr("kpack", op->getAttr("kpack"));
 
       SmallVector<Type, 2> resultTypes1;
       resultTypes1.push_back(op.vectorDs()[2].getType());
@@ -10410,6 +10429,8 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op1->setAttr("n_per_wave", op->getAttr("n_per_wave"));
       xdlopsGemmV2Op1->setAttr("coord_transforms",
                                op->getAttr("coord_transforms"));
+      if (op->hasAttr("kpack"))
+        xdlopsGemmV2Op1->setAttr("kpack", op->getAttr("kpack"));
 
       op.replaceAllUsesWith(ValueRange{
           xdlopsGemmV2Op0.vectorDs()[0], xdlopsGemmV2Op0.vectorDs()[1],
@@ -10439,6 +10460,8 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op0->setAttr("n_per_wave", op->getAttr("n_per_wave"));
       xdlopsGemmV2Op0->setAttr("coord_transforms",
                                op->getAttr("coord_transforms"));
+      if (op->hasAttr("kpack"))
+        xdlopsGemmV2Op0->setAttr("kpack", op->getAttr("kpack"));
 
       SmallVector<Type, 2> resultTypes1;
       resultTypes1.push_back(op.vectorDs()[2].getType());
@@ -10460,6 +10483,8 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op1->setAttr("n_per_wave", op->getAttr("n_per_wave"));
       xdlopsGemmV2Op1->setAttr("coord_transforms",
                                op->getAttr("coord_transforms"));
+      if (op->hasAttr("kpack"))
+        xdlopsGemmV2Op1->setAttr("kpack", op->getAttr("kpack"));
 
       op.replaceAllUsesWith(ValueRange{
           xdlopsGemmV2Op0.vectorDs()[0], xdlopsGemmV2Op0.vectorDs()[1],
