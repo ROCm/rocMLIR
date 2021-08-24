@@ -825,9 +825,9 @@ std::string mlir::translateModuleFromMIOpenToCFlagsXDLOPS(ModuleOp m) {
       DerivedParams gemmBDerivedParam;
       int64_t blockSize = 0;
       int64_t gridSize = 0;
-      (void)populateParams.paramsFromCtx(ctx, 0, validParams, gemmADerivedParam,
-                                         gemmBDerivedParam, blockSize,
-                                         gridSize);
+      (void)populateParams.paramsFromCtx(ctx, 0, "", validParams,
+                                         gemmADerivedParam, gemmBDerivedParam,
+                                         blockSize, gridSize);
 
       parameters["CK_PARAM_TUNABLE_BLOCK_SIZE"] = blockSize;
       parameters["CK_PARAM_DEPENDENT_GRID_SIZE"] = gridSize;
