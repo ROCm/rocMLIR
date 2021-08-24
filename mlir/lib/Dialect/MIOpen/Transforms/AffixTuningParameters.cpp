@@ -145,8 +145,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     int64_t gridSize = 0;
 
     LogicalResult status = populateParamsXDL.paramsFromCtx(
-        convContext, blockSizeOverride, validParams, gemmADerivedParam,
-        gemmBDerivedParam, blockSize, gridSize);
+        convContext, blockSizeOverride, perfConfig, validParams,
+        gemmADerivedParam, gemmBDerivedParam, blockSize, gridSize);
 
     if (failed(status)) {
       signalPassFailure();

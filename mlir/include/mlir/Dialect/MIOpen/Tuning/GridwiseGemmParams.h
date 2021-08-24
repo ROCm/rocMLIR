@@ -550,6 +550,14 @@ struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
   }
 };
 
+template <typename T> std::string genDebugForParams(T params) {
+  std::ostringstream os;
+  os << "DB load succeed: ";
+  params.visit(params, [&os](auto &arg) { os << arg << ","; });
+  os << "\n";
+  return os.str();
+}
+
 // block gemm tuning params that sepcific the layout of thread-wise gemm in a
 // workgroup
 struct DerivedBlockGemmParams {
@@ -880,6 +888,7 @@ private:
 public:
   LogicalResult paramsFromCtx(ConvolutionContext &ctx,
                               int64_t blockSizeOverride,
+                              const std::string &perfConfig,
                               InitParamsXDL &validParams,
                               DerivedParams &gemmADerivedParam,
                               DerivedParams &gemmBDerivedParam,

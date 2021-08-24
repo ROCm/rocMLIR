@@ -133,14 +133,7 @@ LogicalResult PopulateParams::paramsFromCtx(
     // 2. This is running mode and we have succeeded with a perfdb load
     bool isValidPerfConfig = validParams.deserialize(perfConfig);
     if (isValidPerfConfig) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "PerfConfig load succeed,"
-                 << " block size: " << validParams.blockSize
-                 << " M/block: " << validParams.gemmMPerBlock
-                 << " N/block: " << validParams.gemmNPerBlock
-                 << " K/block: " << validParams.gemmKPerBlock
-                 << " M/thread: " << validParams.gemmMPerThread
-                 << " N/thread: " << validParams.gemmNPerThread << "\n");
+      LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
       return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
                              gemmBDerivedParam, blockGemmDerivedParam,
                              gemmCDstPerWrite, gridSize);
@@ -163,14 +156,7 @@ LogicalResult PopulateParams::paramsFromCtx(
   SQLitePerfDb perfDb = getDb(ctx.arch, ctx.num_cu);
   bool loadRes = perfDb.load(ctx, solverId, validParams);
   if (loadRes) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "DB load succeed,"
-               << " block size: " << validParams.blockSize
-               << " M/block: " << validParams.gemmMPerBlock
-               << " N/block: " << validParams.gemmNPerBlock
-               << " K/block: " << validParams.gemmKPerBlock
-               << " M/thread: " << validParams.gemmMPerThread
-               << " N/thread: " << validParams.gemmNPerThread << "\n");
+    LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
     return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
                            gemmBDerivedParam, blockGemmDerivedParam,
                            gemmCDstPerWrite, gridSize);
@@ -356,11 +342,27 @@ LogicalResult PopulateParamsXDL::populatePaddingKernelDerived(
 
 LogicalResult PopulateParamsXDL::paramsFromCtx(
     ConvolutionContext &ctx, int64_t blockSizeOverride,
-    InitParamsXDL &validParams, DerivedParams &gemmADerivedParam,
-    DerivedParams &gemmBDerivedParam, int64_t &blockSize, int64_t &gridSize) {
+    const std::string &perfConfig, InitParamsXDL &validParams,
+    DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
+    int64_t &blockSize, int64_t &gridSize) {
 
   GemmSize gemmSize;
   obtainGemmSize(ctx, gemmSize);
+
+  if (!perfConfig.empty()) {
+    // Under two scenarios can we receive a perfConfig:
+    // 1. This is tuning mode
+    // 2. This is running mode and we have succeeded with a perfdb load
+    bool isValidPerfConfig = validParams.deserialize(perfConfig);
+    if (isValidPerfConfig) {
+      LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
+      return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
+                             gemmBDerivedParam, blockSize, gridSize);
+    } else {
+      // Signal the client if perfCofnig is passed in but is invalid
+      return failure();
+    }
+  }
 
 #if __MLIR_ENABLE_SQLITE__
   std::string solverId;
@@ -375,17 +377,7 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
   SQLitePerfDb perfDb = getDb(ctx.arch, ctx.num_cu);
   bool loadRes = perfDb.load(ctx, solverId, validParams);
   if (loadRes) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "DB load succeed,"
-               << " M/block: " << validParams.gemmMPerBlock
-               << " N/block: " << validParams.gemmNPerBlock
-               << " K/block: " << validParams.gemmKPerBlock
-               << " M/Wave: " << validParams.gemmMPerWave
-               << " N/Wave: " << validParams.gemmNPerWave
-               << " KPack: " << validParams.gemmKPack
-               << " ACopyGemmK: " << validParams.gemmAThreadCopyMoreGemmK
-               << " BCopyKPack: " << validParams.gemmBThreadCopyMoreGemmKPack
-               << "\n");
+    LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
     return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
                            gemmBDerivedParam, blockSize, gridSize);
   } else {
