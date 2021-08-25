@@ -24,7 +24,7 @@ pipeline {
                     buildDir: 'build',\
                     buildType: 'Release',\
                     installation: 'InSearchPath',\
-                    steps: [[args: 'check-mlir']],\
+                    steps: [[args: 'check-mlir check-mlir-miopen']],\
                     cmakeArgs: '''-DMLIR_MIOPEN_DRIVER_ENABLED=1
                                -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=1
                                -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=1
