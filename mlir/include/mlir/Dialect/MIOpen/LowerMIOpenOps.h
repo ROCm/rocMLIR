@@ -10088,30 +10088,29 @@ struct XdlopsGemmV2RewritePattern
     // const index_t laneId = get_thread_local_1d_id() % mfma_type.wave_size;
     // FloatA a[K * MRepeats];
     // FloatB b[K * NRepeats];
-    // constexpr index_t KRepeats = sizeof(FloatA) / (sizeof(data_type) *
-    // mfma_type.k_base); auto pa = reinterpret_cast<const data_type*>(&a); auto
-    // pb = reinterpret_cast<const data_type*>(&b); constexpr index_t AStride =
-    // K * KRepeats; constexpr index_t BStride = K * KRepeats;
+    // constexpr index_t KRepeats = sizeof(FloatA) / (sizeof(data_type) * mfma_type.k_base);
+    // auto pa = reinterpret_cast<const data_type*>(&a);
+    // auto pb = reinterpret_cast<const data_type*>(&b);
+    // constexpr index_t AStride = K * KRepeats;
+    // constexpr index_t BStride = K * KRepeats;
 
     auto tid = b.create<miopen::WorkitemIdOp>(loc, b.getIndexType());
     auto laneId = b.create<UnsignedRemIOp>(
         loc, tid, b.create<ConstantIndexOp>(loc, wave_size));
 
-    // TBD. FloatA / FloatB could be vectorized via KPack tuning parameter.
-    // Ignore this for now. use arrayA as pa for now. use arrayB as pb for now.
-
-    // TBD. FloatA / FloatB could be vectorized via KPack tuning parameter.
-    // Ignore this for now. This must be fixed when we test fp16 / bf16 data
-    // types.
-
-    // TBD. Existing logic for fp16/bf16 may still NOT be 100% correct.
     int64_t KRepeats = 0;
     if (dataType == b.getF32Type()) {
+      assert(argType == dataType);
       KRepeats = 1 / k_base;
     } else if (dataType == b.getF16Type() || dataType == b.getIntegerType(16)) {
       VectorType argVectorType = argType.template cast<VectorType>();
       KRepeats = argVectorType.getShape()[0] / k_base;
     }
+    // llvm::errs() << "argVectorType: " << argType << "\n";
+    // llvm::errs() << "k_base: " << k_base << "\n";
+    // llvm::errs() << "KRepeats: " << KRepeats << "\n";
+    // llvm::errs() << "bufferA type: " << op.bufferA().getType() << "\n";
+    // llvm::errs() << "bufferB type: " << op.bufferB().getType() << "\n";
 
     auto MPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
     auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
@@ -10124,21 +10123,20 @@ struct XdlopsGemmV2RewritePattern
 
       // Original C++ logic.
       // static_if<!IsKReduction>{}([&](auto) {
-      //     for(index_t m_i = 0; m_i < MRepeats; ++m_i)
-      //         for(index_t k_i      = 0; k_i < K; ++k_i)
-      //             a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops *
-      //             m_i];
+      //   for(index_t m_i = 0; m_i < MRepeats; ++m_i)
+      //     for(index_t k_i      = 0; k_i < K; ++k_i)
+      //       a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
       // p_a_wave need to be offseted by waveOffsetA.
 
       auto outerLoopM = b.create<AffineForOp>(loc, 0, MRepeats);
       auto olmb = OpBuilder::atBlockTerminator(outerLoopM.getBody());
       auto olmiv = outerLoopM.getInductionVar();
-      auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, K);
+      // FIXME: XXX review this line.
+      auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, K / k_base);
       auto ilmkb = OpBuilder::atBlockTerminator(innerLoopMK.getBody());
       auto ilmkiv = innerLoopMK.getInductionVar();
 
-      //             a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops *
-      //             m_i];
+      //       a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
       // p_a_wave need to be offseted by waveOffsetA.
       Value sourceOffsetBeforeTransformA = ilmkb.create<AddIOp>(
           loc, op.waveOffsetA(),
@@ -10161,28 +10159,31 @@ struct XdlopsGemmV2RewritePattern
       auto destOffsetA = ilmkb.create<AddIOp>(
           loc, ilmkiv, ilmkb.create<MulIOp>(loc, olmiv, KConstantOp));
 
-      auto valueA =
-          ilmkb.create<LoadOp>(loc, dataType, op.matrixA(), sourceOffsetA);
+      Value valueA;
+      if (KPack > 1) {
+        valueA = emitLoadLogic(ilmkb, loc, op.matrixA().getType().template cast<MemRefType>(), argType, false, {}, op.matrixA(), ValueRange{sourceOffsetA});
+      } else {
+        valueA = ilmkb.create<LoadOp>(loc, dataType, op.matrixA(), sourceOffsetA);
+      }
       ilmkb.create<StoreOp>(loc, valueA, op.bufferA(), ValueRange{destOffsetA});
 
       // store bufferB logic.
 
       // Original C++ logic.
-      //     for(index_t n_i = 0; n_i < NRepeats; ++n_i)
-      //         for(index_t k_i      = 0; k_i < K; ++k_i)
-      //             b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops *
-      //             n_i];
+      //   for(index_t n_i = 0; n_i < NRepeats; ++n_i)
+      //     for(index_t k_i      = 0; k_i < K; ++k_i)
+      //       b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops * n_i];
       // p_b_wave need to be offseted by waveOffsetB.
 
       auto outerLoopN = b.create<AffineForOp>(loc, 0, NRepeats);
       auto olnb = OpBuilder::atBlockTerminator(outerLoopN.getBody());
       auto olniv = outerLoopN.getInductionVar();
-      auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, K);
+      // FIXME: XXX review this line.
+      auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, K / k_base);
       auto ilnkb = OpBuilder::atBlockTerminator(innerLoopNK.getBody());
       auto ilnkiv = innerLoopNK.getInductionVar();
 
-      //             b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops *
-      //             n_i];
+      //       b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops * n_i];
       // p_b_wave need to be offseted by waveOffsetB.
       Value sourceOffsetBeforeTransformB = ilnkb.create<AddIOp>(
           loc, op.waveOffsetB(),
@@ -10205,8 +10206,12 @@ struct XdlopsGemmV2RewritePattern
       auto destOffsetB = ilnkb.create<AddIOp>(
           loc, ilnkiv, ilnkb.create<MulIOp>(loc, olniv, KConstantOp));
 
-      auto valueB =
-          ilnkb.create<LoadOp>(loc, dataType, op.matrixB(), sourceOffsetB);
+      Value valueB;
+      if (KPack > 1) {
+        valueB = emitLoadLogic(ilnkb, loc, op.matrixB().getType().template cast<MemRefType>(), argType, false, {}, op.matrixB(), ValueRange{sourceOffsetB});
+      } else {
+        valueB = ilnkb.create<LoadOp>(loc, dataType, op.matrixB(), sourceOffsetB);
+      }
       ilnkb.create<StoreOp>(loc, valueB, op.bufferB(), ValueRange{destOffsetB});
 
       // Original C++ logic.
@@ -10224,25 +10229,12 @@ struct XdlopsGemmV2RewritePattern
       // increased by one, increase by k_base. Mathmetically they are
       // equivalent.
       auto loopK =
-          b.create<AffineForOp>(loc, 0, K * KRepeats, k_base, op.vectorCs());
+          b.create<AffineForOp>(loc, 0, (K * KRepeats) / k_base, 1, op.vectorCs());
       auto loopKb = OpBuilder::atBlockBegin(loopK.getBody());
       auto loopKiv = loopK.getInductionVar();
 
-      Value argA, argB;
-      if (dataType == b.getF32Type()) {
-        argA = loopKb.create<LoadOp>(loc, dataType, op.bufferA(),
-                                     ValueRange{loopKiv});
-        argB = loopKb.create<LoadOp>(loc, dataType, op.bufferB(),
-                                     ValueRange{loopKiv});
-      } else if (dataType == b.getF16Type() ||
-                 dataType == b.getIntegerType(16)) {
-        argA = loopKb.create<vector::TransferReadOp>(
-            loc, argType.template cast<VectorType>(), op.bufferA(),
-            ValueRange{loopKiv});
-        argB = loopKb.create<vector::TransferReadOp>(
-            loc, argType.template cast<VectorType>(), op.bufferB(),
-            ValueRange{loopKiv});
-      }
+      Value argA = loopKb.create<LoadOp>(loc, argType, op.bufferA(), ValueRange{loopKiv});
+      Value argB = loopKb.create<LoadOp>(loc, argType, op.bufferB(), ValueRange{loopKiv});
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
@@ -10319,8 +10311,12 @@ struct XdlopsGemmV2RewritePattern
       else
         sourceOffsetA.push_back(sourceOffsetBeforeTransformA);
 
-      auto valueA = lklb.create<LoadOp>(loc, dataType, op.matrixA(),
-                                        ValueRange{sourceOffsetA});
+      Value valueA;
+      if (KPack > 1) {
+        valueA = emitLoadLogic(lklb, loc, op.matrixA().getType().template cast<MemRefType>(), argType, false, {}, op.matrixA(), ValueRange{sourceOffsetA});
+      } else {
+        valueA = lklb.create<LoadOp>(loc, dataType, op.matrixA(), ValueRange{sourceOffsetA});
+      }
       lklb.create<StoreOp>(loc, valueA, op.bufferA(), ValueRange{lkliv});
 
       // NOTICE: We times k_i by num_input_blks in MLIR path.
@@ -10347,8 +10343,12 @@ struct XdlopsGemmV2RewritePattern
       else
         sourceOffsetB.push_back(sourceOffsetBeforeTransformB);
 
-      auto valueB = lklb.create<LoadOp>(loc, dataType, op.matrixB(),
-                                        ValueRange{sourceOffsetB});
+      Value valueB;
+      if (KPack > 1) {
+        valueB = emitLoadLogic(lklb, loc, op.matrixB().getType().template cast<MemRefType>(), argType, false, {}, op.matrixB(), ValueRange{sourceOffsetB});
+      } else {
+        valueB = lklb.create<LoadOp>(loc, dataType, op.matrixB(), ValueRange{sourceOffsetB});
+      }
       lklb.create<StoreOp>(loc, valueB, op.bufferB(), ValueRange{lkliv});
 
       // Original C++ logic.
@@ -10382,21 +10382,8 @@ struct XdlopsGemmV2RewritePattern
               innerLoopiv),
           KBaseConstantOp);
 
-      Value argA, argB;
-      if (dataType == b.getF32Type()) {
-        argA = innerLoopb.create<LoadOp>(loc, dataType, op.bufferA(),
-                                         ValueRange{offset});
-        argB = innerLoopb.create<LoadOp>(loc, dataType, op.bufferB(),
-                                         ValueRange{offset});
-      } else if (dataType == b.getF16Type() ||
-                 dataType == b.getIntegerType(16)) {
-        argA = innerLoopb.create<vector::TransferReadOp>(
-            loc, argType.template cast<VectorType>(), op.bufferA(),
-            ValueRange{offset});
-        argB = innerLoopb.create<vector::TransferReadOp>(
-            loc, argType.template cast<VectorType>(), op.bufferB(),
-            ValueRange{offset});
-      }
+      Value argA = innerLoopb.create<LoadOp>(loc, argType, op.bufferA(), ValueRange{offset});
+      Value argB = innerLoopb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
