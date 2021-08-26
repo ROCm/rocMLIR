@@ -175,12 +175,14 @@ int main(int argc, char **argv) {
   registerAllPasses();
   mlir::registerMIOpenConversionPasses();
   miopen::registerPasses();
+  migraphx::registerPasses();
 #ifdef MLIR_INCLUDE_TESTS
   registerTestPasses();
 #endif
   DialectRegistry registry;
   registerAllDialects(registry);
   registry.insert<miopen::MIOpenDialect>();
+  registry.insert<migraphx::MIGraphXDialect>();
 #ifdef MLIR_INCLUDE_TESTS
   test::registerTestDialect(registry);
 #endif
