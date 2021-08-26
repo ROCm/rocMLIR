@@ -1,3 +1,5 @@
+// RUN: mlir-opt %s | FileCheck %s
+
 module {
   func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
     %0 = "migraphx.constant"(){shape = [64:i32, 3:i32, 7:i32, 7:i32], type = f32}: () -> tensor<64x3x7x7xf32>
