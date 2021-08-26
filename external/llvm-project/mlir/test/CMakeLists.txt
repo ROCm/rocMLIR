@@ -1,5 +1,4 @@
 add_subdirectory(Bindings)
-add_subdirectory(CAPI)
 add_subdirectory(EDSC)
 add_subdirectory(SDBM)
 add_subdirectory(lib)
