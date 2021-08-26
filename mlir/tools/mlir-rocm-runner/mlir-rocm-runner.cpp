@@ -87,9 +87,11 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
 int main(int argc, char **argv) {
   registerPassManagerCLOptions();
   llvm::InitLLVM y(argc, argv);
+  llvm::InitializeAllTargets();
   llvm::InitializeAllTargetInfos();
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllAsmParsers();
+  llvm::InitializeAllAsmPrinters();
 
   // Initialize LLVM AMDGPU backend.
   LLVMInitializeAMDGPUTarget();
