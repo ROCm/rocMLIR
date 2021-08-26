@@ -13,6 +13,7 @@
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/MLIRContext.h"
@@ -175,7 +176,6 @@ int main(int argc, char **argv) {
   registerAllPasses();
   mlir::registerMIOpenConversionPasses();
   miopen::registerPasses();
-  migraphx::registerPasses();
 #ifdef MLIR_INCLUDE_TESTS
   registerTestPasses();
 #endif
