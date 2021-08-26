@@ -13,6 +13,7 @@
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/MLIRContext.h"
@@ -181,6 +182,7 @@ int main(int argc, char **argv) {
   DialectRegistry registry;
   registerAllDialects(registry);
   registry.insert<miopen::MIOpenDialect>();
+  registry.insert<migraphx::MIGraphXDialect>();
 #ifdef MLIR_INCLUDE_TESTS
   test::registerTestDialect(registry);
 #endif
