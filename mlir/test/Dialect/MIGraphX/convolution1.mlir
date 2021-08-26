@@ -14,3 +14,13 @@ module {
     return %8 : tensor<1x64x112x112xf32>
   }
 }
+// CHECK-LABEL: func @main
+// CHECK: migraphx.constant
+// CHECK-NEXT: migraphx.constant
+// CHECK-NEXT: migraphx.constant
+// CHECK-NEXT: migraphx.constant
+// CHECK-NEXT: migraphx.constant
+// CHECK-NEXT: migraphx.convolution
+// CHECK-NEXT: migraphx.batch_norm_inference
+// CHECK-NEXT: migraphx.relu
+// CHECK-NEXT: migraphx.pooling
