@@ -223,7 +223,8 @@ std::unique_ptr<llvm::Module> BackendUtils::compileModuleToROCDLIR(
   return llvmModule;
 }
 
-void BackendUtils::configTargetChip(std::string &targetChip, std::string &features) {
+void BackendUtils::configTargetChip(std::string &targetChip,
+                                    std::string &features) {
   // Locate rocm_agent_enumerator.
   llvm::ErrorOr<std::string> rocmAgentEnumerator = llvm::sys::findProgramByName(
       kRocmAgentEnumerator, {__ROCM_PATH__ "/bin"});
@@ -250,7 +251,7 @@ void BackendUtils::configTargetChip(std::string &targetChip, std::string &featur
 
   // Invoke rocm_agent_enumerator.
   std::string errorMessage;
-  SmallVector<StringRef, 2> args{"-t", "GPU"};
+  SmallVector<StringRef, 2> args{rocmAgentEnumerator.get(), "-name"};
   Optional<StringRef> redirects[3] = {{""}, tempFilename.str(), {""}};
 
   int result =
@@ -264,33 +265,6 @@ void BackendUtils::configTargetChip(std::string &targetChip, std::string &featur
   }
 
   // Load and parse the result.
-  auto gfxIsaList = mlir::openInputFile(tempFilename);
-  if (!gfxIsaList) {
-    llvm::WithColor::error(llvm::errs(), kRunnerProgram)
-        << "read ROCm agent list temp file error, set target as " << chip
-        << "\n";
-    return;
-  }
-  for (llvm::line_iterator lines(*gfxIsaList); !lines.is_at_end(); ++lines) {
-    // Skip the line with content "gfx000".
-    if (*lines == "gfx000")
-      continue;
-    // Use the first ISA version found.
-    targetChip = lines->str();
-    break;
-  }
-
-  // Invoke rocm_agent_enumerator to get arch name
-  args = {rocmAgentEnumerator.get(), "-name"};
-  result =
-      llvm::sys::ExecuteAndWait(rocmAgentEnumerator.get(), args, llvm::None,
-                                redirects, 0, 0, &errorMessage);
-  if  (result) {
-    llvm::WithColor::warning(llvm::errs(), kRunnerProgram)
-        << kRocmAgentEnumerator << " invocation error: " << errorMessage
-        << ", set features as " << chip << "\n";
-    return;
-  }
   auto gfxArchList = mlir::openInputFile(tempFilename);
   if (!gfxArchList) {
     llvm::WithColor::error(llvm::errs(), kRunnerProgram)
@@ -304,8 +278,7 @@ void BackendUtils::configTargetChip(std::string &targetChip, std::string &featur
     gcnArchName = lines->str();
     break;
   }
-  std::string chip;
-  auto status = IsaNameParser::parseArchName(gcnArchName, chip, features);
+  auto status = IsaNameParser::parseArchName(gcnArchName, targetChip, features);
   if (status.failed()) {
     llvm_unreachable("ArchName parsing failed.");
   }
