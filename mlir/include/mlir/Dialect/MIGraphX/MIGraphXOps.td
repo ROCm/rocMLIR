@@ -129,7 +129,7 @@ def MIGraphX_ConvolutionOp :
                    I64ArrayAttr:$stride,
                    I64ArrayAttr:$dilation,
                    I64Attr:$group,
-                   PaddingModeAttr:$padding_mode
+                   OptionalAttr<PaddingModeAttr>:$padding_mode
                    )>,
 	  Results<(outs AnyRankedTensor:$output)> {	  
   let summary = "convolution forward";
