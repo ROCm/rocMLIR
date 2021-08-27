@@ -37,11 +37,17 @@
 // lld headers.
 #include "lld/Common/Driver.h"
 
+// If an old rocm_agent_enumerator that has no "-name" option is used, rely on
+// the hip runtime function to provide GPU GCN Arch names.
+#define USE_OLD_ROCMINFO_RELEASE false
+
+#if USE_OLD_ROCMINFO_RELEASE
 // TODO: remove this once the rocm_agent_enumerator is ready
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #include "hip/hip_runtime.h"
 #pragma GCC diagnostic pop
+#endif
 
 #include <mutex>
 #include <numeric>
@@ -51,6 +57,24 @@ using namespace mlir;
 static constexpr const char kRunnerProgram[] = "mlir-rocm-runner";
 static constexpr const char kRocmAgentEnumerator[] = "rocm_agent_enumerator";
 static constexpr const char kTargetTriple[] = "amdgcn-amd-amdhsa";
+
+#if USE_OLD_ROCMINFO_RELEASE
+namespace {
+// TODO: remove this once the rocm_agent_enumerator is ready
+void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
+  hipDeviceProp_t props;
+  hipError_t result = hipGetDeviceProperties(&props, device);
+  if (result != hipSuccess) {
+    gcnArchName = "";
+    llvm_unreachable("hipGetDeviceProperties() should never fail");
+    return;
+  }
+
+  const char *pArchName = props.gcnArchName;
+  gcnArchName.assign(pArchName);
+}
+} // namespace
+#endif
 
 BackendUtils::BackendUtils(const std::string &defaultTriple,
                            const std::string &defaultChip,
@@ -251,7 +275,12 @@ void BackendUtils::configTargetChip(std::string &targetChip,
 
   // Invoke rocm_agent_enumerator.
   std::string errorMessage;
+#if USE_OLD_ROCMINFO_RELEASE
+  SmallVector<StringRef, 1> args{rocmAgentEnumerator.get()};
+#else
   SmallVector<StringRef, 2> args{rocmAgentEnumerator.get(), "-name"};
+#endif
+
   Optional<StringRef> redirects[3] = {{""}, tempFilename.str(), {""}};
 
   int result =
@@ -272,6 +301,23 @@ void BackendUtils::configTargetChip(std::string &targetChip,
         << "\n";
     return;
   }
+#if USE_OLD_ROCMINFO_RELEASE
+  for (llvm::line_iterator lines(*gfxArchList); !lines.is_at_end(); ++lines) {
+    // Skip the line with content "gfx000".
+    if (*lines == "gfx000")
+      continue;
+    // Use the first ISA version found.
+    targetChip = lines->str();
+    break;
+  }
+  std::string gcnArchName;
+  getGpuGCNArchName(0, gcnArchName);
+  std::string chip;
+  auto status = IsaNameParser::parseArchName(gcnArchName, chip, features);
+  if (status.failed()) {
+    llvm_unreachable("HIP ArchName parsing should never fail.");
+  }
+#else
   std::string gcnArchName;
   for (llvm::line_iterator lines(*gfxArchList); !lines.is_at_end(); ++lines) {
     // Use the first Arch name found.
@@ -282,4 +328,5 @@ void BackendUtils::configTargetChip(std::string &targetChip,
   if (status.failed()) {
     llvm_unreachable("ArchName parsing failed.");
   }
+#endif
 }
