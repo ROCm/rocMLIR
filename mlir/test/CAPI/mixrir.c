@@ -226,6 +226,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 //  }
 //}
 
+// CHECK-LABEL: func @main
   return moduleOp;
 }
 
