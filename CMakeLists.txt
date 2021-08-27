@@ -37,6 +37,7 @@ set(MLIR_ENABLE_SQLITE "${MLIR_MIOPEN_SQLITE_ENABLED}")
 set(LLVM_ENABLE_ZLIB "OFF" CACHE STRING "")
 set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
 
+set(USE_ROCM_4_4_OR_OLDER 0 CACHE BOOL "Use the rocm_4.4 or older release")
 # LLVM settings that have an effect on the MLIR dialect
 set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
 

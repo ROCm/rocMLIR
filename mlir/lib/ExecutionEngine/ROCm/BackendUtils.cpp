@@ -39,10 +39,7 @@
 
 // If an old rocm_agent_enumerator that has no "-name" option is used, rely on
 // the hip runtime function to provide GPU GCN Arch names.
-#define USE_OLD_ROCMINFO_RELEASE false
-
-#if USE_OLD_ROCMINFO_RELEASE
-// TODO: remove this once the rocm_agent_enumerator is ready
+#if ROCM_4_4_OR_OLDER
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #include "hip/hip_runtime.h"
@@ -58,9 +55,8 @@ static constexpr const char kRunnerProgram[] = "mlir-rocm-runner";
 static constexpr const char kRocmAgentEnumerator[] = "rocm_agent_enumerator";
 static constexpr const char kTargetTriple[] = "amdgcn-amd-amdhsa";
 
-#if USE_OLD_ROCMINFO_RELEASE
+#if ROCM_4_4_OR_OLDER
 namespace {
-// TODO: remove this once the rocm_agent_enumerator is ready
 void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
   hipDeviceProp_t props;
   hipError_t result = hipGetDeviceProperties(&props, device);
@@ -83,7 +79,7 @@ BackendUtils::BackendUtils(const std::string &defaultTriple,
     : triple(defaultTriple), chip(defaultChip), features(defaultFeatures) {
   if (systemOverride) {
     triple = kTargetTriple;
-    configTargetChip(chip, features);
+    configTarget(chip, features);
   }
 }
 
@@ -247,8 +243,8 @@ std::unique_ptr<llvm::Module> BackendUtils::compileModuleToROCDLIR(
   return llvmModule;
 }
 
-void BackendUtils::configTargetChip(std::string &targetChip,
-                                    std::string &features) {
+void BackendUtils::configTarget(std::string &targetChip,
+                                std::string &features) {
   // Locate rocm_agent_enumerator.
   llvm::ErrorOr<std::string> rocmAgentEnumerator = llvm::sys::findProgramByName(
       kRocmAgentEnumerator, {__ROCM_PATH__ "/bin"});
@@ -275,14 +271,13 @@ void BackendUtils::configTargetChip(std::string &targetChip,
 
   // Invoke rocm_agent_enumerator.
   std::string errorMessage;
-#if USE_OLD_ROCMINFO_RELEASE
+#if ROCM_4_4_OR_OLDER
   SmallVector<StringRef, 1> args{rocmAgentEnumerator.get()};
 #else
   SmallVector<StringRef, 2> args{rocmAgentEnumerator.get(), "-name"};
 #endif
 
   Optional<StringRef> redirects[3] = {{""}, tempFilename.str(), {""}};
-
   int result =
       llvm::sys::ExecuteAndWait(rocmAgentEnumerator.get(), args, llvm::None,
                                 redirects, 0, 0, &errorMessage);
@@ -290,6 +285,11 @@ void BackendUtils::configTargetChip(std::string &targetChip,
     llvm::WithColor::warning(llvm::errs(), kRunnerProgram)
         << kRocmAgentEnumerator << " invocation error: " << errorMessage
         << ", set target as " << chip << "\n";
+#if ROCM_4_4_OR_OLDER
+    llvm::WithColor::warning(llvm::errs(), kRunnerProgram)
+        << "suggest to use a newer ROCm release and compile with "
+           "-DUSE_ROCM_4_4_OR_OLDER=0\n";
+#endif
     return;
   }
 
@@ -301,7 +301,7 @@ void BackendUtils::configTargetChip(std::string &targetChip,
         << "\n";
     return;
   }
-#if USE_OLD_ROCMINFO_RELEASE
+#if ROCM_4_4_OR_OLDER
   for (llvm::line_iterator lines(*gfxArchList); !lines.is_at_end(); ++lines) {
     // Skip the line with content "gfx000".
     if (*lines == "gfx000")
