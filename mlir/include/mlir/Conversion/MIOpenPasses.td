@@ -83,3 +83,21 @@ def GPUToMIGraphX : Pass<"gpu-to-migraphx", "::mlir::FuncOp"> {
 }
 
 #endif // MIOPEN_MLIR_CONVERSION_PASSES
+// GPUToMIGraphX
+//===----------------------------------------------------------------------===//
+
+def GPUToMIGraphX : FunctionPass<"gpu-to-migraphx"> {
+  let summary = "Lower fused gpu launch to MIGraphX code object";
+  let description = [{
+    Pass that converts func operations with gpu.launch to MIGraphX operation.
+  }];
+
+  let constructor = "migraphx::createGPUToMIGraphX()";
+  let dependentDialects = [
+    "migraphx::MIGraphXDialect",
+    "StandardOpsDialect",
+    "gpu::GPUDialect"
+  ];
+}
+
+#endif // MIOPEN_MLIR_CONVERSION_PASSES
