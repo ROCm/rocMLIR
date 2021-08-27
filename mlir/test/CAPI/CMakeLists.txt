@@ -1,30 +1,17 @@
 set(LLVM_OPTIONAL_SOURCES
-  ir.c
-  pass.c
+  mixrir.c
 )
 
 set(LLVM_LINK_COMPONENTS
   )
 
-add_llvm_executable(mlir-capi-ir-test
-  ir.c
+add_llvm_executable(mlir-mixr-capi-test
+  mixrir.c
   )
-llvm_update_compile_flags(mlir-capi-ir-test)
+llvm_update_compile_flags(mlir-mixr-capi-test)
 
 get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
-target_link_libraries(mlir-capi-ir-test
-  PRIVATE
-  MLIRPublicAPI
-  )
-
-
-add_llvm_executable(mlir-capi-pass-test
-  pass.c
-  )
-llvm_update_compile_flags(mlir-capi-pass-test)
-
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
-target_link_libraries(mlir-capi-pass-test
+target_link_libraries(mlir-mixr-capi-test
   PRIVATE
   MLIRPublicAPI
   )
