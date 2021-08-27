@@ -229,6 +229,21 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   return moduleOp;
 }
 
+static int constructAndTraverseIr(MlirContext ctx) {
+  MlirLocation location1 = mlirLocationUnknownGet(ctx);
+
+  MlirModule moduleOp1 = makeAndDumpMIXR(ctx, location1);
+  MlirOperation module1 = mlirModuleGetOperation(moduleOp1);
+
+  int errcode1 = collectStats(module1);
+  if (errcode1)
+    return errcode1;
+
+  mlirModuleDestroy(moduleOp1);
+
+  return 0;
+}
+
 int main() {
   MlirContext ctx = mlirContextCreate();
   mlirRegisterAllDialects(ctx);
