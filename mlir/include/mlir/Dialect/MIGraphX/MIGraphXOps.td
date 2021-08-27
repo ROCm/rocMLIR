@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 // Defines MLIR MIGraphX operations.
+// https://rocmsoftwareplatform.github.io/AMDMIGraphX/doc/html/dev/operators.html
 //
 //===----------------------------------------------------------------------===//
 
