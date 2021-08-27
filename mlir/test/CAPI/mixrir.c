@@ -7,8 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-/* RUN: mlir-mixr-capi-test 2>&1 | FileCheck %s
- */
 
 #include "mlir-c/IR.h"
 #include "mlir-c/BuiltinAttributes.h"
@@ -226,7 +224,6 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 //  }
 //}
 
-// CHECK-LABEL: func @main
   return moduleOp;
 }
 
