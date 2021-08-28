@@ -7,7 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-
+/* RUN: mlir-mixr-capi-test 2>&1 | FileCheck %s
+ *  */
 #include "mlir-c/IR.h"
 #include "mlir-c/BuiltinAttributes.h"
 #include "mlir-c/BuiltinTypes.h"
@@ -212,6 +213,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   MlirOperation module = mlirModuleGetOperation(moduleOp);
   mlirOperationDump(module);
+// CHECK-LABEL: func @main
 
 //module  {
 //  func @main(%arg0: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32> {
