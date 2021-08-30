@@ -3525,10 +3525,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // if isSupportPaddingKernel  ,don't do padding kernel teansformation
     if (isXdlops) {
       if (cIndex ==
-          4) // nhwc only support gemmN pad =0 padding, disable nhwc now
+          4 && (strideH > 1 || strideW > 1)) // nhwc only support gemmN pad =0 padding, disable nhwc now
         isSupportPaddingKernel = false;
       // nchw can't support stride 2 pad 1
-      if (strideH > 1 && strideW > 1 &&
+      if ((strideH > 1 || strideW > 1) &&
           (leftPadH > 0 || leftPadW > 0 || rightPadH > 0 || rightPadW > 0)) {
         isSupportPaddingKernel = false;
       }
