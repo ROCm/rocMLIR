@@ -17,6 +17,11 @@ endif()
 # lld header files.
 include_directories(${CMAKE_SOURCE_DIR}/external/llvm-project/lld/include)
 
+# Set compile-time flags for ROCm path.
+add_definitions(-D__ROCM_PATH__="${ROCM_PATH}")
+
+add_definitions(-D__USE_ROCM_4_4_OR_OLDER__=${USE_ROCM_4_4_OR_OLDER})
+
 set(HIP_PATH "${ROCM_PATH}/hip" CACHE PATH " Path to which HIP has been installed")
 set(CMAKE_MODULE_PATH "${HIP_PATH}/cmake" ${CMAKE_MODULE_PATH})
 find_package(HIP)
@@ -25,9 +30,6 @@ if (NOT HIP_FOUND)
 else()
   message(STATUS "ROCm HIP version: ${HIP_VERSION}")
 endif()
-
-# Set compile-time flags for ROCm path.
-add_definitions(-D__ROCM_PATH__="${ROCM_PATH}")
 
 # Locate HIP runtime library.
 find_library(ROCM_RUNTIME_LIBRARY amdhip64
@@ -44,6 +46,7 @@ add_definitions(-D__HIP_PLATFORM_HCC__)
 add_llvm_library(rocm-runtime-wrappers SHARED
   rocm-runtime-wrappers.cpp
 )
+
 target_include_directories(rocm-runtime-wrappers
   PRIVATE
   "${HIP_PATH}/../include"
@@ -94,9 +97,11 @@ add_llvm_library(LLVMROCmBackendUtils
   )
 
 llvm_update_compile_flags(LLVMROCmBackendUtils)
-target_include_directories(LLVMROCmBackendUtils
-  PRIVATE
-  "${HIP_PATH}/../include"
-  "${HIP_PATH}/include"
-)
+if (USE_ROCM_4_4_OR_OLDER)
+  target_include_directories(LLVMROCmBackendUtils
+    PRIVATE
+    "${HIP_PATH}/../include"
+    "${HIP_PATH}/include"
+  )
+endif()
 target_link_libraries(LLVMROCmBackendUtils PRIVATE ${LIBS} ${targets_to_link})
