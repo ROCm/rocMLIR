@@ -39,7 +39,7 @@
 
 // If an old rocm_agent_enumerator that has no "-name" option is used, rely on
 // the hip runtime function to provide GPU GCN Arch names.
-#if ROCM_4_4_OR_OLDER
+#if __USE_ROCM_4_4_OR_OLDER__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #include "hip/hip_runtime.h"
@@ -55,7 +55,7 @@ static constexpr const char kRunnerProgram[] = "mlir-rocm-runner";
 static constexpr const char kRocmAgentEnumerator[] = "rocm_agent_enumerator";
 static constexpr const char kTargetTriple[] = "amdgcn-amd-amdhsa";
 
-#if ROCM_4_4_OR_OLDER
+#if __USE_ROCM_4_4_OR_OLDER__
 namespace {
 void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
   hipDeviceProp_t props;
@@ -271,7 +271,7 @@ void BackendUtils::configTarget(std::string &targetChip,
 
   // Invoke rocm_agent_enumerator.
   std::string errorMessage;
-#if ROCM_4_4_OR_OLDER
+#if __USE_ROCM_4_4_OR_OLDER__
   SmallVector<StringRef, 1> args{rocmAgentEnumerator.get()};
 #else
   SmallVector<StringRef, 2> args{rocmAgentEnumerator.get(), "-name"};
@@ -285,7 +285,7 @@ void BackendUtils::configTarget(std::string &targetChip,
     llvm::WithColor::warning(llvm::errs(), kRunnerProgram)
         << kRocmAgentEnumerator << " invocation error: " << errorMessage
         << ", set target as " << chip << "\n";
-#if ROCM_4_4_OR_OLDER
+#if __USE_ROCM_4_4_OR_OLDER__
     llvm::WithColor::warning(llvm::errs(), kRunnerProgram)
         << "suggest to use a newer ROCm release and compile with "
            "-DUSE_ROCM_4_4_OR_OLDER=0\n";
@@ -301,7 +301,7 @@ void BackendUtils::configTarget(std::string &targetChip,
         << "\n";
     return;
   }
-#if ROCM_4_4_OR_OLDER
+#if __USE_ROCM_4_4_OR_OLDER__
   for (llvm::line_iterator lines(*gfxArchList); !lines.is_at_end(); ++lines) {
     // Skip the line with content "gfx000".
     if (*lines == "gfx000")
