@@ -549,7 +549,7 @@ inline void emitStoreLogic(
     } else if (bwdPaddingStatus ==
                BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW) {
       elseBuilder.create<scf::YieldOp>(
-          loc, ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
+          loc, ValueRange{oobAddrOp, destLowerIndices[0], destLowerIndices[1],
                           destLowerIndices[2], zeroConstantOp, zeroConstantOp});
     } else if (bwdPaddingStatus ==
                BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNCHW) {
@@ -4952,8 +4952,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
 
   BwdPaddingKernelStatus status =
       BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
-  if ((strideH > 1 && strideW > 1) && algorithm_name == "backward_data_v4r1") {
-
+  if (strideH > 1 && strideW > 1 && algorithm_name == "backward_data_v4r1") {
     status = BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC;
     auto inputLayoutAttr =
         gop->template getAttrOfType<ArrayAttr>("input_layout");
@@ -4961,7 +4960,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
     for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
       auto inputAttr =
           inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      if (inputAttr.getValue() == "c") {
+      if (inputAttr.getValue() == "ci") {
         if (i == 2) // gnchw
           status = BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW;
       }
