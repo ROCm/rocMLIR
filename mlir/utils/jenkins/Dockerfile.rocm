@@ -77,10 +77,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN wget --no-check-certificate -qO - http://repo.radeon.com/rocm/rocm.gpg.key 2>/dev/null | apt-key add -
 RUN echo "deb [arch=amd64] $ROCM_DEB_REPO $ROCM_BUILD_NAME $ROCM_BUILD_NUM" > /etc/apt/sources.list.d/rocm.list
 
-# Install latest cmake
+# Install cmake distribution
 RUN wget --no-check-certificate -qO - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | apt-key add -
 RUN apt-add-repository 'deb https://apt.kitware.com/ubuntu/ bionic main'
 
+# Note instead of installing the latest, we should always manually bump cmake version when necessary.
+# This make sure that we don't accidentally use newer cmake features incompatible with our client.
 RUN apt-get update && apt-get install -y --no-install-recommends \
   rocm-dev \
   rocminfo \
@@ -91,7 +93,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   vim \
   kmod \
   file \
-  cmake \
+  cmake-data=3.15.1-0kitware1 \
+  cmake=3.15.1-0kitware1 \
   libsqlite3-dev \
   parallel \
   python3-venv  && \
