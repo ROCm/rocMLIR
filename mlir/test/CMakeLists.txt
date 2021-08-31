@@ -1,3 +1,5 @@
+add_subdirectory(CAPI)
+
 llvm_canonicalize_cmake_booleans(
   MLIR_BINDINGS_PYTHON_ENABLED
   LLVM_BUILD_EXAMPLES
@@ -63,6 +65,7 @@ set(MLIR_TEST_DEPENDS
   FileCheck count not
   mlir-miopen-opt
   mlir-miopen-translate
+  mlir-mixr-capi-test
   mlir-opt
   mlir-reduce
   mlir-translate
