@@ -96,8 +96,9 @@ function create_configs() {
         if [[ $line == \#* || $line == "" ]]; then
             continue
         fi
-        echo "\"$DRIVER\"" "${FIXED_CONFIG_ARGS[@]}" "$line" >>"$TMPFILE"
+        echo "$DRIVER" "${FIXED_CONFIG_ARGS[@]}" "$line" >>"$TMPFILE"
     done
+    cat "$TMPFILE"
 }
 
 function clean_miopen_caches() {
@@ -133,7 +134,13 @@ function run_tests() {
     clean_miopen_caches
 
     local exit_status
-    parallel <"$TMPFILE"
+    # The extra bash -c accounts for parallel trying to pass each line as one
+    # command-line argument
+    # The 'awk' invocation prints all lines of output while ensuring indicators of
+    # success are present
+    parallel bash -c {} '|' awk \
+    "'BEGIN { status=2 } /Verifies OK/ { status=status-1 } /ConvMlirIgemm/ { status=status-1 } 1; END { exit(status) }'" \
+    <"$TMPFILE"
     exit_status=$?
 
     rm "$TMPFILE"
