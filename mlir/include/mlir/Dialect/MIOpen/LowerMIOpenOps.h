@@ -9435,10 +9435,10 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
       xdlopsGemmV2Op0->setAttr("k", op->getAttr("k"));
-      // TBD. hard-coded as 64 for now.
+      // Hard-coded m_per_wave/n_per_wave as 64 when MRepeat>1 or NRepeat>1.
+      // So each xdlops_gemm_v2 handles a 64x64 GEMM.
       xdlopsGemmV2Op0->setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      // xdlopsGemmV2Op0->setAttr("m_per_wave", op->getAttr("m_per_wave"));
-      xdlopsGemmV2Op0->setAttr("n_per_wave", op->getAttr("n_per_wave"));
+      xdlopsGemmV2Op0->setAttr("n_per_wave", b.getI32IntegerAttr(64));
       xdlopsGemmV2Op0->setAttr("coord_transforms",
                                op->getAttr("coord_transforms"));
 
@@ -9456,10 +9456,10 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
       xdlopsGemmV2Op1->setAttr("k", op->getAttr("k"));
-      // TBD. hard-coded as 64 for now.
+      // Hard-coded m_per_wave/n_per_wave as 64 when MRepeat>1 or NRepeat>1.
+      // So each xdlops_gemm_v2 handles a 64x64 GEMM.
       xdlopsGemmV2Op1->setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      // xdlopsGemmV2Op1->setAttr("m_per_wave", op->getAttr("m_per_wave"));
-      xdlopsGemmV2Op1->setAttr("n_per_wave", op->getAttr("n_per_wave"));
+      xdlopsGemmV2Op1->setAttr("n_per_wave", b.getI32IntegerAttr(64));
       xdlopsGemmV2Op1->setAttr("coord_transforms",
                                op->getAttr("coord_transforms"));
 
@@ -9485,10 +9485,10 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
       xdlopsGemmV2Op0->setAttr("k", op->getAttr("k"));
-      // TBD. hard-coded as 64 for now.
+      // Hard-coded m_per_wave/n_per_wave as 64 when MRepeat>1 or NRepeat>1.
+      // So each xdlops_gemm_v2 handles a 64x64 GEMM.
       xdlopsGemmV2Op0->setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      // xdlopsGemmV2Op0->setAttr("m_per_wave", op->getAttr("m_per_wave"));
-      xdlopsGemmV2Op0->setAttr("n_per_wave", op->getAttr("n_per_wave"));
+      xdlopsGemmV2Op0->setAttr("n_per_wave", b.getI32IntegerAttr(64));
       xdlopsGemmV2Op0->setAttr("coord_transforms",
                                op->getAttr("coord_transforms"));
 
@@ -9506,10 +9506,10 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
       xdlopsGemmV2Op1->setAttr("k", op->getAttr("k"));
-      // TBD. hard-coded as 64 for now.
+      // Hard-coded m_per_wave/n_per_wave as 64 when MRepeat>1 or NRepeat>1.
+      // So each xdlops_gemm_v2 handles a 64x64 GEMM.
       xdlopsGemmV2Op1->setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      // xdlopsGemmV2Op1->setAttr("m_per_wave", op->getAttr("m_per_wave"));
-      xdlopsGemmV2Op1->setAttr("n_per_wave", op->getAttr("n_per_wave"));
+      xdlopsGemmV2Op1->setAttr("n_per_wave", b.getI32IntegerAttr(64));
       xdlopsGemmV2Op1->setAttr("coord_transforms",
                                op->getAttr("coord_transforms"));
 
