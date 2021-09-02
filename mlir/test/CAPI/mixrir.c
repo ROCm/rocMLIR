@@ -27,7 +27,7 @@
 MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirModule moduleOp = mlirModuleCreateEmpty(location);
   MlirBlock moduleBody = mlirModuleGetBody(moduleOp);
- 
+
   // Set func arguments
   int64_t inDims[] = {1, 64, 56, 56};
   MlirType inType = mlirRankedTensorTypeGet(4, inDims, mlirF32TypeGet(ctx));
@@ -41,7 +41,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   // Set func attributes
   MlirAttribute funcTypeAttr = mlirAttributeParseGet(
-      ctx, 
+      ctx,
       mlirStringRefCreateFromCString("(tensor<1x64x56x56xf32>) -> (tensor<1x64x56x56xf32>)"));
   MlirAttribute funcNameAttr = mlirAttributeParseGet(
       ctx,
@@ -86,7 +86,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
       mlirStringRefCreateFromCString("migraphx.constant"), location);
   mlirOperationStateAddResults(&filter0State, 1, &filter0Type);
   mlirOperationStateAddAttributes(&filter0State, 2, filter0Attrs);
-  
+
   MlirOperation filter0Op = mlirOperationCreate(&filter0State);
   mlirBlockAppendOwnedOperation(funcBody, filter0Op);
   MlirValue filter0Value = mlirOperationGetResult(filter0Op, 0);
@@ -163,7 +163,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
       mlirStringRefCreateFromCString("migraphx.constant"), location);
   mlirOperationStateAddResults(&bias0State, 1, &bias0Type);
   mlirOperationStateAddAttributes(&bias0State, 2, bias0Attrs);
-  
+
   MlirOperation bias0Op = mlirOperationCreate(&bias0State);
   mlirBlockAppendOwnedOperation(funcBody, bias0Op);
   MlirValue bias0Value = mlirOperationGetResult(bias0Op, 0);
@@ -180,7 +180,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
       mlirStringRefCreateFromCString("migraphx.add"), location);
   mlirOperationStateAddResults(&add0State, 1, &add0Type);
   mlirOperationStateAddOperands(&add0State, 2, add0Operands);
-  
+
   MlirOperation add0Op = mlirOperationCreate(&add0State);
   mlirBlockAppendOwnedOperation(funcBody, add0Op);
   MlirValue add0Value = mlirOperationGetResult(add0Op, 0);
@@ -233,7 +233,7 @@ static int constructAndTraverseIr(MlirContext ctx) {
   MlirLocation location1 = mlirLocationUnknownGet(ctx);
 
   MlirModule moduleOp1 = makeAndDumpMIXR(ctx, location1);
-  MlirOperation module1 = mlirModuleGetOperation(moduleOp1);
+  mlirModuleGetOperation(moduleOp1);
 
   mlirModuleDestroy(moduleOp1);
 
@@ -245,7 +245,7 @@ int main() {
   mlirRegisterAllDialects(ctx);
   if (constructAndTraverseIr(ctx))
     return 1;
-  
+
   mlirContextDestroy(ctx);
 
   return 0;
