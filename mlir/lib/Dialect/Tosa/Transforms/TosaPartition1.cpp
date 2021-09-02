@@ -187,34 +187,36 @@ bool isFunctionallyEquivalentTo(Operation *lhs, Operation *rhs) {
 
 void collapseIdenticalFunctions(ModuleOp module) {
   SmallVector<Operation *> opsSeen;
+  SmallVector<Operation *> opsToDelete;
   for (auto f : llvm::make_early_inc_range(module.getOps<FuncOp>())) {
-    bool erase = false;
-    for (Operation *o : opsSeen) {
-      if (isFunctionallyEquivalentTo(f, o)) {
-        CallOp callToF = nullptr;
-        module.walk([&] (CallOp call) {
-                      if (call.getCallee() == f.sym_name()) {
-                        callToF = call;
-                        return WalkResult::interrupt();
-                      }
-                      return WalkResult::advance();
-                    });
-        assert(callToF);
-        OpBuilder b(f);
-        b.setInsertionPoint(callToF);
-        ValueRange opnds(callToF.getOperands());
-        CallOp callToO = b.create<CallOp>(callToF.getLoc(), dyn_cast<FuncOp>(o), opnds);
-        callToF->replaceAllUsesWith(callToO);
-        callToF.erase();
-        erase = true;
-        break;
+    if (f->getRegions().size() == 1 && !f->getRegions()[0].empty()) {
+      bool erase = false;
+      for (Operation *o : opsSeen) {
+        if (isFunctionallyEquivalentTo(f, o)) {
+          CallOp callToF = nullptr;
+          module.walk([&] (CallOp call) {
+                        if (call.getCallee() == f.sym_name()) {
+                          callToF = call;
+                          return WalkResult::interrupt();
+                        }
+                        return WalkResult::advance();
+                      });
+          assert(callToF);
+          callToF.calleeAttr(FlatSymbolRefAttr::get(module->getContext(),
+                                                    dyn_cast<FuncOp>(o).sym_name()));
+          erase = true;
+          break;
+        }
+      }
+      if (erase) {
+        opsToDelete.push_back(f);
+      } else {
+        opsSeen.push_back(f);
       }
     }
-    if (erase) {
-      f.erase();
-    } else {
-      opsSeen.push_back(f);
-    }
+  }
+  for (auto &op : llvm::make_early_inc_range(opsToDelete)) {
+    op->erase();
   }
 }
 
@@ -349,7 +351,7 @@ public:
     }
 
     // Then get rid of outlined functions that duplicate each other.
-    collapseIdenticalFunctions(func->getParentOfType<ModuleOp>());
+//    collapseIdenticalFunctions(func->getParentOfType<ModuleOp>());
   }
 };
 
