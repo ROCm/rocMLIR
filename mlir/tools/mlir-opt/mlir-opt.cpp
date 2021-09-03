@@ -111,9 +111,7 @@ void registerTestPreparationPassWithAllowedMemrefResults();
 void registerTestRecursiveTypesPass();
 void registerTestSCFUtilsPass();
 void registerTestVectorConversions();
-void registerTosaPartition1Pass();
-void registerTosaPartition2Pass();
-void registerTosaPartition3Pass();
+void registerTosaPartitionPass();
 } // namespace test
 } // namespace mlir
 
@@ -200,7 +198,7 @@ void registerTestPasses() {
   test::registerTestRecursiveTypesPass();
   test::registerTestSCFUtilsPass();
   test::registerTestVectorConversions();
-  test::registerTosaPartition1Pass();
+  test::registerTosaPartitionPass();
 }
 #endif
 
