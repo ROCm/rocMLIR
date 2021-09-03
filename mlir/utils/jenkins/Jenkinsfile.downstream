@@ -20,7 +20,7 @@ pipeline {
         docker {
             image dockerImage()
             args dockerArgs()
-            label "$rocm && !single_gpu"
+            label "rocm && !single_gpu"
             alwaysPull true
         }
     }
