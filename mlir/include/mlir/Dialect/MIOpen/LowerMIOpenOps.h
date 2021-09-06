@@ -5101,7 +5101,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
   void computeLDSBlockSizes(miopen::GridwiseGemmOp op, int64_t &a_block_space,
                             int64_t &b_block_space,
-                            int64_t &block_space) const {
+                            int64_t &block_space, int64_t KPack = 1) const {
     int64_t ABlockCopyDstDataPerWrite_M =
         op->getAttr("matrix_a_dest_data_per_write_dim_m")
             .template cast<IntegerAttr>()
@@ -5143,7 +5143,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         max_lds_align *
         math::integer_divide_ceil<int64_t>(MPerBlock, max_lds_align);
     a_block_space = math::integer_least_multiple(KPerBlock * AlignedMPerBlock,
-                                                 max_lds_align);
+                                                 max_lds_align) * KPack;
 
     // B matrix in LDS memory, dst of blockwise copy
     //   be careful of LDS alignment
@@ -5154,7 +5154,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //    math::integer_least_multiple(b_k_n_block_desc.GetElementSpace(),
     //    max_lds_align);
     b_block_space = math::integer_least_multiple(KPerBlock * AlignedNPerBlock,
-                                                 max_lds_align);
+                                                 max_lds_align) * KPack;
 
     block_space = a_block_space + b_block_space;
 
@@ -5711,11 +5711,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
-    computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize);
+    computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize, KPack);
 
-    // llvm::errs() << "LDS block size:" << ldsBlockASize << " " <<
-    // ldsBlockBSize
-    //              << " " << ldsBlockSize << "\n";
+    //llvm::errs() << "LDS block size:" << ldsBlockASize << " " << ldsBlockBSize
+    //             << " " << ldsBlockSize << "\n";
 
     // Allocate LDS.
     auto ldsMemRefType =
@@ -6436,7 +6435,7 @@ struct GridwiseGemmV2RewritePattern
 
   void computeLDSBlockSizes(miopen::GridwiseGemmV2Op op, int64_t &a_block_space,
                             int64_t &b_block_space,
-                            int64_t &total_block_space) const {
+                            int64_t &total_block_space, int64_t KPack = 1) const {
     int64_t ABlockCopyDstDataPerWrite_M =
         op->getAttr("matrix_a_dest_data_per_write_dim_m")
             .template cast<IntegerAttr>()
@@ -6472,11 +6471,11 @@ struct GridwiseGemmV2RewritePattern
     // llvm::errs() << "AlignedNPerBlock : " << AlignedNPerBlock << "\n";
 
     a_block_space = math::integer_least_multiple(KPerBlock * AlignedMPerBlock,
-                                                 max_lds_align);
+                                                 max_lds_align) * KPack;
 
     // B matrix in LDS memory, dst of blockwise copy
     b_block_space = math::integer_least_multiple(KPerBlock * AlignedNPerBlock,
-                                                 max_lds_align);
+                                                 max_lds_align) * KPack;
 
     total_block_space = a_block_space + b_block_space;
 
@@ -7060,8 +7059,9 @@ struct GridwiseGemmV2RewritePattern
 
     // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
-    computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize);
+    computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize, KPack);
 
+    // llvm::errs() << "KPack: " << KPack << "\n";
     // llvm::errs() << "LDS block size:" << ldsBlockASize << " " << ldsBlockBSize
     //              << " " << ldsBlockSize << "\n";
 
