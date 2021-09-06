@@ -7382,10 +7382,10 @@ struct GridwiseGemmV2RewritePattern
                              : (KPerBlock / num_input_blks * NRepeats);
     Type arrayAType, arrayBType;
     if (KPack > 1) {
-      arrayAType = MemRefType::get({arrayASize / KPack},
+      arrayAType = MemRefType::get({arrayASize},
                                    VectorType::get({KPack}, dataType), {},
                                    gpu::GPUDialect::getPrivateAddressSpace());
-      arrayBType = MemRefType::get({arrayBSize / KPack},
+      arrayBType = MemRefType::get({arrayBSize},
                                    VectorType::get({KPack}, dataType), {},
                                    gpu::GPUDialect::getPrivateAddressSpace());
     } else {
