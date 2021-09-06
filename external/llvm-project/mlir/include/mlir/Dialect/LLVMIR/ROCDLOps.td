@@ -106,18 +106,11 @@ def ROCDL_BarrierOp : ROCDL_Op<"barrier"> {
 def ROCDL_LDSBarrierOp : ROCDL_Op<"lds_barrier"> {
   string llvmBuilder = [{
     llvm::LLVMContext &llvmContext = builder.getContext();
-    llvm::FunctionType *function_type = llvm::FunctionType::get(
-        llvm::Type::getVoidTy(llvmContext), // return type.
-        false);                             // no variadic arguments.
-    llvm::Value *inlineAsm = llvm::InlineAsm::get(
-        function_type,                       // FunctionType *Ty,
-        "s_waitcnt lgkmcnt(0) \n s_barrier", // const std::string &AsmString,
-        "",                                  // const std::string &Constraints,
-        true,                                // bool hasSideEffects,
-        false,                               // bool isAlignStack,
-        llvm::InlineAsm::AD_ATT              // AsmDialect asmDialect
-        );
-    builder.CreateCall(function_type, inlineAsm);
+    //    builder.CreateFence(llvm::AtomicOrdering::Release,
+    //                       llvmContext.getOrInsertSyncScopeID("workgroup"));
+    auto lgkm0 = llvm::ConstantInt::get(llvmContext, llvm::APInt(32, 49279, true)); // 49279 :i32
+    createIntrinsicCall(builder, llvm::Intrinsic::amdgcn_s_waitcnt, lgkm0);
+    createIntrinsicCall(builder, llvm::Intrinsic::amdgcn_s_barrier);
   }];
   let assemblyFormat = "attr-dict";
 }
