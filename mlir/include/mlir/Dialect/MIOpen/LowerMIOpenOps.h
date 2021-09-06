@@ -10381,10 +10381,8 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
       xdlopsGemmV2Op0->setAttr("k", op->getAttr("k"));
-      // TBD. hard-coded as 64 for now.
       xdlopsGemmV2Op0->setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      // xdlopsGemmV2Op0->setAttr("m_per_wave", op->getAttr("m_per_wave"));
-      xdlopsGemmV2Op0->setAttr("n_per_wave", op->getAttr("n_per_wave"));
+      xdlopsGemmV2Op0->setAttr("n_per_wave", b.getI32IntegerAttr(64));
       xdlopsGemmV2Op0->setAttr("coord_transforms",
                                op->getAttr("coord_transforms"));
       if (op->hasAttr("kpack"))
@@ -10404,10 +10402,8 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
       xdlopsGemmV2Op1->setAttr("k", op->getAttr("k"));
-      // TBD. hard-coded as 64 for now.
       xdlopsGemmV2Op1->setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      // xdlopsGemmV2Op1->setAttr("m_per_wave", op->getAttr("m_per_wave"));
-      xdlopsGemmV2Op1->setAttr("n_per_wave", op->getAttr("n_per_wave"));
+      xdlopsGemmV2Op1->setAttr("n_per_wave", b.getI32IntegerAttr(64));
       xdlopsGemmV2Op1->setAttr("coord_transforms",
                                op->getAttr("coord_transforms"));
       if (op->hasAttr("kpack"))
@@ -10435,10 +10431,8 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
       xdlopsGemmV2Op0->setAttr("k", op->getAttr("k"));
-      // TBD. hard-coded as 64 for now.
       xdlopsGemmV2Op0->setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      // xdlopsGemmV2Op0->setAttr("m_per_wave", op->getAttr("m_per_wave"));
-      xdlopsGemmV2Op0->setAttr("n_per_wave", op->getAttr("n_per_wave"));
+      xdlopsGemmV2Op0->setAttr("n_per_wave", b.getI32IntegerAttr(64));
       xdlopsGemmV2Op0->setAttr("coord_transforms",
                                op->getAttr("coord_transforms"));
       if (op->hasAttr("kpack"))
@@ -10458,10 +10452,8 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
       xdlopsGemmV2Op1->setAttr("k", op->getAttr("k"));
-      // TBD. hard-coded as 64 for now.
       xdlopsGemmV2Op1->setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      // xdlopsGemmV2Op1->setAttr("m_per_wave", op->getAttr("m_per_wave"));
-      xdlopsGemmV2Op1->setAttr("n_per_wave", op->getAttr("n_per_wave"));
+      xdlopsGemmV2Op1->setAttr("n_per_wave", b.getI32IntegerAttr(64));
       xdlopsGemmV2Op1->setAttr("coord_transforms",
                                op->getAttr("coord_transforms"));
       if (op->hasAttr("kpack"))
