@@ -34,15 +34,13 @@ func @branch_loop() {
 func @wsloop(%arg0: index, %arg1: index, %arg2: index, %arg3: index, %arg4: index, %arg5: index) {
   // CHECK: omp.parallel
   omp.parallel {
-    // CHECK: omp.wsloop
-    // CHECK: (%[[ARG0]], %[[ARG1]], %[[ARG2]], %[[ARG3]], %[[ARG4]], %[[ARG5]])
+    // CHECK: omp.wsloop (%[[ARG6:.*]], %[[ARG7:.*]]) : i64 = (%[[ARG0]], %[[ARG1]]) to (%[[ARG2]], %[[ARG3]]) step (%[[ARG4]], %[[ARG5]]) {
     "omp.wsloop"(%arg0, %arg1, %arg2, %arg3, %arg4, %arg5) ( {
-    // CHECK: ^{{.*}}(%[[ARG6:.*]]: i64, %[[ARG7:.*]]: i64):
     ^bb0(%arg6: index, %arg7: index):  // no predecessors
       // CHECK: "test.payload"(%[[ARG6]], %[[ARG7]]) : (i64, i64) -> ()
       "test.payload"(%arg6, %arg7) : (index, index) -> ()
       omp.yield
-    }) {operand_segment_sizes = dense<[2, 2, 2, 0, 0, 0, 0, 0, 0]> : vector<9xi32>} : (index, index, index, index, index, index) -> ()
+    }) {operand_segment_sizes = dense<[2, 2, 2, 0, 0, 0, 0, 0, 0, 0]> : vector<10xi32>} : (index, index, index, index, index, index) -> ()
     omp.terminator
   }
   return

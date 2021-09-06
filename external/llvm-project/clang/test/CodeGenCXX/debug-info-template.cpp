@@ -5,7 +5,6 @@
 // CHECK: @nn = dso_local global %struct.NN zeroinitializer, align 1, !dbg [[NN:![0-9]+]]
 
 // CHECK: !DICompileUnit(
-// CHECK: [[EMPTY:![0-9]*]] = !{}
 
 struct foo {
   char pad[8]; // make the member pointer to 'e' a bit more interesting (nonzero)
@@ -34,6 +33,7 @@ void func();
 // CHECK: ![[TC]] = distinct !DICompositeType(tag: DW_TAG_structure_type, name: "TC<unsigned int, 2, &glb, &foo::e, &foo::f, &foo::g, 1, 2, 3>"
 // CHECK-SAME:                              templateParams: [[TCARGS:![0-9]*]]
 TC
+// CHECK: [[EMPTY:![0-9]*]] = !{}
 // CHECK: [[TCARGS]] = !{[[TCARG1:![0-9]*]], [[TCARG2:![0-9]*]], [[TCARG3:![0-9]*]], [[TCARG4:![0-9]*]], [[TCARG5:![0-9]*]], [[TCARG6:![0-9]*]], [[TCARG7:![0-9]*]]}
 // CHECK: [[TCARG1]] = !DITemplateTypeParameter(name: "T", type: [[UINT:![0-9]*]])
 // CHECK: [[UINT:![0-9]*]] = !DIBasicType(name: "unsigned int"
@@ -179,3 +179,39 @@ ClassTemplateArgRefTemplate<ClassTemplateArgObj.Arg> ClassTemplateArgRefObj;
 // CHECK: !DICompositeType(tag: DW_TAG_structure_type, name: "ClassTemplateArgRefTemplate<<template param ClassTemplateArg{1, 2.000000e+00}> >", {{.*}}, templateParams: ![[CLASS_TEMP_REF_ARGS:[0-9]*]],
 // CHECK: ![[CLASS_TEMP_REF_ARGS]] = !{![[CLASS_TEMP_REF_ARG:[0-9]*]]}
 // CHECK: ![[CLASS_TEMP_REF_ARG]] = !DITemplateValueParameter(type: ![[CLASS_TEMP_ARG_CONST_REF_TYPE]], value: %{{.*}}* @_ZTAXtl16ClassTemplateArgLi1ELf40000000EEE)
+
+inline namespace inl {
+  struct t1 { };
+}
+template<typename T> struct ClassTemplateInlineNamespaceArg {
+};
+ClassTemplateInlineNamespaceArg<inl::t1> ClassTemplateInlineNamespaceArgObj;
+// CHECK: !DICompositeType(tag: DW_TAG_structure_type, name: "ClassTemplateInlineNamespaceArg<inl::t1>",
+
+namespace IndirectDefaultArgument {
+template<typename T1, typename T2 = int>
+struct t1 { };
+template<typename T>
+void f1() {
+}
+template void f1<t1<int>>();
+// CHECK: !DISubprogram(name: "f1<IndirectDefaultArgument::t1<int, int> >",
+} // namespace IndirectDefaultArgument
+
+namespace EmptyTrailingPack {
+template<typename T>
+struct t1 { };
+template<typename T, typename ...Ts>
+void f1() {
+}
+template void f1<t1<int>>();
+// CHECK: !DISubprogram(name: "f1<EmptyTrailingPack::t1<int> >",
+} // namespace EmptyTrailingPack
+
+namespace EmptyInnerPack {
+template<typename ...Ts, typename T = int>
+void f1() {
+}
+template void f1<>();
+// CHECK: !DISubprogram(name: "f1<int>",
+} // namespace EmptyInnerPack

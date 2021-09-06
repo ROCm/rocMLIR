@@ -17,16 +17,21 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/StorageUniquer.h"
 #include "mlir/Support/TypeID.h"
+#include "llvm/ADT/FunctionExtras.h"
 
 namespace mlir {
-class AttributeStorage;
+class InFlightDiagnostic;
+class Location;
 class MLIRContext;
 
 namespace detail {
-/// Utility method to generate a raw default location for use when checking the
-/// construction invariants of a storage object. This is defined out-of-line to
-/// avoid the need to include Location.h.
-const AttributeStorage *generateUnknownStorageLocation(MLIRContext *ctx);
+/// Utility method to generate a callback that can be used to generate a
+/// diagnostic when checking the construction invariants of a storage object.
+/// This is defined out-of-line to avoid the need to include Location.h.
+llvm::unique_function<InFlightDiagnostic()>
+getDefaultDiagnosticEmitFn(MLIRContext *ctx);
+llvm::unique_function<InFlightDiagnostic()>
+getDefaultDiagnosticEmitFn(const Location &loc);
 
 //===----------------------------------------------------------------------===//
 // StorageUserTraitBase
@@ -82,26 +87,51 @@ public:
     return detail::InterfaceMap::template get<Traits<ConcreteT>...>();
   }
 
+  /// Attach the given models as implementations of the corresponding interfaces
+  /// for the concrete storage user class. The type must be registered with the
+  /// context, i.e. the dialect to which the type belongs must be loaded. The
+  /// call will abort otherwise.
+  template <typename... IfaceModels>
+  static void attachInterface(MLIRContext &context) {
+    typename ConcreteT::AbstractTy *abstract =
+        ConcreteT::AbstractTy::lookupMutable(TypeID::get<ConcreteT>(),
+                                             &context);
+    if (!abstract)
+      llvm::report_fatal_error("Registering an interface for an attribute/type "
+                               "that is not itself registered.");
+    abstract->interfaceMap.template insert<IfaceModels...>();
+  }
+
   /// Get or create a new ConcreteT instance within the ctx. This
   /// function is guaranteed to return a non null object and will assert if
   /// the arguments provided are invalid.
   template <typename... Args>
   static ConcreteT get(MLIRContext *ctx, Args... args) {
     // Ensure that the invariants are correct for construction.
-    assert(succeeded(ConcreteT::verifyConstructionInvariants(
-        generateUnknownStorageLocation(ctx), args...)));
+    assert(
+        succeeded(ConcreteT::verify(getDefaultDiagnosticEmitFn(ctx), args...)));
     return UniquerT::template get<ConcreteT>(ctx, args...);
   }
 
   /// Get or create a new ConcreteT instance within the ctx, defined at
   /// the given, potentially unknown, location. If the arguments provided are
-  /// invalid then emit errors and return a null object.
-  template <typename LocationT, typename... Args>
-  static ConcreteT getChecked(LocationT loc, Args... args) {
+  /// invalid, errors are emitted using the provided location and a null object
+  /// is returned.
+  template <typename... Args>
+  static ConcreteT getChecked(const Location &loc, Args... args) {
+    return ConcreteT::getChecked(getDefaultDiagnosticEmitFn(loc), args...);
+  }
+
+  /// Get or create a new ConcreteT instance within the ctx. If the arguments
+  /// provided are invalid, errors are emitted using the provided `emitError`
+  /// and a null object is returned.
+  template <typename... Args>
+  static ConcreteT getChecked(function_ref<InFlightDiagnostic()> emitErrorFn,
+                              MLIRContext *ctx, Args... args) {
     // If the construction invariants fail then we return a null attribute.
-    if (failed(ConcreteT::verifyConstructionInvariants(loc, args...)))
+    if (failed(ConcreteT::verify(emitErrorFn, args...)))
       return ConcreteT();
-    return UniquerT::template get<ConcreteT>(loc.getContext(), args...);
+    return UniquerT::template get<ConcreteT>(ctx, args...);
   }
 
   /// Get an instance of the concrete type from a void pointer.
@@ -119,8 +149,7 @@ protected:
   }
 
   /// Default implementation that just returns success.
-  template <typename... Args>
-  static LogicalResult verifyConstructionInvariants(Args... args) {
+  template <typename... Args> static LogicalResult verify(Args... args) {
     return success();
   }
 

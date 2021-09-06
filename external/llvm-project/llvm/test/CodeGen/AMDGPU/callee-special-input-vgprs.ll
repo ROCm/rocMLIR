@@ -131,10 +131,13 @@ define void @use_workitem_id_yz() #1 {
 ; VARABI: enable_vgpr_workitem_id = 0
 ; FIXEDABI: enable_vgpr_workitem_id = 2
 
-; FIXEDA-NOT: v0
+; FIXEDABI-DAG: v_lshlrev_b32_e32 [[TMP1:v[0-9]+]], 10, v1
+; FIXEDABI-DAG: v_lshlrev_b32_e32 [[TMP0:v[0-9]+]], 20, v2
+; FIXEDABI: v_or_b32_e32 [[TMP2:v[0-9]+]], v0, [[TMP1]]
+; FIXEDABI: v_or_b32_e32 v31, [[TMP2]], [[TMP0]]
+
 ; VARABI-NOT: v31
 ; GCN: s_swappc_b64
-; FIXEDABI-NOT: v0
 ; VARABI-NOT: v31
 define amdgpu_kernel void @kern_indirect_use_workitem_id_x() #1 {
   call void @use_workitem_id_x()
@@ -215,7 +218,7 @@ define amdgpu_kernel void @kern_indirect_use_workitem_id_xy() #1 {
 ; VARABI-NOT: v2
 
 
-; FIXEDABI-DAG:	v_lshlrev_b32_e32 [[TMP1:v[0-9]+]], 10, v1
+; FIXEDABI-DAG: v_lshlrev_b32_e32 [[TMP1:v[0-9]+]], 10, v1
 ; FIXEDABI-DAG: v_lshlrev_b32_e32 [[TMP0:v[0-9]+]], 20, v2
 ; FIXEDABI: v_or_b32_e32 [[TMP2:v[0-9]+]], v0, [[TMP1]]
 ; FIXEDABI: v_or_b32_e32 v31, [[TMP2]], [[TMP0]]
@@ -236,7 +239,7 @@ define amdgpu_kernel void @kern_indirect_use_workitem_id_xz() #1 {
 ; VARABI-NOT: v2
 
 
-; FIXEDABI-DAG:	v_lshlrev_b32_e32 [[TMP1:v[0-9]+]], 10, v1
+; FIXEDABI-DAG: v_lshlrev_b32_e32 [[TMP1:v[0-9]+]], 10, v1
 ; FIXEDABI-DAG: v_lshlrev_b32_e32 [[TMP0:v[0-9]+]], 20, v2
 ; FIXEDABI: v_or_b32_e32 [[TMP2:v[0-9]+]], v0, [[TMP1]]
 ; FIXEDABI: v_or_b32_e32 v31, [[TMP2]], [[TMP0]]
@@ -259,7 +262,7 @@ define amdgpu_kernel void @kern_indirect_use_workitem_id_yz() #1 {
 ; VARABI-NOT: v1
 ; VARABI-NOT: v2
 
-; FIXEDABI-DAG:	v_lshlrev_b32_e32 [[TMP1:v[0-9]+]], 10, v1
+; FIXEDABI-DAG: v_lshlrev_b32_e32 [[TMP1:v[0-9]+]], 10, v1
 ; FIXEDABI-DAG: v_lshlrev_b32_e32 [[TMP0:v[0-9]+]], 20, v2
 ; FIXEDABI: v_or_b32_e32 [[TMP2:v[0-9]+]], v0, [[TMP1]]
 ; FIXEDABI: v_or_b32_e32 v31, [[TMP2]], [[TMP0]]
@@ -509,7 +512,7 @@ define void @func_call_too_many_args_use_workitem_id_x(i32 %arg0) #1 {
 
 ; Requires loading and storing to stack slot.
 ; GCN-LABEL: {{^}}too_many_args_call_too_many_args_use_workitem_id_x:
-; GCN-DAG: s_add_u32 s32, s32, 0x400{{$}}
+; GCN-DAG: s_addk_i32 s32, 0x400{{$}}
 ; GCN-DAG: buffer_store_dword v40, off, s[0:3], s32 offset:4 ; 4-byte Folded Spill
 ; GCN-DAG: buffer_load_dword v32, off, s[0:3], s33{{$}}
 
@@ -517,7 +520,7 @@ define void @func_call_too_many_args_use_workitem_id_x(i32 %arg0) #1 {
 
 ; GCN: s_swappc_b64
 
-; GCN: s_sub_u32 s32, s32, 0x400{{$}}
+; GCN: s_addk_i32 s32, 0xfc00{{$}}
 ; GCN: buffer_load_dword v40, off, s[0:3], s32 offset:4 ; 4-byte Folded Reload
 ; GCN: s_setpc_b64
 define void @too_many_args_call_too_many_args_use_workitem_id_x(
@@ -609,10 +612,10 @@ define void @too_many_args_use_workitem_id_x_byval(
 ; GCN-LABEL: {{^}}kern_call_too_many_args_use_workitem_id_x_byval:
 ; VARABI: enable_vgpr_workitem_id = 0
 ; VARABI: v_mov_b32_e32 [[K:v[0-9]+]], 0x3e7{{$}}
-; VARABI: s_movk_i32 s32, 0x400{{$}}
 ; VARABI: buffer_store_dword [[K]], off, s[0:3], 0 offset:4
-; VARABI: buffer_store_dword v0, off, s[0:3], s32 offset:4
 ; VARABI: buffer_load_dword [[RELOAD_BYVAL:v[0-9]+]], off, s[0:3], 0 offset:4
+; VARABI: s_movk_i32 s32, 0x400{{$}}
+; VARABI: buffer_store_dword v0, off, s[0:3], s32 offset:4
 
 ; VARABI: buffer_store_dword [[RELOAD_BYVAL]], off, s[0:3], s32{{$}}
 ; VARABI: v_mov_b32_e32 [[RELOAD_BYVAL]],
@@ -649,15 +652,15 @@ define amdgpu_kernel void @kern_call_too_many_args_use_workitem_id_x_byval() #1 
     i32 210, i32 220, i32 230, i32 240,
     i32 250, i32 260, i32 270, i32 280,
     i32 290, i32 300, i32 310, i32 320,
-    i32 addrspace(5)* %alloca)
+    i32 addrspace(5)* byval(i32) %alloca)
   ret void
 }
 
 ; GCN-LABEL: {{^}}func_call_too_many_args_use_workitem_id_x_byval:
 ; VARABI: v_mov_b32_e32 [[K:v[0-9]+]], 0x3e7{{$}}
 ; VARABI: buffer_store_dword [[K]], off, s[0:3], s33{{$}}
-; VARABI: buffer_store_dword v0, off, s[0:3], s32 offset:4
 ; VARABI: buffer_load_dword [[RELOAD_BYVAL:v[0-9]+]], off, s[0:3], s33{{$}}
+; VARABI: buffer_store_dword v0, off, s[0:3], s32 offset:4
 ; VARABI: buffer_store_dword [[RELOAD_BYVAL]], off, s[0:3], s32{{$}}
 ; VARABI: v_mov_b32_e32 [[RELOAD_BYVAL]],
 ; VARABI: s_swappc_b64
@@ -686,7 +689,7 @@ define void @func_call_too_many_args_use_workitem_id_x_byval() #1 {
     i32 210, i32 220, i32 230, i32 240,
     i32 250, i32 260, i32 270, i32 280,
     i32 290, i32 300, i32 310, i32 320,
-    i32 addrspace(5)* %alloca)
+    i32 addrspace(5)* byval(i32) %alloca)
   ret void
 }
 
@@ -771,7 +774,7 @@ define void @too_many_args_use_workitem_id_xyz(
 
 ; GCN-DAG: s_mov_b32 s32, 0
 
-; GCN-DAG:	v_lshlrev_b32_e32 [[TMP1:v[0-9]+]], 10, v1
+; GCN-DAG: v_lshlrev_b32_e32 [[TMP1:v[0-9]+]], 10, v1
 ; GCN-DAG: v_lshlrev_b32_e32 [[TMP0:v[0-9]+]], 20, v2
 ; GCN-DAG: v_or_b32_e32 [[TMP2:v[0-9]+]], v0, [[TMP1]]
 ; VARABI-DAG: v_or_b32_e32 [[PACKEDID:v[0-9]+]], [[TMP2]], [[TMP0]]

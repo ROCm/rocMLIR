@@ -24,7 +24,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "AMDGPU.h"
+#include "R600.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Constants.h"
@@ -301,7 +301,8 @@ class R600OpenCLImageTypeLoweringPass : public ModulePass {
       }
     }
     SmallVector<ReturnInst*, 8> Returns;
-    CloneFunctionInto(NewF, F, VMap, /*ModuleLevelChanges=*/false, Returns);
+    CloneFunctionInto(NewF, F, VMap, CloneFunctionChangeType::LocalChangesOnly,
+                      Returns);
 
     // Build new MDNode.
     SmallVector<Metadata *, 6> KernelMDArgs;

@@ -106,9 +106,6 @@
 
 namespace llvm {
 
-/// Enables memory ssa as a dependency for loop passes.
-extern cl::opt<bool> EnableMSSALoopDependency;
-
 class AllocaInst;
 class Function;
 class Instruction;
@@ -288,7 +285,7 @@ protected:
                  DeleteValueTy DeleteValue, Instruction *MI, BasicBlock *BB,
                  unsigned NumOperands)
       : MemoryAccess(C, Vty, DeleteValue, BB, NumOperands),
-        MemoryInstruction(MI), OptimizedAccessAlias(MayAlias) {
+        MemoryInstruction(MI), OptimizedAccessAlias(AliasResult::MayAlias) {
     setDefiningAccess(DMA);
   }
 
@@ -299,8 +296,9 @@ protected:
     OptimizedAccessAlias = AR;
   }
 
-  void setDefiningAccess(MemoryAccess *DMA, bool Optimized = false,
-                         Optional<AliasResult> AR = MayAlias) {
+  void setDefiningAccess(
+      MemoryAccess *DMA, bool Optimized = false,
+      Optional<AliasResult> AR = AliasResult(AliasResult::MayAlias)) {
     if (!Optimized) {
       setOperand(0, DMA);
       return;
@@ -328,7 +326,8 @@ public:
                        /*NumOperands=*/1) {}
 
   // allocate space for exactly one operand
-  void *operator new(size_t s) { return User::operator new(s, 1); }
+  void *operator new(size_t S) { return User::operator new(S, 1); }
+  void operator delete(void *Ptr) { User::operator delete(Ptr); }
 
   static bool classof(const Value *MA) {
     return MA->getValueID() == MemoryUseVal;
@@ -388,7 +387,8 @@ public:
         ID(Ver) {}
 
   // allocate space for exactly two operands
-  void *operator new(size_t s) { return User::operator new(s, 2); }
+  void *operator new(size_t S) { return User::operator new(S, 2); }
+  void operator delete(void *Ptr) { User::operator delete(Ptr); }
 
   static bool classof(const Value *MA) {
     return MA->getValueID() == MemoryDefVal;
@@ -483,9 +483,11 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(MemoryUseOrDef, MemoryAccess)
 /// issue.
 class MemoryPhi final : public MemoryAccess {
   // allocate space for exactly zero operands
-  void *operator new(size_t s) { return User::operator new(s); }
+  void *operator new(size_t S) { return User::operator new(S); }
 
 public:
+  void operator delete(void *Ptr) { User::operator delete(Ptr); }
+
   /// Provide fast operand accessors
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(MemoryAccess);
 
@@ -790,8 +792,7 @@ public:
   enum InsertionPlace { Beginning, End, BeforeTerminator };
 
 protected:
-  // Used by Memory SSA annotater, dumpers, and wrapper pass
-  friend class MemorySSAAnnotatedWriter;
+  // Used by Memory SSA dumpers and wrapper pass
   friend class MemorySSAPrinterLegacyPass;
   friend class MemorySSAUpdater;
 
@@ -951,6 +952,17 @@ public:
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
 
+/// Printer pass for \c MemorySSA via the walker.
+class MemorySSAWalkerPrinterPass
+    : public PassInfoMixin<MemorySSAWalkerPrinterPass> {
+  raw_ostream &OS;
+
+public:
+  explicit MemorySSAWalkerPrinterPass(raw_ostream &OS) : OS(OS) {}
+
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+};
+
 /// Verifier pass for \c MemorySSA.
 struct MemorySSAVerifierPass : PassInfoMixin<MemorySSAVerifierPass> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
@@ -1099,7 +1111,7 @@ public:
     return MP->getIncomingBlock(ArgNo);
   }
 
-  typename BaseT::iterator::pointer operator*() const {
+  typename std::iterator_traits<BaseT>::pointer operator*() const {
     assert(Access && "Tried to access past the end of our iterator");
     // Go to the first argument for phis, and the defining access for everything
     // else.
@@ -1195,7 +1207,7 @@ public:
     return DefIterator == Other.DefIterator;
   }
 
-  BaseT::iterator::reference operator*() const {
+  typename std::iterator_traits<BaseT>::reference operator*() const {
     assert(DefIterator != OriginalAccess->defs_end() &&
            "Tried to access past the end of our iterator");
     return CurrentPair;

@@ -61,7 +61,7 @@ module attributes {gpu.container_module} {
       "gpu.lds_barrier"() : () -> ()
 
       "some_op"(%bIdX, %tIdX) : (index, index) -> ()
-      %42 = load %arg1[%bIdX] : memref<?xf32, 1>
+      %42 = memref.load %arg1[%bIdX] : memref<?xf32, 1>
       gpu.return
     }
 
@@ -752,5 +752,20 @@ module attributes {gpu.container_module} {
       gpu.atomic_fadd(%value, %dst, %offset0, %offset1, %offset2, %offset3) : vector<4xf32>, memref<128x64x32x16xf32>
       gpu.return
     }
+  }
+
+  func @mmamatrix_valid_element_type(){
+    // CHECK-LABEL: func @mmamatrix_valid_element_type
+    %wg = memref.alloca() {alignment = 32} : memref<32x32xf16, 3>
+    // CHECK: %[[wg:.*]] = memref.alloca()
+    %i = constant 16 : index
+    // CHECK: %[[i:.*]] = constant 16 : index
+     %cst = constant 1.000000e+00 : f32
+    // CHECK: %[[cst:.*]] = constant 1.000000e+00 : f32
+    %0 = gpu.subgroup_mma_load_matrix %wg[%i, %i] {leadDimension = 32 : index} : memref<32x32xf16, 3> -> !gpu.mma_matrix<16x16xf16, "AOp">
+    // CHECK: gpu.subgroup_mma_load_matrix %[[wg]][%[[i]], %[[i]]] {leadDimension = 32 : index} : memref<32x32xf16, 3> -> !gpu.mma_matrix<16x16xf16, "AOp">
+    %1 = gpu.subgroup_mma_constant_matrix %cst : !gpu.mma_matrix<16x16xf32, "COp">
+    // CHECK: gpu.subgroup_mma_constant_matrix %[[cst]] : !gpu.mma_matrix<16x16xf32, "COp">
+    return
   }
 }

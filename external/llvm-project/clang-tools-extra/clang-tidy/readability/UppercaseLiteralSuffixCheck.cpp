@@ -93,7 +93,7 @@ getNewSuffix(llvm::StringRef OldSuffix,
   // Else, find matching suffix, case-*insensitive*ly.
   auto NewSuffix = llvm::find_if(
       NewSuffixes, [OldSuffix](const std::string &PotentialNewSuffix) {
-        return OldSuffix.equals_lower(PotentialNewSuffix);
+        return OldSuffix.equals_insensitive(PotentialNewSuffix);
       });
   // Have a match, return it.
   if (NewSuffix != NewSuffixes.end())
@@ -196,12 +196,11 @@ void UppercaseLiteralSuffixCheck::registerMatchers(MatchFinder *Finder) {
   // Sadly, we can't check whether the literal has suffix or not.
   // E.g. i32 suffix still results in 'BuiltinType::Kind::Int'.
   // And such an info is not stored in the *Literal itself.
-  Finder->addMatcher(traverse(TK_AsIs,
+  Finder->addMatcher(
       stmt(eachOf(integerLiteral().bind(IntegerLiteralCheck::Name),
                   floatLiteral().bind(FloatingLiteralCheck::Name)),
            unless(anyOf(hasParent(userDefinedLiteral()),
-                        hasAncestor(isImplicit()),
-                        hasAncestor(substNonTypeTemplateParmExpr()))))),
+                        hasAncestor(substNonTypeTemplateParmExpr())))),
       this);
 }
 

@@ -136,7 +136,7 @@ bool TempFile::writeBitcode(const Module &M) const {
 bool TempFile::writeAssembly(const Module &M) const {
   LLVM_DEBUG(dbgs() << " - write assembly\n");
   std::error_code EC;
-  raw_fd_ostream OS(Filename, EC, sys::fs::OF_Text);
+  raw_fd_ostream OS(Filename, EC, sys::fs::OF_TextWithCRLF);
   if (EC) {
     errs() << "verify-uselistorder: error: " << EC.message() << "\n";
     return true;
@@ -540,11 +540,10 @@ int main(int argc, char **argv) {
   // Enable debug stream buffering.
   EnableDebugBuffering = true;
 
-  LLVMContext Context;
-
   cl::ParseCommandLineOptions(argc, argv,
                               "llvm tool to verify use-list order\n");
 
+  LLVMContext Context;
   SMDiagnostic Err;
 
   // Load the input module...

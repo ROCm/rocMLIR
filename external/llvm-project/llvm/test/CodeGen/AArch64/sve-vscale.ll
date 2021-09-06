@@ -1,9 +1,5 @@
-; RUN: llc -mtriple aarch64 -mattr=+sve -asm-verbose=0 < %s 2>%t | FileCheck %s
+; RUN: llc -mtriple aarch64 -mattr=+sve -asm-verbose=0 < %s | FileCheck %s
 ; RUN: opt -mtriple=aarch64 -codegenprepare -S < %s | llc -mtriple=aarch64 -mattr=+sve -asm-verbose=0 | FileCheck %s
-; RUN: FileCheck --check-prefix=WARN --allow-empty %s <%t
-
-; If this check fails please read test/CodeGen/AArch64/README for instructions on how to resolve it.
-; WARN-NOT: warning
 
 ;
 ; RDVL
@@ -50,6 +46,13 @@ define i64 @rdvl_i64() nounwind {
 ; CHECK-NEXT:  ret
 define i32 @rdvl_const() nounwind {
   ret i32 mul nsw (i32 ptrtoint (<vscale x 1 x i8>* getelementptr (<vscale x 1 x i8>, <vscale x 1 x i8>* null, i64 1) to i32), i32 16)
+}
+
+; CHECK-LABEL: rdvl_const_opaque_ptr:
+; CHECK:       rdvl x0, #1
+; CHECK-NEXT:  ret
+define i32 @rdvl_const_opaque_ptr() nounwind {
+  ret i32 mul nsw (i32 ptrtoint (ptr getelementptr (<vscale x 1 x i8>, ptr null, i64 1) to i32), i32 16)
 }
 
 define i32 @vscale_1() nounwind {

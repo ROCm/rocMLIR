@@ -179,6 +179,29 @@ def MathAPI : PublicAPI<"math.h"> {
   ];
 }
 
+def FEnvT : TypeDecl<"fenv_t"> {
+  let Decl = [{
+    #ifdef __aarch64__
+    typedef struct {
+      unsigned char __control_word[4];
+      unsigned char __status_word[4];
+    } fenv_t;
+    #endif
+    #ifdef __x86_64__
+    typedef struct {
+      unsigned char __x86_status[28];
+      unsigned char __mxcsr[4];
+    } fenv_t;
+    #endif
+  }];
+}
+
+def FExceptT : TypeDecl<"fexcept_t"> {
+  let Decl = [{
+    typedef int fexcept_t;
+  }];
+}
+
 def FenvAPI: PublicAPI<"fenv.h"> {
   let Macros = [
     SimpleMacroDef<"FE_DIVBYZERO", "1">,
@@ -192,6 +215,10 @@ def FenvAPI: PublicAPI<"fenv.h"> {
     SimpleMacroDef<"FE_TONEAREST", "2">,
     SimpleMacroDef<"FE_TOWARDZERO", "4">,
     SimpleMacroDef<"FE_UPWARD", "8">,
+  ];
+  let TypeDeclarations = [
+    FEnvT,
+    FExceptT,
   ];
 }
 
@@ -222,6 +249,10 @@ def TimeAPI : PublicAPI<"time.h"> {
   ];
 
   let Functions = [
+    "asctime",
+    "asctime_r",
+    "gmtime",
+    "gmtime_r",
     "mktime",
   ];
 }
@@ -313,6 +344,19 @@ def MtxT : TypeDecl<"mtx_t"> {
   }];
 }
 
+def CndT : TypeDecl<"cnd_t"> {
+  let Decl = [{
+    typedef struct {
+      void *__qfront;
+      void *__qback;
+      struct {
+        unsigned char __w[4];
+        int __t;
+      } __qmtx;
+    } cnd_t;
+  }];
+}
+
 def ThreadStartT : TypeDecl<"thrd_start_t"> {
   let Decl = "typedef int (*thrd_start_t)(void *);";
 }
@@ -332,6 +376,7 @@ def ThreadsAPI : PublicAPI<"threads.h"> {
     OnceFlag,
     CallOnceFuncT,
     MtxT,
+    CndT,
     ThreadStartT,
   ];
 

@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_DEBUGINFO_DWARFDEBUGINFOENTRY_H
-#define LLVM_DEBUGINFO_DWARFDEBUGINFOENTRY_H
+#ifndef LLVM_DEBUGINFO_DWARF_DWARFDEBUGINFOENTRY_H
+#define LLVM_DEBUGINFO_DWARF_DWARFDEBUGINFOENTRY_H
 
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/DebugInfo/DWARF/DWARFAbbreviationDeclaration.h"
@@ -36,8 +36,6 @@ public:
   /// Extracts a debug info entry, which is a child of a given unit,
   /// starting at a given offset. If DIE can't be extracted, returns false and
   /// doesn't change OffsetPtr.
-  bool extractFast(const DWARFUnit &U, uint64_t *OffsetPtr);
-
   /// High performance extraction should use this call.
   bool extractFast(const DWARFUnit &U, uint64_t *OffsetPtr,
                    const DWARFDataExtractor &DebugInfoData, uint64_t UEndOffset,
@@ -59,4 +57,4 @@ public:
 
 } // end namespace llvm
 
-#endif // LLVM_DEBUGINFO_DWARFDEBUGINFOENTRY_H
+#endif // LLVM_DEBUGINFO_DWARF_DWARFDEBUGINFOENTRY_H

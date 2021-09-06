@@ -180,6 +180,40 @@ TEST_F(IRBuilderTest, IntrinsicsWithScalableVectors) {
     EXPECT_EQ(FTy->getParamType(i), ArgTys[i]->getType());
 }
 
+TEST_F(IRBuilderTest, CreateVScale) {
+  IRBuilder<> Builder(BB);
+
+  Constant *Zero = Builder.getInt32(0);
+  Value *VScale = Builder.CreateVScale(Zero);
+  EXPECT_TRUE(isa<ConstantInt>(VScale) && cast<ConstantInt>(VScale)->isZero());
+}
+
+TEST_F(IRBuilderTest, CreateStepVector) {
+  IRBuilder<> Builder(BB);
+
+  // Fixed width vectors
+  Type *DstVecTy = VectorType::get(Builder.getInt32Ty(), 4, false);
+  Value *StepVec = Builder.CreateStepVector(DstVecTy);
+  EXPECT_TRUE(isa<Constant>(StepVec));
+  EXPECT_EQ(StepVec->getType(), DstVecTy);
+
+  const auto *VectorValue = cast<Constant>(StepVec);
+  for (unsigned i = 0; i < 4; i++) {
+    EXPECT_TRUE(isa<ConstantInt>(VectorValue->getAggregateElement(i)));
+    ConstantInt *El = cast<ConstantInt>(VectorValue->getAggregateElement(i));
+    EXPECT_EQ(El->getValue(), i);
+  }
+
+  // Scalable vectors
+  DstVecTy = VectorType::get(Builder.getInt32Ty(), 4, true);
+  StepVec = Builder.CreateStepVector(DstVecTy);
+  EXPECT_TRUE(isa<CallInst>(StepVec));
+  CallInst *Call = cast<CallInst>(StepVec);
+  FunctionType *FTy = Call->getFunctionType();
+  EXPECT_EQ(FTy->getReturnType(), DstVecTy);
+  EXPECT_EQ(Call->getIntrinsicID(), Intrinsic::experimental_stepvector);
+}
+
 TEST_F(IRBuilderTest, ConstrainedFP) {
   IRBuilder<> Builder(BB);
   Value *V;
@@ -255,13 +289,13 @@ TEST_F(IRBuilderTest, ConstrainedFP) {
   EXPECT_EQ(II->getIntrinsicID(), Intrinsic::experimental_constrained_fpext);
 
   // Verify attributes on the call are created automatically.
-  AttributeSet CallAttrs = II->getAttributes().getFnAttributes();
+  AttributeSet CallAttrs = II->getAttributes().getFnAttrs();
   EXPECT_EQ(CallAttrs.hasAttribute(Attribute::StrictFP), true);
 
   // Verify attributes on the containing function are created when requested.
   Builder.setConstrainedFPFunctionAttr();
   AttributeList Attrs = BB->getParent()->getAttributes();
-  AttributeSet FnAttrs = Attrs.getFnAttributes();
+  AttributeSet FnAttrs = Attrs.getFnAttrs();
   EXPECT_EQ(FnAttrs.hasAttribute(Attribute::StrictFP), true);
 
   // Verify the codepaths for setting and overriding the default metadata.
@@ -358,8 +392,8 @@ TEST_F(IRBuilderTest, ConstrainedFPFunctionCall) {
   CallInst *FCall = Builder.CreateCall(Callee, None);
 
   // Check the attributes to verify the strictfp attribute is on the call.
-  EXPECT_TRUE(FCall->getAttributes().getFnAttributes().hasAttribute(
-      Attribute::StrictFP));
+  EXPECT_TRUE(
+      FCall->getAttributes().getFnAttrs().hasAttribute(Attribute::StrictFP));
 
   Builder.CreateRetVoid();
   EXPECT_FALSE(verifyModule(*M));

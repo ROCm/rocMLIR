@@ -178,15 +178,16 @@ def FeatureStdExtZvlsseg
                        "'Zvlsseg' (Vector segment load/store instructions)",
                        [FeatureStdExtV]>;
 def HasStdExtZvlsseg : Predicate<"Subtarget->hasStdExtZvlsseg()">,
-                        AssemblerPredicate<(all_of FeatureStdExtZvlsseg),
-                        "'Zvlsseg' (Vector segment load/store instructions)">;
+                                 AssemblerPredicate<(all_of FeatureStdExtZvlsseg),
+                                 "'Zvlsseg' (Vector segment load/store instructions)">;
+
 def FeatureExtZvamo
     : SubtargetFeature<"experimental-zvamo", "HasStdExtZvamo", "true",
-                       "'Zvamo'(Vector AMO Operations)",
+                       "'Zvamo' (Vector AMO Operations)",
                        [FeatureStdExtV]>;
 def HasStdExtZvamo : Predicate<"Subtarget->hasStdExtZvamo()">,
-                              AssemblerPredicate<(all_of FeatureExtZvamo),
-                              "'Zvamo'(Vector AMO Operations)">;
+                               AssemblerPredicate<(all_of FeatureExtZvamo),
+                               "'Zvamo' (Vector AMO Operations)">;
 
 def Feature64Bit
     : SubtargetFeature<"64bit", "HasRV64", "true", "Implements RV64">;
@@ -250,6 +251,11 @@ def : ProcessorModel<"sifive-7-rv32", SiFive7Model, []>;
 def : ProcessorModel<"sifive-7-rv64", SiFive7Model, [Feature64Bit]>;
 
 def : ProcessorModel<"sifive-e31", RocketModel, [FeatureStdExtM,
+                                                 FeatureStdExtA,
+                                                 FeatureStdExtC]>;
+
+def : ProcessorModel<"sifive-s51", RocketModel, [Feature64Bit,
+                                                 FeatureStdExtM,
                                                  FeatureStdExtA,
                                                  FeatureStdExtC]>;
 

@@ -13,6 +13,7 @@
 #ifndef _OMPTARGET_PRIVATE_H
 #define _OMPTARGET_PRIVATE_H
 
+#include "device.h"
 #include <Debug.h>
 #include <SourceInfo.h>
 #include <omptarget.h>
@@ -22,27 +23,31 @@
 extern int targetDataBegin(ident_t *loc, DeviceTy &Device, int32_t arg_num,
                            void **args_base, void **args, int64_t *arg_sizes,
                            int64_t *arg_types, map_var_info_t *arg_names,
-                           void **arg_mappers,
-                           __tgt_async_info *async_info_ptr);
+                           void **arg_mappers, AsyncInfoTy &AsyncInfo,
+                           bool FromMapper = false);
 
 extern int targetDataEnd(ident_t *loc, DeviceTy &Device, int32_t ArgNum,
                          void **ArgBases, void **Args, int64_t *ArgSizes,
                          int64_t *ArgTypes, map_var_info_t *arg_names,
-                         void **ArgMappers, __tgt_async_info *AsyncInfo);
+                         void **ArgMappers, AsyncInfoTy &AsyncInfo,
+                         bool FromMapper = false);
 
 extern int targetDataUpdate(ident_t *loc, DeviceTy &Device, int32_t arg_num,
                             void **args_base, void **args, int64_t *arg_sizes,
                             int64_t *arg_types, map_var_info_t *arg_names,
-                            void **arg_mappers,
-                            __tgt_async_info *async_info_ptr = nullptr);
+                            void **arg_mappers, AsyncInfoTy &AsyncInfo,
+                            bool FromMapper = false);
 
-extern int target(ident_t *loc, int64_t DeviceId, void *HostPtr, int32_t ArgNum,
+extern int target(ident_t *loc, DeviceTy &Device, void *HostPtr, int32_t ArgNum,
                   void **ArgBases, void **Args, int64_t *ArgSizes,
                   int64_t *ArgTypes, map_var_info_t *arg_names,
                   void **ArgMappers, int32_t TeamNum, int32_t ThreadLimit,
-                  int IsTeamConstruct);
+                  int IsTeamConstruct, AsyncInfoTy &AsyncInfo);
 
-extern int CheckDeviceAndCtors(int64_t device_id);
+extern void handleTargetOutcome(bool Success, ident_t *Loc);
+extern int checkDeviceAndCtors(int64_t &DeviceID, ident_t *Loc);
+extern void *targetAllocExplicit(size_t size, int device_num, int kind,
+                                 const char *name);
 
 // This structure stores information of a mapped memory region.
 struct MapComponentInfoTy {
@@ -77,8 +82,8 @@ typedef void (*MapperFuncPtrTy)(void *, void *, void *, int64_t, int64_t,
 // targetDataEnd and targetDataUpdate).
 typedef int (*TargetDataFuncPtrTy)(ident_t *, DeviceTy &, int32_t, void **,
                                    void **, int64_t *, int64_t *,
-                                   map_var_info_t *, void **,
-                                   __tgt_async_info *);
+                                   map_var_info_t *, void **, AsyncInfoTy &,
+                                   bool);
 
 // Implemented in libomp, they are called from within __tgt_* functions.
 #ifdef __cplusplus
@@ -86,7 +91,6 @@ extern "C" {
 #endif
 // functions that extract info from libomp; keep in sync
 int omp_get_default_device(void) __attribute__((weak));
-int32_t __kmpc_omp_taskwait(void *loc_ref, int32_t gtid) __attribute__((weak));
 int32_t __kmpc_global_thread_num(void *) __attribute__((weak));
 int __kmpc_get_target_offload(void) __attribute__((weak));
 #ifdef __cplusplus
@@ -107,17 +111,19 @@ static inline void dumpTargetPointerMappings(const ident_t *Loc,
   INFO(OMP_INFOTYPE_ALL, Device.DeviceID,
        "OpenMP Host-Device pointer mappings after block at %s:%d:%d:\n",
        Kernel.getFilename(), Kernel.getLine(), Kernel.getColumn());
-  INFO(OMP_INFOTYPE_ALL, Device.DeviceID, "%-18s %-18s %s %s %s\n", "Host Ptr",
-       "Target Ptr", "Size (B)", "RefCount", "Declaration");
+  INFO(OMP_INFOTYPE_ALL, Device.DeviceID, "%-18s %-18s %s %s %s %s\n",
+       "Host Ptr", "Target Ptr", "Size (B)", "DynRefCount", "HoldRefCount",
+       "Declaration");
   Device.DataMapMtx.lock();
   for (const auto &HostTargetMap : Device.HostDataToTargetMap) {
     SourceInfo Info(HostTargetMap.HstPtrName);
     INFO(OMP_INFOTYPE_ALL, Device.DeviceID,
-         DPxMOD " " DPxMOD " %-8" PRIuPTR " %-8" PRId64 " %s at %s:%d:%d\n",
+         DPxMOD " " DPxMOD " %-8" PRIuPTR " %-11s %-12s %s at %s:%d:%d\n",
          DPxPTR(HostTargetMap.HstPtrBegin), DPxPTR(HostTargetMap.TgtPtrBegin),
          HostTargetMap.HstPtrEnd - HostTargetMap.HstPtrBegin,
-         HostTargetMap.getRefCount(), Info.getName(), Info.getFilename(),
-         Info.getLine(), Info.getColumn());
+         HostTargetMap.dynRefCountToStr().c_str(),
+         HostTargetMap.holdRefCountToStr().c_str(), Info.getName(),
+         Info.getFilename(), Info.getLine(), Info.getColumn());
   }
   Device.DataMapMtx.unlock();
 }

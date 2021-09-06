@@ -7,7 +7,8 @@
 //==-----------------------------------------------------------------------===//
 
 #include "AMDGPU.h"
-#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
+#include "MCTargetDesc/R600MCTargetDesc.h"
+#include "R600.h"
 #include "R600RegisterInfo.h"
 #include "R600Subtarget.h"
 #include "llvm/ADT/SCCIterator.h"
@@ -171,7 +172,7 @@ protected:
   static void PrintLoopinfo(const MachineLoopInfo &LoopInfo) {
     for (MachineLoop::iterator iter = LoopInfo.begin(),
          iterEnd = LoopInfo.end(); iter != iterEnd; ++iter) {
-      (*iter)->print(dbgs(), 0);
+      (*iter)->print(dbgs());
     }
   }
 

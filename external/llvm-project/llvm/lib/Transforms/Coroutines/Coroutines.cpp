@@ -126,6 +126,7 @@ static bool isCoroutineIntrinsicName(StringRef Name) {
       "llvm.coro.alloc",
       "llvm.coro.async.context.alloc",
       "llvm.coro.async.context.dealloc",
+      "llvm.coro.async.size.replace",
       "llvm.coro.async.store_resume",
       "llvm.coro.begin",
       "llvm.coro.destroy",
@@ -310,10 +311,9 @@ void coro::Shape::buildFrom(Function &F) {
         if (CoroBegin)
           report_fatal_error(
                 "coroutine should have exactly one defining @llvm.coro.begin");
-        CB->addAttribute(AttributeList::ReturnIndex, Attribute::NonNull);
-        CB->addAttribute(AttributeList::ReturnIndex, Attribute::NoAlias);
-        CB->removeAttribute(AttributeList::FunctionIndex,
-                            Attribute::NoDuplicate);
+        CB->addRetAttr(Attribute::NonNull);
+        CB->addRetAttr(Attribute::NoAlias);
+        CB->removeFnAttr(Attribute::NoDuplicate);
         CoroBegin = CB;
         break;
       }
@@ -360,7 +360,7 @@ void coro::Shape::buildFrom(Function &F) {
 
     // Replace all coro.ends with unreachable instruction.
     for (AnyCoroEndInst *CE : CoroEnds)
-      changeToUnreachable(CE, /*UseLLVMTrap=*/false);
+      changeToUnreachable(CE);
 
     return;
   }
@@ -399,11 +399,7 @@ void coro::Shape::buildFrom(Function &F) {
     this->AsyncLowering.ContextAlignment =
         AsyncId->getStorageAlignment().value();
     this->AsyncLowering.AsyncFuncPointer = AsyncId->getAsyncFunctionPointer();
-    auto &Context = F.getContext();
-    auto *Int8PtrTy = Type::getInt8PtrTy(Context);
-    auto *VoidTy = Type::getVoidTy(Context);
-    this->AsyncLowering.AsyncFuncTy =
-        FunctionType::get(VoidTy, {Int8PtrTy, Int8PtrTy, Int8PtrTy}, false);
+    this->AsyncLowering.AsyncCC = F.getCallingConv();
     break;
   };
   case Intrinsic::coro_id_retcon:
@@ -574,8 +570,8 @@ void coro::Shape::emitDealloc(IRBuilder<> &Builder, Value *Ptr,
   llvm_unreachable("Unknown coro::ABI enum");
 }
 
-LLVM_ATTRIBUTE_NORETURN
-static void fail(const Instruction *I, const char *Reason, Value *V) {
+[[noreturn]] static void fail(const Instruction *I, const char *Reason,
+                              Value *V) {
 #ifndef NDEBUG
   I->dump();
   if (V) {
@@ -700,7 +696,7 @@ void CoroIdAsyncInst::checkWellFormed() const {
 
 static void checkAsyncContextProjectFunction(const Instruction *I,
                                              Function *F) {
-  auto *FunTy = cast<FunctionType>(F->getType()->getPointerElementType());
+  auto *FunTy = cast<FunctionType>(F->getValueType());
   if (!FunTy->getReturnType()->isPointerTy() ||
       !FunTy->getReturnType()->getPointerElementType()->isIntegerTy(8))
     fail(I,

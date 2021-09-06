@@ -34,7 +34,6 @@
 #include "llvm/Analysis/LoopAccessAnalysis.h"
 #include "llvm/Analysis/LoopAnalysisManager.h"
 #include "llvm/Analysis/LoopInfo.h"
-#include "llvm/Analysis/MemorySSA.h"
 #include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
@@ -99,12 +98,11 @@ struct StoreToLoadForwardingCandidate {
                                  Loop *L) const {
     Value *LoadPtr = Load->getPointerOperand();
     Value *StorePtr = Store->getPointerOperand();
-    Type *LoadPtrType = LoadPtr->getType();
-    Type *LoadType = LoadPtrType->getPointerElementType();
+    Type *LoadType = getLoadStoreType(Load);
 
-    assert(LoadPtrType->getPointerAddressSpace() ==
+    assert(LoadPtr->getType()->getPointerAddressSpace() ==
                StorePtr->getType()->getPointerAddressSpace() &&
-           LoadType == StorePtr->getType()->getPointerElementType() &&
+           LoadType == getLoadStoreType(Store) &&
            "Should be a known dependence");
 
     // Currently we only support accesses with unit stride.  FIXME: we should be
@@ -664,10 +662,11 @@ public:
     auto *BFI = (PSI && PSI->hasProfileSummary()) ?
                 &getAnalysis<LazyBlockFrequencyInfoPass>().getBFI() :
                 nullptr;
+    auto *SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
 
     // Process each loop nest in the function.
     return eliminateLoadsAcrossLoops(
-        F, LI, DT, BFI, PSI, /*SE*/ nullptr, /*AC*/ nullptr,
+        F, LI, DT, BFI, PSI, SE, /*AC*/ nullptr,
         [&LAA](Loop &L) -> const LoopAccessInfo & { return LAA.getInfo(&L); });
   }
 
@@ -718,15 +717,12 @@ PreservedAnalyses LoopLoadEliminationPass::run(Function &F,
   auto *PSI = MAMProxy.getCachedResult<ProfileSummaryAnalysis>(*F.getParent());
   auto *BFI = (PSI && PSI->hasProfileSummary()) ?
       &AM.getResult<BlockFrequencyAnalysis>(F) : nullptr;
-  MemorySSA *MSSA = EnableMSSALoopDependency
-                        ? &AM.getResult<MemorySSAAnalysis>(F).getMSSA()
-                        : nullptr;
 
   auto &LAM = AM.getResult<LoopAnalysisManagerFunctionProxy>(F).getManager();
   bool Changed = eliminateLoadsAcrossLoops(
       F, LI, DT, BFI, PSI, &SE, &AC, [&](Loop &L) -> const LoopAccessInfo & {
         LoopStandardAnalysisResults AR = {AA,  AC,  DT,      LI,  SE,
-                                          TLI, TTI, nullptr, MSSA};
+                                          TLI, TTI, nullptr, nullptr};
         return LAM.getResult<LoopAccessAnalysis>(L, AR);
       });
 

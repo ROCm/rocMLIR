@@ -122,7 +122,7 @@ namespace {
 class IRBuilderPrefixedInserter final : public IRBuilderDefaultInserter {
   std::string Prefix;
 
-  const Twine getNameWithPrefix(const Twine &Name) const {
+  Twine getNameWithPrefix(const Twine &Name) const {
     return Name.isTriviallyEmpty() ? Name : Prefix + Name;
   }
 
@@ -768,7 +768,8 @@ private:
     // We allow splitting of non-volatile loads and stores where the type is an
     // integer type. These may be used to implement 'memcpy' or other "transfer
     // of bits" patterns.
-    bool IsSplittable = Ty->isIntegerTy() && !IsVolatile;
+    bool IsSplittable =
+        Ty->isIntegerTy() && !IsVolatile && DL.typeSizeEqualsStoreSize(Ty);
 
     insertUse(I, Offset, Size, IsSplittable);
   }
@@ -926,7 +927,8 @@ private:
            "Map index doesn't point back to a slice with this user.");
   }
 
-  // Disable SRoA for any intrinsics except for lifetime invariants.
+  // Disable SRoA for any intrinsics except for lifetime invariants and
+  // invariant group.
   // FIXME: What about debug intrinsics? This matches old behavior, but
   // doesn't make sense.
   void visitIntrinsicInst(IntrinsicInst &II) {
@@ -943,6 +945,11 @@ private:
       uint64_t Size = std::min(AllocSize - Offset.getLimitedValue(),
                                Length->getLimitedValue());
       insertUse(II, Offset, Size, true);
+      return;
+    }
+
+    if (II.isLaunderOrStripInvariantGroup()) {
+      enqueueUsers(II);
       return;
     }
 
@@ -1323,14 +1330,21 @@ static void speculatePHINodeLoads(PHINode &PN) {
 ///   %V = select i1 %cond, i32 %V1, i32 %V2
 ///
 /// We can do this to a select if its only uses are loads and if the operand
-/// to the select can be loaded unconditionally.
+/// to the select can be loaded unconditionally. If found an intervening bitcast
+/// with a single use of the load, allow the promotion.
 static bool isSafeSelectToSpeculate(SelectInst &SI) {
   Value *TValue = SI.getTrueValue();
   Value *FValue = SI.getFalseValue();
   const DataLayout &DL = SI.getModule()->getDataLayout();
 
   for (User *U : SI.users()) {
-    LoadInst *LI = dyn_cast<LoadInst>(U);
+    LoadInst *LI;
+    BitCastInst *BC = dyn_cast<BitCastInst>(U);
+    if (BC && BC->hasOneUse())
+      LI = dyn_cast<LoadInst>(*BC->user_begin());
+    else
+      LI = dyn_cast<LoadInst>(U);
+
     if (!LI || !LI->isSimple())
       return false;
 
@@ -1356,13 +1370,27 @@ static void speculateSelectInstLoads(SelectInst &SI) {
   Value *FV = SI.getFalseValue();
   // Replace the loads of the select with a select of two loads.
   while (!SI.use_empty()) {
-    LoadInst *LI = cast<LoadInst>(SI.user_back());
+    LoadInst *LI;
+    BitCastInst *BC = dyn_cast<BitCastInst>(SI.user_back());
+    if (BC) {
+      assert(BC->hasOneUse() && "Bitcast should have a single use.");
+      LI = cast<LoadInst>(BC->user_back());
+    } else {
+      LI = cast<LoadInst>(SI.user_back());
+    }
+
     assert(LI->isSimple() && "We only speculate simple loads");
 
     IRB.SetInsertPoint(LI);
-    LoadInst *TL = IRB.CreateLoad(LI->getType(), TV,
+    Value *NewTV =
+        BC ? IRB.CreateBitCast(TV, BC->getType(), TV->getName() + ".sroa.cast")
+           : TV;
+    Value *NewFV =
+        BC ? IRB.CreateBitCast(FV, BC->getType(), FV->getName() + ".sroa.cast")
+           : FV;
+    LoadInst *TL = IRB.CreateLoad(LI->getType(), NewTV,
                                   LI->getName() + ".sroa.speculate.load.true");
-    LoadInst *FL = IRB.CreateLoad(LI->getType(), FV,
+    LoadInst *FL = IRB.CreateLoad(LI->getType(), NewFV,
                                   LI->getName() + ".sroa.speculate.load.false");
     NumLoadsSpeculated += 2;
 
@@ -1383,6 +1411,8 @@ static void speculateSelectInstLoads(SelectInst &SI) {
     LLVM_DEBUG(dbgs() << "          speculated to: " << *V << "\n");
     LI->replaceAllUsesWith(V);
     LI->eraseFromParent();
+    if (BC)
+      BC->eraseFromParent();
   }
   SI.eraseFromParent();
 }
@@ -2461,14 +2491,17 @@ private:
       Pass.DeadInsts.push_back(I);
   }
 
-  Value *rewriteVectorizedLoadInst() {
+  Value *rewriteVectorizedLoadInst(LoadInst &LI) {
     unsigned BeginIndex = getIndex(NewBeginOffset);
     unsigned EndIndex = getIndex(NewEndOffset);
     assert(EndIndex > BeginIndex && "Empty vector!");
 
-    Value *V = IRB.CreateAlignedLoad(NewAI.getAllocatedType(), &NewAI,
-                                     NewAI.getAlign(), "load");
-    return extractVector(IRB, V, BeginIndex, EndIndex, "vec");
+    LoadInst *Load = IRB.CreateAlignedLoad(NewAI.getAllocatedType(), &NewAI,
+                                           NewAI.getAlign(), "load");
+
+    Load->copyMetadata(LI, {LLVMContext::MD_mem_parallel_loop_access,
+                            LLVMContext::MD_access_group});
+    return extractVector(IRB, Load, BeginIndex, EndIndex, "vec");
   }
 
   Value *rewriteIntegerLoad(LoadInst &LI) {
@@ -2512,7 +2545,7 @@ private:
     bool IsPtrAdjusted = false;
     Value *V;
     if (VecTy) {
-      V = rewriteVectorizedLoadInst();
+      V = rewriteVectorizedLoadInst(LI);
     } else if (IntTy && LI.getType()->isIntegerTy()) {
       V = rewriteIntegerLoad(LI);
     } else if (NewBeginOffset == NewAllocaBeginOffset &&
@@ -2524,7 +2557,7 @@ private:
                                               NewAI.getAlign(), LI.isVolatile(),
                                               LI.getName());
       if (AATags)
-        NewLI->setAAMetadata(AATags);
+        NewLI->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
       if (LI.isVolatile())
         NewLI->setAtomic(LI.getOrdering(), LI.getSyncScopeID());
       if (NewLI->isAtomic())
@@ -2563,9 +2596,11 @@ private:
           IRB.CreateAlignedLoad(TargetTy, getNewAllocaSlicePtr(IRB, LTy),
                                 getSliceAlign(), LI.isVolatile(), LI.getName());
       if (AATags)
-        NewLI->setAAMetadata(AATags);
+        NewLI->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
       if (LI.isVolatile())
         NewLI->setAtomic(LI.getOrdering(), LI.getSyncScopeID());
+      NewLI->copyMetadata(LI, {LLVMContext::MD_mem_parallel_loop_access,
+                               LLVMContext::MD_access_group});
 
       V = NewLI;
       IsPtrAdjusted = true;
@@ -2625,8 +2660,10 @@ private:
       V = insertVector(IRB, Old, V, BeginIndex, "vec");
     }
     StoreInst *Store = IRB.CreateAlignedStore(V, &NewAI, NewAI.getAlign());
+    Store->copyMetadata(SI, {LLVMContext::MD_mem_parallel_loop_access,
+                             LLVMContext::MD_access_group});
     if (AATags)
-      Store->setAAMetadata(AATags);
+      Store->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
     Pass.DeadInsts.push_back(&SI);
 
     LLVM_DEBUG(dbgs() << "          to: " << *Store << "\n");
@@ -2650,7 +2687,7 @@ private:
     Store->copyMetadata(SI, {LLVMContext::MD_mem_parallel_loop_access,
                              LLVMContext::MD_access_group});
     if (AATags)
-      Store->setAAMetadata(AATags);
+      Store->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
     Pass.DeadInsts.push_back(&SI);
     LLVM_DEBUG(dbgs() << "          to: " << *Store << "\n");
     return true;
@@ -2720,7 +2757,7 @@ private:
     NewSI->copyMetadata(SI, {LLVMContext::MD_mem_parallel_loop_access,
                              LLVMContext::MD_access_group});
     if (AATags)
-      NewSI->setAAMetadata(AATags);
+      NewSI->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
     if (SI.isVolatile())
       NewSI->setAtomic(SI.getOrdering(), SI.getSyncScopeID());
     if (NewSI->isAtomic())
@@ -2775,7 +2812,7 @@ private:
 
     // If the memset has a variable size, it cannot be split, just adjust the
     // pointer to the new alloca.
-    if (!isa<Constant>(II.getLength())) {
+    if (!isa<ConstantInt>(II.getLength())) {
       assert(!IsSplit);
       assert(NewBeginOffset == BeginOffset);
       II.setDest(getNewAllocaSlicePtr(IRB, OldPtr->getType()));
@@ -2797,10 +2834,11 @@ private:
       if (BeginOffset > NewAllocaBeginOffset ||
           EndOffset < NewAllocaEndOffset)
         return false;
+      // Length must be in range for FixedVectorType.
       auto *C = cast<ConstantInt>(II.getLength());
-      if (C->getBitWidth() > 64)
+      const uint64_t Len = C->getLimitedValue();
+      if (Len > std::numeric_limits<unsigned>::max())
         return false;
-      const auto Len = C->getZExtValue();
       auto *Int8Ty = IntegerType::getInt8Ty(NewAI.getContext());
       auto *SrcTy = FixedVectorType::get(Int8Ty, Len);
       return canConvertValue(DL, SrcTy, AllocaTy) &&
@@ -2816,7 +2854,7 @@ private:
           getNewAllocaSlicePtr(IRB, OldPtr->getType()), II.getValue(), Size,
           MaybeAlign(getSliceAlign()), II.isVolatile());
       if (AATags)
-        New->setAAMetadata(AATags);
+        New->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
       LLVM_DEBUG(dbgs() << "          to: " << *New << "\n");
       return false;
     }
@@ -2884,8 +2922,10 @@ private:
 
     StoreInst *New =
         IRB.CreateAlignedStore(V, &NewAI, NewAI.getAlign(), II.isVolatile());
+    New->copyMetadata(II, {LLVMContext::MD_mem_parallel_loop_access,
+                           LLVMContext::MD_access_group});
     if (AATags)
-      New->setAAMetadata(AATags);
+      New->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
     LLVM_DEBUG(dbgs() << "          to: " << *New << "\n");
     return !II.isVolatile();
   }
@@ -3006,7 +3046,7 @@ private:
       CallInst *New = IRB.CreateMemCpy(DestPtr, DestAlign, SrcPtr, SrcAlign,
                                        Size, II.isVolatile());
       if (AATags)
-        New->setAAMetadata(AATags);
+        New->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
       LLVM_DEBUG(dbgs() << "          to: " << *New << "\n");
       return false;
     }
@@ -3059,8 +3099,10 @@ private:
     } else {
       LoadInst *Load = IRB.CreateAlignedLoad(OtherTy, SrcPtr, SrcAlign,
                                              II.isVolatile(), "copyload");
+      Load->copyMetadata(II, {LLVMContext::MD_mem_parallel_loop_access,
+                              LLVMContext::MD_access_group});
       if (AATags)
-        Load->setAAMetadata(AATags);
+        Load->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
       Src = Load;
     }
 
@@ -3079,8 +3121,10 @@ private:
 
     StoreInst *Store = cast<StoreInst>(
         IRB.CreateAlignedStore(Src, DstPtr, DstAlign, II.isVolatile()));
+    Store->copyMetadata(II, {LLVMContext::MD_mem_parallel_loop_access,
+                             LLVMContext::MD_access_group});
     if (AATags)
-      Store->setAAMetadata(AATags);
+      Store->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
     LLVM_DEBUG(dbgs() << "          to: " << *Store << "\n");
     return !II.isVolatile();
   }
@@ -3381,8 +3425,13 @@ private:
           IRB.CreateInBoundsGEP(BaseTy, Ptr, GEPIndices, Name + ".gep");
       LoadInst *Load =
           IRB.CreateAlignedLoad(Ty, GEP, Alignment, Name + ".load");
-      if (AATags)
-        Load->setAAMetadata(AATags);
+
+      APInt Offset(
+          DL.getIndexSizeInBits(Ptr->getType()->getPointerAddressSpace()), 0);
+      if (AATags &&
+          GEPOperator::accumulateConstantOffset(BaseTy, GEPIndices, DL, Offset))
+        Load->setAAMetadata(AATags.shift(Offset.getZExtValue()));
+
       Agg = IRB.CreateInsertValue(Agg, Load, Indices, Name + ".insert");
       LLVM_DEBUG(dbgs() << "          to: " << *Load << "\n");
     }
@@ -3428,8 +3477,13 @@ private:
           IRB.CreateInBoundsGEP(BaseTy, Ptr, GEPIndices, Name + ".gep");
       StoreInst *Store =
           IRB.CreateAlignedStore(ExtractValue, InBoundsGEP, Alignment);
-      if (AATags)
-        Store->setAAMetadata(AATags);
+
+      APInt Offset(
+          DL.getIndexSizeInBits(Ptr->getType()->getPointerAddressSpace()), 0);
+      if (AATags &&
+          GEPOperator::accumulateConstantOffset(BaseTy, GEPIndices, DL, Offset))
+        Store->setAAMetadata(AATags.shift(Offset.getZExtValue()));
+
       LLVM_DEBUG(dbgs() << "          to: " << *Store << "\n");
     }
   };
@@ -3478,20 +3532,22 @@ private:
     SmallVector<Value *, 4> Index(GEPI.indices());
     bool IsInBounds = GEPI.isInBounds();
 
+    Type *Ty = GEPI.getSourceElementType();
     Value *True = Sel->getTrueValue();
     Value *NTrue =
         IsInBounds
-            ? Builder.CreateInBoundsGEP(True, Index,
+            ? Builder.CreateInBoundsGEP(Ty, True, Index,
                                         True->getName() + ".sroa.gep")
-            : Builder.CreateGEP(True, Index, True->getName() + ".sroa.gep");
+            : Builder.CreateGEP(Ty, True, Index, True->getName() + ".sroa.gep");
 
     Value *False = Sel->getFalseValue();
 
     Value *NFalse =
         IsInBounds
-            ? Builder.CreateInBoundsGEP(False, Index,
+            ? Builder.CreateInBoundsGEP(Ty, False, Index,
                                         False->getName() + ".sroa.gep")
-            : Builder.CreateGEP(False, Index, False->getName() + ".sroa.gep");
+            : Builder.CreateGEP(Ty, False, Index,
+                                False->getName() + ".sroa.gep");
 
     Value *NSel = Builder.CreateSelect(Sel->getCondition(), NTrue, NFalse,
                                        Sel->getName() + ".sroa.sel");
@@ -3545,9 +3601,10 @@ private:
         Instruction *In = cast<Instruction>(PHI->getIncomingValue(I));
 
         IRBuilderTy B(In->getParent(), std::next(In->getIterator()));
+        Type *Ty = GEPI.getSourceElementType();
         NewVal = IsInBounds
-            ? B.CreateInBoundsGEP(In, Index, In->getName() + ".sroa.gep")
-            : B.CreateGEP(In, Index, In->getName() + ".sroa.gep");
+            ? B.CreateInBoundsGEP(Ty, In, Index, In->getName() + ".sroa.gep")
+            : B.CreateGEP(Ty, In, Index, In->getName() + ".sroa.gep");
       }
       NewPN->addIncoming(NewVal, B);
     }
@@ -3970,6 +4027,7 @@ bool SROA::presplitLoadsAndStores(AllocaInst &AI, AllocaSlices &AS) {
     SplitLoads.clear();
 
     IntegerType *Ty = cast<IntegerType>(LI->getType());
+    assert(Ty->getBitWidth() % 8 == 0);
     uint64_t LoadSize = Ty->getBitWidth() / 8;
     assert(LoadSize > 0 && "Cannot have a zero-sized integer load!");
 
@@ -4056,7 +4114,7 @@ bool SROA::presplitLoadsAndStores(AllocaInst &AI, AllocaSlices &AS) {
                            PartPtrTy, StoreBasePtr->getName() + "."),
             getAdjustedAlignment(SI, PartOffset),
             /*IsVolatile*/ false);
-        PStore->copyMetadata(*LI, {LLVMContext::MD_mem_parallel_loop_access,
+        PStore->copyMetadata(*SI, {LLVMContext::MD_mem_parallel_loop_access,
                                    LLVMContext::MD_access_group});
         LLVM_DEBUG(dbgs() << "      +" << PartOffset << ":" << *PStore << "\n");
       }
@@ -4094,6 +4152,7 @@ bool SROA::presplitLoadsAndStores(AllocaInst &AI, AllocaSlices &AS) {
   for (StoreInst *SI : Stores) {
     auto *LI = cast<LoadInst>(SI->getValueOperand());
     IntegerType *Ty = cast<IntegerType>(LI->getType());
+    assert(Ty->getBitWidth() % 8 == 0);
     uint64_t StoreSize = Ty->getBitWidth() / 8;
     assert(StoreSize > 0 && "Cannot have a zero-sized integer store!");
 
@@ -4141,6 +4200,8 @@ bool SROA::presplitLoadsAndStores(AllocaInst &AI, AllocaSlices &AS) {
                            LoadPartPtrTy, LoadBasePtr->getName() + "."),
             getAdjustedAlignment(LI, PartOffset),
             /*IsVolatile*/ false, LI->getName());
+        PLoad->copyMetadata(*LI, {LLVMContext::MD_mem_parallel_loop_access,
+                                  LLVMContext::MD_access_group});
       }
 
       // And store this partition.
@@ -4153,6 +4214,8 @@ bool SROA::presplitLoadsAndStores(AllocaInst &AI, AllocaSlices &AS) {
                          StorePartPtrTy, StoreBasePtr->getName() + "."),
           getAdjustedAlignment(SI, PartOffset),
           /*IsVolatile*/ false);
+      PStore->copyMetadata(*SI, {LLVMContext::MD_mem_parallel_loop_access,
+                                 LLVMContext::MD_access_group});
 
       // Now build a new slice for the alloca.
       NewSlices.push_back(
@@ -4761,7 +4824,6 @@ PreservedAnalyses SROA::runImpl(Function &F, DominatorTree &RunDT,
 
   PreservedAnalyses PA;
   PA.preserveSet<CFGAnalyses>();
-  PA.preserve<GlobalsAA>();
   return PA;
 }
 

@@ -875,7 +875,8 @@ static bool isLoopCounter(PHINode* Phi, Loop *L,
 
   int LatchIdx = Phi->getBasicBlockIndex(L->getLoopLatch());
   Value *IncV = Phi->getIncomingValue(LatchIdx);
-  return (getLoopPhiForCounter(IncV, L) == Phi);
+  return (getLoopPhiForCounter(IncV, L) == Phi &&
+          isa<SCEVAddRecExpr>(SE->getSCEV(IncV)));
 }
 
 /// Search the loop header for a loop counter (anadd rec w/step of one)
@@ -1506,12 +1507,9 @@ bool IndVarSimplify::optimizeLoopExits(Loop *L, SCEVExpander &Rewriter) {
       continue;
     }
 
-    // If we end up with a pointer exit count, bail.  Note that we can end up
-    // with a pointer exit count for one exiting block, and not for another in
-    // the same loop.
-    if (!ExitCount->getType()->isIntegerTy() ||
-        !MaxExitCount->getType()->isIntegerTy())
-      continue;
+    assert(ExitCount->getType()->isIntegerTy() &&
+           MaxExitCount->getType()->isIntegerTy() &&
+           "Exit counts must be integers");
 
     Type *WiderType =
       SE->getWiderType(MaxExitCount->getType(), ExitCount->getType());
@@ -1564,21 +1562,15 @@ bool IndVarSimplify::predicateLoopExits(Loop *L, SCEVExpander &Rewriter) {
   if (!LoopPredication)
     return false;
 
-  if (!SE->hasLoopInvariantBackedgeTakenCount(L))
-    return false;
-
   // Note: ExactBTC is the exact backedge taken count *iff* the loop exits
   // through *explicit* control flow.  We have to eliminate the possibility of
   // implicit exits (see below) before we know it's truly exact.
   const SCEV *ExactBTC = SE->getBackedgeTakenCount(L);
-  if (isa<SCEVCouldNotCompute>(ExactBTC) ||
-      !SE->isLoopInvariant(ExactBTC, L) ||
-      !isSafeToExpand(ExactBTC, *SE))
+  if (isa<SCEVCouldNotCompute>(ExactBTC) || !isSafeToExpand(ExactBTC, *SE))
     return false;
 
-  // If we end up with a pointer exit count, bail.  It may be unsized.
-  if (!ExactBTC->getType()->isIntegerTy())
-    return false;
+  assert(SE->isLoopInvariant(ExactBTC, L) && "BTC must be loop invariant");
+  assert(ExactBTC->getType()->isIntegerTy() && "BTC must be integer");
 
   auto BadExit = [&](BasicBlock *ExitingBB) {
     // If our exiting block exits multiple loops, we can only rewrite the
@@ -1605,15 +1597,12 @@ bool IndVarSimplify::predicateLoopExits(Loop *L, SCEVExpander &Rewriter) {
       return true;
 
     const SCEV *ExitCount = SE->getExitCount(L, ExitingBB);
-    assert(!isa<SCEVCouldNotCompute>(ExactBTC) && "implied by having exact trip count");
-    if (!SE->isLoopInvariant(ExitCount, L) ||
-        !isSafeToExpand(ExitCount, *SE))
+    if (isa<SCEVCouldNotCompute>(ExitCount) || !isSafeToExpand(ExitCount, *SE))
       return true;
 
-    // If we end up with a pointer exit count, bail.  It may be unsized.
-    if (!ExitCount->getType()->isIntegerTy())
-      return true;
-
+    assert(SE->isLoopInvariant(ExitCount, L) &&
+           "Exit count must be loop invariant");
+    assert(ExitCount->getType()->isIntegerTy() && "Exit count must be integer");
     return false;
   };
 
@@ -1670,7 +1659,7 @@ bool IndVarSimplify::predicateLoopExits(Loop *L, SCEVExpander &Rewriter) {
   for (BasicBlock *BB : L->blocks())
     for (auto &I : *BB)
       // TODO:isGuaranteedToTransfer
-      if (I.mayHaveSideEffects() || I.mayThrow())
+      if (I.mayHaveSideEffects())
         return false;
 
   bool Changed = false;

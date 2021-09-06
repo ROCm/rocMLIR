@@ -68,6 +68,8 @@ public:
 
   static const char *GetPluginDescriptionStatic();
 
+  static std::chrono::seconds GetPacketTimeout();
+
   // Check if a given Process
   bool CanDebug(lldb::TargetSP target_sp,
                 bool plugin_specified_by_name) override;
@@ -163,22 +165,16 @@ public:
 
   Status GetWatchpointSupportInfo(uint32_t &num) override;
 
-  lldb::user_id_t StartTrace(const TraceOptions &options,
-                             Status &error) override;
+  llvm::Expected<TraceSupportedResponse> TraceSupported() override;
 
-  Status StopTrace(lldb::user_id_t uid, lldb::tid_t thread_id) override;
+  llvm::Error TraceStop(const TraceStopRequest &request) override;
 
-  Status GetData(lldb::user_id_t uid, lldb::tid_t thread_id,
-                 llvm::MutableArrayRef<uint8_t> &buffer,
-                 size_t offset = 0) override;
+  llvm::Error TraceStart(const llvm::json::Value &request) override;
 
-  Status GetMetaData(lldb::user_id_t uid, lldb::tid_t thread_id,
-                     llvm::MutableArrayRef<uint8_t> &buffer,
-                     size_t offset = 0) override;
+  llvm::Expected<std::string> TraceGetState(llvm::StringRef type) override;
 
-  llvm::Expected<TraceTypeInfo> GetSupportedTraceType() override;
-
-  Status GetTraceConfig(lldb::user_id_t uid, TraceOptions &options) override;
+  llvm::Expected<std::vector<uint8_t>>
+  TraceGetBinaryData(const TraceGetBinaryDataRequest &request) override;
 
   Status GetWatchpointSupportInfo(uint32_t &num, bool &after) override;
 
@@ -234,10 +230,17 @@ public:
   std::string HarmonizeThreadIdsForProfileData(
       StringExtractorGDBRemote &inputStringExtractor);
 
+  void DidFork(lldb::pid_t child_pid, lldb::tid_t child_tid) override;
+  void DidVFork(lldb::pid_t child_pid, lldb::tid_t child_tid) override;
+  void DidVForkDone() override;
+  void DidExec() override;
+
 protected:
   friend class ThreadGDBRemote;
   friend class GDBRemoteCommunicationClient;
   friend class GDBRemoteRegisterContext;
+
+  bool SupportsMemoryTagging() override;
 
   /// Broadcaster event bits definitions.
   enum {
@@ -295,6 +298,8 @@ protected:
   using FlashRange = FlashRangeVector::Entry;
   FlashRangeVector m_erased_flash_ranges;
 
+  bool m_vfork_in_progress;
+
   // Accessors
   bool IsRunning(lldb::StateType state) {
     return state == lldb::eStateRunning || IsStepping(state);
@@ -339,7 +344,7 @@ protected:
 
   size_t UpdateThreadPCsFromStopReplyThreadsValue(std::string &value);
 
-  size_t UpdateThreadIDsFromStopReplyThreadsValue(std::string &value);
+  size_t UpdateThreadIDsFromStopReplyThreadsValue(llvm::StringRef value);
 
   bool HandleNotifyPacket(StringExtractorGDBRemote &packet);
 
@@ -410,6 +415,12 @@ protected:
 
   bool HasErased(FlashRange range);
 
+  llvm::Expected<std::vector<uint8_t>>
+  DoReadMemoryTags(lldb::addr_t addr, size_t len, int32_t type) override;
+
+  Status DoWriteMemoryTags(lldb::addr_t addr, size_t len, int32_t type,
+                           const std::vector<uint8_t> &tags) override;
+
 private:
   // For ProcessGDBRemote only
   std::string m_partial_profile_data;
@@ -455,6 +466,10 @@ private:
 
   ProcessGDBRemote(const ProcessGDBRemote &) = delete;
   const ProcessGDBRemote &operator=(const ProcessGDBRemote &) = delete;
+
+  // fork helpers
+  void DidForkSwitchSoftwareBreakpoints(bool enable);
+  void DidForkSwitchHardwareTraps(bool enable);
 };
 
 } // namespace process_gdb_remote

@@ -86,15 +86,15 @@ struct FuzzJob {
 };
 
 struct GlobalEnv {
-  Vector<std::string> Args;
-  Vector<std::string> CorpusDirs;
+  std::vector<std::string> Args;
+  std::vector<std::string> CorpusDirs;
   std::string MainCorpusDir;
   std::string TempDir;
   std::string DFTDir;
   std::string DataFlowBinary;
-  Set<uint32_t> Features, Cov;
-  Set<std::string> FilesWithDFT;
-  Vector<std::string> Files;
+  std::set<uint32_t> Features, Cov;
+  std::set<std::string> FilesWithDFT;
+  std::vector<std::string> Files;
   Random *Rand;
   std::chrono::system_clock::time_point ProcessStartTime;
   int Verbosity = 0;
@@ -142,7 +142,9 @@ struct GlobalEnv {
         CollectDFT(SF);
       }
       auto Time2 = std::chrono::system_clock::now();
-      Job->DftTimeInSeconds = duration_cast<seconds>(Time2 - Time1).count();
+      auto DftTimeInSeconds = duration_cast<seconds>(Time2 - Time1).count();
+      assert(DftTimeInSeconds < std::numeric_limits<int>::max());
+      Job->DftTimeInSeconds = static_cast<int>(DftTimeInSeconds);
     }
     if (!Seeds.empty()) {
       Job->SeedListPath =
@@ -181,7 +183,7 @@ struct GlobalEnv {
     auto Stats = ParseFinalStatsFromLog(Job->LogPath);
     NumRuns += Stats.number_of_executed_units;
 
-    Vector<SizedFile> TempFiles, MergeCandidates;
+    std::vector<SizedFile> TempFiles, MergeCandidates;
     // Read all newly created inputs and their feature sets.
     // Choose only those inputs that have new features.
     GetSizedFilesFromDir(Job->CorpusDir, &TempFiles);
@@ -191,7 +193,7 @@ struct GlobalEnv {
       FeatureFile.replace(0, Job->CorpusDir.size(), Job->FeaturesDir);
       auto FeatureBytes = FileToVector(FeatureFile, 0, false);
       assert((FeatureBytes.size() % sizeof(uint32_t)) == 0);
-      Vector<uint32_t> NewFeatures(FeatureBytes.size() / sizeof(uint32_t));
+      std::vector<uint32_t> NewFeatures(FeatureBytes.size() / sizeof(uint32_t));
       memcpy(NewFeatures.data(), FeatureBytes.data(), FeatureBytes.size());
       for (auto Ft : NewFeatures) {
         if (!Features.count(Ft)) {
@@ -209,8 +211,8 @@ struct GlobalEnv {
 
     if (MergeCandidates.empty()) return;
 
-    Vector<std::string> FilesToAdd;
-    Set<uint32_t> NewFeatures, NewCov;
+    std::vector<std::string> FilesToAdd;
+    std::set<uint32_t> NewFeatures, NewCov;
     CrashResistantMerge(Args, {}, MergeCandidates, &FilesToAdd, Features,
                         &NewFeatures, Cov, &NewCov, Job->CFPath, false);
     for (auto &Path : FilesToAdd) {
@@ -281,8 +283,8 @@ void WorkerThread(JobQueue *FuzzQ, JobQueue *MergeQ) {
 
 // This is just a skeleton of an experimental -fork=1 feature.
 void FuzzWithFork(Random &Rand, const FuzzingOptions &Options,
-                  const Vector<std::string> &Args,
-                  const Vector<std::string> &CorpusDirs, int NumJobs) {
+                  const std::vector<std::string> &Args,
+                  const std::vector<std::string> &CorpusDirs, int NumJobs) {
   Printf("INFO: -fork=%d: fuzzing in separate process(s)\n", NumJobs);
 
   GlobalEnv Env;
@@ -293,7 +295,7 @@ void FuzzWithFork(Random &Rand, const FuzzingOptions &Options,
   Env.ProcessStartTime = std::chrono::system_clock::now();
   Env.DataFlowBinary = Options.CollectDataFlow;
 
-  Vector<SizedFile> SeedFiles;
+  std::vector<SizedFile> SeedFiles;
   for (auto &Dir : CorpusDirs)
     GetSizedFilesFromDir(Dir, &SeedFiles);
   std::sort(SeedFiles.begin(), SeedFiles.end());
@@ -314,8 +316,11 @@ void FuzzWithFork(Random &Rand, const FuzzingOptions &Options,
       Env.Files.push_back(File.File);
   } else {
     auto CFPath = DirPlusFile(Env.TempDir, "merge.txt");
-    CrashResistantMerge(Env.Args, {}, SeedFiles, &Env.Files, {}, &Env.Features,
-                        {}, &Env.Cov, CFPath, false);
+    std::set<uint32_t> NewFeatures, NewCov;
+    CrashResistantMerge(Env.Args, {}, SeedFiles, &Env.Files, Env.Features,
+                        &NewFeatures, Env.Cov, &NewCov, CFPath, false);
+    Env.Features.insert(NewFeatures.begin(), NewFeatures.end());
+    Env.Cov.insert(NewFeatures.begin(), NewFeatures.end());
     RemoveFile(CFPath);
   }
   Printf("INFO: -fork=%d: %zd seed inputs, starting to fuzz in %s\n", NumJobs,
@@ -333,7 +338,7 @@ void FuzzWithFork(Random &Rand, const FuzzingOptions &Options,
   };
 
   size_t JobId = 1;
-  Vector<std::thread> Threads;
+  std::vector<std::thread> Threads;
   for (int t = 0; t < NumJobs; t++) {
     Threads.push_back(std::thread(WorkerThread, &FuzzQ, &MergeQ));
     FuzzQ.Push(Env.CreateNewJob(JobId++));
@@ -353,7 +358,7 @@ void FuzzWithFork(Random &Rand, const FuzzingOptions &Options,
 
     Env.RunOneMergeJob(Job.get());
 
-    // Continue if our crash is one of the ignorred ones.
+    // Continue if our crash is one of the ignored ones.
     if (Options.IgnoreTimeouts && ExitCode == Options.TimeoutExitCode)
       Env.NumTimeouts++;
     else if (Options.IgnoreOOMs && ExitCode == Options.OOMExitCode)

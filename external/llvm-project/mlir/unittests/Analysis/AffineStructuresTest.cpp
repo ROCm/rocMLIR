@@ -7,6 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Analysis/AffineStructures.h"
+#include "mlir/IR/IntegerSet.h"
+#include "mlir/IR/MLIRContext.h"
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -51,9 +53,11 @@ static void checkSample(bool hasSample, const FlatAffineConstraints &fac,
 /// Construct a FlatAffineConstraints from a set of inequality and
 /// equality constraints.
 static FlatAffineConstraints
-makeFACFromConstraints(unsigned dims, ArrayRef<SmallVector<int64_t, 4>> ineqs,
-                       ArrayRef<SmallVector<int64_t, 4>> eqs) {
-  FlatAffineConstraints fac(ineqs.size(), eqs.size(), dims + 1, dims);
+makeFACFromConstraints(unsigned ids, ArrayRef<SmallVector<int64_t, 4>> ineqs,
+                       ArrayRef<SmallVector<int64_t, 4>> eqs,
+                       unsigned syms = 0) {
+  FlatAffineConstraints fac(ineqs.size(), eqs.size(), ids + 1, ids - syms, syms,
+                            /*numLocals=*/0);
   for (const auto &eq : eqs)
     fac.addEquality(eq);
   for (const auto &ineq : ineqs)
@@ -419,6 +423,17 @@ TEST(FlatAffineConstraintsTest, IsIntegerEmptyTest) {
                   },
                   {{2, -3, 0, 0, 0}, {1, -1, 6, 0, -1}, {1, 1, 0, -6, -2}})
                   .isIntegerEmpty());
+
+  // Set with symbols.
+  FlatAffineConstraints fac6 = makeFACFromConstraints(2,
+                                                      {
+                                                          {1, 1, 0},
+                                                      },
+                                                      {
+                                                          {1, -1, 0},
+                                                      },
+                                                      1);
+  EXPECT_FALSE(fac6.isIntegerEmpty());
 }
 
 TEST(FlatAffineConstraintsTest, removeRedundantConstraintsTest) {
@@ -532,6 +547,67 @@ TEST(FlatAffineConstraintsTest, removeRedundantConstraintsTest) {
     // Ensure that the removed constraint was the redundant constraint [3].
     EXPECT_NE(fac5.getInequality(i), ArrayRef<int64_t>(redundantConstraint));
   }
+}
+
+TEST(FlatAffineConstraintsTest, addConstantUpperBound) {
+  FlatAffineConstraints fac = makeFACFromConstraints(2, {}, {});
+  fac.addBound(FlatAffineConstraints::UB, 0, 1);
+  EXPECT_EQ(fac.atIneq(0, 0), -1);
+  EXPECT_EQ(fac.atIneq(0, 1), 0);
+  EXPECT_EQ(fac.atIneq(0, 2), 1);
+
+  fac.addBound(FlatAffineConstraints::UB, {1, 2, 3}, 1);
+  EXPECT_EQ(fac.atIneq(1, 0), -1);
+  EXPECT_EQ(fac.atIneq(1, 1), -2);
+  EXPECT_EQ(fac.atIneq(1, 2), -2);
+}
+
+TEST(FlatAffineConstraintsTest, addConstantLowerBound) {
+  FlatAffineConstraints fac = makeFACFromConstraints(2, {}, {});
+  fac.addBound(FlatAffineConstraints::LB, 0, 1);
+  EXPECT_EQ(fac.atIneq(0, 0), 1);
+  EXPECT_EQ(fac.atIneq(0, 1), 0);
+  EXPECT_EQ(fac.atIneq(0, 2), -1);
+
+  fac.addBound(FlatAffineConstraints::LB, {1, 2, 3}, 1);
+  EXPECT_EQ(fac.atIneq(1, 0), 1);
+  EXPECT_EQ(fac.atIneq(1, 1), 2);
+  EXPECT_EQ(fac.atIneq(1, 2), 2);
+}
+
+TEST(FlatAffineConstraintsTest, clearConstraints) {
+  FlatAffineConstraints fac = makeFACFromConstraints(1, {}, {});
+
+  fac.addInequality({1, 0});
+  EXPECT_EQ(fac.atIneq(0, 0), 1);
+  EXPECT_EQ(fac.atIneq(0, 1), 0);
+
+  fac.clearConstraints();
+
+  fac.addInequality({1, 0});
+  EXPECT_EQ(fac.atIneq(0, 0), 1);
+  EXPECT_EQ(fac.atIneq(0, 1), 0);
+}
+
+TEST(FlatAffineConstraintsTest, constantDivs) {
+  // This test checks if floordivs with numerator containing non zero constant
+  // term can be computed from a FlatAffineConstraints instance.
+  FlatAffineConstraints fac = makeFACFromConstraints(4, {}, {});
+
+  // Build a FlatAffineConstraints instance with floordivs containing numerator
+  // with non zero constant term.
+  fac.addLocalFloorDiv({0, 1, 0, 0, 10}, 30);
+  fac.addLocalFloorDiv({1, 0, 0, 0, 0, 99}, 101);
+
+  // Add inequalities using the local variables created above.
+  fac.addInequality({1, 0, 0, 0, 1, 0, 2});
+  fac.addInequality({1, 0, 0, 0, 0, 1, 5});
+
+  // FlatAffineConstraints::getAsIntegerSet returns a null integer set if an
+  // explicit representation for each local variable could not be found.
+  MLIRContext ctx;
+  IntegerSet iSet = fac.getAsIntegerSet(&ctx);
+  EXPECT_TRUE((bool)iSet);
 }
 
 } // namespace mlir
