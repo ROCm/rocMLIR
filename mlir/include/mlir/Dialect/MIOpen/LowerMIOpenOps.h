@@ -10101,10 +10101,10 @@ struct XdlopsGemmV2RewritePattern
     int64_t KRepeats = 0;
     if (dataType == b.getF32Type()) {
       assert(argType == dataType);
-      KRepeats = 1 / k_base;
+      KRepeats = 1;
     } else if (dataType == b.getF16Type() || dataType == b.getIntegerType(16)) {
       VectorType argVectorType = argType.template cast<VectorType>();
-      KRepeats = argVectorType.getShape()[0] / k_base;
+      KRepeats = argVectorType.getShape()[0];
     }
     // llvm::errs() << "argVectorType: " << argType << "\n";
     // llvm::errs() << "k_base: " << k_base << "\n";
@@ -10131,8 +10131,7 @@ struct XdlopsGemmV2RewritePattern
       auto outerLoopM = b.create<AffineForOp>(loc, 0, MRepeats);
       auto olmb = OpBuilder::atBlockTerminator(outerLoopM.getBody());
       auto olmiv = outerLoopM.getInductionVar();
-      // FIXME: XXX review this line.
-      auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, K / k_base);
+      auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, K);
       auto ilmkb = OpBuilder::atBlockTerminator(innerLoopMK.getBody());
       auto ilmkiv = innerLoopMK.getInductionVar();
 
@@ -10178,8 +10177,7 @@ struct XdlopsGemmV2RewritePattern
       auto outerLoopN = b.create<AffineForOp>(loc, 0, NRepeats);
       auto olnb = OpBuilder::atBlockTerminator(outerLoopN.getBody());
       auto olniv = outerLoopN.getInductionVar();
-      // FIXME: XXX review this line.
-      auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, K / k_base);
+      auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, K);
       auto ilnkb = OpBuilder::atBlockTerminator(innerLoopNK.getBody());
       auto ilnkiv = innerLoopNK.getInductionVar();
 
