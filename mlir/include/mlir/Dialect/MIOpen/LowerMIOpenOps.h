@@ -10161,6 +10161,8 @@ struct XdlopsGemmV2RewritePattern
       Value valueA;
       if (KPack > 1) {
         valueA = emitLoadLogic(ilmkb, loc, op.matrixA().getType().template cast<MemRefType>(), argType, false, {}, op.matrixA(), ValueRange{sourceOffsetA});
+	//auto f1 = createConstantFloatOp(ilmkb, loc, dataType, 1.0f);
+	//valueA = ilmkb.create<SplatOp>(loc, f1, argType);
       } else {
         valueA = ilmkb.create<LoadOp>(loc, dataType, op.matrixA(), sourceOffsetA);
       }
@@ -10207,6 +10209,8 @@ struct XdlopsGemmV2RewritePattern
       Value valueB;
       if (KPack > 1) {
         valueB = emitLoadLogic(ilnkb, loc, op.matrixB().getType().template cast<MemRefType>(), argType, false, {}, op.matrixB(), ValueRange{sourceOffsetB});
+	//auto f1 = createConstantFloatOp(ilnkb, loc, dataType, 1.0f);
+	//valueB = ilnkb.create<SplatOp>(loc, f1, argType);
       } else {
         valueB = ilnkb.create<LoadOp>(loc, dataType, op.matrixB(), sourceOffsetB);
       }
