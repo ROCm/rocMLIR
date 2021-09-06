@@ -6709,8 +6709,8 @@ struct GridwiseGemmV2RewritePattern
     int64_t GemmABlockCopyNumberDataPerThread =
         MPerBlock * KPerBlock * KPack / BlockSize;
 
-    llvm::errs() << "GemmABlockCopyNumberDataPerThread: "
-                 << GemmABlockCopyNumberDataPerThread << "\n";
+    // llvm::errs() << "GemmABlockCopyNumberDataPerThread: "
+    //              << GemmABlockCopyNumberDataPerThread << "\n";
 
     int64_t GemmABlockCopyThreadSliceLengths_GemmK;
     int64_t GemmABlockCopyThreadSliceLengths_GemmM;
@@ -6751,10 +6751,10 @@ struct GridwiseGemmV2RewritePattern
                        "and should not haven been attempted");
     }
 
-    llvm::errs() << "thread slice lengths for Matrix A\n";
-    llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
-    llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << " ";
-    llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
+    // llvm::errs() << "thread slice lengths for Matrix A\n";
+    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
+    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << " ";
+    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
 
     // Compute ThreadClusterLengths for Matrix A.
     int64_t GemmABlockCopyClusterLengths_GemmKPack =
@@ -6764,17 +6764,17 @@ struct GridwiseGemmV2RewritePattern
     int64_t GemmABlockCopyClusterLengths_GemmM =
         MPerBlock / GemmABlockCopyThreadSliceLengths_GemmM;
 
-    llvm::errs() << "thread cluster lengths for Matrix A\n";
-    llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
-    llvm::errs() << GemmABlockCopyClusterLengths_GemmM << " ";
-    llvm::errs() << GemmABlockCopyClusterLengths_GemmKPack << "\n";
+    // llvm::errs() << "thread cluster lengths for Matrix A\n";
+    // llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
+    // llvm::errs() << GemmABlockCopyClusterLengths_GemmM << " ";
+    // llvm::errs() << GemmABlockCopyClusterLengths_GemmKPack << "\n";
 
     // Compute ThreadSliceLengths for Matrix B.
     int64_t GemmBBlockCopyNumberDataPerThread =
         NPerBlock * KPerBlock * KPack / BlockSize;
 
-    llvm::errs() << "GemmBBlockCopyNumberDataPerThread: "
-                 << GemmBBlockCopyNumberDataPerThread << "\n";
+    // llvm::errs() << "GemmBBlockCopyNumberDataPerThread: "
+    //              << GemmBBlockCopyNumberDataPerThread << "\n";
 
     int64_t GemmBBlockCopyThreadSliceLengths_GemmK;
     int64_t GemmBBlockCopyThreadSliceLengths_GemmN;
@@ -6807,10 +6807,10 @@ struct GridwiseGemmV2RewritePattern
                        "and should not haven been attempted");
     }
 
-    llvm::errs() << "thread slice lengths for Matrix B\n";
-    llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
-    llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << " ";
-    llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
+    // llvm::errs() << "thread slice lengths for Matrix B\n";
+    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
+    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << " ";
+    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
 
     assert(GemmBBlockCopyThreadSliceLengths_GemmK > 0);
     assert(GemmBBlockCopyThreadSliceLengths_GemmN > 0);
@@ -6823,10 +6823,10 @@ struct GridwiseGemmV2RewritePattern
     int64_t GemmBBlockCopyClusterLengths_GemmN =
         NPerBlock / GemmBBlockCopyThreadSliceLengths_GemmN;
 
-    llvm::errs() << "thread cluster lengths for Matrix B\n";
-    llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
-    llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << " ";
-    llvm::errs() << GemmBBlockCopyClusterLengths_GemmKPack << "\n";
+    // llvm::errs() << "thread cluster lengths for Matrix B\n";
+    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
+    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << " ";
+    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmKPack << "\n";
 
     // Compute thread_data_id_begin for Matrix A.
     // ClusterArrangeOrder for Matrix A is <1, 0>.
