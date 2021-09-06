@@ -10293,7 +10293,7 @@ struct XdlopsGemmV2RewritePattern
           KBaseConstantOp);
 
       Value argA = innerLoopb.create<LoadOp>(loc, argType, op.bufferA(), ValueRange{offset});
-      Value argB = innerLoopb.create<LoadOp>(loc, dataType, op.bufferB(), ValueRange{offset});
+      Value argB = innerLoopb.create<LoadOp>(loc, argType, op.bufferB(), ValueRange{offset});
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
