@@ -13,11 +13,11 @@ function usage() {
     cat <<END
 $0: [-d | --direction] DIR [-t | --dtype] [fp16 | fp32]
 [-l | --layout] LAYOUT [-x | --xdlops] [-X | --no-xdlops (default)]
-[--no-tuning (default)] [--driver DRIVER (default bin/MIOpenDriver)]
+[--tuning | --no-tuning (default)] [--driver DRIVER (default bin/MIOpenDriver)]
 
-DIR is either 1 (forward) or 4 (backwards with regard to weights (wrw))
-In general, it's a bitmask of these and 2 (backward),
-but other values are currently unsupported for testing.
+DIR is either 1 (forward (fwd)) 2 (backward data (bwd)), or 
+4 (backward weights (wrw)), other values are currently unsupported 
+for testing.
 
 LAYOUT is a four-letter string containing the letters N, C, H, and W
 that specifies the memory layout to test.
