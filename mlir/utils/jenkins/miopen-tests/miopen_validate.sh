@@ -3,6 +3,7 @@
 declare -a FIXED_CONFIG_ARGS=()
 declare -g TMPFILE
 declare -ig XDLOPS=0
+declare -ig TUNING=0
 declare -g DTYPE=""
 declare -g DIRECTION=""
 declare -g LAYOUT=""
@@ -12,7 +13,7 @@ function usage() {
     cat <<END
 $0: [-d | --direction] DIR [-t | --dtype] [fp16 | fp32]
 [-l | --layout] LAYOUT [-x | --xdlops] [-X | --no-xdlops (default)]
-[--driver DRIVER (default bin/MIOpenDriver)]
+[--no-tuning (default)] [--driver DRIVER (default bin/MIOpenDriver)]
 
 DIR is either 1 (forward) or 4 (backwards with regard to weights (wrw))
 In general, it's a bitmask of these and 2 (backward),
@@ -34,7 +35,7 @@ function parse_options() {
 
     local parsed_args
     parsed_args=$(getopt -n "$0" -o d:t:l:xXh \
-                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver:,help -- "$@")
+                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver:,tuning,no-tuning,help -- "$@")
     local -i valid_args=$?
     if [[ $valid_args -ne 0 ]]; then
         usage
@@ -46,6 +47,8 @@ function parse_options() {
             -h | --help ) usage ;;
             -x | --xdlops ) XDLOPS=1; shift; ;;
             -X | --no-xdlops ) XDLOPS=0; shift ;;
+            --tuning ) TUNING=1; shift; ;;
+            --no-tuning ) TUNING=0; shift; ;;
             -d | --direction ) got_direction=1; DIRECTION="$2"; shift 2 ;;
             -l | --layout ) got_layout=1; LAYOUT="$2"; shift 2 ;;
             -t | --dtype ) got_dtype=1; DTYPE="$2"; shift 2 ;;
@@ -110,6 +113,10 @@ function clean_miopen_caches() {
 function setup_environment() {
     export MIOPEN_FIND_MODE=1
     export MIOPEN_DRIVER_USE_GPU_REFERENCE=1
+
+    if [[ $TUNING == 1 ]]; then
+        export MIOPEN_FIND_ENFORCE=4
+    fi
 
     declare -xg MIOPEN_DEBUG_FIND_ONLY_SOLVER
     case "$DIRECTION" in
