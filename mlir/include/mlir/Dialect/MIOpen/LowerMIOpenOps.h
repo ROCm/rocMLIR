@@ -5652,11 +5652,16 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     if (KPack > 1) {
       GemmABlockCopySourceCoord_Z_i32 = b.create<AddIOp>(
           loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Z_i32);
+      GemmABlockCopySourceCoord_Y_i32 = b.create<AddIOp>(
+          loc, m_block_data_on_global_i32, GemmAThreadDataIdBegin_Y_i32);
+      GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
+          loc, zeroConstantI32Op, GemmAThreadDataIdBegin_X_i32);
+    } else {
+      GemmABlockCopySourceCoord_Y_i32 =
+          b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
+      GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
+          loc, m_block_data_on_global_i32, GemmAThreadDataIdBegin_X_i32);
     }
-    GemmABlockCopySourceCoord_Y_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
-    GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
-        loc, m_block_data_on_global_i32, GemmAThreadDataIdBegin_X_i32);
 
     Value GemmABlockCopyDestCoord_Y_i32;
     Value GemmABlockCopyDestCoord_X_i32;
@@ -5762,11 +5767,16 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     if (KPack > 1) {
       GemmBBlockCopySourceCoord_Z_i32 = b.create<AddIOp>(
           loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Z_i32);
+      GemmBBlockCopySourceCoord_Y_i32 =
+          b.create<AddIOp>(loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_Y_i32);
+      GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
+          loc, zeroConstantI32Op, GemmBThreadDataIdBegin_X_i32);
+    } else {
+      GemmBBlockCopySourceCoord_Y_i32 =
+          b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
+      GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
+          loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_X_i32);
     }
-    GemmBBlockCopySourceCoord_Y_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
-    GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
-        loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_X_i32);
 
     Value GemmBBlockCopyDestCoord_Y_i32;
     Value GemmBBlockCopyDestCoord_X_i32;
@@ -6998,11 +7008,16 @@ struct GridwiseGemmV2RewritePattern
     if (KPack > 1) {
       GemmABlockCopySourceCoord_Z_i32 = b.create<AddIOp>(
           loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Z_i32);
+      GemmABlockCopySourceCoord_Y_i32 =
+          b.create<AddIOp>(loc, m_block_data_on_global_i32, GemmAThreadDataIdBegin_Y_i32);
+      GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
+          loc, zeroConstantI32Op, GemmAThreadDataIdBegin_X_i32);
+    } else {
+      GemmABlockCopySourceCoord_Y_i32 =
+          b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
+      GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
+          loc, m_block_data_on_global_i32, GemmAThreadDataIdBegin_X_i32);
     }
-    GemmABlockCopySourceCoord_Y_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
-    GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
-        loc, m_block_data_on_global_i32, GemmAThreadDataIdBegin_X_i32);
 
     Value GemmABlockCopyDestCoord_Y_i32;
     Value GemmABlockCopyDestCoord_X_i32;
@@ -7107,11 +7122,16 @@ struct GridwiseGemmV2RewritePattern
     if (KPack > 1) {
       GemmBBlockCopySourceCoord_Z_i32 = b.create<AddIOp>(
           loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Z_i32);
+      GemmBBlockCopySourceCoord_Y_i32 =
+          b.create<AddIOp>(loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_Y_i32);
+      GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
+          loc, zeroConstantI32Op, GemmBThreadDataIdBegin_X_i32);
+    } else {
+      GemmBBlockCopySourceCoord_Y_i32 =
+          b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
+      GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
+          loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_X_i32);
     }
-    GemmBBlockCopySourceCoord_Y_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
-    GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
-        loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_X_i32);
 
     Value GemmBBlockCopyDestCoord_Y_i32;
     Value GemmBBlockCopyDestCoord_X_i32;
