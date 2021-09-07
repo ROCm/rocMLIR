@@ -1,3 +1,4 @@
+// ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 void buildProject(String target, String cmakeOpts) {
     cmakeBuild generator: 'Ninja',\
         buildDir: 'build',\
@@ -43,7 +44,7 @@ pipeline {
     parameters {
         booleanParam(name: 'nightly', defaultValue: params.nightly ?: false,
                      description: 'Run extra nightly-only tests')
-        booleanParam(name: 'canXdlops', defaultValue: params.canXdlops ?: false,
+        booleanParam(name: 'canXdlops', defaultValue: params.canXdlops ?: true,
                      description: 'Can this CI instance use xdlops (no for public server)')
     }
     stages {
@@ -54,7 +55,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908' : 'rocm' } && !single_gpu"
+                            label "${params.canXdlops ? 'gfx908' : 'rocm' }"
                             alwaysPull true
                         }
                     }
@@ -64,6 +65,7 @@ pipeline {
                                 showEnv()
                             }
                         }
+                        // UPDATE Jenkinsfile.downstream ON CHANGES
                         stage("Shared library build and test") {
                             steps {
                                 buildProject('check-mlir check-mlir-miopen', """
