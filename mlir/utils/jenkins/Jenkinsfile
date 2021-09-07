@@ -55,7 +55,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908' : 'rocm' } && !single_gpu"
+                            label "${params.canXdlops ? 'gfx908' : 'rocm' }"
                             alwaysPull true
                         }
                     }
