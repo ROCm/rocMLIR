@@ -208,6 +208,11 @@ public:
   TosaPartitionPass() {}
   TosaPartitionPass(const TosaPartitionPass &pass) {}
 
+  StringRef getArgument() const final { return "tosa-partition"; }
+  StringRef getDescription() const final {
+    return "Outline kernels of tosa::Conv2D and surrounding elementwise ops.";
+  }
+
   Option<bool> nofront{*this, "nofront", llvm::cl::desc("Only gather ops behind conv2d"),
                        llvm::cl::init(false)};
 
@@ -239,11 +244,7 @@ public:
       SetVector<Value> resultNodes(convOp->getResults().begin(),
                                    convOp->getResults().end());
 
-
-
-      // Experiment:  can we grab a useful set of leading ops, like we do
-      // for trailing?
-      //
+      // Grab a useful set of leading ops, like we do for trailing.
       // Let's limit it to only first arguments, with single uses.
       SmallVector<Operation*> frontOps;
       if (!nofront) {
@@ -262,7 +263,6 @@ public:
           op = usedOp;
         }
       }
-
 
       DominanceInfo domInfo(func);
       std::deque<Operation *> worklist; // cuz I want to pull from the front.
@@ -334,13 +334,7 @@ public:
     while (func.walk(callback).wasInterrupted()) {
     }
 
-    // Then get rid of outlined functions that duplicate each other.
-    // (With multithreading disabled because something's breaking.)
-//     MLIRContext *context = func->getContext();
-//     bool wasThreadingEnabled = context->isMultithreadingEnabled();
-//     context->disableMultithreading();
-//     collapseIdenticalFunctions(func->getParentOfType<ModuleOp>());
-//     context->enableMultithreading(wasThreadingEnabled);
+    // Count on the SymbolDCE pass to clean up the dead functions.
   }
 };
 
@@ -348,11 +342,16 @@ public:
 struct PostPartitionCollapsePass
     : public PassWrapper<PostPartitionCollapsePass, OperationPass<ModuleOp>> {
   void runOnOperation() override;
+
+  StringRef getArgument() const final { return "tosa-collapse"; }
+  StringRef getDescription() const final {
+    return "After --tosa-partition, merge identical functions";
+  }
+
 };
 
 void PostPartitionCollapsePass::runOnOperation() {
   ModuleOp module = getOperation();
-#if 1
   // For all FuncOps, make a mapping to replace those that are identical to
   // another.
   SmallVector<Operation *> opsSeen;
@@ -376,68 +375,6 @@ void PostPartitionCollapsePass::runOnOperation() {
                                                          replacements[call.getCallee()]));
                 }
               });
-
-//   for (auto f : llvm::make_early_inc_range(module.getOps<FuncOp>())) {
-//     bool erase = false;
-//     for (Operation *o : opsSeen) {
-//       if (isFunctionallyEquivalentTo(f, o)) {
-//         CallOp callToF = nullptr;
-//         module.walk([&] (CallOp call) {
-//                       if (call.getCallee() == f.sym_name()) {
-//                         callToF = call;
-//                         return WalkResult::interrupt();
-//                       }
-//                       return WalkResult::advance();
-//                     });
-//         assert(callToF);
-//         callToF.calleeAttr(FlatSymbolRefAttr::get(module->getContext(),
-//                                                   dyn_cast<FuncOp>(o).sym_name()));
-//         erase = true;
-//         break;
-//       }
-//     }
-//     if (erase) {
-// //       opsToDelete.push_back(f);
-//     } else {
-//       opsSeen.push_back(f);
-//     }
-//   }
-// //   for (auto &op : llvm::make_early_inc_range(opsToDelete)) {
-// //     op->erase();
-// //   }
-#else
-  DenseSet<Operation *> opsSeen;
-//   DenseSet<Operation *> opsToDelete;
-
-  module.walk([&] (CallOp call) {
-                auto callee = call.getCallee();
-                Operation *func = nullptr;
-                bool replaced = false;
-                for (auto f : llvm::make_early_inc_range(module.getOps<FuncOp>())) {
-                  if (callee == f.sym_name()) {
-                    func = f;
-                    for (Operation *o : opsSeen) {
-                      FuncOp oop = dyn_cast<FuncOp>(o);
-                      if (f != oop && isFunctionallyEquivalentTo(f, o)) {
-                        call.calleeAttr(FlatSymbolRefAttr::get(module->getContext(),
-                                                               oop.sym_name()));
-                        replaced = true;
-                        break;
-                      }
-                    }
-                  }
-                }
-                if (replaced) {
-//                   opsToDelete.insert(func);
-                } else {
-                  opsSeen.insert(func);
-                }
-              });
-
-//     for (auto &op : llvm::make_early_inc_range(opsToDelete)) {
-//       op->erase();
-//     }
-#endif  /* 0 */
 }
 
 } // namespace
@@ -447,10 +384,8 @@ void PostPartitionCollapsePass::runOnOperation() {
 namespace mlir {
 namespace test {
 void registerTosaPartitionPass() {
-  PassRegistration<TosaPartitionPass>("tosa-partition",
-                                      "tosa partition");
-  PassRegistration<PostPartitionCollapsePass>("tosa-collapse",
-                                              "tosa collapse functions");
+  PassRegistration<TosaPartitionPass>();
+  PassRegistration<PostPartitionCollapsePass>();
 }
 } // namespace test
 } // namespace mlir
