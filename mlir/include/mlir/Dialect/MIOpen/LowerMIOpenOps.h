@@ -294,7 +294,6 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
               b.create<AddIOp>(loc, srcLowerIndices[dim], iterIndex);
           auto loadedElement = b.create<LoadOp>(loc, elementType, source,
                                                 srcLowerIndicesUpdated);
-
           loadedVector = b.create<vector::InsertElementOp>(
               loc, loadedVectorType, loadedElement, loadedVector, iterI32);
         }
@@ -5521,25 +5520,25 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
           b.create<SignedRemIOp>(
               loc, tid,
               GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp),
-          GemmABlockCopyClusterLengths_GemmKPackConstantOp);
+          GemmABlockCopyClusterLengths_GemmKConstantOp);
       GemmABlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
+          loc, tid, GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp);
+      GemmABlockCopyThreadClusterId_X = b.create<SignedDivIOp>(
           loc,
           b.create<SignedRemIOp>(
               loc, tid,
               GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp),
-          GemmABlockCopyClusterLengths_GemmKPackConstantOp);
-      GemmABlockCopyThreadClusterId_X = b.create<SignedDivIOp>(
-          loc, tid, GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp);
+          GemmABlockCopyClusterLengths_GemmKConstantOp);
 
       GemmAThreadDataIdBegin_Z = b.create<MulIOp>(
           loc, GemmABlockCopyThreadClusterId_Z,
-          GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp);
+          GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
       GemmAThreadDataIdBegin_Y =
           b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
-                           GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
+                           GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
       GemmAThreadDataIdBegin_X =
           b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_X,
-                           GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
+                           GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp);
     } else {
       GemmABlockCopyThreadClusterId_Y = b.create<SignedRemIOp>(
           loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
@@ -5628,28 +5627,28 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     Value GemmBThreadDataIdBegin_Z;
 
     if (KPack > 1) {
-      GemmBBlockCopyThreadClusterId_Z = b.create<SignedRemIOp>(
+      GemmBBlockCopyThreadClusterId_Z = b.create<SignedDivIOp>(
           loc,
           b.create<SignedDivIOp>(loc, tid,
                                  GemmBBlockCopyClusterLengths_GemmNConstantOp),
           GemmBBlockCopyClusterLengths_GemmKPackConstantOp);
-      GemmBBlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
-          loc,
-          b.create<SignedDivIOp>(loc, tid,
-                                 GemmBBlockCopyClusterLengths_GemmNConstantOp),
-          GemmBBlockCopyClusterLengths_GemmKPackConstantOp);
-      GemmBBlockCopyThreadClusterId_X = b.create<SignedRemIOp>(
+      GemmBBlockCopyThreadClusterId_Y = b.create<SignedRemIOp>(
           loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
+      GemmBBlockCopyThreadClusterId_X = b.create<SignedRemIOp>(
+          loc,
+          b.create<SignedDivIOp>(loc, tid,
+                                 GemmBBlockCopyClusterLengths_GemmNConstantOp),
+          GemmBBlockCopyClusterLengths_GemmKPackConstantOp);
 
       GemmBThreadDataIdBegin_Z = b.create<MulIOp>(
           loc, GemmBBlockCopyThreadClusterId_Z,
-          GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp);
+          GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
       GemmBThreadDataIdBegin_Y =
           b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
-                           GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
+                           GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
       GemmBThreadDataIdBegin_X =
           b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_X,
-                           GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
+                           GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp);
     } else {
       GemmBBlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
           loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
@@ -6867,25 +6866,25 @@ struct GridwiseGemmV2RewritePattern
           b.create<SignedRemIOp>(
               loc, tid,
               GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp),
-          GemmABlockCopyClusterLengths_GemmKPackConstantOp);
+          GemmABlockCopyClusterLengths_GemmKConstantOp);
       GemmABlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
+          loc, tid, GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp);
+      GemmABlockCopyThreadClusterId_X = b.create<SignedDivIOp>(
           loc,
           b.create<SignedRemIOp>(
               loc, tid,
               GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp),
-          GemmABlockCopyClusterLengths_GemmKPackConstantOp);
-      GemmABlockCopyThreadClusterId_X = b.create<SignedDivIOp>(
-          loc, tid, GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp);
+          GemmABlockCopyClusterLengths_GemmKConstantOp);
 
       GemmAThreadDataIdBegin_Z = b.create<MulIOp>(
           loc, GemmABlockCopyThreadClusterId_Z,
-          GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp);
+          GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
       GemmAThreadDataIdBegin_Y =
           b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
-                           GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
+                           GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
       GemmAThreadDataIdBegin_X =
           b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_X,
-                           GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
+                           GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp);
     } else {
       GemmABlockCopyThreadClusterId_Y = b.create<SignedRemIOp>(
           loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
@@ -6973,28 +6972,28 @@ struct GridwiseGemmV2RewritePattern
     Value GemmBThreadDataIdBegin_Z;
 
     if (KPack > 1) {
-      GemmBBlockCopyThreadClusterId_Z = b.create<SignedRemIOp>(
+      GemmBBlockCopyThreadClusterId_Z = b.create<SignedDivIOp>(
           loc,
           b.create<SignedDivIOp>(loc, tid,
                                  GemmBBlockCopyClusterLengths_GemmNConstantOp),
           GemmBBlockCopyClusterLengths_GemmKPackConstantOp);
-      GemmBBlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
-          loc,
-          b.create<SignedDivIOp>(loc, tid,
-                                 GemmBBlockCopyClusterLengths_GemmNConstantOp),
-          GemmBBlockCopyClusterLengths_GemmKPackConstantOp);
-      GemmBBlockCopyThreadClusterId_X = b.create<SignedRemIOp>(
+      GemmBBlockCopyThreadClusterId_Y = b.create<SignedRemIOp>(
           loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
+      GemmBBlockCopyThreadClusterId_X = b.create<SignedRemIOp>(
+          loc,
+          b.create<SignedDivIOp>(loc, tid,
+                                 GemmBBlockCopyClusterLengths_GemmNConstantOp),
+          GemmBBlockCopyClusterLengths_GemmKPackConstantOp);
 
       GemmBThreadDataIdBegin_Z = b.create<MulIOp>(
           loc, GemmBBlockCopyThreadClusterId_Z,
-          GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp);
+          GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
       GemmBThreadDataIdBegin_Y =
           b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
-                           GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
+                           GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
       GemmBThreadDataIdBegin_X =
           b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_X,
-                           GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
+                           GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp);
     } else {
       GemmBBlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
           loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
@@ -10049,6 +10048,9 @@ struct XdlopsGemmV2RewritePattern
                   loc, ilmkb.create<MulIOp>(loc, ilmkiv, MConstantOp), laneId),
               ilmkb.create<MulIOp>(loc, MPerXdlopsConstantOp, olmiv)));
 
+      if (KPack > 1)
+        sourceOffsetBeforeTransformA = ilmkb.create<MulIOp>(loc, sourceOffsetBeforeTransformA, ilmkb.create<ConstantIndexOp>(loc, KPack));
+
       // Apply coord_transform for matrix A if necessarily.
       SmallVector<Value, 8> sourceOffsetA;
       if (transformMatrixA)
@@ -10094,6 +10096,9 @@ struct XdlopsGemmV2RewritePattern
               ilnkb.create<AddIOp>(
                   loc, ilnkb.create<MulIOp>(loc, ilnkiv, NConstantOp), laneId),
               ilnkb.create<MulIOp>(loc, NPerXdlopsConstantOp, olniv)));
+
+      if (KPack > 1)
+        sourceOffsetBeforeTransformB = ilnkb.create<MulIOp>(loc, sourceOffsetBeforeTransformB, ilnkb.create<ConstantIndexOp>(loc, KPack));
 
       // Apply coord_transform for matrix B if necessarily.
       SmallVector<Value, 8> sourceOffsetB;
