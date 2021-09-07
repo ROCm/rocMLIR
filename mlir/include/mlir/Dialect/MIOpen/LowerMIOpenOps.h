@@ -6806,10 +6806,18 @@ struct GridwiseGemmV2RewritePattern
       break;
     case GemmMorN:
       // TBD: FIXME. Review logic here.
-      GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
-      GemmBBlockCopyThreadSliceLengths_GemmK =
-          GemmBBlockCopyNumberDataPerThread /
-          GemmBBlockCopyThreadSliceLengths_GemmN;
+      if (KPack > 1) {
+        GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
+        GemmBBlockCopyThreadSliceLengths_GemmK =
+            GemmBBlockCopyNumberDataPerThread /
+            GemmBBlockCopyThreadSliceLengths_GemmN / KPack;
+        GemmBBlockCopyThreadSliceLengths_GemmKPack = KPack;
+      } else {
+        GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
+        GemmBBlockCopyThreadSliceLengths_GemmK =
+            GemmBBlockCopyNumberDataPerThread /
+            GemmBBlockCopyThreadSliceLengths_GemmN;
+      }
       break;
     case GemmG:
       llvm_unreachable("Vector loads/stores aren't possible in the G dimension "
