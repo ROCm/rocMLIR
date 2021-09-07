@@ -22,8 +22,10 @@
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
@@ -381,11 +383,20 @@ void PostPartitionCollapsePass::runOnOperation() {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+static void tosaPartitionPipeline(OpPassManager &pm) {
+  pm.addPass(std::make_unique<TosaPartitionPass>());
+  pm.addPass(std::make_unique<PostPartitionCollapsePass>());
+  pm.addPass(createSymbolDCEPass());
+}
+
 namespace mlir {
 namespace test {
 void registerTosaPartitionPass() {
   PassRegistration<TosaPartitionPass>();
   PassRegistration<PostPartitionCollapsePass>();
+  PassPipelineRegistration<>("tosa-partition-pipeline",
+                             "Partition around Conv2D ops and clean up after",
+                             tosaPartitionPipeline);
 }
 } // namespace test
 } // namespace mlir
