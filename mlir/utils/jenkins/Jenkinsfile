@@ -319,40 +319,42 @@ pipeline {
                         values '1', '0'
                     }
                 }
-                Stage('Test MIOpen') {
-                    agent {
-                        docker {
-                            image dockerImage()
-                            args dockerArgs()
-                            label "${XDLOPS == '1' ? 'gfx908' : 'gfx908'} && !single_gpu"
-                            alwaysPull true
-                        }
-                    }
-                    stages {
-                        stage('Environment') {
-                            steps {
-                                echo "Config is ($DTYPE, $LAYOUT, xdlops=$XDLOPS, dir=$DIRECTION, tuning=$TUNING)"
-                                showEnv()
+                stages {
+                    stage('Test MIOpen') {
+                        agent {
+                            docker {
+                                image dockerImage()
+                                args dockerArgs()
+                                label "${XDLOPS == '1' ? 'gfx908' : 'gfx908'} && !single_gpu"
+                                alwaysPull true
                             }
                         }
-                        stage("Copy MIOpen test environment") {
-                            steps {
-                                unstash name: "MIOpen-test-requisites"
+                        stages {
+                            stage('Environment') {
+                                steps {
+                                    echo "Config is ($DTYPE, $LAYOUT, xdlops=$XDLOPS, dir=$DIRECTION, tuning=$TUNING)"
+                                    showEnv()
+                                }
+                            }
+                            stage("Copy MIOpen test environment") {
+                                steps {
+                                    unstash name: "MIOpen-test-requisites"
+                                }
+                            }
+                            stage("Test MIOpen config") {
+                                environment {
+                                    // Make libMIOpen.so accessible to the test driver
+                                    LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                                }
+                                steps {
+                                    testMIOpenDriver($DTYPE, $XDLOPS, $LAYOUT, $DIRECTION, $TUNING)
+                                }
                             }
                         }
-                        stage("Test MIOpen config") {
-                            environment {
-                                // Make libMIOpen.so accessible to the test driver
-                                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                        post {
+                            always {
+                                cleanWs()
                             }
-                            steps {
-                                testMIOpenDriver($DTYPE, $XDLOPS, $LAYOUT, $DIRECTION, $TUNING)
-                            }
-                        }
-                    }
-                    post {
-                        always {
-                            cleanWs()
                         }
                     }
                 }
