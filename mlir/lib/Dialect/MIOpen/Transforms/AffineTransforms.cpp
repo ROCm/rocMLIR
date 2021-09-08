@@ -119,7 +119,7 @@ AffineMap AffineTransforms::buildIndexAffineMap(miopen::TransformOp op) {
         auto destDim = destDimAttr.getValue()[0].cast<IntegerAttr>().getInt();
         auto expr = getAffineDimExpr(destDim, op.getContext());
         auto dimLength =
-            dimLayoutAttr.get("dimension_lengths").cast<ArrayAttr>();
+            dimLayoutAttr.get("parameters").cast<ArrayAttr>();
         for (unsigned j = 1; j < destDimAttr.size(); ++j) {
           destDim = destDimAttr.getValue()[j].cast<IntegerAttr>().getInt();
           auto length = dimLength.getValue()[j].cast<IntegerAttr>().getInt();

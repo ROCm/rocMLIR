@@ -2104,7 +2104,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
                    b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
                    b.getNamedAttr(
-                       "dimension_lengths",
+                       "parameters",
                        b.getArrayAttr({b.getI32IntegerAttr(dividedGemmKLen),
                                        b.getI32IntegerAttr(KPack)})),
                })})));
@@ -3007,7 +3007,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
                    b.getNamedAttr("transformation", b.getStringAttr("UnMerge")),
                    b.getNamedAttr(
-                       "dimension_lengths",
+                       "parameters",
                        b.getArrayAttr({b.getI32IntegerAttr(dividedGemmKLen),
                                        b.getI32IntegerAttr(KPack)})),
                })})));
