@@ -5476,23 +5476,23 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                        "and should not haven been attempted");
     }
 
-    // llvm::errs() << "thread slice lengths for Matrix A\n";
-    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
-    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << " ";
-    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
+    llvm::errs() << "thread slice lengths for Matrix A\n";
+    llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
+    llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << " ";
+    llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
 
     // Compute ThreadClusterLengths for Matrix A.
     int64_t GemmABlockCopyClusterLengths_GemmKPack =
         KPack / GemmABlockCopyThreadSliceLengths_GemmKPack;
     int64_t GemmABlockCopyClusterLengths_GemmK =
-        KPerBlock / (GemmABlockCopyThreadSliceLengths_GemmK * KPack);
-    // int64_t GemmABlockCopyClusterLengths_GemmM =
-    //     MPerBlock / GemmABlockCopyThreadSliceLengths_GemmM;
+        KPerBlock / GemmABlockCopyThreadSliceLengths_GemmK;
+    int64_t GemmABlockCopyClusterLengths_GemmM =
+        MPerBlock / GemmABlockCopyThreadSliceLengths_GemmM;
 
-    // llvm::errs() << "thread cluster lengths for Matrix A\n";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmM << " ";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmKPack << "\n";
+    llvm::errs() << "thread cluster lengths for Matrix A\n";
+    llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
+    llvm::errs() << GemmABlockCopyClusterLengths_GemmM << " ";
+    llvm::errs() << GemmABlockCopyClusterLengths_GemmKPack << "\n";
 
     // Compute ThreadSliceLengths for Matrix B.
     uint64_t GemmBBlockCopyNumberDataPerThread =
@@ -5538,23 +5538,23 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                        "and should not haven been attempted");
     }
 
-    // llvm::errs() << "thread slice lengths for Matrix B\n";
-    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
-    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << " ";
-    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
+    llvm::errs() << "thread slice lengths for Matrix B\n";
+    llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
+    llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << " ";
+    llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
 
     // Compute ThreadClusterLengths for Matrix B.
     uint64_t GemmBBlockCopyClusterLengths_GemmKPack =
         KPack / GemmBBlockCopyThreadSliceLengths_GemmKPack;
     uint64_t GemmBBlockCopyClusterLengths_GemmK =
-        KPerBlock / (GemmBBlockCopyThreadSliceLengths_GemmK * KPack);
+        KPerBlock / GemmBBlockCopyThreadSliceLengths_GemmK;
     uint64_t GemmBBlockCopyClusterLengths_GemmN =
         NPerBlock / GemmBBlockCopyThreadSliceLengths_GemmN;
 
-    // llvm::errs() << "thread cluster lengths for Matrix B\n";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << " ";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmKPack << "\n";
+    llvm::errs() << "thread cluster lengths for Matrix B\n";
+    llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
+    llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << " ";
+    llvm::errs() << GemmBBlockCopyClusterLengths_GemmKPack << "\n";
 
     // Get current workitem ID.
 
@@ -5895,26 +5895,26 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int blockwiseLoadAVectorLength;
     int blockwiseStoreAVectorLength;
 
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmK: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmK << "\n";
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmM: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmKPack: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
-    // llvm::errs() << "blockwise copy A bounds: ";
-    // for (auto v : blockwiseCopyABounds)
-    //   llvm::errs() << v << " ";
-    // llvm::errs() << "\n";
+    llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmK: "
+                 << GemmABlockCopyThreadSliceLengths_GemmK << "\n";
+    llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmM: "
+                 << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
+    llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmKPack: "
+                 << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
+    llvm::errs() << "blockwise copy A bounds: ";
+    for (auto v : blockwiseCopyABounds)
+      llvm::errs() << v << " ";
+    llvm::errs() << "\n";
 
     std::tie(blockwiseLoadAType, blockwiseLoadATupleType, blockwiseAVectorDim,
              blockwiseLoadAVectorLength, blockwiseStoreAVectorLength) =
         computeLoadStoreTypeInfo(b, op, elementType, blockwiseCopyABounds, true,
                                  KPack);
 
-    // llvm::errs() << "vector load dim: " << blockwiseAVectorDim << "\n";
-    // llvm::errs() << "element type: " << blockwiseLoadAType << "\n";
-    // llvm::errs() << "load size: " << blockwiseLoadAVectorLength << "\n";
-    // llvm::errs() << "store size: " << blockwiseStoreAVectorLength << "\n";
+    llvm::errs() << "vector load dim: " << blockwiseAVectorDim << "\n";
+    llvm::errs() << "element type: " << blockwiseLoadAType << "\n";
+    llvm::errs() << "load size: " << blockwiseLoadAVectorLength << "\n";
+    llvm::errs() << "store size: " << blockwiseStoreAVectorLength << "\n";
 
     SmallVector<uint64_t, 3> blockwiseCopyBBounds;
     if (KPack > 1) {
@@ -5931,26 +5931,26 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int blockwiseLoadBVectorLength;
     int blockwiseStoreBVectorLength;
 
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmK: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmK << "\n";
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmN: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmKPack: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
-    // llvm::errs() << "blockwise copy B bounds: ";
-    // for (auto v : blockwiseCopyBBounds)
-    //   llvm::errs() << v << " ";
-    // llvm::errs() << "\n";
+    llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmK: "
+                 << GemmBBlockCopyThreadSliceLengths_GemmK << "\n";
+    llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmN: "
+                 << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
+    llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmKPack: "
+                 << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
+    llvm::errs() << "blockwise copy B bounds: ";
+    for (auto v : blockwiseCopyBBounds)
+      llvm::errs() << v << " ";
+    llvm::errs() << "\n";
 
     std::tie(blockwiseLoadBType, blockwiseLoadBTupleType, blockwiseBVectorDim,
              blockwiseLoadBVectorLength, blockwiseStoreBVectorLength) =
         computeLoadStoreTypeInfo(b, op, elementType, blockwiseCopyBBounds,
                                  false, KPack);
 
-    // llvm::errs() << "vector load dim: " << blockwiseBVectorDim << "\n";
-    // llvm::errs() << "element type: " << blockwiseLoadBType << "\n";
-    // llvm::errs() << "load size: " << blockwiseLoadBVectorLength << "\n";
-    // llvm::errs() << "store size: " << blockwiseStoreBVectorLength << "\n";
+    llvm::errs() << "vector load dim: " << blockwiseBVectorDim << "\n";
+    llvm::errs() << "element type: " << blockwiseLoadBType << "\n";
+    llvm::errs() << "load size: " << blockwiseLoadBVectorLength << "\n";
+    llvm::errs() << "store size: " << blockwiseStoreBVectorLength << "\n";
 
     // Zero init Matrix C on registers.
     b.create<miopen::FillOp>(loc, registerMatrixCAllocOp, zeroConstantFloatOp);
@@ -6798,8 +6798,8 @@ struct GridwiseGemmV2RewritePattern
     uint64_t GemmABlockCopyNumberDataPerThread =
         MPerBlock * KPerBlock * KPack / BlockSize;
 
-    // llvm::errs() << "GemmABlockCopyNumberDataPerThread: "
-    //              << GemmABlockCopyNumberDataPerThread << "\n";
+    llvm::errs() << "GemmABlockCopyNumberDataPerThread: "
+                 << GemmABlockCopyNumberDataPerThread << "\n";
 
     uint64_t GemmABlockCopyThreadSliceLengths_GemmK;
     uint64_t GemmABlockCopyThreadSliceLengths_GemmM;
@@ -6840,10 +6840,10 @@ struct GridwiseGemmV2RewritePattern
                        "and should not haven been attempted");
     }
 
-    // llvm::errs() << "thread slice lengths for Matrix A\n";
-    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
-    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << " ";
-    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
+    llvm::errs() << "thread slice lengths for Matrix A\n";
+    llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
+    llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << " ";
+    llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
 
     // Compute ThreadClusterLengths for Matrix A.
     uint64_t GemmABlockCopyClusterLengths_GemmKPack =
@@ -6853,17 +6853,17 @@ struct GridwiseGemmV2RewritePattern
     uint64_t GemmABlockCopyClusterLengths_GemmM =
         MPerBlock / GemmABlockCopyThreadSliceLengths_GemmM;
 
-    // llvm::errs() << "thread cluster lengths for Matrix A\n";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmM << " ";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmKPack << "\n";
+    llvm::errs() << "thread cluster lengths for Matrix A\n";
+    llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
+    llvm::errs() << GemmABlockCopyClusterLengths_GemmM << " ";
+    llvm::errs() << GemmABlockCopyClusterLengths_GemmKPack << "\n";
 
     // Compute ThreadSliceLengths for Matrix B.
     uint64_t GemmBBlockCopyNumberDataPerThread =
         NPerBlock * KPerBlock * KPack / BlockSize;
 
-    // llvm::errs() << "GemmBBlockCopyNumberDataPerThread: "
-    //              << GemmBBlockCopyNumberDataPerThread << "\n";
+    llvm::errs() << "GemmBBlockCopyNumberDataPerThread: "
+                 << GemmBBlockCopyNumberDataPerThread << "\n";
 
     uint64_t GemmBBlockCopyThreadSliceLengths_GemmK;
     uint64_t GemmBBlockCopyThreadSliceLengths_GemmN;
@@ -6904,10 +6904,10 @@ struct GridwiseGemmV2RewritePattern
                        "and should not haven been attempted");
     }
 
-    // llvm::errs() << "thread slice lengths for Matrix B\n";
-    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
-    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << " ";
-    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
+    llvm::errs() << "thread slice lengths for Matrix B\n";
+    llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
+    llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << " ";
+    llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
 
     assert(GemmBBlockCopyThreadSliceLengths_GemmK > 0);
     assert(GemmBBlockCopyThreadSliceLengths_GemmN > 0);
@@ -6920,10 +6920,10 @@ struct GridwiseGemmV2RewritePattern
     uint64_t GemmBBlockCopyClusterLengths_GemmN =
         NPerBlock / GemmBBlockCopyThreadSliceLengths_GemmN;
 
-    // llvm::errs() << "thread cluster lengths for Matrix B\n";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << " ";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmKPack << "\n";
+    llvm::errs() << "thread cluster lengths for Matrix B\n";
+    llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
+    llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << " ";
+    llvm::errs() << GemmBBlockCopyClusterLengths_GemmKPack << "\n";
 
     // Compute thread_data_id_begin for Matrix A.
     // ClusterArrangeOrder for Matrix A is <1, 0>.
@@ -7243,10 +7243,27 @@ struct GridwiseGemmV2RewritePattern
     int blockwiseAVectorDim;
     int blockwiseLoadAVectorLength;
     int blockwiseStoreAVectorLength;
+
+    llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmK: "
+                 << GemmABlockCopyThreadSliceLengths_GemmK << "\n";
+    llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmM: "
+                 << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
+    llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmKPack: "
+                 << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
+    llvm::errs() << "blockwise copy A bounds: ";
+    for (auto v : blockwiseCopyABounds)
+      llvm::errs() << v << " ";
+    llvm::errs() << "\n";
+
     std::tie(blockwiseLoadAType, blockwiseLoadATupleType, blockwiseAVectorDim,
              blockwiseLoadAVectorLength, blockwiseStoreAVectorLength) =
         computeLoadStoreTypeInfo(b, op, elementType, blockwiseCopyABounds, true,
                                  KPack);
+
+    llvm::errs() << "vector load dim: " << blockwiseAVectorDim << "\n";
+    llvm::errs() << "element type: " << blockwiseLoadAType << "\n";
+    llvm::errs() << "load size: " << blockwiseLoadAVectorLength << "\n";
+    llvm::errs() << "store size: " << blockwiseStoreAVectorLength << "\n";
 
     SmallVector<uint64_t, 3> blockwiseCopyBBounds;
     if (KPack > 1) {
@@ -7262,10 +7279,27 @@ struct GridwiseGemmV2RewritePattern
     int blockwiseBVectorDim;
     int blockwiseLoadBVectorLength;
     int blockwiseStoreBVectorLength;
+
+    llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmK: "
+                 << GemmBBlockCopyThreadSliceLengths_GemmK << "\n";
+    llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmN: "
+                 << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
+    llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmKPack: "
+                 << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
+    llvm::errs() << "blockwise copy B bounds: ";
+    for (auto v : blockwiseCopyBBounds)
+      llvm::errs() << v << " ";
+    llvm::errs() << "\n";
+
     std::tie(blockwiseLoadBType, blockwiseLoadBTupleType, blockwiseBVectorDim,
              blockwiseLoadBVectorLength, blockwiseStoreBVectorLength) =
         computeLoadStoreTypeInfo(b, op, elementType, blockwiseCopyBBounds,
                                  false, KPack);
+
+    llvm::errs() << "vector load dim: " << blockwiseBVectorDim << "\n";
+    llvm::errs() << "element type: " << blockwiseLoadBType << "\n";
+    llvm::errs() << "load size: " << blockwiseLoadBVectorLength << "\n";
+    llvm::errs() << "store size: " << blockwiseStoreBVectorLength << "\n";
 
     // -----
 
@@ -8864,6 +8898,7 @@ struct ThreadwiseCopyRewritePattern
       ArrayAttr layeredSourceTransformMetadata;
       ArrayAttr layeredDestTransformMetadata;
 
+      legacyLoad = true;
       // Obtain transform metadata and populate coordinates for all layers
       // wthe the metadata.
       // Only do such computation in the new approach where index diff maps
@@ -8895,6 +8930,7 @@ struct ThreadwiseCopyRewritePattern
         srcLowerIndices = layeredSourceIndices[layeredSourceIndices.size() - 1];
       }
 
+      legacyStore = true;
       // Obtain transform metadata and populate coordinates for all layers
       // wthe the metadata.
       // Only do such computation in the new approach where index diff maps
@@ -9064,9 +9100,9 @@ struct ThreadwiseLoadRewritePattern
     bool toEmitOOBLoadCheckLogic = obtainOOBCheckInfo(
         composedSourceTransform, boundCheckSourceAttr, oobLoadCheckDims);
 
-    // llvm::errs() << "\nthreadwise_load op:\n";
-    // op.dump();
-    // llvm::errs() << "\n";
+    llvm::errs() << "\nthreadwise_load op:\n";
+    op.dump();
+    llvm::errs() << "\n";
 
     // --------------------------------
 
@@ -9092,21 +9128,21 @@ struct ThreadwiseLoadRewritePattern
                         /*composedDestTransform=*/Optional<AffineMap>{},
                         coordTransformsAttr, boundAttr, sourceType, destType);
 
-    // llvm::errs() << "slice lengths: ";
-    // for (unsigned i = 0; i < sliceLengths.size(); ++i)
-    //   llvm::errs() << sliceLengths[i] << " ";
-    // llvm::errs() << "\n";
+    llvm::errs() << "slice lengths: ";
+    for (unsigned i = 0; i < sliceLengths.size(); ++i)
+      llvm::errs() << sliceLengths[i] << " ";
+    llvm::errs() << "\n";
 
-    // llvm::errs() << "vector dim: " << vectorReadWriteDim << "\n";
-    // llvm::errs() << "source data per read: " << srcDataPerRead << "\n";
+    llvm::errs() << "vector dim: " << vectorReadWriteDim << "\n";
+    llvm::errs() << "source data per read: " << srcDataPerRead << "\n";
 
     sliceLengths[vectorReadWriteDim] /= srcDataPerRead;
     assert(sliceLengths[vectorReadWriteDim] != 0);
 
-    // llvm::errs() << "modified lengths: ";
-    // for (unsigned i = 0; i < sliceLengths.size(); ++i)
-    //   llvm::errs() << sliceLengths[i] << " ";
-    // llvm::errs() << "\n";
+    llvm::errs() << "modified lengths: ";
+    for (unsigned i = 0; i < sliceLengths.size(); ++i)
+      llvm::errs() << sliceLengths[i] << " ";
+    llvm::errs() << "\n";
 
     // --------------------------------
 
@@ -9119,6 +9155,7 @@ struct ThreadwiseLoadRewritePattern
 
     ArrayAttr layeredSourceTransformMetadata;
 
+    legacyLoad = true;
     // Obtain transform metadata and populate coordinates for all layers
     // wthe the metadata.
     // Only do such computation in the new approach where index diff maps
@@ -9167,10 +9204,10 @@ struct ThreadwiseLoadRewritePattern
     DenseMap<int64_t, Value> loadedValues;
     bool toExit = false;
     do {
-      // llvm::errs() << "IVs: ";
-      // for (auto v : loopIVsPerAccessOrder)
-      //   llvm::errs() << v << " ";
-      // llvm::errs() << "\n";
+      llvm::errs() << "IVs: ";
+      for (auto v : loopIVsPerAccessOrder)
+        llvm::errs() << v << " ";
+      llvm::errs() << "\n";
 
       // Use the old logic in case "legacy_load" attribute is specified.
       if (legacyLoad == true) {
@@ -9210,7 +9247,7 @@ struct ThreadwiseLoadRewritePattern
           stride *= loopBoundsPerAccessOrder[iter];
         }
       }
-      // llvm::errs() << "tupleIndex: " << tupleIndex << "\n";
+      llvm::errs() << "tupleIndex: " << tupleIndex << "\n";
 
       // In case we do vector load, decompose the elements as the tuple
       // result of threadwise_load only hold scalars.
@@ -9222,8 +9259,7 @@ struct ThreadwiseLoadRewritePattern
               loc, destElementType, loadedValue,
               b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
           int64_t decomposedTupleIndex = tupleIndex + iter * vectorDimStride;
-          // llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex
-          //              << "\n";
+          llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex << "\n";
 
           loadedValues[decomposedTupleIndex] = loadedElement;
         }
@@ -9324,9 +9360,9 @@ struct ThreadwiseStoreRewritePattern
     bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
         composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
 
-    // llvm::errs() << "\nthreadwise_store op:\n";
-    // op.dump();
-    // llvm::errs() << "\n";
+    llvm::errs() << "\nthreadwise_store op:\n";
+    op.dump();
+    llvm::errs() << "\n";
 
     // --------------------------------
 
@@ -9353,21 +9389,21 @@ struct ThreadwiseStoreRewritePattern
                         composedDestTransform, coordTransformsAttr, boundAttr,
                         sourceType, destType);
 
-    // llvm::errs() << "slice lengths: ";
-    // for (unsigned i = 0; i < sliceLengths.size(); ++i)
-    //   llvm::errs() << sliceLengths[i] << " ";
-    // llvm::errs() << "\n";
+    llvm::errs() << "slice lengths: ";
+    for (unsigned i = 0; i < sliceLengths.size(); ++i)
+      llvm::errs() << sliceLengths[i] << " ";
+    llvm::errs() << "\n";
 
-    // llvm::errs() << "vector dim: " << vectorReadWriteDim << "\n";
-    // llvm::errs() << "dest data per write: " << dstDataPerWrite << "\n";
+    llvm::errs() << "vector dim: " << vectorReadWriteDim << "\n";
+    llvm::errs() << "dest data per write: " << dstDataPerWrite << "\n";
 
     sliceLengths[vectorReadWriteDim] /= dstDataPerWrite;
     assert(sliceLengths[vectorReadWriteDim] != 0);
 
-    // llvm::errs() << "modified lengths: ";
-    // for (unsigned i = 0; i < sliceLengths.size(); ++i)
-    //   llvm::errs() << sliceLengths[i] << " ";
-    // llvm::errs() << "\n";
+    llvm::errs() << "modified lengths: ";
+    for (unsigned i = 0; i < sliceLengths.size(); ++i)
+      llvm::errs() << sliceLengths[i] << " ";
+    llvm::errs() << "\n";
 
     // --------------------------------
 
@@ -9380,6 +9416,7 @@ struct ThreadwiseStoreRewritePattern
 
     ArrayAttr layeredDestTransformMetadata;
 
+    legacyStore = true;
     // Obtain transform metadata and populate coordinates for all layers
     // wthe the metadata.
     // Only do such computation in the new approach where index diff maps
@@ -9427,10 +9464,10 @@ struct ThreadwiseStoreRewritePattern
     // Main code emission loop.
     bool toExit = false;
     do {
-      // llvm::errs() << "IVs: ";
-      // for (auto v : loopIVsPerAccessOrder)
-      //   llvm::errs() << v << " ";
-      // llvm::errs() << "\n";
+      llvm::errs() << "IVs: ";
+      for (auto v : loopIVsPerAccessOrder)
+        llvm::errs() << v << " ";
+      llvm::errs() << "\n";
 
       // Use the old logic in case "legacy_store" attribute is specified.
       if (legacyStore == true) {
@@ -9465,7 +9502,7 @@ struct ThreadwiseStoreRewritePattern
           stride *= loopBoundsPerAccessOrder[iter];
         }
       }
-      // llvm::errs() << "tupleIndex: " << tupleIndex << "\n";
+      llvm::errs() << "tupleIndex: " << tupleIndex << "\n";
 
       // In case we do vector store, decompose the elements as the tuple
       // only hold scalars.
@@ -9477,8 +9514,7 @@ struct ThreadwiseStoreRewritePattern
         valueToStore = b.create<SplatOp>(loc, zeroOp, typeToStore);
         for (int64_t iter = 0; iter < dstDataPerWrite; ++iter) {
           int64_t decomposedTupleIndex = tupleIndex + iter * vectorDimStride;
-          // llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex <<
-          // "\n";
+          llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex << "\n";
           Value element = b.create<vector::TupleGetOp>(
               loc, sourceElementType, op.data(),
               b.getI32IntegerAttr(decomposedTupleIndex));
