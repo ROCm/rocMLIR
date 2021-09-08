@@ -9030,9 +9030,6 @@ struct ThreadwiseLoadRewritePattern
 
     ArrayAttr layeredSourceTransformMetadata;
 
-    // XXX FIXME.
-    legacyLoad = true;
-
     // Obtain transform metadata and populate coordinates for all layers
     // wthe the metadata.
     // Only do such computation in the new approach where index diff maps
@@ -9293,9 +9290,6 @@ struct ThreadwiseStoreRewritePattern
     SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
 
     ArrayAttr layeredDestTransformMetadata;
-
-    // XXX FIXME.
-    legacyStore = true;
 
     // Obtain transform metadata and populate coordinates for all layers
     // wthe the metadata.
