@@ -33,7 +33,7 @@ class SQLite::impl {
     } else {
       LLVM_DEBUG(dbgs() << "FATAL ERROR! Does not support user db\n");
     }
-    ptrDb = Sqlite3Ptr{ptr_tmp};
+    Sqlite3Ptr ptrDb = Sqlite3Ptr{ptr_tmp};
     return rc;
   }
 
@@ -45,7 +45,7 @@ public:
     isValid = (rc == 0);
     if (!isValid) {
       LLVM_DEBUG(dbgs() << "FATAL ERROR! COULD NOT OPEN DB "
-                              << "CONNECTION to " << filename_ << "\n";
+                              << "CONNECTION to " << filename_ << "\n");
     } else {
       LLVM_DEBUG(dbgs() << "Successfully opened connection to PerfDb.\n");
     }
