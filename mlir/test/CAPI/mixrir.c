@@ -225,9 +225,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
 static int constructAndTraverseIr(MlirContext ctx) {
   MlirLocation location1 = mlirLocationUnknownGet(ctx);
-
   MlirModule moduleOp1 = makeAndDumpMIXR(ctx, location1);
-  //MlirOperation module1 = mlirModuleGetOperation(moduleOp1);
 
   mlirModuleDestroy(moduleOp1);
 
