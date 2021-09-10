@@ -321,7 +321,7 @@ pipeline {
                             docker {
                                 image dockerImage()
                                 args dockerArgs()
-                                label "${XDLOPS == '1' ? 'gfx908' : 'gfx908'} && !single_gpu"
+                                label "${XDLOPS == '1' ? 'gfx908' : 'gfx908'}"
                                 alwaysPull true
                             }
                         }
