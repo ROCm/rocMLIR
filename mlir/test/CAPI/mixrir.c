@@ -65,27 +65,25 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   //-------------- filter0 = migraphx.constant
 
   // Set constant attributes
-  // migraphx.constant can have literals in 'value' attribute. Alternatively, 'shape' and 'type'
-  // can be set to fill random numbers
-  MlirAttribute filter0ShapeAttr = mlirAttributeParseGet(
-      ctx, mlirStringRefCreateFromCString("[64:i64, 64:i64, 1:i64, 1:i64]"));
-  MlirAttribute filter0TypeAttr = mlirAttributeParseGet(
-      ctx, mlirStringRefCreateFromCString("f32"));
+  int64_t filter0Dims[] = {64, 64, 1, 1};
+  float f32Filter0[4096];
+  for (int i=0; i<4096; i++) {
+    f32Filter0[i] = 1.0f;
+  }
+
+  MlirAttribute filter0ValueAttr = mlirDenseElementsAttrFloatGet(
+      mlirRankedTensorTypeGet(4, filter0Dims, mlirF32TypeGet(ctx)), 4096, f32Filter0);
   MlirNamedAttribute filter0Attrs[] = {
       mlirNamedAttributeGet(
-          mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("shape")),
-          filter0ShapeAttr),
-      mlirNamedAttributeGet(
-          mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("type")),
-          filter0TypeAttr)};
+          mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("value")),
+          filter0ValueAttr)};
 
   // Set constant op
-  int64_t filter0Dims[] = {64, 64, 1, 1};
   MlirType filter0Type = mlirRankedTensorTypeGet(4, filter0Dims, mlirF32TypeGet(ctx));
   MlirOperationState filter0State = mlirOperationStateGet(
       mlirStringRefCreateFromCString("migraphx.constant"), location);
   mlirOperationStateAddResults(&filter0State, 1, &filter0Type);
-  mlirOperationStateAddAttributes(&filter0State, 2, filter0Attrs);
+  mlirOperationStateAddAttributes(&filter0State, 1, filter0Attrs);
   
   MlirOperation filter0Op = mlirOperationCreate(&filter0State);
   mlirBlockAppendOwnedOperation(funcBody, filter0Op);
@@ -143,26 +141,22 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   //-------------- bias0 = migraphx.constant
 
   // Set constant attributes
-  // This example simply gives the same sized tensor.
-  MlirAttribute bias0ShapeAttr = mlirAttributeParseGet(
-      ctx, mlirStringRefCreateFromCString("[1:i64, 64:i64, 56:i64, 56:i64]"));
-  MlirAttribute bias0TypeAttr = mlirAttributeParseGet(
-      ctx, mlirStringRefCreateFromCString("f32"));
+  int64_t bias0Dims[] = {1, 64, 1, 1};
+  float f32Bias[] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
+
+  MlirAttribute bias0ValueAttr = mlirDenseElementsAttrFloatGet(
+      mlirRankedTensorTypeGet(4, bias0Dims, mlirF32TypeGet(ctx)), 64, f32Bias);
   MlirNamedAttribute bias0Attrs[] = {
       mlirNamedAttributeGet(
-          mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("shape")),
-          bias0ShapeAttr),
-      mlirNamedAttributeGet(
-          mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("type")),
-          bias0TypeAttr)};
+          mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("value")),
+          bias0ValueAttr)};
 
   // Set constant op
-  int64_t bias0Dims[] = {1, 64, 56, 56};
   MlirType bias0Type = mlirRankedTensorTypeGet(4, bias0Dims, mlirF32TypeGet(ctx));
   MlirOperationState bias0State = mlirOperationStateGet(
       mlirStringRefCreateFromCString("migraphx.constant"), location);
   mlirOperationStateAddResults(&bias0State, 1, &bias0Type);
-  mlirOperationStateAddAttributes(&bias0State, 2, bias0Attrs);
+  mlirOperationStateAddAttributes(&bias0State, 1, bias0Attrs);
   
   MlirOperation bias0Op = mlirOperationCreate(&bias0State);
   mlirBlockAppendOwnedOperation(funcBody, bias0Op);
@@ -219,7 +213,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 //  func @main(%arg0: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32> {
 //    %0 = "migraphx.constant"() {shape = [64, 64, 1, 1], type = f32} : () -> tensor<64x64x1x1xf32>
 //    %1 = "migraphx.convolution"(%arg0, %0) {dilation = [1, 1], group = 1 : i64, padding = [0, 0], padding_mode = 0 : i64, stride = [1, 1]} : (tensor<1x64x56x56xf32>, tensor<64x64x1x1xf32>) -> tensor<1x64x56x56xf32>
-//    %2 = "migraphx.constant"() {shape = [1, 64, 56, 56], type = f32} : () -> tensor<1x64x56x56xf32>
+//    %2 = "migraphx.constant"() {shape = [1, 64, 1, 1], type = f32} : () -> tensor<1x64x1x1xf32>
 //    %3 = "migraphx.add"(%1, %2) : (tensor<1x64x56x56xf32>, tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
 //    %4 = "migraphx.relu"(%3) : (tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
 //    return %4 : tensor<1x64x56x56xf32>
@@ -231,9 +225,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
 static int constructAndTraverseIr(MlirContext ctx) {
   MlirLocation location1 = mlirLocationUnknownGet(ctx);
-
   MlirModule moduleOp1 = makeAndDumpMIXR(ctx, location1);
-  MlirOperation module1 = mlirModuleGetOperation(moduleOp1);
 
   mlirModuleDestroy(moduleOp1);
 
