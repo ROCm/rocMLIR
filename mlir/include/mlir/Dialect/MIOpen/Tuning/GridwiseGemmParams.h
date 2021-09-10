@@ -734,6 +734,9 @@ private:
       // FIXME. Temporarily disable this config to restrict MRepeats/NRepeats
       // to 1 to reduce potential AGPR spills.
       //{256, 128, 16, 128, 64, 0, false, false},
+
+      // FIXME. This config would trigger a weird behavior that sometimes the
+      // results are correct but not always.
       //{128, 128, 8, 64, 64, 0, false, false},
       {128, 128, 16, 64, 64, 0, false, false},
       {8, 64, 8, 8, 64, 0, false, false},
