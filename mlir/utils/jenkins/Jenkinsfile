@@ -314,10 +314,6 @@ pipeline {
                         name 'DIRECTION'
                         values '1', '2', '4'
                     }
-                    axis {
-                        name 'TUNING'
-                        values '1', '0'
-                    }
                 }
                 stages {
                     stage('Test MIOpen') {
@@ -332,7 +328,7 @@ pipeline {
                         stages {
                             stage('Environment') {
                                 steps {
-                                    echo "Config is ($DTYPE, $LAYOUT, xdlops=$XDLOPS, dir=$DIRECTION, tuning=$TUNING)"
+                                    echo "Config is ($DTYPE, $LAYOUT, xdlops=$XDLOPS, dir=$DIRECTION)"
                                     showEnv()
                                 }
                             }
@@ -347,7 +343,8 @@ pipeline {
                                     LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                                 }
                                 steps {
-                                    testMIOpenDriver($DTYPE, $XDLOPS, $LAYOUT, $DIRECTION, $TUNING)
+                                    testMIOpenDriver($DTYPE, $XDLOPS, $LAYOUT, $DIRECTION, 0)
+                                    testMIOpenDriver($DTYPE, $XDLOPS, $LAYOUT, $DIRECTION, 1)
                                 }
                             }
                         }
