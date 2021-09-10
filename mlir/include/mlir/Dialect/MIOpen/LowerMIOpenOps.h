@@ -10191,6 +10191,10 @@ struct XdlopsGemmV2RewritePattern
       //         p_c_thread);
       // }
 
+      // FIXME: See if it's possible to get rid of the this barrier.
+      // LDS barrier.
+      b.create<miopen::LDSBarrierOp>(loc);
+
       // Instead of following C++ logic where the induction variable is
       // increased by one, increase by k_base. Mathmetically they are
       // equivalent.
@@ -10201,10 +10205,6 @@ struct XdlopsGemmV2RewritePattern
 
       Value argA = loopKb.create<LoadOp>(loc, argType, op.bufferA(), ValueRange{loopKiv});
       Value argB = loopKb.create<LoadOp>(loc, argType, op.bufferB(), ValueRange{loopKiv});
-
-      // FIXME: See if it's possible to get rid of the this barrier.
-      // LDS barrier.
-      loopKb.create<miopen::LDSBarrierOp>(loc);
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
