@@ -6707,7 +6707,7 @@ struct GridwiseGemmV2RewritePattern
         op->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
     int64_t NPerWave =
         op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
-    int64_t MWaves = MPerBlock / MPerWave;
+    // int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
     auto dataType =
         op.input().getType().template cast<MemRefType>().getElementType();
