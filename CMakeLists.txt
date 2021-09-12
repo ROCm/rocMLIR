@@ -40,6 +40,10 @@ set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
 # LLVM settings that have an effect on the MLIR dialect
 set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
 
+if (MLIR_INCLUDE_TESTS)
+  add_definitions(-DMLIR_INCLUDE_TESTS)
+endif()
+
 # Build the ROCm conversions and run according tests if the AMDGPU backend
 # is available
 if ("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
