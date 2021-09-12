@@ -98,6 +98,7 @@ void registerTestRecursiveTypesPass();
 void registerTestSCFUtilsPass();
 void registerTestSparsification();
 void registerTestVectorConversions();
+void registerTosaPartitionPass();
 } // namespace test
 } // namespace mlir
 
@@ -169,6 +170,7 @@ void registerTestPasses() {
   test::registerTestSCFUtilsPass();
   test::registerTestSparsification();
   test::registerTestVectorConversions();
+  test::registerTosaPartitionPass();
 }
 #endif
 

@@ -1,5 +1,6 @@
 add_mlir_dialect_library(MLIRTosaTransforms
   TosaMakeBroadcastable.cpp
+  TosaPartition1.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Tosa/Transforms
@@ -10,4 +11,5 @@ add_mlir_dialect_library(MLIRTosaTransforms
   LINK_LIBS PUBLIC
   MLIRPass
   MLIRTosa
+  MLIRTransforms
   )
