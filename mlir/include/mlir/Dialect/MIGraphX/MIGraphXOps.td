@@ -138,9 +138,9 @@ def MIGraphX_ConvolutionOp :
     The `migraphx.convolution` op computes convolution forward.
   }];
   let builders = [
-    OpBuilderDAG<(ins "::mlir::Value":$input, "::mlir::Value":$filter, "::mlir::ArrayAttr":$padding,
+    OpBuilder<(ins "::mlir::Value":$input, "::mlir::Value":$filter, "::mlir::ArrayAttr":$padding,
       "::mlir::ArrayAttr":$stride, "::mlir::ArrayAttr":$dilation, "::mlir::IntegerAttr":$group, 
-      "::mlir::IntegerAttr":$padding_mode),
+      "::mlir::migraphx::padding_mode_tAttr":$padding_mode),
     [{
       auto inType = input.getType().cast<ShapedType>().getElementType();
       auto inShape = input.getType().cast<ShapedType>(); //NHWC

@@ -75,6 +75,7 @@ else()
   set(LLVM_BUILD_LLVM_DYLIB ON CACHE BOOL "")
   set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
   set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "")
+  set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
 endif()
 
 # Set up the build for the LLVM/MLIR git-submodule

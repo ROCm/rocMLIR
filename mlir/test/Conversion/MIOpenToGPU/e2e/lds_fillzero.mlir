@@ -9,8 +9,8 @@ module attributes {gpu.container_module} {
       miopen.workgroup_barrier
 
       %tx = miopen.workitem_id : index
-      %e = load %d[%tx] : memref<16xf32, 3>
-      store %e, %arg2[%tx] : memref<?xf32>
+      %e = memref.load %d[%tx] : memref<16xf32, 3>
+      memref.store %e, %arg2[%tx] : memref<?xf32>
       gpu.return
     }
   }
@@ -18,7 +18,7 @@ module attributes {gpu.container_module} {
   func @lds_fillzero(%arg2 : memref<?xf32>) {
     %cst = constant 1 : index
     %c0 = constant 0 : index
-    %cst2 = dim %arg2, %c0 : memref<?xf32>
+    %cst2 = memref.dim %arg2, %c0 : memref<?xf32>
     "gpu.launch_func"(%cst, %cst, %cst, %cst2, %cst, %cst, %arg2) { kernel = @gpu_kernels::@lds_fillzero_kernel, operand_segment_sizes = dense<[0,1,1,1,1,1,1,1]> : vector<8xi32> } : (index, index, index, index, index, index, memref<?xf32>) -> ()
     return
   }
@@ -26,9 +26,9 @@ module attributes {gpu.container_module} {
   // CHECK: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
   func @main() {
     // allocate CPU memory.
-    %2 = alloc() : memref<16xf32>
+    %2 = memref.alloc() : memref<16xf32>
 
-    %5 = memref_cast %2 : memref<16xf32> to memref<?xf32>
+    %5 = memref.cast %2 : memref<16xf32> to memref<?xf32>
 
     // populate initial values.
     %cst = constant 1.23 : f32
@@ -48,14 +48,14 @@ module attributes {gpu.container_module} {
     call @mgpuMemCopy(%8, %5, %cst_d2h) : (memref<?xf32>, memref<?xf32>, i32) -> ()
 
     // print result.
-    %9 = memref_cast %5 : memref<?xf32> to memref<*xf32>
+    %9 = memref.cast %5 : memref<?xf32> to memref<*xf32>
     call @print_memref_f32(%9) : (memref<*xf32>) -> ()
 
     // dellocate GPU memory.
     call @mgpuMemDealloc(%8) : (memref<?xf32>) -> ()
 
     // deallocate CPU memory.
-    dealloc %2 : memref<16xf32>
+    memref.dealloc %2 : memref<16xf32>
 
     return
   }

@@ -16,10 +16,10 @@ func @miopen_threadwise_copy_f16(%source_coord : memref<2xi32, 5>, %dest_coord :
                              %dest_with_externally_defined_affine : memref<?x?x?x?xf16>) {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
-  %source_coord_y = load %source_coord[%c0] : memref<2xi32, 5>
-  %source_coord_x = load %source_coord[%c0] : memref<2xi32, 5>
-  %dest_coord_y = load %dest_coord[%c0] : memref<2xi32, 5>
-  %dest_coord_x = load %dest_coord[%c0] : memref<2xi32, 5>
+  %source_coord_y = memref.load %source_coord[%c0] : memref<2xi32, 5>
+  %source_coord_x = memref.load %source_coord[%c0] : memref<2xi32, 5>
+  %dest_coord_y = memref.load %dest_coord[%c0] : memref<2xi32, 5>
+  %dest_coord_x = memref.load %dest_coord[%c0] : memref<2xi32, 5>
 
   // check source and dest as vanilla memrefs.
   miopen.threadwise_copy(%source, %dest,
@@ -124,10 +124,10 @@ func @miopen_threadwise_copy_v2_f16(%source_offset : i32, %source_coord : memref
   %c1 = constant 1 : index
   %c0_i32 = constant 0 : i32
 
-  %source_coord_y = load %source_coord[%c0] : memref<2xi32, 5>
-  %source_coord_x = load %source_coord[%c1] : memref<2xi32, 5>
-  %dest_coord_y = load %dest_coord[%c0] : memref<2xi32, 5>
-  %dest_coord_x = load %dest_coord[%c1] : memref<2xi32, 5>
+  %source_coord_y = memref.load %source_coord[%c0] : memref<2xi32, 5>
+  %source_coord_x = memref.load %source_coord[%c1] : memref<2xi32, 5>
+  %dest_coord_y = memref.load %dest_coord[%c0] : memref<2xi32, 5>
+  %dest_coord_x = memref.load %dest_coord[%c1] : memref<2xi32, 5>
 
   // check dest as a vanilla memref.
   miopen.threadwise_copy_v2(%source, %dest, %source_offset,

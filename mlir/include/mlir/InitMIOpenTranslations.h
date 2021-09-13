@@ -17,35 +17,25 @@
 namespace mlir {
 
 void registerFromLLVMIRTranslation();
-void registerFromSPIRVTranslation();
 void registerToLLVMIRTranslation();
-void registerToSPIRVTranslation();
-void registerToNVVMIRTranslation();
 void registerToROCDLIRTranslation();
-void registerArmNeonToLLVMIRTranslation();
-void registerAVX512ToLLVMIRTranslation();
-void registerArmSVEToLLVMIRTranslation();
 void registerFromMIOpenToCPPTranslation();
 
+namespace miopen {
 // This function should be called before creating any MLIRContext if one
 // expects all the possible translations to be made available to the context
 // automatically.
 inline void registerAllTranslations() {
   static bool initOnce = []() {
     registerFromLLVMIRTranslation();
-    registerFromSPIRVTranslation();
     registerToLLVMIRTranslation();
-    registerToSPIRVTranslation();
-    registerToNVVMIRTranslation();
     registerToROCDLIRTranslation();
-    registerArmNeonToLLVMIRTranslation();
-    registerAVX512ToLLVMIRTranslation();
-    registerArmSVEToLLVMIRTranslation();
     registerFromMIOpenToCPPTranslation();
     return true;
   }();
   (void)initOnce;
 }
+} // namespace miopen
 } // namespace mlir
 
 #endif // MLIR_INITALLTRANSLATIONS_H

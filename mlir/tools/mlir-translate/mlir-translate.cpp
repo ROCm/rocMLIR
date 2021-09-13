@@ -14,6 +14,7 @@
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "mlir/InitAllTranslations.h"
+#include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/MIOpenCPP.h"
@@ -26,7 +27,7 @@ namespace mlir {
 void registerTestRoundtripSPIRV();
 void registerTestRoundtripDebugSPIRV();
 
-void registerFromMIOpenToCPPTranslation(); 
+void registerFromMIOpenToCPPTranslation();
 } // namespace mlir
 
 static void registerTestTranslations() {
@@ -36,6 +37,7 @@ static void registerTestTranslations() {
 
 int main(int argc, char **argv) {
   registerAllTranslations();
+  registerToROCDLIRTranslation();
   registerTestTranslations();
   mlir::registerFromMIOpenToCPPTranslation();
   mlir::registerMIOpenConversionPasses();
