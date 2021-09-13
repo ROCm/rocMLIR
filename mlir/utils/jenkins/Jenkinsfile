@@ -1,3 +1,4 @@
+// ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 void buildProject(String target, String cmakeOpts) {
     cmakeBuild generator: 'Ninja',\
         buildDir: 'build',\
@@ -38,12 +39,61 @@ String dockerImage() {
     return 'rocm/mlir:rocm4.1-latest'
 }
 
+void preMergeCheck() {
+    sh '''
+    if [ ! -f ./build/compile_commands.json ];  then
+      echo "No compile commands, bailing."
+      exit 1
+    fi
+    if [ ! -f ./compile_commands.json ]; then
+      ln -s build/compile_commands.json compile_commands.json
+    fi
+    '''
+    sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+}
+
+void testMIOpenDriver(String dtype, String xdlops, String layout, String direction, String tuning) {
+    echo "Config is (${dtype}, ${layout}, xdlops=${xdlops}, dir=${direction}, tuning=${tuning})"
+    sh 'ldconfig'
+    dir('MIOpen/build/') {
+        sh """
+        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
+        --layout ${layout} \
+        --direction ${direction} \
+        --dtype ${dtype} \
+        ${xdlops == '1' ? '--xdlops' : '--no-xdlops'} \
+        ${tuning == '1' ? '--tuning' : '--no-tuning'} \
+        < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+    }
+}
+
+void postProcessPerfRes() {
+    publishHTML (target: [
+        allowMissing: false,
+        alwaysLinkToLastBuild: false,
+        keepAll: true,
+        reportDir: 'build',
+        reportFiles: 'MLIR_Performance_Changes.html,MLIR_vs_MIOpen.html',
+        reportName: 'Performance report'
+    ])
+
+    plot csvFileName: 'plot-nightly-perf-results-000001.csv',\
+        csvSeries: [[file: 'build/mlir_vs_miopen_perf_for_plot.csv', displayTableFlag: false]],\
+        title: 'Test performance summary',\
+        yaxis: 'TFlops',\
+        style: 'line',\
+        group: 'Performance plots'
+
+    // Save results for future comparison
+    archiveArtifacts artifacts: 'build/mlir_*.csv,build/perf-run-date', onlyIfSuccessful: true
+}
+
 pipeline {
     agent none
     parameters {
         booleanParam(name: 'nightly', defaultValue: params.nightly ?: false,
                      description: 'Run extra nightly-only tests')
-        booleanParam(name: 'canXdlops', defaultValue: params.canXdlops ?: false,
+        booleanParam(name: 'canXdlops', defaultValue: params.canXdlops ?: true,
                      description: 'Can this CI instance use xdlops (no for public server)')
     }
     stages {
@@ -54,7 +104,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908' : 'rocm' } && !single_gpu"
+                            label "${params.canXdlops ? 'gfx908' : 'rocm' }"
                             alwaysPull true
                         }
                     }
@@ -64,6 +114,7 @@ pipeline {
                                 showEnv()
                             }
                         }
+                        // UPDATE Jenkinsfile.downstream ON CHANGES
                         stage("Shared library build and test") {
                             steps {
                                 buildProject('check-mlir check-mlir-miopen', """
@@ -83,18 +134,7 @@ pipeline {
                                 equals expected: false, actual: params.canXdlops
                             } }
                             steps {
-                                sh '''
-                                if [ ! -f ./build/compile_commands.json ];  then
-                                  echo "No compile commands, bailing."
-                                  exit 1
-                                fi
-                                if [ ! -f ./compile_commands.json ]; then
-                                  ln -s build/compile_commands.json compile_commands.json
-                                fi
-                                '''
-                                // Before premerge-checks, reset all mods from the OOT patcher tool
-                                sh 'git checkout external/llvm-project && git clean -fd external/llvm-project'
-                                sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+                                preMergeCheck()
                             }
                         }
                         stage("Random E2E test") {
@@ -235,24 +275,7 @@ pipeline {
                                     // Generate report on performance changes
                                     sh 'python3 ./bin/perfRegressionReport.py'
                                 }
-                                publishHTML (target: [
-                                    allowMissing: false,
-                                    alwaysLinkToLastBuild: false,
-                                    keepAll: true,
-                                    reportDir: 'build',
-                                    reportFiles: 'MLIR_Performance_Changes.html,MLIR_vs_MIOpen.html',
-                                    reportName: 'Performance report'
-                                ])
-
-                                plot csvFileName: 'plot-nightly-perf-results-000001.csv',\
-                                    csvSeries: [[file: 'build/mlir_vs_miopen_perf_for_plot.csv', displayTableFlag: false]],\
-                                    title: 'Test performance summary',\
-                                    yaxis: 'TFlops',\
-                                    style: 'line',\
-                                    group: 'Performance plots'
-
-                                // Save results for future comparison
-                                archiveArtifacts artifacts: 'build/mlir_*.csv,build/perf-run-date', onlyIfSuccessful: true
+                                postProcessPerfRes()
                             }
                         }
                     }
@@ -262,50 +285,6 @@ pipeline {
                         }
                     }
                 }
-                // We're apparently not running this test these days
-                // stage("Upstream build") {
-                //     when { beforeAgent true;
-                //           allOf {
-                //             equals expected: true, actual: params.nightly;
-                //             equals expected: false, actual: params.canXdlops
-                //         }}
-                //     agent {
-                //             docker {
-                //             image dockerImage()
-                //             args dockerArgs()
-                //             label 'rocm'
-                //             alwaysPull true
-                //         }
-                //     }
-                //     options {
-                //         skipDefaultCheckout()
-                //     }
-                //     steps {
-                //         git branch: 'main', poll: false,\
-                //             url: 'https://github.com/llvm/llvm-project'
-                //         cmakeBuild generator: 'Ninja',\
-                //             buildDir: 'build',\
-                //             sourceDir: 'llvm',\
-                //             buildType: 'Release',\
-                //             installation: 'InSearchPath',\
-                //             steps: [[args: 'check-mlir']],\
-                //             // Reminder to keep these up to date with our cmake
-                //             cmakeArgs: '''
-                //             -DLLVM_ENABLE_PROJECTS="mlir;lld"
-                //             -DLLVM_BUILD_EXAMPLES=ON
-                //             -DLLVM_TARGETS_TO_BUILD="X86;AMDGPU"
-                //             -DLLVM_ENABLE_ASSERTIONS=ON
-                //             -DBUILD_SHARED_LIBS=ON
-                //             -DLLVM_BUILD_LLVM_DYLIB=ON
-                //             -DMLIR_ROCM_RUNNER_ENABLED=1
-                //             '''
-                //     }
-                //     post {
-                //         always {
-                //             cleanWs()
-                //         }
-                //     }
-                // }
             }
         }
 
@@ -315,14 +294,6 @@ pipeline {
                 equals expected: true, actual: params.canXdlops
             }}
             matrix {
-                agent {
-                    docker {
-                        image dockerImage()
-                        args dockerArgs()
-                        label "${XDLOPS == '1' ? 'gfx908' : 'gfx908'} && !single_gpu"
-                        alwaysPull true
-                    }
-                }
                 options {
                     skipDefaultCheckout()
                 }
@@ -345,40 +316,43 @@ pipeline {
                     }
                 }
                 stages {
-                    stage('Environment') {
-                        steps {
-                            echo "Config is ($DTYPE, $LAYOUT, xdlops=$XDLOPS, dir=$DIRECTION)"
-                            showEnv()
-                        }
-                    }
-                    stage("Copy MIOpen test environment") {
-                        steps {
-                            unstash name: "MIOpen-test-requisites"
-                        }
-                    }
-                    stage("Test MIOpen config") {
-                        environment {
-                            // Make libMIOpen.so accessible to the test driver
-                            LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                        }
-                        steps {
-                            echo "Config is ($DTYPE, $LAYOUT, xdlops=$XDLOPS, dir=$DIRECTION)"
-                            sh 'ldconfig'
-                            dir('MIOpen/build/') {
-                                sh """
-                                bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
-                                --layout $LAYOUT \
-                                --direction $DIRECTION \
-                                --dtype $DTYPE \
-                                ${XDLOPS == '1' ? '--xdlops' : '--no-xdlops'} \
-                                < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+                    stage('Test MIOpen') {
+                        agent {
+                            docker {
+                                image dockerImage()
+                                args dockerArgs()
+                                label "${XDLOPS == '1' ? 'gfx908' : 'gfx908'}"
+                                alwaysPull true
                             }
                         }
-                    }
-                }
-                post {
-                    always {
-                        cleanWs()
+                        stages {
+                            stage('Environment') {
+                                steps {
+                                    echo "Config is ($DTYPE, $LAYOUT, xdlops=$XDLOPS, dir=$DIRECTION)"
+                                    showEnv()
+                                }
+                            }
+                            stage("Copy MIOpen test environment") {
+                                steps {
+                                    unstash name: "MIOpen-test-requisites"
+                                }
+                            }
+                            stage("Test MIOpen config") {
+                                environment {
+                                    // Make libMIOpen.so accessible to the test driver
+                                    LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                                }
+                                steps {
+                                    testMIOpenDriver($DTYPE, $XDLOPS, $LAYOUT, $DIRECTION, 0)
+                                    testMIOpenDriver($DTYPE, $XDLOPS, $LAYOUT, $DIRECTION, 1)
+                                }
+                            }
+                        }
+                        post {
+                            always {
+                                cleanWs()
+                            }
+                        }
                     }
                 }
             }
