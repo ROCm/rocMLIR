@@ -6616,7 +6616,7 @@ struct GridwiseGemmV2RewritePattern
         mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB, vectorCs);
     affixBlockwiseGemmV2Attributes(blockwiseGemmV2Op, op, b);
 
-    // LDS barrier : defer the next LDS update until this round's GEMM is done.
+    // LDS barrier : defer the next LDS update until this round's GEMM calculation is done.
     // requires barrier only.
     mfmalb.create<miopen::LDSBarrierOp>(loc);
 
