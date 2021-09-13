@@ -91,15 +91,29 @@ void postProcessPerfRes() {
 pipeline {
     agent none
     parameters {
+        // Below should be set statically by Jenkins job
         booleanParam(name: 'nightly', defaultValue: params.nightly ?: false,
                      description: 'Run extra nightly-only tests')
         booleanParam(name: 'canXdlops', defaultValue: params.canXdlops ?: true,
                      description: 'Can this CI instance use xdlops (no for public server)')
+
+        // Each below control whether to run a individual stage from parallel run
+        // They default to true but deverloper can toggle them for debugging purpose
+        booleanParam(name: 'sharedLib', defaultValue: params.sharedLib ?: true,
+                     description: 'Run the shared library stage')
+        booleanParam(name: 'staticLib', defaultValue: params.staticLib ?: true,
+                     description: 'Run the static library stage')
+        booleanParam(name: 'perfTest', defaultValue: params.perfTest ?: true,
+                     description: 'Run the performance testing stage')
     }
     stages {
         stage("Builds and tests") {
             parallel {
                 stage("Shared library") {
+                    when {
+                        beforeAgent true;
+                        equals expected: true, actual: params.sharedLib;
+                    }
                     agent {
                         docker {
                             image dockerImage()
@@ -156,7 +170,11 @@ pipeline {
                     }
                 }
 
-                stage("Implicit GEMM") {
+                stage("Static Library") {
+                    when {
+                        beforeAgent true;
+                        equals expected: true, actual: params.staticLib;
+                    }
                     agent {
                         docker {
                             image dockerImage()
@@ -217,6 +235,7 @@ pipeline {
                 stage("Performance testing") {
                     when {
                         beforeAgent true;
+                        equals expected: true, actual: params.perfTest;
                         equals expected: true, actual: params.nightly;
                     }
                     agent {
@@ -290,8 +309,9 @@ pipeline {
 
         stage("MIOpen resnet50 config test") {
             when { allOf {
-                equals expected: true, actual: params.nightly
-                equals expected: true, actual: params.canXdlops
+                equals expected: true, actual: params.nightly;
+                equals expected: true, actual: params.canXdlops;
+                equals expected: true, actual: params.staticLib;
             }}
             matrix {
                 options {
