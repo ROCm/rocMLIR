@@ -42,9 +42,13 @@ mlir_check_link_libraries(mlir-miopen-driver)
 
 # Performance test scripts
 # Defined here since mlir/utils/ isn't in Jenkins
-file(GLOB PERFORMANCE_SCRIPTS
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../utils/jenkins/*.py" 
-)
+set(PERFORMANCE_SCRIPTS
+  jenkins/MIOpenDriver.py jenkins/perfRegressionReport.py jenkins/reportUtils.py
+  mlirParameterSweeps.py)
+list(TRANSFORM PERFORMANCE_SCRIPTS PREPEND
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../utils/")
 
 add_custom_target(ci-performance-scripts
-	COMMAND ${CMAKE_COMMAND} -E copy ${PERFORMANCE_SCRIPTS} ${MLIR_MIOPEN_BIN_DIR})
+	COMMAND ${CMAKE_COMMAND} -E copy ${PERFORMANCE_SCRIPTS} ${MLIR_MIOPEN_BIN_DIR}
+  VERBATIM
+  SOURCES ${PERFORMANCE_SCRIPTS})

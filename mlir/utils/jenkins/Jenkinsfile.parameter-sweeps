@@ -1,0 +1,52 @@
+void buildProject(String target, String cmakeOpts) {
+    cmakeBuild generator: 'Ninja',\
+        buildDir: 'build',\
+        buildType: 'RelWithDebInfo',\
+        installation: 'InSearchPath',\
+        steps: [[args: target]],\
+        cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
+}
+
+String dockerArgs() {
+    return '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+}
+
+String dockerImage() {
+    return 'rocm/mlir:rocm4.1-latest'
+}
+
+pipeline {
+    agent {
+        docker {
+            image dockerImage()
+            args dockerArgs()
+            label "gfx908"
+            alwaysPull true
+        }
+    }
+    stages {
+        stage("TEMPORARY Install newer Python version") {
+            sh 'add-apt-repository ppa:deadsnakes/ppa'
+            sh 'apt-get install -y python3.9 python3.9-distutils python3.9-dev'
+            sh '/usr/bin/python3.9 -m pip install --upgrade --system setuptools pip distlib'
+            sh '/usr/bin/python3.9 -m pip install numpy scipy pandas'
+        }
+        stage("Build MLIR") {
+            steps {
+                buildProject('mlir-miopen-driver mlir-rocm-runner ci-performance-scripts', '')
+            }
+        }
+        stage("Parameter sweep") {
+            steps {
+                dir('build/') {
+                    'sh python3.9 ./bin/mlirParameterSweeps.py'
+                }
+            }
+        }
+    }
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}

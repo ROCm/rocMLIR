@@ -1,4 +1,5 @@
-// ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
+// ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream and
+// Jenkinsfile.parameter-sweeps
 void buildProject(String target, String cmakeOpts) {
     cmakeBuild generator: 'Ninja',\
         buildDir: 'build',\

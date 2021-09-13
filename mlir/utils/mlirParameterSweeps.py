@@ -49,7 +49,7 @@ Return code = {runner.returncode}""", file=sys.stderr)
         return False
 
     if not CORRECT_RESULT_RE.search(output):
-        print(f"""Convolution returned intorrect result
+        print(f"""Convolution returned intorrect result for config {config!r}
 Output = {output}
 Errors = {errors.decode('utf-8')}""", file=sys.stderr)
         return False
