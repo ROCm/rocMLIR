@@ -991,7 +991,7 @@ static ParseResult parseMFMAOp(OpAsmParser &parser, OperationState &result) {
 
 static void print(OpAsmPrinter &p, gpu::MFMAOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p.printOptionalAttrDict(op.getAttrs());
+  p.printOptionalAttrDict(op->getAttrs());
   p << " : " << op.getOperand(0).getType() << ", "
     << op.getOperand(2).getType();
 }
@@ -1048,7 +1048,7 @@ static ParseResult parseMubufLoadOp(OpAsmParser &parser,
 
 static void print(OpAsmPrinter &p, gpu::MubufLoadOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p.printOptionalAttrDict(op.getAttrs());
+  p.printOptionalAttrDict(op->getAttrs());
   p << " : " << op.memref().getType() << ", " << op.getResult().getType();
 }
 
@@ -1229,7 +1229,7 @@ static ParseResult parseMubufStoreOp(OpAsmParser &parser,
 
 static void print(OpAsmPrinter &p, gpu::MubufStoreOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p.printOptionalAttrDict(op.getAttrs());
+  p.printOptionalAttrDict(op->getAttrs());
   p << " : " << op.value().getType() << ", " << op.memref().getType() << ", "
     << op.shift().getType();
 }
@@ -1263,7 +1263,7 @@ static ParseResult parseRawbufStoreOp(OpAsmParser &parser,
 
 static void print(OpAsmPrinter &p, gpu::RawbufStoreOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p.printOptionalAttrDict(op.getAttrs());
+  p.printOptionalAttrDict(op->getAttrs());
   p << " : " << op.value().getType() << ", " << op.memref().getType() << ", "
     << op.shift().getType();
 }
@@ -1296,7 +1296,7 @@ static ParseResult parseAtomicFAddOp(OpAsmParser &parser,
 
 static void print(OpAsmPrinter &p, gpu::AtomicFAddOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p.printOptionalAttrDict(op.getAttrs());
+  p.printOptionalAttrDict(op->getAttrs());
   p << " : " << op.value().getType() << ", " << op.memref().getType();
 }
 
