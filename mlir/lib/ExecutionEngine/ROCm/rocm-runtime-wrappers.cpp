@@ -499,7 +499,7 @@ mcpuMemset5DFloatRandInt(float *allocated, float *aligned, int64_t offset,
                          int64_t size0, int64_t size1, int64_t size2,
                          int64_t size3, int64_t size4, int64_t stride0,
                          int64_t stride1, int64_t stride2, int64_t stride3,
-                         int64_t stride4, short min, short max, int64_t seed) {
+                         int64_t stride4, short min, short max, int seed) {
   if (seed < 0)
     std::srand(time(0));
   else
@@ -521,7 +521,7 @@ extern "C" void mcpuMemset5DFloatRandFloat(
     float *allocated, float *aligned, int64_t offset, int64_t size0,
     int64_t size1, int64_t size2, int64_t size3, int64_t size4, int64_t stride0,
     int64_t stride1, int64_t stride2, int64_t stride3, int64_t stride4,
-    short min, short max, int64_t seed) {
+    short min, short max, int seed) {
   if (seed < 0)
     std::srand(time(0));
   else
@@ -640,7 +640,7 @@ extern "C" void mcpuMemset5DHalfRandInt(
     unsigned short *allocated, unsigned short *aligned, int64_t offset,
     int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
     int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
-    int64_t stride4, short min, short max, int64_t seed) {
+    int64_t stride4, short min, short max, int seed) {
 
   // Generate tables for converting float to fp16
   unsigned short basetable[512];
@@ -668,7 +668,7 @@ extern "C" void mcpuMemset5DHalfRandFloat(
     unsigned short *allocated, unsigned short *aligned, int64_t offset,
     int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
     int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
-    int64_t stride4, short min, short max, int64_t seed) {
+    int64_t stride4, short min, short max, int seed) {
 
   // Generate tables for converting float to fp16
   unsigned short basetable[512];
@@ -809,7 +809,7 @@ extern "C" void mcpuMemset5DBF16RandInt(
     unsigned short *allocated, unsigned short *aligned, int64_t offset,
     int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
     int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
-    int64_t stride4, short min, short max, int64_t seed) {
+    int64_t stride4, short min, short max, int seed) {
 
   if (seed < 0)
     std::srand(time(0));
@@ -832,7 +832,7 @@ extern "C" void mcpuMemset5DBF16RandFloat(
     unsigned short *allocated, unsigned short *aligned, int64_t offset,
     int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
     int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
-    int64_t stride4, short min, short max, int64_t seed) {
+    int64_t stride4, short min, short max, int seed) {
 
   if (seed < 0)
     std::srand(time(0));
