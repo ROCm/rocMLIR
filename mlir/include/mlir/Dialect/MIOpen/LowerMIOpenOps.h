@@ -6606,7 +6606,8 @@ struct GridwiseGemmV2RewritePattern
         /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
 
-    // LDS barrier.
+    // LDS barrier : guarantees LDS update completion before reading out to register.
+    // requires LDS fence + barrier.
     mfmalb.create<miopen::LDSBarrierOp>(loc);
 
     // Emit blockwise V2 GEMM.
@@ -6614,6 +6615,10 @@ struct GridwiseGemmV2RewritePattern
         loc, vectorCTypes, lds2DMatrixASubviewOp, lds2DMatrixBSubviewOp,
         mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB, vectorCs);
     affixBlockwiseGemmV2Attributes(blockwiseGemmV2Op, op, b);
+
+    // LDS barrier : defer the next LDS update until this round's GEMM calculation is done.
+    // requires barrier only.
+    mfmalb.create<miopen::LDSBarrierOp>(loc);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
     // Emit blockwise_store for matrix A.
@@ -9184,10 +9189,6 @@ struct XdlopsGemmV2RewritePattern
             loc, argType.template cast<VectorType>(), op.bufferB(),
             ValueRange{loopKiv});
       }
-
-      // FIXME: See if it's possible to get rid of the this barrier.
-      // LDS barrier.
-      loopKb.create<miopen::LDSBarrierOp>(loc);
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
