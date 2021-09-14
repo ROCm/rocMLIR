@@ -78,9 +78,11 @@ else()
   set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
 endif()
 
+# Disable other runners
 set(MLIR_CUDA_RUNNER_ENABLED 0 CACHE BOOL "")
 set(MLIR_SPIRV_CPU_RUNNER_ENABLED 0 CACHE BOOL "")
 set(MLIR_VULKAN_RUNNER_ENABLED 0 CACHE BOOL "")
+set(@MLIR_BINDINGS_PYTHON_ENABLED 0 CACHE BOOL "")
 
 # Set up the build for the LLVM/MLIR git-submodule
 include(cmake/llvm-project.cmake)
