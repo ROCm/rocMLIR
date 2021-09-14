@@ -1422,8 +1422,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   int64_t computeKPack(PatternRewriter &b, int64_t gemmK,
                        Type inputElementType) const {
     // FIXME. Only support f16 type for now.
-    // FIXME. Hard-code initial KPack as 4 for now.
-    int64_t KPack = (inputElementType == b.getF16Type()) ? 4 : 1;
+    // FIXME. Hard-code initial KPack as 8 for now.
+    int64_t KPack = (inputElementType == b.getF16Type()) ? 8 : 1;
     while (gemmK % KPack != 0)
       KPack /= 2;
     // llvm::errs() << "KPack: " << KPack << "\n";
@@ -10154,17 +10154,11 @@ struct XdlopsGemmV2RewritePattern
     auto laneId = b.create<UnsignedRemIOp>(
         loc, tid, b.create<ConstantIndexOp>(loc, wave_size));
 
-    int64_t KRepeats = 0;
-    if (dataType == b.getF32Type()) {
-      assert(argType == dataType);
-      KRepeats = 1;
-    } else if (dataType == b.getF16Type() || dataType == b.getIntegerType(16)) {
-      VectorType argVectorType = argType.template cast<VectorType>();
-      KRepeats = argVectorType.getShape()[0];
-    }
+    int64_t KRepeats = KPack / k_base;
     // llvm::errs() << "argVectorType: " << argType << "\n";
     // llvm::errs() << "k_base: " << k_base << "\n";
     // llvm::errs() << "KRepeats: " << KRepeats << "\n";
+    // llvm::errs() << "K: " << K << "\n";
     // llvm::errs() << "bufferA type: " << op.bufferA().getType() << "\n";
     // llvm::errs() << "bufferB type: " << op.bufferB().getType() << "\n";
 
@@ -10219,7 +10213,7 @@ struct XdlopsGemmV2RewritePattern
 
       Value valueA;
       if (KPack > 1) {
-        valueA = emitLoadLogic(ilmkb, loc, op.matrixA().getType().template cast<MemRefType>(), argType, false, {}, op.matrixA(), ValueRange{sourceOffsetA});
+        valueA = emitLoadLogic(ilmkb, loc, op.matrixA().getType().template cast<MemRefType>(), op.bufferA().getType().template cast<MemRefType>().getElementType(), false, {}, op.matrixA(), ValueRange{sourceOffsetA});
       } else {
         valueA = ilmkb.create<LoadOp>(loc, dataType, op.matrixA(), sourceOffsetA);
       }
@@ -10268,7 +10262,7 @@ struct XdlopsGemmV2RewritePattern
 
       Value valueB;
       if (KPack > 1) {
-        valueB = emitLoadLogic(ilnkb, loc, op.matrixB().getType().template cast<MemRefType>(), argType, false, {}, op.matrixB(), ValueRange{sourceOffsetB});
+        valueB = emitLoadLogic(ilnkb, loc, op.matrixB().getType().template cast<MemRefType>(), op.bufferB().getType().template cast<MemRefType>().getElementType(), false, {}, op.matrixB(), ValueRange{sourceOffsetB});
       } else {
         valueB = ilnkb.create<LoadOp>(loc, dataType, op.matrixB(), sourceOffsetB);
       }
@@ -10285,34 +10279,51 @@ struct XdlopsGemmV2RewritePattern
       //         p_c_thread);
       // }
 
-      // Instead of following C++ logic where the induction variable is
-      // increased by one, increase by k_base. Mathmetically they are
-      // equivalent.
       auto loopK =
-          b.create<AffineForOp>(loc, 0, (K * KRepeats) / k_base, 1, op.vectorCs());
+          b.create<AffineForOp>(loc, 0, K, 1, op.vectorCs());
       auto loopKb = OpBuilder::atBlockBegin(loopK.getBody());
       auto loopKiv = loopK.getInductionVar();
 
-      Value argA = loopKb.create<LoadOp>(loc, argType, op.bufferA(), ValueRange{loopKiv});
-      Value argB = loopKb.create<LoadOp>(loc, argType, op.bufferB(), ValueRange{loopKiv});
+      Value vectorA = loopKb.create<LoadOp>(loc, op.bufferA().getType().template cast<MemRefType>().getElementType(), op.bufferA(), ValueRange{loopKiv});
+      Value vectorB = loopKb.create<LoadOp>(loc, op.bufferB().getType().template cast<MemRefType>().getElementType(), op.bufferB(), ValueRange{loopKiv});
+
+      Value zeroOp = createZeroConstantFloatOp(loopKb, loc, dataType);
+
+      auto loopKRepeats = loopKb.create<AffineForOp>(loc, 0, KRepeats, 1, loopK.getRegionIterArgs());
+      auto loopKRepeatsb = OpBuilder::atBlockBegin(loopKRepeats.getBody());
+      auto loopKRepeatsiv = loopKRepeats.getInductionVar();
+
+      Value offset = loopKRepeatsb.create<MulIOp>(loc, loopKRepeatsiv, KBaseConstantOp);
+      Value argA = loopKRepeatsb.create<SplatOp>(loc, zeroOp, argType);
+      Value argB = loopKRepeatsb.create<SplatOp>(loc, zeroOp, argType);
+      for (int64_t i = 0; i < argType.template cast<VectorType>().getShape()[0]; ++i) {
+        Value iConstantOp = loopKRepeatsb.create<ConstantIndexOp>(loc, i);
+        Value iPlusOffsetConstantOp = loopKRepeatsb.create<AddIOp>(loc, iConstantOp, offset);
+
+        Value elementA = loopKRepeatsb.create<vector::ExtractElementOp>(loc, dataType, vectorA, loopKRepeatsb.create<IndexCastOp>(loc, iPlusOffsetConstantOp, b.getIntegerType(32)));
+        argA = loopKRepeatsb.create<vector::InsertElementOp>(loc, argType, elementA, argA, loopKRepeatsb.create<IndexCastOp>(loc, iConstantOp, b.getIntegerType(32)));
+        Value elementB = loopKRepeatsb.create<vector::ExtractElementOp>(loc, dataType, vectorB, loopKRepeatsb.create<IndexCastOp>(loc, iPlusOffsetConstantOp, b.getIntegerType(32)));
+        argB = loopKRepeatsb.create<vector::InsertElementOp>(loc, argType, elementB, argB, loopKRepeatsb.create<IndexCastOp>(loc, iConstantOp, b.getIntegerType(32)));
+      }
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
-        auto vectorC = loopK.getRegionIterArgs()[i];
+        auto vectorC = loopKRepeats.getRegionIterArgs()[i];
 
         // issue MFMA logic.
         // TBD: need to consider the case to use argA[AStride] and argB[BStride]
-        auto mfma = loopKb.create<miopen::MFMAV2Op>(loc, vectorType, argA, argB,
+        auto mfma = loopKRepeatsb.create<miopen::MFMAV2Op>(loc, vectorType, argA, argB,
                                                     vectorC);
 
-        mfma->setAttr("instr", loopKb.getStringAttr(mfmaInstr));
+        mfma->setAttr("instr", loopKRepeatsb.getStringAttr(mfmaInstr));
         mfma->setAttr(
-            "imm", loopKb.getArrayAttr({loopKb.getI32IntegerAttr(imms[i][0]),
-                                        loopKb.getI32IntegerAttr(imms[i][1]),
-                                        loopKb.getI32IntegerAttr(imms[i][2])}));
+            "imm", loopKRepeatsb.getArrayAttr({loopKRepeatsb.getI32IntegerAttr(imms[i][0]),
+                                        loopKRepeatsb.getI32IntegerAttr(imms[i][1]),
+                                        loopKRepeatsb.getI32IntegerAttr(imms[i][2])}));
         mfmas.push_back(mfma);
       }
-      loopKb.create<AffineYieldOp>(loc, mfmas);
+      loopKRepeatsb.create<AffineYieldOp>(loc, mfmas);
+      loopKb.create<AffineYieldOp>(loc, loopKRepeats.results());
       op.replaceAllUsesWith(loopK.results());
       op.erase();
     } else {
