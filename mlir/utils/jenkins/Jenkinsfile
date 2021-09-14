@@ -99,11 +99,11 @@ pipeline {
 
         // Each below control whether to run a individual stage from parallel run
         // They default to true but deverloper can toggle them for debugging purpose
-        booleanParam(name: 'sharedLib', defaultValue: params.sharedLib ?: true,
+        booleanParam(name: 'sharedLib', defaultValue: true,
                      description: 'Run the shared library stage')
-        booleanParam(name: 'staticLib', defaultValue: params.staticLib ?: true,
+        booleanParam(name: 'staticLib', defaultValue: true,
                      description: 'Run the static library stage')
-        booleanParam(name: 'perfTest', defaultValue: params.perfTest ?: true,
+        booleanParam(name: 'perfTest', defaultValue: true,
                      description: 'Run the performance testing stage')
     }
     stages {
