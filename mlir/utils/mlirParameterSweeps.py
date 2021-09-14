@@ -27,8 +27,10 @@ async def testConfig(config: ConvConfiguration) -> bool:
     commandLineOptions = config.generateMlirDriverCommandLine()
     mlirMIOpenDriverCommand = '-pv_with_gpu -c ' + commandLineOptions
     compiler = await asyncio.create_subprocess_exec(os.path.join(MIOpenDriver.MLIR_BIN_DIR, MIOpenDriver.MLIR_MIOPEN_DRIVER),
-        *mlirMIOpenDriverCommand.split(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, stdin=None)
+        *mlirMIOpenDriverCommand.split(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, stdin=asyncio.subprocess.DEVNULL)
     program, errors = await compiler.communicate()
+    compiler.stdout().close()
+    compiler.stderr().close()
     if compiler.returncode != 0:
         print(f"""Compiler did not complete succesfully for config {config!r}
 Command line: {mlirMIOpenDriverCommand}
@@ -40,6 +42,9 @@ Return code = {compiler.returncode}""", file=sys.stderr)
     runner = await asyncio.create_subprocess_exec(os.path.join(MIOpenDriver.MLIR_BIN_DIR, MIOpenDriver.MLIR_ROCM_RUNNER), *MIOpenDriver.MLIR_ROCM_RUNNER_ARGS,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, stdin=asyncio.subprocess.PIPE)
     output, errors = await runner.communicate(input=program)
+    runner.stdin().close()
+    runner.stdout().close()
+    runner.stderr().close()
     output = output.decode('utf-8')
     if runner.returncode != 0:
         print(f"""Runner execution failed for config {config!r}
