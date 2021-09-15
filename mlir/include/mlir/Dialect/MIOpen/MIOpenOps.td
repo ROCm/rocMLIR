@@ -351,8 +351,8 @@ def MIOpen_BlockwiseGemmV2Op:
                    MemRefOf<[F32, F16, I16]>:$matrixB,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
-                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferA,
-                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferB,
+                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferA,
+                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferB,
                    Variadic<VectorOfRankAndType<[1], [F32, F16]>>:$vectorCs)>,
     Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16]>>: $vectorDs)> {
   let summary = "Blockwise GEMM XDLOPS version";
@@ -397,8 +397,8 @@ def MIOpen_XdlopsGemmV2Op:
                    MemRefOf<[F32, F16, I16]>:$matrixB,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
-                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferA,
-                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferB,
+                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferA,
+                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferB,
                    Variadic<VectorOfRankAndType<[1], [F32, F16]>>:$vectorCs)>,
     Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16]>>: $vectorDs)> {
   let summary = "XDLOPS GEMM V2";
