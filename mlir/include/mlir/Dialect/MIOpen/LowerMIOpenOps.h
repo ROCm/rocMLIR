@@ -10188,52 +10188,66 @@ struct XdlopsGemmV2RewritePattern
       //         p_c_thread);
       // }
 
-      auto loopK =
-          b.create<AffineForOp>(loc, 0, K, 1, op.vectorCs());
-      auto loopKb = OpBuilder::atBlockBegin(loopK.getBody());
-      auto loopKiv = loopK.getInductionVar();
+      auto outerLoop = b.create<AffineForOp>(loc, 0, K, 1, op.vectorCs());
+      auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
+      auto outerLoopiv = outerLoop.getInductionVar();
 
-      Value vectorA = loopKb.create<LoadOp>(loc, op.bufferA().getType().template cast<MemRefType>().getElementType(), op.bufferA(), ValueRange{loopKiv});
-      Value vectorB = loopKb.create<LoadOp>(loc, op.bufferB().getType().template cast<MemRefType>().getElementType(), op.bufferB(), ValueRange{loopKiv});
+      Type vectorAType =
+          op.bufferA().getType().template cast<MemRefType>().getElementType();
+      Type vectorBType =
+          op.bufferB().getType().template cast<MemRefType>().getElementType();
+      Value vectorA = outerLoopb.create<LoadOp>(loc, vectorAType, op.bufferA(),
+                                                ValueRange{outerLoopiv});
+      Value vectorB = outerLoopb.create<LoadOp>(loc, vectorBType, op.bufferB(),
+                                                ValueRange{outerLoopiv});
 
-      Value zeroOp = createZeroConstantFloatOp(loopKb, loc, dataType);
+      Value zeroOp = createZeroConstantFloatOp(outerLoopb, loc, dataType);
 
-      auto loopKRepeats = loopKb.create<AffineForOp>(loc, 0, KRepeats, 1, loopK.getRegionIterArgs());
-      auto loopKRepeatsb = OpBuilder::atBlockBegin(loopKRepeats.getBody());
-      auto loopKRepeatsiv = loopKRepeats.getInductionVar();
+      auto innerLoop = outerLoopb.create<AffineForOp>(
+          loc, 0, KRepeats, 1, outerLoop.getRegionIterArgs());
+      auto innerLoopb = OpBuilder::atBlockBegin(innerLoop.getBody());
+      auto innerLoopiv = innerLoop.getInductionVar();
 
-      Value offset = loopKRepeatsb.create<MulIOp>(loc, loopKRepeatsiv, KBaseConstantOp);
-      Value argA = loopKRepeatsb.create<SplatOp>(loc, zeroOp, argType);
-      Value argB = loopKRepeatsb.create<SplatOp>(loc, zeroOp, argType);
+      Value offset =
+          innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp);
+      Value argA = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
+      Value argB = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
       for (int64_t i = 0; i < argType.template cast<VectorType>().getShape()[0]; ++i) {
-        Value iConstantOp = loopKRepeatsb.create<ConstantIndexOp>(loc, i);
-        Value iPlusOffsetConstantOp = loopKRepeatsb.create<AddIOp>(loc, iConstantOp, offset);
+        Value iConstantOp = innerLoopb.create<ConstantIndexOp>(loc, i);
+        Value iConstantOp_i32 = innerLoopb.create<IndexCastOp>(
+            loc, iConstantOp, innerLoopb.getIntegerType(32));
+        Value iPlusOffsetConstantOp =
+            innerLoopb.create<AddIOp>(loc, iConstantOp, offset);
+        Value iPlusOffsetConstantOp_i32 = innerLoopb.create<IndexCastOp>(
+            loc, iPlusOffsetConstantOp, innerLoopb.getIntegerType(32));
 
-        Value elementA = loopKRepeatsb.create<vector::ExtractElementOp>(loc, dataType, vectorA, loopKRepeatsb.create<IndexCastOp>(loc, iPlusOffsetConstantOp, b.getIntegerType(32)));
-        argA = loopKRepeatsb.create<vector::InsertElementOp>(loc, argType, elementA, argA, loopKRepeatsb.create<IndexCastOp>(loc, iConstantOp, b.getIntegerType(32)));
-        Value elementB = loopKRepeatsb.create<vector::ExtractElementOp>(loc, dataType, vectorB, loopKRepeatsb.create<IndexCastOp>(loc, iPlusOffsetConstantOp, b.getIntegerType(32)));
-        argB = loopKRepeatsb.create<vector::InsertElementOp>(loc, argType, elementB, argB, loopKRepeatsb.create<IndexCastOp>(loc, iConstantOp, b.getIntegerType(32)));
+        Value elementA = innerLoopb.create<vector::ExtractElementOp>(
+            loc, dataType, vectorA, iPlusOffsetConstantOp_i32);
+        argA = innerLoopb.create<vector::InsertElementOp>(
+            loc, argType, elementA, argA, iConstantOp_i32);
+        Value elementB = innerLoopb.create<vector::ExtractElementOp>(
+            loc, dataType, vectorB, iPlusOffsetConstantOp_i32);
+        argB = innerLoopb.create<vector::InsertElementOp>(
+            loc, argType, elementB, argB, iConstantOp_i32);
       }
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
-        auto vectorC = loopKRepeats.getRegionIterArgs()[i];
+        auto vectorC = innerLoop.getRegionIterArgs()[i];
+        auto mfma = innerLoopb.create<miopen::MFMAV2Op>(loc, vectorType, argA,
+                                                        argB, vectorC);
 
-        // issue MFMA logic.
-        // TBD: need to consider the case to use argA[AStride] and argB[BStride]
-        auto mfma = loopKRepeatsb.create<miopen::MFMAV2Op>(loc, vectorType, argA, argB,
-                                                    vectorC);
-
-        mfma->setAttr("instr", loopKRepeatsb.getStringAttr(mfmaInstr));
-        mfma->setAttr(
-            "imm", loopKRepeatsb.getArrayAttr({loopKRepeatsb.getI32IntegerAttr(imms[i][0]),
-                                        loopKRepeatsb.getI32IntegerAttr(imms[i][1]),
-                                        loopKRepeatsb.getI32IntegerAttr(imms[i][2])}));
+        mfma->setAttr("instr", innerLoopb.getStringAttr(mfmaInstr));
+        mfma->setAttr("imm", innerLoopb.getArrayAttr(
+                                 {innerLoopb.getI32IntegerAttr(imms[i][0]),
+                                  innerLoopb.getI32IntegerAttr(imms[i][1]),
+                                  innerLoopb.getI32IntegerAttr(imms[i][2])}));
         mfmas.push_back(mfma);
       }
-      loopKRepeatsb.create<AffineYieldOp>(loc, mfmas);
-      loopKb.create<AffineYieldOp>(loc, loopKRepeats.results());
-      op.replaceAllUsesWith(loopK.results());
+      innerLoopb.create<AffineYieldOp>(loc, mfmas);
+
+      outerLoopb.create<AffineYieldOp>(loc, innerLoop.results());
+      op.replaceAllUsesWith(outerLoop.results());
       op.erase();
     } else {
       // Original C++ logic.
