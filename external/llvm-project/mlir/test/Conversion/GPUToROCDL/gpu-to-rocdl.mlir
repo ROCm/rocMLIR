@@ -495,129 +495,152 @@ gpu.module @test_module {
 // -----
 
 gpu.module @test_module_mfma_f32 {
-  // CHECK-LABEL: llvm.func @mfma_f32
-  gpu.func @mfma_f32(%arg0: f32, %arg1: f32, %arg2: memref<64xf32>) {
-    %0 = vector.type_cast %arg2 : memref<64xf32> to memref<2xvector<32xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f32_0
+  gpu.func @mfma_f32_0(%arg0: f32, %arg1: f32, %arg2: memref<2xvector<32xf32>>) {
     %c0 = constant 0 : index
-    %1 = memref.load %0[%c0] : memref<2xvector<32xf32>>
+    %1 = memref.load %arg2[%c0] : memref<2xvector<32xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (f32, f32, vector<32xf32>, i32, i32, i32) -> vector<32xf32>
     %2 = gpu.mfma(%arg0, %arg1, %1) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : f32, vector<32xf32>
-    memref.store %2, %0[%c0] : memref<2xvector<32xf32>>
+    memref.store %2, %arg2[%c0] : memref<2xvector<32xf32>>
     %c1 = constant 1 : index
-    %3 = memref.load %0[%c1] : memref<2xvector<32xf32>>
+    %3 = memref.load %arg2[%c1] : memref<2xvector<32xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (f32, f32, vector<32xf32>, i32, i32, i32) -> vector<32xf32>
     %4 = gpu.mfma(%arg0, %arg1, %3) {imm = [1 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : f32, vector<32xf32>
-    memref.store %4, %0[%c1] : memref<2xvector<32xf32>>
+    memref.store %4, %arg2[%c1] : memref<2xvector<32xf32>>
+    gpu.return
+  }
 
-    // ----
+  // ----
 
-    %5 = vector.type_cast %arg2 : memref<64xf32> to memref<2xvector<32xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f32_1
+  gpu.func @mfma_f32_1(%arg0: f32, %arg1: f32, %arg2: memref<2xvector<32xf32>>) {
     %c0_0 = constant 0 : index
-    %6 = memref.load %5[%c0_0] : memref<2xvector<32xf32>>
+    %6 = memref.load %arg2[%c0_0] : memref<2xvector<32xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (f32, f32, vector<32xf32>, i32, i32, i32) -> vector<32xf32>
     %7 = gpu.mfma(%arg0, %arg1, %6) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x1f32"} : f32, vector<32xf32>
-    memref.store %7, %5[%c0_0] : memref<2xvector<32xf32>>
+    memref.store %7, %arg2[%c0_0] : memref<2xvector<32xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %8 = vector.type_cast %arg2 : memref<64xf32> to memref<2xvector<32xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f32_2
+  gpu.func @mfma_f32_2(%arg0: f32, %arg1: f32, %arg2: memref<2xvector<32xf32>>) {
     %c0_1 = constant 0 : index
-    %9 = memref.load %8[%c0_1] : memref<2xvector<32xf32>>
+    %9 = memref.load %arg2[%c0_1] : memref<2xvector<32xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (f32, f32, vector<32xf32>, i32, i32, i32) -> vector<32xf32>
     %10 = gpu.mfma(%arg0, %arg1, %9) {imm = [0 : i32, 0 : i32, 1 : i32], instr = "mfma_f32_32x32x1f32"} : f32, vector<32xf32>
-    memref.store %10, %8[%c0_1] : memref<2xvector<32xf32>>
+    memref.store %10, %arg2[%c0_1] : memref<2xvector<32xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %11 = vector.type_cast %arg2 : memref<64xf32> to memref<4xvector<16xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f32_3
+  gpu.func @mfma_f32_3(%arg0: f32, %arg1: f32, %arg2: memref<4xvector<16xf32>>) {
     %c0_2 = constant 0 : index
-    %12 = memref.load %11[%c0_2] : memref<4xvector<16xf32>>
+    %12 = memref.load %arg2[%c0_2] : memref<4xvector<16xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x2f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (f32, f32, vector<16xf32>, i32, i32, i32) -> vector<16xf32>
     %13 = gpu.mfma(%arg0, %arg1, %12) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x2f32"} : f32, vector<16xf32>
-    memref.store %13, %11[%c0_2] : memref<4xvector<16xf32>>
+    memref.store %13, %arg2[%c0_2] : memref<4xvector<16xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %14 = vector.type_cast %arg2 : memref<64xf32> to memref<16xvector<4xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f32_4
+  gpu.func @mfma_f32_4(%arg0: f32, %arg1: f32, %arg2: memref<16xvector<4xf32>>) {
     %c0_3 = constant 0 : index
-    %15 = memref.load %14[%c0_3] : memref<16xvector<4xf32>>
+    %15 = memref.load %arg2[%c0_3] : memref<16xvector<4xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.16x16x4f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (f32, f32, vector<4xf32>, i32, i32, i32) -> vector<4xf32>
     %16 = gpu.mfma(%arg0, %arg1, %15) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x4f32"} : f32, vector<4xf32>
-    memref.store %16, %14[%c0_3] : memref<16xvector<4xf32>>
+    memref.store %16, %arg2[%c0_3] : memref<16xvector<4xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %17 = vector.type_cast %arg2 : memref<64xf32> to memref<4xvector<16xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f32_5
+  gpu.func @mfma_f32_5(%arg0: f32, %arg1: f32, %arg2: memref<4xvector<16xf32>>) {
     %c0_4 = constant 0 : index
-    %18 = memref.load %17[%c0_4] : memref<4xvector<16xf32>>
+    %18 = memref.load %arg2[%c0_4] : memref<4xvector<16xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(2 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.16x16x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (f32, f32, vector<16xf32>, i32, i32, i32) -> vector<16xf32>
     %19 = gpu.mfma(%arg0, %arg1, %18) {imm = [2 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x1f32"} : f32, vector<16xf32>
-    memref.store %19, %17[%c0_4] : memref<4xvector<16xf32>>
+    memref.store %19, %arg2[%c0_4] : memref<4xvector<16xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %20 = vector.type_cast %arg2 : memref<64xf32> to memref<4xvector<16xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f32_6
+  gpu.func @mfma_f32_6(%arg0: f32, %arg1: f32, %arg2: memref<4xvector<16xf32>>) {
     %c0_5 = constant 0 : index
-    %21 = memref.load %20[%c0_5] : memref<4xvector<16xf32>>
+    %21 = memref.load %arg2[%c0_5] : memref<4xvector<16xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(4 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.16x16x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (f32, f32, vector<16xf32>, i32, i32, i32) -> vector<16xf32>
     %22 = gpu.mfma(%arg0, %arg1, %21) {imm = [0 : i32, 0 : i32, 4 : i32], instr = "mfma_f32_16x16x1f32"} : f32, vector<16xf32>
-    memref.store %22, %20[%c0_5] : memref<4xvector<16xf32>>
+    memref.store %22, %arg2[%c0_5] : memref<4xvector<16xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %23 = vector.type_cast %arg2 : memref<64xf32> to memref<16xvector<4xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f32_7
+  gpu.func @mfma_f32_7(%arg0: f32, %arg1: f32, %arg2: memref<16xvector<4xf32>>) {
     %c0_6 = constant 0 : index
-    %24 = memref.load %23[%c0_6] : memref<16xvector<4xf32>>
+    %24 = memref.load %arg2[%c0_6] : memref<16xvector<4xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(4 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.4x4x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (f32, f32, vector<4xf32>, i32, i32, i32) -> vector<4xf32>
     %25 = gpu.mfma(%arg0, %arg1, %24) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : f32, vector<4xf32>
-    memref.store %25, %23[%c0_6] : memref<16xvector<4xf32>>
+    memref.store %25, %arg2[%c0_6] : memref<16xvector<4xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %26 = vector.type_cast %arg2 : memref<64xf32> to memref<16xvector<4xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f32_8
+  gpu.func @mfma_f32_8(%arg0: f32, %arg1: f32, %arg2: memref<16xvector<4xf32>>) {
     %c0_7 = constant 0 : index
-    %27 = memref.load %26[%c0_7] : memref<16xvector<4xf32>>
+    %27 = memref.load %arg2[%c0_7] : memref<16xvector<4xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(4 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.4x4x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (f32, f32, vector<4xf32>, i32, i32, i32) -> vector<4xf32>
     %28 = gpu.mfma(%arg0, %arg1, %27) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : f32, vector<4xf32>
-    memref.store %28, %26[%c0_7] : memref<16xvector<4xf32>>
+    memref.store %28, %arg2[%c0_7] : memref<16xvector<4xf32>>
     %c1_8 = constant 1 : index
-    %29 = memref.load %26[%c1_8] : memref<16xvector<4xf32>>
+    %29 = memref.load %arg2[%c1_8] : memref<16xvector<4xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(4 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.4x4x1f32 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (f32, f32, vector<4xf32>, i32, i32, i32) -> vector<4xf32>
     %30 = gpu.mfma(%arg0, %arg1, %29) {imm = [4 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_4x4x1f32"} : f32, vector<4xf32>
-    memref.store %30, %26[%c1_8] : memref<16xvector<4xf32>>
+    memref.store %30, %arg2[%c1_8] : memref<16xvector<4xf32>>
     gpu.return
   }
 }
@@ -625,129 +648,152 @@ gpu.module @test_module_mfma_f32 {
 // -----
 
 gpu.module @test_module_mfma_f16 {
-  // CHECK-LABEL: llvm.func @mfma_f16
-  gpu.func @mfma_f16(%arg0: vector<4xf16>, %arg1: vector<4xf16>, %arg2: memref<64xf32>) {
-    %0 = vector.type_cast %arg2 : memref<64xf32> to memref<2xvector<32xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f16_0
+  gpu.func @mfma_f16_0(%arg0: vector<4xf16>, %arg1: vector<4xf16>, %arg2: memref<2xvector<32xf32>>) {
     %c0 = constant 0 : index
-    %1 = memref.load %0[%c0] : memref<2xvector<32xf32>>
+    %1 = memref.load %arg2[%c0] : memref<2xvector<32xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x4f16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<4xf16>, vector<4xf16>, vector<32xf32>, i32, i32, i32) -> vector<32xf32>
     %2 = gpu.mfma(%arg0, %arg1, %1) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x4f16"} : vector<4xf16>, vector<32xf32>
-    memref.store %2, %0[%c0] : memref<2xvector<32xf32>>
+    memref.store %2, %arg2[%c0] : memref<2xvector<32xf32>>
     %c1 = constant 1 : index
-    %3 = memref.load %0[%c1] : memref<2xvector<32xf32>>
+    %3 = memref.load %arg2[%c1] : memref<2xvector<32xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x4f16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<4xf16>, vector<4xf16>, vector<32xf32>, i32, i32, i32) -> vector<32xf32>
     %4 = gpu.mfma(%arg0, %arg1, %3) {imm = [1 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_32x32x4f16"} : vector<4xf16>, vector<32xf32>
-    memref.store %4, %0[%c1] : memref<2xvector<32xf32>>
+    memref.store %4, %arg2[%c1] : memref<2xvector<32xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %5 = vector.type_cast %arg2 : memref<64xf32> to memref<2xvector<32xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f16_1
+  gpu.func @mfma_f16_1(%arg0: vector<4xf16>, %arg1: vector<4xf16>, %arg2: memref<2xvector<32xf32>>) {
     %c0_0 = constant 0 : index
-    %6 = memref.load %5[%c0_0] : memref<2xvector<32xf32>>
+    %6 = memref.load %arg2[%c0_0] : memref<2xvector<32xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x4f16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<4xf16>, vector<4xf16>, vector<32xf32>, i32, i32, i32) -> vector<32xf32>
     %7 = gpu.mfma(%arg0, %arg1, %6) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x4f16"} : vector<4xf16>, vector<32xf32>
-    memref.store %7, %5[%c0_0] : memref<2xvector<32xf32>>
+    memref.store %7, %arg2[%c0_0] : memref<2xvector<32xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %8 = vector.type_cast %arg2 : memref<64xf32> to memref<2xvector<32xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f16_2
+  gpu.func @mfma_f16_2(%arg0: vector<4xf16>, %arg1: vector<4xf16>, %arg2: memref<2xvector<32xf32>>) {
     %c0_1 = constant 0 : index
-    %9 = memref.load %8[%c0_1] : memref<2xvector<32xf32>>
+    %9 = memref.load %arg2[%c0_1] : memref<2xvector<32xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x4f16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<4xf16>, vector<4xf16>, vector<32xf32>, i32, i32, i32) -> vector<32xf32>
     %10 = gpu.mfma(%arg0, %arg1, %9) {imm = [0 : i32, 0 : i32, 1 : i32], instr = "mfma_f32_32x32x4f16"} : vector<4xf16>, vector<32xf32>
-    memref.store %10, %8[%c0_1] : memref<2xvector<32xf32>>
+    memref.store %10, %arg2[%c0_1] : memref<2xvector<32xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %11 = vector.type_cast %arg2 : memref<64xf32> to memref<4xvector<16xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f16_3
+  gpu.func @mfma_f16_3(%arg0: vector<4xf16>, %arg1: vector<4xf16>, %arg2: memref<4xvector<16xf32>>) {
     %c0_2 = constant 0 : index
-    %12 = memref.load %11[%c0_2] : memref<4xvector<16xf32>>
+    %12 = memref.load %arg2[%c0_2] : memref<4xvector<16xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x8f16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<4xf16>, vector<4xf16>, vector<16xf32>, i32, i32, i32) -> vector<16xf32>
     %13 = gpu.mfma(%arg0, %arg1, %12) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x8f16"} : vector<4xf16>, vector<16xf32>
-    memref.store %13, %11[%c0_2] : memref<4xvector<16xf32>>
+    memref.store %13, %arg2[%c0_2] : memref<4xvector<16xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %14 = vector.type_cast %arg2 : memref<64xf32> to memref<16xvector<4xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f16_4
+  gpu.func @mfma_f16_4(%arg0: vector<4xf16>, %arg1: vector<4xf16>, %arg2: memref<16xvector<4xf32>>) {
     %c0_3 = constant 0 : index
-    %15 = memref.load %14[%c0_3] : memref<16xvector<4xf32>>
+    %15 = memref.load %arg2[%c0_3] : memref<16xvector<4xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.16x16x16f16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<4xf16>, vector<4xf16>, vector<4xf32>, i32, i32, i32) -> vector<4xf32>
     %16 = gpu.mfma(%arg0, %arg1, %15) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x16f16"} : vector<4xf16>, vector<4xf32>
-    memref.store %16, %14[%c0_3] : memref<16xvector<4xf32>>
+    memref.store %16, %arg2[%c0_3] : memref<16xvector<4xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %17 = vector.type_cast %arg2 : memref<64xf32> to memref<4xvector<16xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f16_5
+  gpu.func @mfma_f16_5(%arg0: vector<4xf16>, %arg1: vector<4xf16>, %arg2: memref<4xvector<16xf32>>) {
     %c0_4 = constant 0 : index
-    %18 = memref.load %17[%c0_4] : memref<4xvector<16xf32>>
+    %18 = memref.load %arg2[%c0_4] : memref<4xvector<16xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(2 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.16x16x4f16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<4xf16>, vector<4xf16>, vector<16xf32>, i32, i32, i32) -> vector<16xf32>
     %19 = gpu.mfma(%arg0, %arg1, %18) {imm = [2 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x4f16"} : vector<4xf16>, vector<16xf32>
-    memref.store %19, %17[%c0_4] : memref<4xvector<16xf32>>
+    memref.store %19, %arg2[%c0_4] : memref<4xvector<16xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %20 = vector.type_cast %arg2 : memref<64xf32> to memref<4xvector<16xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f16_6
+  gpu.func @mfma_f16_6(%arg0: vector<4xf16>, %arg1: vector<4xf16>, %arg2: memref<4xvector<16xf32>>) {
     %c0_5 = constant 0 : index
-    %21 = memref.load %20[%c0_5] : memref<4xvector<16xf32>>
+    %21 = memref.load %arg2[%c0_5] : memref<4xvector<16xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(4 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.16x16x4f16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<4xf16>, vector<4xf16>, vector<16xf32>, i32, i32, i32) -> vector<16xf32>
     %22 = gpu.mfma(%arg0, %arg1, %21) {imm = [0 : i32, 0 : i32, 4 : i32], instr = "mfma_f32_16x16x4f16"} : vector<4xf16>, vector<16xf32>
-    memref.store %22, %20[%c0_5] : memref<4xvector<16xf32>>
+    memref.store %22, %arg2[%c0_5] : memref<4xvector<16xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %23 = vector.type_cast %arg2 : memref<64xf32> to memref<16xvector<4xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f16_7
+  gpu.func @mfma_f16_7(%arg0: vector<4xf16>, %arg1: vector<4xf16>, %arg2: memref<16xvector<4xf32>>) {
     %c0_6 = constant 0 : index
-    %24 = memref.load %23[%c0_6] : memref<16xvector<4xf32>>
+    %24 = memref.load %arg2[%c0_6] : memref<16xvector<4xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(4 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.4x4x4f16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<4xf16>, vector<4xf16>, vector<4xf32>, i32, i32, i32) -> vector<4xf32>
     %25 = gpu.mfma(%arg0, %arg1, %24) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x4f16"} : vector<4xf16>, vector<4xf32>
-    memref.store %25, %23[%c0_6] : memref<16xvector<4xf32>>
+    memref.store %25, %arg2[%c0_6] : memref<16xvector<4xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %26 = vector.type_cast %arg2 : memref<64xf32> to memref<16xvector<4xf32>>
+  // CHECK-LABEL: llvm.func @mfma_f16_8
+  gpu.func @mfma_f16_8(%arg0: vector<4xf16>, %arg1: vector<4xf16>, %arg2: memref<16xvector<4xf32>>) {
     %c0_7 = constant 0 : index
-    %27 = memref.load %26[%c0_7] : memref<16xvector<4xf32>>
+    %27 = memref.load %arg2[%c0_7] : memref<16xvector<4xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(4 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.4x4x4f16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<4xf16>, vector<4xf16>, vector<4xf32>, i32, i32, i32) -> vector<4xf32>
     %28 = gpu.mfma(%arg0, %arg1, %27) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x4f16"} : vector<4xf16>, vector<4xf32>
-    memref.store %28, %26[%c0_7] : memref<16xvector<4xf32>>
+    memref.store %28, %arg2[%c0_7] : memref<16xvector<4xf32>>
     %c1_8 = constant 1 : index
-    %29 = memref.load %26[%c1_8] : memref<16xvector<4xf32>>
+    %29 = memref.load %arg2[%c1_8] : memref<16xvector<4xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(4 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.4x4x4f16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<4xf16>, vector<4xf16>, vector<4xf32>, i32, i32, i32) -> vector<4xf32>
     %30 = gpu.mfma(%arg0, %arg1, %29) {imm = [4 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_4x4x4f16"} : vector<4xf16>, vector<4xf32>
-    memref.store %30, %26[%c1_8] : memref<16xvector<4xf32>>
+    memref.store %30, %arg2[%c1_8] : memref<16xvector<4xf32>>
     gpu.return
   }
 }
@@ -755,128 +801,153 @@ gpu.module @test_module_mfma_f16 {
 // ----
 
 gpu.module @test_module_mfma_bf16 {
-  // CHECK-LABEL: llvm.func @mfma_bf16
-  gpu.func @mfma_bf16(%arg0: vector<2xi16>, %arg1: vector<2xi16>, %arg2: memref<64xf32>) {
-    %0 = vector.type_cast %arg2 : memref<64xf32> to memref<2xvector<32xf32>>
+  // CHECK-LABEL: llvm.func @mfma_bf16_0
+  gpu.func @mfma_bf16_0(%arg0: vector<2xi16>, %arg1: vector<2xi16>, %arg2: memref<2xvector<32xf32>>) {
     %c0 = constant 0 : index
-    %1 = memref.load %0[%c0] : memref<2xvector<32xf32>>
+    %1 = memref.load %arg2[%c0] : memref<2xvector<32xf32>>
     // CHECK:           %[[IMM0:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT:      %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT:      %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x2bf16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<2xi16>, vector<2xi16>, vector<32xf32>, i32, i32, i32) -> vector<32xf32>
     %2 = gpu.mfma(%arg0, %arg1, %1) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x2bf16"} : vector<2xi16>, vector<32xf32>
-    memref.store %2, %0[%c0] : memref<2xvector<32xf32>>
+    memref.store %2, %arg2[%c0] : memref<2xvector<32xf32>>
     %c1 = constant 1 : index
-    %3 = memref.load %0[%c1] : memref<2xvector<32xf32>>
+    %3 = memref.load %arg2[%c1] : memref<2xvector<32xf32>>
 
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x2bf16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<2xi16>, vector<2xi16>, vector<32xf32>, i32, i32, i32) -> vector<32xf32>
     %4 = gpu.mfma(%arg0, %arg1, %3) {imm = [1 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_32x32x2bf16"} : vector<2xi16>, vector<32xf32>
-    memref.store %4, %0[%c1] : memref<2xvector<32xf32>>
+    memref.store %4, %arg2[%c1] : memref<2xvector<32xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %5 = vector.type_cast %arg2 : memref<64xf32> to memref<2xvector<32xf32>>
+  // CHECK-LABEL: llvm.func @mfma_bf16_1
+  gpu.func @mfma_bf16_1(%arg0: vector<2xi16>, %arg1: vector<2xi16>, %arg2: memref<2xvector<32xf32>>) {
     %c0_0 = constant 0 : index
-    %6 = memref.load %5[%c0_0] : memref<2xvector<32xf32>>
+    %6 = memref.load %arg2[%c0_0] : memref<2xvector<32xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x2bf16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<2xi16>, vector<2xi16>, vector<32xf32>, i32, i32, i32) -> vector<32xf32>
     %7 = gpu.mfma(%arg0, %arg1, %6) {imm = [1 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x2bf16"} : vector<2xi16>, vector<32xf32>
-    memref.store %7, %5[%c0_0] : memref<2xvector<32xf32>>
+    memref.store %7, %arg2[%c0_0] : memref<2xvector<32xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %8 = vector.type_cast %arg2 : memref<64xf32> to memref<2xvector<32xf32>>
+  // CHECK-LABEL: llvm.func @mfma_bf16_2
+  gpu.func @mfma_bf16_2(%arg0: vector<2xi16>, %arg1: vector<2xi16>, %arg2: memref<2xvector<32xf32>>) {
     %c0_1 = constant 0 : index
-    %9 = memref.load %8[%c0_1] : memref<2xvector<32xf32>>
+    %9 = memref.load %arg2[%c0_1] : memref<2xvector<32xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x2bf16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<2xi16>, vector<2xi16>, vector<32xf32>, i32, i32, i32) -> vector<32xf32>
     %10 = gpu.mfma(%arg0, %arg1, %9) {imm = [0 : i32, 0 : i32, 1 : i32], instr = "mfma_f32_32x32x2bf16"} : vector<2xi16>, vector<32xf32>
-    memref.store %10, %8[%c0_1] : memref<2xvector<32xf32>>
+    memref.store %10, %arg2[%c0_1] : memref<2xvector<32xf32>>
+    gpu.return
+  }
 
-    %11 = vector.type_cast %arg2 : memref<64xf32> to memref<4xvector<16xf32>>
+    // ----
+
+  // CHECK-LABEL: llvm.func @mfma_bf16_3
+  gpu.func @mfma_bf16_3(%arg0: vector<2xi16>, %arg1: vector<2xi16>, %arg2: memref<4xvector<16xf32>>) {
     %c0_2 = constant 0 : index
-    %12 = memref.load %11[%c0_2] : memref<4xvector<16xf32>>
+    %12 = memref.load %arg2[%c0_2] : memref<4xvector<16xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.32x32x4bf16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<2xi16>, vector<2xi16>, vector<16xf32>, i32, i32, i32) -> vector<16xf32>
     %13 = gpu.mfma(%arg0, %arg1, %12) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_32x32x4bf16"} : vector<2xi16>, vector<16xf32>
-    memref.store %13, %11[%c0_2] : memref<4xvector<16xf32>>
+    memref.store %13, %arg2[%c0_2] : memref<4xvector<16xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %14 = vector.type_cast %arg2 : memref<64xf32> to memref<16xvector<4xf32>>
+  // CHECK-LABEL: llvm.func @mfma_bf16_4
+  gpu.func @mfma_bf16_4(%arg0: vector<2xi16>, %arg1: vector<2xi16>, %arg2: memref<16xvector<4xf32>>) {
     %c0_3 = constant 0 : index
-    %15 = memref.load %14[%c0_3] : memref<16xvector<4xf32>>
+    %15 = memref.load %arg2[%c0_3] : memref<16xvector<4xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.16x16x8bf16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<2xi16>, vector<2xi16>, vector<4xf32>, i32, i32, i32) -> vector<4xf32>
     %16 = gpu.mfma(%arg0, %arg1, %15) {imm = [0 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x8bf16"} : vector<2xi16>, vector<4xf32>
-    memref.store %16, %14[%c0_3] : memref<16xvector<4xf32>>
+    memref.store %16, %arg2[%c0_3] : memref<16xvector<4xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %17 = vector.type_cast %arg2 : memref<64xf32> to memref<4xvector<16xf32>>
+  // CHECK-LABEL: llvm.func @mfma_bf16_5
+  gpu.func @mfma_bf16_5(%arg0: vector<2xi16>, %arg1: vector<2xi16>, %arg2: memref<4xvector<16xf32>>) {
     %c0_4 = constant 0 : index
-    %18 = memref.load %17[%c0_4] : memref<4xvector<16xf32>>
+    %18 = memref.load %arg2[%c0_4] : memref<4xvector<16xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(2 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.16x16x2bf16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<2xi16>, vector<2xi16>, vector<16xf32>, i32, i32, i32) -> vector<16xf32>
     %19 = gpu.mfma(%arg0, %arg1, %18) {imm = [2 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_16x16x2bf16"} : vector<2xi16>, vector<16xf32>
-    memref.store %19, %17[%c0_4] : memref<4xvector<16xf32>>
+    memref.store %19, %arg2[%c0_4] : memref<4xvector<16xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %20 = vector.type_cast %arg2 : memref<64xf32> to memref<4xvector<16xf32>>
+  // CHECK-LABEL: llvm.func @mfma_bf16_6
+  gpu.func @mfma_bf16_6(%arg0: vector<2xi16>, %arg1: vector<2xi16>, %arg2: memref<4xvector<16xf32>>) {
     %c0_5 = constant 0 : index
-    %21 = memref.load %20[%c0_5] : memref<4xvector<16xf32>>
+    %21 = memref.load %arg2[%c0_5] : memref<4xvector<16xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(4 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.16x16x2bf16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<2xi16>, vector<2xi16>, vector<16xf32>, i32, i32, i32) -> vector<16xf32>
     %22 = gpu.mfma(%arg0, %arg1, %21) {imm = [0 : i32, 0 : i32, 4 : i32], instr = "mfma_f32_16x16x2bf16"} : vector<2xi16>, vector<16xf32>
-    memref.store %22, %20[%c0_5] : memref<4xvector<16xf32>>
+    memref.store %22, %arg2[%c0_5] : memref<4xvector<16xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %23 = vector.type_cast %arg2 : memref<64xf32> to memref<16xvector<4xf32>>
+  // CHECK-LABEL: llvm.func @mfma_bf16_7
+  gpu.func @mfma_bf16_7(%arg0: vector<2xi16>, %arg1: vector<2xi16>, %arg2: memref<16xvector<4xf32>>) {
     %c0_6 = constant 0 : index
-    %24 = memref.load %23[%c0_6] : memref<16xvector<4xf32>>
+    %24 = memref.load %arg2[%c0_6] : memref<16xvector<4xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(4 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.4x4x2bf16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<2xi16>, vector<2xi16>, vector<4xf32>, i32, i32, i32) -> vector<4xf32>
     %25 = gpu.mfma(%arg0, %arg1, %24) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x2bf16"} : vector<2xi16>, vector<4xf32>
-    memref.store %25, %23[%c0_6] : memref<16xvector<4xf32>>
+    memref.store %25, %arg2[%c0_6] : memref<16xvector<4xf32>>
+    gpu.return
+  }
 
     // ----
 
-    %26 = vector.type_cast %arg2 : memref<64xf32> to memref<16xvector<4xf32>>
+  // CHECK-LABEL: llvm.func @mfma_bf16_8
+  gpu.func @mfma_bf16_8(%arg0: vector<2xi16>, %arg1: vector<2xi16>, %arg2: memref<16xvector<4xf32>>) {
     %c0_7 = constant 0 : index
-    %27 = memref.load %26[%c0_7] : memref<16xvector<4xf32>>
+    %27 = memref.load %arg2[%c0_7] : memref<16xvector<4xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(4 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.4x4x2bf16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<2xi16>, vector<2xi16>, vector<4xf32>, i32, i32, i32) -> vector<4xf32>
     %28 = gpu.mfma(%arg0, %arg1, %27) {imm = [4 : i32, 0 : i32, 0 : i32], instr = "mfma_f32_4x4x2bf16"} : vector<2xi16>, vector<4xf32>
-    memref.store %28, %26[%c0_7] : memref<16xvector<4xf32>>
+    memref.store %28, %arg2[%c0_7] : memref<16xvector<4xf32>>
     %c1_8 = constant 1 : index
-    %29 = memref.load %26[%c1_8] : memref<16xvector<4xf32>>
+    %29 = memref.load %arg2[%c1_8] : memref<16xvector<4xf32>>
     // CHECK:      %[[IMM0:.*]] = llvm.mlir.constant(4 : i32) : i32
     // CHECK-NEXT: %[[IMM1:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[IMM2:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = rocdl.mfma.f32.4x4x2bf16 %{{.*}}, %{{.*}}, %{{.*}}, %[[IMM0]], %[[IMM1]], %[[IMM2]] : (vector<2xi16>, vector<2xi16>, vector<4xf32>, i32, i32, i32) -> vector<4xf32>
     %30 = gpu.mfma(%arg0, %arg1, %29) {imm = [4 : i32, 1 : i32, 0 : i32], instr = "mfma_f32_4x4x2bf16"} : vector<2xi16>, vector<4xf32>
-    memref.store %30, %26[%c1_8] : memref<16xvector<4xf32>>
+    memref.store %30, %arg2[%c1_8] : memref<16xvector<4xf32>>
     gpu.return
   }
 } 
