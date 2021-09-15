@@ -10155,6 +10155,8 @@ struct XdlopsGemmV2RewritePattern
         loc, tid, b.create<ConstantIndexOp>(loc, wave_size));
 
     int64_t KRepeats = KPack / k_base;
+    if (KRepeats == 0)
+      KRepeats = 1;
     // llvm::errs() << "argVectorType: " << argType << "\n";
     // llvm::errs() << "k_base: " << k_base << "\n";
     // llvm::errs() << "KRepeats: " << KRepeats << "\n";
@@ -10304,34 +10306,41 @@ struct XdlopsGemmV2RewritePattern
               ? argType.template cast<VectorType>().getShape()[0]
               : 1;
       if (argTypeVectorLength > 1) {
-        // bufferA/BElement loaded on LDS are vectors.
-        // argA/B to be supplied to MFMA XDLOPS are also vectors.
-        assert(bufferAElementType.isa<VectorType>());
-        assert(bufferBElementType.isa<VectorType>());
-
         Value zeroOp = createZeroConstantFloatOp(innerLoopb, loc, dataType);
+
         Value offset =
             innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp);
-        for (int64_t i = 0; i < argTypeVectorLength; ++i) {
+        if (bufferAElementType.isa<VectorType>()) {
+          // bufferA/BElement loaded on LDS are vectors.
+          // argA/B to be supplied to MFMA XDLOPS are also vectors.
+          assert(bufferAElementType.isa<VectorType>());
+          assert(bufferBElementType.isa<VectorType>());
+
           argA = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
           argB = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
+          for (int64_t i = 0; i < argTypeVectorLength; ++i) {
+            Value iConstantOp = innerLoopb.create<ConstantIndexOp>(loc, i);
+            Value iConstantOp_i32 = innerLoopb.create<IndexCastOp>(
+                loc, iConstantOp, innerLoopb.getIntegerType(32));
+            Value iPlusOffsetConstantOp =
+                innerLoopb.create<AddIOp>(loc, iConstantOp, offset);
+            Value iPlusOffsetConstantOp_i32 = innerLoopb.create<IndexCastOp>(
+                loc, iPlusOffsetConstantOp, innerLoopb.getIntegerType(32));
 
-          Value iConstantOp = innerLoopb.create<ConstantIndexOp>(loc, i);
-          Value iConstantOp_i32 = innerLoopb.create<IndexCastOp>(
-              loc, iConstantOp, innerLoopb.getIntegerType(32));
-          Value iPlusOffsetConstantOp =
-              innerLoopb.create<AddIOp>(loc, iConstantOp, offset);
-          Value iPlusOffsetConstantOp_i32 = innerLoopb.create<IndexCastOp>(
-              loc, iPlusOffsetConstantOp, innerLoopb.getIntegerType(32));
-
-          Value elementA = innerLoopb.create<vector::ExtractElementOp>(
-              loc, dataType, bufferAElement, iPlusOffsetConstantOp_i32);
-          argA = innerLoopb.create<vector::InsertElementOp>(
-              loc, argType, elementA, argA, iConstantOp_i32);
-          Value elementB = innerLoopb.create<vector::ExtractElementOp>(
-              loc, dataType, bufferBElement, iPlusOffsetConstantOp_i32);
-          argB = innerLoopb.create<vector::InsertElementOp>(
-              loc, argType, elementB, argB, iConstantOp_i32);
+            Value elementA = innerLoopb.create<vector::ExtractElementOp>(
+                loc, dataType, bufferAElement, iPlusOffsetConstantOp_i32);
+            argA = innerLoopb.create<vector::InsertElementOp>(
+                loc, argType, elementA, argA, iConstantOp_i32);
+            Value elementB = innerLoopb.create<vector::ExtractElementOp>(
+                loc, dataType, bufferBElement, iPlusOffsetConstantOp_i32);
+            argB = innerLoopb.create<vector::InsertElementOp>(
+                loc, argType, elementB, argB, iConstantOp_i32);
+          }
+        } else {
+          // bufferA/BElement loaded on LDS are scalars.
+          // argA/B to be supplied to MFMA XDLOPS are vectors.
+          argA = innerLoopb.create<vector::TransferReadOp>(loc, argType.template cast<VectorType>(), op.bufferA(), ValueRange{offset});
+          argB = innerLoopb.create<vector::TransferReadOp>(loc, argType.template cast<VectorType>(), op.bufferB(), ValueRange{offset});
         }
       } else {
         if (bufferAElementType.isa<VectorType>()) {
