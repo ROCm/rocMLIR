@@ -6098,8 +6098,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit loop.
     // Compute loop iterations from attributes.
 
-    // TBD: FIXME for KPACK.
-
     auto KPerBlockConstantI32Op =
         b.create<ConstantIntOp>(loc, KPerBlock, b.getIntegerType(32));
 
@@ -7475,8 +7473,6 @@ struct GridwiseGemmV2RewritePattern
     }
 
     // -----
-
-    // TBD: FIXME for KPACK.
 
     // Emit loop.
 
