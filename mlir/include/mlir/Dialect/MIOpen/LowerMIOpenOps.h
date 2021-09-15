@@ -1421,9 +1421,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
   int64_t computeKPack(PatternRewriter &b, int64_t gemmK,
                        Type inputElementType) const {
-    // FIXME. Only support f16 type for now.
-    // FIXME. Hard-code initial KPack as 8 for now.
-    int64_t KPack = (inputElementType == b.getF16Type()) ? 8 : 1;
+    // FIXME. Hard-code initial KPack as 8 for f16, 4 for f32 now.
+    int64_t KPack = 1;
+    if (inputElementType == b.getF16Type()) {
+      KPack = 8;
+    } else if (inputElementType == b.getF32Type()) {
+      KPack = 4;
+    }
     while (gemmK % KPack != 0)
       KPack /= 2;
     // llvm::errs() << "KPack: " << KPack << "\n";
@@ -10304,14 +10308,15 @@ struct XdlopsGemmV2RewritePattern
               ? argType.template cast<VectorType>().getShape()[0]
               : 1;
       if (argTypeVectorLength > 1) {
-        // Vector path.
+        // bufferA/BElement loaded on LDS are vectors.
+        // argA/B to be supplied to MFMA XDLOPS are also vectors.
+        assert(bufferAElementType.isa<VectorType>());
+        assert(bufferBElementType.isa<VectorType>());
+
         Value zeroOp = createZeroConstantFloatOp(innerLoopb, loc, dataType);
         Value offset =
             innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp);
         for (int64_t i = 0; i < argTypeVectorLength; ++i) {
-          assert(bufferAElementType.isa<VectorType>());
-          assert(bufferBElementType.isa<VectorType>());
-
           argA = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
           argB = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
 
@@ -10333,9 +10338,21 @@ struct XdlopsGemmV2RewritePattern
               loc, argType, elementB, argB, iConstantOp_i32);
         }
       } else {
-        // Scalar path.
-        argA = bufferAElement;
-        argB = bufferBElement;
+        if (bufferAElementType.isa<VectorType>()) {
+          // bufferA/BElement loaded on LDS are vectors.
+          // argA/B to be supplied to MFMA XDLOPS are scalars.
+          assert(bufferAElementType.isa<VectorType>());
+          assert(bufferBElementType.isa<VectorType>());
+
+          Value innerLoopiv_i32 = innerLoopb.create<IndexCastOp>(loc, innerLoopiv, innerLoopb.getIntegerType(32));
+          argA = innerLoopb.create<vector::ExtractElementOp>(loc, dataType, bufferAElement, innerLoopiv_i32);
+          argB = innerLoopb.create<vector::ExtractElementOp>(loc, dataType, bufferBElement, innerLoopiv_i32);
+        } else {
+          // bufferA/BElement loaded on LDS are scalars.
+          // argA/B to be supplied to MFMA XDLOPS are also scalars.
+          argA = bufferAElement;
+          argB = bufferBElement;
+        }
       }
 
       SmallVector<Value, 4> mfmas;
