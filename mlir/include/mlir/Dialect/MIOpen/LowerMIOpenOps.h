@@ -10271,6 +10271,7 @@ struct XdlopsGemmV2RewritePattern
       ilnkb.create<StoreOp>(loc, valueB, op.bufferB(), ValueRange{destOffsetB});
 
       // Original C++ logic.
+      //
       // for(index_t k_i = 0; k_i < K * KRepeats; ++k_i)
       // {
       //     p_c_thread = mfma_type.template run<MPerXdlops * MRepeats,
@@ -10279,6 +10280,21 @@ struct XdlopsGemmV2RewritePattern
       //                                         BStride>(
       //         &pa[k_i * mfma_type.k_base], &pb[k_i * mfma_type.k_base],
       //         p_c_thread);
+      // }
+
+      // Rewrite as:
+      //
+      // for(index_t k_i = 0; k_i < K; ++k_i) {
+      //   bufferAElement = a[k_i];
+      //   bufferBElement = b[k_i];
+      //   for(index_t ki_i = 0; ki_i < KRepeats; ++ki_i)
+      //     argA = &bufferAElement[ki_i * mfma_type.k_base];
+      //     argB = &bufferAElement[ki_i * mfma_type.k_base];
+      //     p_c_thread = mfma_type.template run<MPerXlops * MRepeats,
+      //                                         NPerXdlops * NRepeats,
+      //                                         AStride,
+      //                                         BStride>(argA, argB,
+      //       p_c_thread);
       // }
 
       auto outerLoop = b.create<AffineForOp>(loc, 0, K, 1, op.vectorCs());
