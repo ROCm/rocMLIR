@@ -10283,43 +10283,59 @@ struct XdlopsGemmV2RewritePattern
       auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
       auto outerLoopiv = outerLoop.getInductionVar();
 
-      Type vectorAType =
+      Type bufferAElementType =
           op.bufferA().getType().template cast<MemRefType>().getElementType();
-      Type vectorBType =
+      Type bufferBElementType =
           op.bufferB().getType().template cast<MemRefType>().getElementType();
-      Value vectorA = outerLoopb.create<LoadOp>(loc, vectorAType, op.bufferA(),
-                                                ValueRange{outerLoopiv});
-      Value vectorB = outerLoopb.create<LoadOp>(loc, vectorBType, op.bufferB(),
-                                                ValueRange{outerLoopiv});
-
-      Value zeroOp = createZeroConstantFloatOp(outerLoopb, loc, dataType);
+      Value bufferAElement = outerLoopb.create<LoadOp>(
+          loc, bufferAElementType, op.bufferA(), ValueRange{outerLoopiv});
+      Value bufferBElement = outerLoopb.create<LoadOp>(
+          loc, bufferBElementType, op.bufferB(), ValueRange{outerLoopiv});
 
       auto innerLoop = outerLoopb.create<AffineForOp>(
           loc, 0, KRepeats, 1, outerLoop.getRegionIterArgs());
       auto innerLoopb = OpBuilder::atBlockBegin(innerLoop.getBody());
       auto innerLoopiv = innerLoop.getInductionVar();
 
-      Value offset =
-          innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp);
-      Value argA = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
-      Value argB = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
-      for (int64_t i = 0; i < argType.template cast<VectorType>().getShape()[0]; ++i) {
-        Value iConstantOp = innerLoopb.create<ConstantIndexOp>(loc, i);
-        Value iConstantOp_i32 = innerLoopb.create<IndexCastOp>(
-            loc, iConstantOp, innerLoopb.getIntegerType(32));
-        Value iPlusOffsetConstantOp =
-            innerLoopb.create<AddIOp>(loc, iConstantOp, offset);
-        Value iPlusOffsetConstantOp_i32 = innerLoopb.create<IndexCastOp>(
-            loc, iPlusOffsetConstantOp, innerLoopb.getIntegerType(32));
+      Value argA;
+      Value argB;
+      int64_t argTypeVectorLength =
+          (argType.isa<VectorType>())
+              ? argType.template cast<VectorType>().getShape()[0]
+              : 1;
+      if (argTypeVectorLength > 1) {
+        // Vector path.
+        Value zeroOp = createZeroConstantFloatOp(innerLoopb, loc, dataType);
+        Value offset =
+            innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp);
+        for (int64_t i = 0; i < argTypeVectorLength; ++i) {
+          assert(bufferAElementType.isa<VectorType>());
+          assert(bufferBElementType.isa<VectorType>());
 
-        Value elementA = innerLoopb.create<vector::ExtractElementOp>(
-            loc, dataType, vectorA, iPlusOffsetConstantOp_i32);
-        argA = innerLoopb.create<vector::InsertElementOp>(
-            loc, argType, elementA, argA, iConstantOp_i32);
-        Value elementB = innerLoopb.create<vector::ExtractElementOp>(
-            loc, dataType, vectorB, iPlusOffsetConstantOp_i32);
-        argB = innerLoopb.create<vector::InsertElementOp>(
-            loc, argType, elementB, argB, iConstantOp_i32);
+          argA = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
+          argB = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
+
+          Value iConstantOp = innerLoopb.create<ConstantIndexOp>(loc, i);
+          Value iConstantOp_i32 = innerLoopb.create<IndexCastOp>(
+              loc, iConstantOp, innerLoopb.getIntegerType(32));
+          Value iPlusOffsetConstantOp =
+              innerLoopb.create<AddIOp>(loc, iConstantOp, offset);
+          Value iPlusOffsetConstantOp_i32 = innerLoopb.create<IndexCastOp>(
+              loc, iPlusOffsetConstantOp, innerLoopb.getIntegerType(32));
+
+          Value elementA = innerLoopb.create<vector::ExtractElementOp>(
+              loc, dataType, bufferAElement, iPlusOffsetConstantOp_i32);
+          argA = innerLoopb.create<vector::InsertElementOp>(
+              loc, argType, elementA, argA, iConstantOp_i32);
+          Value elementB = innerLoopb.create<vector::ExtractElementOp>(
+              loc, dataType, bufferBElement, iPlusOffsetConstantOp_i32);
+          argB = innerLoopb.create<vector::InsertElementOp>(
+              loc, argType, elementB, argB, iConstantOp_i32);
+        }
+      } else {
+        // Scalar path.
+        argA = bufferAElement;
+        argB = bufferBElement;
       }
 
       SmallVector<Value, 4> mfmas;
