@@ -1392,10 +1392,10 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
   int64_t computeKPack(PatternRewriter &b, int64_t gemmK,
                        Type inputElementType) const {
-    // FIXME. Hard-code initial KPack as 8 for f16, 4 for f32 now.
+    // FIXME. Hard-code initial KPack as 4 for f16, 4 for f32 now.
     int64_t KPack = 1;
     if (inputElementType == b.getF16Type()) {
-      KPack = 8;
+      KPack = 4;
     } else if (inputElementType == b.getF32Type()) {
       KPack = 4;
     }
