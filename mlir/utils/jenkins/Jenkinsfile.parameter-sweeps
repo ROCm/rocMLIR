@@ -35,12 +35,15 @@ pipeline {
         }
         stage("Build MLIR") {
             steps {
-                buildProject('mlir-miopen-driver mlir-rocm-runner ci-performance-scripts', '')
+                buildProject('mlir-miopen-driver mlir-rocm-runner libmlir_runner_utils.so ci-performance-scripts',
+                  """-DMLIR_ROCM_RUNNER_ENABLED=1
+                  -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
+                  -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=1""")
             }
         }
         stage("Parameter sweep") {
             steps {
-                dir('build/') {
+                dir('build') {
                     sh 'stdbuf --output=L python3.9 ./bin/mlirParameterSweeps.py'
                 }
             }
