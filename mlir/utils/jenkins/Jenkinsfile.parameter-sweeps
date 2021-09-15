@@ -35,7 +35,7 @@ pipeline {
         }
         stage("Build MLIR") {
             steps {
-                buildProject('mlir-miopen-driver mlir-rocm-runner libmlir_runner_utils.so ci-performance-scripts', '')
+                buildProject('mlir-miopen-driver mlir-rocm-runner ci-performance-scripts', '')
             }
         }
         stage("Parameter sweep") {

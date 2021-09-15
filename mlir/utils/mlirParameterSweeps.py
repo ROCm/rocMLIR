@@ -19,7 +19,7 @@ from typing import Sequence, Optional
 import MIOpenDriver
 from MIOpenDriver import ConvConfiguration
 
-CORRECT_RESULT_RE = re.compile('data\s*=\s*\[1\]')
+CORRECT_RESULT_RE = re.compile(r"data\s*=\s*\[1\]")
 
 async def testConfig(config: ConvConfiguration) -> bool:
     """Runs the given configuration under mlir-miopen-driver without benchmarking.
@@ -29,8 +29,7 @@ async def testConfig(config: ConvConfiguration) -> bool:
     compiler = await asyncio.create_subprocess_exec(os.path.join(MIOpenDriver.MLIR_BIN_DIR, MIOpenDriver.MLIR_MIOPEN_DRIVER),
         *mlirMIOpenDriverCommand.split(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, stdin=asyncio.subprocess.DEVNULL)
     program, errors = await compiler.communicate()
-    compiler.stdout().close()
-    compiler.stderr().close()
+
     if compiler.returncode != 0:
         print(f"""Compiler did not complete succesfully for config {config!r}
 Command line: {mlirMIOpenDriverCommand}
@@ -42,17 +41,16 @@ Return code = {compiler.returncode}""", file=sys.stderr)
     runner = await asyncio.create_subprocess_exec(os.path.join(MIOpenDriver.MLIR_BIN_DIR, MIOpenDriver.MLIR_ROCM_RUNNER), *MIOpenDriver.MLIR_ROCM_RUNNER_ARGS,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, stdin=asyncio.subprocess.PIPE)
     output, errors = await runner.communicate(input=program)
-    runner.stdin().close()
-    runner.stdout().close()
-    runner.stderr().close()
+    runner.stdin.close()
+    await runner.stdin.wait_closed()
     output = output.decode('utf-8')
+
     if runner.returncode != 0:
         print(f"""Runner execution failed for config {config!r}
 Output = {output}
 Errors = {errors.decode('utf-8')}
 Return code = {runner.returncode}""", file=sys.stderr)
         return False
-
     if not CORRECT_RESULT_RE.search(output):
         print(f"""Convolution returned intorrect result for config {config!r}
 Output = {output}
@@ -110,15 +108,15 @@ async def sweepParameters() -> bool:
         {False, True}
     ]
 
-    CONCURRENT_TESTS = 100
-    REPORTING_INTERVAL = 20
+    CONCURRENT_TESTS = 200
+    REPORTING_INTERVAL = 10
     failingConfigs = []
     configs = (c for c in (ConvConfiguration(*p) for p in itertools.product(*PARAM_ITERATORS))
         if shouldSucceed(c))
-    for i, configs in enumerate(grouper((dropGoodConfig(c) for c in configs), CONCURRENT_TESTS)):
+    for i, configs in enumerate(grouper(configs, CONCURRENT_TESTS)):
         if i % REPORTING_INTERVAL == 0:
             print(f"{i * CONCURRENT_TESTS} tests complete")
-        configsFuture = asyncio.gather(*configs)
+        configsFuture = asyncio.gather(*(dropGoodConfig(c) for c in configs))
         try:
             configsResults = await configsFuture
         except Exception as e:
@@ -127,8 +125,9 @@ async def sweepParameters() -> bool:
         for result in configsResults:
             if result is not None:
                 failingConfigs.append(result)
+        del configsResults
+        del configsFuture
 
-    failingConfigs = [c for c in configsResults if c is not None]
     nFailed = len(failingConfigs)
     if nFailed > 0:
         print("Summary of failures:")
@@ -138,5 +137,6 @@ async def sweepParameters() -> bool:
     return nFailed == 0
 
 if __name__ == '__main__':
-    ret = asyncio.run(sweepParameters())
+    asyncio.set_child_watcher(asyncio.FastChildWatcher())
+    ret = asyncio.run(sweepParameters(), debug=True)
     sys.exit(int(not ret))
