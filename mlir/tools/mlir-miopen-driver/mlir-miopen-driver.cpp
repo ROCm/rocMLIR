@@ -2472,10 +2472,10 @@ static LogicalResult populateKernelLaunchLogic(
 
 static void populateTuningPipeline(PassManager &pm,
                                    const std::string &perfConfig) {
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
-  pm.addPass(mlir::miopen::createAffineTransformPass());
   pm.addPass(mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize,
                                                            perfConfig));
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
+  pm.addPass(mlir::miopen::createAffineTransformPass());
 }
 
 static void populateDefaultLoweringPipeline(PassManager &pm,
