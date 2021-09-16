@@ -40,11 +40,7 @@ public:
     target.addIllegalOp<migraphx::AddOp, migraphx::ConstantOp, migraphx::ConvolutionOp,
       migraphx::RsqrtOp, migraphx::ReluOp, migraphx::TransposeOp, migraphx::ReshapeOp
                         >();
-    /*
-    target.addIllegalOp<tosa::AddOp, tosa::SubOp, tosa::ReshapeOp, tosa::RsqrtOp,
-                        tosa::MulOp, tosa::TransposeOp, tosa::PadOp, tosa::Conv2DOp,
-                        tosa::ClampOp>();
-                        */
+
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     FuncOp func = getFunction();
