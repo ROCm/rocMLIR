@@ -19,7 +19,11 @@ def summarizeStat(grouped, func, data):
     return ret
 
 def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, newLabel: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    data = newDf.merge(oldDf, on=reportUtils.TEST_PARAMETERS, suffixes=('_new', '_old'))
+    try:
+        data = newDf.merge(oldDf, on=reportUtils.TEST_PARAMETERS, suffixes=('_new', '_old'))
+    except KeyError as e:
+        print("Missing columns in data, forcing copy: ", e, file=sys.stderr)
+        return computePerfStats(newDf.copy(), newDf, "forced copy", newLabel)
     if len(data) == 0:
         print("Old and new data have come from disjoint performance runs, ignoring old data",
             file=sys.stderr)
