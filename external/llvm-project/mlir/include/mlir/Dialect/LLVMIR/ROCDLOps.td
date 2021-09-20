@@ -104,12 +104,11 @@ def ROCDL_BarrierOp : ROCDL_Op<"barrier"> {
 }
 
 def ROCDL_LDSBarrierOp : ROCDL_Op<"lds_barrier"> {
+  // Guarantees LDS update until this point are all completed.
   string llvmBuilder = [{
     llvm::LLVMContext &llvmContext = builder.getContext();
-    //    builder.CreateFence(llvm::AtomicOrdering::Release,
-    //                       llvmContext.getOrInsertSyncScopeID("workgroup"));
-    auto lgkm0 = llvm::ConstantInt::get(llvmContext, llvm::APInt(32, 49279, true)); // 49279 :i32
-    createIntrinsicCall(builder, llvm::Intrinsic::amdgcn_s_waitcnt, lgkm0);
+    builder.CreateFence(llvm::AtomicOrdering::Release,
+                       llvmContext.getOrInsertSyncScopeID("workgroup"));
     createIntrinsicCall(builder, llvm::Intrinsic::amdgcn_s_barrier);
   }];
   let assemblyFormat = "attr-dict";
