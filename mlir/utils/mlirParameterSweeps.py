@@ -86,22 +86,22 @@ async def sweepParameters() -> bool:
         {"fwd", "bwd", "wrw"},
         {"NCHW", "NHWC"},
         # Dimensions (n, c, hi, wi, k, y, x)
-        range(1, 9),
-        range(1, 9),
-        range(1, 9),
-        range(1, 9),
-        range(1, 9),
-        range(1, 9),
-        range(1, 9),
+        range(1, 7),
+        range(1, 7),
+        range(1, 7),
+        range(1, 7),
+        range(1, 7),
+        range(1, 7),
+        range(1, 7),
         # Stride
         range(1, 4),
         range(1, 4),
         # Padding
-        range(0, 5),
-        range(0, 5),
+        range(0, 4),
+        range(0, 4),
         # Dilation
-        range(1, 4),
-        range(1, 4),
+        range(1, 3),
+        range(1, 3),
         # Group
         {1},
         # xdlops
