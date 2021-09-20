@@ -19,10 +19,14 @@ def summarizeStat(grouped, func, data):
     return ret
 
 def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, newLabel: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    data = newDf.merge(oldDf, on=reportUtils.TEST_PARAMETERS, suffixes=('_new', '_old'))
+    if len(data) == 0:
+        print("Old and new data have come from disjoint performance runs, ignoring old data",
+            file=sys.stderr)
+        return computePerfStats(newDf.copy(), newDf, "forced copy", newLabel)
+
     oldLabel = f"MLIR TFlops ({oldLabel})"
     newLabel = f"MLIR TFlops ({newLabel})"
-
-    data = newDf.merge(oldDf, on=reportUtils.TEST_PARAMETERS, suffixes=('_new', '_old'))
     data.rename(columns={'MLIR TFlops_old': oldLabel,
         'MLIR TFlops_new': newLabel}, inplace=True)
     data.drop(columns=['MLIR/MIOpen_old', 'MLIR/MIOpen_new'], inplace=True)
