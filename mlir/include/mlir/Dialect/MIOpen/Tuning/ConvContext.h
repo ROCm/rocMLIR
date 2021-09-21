@@ -207,9 +207,15 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
   llvm::SmallVector<int64_t, 0> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 
-  populateDimVal(filterLayoutAttr, op.filter().getType().template cast<MemRefType>().getShape(), dimIndexVal);
-  populateDimVal(inputLayoutAttr, op.input().getType().template cast<MemRefType>().getShape(), dimIndexVal);
-  populateDimVal(outputLayoutAttr, op.output().getType().template cast<MemRefType>().getShape(), dimIndexVal);
+  populateDimVal(filterLayoutAttr,
+                 op.filter().getType().template cast<MemRefType>().getShape(),
+                 dimIndexVal);
+  populateDimVal(inputLayoutAttr,
+                 op.input().getType().template cast<MemRefType>().getShape(),
+                 dimIndexVal);
+  populateDimVal(outputLayoutAttr,
+                 op.output().getType().template cast<MemRefType>().getShape(),
+                 dimIndexVal);
 
   auto dataType = obtainDataType(op);
 
