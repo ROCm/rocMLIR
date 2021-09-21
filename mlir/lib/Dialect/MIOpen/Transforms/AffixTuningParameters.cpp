@@ -52,7 +52,8 @@ void AffixTuningParameters::runOnFunction() {
 
   func.walk([&](miopen::Conv2DOp op) { affixTuningParametersImpl(op); });
   func.walk([&](miopen::Conv2DBwdDataOp op) { affixTuningParametersImpl(op); });
-  func.walk([&](miopen::Conv2DBwdWeightOp op) { affixTuningParametersImpl(op); });
+  func.walk(
+      [&](miopen::Conv2DBwdWeightOp op) { affixTuningParametersImpl(op); });
 }
 
 template <typename T>
