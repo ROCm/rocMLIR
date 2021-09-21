@@ -25,10 +25,12 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AssumptionCache.h"
+#include "llvm/Analysis/Delinearization.h"
 #include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
@@ -179,12 +181,12 @@ getRegionNodeSuccessor(RegionNode *RN, Instruction *TI, unsigned idx) {
   return TI->getSuccessor(idx);
 }
 
-static bool containsErrorBlock(RegionNode *RN, const Region &R, LoopInfo &LI,
-                               const DominatorTree &DT) {
+static bool containsErrorBlock(RegionNode *RN, const Region &R,
+                               ScopDetection *SD) {
   if (!RN->isSubRegion())
-    return isErrorBlock(*RN->getNodeAs<BasicBlock>(), R, LI, DT);
+    return SD->isErrorBlock(*RN->getNodeAs<BasicBlock>(), R);
   for (BasicBlock *BB : RN->getNodeAs<Region>()->blocks())
-    if (isErrorBlock(*BB, R, LI, DT))
+    if (SD->isErrorBlock(*BB, R))
       return true;
   return false;
 }
@@ -201,8 +203,8 @@ static bool containsErrorBlock(RegionNode *RN, const Region &R, LoopInfo &LI,
 static isl::map createNextIterationMap(isl::space SetSpace, unsigned Dim) {
   isl::space MapSpace = SetSpace.map_from_set();
   isl::map NextIterationMap = isl::map::universe(MapSpace);
-  for (unsigned u = 0; u < NextIterationMap.dim(isl::dim::in); u++)
-    if (u != Dim)
+  for (auto u : seq<isl_size>(0, NextIterationMap.domain_tuple_dim().release()))
+    if (u != (isl_size)Dim)
       NextIterationMap =
           NextIterationMap.equate(isl::dim::in, u, isl::dim::out, u);
   isl::constraint C =
@@ -229,10 +231,10 @@ static isl::set collectBoundedParts(isl::set S) {
 ///          both with regards to the dimension @p Dim.
 static std::pair<isl::set, isl::set> partitionSetParts(isl::set S,
                                                        unsigned Dim) {
-  for (unsigned u = 0, e = S.n_dim(); u < e; u++)
+  for (unsigned u = 0, e = S.tuple_dim().release(); u < e; u++)
     S = S.lower_bound_si(isl::dim::set, u, 0);
 
-  unsigned NumDimsS = S.n_dim();
+  unsigned NumDimsS = S.tuple_dim().release();
   isl::set OnlyDimS = S;
 
   // Remove dimensions that are greater than Dim as they are not interesting.
@@ -327,7 +329,7 @@ isl::set ScopBuilder::adjustDomainDimensions(isl::set Dom, Loop *OldL,
   } else {
     assert(OldDepth > NewDepth);
     int Diff = OldDepth - NewDepth;
-    int NumDim = Dom.n_dim();
+    int NumDim = Dom.tuple_dim().release();
     assert(NumDim >= Diff);
     Dom = Dom.project_out(isl::dim::set, NumDim - Diff, Diff);
   }
@@ -447,7 +449,10 @@ bool ScopBuilder::buildConditionSets(
                              .release();
   } else if (auto *PHI = dyn_cast<PHINode>(Condition)) {
     auto *Unique = dyn_cast<ConstantInt>(
-        getUniqueNonErrorValue(PHI, &scop->getRegion(), LI, DT));
+        getUniqueNonErrorValue(PHI, &scop->getRegion(), &SD));
+    assert(Unique &&
+           "A PHINode condition should only be accepted by ScopDetection if "
+           "getUniqueNonErrorValue returns non-NULL");
 
     if (Unique->isZero())
       ConsequenceCondSet = isl_set_empty(isl_set_get_space(Domain));
@@ -496,8 +501,8 @@ bool ScopBuilder::buildConditionSets(
     const SCEV *LeftOperand = SE.getSCEVAtScope(ICond->getOperand(0), L),
                *RightOperand = SE.getSCEVAtScope(ICond->getOperand(1), L);
 
-    LeftOperand = tryForwardThroughPHI(LeftOperand, R, SE, LI, DT);
-    RightOperand = tryForwardThroughPHI(RightOperand, R, SE, LI, DT);
+    LeftOperand = tryForwardThroughPHI(LeftOperand, R, SE, &SD);
+    RightOperand = tryForwardThroughPHI(RightOperand, R, SE, &SD);
 
     switch (ICond->getPredicate()) {
     case ICmpInst::ICMP_ULT:
@@ -611,7 +616,7 @@ bool ScopBuilder::propagateDomainConstraints(
 
     BasicBlock *BB = getRegionNodeBasicBlock(RN);
     isl::set &Domain = scop->getOrInitEmptyDomain(BB);
-    assert(Domain);
+    assert(!Domain.is_null());
 
     // Under the union of all predecessor conditions we can reach this block.
     isl::set PredDom = getPredecessorDomainConstraints(BB, Domain);
@@ -652,7 +657,7 @@ void ScopBuilder::propagateDomainConstraintsToRegionExit(
   }
 
   isl::set Domain = scop->getOrInitEmptyDomain(BB);
-  assert(Domain && "Cannot propagate a nullptr");
+  assert(!Domain.is_null() && "Cannot propagate a nullptr");
 
   Loop *ExitBBLoop = getFirstNonBoxedLoopFor(ExitBB, LI, scop->getBoxedLoops());
 
@@ -663,7 +668,8 @@ void ScopBuilder::propagateDomainConstraintsToRegionExit(
 
   // If the exit domain is not yet created we set it otherwise we "add" the
   // current domain.
-  ExitDomain = ExitDomain ? AdjustedDomain.unite(ExitDomain) : AdjustedDomain;
+  ExitDomain =
+      !ExitDomain.is_null() ? AdjustedDomain.unite(ExitDomain) : AdjustedDomain;
 
   // Initialize the invalid domain.
   InvalidDomainMap[ExitBB] = ExitDomain.empty(ExitDomain.get_space());
@@ -704,9 +710,11 @@ isl::set ScopBuilder::getPredecessorDomainConstraints(BasicBlock *BB,
 
     // Check if there is a valid region we can use for propagation, thus look
     // for a region that contains the predecessor and has @p BB as exit block.
+    // FIXME: This was an side-effect-free (and possibly infinite) loop when
+    //        committed and seems not to be needed.
     auto *PredR = RI.getRegionFor(PredBB);
     while (PredR->getExit() != BB && !PredR->contains(BB))
-      PredR->getParent();
+      PredR = PredR->getParent();
 
     // If a valid region for propagation was found use the entry of that region
     // for propagation, otherwise the PredBB directly.
@@ -749,7 +757,7 @@ bool ScopBuilder::addLoopBoundsToHeaderDomain(
 
     isl::set LatchBBDom = scop->getDomainConditions(LatchBB);
 
-    isl::set BackedgeCondition = nullptr;
+    isl::set BackedgeCondition;
 
     Instruction *TI = LatchBB->getTerminator();
     BranchInst *BI = dyn_cast<BranchInst>(TI);
@@ -822,7 +830,7 @@ void ScopBuilder::buildInvariantEquivalenceClasses() {
 
     ClassRep = LInst;
     scop->addInvariantEquivClass(
-        InvariantEquivClassTy{PointerSCEV, MemoryAccessList(), nullptr, Ty});
+        InvariantEquivClassTy{PointerSCEV, MemoryAccessList(), {}, Ty});
   }
 }
 
@@ -836,11 +844,11 @@ bool ScopBuilder::buildDomains(
       isl_set_universe(isl_space_set_alloc(scop->getIslCtx().get(), 0, LD + 1));
 
   InvalidDomainMap[EntryBB] = isl::manage(isl_set_empty(isl_set_get_space(S)));
-  isl::noexceptions::set Domain = isl::manage(S);
+  isl::set Domain = isl::manage(S);
   scop->setDomain(EntryBB, Domain);
 
   if (IsOnlyNonAffineRegion)
-    return !containsErrorBlock(R->getNode(), *R, LI, DT);
+    return !containsErrorBlock(R->getNode(), *R, &SD);
 
   if (!buildDomainsWithBranchConstraints(R, InvalidDomainMap))
     return false;
@@ -893,7 +901,7 @@ bool ScopBuilder::buildDomainsWithBranchConstraints(
       }
     }
 
-    if (containsErrorBlock(RN, scop->getRegion(), LI, DT))
+    if (containsErrorBlock(RN, scop->getRegion(), &SD))
       scop->notifyErrorBlock();
     ;
 
@@ -907,7 +915,7 @@ bool ScopBuilder::buildDomainsWithBranchConstraints(
       continue;
     isl::set Domain = scop->getDomainConditions(BB);
 
-    scop->updateMaxLoopDepth(isl_set_n_dim(Domain.get()));
+    scop->updateMaxLoopDepth(Domain.tuple_dim().release());
 
     auto *BBLoop = getRegionNodeLoop(RN, LI);
     // Propagate the domain from BB directly to blocks that have a superset
@@ -969,7 +977,7 @@ bool ScopBuilder::buildDomainsWithBranchConstraints(
       // successor block.
       isl::set &SuccDomain = scop->getOrInitEmptyDomain(SuccBB);
 
-      if (SuccDomain) {
+      if (!SuccDomain.is_null()) {
         SuccDomain = SuccDomain.unite(CondSet).coalesce();
       } else {
         // Initialize the invalid domain.
@@ -981,7 +989,7 @@ bool ScopBuilder::buildDomainsWithBranchConstraints(
 
       // Check if the maximal number of domain disjunctions was reached.
       // In case this happens we will clean up and bail.
-      if (SuccDomain.n_basic_set() < MaxDisjunctsInDomain)
+      if (SuccDomain.n_basic_set().release() < MaxDisjunctsInDomain)
         continue;
 
       scop->invalidate(COMPLEXITY, DebugLoc());
@@ -1009,10 +1017,10 @@ bool ScopBuilder::propagateInvalidStmtDomains(
       }
     }
 
-    bool ContainsErrorBlock = containsErrorBlock(RN, scop->getRegion(), LI, DT);
+    bool ContainsErrorBlock = containsErrorBlock(RN, scop->getRegion(), &SD);
     BasicBlock *BB = getRegionNodeBasicBlock(RN);
     isl::set &Domain = scop->getOrInitEmptyDomain(BB);
-    assert(Domain && "Cannot propagate a nullptr");
+    assert(!Domain.is_null() && "Cannot propagate a nullptr");
 
     isl::set InvalidDomain = InvalidDomainMap[BB];
 
@@ -1061,7 +1069,7 @@ bool ScopBuilder::propagateInvalidStmtDomains(
 
       // Check if the maximal number of domain disjunctions was reached.
       // In case this happens we will bail.
-      if (SuccInvalidDomain.n_basic_set() < MaxDisjunctsInDomain)
+      if (SuccInvalidDomain.n_basic_set().release() < MaxDisjunctsInDomain)
         continue;
 
       InvalidDomainMap.erase(BB);
@@ -1130,9 +1138,9 @@ void ScopBuilder::buildScalarDependences(ScopStmt *UserStmt,
 // interpreted as the empty schedule. Can also return null if both schedules are
 // empty.
 static isl::schedule combineInSequence(isl::schedule Prev, isl::schedule Succ) {
-  if (!Prev)
+  if (Prev.is_null())
     return Succ;
-  if (!Succ)
+  if (Succ.is_null())
     return Prev;
 
   return Prev.sequence(Succ);
@@ -1154,13 +1162,13 @@ static isl::schedule combineInSequence(isl::schedule Prev, isl::schedule Succ) {
 // @returns      A mapping from USet to its N-th dimension.
 static isl::multi_union_pw_aff mapToDimension(isl::union_set USet, int N) {
   assert(N >= 0);
-  assert(USet);
+  assert(!USet.is_null());
   assert(!USet.is_empty());
 
   auto Result = isl::union_pw_multi_aff::empty(USet.get_space());
 
   for (isl::set S : USet.get_set_list()) {
-    int Dim = S.dim(isl::dim::set);
+    int Dim = S.tuple_dim().release();
     auto PMA = isl::pw_multi_aff::project_out_map(S.get_space(), isl::dim::set,
                                                   N, Dim - N);
     if (N > 1)
@@ -1174,7 +1182,7 @@ static isl::multi_union_pw_aff mapToDimension(isl::union_set USet, int N) {
 
 void ScopBuilder::buildSchedule() {
   Loop *L = getLoopSurroundingScop(*scop, LI);
-  LoopStackTy LoopStack({LoopStackElementTy(L, nullptr, 0)});
+  LoopStackTy LoopStack({LoopStackElementTy(L, {}, 0)});
   buildSchedule(scop->getRegion().getNode(), LoopStack);
   assert(LoopStack.size() == 1 && LoopStack.back().L == L);
   scop->setScheduleTree(LoopStack[0].Schedule);
@@ -1242,7 +1250,7 @@ void ScopBuilder::buildSchedule(Region *R, LoopStackTy &LoopStack) {
         DelayList.push_back(RN);
         continue;
       }
-      LoopStack.push_back({L, nullptr, 0});
+      LoopStack.push_back({L, {}, 0});
     }
     buildSchedule(RN, LoopStack);
   }
@@ -1283,13 +1291,31 @@ void ScopBuilder::buildSchedule(RegionNode *RN, LoopStackTy &LoopStack) {
     auto NumBlocksProcessed = LoopData->NumBlocksProcessed;
 
     assert(std::next(LoopData) != LoopStack.rend());
+    Loop *L = LoopData->L;
     ++LoopData;
     --Dimension;
 
-    if (Schedule) {
+    if (!Schedule.is_null()) {
       isl::union_set Domain = Schedule.get_domain();
       isl::multi_union_pw_aff MUPA = mapToDimension(Domain, Dimension);
       Schedule = Schedule.insert_partial_schedule(MUPA);
+
+      if (hasDisableAllTransformsHint(L)) {
+        /// If any of the loops has a disable_nonforced heuristic, mark the
+        /// entire SCoP as such. The ISL rescheduler can only reschedule the
+        /// SCoP in its entirety.
+        /// TODO: ScopDetection could avoid including such loops or warp them as
+        /// boxed loop. It still needs to pass-through loop with user-defined
+        /// metadata.
+        scop->markDisableHeuristics();
+      }
+
+      // It is easier to insert the marks here that do it retroactively.
+      isl::id IslLoopId = createIslLoopAttr(scop->getIslCtx(), L);
+      if (!IslLoopId.is_null())
+        Schedule =
+            Schedule.get_root().child(0).insert_mark(IslLoopId).get_schedule();
+
       LoopData->Schedule = combineInSequence(LoopData->Schedule, Schedule);
     }
 
@@ -1593,7 +1619,8 @@ void ScopBuilder::addUserAssumptions(
       }
     }
     ORE.emit(OptimizationRemarkAnalysis(DEBUG_TYPE, "UserAssumption", CI)
-             << "Use user assumption: " << stringFromIslObj(AssumptionCtx));
+             << "Use user assumption: "
+             << stringFromIslObj(AssumptionCtx, "null"));
     isl::set newContext =
         scop->getContext().intersect(isl::manage(AssumptionCtx));
     scop->setContext(newContext);
@@ -1632,7 +1659,7 @@ bool ScopBuilder::buildAccessMultiDimFixed(MemAccInst Inst, ScopStmt *Stmt) {
 
   SmallVector<const SCEV *, 4> Subscripts;
   SmallVector<int, 4> Sizes;
-  SE.getIndexExpressionsFromGEP(GEP, Subscripts, Sizes);
+  getIndexExpressionsFromGEP(SE, GEP, Subscripts, Sizes);
   auto *BasePtr = GEP->getOperand(0);
 
   if (auto *BasePtrCast = dyn_cast<BitCastInst>(BasePtr))
@@ -1760,6 +1787,11 @@ bool ScopBuilder::buildAccessMemIntrinsic(MemAccInst Inst, ScopStmt *Stmt) {
   if (DestAccFunc->isZero())
     return true;
 
+  if (auto *U = dyn_cast<SCEVUnknown>(DestAccFunc)) {
+    if (isa<ConstantPointerNull>(U->getValue()))
+      return true;
+  }
+
   auto *DestPtrSCEV = dyn_cast<SCEVUnknown>(SE.getPointerBase(DestAccFunc));
   assert(DestPtrSCEV);
   DestAccFunc = SE.getMinusSCEV(DestAccFunc, DestPtrSCEV);
@@ -1835,6 +1867,11 @@ bool ScopBuilder::buildAccessCallInst(MemAccInst Inst, ScopStmt *Stmt) {
       auto *ArgSCEV = SE.getSCEVAtScope(Arg, L);
       if (ArgSCEV->isZero())
         continue;
+
+      if (auto *U = dyn_cast<SCEVUnknown>(ArgSCEV)) {
+        if (isa<ConstantPointerNull>(U->getValue()))
+          return true;
+      }
 
       auto *ArgBasePtr = cast<SCEVUnknown>(SE.getPointerBase(ArgSCEV));
       addArrayAccess(Stmt, Inst, AccType, ArgBasePtr->getValue(),
@@ -2224,7 +2261,7 @@ void ScopBuilder::buildAccessFunctions(ScopStmt *Stmt, BasicBlock &BB,
 
   // We do not build access functions for error blocks, as they may contain
   // instructions we can not model.
-  if (isErrorBlock(BB, scop->getRegion(), LI, DT))
+  if (SD.isErrorBlock(BB, scop->getRegion()))
     return;
 
   auto BuildAccessesForInst = [this, Stmt,
@@ -2372,7 +2409,7 @@ void ScopBuilder::foldSizeConstantsToRight() {
     isl::map Transform = isl::map::universe(Array->getSpace().map_from_set());
 
     std::vector<int> Int;
-    int Dims = Elements.dim(isl::dim::set);
+    int Dims = Elements.tuple_dim().release();
     for (int i = 0; i < Dims; i++) {
       isl::set DimOnly = isl::set(Elements).project_out(isl::dim::set, 0, i);
       DimOnly = DimOnly.project_out(isl::dim::set, 1, Dims - i - 1);
@@ -2386,7 +2423,7 @@ void ScopBuilder::foldSizeConstantsToRight() {
         continue;
       }
 
-      if (DimHull.dim(isl::dim::div) == 1) {
+      if (DimHull.dim(isl::dim::div).release() == 1) {
         isl::aff Diff = DimHull.get_div(0);
         isl::val Val = Diff.get_denominator_val();
 
@@ -2777,9 +2814,11 @@ void ScopBuilder::hoistInvariantLoads() {
   for (ScopStmt &Stmt : *scop) {
     InvariantAccessesTy InvariantAccesses;
 
-    for (MemoryAccess *Access : Stmt)
-      if (isl::set NHCtx = getNonHoistableCtx(Access, Writes))
+    for (MemoryAccess *Access : Stmt) {
+      isl::set NHCtx = getNonHoistableCtx(Access, Writes);
+      if (!NHCtx.is_null())
         InvariantAccesses.push_back({Access, NHCtx});
+    }
 
     // Transfer the memory access from the statement to the SCoP.
     for (auto InvMA : InvariantAccesses)
@@ -2804,8 +2843,8 @@ static bool isAccessRangeTooComplex(isl::set AccessRange) {
   int NumTotalDims = 0;
 
   for (isl::basic_set BSet : AccessRange.get_basic_set_list()) {
-    NumTotalDims += BSet.dim(isl::dim::div);
-    NumTotalDims += BSet.dim(isl::dim::set);
+    NumTotalDims += BSet.dim(isl::dim::div).release();
+    NumTotalDims += BSet.dim(isl::dim::set).release();
   }
 
   if (NumTotalDims > MaxDimensionsInAccessRange)
@@ -2834,8 +2873,9 @@ void ScopBuilder::addUserContext() {
 
   isl::set UserContext = isl::set(scop->getIslCtx(), UserContextStr.c_str());
   isl::space Space = scop->getParamSpace();
-  if (Space.dim(isl::dim::param) != UserContext.dim(isl::dim::param)) {
-    std::string SpaceStr = Space.to_str();
+  if (Space.dim(isl::dim::param).release() !=
+      UserContext.dim(isl::dim::param).release()) {
+    std::string SpaceStr = stringFromIslObj(Space, "null");
     errs() << "Error: the context provided in -polly-context has not the same "
            << "number of dimensions than the computed context. Due to this "
            << "mismatch, the -polly-context option is ignored. Please provide "
@@ -2843,13 +2883,13 @@ void ScopBuilder::addUserContext() {
     return;
   }
 
-  for (unsigned i = 0; i < Space.dim(isl::dim::param); i++) {
+  for (auto i : seq<isl_size>(0, Space.dim(isl::dim::param).release())) {
     std::string NameContext =
         scop->getContext().get_dim_name(isl::dim::param, i);
     std::string NameUserContext = UserContext.get_dim_name(isl::dim::param, i);
 
     if (NameContext != NameUserContext) {
-      std::string SpaceStr = Space.to_str();
+      std::string SpaceStr = stringFromIslObj(Space, "null");
       errs() << "Error: the name of dimension " << i
              << " provided in -polly-context "
              << "is '" << NameUserContext << "', but the name in the computed "
@@ -2880,7 +2920,7 @@ isl::set ScopBuilder::getNonHoistableCtx(MemoryAccess *Access,
 
   if (Access->isScalarKind() || Access->isWrite() || !Access->isAffine() ||
       Access->isMemoryIntrinsic())
-    return nullptr;
+    return {};
 
   // Skip accesses that have an invariant base pointer which is defined but
   // not loaded inside the SCoP. This can happened e.g., if a readnone call
@@ -2893,13 +2933,13 @@ isl::set ScopBuilder::getNonHoistableCtx(MemoryAccess *Access,
   // outside the region.
   auto *LI = cast<LoadInst>(Access->getAccessInstruction());
   if (hasNonHoistableBasePtrInScop(Access, Writes))
-    return nullptr;
+    return {};
 
   isl::map AccessRelation = Access->getAccessRelation();
   assert(!AccessRelation.is_empty());
 
   if (AccessRelation.involves_dims(isl::dim::in, 0, Stmt.getNumIterators()))
-    return nullptr;
+    return {};
 
   AccessRelation = AccessRelation.intersect_domain(Stmt.getDomain());
   isl::set SafeToLoad;
@@ -2911,13 +2951,13 @@ isl::set ScopBuilder::getNonHoistableCtx(MemoryAccess *Access,
   } else if (BB != LI->getParent()) {
     // Skip accesses in non-affine subregions as they might not be executed
     // under the same condition as the entry of the non-affine subregion.
-    return nullptr;
+    return {};
   } else {
     SafeToLoad = AccessRelation.range();
   }
 
   if (isAccessRangeTooComplex(AccessRelation.range()))
-    return nullptr;
+    return {};
 
   isl::union_map Written = Writes.intersect_range(SafeToLoad);
   isl::set WrittenCtx = Written.params();
@@ -2927,9 +2967,9 @@ isl::set ScopBuilder::getNonHoistableCtx(MemoryAccess *Access,
     return WrittenCtx;
 
   WrittenCtx = WrittenCtx.remove_divs();
-  bool TooComplex = WrittenCtx.n_basic_set() >= MaxDisjunctsInDomain;
+  bool TooComplex = WrittenCtx.n_basic_set().release() >= MaxDisjunctsInDomain;
   if (TooComplex || !isRequiredInvariantLoad(LI))
-    return nullptr;
+    return {};
 
   scop->addAssumption(INVARIANTLOAD, WrittenCtx, LI->getDebugLoc(),
                       AS_RESTRICTION, LI->getParent());
@@ -2993,7 +3033,7 @@ void ScopBuilder::addInvariantLoads(ScopStmt &Stmt,
   isl::set DomainCtx = Stmt.getDomain().params();
   DomainCtx = DomainCtx.subtract(StmtInvalidCtx);
 
-  if (DomainCtx.n_basic_set() >= MaxDisjunctsInDomain) {
+  if (DomainCtx.n_basic_set().release() >= MaxDisjunctsInDomain) {
     auto *AccInst = InvMAs.front().MA->getAccessInstruction();
     scop->invalidate(COMPLEXITY, AccInst->getDebugLoc(), AccInst->getParent());
     return;
@@ -3015,7 +3055,8 @@ void ScopBuilder::addInvariantLoads(ScopStmt &Stmt,
         if (!Values.count(AccInst))
           continue;
 
-        if (isl::id ParamId = scop->getIdForParam(Parameter)) {
+        isl::id ParamId = scop->getIdForParam(Parameter);
+        if (!ParamId.is_null()) {
           int Dim = DomainCtx.find_dim_by_id(isl::dim::param, ParamId);
           if (Dim >= 0)
             DomainCtx = DomainCtx.eliminate(isl::dim::param, Dim, 1);
@@ -3079,7 +3120,7 @@ void ScopBuilder::addInvariantLoads(ScopStmt &Stmt,
 
       // Unify the execution context of the class and this statement.
       isl::set IAClassDomainCtx = IAClass.ExecutionContext;
-      if (IAClassDomainCtx)
+      if (!IAClassDomainCtx.is_null())
         IAClassDomainCtx = IAClassDomainCtx.unite(MACtx).coalesce();
       else
         IAClassDomainCtx = MACtx;
@@ -3268,7 +3309,7 @@ static bool buildMinMaxAccess(isl::set Set,
   Set = Set.remove_divs();
   polly::simplify(Set);
 
-  if (Set.n_basic_set() > RunTimeChecksMaxAccessDisjuncts)
+  if (Set.n_basic_set().release() > RunTimeChecksMaxAccessDisjuncts)
     Set = Set.simple_hull();
 
   // Restrict the number of parameters involved in the access as the lexmin/
@@ -3306,17 +3347,17 @@ static bool buildMinMaxAccess(isl::set Set,
   // enclose the accessed memory region by MinPMA and MaxPMA. The pointer
   // we test during code generation might now point after the end of the
   // allocated array but we will never dereference it anyway.
-  assert((!MaxPMA || MaxPMA.dim(isl::dim::out)) &&
+  assert((MaxPMA.is_null() || MaxPMA.dim(isl::dim::out).release()) &&
          "Assumed at least one output dimension");
 
-  Pos = MaxPMA.dim(isl::dim::out) - 1;
-  LastDimAff = MaxPMA.get_pw_aff(Pos);
+  Pos = MaxPMA.dim(isl::dim::out).release() - 1;
+  LastDimAff = MaxPMA.at(Pos);
   OneAff = isl::aff(isl::local_space(LastDimAff.get_domain_space()));
   OneAff = OneAff.add_constant_si(1);
   LastDimAff = LastDimAff.add(OneAff);
   MaxPMA = MaxPMA.set_pw_aff(Pos, LastDimAff);
 
-  if (!MinPMA || !MaxPMA)
+  if (MinPMA.is_null() || MaxPMA.is_null())
     return false;
 
   MinMaxAccesses.push_back(std::make_pair(MinPMA, MaxPMA));
@@ -3330,10 +3371,10 @@ bool ScopBuilder::calculateMinMaxAccess(AliasGroupTy AliasGroup,
   MinMaxAccesses.reserve(AliasGroup.size());
 
   isl::union_set Domains = scop->getDomains();
-  isl::union_map Accesses = isl::union_map::empty(scop->getParamSpace());
+  isl::union_map Accesses = isl::union_map::empty(scop->getIslCtx());
 
   for (MemoryAccess *MA : AliasGroup)
-    Accesses = Accesses.add_map(MA->getAccessRelation());
+    Accesses = Accesses.unite(MA->getAccessRelation());
 
   Accesses = Accesses.intersect_domain(Domains);
   isl::union_set Locations = Accesses.range();
@@ -3350,7 +3391,7 @@ bool ScopBuilder::calculateMinMaxAccess(AliasGroupTy AliasGroup,
 
 static isl::set getAccessDomain(MemoryAccess *MA) {
   isl::set Domain = MA->getStatement()->getDomain();
-  Domain = Domain.project_out(isl::dim::set, 0, Domain.n_dim());
+  Domain = Domain.project_out(isl::dim::set, 0, Domain.tuple_dim().release());
   return Domain.reset_tuple_id();
 }
 
@@ -3371,13 +3412,8 @@ bool ScopBuilder::buildAliasChecks() {
   // we make the assumed context infeasible.
   scop->invalidate(ALIASING, DebugLoc());
 
-  LLVM_DEBUG(
-      dbgs() << "\n\nNOTE: Run time checks for " << scop->getNameStr()
-             << " could not be created as the number of parameters involved "
-                "is too high. The SCoP will be "
-                "dismissed.\nUse:\n\t--polly-rtc-max-parameters=X\nto adjust "
-                "the maximal number of parameters but be advised that the "
-                "compile time might increase exponentially.\n\n");
+  LLVM_DEBUG(dbgs() << "\n\nNOTE: Run time checks for " << scop->getNameStr()
+                    << " could not be created. This SCoP has been dismissed.");
   return false;
 }
 
@@ -3641,7 +3677,7 @@ void ScopBuilder::buildScop(Region &R, AssumptionCache &AC) {
   // created somewhere.
   const InvariantLoadsSetTy &RIL = scop->getRequiredInvariantLoads();
   for (BasicBlock *BB : scop->getRegion().blocks()) {
-    if (isErrorBlock(*BB, scop->getRegion(), LI, DT))
+    if (SD.isErrorBlock(*BB, scop->getRegion()))
       continue;
 
     for (Instruction &Inst : *BB) {

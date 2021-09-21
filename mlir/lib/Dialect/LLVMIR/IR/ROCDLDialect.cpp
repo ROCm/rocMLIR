@@ -30,6 +30,8 @@
 using namespace mlir;
 using namespace ROCDL;
 
+#include "mlir/Dialect/LLVMIR/ROCDLOpsDialect.cpp.inc"
+
 //===----------------------------------------------------------------------===//
 // Parsing for ROCDL ops
 //===----------------------------------------------------------------------===//
@@ -89,6 +91,18 @@ void ROCDLDialect::initialize() {
 
   // Support unknown operations because not all ROCDL operations are registered.
   allowUnknownOperations();
+}
+
+LogicalResult ROCDLDialect::verifyOperationAttribute(Operation *op,
+                                                     NamedAttribute attr) {
+  // Kernel function attribute should be attached to functions.
+  if (attr.first == ROCDLDialect::getKernelFuncAttrName()) {
+    if (!isa<LLVM::LLVMFuncOp>(op)) {
+      return op->emitError() << "'" << ROCDLDialect::getKernelFuncAttrName()
+                             << "' attribute attached to unexpected op";
+    }
+  }
+  return success();
 }
 
 #define GET_OP_CLASSES

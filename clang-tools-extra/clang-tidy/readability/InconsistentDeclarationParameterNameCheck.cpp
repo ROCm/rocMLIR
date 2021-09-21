@@ -12,7 +12,6 @@
 
 #include <algorithm>
 #include <functional>
-#include <sstream>
 
 using namespace clang::ast_matchers;
 
@@ -94,8 +93,8 @@ bool nameMatch(StringRef L, StringRef R, bool Strict) {
     return L.empty() || R.empty() || L == R;
   // We allow two names if one is a prefix/suffix of the other, ignoring case.
   // Important special case: this is true if either parameter has no name!
-  return L.startswith_lower(R) || R.startswith_lower(L) ||
-         L.endswith_lower(R) || R.endswith_lower(L);
+  return L.startswith_insensitive(R) || R.startswith_insensitive(L) ||
+         L.endswith_insensitive(R) || R.endswith_insensitive(L);
 }
 
 DifferingParamsContainer
@@ -295,8 +294,7 @@ void InconsistentDeclarationParameterNameCheck::storeOptions(
 
 void InconsistentDeclarationParameterNameCheck::registerMatchers(
     MatchFinder *Finder) {
-  Finder->addMatcher(functionDecl(unless(isImplicit()), hasOtherDeclarations())
-                         .bind("functionDecl"),
+  Finder->addMatcher(functionDecl(hasOtherDeclarations()).bind("functionDecl"),
                      this);
 }
 

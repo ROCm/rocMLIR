@@ -39,10 +39,12 @@ LLVMArrayType LLVMArrayType::get(Type elementType, unsigned numElements) {
   return Base::get(elementType.getContext(), elementType, numElements);
 }
 
-LLVMArrayType LLVMArrayType::getChecked(Location loc, Type elementType,
-                                        unsigned numElements) {
+LLVMArrayType
+LLVMArrayType::getChecked(function_ref<InFlightDiagnostic()> emitError,
+                          Type elementType, unsigned numElements) {
   assert(elementType && "expected non-null subtype");
-  return Base::getChecked(loc, elementType, numElements);
+  return Base::getChecked(emitError, elementType.getContext(), elementType,
+                          numElements);
 }
 
 Type LLVMArrayType::getElementType() { return getImpl()->elementType; }
@@ -50,10 +52,10 @@ Type LLVMArrayType::getElementType() { return getImpl()->elementType; }
 unsigned LLVMArrayType::getNumElements() { return getImpl()->numElements; }
 
 LogicalResult
-LLVMArrayType::verifyConstructionInvariants(Location loc, Type elementType,
-                                            unsigned numElements) {
+LLVMArrayType::verify(function_ref<InFlightDiagnostic()> emitError,
+                      Type elementType, unsigned numElements) {
   if (!isValidElementType(elementType))
-    return emitError(loc, "invalid array element type: ") << elementType;
+    return emitError() << "invalid array element type: " << elementType;
   return success();
 }
 
@@ -75,11 +77,13 @@ LLVMFunctionType LLVMFunctionType::get(Type result, ArrayRef<Type> arguments,
   return Base::get(result.getContext(), result, arguments, isVarArg);
 }
 
-LLVMFunctionType LLVMFunctionType::getChecked(Location loc, Type result,
-                                              ArrayRef<Type> arguments,
-                                              bool isVarArg) {
+LLVMFunctionType
+LLVMFunctionType::getChecked(function_ref<InFlightDiagnostic()> emitError,
+                             Type result, ArrayRef<Type> arguments,
+                             bool isVarArg) {
   assert(result && "expected non-null result");
-  return Base::getChecked(loc, result, arguments, isVarArg);
+  return Base::getChecked(emitError, result.getContext(), result, arguments,
+                          isVarArg);
 }
 
 Type LLVMFunctionType::getReturnType() { return getImpl()->getReturnType(); }
@@ -99,14 +103,14 @@ ArrayRef<Type> LLVMFunctionType::getParams() {
 }
 
 LogicalResult
-LLVMFunctionType::verifyConstructionInvariants(Location loc, Type result,
-                                               ArrayRef<Type> arguments, bool) {
+LLVMFunctionType::verify(function_ref<InFlightDiagnostic()> emitError,
+                         Type result, ArrayRef<Type> arguments, bool) {
   if (!isValidResultType(result))
-    return emitError(loc, "invalid function result type: ") << result;
+    return emitError() << "invalid function result type: " << result;
 
   for (Type arg : arguments)
     if (!isValidArgumentType(arg))
-      return emitError(loc, "invalid function argument type: ") << arg;
+      return emitError() << "invalid function argument type: " << arg;
 
   return success();
 }
@@ -116,8 +120,9 @@ LLVMFunctionType::verifyConstructionInvariants(Location loc, Type result,
 //===----------------------------------------------------------------------===//
 
 bool LLVMPointerType::isValidElementType(Type type) {
-  return !type.isa<LLVMVoidType, LLVMTokenType, LLVMMetadataType,
-                   LLVMLabelType>();
+  return isCompatibleType(type) ? !type.isa<LLVMVoidType, LLVMTokenType,
+                                            LLVMMetadataType, LLVMLabelType>()
+                                : type.isa<PointerElementTypeInterface>();
 }
 
 LLVMPointerType LLVMPointerType::get(Type pointee, unsigned addressSpace) {
@@ -125,20 +130,167 @@ LLVMPointerType LLVMPointerType::get(Type pointee, unsigned addressSpace) {
   return Base::get(pointee.getContext(), pointee, addressSpace);
 }
 
-LLVMPointerType LLVMPointerType::getChecked(Location loc, Type pointee,
-                                            unsigned addressSpace) {
-  return Base::getChecked(loc, pointee, addressSpace);
+LLVMPointerType
+LLVMPointerType::getChecked(function_ref<InFlightDiagnostic()> emitError,
+                            Type pointee, unsigned addressSpace) {
+  return Base::getChecked(emitError, pointee.getContext(), pointee,
+                          addressSpace);
 }
 
-Type LLVMPointerType::getElementType() { return getImpl()->pointeeType; }
+Type LLVMPointerType::getElementType() const { return getImpl()->pointeeType; }
 
-unsigned LLVMPointerType::getAddressSpace() { return getImpl()->addressSpace; }
+unsigned LLVMPointerType::getAddressSpace() const {
+  return getImpl()->addressSpace;
+}
 
-LogicalResult LLVMPointerType::verifyConstructionInvariants(Location loc,
-                                                            Type pointee,
-                                                            unsigned) {
+LogicalResult
+LLVMPointerType::verify(function_ref<InFlightDiagnostic()> emitError,
+                        Type pointee, unsigned) {
   if (!isValidElementType(pointee))
-    return emitError(loc, "invalid pointer element type: ") << pointee;
+    return emitError() << "invalid pointer element type: " << pointee;
+  return success();
+}
+
+namespace {
+/// The positions of different values in the data layout entry.
+enum class DLEntryPos { Size = 0, Abi = 1, Preferred = 2, Address = 3 };
+} // namespace
+
+constexpr const static unsigned kDefaultPointerSizeBits = 64;
+constexpr const static unsigned kDefaultPointerAlignment = 8;
+constexpr const static unsigned kBitsInByte = 8;
+
+/// Returns the value that corresponds to named position `pos` from the
+/// attribute `attr` assuming it's a dense integer elements attribute.
+static unsigned extractPointerSpecValue(Attribute attr, DLEntryPos pos) {
+  return attr.cast<DenseIntElementsAttr>().getValue<unsigned>(
+      static_cast<unsigned>(pos));
+}
+
+/// Returns the part of the data layout entry that corresponds to `pos` for the
+/// given `type` by interpreting the list of entries `params`. For the pointer
+/// type in the default address space, returns the default value if the entries
+/// do not provide a custom one, for other address spaces returns None.
+static Optional<unsigned>
+getPointerDataLayoutEntry(DataLayoutEntryListRef params, LLVMPointerType type,
+                          DLEntryPos pos) {
+  // First, look for the entry for the pointer in the current address space.
+  Attribute currentEntry;
+  for (DataLayoutEntryInterface entry : params) {
+    if (!entry.isTypeEntry())
+      continue;
+    if (entry.getKey().get<Type>().cast<LLVMPointerType>().getAddressSpace() ==
+        type.getAddressSpace()) {
+      currentEntry = entry.getValue();
+      break;
+    }
+  }
+  if (currentEntry) {
+    return extractPointerSpecValue(currentEntry, pos) /
+           (pos == DLEntryPos::Size ? 1 : kBitsInByte);
+  }
+
+  // If not found, and this is the pointer to the default memory space, assume
+  // 64-bit pointers.
+  if (type.getAddressSpace() == 0) {
+    return pos == DLEntryPos::Size ? kDefaultPointerSizeBits
+                                   : kDefaultPointerAlignment;
+  }
+
+  return llvm::None;
+}
+
+unsigned
+LLVMPointerType::getTypeSizeInBits(const DataLayout &dataLayout,
+                                   DataLayoutEntryListRef params) const {
+  if (Optional<unsigned> size =
+          getPointerDataLayoutEntry(params, *this, DLEntryPos::Size))
+    return *size;
+
+  // For other memory spaces, use the size of the pointer to the default memory
+  // space.
+  return dataLayout.getTypeSizeInBits(get(getElementType()));
+}
+
+unsigned LLVMPointerType::getABIAlignment(const DataLayout &dataLayout,
+                                          DataLayoutEntryListRef params) const {
+  if (Optional<unsigned> alignment =
+          getPointerDataLayoutEntry(params, *this, DLEntryPos::Abi))
+    return *alignment;
+
+  return dataLayout.getTypeABIAlignment(get(getElementType()));
+}
+
+unsigned
+LLVMPointerType::getPreferredAlignment(const DataLayout &dataLayout,
+                                       DataLayoutEntryListRef params) const {
+  if (Optional<unsigned> alignment =
+          getPointerDataLayoutEntry(params, *this, DLEntryPos::Preferred))
+    return *alignment;
+
+  return dataLayout.getTypePreferredAlignment(get(getElementType()));
+}
+
+bool LLVMPointerType::areCompatible(DataLayoutEntryListRef oldLayout,
+                                    DataLayoutEntryListRef newLayout) const {
+  for (DataLayoutEntryInterface newEntry : newLayout) {
+    if (!newEntry.isTypeEntry())
+      continue;
+    unsigned size = kDefaultPointerSizeBits;
+    unsigned abi = kDefaultPointerAlignment;
+    auto newType = newEntry.getKey().get<Type>().cast<LLVMPointerType>();
+    auto it = llvm::find_if(oldLayout, [&](DataLayoutEntryInterface entry) {
+      if (auto type = entry.getKey().dyn_cast<Type>()) {
+        return type.cast<LLVMPointerType>().getAddressSpace() ==
+               newType.getAddressSpace();
+      }
+      return false;
+    });
+    if (it == oldLayout.end()) {
+      llvm::find_if(oldLayout, [&](DataLayoutEntryInterface entry) {
+        if (auto type = entry.getKey().dyn_cast<Type>()) {
+          return type.cast<LLVMPointerType>().getAddressSpace() == 0;
+        }
+        return false;
+      });
+    }
+    if (it != oldLayout.end()) {
+      size = extractPointerSpecValue(*it, DLEntryPos::Size);
+      abi = extractPointerSpecValue(*it, DLEntryPos::Abi);
+    }
+
+    Attribute newSpec = newEntry.getValue().cast<DenseIntElementsAttr>();
+    unsigned newSize = extractPointerSpecValue(newSpec, DLEntryPos::Size);
+    unsigned newAbi = extractPointerSpecValue(newSpec, DLEntryPos::Abi);
+    if (size != newSize || abi < newAbi || abi % newAbi != 0)
+      return false;
+  }
+  return true;
+}
+
+LogicalResult LLVMPointerType::verifyEntries(DataLayoutEntryListRef entries,
+                                             Location loc) const {
+  for (DataLayoutEntryInterface entry : entries) {
+    if (!entry.isTypeEntry())
+      continue;
+    auto key = entry.getKey().get<Type>().cast<LLVMPointerType>();
+    auto values = entry.getValue().dyn_cast<DenseIntElementsAttr>();
+    if (!values || (values.size() != 3 && values.size() != 4)) {
+      return emitError(loc)
+             << "expected layout attribute for " << entry.getKey().get<Type>()
+             << " to be a dense integer elements attribute with 3 or 4 "
+                "elements";
+    }
+    if (!key.getElementType().isInteger(8)) {
+      return emitError(loc) << "unexpected layout attribute for pointer to "
+                            << key.getElementType();
+    }
+    if (extractPointerSpecValue(values, DLEntryPos::Abi) >
+        extractPointerSpecValue(values, DLEntryPos::Preferred)) {
+      return emitError(loc) << "preferred alignment is expected to be at least "
+                               "as large as ABI alignment";
+    }
+  }
   return success();
 }
 
@@ -156,9 +308,10 @@ LLVMStructType LLVMStructType::getIdentified(MLIRContext *context,
   return Base::get(context, name, /*opaque=*/false);
 }
 
-LLVMStructType LLVMStructType::getIdentifiedChecked(Location loc,
-                                                    StringRef name) {
-  return Base::getChecked(loc, name, /*opaque=*/false);
+LLVMStructType LLVMStructType::getIdentifiedChecked(
+    function_ref<InFlightDiagnostic()> emitError, MLIRContext *context,
+    StringRef name) {
+  return Base::getChecked(emitError, context, name, /*opaque=*/false);
 }
 
 LLVMStructType LLVMStructType::getNewIdentified(MLIRContext *context,
@@ -183,18 +336,21 @@ LLVMStructType LLVMStructType::getLiteral(MLIRContext *context,
   return Base::get(context, types, isPacked);
 }
 
-LLVMStructType LLVMStructType::getLiteralChecked(Location loc,
-                                                 ArrayRef<Type> types,
-                                                 bool isPacked) {
-  return Base::getChecked(loc, types, isPacked);
+LLVMStructType
+LLVMStructType::getLiteralChecked(function_ref<InFlightDiagnostic()> emitError,
+                                  MLIRContext *context, ArrayRef<Type> types,
+                                  bool isPacked) {
+  return Base::getChecked(emitError, context, types, isPacked);
 }
 
 LLVMStructType LLVMStructType::getOpaque(StringRef name, MLIRContext *context) {
   return Base::get(context, name, /*opaque=*/true);
 }
 
-LLVMStructType LLVMStructType::getOpaqueChecked(Location loc, StringRef name) {
-  return Base::getChecked(loc, name, /*opaque=*/true);
+LLVMStructType
+LLVMStructType::getOpaqueChecked(function_ref<InFlightDiagnostic()> emitError,
+                                 MLIRContext *context, StringRef name) {
+  return Base::getChecked(emitError, context, name, /*opaque=*/true);
 }
 
 LogicalResult LLVMStructType::setBody(ArrayRef<Type> types, bool isPacked) {
@@ -217,17 +373,17 @@ ArrayRef<Type> LLVMStructType::getBody() {
                         : getImpl()->getTypeList();
 }
 
-LogicalResult LLVMStructType::verifyConstructionInvariants(Location, StringRef,
-                                                           bool) {
+LogicalResult LLVMStructType::verify(function_ref<InFlightDiagnostic()>,
+                                     StringRef, bool) {
   return success();
 }
 
-LogicalResult LLVMStructType::verifyConstructionInvariants(Location loc,
-                                                           ArrayRef<Type> types,
-                                                           bool) {
+LogicalResult
+LLVMStructType::verify(function_ref<InFlightDiagnostic()> emitError,
+                       ArrayRef<Type> types, bool) {
   for (Type t : types)
     if (!isValidElementType(t))
-      return emitError(loc, "invalid LLVM structure element type: ") << t;
+      return emitError() << "invalid LLVM structure element type: " << t;
 
   return success();
 }
@@ -238,14 +394,14 @@ LogicalResult LLVMStructType::verifyConstructionInvariants(Location loc,
 
 /// Verifies that the type about to be constructed is well-formed.
 template <typename VecTy>
-static LogicalResult verifyVectorConstructionInvariants(Location loc,
-                                                        Type elementType,
-                                                        unsigned numElements) {
+static LogicalResult
+verifyVectorConstructionInvariants(function_ref<InFlightDiagnostic()> emitError,
+                                   Type elementType, unsigned numElements) {
   if (numElements == 0)
-    return emitError(loc, "the number of vector elements must be positive");
+    return emitError() << "the number of vector elements must be positive";
 
   if (!VecTy::isValidElementType(elementType))
-    return emitError(loc, "invalid vector element type");
+    return emitError() << "invalid vector element type";
 
   return success();
 }
@@ -256,11 +412,12 @@ LLVMFixedVectorType LLVMFixedVectorType::get(Type elementType,
   return Base::get(elementType.getContext(), elementType, numElements);
 }
 
-LLVMFixedVectorType LLVMFixedVectorType::getChecked(Location loc,
-                                                    Type elementType,
-                                                    unsigned numElements) {
+LLVMFixedVectorType
+LLVMFixedVectorType::getChecked(function_ref<InFlightDiagnostic()> emitError,
+                                Type elementType, unsigned numElements) {
   assert(elementType && "expected non-null subtype");
-  return Base::getChecked(loc, elementType, numElements);
+  return Base::getChecked(emitError, elementType.getContext(), elementType,
+                          numElements);
 }
 
 Type LLVMFixedVectorType::getElementType() {
@@ -275,10 +432,11 @@ bool LLVMFixedVectorType::isValidElementType(Type type) {
   return type.isa<LLVMPointerType, LLVMPPCFP128Type>();
 }
 
-LogicalResult LLVMFixedVectorType::verifyConstructionInvariants(
-    Location loc, Type elementType, unsigned numElements) {
+LogicalResult
+LLVMFixedVectorType::verify(function_ref<InFlightDiagnostic()> emitError,
+                            Type elementType, unsigned numElements) {
   return verifyVectorConstructionInvariants<LLVMFixedVectorType>(
-      loc, elementType, numElements);
+      emitError, elementType, numElements);
 }
 
 //===----------------------------------------------------------------------===//
@@ -292,10 +450,11 @@ LLVMScalableVectorType LLVMScalableVectorType::get(Type elementType,
 }
 
 LLVMScalableVectorType
-LLVMScalableVectorType::getChecked(Location loc, Type elementType,
-                                   unsigned minNumElements) {
+LLVMScalableVectorType::getChecked(function_ref<InFlightDiagnostic()> emitError,
+                                   Type elementType, unsigned minNumElements) {
   assert(elementType && "expected non-null subtype");
-  return Base::getChecked(loc, elementType, minNumElements);
+  return Base::getChecked(emitError, elementType.getContext(), elementType,
+                          minNumElements);
 }
 
 Type LLVMScalableVectorType::getElementType() {
@@ -313,10 +472,11 @@ bool LLVMScalableVectorType::isValidElementType(Type type) {
   return isCompatibleFloatingPointType(type) || type.isa<LLVMPointerType>();
 }
 
-LogicalResult LLVMScalableVectorType::verifyConstructionInvariants(
-    Location loc, Type elementType, unsigned numElements) {
+LogicalResult
+LLVMScalableVectorType::verify(function_ref<InFlightDiagnostic()> emitError,
+                               Type elementType, unsigned numElements) {
   return verifyVectorConstructionInvariants<LLVMScalableVectorType>(
-      loc, elementType, numElements);
+      emitError, elementType, numElements);
 }
 
 //===----------------------------------------------------------------------===//
@@ -448,3 +608,5 @@ llvm::TypeSize mlir::LLVM::getPrimitiveTypeSizeInBits(Type type) {
         return llvm::TypeSize::Fixed(0);
       });
 }
+
+#include "mlir/Dialect/LLVMIR/LLVMTypeInterfaces.cpp.inc"

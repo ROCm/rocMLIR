@@ -1,9 +1,8 @@
 //===--- JITLinkMemoryManager.cpp - JITLinkMemoryManager implementation ---===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -113,10 +112,12 @@ InProcessMemoryManager::allocate(const JITLinkDylib *JD,
 
     uint64_t SegmentSize = alignTo(Seg.getContentSize() + Seg.getZeroFillSize(),
                                    sys::Process::getPageSizeEstimate());
+    assert(SlabRemaining.allocatedSize() >= SegmentSize &&
+           "Mapping exceeds allocation");
 
     sys::MemoryBlock SegMem(SlabRemaining.base(), SegmentSize);
     SlabRemaining = sys::MemoryBlock((char *)SlabRemaining.base() + SegmentSize,
-                                     SegmentSize);
+                                     SlabRemaining.allocatedSize() - SegmentSize);
 
     // Zero out the zero-fill memory.
     memset(static_cast<char *>(SegMem.base()) + Seg.getContentSize(), 0,
@@ -125,6 +126,7 @@ InProcessMemoryManager::allocate(const JITLinkDylib *JD,
     // Record the block for this segment.
     Blocks[KV.first] = std::move(SegMem);
   }
+
   return std::unique_ptr<InProcessMemoryManager::Allocation>(
       new IPMMAlloc(std::move(Blocks)));
 }

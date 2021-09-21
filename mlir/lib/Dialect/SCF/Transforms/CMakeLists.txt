@@ -1,5 +1,9 @@
 add_mlir_dialect_library(MLIRSCFTransforms
   Bufferize.cpp
+  ForToWhile.cpp
+  LoopCanonicalization.cpp
+  LoopPipelining.cpp
+  LoopRangeFolding.cpp
   LoopSpecialization.cpp
   ParallelLoopFusion.cpp
   ParallelLoopTiling.cpp
@@ -15,10 +19,12 @@ add_mlir_dialect_library(MLIRSCFTransforms
   LINK_LIBS PUBLIC
   MLIRAffine
   MLIRIR
+  MLIRMemRef
   MLIRPass
   MLIRSCF
   MLIRStandard
   MLIRSupport
+  MLIRTensor
   MLIRTransforms
   MLIRTransformUtils
 )
