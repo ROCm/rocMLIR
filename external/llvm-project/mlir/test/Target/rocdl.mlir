@@ -45,7 +45,7 @@ llvm.func @rocdl.barrier() {
 }
 
 llvm.func @rocdl.lds_barrier() {
-  // CHECK:      call void @llvm.amdgcn.s.waitcnt(i32 49279)
+  // CHECK:      fence syncscope("workgroup") release
   // CHECK-NEXT: call void @llvm.amdgcn.s.barrier()
   rocdl.lds_barrier
   llvm.return
