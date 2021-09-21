@@ -262,6 +262,7 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
       mlir::miopen::createAffixTuningParametersPass(0, 0, handle->perfConfig));
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(mlir::miopen::createAffineTransformPass());
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
 
   auto status = pm.run(module);
 
