@@ -106,26 +106,18 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   }
 };
 
-// T is either GriwiseGemmOp or GridwiseGemmV2Op
+// T would be one of the following:
+// - miopen::Conv2DOp
+// - miopen::Conv2DBwdDataOp
+// - miopen::Conv2DBwdWeightOp
 template <typename T> static miopen::ConvOpType ObtainConvDirection(T &op) {
-  miopen::ConvOpType opType;
+  miopen::ConvOpType opType = miopen::ConvOpType::Conv2DOpType;
   if (isa<miopen::Conv2DOp>(*op)) {
     opType = miopen::ConvOpType::Conv2DOpType;
   } else if (isa<miopen::Conv2DBwdDataOp>(*op)) {
     opType = miopen::ConvOpType::Conv2DBwdDataOpType;
   } else if (isa<miopen::Conv2DBwdWeightOp>(*op)) {
     opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
-  } else {
-    auto kernel_algorithm =
-        op->template getAttrOfType<StringAttr>("kernel_algorithm").getValue();
-    if (kernel_algorithm.find(StringRef("backward_data")) != StringRef::npos) {
-      opType = miopen::ConvOpType::Conv2DBwdDataOpType;
-    } else if (kernel_algorithm.find(StringRef("backward_weight")) !=
-               StringRef::npos) {
-      opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
-    } else {
-      opType = miopen::ConvOpType::Conv2DOpType;
-    }
   }
   return opType;
 }
@@ -134,6 +126,7 @@ template <typename T> static mlir::Type obtainDataType(T &op) {
   return op.input().getType().template cast<MemRefType>().getElementType();
 }
 
+// TBD: Remove this function along with C++ code emitter.
 static inline void
 populateDimVal(const ArrayAttr &layoutAttr, const ArrayAttr &dimAttr,
                llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal) {
@@ -179,7 +172,10 @@ static inline void populateSeqVal(const ArrayAttr &seqAttr,
   }
 }
 
-// T is either GriwiseGemmOp or GridwiseGemmV2Op
+// T would be one of the following:
+// - miopen::Conv2DOp
+// - miopen::Conv2DBwdDataOp
+// - miopen::Conv2DBwdWeightOp
 template <typename T> static ConvolutionContext populateConvContext(T &op) {
   miopen::ConvOpType opType = ObtainConvDirection(op);
 
@@ -195,18 +191,9 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
 
   auto filterLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("filter_layout");
-  auto filterDimensionAttr =
-      op->template getAttrOfType<ArrayAttr>("filter_dimension");
-  populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
   auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
-  auto inputDimensionAttr =
-      op->template getAttrOfType<ArrayAttr>("input_dimension");
-  populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
   auto outputLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("output_layout");
-  auto outputDimensionAttr =
-      op->template getAttrOfType<ArrayAttr>("output_dimension");
-  populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
 
   auto strideAttr = op->template getAttrOfType<ArrayAttr>("strides");
   llvm::SmallVector<int64_t, 0> strideVal;
@@ -220,58 +207,15 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
   llvm::SmallVector<int64_t, 0> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 
+  populateDimVal(filterLayoutAttr, op.filter().getType().template cast<MemRefType>().getShape(), dimIndexVal);
+  populateDimVal(inputLayoutAttr, op.input().getType().template cast<MemRefType>().getShape(), dimIndexVal);
+  populateDimVal(outputLayoutAttr, op.output().getType().template cast<MemRefType>().getShape(), dimIndexVal);
+
   auto dataType = obtainDataType(op);
 
   return {archVal,     numCuVal,   opType, dimIndexVal, strideVal,
           dilationVal, paddingVal, gemmId, dataType};
 }
-
-#define POPULATE_CONV_CONTEXT(T)                                               \
-  template <> ConvolutionContext populateConvContext(T &op) {                  \
-    miopen::ConvOpType opType = ObtainConvDirection(op);                       \
-    auto archVal = op->template getAttrOfType<StringAttr>("arch").getValue();  \
-    int numCuVal = op->template getAttrOfType<IntegerAttr>("num_cu").getInt(); \
-    auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");      \
-    int gemmId = 0;                                                            \
-    if (gemmIdAttr) {                                                          \
-      gemmId = gemmIdAttr.getInt();                                            \
-    }                                                                          \
-    llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;                   \
-    auto filterLayoutAttr =                                                    \
-        op->template getAttrOfType<ArrayAttr>("filter_layout");                \
-    auto inputLayoutAttr =                                                     \
-        op->template getAttrOfType<ArrayAttr>("input_layout");                 \
-    auto outputLayoutAttr =                                                    \
-        op->template getAttrOfType<ArrayAttr>("output_layout");                \
-    auto strideAttr = op->template getAttrOfType<ArrayAttr>("strides");        \
-    llvm::SmallVector<int64_t, 0> strideVal;                                   \
-    populateSeqVal(strideAttr, strideVal);                                     \
-    auto dilationAttr = op->template getAttrOfType<ArrayAttr>("dilations");    \
-    llvm::SmallVector<int64_t, 0> dilationVal;                                 \
-    populateSeqVal(dilationAttr, dilationVal);                                 \
-    auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");       \
-    llvm::SmallVector<int64_t, 0> paddingVal;                                  \
-    populateSeqVal(paddingAttr, paddingVal);                                   \
-    auto dataType = obtainDataType(op);                                        \
-    populateDimVal(                                                            \
-        filterLayoutAttr,                                                      \
-        op.filter().getType().template cast<MemRefType>().getShape(),          \
-        dimIndexVal);                                                          \
-    populateDimVal(                                                            \
-        inputLayoutAttr,                                                       \
-        op.input().getType().template cast<MemRefType>().getShape(),           \
-        dimIndexVal);                                                          \
-    populateDimVal(                                                            \
-        outputLayoutAttr,                                                      \
-        op.output().getType().template cast<MemRefType>().getShape(),          \
-        dimIndexVal);                                                          \
-    return {archVal,     numCuVal,   opType, dimIndexVal, strideVal,           \
-            dilationVal, paddingVal, gemmId, dataType};                        \
-  }
-
-POPULATE_CONV_CONTEXT(miopen::Conv2DOp)
-POPULATE_CONV_CONTEXT(miopen::Conv2DBwdDataOp)
-POPULATE_CONV_CONTEXT(miopen::Conv2DBwdWeightOp)
 
 } // namespace mlir
 #endif // MLIR_DIALECT_MIOPEN_CONVCONTEXT_H

@@ -45,11 +45,6 @@ private:
 void AffixTuningParameters::runOnFunction() {
   FuncOp func = getFunction();
 
-  func.walk([&](miopen::GridwiseGemmOp op) { affixTuningParametersImpl(op); });
-
-  func.walk(
-      [&](miopen::GridwiseGemmV2Op op) { affixTuningParametersImpl(op); });
-
   func.walk([&](miopen::Conv2DOp op) { affixTuningParametersImpl(op); });
   func.walk([&](miopen::Conv2DBwdDataOp op) { affixTuningParametersImpl(op); });
   func.walk(
