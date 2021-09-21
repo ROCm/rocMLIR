@@ -30,7 +30,6 @@ static_library("Driver") {
   sources = [
     "Action.cpp",
     "Compilation.cpp",
-    "DarwinSDKInfo.cpp",
     "Distro.cpp",
     "Driver.cpp",
     "DriverOptions.cpp",
@@ -48,6 +47,7 @@ static_library("Driver") {
     "ToolChains/Ananas.cpp",
     "ToolChains/Arch/AArch64.cpp",
     "ToolChains/Arch/ARM.cpp",
+    "ToolChains/Arch/M68k.cpp",
     "ToolChains/Arch/Mips.cpp",
     "ToolChains/Arch/PPC.cpp",
     "ToolChains/Arch/RISCV.cpp",

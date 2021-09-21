@@ -43,21 +43,6 @@ namespace clang {
 namespace clangd {
 namespace {
 
-// Variant of parent_path that operates only on absolute paths.
-PathRef absoluteParent(PathRef Path) {
-  assert(llvm::sys::path::is_absolute(Path));
-#if defined(_WIN32)
-  // llvm::sys says "C:\" is absolute, and its parent is "C:" which is relative.
-  // This unhelpful behavior seems to have been inherited from boost.
-  if (llvm::sys::path::relative_path(Path).empty()) {
-    return PathRef();
-  }
-#endif
-  PathRef Result = llvm::sys::path::parent_path(Path);
-  assert(Result.empty() || llvm::sys::path::is_absolute(Result));
-  return Result;
-}
-
 // Runs the given action on all parent directories of filename, starting from
 // deepest directory and going up to root. Stops whenever action succeeds.
 void actOnAllParentDirectories(PathRef FileName,
@@ -294,11 +279,10 @@ bool DirectoryBasedGlobalCompilationDatabase::DirectoryCache::load(
   struct CDBFile {
     CachedFile *File;
     // Wrapper for {Fixed,JSON}CompilationDatabase::loadFromBuffer.
-    llvm::function_ref<std::unique_ptr<tooling::CompilationDatabase>(
+    std::unique_ptr<tooling::CompilationDatabase> (*Parser)(
         PathRef,
         /*Data*/ llvm::StringRef,
-        /*ErrorMsg*/ std::string &)>
-        Parser;
+        /*ErrorMsg*/ std::string &);
   };
   for (const auto &Entry : {CDBFile{&CompileCommandsJson, parseJSON},
                             CDBFile{&BuildCompileCommandsJson, parseJSON},
@@ -779,7 +763,7 @@ OverlayCDB::getCompileCommand(PathRef File) const {
   if (!Cmd)
     return llvm::None;
   if (ArgsAdjuster)
-    Cmd->CommandLine = ArgsAdjuster(Cmd->CommandLine, Cmd->Filename);
+    Cmd->CommandLine = ArgsAdjuster(Cmd->CommandLine, File);
   return Cmd;
 }
 
@@ -789,7 +773,7 @@ tooling::CompileCommand OverlayCDB::getFallbackCommand(PathRef File) const {
   Cmd.CommandLine.insert(Cmd.CommandLine.end(), FallbackFlags.begin(),
                          FallbackFlags.end());
   if (ArgsAdjuster)
-    Cmd.CommandLine = ArgsAdjuster(Cmd.CommandLine, Cmd.Filename);
+    Cmd.CommandLine = ArgsAdjuster(Cmd.CommandLine, File);
   return Cmd;
 }
 

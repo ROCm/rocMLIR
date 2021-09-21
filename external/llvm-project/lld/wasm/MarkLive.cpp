@@ -21,9 +21,7 @@
 #include "MarkLive.h"
 #include "Config.h"
 #include "InputChunks.h"
-#include "InputEvent.h"
-#include "InputGlobal.h"
-#include "InputTable.h"
+#include "InputElement.h"
 #include "SymbolTable.h"
 #include "Symbols.h"
 
@@ -164,9 +162,9 @@ void markLive() {
       for (InputGlobal *g : obj->globals)
         if (!g->live)
           message("removing unused section " + toString(g));
-      for (InputEvent *e : obj->events)
-        if (!e->live)
-          message("removing unused section " + toString(e));
+      for (InputTag *t : obj->tags)
+        if (!t->live)
+          message("removing unused section " + toString(t));
       for (InputTable *t : obj->tables)
         if (!t->live)
           message("removing unused section " + toString(t));

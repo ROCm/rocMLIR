@@ -29,6 +29,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Alignment.h"
+#include "llvm/Support/TrailingObjects.h"
 #include "llvm/Support/TypeSize.h"
 #include <cassert>
 #include <cstdint>
@@ -260,10 +261,7 @@ public:
   ///
   /// The width is specified in bits.
   bool isLegalInteger(uint64_t Width) const {
-    for (unsigned LegalIntWidth : LegalIntWidths)
-      if (LegalIntWidth == Width)
-        return true;
-    return false;
+    return llvm::is_contained(LegalIntWidths, Width);
   }
 
   bool isIllegalInteger(uint64_t Width) const { return !isLegalInteger(Width); }
@@ -581,6 +579,10 @@ public:
   /// This is used to implement getelementptr.
   int64_t getIndexedOffsetInType(Type *ElemTy, ArrayRef<Value *> Indices) const;
 
+  /// Get GEP indices to access Offset inside ElemTy. ElemTy is updated to be
+  /// the result element type and Offset to be the residual offset.
+  SmallVector<APInt> getGEPIndicesForOffset(Type *&ElemTy, APInt &Offset) const;
+
   /// Returns a StructLayout object, indicating the alignment of the
   /// struct, its size, and the offsets of its fields.
   ///
@@ -591,25 +593,6 @@ public:
   ///
   /// This includes an explicitly requested alignment (if the global has one).
   Align getPreferredAlign(const GlobalVariable *GV) const;
-
-  /// Returns the preferred alignment of the specified global.
-  ///
-  /// This includes an explicitly requested alignment (if the global has one).
-  LLVM_ATTRIBUTE_DEPRECATED(
-      inline unsigned getPreferredAlignment(const GlobalVariable *GV) const,
-      "Use getPreferredAlign instead") {
-    return getPreferredAlign(GV).value();
-  }
-
-  /// Returns the preferred alignment of the specified global, returned
-  /// in log form.
-  ///
-  /// This includes an explicitly requested alignment (if the global has one).
-  LLVM_ATTRIBUTE_DEPRECATED(
-      inline unsigned getPreferredAlignmentLog(const GlobalVariable *GV) const,
-      "Inline where needed") {
-    return Log2(getPreferredAlign(GV));
-  }
 };
 
 inline DataLayout *unwrap(LLVMTargetDataRef P) {
@@ -622,12 +605,11 @@ inline LLVMTargetDataRef wrap(const DataLayout *P) {
 
 /// Used to lazily calculate structure layout information for a target machine,
 /// based on the DataLayout structure.
-class StructLayout {
+class StructLayout final : public TrailingObjects<StructLayout, uint64_t> {
   uint64_t StructSize;
   Align StructAlignment;
   unsigned IsPadded : 1;
   unsigned NumElements : 31;
-  uint64_t MemberOffsets[1]; // variable sized array!
 
 public:
   uint64_t getSizeInBytes() const { return StructSize; }
@@ -644,9 +626,18 @@ public:
   /// index that contains it.
   unsigned getElementContainingOffset(uint64_t Offset) const;
 
+  MutableArrayRef<uint64_t> getMemberOffsets() {
+    return llvm::makeMutableArrayRef(getTrailingObjects<uint64_t>(),
+                                     NumElements);
+  }
+
+  ArrayRef<uint64_t> getMemberOffsets() const {
+    return llvm::makeArrayRef(getTrailingObjects<uint64_t>(), NumElements);
+  }
+
   uint64_t getElementOffset(unsigned Idx) const {
     assert(Idx < NumElements && "Invalid element idx!");
-    return MemberOffsets[Idx];
+    return getMemberOffsets()[Idx];
   }
 
   uint64_t getElementOffsetInBits(unsigned Idx) const {
@@ -657,6 +648,10 @@ private:
   friend class DataLayout; // Only DataLayout can create this class
 
   StructLayout(StructType *ST, const DataLayout &DL);
+
+  size_t numTrailingObjects(OverloadToken<uint64_t>) const {
+    return NumElements;
+  }
 };
 
 // The implementation of this method is provided inline as it is particularly

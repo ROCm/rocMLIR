@@ -647,13 +647,13 @@ TEST(CompletionTest, ScopedWithFilter) {
 }
 
 TEST(CompletionTest, ReferencesAffectRanking) {
-  auto Results = completions("int main() { abs^ }", {ns("absl"), func("absb")});
-  EXPECT_THAT(Results.Completions,
-              HasSubsequence(Named("absb"), Named("absl")));
-  Results = completions("int main() { abs^ }",
-                        {withReferences(10000, ns("absl")), func("absb")});
-  EXPECT_THAT(Results.Completions,
-              HasSubsequence(Named("absl"), Named("absb")));
+  EXPECT_THAT(completions("int main() { abs^ }", {func("absA"), func("absB")})
+                  .Completions,
+              HasSubsequence(Named("absA"), Named("absB")));
+  EXPECT_THAT(completions("int main() { abs^ }",
+                          {func("absA"), withReferences(1000, func("absB"))})
+                  .Completions,
+              HasSubsequence(Named("absB"), Named("absA")));
 }
 
 TEST(CompletionTest, ContextWords) {
@@ -907,7 +907,7 @@ TEST(CompletionTest, Documentation) {
   auto Results = completions(
       R"cpp(
       // Non-doxygen comment.
-      int foo();
+      __attribute__((annotate("custom_annotation"))) int foo();
       /// Doxygen comment.
       /// \param int a
       int bar(int a);
@@ -919,7 +919,8 @@ TEST(CompletionTest, Documentation) {
       int x = ^
      )cpp");
   EXPECT_THAT(Results.Completions,
-              Contains(AllOf(Named("foo"), Doc("Non-doxygen comment."))));
+              Contains(AllOf(Named("foo"),
+              Doc("Annotation: custom_annotation\nNon-doxygen comment."))));
   EXPECT_THAT(
       Results.Completions,
       Contains(AllOf(Named("bar"), Doc("Doxygen comment.\n\\param int a"))));
@@ -1098,6 +1099,20 @@ template <template <class> class TT> int foo() {
   EXPECT_THAT(Completions, Contains(Named("TT")));
 }
 
+TEST(CompletionTest, NestedTemplateHeuristics) {
+  auto Completions = completions(R"cpp(
+struct Plain { int xxx; };
+template <typename T> class Templ { Plain ppp; };
+template <typename T> void foo(Templ<T> &t) {
+  // Formally ppp has DependentTy, because Templ may be specialized.
+  // However we sholud be able to see into it using the primary template.
+  t.ppp.^
+}
+)cpp")
+                         .Completions;
+  EXPECT_THAT(Completions, Contains(Named("xxx")));
+}
+
 TEST(CompletionTest, RecordCCResultCallback) {
   std::vector<CodeCompletion> RecordedCompletions;
   CodeCompleteOptions Opts;
@@ -1237,6 +1252,19 @@ TEST(SignatureHelpTest, Overloads) {
   // We always prefer the first signature.
   EXPECT_EQ(0, Results.activeSignature);
   EXPECT_EQ(0, Results.activeParameter);
+}
+
+TEST(SignatureHelpTest, OverloadInitListRegression) {
+  auto Results = signatures(R"cpp(
+    struct A {int x;};
+    struct B {B(A);};
+    void f();
+    int main() {
+      B b({1});
+      f(^);
+    }
+  )cpp");
+  EXPECT_THAT(Results.signatures, UnorderedElementsAre(Sig("f() -> void")));
 }
 
 TEST(SignatureHelpTest, DefaultArgs) {
@@ -1390,9 +1418,9 @@ public:
                  llvm::function_ref<void(const SymbolID &, const Symbol &)>)
       const override {}
 
-  llvm::unique_function<bool(llvm::StringRef) const>
+  llvm::unique_function<IndexContents(llvm::StringRef) const>
   indexedFiles() const override {
-    return [](llvm::StringRef) { return false; };
+    return [](llvm::StringRef) { return IndexContents::None; };
   }
 
   // This is incorrect, but IndexRequestCollector is not an actual index and it
@@ -1630,7 +1658,7 @@ TEST(CompletionTest, OverloadBundling) {
   std::string Context = R"cpp(
     struct X {
       // Overload with int
-      int a(int);
+      int a(int) __attribute__((deprecated("", "")));
       // Overload with bool
       int a(bool);
       int b(float);
@@ -1668,6 +1696,7 @@ TEST(CompletionTest, OverloadBundling) {
   EXPECT_EQ(A.ReturnType, "int"); // All overloads return int.
   // For now we just return one of the doc strings arbitrarily.
   ASSERT_TRUE(A.Documentation);
+  ASSERT_FALSE(A.Deprecated); // Not all overloads deprecated.
   EXPECT_THAT(
       A.Documentation->asPlainText(),
       AnyOf(HasSubstr("Overload with int"), HasSubstr("Overload with bool")));
@@ -2769,6 +2798,79 @@ TEST(CompletionTest, ObjectiveCMethodTwoArgumentsFromMiddle) {
   EXPECT_THAT(C, ElementsAre(SnippetSuffix("${1:(unsigned int)}")));
 }
 
+TEST(CompletionTest, ObjectiveCSimpleMethodDeclaration) {
+  auto Results = completions(R"objc(
+      @interface Foo
+      - (void)foo;
+      @end
+      @implementation Foo
+      fo^
+      @end
+    )objc",
+                             /*IndexSymbols=*/{},
+                             /*Opts=*/{}, "Foo.m");
+
+  auto C = Results.Completions;
+  EXPECT_THAT(C, ElementsAre(Named("foo")));
+  EXPECT_THAT(C, ElementsAre(Kind(CompletionItemKind::Method)));
+  EXPECT_THAT(C, ElementsAre(Qualifier("- (void)")));
+}
+
+TEST(CompletionTest, ObjectiveCMethodDeclaration) {
+  auto Results = completions(R"objc(
+      @interface Foo
+      - (int)valueForCharacter:(char)c secondArgument:(id)object;
+      @end
+      @implementation Foo
+      valueFor^
+      @end
+    )objc",
+                             /*IndexSymbols=*/{},
+                             /*Opts=*/{}, "Foo.m");
+
+  auto C = Results.Completions;
+  EXPECT_THAT(C, ElementsAre(Named("valueForCharacter:")));
+  EXPECT_THAT(C, ElementsAre(Kind(CompletionItemKind::Method)));
+  EXPECT_THAT(C, ElementsAre(Qualifier("- (int)")));
+  EXPECT_THAT(C, ElementsAre(Signature("(char)c secondArgument:(id)object")));
+}
+
+TEST(CompletionTest, ObjectiveCMethodDeclarationPrefixTyped) {
+  auto Results = completions(R"objc(
+      @interface Foo
+      - (int)valueForCharacter:(char)c;
+      @end
+      @implementation Foo
+      - (int)valueFor^
+      @end
+    )objc",
+                             /*IndexSymbols=*/{},
+                             /*Opts=*/{}, "Foo.m");
+
+  auto C = Results.Completions;
+  EXPECT_THAT(C, ElementsAre(Named("valueForCharacter:")));
+  EXPECT_THAT(C, ElementsAre(Kind(CompletionItemKind::Method)));
+  EXPECT_THAT(C, ElementsAre(Signature("(char)c")));
+}
+
+TEST(CompletionTest, ObjectiveCMethodDeclarationFromMiddle) {
+  auto Results = completions(R"objc(
+      @interface Foo
+      - (int)valueForCharacter:(char)c secondArgument:(id)object;
+      @end
+      @implementation Foo
+      - (int)valueForCharacter:(char)c second^
+      @end
+    )objc",
+                             /*IndexSymbols=*/{},
+                             /*Opts=*/{}, "Foo.m");
+
+  auto C = Results.Completions;
+  EXPECT_THAT(C, ElementsAre(Named("secondArgument:")));
+  EXPECT_THAT(C, ElementsAre(Kind(CompletionItemKind::Method)));
+  EXPECT_THAT(C, ElementsAre(Signature("(id)object")));
+}
+
 TEST(CompletionTest, CursorInSnippets) {
   clangd::CodeCompleteOptions Options;
   Options.EnableSnippets = true;
@@ -3100,13 +3202,81 @@ TEST(CompletionTest, FunctionArgsExist) {
       Contains(AllOf(Labeled("Container<typename T>(int Size)"),
                      SnippetSuffix("<${1:typename T}>(${2:int Size})"),
                      Kind(CompletionItemKind::Constructor))));
-  // FIXME(kirillbobyrev): It would be nice to still produce the template
-  // snippet part: in this case it should be "<${1:typename T}>".
   EXPECT_THAT(
       completions(Context + "Container c = Cont^()", {}, Opts).Completions,
       Contains(AllOf(Labeled("Container<typename T>(int Size)"),
+                     SnippetSuffix("<${1:typename T}>"),
+                     Kind(CompletionItemKind::Constructor))));
+  EXPECT_THAT(
+      completions(Context + "Container c = Cont^<int>()", {}, Opts).Completions,
+      Contains(AllOf(Labeled("Container<typename T>(int Size)"),
                      SnippetSuffix(""),
                      Kind(CompletionItemKind::Constructor))));
+}
+
+TEST(CompletionTest, NoCrashDueToMacroOrdering) {
+  EXPECT_THAT(completions(R"cpp(
+    #define ECHO(X) X
+    #define ECHO2(X) ECHO(X)
+    int finish_preamble = EC^HO(2);)cpp")
+                  .Completions,
+              UnorderedElementsAre(Labeled("ECHO(X)"), Labeled("ECHO2(X)")));
+}
+
+TEST(CompletionTest, ObjCCategoryDecls) {
+  TestTU TU;
+  TU.ExtraArgs.push_back("-xobjective-c");
+  TU.HeaderCode = R"objc(
+  @interface Foo
+  @end
+
+  @interface Foo (FooExt1)
+  @end
+
+  @interface Foo (FooExt2)
+  @end
+
+  @interface Bar
+  @end
+
+  @interface Bar (BarExt)
+  @end)objc";
+
+  {
+    Annotations Test(R"objc(
+  @implementation Foo (^)
+  @end
+  )objc");
+    TU.Code = Test.code().str();
+    auto Results = completions(TU, Test.point());
+    EXPECT_THAT(Results.Completions,
+                UnorderedElementsAre(Labeled("FooExt1"), Labeled("FooExt2")));
+  }
+  {
+    Annotations Test(R"objc(
+  @interface Foo (^)
+  @end
+  )objc");
+    TU.Code = Test.code().str();
+    auto Results = completions(TU, Test.point());
+    EXPECT_THAT(Results.Completions, UnorderedElementsAre(Labeled("BarExt")));
+  }
+}
+
+TEST(CompletionTest, PreambleCodeComplete) {
+  llvm::StringLiteral Baseline = "\n#define MACRO 12\nint num = MACRO;";
+  llvm::StringLiteral ModifiedCC =
+      "#include \"header.h\"\n#define MACRO 12\nint num = MACRO; int num2 = M^";
+
+  Annotations Test(ModifiedCC);
+  auto BaselineTU = TestTU::withCode(Baseline);
+  auto ModifiedTU = TestTU::withCode(Test.code());
+
+  MockFS FS;
+  auto Inputs = ModifiedTU.inputs(FS);
+  auto Result = codeComplete(testPath(ModifiedTU.Filename), Test.point(),
+                             BaselineTU.preamble().get(), Inputs, {});
+  EXPECT_THAT(Result.Completions, Not(testing::IsEmpty()));
 }
 
 } // namespace

@@ -29,6 +29,7 @@
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/KnownBits.h"
@@ -837,7 +838,7 @@ bool VETargetLowering::isFPImmLegal(const APFloat &Imm, EVT VT,
 /// alignment error (trap) on the target machine.
 bool VETargetLowering::allowsMisalignedMemoryAccesses(EVT VT,
                                                       unsigned AddrSpace,
-                                                      unsigned Align,
+                                                      Align A,
                                                       MachineMemOperand::Flags,
                                                       bool *Fast) const {
   if (Fast) {
@@ -997,7 +998,7 @@ SDValue VETargetLowering::makeAddress(SDValue Op, SelectionDAG &DAG) const {
 
 // The mappings for emitLeading/TrailingFence for VE is designed by following
 // http://www.cl.cam.ac.uk/~pes20/cpp/cpp0xmappings.html
-Instruction *VETargetLowering::emitLeadingFence(IRBuilder<> &Builder,
+Instruction *VETargetLowering::emitLeadingFence(IRBuilderBase &Builder,
                                                 Instruction *Inst,
                                                 AtomicOrdering Ord) const {
   switch (Ord) {
@@ -1018,7 +1019,7 @@ Instruction *VETargetLowering::emitLeadingFence(IRBuilder<> &Builder,
   llvm_unreachable("Unknown fence ordering in emitLeadingFence");
 }
 
-Instruction *VETargetLowering::emitTrailingFence(IRBuilder<> &Builder,
+Instruction *VETargetLowering::emitTrailingFence(IRBuilderBase &Builder,
                                                  Instruction *Inst,
                                                  AtomicOrdering Ord) const {
   switch (Ord) {

@@ -15,9 +15,12 @@
 
 // To get the test dialect def.
 include "TestOps.td"
+include "mlir/IR/BuiltinTypes.td"
+include "mlir/Interfaces/DataLayoutInterfaces.td"
 
 // All of the types will extend this class.
-class Test_Type<string name> : TypeDef<Test_Dialect, name> { }
+class Test_Type<string name, list<Trait> traits = []>
+  : TypeDef<Test_Dialect, name, traits>;
 
 def SimpleTypeA : Test_Type<"SimpleA"> {
   let mnemonic = "smpla";
@@ -48,12 +51,12 @@ def CompoundTypeA : Test_Type<"CompoundA"> {
 // An example of how one could implement a standard integer.
 def IntegerType : Test_Type<"TestInteger"> {
   let mnemonic = "int";
-  let genVerifyInvariantsDecl = 1;
+  let genVerifyDecl = 1;
   let parameters = (
     ins
     "unsigned":$width,
     // SignednessSemantics is defined below.
-    "::mlir::test::TestIntegerType::SignednessSemantics":$signedness
+    "::test::TestIntegerType::SignednessSemantics":$signedness
   );
 
   // We define the printer inline.
@@ -67,9 +70,7 @@ def IntegerType : Test_Type<"TestInteger"> {
   let builders = [
     TypeBuilder<(ins "unsigned":$width,
                      CArg<"SignednessSemantics", "Signless">:$signedness), [{
-      return Base::get($_ctxt, width, signedness);
-    }], [{
-      return Base::getChecked($_loc, width, signedness);
+      return $_get($_ctxt, width, signedness);
     }]>
   ];
   let skipDefaultBuilders = 1;
@@ -83,8 +84,8 @@ def IntegerType : Test_Type<"TestInteger"> {
     int width;
     if ($_parser.parseInteger(width)) return Type();
     if ($_parser.parseGreater()) return Type();
-    Location loc = $_parser.getEncodedSourceLoc($_parser.getNameLoc());
-    return getChecked(loc, width, signedness);
+    ::mlir::Location loc = $_parser.getEncodedSourceLoc($_parser.getNameLoc());
+    return getChecked(loc, loc.getContext(), width, signedness);
   }];
 
   // Any extra code one wants in the type's class declaration.
@@ -113,7 +114,7 @@ class FieldInfo_Type<string name> : Test_Type<name> {
     // An ArrayRef of something which requires allocation in the storage
     // constructor.
     ArrayRefOfSelfAllocationParameter<
-      "::mlir::test::FieldInfo", // FieldInfo is defined/declared in TestTypes.h.
+      "::test::FieldInfo", // FieldInfo is defined/declared in TestTypes.h.
       "Models struct fields">: $fields
   );
 
@@ -135,7 +136,7 @@ class FieldInfo_Type<string name> : Test_Type<name> {
     llvm::SmallVector<FieldInfo, 4> parameters;
     if ($_parser.parseLess()) return Type();
     while (mlir::succeeded($_parser.parseOptionalLBrace())) {
-      StringRef name;
+      llvm::StringRef name;
       if ($_parser.parseKeyword(&name)) return Type();
       if ($_parser.parseComma()) return Type();
       Type type;
@@ -151,6 +152,41 @@ class FieldInfo_Type<string name> : Test_Type<name> {
 
 def StructType : FieldInfo_Type<"Struct"> {
     let mnemonic = "struct";
+}
+
+def TestType : Test_Type<"Test", [
+  DeclareTypeInterfaceMethods<TestTypeInterface>
+]> {
+  let mnemonic = "test_type";
+}
+
+def TestTypeWithLayoutType : Test_Type<"TestTypeWithLayout", [
+  DeclareTypeInterfaceMethods<DataLayoutTypeInterface, ["areCompatible"]>
+]> {
+  let mnemonic = "test_type_with_layout";
+  let parameters = (ins "unsigned":$key);
+  let extraClassDeclaration = [{
+    ::mlir::LogicalResult verifyEntries(::mlir::DataLayoutEntryListRef params,
+                                ::mlir::Location loc) const;
+
+  private:
+    unsigned extractKind(::mlir::DataLayoutEntryListRef params,
+                         ::llvm::StringRef expectedKind) const;
+
+  public:
+  }];
+}
+
+def TestMemRefElementType : Test_Type<"TestMemRefElementType",
+                                      [MemRefElementTypeInterface]> {
+  let mnemonic = "memref_element";
+}
+
+def TestTypeTrait : NativeTypeTrait<"TestTypeTrait">;
+
+// The definition of a singleton type that has a trait.
+def TestTypeWithTrait : Test_Type<"TestTypeWithTrait", [TestTypeTrait]> {
+  let mnemonic = "test_type_with_trait";
 }
 
 #endif // TEST_TYPEDEFS

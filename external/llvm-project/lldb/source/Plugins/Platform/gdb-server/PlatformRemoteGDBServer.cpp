@@ -30,6 +30,7 @@
 #include "lldb/Utility/UriParser.h"
 
 #include "Plugins/Process/Utility/GDBRemoteSignals.h"
+#include "Plugins/Process/gdb-remote/ProcessGDBRemote.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -202,13 +203,16 @@ Status PlatformRemoteGDBServer::GetFileWithUUID(const FileSpec &platform_file,
 /// Default Constructor
 PlatformRemoteGDBServer::PlatformRemoteGDBServer()
     : Platform(false), // This is a remote platform
-      m_gdb_client() {}
+      m_gdb_client() {
+  m_gdb_client.SetPacketTimeout(
+      process_gdb_remote::ProcessGDBRemote::GetPacketTimeout());
+}
 
 /// Destructor.
 ///
 /// The destructor is virtual since this class is designed to be
 /// inherited from by the plug-in instance.
-PlatformRemoteGDBServer::~PlatformRemoteGDBServer() {}
+PlatformRemoteGDBServer::~PlatformRemoteGDBServer() = default;
 
 bool PlatformRemoteGDBServer::GetSupportedArchitectureAtIndex(uint32_t idx,
                                                               ArchSpec &arch) {
@@ -471,11 +475,10 @@ Status PlatformRemoteGDBServer::KillProcess(const lldb::pid_t pid) {
   return Status();
 }
 
-lldb::ProcessSP PlatformRemoteGDBServer::DebugProcess(
-    ProcessLaunchInfo &launch_info, Debugger &debugger,
-    Target *target, // Can be NULL, if NULL create a new target, else use
-                    // existing one
-    Status &error) {
+lldb::ProcessSP
+PlatformRemoteGDBServer::DebugProcess(ProcessLaunchInfo &launch_info,
+                                      Debugger &debugger, Target &target,
+                                      Status &error) {
   lldb::ProcessSP process_sp;
   if (IsRemote()) {
     if (IsConnected()) {
@@ -485,32 +488,21 @@ lldb::ProcessSP PlatformRemoteGDBServer::DebugProcess(
         error.SetErrorStringWithFormat("unable to launch a GDB server on '%s'",
                                        GetHostname());
       } else {
-        if (target == nullptr) {
-          TargetSP new_target_sp;
+        // The darwin always currently uses the GDB remote debugger plug-in
+        // so even when debugging locally we are debugging remotely!
+        process_sp = target.CreateProcess(launch_info.GetListener(),
+                                          "gdb-remote", nullptr, true);
 
-          error = debugger.GetTargetList().CreateTarget(
-              debugger, "", "", eLoadDependentsNo, nullptr, new_target_sp);
-          target = new_target_sp.get();
-        } else
-          error.Clear();
-
-        if (target && error.Success()) {
-          // The darwin always currently uses the GDB remote debugger plug-in
-          // so even when debugging locally we are debugging remotely!
-          process_sp = target->CreateProcess(launch_info.GetListener(),
-                                             "gdb-remote", nullptr, true);
-
-          if (process_sp) {
+        if (process_sp) {
+          error = process_sp->ConnectRemote(connect_url.c_str());
+          // Retry the connect remote one time...
+          if (error.Fail())
             error = process_sp->ConnectRemote(connect_url.c_str());
-            // Retry the connect remote one time...
-            if (error.Fail())
-              error = process_sp->ConnectRemote(connect_url.c_str());
-            if (error.Success())
-              error = process_sp->Launch(launch_info);
-            else if (debugserver_pid != LLDB_INVALID_PROCESS_ID) {
-              printf("error: connect remote failed (%s)\n", error.AsCString());
-              KillSpawnedProcess(debugserver_pid);
-            }
+          if (error.Success())
+            error = process_sp->Launch(launch_info);
+          else if (debugserver_pid != LLDB_INVALID_PROCESS_ID) {
+            printf("error: connect remote failed (%s)\n", error.AsCString());
+            KillSpawnedProcess(debugserver_pid);
           }
         }
       }
@@ -736,8 +728,8 @@ const UnixSignalsSP &PlatformRemoteGDBServer::GetRemoteUnixSignals() {
   m_remote_signals_sp = UnixSignals::Create(GetRemoteSystemArchitecture());
 
   StringExtractorGDBRemote response;
-  auto result = m_gdb_client.SendPacketAndWaitForResponse("jSignalsInfo",
-                                                          response, false);
+  auto result =
+      m_gdb_client.SendPacketAndWaitForResponse("jSignalsInfo", response);
 
   if (result != decltype(result)::Success ||
       response.GetResponseType() != response.eResponse)
@@ -839,7 +831,7 @@ size_t PlatformRemoteGDBServer::ConnectToWaitingProcesses(Debugger &debugger,
   GetPendingGdbServerList(connection_urls);
 
   for (size_t i = 0; i < connection_urls.size(); ++i) {
-    ConnectProcess(connection_urls[i].c_str(), "", debugger, nullptr, error);
+    ConnectProcess(connection_urls[i].c_str(), "gdb-remote", debugger, nullptr, error);
     if (error.Fail())
       return i; // We already connected to i process succsessfully
   }

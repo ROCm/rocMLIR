@@ -54,14 +54,26 @@ RegisterContext::GetRegisterInfoByName(llvm::StringRef reg_name,
   if (reg_name.empty())
     return nullptr;
 
+  // Generic register names take precedence over specific register names.
+  // For example, on x86 we want "sp" to refer to the complete RSP/ESP register
+  // rather than the 16-bit SP pseudo-register.
+  uint32_t generic_reg = Args::StringToGenericRegister(reg_name);
+  if (generic_reg != LLDB_INVALID_REGNUM) {
+    const RegisterInfo *reg_info =
+        GetRegisterInfo(eRegisterKindGeneric, generic_reg);
+    if (reg_info)
+      return reg_info;
+  }
+
   const uint32_t num_registers = GetRegisterCount();
   for (uint32_t reg = start_idx; reg < num_registers; ++reg) {
     const RegisterInfo *reg_info = GetRegisterInfoAtIndex(reg);
 
-    if (reg_name.equals_lower(reg_info->name) ||
-        reg_name.equals_lower(reg_info->alt_name))
+    if (reg_name.equals_insensitive(reg_info->name) ||
+        reg_name.equals_insensitive(reg_info->alt_name))
       return reg_info;
   }
+
   return nullptr;
 }
 
@@ -148,6 +160,20 @@ bool RegisterContext::SetPC(uint64_t pc) {
       m_thread.ClearStackFrames();
   }
   return success;
+}
+
+bool RegisterContext::GetPCForSymbolication(Address &address) {
+  addr_t pc = GetPC(LLDB_INVALID_ADDRESS);
+  if (pc == LLDB_INVALID_ADDRESS)
+    return false;
+  TargetSP target_sp = m_thread.CalculateTarget();
+  if (!target_sp.get())
+    return false;
+
+  if (!BehavesLikeZerothFrame() && pc != 0)
+    pc--;
+  address.SetLoadAddress(pc, target_sp.get());
+  return true;
 }
 
 bool RegisterContext::SetPC(Address addr) {
