@@ -91,6 +91,8 @@ void registerGpuSerializeToCubinPass();
 /// Register pass to serialize GPU kernel functions to a HSAco binary
 /// annotation.
 void registerGpuSerializeToHsacoPass();
+std::unique_ptr<Pass> createGpuSerializeToHsacoPass(
+    StringRef triple, StringRef arch, StringRef features);
 
 /// Generate the code for registering passes.
 #define GEN_PASS_REGISTRATION

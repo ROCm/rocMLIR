@@ -141,21 +141,21 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     message(STATUS "ROCm HIP version: ${HIP_VERSION}")
   endif()
 
-  target_compile_definitions(obj.MLIRGPUOps
+  target_compile_definitions(obj.MLIRGPUTransforms
     PRIVATE
     __HIP_PLATFORM_HCC__
     __ROCM_PATH__="${ROCM_PATH}"
     MLIR_GPU_TO_HSACO_PASS_ENABLE=1
   )
 
-  target_include_directories(obj.MLIRGPUOps
+  target_include_directories(obj.MLIRGPUTransforms
     PRIVATE
     ${MLIR_SOURCE_DIR}/../lld/include
     ${HIP_PATH}/include
     ${ROCM_PATH}/include
   )
 
-  target_link_libraries(MLIRGPUOps
+  target_link_libraries(MLIRGPUTransforms
     PRIVATE
     lldELF
     MLIRROCDLToLLVMIRTranslation

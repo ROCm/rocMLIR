@@ -31,6 +31,7 @@
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/LineIterator.h"
 #include "llvm/Support/Program.h"
+#include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/WithColor.h"
@@ -48,7 +49,7 @@ namespace {
 class SerializeToHsacoPass
     : public PassWrapper<SerializeToHsacoPass, gpu::SerializeToBlobPass> {
 public:
-  SerializeToHsacoPass();
+  SerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features);
 
   StringRef getArgument() const override { return "gpu-to-hsaco"; }
   StringRef getDescription() const override {
@@ -132,12 +133,13 @@ static void maybeSetOption(Pass::Option<std::string> &option,
     option = getValue();
 }
 
-SerializeToHsacoPass::SerializeToHsacoPass() {
-  maybeSetOption(this->triple, [] { return "amdgcn-amd-amdhsa"; });
-  maybeSetOption(this->chip, [] {
-    static auto chip = getDefaultChip();
-    return chip;
+SerializeToHsacoPass::SerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features) {
+  maybeSetOption(this->triple, [&triple] { return triple.str(); });
+  maybeSetOption(this->chip, [&arch] {
+    //static auto chip = getDefaultChip();
+    return arch.str();
   });
+  maybeSetOption(this->features, [&features] { return features.str(); });
 }
 
 void SerializeToHsacoPass::getDependentDialects(
@@ -172,8 +174,10 @@ SerializeToHsacoPass::assembleIsa(const std::string &isa) {
   std::unique_ptr<llvm::MCAsmInfo> mai(
       target->createMCAsmInfo(*mri, this->triple, mcOptions));
   mai->setRelaxELFRelocations(true);
+  std::unique_ptr<llvm::MCSubtargetInfo> sti(
+      target->createMCSubtargetInfo(this->triple, this->chip, this->features));
 
-  llvm::MCContext ctx(triple, mai.get(), mri.get(), &srcMgr, &mcOptions);
+  llvm::MCContext ctx(triple, mai.get(), mri.get(), sti.get(), &srcMgr, &mcOptions);
   std::unique_ptr<llvm::MCObjectFileInfo> mofi(target->createMCObjectFileInfo(
       ctx, /*PIC=*/false, /*LargeCodeModel=*/false));
   ctx.setObjectFileInfo(mofi.get());
@@ -184,8 +188,6 @@ SerializeToHsacoPass::assembleIsa(const std::string &isa) {
 
   std::unique_ptr<llvm::MCStreamer> mcStreamer;
   std::unique_ptr<llvm::MCInstrInfo> mcii(target->createMCInstrInfo());
-  std::unique_ptr<llvm::MCSubtargetInfo> sti(
-      target->createMCSubtargetInfo(this->triple, this->chip, this->features));
 
   llvm::MCCodeEmitter *ce = target->createMCCodeEmitter(*mcii, *mri, ctx);
   llvm::MCAsmBackend *mab = target->createMCAsmBackend(*sti, *mri, mcOptions);
@@ -281,9 +283,16 @@ void mlir::registerGpuSerializeToHsacoPass() {
         LLVMInitializeAMDGPUTargetInfo();
         LLVMInitializeAMDGPUTargetMC();
 
-        return std::make_unique<SerializeToHsacoPass>();
+        auto chip = getDefaultChip();
+        return std::make_unique<SerializeToHsacoPass>("amdgcn-amd-amdhsa", chip, "");
       });
 }
+
+std::unique_ptr<Pass>
+mlir::createGpuSerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features) {
+  return std::make_unique<SerializeToHsacoPass>(triple, arch, features);
+}
+
 #else  // MLIR_GPU_TO_HSACO_PASS_ENABLE
 void mlir::registerGpuSerializeToHsacoPass() {}
 #endif // MLIR_GPU_TO_HSACO_PASS_ENABLE

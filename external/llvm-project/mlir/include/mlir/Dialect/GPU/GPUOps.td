@@ -689,7 +689,6 @@ def GPU_LDSBarrierOp : GPU_Op<"lds_barrier"> {
     The "lds_barrier" op synchronizes all LDS activities of a workgroup.
   }];
   let parser = [{ return success(); }];
-  let printer = [{ p << getOperationName(); }];
 }
 
 def GPU_GPUModuleOp : GPU_Op<"module", [
@@ -1122,7 +1121,6 @@ def GPU_MFMAOp:
     The `gpu.mfma` op is an abstraction of XDLOPS.
   }];
   let parser = [{ return parseMFMAOp(parser, result); }];
-  let printer = [{ return ::print(p, *this); }];
   let verifier = [{ return ::verify(*this); }];
 }
 
@@ -1135,7 +1133,6 @@ def GPU_BFConvertOp :
     The 'gpu.bf_convert' op converts an fp32 value to bf16 value. Stored as i16 for usage compatibility.
   }];
   let parser = [{ return parseBFConvertOp(parser, result); }];
-  let printer = [{ return ::print(p, *this); }];
   let verifier = [{ return ::verify(*this); }];
 }
 
@@ -1154,7 +1151,6 @@ def GPU_MubufLoadOp :
     supported well on AMD GPU.
   }];
   let parser = [{ return parseMubufLoadOp(parser, result); }];
-  let printer = [{ return ::print(p, *this); }];
   let verifier = [{ return ::verify(*this); }];
 }
 
@@ -1177,7 +1173,6 @@ def GPU_MubufStoreOp :
     supported well on AMD GPU.
   }];
   let parser = [{ return parseMubufStoreOp(parser, result); }];
-  let printer = [{ return ::print(p, *this); }];
   let verifier = [{ return ::verify(*this); }];
 }
 
@@ -1200,7 +1195,6 @@ def GPU_RawbufStoreOp :
     supported well on AMD GPU.
   }];
   let parser = [{ return parseRawbufStoreOp(parser, result); }];
-  let printer = [{ return ::print(p, *this); }];
   let verifier = [{ return ::verify(*this); }];
 }
 
@@ -1216,7 +1210,6 @@ def GPU_AtomicFAddOp :
     intrinsics.
   }];
   let parser = [{ return parseAtomicFAddOp(parser, result); }];
-  let printer = [{ return ::print(p, *this); }];
   let verifier = [{ return ::verify(*this); }];
 }
 #endif // GPU_OPS
