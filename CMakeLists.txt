@@ -37,7 +37,6 @@ set(MLIR_ENABLE_SQLITE "${MLIR_MIOPEN_SQLITE_ENABLED}")
 set(LLVM_ENABLE_ZLIB "OFF" CACHE STRING "")
 set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
 
-set(USE_ROCM_4_4_OR_OLDER 1 CACHE BOOL "Use the rocm_4.4 or older release")
 # LLVM settings that have an effect on the MLIR dialect
 set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
 
@@ -69,12 +68,16 @@ endif()
 if( BUILD_FAT_LIBMLIRMIOPEN )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB OFF CACHE BOOL "")
+  set(LLVM_INSTALL_TOOLCHAIN_ONLY ON CACHE BOOL "")
+  # Skip linking with HIP so our library is runtime independent
+  set(USE_ROCM_4_4_OR_OLDER 0 CACHE BOOL "Make libMLIRMIOpen runtime independent")
   set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
 else()
   set(BUILD_SHARED_LIBS ON CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB ON CACHE BOOL "")
   set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
   set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "")
+  set(USE_ROCM_4_4_OR_OLDER 1 CACHE BOOL "Use the rocm_4.4 or older release")
 endif()
 
 # Set up the build for the LLVM/MLIR git-submodule
