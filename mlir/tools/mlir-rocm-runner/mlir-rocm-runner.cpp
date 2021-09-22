@@ -20,6 +20,7 @@
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/Async/Passes.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/TargetSelect.h"
 
@@ -46,6 +47,12 @@ static cl::opt<std::string> features("feature", cl::desc("target features"),
                                      cl::value_desc("AMDGPU target features"),
                                      cl::init(""));
 
+static cl::opt<int> deviceNum(
+    "device", cl::desc("Device number"),
+    cl::value_desc(
+        "0-indexed number of the GPU to execute on for multiple-GPU systems"),
+    cl::init(0));
+
 namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
@@ -55,11 +62,16 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   PassManager pm(m.getContext());
   applyPassManagerCLOptions(pm);
 
+  if (failed(switchToDevice(deviceNum.getValue()))) {
+    return failure();
+  }
+
   bool systemOverride = false;
   if (tripleName.empty() && targetChip.empty() && features.empty()) {
     systemOverride = true;
   }
-  BackendUtils utils(tripleName, targetChip, features, systemOverride);
+  BackendUtils utils(tripleName, targetChip, features, deviceNum.getValue(),
+                     systemOverride);
 
   pm.addPass(createLowerToCFGPass());
   pm.addPass(createGpuKernelOutliningPass());

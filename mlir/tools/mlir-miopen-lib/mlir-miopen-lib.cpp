@@ -294,7 +294,8 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
     return MIIR_INVALID_PARAM;
   }
 
-  BackendUtils utils(triple, chip, features);
+  BackendUtils utils(triple, chip, features,
+                     /*deviceNum=*/llvm::None, /*systemOverride=*/false);
 
   // Passes for lowering MIOpen dialect.
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());

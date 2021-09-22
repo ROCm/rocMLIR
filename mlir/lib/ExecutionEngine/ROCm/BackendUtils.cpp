@@ -80,18 +80,25 @@ void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
 BackendUtils::BackendUtils(const std::string &defaultTriple,
                            const std::string &defaultChip,
                            const std::string &defaultFeatures,
-                           bool systemOverride)
-    : triple(defaultTriple), chip(defaultChip), features(defaultFeatures) {
+                           const Optional<int> deviceNum, bool systemOverride)
+    : triple(defaultTriple), chip(defaultChip), features(defaultFeatures),
+      deviceNum(deviceNum) {
   if (systemOverride) {
     triple = kTargetTriple;
     configTarget(chip, features);
   }
 }
 
-BackendUtils::BackendUtils() : BackendUtils("", "", "", true) {}
+BackendUtils::BackendUtils() : BackendUtils("", "", "", 0, true) {}
 
 void BackendUtils::configTarget(std::string &targetChip,
                                 std::string &features) {
+  if (!deviceNum.hasValue()) {
+    llvm::WithColor::warning(llvm::errs()
+                             << "Runtime architecture detection"
+                                "without a device specified, defaulting to 0");
+  }
+  int deviceId = deviceNum.getValueOr(0);
   // Locate rocm_agent_enumerator.
   llvm::ErrorOr<std::string> rocmAgentEnumerator = llvm::sys::findProgramByName(
       kRocmAgentEnumerator, {__ROCM_PATH__ "/bin"});
@@ -148,26 +155,33 @@ void BackendUtils::configTarget(std::string &targetChip,
         << "\n";
     return;
   }
+  int lineCount = 0;
 #if __USE_ROCM_4_4_OR_OLDER__
   for (llvm::line_iterator lines(*gfxArchList); !lines.is_at_end(); ++lines) {
     // Skip the line with content "gfx000".
-    if (*lines == "gfx000")
+    if (*lines == "gfx000") {
       continue;
-    // Use the first ISA version found.
+    }
+    if (lineCount++ != deviceId) {
+      continue;
+    }
     targetChip = lines->str();
     break;
   }
   std::string gcnArchName;
-  getGpuGCNArchName(0, gcnArchName);
+  getGpuGCNArchName(deviceId, gcnArchName);
   std::string chip;
   auto status = IsaNameParser::parseArchName(gcnArchName, chip, features);
   if (status.failed()) {
     llvm_unreachable("HIP ArchName parsing should never fail.");
   }
 #else
+  int lineCount = 0;
   std::string gcnArchName;
   for (llvm::line_iterator lines(*gfxArchList); !lines.is_at_end(); ++lines) {
-    // Use the first Arch name found.
+    if (lineCount++ != deviceId) {
+      continue;
+    }
     gcnArchName = lines->str();
     break;
   }
@@ -175,5 +189,42 @@ void BackendUtils::configTarget(std::string &targetChip,
   if (status.failed()) {
     llvm_unreachable("ArchName parsing failed.");
   }
+#endif
+}
+
+LogicalResult mlir::switchToDevice(int id) {
+#if __USE_ROCM_4_4_OR_OLDER__
+  int maxDeviceCount = -1;
+  hipGetDeviceCount(&maxDeviceCount);
+  if (maxDeviceCount <= id) {
+    llvm::WithColor::error(
+        llvm::errs()
+        << "Error: Requested GPU ID " << id
+        << "is larger than the number of devices available on the system ("
+        << maxDeviceCount << ")\n");
+    if (maxDeviceCount <= 0) {
+      llvm::WithColor::note(
+          llvm::errs() << "Note: No executors were found. Confirm you have a"
+                          "HIP-capable GPU and the permissions to use it\n");
+    }
+    if (maxDeviceCount == 1 && id == 1) {
+      llvm::WithColor::note(llvm::errs()
+                            << "Note: the device ID is 0-indexed\n");
+    }
+    return failure();
+  }
+
+  // The device number is per-thread, but the JIT'd code runs on one thread
+  // so this is safe to put here
+  if (HIP_SUCCESS != hipSetDevice(id)) {
+    llvm::WithColor::error(llvm::errs() << "Error: Couldn't switch to device "
+                                        << id << "\n");
+  }
+  return success();
+
+#else // __USE_ROCM_4_4_OR_OLDER__
+  llvm_unreachable(
+      "switchToDevice() should not be called when MLIR isn't managing"
+      "the runtime");
 #endif
 }

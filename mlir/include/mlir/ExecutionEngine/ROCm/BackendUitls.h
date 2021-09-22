@@ -20,6 +20,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Transforms/Passes.h"
+#include "llvm/ADT/None.h"
 
 namespace mlir {
 
@@ -27,22 +28,28 @@ class BackendUtils {
 public:
   BackendUtils();
   BackendUtils(const std::string &triple, const std::string &chip,
-               const std::string &feature, bool systemOverride = false);
+               const std::string &feature,
+               const llvm::Optional<int> deviceNum = llvm::None,
+               bool systemOverride = false);
 
   std::string getChip() { return chip; }
   std::string getFeatures() { return features; }
   std::string getTriple() { return triple; }
+  llvm::Optional<int> getDeviceNum() { return deviceNum; }
 
 private:
   std::string triple;
   std::string chip;
   std::string features;
+  llvm::Optional<int> deviceNum;
 
   using Blob = SmallVector<char, 0>;
   void setupDefaults(std::string &chip, std::string &features,
                      std::string &triple);
   void configTarget(std::string &targetChip, std::string &features);
 };
+
+LogicalResult switchToDevice(int id);
 } // namespace mlir
 
 #endif // MLIR_EXECUTIONENGINE_ROCM_BACKENDUTILS_H_
