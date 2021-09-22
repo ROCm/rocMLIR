@@ -13,14 +13,14 @@ func @conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf3
 // LOWERING: gpu.launch_func  @miopen_conv2d_gkcyx_ngchw_ngkhw_0_module::@miopen_conv2d_gkcyx_ngchw_ngkhw_0  blocks in (%{{.*}}, %{{.*}}, %{{.*}}) threads in (%{{.*}}, %{{.*}}, %{{.*}}) args([[FILTER_MEMREF]] : memref<1x128x8x3x3xf32>, [[INPUT_MEMREF]] : memref<128x1x8x32x32xf32>, [[OUTPUT_MEMREF]] : memref<128x1x128x30x30xf32>)
 
 func @main() {
-  // allocate CPU memory.
-  %0 = alloc() : memref<1x128x8x3x3xf32>
-  %1 = alloc() : memref<128x1x8x32x32xf32>
-  %2 = alloc() : memref<128x1x128x30x30xf32>
+  // memref.allocate CPU memory.
+  %0 = memref.alloc() : memref<1x128x8x3x3xf32>
+  %1 = memref.alloc() : memref<128x1x8x32x32xf32>
+  %2 = memref.alloc() : memref<128x1x128x30x30xf32>
 
-  %3 = memref_cast %0 : memref<1x128x8x3x3xf32> to memref<?x?x?x?x?xf32>
-  %4 = memref_cast %1 : memref<128x1x8x32x32xf32> to memref<?x?x?x?x?xf32>
-  %5 = memref_cast %2 : memref<128x1x128x30x30xf32> to memref<?x?x?x?x?xf32>
+  %3 = memref.cast %0 : memref<1x128x8x3x3xf32> to memref<?x?x?x?x?xf32>
+  %4 = memref.cast %1 : memref<128x1x8x32x32xf32> to memref<?x?x?x?x?xf32>
+  %5 = memref.cast %2 : memref<128x1x128x30x30xf32> to memref<?x?x?x?x?xf32>
 
   // populate initial values.
   %cst = constant 1.0 : f32
@@ -29,7 +29,7 @@ func @main() {
   call @mcpuMemset5DFloat(%4, %cst) : (memref<?x?x?x?x?xf32>, f32) -> ()
   call @mcpuMemset5DFloat(%5, %cst0) : (memref<?x?x?x?x?xf32>, f32) -> ()
 
-  // allocate GPU memory.
+  // memref.allocate GPU memory.
   %6 = call @mgpuMemAlloc5DFloat(%3) : (memref<?x?x?x?x?xf32>) -> (memref<?x?x?x?x?xf32>)
   %7 = call @mgpuMemAlloc5DFloat(%4) : (memref<?x?x?x?x?xf32>) -> (memref<?x?x?x?x?xf32>)
   %8 = call @mgpuMemAlloc5DFloat(%5) : (memref<?x?x?x?x?xf32>) -> (memref<?x?x?x?x?xf32>)
@@ -44,9 +44,9 @@ func @main() {
   call @mgpuMemCopy5DFloat(%5, %8, %cst_h2d) : (memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, i32) -> ()
 
   // launch kernel.
-  %filter = memref_cast %6 : memref<?x?x?x?x?xf32> to memref<1x128x8x3x3xf32>
-  %input = memref_cast %7 : memref<?x?x?x?x?xf32> to memref<128x1x8x32x32xf32>
-  %output = memref_cast %8 : memref<?x?x?x?x?xf32> to memref<128x1x128x30x30xf32>
+  %filter = memref.cast %6 : memref<?x?x?x?x?xf32> to memref<1x128x8x3x3xf32>
+  %input = memref.cast %7 : memref<?x?x?x?x?xf32> to memref<128x1x8x32x32xf32>
+  %output = memref.cast %8 : memref<?x?x?x?x?xf32> to memref<128x1x128x30x30xf32>
   call @conv2d(%filter, %input, %output) : (memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>) -> ()
 
   // transfer data GPU -> CPU.
@@ -54,7 +54,7 @@ func @main() {
 
   // verify result.
   // TBD. Add more verifying logic.
-  %9 = memref_cast %5 : memref<?x?x?x?x?xf32> to memref<*xf32>
+  %9 = memref.cast %5 : memref<?x?x?x?x?xf32> to memref<*xf32>
   call @print_memref_f32(%9) : (memref<*xf32>) -> ()
 
   // dellocate GPU memory.
@@ -62,10 +62,10 @@ func @main() {
   call @mgpuMemDealloc5DFloat(%7) : (memref<?x?x?x?x?xf32>) -> ()
   call @mgpuMemDealloc5DFloat(%8) : (memref<?x?x?x?x?xf32>) -> ()
 
-  // deallocate CPU memory.
-  dealloc %0 : memref<1x128x8x3x3xf32>
-  dealloc %1 : memref<128x1x8x32x32xf32>
-  dealloc %2 : memref<128x1x128x30x30xf32>
+  // memref.deallocate CPU memory.
+  memref.dealloc %0 : memref<1x128x8x3x3xf32>
+  memref.dealloc %1 : memref<128x1x8x32x32xf32>
+  memref.dealloc %2 : memref<128x1x128x30x30xf32>
 
   return
 }
