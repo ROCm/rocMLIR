@@ -27,7 +27,7 @@ config.suffixes = ['.td', '.mlir', '.toy', '.ll', '.tc', '.py']
 config.test_source_root = os.path.dirname(__file__)
 
 # test_exec_root: The root path where tests should be run.
-config.test_exec_root = os.path.join(config.mlir_obj_root, 'test')
+config.test_exec_root = os.path.join(config.mlir_obj_root, 'mlir', 'test')
 
 config.substitutions.append(('%PATH%', config.environment['PATH']))
 config.substitutions.append(('%shlibext', config.llvm_shlib_ext))
@@ -68,14 +68,16 @@ config.excludes = ['Inputs', 'CMakeLists.txt', 'README.txt', 'LICENSE.txt',
 config.test_source_root = os.path.dirname(__file__)
 
 # test_exec_root: The root path where tests should be run.
-config.test_exec_root = os.path.join(config.mlir_obj_root, 'test')
+config.test_exec_root = os.path.join(config.mlir_obj_root, 'mlir', 'test')
 
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment('PATH', config.mlir_miopen_tools_dir, append_path=True)
 llvm_config.with_environment('PATH', config.lit_tools_dir, append_path=True)
 llvm_config.with_environment('PATH', config.llvm_tools_dir, append_path=True)
+llvm_config.with_environment('PATH', config.test_exec_root, append_path=True)
 
-tool_dirs = [config.mlir_miopen_tools_dir, config.mlir_tools_dir, config.llvm_tools_dir]
+tool_dirs = [config.mlir_miopen_tools_dir, config.mlir_tools_dir,
+    config.llvm_tools_dir, config.test_exec_root]
 tools = [
     'mlir-opt',
     'mlir-translate',
@@ -89,6 +91,7 @@ tools.extend([
     ToolSubst('toy-ch3', unresolved='ignore'),
     ToolSubst('toy-ch4', unresolved='ignore'),
     ToolSubst('toy-ch5', unresolved='ignore'),
+    ToolSubst('mlir-miopen-e2e-validate.sh', unresolved='fatal'),
     ToolSubst('%cuda_wrapper_library_dir', config.cuda_wrapper_library_dir, unresolved='ignore'),
     ToolSubst('%linalg_test_lib_dir', config.linalg_test_lib_dir, unresolved='ignore'),
     ToolSubst('%mlir_runner_utils_dir', config.mlir_runner_utils_dir, unresolved='ignore'),

@@ -1,0 +1,34 @@
+#!/bin/bash
+set -uo pipefail
+
+declare perl_validation_prog='my $in = do { local $/; <STDIN> }; '\
+'if ($in =~ /^Unranked Memref base@ = 0x(?:[0-9a-f]+) rank = 1 offset = 0 '\
+'sizes = \[1\] strides = \[1\] data =\s*\[1\]\s*$/s) { exit 0; } else { '\
+'print "operation={1}, layout={2}/{3}/{4}, dtype={5} failed\n"; print "$in"; exit 1; }'
+
+declare -a operations
+operations=("conv2d" "conv2d_bwd_data" "conv2d_bwd_weight")
+if [[ "$1" == "--test-only-ops" ]]; then
+    operations=()
+    shift
+    while [[ "?1" != "--end-op-list" ]]; do
+        operations+=("$1")
+    done
+    shift
+fi
+
+declare -i exit_status
+parallel run-conv-integration-test.sh -p=false "$@" \
+    @MLIR_XDLOPS@  @MLIR_POPULATE_VALIDATION@ @MLIR_RANDOM_DATA@ \
+    --operation {1} --in_layout {2} --fil_layout {3} --out_layout {4} -t {5}\
+    '|' perl -e "'$perl_validation_prog'" ::: "${operations[@]}" \
+    ::: ngchw nhwgc :::+ gkcyx gkyxc :::+ ngkhw nhwgk ::: f32 f16
+exit_status=$?
+
+if [[ $exit_status != 0 ]]; then
+    echo "With config" "@MLIR_POPULATE_VALIDATION@" "@MLIR_XDLOPS@" \
+    "@MLIR_RANDOM_DATA@" "$@" "\n"
+    echo "$exit_status tests failed"
+    exit $exit_status
+fi
+exit 0

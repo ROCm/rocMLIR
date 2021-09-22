@@ -91,7 +91,7 @@ if(MLIR_BINDINGS_PYTHON_ENABLED)
     MLIRTransformsBindingsPythonExtension
   )
 endif()
-  
+
 # MIOpen dialect tools.
 if(MLIR_MIOPEN_DRIVER_ENABLED)
   list(APPEND MLIR_TEST_DEPENDS
@@ -103,7 +103,15 @@ if(MLIR_MIOPEN_DRIVER_ENABLED)
     )
 endif()
 
-# check-mlir-miopen runs MLIR-MIOpen regression tests including E2E tests 
+configure_file(run-conv-integration-test.sh.in
+  run-conv-integration-test.sh
+  USE_SOURCE_PERMISSIONS @ONLY)
+
+configure_file(mlir-miopen-e2e-validate.sh.in
+  mlir-miopen-e2e-validate.sh
+  USE_SOURCE_PERMISSIONS @ONLY)
+
+# check-mlir-miopen runs MLIR-MIOpen regression tests including E2E tests
 # when MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED is set
 add_lit_testsuite(check-mlir-miopen "Running the MLIR-MIOpen regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}
