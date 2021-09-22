@@ -41,6 +41,12 @@ class ROCDL_Op<string mnemonic, list<OpTrait> traits = []> :
   LLVM_OpBase<ROCDL_Dialect, mnemonic, traits> {
 }
 
+class ROCDL_IntrOp<string mnemonic, list<int> overloadedResults,
+  list<int> overloadedOperands, list<OpTrait> traits, int numResults> :
+  LLVM_IntrOpBase<ROCDL_Dialect,  mnemonic,
+  "amdgcn_" # !subst(".", "_", mnemonic), overloadedResults,
+  overloadedOperands, traits, numResults>;
+
 //===----------------------------------------------------------------------===//
 // ROCDL special register op definitions
 //===----------------------------------------------------------------------===//
@@ -265,6 +271,18 @@ def ROCDL_AtomicFAddOp :
     Operation *op = this->getOperation();
     p << " " << op->getOperands()
       << " : " << vdata().getType();
+  }];
+}
+
+//===---------------------------------------------------------------------===//
+// DPP Move intrinsic
+def ROCDL_DPPMovOp : ROCDL_IntrOp<"mov.dpp", [], [0],
+    [AllTypesMatch<["res", "src"]>], 1>,
+  Arguments<(ins LLVM_Type:$src, I32:$dppCtrl, I32:$rowMask,
+      I32:$bankMask, I1:$boundCtrl)> {
+  let results = (outs LLVM_Type:$res);
+  let assemblyFormat = [{
+    attr-dict $src `with` $dppCtrl `,` $rowMask `,` $bankMask `,` $boundCtrl `:` type($src)
   }];
 }
 

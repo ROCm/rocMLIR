@@ -1229,4 +1229,30 @@ def GPU_AtomicFAddOp :
     `(` operands`)` attr-dict `:` type(operands)
   }];
 }
+
+def GPU_WarpSwizzleOp :
+    GPU_Op<"warp_swizzle">,
+    Arguments<(ins I32:$in, Confined<I32ArrayAttr, [ArrayCount<4>]>:$selector)>,
+    Results<(outs I32:$out)> {
+  let summary = "Swizzle a value accross lanes/threads according to `selector``";
+  let description = [{
+    For a thread with ID t, the result of the operation will be the value of in
+    on thread s = (t / 4) * 4 + selector[t % 4]
+
+    If s is not executing, the result of this operation is undefined.
+
+    selector is not required to be a permutation of {0, 1, 2, 3}, but can't contain
+    any values from outside of that set
+  }];
+  let assemblyFormat = "attr-dict $in `:` type($in)";
+  let verifier = [{
+    for(auto&& v : this->selector()) {
+      int32_t val = v.cast<::mlir::IntegerAttr>().getValue().getZExtValue();
+      if (val < 0 || val > 3) {
+        return this->emitOpError("value outside of range in selector");
+      }
+    }
+    return success();
+  }];
+}
 #endif // GPU_OPS
