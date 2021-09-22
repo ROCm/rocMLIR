@@ -93,7 +93,7 @@ func @miopen_transform_1_to_1(%memref: memref<?x?x?x?x?xf32>) {
     layout = [
       {
         upper_layer_dimensions = [0],
-        upper_layer_names = ["g"], 
+        upper_layer_names = ["g"],
         transformation = "PassThrough",
         lower_layer_dimensions = [1],
         lower_layer_names = ["g"]
@@ -178,7 +178,7 @@ func @miopen_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
     layout = [
       {
         upper_layer_dimensions = [0],
-        upper_layer_names = ["g"], 
+        upper_layer_names = ["g"],
         transformation = "PassThrough",
         lower_layer_dimensions = [1],
         lower_layer_names = ["g"]
@@ -257,7 +257,7 @@ func @miopen_gridwise_gemm_v2(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C
 }
 
 // CHECK-LABEL: func @miopen_gridwise_gemm_v2
-//  CHECK-NEXT: miopen.gridwise_gemm_v2
+// CHECK-NEXT: miopen.gridwise_gemm_v2
 
 func @miopen_data_convert() {
     %0 = constant 3.2 : f32
@@ -266,3 +266,16 @@ func @miopen_data_convert() {
 }
 // CHECK-LABEL: func @miopen_data_convert
 // CHECK: miopen.data_convert
+
+func @miopen_in_warp_transpose(%v : vector<8xf32>) -> vector<8xf32> {
+  %cst4 = constant 4 : index
+  %l = miopen.workitem_id : index
+  %l2 = remi_unsigned %l, %cst4 : index
+  %0 = miopen.in_warp_transpose { size = 4 : i32,
+    inGroupPerm = [0 : i32, 1 : i32, 2 : i32, 3 : i32]
+  } %v, %l2 : vector<8xf32>, index
+  return %0 : vector<8xf32>
+}
+// CHECK-LABEL: func @miopen_in_warp_transpose
+// CHECK: miopen.in_warp_transpose
+

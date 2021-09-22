@@ -19,13 +19,6 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 // Base class for MIOpen dialect ops.
 class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
     Op<MIOpen_Dialect, mnemonic, traits> {
-  // For every standard op, there needs to be a:
-  //   * void print(OpAsmPrinter &p, ${C++ class of Op} op)
-  //   * LogicalResult verify(${C++ class of Op} op)
-  //   * ParseResult parse${C++ class of Op}(OpAsmParser &parser,
-  //                                         OperationState &result)
-  // functions.
-
   let extraClassDeclaration = [{
   }];
 }
@@ -490,4 +483,51 @@ def MIOpen_DataConvertOp :
     $in attr-dict `:` type($in) `to` type($out)
   }];
 }
+
+// TODO: upstream these
+// Whether the vector's length is divisible by `divisor`
+class IsVectorOfDivisibleLengthPred<int divisor> :
+  And<[IsVectorTypePred,
+       CPred<[{$_self.cast<::mlir::VectorType>().getNumElements()
+                           % }] # divisor # [{ == 0 }]>]>;
+
+// Any vector where the number of elements is from the given
+// `allowedLengths` list
+class VectorOfDivisibleLength<int divisor> : Type<
+  IsVectorOfDivisibleLengthPred<divisor>,
+  " with length divisble by " # divisor,
+  "::mlir::VectorType">;
+class VectorOfDivisibleLengthAndType<int  divisor,
+                          list<Type> allowedTypes> : Type<
+  And<[VectorOf<allowedTypes>.predicate,
+       VectorOfDivisibleLength<divisor>.predicate]>,
+  VectorOf<allowedTypes>.summary # VectorOfDivisibleLength<divisor>.summary,
+  "::mlir::VectorType">;
+
+def MIOpen_InWarpTransposeOp :
+    MIOpen_Op<"in_warp_transpose", [AllTypesMatch<["vector", "res"]>]>,
+    Arguments<(ins VectorOfDivisibleLengthAndType<4, [F32, I32]>:$vector,
+                  Index:$laneId,
+                  Confined<I32Attr, [IntMaxValue<4>]>:$size,
+                  DefaultValuedAttr<Confined<I32ArrayAttr, [ArrayCount<4>]>,
+                    "{0, 1, 2, 3}">:$inGroupPerm)>,
+    Results<(outs VectorOfDivisibleLengthAndType<4, [F32, I32]>:$res)> {
+  let summary = "Transpose blocks of data distributed accross a warp";
+  let description = [{
+    `MIOpen.in_warp_transpose` takes a vector representing a matrix of values
+    stored accross the threads in a warp and transposes `size`x`size` blocks
+    of this matrix. The rows of the output (if we regard each thread's vector
+    as a row in the matrix) are further permuted with the `inGroupPerm`
+    permutation.
+
+    It is an ***unchecked invariant*** that laneId contanes the ID of the current
+    lane with the wave, and thus is an integer in [0, waveSize).
+  }];
+
+  let verifier = [{ return ::verify(*this); }];
+  let assemblyFormat = [{
+    attr-dict $vector `,` $laneId `:` type($vector) `,` type($laneId)
+  }];
+}
+
 #endif // MIOPEN_OPS
