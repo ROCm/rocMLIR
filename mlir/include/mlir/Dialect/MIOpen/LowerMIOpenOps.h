@@ -4936,16 +4936,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
   auto strideW =
       stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
 
-  auto paddingAttr = gop->template getAttrOfType<ArrayAttr>("padding");
-  auto leftPadH =
-      paddingAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-  auto leftPadW =
-      paddingAttr.getValue()[2].template cast<IntegerAttr>().getInt();
-  auto rightPadH =
-      paddingAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-  auto rightPadW =
-      paddingAttr.getValue()[3].template cast<IntegerAttr>().getInt();
-
   auto algorithmAttr =
       gop->template getAttrOfType<StringAttr>("kernel_algorithm");
   auto algorithm_name = algorithmAttr.getValue();
@@ -4990,16 +4980,6 @@ static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
       stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
   auto strideW =
       stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-
-  auto paddingAttr = gop->template getAttrOfType<ArrayAttr>("padding");
-  auto leftPadH =
-      paddingAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-  auto leftPadW =
-      paddingAttr.getValue()[2].template cast<IntegerAttr>().getInt();
-  auto rightPadH =
-      paddingAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-  auto rightPadW =
-      paddingAttr.getValue()[3].template cast<IntegerAttr>().getInt();
 
   auto algorithmAttr =
       gop->template getAttrOfType<StringAttr>("kernel_algorithm");
