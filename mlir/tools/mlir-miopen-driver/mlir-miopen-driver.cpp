@@ -2480,6 +2480,8 @@ static void populateDefaultLoweringPipeline(PassManager &pm,
                                             const std::string &perfConfig) {
   // Passes for lowering MIOpen dialect.
   populateTuningPipeline(pm, perfConfig);
+  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
+  pm.addPass(mlir::miopen::createAffineTransformPass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
