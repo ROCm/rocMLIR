@@ -1,6 +1,6 @@
 // RUN: mlir-miopen-driver -p -fil_layout=gcyxk -in_layout=gchwn -out_layout=gkhwn --host %s | FileCheck %s --check-prefix=HARNESS
 // RUN: mlir-miopen-driver -pc -fil_layout=gcyxk -in_layout=gchwn -out_layout=gkhwn --host %s | FileCheck %s --check-prefix=LOWERING
-// RUN: mlir-miopen-driver -p -fil_layout=gcyxk -in_layout=gchwn -out_layout=gkhwn -c --host %s | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
+// RUN: run-conv-integration-test.sh -p -fil_layout=gcyxk -in_layout=gchwn -out_layout=gkhwn -c --host %s | FileCheck %s --check-prefix=E2E
 
 func @conv2d(%filter : memref<1x8x3x3x128xf32>, %input : memref<1x8x32x32x128xf32>, %output : memref<1x128x30x30x128xf32>) {
   // Convolution host-side logic would be populated here.
