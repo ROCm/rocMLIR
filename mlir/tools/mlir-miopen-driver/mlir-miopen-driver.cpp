@@ -285,9 +285,9 @@ static cl::opt<std::string>
 static cl::opt<std::string> randomSeed(
     "rand",
     cl::desc(
-        "A positive integer indicates the seed of random data generator for "
-        "convolution inputs, e.g. -rand 1. If not specifed or -rand none, "
-        "use all ones. Otherwise, use time(0) as the seed."),
+        "A positive integer or zero indicates the seed of random data generator"
+        "for convolution inputs, e.g. -rand 1. If not specifed, or -rand none, "
+        "use all ones. If 0, use time(0) as the seed."),
     cl::value_desc("seed"), cl::init("none"));
 
 static cl::opt<std::string>
