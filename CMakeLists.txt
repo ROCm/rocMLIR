@@ -69,6 +69,7 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB OFF CACHE BOOL "")
   set(LLVM_INSTALL_TOOLCHAIN_ONLY ON CACHE BOOL "")
+  # Skip linking with HIP so our library is runtime independent
   set(USE_ROCM_4_4_OR_OLDER 0 CACHE BOOL "Make libMLIRMIOpen runtime independent")
   set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
 else()
