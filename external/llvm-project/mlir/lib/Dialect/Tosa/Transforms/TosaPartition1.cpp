@@ -42,10 +42,12 @@ namespace {
 
 // Tosa ops can broadcast values along axes, which allows for
 // element-wise operations without fully-matching dimensions.  The
-// ElementwiseMappable trait is strict about matching dimensions.  In
+// Elementwise trait is strict about matching dimensions, but the
+// AbstractElementwise trait is specific to applicable Tosa ops.  In
 // practice, broadcastable and same-type Tosa ops are also element-wise.
 bool isElementwiseOp(Operation *op) {
   return op->hasTrait<OpTrait::Elementwise>()
+    ||   op->hasTrait<OpTrait::tosa::AbstractElementwise>()
     ||   op->hasTrait<OpTrait::ResultsBroadcastableShape>()
     ||   op->hasTrait<OpTrait::SameOperandsAndResultType>();
 }
