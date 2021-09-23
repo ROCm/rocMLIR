@@ -51,6 +51,7 @@ void registerTestDialect(DialectRegistry &);
 } // namespace test
 
 static LogicalResult runMLIRPasses(ModuleOp m) {
+  m.getContext()->disableMultithreading();
   PassManager pm(m.getContext());
   applyPassManagerCLOptions(pm);
 
