@@ -207,6 +207,8 @@ extern "C" MiirStatus miirLowerCpp(MiirHandle mlirHandle) {
   ModuleOp module = handle->getModule();
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
+  pm.addPass(
+      mlir::miopen::createAffixTuningParametersPass(0, 0, handle->perfConfig));
   pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
   LogicalResult result = pm.run(module);
   return (result.succeeded()) ? MIIR_SUCCESS : MIIR_BUILD_FAILURE;

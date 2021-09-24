@@ -41,7 +41,7 @@ def MIOpenOpsAffixTuningParametersPass : FunctionPass<"miopen-affix-params"> {
 def MIOpenOpsStep2Pass : Pass<"miopen-lowering-step2", "ModuleOp"> {
   let summary = "expand gridwise gemm into blockwise copy, blockwise gemm, and threadwise copy";
   let constructor = "mlir::miopen::createLowerMIOpenOpsStep2Pass()";
-  let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "vector::VectorDialect"];
+  let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "vector::VectorDialect", "AffineDialect"];
 }
 
 def MIOpenLinalgAlignPass : Pass<"miopen-linalg-align", "ModuleOp"> {
