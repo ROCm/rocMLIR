@@ -14,7 +14,7 @@
 #include <algorithm>
 #include <deque>
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/Dialect/Tosa/IR//TosaOps.h"
+#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
@@ -388,7 +388,7 @@ void PostPartitionCollapsePass::runOnOperation() {
 static void tosaPartitionPipeline(OpPassManager &pm) {
   pm.addPass(std::make_unique<TosaPartitionPass>());
   pm.addPass(std::make_unique<PostPartitionCollapsePass>());
-  pm.addPass(createSymbolDCEPass());
+  pm.addPass(mlir::createSymbolDCEPass());
 }
 
 namespace mlir {
