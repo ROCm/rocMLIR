@@ -176,6 +176,11 @@ static inline void populateSeqVal(const ArrayAttr &seqAttr,
 // - miopen::Conv2DOp
 // - miopen::Conv2DBwdDataOp
 // - miopen::Conv2DBwdWeightOp
+//
+// TBD. Obsolete. Only used in C++ emitter path.
+// Remove along with C++ emitter path.
+// - miopen::GridwiseGemmOp
+// - miopen::GridwiseGemmV2Op
 template <typename T> static ConvolutionContext populateConvContext(T &op) {
   miopen::ConvOpType opType = ObtainConvDirection(op);
 
@@ -207,15 +212,27 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
   llvm::SmallVector<int64_t, 0> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 
-  populateDimVal(filterLayoutAttr,
-                 op.filter().getType().template cast<MemRefType>().getShape(),
-                 dimIndexVal);
-  populateDimVal(inputLayoutAttr,
-                 op.input().getType().template cast<MemRefType>().getShape(),
-                 dimIndexVal);
-  populateDimVal(outputLayoutAttr,
-                 op.output().getType().template cast<MemRefType>().getShape(),
-                 dimIndexVal);
+  if (isa<miopen::GridwiseGemmOp>(*op) || isa<miopen::GridwiseGemmV2Op>(*op)) {
+    auto filterDimensionAttr =
+        op->template getAttrOfType<ArrayAttr>("filter_dimension");
+    auto inputDimensionAttr =
+        op->template getAttrOfType<ArrayAttr>("input_dimension");
+    auto outputDimensionAttr =
+        op->template getAttrOfType<ArrayAttr>("output_dimension");
+    populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
+    populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
+    populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
+  } else {
+    populateDimVal(filterLayoutAttr,
+                   op.filter().getType().template cast<MemRefType>().getShape(),
+                   dimIndexVal);
+    populateDimVal(inputLayoutAttr,
+                   op.input().getType().template cast<MemRefType>().getShape(),
+                   dimIndexVal);
+    populateDimVal(outputLayoutAttr,
+                   op.output().getType().template cast<MemRefType>().getShape(),
+                   dimIndexVal);
+  }
 
   auto dataType = obtainDataType(op);
 
