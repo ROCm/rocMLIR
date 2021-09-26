@@ -24,6 +24,7 @@
 #include "hip/hip_runtime.h"
 #pragma GCC diagnostic pop
 #include <unordered_map>
+#include <array>
 
 namespace {
 int32_t reportErrorIfAny(hipError_t result, const char *where) {
@@ -954,12 +955,12 @@ getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 5> *filter,
                    int64_t rank2, StridedMemRefType<float, 5> *input,
                    int64_t rank3, StridedMemRefType<float, 5> *output,
                    void *f_layout, void *i_layout, void *o_layout,
-                   llvm::SmallVector<int64_t, 5> &fSizes,
-                   llvm::SmallVector<int64_t, 5> &fStrides,
-                   llvm::SmallVector<int64_t, 5> &iSizes,
-                   llvm::SmallVector<int64_t, 5> &iStrides,
-                   llvm::SmallVector<int64_t, 5> &oSizes,
-                   llvm::SmallVector<int64_t, 5> &oStrides) {
+                   std::array<int64_t, 5> &fSizes,
+                   std::array<int64_t, 5> &fStrides,
+                   std::array<int64_t, 5> &iSizes,
+                   std::array<int64_t, 5> &iStrides,
+                   std::array<int64_t, 5> &oSizes,
+                   std::array<int64_t, 5> &oStrides) {
   auto filterSizes = llvm::ArrayRef<int64_t>(filter->sizes, rank1);
   auto filterStrides = llvm::ArrayRef<int64_t>(filter->strides, rank1);
 
@@ -1035,9 +1036,9 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
-  llvm::SmallVector<int64_t, 5> filterSizes(5), filterStrides(5);
-  llvm::SmallVector<int64_t, 5> inputSizes(5), inputStrides(5);
-  llvm::SmallVector<int64_t, 5> outputSizes(5), outputStrides(5);
+  std::array<int64_t, 5> filterSizes, filterStrides;
+  std::array<int64_t, 5> inputSizes, inputStrides;
+  std::array<int64_t, 5> outputSizes, outputStrides;
 
   getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
                      i_layout, o_layout, filterSizes, filterStrides, inputSizes,
@@ -1103,9 +1104,9 @@ extern "C" void mcpuConv2dBwdWeight(
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
-  llvm::SmallVector<int64_t, 5> filterSizes, filterStrides;
-  llvm::SmallVector<int64_t, 5> inputSizes, inputStrides;
-  llvm::SmallVector<int64_t, 5> outputSizes, outputStrides;
+  std::array<int64_t, 5> filterSizes, filterStrides;
+  std::array<int64_t, 5> inputSizes, inputStrides;
+  std::array<int64_t, 5> outputSizes, outputStrides;
   getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
                      i_layout, o_layout, filterSizes, filterStrides, inputSizes,
                      inputStrides, outputSizes, outputStrides);
@@ -1165,9 +1166,9 @@ extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
-  llvm::SmallVector<int64_t, 5> filterSizes, filterStrides;
-  llvm::SmallVector<int64_t, 5> inputSizes, inputStrides;
-  llvm::SmallVector<int64_t, 5> outputSizes, outputStrides;
+  std::array<int64_t, 5> filterSizes, filterStrides;
+  std::array<int64_t, 5> inputSizes, inputStrides;
+  std::array<int64_t, 5> outputSizes, outputStrides;
   getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
                      i_layout, o_layout, filterSizes, filterStrides, inputSizes,
                      inputStrides, outputSizes, outputStrides);
