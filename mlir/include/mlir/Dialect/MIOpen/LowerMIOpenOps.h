@@ -3534,9 +3534,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
           (leftPadH > 0 || leftPadW > 0 || rightPadH > 0 || rightPadW > 0)) {
         isSupportPaddingKernel = false;
       }
-    } else {
-      if (cIndex == 2)
-        isNonXdlopsNCHW = true;
     }
 
     // we use this lamda to compute extra padding size
@@ -3546,7 +3543,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                        gemmM_size, gemmN_size, gemmK_size,
                                        &gemmMExtra, &gemmNExtra, &gemmKExtra,
                                        isSupportPaddingKernel,
-                                       isNonXdlopsNCHW](auto &populateParams) {
+                                       isXdlops](auto &populateParams) {
       auto config_params = populateParams.getTuningParameters();
       unsigned numOfFailedConfigs = 0;
       for (auto &params : config_params) {
@@ -3582,16 +3579,15 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
         // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
-        if (isNonXdlopsNCHW) {
+        if (!isXdlops) {
           if (gemmNExtra && gemmKExtra) {
             llvm::errs() << "we don't support backward data convolution non "
-                            "xdlops nchw padding GemmN + "
-                            "GemmK, but we don't block it due we can fix it "
+                            "xdlops padding GemmN + "
+                            "GemmK, if format is nchw, we can fix it "
                             "via change load oob address\n";
-            llvm::errs()
-                << "there may be failure messages, you can block backward data "
-                   "convolution non xdlops "
-                   "nchw padding GemmN + GemmK but we still open it now \n";
+            llvm::errs() << "but non xdlops nhwc padding GemmN + GemmK , no "
+                            "solutions now,"
+                            "we only know it's load oob address problem\n";
           }
         }
       }
