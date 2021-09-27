@@ -12,7 +12,6 @@ set(LIBCXX_SOURCES
   condition_variable.cpp
   condition_variable_destructor.cpp
   exception.cpp
-  format.cpp
   functional.cpp
   future.cpp
   hash.cpp
@@ -64,6 +63,7 @@ endif()
 
 if (LIBCXX_ENABLE_LOCALIZATION)
   list(APPEND LIBCXX_SOURCES
+    include/sso_allocator.h
     ios.cpp
     ios.instantiations.cpp
     iostream.cpp
@@ -73,17 +73,34 @@ if (LIBCXX_ENABLE_LOCALIZATION)
     )
 endif()
 
+if(LIBCXX_ENABLE_INCOMPLETE_FEATURES)
+  list(APPEND LIBCXX_SOURCES
+    format.cpp
+  )
+endif()
+
 if(WIN32)
   list(APPEND LIBCXX_SOURCES
     support/win32/locale_win32.cpp
     support/win32/support.cpp
-    support/win32/thread_win32.cpp
     )
+
+  if (NOT LIBCXX_HAS_PTHREAD_API)
+    list(APPEND LIBCXX_SOURCES
+      support/win32/thread_win32.cpp
+      )
+  endif()
 elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "SunOS")
   list(APPEND LIBCXX_SOURCES
     support/solaris/mbsnrtowcs.inc
     support/solaris/wcsnrtombs.inc
     support/solaris/xlocale.cpp
+    )
+elseif(ZOS)
+  list(APPEND LIBCXX_SOURCES
+    support/ibm/mbsnrtowcs.cpp
+    support/ibm/wcsnrtombs.cpp
+    support/ibm/xlocale_zos.cpp
     )
 endif()
 
@@ -188,6 +205,7 @@ if (LIBCXX_ENABLE_SHARED)
       VERSION       "${LIBCXX_ABI_VERSION}.0"
       SOVERSION     "${LIBCXX_ABI_VERSION}"
       DEFINE_SYMBOL ""
+      POSITION_INDEPENDENT_CODE ON
   )
   cxx_add_common_build_flags(cxx_shared)
   cxx_set_common_defines(cxx_shared)
@@ -250,17 +268,19 @@ if (LIBCXX_ENABLE_SHARED)
   endif()
 endif()
 
+set(CMAKE_STATIC_LIBRARY_PREFIX "lib")
+
 # Build the static library.
 if (LIBCXX_ENABLE_STATIC)
   add_library(cxx_static STATIC ${exclude_from_all} ${LIBCXX_SOURCES} ${LIBCXX_HEADERS})
   target_link_libraries(cxx_static PUBLIC cxx-headers
                                    PRIVATE ${LIBCXX_LIBRARIES})
-  set(CMAKE_STATIC_LIBRARY_PREFIX "lib")
   set_target_properties(cxx_static
     PROPERTIES
       COMPILE_FLAGS "${LIBCXX_COMPILE_FLAGS}"
       LINK_FLAGS    "${LIBCXX_LINK_FLAGS}"
       OUTPUT_NAME   "c++"
+      POSITION_INDEPENDENT_CODE ON
   )
   cxx_add_common_build_flags(cxx_static)
   cxx_set_common_defines(cxx_static)
@@ -288,6 +308,9 @@ if (LIBCXX_ENABLE_STATIC)
     else()
       set(MERGE_ARCHIVES_ABI_TARGET
         "${CMAKE_STATIC_LIBRARY_PREFIX}${LIBCXX_CXX_STATIC_ABI_LIBRARY}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+      if (LIBCXX_CXX_ABI_LIBRARY_PATH)
+        set(MERGE_ARCHIVES_ABI_TARGET "${LIBCXX_CXX_ABI_LIBRARY_PATH}/${MERGE_ARCHIVES_ABI_TARGET}")
+      endif ()
     endif()
     if (APPLE)
       set(MERGE_ARCHIVES_LIBTOOL "--use-libtool" "--libtool" "${CMAKE_LIBTOOL}")
@@ -303,6 +326,7 @@ if (LIBCXX_ENABLE_STATIC)
       "${MERGE_ARCHIVES_ABI_TARGET}"
       "${MERGE_ARCHIVES_SEARCH_PATHS}"
     WORKING_DIRECTORY ${LIBCXX_BUILD_DIR}
+    DEPENDS ${MERGE_ARCHIVES_ABI_TARGET}
     )
   endif()
 endif()
@@ -352,32 +376,30 @@ endif()
 
 if (LIBCXX_INSTALL_SHARED_LIBRARY)
   install(TARGETS cxx_shared
-    ARCHIVE DESTINATION ${LIBCXX_INSTALL_PREFIX}${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
-    LIBRARY DESTINATION ${LIBCXX_INSTALL_PREFIX}${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
-    RUNTIME DESTINATION ${LIBCXX_INSTALL_PREFIX}bin COMPONENT cxx)
+    ARCHIVE DESTINATION ${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
+    LIBRARY DESTINATION ${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
+    RUNTIME DESTINATION ${LIBCXX_INSTALL_RUNTIME_DIR} COMPONENT cxx)
 endif()
 
 if (LIBCXX_INSTALL_STATIC_LIBRARY)
   install(TARGETS cxx_static
-    ARCHIVE DESTINATION ${LIBCXX_INSTALL_PREFIX}${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
-    LIBRARY DESTINATION ${LIBCXX_INSTALL_PREFIX}${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
-    RUNTIME DESTINATION ${LIBCXX_INSTALL_PREFIX}bin COMPONENT cxx)
+    ARCHIVE DESTINATION ${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
+    LIBRARY DESTINATION ${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
+    RUNTIME DESTINATION ${LIBCXX_INSTALL_RUNTIME_DIR} COMPONENT cxx)
 endif()
 
 if(LIBCXX_INSTALL_EXPERIMENTAL_LIBRARY)
   install(TARGETS cxx_experimental
-    LIBRARY DESTINATION ${LIBCXX_INSTALL_PREFIX}${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
-    ARCHIVE DESTINATION ${LIBCXX_INSTALL_PREFIX}${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
-    RUNTIME DESTINATION ${LIBCXX_INSTALL_PREFIX}bin COMPONENT cxx)
+    LIBRARY DESTINATION ${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
+    ARCHIVE DESTINATION ${LIBCXX_INSTALL_LIBRARY_DIR} COMPONENT cxx
+    RUNTIME DESTINATION ${LIBCXX_INSTALL_RUNTIME_DIR} COMPONENT cxx)
 endif()
 
 # NOTE: This install command must go after the cxx install command otherwise
 # it will not be executed after the library symlinks are installed.
 if (LIBCXX_ENABLE_SHARED AND LIBCXX_ENABLE_ABI_LINKER_SCRIPT)
-  # Replace the libc++ filename with $<TARGET_LINKER_FILE:cxx>
-  # after we required CMake 3.0.
-  install(FILES "${LIBCXX_LIBRARY_DIR}/libc++${CMAKE_SHARED_LIBRARY_SUFFIX}"
-    DESTINATION ${LIBCXX_INSTALL_PREFIX}${LIBCXX_INSTALL_LIBRARY_DIR}
+  install(FILES "$<TARGET_LINKER_FILE:cxx_shared>"
+    DESTINATION ${LIBCXX_INSTALL_LIBRARY_DIR}
     COMPONENT libcxx)
 endif()
 

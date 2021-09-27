@@ -30,6 +30,10 @@ class LLVM_LIBRARY_VISIBILITY AArch64TargetInfo : public TargetInfo {
   unsigned FPU;
   bool HasCRC;
   bool HasCrypto;
+  bool HasAES;
+  bool HasSHA2;
+  bool HasSHA3;
+  bool HasSM4;
   bool HasUnaligned;
   bool HasFullFP16;
   bool HasDotProd;
@@ -38,6 +42,7 @@ class LLVM_LIBRARY_VISIBILITY AArch64TargetInfo : public TargetInfo {
   bool HasTME;
   bool HasPAuth;
   bool HasLS64;
+  bool HasRandGen;
   bool HasMatMul;
   bool HasSVE2;
   bool HasSVE2AES;
@@ -90,6 +95,9 @@ public:
                         MacroBuilder &Builder) const override;
 
   ArrayRef<Builtin::Info> getTargetBuiltins() const override;
+
+  Optional<std::pair<unsigned, unsigned>>
+  getVScaleRange(const LangOptions &LangOpts) const override;
 
   bool hasFeature(StringRef Feature) const override;
   bool handleTargetFeatures(std::vector<std::string> &Features,

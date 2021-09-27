@@ -60,6 +60,7 @@ LLVM_YAML_STRONG_TYPEDEF(uint64_t, ELF_SHF)
 LLVM_YAML_STRONG_TYPEDEF(uint16_t, ELF_SHN)
 LLVM_YAML_STRONG_TYPEDEF(uint8_t, ELF_STB)
 LLVM_YAML_STRONG_TYPEDEF(uint8_t, ELF_STT)
+LLVM_YAML_STRONG_TYPEDEF(uint32_t, ELF_NT)
 
 LLVM_YAML_STRONG_TYPEDEF(uint8_t, MIPS_AFL_REG)
 LLVM_YAML_STRONG_TYPEDEF(uint8_t, MIPS_ABI_FP)
@@ -117,6 +118,7 @@ struct FileHeader {
   Optional<ELF_EM> Machine;
   ELF_EF Flags;
   llvm::yaml::Hex64 Entry;
+  Optional<StringRef> SectionHeaderStringTable;
 
   Optional<llvm::yaml::Hex64> EPhOff;
   Optional<llvm::yaml::Hex16> EPhEntSize;
@@ -160,6 +162,7 @@ struct BBAddrMapEntry {
     llvm::yaml::Hex64 Metadata;
   };
   llvm::yaml::Hex64 Address;
+  Optional<uint64_t> NumBlocks;
   Optional<std::vector<BBEntry>> BBEntries;
 };
 
@@ -171,7 +174,7 @@ struct StackSizeEntry {
 struct NoteEntry {
   StringRef Name;
   yaml::BinaryRef Desc;
-  llvm::yaml::Hex32 Type;
+  ELF_NT Type;
 };
 
 struct Chunk {
@@ -513,17 +516,13 @@ struct DependentLibrariesSection : Section {
 };
 
 // Represents the call graph profile section entry.
-struct CallGraphEntry {
-  // The symbol of the source of the edge.
-  StringRef From;
-  // The symbol index of the destination of the edge.
-  StringRef To;
+struct CallGraphEntryWeight {
   // The weight of the edge.
   uint64_t Weight;
 };
 
 struct CallGraphProfileSection : Section {
-  Optional<std::vector<CallGraphEntry>> Entries;
+  Optional<std::vector<CallGraphEntryWeight>> Entries;
 
   CallGraphProfileSection() : Section(ChunkKind::CallGraphProfile) {}
 
@@ -735,7 +734,7 @@ LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::BBAddrMapEntry)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::BBAddrMapEntry::BBEntry)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::DynamicEntry)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::LinkerOption)
-LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::CallGraphEntry)
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::CallGraphEntryWeight)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::NoteEntry)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::ProgramHeader)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::SectionHeader)
@@ -766,6 +765,10 @@ struct ScalarEnumerationTraits<ELFYAML::ELF_ET> {
 
 template <> struct ScalarEnumerationTraits<ELFYAML::ELF_PT> {
   static void enumeration(IO &IO, ELFYAML::ELF_PT &Value);
+};
+
+template <> struct ScalarEnumerationTraits<ELFYAML::ELF_NT> {
+  static void enumeration(IO &IO, ELFYAML::ELF_NT &Value);
 };
 
 template <>
@@ -925,8 +928,8 @@ template <> struct MappingTraits<ELFYAML::LinkerOption> {
   static void mapping(IO &IO, ELFYAML::LinkerOption &Sym);
 };
 
-template <> struct MappingTraits<ELFYAML::CallGraphEntry> {
-  static void mapping(IO &IO, ELFYAML::CallGraphEntry &E);
+template <> struct MappingTraits<ELFYAML::CallGraphEntryWeight> {
+  static void mapping(IO &IO, ELFYAML::CallGraphEntryWeight &E);
 };
 
 template <> struct MappingTraits<ELFYAML::Relocation> {

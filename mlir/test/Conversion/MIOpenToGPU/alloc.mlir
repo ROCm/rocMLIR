@@ -9,8 +9,8 @@ module {
     %c0 = constant 0 : index
     %buffer_lds = miopen.alloc() : memref<16xf32, 3>
     %buffer_vgpr = miopen.alloc() : memref<16xf32, 5>
-    store %cst, %buffer_lds[%c0] : memref<16xf32, 3>
-    store %cst, %buffer_vgpr[%c0] : memref<16xf32, 5>
+    memref.store %cst, %buffer_lds[%c0] : memref<16xf32, 3>
+    memref.store %cst, %buffer_vgpr[%c0] : memref<16xf32, 5>
     return
   }
 }

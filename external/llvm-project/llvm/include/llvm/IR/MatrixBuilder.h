@@ -74,7 +74,7 @@ public:
 
     Value *Ops[] = {DataPtr, Stride, B.getInt1(IsVolatile), B.getInt32(Rows),
                     B.getInt32(Columns)};
-    Type *OverloadedTypes[] = {RetType};
+    Type *OverloadedTypes[] = {RetType, Stride->getType()};
 
     Function *TheFn = Intrinsic::getDeclaration(
         getModule(), Intrinsic::matrix_column_major_load, OverloadedTypes);
@@ -82,7 +82,7 @@ public:
     CallInst *Call = B.CreateCall(TheFn->getFunctionType(), TheFn, Ops, Name);
     Attribute AlignAttr =
         Attribute::getWithAlignment(Call->getContext(), Alignment);
-    Call->addAttribute(1, AlignAttr);
+    Call->addParamAttr(0, AlignAttr);
     return Call;
   }
 
@@ -97,7 +97,7 @@ public:
     Value *Ops[] = {Matrix,           Ptr,
                     Stride,           B.getInt1(IsVolatile),
                     B.getInt32(Rows), B.getInt32(Columns)};
-    Type *OverloadedTypes[] = {Matrix->getType()};
+    Type *OverloadedTypes[] = {Matrix->getType(), Stride->getType()};
 
     Function *TheFn = Intrinsic::getDeclaration(
         getModule(), Intrinsic::matrix_column_major_store, OverloadedTypes);
@@ -105,7 +105,7 @@ public:
     CallInst *Call = B.CreateCall(TheFn->getFunctionType(), TheFn, Ops, Name);
     Attribute AlignAttr =
         Attribute::getWithAlignment(Call->getContext(), Alignment);
-    Call->addAttribute(2, AlignAttr);
+    Call->addParamAttr(1, AlignAttr);
     return Call;
   }
 
@@ -213,6 +213,22 @@ public:
     if (LHS->getType()->getScalarType()->isFloatingPointTy())
       return B.CreateFMul(LHS, RHS);
     return B.CreateMul(LHS, RHS);
+  }
+
+  /// Divide matrix \p LHS by scalar \p RHS. If the operands are integers, \p
+  /// IsUnsigned indicates whether UDiv or SDiv should be used.
+  Value *CreateScalarDiv(Value *LHS, Value *RHS, bool IsUnsigned) {
+    assert(LHS->getType()->isVectorTy() && !RHS->getType()->isVectorTy());
+    assert(!isa<ScalableVectorType>(LHS->getType()) &&
+           "LHS Assumed to be fixed width");
+    RHS =
+        B.CreateVectorSplat(cast<VectorType>(LHS->getType())->getElementCount(),
+                            RHS, "scalar.splat");
+    return cast<VectorType>(LHS->getType())
+                   ->getElementType()
+                   ->isFloatingPointTy()
+               ? B.CreateFDiv(LHS, RHS)
+               : (IsUnsigned ? B.CreateUDiv(LHS, RHS) : B.CreateSDiv(LHS, RHS));
   }
 
   /// Extracts the element at (\p RowIdx, \p ColumnIdx) from \p Matrix.

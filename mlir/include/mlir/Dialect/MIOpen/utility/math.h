@@ -3,7 +3,7 @@
 
 #include <cstdlib>
 
-namespace math {
+namespace math_util {
 // greatest common divisor, aka highest common factor
 template <typename T> T gcd(T x, T y) {
   assert(!(x == 0 && y == 0));
@@ -44,5 +44,5 @@ template <class X, class Y> auto integer_least_multiple(X x, Y y) {
   return y * integer_divide_ceil(x, y);
 }
 
-} // namespace math
+} // namespace math_util
 #endif

@@ -23,6 +23,7 @@
 #include "mlir/Analysis/Utils.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/Passes.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/LoopUtils.h"
@@ -185,7 +186,8 @@ AffineDataCopyGeneration::runOnBlock(Block *block,
   // Generate the copy for the final block range.
   if (curBegin != block->end()) {
     // Can't be a terminator because it would have been skipped above.
-    assert(!curBegin->isKnownTerminator() && "can't be a terminator");
+    assert(!curBegin->hasTrait<OpTrait::IsTerminator>() &&
+           "can't be a terminator");
     // Exclude the affine.yield - hence, the std::prev.
     affineDataCopyGenerate(/*begin=*/curBegin, /*end=*/std::prev(block->end()),
                            copyOptions, /*filterMemRef=*/llvm::None, copyNests);
@@ -225,10 +227,9 @@ void AffineDataCopyGeneration::runOnFunction() {
   // Promoting single iteration loops could lead to simplification of
   // contained load's/store's, and the latter could anyway also be
   // canonicalized.
-  OwningRewritePatternList patterns;
+  RewritePatternSet patterns(&getContext());
   AffineLoadOp::getCanonicalizationPatterns(patterns, &getContext());
   AffineStoreOp::getCanonicalizationPatterns(patterns, &getContext());
-  FrozenRewritePatternList frozenPatterns(std::move(patterns));
-  for (Operation *op : copyOps)
-    (void)applyOpPatternsAndFold(op, frozenPatterns);
+  FrozenRewritePatternSet frozenPatterns(std::move(patterns));
+  (void)applyOpPatternsAndFold(copyOps, frozenPatterns, /*strict=*/true);
 }

@@ -66,6 +66,13 @@ namespace llvm {
 
     /* Number of bits actually used in the semantics. */
     unsigned int sizeInBits;
+
+    // Returns true if any number described by this semantics can be precisely
+    // represented by the specified semantics.
+    bool isRepresentableBy(const fltSemantics &S) const {
+      return maxExponent <= S.maxExponent && minExponent >= S.minExponent &&
+             precision <= S.precision;
+    }
   };
 
   static const fltSemantics semIEEEhalf = {15, -14, 11, 16};
@@ -1281,6 +1288,23 @@ IEEEFloat::compareAbsoluteValue(const IEEEFloat &rhs) const {
     return cmpEqual;
 }
 
+/* Set the least significant BITS bits of a bignum, clear the
+   rest.  */
+static void tcSetLeastSignificantBits(APInt::WordType *dst, unsigned parts,
+                                      unsigned bits) {
+  unsigned i = 0;
+  while (bits > APInt::APINT_BITS_PER_WORD) {
+    dst[i++] = ~(APInt::WordType)0;
+    bits -= APInt::APINT_BITS_PER_WORD;
+  }
+
+  if (bits)
+    dst[i++] = ~(APInt::WordType)0 >> (APInt::APINT_BITS_PER_WORD - bits);
+
+  while (i < parts)
+    dst[i++] = 0;
+}
+
 /* Handle overflow.  Sign is preserved.  We either become infinity or
    the largest finite number.  */
 IEEEFloat::opStatus IEEEFloat::handleOverflow(roundingMode rounding_mode) {
@@ -1296,8 +1320,8 @@ IEEEFloat::opStatus IEEEFloat::handleOverflow(roundingMode rounding_mode) {
   /* Otherwise we become the largest finite number.  */
   category = fcNormal;
   exponent = semantics->maxExponent;
-  APInt::tcSetLeastSignificantBits(significandParts(), partCount(),
-                                   semantics->precision);
+  tcSetLeastSignificantBits(significandParts(), partCount(),
+                            semantics->precision);
 
   return opInexact;
 }
@@ -2405,7 +2429,7 @@ IEEEFloat::convertToInteger(MutableArrayRef<integerPart> parts,
     else
       bits = width - isSigned;
 
-    APInt::tcSetLeastSignificantBits(parts.data(), dstPartsCount, bits);
+    tcSetLeastSignificantBits(parts.data(), dstPartsCount, bits);
     if (sign && isSigned)
       APInt::tcShiftLeft(parts.data(), dstPartsCount, width - 1);
   }
@@ -4842,7 +4866,7 @@ APFloat::opStatus APFloat::convert(const fltSemantics &ToSemantics,
 
 APFloat APFloat::getAllOnesValue(const fltSemantics &Semantics,
                                  unsigned BitWidth) {
-  return APFloat(Semantics, APInt::getAllOnesValue(BitWidth));
+  return APFloat(Semantics, APInt::getAllOnes(BitWidth));
 }
 
 void APFloat::print(raw_ostream &OS) const {
@@ -4873,6 +4897,32 @@ APFloat::opStatus APFloat::convertToInteger(APSInt &result,
   // Keeps the original signed-ness.
   result = APInt(bitWidth, parts);
   return status;
+}
+
+double APFloat::convertToDouble() const {
+  if (&getSemantics() == (const llvm::fltSemantics *)&semIEEEdouble)
+    return getIEEE().convertToDouble();
+  assert(getSemantics().isRepresentableBy(semIEEEdouble) &&
+         "Float semantics is not representable by IEEEdouble");
+  APFloat Temp = *this;
+  bool LosesInfo;
+  opStatus St = Temp.convert(semIEEEdouble, rmNearestTiesToEven, &LosesInfo);
+  assert(!(St & opInexact) && !LosesInfo && "Unexpected imprecision");
+  (void)St;
+  return Temp.getIEEE().convertToDouble();
+}
+
+float APFloat::convertToFloat() const {
+  if (&getSemantics() == (const llvm::fltSemantics *)&semIEEEsingle)
+    return getIEEE().convertToFloat();
+  assert(getSemantics().isRepresentableBy(semIEEEsingle) &&
+         "Float semantics is not representable by IEEEsingle");
+  APFloat Temp = *this;
+  bool LosesInfo;
+  opStatus St = Temp.convert(semIEEEsingle, rmNearestTiesToEven, &LosesInfo);
+  assert(!(St & opInexact) && !LosesInfo && "Unexpected imprecision");
+  (void)St;
+  return Temp.getIEEE().convertToFloat();
 }
 
 } // namespace llvm

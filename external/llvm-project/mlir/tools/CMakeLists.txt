@@ -1,5 +1,5 @@
-add_subdirectory(mlir-cuda-runner)
 add_subdirectory(mlir-cpu-runner)
+add_subdirectory(mlir-lsp-server)
 add_subdirectory(mlir-opt)
 add_subdirectory(mlir-reduce)
 add_subdirectory(mlir-shlib)

@@ -438,7 +438,7 @@ optin.cplusplus.UninitializedObject (C++)
 
 This checker reports uninitialized fields in objects created after a constructor
 call. It doesn't only find direct uninitialized fields, but rather makes a deep
-inspection of the object, analyzing all of it's fields subfields.
+inspection of the object, analyzing all of its fields' subfields.
 The checker regards inherited fields as direct fields, so one will receive
 warnings for uninitialized inherited data members as well.
 
@@ -1476,6 +1476,9 @@ Reports similar pieces of code.
    return y;
  }
 
+alpha.core
+^^^^^^^^^^
+
 .. _alpha-core-BoolAssignment:
 
 alpha.core.BoolAssignment (ObjC)
@@ -1487,9 +1490,6 @@ Warn about assigning non-{0,1} values to boolean variables.
  void test() {
    BOOL b = -1; // warn
  }
-
-alpha.core
-^^^^^^^^^^
 
 .. _alpha-core-C11Lock:
 
@@ -1838,6 +1838,20 @@ Method calls on a moved-from object and copying a moved-from object will be repo
    a.foo();            // warn: method call on a 'moved-from' object 'a'
  }
 
+.. _alpha-cplusplus-SmartPtr:
+
+alpha.cplusplus.SmartPtr (C++)
+""""""""""""""""""""""""""""""
+Check for dereference of null smart pointers.
+
+.. code-block:: cpp
+
+ void deref_smart_ptr() {
+   std::unique_ptr<int> P;
+   *P; // warn: dereference of a default constructed smart unique_ptr
+ }
+
+
 alpha.deadcode
 ^^^^^^^^^^^^^^
 .. _alpha-deadcode-UnreachableCode:
@@ -1870,19 +1884,6 @@ Check unreachable code.
  void test(id x) {
    return;
    [x retain]; // warn
- }
-
-.. _alpha-cplusplus-SmartPtr:
-
-alpha.cplusplus.SmartPtr (C++)
-""""""""""""""""""""""""""""""
-Check for dereference of null smart pointers.
-
-.. code-block:: cpp
-
- void deref_smart_ptr() {
-   std::unique_ptr<int> P;
-   *P; // warn: dereference of a default constructed smart unique_ptr
  }
 
 alpha.fuchsia
@@ -2154,7 +2155,15 @@ Warn about buffer overflows (newer checker).
 
 alpha.security.MallocOverflow (C)
 """""""""""""""""""""""""""""""""
-Check for overflows in the arguments to malloc().
+Check for overflows in the arguments to ``malloc()``.
+It tries to catch ``malloc(n * c)`` patterns, where:
+
+ - ``n``: a variable or member access of an object
+ - ``c``: a constant foldable integral
+
+This checker was designed for code audits, so expect false-positive reports.
+One is supposed to silence this checker by ensuring proper bounds checking on
+the variable in question using e.g. an ``assert()`` or a branch.
 
 .. code-block:: c
 
@@ -2167,6 +2176,23 @@ Check for overflows in the arguments to malloc().
      return;
    void *p = malloc(n * sizeof(int)); // no warning
  }
+
+ void test3(int n) {
+   assert(n <= 100 && "Contract violated.");
+   void *p = malloc(n * sizeof(int)); // no warning
+ }
+
+Limitations:
+
+ - The checker won't warn for variables involved in explicit casts,
+   since that might limit the variable's domain.
+   E.g.: ``(unsigned char)int x`` would limit the domain to ``[0,255]``.
+   The checker will miss the true-positive cases when the explicit cast would
+   not tighten the domain to prevent the overflow in the subsequent
+   multiplication operation.
+
+ - It is an AST-based checker, thus it does not make use of the
+   path-sensitive taint-analysis.
 
 .. _alpha-security-MmapWriteExec:
 
