@@ -22,7 +22,6 @@ set(LIBS
   MLIRTransforms
   MLIRSupport
   MLIRIR
-  MLIRTargetMIOpenCppTranslation
   MLIRMIOpenThin
   )
 
