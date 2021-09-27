@@ -3521,7 +3521,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       isXdlops = true;
 
     //
-    bool isNonXdlopsNCHW = false;
     bool isSupportPaddingKernel = true;
     // non xdlops also have limitations ,will add it
     // if isSupportPaddingKernel  ,don't do padding kernel teansformation
@@ -3579,8 +3578,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
         // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
-        if (!isXdlops) {
-          if (gemmNExtra && gemmKExtra) {
+        if (gemmNExtra && gemmKExtra) {
+          if (!isXdlops) {
             llvm::errs() << "we don't support backward data convolution non "
                             "xdlops padding GemmN + "
                             "GemmK, if format is nchw, we can fix it "
@@ -3588,6 +3587,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             llvm::errs() << "but non xdlops nhwc padding GemmN + GemmK , no "
                             "solutions now,"
                             "we only know it's load oob address problem\n";
+          } else {
+            llvm::errs() << "we don't support backward data convolution "
+                            "xdlops padding GemmN + GemmK\n";
           }
         }
       }
