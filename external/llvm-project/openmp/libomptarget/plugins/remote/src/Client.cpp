@@ -24,30 +24,31 @@ using grpc::ClientWriter;
 using grpc::Status;
 
 template <typename Fn1, typename Fn2, typename TReturn>
-auto RemoteOffloadClient::remoteCall(Fn1 Preprocessor, Fn2 Postprocessor,
-                                     TReturn ErrorValue, bool CanTimeOut) {
+auto RemoteOffloadClient::remoteCall(Fn1 Preprocess, Fn2 Postprocess,
+                                     TReturn ErrorValue, bool Timeout) {
   ArenaAllocatorLock->lock();
   if (Arena->SpaceAllocated() >= MaxSize)
     Arena->Reset();
   ArenaAllocatorLock->unlock();
 
   ClientContext Context;
-  if (CanTimeOut) {
+  if (Timeout) {
     auto Deadline =
         std::chrono::system_clock::now() + std::chrono::seconds(Timeout);
     Context.set_deadline(Deadline);
   }
 
   Status RPCStatus;
-  auto Reply = Preprocessor(RPCStatus, Context);
+  auto Reply = Preprocess(RPCStatus, Context);
 
+  // TODO: Error handle more appropriately
   if (!RPCStatus.ok()) {
-    CLIENT_DBG("%s", RPCStatus.error_message().c_str())
+    CLIENT_DBG("%s", RPCStatus.error_message().c_str());
   } else {
-    return Postprocessor(Reply);
+    return Postprocess(Reply);
   }
 
-  CLIENT_DBG("Failed")
+  CLIENT_DBG("Failed");
   return ErrorValue;
 }
 
@@ -55,7 +56,7 @@ int32_t RemoteOffloadClient::shutdown(void) {
   ClientContext Context;
   Null Request;
   I32 Reply;
-  CLIENT_DBG("Shutting down server.")
+  CLIENT_DBG("Shutting down server.");
   auto Status = Stub->Shutdown(&Context, Request, &Reply);
   if (Status.ok())
     return Reply.number();
@@ -64,7 +65,7 @@ int32_t RemoteOffloadClient::shutdown(void) {
 
 int32_t RemoteOffloadClient::registerLib(__tgt_bin_desc *Desc) {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *Request = protobuf::Arena::CreateMessage<TargetBinaryDescription>(
             Arena.get());
@@ -72,13 +73,14 @@ int32_t RemoteOffloadClient::registerLib(__tgt_bin_desc *Desc) {
         loadTargetBinaryDescription(Desc, *Request);
         Request->set_bin_ptr((uint64_t)Desc);
 
+        CLIENT_DBG("Registering library");
         RPCStatus = Stub->RegisterLib(&Context, *Request, Reply);
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](const auto &Reply) {
         if (Reply->number() == 0) {
-          CLIENT_DBG("Registered library")
+          CLIENT_DBG("Registered library");
           return 0;
         }
         return 1;
@@ -88,23 +90,24 @@ int32_t RemoteOffloadClient::registerLib(__tgt_bin_desc *Desc) {
 
 int32_t RemoteOffloadClient::unregisterLib(__tgt_bin_desc *Desc) {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *Request = protobuf::Arena::CreateMessage<Pointer>(Arena.get());
         auto *Reply = protobuf::Arena::CreateMessage<I32>(Arena.get());
 
         Request->set_number((uint64_t)Desc);
 
+        CLIENT_DBG("Unregistering library");
         RPCStatus = Stub->UnregisterLib(&Context, *Request, Reply);
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](const auto &Reply) {
         if (Reply->number() == 0) {
-          CLIENT_DBG("Unregistered library")
+          CLIENT_DBG("Unregistered library");
           return 0;
         }
-        CLIENT_DBG("Failed to unregister library")
+        CLIENT_DBG("Failed to unregister library");
         return 1;
       },
       /* Error Value */ 1);
@@ -112,7 +115,7 @@ int32_t RemoteOffloadClient::unregisterLib(__tgt_bin_desc *Desc) {
 
 int32_t RemoteOffloadClient::isValidBinary(__tgt_device_image *Image) {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *Request =
             protobuf::Arena::CreateMessage<TargetDeviceImagePtr>(Arena.get());
@@ -124,15 +127,16 @@ int32_t RemoteOffloadClient::isValidBinary(__tgt_device_image *Image) {
         while (EntryItr != Image->EntriesEnd)
           Request->add_entry_ptrs((uint64_t)EntryItr++);
 
+        CLIENT_DBG("Validating binary");
         RPCStatus = Stub->IsValidBinary(&Context, *Request, Reply);
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](const auto &Reply) {
         if (Reply->number()) {
-          CLIENT_DBG("Validated binary")
+          CLIENT_DBG("Validated binary");
         } else {
-          CLIENT_DBG("Could not validate binary")
+          CLIENT_DBG("Could not validate binary");
         }
         return Reply->number();
       },
@@ -141,21 +145,22 @@ int32_t RemoteOffloadClient::isValidBinary(__tgt_device_image *Image) {
 
 int32_t RemoteOffloadClient::getNumberOfDevices() {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](Status &RPCStatus, ClientContext &Context) {
         auto *Request = protobuf::Arena::CreateMessage<Null>(Arena.get());
         auto *Reply = protobuf::Arena::CreateMessage<I32>(Arena.get());
 
+        CLIENT_DBG("Getting number of devices");
         RPCStatus = Stub->GetNumberOfDevices(&Context, *Request, Reply);
 
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](const auto &Reply) {
         if (Reply->number()) {
-          CLIENT_DBG("Found %d devices", Reply->number())
+          CLIENT_DBG("Found %d devices", Reply->number());
         } else {
-          CLIENT_DBG("Could not get the number of devices")
+          CLIENT_DBG("Could not get the number of devices");
         }
         return Reply->number();
       },
@@ -164,23 +169,24 @@ int32_t RemoteOffloadClient::getNumberOfDevices() {
 
 int32_t RemoteOffloadClient::initDevice(int32_t DeviceId) {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *Request = protobuf::Arena::CreateMessage<I32>(Arena.get());
         auto *Reply = protobuf::Arena::CreateMessage<I32>(Arena.get());
 
         Request->set_number(DeviceId);
 
+        CLIENT_DBG("Initializing device %d", DeviceId);
         RPCStatus = Stub->InitDevice(&Context, *Request, Reply);
 
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](const auto &Reply) {
         if (!Reply->number()) {
-          CLIENT_DBG("Initialized device %d", DeviceId)
+          CLIENT_DBG("Initialized device %d", DeviceId);
         } else {
-          CLIENT_DBG("Could not initialize device %d", DeviceId)
+          CLIENT_DBG("Could not initialize device %d", DeviceId);
         }
         return Reply->number();
       },
@@ -189,20 +195,21 @@ int32_t RemoteOffloadClient::initDevice(int32_t DeviceId) {
 
 int32_t RemoteOffloadClient::initRequires(int64_t RequiresFlags) {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *Request = protobuf::Arena::CreateMessage<I64>(Arena.get());
         auto *Reply = protobuf::Arena::CreateMessage<I32>(Arena.get());
         Request->set_number(RequiresFlags);
+        CLIENT_DBG("Initializing requires");
         RPCStatus = Stub->InitRequires(&Context, *Request, Reply);
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](const auto &Reply) {
         if (Reply->number()) {
-          CLIENT_DBG("Initialized requires")
+          CLIENT_DBG("Initialized requires");
         } else {
-          CLIENT_DBG("Could not initialize requires")
+          CLIENT_DBG("Could not initialize requires");
         }
         return Reply->number();
       },
@@ -212,7 +219,7 @@ int32_t RemoteOffloadClient::initRequires(int64_t RequiresFlags) {
 __tgt_target_table *RemoteOffloadClient::loadBinary(int32_t DeviceId,
                                                     __tgt_device_image *Image) {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *ImageMessage =
             protobuf::Arena::CreateMessage<Binary>(Arena.get());
@@ -220,13 +227,14 @@ __tgt_target_table *RemoteOffloadClient::loadBinary(int32_t DeviceId,
         ImageMessage->set_image_ptr((uint64_t)Image->ImageStart);
         ImageMessage->set_device_id(DeviceId);
 
+        CLIENT_DBG("Loading Image %p to device %d", Image, DeviceId);
         RPCStatus = Stub->LoadBinary(&Context, *ImageMessage, Reply);
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](auto &Reply) {
         if (Reply->entries_size() == 0) {
-          CLIENT_DBG("Could not load image %p onto device %d", Image, DeviceId)
+          CLIENT_DBG("Could not load image %p onto device %d", Image, DeviceId);
           return (__tgt_target_table *)nullptr;
         }
         DevicesToTables[DeviceId] = std::make_unique<__tgt_target_table>();
@@ -234,18 +242,46 @@ __tgt_target_table *RemoteOffloadClient::loadBinary(int32_t DeviceId,
                           RemoteEntries[DeviceId]);
 
         CLIENT_DBG("Loaded Image %p to device %d with %d entries", Image,
-                   DeviceId, Reply->entries_size())
+                   DeviceId, Reply->entries_size());
 
         return DevicesToTables[DeviceId].get();
       },
       /* Error Value */ (__tgt_target_table *)nullptr,
-      /* CanTimeOut */ false);
+      /* Timeout */ false);
+}
+
+int64_t RemoteOffloadClient::synchronize(int32_t DeviceId,
+                                         __tgt_async_info *AsyncInfoPtr) {
+  return remoteCall(
+      /* Preprocess */
+      [&](auto &RPCStatus, auto &Context) {
+        auto *Reply = protobuf::Arena::CreateMessage<I32>(Arena.get());
+        auto *Info =
+            protobuf::Arena::CreateMessage<SynchronizeDevice>(Arena.get());
+
+        Info->set_device_id(DeviceId);
+        Info->set_queue_ptr((uint64_t)AsyncInfoPtr);
+
+        CLIENT_DBG("Synchronizing device %d", DeviceId);
+        RPCStatus = Stub->Synchronize(&Context, *Info, Reply);
+        return Reply;
+      },
+      /* Postprocess */
+      [&](auto &Reply) {
+        if (Reply->number()) {
+          CLIENT_DBG("Synchronized device %d", DeviceId);
+        } else {
+          CLIENT_DBG("Could not synchronize device %d", DeviceId);
+        }
+        return Reply->number();
+      },
+      /* Error Value */ -1);
 }
 
 int32_t RemoteOffloadClient::isDataExchangeable(int32_t SrcDevId,
                                                 int32_t DstDevId) {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *Request = protobuf::Arena::CreateMessage<DevicePair>(Arena.get());
         auto *Reply = protobuf::Arena::CreateMessage<I32>(Arena.get());
@@ -253,16 +289,18 @@ int32_t RemoteOffloadClient::isDataExchangeable(int32_t SrcDevId,
         Request->set_src_dev_id(SrcDevId);
         Request->set_dst_dev_id(DstDevId);
 
+        CLIENT_DBG("Asking if data is exchangeable between %d, %d", SrcDevId,
+                   DstDevId);
         RPCStatus = Stub->IsDataExchangeable(&Context, *Request, Reply);
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](auto &Reply) {
         if (Reply->number()) {
-          CLIENT_DBG("Data is exchangeable between %d, %d", SrcDevId, DstDevId)
+          CLIENT_DBG("Data is exchangeable between %d, %d", SrcDevId, DstDevId);
         } else {
           CLIENT_DBG("Data is not exchangeable between %d, %d", SrcDevId,
-                     DstDevId)
+                     DstDevId);
         }
         return Reply->number();
       },
@@ -272,7 +310,7 @@ int32_t RemoteOffloadClient::isDataExchangeable(int32_t SrcDevId,
 void *RemoteOffloadClient::dataAlloc(int32_t DeviceId, int64_t Size,
                                      void *HstPtr) {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *Reply = protobuf::Arena::CreateMessage<Pointer>(Arena.get());
         auto *Request = protobuf::Arena::CreateMessage<AllocData>(Arena.get());
@@ -281,38 +319,40 @@ void *RemoteOffloadClient::dataAlloc(int32_t DeviceId, int64_t Size,
         Request->set_size(Size);
         Request->set_hst_ptr((uint64_t)HstPtr);
 
+        CLIENT_DBG("Allocating %ld bytes on device %d", Size, DeviceId);
         RPCStatus = Stub->DataAlloc(&Context, *Request, Reply);
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](auto &Reply) {
         if (Reply->number()) {
           CLIENT_DBG("Allocated %ld bytes on device %d at %p", Size, DeviceId,
-                     (void *)Reply->number())
+                     (void *)Reply->number());
         } else {
           CLIENT_DBG("Could not allocate %ld bytes on device %d at %p", Size,
-                     DeviceId, (void *)Reply->number())
+                     DeviceId, (void *)Reply->number());
         }
         return (void *)Reply->number();
       },
       /* Error Value */ (void *)nullptr);
 }
 
-int32_t RemoteOffloadClient::dataSubmit(int32_t DeviceId, void *TgtPtr,
-                                        void *HstPtr, int64_t Size) {
+int32_t RemoteOffloadClient::dataSubmitAsync(int32_t DeviceId, void *TgtPtr,
+                                             void *HstPtr, int64_t Size,
+                                             __tgt_async_info *AsyncInfoPtr) {
 
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *Reply = protobuf::Arena::CreateMessage<I32>(Arena.get());
-        std::unique_ptr<ClientWriter<SubmitData>> Writer(
-            Stub->DataSubmit(&Context, Reply));
+        std::unique_ptr<ClientWriter<SubmitDataAsync>> Writer(
+            Stub->DataSubmitAsync(&Context, Reply));
 
         if (Size > BlockSize) {
           int64_t Start = 0, End = BlockSize;
           for (auto I = 0; I < ceil((float)Size / BlockSize); I++) {
             auto *Request =
-                protobuf::Arena::CreateMessage<SubmitData>(Arena.get());
+                protobuf::Arena::CreateMessage<SubmitDataAsync>(Arena.get());
 
             Request->set_device_id(DeviceId);
             Request->set_data((char *)HstPtr + Start, End - Start);
@@ -320,9 +360,13 @@ int32_t RemoteOffloadClient::dataSubmit(int32_t DeviceId, void *TgtPtr,
             Request->set_tgt_ptr((uint64_t)TgtPtr);
             Request->set_start(Start);
             Request->set_size(Size);
+            Request->set_queue_ptr((uint64_t)AsyncInfoPtr);
+
+            CLIENT_DBG("Submitting %ld-%ld/%ld bytes async on device %d at %p",
+                       Start, End, Size, DeviceId, TgtPtr)
 
             if (!Writer->Write(*Request)) {
-              CLIENT_DBG("Broken stream when submitting data")
+              CLIENT_DBG("Broken stream when submitting data");
               Reply->set_number(0);
               return Reply;
             }
@@ -334,7 +378,7 @@ int32_t RemoteOffloadClient::dataSubmit(int32_t DeviceId, void *TgtPtr,
           }
         } else {
           auto *Request =
-              protobuf::Arena::CreateMessage<SubmitData>(Arena.get());
+              protobuf::Arena::CreateMessage<SubmitDataAsync>(Arena.get());
 
           Request->set_device_id(DeviceId);
           Request->set_data(HstPtr, Size);
@@ -343,8 +387,10 @@ int32_t RemoteOffloadClient::dataSubmit(int32_t DeviceId, void *TgtPtr,
           Request->set_start(0);
           Request->set_size(Size);
 
+          CLIENT_DBG("Submitting %ld bytes async on device %d at %p", Size,
+                     DeviceId, TgtPtr)
           if (!Writer->Write(*Request)) {
-            CLIENT_DBG("Broken stream when submitting data")
+            CLIENT_DBG("Broken stream when submitting data");
             Reply->set_number(0);
             return Reply;
           }
@@ -355,11 +401,11 @@ int32_t RemoteOffloadClient::dataSubmit(int32_t DeviceId, void *TgtPtr,
 
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](auto &Reply) {
         if (!Reply->number()) {
-          CLIENT_DBG(" submitted %ld bytes on device %d at %p", Size, DeviceId,
-                     TgtPtr)
+          CLIENT_DBG("Async submitted %ld bytes on device %d at %p", Size,
+                     DeviceId, TgtPtr)
         } else {
           CLIENT_DBG("Could not async submit %ld bytes on device %d at %p",
                      Size, DeviceId, TgtPtr)
@@ -367,25 +413,27 @@ int32_t RemoteOffloadClient::dataSubmit(int32_t DeviceId, void *TgtPtr,
         return Reply->number();
       },
       /* Error Value */ -1,
-      /* CanTimeOut */ false);
+      /* Timeout */ false);
 }
 
-int32_t RemoteOffloadClient::dataRetrieve(int32_t DeviceId, void *HstPtr,
-                                          void *TgtPtr, int64_t Size) {
+int32_t RemoteOffloadClient::dataRetrieveAsync(int32_t DeviceId, void *HstPtr,
+                                               void *TgtPtr, int64_t Size,
+                                               __tgt_async_info *AsyncInfoPtr) {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *Request =
-            protobuf::Arena::CreateMessage<RetrieveData>(Arena.get());
+            protobuf::Arena::CreateMessage<RetrieveDataAsync>(Arena.get());
 
         Request->set_device_id(DeviceId);
         Request->set_size(Size);
         Request->set_hst_ptr((int64_t)HstPtr);
         Request->set_tgt_ptr((int64_t)TgtPtr);
+        Request->set_queue_ptr((uint64_t)AsyncInfoPtr);
 
         auto *Reply = protobuf::Arena::CreateMessage<Data>(Arena.get());
         std::unique_ptr<ClientReader<Data>> Reader(
-            Stub->DataRetrieve(&Context, *Request));
+            Stub->DataRetrieveAsync(&Context, *Request));
         Reader->WaitForInitialMetadata();
         while (Reader->Read(Reply)) {
           if (Reply->ret()) {
@@ -396,10 +444,18 @@ int32_t RemoteOffloadClient::dataRetrieve(int32_t DeviceId, void *HstPtr,
           }
 
           if (Reply->start() == 0 && Reply->size() == Reply->data().size()) {
+            CLIENT_DBG("Async retrieving %ld bytes on device %d at %p for %p",
+                       Size, DeviceId, TgtPtr, HstPtr)
+
             memcpy(HstPtr, Reply->data().data(), Reply->data().size());
 
             return Reply;
           }
+          CLIENT_DBG("Retrieving %lu-%lu/%lu bytes async from (%p) to (%p) "
+                     "on Device %d",
+                     Reply->start(), Reply->start() + Reply->data().size(),
+                     Reply->size(), (void *)Request->tgt_ptr(), HstPtr,
+                     Request->device_id());
 
           memcpy((void *)((char *)HstPtr + Reply->start()),
                  Reply->data().data(), Reply->data().size());
@@ -408,49 +464,54 @@ int32_t RemoteOffloadClient::dataRetrieve(int32_t DeviceId, void *HstPtr,
 
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](auto &Reply) {
         if (!Reply->ret()) {
-          CLIENT_DBG("Retrieved %ld bytes on Device %d", Size, DeviceId)
+          CLIENT_DBG("Async retrieve %ld bytes on Device %d", Size, DeviceId);
         } else {
           CLIENT_DBG("Could not async retrieve %ld bytes on Device %d", Size,
-                     DeviceId)
+                     DeviceId);
         }
         return Reply->ret();
       },
       /* Error Value */ -1,
-      /* CanTimeOut */ false);
+      /* Timeout */ false);
 }
 
-int32_t RemoteOffloadClient::dataExchange(int32_t SrcDevId, void *SrcPtr,
-                                          int32_t DstDevId, void *DstPtr,
-                                          int64_t Size) {
+int32_t RemoteOffloadClient::dataExchangeAsync(int32_t SrcDevId, void *SrcPtr,
+                                               int32_t DstDevId, void *DstPtr,
+                                               int64_t Size,
+                                               __tgt_async_info *AsyncInfoPtr) {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *Reply = protobuf::Arena::CreateMessage<I32>(Arena.get());
         auto *Request =
-            protobuf::Arena::CreateMessage<ExchangeData>(Arena.get());
+            protobuf::Arena::CreateMessage<ExchangeDataAsync>(Arena.get());
 
         Request->set_src_dev_id(SrcDevId);
         Request->set_src_ptr((uint64_t)SrcPtr);
         Request->set_dst_dev_id(DstDevId);
         Request->set_dst_ptr((uint64_t)DstPtr);
         Request->set_size(Size);
+        Request->set_queue_ptr((uint64_t)AsyncInfoPtr);
 
-        RPCStatus = Stub->DataExchange(&Context, *Request, Reply);
+        CLIENT_DBG(
+            "Exchanging %ld bytes on device %d at %p for %p on device %d", Size,
+            SrcDevId, SrcPtr, DstPtr, DstDevId);
+        RPCStatus = Stub->DataExchangeAsync(&Context, *Request, Reply);
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](auto &Reply) {
         if (Reply->number()) {
           CLIENT_DBG(
               "Exchanged %ld bytes on device %d at %p for %p on device %d",
-              Size, SrcDevId, SrcPtr, DstPtr, DstDevId)
+              Size, SrcDevId, SrcPtr, DstPtr, DstDevId);
         } else {
           CLIENT_DBG("Could not exchange %ld bytes on device %d at %p for %p "
                      "on device %d",
-                     Size, SrcDevId, SrcPtr, DstPtr, DstDevId)
+                     Size, SrcDevId, SrcPtr, DstPtr, DstDevId);
         }
         return Reply->number();
       },
@@ -459,7 +520,7 @@ int32_t RemoteOffloadClient::dataExchange(int32_t SrcDevId, void *SrcPtr,
 
 int32_t RemoteOffloadClient::dataDelete(int32_t DeviceId, void *TgtPtr) {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *Reply = protobuf::Arena::CreateMessage<I32>(Arena.get());
         auto *Request = protobuf::Arena::CreateMessage<DeleteData>(Arena.get());
@@ -467,10 +528,11 @@ int32_t RemoteOffloadClient::dataDelete(int32_t DeviceId, void *TgtPtr) {
         Request->set_device_id(DeviceId);
         Request->set_tgt_ptr((uint64_t)TgtPtr);
 
+        CLIENT_DBG("Deleting data at %p on device %d", TgtPtr, DeviceId)
         RPCStatus = Stub->DataDelete(&Context, *Request, Reply);
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](auto &Reply) {
         if (!Reply->number()) {
           CLIENT_DBG("Deleted data at %p on device %d", TgtPtr, DeviceId)
@@ -483,18 +545,18 @@ int32_t RemoteOffloadClient::dataDelete(int32_t DeviceId, void *TgtPtr) {
       /* Error Value */ -1);
 }
 
-int32_t RemoteOffloadClient::runTargetRegion(int32_t DeviceId,
-                                             void *TgtEntryPtr, void **TgtArgs,
-                                             ptrdiff_t *TgtOffsets,
-                                             int32_t ArgNum) {
+int32_t RemoteOffloadClient::runTargetRegionAsync(
+    int32_t DeviceId, void *TgtEntryPtr, void **TgtArgs, ptrdiff_t *TgtOffsets,
+    int32_t ArgNum, __tgt_async_info *AsyncInfoPtr) {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *Reply = protobuf::Arena::CreateMessage<I32>(Arena.get());
         auto *Request =
-            protobuf::Arena::CreateMessage<TargetRegion>(Arena.get());
+            protobuf::Arena::CreateMessage<TargetRegionAsync>(Arena.get());
 
         Request->set_device_id(DeviceId);
+        Request->set_queue_ptr((uint64_t)AsyncInfoPtr);
 
         Request->set_tgt_entry_ptr(
             (uint64_t)RemoteEntries[DeviceId][TgtEntryPtr]);
@@ -509,34 +571,37 @@ int32_t RemoteOffloadClient::runTargetRegion(int32_t DeviceId,
 
         Request->set_arg_num(ArgNum);
 
-        RPCStatus = Stub->RunTargetRegion(&Context, *Request, Reply);
+        CLIENT_DBG("Running target region async on device %d", DeviceId);
+        RPCStatus = Stub->RunTargetRegionAsync(&Context, *Request, Reply);
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](auto &Reply) {
         if (!Reply->number()) {
-          CLIENT_DBG("Ran target region async on device %d", DeviceId)
+          CLIENT_DBG("Ran target region async on device %d", DeviceId);
         } else {
-          CLIENT_DBG("Could not run target region async on device %d", DeviceId)
+          CLIENT_DBG("Could not run target region async on device %d",
+                     DeviceId);
         }
         return Reply->number();
       },
       /* Error Value */ -1,
-      /* CanTimeOut */ false);
+      /* Timeout */ false);
 }
 
-int32_t RemoteOffloadClient::runTargetTeamRegion(
+int32_t RemoteOffloadClient::runTargetTeamRegionAsync(
     int32_t DeviceId, void *TgtEntryPtr, void **TgtArgs, ptrdiff_t *TgtOffsets,
     int32_t ArgNum, int32_t TeamNum, int32_t ThreadLimit,
-    uint64_t LoopTripcount) {
+    uint64_t LoopTripcount, __tgt_async_info *AsyncInfoPtr) {
   return remoteCall(
-      /* Preprocessor */
+      /* Preprocess */
       [&](auto &RPCStatus, auto &Context) {
         auto *Reply = protobuf::Arena::CreateMessage<I32>(Arena.get());
         auto *Request =
-            protobuf::Arena::CreateMessage<TargetTeamRegion>(Arena.get());
+            protobuf::Arena::CreateMessage<TargetTeamRegionAsync>(Arena.get());
 
         Request->set_device_id(DeviceId);
+        Request->set_queue_ptr((uint64_t)AsyncInfoPtr);
 
         Request->set_tgt_entry_ptr(
             (uint64_t)RemoteEntries[DeviceId][TgtEntryPtr]);
@@ -555,23 +620,25 @@ int32_t RemoteOffloadClient::runTargetTeamRegion(
         Request->set_thread_limit(ThreadLimit);
         Request->set_loop_tripcount(LoopTripcount);
 
-        RPCStatus = Stub->RunTargetTeamRegion(&Context, *Request, Reply);
+        CLIENT_DBG("Running target team region async on device %d", DeviceId);
+        RPCStatus = Stub->RunTargetTeamRegionAsync(&Context, *Request, Reply);
         return Reply;
       },
-      /* Postprocessor */
+      /* Postprocess */
       [&](auto &Reply) {
         if (!Reply->number()) {
-          CLIENT_DBG("Ran target team region async on device %d", DeviceId)
+          CLIENT_DBG("Ran target team region async on device %d", DeviceId);
         } else {
           CLIENT_DBG("Could not run target team region async on device %d",
-                     DeviceId)
+                     DeviceId);
         }
         return Reply->number();
       },
       /* Error Value */ -1,
-      /* CanTimeOut */ false);
+      /* Timeout */ false);
 }
 
+// TODO: Better error handling for the next three functions
 int32_t RemoteClientManager::shutdown(void) {
   int32_t Ret = 0;
   for (auto &Client : Clients)
@@ -617,7 +684,7 @@ int32_t RemoteClientManager::getNumberOfDevices() {
 
 std::pair<int32_t, int32_t> RemoteClientManager::mapDeviceId(int32_t DeviceId) {
   for (size_t ClientIdx = 0; ClientIdx < Devices.size(); ClientIdx++) {
-    if (DeviceId < Devices[ClientIdx])
+    if (!(DeviceId >= Devices[ClientIdx]))
       return {ClientIdx, DeviceId};
     DeviceId -= Devices[ClientIdx];
   }
@@ -644,6 +711,13 @@ __tgt_target_table *RemoteClientManager::loadBinary(int32_t DeviceId,
   return Clients[ClientIdx].loadBinary(DeviceIdx, Image);
 }
 
+int64_t RemoteClientManager::synchronize(int32_t DeviceId,
+                                         __tgt_async_info *AsyncInfoPtr) {
+  int32_t ClientIdx, DeviceIdx;
+  std::tie(ClientIdx, DeviceIdx) = mapDeviceId(DeviceId);
+  return Clients[ClientIdx].synchronize(DeviceIdx, AsyncInfoPtr);
+}
+
 int32_t RemoteClientManager::isDataExchangeable(int32_t SrcDevId,
                                                 int32_t DstDevId) {
   int32_t SrcClientIdx, SrcDeviceIdx, DstClientIdx, DstDeviceIdx;
@@ -665,47 +739,51 @@ int32_t RemoteClientManager::dataDelete(int32_t DeviceId, void *TgtPtr) {
   return Clients[ClientIdx].dataDelete(DeviceIdx, TgtPtr);
 }
 
-int32_t RemoteClientManager::dataSubmit(int32_t DeviceId, void *TgtPtr,
-                                        void *HstPtr, int64_t Size) {
+int32_t RemoteClientManager::dataSubmitAsync(int32_t DeviceId, void *TgtPtr,
+                                             void *HstPtr, int64_t Size,
+                                             __tgt_async_info *AsyncInfoPtr) {
   int32_t ClientIdx, DeviceIdx;
   std::tie(ClientIdx, DeviceIdx) = mapDeviceId(DeviceId);
-  return Clients[ClientIdx].dataSubmit(DeviceIdx, TgtPtr, HstPtr, Size);
+  return Clients[ClientIdx].dataSubmitAsync(DeviceIdx, TgtPtr, HstPtr, Size,
+                                            AsyncInfoPtr);
 }
 
-int32_t RemoteClientManager::dataRetrieve(int32_t DeviceId, void *HstPtr,
-                                          void *TgtPtr, int64_t Size) {
+int32_t RemoteClientManager::dataRetrieveAsync(int32_t DeviceId, void *HstPtr,
+                                               void *TgtPtr, int64_t Size,
+                                               __tgt_async_info *AsyncInfoPtr) {
   int32_t ClientIdx, DeviceIdx;
   std::tie(ClientIdx, DeviceIdx) = mapDeviceId(DeviceId);
-  return Clients[ClientIdx].dataRetrieve(DeviceIdx, HstPtr, TgtPtr, Size);
+  return Clients[ClientIdx].dataRetrieveAsync(DeviceIdx, HstPtr, TgtPtr, Size,
+                                              AsyncInfoPtr);
 }
 
-int32_t RemoteClientManager::dataExchange(int32_t SrcDevId, void *SrcPtr,
-                                          int32_t DstDevId, void *DstPtr,
-                                          int64_t Size) {
+int32_t RemoteClientManager::dataExchangeAsync(int32_t SrcDevId, void *SrcPtr,
+                                               int32_t DstDevId, void *DstPtr,
+                                               int64_t Size,
+                                               __tgt_async_info *AsyncInfoPtr) {
   int32_t SrcClientIdx, SrcDeviceIdx, DstClientIdx, DstDeviceIdx;
   std::tie(SrcClientIdx, SrcDeviceIdx) = mapDeviceId(SrcDevId);
   std::tie(DstClientIdx, DstDeviceIdx) = mapDeviceId(DstDevId);
-  return Clients[SrcClientIdx].dataExchange(SrcDeviceIdx, SrcPtr, DstDeviceIdx,
-                                            DstPtr, Size);
+  return Clients[SrcClientIdx].dataExchangeAsync(
+      SrcDeviceIdx, SrcPtr, DstDeviceIdx, DstPtr, Size, AsyncInfoPtr);
 }
 
-int32_t RemoteClientManager::runTargetRegion(int32_t DeviceId,
-                                             void *TgtEntryPtr, void **TgtArgs,
-                                             ptrdiff_t *TgtOffsets,
-                                             int32_t ArgNum) {
+int32_t RemoteClientManager::runTargetRegionAsync(
+    int32_t DeviceId, void *TgtEntryPtr, void **TgtArgs, ptrdiff_t *TgtOffsets,
+    int32_t ArgNum, __tgt_async_info *AsyncInfoPtr) {
   int32_t ClientIdx, DeviceIdx;
   std::tie(ClientIdx, DeviceIdx) = mapDeviceId(DeviceId);
-  return Clients[ClientIdx].runTargetRegion(DeviceIdx, TgtEntryPtr, TgtArgs,
-                                            TgtOffsets, ArgNum);
+  return Clients[ClientIdx].runTargetRegionAsync(
+      DeviceIdx, TgtEntryPtr, TgtArgs, TgtOffsets, ArgNum, AsyncInfoPtr);
 }
 
-int32_t RemoteClientManager::runTargetTeamRegion(
+int32_t RemoteClientManager::runTargetTeamRegionAsync(
     int32_t DeviceId, void *TgtEntryPtr, void **TgtArgs, ptrdiff_t *TgtOffsets,
     int32_t ArgNum, int32_t TeamNum, int32_t ThreadLimit,
-    uint64_t LoopTripCount) {
+    uint64_t LoopTripCount, __tgt_async_info *AsyncInfoPtr) {
   int32_t ClientIdx, DeviceIdx;
   std::tie(ClientIdx, DeviceIdx) = mapDeviceId(DeviceId);
-  return Clients[ClientIdx].runTargetTeamRegion(DeviceIdx, TgtEntryPtr, TgtArgs,
-                                                TgtOffsets, ArgNum, TeamNum,
-                                                ThreadLimit, LoopTripCount);
+  return Clients[ClientIdx].runTargetTeamRegionAsync(
+      DeviceIdx, TgtEntryPtr, TgtArgs, TgtOffsets, ArgNum, TeamNum, ThreadLimit,
+      LoopTripCount, AsyncInfoPtr);
 }

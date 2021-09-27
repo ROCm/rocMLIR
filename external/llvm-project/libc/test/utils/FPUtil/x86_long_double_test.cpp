@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "src/__support/FPUtil/FPBits.h"
+#include "utils/FPUtil/FPBits.h"
 #include "utils/UnitTest/Test.h"
 
 #include <math.h>

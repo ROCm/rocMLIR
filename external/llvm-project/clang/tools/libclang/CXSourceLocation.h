@@ -29,7 +29,7 @@ static inline CXSourceLocation
 translateSourceLocation(const SourceManager &SM, const LangOptions &LangOpts,
                         SourceLocation Loc) {
   if (Loc.isInvalid())
-    return clang_getNullLocation();
+    clang_getNullLocation();
 
   CXSourceLocation Result = { { &SM, &LangOpts, },
                               Loc.getRawEncoding() };

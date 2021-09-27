@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <cstdlib>
+#include <stdlib.h>
 
 #include "lldb/Host/StringConvert.h"
 

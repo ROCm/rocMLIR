@@ -11,18 +11,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TRANSFORMS_SCALAR_ANNOTATIONREMARKS_H
-#define LLVM_TRANSFORMS_SCALAR_ANNOTATIONREMARKS_H
+#ifndef LLVM_TRANSFORMS_SCALAR_ANNOTATION_REMARKS_H
+#define LLVM_TRANSFORMS_SCALAR_ANNOTATION_REMARKS_H
 
+#include "llvm/IR/Function.h"
 #include "llvm/IR/PassManager.h"
 
 namespace llvm {
-
-class Function;
-
 struct AnnotationRemarksPass : public PassInfoMixin<AnnotationRemarksPass> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
 };
 } // namespace llvm
 
-#endif // LLVM_TRANSFORMS_SCALAR_ANNOTATIONREMARKS_H
+#endif // LLVM_TRANSFORMS_SCALAR_ANNOTATION_REMARKS_H

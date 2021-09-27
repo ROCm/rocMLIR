@@ -20,6 +20,7 @@
 
 #include "sanitizer_common/sanitizer_common.h"
 #include "tsan_defs.h"
+#include "tsan_mutex.h"
 
 namespace __tsan {
 
@@ -28,38 +29,26 @@ class DenseSlabAllocCache {
   typedef u32 IndexT;
   uptr pos;
   IndexT cache[kSize];
-  template <typename, uptr, uptr, u64>
-  friend class DenseSlabAlloc;
+  template<typename T, uptr kL1Size, uptr kL2Size> friend class DenseSlabAlloc;
 };
 
-template <typename T, uptr kL1Size, uptr kL2Size, u64 kReserved = 0>
+template<typename T, uptr kL1Size, uptr kL2Size>
 class DenseSlabAlloc {
  public:
   typedef DenseSlabAllocCache Cache;
   typedef typename Cache::IndexT IndexT;
 
-  static_assert((kL1Size & (kL1Size - 1)) == 0,
-                "kL1Size must be a power-of-two");
-  static_assert((kL2Size & (kL2Size - 1)) == 0,
-                "kL2Size must be a power-of-two");
-  static_assert((kL1Size * kL2Size) <= (1ull << (sizeof(IndexT) * 8)),
-                "kL1Size/kL2Size are too large");
-  static_assert(((kL1Size * kL2Size - 1) & kReserved) == 0,
-                "reserved bits don't fit");
-  static_assert(sizeof(T) > sizeof(IndexT),
-                "it doesn't make sense to use dense alloc");
-
-  explicit DenseSlabAlloc(LinkerInitialized, const char *name) {
+  explicit DenseSlabAlloc(const char *name) {
+    // Check that kL1Size and kL2Size are sane.
+    CHECK_EQ(kL1Size & (kL1Size - 1), 0);
+    CHECK_EQ(kL2Size & (kL2Size - 1), 0);
+    CHECK_GE(1ull << (sizeof(IndexT) * 8), kL1Size * kL2Size);
+    // Check that it makes sense to use the dense alloc.
+    CHECK_GE(sizeof(T), sizeof(IndexT));
+    internal_memset(map_, 0, sizeof(map_));
     freelist_ = 0;
     fillpos_ = 0;
     name_ = name;
-  }
-
-  explicit DenseSlabAlloc(const char *name)
-      : DenseSlabAlloc(LINKER_INITIALIZED, name) {
-    // It can be very large.
-    // Don't page it in for linker initialized objects.
-    internal_memset(map_, 0, sizeof(map_));
   }
 
   ~DenseSlabAlloc() {

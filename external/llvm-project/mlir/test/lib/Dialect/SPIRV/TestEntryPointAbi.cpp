@@ -24,12 +24,6 @@ class TestSpirvEntryPointABIPass
     : public PassWrapper<TestSpirvEntryPointABIPass,
                          OperationPass<gpu::GPUModuleOp>> {
 public:
-  StringRef getArgument() const final { return "test-spirv-entry-point-abi"; }
-  StringRef getDescription() const final {
-    return "Set the spv.entry_point_abi attribute on GPU kernel function "
-           "within the "
-           "module, intended for testing only";
-  }
   TestSpirvEntryPointABIPass() = default;
   TestSpirvEntryPointABIPass(const TestSpirvEntryPointABIPass &) {}
   void runOnOperation() override;
@@ -62,6 +56,9 @@ void TestSpirvEntryPointABIPass::runOnOperation() {
 
 namespace mlir {
 void registerTestSpirvEntryPointABIPass() {
-  PassRegistration<TestSpirvEntryPointABIPass>();
+  PassRegistration<TestSpirvEntryPointABIPass> registration(
+      "test-spirv-entry-point-abi",
+      "Set the spv.entry_point_abi attribute on GPU kernel function within the "
+      "module, intended for testing only");
 }
 } // namespace mlir

@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Analysis/MacroExpansionContext.h"
 #include "clang/Analysis/PathDiagnostic.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/Version.h"
@@ -139,9 +138,8 @@ public:
 
 void ento::createTextPathDiagnosticConsumer(
     PathDiagnosticConsumerOptions DiagOpts, PathDiagnosticConsumers &C,
-    const std::string &Prefix, const Preprocessor &PP,
-    const cross_tu::CrossTranslationUnitContext &CTU,
-    const MacroExpansionContext &MacroExpansions) {
+    const std::string &Prefix, const clang::Preprocessor &PP,
+    const cross_tu::CrossTranslationUnitContext &CTU) {
   C.emplace_back(new TextDiagnostics(std::move(DiagOpts), PP.getDiagnostics(),
                                      PP.getLangOpts(),
                                      /*ShouldDisplayPathNotes=*/true));
@@ -149,9 +147,8 @@ void ento::createTextPathDiagnosticConsumer(
 
 void ento::createTextMinimalPathDiagnosticConsumer(
     PathDiagnosticConsumerOptions DiagOpts, PathDiagnosticConsumers &C,
-    const std::string &Prefix, const Preprocessor &PP,
-    const cross_tu::CrossTranslationUnitContext &CTU,
-    const MacroExpansionContext &MacroExpansions) {
+    const std::string &Prefix, const clang::Preprocessor &PP,
+    const cross_tu::CrossTranslationUnitContext &CTU) {
   C.emplace_back(new TextDiagnostics(std::move(DiagOpts), PP.getDiagnostics(),
                                      PP.getLangOpts(),
                                      /*ShouldDisplayPathNotes=*/false));

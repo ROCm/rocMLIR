@@ -55,7 +55,6 @@ add_llvm_unittest(ADTTests
   RangeAdapterTest.cpp
   SCCIteratorTest.cpp
   STLExtrasTest.cpp
-  STLForwardCompatTest.cpp
   ScopeExitTest.cpp
   SequenceTest.cpp
   SetVectorTest.cpp

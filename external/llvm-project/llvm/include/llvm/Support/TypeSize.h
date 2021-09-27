@@ -27,10 +27,6 @@
 
 namespace llvm {
 
-/// Reports a diagnostic message to indicate an invalid size request has been
-/// done on a scalable vector. This function may not return.
-void reportInvalidSizeRequest(const char *Msg);
-
 template <typename LeafTy> struct LinearPolyBaseTypeTraits {};
 
 //===----------------------------------------------------------------------===//
@@ -385,7 +381,6 @@ template <> struct LinearPolyBaseTypeTraits<ElementCount> {
 
 class ElementCount : public LinearPolySize<ElementCount> {
 public:
-  ElementCount() : LinearPolySize(LinearPolySize::getNull()) {}
 
   ElementCount(const LinearPolySize<ElementCount> &V) : LinearPolySize(V) {}
 
@@ -450,7 +445,17 @@ public:
   //     else
   //       bail out early for scalable vectors and use getFixedValue()
   //   }
-  operator ScalarTy() const;
+  operator ScalarTy() const {
+#ifdef STRICT_FIXED_SIZE_VECTORS
+    return getFixedValue();
+#else
+    if (isScalable())
+      WithColor::warning() << "Compiler has made implicit assumption that "
+                              "TypeSize is not scalable. This may or may not "
+                              "lead to broken code.\n";
+    return getKnownMinValue();
+#endif
+  }
 
   // Additional operators needed to avoid ambiguous parses
   // because of the implicit conversion hack.
@@ -523,4 +528,4 @@ template <> struct DenseMapInfo<ElementCount> {
 
 } // end namespace llvm
 
-#endif // LLVM_SUPPORT_TYPESIZE_H
+#endif // LLVM_SUPPORT_TypeSize_H

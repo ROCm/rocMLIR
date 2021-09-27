@@ -10,22 +10,19 @@
 #define MLIR_DIALECT_LINALG_LINALGOPS_H_
 
 #include "mlir/Dialect/Linalg/IR/LinalgTypes.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Interfaces/CopyOpInterface.h"
-#include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
-#include "mlir/Interfaces/TilingInterface.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Support/LLVM.h"
 
@@ -43,7 +40,7 @@ class PoolingSumOp;
 // TOFO: allow an extra ValueRange to specify an indexing and allow
 // non-hyperrectangular shapes.
 using LoopRangeBuilder =
-    std::function<SmallVector<Range, 4>(ImplicitLocOpBuilder)>;
+    std::function<SmallVector<Range, 4>(OpBuilder &, Location)>;
 
 /// Provide a very simple inference procedure to build the loop ranges from the
 /// op and its operands. This only works with permutation affine maps and
@@ -53,6 +50,10 @@ using LoopRangeBuilder =
 /// As a consequence, we relax the default behavior very conservatively and
 /// provide an op-specified hook so that Linalg ops may override the behavior.
 LoopRangeBuilder defaultLoopRangesBuilder(LinalgOp op);
+
+using ReassociationIndices = SmallVector<int64_t, 2>;
+using ReassociationIndicesRef = ArrayRef<int64_t>;
+using ReassociationExprs = SmallVector<AffineExpr, 2>;
 
 /// Returns the name mangled library call name to disambiguate between different
 /// overloads at the C level. The name mangling scheme is basic and uses MLIR
@@ -64,19 +65,19 @@ LoopRangeBuilder defaultLoopRangesBuilder(LinalgOp op);
 ///
 /// Examples:
 ///
-/// 1. linalg.fill(%f, %A) : f32, memref<f32>
-///   name mangles into `linalg_fill_f32_viewf32`
+/// 1. linalg.fill(%A, %f) : memref<f32>, f32
+///   name mangles into `linalg_fill_viewf32_f32_impl`
 ///
 /// 2. linalg.dot %A, %B, %C :
 ///      (memref<?xf32, stride_specification>,
 ///       memref<?xf32, stride_specification>, memref<f32>)
-///   name mangles into `linalg_dot_viewxf32_viewxf32_viewf32`
+///   name mangles into `linalg_dot_viewxf32_viewxf32_viewf32_impl`
 ///
 /// 3. linalg.matmul(...) :
 ///      memref<?x?xf32, stride_specification>,
 ///      memref<?x?xf32, stride_specification>,
 ///      memref<?x?xf32, stride_specification>
-///   name mangles into `linalg_matmul_viewxxf32_viewxxf32_viewxxf32`
+///   name mangles into `linalg_matmul_viewxxf32_viewxxf32_viewxxf32_impl`
 std::string generateLibraryCallName(Operation *op);
 
 /// Returns `num` AffineDimExpr dimensions at positions
@@ -112,6 +113,11 @@ LogicalResult verifyStructuredOpInterface(Operation *op);
 } // namespace linalg
 } // namespace mlir
 
+namespace mlir {
+namespace linalg {
+class IndexedGenericOp;
+} // namespace linalg
+} // namespace mlir
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 
 #define GET_OP_CLASSES

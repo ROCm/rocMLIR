@@ -50,11 +50,11 @@ int main(int, char**)
     DoNotOptimize(ap);
     assert(ap);
     assert(A_constructed);
-    ASSERT_WITH_OPERATOR_NEW_FALLBACKS(new_called);
+    assert(new_called);
     delete ap;
     DoNotOptimize(ap);
     assert(!A_constructed);
-    ASSERT_WITH_OPERATOR_NEW_FALLBACKS(!new_called);
+    assert(!new_called);
 
   return 0;
 }

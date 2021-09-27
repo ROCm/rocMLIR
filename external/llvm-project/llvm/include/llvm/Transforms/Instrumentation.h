@@ -46,7 +46,8 @@ GlobalVariable *createPrivateGlobalForString(Module &M, StringRef Str,
 // Returns F.getComdat() if it exists.
 // Otherwise creates a new comdat, sets F's comdat, and returns it.
 // Returns nullptr on failure.
-Comdat *getOrCreateFunctionComdat(Function &F, Triple &T);
+Comdat *GetOrCreateFunctionComdat(Function &F, Triple &T,
+                                  const std::string &ModuleId);
 
 // Insert GCOV profiling instrumentation
 struct GCOVOptions {
@@ -78,7 +79,7 @@ struct GCOVOptions {
 ModulePass *createGCOVProfilerPass(const GCOVOptions &Options =
                                    GCOVOptions::getDefault());
 
-// PGO Instrumention. Parameter IsCS indicates if this is the context sensitive
+// PGO Instrumention. Parameter IsCS indicates if this is the context senstive
 // instrumentation.
 ModulePass *createPGOInstrumentationGenLegacyPass(bool IsCS = false);
 ModulePass *
@@ -138,7 +139,7 @@ struct InstrProfOptions {
 };
 
 /// Insert frontend instrumentation based profiling. Parameter IsCS indicates if
-// this is the context sensitive instrumentation.
+// this is the context senstive instrumentation.
 ModulePass *createInstrProfilingLegacyPass(
     const InstrProfOptions &Options = InstrProfOptions(), bool IsCS = false);
 

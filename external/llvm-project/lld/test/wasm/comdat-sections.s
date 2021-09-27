@@ -4,7 +4,6 @@
 # RUN: wasm-ld  -o %t.wasm %t.o %t1.o %t2.o
 # RUN: obj2yaml %t.wasm | FileCheck %s
 
-        .functype foo () -> ()
 
         .globl  _start
         .type  _start,@function
@@ -12,6 +11,8 @@ _start:
         .functype _start () -> ()
         call foo
         end_function
+
+        .functype foo () -> ()
 
 
 # Check that we got 1 copy of each of the .debug_foo sections from the 2 object

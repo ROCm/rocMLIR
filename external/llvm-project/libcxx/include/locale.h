@@ -36,7 +36,7 @@ Functions:
 #include <__config>
 
 #if defined(_LIBCPP_HAS_NO_LOCALIZATION)
-#   error "The Localization library is not supported since libc++ has been configured with LIBCXX_ENABLE_LOCALIZATION disabled"
+#   error "Localization is not supported by this configuration of libc++"
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -45,4 +45,4 @@ Functions:
 
 #include_next <locale.h>
 
-#endif // _LIBCPP_LOCALE_H
+#endif  // _LIBCPP_LOCALE_H

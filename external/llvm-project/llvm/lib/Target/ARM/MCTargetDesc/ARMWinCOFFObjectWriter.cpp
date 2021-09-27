@@ -10,7 +10,6 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/BinaryFormat/COFF.h"
 #include "llvm/MC/MCAsmBackend.h"
-#include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCFixupKindInfo.h"
@@ -27,8 +26,9 @@ namespace {
 
 class ARMWinCOFFObjectWriter : public MCWinCOFFObjectTargetWriter {
 public:
-  ARMWinCOFFObjectWriter()
+  ARMWinCOFFObjectWriter(bool Is64Bit)
     : MCWinCOFFObjectTargetWriter(COFF::IMAGE_FILE_MACHINE_ARMNT) {
+    assert(!Is64Bit && "AArch64 support not yet implemented");
   }
 
   ~ARMWinCOFFObjectWriter() override = default;
@@ -47,20 +47,13 @@ unsigned ARMWinCOFFObjectWriter::getRelocType(MCContext &Ctx,
                                               const MCFixup &Fixup,
                                               bool IsCrossSection,
                                               const MCAsmBackend &MAB) const {
+  assert(getMachine() == COFF::IMAGE_FILE_MACHINE_ARMNT &&
+         "AArch64 support not yet implemented");
+
   MCSymbolRefExpr::VariantKind Modifier =
     Target.isAbsolute() ? MCSymbolRefExpr::VK_None : Target.getSymA()->getKind();
 
-  unsigned FixupKind = Fixup.getKind();
-  if (IsCrossSection) {
-    if (FixupKind != FK_Data_4) {
-      Ctx.reportError(Fixup.getLoc(), "Cannot represent this expression");
-      return COFF::IMAGE_REL_ARM_ADDR32;
-    }
-    FixupKind = FK_PCRel_4;
-  }
-
-
-  switch (FixupKind) {
+  switch (static_cast<unsigned>(Fixup.getKind())) {
   default: {
     const MCFixupKindInfo &Info = MAB.getFixupKindInfo(Fixup.getKind());
     report_fatal_error(Twine("unsupported relocation type: ") + Info.Name);
@@ -74,8 +67,6 @@ unsigned ARMWinCOFFObjectWriter::getRelocType(MCContext &Ctx,
     default:
       return COFF::IMAGE_REL_ARM_ADDR32;
     }
-  case FK_PCRel_4:
-    return COFF::IMAGE_REL_ARM_REL32;
   case FK_SecRel_2:
     return COFF::IMAGE_REL_ARM_SECTION;
   case FK_SecRel_4:
@@ -100,8 +91,8 @@ bool ARMWinCOFFObjectWriter::recordRelocation(const MCFixup &Fixup) const {
 namespace llvm {
 
 std::unique_ptr<MCObjectTargetWriter>
-createARMWinCOFFObjectWriter() {
-  return std::make_unique<ARMWinCOFFObjectWriter>();
+createARMWinCOFFObjectWriter(bool Is64Bit) {
+  return std::make_unique<ARMWinCOFFObjectWriter>(Is64Bit);
 }
 
 } // end namespace llvm

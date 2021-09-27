@@ -28,7 +28,8 @@ namespace mlir {
 std::unique_ptr<Pass> createShapeToShapeLowering();
 
 /// Collects a set of patterns to rewrite ops within the Shape dialect.
-void populateShapeRewritePatterns(RewritePatternSet &patterns);
+void populateShapeRewritePatterns(MLIRContext *context,
+                                  OwningRewritePatternList &patterns);
 
 // Collects a set of patterns to replace all constraints with passing witnesses.
 // This is intended to then allow all ShapeConstraint related ops and data to
@@ -36,7 +37,8 @@ void populateShapeRewritePatterns(RewritePatternSet &patterns);
 // canonicalization and dead code elimination.
 //
 // After this pass, no cstr_ operations exist.
-void populateRemoveShapeConstraintsPatterns(RewritePatternSet &patterns);
+void populateRemoveShapeConstraintsPatterns(OwningRewritePatternList &patterns,
+                                            MLIRContext *ctx);
 std::unique_ptr<FunctionPass> createRemoveShapeConstraintsPass();
 
 /// Populates patterns for shape dialect structural type conversions and sets up
@@ -51,8 +53,8 @@ std::unique_ptr<FunctionPass> createRemoveShapeConstraintsPass();
 /// do for a structural type conversion is to update both of their types
 /// consistently to the new types prescribed by the TypeConverter.
 void populateShapeStructuralTypeConversionsAndLegality(
-    TypeConverter &typeConverter, RewritePatternSet &patterns,
-    ConversionTarget &target);
+    MLIRContext *context, TypeConverter &typeConverter,
+    OwningRewritePatternList &patterns, ConversionTarget &target);
 
 // Bufferizes shape dialect ops.
 //

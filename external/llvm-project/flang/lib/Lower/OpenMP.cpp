@@ -83,13 +83,13 @@ static void genOMP(Fortran::lower::AbstractConverter &converter,
         converter.getCurrentLocation());
     break;
   case llvm::omp::Directive::OMPD_target_enter_data:
-    TODO(converter.getCurrentLocation(), "OMPD_target_enter_data");
+    TODO("");
   case llvm::omp::Directive::OMPD_target_exit_data:
-    TODO(converter.getCurrentLocation(), "OMPD_target_exit_data");
+    TODO("");
   case llvm::omp::Directive::OMPD_target_update:
-    TODO(converter.getCurrentLocation(), "OMPD_target_update");
+    TODO("");
   case llvm::omp::Directive::OMPD_ordered:
-    TODO(converter.getCurrentLocation(), "OMPD_ordered");
+    TODO("");
   }
 }
 
@@ -112,18 +112,15 @@ genOMP(Fortran::lower::AbstractConverter &converter,
             if (std::get<std::optional<
                     std::list<Fortran::parser::OmpMemoryOrderClause>>>(
                     flushConstruct.t))
-              TODO(converter.getCurrentLocation(),
-                   "Handle OmpMemoryOrderClause");
+              TODO("Handle OmpMemoryOrderClause");
             converter.getFirOpBuilder().create<mlir::omp::FlushOp>(
                 converter.getCurrentLocation(), operandRange);
           },
           [&](const Fortran::parser::OpenMPCancelConstruct &cancelConstruct) {
-            TODO(converter.getCurrentLocation(), "OpenMPCancelConstruct");
+            TODO("");
           },
           [&](const Fortran::parser::OpenMPCancellationPointConstruct
-                  &cancellationPointConstruct) {
-            TODO(converter.getCurrentLocation(), "OpenMPCancelConstruct");
-          },
+                  &cancellationPointConstruct) { TODO(""); },
       },
       standaloneConstruct.u);
 }
@@ -259,30 +256,28 @@ void Fortran::lower::genOpenMPConstruct(
             genOMP(converter, eval, standaloneConstruct);
           },
           [&](const Fortran::parser::OpenMPSectionsConstruct
-                  &sectionsConstruct) {
-            TODO(converter.getCurrentLocation(), "OpenMPSectionsConstruct");
-          },
+                  &sectionsConstruct) { TODO(""); },
           [&](const Fortran::parser::OpenMPLoopConstruct &loopConstruct) {
-            TODO(converter.getCurrentLocation(), "OpenMPLoopConstruct");
+            TODO("");
           },
           [&](const Fortran::parser::OpenMPDeclarativeAllocate
-                  &execAllocConstruct) {
-            TODO(converter.getCurrentLocation(), "OpenMPDeclarativeAllocate");
-          },
+                  &execAllocConstruct) { TODO(""); },
           [&](const Fortran::parser::OpenMPExecutableAllocate
-                  &execAllocConstruct) {
-            TODO(converter.getCurrentLocation(), "OpenMPExecutableAllocate");
-          },
+                  &execAllocConstruct) { TODO(""); },
           [&](const Fortran::parser::OpenMPBlockConstruct &blockConstruct) {
             genOMP(converter, eval, blockConstruct);
           },
           [&](const Fortran::parser::OpenMPAtomicConstruct &atomicConstruct) {
-            TODO(converter.getCurrentLocation(), "OpenMPAtomicConstruct");
+            TODO("");
           },
           [&](const Fortran::parser::OpenMPCriticalConstruct
-                  &criticalConstruct) {
-            TODO(converter.getCurrentLocation(), "OpenMPCriticalConstruct");
-          },
+                  &criticalConstruct) { TODO(""); },
       },
       ompConstruct.u);
+}
+
+void Fortran::lower::genOpenMPEndLoop(
+    Fortran::lower::AbstractConverter &, Fortran::lower::pft::Evaluation &,
+    const Fortran::parser::OmpEndLoopDirective &) {
+  TODO("");
 }

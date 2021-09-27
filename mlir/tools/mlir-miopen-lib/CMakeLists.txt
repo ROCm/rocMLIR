@@ -14,6 +14,7 @@ set(LIBS
   MLIRPass
   MLIRQuant
   MLIRShape
+  MLIRSDBM
   MLIRTransforms
   MLIRSupport
   MLIRIR

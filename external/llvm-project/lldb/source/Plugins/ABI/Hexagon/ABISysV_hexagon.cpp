@@ -1225,7 +1225,6 @@ bool ABISysV_hexagon::CreateDefaultUnwindPlan(UnwindPlan &unwind_plan) {
 
   UnwindPlan::RowSP row(new UnwindPlan::Row);
 
-  row->SetUnspecifiedRegistersAreUndefined(true);
   row->GetCFAValue().SetIsRegisterPlusOffset(LLDB_REGNUM_GENERIC_FP, 8);
 
   row->SetRegisterLocationToAtCFAPlusOffset(fp_reg_num, -8, true);
@@ -1287,6 +1286,8 @@ lldb_private::ConstString ABISysV_hexagon::GetPluginNameStatic() {
 lldb_private::ConstString ABISysV_hexagon::GetPluginName() {
   return GetPluginNameStatic();
 }
+
+uint32_t ABISysV_hexagon::GetPluginVersion() { return 1; }
 
 // get value object specialized to work with llvm IR types
 lldb::ValueObjectSP

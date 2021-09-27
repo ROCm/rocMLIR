@@ -15,6 +15,8 @@
 #define USE_PTHREAD_SETNAME_NP 0
 #endif
 
+extern "C" void AnnotateThreadName(const char *f, int l, const char *name);
+
 int Global;
 
 void *Thread1(void *x) {

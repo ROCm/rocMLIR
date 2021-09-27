@@ -11,7 +11,7 @@
 #include <iostream>
 #include <thread>
 
-static char *volatile SinkPtr;
+static volatile char *SinkPtr;
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   if (Size > 0 && Data[0] == 'H') {

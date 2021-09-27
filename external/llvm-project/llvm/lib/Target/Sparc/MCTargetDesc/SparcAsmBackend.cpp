@@ -52,7 +52,6 @@ static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
   case Sparc::fixup_sparc_tls_ldm_hi22:
   case Sparc::fixup_sparc_tls_ie_hi22:
   case Sparc::fixup_sparc_hi22:
-  case Sparc::fixup_sparc_lm:
     return (Value >> 10) & 0x3fffff;
 
   case Sparc::fixup_sparc_got13:
@@ -147,7 +146,6 @@ namespace {
         { "fixup_sparc_l44",       20,     12,  0 },
         { "fixup_sparc_hh",        10,     22,  0 },
         { "fixup_sparc_hm",        22,     10,  0 },
-        { "fixup_sparc_lm",        10,     22,  0 },
         { "fixup_sparc_pc22",      10,     22,  MCFixupKindInfo::FKF_IsPCRel },
         { "fixup_sparc_pc10",      22,     10,  MCFixupKindInfo::FKF_IsPCRel },
         { "fixup_sparc_got22",     10,     22,  0 },
@@ -189,7 +187,6 @@ namespace {
         { "fixup_sparc_l44",        0,     12,  0 },
         { "fixup_sparc_hh",         0,     22,  0 },
         { "fixup_sparc_hm",         0,     10,  0 },
-        { "fixup_sparc_lm",         0,     22,  0 },
         { "fixup_sparc_pc22",       0,     22,  MCFixupKindInfo::FKF_IsPCRel },
         { "fixup_sparc_pc10",       0,     10,  MCFixupKindInfo::FKF_IsPCRel },
         { "fixup_sparc_got22",      0,     22,  0 },
@@ -274,8 +271,7 @@ namespace {
       llvm_unreachable("relaxInstruction() unimplemented");
     }
 
-    bool writeNopData(raw_ostream &OS, uint64_t Count,
-                      const MCSubtargetInfo *STI) const override {
+    bool writeNopData(raw_ostream &OS, uint64_t Count) const override {
       // Cannot emit NOP with size not multiple of 32 bits.
       if (Count % 4 != 0)
         return false;

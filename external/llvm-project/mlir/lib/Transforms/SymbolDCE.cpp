@@ -61,7 +61,8 @@ void SymbolDCE::runOnOperation() {
     if (!nestedSymbolTable->hasTrait<OpTrait::SymbolTable>())
       return;
     for (auto &block : nestedSymbolTable->getRegion(0)) {
-      for (Operation &op : llvm::make_early_inc_range(block)) {
+      for (Operation &op :
+           llvm::make_early_inc_range(block.without_terminator())) {
         if (isa<SymbolOpInterface>(&op) && !liveSymbols.count(&op))
           op.erase();
       }
@@ -83,7 +84,7 @@ LogicalResult SymbolDCE::computeLiveness(Operation *symbolTableOp,
   // are known to be live.
   for (auto &block : symbolTableOp->getRegion(0)) {
     // Add all non-symbols or symbols that can't be discarded.
-    for (Operation &op : block) {
+    for (Operation &op : block.without_terminator()) {
       SymbolOpInterface symbol = dyn_cast<SymbolOpInterface>(&op);
       if (!symbol) {
         worklist.push_back(&op);

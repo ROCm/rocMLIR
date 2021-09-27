@@ -84,9 +84,6 @@ def K : JoinedOrSeparate<["-"], "K">,
 def keep_file_symbols : Flag<["--"], "keep-file-symbols">,
                         HelpText<"Do not remove file symbols">;
 
-def keep_undefined : Flag<["--"], "keep-undefined">,
-                        HelpText<"Do not remove undefined symbols">;
-
 def only_keep_debug
     : Flag<["--"], "only-keep-debug">,
       HelpText<
@@ -102,8 +99,7 @@ def X : Flag<["-"], "X">,
 
 def discard_all
     : Flag<["--"], "discard-all">,
-      HelpText<"Remove all local symbols except file and section symbols. Also "
-               "remove all debug sections">;
+      HelpText<"Remove all local symbols except file and section symbols">;
 def x : Flag<["-"], "x">,
         Alias<discard_all>,
         HelpText<"Alias for --discard-all">;

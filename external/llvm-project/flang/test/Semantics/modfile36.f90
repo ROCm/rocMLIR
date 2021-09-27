@@ -1,4 +1,4 @@
-! RUN: %python %S/test_modfile.py %s %flang_fc1
+! RUN: %S/test_modfile.sh %s %t %f18
 
 ! Check modfile that contains import of use-assocation of another use-association.
 

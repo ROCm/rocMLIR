@@ -56,7 +56,7 @@ bool containsEscapedCharacters(const MatchFinder::MatchResult &Result,
       *Result.SourceManager, Result.Context->getLangOpts());
   StringRef Text = Lexer::getSourceText(CharRange, *Result.SourceManager,
                                         Result.Context->getLangOpts());
-  if (Text.empty() || isRawStringLiteral(Text))
+  if (isRawStringLiteral(Text))
     return false;
 
   return containsEscapes(Text, R"('\"?x01)");

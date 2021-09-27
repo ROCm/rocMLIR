@@ -6,6 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#define DEBUG_TYPE "hsdr"
+
 #include "HexagonInstrInfo.h"
 #include "HexagonRegisterInfo.h"
 #include "HexagonSubtarget.h"
@@ -39,8 +41,6 @@
 #include <set>
 #include <utility>
 #include <vector>
-
-#define DEBUG_TYPE "hsdr"
 
 using namespace llvm;
 
@@ -508,7 +508,7 @@ void HexagonSplitDoubleRegs::collectIndRegsForLoop(const MachineLoop *L,
   while (CmpI->getOpcode() == Hexagon::C2_not)
     CmpI = MRI->getVRegDef(CmpI->getOperand(1).getReg());
 
-  int64_t Mask = 0, Val = 0;
+  int Mask = 0, Val = 0;
   bool OkCI = TII->analyzeCompare(*CmpI, CmpR1, CmpR2, Mask, Val);
   if (!OkCI)
     return;

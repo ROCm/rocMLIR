@@ -97,7 +97,6 @@ TEST_CASE(equivalent_hardlink_succeeds) {
   TEST_CHECK(equivalent(hl1, hl2));
 }
 
-#ifndef _WIN32
 TEST_CASE(equivalent_is_other_succeeds) {
   scoped_test_env env;
   path const file = env.create_file("file", 42);
@@ -110,6 +109,5 @@ TEST_CASE(equivalent_is_other_succeeds) {
   TEST_CHECK(!equivalent(fifo1, fifo2));
   TEST_CHECK(equivalent(fifo1, fifo1));
 }
-#endif
 
 TEST_SUITE_END()

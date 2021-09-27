@@ -11,7 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "PassDetail.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/Passes.h"
 #include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/SCF/Transforms.h"
@@ -53,10 +52,10 @@ static bool haveNoReadsAfterWriteExceptSameIndex(
     ParallelOp firstPloop, ParallelOp secondPloop,
     const BlockAndValueMapping &firstToSecondPloopIndices) {
   DenseMap<Value, SmallVector<ValueRange, 1>> bufferStores;
-  firstPloop.getBody()->walk([&](memref::StoreOp store) {
+  firstPloop.getBody()->walk([&](StoreOp store) {
     bufferStores[store.getMemRef()].push_back(store.indices());
   });
-  auto walkResult = secondPloop.getBody()->walk([&](memref::LoadOp load) {
+  auto walkResult = secondPloop.getBody()->walk([&](LoadOp load) {
     // Stop if the memref is defined in secondPloop body. Careful alias analysis
     // is needed.
     auto *memrefDef = load.getMemRef().getDefiningOp();

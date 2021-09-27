@@ -91,7 +91,7 @@ bool Filter::parseLine(StringRef Line) {
 
   StringRef Ext = Line.rsplit('.').second;
 
-  if (Ext.equals_insensitive("h") || Ext.equals_insensitive("c")) {
+  if (Ext.equals_lower("h") || Ext.equals_lower("c")) {
     Outputting = false;
   } else {
     Outputting = true;

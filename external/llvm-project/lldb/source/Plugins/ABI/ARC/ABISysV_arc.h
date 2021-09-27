@@ -88,6 +88,8 @@ public:
 
   lldb_private::ConstString GetPluginName() override;
 
+  uint32_t GetPluginVersion() override;
+
 private:
   lldb::ValueObjectSP
   GetReturnValueObjectSimple(lldb_private::Thread &thread,

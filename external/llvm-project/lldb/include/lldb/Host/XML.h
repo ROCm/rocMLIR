@@ -107,7 +107,7 @@ public:
   void ForEachAttribute(AttributeCallback const &callback) const;
 
 protected:
-  XMLNodeImpl m_node = nullptr;
+  XMLNodeImpl m_node;
 };
 
 class XMLDocument {
@@ -138,7 +138,7 @@ public:
   static bool XMLEnabled();
 
 protected:
-  XMLDocumentImpl m_document = nullptr;
+  XMLDocumentImpl m_document;
   StreamString m_errors;
 };
 

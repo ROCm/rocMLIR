@@ -10,21 +10,21 @@ void foo(void) // expected-warning {{no previous prototype for function}}
 // expected-note@-1{{declare 'static' if the function is not intended to be used outside of this translation unit}}
 {
  // A diagnostic without DefaultIgnore, and not part of a group.
- (void) 'ab'; // expected-warning {{multi-character character constant}}
+ (void) L'ab'; // expected-warning {{extraneous characters in character constant ignored}}
 
 #pragma clang diagnostic warning "-Weverything" // Should not change anyhting.
 #define UNUSED_MACRO2 1 // expected-warning{{macro is not used}}
- (void) 'cd'; // expected-warning {{multi-character character constant}}
+ (void) L'cd'; // expected-warning {{extraneous characters in character constant ignored}}
 
 #pragma clang diagnostic ignored "-Weverything" // Ignore warnings now.
 #define UNUSED_MACRO2 1 // no warning
- (void) 'ef'; // no warning here
+ (void) L'ef'; // no warning here
 
 #pragma clang diagnostic warning "-Weverything" // Revert back to warnings.
 #define UNUSED_MACRO3 1 // expected-warning{{macro is not used}}
- (void) 'gh'; // expected-warning {{multi-character character constant}}
+ (void) L'gh'; // expected-warning {{extraneous characters in character constant ignored}}
 
 #pragma clang diagnostic error "-Weverything"  // Give errors now.
 #define UNUSED_MACRO4 1 // expected-error{{macro is not used}}
- (void) 'ij'; // expected-error {{multi-character character constant}}
+ (void) L'ij'; // expected-error {{extraneous characters in character constant ignored}}
 }

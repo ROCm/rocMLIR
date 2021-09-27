@@ -79,17 +79,14 @@ ProgramStateRef processLoopEnd(const Stmt *LoopStmt, ProgramStateRef State) {
   return State;
 }
 
-static internal::Matcher<Stmt> simpleCondition(StringRef BindName,
-                                               StringRef RefName) {
-  return binaryOperator(
-             anyOf(hasOperatorName("<"), hasOperatorName(">"),
-                   hasOperatorName("<="), hasOperatorName(">="),
-                   hasOperatorName("!=")),
-             hasEitherOperand(ignoringParenImpCasts(
-                 declRefExpr(to(varDecl(hasType(isInteger())).bind(BindName)))
-                     .bind(RefName))),
-             hasEitherOperand(
-                 ignoringParenImpCasts(integerLiteral().bind("boundNum"))))
+static internal::Matcher<Stmt> simpleCondition(StringRef BindName) {
+  return binaryOperator(anyOf(hasOperatorName("<"), hasOperatorName(">"),
+                              hasOperatorName("<="), hasOperatorName(">="),
+                              hasOperatorName("!=")),
+                        hasEitherOperand(ignoringParenImpCasts(declRefExpr(
+                            to(varDecl(hasType(isInteger())).bind(BindName))))),
+                        hasEitherOperand(ignoringParenImpCasts(
+                            integerLiteral().bind("boundNum"))))
       .bind("conditionOperator");
 }
 
@@ -141,7 +138,7 @@ static internal::Matcher<Stmt> hasSuspiciousStmt(StringRef NodeName) {
 
 static internal::Matcher<Stmt> forLoopMatcher() {
   return forStmt(
-             hasCondition(simpleCondition("initVarName", "initVarRef")),
+             hasCondition(simpleCondition("initVarName")),
              // Initialization should match the form: 'int i = 6' or 'i = 42'.
              hasLoopInit(
                  anyOf(declStmt(hasSingleDecl(
@@ -159,52 +156,17 @@ static internal::Matcher<Stmt> forLoopMatcher() {
                  hasUnaryOperand(declRefExpr(
                      to(varDecl(allOf(equalsBoundNode("initVarName"),
                                       hasType(isInteger())))))))),
-             unless(hasBody(hasSuspiciousStmt("initVarName"))))
-      .bind("forLoop");
+             unless(hasBody(hasSuspiciousStmt("initVarName")))).bind("forLoop");
 }
 
-static bool isCapturedByReference(ExplodedNode *N, const DeclRefExpr *DR) {
-
-  // Get the lambda CXXRecordDecl
-  assert(DR->refersToEnclosingVariableOrCapture());
-  const LocationContext *LocCtxt = N->getLocationContext();
-  const Decl *D = LocCtxt->getDecl();
-  const auto *MD = cast<CXXMethodDecl>(D);
-  assert(MD && MD->getParent()->isLambda() &&
-         "Captured variable should only be seen while evaluating a lambda");
-  const CXXRecordDecl *LambdaCXXRec = MD->getParent();
-
-  // Lookup the fields of the lambda
-  llvm::DenseMap<const VarDecl *, FieldDecl *> LambdaCaptureFields;
-  FieldDecl *LambdaThisCaptureField;
-  LambdaCXXRec->getCaptureFields(LambdaCaptureFields, LambdaThisCaptureField);
-
-  // Check if the counter is captured by reference
-  const VarDecl *VD = cast<VarDecl>(DR->getDecl()->getCanonicalDecl());
-  assert(VD);
-  const FieldDecl *FD = LambdaCaptureFields[VD];
-  assert(FD && "Captured variable without a corresponding field");
-  return FD->getType()->isReferenceType();
-}
-
-// A loop counter is considered escaped if:
-// case 1: It is a global variable.
-// case 2: It is a reference parameter or a reference capture.
-// case 3: It is assigned to a non-const reference variable or parameter.
-// case 4: Has its address taken.
-static bool isPossiblyEscaped(ExplodedNode *N, const DeclRefExpr *DR) {
-  const VarDecl *VD = cast<VarDecl>(DR->getDecl()->getCanonicalDecl());
-  assert(VD);
-  // Case 1:
+static bool isPossiblyEscaped(const VarDecl *VD, ExplodedNode *N) {
+  // Global variables assumed as escaped variables.
   if (VD->hasGlobalStorage())
     return true;
 
-  const bool IsRefParamOrCapture =
-      isa<ParmVarDecl>(VD) || DR->refersToEnclosingVariableOrCapture();
-  // Case 2:
-  if ((DR->refersToEnclosingVariableOrCapture() &&
-       isCapturedByReference(N, DR)) ||
-      (IsRefParamOrCapture && VD->getType()->isReferenceType()))
+  const bool isParm = isa<ParmVarDecl>(VD);
+  // Reference parameters are assumed as escaped variables.
+  if (isParm && VD->getType()->isReferenceType())
     return true;
 
   while (!N->pred_empty()) {
@@ -227,7 +189,6 @@ static bool isPossiblyEscaped(ExplodedNode *N, const DeclRefExpr *DR) {
     // on VD and reference initialized by VD.
     ASTContext &ASTCtx =
         N->getLocationContext()->getAnalysisDeclContext()->getASTContext();
-    // Case 3 and 4:
     auto Match =
         match(stmt(anyOf(callByRef(equalsNode(VD)), getAddrTo(equalsNode(VD)),
                          assignedToRef(equalsNode(VD)))),
@@ -238,8 +199,8 @@ static bool isPossiblyEscaped(ExplodedNode *N, const DeclRefExpr *DR) {
     N = N->getFirstPred();
   }
 
-  // Reference parameter and reference capture will not be found.
-  if (IsRefParamOrCapture)
+  // Parameter declaration will not be found.
+  if (isParm)
     return false;
 
   llvm_unreachable("Reached root without finding the declaration of VD");
@@ -257,7 +218,7 @@ bool shouldCompletelyUnroll(const Stmt *LoopStmt, ASTContext &ASTCtx,
   if (Matches.empty())
     return false;
 
-  const auto *CounterVarRef = Matches[0].getNodeAs<DeclRefExpr>("initVarRef");
+  auto CounterVar = Matches[0].getNodeAs<VarDecl>("initVarName");
   llvm::APInt BoundNum =
       Matches[0].getNodeAs<IntegerLiteral>("boundNum")->getValue();
   llvm::APInt InitNum =
@@ -274,7 +235,7 @@ bool shouldCompletelyUnroll(const Stmt *LoopStmt, ASTContext &ASTCtx,
     maxStep = (BoundNum - InitNum).abs().getZExtValue();
 
   // Check if the counter of the loop is not escaped before.
-  return !isPossiblyEscaped(Pred, CounterVarRef);
+  return !isPossiblyEscaped(CounterVar->getCanonicalDecl(), Pred);
 }
 
 bool madeNewBranch(ExplodedNode *N, const Stmt *LoopStmt) {

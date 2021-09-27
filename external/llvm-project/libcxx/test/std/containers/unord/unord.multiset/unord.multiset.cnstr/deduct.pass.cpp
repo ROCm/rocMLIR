@@ -6,9 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-// UNSUPPORTED: c++03, c++11, c++14
-
 // <unordered_set>
+// UNSUPPORTED: c++03, c++11, c++14
+// UNSUPPORTED: libcpp-no-deduction-guides
+// UNSUPPORTED: apple-clang-9.1
 
 // template<class InputIterator,
 //        class Hash = hash<iter-value-type<InputIterator>>,

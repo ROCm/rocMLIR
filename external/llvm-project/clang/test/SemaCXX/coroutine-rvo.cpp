@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify -std=c++17 -fcoroutines-ts -fsyntax-only %s
+// RUN: %clang_cc1 -triple x86_64-apple-darwin9 %s -stdlib=libc++ -std=c++1z -fcoroutines-ts -fsyntax-only
 
 namespace std::experimental {
 template <class Promise = void> struct coroutine_handle {
@@ -39,14 +39,10 @@ struct suspend_never {
 };
 
 struct MoveOnly {
-  MoveOnly() = default;
+  MoveOnly() {};
   MoveOnly(const MoveOnly&) = delete;
-  MoveOnly(MoveOnly &&) = default;
-};
-
-struct NoCopyNoMove {
-  NoCopyNoMove() = default;
-  NoCopyNoMove(const NoCopyNoMove &) = delete;
+  MoveOnly(MoveOnly&&) noexcept {};
+  ~MoveOnly() {};
 };
 
 template <typename T>
@@ -56,93 +52,18 @@ struct task {
     auto final_suspend() noexcept { return suspend_never{}; }
     auto get_return_object() { return task{}; }
     static void unhandled_exception() {}
-    void return_value(T &&value) {} // expected-note 4{{passing argument}}
+    void return_value(T&& value) {}
   };
 };
 
-task<NoCopyNoMove> local2val() {
-  NoCopyNoMove value;
+task<MoveOnly> f() {
+  MoveOnly value;
   co_return value;
 }
 
-task<NoCopyNoMove &> local2ref() {
-  NoCopyNoMove value;
-  co_return value; // expected-error {{non-const lvalue reference to type 'NoCopyNoMove' cannot bind to a temporary of type 'NoCopyNoMove'}}
+int main() {
+  f();
+  return 0;
 }
 
-// We need the move constructor for construction of the coroutine.
-task<MoveOnly> param2val(MoveOnly value) {
-  co_return value;
-}
-
-task<NoCopyNoMove> lvalue2val(NoCopyNoMove &value) {
-  co_return value; // expected-error {{rvalue reference to type 'NoCopyNoMove' cannot bind to lvalue of type 'NoCopyNoMove'}}
-}
-
-task<NoCopyNoMove> rvalue2val(NoCopyNoMove &&value) {
-  co_return value;
-}
-
-task<NoCopyNoMove &> lvalue2ref(NoCopyNoMove &value) {
-  co_return value;
-}
-
-task<NoCopyNoMove &> rvalue2ref(NoCopyNoMove &&value) {
-  co_return value; // expected-error {{non-const lvalue reference to type 'NoCopyNoMove' cannot bind to a temporary of type 'NoCopyNoMove'}}
-}
-
-struct To {
-  operator MoveOnly() &&;
-};
-task<MoveOnly> conversion_operator() {
-  To t;
-  co_return t;
-}
-
-struct Construct {
-  Construct(MoveOnly);
-};
-task<Construct> converting_constructor() {
-  MoveOnly w;
-  co_return w;
-}
-
-struct Derived : MoveOnly {};
-task<MoveOnly> derived2base() {
-  Derived result;
-  co_return result;
-}
-
-struct RetThis {
-  task<RetThis> foo() && {
-    co_return *this; // expected-error {{rvalue reference to type 'RetThis' cannot bind to lvalue of type 'RetThis'}}
-  }
-};
-
-template <typename, typename>
-struct is_same { static constexpr bool value = false; };
-
-template <typename T>
-struct is_same<T, T> { static constexpr bool value = true; };
-
-template <typename T>
-struct generic_task {
-  struct promise_type {
-    auto initial_suspend() { return suspend_never{}; }
-    auto final_suspend() noexcept { return suspend_never{}; }
-    auto get_return_object() { return generic_task{}; }
-    static void unhandled_exception();
-    template <typename U>
-    void return_value(U &&value) {
-      static_assert(is_same<T, U>::value);
-    }
-  };
-};
-
-generic_task<MoveOnly> param2template(MoveOnly value) {
-  co_return value; // We should deduce U = MoveOnly.
-}
-
-generic_task<NoCopyNoMove &> lvalue2template(NoCopyNoMove &value) {
-  co_return value; // We should deduce U = NoCopyNoMove&.
-}
+// expected-no-diagnostics

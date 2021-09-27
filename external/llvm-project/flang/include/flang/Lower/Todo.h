@@ -13,7 +13,6 @@
 #ifndef FORTRAN_LOWER_TODO_H
 #define FORTRAN_LOWER_TODO_H
 
-#include "flang/Optimizer/Support/FatalError.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
@@ -22,54 +21,28 @@
 // developed.
 
 #undef TODO
-// Use TODO_NOLOC if no mlir location is available to indicate the line in
-// Fortran source file that requires an unimplemented feature.
-#undef TODO_NOLOC
-
-#undef TODOQUOTE
-#define TODOQUOTE(X) #X
 
 #ifdef NDEBUG
 
 // In a release build, just give a message and exit.
-#define TODO_NOLOC(ToDoMsg)                                                    \
+#define TODO(ToDoMsg)                                                          \
   do {                                                                         \
     llvm::errs() << __FILE__ << ':' << __LINE__ << ": not yet implemented "    \
                  << ToDoMsg << '\n';                                           \
     std::exit(1);                                                              \
   } while (false)
 
-#undef TODO_DEFN
-#define TODO_DEFN(MlirLoc, ToDoMsg, ToDoFile, ToDoLine)                        \
-  do {                                                                         \
-    mlir::emitError(MlirLoc, ToDoFile                                          \
-                    ":" TODOQUOTE(ToDoLine) ": not yet implemented " ToDoMsg); \
-    std::exit(1);                                                              \
-  } while (false)
-
-#define TODO(MlirLoc, ToDoMsg) TODO_DEFN(MlirLoc, ToDoMsg, __FILE__, __LINE__)
-
 #else
 
+#undef TODOQUOTE
+#define TODOQUOTE(X) #X
+
 // In a developer build, print a message and give a backtrace.
-#undef TODO_NOLOCDEFN
-#define TODO_NOLOCDEFN(ToDoMsg, ToDoFile, ToDoLine)                            \
+#define TODO(ToDoMsg)                                                          \
   do {                                                                         \
     llvm::report_fatal_error(                                                  \
         __FILE__ ":" TODOQUOTE(__LINE__) ": not yet implemented " ToDoMsg);    \
   } while (false)
-
-#define TODO_NOLOC(ToDoMsg) TODO_NOLOCDEFN(ToDoMsg, __FILE__, __LINE__)
-
-#undef TODO_DEFN
-#define TODO_DEFN(MlirLoc, ToDoMsg, ToDoFile, ToDoLine)                        \
-  do {                                                                         \
-    fir::emitFatalError(                                                       \
-        MlirLoc,                                                               \
-        ToDoFile ":" TODOQUOTE(ToDoLine) ": not yet implemented " ToDoMsg);    \
-  } while (false)
-
-#define TODO(MlirLoc, ToDoMsg) TODO_DEFN(MlirLoc, ToDoMsg, __FILE__, __LINE__)
 
 #endif
 

@@ -1,5 +1,5 @@
 OBJC_SOURCES := myclass.m repro.m
-LD_EXTRAS := -lobjc
+LD_EXTRAS := -framework Foundation
 
 include Makefile.rules
 

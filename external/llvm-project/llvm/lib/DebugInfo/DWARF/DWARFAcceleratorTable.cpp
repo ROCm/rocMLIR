@@ -767,7 +767,7 @@ LLVM_DUMP_METHOD void DWARFDebugNames::NameIndex::dump(ScopedPrinter &W) const {
   }
 
   W.startLine() << "Hash table not present\n";
-  for (const NameTableEntry &NTE : *this)
+  for (NameTableEntry NTE : *this)
     dumpName(W, NTE, None);
 }
 
@@ -799,7 +799,7 @@ DWARFDebugNames::ValueIterator::findEntryOffsetInCurrentIndex() {
   const Header &Hdr = CurrentIndex->Hdr;
   if (Hdr.BucketCount == 0) {
     // No Hash Table, We need to search through all names in the Name Index.
-    for (const NameTableEntry &NTE : *CurrentIndex) {
+    for (NameTableEntry NTE : *CurrentIndex) {
       if (NTE.getString() == Key)
         return NTE.getEntryOffset();
     }

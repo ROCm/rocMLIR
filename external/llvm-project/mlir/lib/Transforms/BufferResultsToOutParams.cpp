@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "PassDetail.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Pass/Pass.h"
@@ -70,7 +70,7 @@ static void updateReturnOps(FuncOp func,
     }
     OpBuilder builder(op);
     for (auto t : llvm::zip(copyIntoOutParams, appendedEntryArgs))
-      builder.create<memref::CopyOp>(op.getLoc(), std::get<0>(t),
+      builder.create<linalg::CopyOp>(op.getLoc(), std::get<0>(t),
                                      std::get<1>(t));
     builder.create<ReturnOp>(op.getLoc(), keepAsReturnOperands);
     op.erase();
@@ -99,7 +99,7 @@ static LogicalResult updateCalls(ModuleOp module) {
         didFail = true;
         return;
       }
-      Value outParam = builder.create<memref::AllocOp>(
+      Value outParam = builder.create<AllocOp>(
           op.getLoc(), memref.getType().cast<MemRefType>());
       memref.replaceAllUsesWith(outParam);
       outParams.push_back(outParam);

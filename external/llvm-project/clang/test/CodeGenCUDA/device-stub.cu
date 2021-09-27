@@ -30,13 +30,9 @@
 // RUN:   | FileCheck %s -allow-deprecated-dag-overlap \
 // RUN:       --check-prefixes=ALL,LNX,RDC,CUDA,CUDARDC,CUDA-NEW
 // RUN: %clang_cc1 -triple x86_64-linux-gnu -emit-llvm %s -std=c++17 \
-// RUN:     -target-sdk-version=9.2 -fcuda-include-gpubinary %t -o - \
-// RUN:   | FileCheck %s -allow-deprecated-dag-overlap \
-// RUN:       --check-prefixes=ALL,LNX,NORDC,CUDA,CUDANORDC,CUDA-NEW,LNX_17,NORDC17
-// RUN: %clang_cc1 -triple x86_64-linux-gnu -emit-llvm %s -std=c++17 \
 // RUN:     -target-sdk-version=9.2 -fgpu-rdc -fcuda-include-gpubinary %t -o - \
 // RUN:   | FileCheck %s -allow-deprecated-dag-overlap \
-// RUN:       --check-prefixes=ALL,LNX,RDC,CUDA,CUDARDC,CUDA-NEW,LNX_17,RDC17
+// RUN:       --check-prefixes=ALL,LNX,RDC,CUDA,CUDARDC,CUDA-NEW,LNX_17
 // RUN: %clang_cc1 -triple x86_64-linux-gnu -emit-llvm %s \
 // RUN:     -target-sdk-version=9.2 -o - \
 // RUN:   | FileCheck -allow-deprecated-dag-overlap %s -check-prefix=NOGPUBIN
@@ -49,7 +45,7 @@
 // RUN:   | FileCheck -allow-deprecated-dag-overlap %s -check-prefixes=NOGLOBALS,HIPNOGLOBALS
 // RUN: %clang_cc1 -triple x86_64-linux-gnu -emit-llvm %s \
 // RUN:     -fgpu-rdc -fcuda-include-gpubinary %t -o - -x hip \
-// RUN:   | FileCheck -allow-deprecated-dag-overlap %s --check-prefixes=ALL,LNX,RDC,HIP,HIPEF
+// RUN:   | FileCheck -allow-deprecated-dag-overlap %s --check-prefixes=ALL,LNX,NORDC,HIP,HIPEF
 // RUN: %clang_cc1 -triple x86_64-linux-gnu -emit-llvm %s -o - -x hip\
 // RUN:   | FileCheck -allow-deprecated-dag-overlap %s -check-prefixes=ALL,LNX,NORDC,HIP,HIPNEF
 
@@ -60,18 +56,15 @@
 #include "Inputs/cuda.h"
 
 #ifndef NOGLOBALS
-// NORDC-DAG: @device_var = internal global i32
-// RDC-DAG: @device_var = global i32
+// LNX-DAG: @device_var = internal global i32
 // WIN-DAG: @"?device_var@@3HA" = internal global i32
 __device__ int device_var;
 
-// NORDC-DAG: @constant_var = internal global i32
-// RDC-DAG: @constant_var = global i32
+// LNX-DAG: @constant_var = internal global i32
 // WIN-DAG: @"?constant_var@@3HA" = internal global i32
 __constant__ int constant_var;
 
-// NORDC-DAG: @shared_var = internal global i32
-// RDC-DAG: @shared_var = global i32
+// LNX-DAG: @shared_var = internal global i32
 // WIN-DAG: @"?shared_var@@3HA" = internal global i32
 __shared__ int shared_var;
 
@@ -94,27 +87,19 @@ extern __constant__ int ext_constant_var;
 
 // external device-side variables with definitions should generate
 // definitions for the shadows.
-// NORDC-DAG: @ext_device_var_def = internal global i32 undef,
-// RDC-DAG: @ext_device_var_def = global i32 undef,
+// LNX-DAG: @ext_device_var_def = internal global i32 undef,
 // WIN-DAG: @"?ext_device_var_def@@3HA" = internal global i32 undef
 extern __device__ int ext_device_var_def;
 __device__ int ext_device_var_def = 1;
-// NORDC-DAG: @ext_device_var_def = internal global i32 undef,
-// RDC-DAG: @ext_device_var_def = global i32 undef,
+// LNX-DAG: @ext_device_var_def = internal global i32 undef,
 // WIN-DAG: @"?ext_constant_var_def@@3HA" = internal global i32 undef
 __constant__ int ext_constant_var_def = 2;
 
 #if __cplusplus > 201402L
-// NORDC17: @inline_var = internal global i32 undef, comdat, align 4{{$}}
-// RDC17: @inline_var = linkonce_odr global i32 undef, comdat, align 4{{$}}
-// NORDC17-NOT: @inline_var2 =
-// RDC17-NOT: @inline_var2 =
-// NORDC17: @_ZN1C17member_inline_varE = internal constant i32 undef, comdat, align 4{{$}}
-// RDC17: @_ZN1C17member_inline_varE = linkonce_odr constant i32 undef, comdat, align 4{{$}}
-// Check inline variable ODR-used by host is emitted on host and registered.
+/// FIXME: Reject __device__ constexpr and inline variables in Sema.
+// LNX_17: @inline_var = internal global i32 undef, comdat, align 4{{$}}
+// LNX_17: @_ZN1C17member_inline_varE = internal constant i32 undef, comdat, align 4{{$}}
 __device__ inline int inline_var = 3;
-// Check inline variable not ODR-used by host is not emitted on host or registered.
-__device__ inline int inline_var2 = 5;
 struct C {
   __device__ static constexpr int member_inline_var = 4;
 };
@@ -131,14 +116,7 @@ void use_pointers() {
   p = &ext_host_var;
 #if __cplusplus > 201402L
   p = &inline_var;
-  decltype(inline_var2) tmp;
   p = &C::member_inline_var;
-#endif
-}
-
-__device__ void device_use() {
-#if __cplusplus > 201402L
-  const int *p = &inline_var2;
 #endif
 }
 
@@ -173,13 +151,13 @@ __device__ void device_use() {
 // CUDANORDC: @__[[PREFIX]]_gpubin_handle = internal global i8** null
 // HIPNEF: @__[[PREFIX]]_gpubin_handle = linkonce hidden global i8** null
 // * constant unnamed string with NVModuleID
-// CUDARDC: [[MODULE_ID_GLOBAL:@.*]] = private constant
+// RDC: [[MODULE_ID_GLOBAL:@.*]] = private constant
 // CUDARDC-SAME: c"[[MODULE_ID:.+]]\00", section "__nv_module_id", align 32
 // * Make sure our constructor was added to global ctor list.
 // LNX: @llvm.global_ctors = appending global {{.*}}@__[[PREFIX]]_module_ctor
 // * Alias to global symbol containing the NVModuleID.
-// CUDARDC: @__fatbinwrap[[MODULE_ID]] ={{.*}} alias { i32, i32, i8*, i8* }
-// CUDARDC-SAME: { i32, i32, i8*, i8* }* @__[[PREFIX]]_fatbin_wrapper
+// RDC: @__fatbinwrap[[MODULE_ID]] ={{.*}} alias { i32, i32, i8*, i8* }
+// RDC-SAME: { i32, i32, i8*, i8* }* @__[[PREFIX]]_fatbin_wrapper
 
 // Test that we build the correct number of calls to cudaSetupArgument followed
 // by a call to cudaLaunch.
@@ -224,8 +202,7 @@ void hostfunc(void) { kernelfunc<<<1, 1>>>(1, 1, 1); }
 // ALL-DAG: call void {{.*}}[[PREFIX]]RegisterVar(i8** %0, {{.*}}constant_var{{[^,]*}}, {{[^@]*}}@2, {{.*}}i32 0, {{i32|i64}} 4, i32 1, i32 0
 // ALL-DAG: call void {{.*}}[[PREFIX]]RegisterVar(i8** %0, {{.*}}ext_device_var_def{{[^,]*}}, {{[^@]*}}@3, {{.*}}i32 0, {{i32|i64}} 4, i32 0, i32 0
 // ALL-DAG: call void {{.*}}[[PREFIX]]RegisterVar(i8** %0, {{.*}}ext_constant_var_def{{[^,]*}}, {{[^@]*}}@4, {{.*}}i32 0, {{i32|i64}} 4, i32 1, i32 0
-// LNX_17-DAG: [[PREFIX]]RegisterVar(i8** %0, {{.*}}inline_var
-// LNX_17-NOT: [[PREFIX]]RegisterVar(i8** %0, {{.*}}inline_var2
+// LNX_17-NOT: [[PREFIX]]RegisterVar(i8** %0, {{.*}}inline_var
 // ALL: ret void
 
 // Test that we've built a constructor.
@@ -237,33 +214,25 @@ void hostfunc(void) { kernelfunc<<<1, 1>>>(1, 1, 1); }
 // HIP-NEXT: icmp eq i8** {{.*}}, null
 // HIP-NEXT: br i1 {{.*}}, label %if, label %exit
 // HIP: if:
-// CUDANORDC: call{{.*}}[[PREFIX]]RegisterFatBinary{{.*}}__[[PREFIX]]_fatbin_wrapper
+// NORDC: call{{.*}}[[PREFIX]]RegisterFatBinary{{.*}}__[[PREFIX]]_fatbin_wrapper
 //   .. stores return value in __[[PREFIX]]_gpubin_handle
-// CUDANORDC-NEXT: store{{.*}}__[[PREFIX]]_gpubin_handle
-//   .. and then calls __[[PREFIX]]_register_globals
-// HIP: call{{.*}}[[PREFIX]]RegisterFatBinary{{.*}}__[[PREFIX]]_fatbin_wrapper
-//   .. stores return value in __[[PREFIX]]_gpubin_handle
-// HIP-NEXT: store{{.*}}__[[PREFIX]]_gpubin_handle
+// NORDC-NEXT: store{{.*}}__[[PREFIX]]_gpubin_handle
 //   .. and then calls __[[PREFIX]]_register_globals
 // HIP-NEXT: br label %exit
 // HIP: exit:
 // HIP-NEXT: load i8**, i8*** @__hip_gpubin_handle
-// CUDANORDC-NEXT: call void @__[[PREFIX]]_register_globals
-// HIP-NEXT: call void @__[[PREFIX]]_register_globals
+// NORDC-NEXT: call void @__[[PREFIX]]_register_globals
 // * In separate mode we also register a destructor.
-// CUDANORDC-NEXT: call i32 @atexit(void (i8*)* @__[[PREFIX]]_module_dtor)
-// HIP-NEXT: call i32 @atexit(void (i8*)* @__[[PREFIX]]_module_dtor)
+// NORDC-NEXT: call i32 @atexit(void (i8*)* @__[[PREFIX]]_module_dtor)
 
 // With relocatable device code we call __[[PREFIX]]RegisterLinkedBinary%NVModuleID%
-// CUDARDC: call{{.*}}__[[PREFIX]]RegisterLinkedBinary[[MODULE_ID]](
-// CUDARDC-SAME: __[[PREFIX]]_register_globals, {{.*}}__[[PREFIX]]_fatbin_wrapper
-// CUDARDC-SAME: [[MODULE_ID_GLOBAL]]
+// RDC: call{{.*}}__[[PREFIX]]RegisterLinkedBinary[[MODULE_ID]](
+// RDC-SAME: __[[PREFIX]]_register_globals, {{.*}}__[[PREFIX]]_fatbin_wrapper
+// RDC-SAME: [[MODULE_ID_GLOBAL]]
 
 // Test that we've created destructor.
-// CUDANORDC: define internal void @__[[PREFIX]]_module_dtor
-// HIP: define internal void @__[[PREFIX]]_module_dtor
-// CUDANORDC: load{{.*}}__[[PREFIX]]_gpubin_handle
-// HIP: load{{.*}}__[[PREFIX]]_gpubin_handle
+// NORDC: define internal void @__[[PREFIX]]_module_dtor
+// NORDC: load{{.*}}__[[PREFIX]]_gpubin_handle
 // CUDANORDC-NEXT: call void @__[[PREFIX]]UnregisterFatBinary
 // HIP-NEXT: icmp ne i8** {{.*}}, null
 // HIP-NEXT: br i1 {{.*}}, label %if, label %exit
@@ -279,13 +248,13 @@ void hostfunc(void) { kernelfunc<<<1, 1>>>(1, 1, 1); }
 // CUDANOGLOBALS-NOT: @{{.*}} = private constant{{.*}}
 // HIPNOGLOBALS-NOT: @{{.*}} = internal constant{{.*}}
 // NOGLOBALS-NOT: define internal void @__{{.*}}_register_globals
-// NOGLOBALS-NOT: define internal void @__{{cuda|hip}}_module_ctor
-// NOGLOBALS-NOT: call{{.*}}{{cuda|hip}}RegisterFatBinary{{.*}}__{{cuda|hip}}_fatbin_wrapper
-// NOGLOBALS-NOT: call void @__{{cuda|hip}}_register_globals
-// NOGLOBALS-NOT: define internal void @__{{cuda|hip}}_module_dtor
-// NOGLOBALS-NOT: call void @__{{cuda|hip}}UnregisterFatBinary
+// NOGLOBALS-NOT: define internal void @__[[PREFIX:cuda|hip]]_module_ctor
+// NOGLOBALS-NOT: call{{.*}}[[PREFIX]]RegisterFatBinary{{.*}}__[[PREFIX]]_fatbin_wrapper
+// NOGLOBALS-NOT: call void @__[[PREFIX]]_register_globals
+// NOGLOBALS-NOT: define internal void @__[[PREFIX]]_module_dtor
+// NOGLOBALS-NOT: call void @__[[PREFIX]]UnregisterFatBinary
 
 // There should be no constructors/destructors if we have no GPU binary.
-// NOGPUBIN-NOT: define internal void @__{{cuda|hip}}_register_globals
-// NOGPUBIN-NOT: define internal void @__{{cuda|hip}}_module_ctor
-// NOGPUBIN-NOT: define internal void @__{{cuda|hip}}_module_dtor
+// NOGPUBIN-NOT: define internal void @__[[PREFIX]]_register_globals
+// NOGPUBIN-NOT: define internal void @__[[PREFIX]]_module_ctor
+// NOGPUBIN-NOT: define internal void @__[[PREFIX]]_module_dtor

@@ -5,7 +5,5 @@ add_header_library(
     ArrayRef.h
     Bitset.h
     Functional.h
-    StringView.h
     TypeTraits.h
-    Limits.h
 )

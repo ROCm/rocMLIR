@@ -33,8 +33,6 @@
 using namespace mlir;
 using namespace mlir::spirv;
 
-#include "mlir/Dialect/SPIRV/IR/SPIRVOpsDialect.cpp.inc"
-
 //===----------------------------------------------------------------------===//
 // InlinerInterface
 //===----------------------------------------------------------------------===//
@@ -62,8 +60,8 @@ struct SPIRVInlinerInterface : public DialectInlinerInterface {
   /// 'dest' that is attached to an operation registered to the current dialect.
   bool isLegalToInline(Region *dest, Region *src, bool wouldBeCloned,
                        BlockAndValueMapping &) const final {
-    // Return true here when inlining into spv.func, spv.mlir.selection, and
-    // spv.mlir.loop operations.
+    // Return true here when inlining into spv.func, spv.selection, and
+    // spv.loop operations.
     auto *op = dest->getParentOp();
     return isa<spirv::FuncOp, spirv::SelectionOp, spirv::LoopOp>(op);
   }
@@ -117,8 +115,10 @@ struct SPIRVInlinerInterface : public DialectInlinerInterface {
 //===----------------------------------------------------------------------===//
 
 void SPIRVDialect::initialize() {
-  registerAttributes();
-  registerTypes();
+  addTypes<ArrayType, CooperativeMatrixNVType, ImageType, MatrixType,
+           PointerType, RuntimeArrayType, StructType>();
+
+  addAttributes<InterfaceVarABIAttr, TargetEnvAttr, VerCapExtAttr>();
 
   // Add SPIR-V ops.
   addOperations<
@@ -225,23 +225,6 @@ static Type parseAndVerifyMatrixType(SPIRVDialect const &dialect,
   } else {
     parser.emitError(typeLoc, "matrix must be composed using vector "
                               "type, got ")
-        << type;
-    return Type();
-  }
-
-  return type;
-}
-
-static Type parseAndVerifySampledImageType(SPIRVDialect const &dialect,
-                                           DialectAsmParser &parser) {
-  Type type;
-  llvm::SMLoc typeLoc = parser.getCurrentLocation();
-  if (parser.parseType(type))
-    return Type();
-
-  if (!type.isa<ImageType>()) {
-    parser.emitError(typeLoc,
-                     "sampled image must be composed using image type, got ")
         << type;
     return Type();
   }
@@ -483,7 +466,8 @@ namespace {
 // parseAndVerify does the actual parsing and verification of individual
 // elements. This is a functor since parsing the last element of the list
 // (termination condition) needs partial specialization.
-template <typename ParseType, typename... Args> struct ParseCommaSeparatedList {
+template <typename ParseType, typename... Args>
+struct ParseCommaSeparatedList {
   Optional<std::tuple<ParseType, Args...>>
   operator()(SPIRVDialect const &dialect, DialectAsmParser &parser) const {
     auto parseVal = parseAndVerify<ParseType>(dialect, parser);
@@ -503,7 +487,8 @@ template <typename ParseType, typename... Args> struct ParseCommaSeparatedList {
 
 // Partial specialization of the function to parse a comma separated list of
 // specs to parse the last element of the list.
-template <typename ParseType> struct ParseCommaSeparatedList<ParseType> {
+template <typename ParseType>
+struct ParseCommaSeparatedList<ParseType> {
   Optional<std::tuple<ParseType>> operator()(SPIRVDialect const &dialect,
                                              DialectAsmParser &parser) const {
     if (auto value = parseAndVerify<ParseType>(dialect, parser))
@@ -543,21 +528,6 @@ static Type parseImageType(SPIRVDialect const &dialect,
   if (parser.parseGreater())
     return Type();
   return ImageType::get(value.getValue());
-}
-
-// sampledImage-type :: = `!spv.sampledImage<` image-type `>`
-static Type parseSampledImageType(SPIRVDialect const &dialect,
-                                  DialectAsmParser &parser) {
-  if (parser.parseLess())
-    return Type();
-
-  Type parsedType = parseAndVerifySampledImageType(dialect, parser);
-  if (!parsedType)
-    return Type();
-
-  if (parser.parseGreater())
-    return Type();
-  return SampledImageType::get(parsedType);
 }
 
 // Parse decorations associated with a member.
@@ -636,15 +606,15 @@ static Type parseStructType(SPIRVDialect const &dialect,
   //
   // Note: This has to be thread_local to enable multiple threads to safely
   // parse concurrently.
-  thread_local SetVector<StringRef> structContext;
+  thread_local llvm::SetVector<StringRef> structContext;
 
-  static auto removeIdentifierAndFail = [](SetVector<StringRef> &structContext,
-                                           StringRef identifier) {
-    if (!identifier.empty())
-      structContext.remove(identifier);
+  static auto removeIdentifierAndFail =
+      [](llvm::SetVector<StringRef> &structContext, StringRef identifier) {
+        if (!identifier.empty())
+          structContext.remove(identifier);
 
-    return Type();
-  };
+        return Type();
+      };
 
   if (parser.parseLess())
     return Type();
@@ -737,7 +707,6 @@ static Type parseStructType(SPIRVDialect const &dialect,
 //              | image-type
 //              | pointer-type
 //              | runtime-array-type
-//              | sampled-image-type
 //              | struct-type
 Type SPIRVDialect::parseType(DialectAsmParser &parser) const {
   StringRef keyword;
@@ -754,8 +723,6 @@ Type SPIRVDialect::parseType(DialectAsmParser &parser) const {
     return parsePointerType(*this, parser);
   if (keyword == "rtarray")
     return parseRuntimeArrayType(*this, parser);
-  if (keyword == "sampled_image")
-    return parseSampledImageType(*this, parser);
   if (keyword == "struct")
     return parseStructType(*this, parser);
   if (keyword == "matrix")
@@ -796,12 +763,8 @@ static void print(ImageType type, DialectAsmPrinter &os) {
      << stringifyImageFormat(type.getImageFormat()) << ">";
 }
 
-static void print(SampledImageType type, DialectAsmPrinter &os) {
-  os << "sampled_image<" << type.getImageType() << ">";
-}
-
 static void print(StructType type, DialectAsmPrinter &os) {
-  thread_local SetVector<StringRef> structContext;
+  thread_local llvm::SetVector<StringRef> structContext;
 
   os << "struct<";
 
@@ -862,7 +825,7 @@ static void print(MatrixType type, DialectAsmPrinter &os) {
 void SPIRVDialect::printType(Type type, DialectAsmPrinter &os) const {
   TypeSwitch<Type>(type)
       .Case<ArrayType, CooperativeMatrixNVType, PointerType, RuntimeArrayType,
-            ImageType, SampledImageType, StructType, MatrixType>(
+            ImageType, StructType, MatrixType>(
           [&](auto type) { print(type, os); })
       .Default([](Type) { llvm_unreachable("unhandled SPIR-V type"); });
 }

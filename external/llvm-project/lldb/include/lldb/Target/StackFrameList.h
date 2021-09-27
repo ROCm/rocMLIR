@@ -89,6 +89,9 @@ protected:
 
   bool SetFrameAtIndex(uint32_t idx, lldb::StackFrameSP &frame_sp);
 
+  static void Merge(std::unique_ptr<StackFrameList> &curr_up,
+                    lldb::StackFrameListSP &prev_sp);
+
   void GetFramesUpTo(uint32_t end_idx);
 
   void GetOnlyConcreteFramesUpTo(uint32_t end_idx, Unwind &unwinder);

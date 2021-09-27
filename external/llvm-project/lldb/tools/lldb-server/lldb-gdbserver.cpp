@@ -6,14 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <cerrno>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
+#include <errno.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #ifndef _WIN32
-#include <csignal>
+#include <signal.h>
 #include <unistd.h>
 #endif
 
@@ -40,7 +40,7 @@
 #if defined(__linux__)
 #include "Plugins/Process/Linux/NativeProcessLinux.h"
 #elif defined(__FreeBSD__)
-#include "Plugins/Process/FreeBSD/NativeProcessFreeBSD.h"
+#include "Plugins/Process/FreeBSDRemote/NativeProcessFreeBSD.h"
 #elif defined(__NetBSD__)
 #include "Plugins/Process/NetBSD/NativeProcessNetBSD.h"
 #elif defined(_WIN32)
@@ -356,7 +356,7 @@ public:
   void PrintHelp(llvm::StringRef Name) {
     std::string Usage =
         (Name + " [options] [[host]:port] [[--] program args...]").str();
-    OptTable::printHelp(llvm::outs(), Usage.c_str(), "lldb-server");
+    OptTable::PrintHelp(llvm::outs(), Usage.c_str(), "lldb-server");
     llvm::outs() << R"(
 DESCRIPTION
   lldb-server connects to the LLDB client, which drives the debugging session.

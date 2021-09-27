@@ -72,15 +72,15 @@ struct SimplifyRedundantTranspose : public mlir::OpRewritePattern<TransposeOp> {
 
 /// Register our patterns as "canonicalization" patterns on the TransposeOp so
 /// that they can be picked up by the Canonicalization framework.
-void TransposeOp::getCanonicalizationPatterns(RewritePatternSet &results,
+void TransposeOp::getCanonicalizationPatterns(OwningRewritePatternList &results,
                                               MLIRContext *context) {
-  results.add<SimplifyRedundantTranspose>(context);
+  results.insert<SimplifyRedundantTranspose>(context);
 }
 
 /// Register our patterns as "canonicalization" patterns on the ReshapeOp so
 /// that they can be picked up by the Canonicalization framework.
-void ReshapeOp::getCanonicalizationPatterns(RewritePatternSet &results,
+void ReshapeOp::getCanonicalizationPatterns(OwningRewritePatternList &results,
                                             MLIRContext *context) {
-  results.add<ReshapeReshapeOptPattern, RedundantReshapeOptPattern,
-              FoldConstantReshapeOptPattern>(context);
+  results.insert<ReshapeReshapeOptPattern, RedundantReshapeOptPattern,
+                 FoldConstantReshapeOptPattern>(context);
 }

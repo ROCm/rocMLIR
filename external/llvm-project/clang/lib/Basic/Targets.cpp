@@ -22,7 +22,6 @@
 #include "Targets/Hexagon.h"
 #include "Targets/Lanai.h"
 #include "Targets/Le64.h"
-#include "Targets/M68k.h"
 #include "Targets/MSP430.h"
 #include "Targets/Mips.h"
 #include "Targets/NVPTX.h"
@@ -302,16 +301,6 @@ TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new OpenBSDTargetInfo<MipsTargetInfo>(Triple, Opts);
     default:
       return new MipsTargetInfo(Triple, Opts);
-    }
-
-  case llvm::Triple::m68k:
-    switch (os) {
-    case llvm::Triple::Linux:
-      return new LinuxTargetInfo<M68kTargetInfo>(Triple, Opts);
-    case llvm::Triple::NetBSD:
-      return new NetBSDTargetInfo<M68kTargetInfo>(Triple, Opts);
-    default:
-      return new M68kTargetInfo(Triple, Opts);
     }
 
   case llvm::Triple::le32:
@@ -595,13 +584,13 @@ TargetInfo *AllocateTarget(const llvm::Triple &Triple,
     }
 
   case llvm::Triple::spir: {
-    if (os != llvm::Triple::UnknownOS ||
+    if (Triple.getOS() != llvm::Triple::UnknownOS ||
         Triple.getEnvironment() != llvm::Triple::UnknownEnvironment)
       return nullptr;
     return new SPIR32TargetInfo(Triple, Opts);
   }
   case llvm::Triple::spir64: {
-    if (os != llvm::Triple::UnknownOS ||
+    if (Triple.getOS() != llvm::Triple::UnknownOS ||
         Triple.getEnvironment() != llvm::Triple::UnknownEnvironment)
       return nullptr;
     return new SPIR64TargetInfo(Triple, Opts);
@@ -611,7 +600,7 @@ TargetInfo *AllocateTarget(const llvm::Triple &Triple,
         Triple.getVendor() != llvm::Triple::UnknownVendor ||
         !Triple.isOSBinFormatWasm())
       return nullptr;
-    switch (os) {
+    switch (Triple.getOS()) {
       case llvm::Triple::WASI:
         return new WASITargetInfo<WebAssembly32TargetInfo>(Triple, Opts);
       case llvm::Triple::Emscripten:
@@ -626,7 +615,7 @@ TargetInfo *AllocateTarget(const llvm::Triple &Triple,
         Triple.getVendor() != llvm::Triple::UnknownVendor ||
         !Triple.isOSBinFormatWasm())
       return nullptr;
-    switch (os) {
+    switch (Triple.getOS()) {
       case llvm::Triple::WASI:
         return new WASITargetInfo<WebAssembly64TargetInfo>(Triple, Opts);
       case llvm::Triple::Emscripten:
@@ -726,28 +715,29 @@ TargetInfo::CreateTargetInfo(DiagnosticsEngine &Diags,
 
   return Target.release();
 }
-/// validateOpenCLTarget  - Check that OpenCL target has valid
-/// options setting based on OpenCL version.
-bool TargetInfo::validateOpenCLTarget(const LangOptions &Opts,
-                                      DiagnosticsEngine &Diags) const {
-  const llvm::StringMap<bool> &OpenCLFeaturesMap = getSupportedOpenCLOpts();
 
-  auto diagnoseNotSupportedCore = [&](llvm::StringRef Name, auto... OptArgs) {
-    if (OpenCLOptions::isOpenCLOptionCoreIn(Opts, OptArgs...) &&
-        !hasFeatureEnabled(OpenCLFeaturesMap, Name))
-      Diags.Report(diag::warn_opencl_unsupported_core_feature)
-          << Name << Opts.OpenCLCPlusPlus
-          << Opts.getOpenCLVersionTuple().getAsString();
+/// getOpenCLFeatureDefines - Define OpenCL macros based on target settings
+/// and language version
+void TargetInfo::getOpenCLFeatureDefines(const LangOptions &Opts,
+                                         MacroBuilder &Builder) const {
+
+  auto defineOpenCLExtMacro = [&](llvm::StringRef Name, unsigned AvailVer,
+                                  unsigned CoreVersions,
+                                  unsigned OptionalVersions) {
+    // Check if extension is supported by target and is available in this
+    // OpenCL version
+    auto It = getTargetOpts().OpenCLFeaturesMap.find(Name);
+    if ((It != getTargetOpts().OpenCLFeaturesMap.end()) && It->getValue() &&
+        OpenCLOptions::OpenCLOptionInfo(AvailVer, CoreVersions,
+                                        OptionalVersions)
+            .isAvailableIn(Opts))
+      Builder.defineMacro(Name);
   };
-#define OPENCL_GENERIC_EXTENSION(Ext, ...)                                     \
-  diagnoseNotSupportedCore(#Ext, __VA_ARGS__);
+#define OPENCL_GENERIC_EXTENSION(Ext, Avail, Core, Opt)                        \
+  defineOpenCLExtMacro(#Ext, Avail, Core, Opt);
 #include "clang/Basic/OpenCLExtensions.def"
 
-  // Validate that feature macros are set properly for OpenCL C 3.0.
-  // In other cases assume that target is always valid.
-  if (Opts.getOpenCLCompatibleVersion() < 300)
-    return true;
-
-  return OpenCLOptions::diagnoseUnsupportedFeatureDependencies(*this, Diags) &&
-         OpenCLOptions::diagnoseFeatureExtensionDifferences(*this, Diags);
+  // FIXME: OpenCL options which affect language semantics/syntax
+  // should be moved into LangOptions, thus macro definitions of
+  // such options is better to be done in clang::InitializePreprocessor
 }

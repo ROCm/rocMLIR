@@ -43,10 +43,8 @@ using namespace llvm;
 
 #define DEBUG_TYPE "cgscc-passmgr"
 
-namespace llvm {
 cl::opt<unsigned> MaxDevirtIterations("max-devirt-iterations", cl::ReallyHidden,
                                       cl::init(4));
-}
 
 STATISTIC(MaxSCCIterations, "Maximum CGSCCPassMgr iterations on one SCC");
 
@@ -456,10 +454,10 @@ bool CGPassManager::RunAllPassesOnSCC(CallGraphSCC &CurSCC, CallGraph &CG,
       std::string Functions;
   #ifndef NDEBUG
       raw_string_ostream OS(Functions);
-      ListSeparator LS;
-      for (const CallGraphNode *CGN : CurSCC) {
-        OS << LS;
-        CGN->print(OS);
+      for (CallGraphSCC::iterator I = CurSCC.begin(), E = CurSCC.end();
+           I != E; ++I) {
+        if (I != CurSCC.begin()) OS << ", ";
+        (*I)->print(OS);
       }
       OS.flush();
   #endif
@@ -736,9 +734,12 @@ Pass *CallGraphSCCPass::createPrinterPass(raw_ostream &OS,
 
 static std::string getDescription(const CallGraphSCC &SCC) {
   std::string Desc = "SCC (";
-  ListSeparator LS;
+  bool First = true;
   for (CallGraphNode *CGN : SCC) {
-    Desc += LS;
+    if (First)
+      First = false;
+    else
+      Desc += ", ";
     Function *F = CGN->getFunction();
     if (F)
       Desc += F->getName();

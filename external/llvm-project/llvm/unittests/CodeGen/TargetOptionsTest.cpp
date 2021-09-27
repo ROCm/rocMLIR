@@ -48,7 +48,7 @@ static void targetOptionsTest(bool EnableIPRA) {
   std::unique_ptr<TargetMachine> TM = createTargetMachine(EnableIPRA);
   // This test is designed for the X86 backend; stop if it is not available.
   if (!TM)
-    GTEST_SKIP();
+    return;
   legacy::PassManager PM;
   LLVMTargetMachine *LLVMTM = static_cast<LLVMTargetMachine *>(TM.get());
 

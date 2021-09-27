@@ -12,6 +12,7 @@
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringRef.h"
+#include <vector>
 
 namespace clang {
 namespace tooling {

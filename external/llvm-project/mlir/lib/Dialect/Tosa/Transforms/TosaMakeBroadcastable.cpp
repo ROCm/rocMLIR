@@ -11,7 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR//TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
@@ -104,28 +103,22 @@ static void computeReshapeOutput(ArrayRef<int64_t> higherRankShape,
   }
 }
 
-/// Common code to create the reshape op where necessary to make the rank of the
+/// Common code to reate the reshape op where necessary to make the rank of the
 /// operations equal. Returns the updated input1 and input2 for the original
 /// input. The caller is expected to use these to rewrite the original operator
 /// with the RESHAPE now in the graph.
-static LogicalResult reshapeLowerToHigher(PatternRewriter &rewriter,
-                                          Location loc,
-                                          RankedTensorType outputType,
-                                          Value input1, Value input2,
-                                          Value &outInput1, Value &outInput2) {
-  auto input1Ty = input1.getType().dyn_cast<RankedTensorType>();
-  auto input2Ty = input2.getType().dyn_cast<RankedTensorType>();
+static int reshapeLowerToHigher(PatternRewriter &rewriter, Location loc,
+                                RankedTensorType outputType, Value input1,
+                                Value input2, Value &outInput1,
+                                Value &outInput2) {
 
-  if (!input1Ty || !input2Ty)
-    return failure();
-
-  int64_t input1Rank = input1Ty.getRank();
-  int64_t input2Rank = input2Ty.getRank();
+  int64_t input1Rank = input1.getType().cast<RankedTensorType>().getRank();
+  int64_t input2Rank = input2.getType().cast<RankedTensorType>().getRank();
 
   Value higherTensorValue, lowerTensorValue;
-  // Cannot rewrite as its already correct.
+  // return if rank already match
   if (input1Rank == input2Rank)
-    return failure();
+    return 1;
 
   if (input1Rank > input2Rank) {
     higherTensorValue = input1;
@@ -135,27 +128,23 @@ static LogicalResult reshapeLowerToHigher(PatternRewriter &rewriter,
     lowerTensorValue = input1;
   }
 
+  ArrayRef<int64_t> outputRankShape = outputType.getShape();
   ArrayRef<int64_t> higherRankShape =
       higherTensorValue.getType().cast<RankedTensorType>().getShape();
   (void)higherRankShape;
   ArrayRef<int64_t> lowerRankShape =
       lowerTensorValue.getType().cast<RankedTensorType>().getShape();
 
+  // outputRank == higherRank == max(input1Rank, input2Rank)
+  assert(higherRankShape.size() == outputRankShape.size());
+
   SmallVector<int64_t, 4> reshapeOutputShape;
 
-  computeReshapeOutput(outputType.getShape(), lowerRankShape,
-                       reshapeOutputShape);
+  computeReshapeOutput(outputRankShape, lowerRankShape, reshapeOutputShape);
 
   auto reshapeInputType = lowerTensorValue.getType().cast<RankedTensorType>();
   auto reshapeOutputType = RankedTensorType::get(
       ArrayRef<int64_t>(reshapeOutputShape), reshapeInputType.getElementType());
-
-  // Verify the rank agrees with the output type if the output type is ranked.
-  if (outputType) {
-    if (outputType.getShape().size() != reshapeOutputShape.size() ||
-        outputType.getShape().size() != higherRankShape.size())
-      return failure();
-  }
 
   auto reshapeLower = rewriter.create<tosa::ReshapeOp>(
       loc, reshapeOutputType, lowerTensorValue,
@@ -169,7 +158,7 @@ static LogicalResult reshapeLowerToHigher(PatternRewriter &rewriter,
     outInput2 = higherTensorValue;
   }
 
-  return success();
+  return 0;
 }
 
 namespace {
@@ -183,13 +172,11 @@ struct ConvertTosaOp : public OpRewritePattern<OpTy> {
     Value input1 = tosaBinaryOp.input1();
     Value input2 = tosaBinaryOp.input2();
     Value output = tosaBinaryOp.getResult();
-
-    auto outputType = output.getType().dyn_cast<RankedTensorType>();
+    auto outputType = output.getType().cast<RankedTensorType>();
 
     Value outInput1, outInput2;
     if (reshapeLowerToHigher(rewriter, tosaBinaryOp.getLoc(), outputType,
-                             input1, input2, outInput1, outInput2)
-            .failed())
+                             input1, input2, outInput1, outInput2))
       return failure();
 
     rewriter.replaceOpWithNewOp<OpTy>(tosaBinaryOp, outputType, outInput1,
@@ -212,12 +199,11 @@ struct ConvertTosaOp<tosa::MulOp> : public OpRewritePattern<tosa::MulOp> {
     Value input2 = tosaBinaryOp.input2();
     int32_t shift = tosaBinaryOp.shift();
     Value output = tosaBinaryOp.getResult();
-    auto outputType = output.getType().dyn_cast<RankedTensorType>();
+    auto outputType = output.getType().cast<RankedTensorType>();
 
     Value outInput1, outInput2;
     if (reshapeLowerToHigher(rewriter, tosaBinaryOp.getLoc(), outputType,
-                             input1, input2, outInput1, outInput2)
-            .failed())
+                             input1, input2, outInput1, outInput2))
       return failure();
 
     rewriter.replaceOpWithNewOp<tosa::MulOp>(tosaBinaryOp, outputType,
@@ -246,8 +232,7 @@ struct ConvertTosaOp<tosa::ArithmeticRightShiftOp>
 
     Value outInput1, outInput2;
     if (reshapeLowerToHigher(rewriter, tosaBinaryOp.getLoc(), outputType,
-                             input1, input2, outInput1, outInput2)
-            .failed())
+                             input1, input2, outInput1, outInput2))
       return failure();
 
     rewriter.replaceOpWithNewOp<tosa::ArithmeticRightShiftOp>(
@@ -266,28 +251,20 @@ struct TosaMakeBroadcastable
 public:
   void runOnFunction() override {
     auto func = getFunction();
-    RewritePatternSet patterns(func.getContext());
+    OwningRewritePatternList patterns;
     MLIRContext *ctx = func.getContext();
     // Add the generated patterns to the list.
-    patterns.add<ConvertTosaOp<tosa::BitwiseAndOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::BitwiseOrOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::BitwiseXorOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::AddOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::SubOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::MulOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::DivOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::MaximumOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::MinimumOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::EqualOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::GreaterOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::GreaterEqualOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::LogicalLeftShiftOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::ArithmeticRightShiftOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::LogicalRightShiftOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::LogicalAndOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::LogicalOrOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::LogicalXorOp>>(ctx);
-    patterns.add<ConvertTosaOp<tosa::PowOp>>(ctx);
+    patterns.insert<ConvertTosaOp<tosa::AddOp>>(ctx);
+    patterns.insert<ConvertTosaOp<tosa::SubOp>>(ctx);
+    patterns.insert<ConvertTosaOp<tosa::MulOp>>(ctx);
+    patterns.insert<ConvertTosaOp<tosa::MaximumOp>>(ctx);
+    patterns.insert<ConvertTosaOp<tosa::MinimumOp>>(ctx);
+    patterns.insert<ConvertTosaOp<tosa::EqualOp>>(ctx);
+    patterns.insert<ConvertTosaOp<tosa::GreaterOp>>(ctx);
+    patterns.insert<ConvertTosaOp<tosa::GreaterEqualOp>>(ctx);
+    patterns.insert<ConvertTosaOp<tosa::LogicalLeftShiftOp>>(ctx);
+    patterns.insert<ConvertTosaOp<tosa::ArithmeticRightShiftOp>>(ctx);
+    patterns.insert<ConvertTosaOp<tosa::LogicalRightShiftOp>>(ctx);
     (void)applyPatternsAndFoldGreedily(func, std::move(patterns));
   }
 };

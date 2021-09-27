@@ -14,7 +14,6 @@
 #ifndef LLVM_CODEGEN_TARGETLOWERINGOBJECTFILEIMPL_H
 #define LLVM_CODEGEN_TARGETLOWERINGOBJECTFILEIMPL_H
 
-#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/BinaryFormat/XCOFF.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 
@@ -33,7 +32,6 @@ class TargetMachine;
 class TargetLoweringObjectFileELF : public TargetLoweringObjectFile {
   bool UseInitArray = false;
   mutable unsigned NextUniqueID = 1;  // ID 0 is reserved for execute-only sections
-  SmallPtrSet<GlobalObject *, 2> Used;
 
 protected:
   MCSymbolRefExpr::VariantKind PLTRelativeVariantKind =
@@ -44,8 +42,6 @@ public:
   ~TargetLoweringObjectFileELF() override = default;
 
   void Initialize(MCContext &Ctx, const TargetMachine &TM) override;
-
-  void getModuleMetadata(Module &M) override;
 
   /// Emit Obj-C garbage collection and linker options.
   void emitModuleMetadata(MCStreamer &Streamer, Module &M) const override;
@@ -67,17 +63,13 @@ public:
 
   MCSection *getSectionForJumpTable(const Function &F,
                                     const TargetMachine &TM) const override;
-  MCSection *getSectionForLSDA(const Function &F, const MCSymbol &FnSym,
+  MCSection *getSectionForLSDA(const Function &F,
                                const TargetMachine &TM) const override;
 
   MCSection *
   getSectionForMachineBasicBlock(const Function &F,
                                  const MachineBasicBlock &MBB,
                                  const TargetMachine &TM) const override;
-
-  MCSection *
-  getUniqueSectionForFunction(const Function &F,
-                              const TargetMachine &TM) const override;
 
   bool shouldPutJumpTableInFunctionSection(bool UsesLabelDifference,
                                            const Function &F) const override;
@@ -229,7 +221,6 @@ public:
   ~TargetLoweringObjectFileXCOFF() override = default;
 
   static bool ShouldEmitEHBlock(const MachineFunction *MF);
-  static bool ShouldSetSSPCanaryBitInTB(const MachineFunction *MF);
 
   static MCSymbol *getEHInfoTableSymbol(const MachineFunction *MF);
 
@@ -282,17 +273,6 @@ public:
 
   MCSymbol *getFunctionEntryPointSymbol(const GlobalValue *Func,
                                         const TargetMachine &TM) const override;
-};
-
-class TargetLoweringObjectFileGOFF : public TargetLoweringObjectFile {
-public:
-  TargetLoweringObjectFileGOFF();
-  ~TargetLoweringObjectFileGOFF() override = default;
-
-  MCSection *SelectSectionForGlobal(const GlobalObject *GO, SectionKind Kind,
-                                    const TargetMachine &TM) const override;
-  MCSection *getExplicitSectionGlobal(const GlobalObject *GO, SectionKind Kind,
-                                      const TargetMachine &TM) const override;
 };
 
 } // end namespace llvm

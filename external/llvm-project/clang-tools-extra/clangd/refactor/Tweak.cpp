@@ -6,7 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 #include "Tweak.h"
-#include "FeatureModule.h"
 #include "SourceCode.h"
 #include "index/Index.h"
 #include "support/Logger.h"
@@ -21,7 +20,6 @@
 #include <functional>
 #include <memory>
 #include <utility>
-#include <vector>
 
 LLVM_INSTANTIATE_REGISTRY(llvm::Registry<clang::clangd::Tweak>)
 
@@ -45,26 +43,13 @@ void validateRegistry() {
   }
 #endif
 }
-
-std::vector<std::unique_ptr<Tweak>>
-getAllTweaks(const FeatureModuleSet *Modules) {
-  std::vector<std::unique_ptr<Tweak>> All;
-  for (const auto &E : TweakRegistry::entries())
-    All.emplace_back(E.instantiate());
-  if (Modules) {
-    for (auto &M : *Modules)
-      M.contributeTweaks(All);
-  }
-  return All;
-}
 } // namespace
 
 Tweak::Selection::Selection(const SymbolIndex *Index, ParsedAST &AST,
                             unsigned RangeBegin, unsigned RangeEnd,
-                            SelectionTree ASTSelection,
-                            llvm::vfs::FileSystem *FS)
+                            SelectionTree ASTSelection)
     : Index(Index), AST(&AST), SelectionBegin(RangeBegin),
-      SelectionEnd(RangeEnd), ASTSelection(std::move(ASTSelection)), FS(FS) {
+      SelectionEnd(RangeEnd), ASTSelection(std::move(ASTSelection)) {
   auto &SM = AST.getSourceManager();
   Code = SM.getBufferData(SM.getMainFileID());
   Cursor = SM.getComposedLoc(SM.getMainFileID(), RangeBegin);
@@ -72,12 +57,12 @@ Tweak::Selection::Selection(const SymbolIndex *Index, ParsedAST &AST,
 
 std::vector<std::unique_ptr<Tweak>>
 prepareTweaks(const Tweak::Selection &S,
-              llvm::function_ref<bool(const Tweak &)> Filter,
-              const FeatureModuleSet *Modules) {
+              llvm::function_ref<bool(const Tweak &)> Filter) {
   validateRegistry();
 
   std::vector<std::unique_ptr<Tweak>> Available;
-  for (auto &T : getAllTweaks(Modules)) {
+  for (const auto &E : TweakRegistry::entries()) {
+    std::unique_ptr<Tweak> T = E.instantiate();
     if (!Filter(*T) || !T->prepare(S))
       continue;
     Available.push_back(std::move(T));
@@ -89,17 +74,17 @@ prepareTweaks(const Tweak::Selection &S,
   return Available;
 }
 
-llvm::Expected<std::unique_ptr<Tweak>>
-prepareTweak(StringRef ID, const Tweak::Selection &S,
-             const FeatureModuleSet *Modules) {
-  for (auto &T : getAllTweaks(Modules)) {
-    if (T->id() != ID)
-      continue;
-    if (!T->prepare(S))
-      return error("failed to prepare() tweak {0}", ID);
-    return std::move(T);
-  }
-  return error("tweak ID {0} is invalid", ID);
+llvm::Expected<std::unique_ptr<Tweak>> prepareTweak(StringRef ID,
+                                                    const Tweak::Selection &S) {
+  auto It = llvm::find_if(
+      TweakRegistry::entries(),
+      [ID](const TweakRegistry::entry &E) { return E.getName() == ID; });
+  if (It == TweakRegistry::end())
+    return error("tweak ID {0} is invalid", ID);
+  std::unique_ptr<Tweak> T = It->instantiate();
+  if (!T->prepare(S))
+    return error("failed to prepare() tweak {0}", ID);
+  return std::move(T);
 }
 
 llvm::Expected<std::pair<Path, Edit>>

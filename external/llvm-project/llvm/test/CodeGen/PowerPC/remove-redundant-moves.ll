@@ -8,7 +8,8 @@ entry:
 ; CHECK: xxswapd [[SW:[0-9]+]], 34
 ; CHECK: xscvsxddp 1, [[SW]]
 ; CHECK-BE-LABEL: test1
-; CHECK-BE: xscvsxddp 1, 34
+; CHECK-BE: xxlor [[CP:[0-9]+]], 34, 34
+; CHECK-BE: xscvsxddp 1, [[CP]]
   %0 = extractelement <2 x i64> %a, i32 0
   %1 = sitofp i64 %0 to double
   ret double %1
@@ -17,7 +18,8 @@ entry:
 define double @test2(<2 x i64> %a) {
 entry:
 ; CHECK-LABEL: test2
-; CHECK: xscvsxddp 1, 34
+; CHECK: xxlor [[CP:[0-9]+]], 34, 34
+; CHECK: xscvsxddp 1, [[CP]]
 ; CHECK-BE-LABEL: test2
 ; CHECK-BE: xxswapd [[SW:[0-9]+]], 34
 ; CHECK-BE: xscvsxddp 1, [[SW]]
@@ -32,7 +34,8 @@ entry:
 ; CHECK: xxswapd [[SW:[0-9]+]], 34
 ; CHECK: xscvsxdsp 1, [[SW]]
 ; CHECK-BE-LABEL: test1f
-; CHECK-BE: xscvsxdsp 1, 34
+; CHECK-BE: xxlor [[CP:[0-9]+]], 34, 34
+; CHECK-BE: xscvsxdsp 1, [[CP]]
   %0 = extractelement <2 x i64> %a, i32 0
   %1 = sitofp i64 %0 to float
   ret float %1
@@ -41,7 +44,8 @@ entry:
 define float @test2f(<2 x i64> %a) {
 entry:
 ; CHECK-LABEL: test2f
-; CHECK: xscvsxdsp 1, 34
+; CHECK: xxlor [[CP:[0-9]+]], 34, 34
+; CHECK: xscvsxdsp 1, [[CP]]
 ; CHECK-BE-LABEL: test2f
 ; CHECK-BE: xxswapd [[SW:[0-9]+]], 34
 ; CHECK-BE: xscvsxdsp 1, [[SW]]
@@ -56,7 +60,8 @@ entry:
 ; CHECK: xxswapd [[SW:[0-9]+]], 34
 ; CHECK: xscvuxddp 1, [[SW]]
 ; CHECK-BE-LABEL: test1u
-; CHECK-BE: xscvuxddp 1, 34
+; CHECK-BE: xxlor [[CP:[0-9]+]], 34, 34
+; CHECK-BE: xscvuxddp 1, [[CP]]
   %0 = extractelement <2 x i64> %a, i32 0
   %1 = uitofp i64 %0 to double
   ret double %1
@@ -65,7 +70,8 @@ entry:
 define double @test2u(<2 x i64> %a) {
 entry:
 ; CHECK-LABEL: test2u
-; CHECK: xscvuxddp 1, 34
+; CHECK: xxlor [[CP:[0-9]+]], 34, 34
+; CHECK: xscvuxddp 1, [[CP]]
 ; CHECK-BE-LABEL: test2u
 ; CHECK-BE: xxswapd [[SW:[0-9]+]], 34
 ; CHECK-BE: xscvuxddp 1, [[SW]]
@@ -80,7 +86,8 @@ entry:
 ; CHECK: xxswapd [[SW:[0-9]+]], 34
 ; CHECK: xscvuxdsp 1, [[SW]]
 ; CHECK-BE-LABEL: test1fu
-; CHECK-BE: xscvuxdsp 1, 34
+; CHECK-BE: xxlor [[CP:[0-9]+]], 34, 34
+; CHECK-BE: xscvuxdsp 1, [[CP]]
   %0 = extractelement <2 x i64> %a, i32 0
   %1 = uitofp i64 %0 to float
   ret float %1
@@ -89,7 +96,8 @@ entry:
 define float @test2fu(<2 x i64> %a) {
 entry:
 ; CHECK-LABEL: test2fu
-; CHECK: xscvuxdsp 1, 34
+; CHECK: xxlor [[CP:[0-9]+]], 34, 34
+; CHECK: xscvuxdsp 1, [[CP]]
 ; CHECK-BE-LABEL: test2fu
 ; CHECK-BE: xxswapd [[SW:[0-9]+]], 34
 ; CHECK-BE: xscvuxdsp 1, [[SW]]

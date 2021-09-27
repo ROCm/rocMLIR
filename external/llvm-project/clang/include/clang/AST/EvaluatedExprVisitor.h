@@ -32,9 +32,6 @@ protected:
   const ASTContext &Context;
 
 public:
-  // Return whether this visitor should recurse into discarded statements for a
-  // 'constexpr-if'.
-  bool shouldVisitDiscardedStmt() const { return true; }
 #define PTR(CLASS) typename Ptr<CLASS>::type
 
   explicit EvaluatedExprVisitorBase(const ASTContext &Context) : Context(Context) { }
@@ -86,7 +83,7 @@ public:
 
   void VisitCallExpr(PTR(CallExpr) CE) {
     if (!CE->isUnevaluatedBuiltinCall(Context))
-      return getDerived().VisitExpr(CE);
+      return static_cast<ImplClass*>(this)->VisitExpr(CE);
   }
 
   void VisitLambdaExpr(PTR(LambdaExpr) LE) {
@@ -105,20 +102,6 @@ public:
       if (SubStmt)
         this->Visit(SubStmt);
   }
-
-  void VisitIfStmt(PTR(IfStmt) If) {
-    if (!getDerived().shouldVisitDiscardedStmt()) {
-      if (auto SubStmt = If->getNondiscardedCase(Context)) {
-        if (*SubStmt)
-          this->Visit(*SubStmt);
-        return;
-      }
-    }
-
-    getDerived().VisitStmt(If);
-  }
-
-  ImplClass &getDerived() { return *static_cast<ImplClass *>(this); }
 
 #undef PTR
 };

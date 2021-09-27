@@ -43,14 +43,7 @@ namespace test2 {
     Temp(int x) {}
   };
 
-  template <> class Temp<A::Private> Temp<int>::make() {
+  template <> class Temp<A::Private> Temp<int>::make() { // expected-error {{'Private' is a private member of 'test2::A'}}
     return Temp<A::Public>(0);
   }
-
-  template <>
-  class Temp<char> {
-    static Temp<A::Private> make() { // expected-error {{is a private member}}
-      return Temp<A::Public>(0);
-    }
-  };
 }

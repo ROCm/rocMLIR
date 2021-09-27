@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "PDB.h"
-#include "COFFLinkerContext.h"
 #include "Chunks.h"
 #include "Config.h"
 #include "DebugTypes.h"
@@ -63,9 +62,18 @@ using namespace lld;
 using namespace lld::coff;
 
 using llvm::object::coff_section;
-using llvm::pdb::StringTableFixup;
 
 static ExitOnError exitOnErr;
+
+static Timer totalPdbLinkTimer("PDB Emission (Cumulative)", Timer::root());
+static Timer addObjectsTimer("Add Objects", totalPdbLinkTimer);
+Timer lld::coff::loadGHashTimer("Global Type Hashing", addObjectsTimer);
+Timer lld::coff::mergeGHashTimer("GHash Type Merging", addObjectsTimer);
+static Timer typeMergingTimer("Type Merging", addObjectsTimer);
+static Timer symbolMergingTimer("Symbol Merging", addObjectsTimer);
+static Timer publicsLayoutTimer("Publics Stream Layout", totalPdbLinkTimer);
+static Timer tpiStreamLayoutTimer("TPI Stream Layout", totalPdbLinkTimer);
+static Timer diskCommitTimer("Commit to Disk", totalPdbLinkTimer);
 
 namespace {
 class DebugSHandler;
@@ -74,8 +82,8 @@ class PDBLinker {
   friend DebugSHandler;
 
 public:
-  PDBLinker(COFFLinkerContext &ctx)
-      : builder(bAlloc), tMerger(ctx, bAlloc), ctx(ctx) {
+  PDBLinker(SymbolTable *symtab)
+      : symtab(symtab), builder(bAlloc), tMerger(bAlloc) {
     // This isn't strictly necessary, but link.exe usually puts an empty string
     // as the first "valid" string in the string table, so we do the same in
     // order to maintain as much byte-for-byte compatibility as possible.
@@ -98,9 +106,7 @@ public:
   void addPublicsToPDB();
 
   /// Link info for each import file in the symbol table into the PDB.
-  void addImportFilesToPDB();
-
-  void createModuleDBI(ObjFile *file);
+  void addImportFilesToPDB(ArrayRef<OutputSection *> outputSections);
 
   /// Link CodeView from a single object file into the target (output) PDB.
   /// When a precompiled headers object is linked, its TPI map might be provided
@@ -109,33 +115,13 @@ public:
 
   void addDebugSymbols(TpiSource *source);
 
-  // Analyze the symbol records to separate module symbols from global symbols,
-  // find string references, and calculate how large the symbol stream will be
-  // in the PDB.
-  void analyzeSymbolSubsection(SectionChunk *debugChunk,
-                               uint32_t &moduleSymOffset,
-                               uint32_t &nextRelocIndex,
-                               std::vector<StringTableFixup> &stringTableFixups,
-                               BinaryStreamRef symData);
-
-  // Write all module symbols from all all live debug symbol subsections of the
-  // given object file into the given stream writer.
-  Error writeAllModuleSymbolRecords(ObjFile *file, BinaryStreamWriter &writer);
-
-  // Callback to copy and relocate debug symbols during PDB file writing.
-  static Error commitSymbolsForObject(void *ctx, void *obj,
-                                      BinaryStreamWriter &writer);
-
-  // Copy the symbol record, relocate it, and fix the alignment if necessary.
-  // Rewrite type indices in the record. Replace unrecognized symbol records
-  // with S_SKIP records.
-  void writeSymbolRecord(SectionChunk *debugChunk,
-                         ArrayRef<uint8_t> sectionContents, CVSymbol sym,
-                         size_t alignedSize, uint32_t &nextRelocIndex,
-                         std::vector<uint8_t> &storage);
+  void mergeSymbolRecords(TpiSource *source,
+                          std::vector<ulittle32_t *> &stringTableRefs,
+                          BinaryStreamRef symData);
 
   /// Add the section map and section contributions to the PDB.
-  void addSections(ArrayRef<uint8_t> sectionTable);
+  void addSections(ArrayRef<OutputSection *> outputSections,
+                   ArrayRef<uint8_t> sectionTable);
 
   /// Write the PDB to disk and store the Guid generated for it in *Guid.
   void commit(codeview::GUID *guid);
@@ -144,12 +130,11 @@ public:
   void printStats();
 
 private:
+  SymbolTable *symtab;
 
   pdb::PDBFileBuilder builder;
 
   TypeMerger tMerger;
-
-  COFFLinkerContext &ctx;
 
   /// PDBs use a single global string table for filenames in the file checksum
   /// table.
@@ -164,16 +149,6 @@ private:
   uint64_t nbTypeRecords = 0;
   uint64_t nbTypeRecordsBytes = 0;
 };
-
-/// Represents an unrelocated DEBUG_S_FRAMEDATA subsection.
-struct UnrelocatedFpoData {
-  SectionChunk *debugChunk = nullptr;
-  ArrayRef<uint8_t> subsecData;
-  uint32_t relocIndex = 0;
-};
-
-/// The size of the magic bytes at the beginning of a symbol section or stream.
-enum : uint32_t { kSymbolStreamMagicSize = 4 };
 
 class DebugSHandler {
   PDBLinker &linker;
@@ -201,36 +176,23 @@ class DebugSHandler {
   /// contain string table references which need to be re-written, so we
   /// collect them all here and re-write them after all subsections have been
   /// discovered and processed.
-  std::vector<UnrelocatedFpoData> frameDataSubsecs;
+  std::vector<DebugFrameDataSubsectionRef> newFpoFrames;
 
-  /// List of string table references in symbol records. Later they will be
-  /// applied to the symbols during PDB writing.
-  std::vector<StringTableFixup> stringTableFixups;
+  /// Pointers to raw memory that we determine have string table references
+  /// that need to be re-written.  We first process all .debug$S subsections
+  /// to ensure that we can handle subsections written in any order, building
+  /// up this list as we go.  At the end, we use the string table (which must
+  /// have been discovered by now else it is an error) to re-write these
+  /// references.
+  std::vector<ulittle32_t *> stringTableReferences;
 
-  /// Sum of the size of all module symbol records across all .debug$S sections.
-  /// Includes record realignment and the size of the symbol stream magic
-  /// prefix.
-  uint32_t moduleStreamSize = kSymbolStreamMagicSize;
-
-  /// Next relocation index in the current .debug$S section. Resets every
-  /// handleDebugS call.
-  uint32_t nextRelocIndex = 0;
-
-  void advanceRelocIndex(SectionChunk *debugChunk, ArrayRef<uint8_t> subsec);
-
-  void addUnrelocatedSubsection(SectionChunk *debugChunk,
-                                const DebugSubsectionRecord &ss);
-
-  void addFrameDataSubsection(SectionChunk *debugChunk,
-                              const DebugSubsectionRecord &ss);
-
-  void recordStringTableReferences(CVSymbol sym, uint32_t symOffset);
+  void mergeInlineeLines(const DebugSubsectionRecord &inlineeLines);
 
 public:
   DebugSHandler(PDBLinker &linker, ObjFile &file, TpiSource *source)
       : linker(linker), file(file), source(source) {}
 
-  void handleDebugS(SectionChunk *debugChunk);
+  void handleDebugS(ArrayRef<uint8_t> relocatedDebugContents);
 
   void finish();
 };
@@ -257,7 +219,6 @@ static void pdbMakeAbsolute(SmallVectorImpl<char> &fileName) {
   if (config->pdbSourcePath.empty()) {
     sys::path::native(fileName);
     sys::fs::make_absolute(fileName);
-    sys::path::remove_dots(fileName, true);
     return;
   }
 
@@ -290,12 +251,11 @@ static void addTypeInfo(pdb::TpiStreamBuilder &tpiBuilder,
   });
 }
 
-static void addGHashTypeInfo(COFFLinkerContext &ctx,
-                             pdb::PDBFileBuilder &builder) {
+static void addGHashTypeInfo(pdb::PDBFileBuilder &builder) {
   // Start the TPI or IPI stream header.
   builder.getTpiBuilder().setVersionHeader(pdb::PdbTpiV80);
   builder.getIpiBuilder().setVersionHeader(pdb::PdbTpiV80);
-  for_each(ctx.tpiSourceList, [&](TpiSource *source) {
+  for_each(TpiSource::instances, [&](TpiSource *source) {
     builder.getTpiBuilder().addTypeRecords(source->mergedTpi.recs,
                                            source->mergedTpi.recSizes,
                                            source->mergedTpi.recHashes);
@@ -306,19 +266,27 @@ static void addGHashTypeInfo(COFFLinkerContext &ctx,
 }
 
 static void
-recordStringTableReferences(CVSymbol sym, uint32_t symOffset,
-                            std::vector<StringTableFixup> &stringTableFixups) {
+recordStringTableReferenceAtOffset(MutableArrayRef<uint8_t> contents,
+                                   uint32_t offset,
+                                   std::vector<ulittle32_t *> &strTableRefs) {
+  contents =
+      contents.drop_front(offset).take_front(sizeof(support::ulittle32_t));
+  ulittle32_t *index = reinterpret_cast<ulittle32_t *>(contents.data());
+  strTableRefs.push_back(index);
+}
+
+static void
+recordStringTableReferences(SymbolKind kind, MutableArrayRef<uint8_t> contents,
+                            std::vector<ulittle32_t *> &strTableRefs) {
   // For now we only handle S_FILESTATIC, but we may need the same logic for
   // S_DEFRANGE and S_DEFRANGE_SUBFIELD.  However, I cannot seem to generate any
   // PDBs that contain these types of records, so because of the uncertainty
   // they are omitted here until we can prove that it's necessary.
-  switch (sym.kind()) {
-  case SymbolKind::S_FILESTATIC: {
+  switch (kind) {
+  case SymbolKind::S_FILESTATIC:
     // FileStaticSym::ModFileOffset
-    uint32_t ref = *reinterpret_cast<const ulittle32_t *>(&sym.data()[8]);
-    stringTableFixups.push_back({ref, symOffset + 8});
+    recordStringTableReferenceAtOffset(contents, 8, strTableRefs);
     break;
-  }
   case SymbolKind::S_DEFRANGE:
   case SymbolKind::S_DEFRANGE_SUBFIELD:
     log("Not fixing up string table reference in S_DEFRANGE / "
@@ -367,27 +335,22 @@ static void translateIdSymbols(MutableArrayRef<uint8_t> &recordData,
     // Note that LF_FUNC_ID and LF_MFUNC_ID have the same record layout, and
     // in both cases we just need the second type index.
     if (!ti->isSimple() && !ti->isNoneType()) {
-      TypeIndex newType = TypeIndex(SimpleTypeKind::NotTranslated);
       if (config->debugGHashes) {
         auto idToType = tMerger.funcIdToType.find(*ti);
-        if (idToType != tMerger.funcIdToType.end())
-          newType = idToType->second;
-      } else {
-        if (tMerger.getIDTable().contains(*ti)) {
-          CVType funcIdData = tMerger.getIDTable().getType(*ti);
-          if (funcIdData.length() >= 8 && (funcIdData.kind() == LF_FUNC_ID ||
-                                           funcIdData.kind() == LF_MFUNC_ID)) {
-            newType = *reinterpret_cast<const TypeIndex *>(&funcIdData.data()[8]);
-          }
+        if (idToType == tMerger.funcIdToType.end()) {
+          warn(formatv("S_[GL]PROC32_ID record in {0} refers to PDB item "
+                       "index {1:X} which is not a LF_[M]FUNC_ID record",
+                       source->file->getName(), ti->getIndex()));
+          *ti = TypeIndex(SimpleTypeKind::NotTranslated);
+        } else {
+          *ti = idToType->second;
         }
+      } else {
+        CVType funcIdData = tMerger.getIDTable().getType(*ti);
+        ArrayRef<uint8_t> tiBuf = funcIdData.data().slice(8, 4);
+        assert(tiBuf.size() == 4 && "corrupt LF_[M]FUNC_ID record");
+        *ti = *reinterpret_cast<const TypeIndex *>(tiBuf.data());
       }
-      if (newType == TypeIndex(SimpleTypeKind::NotTranslated)) {
-        warn(formatv("procedure symbol record for `{0}` in {1} refers to PDB "
-                     "item index {2:X} which is not a valid function ID record",
-                     getSymbolName(CVSymbol(recordData)),
-                     source->file->getName(), ti->getIndex()));
-      }
-      *ti = newType;
     }
 
     kind = (kind == SymbolKind::S_GPROC32_ID) ? SymbolKind::S_GPROC32
@@ -396,48 +359,60 @@ static void translateIdSymbols(MutableArrayRef<uint8_t> &recordData,
   }
 }
 
-namespace {
+/// Copy the symbol record. In a PDB, symbol records must be 4 byte aligned.
+/// The object file may not be aligned.
+static MutableArrayRef<uint8_t>
+copyAndAlignSymbol(const CVSymbol &sym, MutableArrayRef<uint8_t> &alignedMem) {
+  size_t size = alignTo(sym.length(), alignOf(CodeViewContainer::Pdb));
+  assert(size >= 4 && "record too short");
+  assert(size <= MaxRecordLength && "record too long");
+  assert(alignedMem.size() >= size && "didn't preallocate enough");
+
+  // Copy the symbol record and zero out any padding bytes.
+  MutableArrayRef<uint8_t> newData = alignedMem.take_front(size);
+  alignedMem = alignedMem.drop_front(size);
+  memcpy(newData.data(), sym.data().data(), sym.length());
+  memset(newData.data() + sym.length(), 0, size - sym.length());
+
+  // Update the record prefix length. It should point to the beginning of the
+  // next record.
+  auto *prefix = reinterpret_cast<RecordPrefix *>(newData.data());
+  prefix->RecordLen = size - 2;
+  return newData;
+}
+
 struct ScopeRecord {
   ulittle32_t ptrParent;
   ulittle32_t ptrEnd;
 };
-} // namespace
 
-/// Given a pointer to a symbol record that opens a scope, return a pointer to
-/// the scope fields.
-static ScopeRecord *getSymbolScopeFields(void *sym) {
-  return reinterpret_cast<ScopeRecord *>(reinterpret_cast<char *>(sym) +
-                                         sizeof(RecordPrefix));
+struct SymbolScope {
+  ScopeRecord *openingRecord;
+  uint32_t scopeOffset;
+};
+
+static void scopeStackOpen(SmallVectorImpl<SymbolScope> &stack,
+                           uint32_t curOffset, CVSymbol &sym) {
+  assert(symbolOpensScope(sym.kind()));
+  SymbolScope s;
+  s.scopeOffset = curOffset;
+  s.openingRecord = const_cast<ScopeRecord *>(
+      reinterpret_cast<const ScopeRecord *>(sym.content().data()));
+  s.openingRecord->ptrParent = stack.empty() ? 0 : stack.back().scopeOffset;
+  stack.push_back(s);
 }
 
-// To open a scope, push the offset of the current symbol record onto the
-// stack.
-static void scopeStackOpen(SmallVectorImpl<uint32_t> &stack,
-                           std::vector<uint8_t> &storage) {
-  stack.push_back(storage.size());
-}
-
-// To close a scope, update the record that opened the scope.
-static void scopeStackClose(SmallVectorImpl<uint32_t> &stack,
-                            std::vector<uint8_t> &storage,
-                            uint32_t storageBaseOffset, ObjFile *file) {
+static void scopeStackClose(SmallVectorImpl<SymbolScope> &stack,
+                            uint32_t curOffset, InputFile *file) {
   if (stack.empty()) {
     warn("symbol scopes are not balanced in " + file->getName());
     return;
   }
-
-  // Update ptrEnd of the record that opened the scope to point to the
-  // current record, if we are writing into the module symbol stream.
-  uint32_t offOpen = stack.pop_back_val();
-  uint32_t offEnd = storageBaseOffset + storage.size();
-  uint32_t offParent = stack.empty() ? 0 : (stack.back() + storageBaseOffset);
-  ScopeRecord *scopeRec = getSymbolScopeFields(&(storage)[offOpen]);
-  scopeRec->ptrParent = offParent;
-  scopeRec->ptrEnd = offEnd;
+  SymbolScope s = stack.pop_back_val();
+  s.openingRecord->ptrEnd = curOffset;
 }
 
-static bool symbolGoesInModuleStream(const CVSymbol &sym,
-                                     unsigned symbolScopeDepth) {
+static bool symbolGoesInModuleStream(const CVSymbol &sym, bool isGlobalScope) {
   switch (sym.kind()) {
   case SymbolKind::S_GDATA32:
   case SymbolKind::S_CONSTANT:
@@ -451,7 +426,7 @@ static bool symbolGoesInModuleStream(const CVSymbol &sym,
     return false;
   // S_UDT records go in the module stream if it is not a global S_UDT.
   case SymbolKind::S_UDT:
-    return symbolScopeDepth > 0;
+    return !isGlobalScope;
   // S_GDATA32 does not go in the module stream, but S_LDATA32 does.
   case SymbolKind::S_LDATA32:
   case SymbolKind::S_LTHREAD32:
@@ -461,15 +436,13 @@ static bool symbolGoesInModuleStream(const CVSymbol &sym,
 }
 
 static bool symbolGoesInGlobalsStream(const CVSymbol &sym,
-                                      unsigned symbolScopeDepth) {
+                                      bool isFunctionScope) {
   switch (sym.kind()) {
   case SymbolKind::S_CONSTANT:
   case SymbolKind::S_GDATA32:
   case SymbolKind::S_GTHREAD32:
   case SymbolKind::S_GPROC32:
   case SymbolKind::S_LPROC32:
-  case SymbolKind::S_GPROC32_ID:
-  case SymbolKind::S_LPROC32_ID:
   // We really should not be seeing S_PROCREF and S_LPROCREF in the first place
   // since they are synthesized by the linker in response to S_GPROC32 and
   // S_LPROC32, but if we do see them, copy them straight through.
@@ -480,16 +453,14 @@ static bool symbolGoesInGlobalsStream(const CVSymbol &sym,
   case SymbolKind::S_UDT:
   case SymbolKind::S_LDATA32:
   case SymbolKind::S_LTHREAD32:
-    return symbolScopeDepth == 0;
+    return !isFunctionScope;
   default:
     return false;
   }
 }
 
 static void addGlobalSymbol(pdb::GSIStreamBuilder &builder, uint16_t modIndex,
-                            unsigned symOffset,
-                            std::vector<uint8_t> &symStorage) {
-  CVSymbol sym(makeArrayRef(symStorage));
+                            unsigned symOffset, const CVSymbol &sym) {
   switch (sym.kind()) {
   case SymbolKind::S_CONSTANT:
   case SymbolKind::S_UDT:
@@ -498,14 +469,9 @@ static void addGlobalSymbol(pdb::GSIStreamBuilder &builder, uint16_t modIndex,
   case SymbolKind::S_LTHREAD32:
   case SymbolKind::S_LDATA32:
   case SymbolKind::S_PROCREF:
-  case SymbolKind::S_LPROCREF: {
-    // sym is a temporary object, so we have to copy and reallocate the record
-    // to stabilize it.
-    uint8_t *mem = bAlloc.Allocate<uint8_t>(sym.length());
-    memcpy(mem, sym.data().data(), sym.length());
-    builder.addGlobalSymbol(CVSymbol(makeArrayRef(mem, sym.length())));
+  case SymbolKind::S_LPROCREF:
+    builder.addGlobalSymbol(sym);
     break;
-  }
   case SymbolKind::S_GPROC32:
   case SymbolKind::S_LPROC32: {
     SymbolRecordKind k = SymbolRecordKind::ProcRefSym;
@@ -526,194 +492,121 @@ static void addGlobalSymbol(pdb::GSIStreamBuilder &builder, uint16_t modIndex,
   }
 }
 
-// Check if the given symbol record was padded for alignment. If so, zero out
-// the padding bytes and update the record prefix with the new size.
-static void fixRecordAlignment(MutableArrayRef<uint8_t> recordBytes,
-                               size_t oldSize) {
-  size_t alignedSize = recordBytes.size();
-  if (oldSize == alignedSize)
-    return;
-  reinterpret_cast<RecordPrefix *>(recordBytes.data())->RecordLen =
-      alignedSize - 2;
-  memset(recordBytes.data() + oldSize, 0, alignedSize - oldSize);
-}
-
-// Replace any record with a skip record of the same size. This is useful when
-// we have reserved size for a symbol record, but type index remapping fails.
-static void replaceWithSkipRecord(MutableArrayRef<uint8_t> recordBytes) {
-  memset(recordBytes.data(), 0, recordBytes.size());
-  auto *prefix = reinterpret_cast<RecordPrefix *>(recordBytes.data());
-  prefix->RecordKind = SymbolKind::S_SKIP;
-  prefix->RecordLen = recordBytes.size() - 2;
-}
-
-// Copy the symbol record, relocate it, and fix the alignment if necessary.
-// Rewrite type indices in the record. Replace unrecognized symbol records with
-// S_SKIP records.
-void PDBLinker::writeSymbolRecord(SectionChunk *debugChunk,
-                                  ArrayRef<uint8_t> sectionContents,
-                                  CVSymbol sym, size_t alignedSize,
-                                  uint32_t &nextRelocIndex,
-                                  std::vector<uint8_t> &storage) {
-  // Allocate space for the new record at the end of the storage.
-  storage.resize(storage.size() + alignedSize);
-  auto recordBytes = MutableArrayRef<uint8_t>(storage).take_back(alignedSize);
-
-  // Copy the symbol record and relocate it.
-  debugChunk->writeAndRelocateSubsection(sectionContents, sym.data(),
-                                         nextRelocIndex, recordBytes.data());
-  fixRecordAlignment(recordBytes, sym.length());
-
-  // Re-map all the type index references.
-  TpiSource *source = debugChunk->file->debugTypesObj;
-  if (!source->remapTypesInSymbolRecord(recordBytes)) {
-    log("ignoring unknown symbol record with kind 0x" + utohexstr(sym.kind()));
-    replaceWithSkipRecord(recordBytes);
-  }
-
-  // An object file may have S_xxx_ID symbols, but these get converted to
-  // "real" symbols in a PDB.
-  translateIdSymbols(recordBytes, tMerger, source);
-}
-
-void PDBLinker::analyzeSymbolSubsection(
-    SectionChunk *debugChunk, uint32_t &moduleSymOffset,
-    uint32_t &nextRelocIndex, std::vector<StringTableFixup> &stringTableFixups,
-    BinaryStreamRef symData) {
-  ObjFile *file = debugChunk->file;
-  uint32_t moduleSymStart = moduleSymOffset;
-
-  uint32_t scopeLevel = 0;
-  std::vector<uint8_t> storage;
-  ArrayRef<uint8_t> sectionContents = debugChunk->getContents();
-
+void PDBLinker::mergeSymbolRecords(TpiSource *source,
+                                   std::vector<ulittle32_t *> &stringTableRefs,
+                                   BinaryStreamRef symData) {
+  ObjFile *file = source->file;
   ArrayRef<uint8_t> symsBuffer;
   cantFail(symData.readBytes(0, symData.getLength(), symsBuffer));
+  SmallVector<SymbolScope, 4> scopes;
 
   if (symsBuffer.empty())
     warn("empty symbols subsection in " + file->getName());
 
-  Error ec = forEachCodeViewRecord<CVSymbol>(
+  // Iterate every symbol to check if any need to be realigned, and if so, how
+  // much space we need to allocate for them.
+  bool needsRealignment = false;
+  unsigned totalRealignedSize = 0;
+  auto ec = forEachCodeViewRecord<CVSymbol>(
       symsBuffer, [&](CVSymbol sym) -> llvm::Error {
-        // Track the current scope.
-        if (symbolOpensScope(sym.kind()))
-          ++scopeLevel;
-        else if (symbolEndsScope(sym.kind()))
-          --scopeLevel;
-
-        uint32_t alignedSize =
+        unsigned realignedSize =
             alignTo(sym.length(), alignOf(CodeViewContainer::Pdb));
-
-        // Copy global records. Some global records (mainly procedures)
-        // reference the current offset into the module stream.
-        if (symbolGoesInGlobalsStream(sym, scopeLevel)) {
-          storage.clear();
-          writeSymbolRecord(debugChunk, sectionContents, sym, alignedSize,
-                            nextRelocIndex, storage);
-          addGlobalSymbol(builder.getGsiBuilder(),
-                          file->moduleDBI->getModuleIndex(), moduleSymOffset,
-                          storage);
-          ++globalSymbols;
-        }
-
-        // Update the module stream offset and record any string table index
-        // references. There are very few of these and they will be rewritten
-        // later during PDB writing.
-        if (symbolGoesInModuleStream(sym, scopeLevel)) {
-          recordStringTableReferences(sym, moduleSymOffset, stringTableFixups);
-          moduleSymOffset += alignedSize;
-          ++moduleSymbols;
-        }
-
+        needsRealignment |= realignedSize != sym.length();
+        totalRealignedSize += realignedSize;
         return Error::success();
       });
 
-  // If we encountered corrupt records, ignore the whole subsection. If we wrote
-  // any partial records, undo that. For globals, we just keep what we have and
-  // continue.
+  // If any of the symbol record lengths was corrupt, ignore them all, warn
+  // about it, and move on.
   if (ec) {
     warn("corrupt symbol records in " + file->getName());
-    moduleSymOffset = moduleSymStart;
     consumeError(std::move(ec));
-  }
-}
-
-Error PDBLinker::writeAllModuleSymbolRecords(ObjFile *file,
-                                             BinaryStreamWriter &writer) {
-  std::vector<uint8_t> storage;
-  SmallVector<uint32_t, 4> scopes;
-
-  // Visit all live .debug$S sections a second time, and write them to the PDB.
-  for (SectionChunk *debugChunk : file->getDebugChunks()) {
-    if (!debugChunk->live || debugChunk->getSize() == 0 ||
-        debugChunk->getSectionName() != ".debug$S")
-      continue;
-
-    ArrayRef<uint8_t> sectionContents = debugChunk->getContents();
-    auto contents =
-        SectionChunk::consumeDebugMagic(sectionContents, ".debug$S");
-    DebugSubsectionArray subsections;
-    BinaryStreamReader reader(contents, support::little);
-    exitOnErr(reader.readArray(subsections, contents.size()));
-
-    uint32_t nextRelocIndex = 0;
-    for (const DebugSubsectionRecord &ss : subsections) {
-      if (ss.kind() != DebugSubsectionKind::Symbols)
-        continue;
-
-      uint32_t moduleSymStart = writer.getOffset();
-      scopes.clear();
-      storage.clear();
-      ArrayRef<uint8_t> symsBuffer;
-      BinaryStreamRef sr = ss.getRecordData();
-      cantFail(sr.readBytes(0, sr.getLength(), symsBuffer));
-      auto ec = forEachCodeViewRecord<CVSymbol>(
-          symsBuffer, [&](CVSymbol sym) -> llvm::Error {
-            // Track the current scope. Only update records in the postmerge
-            // pass.
-            if (symbolOpensScope(sym.kind()))
-              scopeStackOpen(scopes, storage);
-            else if (symbolEndsScope(sym.kind()))
-              scopeStackClose(scopes, storage, moduleSymStart, file);
-
-            // Copy, relocate, and rewrite each module symbol.
-            if (symbolGoesInModuleStream(sym, scopes.size())) {
-              uint32_t alignedSize =
-                  alignTo(sym.length(), alignOf(CodeViewContainer::Pdb));
-              writeSymbolRecord(debugChunk, sectionContents, sym, alignedSize,
-                                nextRelocIndex, storage);
-            }
-            return Error::success();
-          });
-
-      // If we encounter corrupt records in the second pass, ignore them. We
-      // already warned about them in the first analysis pass.
-      if (ec) {
-        consumeError(std::move(ec));
-        storage.clear();
-      }
-
-      // Writing bytes has a very high overhead, so write the entire subsection
-      // at once.
-      // TODO: Consider buffering symbols for the entire object file to reduce
-      // overhead even further.
-      if (Error e = writer.writeBytes(storage))
-        return e;
-    }
+    return;
   }
 
-  return Error::success();
+  // If any symbol needed realignment, allocate enough contiguous memory for
+  // them all. Typically symbol subsections are small enough that this will not
+  // cause fragmentation.
+  MutableArrayRef<uint8_t> alignedSymbolMem;
+  if (needsRealignment) {
+    void *alignedData =
+        bAlloc.Allocate(totalRealignedSize, alignOf(CodeViewContainer::Pdb));
+    alignedSymbolMem = makeMutableArrayRef(
+        reinterpret_cast<uint8_t *>(alignedData), totalRealignedSize);
+  }
+
+  // Iterate again, this time doing the real work.
+  unsigned curSymOffset = file->moduleDBI->getNextSymbolOffset();
+  ArrayRef<uint8_t> bulkSymbols;
+  cantFail(forEachCodeViewRecord<CVSymbol>(
+      symsBuffer, [&](CVSymbol sym) -> llvm::Error {
+        // Align the record if required.
+        MutableArrayRef<uint8_t> recordBytes;
+        if (needsRealignment) {
+          recordBytes = copyAndAlignSymbol(sym, alignedSymbolMem);
+          sym = CVSymbol(recordBytes);
+        } else {
+          // Otherwise, we can actually mutate the symbol directly, since we
+          // copied it to apply relocations.
+          recordBytes = makeMutableArrayRef(
+              const_cast<uint8_t *>(sym.data().data()), sym.length());
+        }
+
+        // Re-map all the type index references.
+        if (!source->remapTypesInSymbolRecord(recordBytes)) {
+          log("error remapping types in symbol of kind 0x" +
+              utohexstr(sym.kind()) + ", ignoring");
+          return Error::success();
+        }
+
+        // An object file may have S_xxx_ID symbols, but these get converted to
+        // "real" symbols in a PDB.
+        translateIdSymbols(recordBytes, tMerger, source);
+        sym = CVSymbol(recordBytes);
+
+        // If this record refers to an offset in the object file's string table,
+        // add that item to the global PDB string table and re-write the index.
+        recordStringTableReferences(sym.kind(), recordBytes, stringTableRefs);
+
+        // Fill in "Parent" and "End" fields by maintaining a stack of scopes.
+        if (symbolOpensScope(sym.kind()))
+          scopeStackOpen(scopes, curSymOffset, sym);
+        else if (symbolEndsScope(sym.kind()))
+          scopeStackClose(scopes, curSymOffset, file);
+
+        // Add the symbol to the globals stream if necessary.  Do this before
+        // adding the symbol to the module since we may need to get the next
+        // symbol offset, and writing to the module's symbol stream will update
+        // that offset.
+        if (symbolGoesInGlobalsStream(sym, !scopes.empty())) {
+          addGlobalSymbol(builder.getGsiBuilder(),
+                          file->moduleDBI->getModuleIndex(), curSymOffset, sym);
+          ++globalSymbols;
+        }
+
+        if (symbolGoesInModuleStream(sym, scopes.empty())) {
+          // Add symbols to the module in bulk. If this symbol is contiguous
+          // with the previous run of symbols to add, combine the ranges. If
+          // not, close the previous range of symbols and start a new one.
+          if (sym.data().data() == bulkSymbols.end()) {
+            bulkSymbols = makeArrayRef(bulkSymbols.data(),
+                                       bulkSymbols.size() + sym.length());
+          } else {
+            file->moduleDBI->addSymbolsInBulk(bulkSymbols);
+            bulkSymbols = recordBytes;
+          }
+          curSymOffset += sym.length();
+          ++moduleSymbols;
+        }
+        return Error::success();
+      }));
+
+  // Add any remaining symbols we've accumulated.
+  file->moduleDBI->addSymbolsInBulk(bulkSymbols);
 }
 
-Error PDBLinker::commitSymbolsForObject(void *ctx, void *obj,
-                                        BinaryStreamWriter &writer) {
-  return static_cast<PDBLinker *>(ctx)->writeAllModuleSymbolRecords(
-      static_cast<ObjFile *>(obj), writer);
-}
-
-static pdb::SectionContrib createSectionContrib(COFFLinkerContext &ctx,
-                                                const Chunk *c, uint32_t modi) {
-  OutputSection *os = c ? ctx.getOutputSection(c) : nullptr;
+static pdb::SectionContrib createSectionContrib(const Chunk *c, uint32_t modi) {
+  OutputSection *os = c ? c->getOutputSection() : nullptr;
   pdb::SectionContrib sc;
   memset(&sc, 0, sizeof(sc));
   sc.ISect = os ? os->sectionIndex : llvm::pdb::kInvalidStreamIndex;
@@ -749,18 +642,13 @@ translateStringTableIndex(uint32_t objIndex,
   return pdbStrTable.insert(*expectedString);
 }
 
-void DebugSHandler::handleDebugS(SectionChunk *debugChunk) {
-  // Note that we are processing the *unrelocated* section contents. They will
-  // be relocated later during PDB writing.
-  ArrayRef<uint8_t> contents = debugChunk->getContents();
-  contents = SectionChunk::consumeDebugMagic(contents, ".debug$S");
-  DebugSubsectionArray subsections;
-  BinaryStreamReader reader(contents, support::little);
-  exitOnErr(reader.readArray(subsections, contents.size()));
-  debugChunk->sortRelocations();
+void DebugSHandler::handleDebugS(ArrayRef<uint8_t> relocatedDebugContents) {
+  relocatedDebugContents =
+      SectionChunk::consumeDebugMagic(relocatedDebugContents, ".debug$S");
 
-  // Reset the relocation index, since this is a new section.
-  nextRelocIndex = 0;
+  DebugSubsectionArray subsections;
+  BinaryStreamReader reader(relocatedDebugContents, support::little);
+  exitOnErr(reader.readArray(subsections, relocatedDebugContents.size()));
 
   for (const DebugSubsectionRecord &ss : subsections) {
     // Ignore subsections with the 'ignore' bit. Some versions of the Visual C++
@@ -781,17 +669,30 @@ void DebugSHandler::handleDebugS(SectionChunk *debugChunk) {
       exitOnErr(checksums.initialize(ss.getRecordData()));
       break;
     case DebugSubsectionKind::Lines:
+      // We can add the relocated line table directly to the PDB without
+      // modification because the file checksum offsets will stay the same.
+      file.moduleDBI->addDebugSubsection(ss);
+      break;
     case DebugSubsectionKind::InlineeLines:
-      addUnrelocatedSubsection(debugChunk, ss);
+      // The inlinee lines subsection also has file checksum table references
+      // that can be used directly, but it contains function id references that
+      // must be remapped.
+      mergeInlineeLines(ss);
       break;
-    case DebugSubsectionKind::FrameData:
-      addFrameDataSubsection(debugChunk, ss);
+    case DebugSubsectionKind::FrameData: {
+      // We need to re-write string table indices here, so save off all
+      // frame data subsections until we've processed the entire list of
+      // subsections so that we can be sure we have the string table.
+      DebugFrameDataSubsectionRef fds;
+      exitOnErr(fds.initialize(ss.getRecordData()));
+      newFpoFrames.push_back(std::move(fds));
       break;
-    case DebugSubsectionKind::Symbols:
-      linker.analyzeSymbolSubsection(debugChunk, moduleStreamSize,
-                                     nextRelocIndex, stringTableFixups,
-                                     ss.getRecordData());
+    }
+    case DebugSubsectionKind::Symbols: {
+      linker.mergeSymbolRecords(source, stringTableReferences,
+                                ss.getRecordData());
       break;
+    }
 
     case DebugSubsectionKind::CrossScopeImports:
     case DebugSubsectionKind::CrossScopeExports:
@@ -818,85 +719,6 @@ void DebugSHandler::handleDebugS(SectionChunk *debugChunk) {
   }
 }
 
-void DebugSHandler::advanceRelocIndex(SectionChunk *sc,
-                                      ArrayRef<uint8_t> subsec) {
-  ptrdiff_t vaBegin = subsec.data() - sc->getContents().data();
-  assert(vaBegin > 0);
-  auto relocs = sc->getRelocs();
-  for (; nextRelocIndex < relocs.size(); ++nextRelocIndex) {
-    if (relocs[nextRelocIndex].VirtualAddress >= vaBegin)
-      break;
-  }
-}
-
-namespace {
-/// Wrapper class for unrelocated line and inlinee line subsections, which
-/// require only relocation and type index remapping to add to the PDB.
-class UnrelocatedDebugSubsection : public DebugSubsection {
-public:
-  UnrelocatedDebugSubsection(DebugSubsectionKind k, SectionChunk *debugChunk,
-                             ArrayRef<uint8_t> subsec, uint32_t relocIndex)
-      : DebugSubsection(k), debugChunk(debugChunk), subsec(subsec),
-        relocIndex(relocIndex) {}
-
-  Error commit(BinaryStreamWriter &writer) const override;
-  uint32_t calculateSerializedSize() const override { return subsec.size(); }
-
-  SectionChunk *debugChunk;
-  ArrayRef<uint8_t> subsec;
-  uint32_t relocIndex;
-};
-} // namespace
-
-Error UnrelocatedDebugSubsection::commit(BinaryStreamWriter &writer) const {
-  std::vector<uint8_t> relocatedBytes(subsec.size());
-  uint32_t tmpRelocIndex = relocIndex;
-  debugChunk->writeAndRelocateSubsection(debugChunk->getContents(), subsec,
-                                         tmpRelocIndex, relocatedBytes.data());
-
-  // Remap type indices in inlinee line records in place. Skip the remapping if
-  // there is no type source info.
-  if (kind() == DebugSubsectionKind::InlineeLines &&
-      debugChunk->file->debugTypesObj) {
-    TpiSource *source = debugChunk->file->debugTypesObj;
-    DebugInlineeLinesSubsectionRef inlineeLines;
-    BinaryStreamReader storageReader(relocatedBytes, support::little);
-    exitOnErr(inlineeLines.initialize(storageReader));
-    for (const InlineeSourceLine &line : inlineeLines) {
-      TypeIndex &inlinee = *const_cast<TypeIndex *>(&line.Header->Inlinee);
-      if (!source->remapTypeIndex(inlinee, TiRefKind::IndexRef)) {
-        log("bad inlinee line record in " + debugChunk->file->getName() +
-            " with bad inlinee index 0x" + utohexstr(inlinee.getIndex()));
-      }
-    }
-  }
-
-  return writer.writeBytes(relocatedBytes);
-}
-
-void DebugSHandler::addUnrelocatedSubsection(SectionChunk *debugChunk,
-                                             const DebugSubsectionRecord &ss) {
-  ArrayRef<uint8_t> subsec;
-  BinaryStreamRef sr = ss.getRecordData();
-  cantFail(sr.readBytes(0, sr.getLength(), subsec));
-  advanceRelocIndex(debugChunk, subsec);
-  file.moduleDBI->addDebugSubsection(
-      std::make_shared<UnrelocatedDebugSubsection>(ss.kind(), debugChunk,
-                                                   subsec, nextRelocIndex));
-}
-
-void DebugSHandler::addFrameDataSubsection(SectionChunk *debugChunk,
-                                           const DebugSubsectionRecord &ss) {
-  // We need to re-write string table indices here, so save off all
-  // frame data subsections until we've processed the entire list of
-  // subsections so that we can be sure we have the string table.
-  ArrayRef<uint8_t> subsec;
-  BinaryStreamRef sr = ss.getRecordData();
-  cantFail(sr.readBytes(0, sr.getLength(), subsec));
-  advanceRelocIndex(debugChunk, subsec);
-  frameDataSubsecs.push_back({debugChunk, subsec, nextRelocIndex});
-}
-
 static Expected<StringRef>
 getFileName(const DebugStringTableSubsectionRef &strings,
             const DebugChecksumsSubsectionRef &checksums, uint32_t fileID) {
@@ -907,13 +729,30 @@ getFileName(const DebugStringTableSubsectionRef &strings,
   return strings.getString(offset);
 }
 
+void DebugSHandler::mergeInlineeLines(
+    const DebugSubsectionRecord &inlineeSubsection) {
+  DebugInlineeLinesSubsectionRef inlineeLines;
+  exitOnErr(inlineeLines.initialize(inlineeSubsection.getRecordData()));
+  if (!source) {
+    warn("ignoring inlinee lines section in file that lacks type information");
+    return;
+  }
+
+  // Remap type indices in inlinee line records in place.
+  for (const InlineeSourceLine &line : inlineeLines) {
+    TypeIndex &inlinee = *const_cast<TypeIndex *>(&line.Header->Inlinee);
+    if (!source->remapTypeIndex(inlinee, TiRefKind::IndexRef)) {
+      log("bad inlinee line record in " + file.getName() +
+          " with bad inlinee index 0x" + utohexstr(inlinee.getIndex()));
+    }
+  }
+
+  // Add the modified inlinee line subsection directly.
+  file.moduleDBI->addDebugSubsection(inlineeSubsection);
+}
+
 void DebugSHandler::finish() {
   pdb::DbiStreamBuilder &dbiBuilder = linker.builder.getDbiBuilder();
-
-  // If we found any symbol records for the module symbol stream, defer them.
-  if (moduleStreamSize > kSymbolStreamMagicSize)
-    file.moduleDBI->addUnmergedSymbols(&file, moduleStreamSize -
-                                                  kSymbolStreamMagicSize);
 
   // We should have seen all debug subsections across the entire object file now
   // which means that if a StringTable subsection and Checksums subsection were
@@ -923,50 +762,26 @@ void DebugSHandler::finish() {
       fatal(".debug$S sections with a checksums subsection must also contain a "
             "string table subsection");
 
-    if (!stringTableFixups.empty())
+    if (!stringTableReferences.empty())
       warn("No StringTable subsection was encountered, but there are string "
            "table references");
     return;
   }
 
-  // Handle FPO data. Each subsection begins with a single image base
-  // relocation, which is then added to the RvaStart of each frame data record
-  // when it is added to the PDB. The string table indices for the FPO program
-  // must also be rewritten to use the PDB string table.
-  for (const UnrelocatedFpoData &subsec : frameDataSubsecs) {
-    // Relocate the first four bytes of the subection and reinterpret them as a
-    // 32 bit integer.
-    SectionChunk *debugChunk = subsec.debugChunk;
-    ArrayRef<uint8_t> subsecData = subsec.subsecData;
-    uint32_t relocIndex = subsec.relocIndex;
-    auto unrelocatedRvaStart = subsecData.take_front(sizeof(uint32_t));
-    uint8_t relocatedRvaStart[sizeof(uint32_t)];
-    debugChunk->writeAndRelocateSubsection(debugChunk->getContents(),
-                                           unrelocatedRvaStart, relocIndex,
-                                           &relocatedRvaStart[0]);
-    uint32_t rvaStart;
-    memcpy(&rvaStart, &relocatedRvaStart[0], sizeof(uint32_t));
-
-    // Copy each frame data record, add in rvaStart, translate string table
-    // indices, and add the record to the PDB.
-    DebugFrameDataSubsectionRef fds;
-    BinaryStreamReader reader(subsecData, support::little);
-    exitOnErr(fds.initialize(reader));
+  // Rewrite string table indices in the Fpo Data and symbol records to refer to
+  // the global PDB string table instead of the object file string table.
+  for (DebugFrameDataSubsectionRef &fds : newFpoFrames) {
+    const ulittle32_t *reloc = fds.getRelocPtr();
     for (codeview::FrameData fd : fds) {
-      fd.RvaStart += rvaStart;
+      fd.RvaStart += *reloc;
       fd.FrameFunc =
           translateStringTableIndex(fd.FrameFunc, cvStrTab, linker.pdbStrTab);
       dbiBuilder.addNewFpoData(fd);
     }
   }
 
-  // Translate the fixups and pass them off to the module builder so they will
-  // be applied during writing.
-  for (StringTableFixup &ref : stringTableFixups) {
-    ref.StrTabOffset =
-        translateStringTableIndex(ref.StrTabOffset, cvStrTab, linker.pdbStrTab);
-  }
-  file.moduleDBI->setStringTableFixups(std::move(stringTableFixups));
+  for (ulittle32_t *ref : stringTableReferences)
+    *ref = translateStringTableIndex(*ref, cvStrTab, linker.pdbStrTab);
 
   // Make a new file checksum table that refers to offsets in the PDB-wide
   // string table. Generally the string table subsection appears after the
@@ -1016,7 +831,7 @@ void PDBLinker::addDebugSymbols(TpiSource *source) {
   if (!source->file)
     return;
 
-  ScopedTimer t(ctx.symbolMergingTimer);
+  ScopedTimer t(symbolMergingTimer);
   pdb::DbiStreamBuilder &dbiBuilder = builder.getDbiBuilder();
   DebugSHandler dsh(*this, *source->file, source);
   // Now do all live .debug$S and .debug$F sections.
@@ -1029,12 +844,11 @@ void PDBLinker::addDebugSymbols(TpiSource *source) {
     if (!isDebugS && !isDebugF)
       continue;
 
+    ArrayRef<uint8_t> relocatedDebugContents = relocateDebugChunk(*debugChunk);
+
     if (isDebugS) {
-      dsh.handleDebugS(debugChunk);
+      dsh.handleDebugS(relocatedDebugContents);
     } else if (isDebugF) {
-      // Handle old FPO data .debug$F sections. These are relatively rare.
-      ArrayRef<uint8_t> relocatedDebugContents =
-          relocateDebugChunk(*debugChunk);
       FixedStreamArray<object::FpoData> fpoRecords;
       BinaryStreamReader reader(relocatedDebugContents, support::little);
       uint32_t count = relocatedDebugContents.size() / sizeof(object::FpoData);
@@ -1055,18 +869,17 @@ void PDBLinker::addDebugSymbols(TpiSource *source) {
 // path to the object into the PDB. If this is a plain object, we make its
 // path absolute. If it's an object in an archive, we make the archive path
 // absolute.
-void PDBLinker::createModuleDBI(ObjFile *file) {
+static void createModuleDBI(pdb::PDBFileBuilder &builder, ObjFile *file) {
   pdb::DbiStreamBuilder &dbiBuilder = builder.getDbiBuilder();
   SmallString<128> objName;
 
   bool inArchive = !file->parentName.empty();
   objName = inArchive ? file->parentName : file->getName();
   pdbMakeAbsolute(objName);
-  StringRef modName = inArchive ? file->getName() : objName.str();
+  StringRef modName = inArchive ? file->getName() : StringRef(objName);
 
   file->moduleDBI = &exitOnErr(dbiBuilder.addModuleInfo(modName));
   file->moduleDBI->setObjFileName(objName);
-  file->moduleDBI->setMergeSymbolsCallback(this, &commitSymbolsForObject);
 
   ArrayRef<Chunk *> chunks = file->getChunks();
   uint32_t modi = file->moduleDBI->getModuleIndex();
@@ -1075,7 +888,7 @@ void PDBLinker::createModuleDBI(ObjFile *file) {
     auto *secChunk = dyn_cast<SectionChunk>(c);
     if (!secChunk || !secChunk->live)
       continue;
-    pdb::SectionContrib sc = createSectionContrib(ctx, secChunk, modi);
+    pdb::SectionContrib sc = createSectionContrib(secChunk, modi);
     file->moduleDBI->setFirstSectionContrib(sc);
     break;
   }
@@ -1088,7 +901,7 @@ void PDBLinker::addDebug(TpiSource *source) {
   // indices to PDB type and item indices.  If we are using ghashes, types have
   // already been merged.
   if (!config->debugGHashes) {
-    ScopedTimer t(ctx.typeMergingTimer);
+    ScopedTimer t(typeMergingTimer);
     if (Error e = source->mergeDebugT(&tMerger)) {
       // If type merging failed, ignore the symbols.
       warnUnusable(source->file, std::move(e));
@@ -1106,7 +919,7 @@ void PDBLinker::addDebug(TpiSource *source) {
   addDebugSymbols(source);
 }
 
-static pdb::BulkPublic createPublic(COFFLinkerContext &ctx, Defined *def) {
+static pdb::BulkPublic createPublic(Defined *def) {
   pdb::BulkPublic pub;
   pub.Name = def->getName().data();
   pub.NameLen = def->getName().size();
@@ -1120,7 +933,7 @@ static pdb::BulkPublic createPublic(COFFLinkerContext &ctx, Defined *def) {
   }
   pub.setFlags(flags);
 
-  OutputSection *os = ctx.getOutputSection(def->getChunk());
+  OutputSection *os = def->getChunk()->getOutputSection();
   assert(os && "all publics should be in final image");
   pub.Offset = def->getRVA() - os->getRVA();
   pub.Segment = os->sectionIndex;
@@ -1130,31 +943,33 @@ static pdb::BulkPublic createPublic(COFFLinkerContext &ctx, Defined *def) {
 // Add all object files to the PDB. Merge .debug$T sections into IpiData and
 // TpiData.
 void PDBLinker::addObjectsToPDB() {
-  ScopedTimer t1(ctx.addObjectsTimer);
+  ScopedTimer t1(addObjectsTimer);
 
   // Create module descriptors
-  for_each(ctx.objFileInstances, [&](ObjFile *obj) { createModuleDBI(obj); });
+  for_each(ObjFile::instances,
+           [&](ObjFile *obj) { createModuleDBI(builder, obj); });
 
   // Reorder dependency type sources to come first.
-  tMerger.sortDependencies();
+  TpiSource::sortDependencies();
 
   // Merge type information from input files using global type hashing.
   if (config->debugGHashes)
     tMerger.mergeTypesWithGHash();
 
   // Merge dependencies and then regular objects.
-  for_each(tMerger.dependencySources,
+  for_each(TpiSource::dependencySources,
            [&](TpiSource *source) { addDebug(source); });
-  for_each(tMerger.objectSources, [&](TpiSource *source) { addDebug(source); });
+  for_each(TpiSource::objectSources,
+           [&](TpiSource *source) { addDebug(source); });
 
   builder.getStringTableBuilder().setStrings(pdbStrTab);
   t1.stop();
 
   // Construct TPI and IPI stream contents.
-  ScopedTimer t2(ctx.tpiStreamLayoutTimer);
+  ScopedTimer t2(tpiStreamLayoutTimer);
   // Collect all the merged types.
   if (config->debugGHashes) {
-    addGHashTypeInfo(ctx, builder);
+    addGHashTypeInfo(builder);
   } else {
     addTypeInfo(builder.getTpiBuilder(), tMerger.getTypeTable());
     addTypeInfo(builder.getIpiBuilder(), tMerger.getIDTable());
@@ -1162,7 +977,7 @@ void PDBLinker::addObjectsToPDB() {
   t2.stop();
 
   if (config->showSummary) {
-    for_each(ctx.tpiSourceList, [&](TpiSource *source) {
+    for_each(TpiSource::instances, [&](TpiSource *source) {
       nbTypeRecords += source->nbTypeRecords;
       nbTypeRecordsBytes += source->nbTypeRecordsBytes;
     });
@@ -1170,33 +985,16 @@ void PDBLinker::addObjectsToPDB() {
 }
 
 void PDBLinker::addPublicsToPDB() {
-  ScopedTimer t3(ctx.publicsLayoutTimer);
+  ScopedTimer t3(publicsLayoutTimer);
   // Compute the public symbols.
   auto &gsiBuilder = builder.getGsiBuilder();
   std::vector<pdb::BulkPublic> publics;
-  ctx.symtab.forEachSymbol([&publics, this](Symbol *s) {
+  symtab->forEachSymbol([&publics](Symbol *s) {
     // Only emit external, defined, live symbols that have a chunk. Static,
     // non-external symbols do not appear in the symbol table.
     auto *def = dyn_cast<Defined>(s);
-    if (def && def->isLive() && def->getChunk()) {
-      // Don't emit a public symbol for coverage data symbols. LLVM code
-      // coverage (and PGO) create a __profd_ and __profc_ symbol for every
-      // function. C++ mangled names are long, and tend to dominate symbol size.
-      // Including these names triples the size of the public stream, which
-      // results in bloated PDB files. These symbols generally are not helpful
-      // for debugging, so suppress them.
-      StringRef name = def->getName();
-      if (name.data()[0] == '_' && name.data()[1] == '_') {
-        // Drop the '_' prefix for x86.
-        if (config->machine == I386)
-          name = name.drop_front(1);
-        if (name.startswith("__profd_") || name.startswith("__profc_") ||
-            name.startswith("__covrec_")) {
-          return;
-        }
-      }
-      publics.push_back(createPublic(ctx, def));
-    }
+    if (def && def->isLive() && def->getChunk())
+      publics.push_back(createPublic(def));
   });
 
   if (!publics.empty()) {
@@ -1219,10 +1017,10 @@ void PDBLinker::printStats() {
     stream << format_decimal(v, 15) << " " << s << '\n';
   };
 
-  print(ctx.objFileInstances.size(),
+  print(ObjFile::instances.size(),
         "Input OBJ files (expanded from all cmd-line inputs)");
-  print(ctx.typeServerSourceMappings.size(), "PDB type server dependencies");
-  print(ctx.precompSourceMappings.size(), "Precomp OBJ dependencies");
+  print(TpiSource::countTypeServerPDBs(), "PDB type server dependencies");
+  print(TpiSource::countPrecompObjs(), "Precomp OBJ dependencies");
   print(nbTypeRecords, "Input type records");
   print(nbTypeRecordsBytes, "Input type records bytes");
   print(builder.getTpiBuilder().getRecordCount(), "Merged TPI records");
@@ -1295,14 +1093,7 @@ void PDBLinker::addNatvisFiles() {
       warn("Cannot open input file: " + file);
       continue;
     }
-    std::unique_ptr<MemoryBuffer> data = std::move(*dataOrErr);
-
-    // Can't use takeBuffer() here since addInjectedSource() takes ownership.
-    if (driver->tar)
-      driver->tar->append(relativeToRoot(data->getBufferIdentifier()),
-                          data->getBuffer());
-
-    builder.addInjectedSource(file, std::move(data));
+    builder.addInjectedSource(file, std::move(*dataOrErr));
   }
 }
 
@@ -1315,9 +1106,7 @@ void PDBLinker::addNamedStreams() {
       warn("Cannot open input file: " + file);
       continue;
     }
-    std::unique_ptr<MemoryBuffer> data = std::move(*dataOrErr);
-    exitOnErr(builder.addNamedStream(stream, data->getBuffer()));
-    driver->takeBuffer(std::move(data));
+    exitOnErr(builder.addNamedStream(stream, (*dataOrErr)->getBuffer()));
   }
 }
 
@@ -1475,13 +1264,13 @@ static void addLinkerModuleSectionSymbol(pdb::DbiModuleDescriptorBuilder &mod,
 }
 
 // Add all import files as modules to the PDB.
-void PDBLinker::addImportFilesToPDB() {
-  if (ctx.importFileInstances.empty())
+void PDBLinker::addImportFilesToPDB(ArrayRef<OutputSection *> outputSections) {
+  if (ImportFile::instances.empty())
     return;
 
   std::map<std::string, llvm::pdb::DbiModuleDescriptorBuilder *> dllToModuleDbi;
 
-  for (ImportFile *file : ctx.importFileInstances) {
+  for (ImportFile *file : ImportFile::instances) {
     if (!file->live)
       continue;
 
@@ -1505,7 +1294,7 @@ void PDBLinker::addImportFilesToPDB() {
           exitOnErr(dbiBuilder.addModuleInfo(file->dllName));
       firstMod.setObjFileName(libPath);
       pdb::SectionContrib sc =
-          createSectionContrib(ctx, nullptr, llvm::pdb::kInvalidStreamIndex);
+          createSectionContrib(nullptr, llvm::pdb::kInvalidStreamIndex);
       firstMod.setFirstSectionContrib(sc);
 
       // The second module is where the import stream goes.
@@ -1515,7 +1304,7 @@ void PDBLinker::addImportFilesToPDB() {
 
     DefinedImportThunk *thunk = cast<DefinedImportThunk>(file->thunkSym);
     Chunk *thunkChunk = thunk->getChunk();
-    OutputSection *thunkOS = ctx.getOutputSection(thunkChunk);
+    OutputSection *thunkOS = thunkChunk->getOutputSection();
 
     ObjNameSym ons(SymbolRecordKind::ObjNameSym);
     Compile3Sym cs(SymbolRecordKind::Compile3Sym);
@@ -1541,43 +1330,42 @@ void PDBLinker::addImportFilesToPDB() {
     mod->addSymbol(codeview::SymbolSerializer::writeOneSymbol(
         cs, bAlloc, CodeViewContainer::Pdb));
 
+    SmallVector<SymbolScope, 4> scopes;
     CVSymbol newSym = codeview::SymbolSerializer::writeOneSymbol(
         ts, bAlloc, CodeViewContainer::Pdb);
-
-    // Write ptrEnd for the S_THUNK32.
-    ScopeRecord *thunkSymScope =
-        getSymbolScopeFields(const_cast<uint8_t *>(newSym.data().data()));
+    scopeStackOpen(scopes, mod->getNextSymbolOffset(), newSym);
 
     mod->addSymbol(newSym);
 
     newSym = codeview::SymbolSerializer::writeOneSymbol(es, bAlloc,
                                                         CodeViewContainer::Pdb);
-    thunkSymScope->ptrEnd = mod->getNextSymbolOffset();
+    scopeStackClose(scopes, mod->getNextSymbolOffset(), file);
 
     mod->addSymbol(newSym);
 
     pdb::SectionContrib sc =
-        createSectionContrib(ctx, thunk->getChunk(), mod->getModuleIndex());
+        createSectionContrib(thunk->getChunk(), mod->getModuleIndex());
     mod->setFirstSectionContrib(sc);
   }
 }
 
 // Creates a PDB file.
-void lld::coff::createPDB(COFFLinkerContext &ctx,
+void lld::coff::createPDB(SymbolTable *symtab,
+                          ArrayRef<OutputSection *> outputSections,
                           ArrayRef<uint8_t> sectionTable,
                           llvm::codeview::DebugInfo *buildId) {
-  ScopedTimer t1(ctx.totalPdbLinkTimer);
-  PDBLinker pdb(ctx);
+  ScopedTimer t1(totalPdbLinkTimer);
+  PDBLinker pdb(symtab);
 
   pdb.initialize(buildId);
   pdb.addObjectsToPDB();
-  pdb.addImportFilesToPDB();
-  pdb.addSections(sectionTable);
+  pdb.addImportFilesToPDB(outputSections);
+  pdb.addSections(outputSections, sectionTable);
   pdb.addNatvisFiles();
   pdb.addNamedStreams();
   pdb.addPublicsToPDB();
 
-  ScopedTimer t2(ctx.diskCommitTimer);
+  ScopedTimer t2(diskCommitTimer);
   codeview::GUID guid;
   pdb.commit(&guid);
   memcpy(&buildId->PDB70.Signature, &guid, 16);
@@ -1617,7 +1405,8 @@ void PDBLinker::initialize(llvm::codeview::DebugInfo *buildId) {
   dbiBuilder.setBuildNumber(14, 11);
 }
 
-void PDBLinker::addSections(ArrayRef<uint8_t> sectionTable) {
+void PDBLinker::addSections(ArrayRef<OutputSection *> outputSections,
+                            ArrayRef<uint8_t> sectionTable) {
   // It's not entirely clear what this is, but the * Linker * module uses it.
   pdb::DbiStreamBuilder &dbiBuilder = builder.getDbiBuilder();
   nativePath = config->pdbPath;
@@ -1628,11 +1417,11 @@ void PDBLinker::addSections(ArrayRef<uint8_t> sectionTable) {
   addCommonLinkerModuleSymbols(nativePath, linkerModule);
 
   // Add section contributions. They must be ordered by ascending RVA.
-  for (OutputSection *os : ctx.outputSections) {
+  for (OutputSection *os : outputSections) {
     addLinkerModuleSectionSymbol(linkerModule, *os);
     for (Chunk *c : os->chunks) {
       pdb::SectionContrib sc =
-          createSectionContrib(ctx, c, linkerModule.getModuleIndex());
+          createSectionContrib(c, linkerModule.getModuleIndex());
       builder.getDbiBuilder().addSectionContrib(sc);
     }
   }
@@ -1641,7 +1430,7 @@ void PDBLinker::addSections(ArrayRef<uint8_t> sectionTable) {
   // to provide trampolines thunks for incremental function patching. Set this
   // as "unused" because LLD doesn't support /INCREMENTAL link.
   pdb::SectionContrib sc =
-      createSectionContrib(ctx, nullptr, llvm::pdb::kInvalidStreamIndex);
+      createSectionContrib(nullptr, llvm::pdb::kInvalidStreamIndex);
   linkerModule.setFirstSectionContrib(sc);
 
   // Add Section Map stream.
@@ -1656,13 +1445,9 @@ void PDBLinker::addSections(ArrayRef<uint8_t> sectionTable) {
 }
 
 void PDBLinker::commit(codeview::GUID *guid) {
-  // Print an error and continue if PDB writing fails. This is done mainly so
-  // the user can see the output of /time and /summary, which is very helpful
-  // when trying to figure out why a PDB file is too large.
-  if (Error e = builder.commit(config->pdbPath, guid)) {
-    checkError(std::move(e));
-    error("failed to write PDB file " + Twine(config->pdbPath));
-  }
+  ExitOnError exitOnErr((config->pdbPath + ": ").str());
+  // Write to a file.
+  exitOnErr(builder.commit(config->pdbPath, guid));
 }
 
 static uint32_t getSecrelReloc() {

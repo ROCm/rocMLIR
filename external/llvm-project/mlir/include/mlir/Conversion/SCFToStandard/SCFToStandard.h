@@ -14,15 +14,18 @@
 
 namespace mlir {
 struct LogicalResult;
+class MLIRContext;
 class Pass;
+class RewritePattern;
 
-class RewritePatternSet;
-using OwningRewritePatternList = RewritePatternSet;
+// Owning list of rewriting patterns.
+class OwningRewritePatternList;
 
 /// Collect a set of patterns to lower from scf.for, scf.if, and
 /// loop.terminator to CFG operations within the Standard dialect, in particular
 /// convert structured control flow into CFG branch-based control flow.
-void populateLoopToStdConversionPatterns(RewritePatternSet &patterns);
+void populateLoopToStdConversionPatterns(OwningRewritePatternList &patterns,
+                                         MLIRContext *ctx);
 
 /// Creates a pass to convert scf.for, scf.if and loop.terminator ops to CFG.
 std::unique_ptr<Pass> createLowerToCFGPass();

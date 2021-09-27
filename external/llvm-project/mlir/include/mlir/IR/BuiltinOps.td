@@ -15,12 +15,9 @@
 #define BUILTIN_OPS
 
 include "mlir/IR/BuiltinDialect.td"
-include "mlir/IR/OpAsmInterface.td"
-include "mlir/IR/RegionKindInterface.td"
 include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/CastInterfaces.td"
-include "mlir/Interfaces/DataLayoutInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 // Base class for Builtin dialect ops.
@@ -79,7 +76,7 @@ def FuncOp : Builtin_Op<"func", [
                        OptionalAttr<StrAttr>:$sym_visibility);
   let regions = (region AnyRegion:$body);
 
-  let builders = [OpBuilder<(ins
+  let builders = [OpBuilderDAG<(ins
     "StringRef":$name, "FunctionType":$type,
     CArg<"ArrayRef<NamedAttribute>", "{}">:$attrs,
     CArg<"ArrayRef<DictionaryAttr>", "{}">:$argAttrs)
@@ -88,7 +85,7 @@ def FuncOp : Builtin_Op<"func", [
     static FuncOp create(Location location, StringRef name, FunctionType type,
                          ArrayRef<NamedAttribute> attrs = {});
     static FuncOp create(Location location, StringRef name, FunctionType type,
-                         Operation::dialect_attr_range attrs);
+                         iterator_range<dialect_attr_iterator> attrs);
     static FuncOp create(Location location, StringRef name, FunctionType type,
                          ArrayRef<NamedAttribute> attrs,
                          ArrayRef<DictionaryAttr> argAttrs);
@@ -116,7 +113,7 @@ def FuncOp : Builtin_Op<"func", [
     /// Returns the region on the current operation that is callable. This may
     /// return null in the case of an external callable object, e.g. an external
     /// function.
-    ::mlir::Region *getCallableRegion() { return isExternal() ? nullptr : &getBody(); }
+    Region *getCallableRegion() { return isExternal() ? nullptr : &getBody(); }
 
     /// Returns the results types that the callable region produces when
     /// executed.
@@ -161,18 +158,17 @@ def FuncOp : Builtin_Op<"func", [
 //===----------------------------------------------------------------------===//
 
 def ModuleOp : Builtin_Op<"module", [
-    AffineScope, IsolatedFromAbove, NoRegionArguments, SymbolTable, Symbol,
-    OpAsmOpInterface
-  ] # GraphRegionNoTerminator.traits> {
+  AffineScope, IsolatedFromAbove, NoRegionArguments, SymbolTable, Symbol,
+  SingleBlockImplicitTerminator<"ModuleTerminatorOp">
+]> {
   let summary = "A top level container operation";
   let description = [{
     A `module` represents a top-level container operation. It contains a single
-    [graph region](../LangRef.md#control-flow-and-ssacfg-regions) containing a single block
-    which can contain any operations and does not have a terminator. Operations
-    within this region cannot implicitly capture values defined outside the module,
-    i.e. Modules are [IsolatedFromAbove](../Traits.md#isolatedfromabove). Modules have
-    an optional [symbol name](../SymbolsAndSymbolTables.md) which can be used to refer
-    to them in operations.
+    SSACFG region containing a single block which can contain any
+    operations. Operations within this region cannot implicitly capture values
+    defined outside the module, i.e. Modules are `IsolatedFromAbove`. Modules
+    have an optional symbol name which can be used to refer to them in
+    operations.
 
     Example:
 
@@ -188,7 +184,7 @@ def ModuleOp : Builtin_Op<"module", [
   let regions = (region SizedRegion<1>:$body);
 
   let assemblyFormat = "($sym_name^)? attr-dict-with-keyword $body";
-  let builders = [OpBuilder<(ins CArg<"Optional<StringRef>", "{}">:$name)>];
+  let builders = [OpBuilderDAG<(ins CArg<"Optional<StringRef>", "{}">:$name)>];
   let extraClassDeclaration = [{
     /// Construct a module from the given location with an optional name.
     static ModuleOp create(Location loc, Optional<StringRef> name = llvm::None);
@@ -202,26 +198,28 @@ def ModuleOp : Builtin_Op<"module", [
 
     /// A ModuleOp may optionally define a symbol.
     bool isOptionalSymbol() { return true; }
-
-    //===------------------------------------------------------------------===//
-    // DataLayoutOpInterface Methods
-    //===------------------------------------------------------------------===//
-
-    DataLayoutSpecInterface getDataLayoutSpec();
-
-    //===------------------------------------------------------------------===//
-    // OpAsmOpInterface Methods
-    //===------------------------------------------------------------------===//
-
-    static ::llvm::StringRef getDefaultDialect() {
-      return "builtin";
-    }
   }];
   let verifier = [{ return ::verify(*this); }];
 
   // We need to ensure the block inside the region is properly terminated;
   // the auto-generated builders do not guarantee that.
   let skipDefaultBuilders = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// ModuleTerminatorOp
+//===----------------------------------------------------------------------===//
+
+def ModuleTerminatorOp : Builtin_Op<"module_terminator", [
+  Terminator, HasParent<"ModuleOp">
+]> {
+  let summary = "A pseudo op that marks the end of a module";
+  let description = [{
+    `module_terminator` is a special terminator operation for the body of a
+    `module`, it has no semantic meaning beyond keeping the body of a `module`
+    well-formed.
+  }];
+  let assemblyFormat = "attr-dict";
 }
 
 //===----------------------------------------------------------------------===//

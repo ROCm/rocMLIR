@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <cstdio>
+#include <stdio.h>
 
 #include "lldb/Core/Module.h"
 #include "lldb/Utility/DataBufferHeap.h"
@@ -161,8 +161,10 @@ Type::Type(lldb::user_id_t uid, SymbolFile *symbol_file, ConstString name,
 }
 
 Type::Type()
-    : std::enable_shared_from_this<Type>(), UserID(0),
-      m_name("<INVALID TYPE>") {
+    : std::enable_shared_from_this<Type>(), UserID(0), m_name("<INVALID TYPE>"),
+      m_symbol_file(nullptr), m_context(nullptr), m_encoding_type(nullptr),
+      m_encoding_uid(LLDB_INVALID_UID), m_encoding_uid_type(eEncodingInvalid),
+      m_compiler_type_resolve_state(ResolveState::Unresolved) {
   m_byte_size = 0;
   m_byte_size_has_value = false;
 }
@@ -728,8 +730,7 @@ ModuleSP Type::GetModule() {
 ModuleSP Type::GetExeModule() {
   if (m_compiler_type) {
     SymbolFile *symbol_file = m_compiler_type.GetTypeSystem()->GetSymbolFile();
-    if (symbol_file)
-      return symbol_file->GetObjectFile()->GetModule();
+    return symbol_file->GetObjectFile()->GetModule();
   }
   return ModuleSP();
 }

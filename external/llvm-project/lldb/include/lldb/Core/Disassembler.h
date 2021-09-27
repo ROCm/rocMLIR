@@ -34,9 +34,9 @@
 #include <string>
 #include <vector>
 
-#include <cstddef>
-#include <cstdint>
-#include <cstdio>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
 
 namespace llvm {
 template <typename T> class SmallVectorImpl;
@@ -149,10 +149,6 @@ public:
   virtual bool DoesBranch() = 0;
 
   virtual bool HasDelaySlot();
-
-  virtual bool IsLoad() = 0;
-
-  virtual bool IsAuthenticated() = 0;
 
   bool CanSetBreakpoint ();
 
@@ -340,10 +336,6 @@ public:
 
   bool HasDelaySlot() override;
 
-  bool IsLoad() override;
-
-  bool IsAuthenticated() override;
-
   void CalculateMnemonicOperandsAndComment(
       const ExecutionContext *exe_ctx) override {
     // TODO: fill this in and put opcode name into Instruction::m_opcode_name,
@@ -402,12 +394,10 @@ public:
     lldb::addr_t value;
   };
 
-  static lldb::DisassemblerSP DisassembleRange(const ArchSpec &arch,
-                                               const char *plugin_name,
-                                               const char *flavor,
-                                               Target &target,
-                                               const AddressRange &disasm_range,
-                                               bool force_live_memory = false);
+  static lldb::DisassemblerSP
+  DisassembleRange(const ArchSpec &arch, const char *plugin_name,
+                   const char *flavor, Target &target,
+                   const AddressRange &disasm_range, bool prefer_file_cache);
 
   static lldb::DisassemblerSP
   DisassembleBytes(const ArchSpec &arch, const char *plugin_name,
@@ -436,8 +426,7 @@ public:
                          Stream &strm);
 
   size_t ParseInstructions(Target &target, Address address, Limit limit,
-                           Stream *error_strm_ptr,
-                           bool force_live_memory = false);
+                           Stream *error_strm_ptr, bool prefer_file_cache);
 
   virtual size_t DecodeInstructions(const Address &base_addr,
                                     const DataExtractor &data,
@@ -462,10 +451,10 @@ protected:
 
   struct SourceLine {
     FileSpec file;
-    uint32_t line = LLDB_INVALID_LINE_NUMBER;
-    uint32_t column = 0;
+    uint32_t line;
+    uint32_t column;
 
-    SourceLine() : file() {}
+    SourceLine() : file(), line(LLDB_INVALID_LINE_NUMBER), column(0) {}
 
     bool operator==(const SourceLine &rhs) const {
       return file == rhs.file && line == rhs.line && rhs.column == column;
@@ -484,12 +473,14 @@ protected:
     // index of the "current" source line, if we want to highlight that when
     // displaying the source lines.  (as opposed to the surrounding source
     // lines provided to give context)
-    size_t current_source_line = -1;
+    size_t current_source_line;
 
     // Whether to print a blank line at the end of the source lines.
-    bool print_source_context_end_eol = true;
+    bool print_source_context_end_eol;
 
-    SourceLinesToDisplay() : lines() {}
+    SourceLinesToDisplay()
+        : lines(), current_source_line(-1), print_source_context_end_eol(true) {
+    }
   };
 
   // Get the function's declaration line number, hopefully a line number

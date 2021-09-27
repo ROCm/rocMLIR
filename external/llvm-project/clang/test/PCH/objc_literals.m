@@ -1,4 +1,3 @@
-// UNSUPPORTED: -zos, -aix
 // RUN: %clang_cc1 -emit-pch -o %t %s
 // RUN: %clang_cc1 -include-pch %t -verify %s
 // RUN: %clang_cc1 -include-pch %t -ast-print %s | FileCheck -check-prefix=CHECK-PRINT %s

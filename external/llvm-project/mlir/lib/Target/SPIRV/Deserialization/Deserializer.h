@@ -14,6 +14,7 @@
 #define MLIR_TARGET_SPIRV_DESERIALIZER_H
 
 #include "mlir/Dialect/SPIRV/IR/SPIRVEnums.h"
+#include "mlir/Dialect/SPIRV/IR/SPIRVModule.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVOps.h"
 #include "mlir/IR/Builders.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -44,11 +45,11 @@ namespace spirv {
 /// A struct for containing a header block's merge and continue targets.
 ///
 /// This struct is used to track original structured control flow info from
-/// SPIR-V blob. This info will be used to create
-/// spv.mlir.selection/spv.mlir.loop later.
+/// SPIR-V blob. This info will be used to create spv.selection/spv.loop
+/// later.
 struct BlockMergeInfo {
   Block *mergeBlock;
-  Block *continueBlock; // nullptr for spv.mlir.selection
+  Block *continueBlock; // nullptr for spv.selection
   Location loc;
   uint32_t control;
 
@@ -141,7 +142,7 @@ public:
   LogicalResult deserialize();
 
   /// Collects the final SPIR-V ModuleOp.
-  OwningOpRef<spirv::ModuleOp> collect();
+  spirv::OwningSPIRVModuleRef collect();
 
 private:
   //===--------------------------------------------------------------------===//
@@ -149,7 +150,7 @@ private:
   //===--------------------------------------------------------------------===//
 
   /// Initializes the `module` ModuleOp in this deserializer instance.
-  OwningOpRef<spirv::ModuleOp> createModuleOp();
+  spirv::OwningSPIRVModuleRef createModuleOp();
 
   /// Processes SPIR-V module header in `binary`.
   LogicalResult processHeader();
@@ -238,7 +239,7 @@ private:
 
   /// Processes the OpVariable instructions at current `offset` into `binary`.
   /// It is expected that this method is used for variables that are to be
-  /// defined at module scope and will be deserialized into a spv.GlobalVariable
+  /// defined at module scope and will be deserialized into a spv.globalVariable
   /// instruction.
   LogicalResult processGlobalVariable(ArrayRef<uint32_t> operands);
 
@@ -273,8 +274,6 @@ private:
   LogicalResult processFunctionType(ArrayRef<uint32_t> operands);
 
   LogicalResult processImageType(ArrayRef<uint32_t> operands);
-
-  LogicalResult processSampledImageType(ArrayRef<uint32_t> operands);
 
   LogicalResult processRuntimeArrayType(ArrayRef<uint32_t> operands);
 
@@ -345,9 +344,9 @@ private:
 
   // In SPIR-V, structured control flow is explicitly declared using merge
   // instructions (OpSelectionMerge and OpLoopMerge). In the SPIR-V dialect,
-  // we use spv.mlir.selection and spv.mlir.loop to group structured control
-  // flow. The deserializer need to turn structured control flow marked with
-  // merge instructions into using spv.mlir.selection/spv.mlir.loop ops.
+  // we use spv.selection and spv.loop to group structured control flow.
+  // The deserializer need to turn structured control flow marked with merge
+  // instructions into using spv.selection/spv.loop ops.
   //
   // Because structured control flow can nest and the basic block order have
   // flexibility, we cannot isolate a structured selection/loop without
@@ -359,14 +358,11 @@ private:
   //    target blocks.
   // 2. For each selection/loop header block, recursively get all basic blocks
   //    reachable (except the merge block) and put them in a newly created
-  //    spv.mlir.selection/spv.mlir.loop's region. Structured control flow
-  //    guarantees that we enter and exit in structured ways and the construct
-  //    is nestable.
-  // 3. Put the new spv.mlir.selection/spv.mlir.loop op at the beginning of the
-  // old merge
+  //    spv.selection/spv.loop's region. Structured control flow guarantees
+  //    that we enter and exit in structured ways and the construct is nestable.
+  // 3. Put the new spv.selection/spv.loop op at the beginning of the old merge
   //    block and redirect all branches to the old header block to the old
-  //    merge block (which contains the spv.mlir.selection/spv.mlir.loop op
-  //    now).
+  //    merge block (which contains the spv.selection/spv.loop op now).
 
   /// For OpPhi instructions, we use block arguments to represent them. OpPhi
   /// encodes a list of (value, predecessor) pairs. At the time of handling the
@@ -412,7 +408,7 @@ private:
   LogicalResult wireUpBlockArgument();
 
   /// Extracts blocks belonging to a structured selection/loop into a
-  /// spv.mlir.selection/spv.mlir.loop op. This method iterates until all blocks
+  /// spv.selection/spv.loop op. This method iterates until all blocks
   /// declared as selection/loop headers are handled.
   LogicalResult structurizeControlFlow();
 
@@ -506,7 +502,7 @@ private:
   Location unknownLoc;
 
   /// The SPIR-V ModuleOp.
-  OwningOpRef<spirv::ModuleOp> module;
+  spirv::OwningSPIRVModuleRef module;
 
   /// The current function under construction.
   Optional<spirv::FuncOp> curFunction;
@@ -560,10 +556,8 @@ private:
   // Header block to its merge (and continue) target mapping.
   BlockMergeInfoMap blockMergeInfo;
 
-  // For each pair of {predecessor, target} blocks, maps the pair of blocks to
-  // the list of phi arguments passed from predecessor to target.
-  DenseMap<std::pair<Block * /*predecessor*/, Block * /*target*/>, BlockPhiInfo>
-      blockPhiInfo;
+  // Block to its phi (block argument) mapping.
+  DenseMap<Block *, BlockPhiInfo> blockPhiInfo;
 
   // Result <id> to value mapping.
   DenseMap<uint32_t, Value> valueMap;
@@ -609,7 +603,7 @@ private:
 
   /// A list of IDs for all types forward-declared through OpTypeForwardPointer
   /// instructions.
-  SetVector<uint32_t> typeForwardPointerIDs;
+  llvm::SetVector<uint32_t> typeForwardPointerIDs;
 
   /// A list of all structs which have unresolved member types.
   SmallVector<DeferredStructTypeInfo, 0> deferredStructTypesInfos;

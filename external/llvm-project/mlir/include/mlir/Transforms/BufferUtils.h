@@ -14,7 +14,7 @@
 #ifndef MLIR_TRANSFORMS_BUFFERUTILS_H
 #define MLIR_TRANSFORMS_BUFFERUTILS_H
 
-#include "mlir/Analysis/BufferViewFlowAnalysis.h"
+#include "mlir/Analysis/BufferAliasAnalysis.h"
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Builders.h"
@@ -38,6 +38,10 @@ public:
   /// specified placement block.
   static Operation *getStartOperation(Value allocValue, Block *placementBlock,
                                       const Liveness &liveness);
+
+  /// Find an associated dealloc operation that is linked to the given
+  /// allocation node (if any).
+  static Operation *findDealloc(Value allocValue);
 
 public:
   /// Initializes the internal list by discovering all supported allocation
@@ -71,7 +75,7 @@ private:
 /// The base class for all BufferPlacement transformations.
 class BufferPlacementTransformationBase {
 public:
-  using ValueSetT = BufferViewFlowAnalysis::ValueSetT;
+  using ValueSetT = BufferAliasAnalysis::ValueSetT;
 
   /// Finds a common dominator for the given value while taking the positions
   /// of the values in the value set into account. It supports dominator and
@@ -106,7 +110,7 @@ public:
 
 protected:
   /// Alias information that can be updated during the insertion of copies.
-  BufferViewFlowAnalysis aliases;
+  BufferAliasAnalysis aliases;
 
   /// Stores all internally managed allocations.
   BufferPlacementAllocs allocs;
@@ -116,24 +120,6 @@ protected:
   Liveness liveness;
 };
 
-namespace memref {
-class GlobalOp;
-} // namespace memref
-
-// Support class to create global ops for tensor-valued constants in the
-// program. Globals are created lazily at the top of the `moduleOp` with pretty
-// names. Duplicates are avoided.
-class GlobalCreator {
-public:
-  explicit GlobalCreator(ModuleOp module) : moduleOp(module) {}
-  memref::GlobalOp getGlobalFor(ConstantOp constantOp);
-
-private:
-  ModuleOp moduleOp;
-  // This could use memref::GlobalOp key but we avoid introducing a new
-  // dependence to the memref dialect for this.
-  DenseMap<Attribute, Operation *> globals;
-};
 } // end namespace mlir
 
 #endif // MLIR_TRANSFORMS_BUFFERUTILS_H

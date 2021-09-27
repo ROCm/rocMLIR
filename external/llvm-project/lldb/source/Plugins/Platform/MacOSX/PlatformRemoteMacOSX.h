@@ -37,6 +37,8 @@ public:
     return GetPluginNameStatic();
   }
 
+  uint32_t GetPluginVersion() override { return 1; }
+
   const char *GetDescription() override { return GetDescriptionStatic(); }
 
   lldb_private::Status

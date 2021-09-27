@@ -1,7 +1,4 @@
-; RUN: llc %s -o - -mtriple=thumbv7-apple-darwin10
 ; RUN: llc %s -o -
-
-; REQUIRES: arm-registered-target
 
 ;; Reference to a label that gets deleted.
 define i8* @test1() nounwind {
@@ -19,7 +16,7 @@ ret:
 }
 
 
-; Issues with referring to a label that gets RAUW'd later.
+;; Issues with referring to a label that gets RAUW'd later.
 define i32 @test2a() nounwind {
 entry:
         %target = bitcast i8* blockaddress(@test2b, %test_label) to i8*

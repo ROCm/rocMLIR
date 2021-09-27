@@ -155,8 +155,6 @@ void BasicIRLayerMaterializationUnit::materialize(
   }););
 }
 
-char ObjectLayer::ID;
-
 ObjectLayer::ObjectLayer(ExecutionSession &ES) : ES(ES) {}
 
 ObjectLayer::~ObjectLayer() {}

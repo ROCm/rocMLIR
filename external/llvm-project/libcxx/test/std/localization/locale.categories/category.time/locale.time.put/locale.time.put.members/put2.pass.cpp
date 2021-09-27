@@ -6,8 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-// XFAIL: LIBCXX-WINDOWS-FIXME
-
 // <locale>
 
 // class time_put<charT, OutputIterator>

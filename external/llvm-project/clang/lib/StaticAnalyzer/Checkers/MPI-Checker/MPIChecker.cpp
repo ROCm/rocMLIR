@@ -16,7 +16,7 @@
 
 #include "MPIChecker.h"
 #include "clang/StaticAnalyzer/Checkers/BuiltinCheckerRegistration.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/DynamicExtent.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/DynamicSize.h"
 
 namespace clang {
 namespace ento {

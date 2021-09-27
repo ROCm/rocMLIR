@@ -117,11 +117,6 @@ static cl::opt<std::string> ClWriteSummary(
     cl::desc("Write summary to given YAML file after running pass"),
     cl::Hidden);
 
-static cl::opt<bool>
-    ClDropTypeTests("lowertypetests-drop-type-tests",
-                    cl::desc("Simply drop type test assume sequences"),
-                    cl::Hidden, cl::init(false));
-
 bool BitSetInfo::containsGlobalOffset(uint64_t Offset) const {
   if (Offset < ByteOffset)
     return false;
@@ -341,7 +336,7 @@ private:
 
 struct ScopedSaveAliaseesAndUsed {
   Module &M;
-  SmallVector<GlobalValue *, 4> Used, CompilerUsed;
+  SmallPtrSet<GlobalValue *, 16> Used, CompilerUsed;
   std::vector<std::pair<GlobalIndirectSymbol *, Function *>> FunctionAliases;
 
   ScopedSaveAliaseesAndUsed(Module &M) : M(M) {
@@ -372,8 +367,9 @@ struct ScopedSaveAliaseesAndUsed {
   }
 
   ~ScopedSaveAliaseesAndUsed() {
-    appendToUsed(M, Used);
-    appendToCompilerUsed(M, CompilerUsed);
+    appendToUsed(M, std::vector<GlobalValue *>(Used.begin(), Used.end()));
+    appendToCompilerUsed(M, std::vector<GlobalValue *>(CompilerUsed.begin(),
+                                                       CompilerUsed.end()));
 
     for (auto P : FunctionAliases)
       P.first->setIndirectSymbol(
@@ -533,8 +529,7 @@ struct LowerTypeTests : public ModulePass {
   LowerTypeTests(ModuleSummaryIndex *ExportSummary,
                  const ModuleSummaryIndex *ImportSummary, bool DropTypeTests)
       : ModulePass(ID), ExportSummary(ExportSummary),
-        ImportSummary(ImportSummary),
-        DropTypeTests(DropTypeTests || ClDropTypeTests) {
+        ImportSummary(ImportSummary), DropTypeTests(DropTypeTests) {
     initializeLowerTypeTestsPass(*PassRegistry::getPassRegistry());
   }
 
@@ -1693,7 +1688,7 @@ LowerTypeTestsModule::LowerTypeTestsModule(
     Module &M, ModuleSummaryIndex *ExportSummary,
     const ModuleSummaryIndex *ImportSummary, bool DropTypeTests)
     : M(M), ExportSummary(ExportSummary), ImportSummary(ImportSummary),
-      DropTypeTests(DropTypeTests || ClDropTypeTests) {
+      DropTypeTests(DropTypeTests) {
   assert(!(ExportSummary && ImportSummary));
   Triple TargetTriple(M.getTargetTriple());
   Arch = TargetTriple.getArch();
@@ -1728,7 +1723,7 @@ bool LowerTypeTestsModule::runForTesting(Module &M) {
     ExitOnError ExitOnErr("-lowertypetests-write-summary: " + ClWriteSummary +
                           ": ");
     std::error_code EC;
-    raw_fd_ostream OS(ClWriteSummary, EC, sys::fs::OF_TextWithCRLF);
+    raw_fd_ostream OS(ClWriteSummary, EC, sys::fs::OF_Text);
     ExitOnErr(errorCodeToError(EC));
 
     yaml::Output Out(OS);
@@ -1796,16 +1791,12 @@ bool LowerTypeTestsModule::lower() {
          UI != UE;) {
       auto *CI = cast<CallInst>((*UI++).getUser());
       // Find and erase llvm.assume intrinsics for this llvm.type.test call.
-      for (auto CIU = CI->use_begin(), CIUE = CI->use_end(); CIU != CIUE;)
-        if (auto *Assume = dyn_cast<AssumeInst>((*CIU++).getUser()))
-          Assume->eraseFromParent();
-      // If the assume was merged with another assume, we might have a use on a
-      // phi (which will feed the assume). Simply replace the use on the phi
-      // with "true" and leave the merged assume.
-      if (!CI->use_empty()) {
-        assert(all_of(CI->users(),
-                      [](User *U) -> bool { return isa<PHINode>(U); }));
-        CI->replaceAllUsesWith(ConstantInt::getTrue(M.getContext()));
+      for (auto CIU = CI->use_begin(), CIUE = CI->use_end(); CIU != CIUE;) {
+        if (auto *AssumeCI = dyn_cast<CallInst>((*CIU++).getUser())) {
+          Function *F = AssumeCI->getCalledFunction();
+          if (F && F->getIntrinsicID() == Intrinsic::assume)
+            AssumeCI->eraseFromParent();
+        }
       }
       CI->eraseFromParent();
     }
@@ -2067,21 +2058,6 @@ bool LowerTypeTestsModule::lower() {
   if (TypeTestFunc) {
     for (const Use &U : TypeTestFunc->uses()) {
       auto CI = cast<CallInst>(U.getUser());
-      // If this type test is only used by llvm.assume instructions, it
-      // was used for whole program devirtualization, and is being kept
-      // for use by other optimization passes. We do not need or want to
-      // lower it here. We also don't want to rewrite any associated globals
-      // unnecessarily. These will be removed by a subsequent LTT invocation
-      // with the DropTypeTests flag set.
-      bool OnlyAssumeUses = !CI->use_empty();
-      for (const Use &CIU : CI->uses()) {
-        if (isa<AssumeInst>(CIU.getUser()))
-          continue;
-        OnlyAssumeUses = false;
-        break;
-      }
-      if (OnlyAssumeUses)
-        continue;
 
       auto TypeIdMDVal = dyn_cast<MetadataAsValue>(CI->getArgOperand(1));
       if (!TypeIdMDVal)

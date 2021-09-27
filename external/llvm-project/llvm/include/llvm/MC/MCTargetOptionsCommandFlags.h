@@ -40,8 +40,6 @@ bool getNoWarn();
 
 bool getNoDeprecatedWarn();
 
-bool getNoTypeCheck();
-
 std::string getABIName();
 
 /// Create this object with static storage to register mc-related command

@@ -648,9 +648,9 @@ __isl_give isl_map *isl_ast_build_get_schedule_map(
 /* Return the position of the dimension in build->domain for which
  * an AST node is currently being generated.
  */
-isl_size isl_ast_build_get_depth(__isl_keep isl_ast_build *build)
+int isl_ast_build_get_depth(__isl_keep isl_ast_build *build)
 {
-	return build ? build->depth : isl_size_error;
+	return build ? build->depth : -1;
 }
 
 /* Prepare for generating code for the next level.
@@ -1373,14 +1373,14 @@ __isl_give isl_multi_aff *isl_ast_build_get_stride_expansion(
 {
 	isl_space *space;
 	isl_multi_aff *ma;
-	isl_size pos;
+	int pos;
 	isl_aff *aff, *offset;
 	isl_val *stride;
 
-	pos = isl_ast_build_get_depth(build);
-	if (pos < 0)
+	if (!build)
 		return NULL;
 
+	pos = isl_ast_build_get_depth(build);
 	space = isl_ast_build_get_space(build, 1);
 	space = isl_space_map_from_set(space);
 	ma = isl_multi_aff_identity(space);
@@ -1438,16 +1438,16 @@ __isl_give isl_ast_build *isl_ast_build_include_stride(
 __isl_give isl_ast_build *isl_ast_build_detect_strides(
 	__isl_take isl_ast_build *build, __isl_take isl_set *set)
 {
-	isl_size pos;
+	int pos;
 	isl_bool no_stride;
 	isl_val *stride;
 	isl_aff *offset;
 	isl_stride_info *si;
 
-	pos = isl_ast_build_get_depth(build);
-	if (pos < 0)
+	if (!build)
 		goto error;
 
+	pos = isl_ast_build_get_depth(build);
 	si = isl_set_get_stride_info(set, pos);
 	stride = isl_stride_info_get_stride(si);
 	offset = isl_stride_info_get_offset(si);
@@ -1949,7 +1949,7 @@ isl_bool isl_ast_build_has_stride(__isl_keep isl_ast_build *build, int pos)
  *
  *	f + s a
  *
- * with a an integer, return s.
+ * with a an integer, return s through *stride.
  */
 __isl_give isl_val *isl_ast_build_get_stride(__isl_keep isl_ast_build *build,
 	int pos)

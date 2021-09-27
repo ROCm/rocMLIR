@@ -13,7 +13,10 @@
 // const error_category& system_category();
 
 // XFAIL: suse-linux-enterprise-server-11
-// XFAIL: use_system_cxx_lib && target={{.+}}-apple-macosx10.{{9|10|11|12}}
+// XFAIL: with_system_cxx_lib=macosx10.12
+// XFAIL: with_system_cxx_lib=macosx10.11
+// XFAIL: with_system_cxx_lib=macosx10.10
+// XFAIL: with_system_cxx_lib=macosx10.9
 
 #include <system_error>
 #include <cassert>

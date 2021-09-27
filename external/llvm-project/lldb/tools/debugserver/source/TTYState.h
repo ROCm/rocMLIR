@@ -13,7 +13,7 @@
 #ifndef LLDB_TOOLS_DEBUGSERVER_SOURCE_TTYSTATE_H
 #define LLDB_TOOLS_DEBUGSERVER_SOURCE_TTYSTATE_H
 
-#include <cstdint>
+#include <stdint.h>
 #include <termios.h>
 
 class TTYState {

@@ -36,30 +36,20 @@ test(S s, typename S::size_type pos1, typename S::size_type n1, It f, It l, S ex
 }
 
 #ifndef TEST_HAS_NO_EXCEPTIONS
-struct Widget { operator char() const { throw 42; } };
-
 template <class S, class It>
 void
 test_exceptions(S s, typename S::size_type pos1, typename S::size_type n1, It f, It l)
 {
     typename S::const_iterator first = s.begin() + pos1;
     typename S::const_iterator last = s.begin() + pos1 + n1;
-
-    S original = s;
-    typename S::iterator begin = s.begin();
-    typename S::iterator end = s.end();
-
+    S aCopy = s;
     try {
         s.replace(first, last, f, l);
         assert(false);
-    } catch (...) {}
-
-    // Part of "no effects" is that iterators and pointers
-    // into the string must not have been invalidated.
+        }
+    catch (...) {}
     LIBCPP_ASSERT(s.__invariants());
-    assert(s == original);
-    assert(s.begin() == begin);
-    assert(s.end() == end);
+    assert(s == aCopy);
 }
 #endif
 
@@ -1006,7 +996,7 @@ int main(int, char**)
     { // test iterator operations that throw
     typedef std::string S;
     typedef ThrowingIterator<char> TIter;
-    typedef cpp17_input_iterator<TIter> IIter;
+    typedef input_iterator<TIter> IIter;
     const char* s = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     test_exceptions(S("abcdefghijklmnopqrst"), 10, 5, IIter(TIter(s, s+10, 4, TIter::TAIncrement)), IIter());
     test_exceptions(S("abcdefghijklmnopqrst"), 10, 5, IIter(TIter(s, s+10, 5, TIter::TADereference)), IIter());
@@ -1015,9 +1005,6 @@ int main(int, char**)
     test_exceptions(S("abcdefghijklmnopqrst"), 10, 5, TIter(s, s+10, 4, TIter::TAIncrement), TIter());
     test_exceptions(S("abcdefghijklmnopqrst"), 10, 5, TIter(s, s+10, 5, TIter::TADereference), TIter());
     test_exceptions(S("abcdefghijklmnopqrst"), 10, 5, TIter(s, s+10, 6, TIter::TAComparison), TIter());
-
-    Widget w[100];
-    test_exceptions(S("abcdefghijklmnopqrst"), 10, 5, w, w+100);
     }
 #endif
 

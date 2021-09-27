@@ -30,8 +30,6 @@ struct MemoryMappingLayoutData {
   size_t current;  // Current index into the vector.
 };
 
-void InitShadowBounds();
-
 }  // namespace __sanitizer
 
 #endif  // SANITIZER_FUCHSIA

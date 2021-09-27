@@ -2,6 +2,7 @@
 
 ; Test that basic conversion operations assemble as expected.
 
+target datalayout = "e-m:e-p:32:32-i64:64-n32:64-S128"
 target triple = "wasm32-unknown-unknown"
 
 ; CHECK-LABEL: i32_wrap_i64:
@@ -44,9 +45,9 @@ define i32 @i32_trunc_s_f32(float %x) {
 ; CHECK-NEXT: .functype i32_trunc_sat_s_f32 (f32) -> (i32){{$}}
 ; CHECK-NEXT: i32.trunc_sat_f32_s $push[[NUM:[0-9]+]]=, $0{{$}}
 ; CHECK-NEXT: return $pop[[NUM]]{{$}}
-declare i32 @llvm.fptosi.sat.i32.f32(float)
+declare i32 @llvm.wasm.trunc.saturate.signed.i32.f32(float)
 define i32 @i32_trunc_sat_s_f32(float %x) {
-  %a = call i32 @llvm.fptosi.sat.i32.f32(float %x)
+  %a = call i32 @llvm.wasm.trunc.saturate.signed.i32.f32(float %x)
   ret i32 %a
 }
 
@@ -63,9 +64,9 @@ define i32 @i32_trunc_u_f32(float %x) {
 ; CHECK-NEXT: .functype i32_trunc_sat_u_f32 (f32) -> (i32){{$}}
 ; CHECK-NEXT: i32.trunc_sat_f32_u $push[[NUM:[0-9]+]]=, $0{{$}}
 ; CHECK-NEXT: return $pop[[NUM]]{{$}}
-declare i32 @llvm.fptoui.sat.i32.f32(float)
+declare i32 @llvm.wasm.trunc.saturate.unsigned.i32.f32(float)
 define i32 @i32_trunc_sat_u_f32(float %x) {
-  %a = call i32 @llvm.fptoui.sat.i32.f32(float %x)
+  %a = call i32 @llvm.wasm.trunc.saturate.unsigned.i32.f32(float %x)
   ret i32 %a
 }
 
@@ -82,9 +83,9 @@ define i32 @i32_trunc_s_f64(double %x) {
 ; CHECK-NEXT: .functype i32_trunc_sat_s_f64 (f64) -> (i32){{$}}
 ; CHECK-NEXT: i32.trunc_sat_f64_s $push[[NUM:[0-9]+]]=, $0{{$}}
 ; CHECK-NEXT: return $pop[[NUM]]{{$}}
-declare i32 @llvm.fptosi.sat.i32.f64(double)
+declare i32 @llvm.wasm.trunc.saturate.signed.i32.f64(double)
 define i32 @i32_trunc_sat_s_f64(double %x) {
-  %a = call i32 @llvm.fptosi.sat.i32.f64(double %x)
+  %a = call i32 @llvm.wasm.trunc.saturate.signed.i32.f64(double %x)
   ret i32 %a
 }
 
@@ -101,9 +102,9 @@ define i32 @i32_trunc_u_f64(double %x) {
 ; CHECK-NEXT: .functype i32_trunc_sat_u_f64 (f64) -> (i32){{$}}
 ; CHECK-NEXT: i32.trunc_sat_f64_u $push[[NUM:[0-9]+]]=, $0{{$}}
 ; CHECK-NEXT: return $pop[[NUM]]{{$}}
-declare i32 @llvm.fptoui.sat.i32.f64(double)
+declare i32 @llvm.wasm.trunc.saturate.unsigned.i32.f64(double)
 define i32 @i32_trunc_sat_u_f64(double %x) {
-  %a = call i32 @llvm.fptoui.sat.i32.f64(double %x)
+  %a = call i32 @llvm.wasm.trunc.saturate.unsigned.i32.f64(double %x)
   ret i32 %a
 }
 
@@ -120,9 +121,9 @@ define i64 @i64_trunc_s_f32(float %x) {
 ; CHECK-NEXT: .functype i64_trunc_sat_s_f32 (f32) -> (i64){{$}}
 ; CHECK-NEXT: i64.trunc_sat_f32_s $push[[NUM:[0-9]+]]=, $0{{$}}
 ; CHECK-NEXT: return $pop[[NUM]]{{$}}
-declare i64 @llvm.fptosi.sat.i64.f32(float)
+declare i64 @llvm.wasm.trunc.saturate.signed.i64.f32(float)
 define i64 @i64_trunc_sat_s_f32(float %x) {
-  %a = call i64 @llvm.fptosi.sat.i64.f32(float %x)
+  %a = call i64 @llvm.wasm.trunc.saturate.signed.i64.f32(float %x)
   ret i64 %a
 }
 
@@ -139,9 +140,9 @@ define i64 @i64_trunc_u_f32(float %x) {
 ; CHECK-NEXT: .functype i64_trunc_sat_u_f32 (f32) -> (i64){{$}}
 ; CHECK-NEXT: i64.trunc_sat_f32_u $push[[NUM:[0-9]+]]=, $0{{$}}
 ; CHECK-NEXT: return $pop[[NUM]]{{$}}
-declare i64 @llvm.fptoui.sat.i64.f32(float)
+declare i64 @llvm.wasm.trunc.saturate.unsigned.i64.f32(float)
 define i64 @i64_trunc_sat_u_f32(float %x) {
-  %a = call i64 @llvm.fptoui.sat.i64.f32(float %x)
+  %a = call i64 @llvm.wasm.trunc.saturate.unsigned.i64.f32(float %x)
   ret i64 %a
 }
 
@@ -158,9 +159,9 @@ define i64 @i64_trunc_s_f64(double %x) {
 ; CHECK-NEXT: .functype i64_trunc_sat_s_f64 (f64) -> (i64){{$}}
 ; CHECK-NEXT: i64.trunc_sat_f64_s $push[[NUM:[0-9]+]]=, $0{{$}}
 ; CHECK-NEXT: return $pop[[NUM]]{{$}}
-declare i64 @llvm.fptosi.sat.i64.f64(double)
+declare i64 @llvm.wasm.trunc.saturate.signed.i64.f64(double)
 define i64 @i64_trunc_sat_s_f64(double %x) {
-  %a = call i64 @llvm.fptosi.sat.i64.f64(double %x)
+  %a = call i64 @llvm.wasm.trunc.saturate.signed.i64.f64(double %x)
   ret i64 %a
 }
 
@@ -177,9 +178,9 @@ define i64 @i64_trunc_u_f64(double %x) {
 ; CHECK-NEXT: .functype i64_trunc_sat_u_f64 (f64) -> (i64){{$}}
 ; CHECK-NEXT: i64.trunc_sat_f64_u $push[[NUM:[0-9]+]]=, $0{{$}}
 ; CHECK-NEXT: return $pop[[NUM]]{{$}}
-declare i64 @llvm.fptoui.sat.i64.f64(double)
+declare i64 @llvm.wasm.trunc.saturate.unsigned.i64.f64(double)
 define i64 @i64_trunc_sat_u_f64(double %x) {
-  %a = call i64 @llvm.fptoui.sat.i64.f64(double %x)
+  %a = call i64 @llvm.wasm.trunc.saturate.unsigned.i64.f64(double %x)
   ret i64 %a
 }
 
@@ -273,7 +274,7 @@ define float @f32_demote_f64(double %x) {
   ret float %a
 }
 
-; If the high bits are unused, LLVM will optimize sext/zext into anyext, which
+; If the high its are unused, LLVM will optimize sext/zext into anyext, which
 ; we need to patterm-match back to a specific instruction.
 
 ; CHECK-LABEL: anyext:
@@ -310,47 +311,4 @@ define double @bitcast_i64_to_double(i64 %a) {
 define i64 @bitcast_double_to_i64(double %a) {
   %t = bitcast double %a to i64
   ret i64 %t
-}
-
-; Check that saturating fptoint with unsupported target bit widths is lowered
-; correctly.
-
-; CHECK-LABEL: i16_trunc_sat_s_f32:
-; CHECK-NEXT: .functype i16_trunc_sat_s_f32 (f32) -> (i32){{$}}
-; CHECK: i32.select
-; CHECK: return
-declare i16 @llvm.fptosi.sat.i16.f32(float)
-define i16 @i16_trunc_sat_s_f32(float %x) {
-  %a = call i16 @llvm.fptosi.sat.i16.f32(float %x)
-  ret i16 %a
-}
-
-; CHECK-LABEL: i16_trunc_sat_u_f32:
-; CHECK-NEXT: .functype i16_trunc_sat_u_f32 (f32) -> (i32){{$}}
-; CHECK: i32.select
-; CHECK: return
-declare i16 @llvm.fptoui.sat.i16.f32(float)
-define i16 @i16_trunc_sat_u_f32(float %x) {
-  %a = call i16 @llvm.fptoui.sat.i16.f32(float %x)
-  ret i16 %a
-}
-
-; CHECK-LABEL: i16_trunc_sat_s_f64:
-; CHECK-NEXT: .functype i16_trunc_sat_s_f64 (f64) -> (i32){{$}}
-; CHECK: i32.select
-; CHECK: return
-declare i16 @llvm.fptosi.sat.i16.f64(double)
-define i16 @i16_trunc_sat_s_f64(double %x) {
-  %a = call i16 @llvm.fptosi.sat.i16.f64(double %x)
-  ret i16 %a
-}
-
-; CHECK-LABEL: i16_trunc_sat_u_f64:
-; CHECK-NEXT: .functype i16_trunc_sat_u_f64 (f64) -> (i32){{$}}
-; CHECK: i32.select
-; CHECK: return
-declare i16 @llvm.fptoui.sat.i16.f64(double)
-define i16 @i16_trunc_sat_u_f64(double %x) {
-  %a = call i16 @llvm.fptoui.sat.i16.f64(double %x)
-  ret i16 %a
 }

@@ -69,12 +69,6 @@ class Abstract
 
 enum Enum {zero, one};
 
-enum EnumSigned : int { two };
-
-enum EnumUnsigned : unsigned { three };
-
-enum class EnumClass { zero, one };
-
 typedef void (*FunctionPtr)();
 
 
@@ -103,9 +97,6 @@ int main(int, char**)
     test_is_not_arithmetic<char[]>();
     test_is_not_arithmetic<Union>();
     test_is_not_arithmetic<Enum>();
-    test_is_not_arithmetic<EnumSigned>();
-    test_is_not_arithmetic<EnumUnsigned>();
-    test_is_not_arithmetic<EnumClass>();
     test_is_not_arithmetic<FunctionPtr>();
     test_is_not_arithmetic<Empty>();
     test_is_not_arithmetic<incomplete_type>();

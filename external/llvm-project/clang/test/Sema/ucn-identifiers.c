@@ -17,7 +17,6 @@ void goodCalls() {
   \u00fcber(1);
   über(2);
   \U000000FCber(3);
-  \u{FC}ber(4); // expected-warning {{Clang extension}}
 }
 
 void badCalls() {
@@ -25,7 +24,7 @@ void badCalls() {
   \u00fcber = 0; // expected-error{{non-object type 'void (int)' is not assignable}}
 
   über(1, 2);
-  \U000000FCber();
+  \U000000FCber(); 
 #ifdef __cplusplus
   // expected-error@-3 {{no matching function}}
   // expected-error@-3 {{no matching function}}

@@ -1,5 +1,4 @@
-! RUN: %python %S/test_folding.py %s %flang_fc1
-
+! RUN: %S/test_folding.sh %s %t %f18
 ! Check intrinsic function folding with host runtime library
 
 module m

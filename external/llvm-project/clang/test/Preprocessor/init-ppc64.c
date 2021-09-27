@@ -566,7 +566,6 @@
 // PPCPWR8-NOT:#define _ARCH_PWR6X 1
 // PPCPWR8:#define _ARCH_PWR7 1
 // PPCPWR8:#define _ARCH_PWR8 1
-// PPCPWR8-NOT:#define __ROP_PROTECT__ 1
 //
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-none-none -target-cpu power8 -fno-signed-char < /dev/null | FileCheck -match-full-lines -check-prefix PPCPOWER8 %s
 //
@@ -584,7 +583,6 @@
 // PPCPOWER8-NOT:#define _ARCH_PWR6X 1
 // PPCPOWER8:#define _ARCH_PWR7 1
 // PPCPOWER8:#define _ARCH_PWR8 1
-// PPCPOWER8-NOT:#define __ROP_PROTECT__ 1
 //
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-none-none -target-cpu pwr9 -fno-signed-char < /dev/null | FileCheck -match-full-lines -check-prefix PPCPWR9 %s
 //
@@ -599,7 +597,6 @@
 // PPCPWR9-NOT:#define _ARCH_PWR6X 1
 // PPCPWR9:#define _ARCH_PWR7 1
 // PPCPWR9:#define _ARCH_PWR9 1
-// PPCPWR9-NOT:#define __ROP_PROTECT__ 1
 //
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-none-none -target-cpu power9 -fno-signed-char < /dev/null | FileCheck -match-full-lines -check-prefix PPCPOWER9 %s
 //
@@ -614,7 +611,6 @@
 // PPCPOWER9-NOT:#define _ARCH_PWR6X 1
 // PPCPOWER9:#define _ARCH_PWR7 1
 // PPCPOWER9:#define _ARCH_PWR9 1
-// PPCPOWER9-NOT:#define __ROP_PROTECT__ 1
 //
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-none-none -target-cpu pwr10 -fno-signed-char < /dev/null | FileCheck -match-full-lines -check-prefix PPCPOWER10 %s
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-none-none -target-cpu power10 -fno-signed-char < /dev/null | FileCheck -match-full-lines -check-prefix PPCPOWER10 %s
@@ -633,8 +629,6 @@
 // PPCPOWER10:#define _ARCH_PWR8 1
 // PPCPOWER10:#define _ARCH_PWR9 1
 // PPCPOWER10:#define __MMA__ 1
-// PPCPOWER10:#define __PCREL__ 1
-// PPCPOWER10-NOT:#define __ROP_PROTECT__ 1
 //
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-none-none -target-cpu future -fno-signed-char < /dev/null | FileCheck -match-full-lines -check-prefix PPCFUTURE %s
 //
@@ -653,16 +647,9 @@
 // PPCFUTURE:#define _ARCH_PWR9 1
 // PPCFUTURE:#define _ARCH_PWR_FUTURE 1
 // PPCFUTURE:#define __MMA__ 1
-// PPCFUTURE:#define __PCREL__ 1
-// PPCFUTURE-NOT:#define __ROP_PROTECT__ 1
 //
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-none-none -target-feature +mma -target-cpu power10 -fno-signed-char < /dev/null | FileCheck -check-prefix PPC-MMA %s
 // PPC-MMA:#define __MMA__ 1
-//
-// RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-none-none -target-feature +rop-protect -target-cpu power10 -fno-signed-char < /dev/null | FileCheck -check-prefix PPC-ROP %s
-// RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-none-none -target-feature +rop-protect -target-cpu power9 -fno-signed-char < /dev/null | FileCheck -check-prefix PPC-ROP %s
-// RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-none-none -target-feature +rop-protect -target-cpu power8 -fno-signed-char < /dev/null | FileCheck -check-prefix PPC-ROP %s
-// PPC-ROP:#define __ROP_PROTECT__ 1
 //
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=powerpc64-none-none -target-feature +float128 -target-cpu power9 -fno-signed-char < /dev/null | FileCheck -check-prefix PPC-FLOAT128 %s
 // PPC-FLOAT128:#define __FLOAT128__ 1

@@ -19,13 +19,12 @@
 namespace mlir {
 
 class Operation;
-class Value;
 
 /// Type of the condition to limit the propagation of transitive use-defs.
 /// This can be used in particular to limit the propagation to a given Scope or
 /// to avoid passing through certain types of operation in a configurable
 /// manner.
-using TransitiveFilter = llvm::function_ref<bool(Operation *)>;
+using TransitiveFilter = std::function<bool(Operation *)>;
 
 /// Fills `forwardSlice` with the computed forward slice (i.e. all
 /// the transitive uses of op), **without** including that operation.
@@ -33,7 +32,7 @@ using TransitiveFilter = llvm::function_ref<bool(Operation *)>;
 /// This additionally takes a TransitiveFilter which acts as a frontier:
 /// when looking at uses transitively, an operation that does not pass the
 /// filter is never propagated through. This allows in particular to carve out
-/// the scope within a ForOp or the scope within an IfOp.
+/// the scope within a ForInst or the scope within an IfInst.
 ///
 /// The implementation traverses the use chains in postorder traversal for
 /// efficiency reasons: if an operation is already in `forwardSlice`, no
@@ -68,13 +67,10 @@ using TransitiveFilter = llvm::function_ref<bool(Operation *)>;
 /// 2. reversing the result of 1. gives:
 ///      {4, 3, 6, 2, 1, 5, 8, 7, 9}
 ///
-void getForwardSlice(Operation *op, SetVector<Operation *> *forwardSlice,
-                     TransitiveFilter filter = nullptr /* pass-through*/);
-
-/// Value-rooted version of `getForwardSlice`. Return the union of all forward
-/// slices for the uses of the value `root`.
-void getForwardSlice(Value root, SetVector<Operation *> *forwardSlice,
-                     TransitiveFilter filter = nullptr /* pass-through*/);
+void getForwardSlice(
+    Operation *op, llvm::SetVector<Operation *> *forwardSlice,
+    TransitiveFilter filter = /* pass-through*/
+    [](Operation *) { return true; });
 
 /// Fills `backwardSlice` with the computed backward slice (i.e.
 /// all the transitive defs of op), **without** including that operation.
@@ -82,7 +78,7 @@ void getForwardSlice(Value root, SetVector<Operation *> *forwardSlice,
 /// This additionally takes a TransitiveFilter which acts as a frontier:
 /// when looking at defs transitively, an operation that does not pass the
 /// filter is never propagated through. This allows in particular to carve out
-/// the scope within a ForOp or the scope within an IfOp.
+/// the scope within a ForInst or the scope within an IfInst.
 ///
 /// The implementation traverses the def chains in postorder traversal for
 /// efficiency reasons: if an operation is already in `backwardSlice`, no
@@ -110,16 +106,13 @@ void getForwardSlice(Value root, SetVector<Operation *> *forwardSlice,
 /// Assuming all local orders match the numbering order:
 ///    {1, 2, 5, 3, 4, 6}
 ///
-void getBackwardSlice(Operation *op, SetVector<Operation *> *backwardSlice,
-                      TransitiveFilter filter = nullptr /* pass-through*/);
-
-/// Value-rooted version of `getBackwardSlice`. Return the union of all backward
-/// slices for the op defining or owning the value `root`.
-void getBackwardSlice(Value root, SetVector<Operation *> *backwardSlice,
-                      TransitiveFilter filter = nullptr /* pass-through*/);
+void getBackwardSlice(
+    Operation *op, llvm::SetVector<Operation *> *backwardSlice,
+    TransitiveFilter filter = /* pass-through*/
+    [](Operation *) { return true; });
 
 /// Iteratively computes backward slices and forward slices until
-/// a fixed point is reached. Returns an `SetVector<Operation *>` which
+/// a fixed point is reached. Returns an `llvm::SetVector<Operation *>` which
 /// **includes** the original operation.
 ///
 /// This allows building a slice (i.e. multi-root DAG where everything
@@ -195,15 +188,18 @@ void getBackwardSlice(Value root, SetVector<Operation *> *backwardSlice,
 /// and keep things ordered but this is still hand-wavy and not worth the
 /// trouble for now: punt to a simple worklist-based solution.
 ///
-SetVector<Operation *>
-getSlice(Operation *op,
-         TransitiveFilter backwardFilter = nullptr /* pass-through*/,
-         TransitiveFilter forwardFilter = nullptr /* pass-through*/);
+llvm::SetVector<Operation *> getSlice(
+    Operation *op,
+    TransitiveFilter backwardFilter = /* pass-through*/
+    [](Operation *) { return true; },
+    TransitiveFilter forwardFilter = /* pass-through*/
+    [](Operation *) { return true; });
 
 /// Multi-root DAG topological sort.
 /// Performs a topological sort of the Operation in the `toSort` SetVector.
 /// Returns a topologically sorted SetVector.
-SetVector<Operation *> topologicalSort(const SetVector<Operation *> &toSort);
+llvm::SetVector<Operation *>
+topologicalSort(const llvm::SetVector<Operation *> &toSort);
 
 } // end namespace mlir
 

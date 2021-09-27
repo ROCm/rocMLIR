@@ -24,7 +24,10 @@ class BreakpointHitCountTestCase(TestBase):
     def test_breakpoint_one_shot(self):
         """Check that one-shot breakpoints trigger only once."""
         self.build()
-        target = self.createTestTarget()
+
+        exe = self.getBuildArtifact("a.out")
+        target = self.dbg.CreateTarget(exe)
+        self.assertTrue(target, VALID_TARGET)
 
         self.runCmd("tb a")
         process = target.LaunchSimple(
@@ -53,7 +56,10 @@ class BreakpointHitCountTestCase(TestBase):
 
     def do_test_breakpoint_location_hit_count(self):
         """Use Python APIs to check breakpoint hit count."""
-        target = self.createTestTarget()
+        exe = self.getBuildArtifact("a.out")
+
+        target = self.dbg.CreateTarget(exe)
+        self.assertTrue(target, VALID_TARGET)
 
         # Create a breakpoint in main.cpp by name 'a',
         # there should be two locations.

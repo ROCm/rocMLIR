@@ -356,19 +356,11 @@ NestedNameSpecifier *createNestedNameSpecifier(const ASTContext &Ctx,
                                                const TypeDecl *TD,
                                                bool FullyQualify,
                                                bool WithGlobalNsPrefix) {
-  const Type *TypePtr = TD->getTypeForDecl();
-  if (isa<const TemplateSpecializationType>(TypePtr) ||
-      isa<const RecordType>(TypePtr)) {
-    // We are asked to fully qualify and we have a Record Type (which
-    // may point to a template specialization) or Template
-    // Specialization Type. We need to fully qualify their arguments.
-
-    TypePtr = getFullyQualifiedTemplateType(Ctx, TypePtr, WithGlobalNsPrefix);
-  }
-
   return NestedNameSpecifier::Create(
-      Ctx, createOuterNNS(Ctx, TD, FullyQualify, WithGlobalNsPrefix),
-      false /*No TemplateKeyword*/, TypePtr);
+      Ctx,
+      createOuterNNS(Ctx, TD, FullyQualify, WithGlobalNsPrefix),
+      false /*No TemplateKeyword*/,
+      TD->getTypeForDecl());
 }
 
 /// Return the fully qualified type, including fully-qualified

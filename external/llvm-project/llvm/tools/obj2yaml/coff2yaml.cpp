@@ -80,8 +80,6 @@ template <typename T> void COFFDumper::dumpOptionalHeader(T OptionalHeader) {
       OptionalHeader->SizeOfHeapReserve;
   YAMLObj.OptionalHeader->Header.SizeOfHeapCommit =
       OptionalHeader->SizeOfHeapCommit;
-  YAMLObj.OptionalHeader->Header.NumberOfRvaAndSize =
-      OptionalHeader->NumberOfRvaAndSize;
   unsigned I = 0;
   for (auto &DestDD : YAMLObj.OptionalHeader->DataDirectories) {
     const object::data_directory *DD = Obj.getDataDirectory(I++);

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import os, sys, subprocess
 
@@ -20,7 +20,7 @@ while args:
         output = args.pop(0)
 
 if output == None:
-    print("No output file name!")
+    print "No output file name!"
     sys.exit(1)
 
 ret = subprocess.call(sys.argv[1:])

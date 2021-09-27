@@ -9,7 +9,7 @@
 #ifndef LLDB_DATAFORMATTERS_TYPESYNTHETIC_H
 #define LLDB_DATAFORMATTERS_TYPESYNTHETIC_H
 
-#include <cstdint>
+#include <stdint.h>
 
 #include <functional>
 #include <initializer_list>
@@ -133,7 +133,7 @@ class SyntheticChildren {
 public:
   class Flags {
   public:
-    Flags() = default;
+    Flags() : m_flags(lldb::eTypeOptionCascade) {}
 
     Flags(const Flags &other) : m_flags(other.m_flags) {}
 
@@ -225,7 +225,7 @@ public:
     void SetValue(uint32_t value) { m_flags = value; }
 
   private:
-    uint32_t m_flags = lldb::eTypeOptionCascade;
+    uint32_t m_flags;
   };
 
   SyntheticChildren(const Flags &flags) : m_flags(flags) {}

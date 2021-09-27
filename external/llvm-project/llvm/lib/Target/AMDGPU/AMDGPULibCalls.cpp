@@ -17,7 +17,6 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/Loads.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
-#include "llvm/IR/IRBuilder.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Target/TargetMachine.h"
 
@@ -54,7 +53,7 @@ private:
 
   bool useNativeFunc(const StringRef F) const;
 
-  // Return a pointer (pointer expr) to the function if function definition with
+  // Return a pointer (pointer expr) to the function if function defintion with
   // "FuncName" exists. It may create a new function prototype in pre-link mode.
   FunctionCallee getFunction(Module *M, const FuncInfo &fInfo);
 
@@ -477,7 +476,7 @@ bool AMDGPULibCalls::isUnsafeMath(const CallInst *CI) const {
       return true;
   const Function *F = CI->getParent()->getParent();
   Attribute Attr = F->getFnAttribute("unsafe-fp-math");
-  return Attr.getValueAsBool();
+  return Attr.getValueAsString() == "true";
 }
 
 bool AMDGPULibCalls::useNativeFunc(const StringRef F) const {
@@ -660,7 +659,7 @@ bool AMDGPULibCalls::fold(CallInst *CI, AliasAnalysis *AA) {
   if (isUnsafeMath(CI) && evaluateCall(CI, FInfo))
     return true;
 
-  // Specialized optimizations for each function call
+  // Specilized optimizations for each function call
   switch (FInfo.getId()) {
   case AMDGPULibFunc::EI_RECIP:
     // skip vector function
@@ -1231,7 +1230,7 @@ bool AMDGPULibCalls::fold_fma_mad(CallInst *CI, IRBuilder<> &B,
   return false;
 }
 
-// Get a scalar native builtin single argument FP function
+// Get a scalar native builtin signle argument FP function
 FunctionCallee AMDGPULibCalls::getNativeFunction(Module *M,
                                                  const FuncInfo &FInfo) {
   if (getArgType(FInfo) == AMDGPULibFunc::F64 || !HasNative(FInfo.getId()))
@@ -1370,9 +1369,9 @@ bool AMDGPULibCalls::fold_wavefrontsize(CallInst *CI, IRBuilder<> &B) {
 
   StringRef CPU = TM->getTargetCPU();
   StringRef Features = TM->getTargetFeatureString();
-  if ((CPU.empty() || CPU.equals_insensitive("generic")) &&
+  if ((CPU.empty() || CPU.equals_lower("generic")) &&
       (Features.empty() ||
-       Features.find_insensitive("wavefrontsize") == StringRef::npos))
+       Features.find_lower("wavefrontsize") == StringRef::npos))
     return false;
 
   Function *F = CI->getParent()->getParent();

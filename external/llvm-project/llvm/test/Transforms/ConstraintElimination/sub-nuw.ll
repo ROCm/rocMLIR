@@ -237,4 +237,6 @@ if.end:                                           ; preds = %entry
   ret void
 }
 
+
 declare void @use(i1)
+declare void @llvm.trap()

@@ -32,15 +32,6 @@ void f() {
     // CHECK-MESSAGES: :[[@LINE-1]]:16: warning: 'continue' in loop with false condition is equivalent to 'break' [bugprone-terminating-continue]
     // CHECK-FIXES: if (x > 0) break;
   } while (false);
-
-  switch (2) {
-  case 2:
-    do {
-      continue; // LoopInSwitch
-      // CHECK-MESSAGES: :[[@LINE-1]]:7: warning: 'continue' in loop with false condition is equivalent to 'break' [bugprone-terminating-continue]
-      // CHECK-FIXES: break; // LoopInSwitch
-    } while (0);
-  }
 }
 
 void g() {
@@ -69,14 +60,6 @@ void g() {
   do {
     for (int n : v) {
       if (n>2) continue;
-    }
-  } while (false);
-
-  do {
-    switch (2) {
-    case 1:
-    case 2:
-      continue;
     }
   } while (false);
 }

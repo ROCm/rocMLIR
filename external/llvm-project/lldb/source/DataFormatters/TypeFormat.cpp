@@ -27,15 +27,16 @@
 using namespace lldb;
 using namespace lldb_private;
 
-TypeFormatImpl::TypeFormatImpl(const Flags &flags) : m_flags(flags) {}
+TypeFormatImpl::TypeFormatImpl(const Flags &flags)
+    : m_flags(flags), m_my_revision(0) {}
 
-TypeFormatImpl::~TypeFormatImpl() = default;
+TypeFormatImpl::~TypeFormatImpl() {}
 
 TypeFormatImpl_Format::TypeFormatImpl_Format(lldb::Format f,
                                              const TypeFormatImpl::Flags &flags)
     : TypeFormatImpl(flags), m_format(f) {}
 
-TypeFormatImpl_Format::~TypeFormatImpl_Format() = default;
+TypeFormatImpl_Format::~TypeFormatImpl_Format() {}
 
 bool TypeFormatImpl_Format::FormatObject(ValueObject *valobj,
                                          std::string &dest) const {
@@ -47,7 +48,7 @@ bool TypeFormatImpl_Format::FormatObject(ValueObject *valobj,
     ExecutionContext exe_ctx(valobj->GetExecutionContextRef());
     DataExtractor data;
 
-    if (context_type == Value::ContextType::RegisterInfo) {
+    if (context_type == Value::eContextTypeRegisterInfo) {
       const RegisterInfo *reg_info = value.GetRegisterInfo();
       if (reg_info) {
         Status error;
@@ -134,7 +135,7 @@ TypeFormatImpl_EnumType::TypeFormatImpl_EnumType(
     ConstString type_name, const TypeFormatImpl::Flags &flags)
     : TypeFormatImpl(flags), m_enum_type(type_name), m_types() {}
 
-TypeFormatImpl_EnumType::~TypeFormatImpl_EnumType() = default;
+TypeFormatImpl_EnumType::~TypeFormatImpl_EnumType() {}
 
 bool TypeFormatImpl_EnumType::FormatObject(ValueObject *valobj,
                                            std::string &dest) const {

@@ -24,3 +24,4 @@ define void @mod() {
   store <4 x i8> %tmp4, <4 x i8>* undef
   ret void
 }
+

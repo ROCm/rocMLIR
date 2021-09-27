@@ -181,8 +181,8 @@ ParallelLoopGeneratorKMP::createSubFn(Value *SequentialLoopStride,
                           Map);
 
   const auto Alignment = llvm::Align(is64BitArch() ? 8 : 4);
-  Value *ID = Builder.CreateAlignedLoad(Builder.getInt32Ty(), IDPtr, Alignment,
-                                        "polly.par.global_tid");
+  Value *ID =
+      Builder.CreateAlignedLoad(IDPtr, Alignment, "polly.par.global_tid");
 
   Builder.CreateAlignedStore(LB, LBPtr, Alignment);
   Builder.CreateAlignedStore(UB, UBPtr, Alignment);
@@ -223,10 +223,8 @@ ParallelLoopGeneratorKMP::createSubFn(Value *SequentialLoopStride,
       Builder.CreateCondBr(HasIteration, PreHeaderBB, ExitBB);
 
       Builder.SetInsertPoint(PreHeaderBB);
-      LB = Builder.CreateAlignedLoad(LongType, LBPtr, Alignment,
-                                     "polly.indvar.LB");
-      UB = Builder.CreateAlignedLoad(LongType, UBPtr, Alignment,
-                                     "polly.indvar.UB");
+      LB = Builder.CreateAlignedLoad(LBPtr, Alignment, "polly.indvar.LB");
+      UB = Builder.CreateAlignedLoad(UBPtr, Alignment, "polly.indvar.UB");
     }
     break;
   case OMPGeneralSchedulingType::StaticChunked:
@@ -236,13 +234,11 @@ ParallelLoopGeneratorKMP::createSubFn(Value *SequentialLoopStride,
       Builder.CreateAlignedStore(AdjustedUB, UBPtr, Alignment);
       createCallStaticInit(ID, IsLastPtr, LBPtr, UBPtr, StridePtr, ChunkSize);
 
-      Value *ChunkedStride = Builder.CreateAlignedLoad(
-          LongType, StridePtr, Alignment, "polly.kmpc.stride");
+      Value *ChunkedStride =
+          Builder.CreateAlignedLoad(StridePtr, Alignment, "polly.kmpc.stride");
 
-      LB = Builder.CreateAlignedLoad(LongType, LBPtr, Alignment,
-                                     "polly.indvar.LB");
-      UB = Builder.CreateAlignedLoad(LongType, UBPtr, Alignment,
-                                     "polly.indvar.UB.temp");
+      LB = Builder.CreateAlignedLoad(LBPtr, Alignment, "polly.indvar.LB");
+      UB = Builder.CreateAlignedLoad(UBPtr, Alignment, "polly.indvar.UB.temp");
 
       Value *UBInRange =
           Builder.CreateICmp(llvm::CmpInst::Predicate::ICMP_SLE, UB, AdjustedUB,
@@ -256,9 +252,9 @@ ParallelLoopGeneratorKMP::createSubFn(Value *SequentialLoopStride,
 
       if (Scheduling == OMPGeneralSchedulingType::StaticChunked) {
         Builder.SetInsertPoint(PreHeaderBB);
-        LB = Builder.CreateAlignedLoad(LongType, LBPtr, Alignment,
+        LB = Builder.CreateAlignedLoad(LBPtr, Alignment,
                                        "polly.indvar.LB.entry");
-        UB = Builder.CreateAlignedLoad(LongType, UBPtr, Alignment,
+        UB = Builder.CreateAlignedLoad(UBPtr, Alignment,
                                        "polly.indvar.UB.entry");
       }
 

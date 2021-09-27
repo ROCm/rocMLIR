@@ -169,7 +169,7 @@ class AMDGPUGISelMITest : public GISelMITest {
       (void)s128;                                                              \
       do                                                                       \
         SettingUpActionsBlock while (0);                                       \
-      getLegacyLegalizerInfo().computeTables();                                \
+      computeTables();                                                         \
       verify(*ST.getInstrInfo());                                              \
     }                                                                          \
   };

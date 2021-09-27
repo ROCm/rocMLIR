@@ -10,6 +10,9 @@
 #include "../utils/Matchers.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
+#include "clang/Frontend/CompilerInstance.h"
+#include "clang/Lex/Lexer.h"
+#include "clang/Lex/Preprocessor.h"
 
 using namespace clang::ast_matchers;
 
@@ -19,7 +22,9 @@ namespace performance {
 
 MoveConstructorInitCheck::MoveConstructorInitCheck(StringRef Name,
                                                    ClangTidyContext *Context)
-    : ClangTidyCheck(Name, Context) {}
+    : ClangTidyCheck(Name, Context),
+      Inserter(Options.getLocalOrGlobal("IncludeStyle",
+                                        utils::IncludeSorter::IS_LLVM)) {}
 
 void MoveConstructorInitCheck::registerMatchers(MatchFinder *Finder) {
   Finder->addMatcher(
@@ -63,7 +68,7 @@ void MoveConstructorInitCheck::check(const MatchFinder::MatchResult &Result) {
       // initializer.
       //
       // FIXME: Determine whether the move constructor is a viable candidate
-      // for the ctor-initializer, perhaps provide a fix-it that suggests
+      // for the ctor-initializer, perhaps provide a fixit that suggests
       // using std::move().
       Candidate = Ctor;
       break;
@@ -74,14 +79,22 @@ void MoveConstructorInitCheck::check(const MatchFinder::MatchResult &Result) {
     // There's a move constructor candidate that the caller probably intended
     // to call instead.
     diag(Initializer->getSourceLocation(),
-         "move constructor initializes %select{class member|base class}0 by "
-         "calling a copy constructor")
-        << Initializer->isBaseInitializer();
+         "move constructor initializes %0 by calling a copy constructor")
+        << (Initializer->isBaseInitializer() ? "base class" : "class member");
     diag(CopyCtor->getLocation(), "copy constructor being called",
          DiagnosticIDs::Note);
     diag(Candidate->getLocation(), "candidate move constructor here",
          DiagnosticIDs::Note);
   }
+}
+
+void MoveConstructorInitCheck::registerPPCallbacks(
+    const SourceManager &SM, Preprocessor *PP, Preprocessor *ModuleExpanderPP) {
+  Inserter.registerPreprocessor(PP);
+}
+
+void MoveConstructorInitCheck::storeOptions(ClangTidyOptions::OptionMap &Opts) {
+  Options.store(Opts, "IncludeStyle", Inserter.getStyle());
 }
 
 } // namespace performance

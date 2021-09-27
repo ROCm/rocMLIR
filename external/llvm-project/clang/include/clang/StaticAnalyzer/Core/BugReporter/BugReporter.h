@@ -432,16 +432,12 @@ public:
   void markInteresting(SymbolRef sym, bugreporter::TrackingKind TKind =
                                           bugreporter::TrackingKind::Thorough);
 
-  void markNotInteresting(SymbolRef sym);
-
   /// Marks a region as interesting. Different kinds of interestingness will
   /// be processed differently by visitors (e.g. if the tracking kind is
   /// condition, will append "will be used as a condition" to the message).
   void markInteresting(
       const MemRegion *R,
       bugreporter::TrackingKind TKind = bugreporter::TrackingKind::Thorough);
-
-  void markNotInteresting(const MemRegion *R);
 
   /// Marks a symbolic value as interesting. Different kinds of interestingness
   /// will be processed differently by visitors (e.g. if the tracking kind is
@@ -493,15 +489,10 @@ public:
   ///
   /// The visitors should be used when the default trace is not sufficient.
   /// For example, they allow constructing a more elaborate trace.
-  /// @{
+  /// \sa registerConditionVisitor(), registerTrackNullOrUndefValue(),
+  /// registerFindLastStore(), registerNilReceiverVisitor(), and
+  /// registerVarDeclsLastStore().
   void addVisitor(std::unique_ptr<BugReporterVisitor> visitor);
-
-  template <class VisitorType, class... Args>
-  void addVisitor(Args &&... ConstructorArgs) {
-    addVisitor(
-        std::make_unique<VisitorType>(std::forward<Args>(ConstructorArgs)...));
-  }
-  /// @}
 
   /// Remove all visitors attached to this bug report.
   void clearVisitors();
@@ -729,43 +720,14 @@ public:
   }
 };
 
-/// The tag that carries some information with it.
-///
-/// It can be valuable to produce tags with some bits of information and later
-/// reuse them for a better diagnostic.
-///
-/// Please make sure that derived class' constuctor is private and that the user
-/// can only create objects using DataTag::Factory.  This also means that
-/// DataTag::Factory should be friend for every derived class.
-class DataTag : public ProgramPointTag {
-public:
-  StringRef getTagDescription() const override { return "Data Tag"; }
-
-  // Manage memory for DataTag objects.
-  class Factory {
-    std::vector<std::unique_ptr<DataTag>> Tags;
-
-  public:
-    template <class DataTagType, class... Args>
-    const DataTagType *make(Args &&... ConstructorArgs) {
-      // We cannot use std::make_unique because we cannot access the private
-      // constructor from inside it.
-      Tags.emplace_back(
-          new DataTagType(std::forward<Args>(ConstructorArgs)...));
-      return static_cast<DataTagType *>(Tags.back().get());
-    }
-  };
-
-protected:
-  DataTag(void *TagKind) : ProgramPointTag(TagKind) {}
-};
 
 /// The tag upon which the TagVisitor reacts. Add these in order to display
 /// additional PathDiagnosticEventPieces along the path.
-class NoteTag : public DataTag {
+class NoteTag : public ProgramPointTag {
 public:
-  using Callback = std::function<std::string(BugReporterContext &,
-                                             PathSensitiveBugReport &)>;
+  using Callback =
+      std::function<std::string(BugReporterContext &,
+                                PathSensitiveBugReport &)>;
 
 private:
   static int Kind;
@@ -774,7 +736,7 @@ private:
   const bool IsPrunable;
 
   NoteTag(Callback &&Cb, bool IsPrunable)
-      : DataTag(&Kind), Cb(std::move(Cb)), IsPrunable(IsPrunable) {}
+      : ProgramPointTag(&Kind), Cb(std::move(Cb)), IsPrunable(IsPrunable) {}
 
 public:
   static bool classof(const ProgramPointTag *T) {
@@ -799,7 +761,20 @@ public:
 
   bool isPrunable() const { return IsPrunable; }
 
-  friend class Factory;
+  // Manage memory for NoteTag objects.
+  class Factory {
+    std::vector<std::unique_ptr<NoteTag>> Tags;
+
+  public:
+    const NoteTag *makeNoteTag(Callback &&Cb, bool IsPrunable = false) {
+      // We cannot use std::make_unique because we cannot access the private
+      // constructor from inside it.
+      std::unique_ptr<NoteTag> T(new NoteTag(std::move(Cb), IsPrunable));
+      Tags.push_back(std::move(T));
+      return Tags.back().get();
+    }
+  };
+
   friend class TagVisitor;
 };
 

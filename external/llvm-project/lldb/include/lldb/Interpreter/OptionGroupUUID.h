@@ -18,14 +18,15 @@ namespace lldb_private {
 
 class OptionGroupUUID : public OptionGroup {
 public:
-  OptionGroupUUID() = default;
+  OptionGroupUUID();
 
-  ~OptionGroupUUID() override = default;
+  ~OptionGroupUUID() override;
 
   llvm::ArrayRef<OptionDefinition> GetDefinitions() override;
 
   Status SetOptionValue(uint32_t option_idx, llvm::StringRef option_value,
                         ExecutionContext *execution_context) override;
+  Status SetOptionValue(uint32_t, const char *, ExecutionContext *) = delete;
 
   void OptionParsingStarting(ExecutionContext *execution_context) override;
 

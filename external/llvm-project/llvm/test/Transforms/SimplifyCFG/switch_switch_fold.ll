@@ -20,17 +20,15 @@ define void @test1(i32 %V) {
 ; CHECK-NEXT:    i32 18, label [[B]]
 ; CHECK-NEXT:    i32 42, label [[D:%.*]]
 ; CHECK-NEXT:    ]
-; CHECK:       common.ret:
-; CHECK-NEXT:    ret void
 ; CHECK:       A:
 ; CHECK-NEXT:    call void @foo1()
-; CHECK-NEXT:    br label [[COMMON_RET:%.*]]
+; CHECK-NEXT:    ret void
 ; CHECK:       B:
 ; CHECK-NEXT:    call void @foo2()
-; CHECK-NEXT:    br label [[COMMON_RET]]
+; CHECK-NEXT:    ret void
 ; CHECK:       D:
 ; CHECK-NEXT:    call void @foo4()
-; CHECK-NEXT:    br label [[COMMON_RET]]
+; CHECK-NEXT:    ret void
 ; CHECK:       infloop:
 ; CHECK-NEXT:    br label [[INFLOOP]]
 ;

@@ -1,8 +1,9 @@
 //===--- MacroExpander.cpp - Format C++ code --------------------*- C++ -*-===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
 ///
@@ -52,7 +53,7 @@ public:
     Current = Tokens[0];
   }
 
-  // Parse the token stream and return the corresponding Definition object.
+  // Parse the token stream and return the corresonding Definition object.
   // Returns an empty definition object with a null-Name on error.
   MacroExpander::Definition parse() {
     if (!Current->is(tok::identifier))

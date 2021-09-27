@@ -50,27 +50,6 @@ static cl::opt<bool>
     UpdatePseudoProbe("update-pseudo-probe", cl::init(true), cl::Hidden,
                       cl::desc("Update pseudo probe distribution factor"));
 
-static uint64_t getCallStackHash(const DILocation *DIL) {
-  uint64_t Hash = 0;
-  const DILocation *InlinedAt = DIL ? DIL->getInlinedAt() : nullptr;
-  while (InlinedAt) {
-    Hash ^= MD5Hash(std::to_string(InlinedAt->getLine()));
-    Hash ^= MD5Hash(std::to_string(InlinedAt->getColumn()));
-    const DISubprogram *SP = InlinedAt->getScope()->getSubprogram();
-    // Use linkage name for C++ if possible.
-    auto Name = SP->getLinkageName();
-    if (Name.empty())
-      Name = SP->getName();
-    Hash ^= MD5Hash(Name);
-    InlinedAt = InlinedAt->getInlinedAt();
-  }
-  return Hash;
-}
-
-static uint64_t computeCallStackHash(const Instruction &Inst) {
-  return getCallStackHash(Inst.getDebugLoc());
-}
-
 bool PseudoProbeVerifier::shouldVerifyFunction(const Function *F) {
   // Skip function declaration.
   if (F->isDeclaration())
@@ -138,10 +117,8 @@ void PseudoProbeVerifier::runAfterPass(const Loop *L) {
 void PseudoProbeVerifier::collectProbeFactors(const BasicBlock *Block,
                                               ProbeFactorMap &ProbeFactors) {
   for (const auto &I : *Block) {
-    if (Optional<PseudoProbe> Probe = extractProbe(I)) {
-      uint64_t Hash = computeCallStackHash(I);
-      ProbeFactors[{Probe->Id, Hash}] += Probe->Factor;
-    }
+    if (Optional<PseudoProbe> Probe = extractProbe(I))
+      ProbeFactors[Probe->Id] += Probe->Factor;
   }
 }
 
@@ -159,7 +136,7 @@ void PseudoProbeVerifier::verifyProbeFactors(
           dbgs() << "Function " << F->getName() << ":\n";
           BannerPrinted = true;
         }
-        dbgs() << "Probe " << I.first.first << "\tprevious factor "
+        dbgs() << "Probe " << I.first << "\tprevious factor "
                << format("%0.2f", PrevProbeFactor) << "\tcurrent factor "
                << format("%0.2f", CurProbeFactor) << "\n";
       }
@@ -387,8 +364,9 @@ void SampleProfileProber::instrumentOneFunc(Function &F, TargetMachine *TM) {
   if (!F.isDeclarationForLinker()) {
     if (TM) {
       auto Triple = TM->getTargetTriple();
-      if (Triple.supportsCOMDAT() && TM->getFunctionSections())
-        getOrCreateFunctionComdat(F, Triple);
+      if (Triple.supportsCOMDAT() && TM->getFunctionSections()) {
+        GetOrCreateFunctionComdat(F, Triple, CurModuleUniqueId);
+      }
     }
   }
 }
@@ -424,10 +402,8 @@ void PseudoProbeUpdatePass::runOnFunction(Function &F,
   ProbeFactorMap ProbeFactors;
   for (auto &Block : F) {
     for (auto &I : Block) {
-      if (Optional<PseudoProbe> Probe = extractProbe(I)) {
-        uint64_t Hash = computeCallStackHash(I);
-        ProbeFactors[{Probe->Id, Hash}] += BBProfileCount(&Block);
-      }
+      if (Optional<PseudoProbe> Probe = extractProbe(I))
+        ProbeFactors[Probe->Id] += BBProfileCount(&Block);
     }
   }
 
@@ -435,8 +411,7 @@ void PseudoProbeUpdatePass::runOnFunction(Function &F,
   for (auto &Block : F) {
     for (auto &I : Block) {
       if (Optional<PseudoProbe> Probe = extractProbe(I)) {
-        uint64_t Hash = computeCallStackHash(I);
-        float Sum = ProbeFactors[{Probe->Id, Hash}];
+        float Sum = ProbeFactors[Probe->Id];
         if (Sum != 0)
           setProbeDistributionFactor(I, BBProfileCount(&Block) / Sum);
       }

@@ -20,8 +20,9 @@ class SPIRVTypeConverter;
 
 /// Appends to a pattern list additional patterns for translating Vector Ops to
 /// SPIR-V ops.
-void populateVectorToSPIRVPatterns(SPIRVTypeConverter &typeConverter,
-                                   RewritePatternSet &patterns);
+void populateVectorToSPIRVPatterns(MLIRContext *context,
+                                   SPIRVTypeConverter &typeConverter,
+                                   OwningRewritePatternList &patterns);
 
 } // namespace mlir
 

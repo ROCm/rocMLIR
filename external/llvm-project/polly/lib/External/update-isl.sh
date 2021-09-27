@@ -6,33 +6,29 @@ set -e
 
 SCRIPTPATH=`realpath --no-symlinks $(dirname $0)`
 ISL_SOURCE_DIR="${SCRIPTPATH}/isl"
-GITDIR=`mktemp -d --tmpdir isl-XXX`
 
-# Checkout isl source code
+TMPDIR=`mktemp -d --tmpdir isl-XXX`
+GITDIR=$TMPDIR/src
+BUILDDIR=$TMPDIR/build
+
 git clone --recursive http://repo.or.cz/isl.git $GITDIR
 if [ -n "$1" ]; then
-  (cd $GITDIR && git checkout --detach $1)
+  (cd $GITDIR && git checkout $1)
   (cd $GITDIR && git submodule update --recursive)
 fi
+(cd $GITDIR && ./autogen.sh)
+mkdir -p $BUILDDIR
+(cd $BUILDDIR && $GITDIR/configure --with-int=imath-32 --with-clang=system)
+echo "#define GIT_HEAD_ID \"\"" > $GITDIR/gitversion.h
+(cd $BUILDDIR && make -j dist)
 
-# Customize the source directory for Polly:
-# - Remove the autotools build system to avoid including GPL source into
-#   the LLVM repository, even if covered by the autotools exception
-# - Create files that the autotools would have created
-# - Save the custom isl C++ binding
-# - Strip git source versioning
-(cd $GITDIR && rm -rf m4 autogen.sh configure.ac)
-(cd $GITDIR && find -name "Makefile.am" -execdir rm -f '{}' \;)
-(cd $GITDIR && git describe > $GITDIR/GIT_HEAD_ID)
-cp $ISL_SOURCE_DIR/include/isl/isl-noexceptions.h $GITDIR/include/isl/isl-noexceptions.h
-rm -rf $GITDIR/.git
-rm -rf $GITDIR/imath/.git
+for DISTFILE in "$BUILDDIR/isl*.tar.gz"; do break; done
 
-# Replace the current isl source
-# IMPORTANT: Remember to `git add` any new files in LLVM's versioning
-#            and add them to its CMakeLists.txt if necessary.
+cp $ISL_SOURCE_DIR/include/isl/isl-noexceptions.h $TMPDIR/isl-noexceptions.h
+
 rm -rf $ISL_SOURCE_DIR
-mv -T $GITDIR $ISL_SOURCE_DIR
+mkdir -p $ISL_SOURCE_DIR
+tar -xf $DISTFILE --strip-components=1 --directory $ISL_SOURCE_DIR
+cp $TMPDIR/isl-noexceptions.h $ISL_SOURCE_DIR/include/isl
 
-# Cleanup script temporaries
 rm -rf $TMPDIR

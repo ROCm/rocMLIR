@@ -1,5 +1,5 @@
-# RUN: llvm-mc -triple=i386 %s | FileCheck %s
-# RUN: not llvm-mc -triple=i386 --defsym ERR=1 %s 2>&1 > /dev/null | FileCheck %s --check-prefix=ERR
+# RUN: not llvm-mc -triple i386-unknown-unknown %s | FileCheck %s
+# RUN: not llvm-mc -triple i386-unknown-unknown %s 2>&1 > /dev/null| FileCheck %s --check-prefix=CHECK-ERROR
 
 # CHECK: TEST0:
 # CHECK: .byte 1
@@ -42,16 +42,18 @@ TEST5:
 TEST6:
         .dcb.d 5, .232
 
-.ifdef ERR
-# ERR: :[[#@LINE+1]]:8: error: .dcb.x not currently supported for this target
-.dcb.x 3, 1.2e3
+# CHECK-ERROR: error: .dcb.x not currently supported for this target
+TEST7:
+        .dcb.x 3, 1.2e3
 
-# ERR: :[[#@LINE+1]]:6: warning: '.dcb' directive with negative repeat count has no effect
-.dcb -1, 2
+# CHECK-ERROR: warning: '.dcb' directive with negative repeat count has no effect
+TEST8:
+       .dcb -1, 2
 
-# ERR: :[[#@LINE+1]]:8: error: expected comma
-.dcb 1 2
+# CHECK-ERROR: error: unexpected token in '.dcb' directive
+TEST9:
+       .dcb 1 2
 
-# ERR: :[[#@LINE+1]]:11: error: expected newline
-.dcb 1, 2 3
-.endif
+# CHECK-ERROR: error: unexpected token in '.dcb' directive
+TEST10:
+       .dcb 1, 2 3

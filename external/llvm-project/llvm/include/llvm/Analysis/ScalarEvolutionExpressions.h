@@ -210,6 +210,8 @@ class Type;
       return make_range(op_begin(), op_end());
     }
 
+    Type *getType() const { return getOperand(0)->getType(); }
+
     NoWrapFlags getNoWrapFlags(NoWrapFlags Mask = NoWrapMask) const {
       return (NoWrapFlags)(SubclassData & Mask);
     }
@@ -291,8 +293,6 @@ class Type;
       : SCEVCommutativeExpr(ID, scMulExpr, O, N) {}
 
   public:
-    Type *getType() const { return getOperand(0)->getType(); }
-
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
     static bool classof(const SCEV *S) {
       return S->getSCEVType() == scMulExpr;
@@ -359,7 +359,6 @@ class Type;
       : SCEVNAryExpr(ID, scAddRecExpr, O, N), L(l) {}
 
   public:
-    Type *getType() const { return getStart()->getType(); }
     const SCEV *getStart() const { return Operands[0]; }
     const Loop *getLoop() const { return L; }
 
@@ -402,11 +401,6 @@ class Type;
     /// iteration number.
     const SCEV *evaluateAtIteration(const SCEV *It, ScalarEvolution &SE) const;
 
-    /// Return the value of this chain of recurrences at the specified iteration
-    /// number. Takes an explicit list of operands to represent an AddRec.
-    static const SCEV *evaluateAtIteration(ArrayRef<const SCEV *> Operands,
-                                           const SCEV *It, ScalarEvolution &SE);
-
     /// Return the number of iterations of this loop that produce
     /// values in the specified constant range.  Another way of
     /// looking at this is that it returns the first iteration number
@@ -446,8 +440,6 @@ class Type;
     }
 
   public:
-    Type *getType() const { return getOperand(0)->getType(); }
-
     static bool classof(const SCEV *S) {
       return isMinMaxType(S->getSCEVType());
     }
@@ -903,10 +895,13 @@ class Type;
         Operands.push_back(visit(Op));
 
       const Loop *L = Expr->getLoop();
-      if (0 == Map.count(L))
-        return SE.getAddRecExpr(Operands, L, Expr->getNoWrapFlags());
+      const SCEV *Res = SE.getAddRecExpr(Operands, L, Expr->getNoWrapFlags());
 
-      return SCEVAddRecExpr::evaluateAtIteration(Operands, Map[L], SE);
+      if (0 == Map.count(L))
+        return Res;
+
+      const SCEVAddRecExpr *Rec = cast<SCEVAddRecExpr>(Res);
+      return Rec->evaluateAtIteration(Map[L], SE);
     }
 
   private:

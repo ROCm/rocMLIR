@@ -13,7 +13,6 @@
 #include "Parser.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/TensorEncoding.h"
 
 using namespace mlir;
 using namespace mlir::detail;
@@ -165,12 +164,15 @@ ParseResult Parser::parseStridedLayout(int64_t &offset,
     return emitError("expected comma after offset value");
 
   // Parse stride list.
-  if (parseToken(Token::kw_strides,
-                 "expected `strides` keyword after offset specification") ||
+  if (!consumeIf(Token::kw_strides))
+    return emitError("expected `strides` keyword after offset specification");
+  if (!consumeIf(Token::colon))
+    return emitError("expected colon after `strides` keyword");
+  if (failed(parseStrideList(strides)))
+    return emitError("invalid braces-enclosed stride list");
+  if (llvm::any_of(strides, [](int64_t st) { return st == 0; }))
+    return emitError("invalid memref stride");
 
-      parseToken(Token::colon, "expected colon after `strides` keyword") ||
-      parseStrideList(strides))
-    return failure();
   return success();
 }
 
@@ -190,7 +192,6 @@ ParseResult Parser::parseStridedLayout(int64_t &offset,
 ///   memory-space ::= integer-literal /* | TODO: address-space-id */
 ///
 Type Parser::parseMemRefType() {
-  llvm::SMLoc loc = getToken().getLoc();
   consumeToken(Token::kw_memref);
 
   if (parseToken(Token::less, "expected '<' in memref type"))
@@ -218,19 +219,33 @@ Type Parser::parseMemRefType() {
     return nullptr;
 
   // Check that memref is formed from allowed types.
-  if (!BaseMemRefType::isValidElementType(elementType))
+  if (!elementType.isIntOrIndexOrFloat() &&
+      !elementType.isa<VectorType, ComplexType>())
     return emitError(typeLoc, "invalid memref element type"), nullptr;
 
   // Parse semi-affine-map-composition.
   SmallVector<AffineMap, 2> affineMapComposition;
-  Attribute memorySpace;
+  Optional<unsigned> memorySpace;
   unsigned numDims = dimensions.size();
 
   auto parseElt = [&]() -> ParseResult {
+    // Check for the memory space.
+    if (getToken().is(Token::integer)) {
+      if (memorySpace)
+        return emitError("multiple memory spaces specified in memref type");
+      memorySpace = getToken().getUnsignedIntegerValue();
+      if (!memorySpace.hasValue())
+        return emitError("invalid memory space in memref type");
+      consumeToken(Token::integer);
+      return success();
+    }
+    if (isUnranked)
+      return emitError("cannot have affine map for unranked memref type");
+    if (memorySpace)
+      return emitError("expected memory space to be last in memref type");
+
     AffineMap map;
     llvm::SMLoc mapLoc = getToken().getLoc();
-
-    // Check for AffineMap as offset/strides.
     if (getToken().is(Token::kw_offset)) {
       int64_t offset;
       SmallVector<int64_t, 4> strides;
@@ -239,25 +254,15 @@ Type Parser::parseMemRefType() {
       // Construct strided affine map.
       map = makeStridedLinearLayoutMap(strides, offset, state.context);
     } else {
-      // Either it is AffineMapAttr or memory space attribute.
-      Attribute attr = parseAttribute();
-      if (!attr)
+      // Parse an affine map attribute.
+      auto affineMap = parseAttribute();
+      if (!affineMap)
         return failure();
-
-      if (AffineMapAttr affineMapAttr = attr.dyn_cast<AffineMapAttr>()) {
-        map = affineMapAttr.getValue();
-      } else if (memorySpace) {
-        return emitError("multiple memory spaces specified in memref type");
-      } else {
-        memorySpace = attr;
-        return success();
-      }
+      auto affineMapAttr = affineMap.dyn_cast<AffineMapAttr>();
+      if (!affineMapAttr)
+        return emitError("expected affine map in memref type");
+      map = affineMapAttr.getValue();
     }
-
-    if (isUnranked)
-      return emitError("cannot have affine map for unranked memref type");
-    if (memorySpace)
-      return emitError("expected memory space to be last in memref type");
 
     if (map.getNumDims() != numDims) {
       size_t i = affineMapComposition.size();
@@ -282,10 +287,10 @@ Type Parser::parseMemRefType() {
   }
 
   if (isUnranked)
-    return getChecked<UnrankedMemRefType>(loc, elementType, memorySpace);
+    return UnrankedMemRefType::get(elementType, memorySpace.getValueOr(0));
 
-  return getChecked<MemRefType>(loc, dimensions, elementType,
-                                affineMapComposition, memorySpace);
+  return MemRefType::get(dimensions, elementType, affineMapComposition,
+                         memorySpace.getValueOr(0));
 }
 
 /// Parse any type except the function type.
@@ -404,29 +409,14 @@ Type Parser::parseTensorType() {
   // Parse the element type.
   auto elementTypeLoc = getToken().getLoc();
   auto elementType = parseType();
-
-  // Parse an optional encoding attribute.
-  Attribute encoding;
-  if (consumeIf(Token::comma)) {
-    encoding = parseAttribute();
-    if (auto v = encoding.dyn_cast_or_null<VerifiableTensorEncoding>()) {
-      if (failed(v.verifyEncoding(dimensions, elementType,
-                                  [&] { return emitError(); })))
-        return nullptr;
-    }
-  }
-
   if (!elementType || parseToken(Token::greater, "expected '>' in tensor type"))
     return nullptr;
   if (!TensorType::isValidElementType(elementType))
     return emitError(elementTypeLoc, "invalid tensor element type"), nullptr;
 
-  if (isUnranked) {
-    if (encoding)
-      return emitError("cannot apply encoding to unranked tensor"), nullptr;
+  if (isUnranked)
     return UnrankedTensorType::get(elementType);
-  }
-  return RankedTensorType::get(dimensions, elementType, encoding);
+  return RankedTensorType::get(dimensions, elementType);
 }
 
 /// Parse a tuple type.
@@ -482,7 +472,7 @@ VectorType Parser::parseVectorType() {
   if (!elementType || parseToken(Token::greater, "expected '>' in vector type"))
     return nullptr;
   if (!VectorType::isValidElementType(elementType))
-    return emitError(typeLoc, "vector elements must be int/index/float type"),
+    return emitError(typeLoc, "vector elements must be int or float type"),
            nullptr;
 
   return VectorType::get(dimensions, elementType);
@@ -557,30 +547,31 @@ ParseResult Parser::parseXInDimensionList() {
 // Parse a comma-separated list of dimensions, possibly empty:
 //   stride-list ::= `[` (dimension (`,` dimension)*)? `]`
 ParseResult Parser::parseStrideList(SmallVectorImpl<int64_t> &dimensions) {
-  return parseCommaSeparatedList(
-      Delimiter::Square,
-      [&]() -> ParseResult {
-        if (consumeIf(Token::question)) {
-          dimensions.push_back(MemRefType::getDynamicStrideOrOffset());
-        } else {
-          // This must be an integer value.
-          int64_t val;
-          if (getToken().getSpelling().getAsInteger(10, val))
-            return emitError("invalid integer value: ")
-                   << getToken().getSpelling();
-          // Make sure it is not the one value for `?`.
-          if (ShapedType::isDynamic(val))
-            return emitError("invalid integer value: ")
-                   << getToken().getSpelling()
-                   << ", use `?` to specify a dynamic dimension";
-
-          if (val == 0)
-            return emitError("invalid memref stride");
-
-          dimensions.push_back(val);
-          consumeToken(Token::integer);
-        }
-        return success();
-      },
-      " in stride list");
+  if (!consumeIf(Token::l_square))
+    return failure();
+  // Empty list early exit.
+  if (consumeIf(Token::r_square))
+    return success();
+  while (true) {
+    if (consumeIf(Token::question)) {
+      dimensions.push_back(MemRefType::getDynamicStrideOrOffset());
+    } else {
+      // This must be an integer value.
+      int64_t val;
+      if (getToken().getSpelling().getAsInteger(10, val))
+        return emitError("invalid integer value: ") << getToken().getSpelling();
+      // Make sure it is not the one value for `?`.
+      if (ShapedType::isDynamic(val))
+        return emitError("invalid integer value: ")
+               << getToken().getSpelling()
+               << ", use `?` to specify a dynamic dimension";
+      dimensions.push_back(val);
+      consumeToken(Token::integer);
+    }
+    if (!consumeIf(Token::comma))
+      break;
+  }
+  if (!consumeIf(Token::r_square))
+    return failure();
+  return success();
 }

@@ -67,8 +67,6 @@ public:
   }
 
   bool hasExtIntType() const override { return true; }
-
-  bool isCLZForZeroUndef() const override { return false; }
 };
 
 } // namespace targets

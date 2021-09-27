@@ -11,7 +11,6 @@
 
 namespace llvm {
 class Error;
-class raw_ostream;
 
 namespace object {
 class MachOObjectFile;
@@ -19,18 +18,15 @@ class MachOUniversalBinary;
 } // end namespace object
 
 namespace objcopy {
-struct CommonConfig;
-struct MachOConfig;
-class MultiFormatConfig;
+struct CopyConfig;
+class Buffer;
 
 namespace macho {
-Error executeObjcopyOnBinary(const CommonConfig &Config,
-                             const MachOConfig &MachOConfig,
-                             object::MachOObjectFile &In, raw_ostream &Out);
+Error executeObjcopyOnBinary(const CopyConfig &Config,
+                             object::MachOObjectFile &In, Buffer &Out);
 
 Error executeObjcopyOnMachOUniversalBinary(
-    const MultiFormatConfig &Config, const object::MachOUniversalBinary &In,
-    raw_ostream &Out);
+    CopyConfig &Config, const object::MachOUniversalBinary &In, Buffer &Out);
 
 } // end namespace macho
 } // end namespace objcopy

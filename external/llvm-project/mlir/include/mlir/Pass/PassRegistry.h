@@ -108,7 +108,7 @@ class PassInfo : public PassRegistryEntry {
 public:
   /// PassInfo constructor should not be invoked directly, instead use
   /// PassRegistration or registerPass.
-  PassInfo(StringRef arg, StringRef description,
+  PassInfo(StringRef arg, StringRef description, TypeID passID,
            const PassAllocatorFunction &allocator);
 };
 
@@ -125,24 +125,28 @@ void registerPassPipeline(
 
 /// Register a specific dialect pass allocator function with the system,
 /// typically used through the PassRegistration template.
-void registerPass(const PassAllocatorFunction &function);
+void registerPass(StringRef arg, StringRef description,
+                  const PassAllocatorFunction &function);
 
 /// PassRegistration provides a global initializer that registers a Pass
-/// allocation routine for a concrete pass instance. The argument is
+/// allocation routine for a concrete pass instance. The third argument is
 /// optional and provides a callback to construct a pass that does not have
 /// a default constructor.
 ///
 /// Usage:
 ///
 ///   /// At namespace scope.
-///   static PassRegistration<MyPass> reg;
+///   static PassRegistration<MyPass> reg("my-pass", "My Pass Description.");
 ///
 template <typename ConcretePass> struct PassRegistration {
-  PassRegistration(const PassAllocatorFunction &constructor) {
-    registerPass(constructor);
+  PassRegistration(StringRef arg, StringRef description,
+                   const PassAllocatorFunction &constructor) {
+    registerPass(arg, description, constructor);
   }
-  PassRegistration()
-      : PassRegistration([] { return std::make_unique<ConcretePass>(); }) {}
+
+  PassRegistration(StringRef arg, StringRef description)
+      : PassRegistration(arg, description,
+                         [] { return std::make_unique<ConcretePass>(); }) {}
 };
 
 /// PassPipelineRegistration provides a global initializer that registers a Pass

@@ -24,10 +24,7 @@ class StringRef;
 } // end namespace llvm
 
 namespace mlir {
-class AsmParserState;
-
 namespace detail {
-
 /// Given a block containing operations that have just been parsed, if the block
 /// contains a single operation of `ContainerOpT` type then remove it from the
 /// block and return it. If the block does not contain just that operation,
@@ -40,11 +37,12 @@ inline OwningOpRef<ContainerOpT> constructContainerOpForParserIfNecessary(
     Block *parsedBlock, MLIRContext *context, Location sourceFileLoc) {
   static_assert(
       ContainerOpT::template hasTrait<OpTrait::OneRegion>() &&
-          (ContainerOpT::template hasTrait<OpTrait::NoTerminator>() ||
-           OpTrait::template hasSingleBlockImplicitTerminator<
-               ContainerOpT>::value),
+          std::is_base_of<typename OpTrait::SingleBlockImplicitTerminator<
+                              typename ContainerOpT::ImplicitTerminatorOpT>::
+                              template Impl<ContainerOpT>,
+                          ContainerOpT>::value,
       "Expected `ContainerOpT` to have a single region with a single "
-      "block that has an implicit terminator or does not require one");
+      "block that has an implicit terminator");
 
   // Check to see if we parsed a single instance of this operation.
   if (llvm::hasSingleElement(*parsedBlock)) {
@@ -79,14 +77,10 @@ inline OwningOpRef<ContainerOpT> constructContainerOpForParserIfNecessary(
 /// returned. Otherwise, an error message is emitted through the error handler
 /// registered in the context, and failure is returned. If `sourceFileLoc` is
 /// non-null, it is populated with a file location representing the start of the
-/// source file that is being parsed. If `asmState` is non-null, it is populated
-/// with detailed information about the parsed IR (including exact locations for
-/// SSA uses and definitions). `asmState` should only be provided if this
-/// detailed information is desired.
+/// source file that is being parsed.
 LogicalResult parseSourceFile(const llvm::SourceMgr &sourceMgr, Block *block,
                               MLIRContext *context,
-                              LocationAttr *sourceFileLoc = nullptr,
-                              AsmParserState *asmState = nullptr);
+                              LocationAttr *sourceFileLoc = nullptr);
 
 /// This parses the file specified by the indicated filename and appends parsed
 /// operations to the given block. If the block is non-empty, the operations are
@@ -105,15 +99,11 @@ LogicalResult parseSourceFile(llvm::StringRef filename, Block *block,
 /// parsing is successful, success is returned. Otherwise, an error message is
 /// emitted through the error handler registered in the context, and failure is
 /// returned. If `sourceFileLoc` is non-null, it is populated with a file
-/// location representing the start of the source file that is being parsed. If
-/// `asmState` is non-null, it is populated with detailed information about the
-/// parsed IR (including exact locations for SSA uses and definitions).
-/// `asmState` should only be provided if this detailed information is desired.
+/// location representing the start of the source file that is being parsed.
 LogicalResult parseSourceFile(llvm::StringRef filename,
                               llvm::SourceMgr &sourceMgr, Block *block,
                               MLIRContext *context,
-                              LocationAttr *sourceFileLoc = nullptr,
-                              AsmParserState *asmState = nullptr);
+                              LocationAttr *sourceFileLoc = nullptr);
 
 /// This parses the IR string and appends parsed operations to the given block.
 /// If the block is non-empty, the operations are placed before the current

@@ -8,7 +8,7 @@
 
 #include "lldb/Utility/TildeExpressionResolver.h"
 
-#include <cassert>
+#include <assert.h>
 #include <system_error>
 
 #include "llvm/ADT/STLExtras.h"
@@ -27,7 +27,7 @@ using namespace llvm;
 namespace fs = llvm::sys::fs;
 namespace path = llvm::sys::path;
 
-TildeExpressionResolver::~TildeExpressionResolver() = default;
+TildeExpressionResolver::~TildeExpressionResolver() {}
 
 bool StandardTildeExpressionResolver::ResolveExact(
     StringRef Expr, SmallVectorImpl<char> &Output) {

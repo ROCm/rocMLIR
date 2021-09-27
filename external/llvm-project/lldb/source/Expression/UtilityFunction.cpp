@@ -6,8 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <cstdio>
+#include "lldb/Host/Config.h"
+
+#include <stdio.h>
+#if HAVE_SYS_TYPES_H
 #include <sys/types.h>
+#endif
+
 
 #include "lldb/Core/Module.h"
 #include "lldb/Core/StreamFile.h"
@@ -36,8 +41,7 @@ char UtilityFunction::ID;
 /// \param[in] name
 ///     The name of the function, as used in the text.
 UtilityFunction::UtilityFunction(ExecutionContextScope &exe_scope,
-                                 std::string text, std::string name,
-                                 bool enable_debugging)
+                                 std::string text, std::string name)
     : Expression(exe_scope), m_execution_unit_sp(), m_jit_module_wp(),
       m_function_text(std::move(text)), m_function_name(std::move(name)) {}
 

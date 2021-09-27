@@ -155,6 +155,7 @@ exit:
   ret i32 20
 }
 
+
 define void @loop_header_dom_or(i32 %y, i1 %c) {
 ; CHECK-LABEL: @loop_header_dom_or(
 ; CHECK-NEXT:  entry:

@@ -13,7 +13,6 @@
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/ThreadLocal.h"
-#include "llvm/Support/thread.h"
 #include <mutex>
 #include <setjmp.h>
 
@@ -428,7 +427,8 @@ bool CrashRecoveryContext::RunSafely(function_ref<void()> Fn) {
 
 #endif // !_MSC_VER
 
-[[noreturn]] void CrashRecoveryContext::HandleExit(int RetCode) {
+LLVM_ATTRIBUTE_NORETURN
+void CrashRecoveryContext::HandleExit(int RetCode) {
 #if defined(_WIN32)
   // SEH and VEH
   ::RaiseException(0xE0000000 | RetCode, 0, 0, NULL);
@@ -500,12 +500,10 @@ bool CrashRecoveryContext::RunSafelyOnThread(function_ref<void()> Fn,
                                              unsigned RequestedStackSize) {
   bool UseBackgroundPriority = hasThreadBackgroundPriority();
   RunSafelyOnThreadInfo Info = { Fn, this, UseBackgroundPriority, false };
-  llvm::thread Thread(RequestedStackSize == 0
-                          ? llvm::None
-                          : llvm::Optional<unsigned>(RequestedStackSize),
-                      RunSafelyOnThread_Dispatch, &Info);
-  Thread.join();
-
+  llvm_execute_on_thread(RunSafelyOnThread_Dispatch, &Info,
+                         RequestedStackSize == 0
+                             ? llvm::None
+                             : llvm::Optional<unsigned>(RequestedStackSize));
   if (CrashRecoveryContextImpl *CRC = (CrashRecoveryContextImpl *)Impl)
     CRC->setSwitchedThread();
   return Info.Result;

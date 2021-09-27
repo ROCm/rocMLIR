@@ -44,12 +44,11 @@ using ProfileCount = Function::ProfileCount;
 
 #define DEBUG_TYPE "synthetic-counts-propagation"
 
-namespace llvm {
+/// Initial synthetic count assigned to functions.
 cl::opt<int>
     InitialSyntheticCount("initial-synthetic-count", cl::Hidden, cl::init(10),
                           cl::ZeroOrMore,
-                          cl::desc("Initial value of synthetic entry count"));
-} // namespace llvm
+                          cl::desc("Initial value of synthetic entry count."));
 
 /// Initial synthetic count assigned to inline functions.
 static cl::opt<int> InlineSyntheticCount(

@@ -388,7 +388,7 @@ void Fuzzer::SetMaxMutationLen(size_t MaxMutationLen) {
 
 void Fuzzer::CheckExitOnSrcPosOrItem() {
   if (!Options.ExitOnSrcPos.empty()) {
-    static auto *PCsSet = new std::set<uintptr_t>;
+    static auto *PCsSet = new Set<uintptr_t>;
     auto HandlePC = [&](const TracePC::PCTableEntry *TE) {
       if (!PCsSet->insert(TE->PC).second)
         return;
@@ -413,26 +413,20 @@ void Fuzzer::CheckExitOnSrcPosOrItem() {
 void Fuzzer::RereadOutputCorpus(size_t MaxSize) {
   if (Options.OutputCorpus.empty() || !Options.ReloadIntervalSec)
     return;
-  std::vector<Unit> AdditionalCorpus;
-  std::vector<std::string> AdditionalCorpusPaths;
-  ReadDirToVectorOfUnits(
-      Options.OutputCorpus.c_str(), &AdditionalCorpus,
-      &EpochOfLastReadOfOutputCorpus, MaxSize,
-      /*ExitOnError*/ false,
-      (Options.Verbosity >= 2 ? &AdditionalCorpusPaths : nullptr));
+  Vector<Unit> AdditionalCorpus;
+  ReadDirToVectorOfUnits(Options.OutputCorpus.c_str(), &AdditionalCorpus,
+                         &EpochOfLastReadOfOutputCorpus, MaxSize,
+                         /*ExitOnError*/ false);
   if (Options.Verbosity >= 2)
     Printf("Reload: read %zd new units.\n", AdditionalCorpus.size());
   bool Reloaded = false;
-  for (size_t i = 0; i != AdditionalCorpus.size(); ++i) {
-    auto &U = AdditionalCorpus[i];
+  for (auto &U : AdditionalCorpus) {
     if (U.size() > MaxSize)
       U.resize(MaxSize);
     if (!Corpus.HasUnit(U)) {
       if (RunOne(U.data(), U.size())) {
         CheckExitOnSrcPosOrItem();
         Reloaded = true;
-        if (Options.Verbosity >= 2)
-          Printf("Reloaded %s\n", AdditionalCorpusPaths[i].c_str());
       }
     }
   }
@@ -446,9 +440,8 @@ void Fuzzer::PrintPulseAndReportSlowInput(const uint8_t *Data, size_t Size) {
   if (!(TotalNumberOfRuns & (TotalNumberOfRuns - 1)) &&
       secondsSinceProcessStartUp() >= 2)
     PrintStats("pulse ");
-  auto Threshhold =
-      static_cast<long>(static_cast<double>(TimeOfLongestUnitInSeconds) * 1.1);
-  if (TimeOfUnit > Threshhold && TimeOfUnit >= Options.ReportSlowUnits) {
+  if (TimeOfUnit > TimeOfLongestUnitInSeconds * 1.1 &&
+      TimeOfUnit >= Options.ReportSlowUnits) {
     TimeOfLongestUnitInSeconds = TimeOfUnit;
     Printf("Slowest unit: %zd s:\n", TimeOfLongestUnitInSeconds);
     WriteUnitToFileWithPrefix({Data, Data + Size}, "slow-unit-");
@@ -457,7 +450,7 @@ void Fuzzer::PrintPulseAndReportSlowInput(const uint8_t *Data, size_t Size) {
 
 static void WriteFeatureSetToFile(const std::string &FeaturesDir,
                                   const std::string &FileName,
-                                  const std::vector<uint32_t> &FeatureSet) {
+                                  const Vector<uint32_t> &FeatureSet) {
   if (FeaturesDir.empty() || FeatureSet.empty()) return;
   WriteToFile(reinterpret_cast<const uint8_t *>(FeatureSet.data()),
               FeatureSet.size() * sizeof(FeatureSet[0]),
@@ -508,8 +501,6 @@ bool Fuzzer::RunOne(const uint8_t *Data, size_t Size, bool MayDeleteFile,
                     bool *FoundUniqFeatures) {
   if (!Size)
     return false;
-  // Largest input length should be INT_MAX.
-  assert(Size < std::numeric_limits<uint32_t>::max());
 
   ExecuteCallback(Data, Size);
   auto TimeOfUnit = duration_cast<microseconds>(UnitStopTime - UnitStartTime);
@@ -517,8 +508,8 @@ bool Fuzzer::RunOne(const uint8_t *Data, size_t Size, bool MayDeleteFile,
   UniqFeatureSetTmp.clear();
   size_t FoundUniqFeaturesOfII = 0;
   size_t NumUpdatesBefore = Corpus.NumFeatureUpdates();
-  TPC.CollectFeatures([&](uint32_t Feature) {
-    if (Corpus.AddFeature(Feature, static_cast<uint32_t>(Size), Options.Shrink))
+  TPC.CollectFeatures([&](size_t Feature) {
+    if (Corpus.AddFeature(Feature, Size, Options.Shrink))
       UniqFeatureSetTmp.push_back(Feature);
     if (Options.Entropic)
       Corpus.UpdateFeatureFrequency(II, Feature);
@@ -584,10 +575,7 @@ static bool LooseMemeq(const uint8_t *A, const uint8_t *B, size_t Size) {
          !memcmp(A + Size - Limit / 2, B + Size - Limit / 2, Limit / 2);
 }
 
-// This method is not inlined because it would cause a test to fail where it
-// is part of the stack unwinding. See D97975 for details.
-ATTRIBUTE_NOINLINE void Fuzzer::ExecuteCallback(const uint8_t *Data,
-                                                size_t Size) {
+void Fuzzer::ExecuteCallback(const uint8_t *Data, size_t Size) {
   TPC.RecordInitialStack();
   TotalNumberOfRuns++;
   assert(InFuzzingThread());
@@ -784,7 +772,7 @@ void Fuzzer::PurgeAllocator() {
   LastAllocatorPurgeAttemptTime = system_clock::now();
 }
 
-void Fuzzer::ReadAndExecuteSeedCorpora(std::vector<SizedFile> &CorporaFiles) {
+void Fuzzer::ReadAndExecuteSeedCorpora(Vector<SizedFile> &CorporaFiles) {
   const size_t kMaxSaneLen = 1 << 20;
   const size_t kMinDefaultLen = 4096;
   size_t MaxSize = 0;
@@ -849,7 +837,7 @@ void Fuzzer::ReadAndExecuteSeedCorpora(std::vector<SizedFile> &CorporaFiles) {
   }
 }
 
-void Fuzzer::Loop(std::vector<SizedFile> &CorporaFiles) {
+void Fuzzer::Loop(Vector<SizedFile> &CorporaFiles) {
   auto FocusFunctionOrAuto = Options.FocusFunction;
   DFT.Init(Options.DataFlowTrace, &FocusFunctionOrAuto, CorporaFiles,
            MD.GetRand());

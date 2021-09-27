@@ -68,10 +68,10 @@ public:
   // been cleaned up.
   lldb::addr_t GetFunctionStackPointer() { return m_function_sp; }
 
-  // Classes that derive from FunctionCaller, and implement their own DidPop
+  // Classes that derive from FunctionCaller, and implement their own WillPop
   // methods should call this so that the thread state gets restored if the
   // plan gets discarded.
-  void DidPop() override;
+  void WillPop() override;
 
   // If the thread plan stops mid-course, this will be the stop reason that
   // interrupted us. Once DoTakedown is called, this will be the real stop
@@ -81,7 +81,7 @@ public:
   // stop reason. But if something bad goes wrong, it is nice to be able to
   // tell the user what really happened.
 
-  virtual lldb::StopInfoSP GetRealStopInfo() {
+  lldb::StopInfoSP GetRealStopInfo() override {
     if (m_real_stop_info_sp)
       return m_real_stop_info_sp;
     else
@@ -90,7 +90,7 @@ public:
 
   lldb::addr_t GetStopAddress() { return m_stop_address; }
 
-  void RestoreThreadState() override;
+  bool RestoreThreadState() override;
 
   void ThreadDestroyed() override { m_takedown_done = true; }
 

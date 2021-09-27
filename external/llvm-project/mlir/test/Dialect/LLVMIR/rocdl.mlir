@@ -1,4 +1,4 @@
-// RUN: mlir-opt %s -split-input-file -verify-diagnostics | FileCheck %s
+// RUN: mlir-opt %s | FileCheck %s
 
 func @rocdl_special_regs() -> i32 {
   // CHECK-LABEL: rocdl_special_regs
@@ -208,7 +208,3 @@ llvm.func @rocdl.atomic.fadd(%rsrc : vector<4xi32>, %vindex : i32,
   llvm.return
 }
 
-// -----
-
-// expected-error@below {{attribute attached to unexpected op}}
-func private @expected_llvm_func() attributes { rocdl.kernel }

@@ -15,30 +15,25 @@
 // front_insert_iterator<Cont>&
 //   operator=(Cont::value_type&& value);
 
-#include <cassert>
 #include <iterator>
 #include <list>
 #include <memory>
+#include <cassert>
 
 #include "test_macros.h"
-#include "test_constexpr_container.h"
 
 template <class C>
-TEST_CONSTEXPR_CXX20 bool
+void
 test(C c)
 {
     std::front_insert_iterator<C> i(c);
     i = typename C::value_type();
     assert(c.front() == typename C::value_type());
-    return true;
 }
 
 int main(int, char**)
 {
     test(std::list<std::unique_ptr<int> >());
-#if TEST_STD_VER >= 20
-    test(ConstexprFixedCapacityDeque<int, 10>());
-    static_assert(test(ConstexprFixedCapacityDeque<int, 10>()));
-#endif
-    return 0;
+
+  return 0;
 }

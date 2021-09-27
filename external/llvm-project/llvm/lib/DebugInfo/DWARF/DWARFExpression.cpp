@@ -174,10 +174,7 @@ bool DWARFExpression::Operation::extract(DataExtractor Data,
     case Operation::WasmLocationArg:
       assert(Operand == 1);
       switch (Operands[0]) {
-      case 0:
-      case 1:
-      case 2:
-      case 4:
+      case 0: case 1: case 2:
         Operands[Operand] = Data.getULEB128(&Offset);
         break;
       case 3: // global as uint32
@@ -297,11 +294,8 @@ bool DWARFExpression::Operation::print(raw_ostream &OS, DIDumpOptions DumpOpts,
     } else if (Size == Operation::WasmLocationArg) {
       assert(Operand == 1);
       switch (Operands[0]) {
-      case 0:
-      case 1:
-      case 2:
+      case 0: case 1: case 2:
       case 3: // global as uint32
-      case 4:
         OS << format(" 0x%" PRIx64, Operands[Operand]);
         break;
       default: assert(false);
@@ -325,10 +319,6 @@ void DWARFExpression::print(raw_ostream &OS, DIDumpOptions DumpOpts,
                             const MCRegisterInfo *RegInfo, DWARFUnit *U,
                             bool IsEH) const {
   uint32_t EntryValExprSize = 0;
-  uint64_t EntryValStartOffset = 0;
-  if (Data.getData().empty())
-    OS << "<empty>";
-
   for (auto &Op : *this) {
     if (!Op.print(OS, DumpOpts, this, RegInfo, U, IsEH)) {
       uint64_t FailOffset = Op.getEndOffset();
@@ -341,12 +331,11 @@ void DWARFExpression::print(raw_ostream &OS, DIDumpOptions DumpOpts,
         Op.getCode() == DW_OP_GNU_entry_value) {
       OS << "(";
       EntryValExprSize = Op.getRawOperand(0);
-      EntryValStartOffset = Op.getEndOffset();
       continue;
     }
 
     if (EntryValExprSize) {
-      EntryValExprSize -= Op.getEndOffset() - EntryValStartOffset;
+      EntryValExprSize--;
       if (EntryValExprSize == 0)
         OS << ")";
     }

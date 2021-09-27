@@ -1,192 +1,181 @@
-#include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <pet.h>
-#include "cpu.h"
-#include "opencl.h"
-
+#include "assert.h"
+#include "stdio.h"
+#include "stdlib.h"
 
 #define die() { \
   fprintf(stderr, "Dummy function %s called\n", __FUNCTION__); \
   abort(); \
 }
 
-__isl_give isl_union_map *pet_scop_compute_outer_to_any(
-  __isl_keep pet_scop *scop) {
+void pet_scop_compute_outer_to_any(){
   die();
 }
-__isl_give isl_union_map *pet_scop_compute_outer_to_inner(
-  __isl_keep pet_scop *scop) {
+void pet_scop_compute_outer_to_inner(){
   die();
 }
-enum pet_tree_type pet_tree_get_type(__isl_keep pet_tree *tree) {
+void pet_tree_get_type(){
   die();
 }
-int pet_tree_foreach_access_expr(__isl_keep pet_tree *tree,
-  int (*fn)(__isl_keep pet_expr *expr, void *user), void *user) {
+void pet_tree_foreach_access_expr(){
   die();
 }
-isl_ctx *pet_expr_get_ctx(__isl_keep pet_expr *expr) {
+void pet_expr_get_ctx(){
   die();
 }
-isl_bool pet_expr_access_is_read(__isl_keep pet_expr *expr) {
+void pet_expr_access_is_read(){
   die();
 }
-isl_bool pet_expr_access_is_write(__isl_keep pet_expr *expr) {
+void pet_expr_access_is_write(){
   die();
 }
-__isl_give isl_union_map *pet_expr_access_get_tagged_may_read(
-  __isl_keep pet_expr *expr) {
+void pet_expr_access_get_tagged_may_read(){
   die();
 }
-__isl_give isl_union_map *pet_expr_access_get_tagged_may_write(
-  __isl_keep pet_expr *expr) {
+void pet_expr_access_get_tagged_may_write(){
   die();
 }
-__isl_give isl_union_map *pet_expr_access_get_must_write(
-  __isl_keep pet_expr *expr) {
+void pet_expr_access_get_must_write(){
   die();
 }
-__isl_give isl_multi_pw_aff *pet_expr_access_get_index(
-  __isl_keep pet_expr *expr) {
+void pet_expr_access_get_index(){
   die();
 }
-__isl_give isl_id *pet_expr_access_get_ref_id(__isl_keep pet_expr *expr) {
+void pet_expr_access_get_ref_id(){
   die();
 }
-__isl_give isl_printer *print_cpu(__isl_take isl_printer *p,
-  struct ppcg_scop *ps, struct ppcg_options *options) {
+void print_cpu(){
   die();
 }
 
-__isl_give isl_printer *pet_stmt_print_body(struct pet_stmt *stmt,
-  __isl_take isl_printer *p, __isl_keep isl_id_to_ast_expr *ref2expr) {
+void pet_stmt_print_body(){
   die();
 }
-unsigned pet_loc_get_start(__isl_keep pet_loc *loc) {
+void pet_loc_get_start(){
   die();
 }
-unsigned pet_loc_get_end(__isl_keep pet_loc *loc) {
+void pet_loc_get_end(){
   die();
 }
-int pet_transform_C_source(isl_ctx *ctx, const char *input, FILE *output,
-  __isl_give isl_printer *(*transform)(__isl_take isl_printer *p,
-    __isl_take pet_scop *scop, void *user), void *user) {
+void pet_scop_collect_tagged_may_reads(){
   die();
 }
-__isl_give isl_printer *pet_scop_print_original(__isl_keep pet_scop *scop,
-  __isl_take isl_printer *p) {
+void pet_scop_collect_may_reads(){
   die();
 }
-__isl_null pet_scop *pet_scop_free(__isl_take pet_scop *scop) {
+void pet_scop_collect_tagged_may_writes(){
   die();
 }
-__isl_give pet_scop *pet_scop_align_params(__isl_take pet_scop *scop) {
+void pet_scop_collect_may_writes(){
   die();
 }
-int pet_scop_can_build_ast_exprs(__isl_keep pet_scop *scop) {
+void pet_scop_collect_tagged_must_writes(){
   die();
 }
-int pet_scop_has_data_dependent_conditions(__isl_keep pet_scop *scop) {
+void pet_scop_collect_must_writes(){
   die();
 }
-int pet_tree_foreach_expr(__isl_keep pet_tree *tree,
-  int (*fn)(__isl_keep pet_expr *expr, void *user), void *user) {
+void pet_scop_collect_tagged_must_kills(){
   die();
 }
-int pet_expr_foreach_call_expr(__isl_keep pet_expr *expr,
-  int (*fn)(__isl_keep pet_expr *expr, void *user), void *user) {
+void pet_transform_C_source(){
   die();
 }
-int pet_stmt_is_kill(struct pet_stmt *stmt) {
+void pet_scop_print_original(){
   die();
 }
-struct isl_args pet_options_args;
-const char *ppcg_version(void) {
+void pet_scop_free(){
   die();
 }
-int pet_options_set_encapsulate_dynamic_control(isl_ctx *ctx, int val) {
+void pet_scop_align_params(){
   die();
 }
-int generate_opencl(isl_ctx *ctx, struct ppcg_options *options,
-  const char *input, const char *output) {
+void pet_scop_can_build_ast_exprs(){
   die();
 }
-int generate_cpu(isl_ctx *ctx, struct ppcg_options *options,
-  const char *input, const char *output) {
+void pet_scop_has_data_dependent_conditions(){
   die();
 }
-__isl_give isl_id_to_ast_expr *pet_stmt_build_ast_exprs(struct pet_stmt *stmt,
-  __isl_keep isl_ast_build *build,
-  __isl_give isl_multi_pw_aff *(*fn_index)(
-    __isl_take isl_multi_pw_aff *mpa, __isl_keep isl_id *id,
-    void *user), void *user_index,
-  __isl_give isl_ast_expr *(*fn_expr)(__isl_take isl_ast_expr *expr,
-    __isl_keep isl_id *id, void *user), void *user_expr) {
+void pet_tree_foreach_expr(){
   die();
 }
-__isl_give isl_union_map *pet_scop_get_tagged_may_reads(
-  __isl_keep pet_scop *scop) {
+void pet_expr_foreach_call_expr(){
   die();
 }
-__isl_give isl_union_map *pet_scop_get_may_reads(__isl_keep pet_scop *scop) {
+void pet_stmt_is_kill(){
   die();
 }
-__isl_give isl_union_map *pet_scop_get_may_writes(__isl_keep pet_scop *scop) {
+void pet_options_args() {
   die();
 }
-__isl_give isl_union_map *pet_scop_get_must_writes(__isl_keep pet_scop *scop) {
+void ppcg_print_guarded() {
   die();
 }
-__isl_give isl_union_map *pet_scop_get_tagged_may_writes(
-  __isl_keep pet_scop *scop) {
+void ppcg_version() {
   die();
 }
-__isl_give isl_union_map *pet_scop_get_tagged_must_writes(
-  __isl_keep pet_scop *scop) {
+void pet_options_set_encapsulate_dynamic_control() {
   die();
 }
-__isl_give isl_union_map *pet_scop_get_must_kills(__isl_keep pet_scop *scop) {
+void generate_opencl() {
   die();
 }
-__isl_give isl_union_map *pet_scop_get_tagged_must_kills(
-  __isl_keep pet_scop *scop) {
+void generate_cpu() {
   die();
 }
-__isl_keep const char *pet_expr_call_get_name(__isl_keep pet_expr *expr) {
+void pet_stmt_build_ast_exprs() {
   die();
 }
-__isl_give pet_expr *pet_expr_call_set_name(__isl_take pet_expr *expr,
-  __isl_keep const char *name) {
+ void pet_scop_get_tagged_may_reads() {
   die();
 }
-__isl_give pet_expr *pet_expr_get_arg(__isl_keep pet_expr *expr, int pos) {
+ void pet_scop_get_may_reads() {
   die();
 }
-__isl_give pet_expr *pet_expr_new_cast(const char *type_name,
-  __isl_take pet_expr *arg) {
+void pet_scop_get_may_writes() {
   die();
 }
-__isl_give pet_expr *pet_expr_set_arg(__isl_take pet_expr *expr, int pos,
-  __isl_take pet_expr *arg) {
+void pet_scop_get_must_writes() {
   die();
 }
-__isl_give pet_tree *pet_tree_copy(__isl_keep pet_tree *tree) {
+void pet_scop_get_tagged_may_writes() {
   die();
 }
-__isl_null pet_tree *pet_tree_free(__isl_take pet_tree *tree) {
+void pet_scop_get_tagged_must_writes() {
+die();
+}
+void pet_scop_get_must_kills() {
   die();
 }
-__isl_give pet_tree *pet_tree_map_call_expr(__isl_take pet_tree *tree,
-  __isl_give pet_expr *(*fn)(__isl_take pet_expr *expr, void *user),
-  void *user) {
+void pet_scop_get_tagged_must_kills() {
   die();
 }
-__isl_give isl_union_map *pet_expr_access_get_may_read(
-  __isl_keep pet_expr *expr) {
+void pet_expr_call_get_name() {
   die();
 }
-__isl_give isl_union_map *pet_expr_access_get_may_write(
-  __isl_keep pet_expr *expr) {
+void pet_expr_call_set_name() {
+  die();
+}
+void pet_expr_get_arg() {
+  die();
+}
+void pet_expr_new_cast() {
+  die();
+}
+void pet_expr_set_arg() {
+  die();
+}
+void pet_tree_copy() {
+  die();
+}
+void pet_tree_free() {
+  die();
+}
+void pet_tree_map_call_expr() {
+  die();
+}
+void pet_expr_access_get_may_read() {
+  die();
+}
+void pet_expr_access_get_may_write() {
   die();
 }

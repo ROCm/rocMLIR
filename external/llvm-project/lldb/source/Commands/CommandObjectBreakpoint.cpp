@@ -110,19 +110,7 @@ public:
     case 't': {
       lldb::tid_t thread_id = LLDB_INVALID_THREAD_ID;
       if (option_arg[0] != '\0') {
-        if (option_arg == "current") {
-          if (!execution_context) {
-            error.SetErrorStringWithFormat("No context to determine current "
-                                           "thread");
-          } else {
-            ThreadSP ctx_thread_sp = execution_context->GetThreadSP();
-            if (!ctx_thread_sp || !ctx_thread_sp->IsValid()) {
-              error.SetErrorStringWithFormat("No currently selected thread");
-            } else {
-              thread_id = ctx_thread_sp->GetID();
-            }
-          }
-        } else if (option_arg.getAsInteger(0, thread_id))
+        if (option_arg.getAsInteger(0, thread_id))
           error.SetErrorStringWithFormat("invalid thread id string '%s'",
                                          option_arg.str().c_str());
       }
@@ -254,8 +242,15 @@ public:
   class CommandOptions : public OptionGroup {
   public:
     CommandOptions()
-        : OptionGroup(), m_condition(), m_filenames(), m_func_names(),
-          m_func_regexp(), m_source_text_regexp(), m_modules() {}
+        : OptionGroup(), m_condition(), m_filenames(), m_line_num(0),
+          m_column(0), m_func_names(),
+          m_func_name_type_mask(eFunctionNameTypeNone), m_func_regexp(),
+          m_source_text_regexp(), m_modules(), m_load_addr(), m_catch_bp(false),
+          m_throw_bp(true), m_hardware(false),
+          m_exception_language(eLanguageTypeUnknown),
+          m_language(lldb::eLanguageTypeUnknown),
+          m_skip_prologue(eLazyBoolCalculate), m_all_files(false),
+          m_move_to_nearest_code(eLazyBoolCalculate) {}
 
     ~CommandOptions() override = default;
 
@@ -505,25 +500,25 @@ public:
 
     std::string m_condition;
     FileSpecList m_filenames;
-    uint32_t m_line_num = 0;
-    uint32_t m_column = 0;
+    uint32_t m_line_num;
+    uint32_t m_column;
     std::vector<std::string> m_func_names;
     std::vector<std::string> m_breakpoint_names;
-    lldb::FunctionNameType m_func_name_type_mask = eFunctionNameTypeNone;
+    lldb::FunctionNameType m_func_name_type_mask;
     std::string m_func_regexp;
     std::string m_source_text_regexp;
     FileSpecList m_modules;
-    lldb::addr_t m_load_addr = 0;
+    lldb::addr_t m_load_addr;
     lldb::addr_t m_offset_addr;
-    bool m_catch_bp = false;
-    bool m_throw_bp = true;
-    bool m_hardware = false; // Request to use hardware breakpoints
-    lldb::LanguageType m_exception_language = eLanguageTypeUnknown;
-    lldb::LanguageType m_language = lldb::eLanguageTypeUnknown;
-    LazyBool m_skip_prologue = eLazyBoolCalculate;
-    bool m_all_files = false;
+    bool m_catch_bp;
+    bool m_throw_bp;
+    bool m_hardware; // Request to use hardware breakpoints
+    lldb::LanguageType m_exception_language;
+    lldb::LanguageType m_language;
+    LazyBool m_skip_prologue;
+    bool m_all_files;
     Args m_exception_extra_args;
-    LazyBool m_move_to_nearest_code = eLazyBoolCalculate;
+    LazyBool m_move_to_nearest_code;
     std::unordered_set<std::string> m_source_regex_func_names;
     std::string m_current_key;
   };
@@ -578,11 +573,13 @@ protected:
       if (num_files == 0) {
         if (!GetDefaultFile(target, file, result)) {
           result.AppendError("No file supplied and no default file available.");
+          result.SetStatus(eReturnStatusFailed);
           return false;
         }
       } else if (num_files > 1) {
         result.AppendError("Only one file at a time is allowed for file and "
                            "line breakpoints.");
+        result.SetStatus(eReturnStatusFailed);
         return false;
       } else
         file = m_options.m_filenames.GetFileSpecAtIndex(0);
@@ -614,6 +611,7 @@ protected:
       } else {
         result.AppendError("Only one shared library can be specified for "
                            "address breakpoints.");
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
       break;
@@ -648,6 +646,7 @@ protected:
             result.AppendWarning(
                 "Function name regex does not accept glob patterns.");
         }
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
 
@@ -665,6 +664,7 @@ protected:
         if (!GetDefaultFile(target, file, result)) {
           result.AppendError(
               "No files provided and could not find default file.");
+          result.SetStatus(eReturnStatusFailed);
           return false;
         } else {
           m_options.m_filenames.Append(file);
@@ -676,6 +676,7 @@ protected:
         result.AppendErrorWithFormat(
             "Source text regular expression could not be compiled: \"%s\"",
             llvm::toString(std::move(err)).c_str());
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
       bp_sp = target.CreateSourceRegexBreakpoint(
@@ -694,6 +695,7 @@ protected:
             "Error setting extra exception arguments: %s",
             precond_error.AsCString());
         target.RemoveBreakpointByID(bp_sp->GetID());
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
     } break;
@@ -708,6 +710,7 @@ protected:
         result.AppendErrorWithFormat(
             "Error setting extra exception arguments: %s", error.AsCString());
         target.RemoveBreakpointByID(bp_sp->GetID());
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
     } break;
@@ -717,7 +720,7 @@ protected:
 
     // Now set the various options that were passed in:
     if (bp_sp) {
-      bp_sp->GetOptions().CopyOverSetOptions(m_bp_opts.GetBreakpointOptions());
+      bp_sp->GetOptions()->CopyOverSetOptions(m_bp_opts.GetBreakpointOptions());
 
       if (!m_options.m_breakpoint_names.empty()) {
         Status name_error;
@@ -727,6 +730,7 @@ protected:
             result.AppendErrorWithFormat("Invalid breakpoint name: %s",
                                          name.c_str());
             target.RemoveBreakpointByID(bp_sp->GetID());
+            result.SetStatus(eReturnStatusFailed);
             return false;
           }
         }
@@ -753,6 +757,7 @@ protected:
       result.SetStatus(eReturnStatusSuccessFinishResult);
     } else if (!bp_sp) {
       result.AppendError("Breakpoint creation failed: No breakpoint created.");
+      result.SetStatus(eReturnStatusFailed);
     }
 
     return result.Succeeded();
@@ -769,10 +774,12 @@ private:
       if (cur_frame == nullptr) {
         result.AppendError(
             "No selected frame to use to find the default file.");
+        result.SetStatus(eReturnStatusFailed);
         return false;
       } else if (!cur_frame->HasDebugInformation()) {
         result.AppendError("Cannot use the selected frame to find the default "
                            "file, it has no debug info.");
+        result.SetStatus(eReturnStatusFailed);
         return false;
       } else {
         const SymbolContext &sc =
@@ -782,6 +789,7 @@ private:
         } else {
           result.AppendError("Can't find the file for the selected frame to "
                              "use as the default file.");
+          result.SetStatus(eReturnStatusFailed);
           return false;
         }
       }
@@ -862,10 +870,10 @@ protected:
             BreakpointLocation *location =
                 bp->FindLocationByID(cur_bp_id.GetLocationID()).get();
             if (location)
-              location->GetLocationOptions().CopyOverSetOptions(
+              location->GetLocationOptions()->CopyOverSetOptions(
                   m_bp_opts.GetBreakpointOptions());
           } else {
-            bp->GetOptions().CopyOverSetOptions(
+            bp->GetOptions()->CopyOverSetOptions(
                 m_bp_opts.GetBreakpointOptions());
           }
         }
@@ -922,6 +930,7 @@ protected:
 
     if (num_breakpoints == 0) {
       result.AppendError("No breakpoints exist to be enabled.");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -1035,6 +1044,7 @@ protected:
 
     if (num_breakpoints == 0) {
       result.AppendError("No breakpoints exist to be disabled.");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -1123,7 +1133,9 @@ public:
 
   class CommandOptions : public Options {
   public:
-    CommandOptions() : Options() {}
+    CommandOptions()
+        : Options(), m_level(lldb::eDescriptionLevelBrief), m_use_dummy(false) {
+    }
 
     ~CommandOptions() override = default;
 
@@ -1167,10 +1179,10 @@ public:
 
     // Instance variables to hold the values for command options.
 
-    lldb::DescriptionLevel m_level = lldb::eDescriptionLevelBrief;
+    lldb::DescriptionLevel m_level;
 
     bool m_internal;
-    bool m_use_dummy = false;
+    bool m_use_dummy;
   };
 
 protected:
@@ -1220,6 +1232,7 @@ protected:
         result.SetStatus(eReturnStatusSuccessFinishNoResult);
       } else {
         result.AppendError("Invalid breakpoint ID.");
+        result.SetStatus(eReturnStatusFailed);
       }
     }
 
@@ -1255,7 +1268,7 @@ public:
 
   class CommandOptions : public Options {
   public:
-    CommandOptions() : Options(), m_filename() {}
+    CommandOptions() : Options(), m_filename(), m_line_num(0) {}
 
     ~CommandOptions() override = default;
 
@@ -1292,7 +1305,7 @@ public:
     // Instance variables to hold the values for command options.
 
     std::string m_filename;
-    uint32_t m_line_num = 0;
+    uint32_t m_line_num;
   };
 
 protected:
@@ -1317,6 +1330,7 @@ protected:
     // Early return if there's no breakpoint at all.
     if (num_breakpoints == 0) {
       result.AppendError("Breakpoint clear: No breakpoint cleared.");
+      result.SetStatus(eReturnStatusFailed);
       return result.Succeeded();
     }
 
@@ -1363,6 +1377,7 @@ protected:
       result.SetStatus(eReturnStatusSuccessFinishNoResult);
     } else {
       result.AppendError("Breakpoint clear: No breakpoint cleared.");
+      result.SetStatus(eReturnStatusFailed);
     }
 
     return result.Succeeded();
@@ -1408,7 +1423,8 @@ public:
 
   class CommandOptions : public Options {
   public:
-    CommandOptions() : Options() {}
+    CommandOptions() : Options(), m_use_dummy(false), m_force(false),
+      m_delete_disabled(false) {}
 
     ~CommandOptions() override = default;
 
@@ -1448,9 +1464,9 @@ public:
     }
 
     // Instance variables to hold the values for command options.
-    bool m_use_dummy = false;
-    bool m_force = false;
-    bool m_delete_disabled = false;
+    bool m_use_dummy;
+    bool m_force;
+    bool m_delete_disabled;
   };
 
 protected:
@@ -1467,10 +1483,10 @@ protected:
 
     if (num_breakpoints == 0) {
       result.AppendError("No breakpoints exist to be deleted.");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
-    // Handle the delete all breakpoints case:
     if (command.empty() && !m_options.m_delete_disabled) {
       if (!m_options.m_force &&
           !m_interpreter.Confirm(
@@ -1484,73 +1500,68 @@ protected:
             (uint64_t)num_breakpoints, num_breakpoints > 1 ? "s" : "");
       }
       result.SetStatus(eReturnStatusSuccessFinishNoResult);
-      return result.Succeeded();
-    }
- 
-    // Either we have some kind of breakpoint specification(s),
-    // or we are handling "break disable --deleted".  Gather the list
-    // of breakpoints to delete here, the we'll delete them below.
-    BreakpointIDList valid_bp_ids;
-    
-    if (m_options.m_delete_disabled) {
-      BreakpointIDList excluded_bp_ids;
-
-      if (!command.empty()) {
-        CommandObjectMultiwordBreakpoint::VerifyBreakpointOrLocationIDs(
-            command, &target, result, &excluded_bp_ids,
-            BreakpointName::Permissions::PermissionKinds::deletePerm);
-        if (!result.Succeeded())
-          return false;
-      }
-
-      for (auto breakpoint_sp : breakpoints.Breakpoints()) {
-        if (!breakpoint_sp->IsEnabled() && breakpoint_sp->AllowDelete()) {
-          BreakpointID bp_id(breakpoint_sp->GetID());
-          size_t pos = 0;
-          if (!excluded_bp_ids.FindBreakpointID(bp_id, &pos))
-            valid_bp_ids.AddBreakpointID(breakpoint_sp->GetID());
-        }
-      }
-      if (valid_bp_ids.GetSize() == 0) {
-        result.AppendError("No disabled breakpoints.");
-        return false;
-      }
     } else {
-      CommandObjectMultiwordBreakpoint::VerifyBreakpointOrLocationIDs(
-          command, &target, result, &valid_bp_ids,
-          BreakpointName::Permissions::PermissionKinds::deletePerm);
-      if (!result.Succeeded())
-        return false;
-    }
-    
-    int delete_count = 0;
-    int disable_count = 0;
-    const size_t count = valid_bp_ids.GetSize();
-    for (size_t i = 0; i < count; ++i) {
-      BreakpointID cur_bp_id = valid_bp_ids.GetBreakpointIDAtIndex(i);
+      // Particular breakpoint selected; disable that breakpoint.
+      BreakpointIDList valid_bp_ids;
+      
+      if (m_options.m_delete_disabled) {
+        BreakpointIDList excluded_bp_ids;
 
-      if (cur_bp_id.GetBreakpointID() != LLDB_INVALID_BREAK_ID) {
-        if (cur_bp_id.GetLocationID() != LLDB_INVALID_BREAK_ID) {
-          Breakpoint *breakpoint =
-              target.GetBreakpointByID(cur_bp_id.GetBreakpointID()).get();
-          BreakpointLocation *location =
-              breakpoint->FindLocationByID(cur_bp_id.GetLocationID()).get();
-          // It makes no sense to try to delete individual locations, so we
-          // disable them instead.
-          if (location) {
-            location->SetEnabled(false);
-            ++disable_count;
-          }
-        } else {
-          target.RemoveBreakpointByID(cur_bp_id.GetBreakpointID());
-          ++delete_count;
+        if (!command.empty()) {
+          CommandObjectMultiwordBreakpoint::VerifyBreakpointOrLocationIDs(
+              command, &target, result, &excluded_bp_ids,
+              BreakpointName::Permissions::PermissionKinds::deletePerm);
         }
+        for (auto breakpoint_sp : breakpoints.Breakpoints()) {
+          if (!breakpoint_sp->IsEnabled() && breakpoint_sp->AllowDelete()) {
+            BreakpointID bp_id(breakpoint_sp->GetID());
+            size_t pos = 0;
+            if (!excluded_bp_ids.FindBreakpointID(bp_id, &pos))
+              valid_bp_ids.AddBreakpointID(breakpoint_sp->GetID());
+          }
+        }
+        if (valid_bp_ids.GetSize() == 0) {
+          result.AppendError("No disabled breakpoints.");
+          result.SetStatus(eReturnStatusFailed);
+          return false;
+        }
+      } else {
+        CommandObjectMultiwordBreakpoint::VerifyBreakpointOrLocationIDs(
+            command, &target, result, &valid_bp_ids,
+            BreakpointName::Permissions::PermissionKinds::deletePerm);
+      }
+      
+      if (result.Succeeded()) {
+        int delete_count = 0;
+        int disable_count = 0;
+        const size_t count = valid_bp_ids.GetSize();
+        for (size_t i = 0; i < count; ++i) {
+          BreakpointID cur_bp_id = valid_bp_ids.GetBreakpointIDAtIndex(i);
+
+          if (cur_bp_id.GetBreakpointID() != LLDB_INVALID_BREAK_ID) {
+            if (cur_bp_id.GetLocationID() != LLDB_INVALID_BREAK_ID) {
+              Breakpoint *breakpoint =
+                  target.GetBreakpointByID(cur_bp_id.GetBreakpointID()).get();
+              BreakpointLocation *location =
+                  breakpoint->FindLocationByID(cur_bp_id.GetLocationID()).get();
+              // It makes no sense to try to delete individual locations, so we
+              // disable them instead.
+              if (location) {
+                location->SetEnabled(false);
+                ++disable_count;
+              }
+            } else {
+              target.RemoveBreakpointByID(cur_bp_id.GetBreakpointID());
+              ++delete_count;
+            }
+          }
+        }
+        result.AppendMessageWithFormat(
+            "%d breakpoints deleted; %d breakpoint locations disabled.\n",
+            delete_count, disable_count);
+        result.SetStatus(eReturnStatusSuccessFinishNoResult);
       }
     }
-    result.AppendMessageWithFormat(
-        "%d breakpoints deleted; %d breakpoint locations disabled.\n",
-        delete_count, disable_count);
-    result.SetStatus(eReturnStatusSuccessFinishNoResult);
     return result.Succeeded();
   }
 
@@ -1725,6 +1736,7 @@ protected:
     const size_t argc = command.GetArgumentCount();
     if (argc == 0) {
       result.AppendError("No names provided.");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -1739,6 +1751,7 @@ protected:
       if (!BreakpointID::StringIsBreakpointName(entry.ref(), error)) {
         result.AppendErrorWithFormat("Invalid breakpoint name: %s - %s",
                                      entry.c_str(), error.AsCString());
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
     }
@@ -1751,6 +1764,7 @@ protected:
       if (!bp_sp) {
         result.AppendErrorWithFormatv("Could not find specified breakpoint {0}",
                                       bp_id);
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
     }
@@ -1765,7 +1779,7 @@ protected:
         bp_name->SetHelp(m_bp_id.m_help_string.GetStringValue().str().c_str());
 
       if (bp_sp)
-        target.ConfigureBreakpointName(*bp_name, bp_sp->GetOptions(),
+        target.ConfigureBreakpointName(*bp_name, *bp_sp->GetOptions(),
                                        m_access_options.GetPermissions());
       else
         target.ConfigureBreakpointName(*bp_name,
@@ -1817,7 +1831,7 @@ public:
 protected:
   bool DoExecute(Args &command, CommandReturnObject &result) override {
     if (!m_name_options.m_name.OptionWasSet()) {
-      result.AppendError("No name option provided.");
+      result.SetError("No name option provided.");
       return false;
     }
 
@@ -1831,7 +1845,8 @@ protected:
 
     size_t num_breakpoints = breakpoints.GetSize();
     if (num_breakpoints == 0) {
-      result.AppendError("No breakpoints, cannot add names.");
+      result.SetError("No breakpoints, cannot add names.");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -1843,7 +1858,8 @@ protected:
 
     if (result.Succeeded()) {
       if (valid_bp_ids.GetSize() == 0) {
-        result.AppendError("No breakpoints specified, cannot add names.");
+        result.SetError("No breakpoints specified, cannot add names.");
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
       size_t num_valid_ids = valid_bp_ids.GetSize();
@@ -1902,7 +1918,7 @@ public:
 protected:
   bool DoExecute(Args &command, CommandReturnObject &result) override {
     if (!m_name_options.m_name.OptionWasSet()) {
-      result.AppendError("No name option provided.");
+      result.SetError("No name option provided.");
       return false;
     }
 
@@ -1916,7 +1932,8 @@ protected:
 
     size_t num_breakpoints = breakpoints.GetSize();
     if (num_breakpoints == 0) {
-      result.AppendError("No breakpoints, cannot delete names.");
+      result.SetError("No breakpoints, cannot delete names.");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -1928,7 +1945,8 @@ protected:
 
     if (result.Succeeded()) {
       if (valid_bp_ids.GetSize() == 0) {
-        result.AppendError("No breakpoints specified, cannot delete names.");
+        result.SetError("No breakpoints specified, cannot delete names.");
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
       ConstString bp_name(m_name_options.m_name.GetCurrentValue());
@@ -2204,6 +2222,7 @@ protected:
 
     if (!error.Success()) {
       result.AppendError(error.AsCString());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -2332,6 +2351,7 @@ protected:
     if (!error.Success()) {
       result.AppendErrorWithFormat("error serializing breakpoints: %s.",
                                    error.AsCString());
+      result.SetStatus(eReturnStatusFailed);
     }
     return result.Succeeded();
   }
@@ -2424,6 +2444,7 @@ void CommandObjectMultiwordBreakpoint::VerifyIDs(
     } else {
       result.AppendError(
           "No breakpoint specified and no last created breakpoint.");
+      result.SetStatus(eReturnStatusFailed);
     }
     return;
   }
@@ -2465,12 +2486,14 @@ void CommandObjectMultiwordBreakpoint::VerifyIDs(
           result.AppendErrorWithFormat(
               "'%s' is not a currently valid breakpoint/location id.\n",
               id_str.GetData());
+          result.SetStatus(eReturnStatusFailed);
         }
       } else {
         i = valid_ids->GetSize() + 1;
         result.AppendErrorWithFormat(
             "'%d' is not a currently valid breakpoint ID.\n",
             cur_bp_id.GetBreakpointID());
+        result.SetStatus(eReturnStatusFailed);
       }
     }
   }

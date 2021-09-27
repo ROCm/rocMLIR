@@ -17,8 +17,7 @@
 namespace clang {
 
 /// A module file extension used for testing purposes.
-class TestModuleFileExtension
-    : public llvm::RTTIExtends<TestModuleFileExtension, ModuleFileExtension> {
+class TestModuleFileExtension : public ModuleFileExtension {
   std::string BlockName;
   unsigned MajorVersion;
   unsigned MinorVersion;
@@ -44,18 +43,19 @@ class TestModuleFileExtension
   };
 
 public:
-  static char ID;
-
-  TestModuleFileExtension(StringRef BlockName, unsigned MajorVersion,
-                          unsigned MinorVersion, bool Hashed,
+  TestModuleFileExtension(StringRef BlockName,
+                          unsigned MajorVersion,
+                          unsigned MinorVersion,
+                          bool Hashed,
                           StringRef UserInfo)
-      : BlockName(BlockName), MajorVersion(MajorVersion),
-        MinorVersion(MinorVersion), Hashed(Hashed), UserInfo(UserInfo) {}
+    : BlockName(BlockName),
+      MajorVersion(MajorVersion), MinorVersion(MinorVersion),
+      Hashed(Hashed), UserInfo(UserInfo) { }
   ~TestModuleFileExtension() override;
 
   ModuleFileExtensionMetadata getExtensionMetadata() const override;
 
-  void hashExtension(ExtensionHashBuilder &HBuilder) const override;
+  llvm::hash_code hashExtension(llvm::hash_code Code) const override;
 
   std::unique_ptr<ModuleFileExtensionWriter>
   createExtensionWriter(ASTWriter &Writer) override;
@@ -64,8 +64,6 @@ public:
   createExtensionReader(const ModuleFileExtensionMetadata &Metadata,
                         ASTReader &Reader, serialization::ModuleFile &Mod,
                         const llvm::BitstreamCursor &Stream) override;
-
-  std::string str() const;
 };
 
 } // end namespace clang

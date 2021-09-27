@@ -12,8 +12,9 @@
 
 #include "mlir/Conversion/SPIRVToLLVM/SPIRVToLLVMPass.h"
 #include "../PassDetail.h"
-#include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Conversion/SPIRVToLLVM/SPIRVToLLVM.h"
+#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
+#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
 
@@ -35,20 +36,22 @@ void ConvertSPIRVToLLVMPass::runOnOperation() {
   // Encode global variable's descriptor set and binding if they exist.
   encodeBindAttribute(module);
 
-  RewritePatternSet patterns(context);
+  OwningRewritePatternList patterns;
 
   populateSPIRVToLLVMTypeConversion(converter);
 
-  populateSPIRVToLLVMModuleConversionPatterns(converter, patterns);
-  populateSPIRVToLLVMConversionPatterns(converter, patterns);
-  populateSPIRVToLLVMFunctionConversionPatterns(converter, patterns);
+  populateSPIRVToLLVMModuleConversionPatterns(context, converter, patterns);
+  populateSPIRVToLLVMConversionPatterns(context, converter, patterns);
+  populateSPIRVToLLVMFunctionConversionPatterns(context, converter, patterns);
 
-  ConversionTarget target(*context);
+  ConversionTarget target(getContext());
   target.addIllegalDialect<spirv::SPIRVDialect>();
   target.addLegalDialect<LLVM::LLVMDialect>();
 
-  // Set `ModuleOp` as legal for `spv.module` conversion.
+  // Set `ModuleOp` and `ModuleTerminatorOp` as legal for `spv.module`
+  // conversion.
   target.addLegalOp<ModuleOp>();
+  target.addLegalOp<ModuleTerminatorOp>();
   if (failed(applyPartialConversion(module, target, std::move(patterns))))
     signalPassFailure();
 }

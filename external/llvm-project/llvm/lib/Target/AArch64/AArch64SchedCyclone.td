@@ -19,8 +19,7 @@ def CycloneModel : SchedMachineModel {
   let CompleteModel = 1;
 
   list<Predicate> UnsupportedFeatures = !listconcat(SVEUnsupported.F,
-                                                    PAUnsupported.F,
-                                                    SMEUnsupported.F);
+                                                    PAUnsupported.F);
 }
 
 //===----------------------------------------------------------------------===//
@@ -258,7 +257,6 @@ def CyReadAdrBase : SchedReadVariant<[
   SchedVar<ScaledIdxPred, [ReadBaseRS]>, // Read base reg after shifting offset.
   SchedVar<NoSchedPred,   [ReadDefault]>]>;   // Read base reg with no shift.
 def : SchedAlias<ReadAdrBase, CyReadAdrBase>; // Map AArch64->Cyclone type.
-def : ReadAdvance<ReadST, 0>;
 
 //---
 // 7.8.9,7.8.11. Load/Store, paired

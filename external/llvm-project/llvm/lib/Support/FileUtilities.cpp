@@ -300,7 +300,8 @@ llvm::Error llvm::writeFileAtomically(
     std::function<llvm::Error(llvm::raw_ostream &)> Writer) {
   SmallString<128> GeneratedUniqPath;
   int TempFD;
-  if (sys::fs::createUniqueFile(TempPathModel, TempFD, GeneratedUniqPath)) {
+  if (sys::fs::createUniqueFile(TempPathModel.str(), TempFD,
+                                GeneratedUniqPath)) {
     return llvm::make_error<AtomicFileWriteError>(
         atomic_write_error::failed_to_create_uniq_file);
   }
@@ -318,7 +319,8 @@ llvm::Error llvm::writeFileAtomically(
         atomic_write_error::output_stream_error);
   }
 
-  if (sys::fs::rename(/*from=*/GeneratedUniqPath, /*to=*/FinalPath)) {
+  if (sys::fs::rename(/*from=*/GeneratedUniqPath.c_str(),
+                      /*to=*/FinalPath.str().c_str())) {
     return llvm::make_error<AtomicFileWriteError>(
         atomic_write_error::failed_to_rename_temp_file);
   }

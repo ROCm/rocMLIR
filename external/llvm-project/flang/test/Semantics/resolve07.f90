@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 subroutine s1
   integer :: x(2)
   !ERROR: The dimensions of 'x' have already been declared

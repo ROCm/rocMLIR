@@ -115,9 +115,9 @@ runPrepareRename(ClangdServer &Server, PathRef File, Position Pos,
 }
 
 llvm::Expected<tooling::Replacements>
-runFormatFile(ClangdServer &Server, PathRef File, llvm::Optional<Range> Rng) {
+runFormatFile(ClangdServer &Server, PathRef File, StringRef Code) {
   llvm::Optional<llvm::Expected<tooling::Replacements>> Result;
-  Server.formatFile(File, Rng, capture(Result));
+  Server.formatFile(File, Code, capture(Result));
   return std::move(*Result);
 }
 

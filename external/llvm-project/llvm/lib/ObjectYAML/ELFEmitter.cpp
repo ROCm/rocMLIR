@@ -18,7 +18,6 @@
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/MC/StringTableBuilder.h"
 #include "llvm/Object/ELFObjectFile.h"
-#include "llvm/Object/ELFTypes.h"
 #include "llvm/ObjectYAML/DWARFEmitter.h"
 #include "llvm/ObjectYAML/DWARFYAML.h"
 #include "llvm/ObjectYAML/ELFYAML.h"
@@ -178,23 +177,14 @@ template <class ELFT> class ELFState {
 
   enum class SymtabType { Static, Dynamic };
 
-  /// The future symbol table string section.
+  /// The future ".strtab" section.
   StringTableBuilder DotStrtab{StringTableBuilder::ELF};
 
-  /// The future section header string table section, if a unique string table
-  /// is needed. Don't reference this variable direectly: use the
-  /// ShStrtabStrings member instead.
+  /// The future ".shstrtab" section.
   StringTableBuilder DotShStrtab{StringTableBuilder::ELF};
 
-  /// The future dynamic symbol string section.
+  /// The future ".dynstr" section.
   StringTableBuilder DotDynstr{StringTableBuilder::ELF};
-
-  /// The name of the section header string table section. If it is .strtab or
-  /// .dynstr, the section header strings will be written to the same string
-  /// table as the static/dynamic symbols respectively. Otherwise a dedicated
-  /// section will be created with that name.
-  StringRef SectionHeaderStringTableName = ".shstrtab";
-  StringTableBuilder *ShStrtabStrings = &DotShStrtab;
 
   NameToIdxMap SN2I;
   NameToIdxMap SymN2I;
@@ -337,18 +327,6 @@ template <class T> static void zero(T &Obj) { memset(&Obj, 0, sizeof(Obj)); }
 template <class ELFT>
 ELFState<ELFT>::ELFState(ELFYAML::Object &D, yaml::ErrorHandler EH)
     : Doc(D), ErrHandler(EH) {
-  // The input may explicitly request to store the section header table strings
-  // in the same string table as dynamic or static symbol names. Set the
-  // ShStrtabStrings member accordingly.
-  if (Doc.Header.SectionHeaderStringTable) {
-    SectionHeaderStringTableName = *Doc.Header.SectionHeaderStringTable;
-    if (*Doc.Header.SectionHeaderStringTable == ".strtab")
-      ShStrtabStrings = &DotStrtab;
-    else if (*Doc.Header.SectionHeaderStringTable == ".dynstr")
-      ShStrtabStrings = &DotDynstr;
-    // Otherwise, the unique table will be used.
-  }
-
   std::vector<ELFYAML::Section *> Sections = Doc.getSections();
   // Insert SHT_NULL section implicitly when it is not defined in YAML.
   if (Sections.empty() || Sections.front()->Type != ELF::SHT_NULL)
@@ -385,35 +363,19 @@ ELFState<ELFT>::ELFState(ELFYAML::Object &D, yaml::ErrorHandler EH)
                   "' at YAML section/fill number " + Twine(I));
   }
 
-  SmallSetVector<StringRef, 8> ImplicitSections;
-  if (Doc.DynamicSymbols) {
-    if (SectionHeaderStringTableName == ".dynsym")
-      reportError("cannot use '.dynsym' as the section header name table when "
-                  "there are dynamic symbols");
-    ImplicitSections.insert(".dynsym");
-    ImplicitSections.insert(".dynstr");
-  }
-  if (Doc.Symbols) {
-    if (SectionHeaderStringTableName == ".symtab")
-      reportError("cannot use '.symtab' as the section header name table when "
-                  "there are symbols");
-    ImplicitSections.insert(".symtab");
-  }
+  std::vector<StringRef> ImplicitSections;
+  if (Doc.DynamicSymbols)
+    ImplicitSections.insert(ImplicitSections.end(), {".dynsym", ".dynstr"});
+  if (Doc.Symbols)
+    ImplicitSections.push_back(".symtab");
   if (Doc.DWARF)
     for (StringRef DebugSecName : Doc.DWARF->getNonEmptySectionNames()) {
       std::string SecName = ("." + DebugSecName).str();
-      // TODO: For .debug_str it should be possible to share the string table,
-      // in the same manner as the symbol string tables.
-      if (SectionHeaderStringTableName == SecName)
-        reportError("cannot use '" + SecName +
-                    "' as the section header name table when it is needed for "
-                    "DWARF output");
-      ImplicitSections.insert(StringRef(SecName).copy(StringAlloc));
+      ImplicitSections.push_back(StringRef(SecName).copy(StringAlloc));
     }
-  // TODO: Only create the .strtab here if any symbols have been requested.
-  ImplicitSections.insert(".strtab");
+  ImplicitSections.insert(ImplicitSections.end(), {".strtab"});
   if (!SecHdrTable || !SecHdrTable->NoHeaders.getValueOr(false))
-    ImplicitSections.insert(SectionHeaderStringTableName);
+    ImplicitSections.insert(ImplicitSections.end(), {".shstrtab"});
 
   // Insert placeholders for implicit sections that are not
   // defined explicitly in YAML.
@@ -425,9 +387,7 @@ ELFState<ELFT>::ELFState(ELFYAML::Object &D, yaml::ErrorHandler EH)
         ELFYAML::Chunk::ChunkKind::RawContent, true /*IsImplicit*/);
     Sec->Name = SecName;
 
-    if (SecName == SectionHeaderStringTableName)
-      Sec->Type = ELF::SHT_STRTAB;
-    else if (SecName == ".dynsym")
+    if (SecName == ".dynsym")
       Sec->Type = ELF::SHT_DYNSYM;
     else if (SecName == ".symtab")
       Sec->Type = ELF::SHT_SYMTAB;
@@ -520,9 +480,8 @@ void ELFState<ELFT>::writeELFHeader(raw_ostream &OS) {
 
   if (Doc.Header.EShStrNdx)
     Header.e_shstrndx = *Doc.Header.EShStrNdx;
-  else if (SectionHeaders.Offset &&
-           !ExcludedSectionHeaders.count(SectionHeaderStringTableName))
-    Header.e_shstrndx = SN2I.get(SectionHeaderStringTableName);
+  else if (SectionHeaders.Offset && !ExcludedSectionHeaders.count(".shstrtab"))
+    Header.e_shstrndx = SN2I.get(".shstrtab");
   else
     Header.e_shstrndx = 0;
 
@@ -604,7 +563,7 @@ unsigned ELFState<ELFT>::toSectionIndex(StringRef S, StringRef LocSec,
          !SectionHeaders.Sections);
   size_t FirstExcluded =
       SectionHeaders.Sections ? SectionHeaders.Sections->size() : 0;
-  if (Index > FirstExcluded) {
+  if (Index >= FirstExcluded) {
     if (LocSym.empty())
       reportError("unable to link '" + LocSec + "' to excluded section '" + S +
                   "'");
@@ -656,16 +615,16 @@ bool ELFState<ELFT>::initImplicitHeader(ContiguousBlobAccumulator &CBA,
   if (Header.sh_offset)
     return false;
 
-  if (SecName == ".strtab")
-    initStrtabSectionHeader(Header, SecName, DotStrtab, CBA, YAMLSec);
-  else if (SecName == ".dynstr")
-    initStrtabSectionHeader(Header, SecName, DotDynstr, CBA, YAMLSec);
-  else if (SecName == SectionHeaderStringTableName)
-    initStrtabSectionHeader(Header, SecName, *ShStrtabStrings, CBA, YAMLSec);
-  else if (SecName == ".symtab")
+  if (SecName == ".symtab")
     initSymtabSectionHeader(Header, SymtabType::Static, CBA, YAMLSec);
+  else if (SecName == ".strtab")
+    initStrtabSectionHeader(Header, SecName, DotStrtab, CBA, YAMLSec);
+  else if (SecName == ".shstrtab")
+    initStrtabSectionHeader(Header, SecName, DotShStrtab, CBA, YAMLSec);
   else if (SecName == ".dynsym")
     initSymtabSectionHeader(Header, SymtabType::Dynamic, CBA, YAMLSec);
+  else if (SecName == ".dynstr")
+    initStrtabSectionHeader(Header, SecName, DotDynstr, CBA, YAMLSec);
   else if (SecName.startswith(".debug_")) {
     // If a ".debug_*" section's type is a preserved one, e.g., SHT_DYNAMIC, we
     // will not treat it as a debug section.
@@ -712,7 +671,7 @@ uint64_t ELFState<ELFT>::getSectionNameOffset(StringRef Name) {
   // the string table.
   if (ExcludedSectionHeaders.count(Name))
     return 0;
-  return ShStrtabStrings->getOffset(Name);
+  return DotShStrtab.getOffset(Name);
 }
 
 static uint64_t writeContent(ContiguousBlobAccumulator &CBA,
@@ -1036,7 +995,7 @@ void ELFState<ELFT>::initStrtabSectionHeader(Elf_Shdr &SHeader, StringRef Name,
                                              StringTableBuilder &STB,
                                              ContiguousBlobAccumulator &CBA,
                                              ELFYAML::Section *YAMLSec) {
-  SHeader.sh_name = getSectionNameOffset(ELFYAML::dropUniqueSuffix(Name));
+  SHeader.sh_name = getSectionNameOffset(Name);
   SHeader.sh_type = YAMLSec ? YAMLSec->Type : ELF::SHT_STRTAB;
   SHeader.sh_addralign = YAMLSec ? (uint64_t)YAMLSec->AddressAlign : 1;
 
@@ -1399,14 +1358,12 @@ void ELFState<ELFT>::writeSectionContent(
   for (const ELFYAML::BBAddrMapEntry &E : *Section.Entries) {
     // Write the address of the function.
     CBA.write<uintX_t>(E.Address, ELFT::TargetEndianness);
-    // Write number of BBEntries (number of basic blocks in the function). This
-    // is overridden by the 'NumBlocks' YAML field when specified.
-    uint64_t NumBlocks =
-        E.NumBlocks.getValueOr(E.BBEntries ? E.BBEntries->size() : 0);
+    // Write number of BBEntries (number of basic blocks in the function).
+    size_t NumBlocks = E.BBEntries ? E.BBEntries->size() : 0;
     SHeader.sh_size += sizeof(uintX_t) + CBA.writeULEB128(NumBlocks);
-    // Write all BBEntries.
-    if (!E.BBEntries)
+    if (!NumBlocks)
       continue;
+    // Write all BBEntries.
     for (const ELFYAML::BBAddrMapEntry::BBEntry &BBE : *E.BBEntries)
       SHeader.sh_size += CBA.writeULEB128(BBE.AddressOffset) +
                          CBA.writeULEB128(BBE.Size) +
@@ -1475,9 +1432,14 @@ void ELFState<ELFT>::writeSectionContent(
   if (!Section.Entries)
     return;
 
-  for (const ELFYAML::CallGraphEntryWeight &E : *Section.Entries) {
+  for (const ELFYAML::CallGraphEntry &E : *Section.Entries) {
+    unsigned From = toSymbolIndex(E.From, Section.Name, /*IsDynamic=*/false);
+    unsigned To = toSymbolIndex(E.To, Section.Name, /*IsDynamic=*/false);
+
+    CBA.write<uint32_t>(From, ELFT::TargetEndianness);
+    CBA.write<uint32_t>(To, ELFT::TargetEndianness);
     CBA.write<uint64_t>(E.Weight, ELFT::TargetEndianness);
-    SHeader.sh_size += sizeof(object::Elf_CGProfile_Impl<ELFT>);
+    SHeader.sh_size += 16;
   }
 }
 
@@ -1853,8 +1815,10 @@ template <class ELFT> void ELFState<ELFT>::buildSectionIndex() {
       llvm_unreachable("buildSectionIndex() failed");
 
     if (!ExcludedSectionHeaders.count(S->Name))
-      ShStrtabStrings->add(ELFYAML::dropUniqueSuffix(S->Name));
+      DotShStrtab.add(ELFYAML::dropUniqueSuffix(S->Name));
   }
+
+  DotShStrtab.finalize();
 }
 
 template <class ELFT> void ELFState<ELFT>::buildSymbolIndexes() {
@@ -1904,11 +1868,6 @@ template <class ELFT> void ELFState<ELFT>::finalizeStrings() {
   }
 
   DotDynstr.finalize();
-
-  // Don't finalize the section header string table a second time if it has
-  // already been finalized due to being one of the symbol string tables.
-  if (ShStrtabStrings != &DotStrtab && ShStrtabStrings != &DotDynstr)
-    ShStrtabStrings->finalize();
 }
 
 template <class ELFT>
@@ -1918,15 +1877,13 @@ bool ELFState<ELFT>::writeELF(raw_ostream &OS, ELFYAML::Object &Doc,
   if (State.HasError)
     return false;
 
-  // Build the section index, which adds sections to the section header string
-  // table first, so that we can finalize the section header string table.
+  // Finalize .strtab and .dynstr sections. We do that early because want to
+  // finalize the string table builders before writing the content of the
+  // sections that might want to use them.
+  State.finalizeStrings();
+
   State.buildSectionIndex();
   State.buildSymbolIndexes();
-
-  // Finalize section header string table and the .strtab and .dynstr sections.
-  // We do this early because we want to finalize the string table builders
-  // before writing the content of the sections that might want to use them.
-  State.finalizeStrings();
 
   if (State.HasError)
     return false;

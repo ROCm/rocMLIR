@@ -1,3 +1,4 @@
+; RUN: opt < %s -analyze -enable-new-pm=0 -delinearize
 ; RUN: opt < %s -passes='print<delinearization>' -disable-output
 ; REQUIRES: asserts
 

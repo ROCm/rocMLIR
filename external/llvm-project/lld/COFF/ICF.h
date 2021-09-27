@@ -9,7 +9,6 @@
 #ifndef LLD_COFF_ICF_H
 #define LLD_COFF_ICF_H
 
-#include "Config.h"
 #include "lld/Common/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
 
@@ -17,9 +16,8 @@ namespace lld {
 namespace coff {
 
 class Chunk;
-class COFFLinkerContext;
 
-void doICF(COFFLinkerContext &ctx, ICFLevel);
+void doICF(ArrayRef<Chunk *> chunks);
 
 } // namespace coff
 } // namespace lld

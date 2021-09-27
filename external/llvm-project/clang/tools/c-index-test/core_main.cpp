@@ -63,9 +63,6 @@ DumpModuleImports("dump-imported-module-files",
 static cl::opt<bool>
 IncludeLocals("include-locals", cl::desc("Print local symbols"));
 
-static cl::opt<bool> IgnoreMacros("ignore-macros",
-                                  cl::desc("Skip indexing macros"));
-
 static cl::opt<std::string>
 ModuleFilePath("module-file",
                cl::desc("Path to module file to print symbols from"));
@@ -213,8 +210,7 @@ static void dumpModuleFileInputs(serialization::ModuleFile &Mod,
 
 static bool printSourceSymbols(const char *Executable,
                                ArrayRef<const char *> Args,
-                               bool dumpModuleImports, bool indexLocals,
-                               bool ignoreMacros) {
+                               bool dumpModuleImports, bool indexLocals) {
   SmallVector<const char *, 4> ArgsWithProgName;
   ArgsWithProgName.push_back(Executable);
   ArgsWithProgName.append(Args.begin(), Args.end());
@@ -228,8 +224,6 @@ static bool printSourceSymbols(const char *Executable,
   auto DataConsumer = std::make_shared<PrintIndexDataConsumer>(OS);
   IndexingOptions IndexOpts;
   IndexOpts.IndexFunctionLocals = indexLocals;
-  IndexOpts.IndexMacros = !ignoreMacros;
-  IndexOpts.IndexMacrosInPreprocessor = !ignoreMacros;
   std::unique_ptr<FrontendAction> IndexAction =
       createIndexingAction(DataConsumer, IndexOpts);
 
@@ -363,7 +357,7 @@ int indextest_core_main(int argc, const char **argv) {
     }
     return printSourceSymbols(Executable.c_str(), CompArgs,
                               options::DumpModuleImports,
-                              options::IncludeLocals, options::IgnoreMacros);
+                              options::IncludeLocals);
   }
 
   return 0;

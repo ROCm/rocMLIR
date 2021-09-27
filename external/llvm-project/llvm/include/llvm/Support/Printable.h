@@ -14,7 +14,6 @@
 #define LLVM_SUPPORT_PRINTABLE_H
 
 #include <functional>
-#include <utility>
 
 namespace llvm {
 

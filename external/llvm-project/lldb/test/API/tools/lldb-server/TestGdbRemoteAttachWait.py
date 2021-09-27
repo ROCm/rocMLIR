@@ -36,7 +36,7 @@ class TestGdbRemoteAttachWait(gdbremote_testcase.GdbRemoteTestCaseBase):
         # Launch the first inferior (we shouldn't attach to this one).
         launch_inferior()
         
-        self.do_handshake()
+        self.add_no_ack_remote_stream()
         self.test_sequence.add_log_lines([
             # Do the attach.
             "read packet: $vAttachWait;{}#00".format(lldbgdbserverutils.gdbremote_hex_encode_string(exe)),

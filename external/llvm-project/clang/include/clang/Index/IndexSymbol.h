@@ -75,7 +75,6 @@ enum class SymbolSubKind : uint8_t {
   AccessorSetter,
   UsingTypename,
   UsingValue,
-  UsingEnum,
 };
 
 typedef uint16_t SymbolPropertySet;

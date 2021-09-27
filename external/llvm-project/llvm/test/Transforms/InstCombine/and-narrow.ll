@@ -177,7 +177,7 @@ define <2 x i16> @zext_lshr_vec_overshift(<2 x i8> %x) {
 
 define <2 x i16> @zext_lshr_vec_undef(<2 x i8> %x) {
 ; CHECK-LABEL: @zext_lshr_vec_undef(
-; CHECK-NEXT:    ret <2 x i16> poison
+; CHECK-NEXT:    ret <2 x i16> zeroinitializer
 ;
   %z = zext <2 x i8> %x to <2 x i16>
   %b = lshr <2 x i16> %z, undef
@@ -202,10 +202,11 @@ define <2 x i16> @zext_shl_vec_overshift(<2 x i8> %x) {
 
 define <2 x i16> @zext_shl_vec_undef(<2 x i8> %x) {
 ; CHECK-LABEL: @zext_shl_vec_undef(
-; CHECK-NEXT:    ret <2 x i16> poison
+; CHECK-NEXT:    ret <2 x i16> zeroinitializer
 ;
   %z = zext <2 x i8> %x to <2 x i16>
   %b = shl <2 x i16> %z, undef
   %r = and <2 x i16> %b, %z
   ret <2 x i16> %r
 }
+

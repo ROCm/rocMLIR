@@ -23,7 +23,7 @@ struct NameUniquer;
 std::unique_ptr<mlir::Pass> createFirCodeGenRewritePass();
 
 /// Convert FIR to the LLVM IR dialect
-std::unique_ptr<mlir::Pass> createFIRToLLVMPass();
+std::unique_ptr<mlir::Pass> createFIRToLLVMPass(NameUniquer &uniquer);
 
 /// Convert the LLVM IR dialect to LLVM-IR proper
 std::unique_ptr<mlir::Pass>

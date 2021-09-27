@@ -117,6 +117,7 @@ SBRegistry::SBRegistry() {
   RegisterMethods<SBThreadCollection>(R);
   RegisterMethods<SBThreadPlan>(R);
   RegisterMethods<SBTrace>(R);
+  RegisterMethods<SBTraceOptions>(R);
   RegisterMethods<SBType>(R);
   RegisterMethods<SBTypeCategory>(R);
   RegisterMethods<SBTypeEnumMember>(R);

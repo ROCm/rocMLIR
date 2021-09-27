@@ -25,10 +25,8 @@
 #define EL_BASE set
 
 #include <isl_list_templ.c>
-#include <isl_list_read_templ.c>
 
 #undef EL_BASE
 #define EL_BASE union_set
 
 #include <isl_list_templ.c>
-#include <isl_list_read_templ.c>

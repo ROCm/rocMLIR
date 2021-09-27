@@ -3,13 +3,13 @@
 func @vecadd(%arg0 : memref<?xf32>, %arg1 : memref<?xf32>, %arg2 : memref<?xf32>) {
   %cst = constant 1 : index
   %cst0 = constant 0 : index
-  %cst2 = memref.dim %arg0, %cst0 : memref<?xf32>
+  %cst2 = dim %arg0, %cst0 : memref<?xf32>
   gpu.launch blocks(%bx, %by, %bz) in (%grid_x = %cst, %grid_y = %cst, %grid_z = %cst)
              threads(%tx, %ty, %tz) in (%block_x = %cst2, %block_y = %cst, %block_z = %cst) {
-    %a = memref.load %arg0[%tx] : memref<?xf32>
-    %b = memref.load %arg1[%tx] : memref<?xf32>
+    %a = load %arg0[%tx] : memref<?xf32>
+    %b = load %arg1[%tx] : memref<?xf32>
     %c = addf %a, %b : f32
-    memref.store %c, %arg2[%tx] : memref<?xf32>
+    store %c, %arg2[%tx] : memref<?xf32>
     gpu.terminator
   } {operand_segment_sizes = dense<[1,1,1, 1,1,1, 1,1,1]> : vector<9xi32>}
   return
@@ -18,13 +18,13 @@ func @vecadd(%arg0 : memref<?xf32>, %arg1 : memref<?xf32>, %arg2 : memref<?xf32>
 // CHECK: [2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46]
 func @main() {
   // allocate CPU memory.
-  %0 = memref.alloc() : memref<16xf32>
-  %1 = memref.alloc() : memref<16xf32>
-  %2 = memref.alloc() : memref<16xf32>
+  %0 = alloc() : memref<16xf32>
+  %1 = alloc() : memref<16xf32>
+  %2 = alloc() : memref<16xf32>
 
-  %3 = memref.cast %0 : memref<16xf32> to memref<?xf32>
-  %4 = memref.cast %1 : memref<16xf32> to memref<?xf32>
-  %5 = memref.cast %2 : memref<16xf32> to memref<?xf32>
+  %3 = memref_cast %0 : memref<16xf32> to memref<?xf32>
+  %4 = memref_cast %1 : memref<16xf32> to memref<?xf32>
+  %5 = memref_cast %2 : memref<16xf32> to memref<?xf32>
 
   // populate initial values.
   %cst = constant 1.23 : f32
@@ -53,7 +53,7 @@ func @main() {
   call @mgpuMemCopy(%8, %5, %cst_d2h) : (memref<?xf32>, memref<?xf32>, i32) -> ()
 
   // print result.
-  %9 = memref.cast %5 : memref<?xf32> to memref<*xf32>
+  %9 = memref_cast %5 : memref<?xf32> to memref<*xf32>
   call @print_memref_f32(%9) : (memref<*xf32>) -> ()
 
   // dellocate GPU memory.
@@ -62,9 +62,9 @@ func @main() {
   call @mgpuMemDealloc(%8) : (memref<?xf32>) -> ()
 
   // deallocate CPU memory.
-  memref.dealloc %0 : memref<16xf32>
-  memref.dealloc %1 : memref<16xf32>
-  memref.dealloc %2 : memref<16xf32>
+  dealloc %0 : memref<16xf32>
+  dealloc %1 : memref<16xf32>
+  dealloc %2 : memref<16xf32>
 
   return
 }

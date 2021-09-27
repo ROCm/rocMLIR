@@ -249,11 +249,11 @@ public:
   ///                         that don't have help texts. By default, we display
   ///                         only options that are not hidden and have help
   ///                         texts.
-  void printHelp(raw_ostream &OS, const char *Usage, const char *Title,
+  void PrintHelp(raw_ostream &OS, const char *Usage, const char *Title,
                  unsigned FlagsToInclude, unsigned FlagsToExclude,
                  bool ShowAllAliases) const;
 
-  void printHelp(raw_ostream &OS, const char *Usage, const char *Title,
+  void PrintHelp(raw_ostream &OS, const char *Usage, const char *Title,
                  bool ShowHidden = false, bool ShowAllAliases = false) const;
 };
 

@@ -2,8 +2,6 @@
 # RUN: wasm-ld %t.o -o %t.wasm
 # RUN: obj2yaml %t.wasm | FileCheck %s
 
-  .functype __wasm_call_ctors () -> ()
-
   .globl  myctor
 myctor:
   .functype myctor () -> (i32)

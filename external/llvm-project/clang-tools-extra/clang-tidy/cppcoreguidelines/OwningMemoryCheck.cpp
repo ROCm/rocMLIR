@@ -192,7 +192,6 @@ void OwningMemoryCheck::check(const MatchFinder::MatchResult &Result) {
   CheckExecuted |= handleReturnValues(Nodes);
   CheckExecuted |= handleOwnerMembers(Nodes);
 
-  (void)CheckExecuted;
   assert(CheckExecuted &&
          "None of the subroutines executed, logic error in matcher!");
 }

@@ -1,14 +1,14 @@
 
-add_lld_unittest(lldMachOOldTests
+add_lld_unittest(lldMachOTests
   MachONormalizedFileBinaryReaderTests.cpp
   MachONormalizedFileBinaryWriterTests.cpp
   MachONormalizedFileToAtomsTests.cpp
   MachONormalizedFileYAMLTests.cpp
   )
 
-target_link_libraries(lldMachOOldTests
+target_link_libraries(lldMachOTests
   PRIVATE
   lldDriver
-  lldMachOOld
+  lldMachO
   lldYAML
   )

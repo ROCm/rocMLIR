@@ -188,17 +188,14 @@ Error CodeViewRecordIO::mapEncodedInteger(uint64_t &Value,
 
 Error CodeViewRecordIO::mapEncodedInteger(APSInt &Value, const Twine &Comment) {
   if (isStreaming()) {
-    // FIXME: We also need to handle big values here, but it's
-    //        not clear how we can excercise this code path yet.
     if (Value.isSigned())
       emitEncodedSignedInteger(Value.getSExtValue(), Comment);
     else
       emitEncodedUnsignedInteger(Value.getZExtValue(), Comment);
   } else if (isWriting()) {
     if (Value.isSigned())
-      return writeEncodedSignedInteger(
-          Value.isSingleWord() ? Value.getSExtValue() : INT64_MIN);
-    return writeEncodedUnsignedInteger(Value.getLimitedValue());
+      return writeEncodedSignedInteger(Value.getSExtValue());
+    return writeEncodedUnsignedInteger(Value.getZExtValue());
   } else
     return consume(*Reader, Value);
   return Error::success();
@@ -276,9 +273,6 @@ Error CodeViewRecordIO::mapStringZVectorZ(std::vector<StringRef> &Value,
 
 void CodeViewRecordIO::emitEncodedSignedInteger(const int64_t &Value,
                                                 const Twine &Comment) {
-  // FIXME: There are no test cases covering this function.
-  // This may be because we always consider enumerators to be unsigned.
-  // See FIXME at CodeViewDebug.cpp : CodeViewDebug::lowerTypeEnum.
   if (Value >= std::numeric_limits<int8_t>::min()) {
     Streamer->emitIntValue(LF_CHAR, 2);
     emitComment(Comment);
@@ -297,8 +291,8 @@ void CodeViewRecordIO::emitEncodedSignedInteger(const int64_t &Value,
   } else {
     Streamer->emitIntValue(LF_QUADWORD, 2);
     emitComment(Comment);
-    Streamer->emitIntValue(Value, 4); // FIXME: Why not 8 (size of quadword)?
-    incrStreamedLen(6);               // FIXME: Why not 10 (8 + 2)?
+    Streamer->emitIntValue(Value, 4);
+    incrStreamedLen(6);
   }
 }
 
@@ -319,11 +313,10 @@ void CodeViewRecordIO::emitEncodedUnsignedInteger(const uint64_t &Value,
     Streamer->emitIntValue(Value, 4);
     incrStreamedLen(6);
   } else {
-    // FIXME: There are no test cases covering this block.
     Streamer->emitIntValue(LF_UQUADWORD, 2);
     emitComment(Comment);
     Streamer->emitIntValue(Value, 8);
-    incrStreamedLen(6); // FIXME: Why not 10 (8 + 2)?
+    incrStreamedLen(6);
   }
 }
 

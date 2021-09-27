@@ -493,17 +493,8 @@ Block *ArgConverter::applySignatureConversion(
     // to pack the new values. For 1->1 mappings, if there is no materialization
     // provided, use the argument directly instead.
     auto replArgs = newArgs.slice(inputMap->inputNo, inputMap->size);
-    Value newArg;
-
-    // If this is a 1->1 mapping and the types of new and replacement arguments
-    // match (i.e. it's an identity map), then the argument is mapped to its
-    // original type.
-    if (replArgs.size() == 1 && replArgs[0].getType() == origArg.getType())
-      newArg = replArgs[0];
-    else
-      newArg = converter.materializeArgumentConversion(
-          rewriter, origArg.getLoc(), origArg.getType(), replArgs);
-
+    Value newArg = converter.materializeArgumentConversion(
+        rewriter, origArg.getLoc(), origArg.getType(), replArgs);
     if (!newArg) {
       assert(replArgs.size() == 1 &&
              "couldn't materialize the result of 1->N conversion");
@@ -748,22 +739,15 @@ struct ConversionPatternRewriterImpl {
       Block *block, TypeConverter &converter,
       TypeConverter::SignatureConversion *conversion = nullptr);
 
-  /// Apply a signature conversion on the given region, using `converter` for
-  /// materializations if not null.
+  /// Apply a signature conversion on the given region.
   Block *
   applySignatureConversion(Region *region,
-                           TypeConverter::SignatureConversion &conversion,
-                           TypeConverter *converter);
+                           TypeConverter::SignatureConversion &conversion);
 
   /// Convert the types of block arguments within the given region.
   FailureOr<Block *>
   convertRegionTypes(Region *region, TypeConverter &converter,
                      TypeConverter::SignatureConversion *entryConversion);
-
-  /// Convert the types of non-entry block arguments within the given region.
-  LogicalResult convertNonEntryRegionTypes(
-      Region *region, TypeConverter &converter,
-      ArrayRef<TypeConverter::SignatureConversion> blockConversions = {});
 
   //===--------------------------------------------------------------------===//
   // Rewriter Notification Hooks
@@ -829,7 +813,7 @@ struct ConversionPatternRewriterImpl {
   /// define non-empty regions to the set, but not any of the others. This
   /// simplifies the amount of memory needed as we can query if the parent
   /// operation was ignored.
-  SetVector<Operation *> ignoredOps;
+  llvm::SetVector<Operation *> ignoredOps;
 
   /// A transaction state for each of operations that were updated in-place.
   SmallVector<OperationTransactionState, 4> rootUpdates;
@@ -926,13 +910,9 @@ void ConversionPatternRewriterImpl::applyRewrites() {
 
   // In a second pass, erase all of the replaced operations in reverse. This
   // allows processing nested operations before their parent region is
-  // destroyed. Because we process in reverse order, producers may be deleted
-  // before their users (a pattern deleting a producer and then the consumer)
-  // so we first drop all uses explicitly.
-  for (auto &repl : llvm::reverse(replacements)) {
-    repl.first->dropAllUses();
+  // destroyed.
+  for (auto &repl : llvm::reverse(replacements))
     repl.first->erase();
-  }
 
   argConverter.applyRewrites(mapping);
 
@@ -1155,11 +1135,9 @@ FailureOr<Block *> ConversionPatternRewriterImpl::convertBlockSignature(
 }
 
 Block *ConversionPatternRewriterImpl::applySignatureConversion(
-    Region *region, TypeConverter::SignatureConversion &conversion,
-    TypeConverter *converter) {
+    Region *region, TypeConverter::SignatureConversion &conversion) {
   if (!region->empty()) {
-    return *convertBlockSignature(&region->front(),
-                                  converter ? *converter : defaultTypeConverter,
+    return *convertBlockSignature(&region->front(), defaultTypeConverter,
                                   &conversion);
   }
   return nullptr;
@@ -1172,40 +1150,13 @@ FailureOr<Block *> ConversionPatternRewriterImpl::convertRegionTypes(
   if (region->empty())
     return nullptr;
 
-  if (failed(convertNonEntryRegionTypes(region, converter)))
-    return failure();
-
+  // Convert the arguments of each block within the region.
   FailureOr<Block *> newEntry =
       convertBlockSignature(&region->front(), converter, entryConversion);
-  return newEntry;
-}
-
-LogicalResult ConversionPatternRewriterImpl::convertNonEntryRegionTypes(
-    Region *region, TypeConverter &converter,
-    ArrayRef<TypeConverter::SignatureConversion> blockConversions) {
-  argConverter.setConverter(region, &converter);
-  if (region->empty())
-    return success();
-
-  // Convert the arguments of each block within the region.
-  int blockIdx = 0;
-  assert((blockConversions.empty() ||
-          blockConversions.size() == region->getBlocks().size() - 1) &&
-         "expected either to provide no SignatureConversions at all or to "
-         "provide a SignatureConversion for each non-entry block");
-
-  for (Block &block :
-       llvm::make_early_inc_range(llvm::drop_begin(*region, 1))) {
-    TypeConverter::SignatureConversion *blockConversion =
-        blockConversions.empty()
-            ? nullptr
-            : const_cast<TypeConverter::SignatureConversion *>(
-                  &blockConversions[blockIdx++]);
-
-    if (failed(convertBlockSignature(&block, converter, blockConversion)))
+  for (Block &block : llvm::make_early_inc_range(llvm::drop_begin(*region, 1)))
+    if (failed(convertBlockSignature(&block, converter)))
       return failure();
-  }
-  return success();
+  return newEntry;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1362,21 +1313,14 @@ void ConversionPatternRewriter::eraseBlock(Block *block) {
 }
 
 Block *ConversionPatternRewriter::applySignatureConversion(
-    Region *region, TypeConverter::SignatureConversion &conversion,
-    TypeConverter *converter) {
-  return impl->applySignatureConversion(region, conversion, converter);
+    Region *region, TypeConverter::SignatureConversion &conversion) {
+  return impl->applySignatureConversion(region, conversion);
 }
 
 FailureOr<Block *> ConversionPatternRewriter::convertRegionTypes(
     Region *region, TypeConverter &converter,
     TypeConverter::SignatureConversion *entryConversion) {
   return impl->convertRegionTypes(region, converter, entryConversion);
-}
-
-LogicalResult ConversionPatternRewriter::convertNonEntryRegionTypes(
-    Region *region, TypeConverter &converter,
-    ArrayRef<TypeConverter::SignatureConversion> blockConversions) {
-  return impl->convertNonEntryRegionTypes(region, converter, blockConversions);
 }
 
 void ConversionPatternRewriter::replaceUsesOfBlockArgument(BlockArgument from,
@@ -1484,9 +1428,7 @@ void ConversionPatternRewriter::cancelRootUpdate(Operation *op) {
   auto stateHasOp = [op](const auto &it) { return it.getOperation() == op; };
   auto &rootUpdates = impl->rootUpdates;
   auto it = llvm::find_if(llvm::reverse(rootUpdates), stateHasOp);
-  assert(it != rootUpdates.rend() && "no root update started on op");
-  int updateIdx = std::prev(rootUpdates.rend()) - it;
-  rootUpdates.erase(rootUpdates.begin() + updateIdx);
+  rootUpdates.erase(rootUpdates.begin() + (rootUpdates.rend() - it));
 }
 
 /// PatternRewriter hook for notifying match failure reasons.
@@ -1541,7 +1483,7 @@ public:
   using LegalizationAction = ConversionTarget::LegalizationAction;
 
   OperationLegalizer(ConversionTarget &targetInfo,
-                     const FrozenRewritePatternSet &patterns);
+                     const FrozenRewritePatternList &patterns);
 
   /// Returns true if the given operation is known to be illegal on the target.
   bool isIllegal(Operation *op) const;
@@ -1637,7 +1579,7 @@ private:
 } // namespace
 
 OperationLegalizer::OperationLegalizer(ConversionTarget &targetInfo,
-                                       const FrozenRewritePatternSet &patterns)
+                                       const FrozenRewritePatternList &patterns)
     : target(targetInfo), applicator(patterns) {
   // The set of patterns that can be applied to illegal operations to transform
   // them into legal ones.
@@ -1650,13 +1592,7 @@ OperationLegalizer::OperationLegalizer(ConversionTarget &targetInfo,
 
 bool OperationLegalizer::isIllegal(Operation *op) const {
   // Check if the target explicitly marked this operation as illegal.
-  if (auto info = target.getOpAction(op->getName())) {
-    if (*info == LegalizationAction::Dynamic)
-      return !target.isLegal(op);
-    return *info == LegalizationAction::Illegal;
-  }
-
-  return false;
+  return target.getOpAction(op->getName()) == LegalizationAction::Illegal;
 }
 
 LogicalResult
@@ -1965,7 +1901,7 @@ void OperationLegalizer::buildLegalizationGraph(
   // A mapping between an operation and any currently invalid patterns it has.
   DenseMap<OperationName, SmallPtrSet<const Pattern *, 2>> invalidPatterns;
   // A worklist of patterns to consider for legality.
-  SetVector<const Pattern *> patternWorklist;
+  llvm::SetVector<const Pattern *> patternWorklist;
 
   // Build the mapping from operations to the parent ops that may generate them.
   applicator.walkAllPatterns([&](const Pattern &pattern) {
@@ -2057,7 +1993,7 @@ void OperationLegalizer::computeLegalizationGraphBenefit(
       orderedPatternList = anyOpLegalizerPatterns;
 
     // If the pattern is not found, then it was removed and cannot be matched.
-    auto *it = llvm::find(orderedPatternList, &pattern);
+    auto it = llvm::find(orderedPatternList, &pattern);
     if (it == orderedPatternList.end())
       return PatternBenefit::impossibleToMatch();
 
@@ -2166,7 +2102,7 @@ enum OpConversionMode {
 // conversion mode.
 struct OperationConverter {
   explicit OperationConverter(ConversionTarget &target,
-                              const FrozenRewritePatternSet &patterns,
+                              const FrozenRewritePatternList &patterns,
                               OpConversionMode mode,
                               DenseSet<Operation *> *trackedOps = nullptr)
       : opLegalizer(target, patterns), mode(mode), trackedOps(trackedOps) {}
@@ -2271,20 +2207,13 @@ LogicalResult OperationConverter::convertOperations(ArrayRef<Operation *> ops) {
   // legalized.
   if (failed(finalize(rewriter)))
     return rewriterImpl.discardRewrites(), failure();
+
   // After a successful conversion, apply rewrites if this is not an analysis
   // conversion.
   if (mode == OpConversionMode::Analysis)
     rewriterImpl.discardRewrites();
-  else {
+  else
     rewriterImpl.applyRewrites();
-
-    // It is possible for a later pattern to erase an op that was originally
-    // identified as illegal and added to the trackedOps, remove it now after
-    // replacements have been computed.
-    if (trackedOps)
-      for (auto &repl : rewriterImpl.replacements)
-        trackedOps->erase(repl.first);
-  }
   return success();
 }
 
@@ -2549,9 +2478,9 @@ Type TypeConverter::convertType(Type t) {
 /// Convert the given set of types, filling 'results' as necessary. This
 /// returns failure if the conversion of any of the types fails, success
 /// otherwise.
-LogicalResult TypeConverter::convertTypes(TypeRange types,
+LogicalResult TypeConverter::convertTypes(ArrayRef<Type> types,
                                           SmallVectorImpl<Type> &results) {
-  for (Type type : types)
+  for (auto type : types)
     if (failed(convertType(type, results)))
       return failure();
   return success();
@@ -2630,21 +2559,21 @@ namespace {
 struct FunctionLikeSignatureConversion : public ConversionPattern {
   FunctionLikeSignatureConversion(StringRef functionLikeOpName,
                                   MLIRContext *ctx, TypeConverter &converter)
-      : ConversionPattern(converter, functionLikeOpName, /*benefit=*/1, ctx) {}
+      : ConversionPattern(functionLikeOpName, /*benefit=*/1, converter, ctx) {}
 
   /// Hook to implement combined matching and rewriting for FunctionLike ops.
   LogicalResult
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    FunctionType type = function_like_impl::getFunctionType(op);
+    FunctionType type = mlir::impl::getFunctionType(op);
 
     // Convert the original function types.
     TypeConverter::SignatureConversion result(type.getNumInputs());
     SmallVector<Type, 1> newResults;
     if (failed(typeConverter->convertSignatureArgs(type.getInputs(), result)) ||
         failed(typeConverter->convertTypes(type.getResults(), newResults)) ||
-        failed(rewriter.convertRegionTypes(
-            &function_like_impl::getFunctionBody(op), *typeConverter, &result)))
+        failed(rewriter.convertRegionTypes(&mlir::impl::getFunctionBody(op),
+                                           *typeConverter, &result)))
       return failure();
 
     // Update the function signature in-place.
@@ -2652,7 +2581,7 @@ struct FunctionLikeSignatureConversion : public ConversionPattern {
                                      result.getConvertedTypes(), newResults);
 
     rewriter.updateRootInPlace(
-        op, [&] { function_like_impl::setFunctionType(op, newType); });
+        op, [&] { mlir::impl::setFunctionType(op, newType); });
 
     return success();
   }
@@ -2660,15 +2589,16 @@ struct FunctionLikeSignatureConversion : public ConversionPattern {
 } // end anonymous namespace
 
 void mlir::populateFunctionLikeTypeConversionPattern(
-    StringRef functionLikeOpName, RewritePatternSet &patterns,
-    TypeConverter &converter) {
-  patterns.add<FunctionLikeSignatureConversion>(
-      functionLikeOpName, patterns.getContext(), converter);
+    StringRef functionLikeOpName, OwningRewritePatternList &patterns,
+    MLIRContext *ctx, TypeConverter &converter) {
+  patterns.insert<FunctionLikeSignatureConversion>(functionLikeOpName, ctx,
+                                                   converter);
 }
 
-void mlir::populateFuncOpTypeConversionPattern(RewritePatternSet &patterns,
-                                               TypeConverter &converter) {
-  populateFunctionLikeTypeConversionPattern<FuncOp>(patterns, converter);
+void mlir::populateFuncOpTypeConversionPattern(
+    OwningRewritePatternList &patterns, MLIRContext *ctx,
+    TypeConverter &converter) {
+  populateFunctionLikeTypeConversionPattern<FuncOp>(patterns, ctx, converter);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2678,7 +2608,7 @@ void mlir::populateFuncOpTypeConversionPattern(RewritePatternSet &patterns,
 /// Register a legality action for the given operation.
 void ConversionTarget::setOpAction(OperationName op,
                                    LegalizationAction action) {
-  legalOperations[op] = {action, /*isRecursivelyLegal=*/false, nullptr};
+  legalOperations[op] = {action, /*isRecursivelyLegal=*/false, llvm::None};
 }
 
 /// Register a legality action for the given dialects.
@@ -2706,9 +2636,11 @@ auto ConversionTarget::isLegal(Operation *op) const
 
   // Returns true if this operation instance is known to be legal.
   auto isOpLegal = [&] {
-    // Handle dynamic legality either with the provided legality function.
+    // Handle dynamic legality either with the provided legality function, or
+    // the default hook on the derived instance.
     if (info->action == LegalizationAction::Dynamic)
-      return info->legalityFn(op);
+      return info->legalityFn ? (*info->legalityFn)(op)
+                              : isDynamicallyLegal(op);
 
     // Otherwise, the operation is only legal if it was marked 'Legal'.
     return info->action == LegalizationAction::Legal;
@@ -2762,13 +2694,6 @@ void ConversionTarget::setLegalityCallback(
     dialectLegalityFns[dialect] = callback;
 }
 
-/// Set the dynamic legality callback for the unknown ops.
-void ConversionTarget::setLegalityCallback(
-    const DynamicLegalityCallbackFn &callback) {
-  assert(callback && "expected valid legality callback");
-  unknownLegalityFn = callback;
-}
-
 /// Get the legalization information for the given operation.
 auto ConversionTarget::getOpInfo(OperationName op) const
     -> Optional<LegalizationInfo> {
@@ -2777,17 +2702,17 @@ auto ConversionTarget::getOpInfo(OperationName op) const
   if (it != legalOperations.end())
     return it->second;
   // Check for info for the parent dialect.
-  auto dialectIt = legalDialects.find(op.getDialectNamespace());
+  auto dialectIt = legalDialects.find(op.getDialect());
   if (dialectIt != legalDialects.end()) {
-    DynamicLegalityCallbackFn callback;
-    auto dialectFn = dialectLegalityFns.find(op.getDialectNamespace());
+    Optional<DynamicLegalityCallbackFn> callback;
+    auto dialectFn = dialectLegalityFns.find(op.getDialect());
     if (dialectFn != dialectLegalityFns.end())
       callback = dialectFn->second;
     return LegalizationInfo{dialectIt->second, /*isRecursivelyLegal=*/false,
                             callback};
   }
   // Otherwise, check if we mark unknown operations as dynamic.
-  if (unknownLegalityFn)
+  if (unknownOpsDynamicallyLegal)
     return LegalizationInfo{LegalizationAction::Dynamic,
                             /*isRecursivelyLegal=*/false, unknownLegalityFn};
   return llvm::None;
@@ -2808,7 +2733,7 @@ auto ConversionTarget::getOpInfo(OperationName op) const
 LogicalResult
 mlir::applyPartialConversion(ArrayRef<Operation *> ops,
                              ConversionTarget &target,
-                             const FrozenRewritePatternSet &patterns,
+                             const FrozenRewritePatternList &patterns,
                              DenseSet<Operation *> *unconvertedOps) {
   OperationConverter opConverter(target, patterns, OpConversionMode::Partial,
                                  unconvertedOps);
@@ -2816,7 +2741,7 @@ mlir::applyPartialConversion(ArrayRef<Operation *> ops,
 }
 LogicalResult
 mlir::applyPartialConversion(Operation *op, ConversionTarget &target,
-                             const FrozenRewritePatternSet &patterns,
+                             const FrozenRewritePatternList &patterns,
                              DenseSet<Operation *> *unconvertedOps) {
   return applyPartialConversion(llvm::makeArrayRef(op), target, patterns,
                                 unconvertedOps);
@@ -2827,13 +2752,13 @@ mlir::applyPartialConversion(Operation *op, ConversionTarget &target,
 /// operation fails.
 LogicalResult
 mlir::applyFullConversion(ArrayRef<Operation *> ops, ConversionTarget &target,
-                          const FrozenRewritePatternSet &patterns) {
+                          const FrozenRewritePatternList &patterns) {
   OperationConverter opConverter(target, patterns, OpConversionMode::Full);
   return opConverter.convertOperations(ops);
 }
 LogicalResult
 mlir::applyFullConversion(Operation *op, ConversionTarget &target,
-                          const FrozenRewritePatternSet &patterns) {
+                          const FrozenRewritePatternList &patterns) {
   return applyFullConversion(llvm::makeArrayRef(op), target, patterns);
 }
 
@@ -2846,7 +2771,7 @@ mlir::applyFullConversion(Operation *op, ConversionTarget &target,
 LogicalResult
 mlir::applyAnalysisConversion(ArrayRef<Operation *> ops,
                               ConversionTarget &target,
-                              const FrozenRewritePatternSet &patterns,
+                              const FrozenRewritePatternList &patterns,
                               DenseSet<Operation *> &convertedOps) {
   OperationConverter opConverter(target, patterns, OpConversionMode::Analysis,
                                  &convertedOps);
@@ -2854,7 +2779,7 @@ mlir::applyAnalysisConversion(ArrayRef<Operation *> ops,
 }
 LogicalResult
 mlir::applyAnalysisConversion(Operation *op, ConversionTarget &target,
-                              const FrozenRewritePatternSet &patterns,
+                              const FrozenRewritePatternList &patterns,
                               DenseSet<Operation *> &convertedOps) {
   return applyAnalysisConversion(llvm::makeArrayRef(op), target, patterns,
                                  convertedOps);

@@ -11,19 +11,18 @@
 
 namespace llvm {
 class Error;
-class raw_ostream;
 
 namespace object {
 class WasmObjectFile;
 } // end namespace object
 
 namespace objcopy {
-struct CommonConfig;
-struct WasmConfig;
+struct CopyConfig;
+class Buffer;
 
 namespace wasm {
-Error executeObjcopyOnBinary(const CommonConfig &Config, const WasmConfig &,
-                             object::WasmObjectFile &In, raw_ostream &Out);
+Error executeObjcopyOnBinary(const CopyConfig &Config,
+                             object::WasmObjectFile &In, Buffer &Out);
 
 } // end namespace wasm
 } // end namespace objcopy

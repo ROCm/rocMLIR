@@ -677,8 +677,9 @@ void StructurizeCFG::killTerminator(BasicBlock *BB) {
   if (!Term)
     return;
 
-  for (BasicBlock *Succ : successors(BB))
-    delPhiValues(BB, Succ);
+  for (succ_iterator SI = succ_begin(BB), SE = succ_end(BB);
+       SI != SE; ++SI)
+    delPhiValues(BB, *SI);
 
   if (DA)
     DA->removeValue(Term);
@@ -693,9 +694,11 @@ void StructurizeCFG::changeExit(RegionNode *Node, BasicBlock *NewExit,
     BasicBlock *OldExit = SubRegion->getExit();
     BasicBlock *Dominator = nullptr;
 
-    // Find all the edges from the sub region to the exit.
-    // We use make_early_inc_range here because we modify BB's terminator.
-    for (BasicBlock *BB : llvm::make_early_inc_range(predecessors(OldExit))) {
+    // Find all the edges from the sub region to the exit
+    for (auto BBI = pred_begin(OldExit), E = pred_end(OldExit); BBI != E;) {
+      // Incrememt BBI before mucking with BB's terminator.
+      BasicBlock *BB = *BBI++;
+
       if (!SubRegion->contains(BB))
         continue;
 
@@ -921,9 +924,10 @@ void StructurizeCFG::rebuildSSA() {
   for (BasicBlock *BB : ParentRegion->blocks())
     for (Instruction &I : *BB) {
       bool Initialized = false;
-      // We may modify the use list as we iterate over it, so we use
-      // make_early_inc_range.
-      for (Use &U : llvm::make_early_inc_range(I.uses())) {
+      // We may modify the use list as we iterate over it, so be careful to
+      // compute the next element in the use list at the top of the loop.
+      for (auto UI = I.use_begin(), E = I.use_end(); UI != E;) {
+        Use &U = *UI++;
         Instruction *User = cast<Instruction>(U.getUser());
         if (User->getParent() == BB) {
           continue;

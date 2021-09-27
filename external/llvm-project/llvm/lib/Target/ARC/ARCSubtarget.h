@@ -29,8 +29,6 @@ class StringRef;
 class TargetMachine;
 
 class ARCSubtarget : public ARCGenSubtargetInfo {
-  bool Xnorm = false;
-
   virtual void anchor();
   ARCInstrInfo InstrInfo;
   ARCFrameLowering FrameLowering;
@@ -60,8 +58,6 @@ public:
   const SelectionDAGTargetInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
   }
-
-  bool hasNorm() const { return Xnorm; }
 };
 
 } // end namespace llvm

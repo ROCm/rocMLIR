@@ -100,7 +100,7 @@ private:
 bool BPFDAGToDAGISel::SelectAddr(SDValue Addr, SDValue &Base, SDValue &Offset) {
   // if Address is FI, get the TargetFrameIndex.
   SDLoc DL(Addr);
-  if (auto *FIN = dyn_cast<FrameIndexSDNode>(Addr)) {
+  if (FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>(Addr)) {
     Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), MVT::i64);
     Offset = CurDAG->getTargetConstant(0, DL, MVT::i64);
     return true;
@@ -112,10 +112,12 @@ bool BPFDAGToDAGISel::SelectAddr(SDValue Addr, SDValue &Base, SDValue &Offset) {
 
   // Addresses of the form Addr+const or Addr|const
   if (CurDAG->isBaseWithConstantOffset(Addr)) {
-    auto *CN = cast<ConstantSDNode>(Addr.getOperand(1));
+    ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Addr.getOperand(1));
     if (isInt<16>(CN->getSExtValue())) {
+
       // If the first operand is a FI, get the TargetFI Node
-      if (auto *FIN = dyn_cast<FrameIndexSDNode>(Addr.getOperand(0)))
+      if (FrameIndexSDNode *FIN =
+              dyn_cast<FrameIndexSDNode>(Addr.getOperand(0)))
         Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), MVT::i64);
       else
         Base = Addr.getOperand(0);
@@ -139,10 +141,11 @@ bool BPFDAGToDAGISel::SelectFIAddr(SDValue Addr, SDValue &Base,
     return false;
 
   // Addresses of the form Addr+const or Addr|const
-  auto *CN = cast<ConstantSDNode>(Addr.getOperand(1));
+  ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Addr.getOperand(1));
   if (isInt<16>(CN->getSExtValue())) {
+
     // If the first operand is a FI, get the TargetFI Node
-    if (auto *FIN = dyn_cast<FrameIndexSDNode>(Addr.getOperand(0)))
+    if (FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>(Addr.getOperand(0)))
       Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), MVT::i64);
     else
       return false;

@@ -207,13 +207,14 @@ void UseDefaultMemberInitCheck::registerMatchers(MatchFinder *Finder) {
             declRefExpr(to(enumConstantDecl())));
 
   auto Init =
-      anyOf(initListExpr(anyOf(allOf(initCountIs(1), hasInit(0, InitBase)),
-                               initCountIs(0))),
+      anyOf(initListExpr(anyOf(
+                allOf(initCountIs(1), hasInit(0, ignoringImplicit(InitBase))),
+                initCountIs(0))),
             InitBase);
 
   Finder->addMatcher(
       cxxConstructorDecl(
-          isDefaultConstructor(),
+          isDefaultConstructor(), unless(isInstantiated()),
           forEachConstructorInitializer(
               cxxCtorInitializer(
                   forField(unless(anyOf(getLangOpts().CPlusPlus20
@@ -221,15 +222,18 @@ void UseDefaultMemberInitCheck::registerMatchers(MatchFinder *Finder) {
                                             : isBitField(),
                                         hasInClassInitializer(anything()),
                                         hasParent(recordDecl(isUnion()))))),
-                  withInitializer(Init))
+                  isWritten(), withInitializer(ignoringImplicit(Init)))
                   .bind("default"))),
       this);
 
   Finder->addMatcher(
-      cxxConstructorDecl(forEachConstructorInitializer(
-          cxxCtorInitializer(forField(hasInClassInitializer(anything())),
-                             withInitializer(Init))
-              .bind("existing"))),
+      cxxConstructorDecl(
+          unless(ast_matchers::isTemplateInstantiation()),
+          forEachConstructorInitializer(
+              cxxCtorInitializer(forField(hasInClassInitializer(anything())),
+                                 isWritten(),
+                                 withInitializer(ignoringImplicit(Init)))
+                  .bind("existing"))),
       this);
 }
 

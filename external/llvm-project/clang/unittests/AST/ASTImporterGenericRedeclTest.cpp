@@ -417,231 +417,231 @@ struct RedeclChain : ASTImporterOptionSpecificTestBase {
   }
 };
 
-#define ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(BaseTemplate, TypeParam,       \
+#define ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(BaseTemplate, TypeParam,       \
                                                 NamePrefix, TestCase)          \
   using BaseTemplate##TypeParam = BaseTemplate<TypeParam>;                     \
   TEST_P(BaseTemplate##TypeParam, NamePrefix##TestCase) {                      \
     TypedTest_##TestCase();                                                    \
   }
 
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(
     RedeclChain, Function, ,
     PrototypeShouldBeImportedAsAPrototypeWhenThereIsNoDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(
     RedeclChain, Class, ,
     PrototypeShouldBeImportedAsAPrototypeWhenThereIsNoDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(
     RedeclChain, EnumClass, ,
     PrototypeShouldBeImportedAsAPrototypeWhenThereIsNoDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(
     RedeclChain, Variable, ,
     PrototypeShouldBeImportedAsAPrototypeWhenThereIsNoDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(
     RedeclChain, FunctionTemplate, ,
     PrototypeShouldBeImportedAsAPrototypeWhenThereIsNoDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(
     RedeclChain, ClassTemplate, ,
     PrototypeShouldBeImportedAsAPrototypeWhenThereIsNoDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(
     RedeclChain, VariableTemplate, ,
     PrototypeShouldBeImportedAsAPrototypeWhenThereIsNoDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(
     RedeclChain, FunctionTemplateSpec, ,
     PrototypeShouldBeImportedAsAPrototypeWhenThereIsNoDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(
     RedeclChain, ClassTemplateSpec, ,
     PrototypeShouldBeImportedAsAPrototypeWhenThereIsNoDefinition)
 
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Function, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Function, ,
                                         DefinitionShouldBeImportedAsADefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Class, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Class, ,
                                         DefinitionShouldBeImportedAsADefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, EnumClass, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, EnumClass, ,
                                         DefinitionShouldBeImportedAsADefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Variable, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Variable, ,
                                         DefinitionShouldBeImportedAsADefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplate, ,
                                         DefinitionShouldBeImportedAsADefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplate, ,
                                         DefinitionShouldBeImportedAsADefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, VariableTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, VariableTemplate, ,
                                         DefinitionShouldBeImportedAsADefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplateSpec, ,
                                         DefinitionShouldBeImportedAsADefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplateSpec, ,
                                         DefinitionShouldBeImportedAsADefinition)
 
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Function, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Function, ,
                                         ImportPrototypeAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Class, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Class, ,
                                         ImportPrototypeAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, EnumClass, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, EnumClass, ,
                                         ImportPrototypeAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Variable, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Variable, ,
                                         ImportPrototypeAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplate, ,
                                         ImportPrototypeAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplate, ,
                                         ImportPrototypeAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, VariableTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, VariableTemplate, ,
                                         ImportPrototypeAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplateSpec, ,
                                         ImportPrototypeAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplateSpec, ,
                                         ImportPrototypeAfterImportedPrototype)
 
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Function, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Function, ,
                                         ImportDefinitionAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Class, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Class, ,
                                         ImportDefinitionAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, EnumClass, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, EnumClass, ,
                                         ImportDefinitionAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Variable, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Variable, ,
                                         ImportDefinitionAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplate, ,
                                         ImportDefinitionAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplate, ,
                                         ImportDefinitionAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, VariableTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, VariableTemplate, ,
                                         ImportDefinitionAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplateSpec, ,
                                         ImportDefinitionAfterImportedPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplateSpec, ,
                                         ImportDefinitionAfterImportedPrototype)
 
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Function, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Function, ,
                                         ImportPrototypeAfterImportedDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Class, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Class, ,
                                         ImportPrototypeAfterImportedDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, EnumClass, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, EnumClass, ,
                                         ImportPrototypeAfterImportedDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Variable, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Variable, ,
                                         ImportPrototypeAfterImportedDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplate, ,
                                         ImportPrototypeAfterImportedDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplate, ,
                                         ImportPrototypeAfterImportedDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, VariableTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, VariableTemplate, ,
                                         ImportPrototypeAfterImportedDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplateSpec, ,
                                         ImportPrototypeAfterImportedDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplateSpec, ,
                                         ImportPrototypeAfterImportedDefinition)
 
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Function, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Function, ,
                                         ImportPrototypes)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Class, , ImportPrototypes)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, EnumClass, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Class, , ImportPrototypes)
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, EnumClass, ,
                                         ImportPrototypes)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Variable, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Variable, ,
                                         ImportPrototypes)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplate, ,
                                         ImportPrototypes)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplate, ,
                                         ImportPrototypes)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, VariableTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, VariableTemplate, ,
                                         ImportPrototypes)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplateSpec, ,
                                         ImportPrototypes)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplateSpec, ,
                                         ImportPrototypes)
 
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Function, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Function, ,
                                         ImportDefinitions)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Class, , ImportDefinitions)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, EnumClass, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Class, , ImportDefinitions)
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, EnumClass, ,
                                         ImportDefinitions)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Variable, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Variable, ,
                                         ImportDefinitions)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplate, ,
                                         ImportDefinitions)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplate, ,
                                         ImportDefinitions)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, VariableTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, VariableTemplate, ,
                                         ImportDefinitions)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplateSpec, ,
                                         ImportDefinitions)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplateSpec, ,
                                         ImportDefinitions)
 
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Function, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Function, ,
                                         ImportDefinitionThenPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Class, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Class, ,
                                         ImportDefinitionThenPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, EnumClass, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, EnumClass, ,
                                         ImportDefinitionThenPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Variable, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Variable, ,
                                         ImportDefinitionThenPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplate, ,
                                         ImportDefinitionThenPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplate, ,
                                         ImportDefinitionThenPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, VariableTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, VariableTemplate, ,
                                         ImportDefinitionThenPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplateSpec, ,
                                         ImportDefinitionThenPrototype)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplateSpec, ,
                                         ImportDefinitionThenPrototype)
 
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Function, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Function, ,
                                         ImportPrototypeThenDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Class, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Class, ,
                                         ImportPrototypeThenDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, EnumClass, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, EnumClass, ,
                                         ImportPrototypeThenDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Variable, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Variable, ,
                                         ImportPrototypeThenDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplate, ,
                                         ImportPrototypeThenDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplate, ,
                                         ImportPrototypeThenDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, VariableTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, VariableTemplate, ,
                                         ImportPrototypeThenDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplateSpec, ,
                                         ImportPrototypeThenDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, ClassTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, ClassTemplateSpec, ,
                                         ImportPrototypeThenDefinition)
 
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Function, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Function, ,
                                         WholeRedeclChainIsImportedAtOnce)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Variable, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Variable, ,
                                         WholeRedeclChainIsImportedAtOnce)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplate, ,
                                         WholeRedeclChainIsImportedAtOnce)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, VariableTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, VariableTemplate, ,
                                         WholeRedeclChainIsImportedAtOnce)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplateSpec, ,
                                         WholeRedeclChainIsImportedAtOnce)
 
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Function, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Function, ,
                                         ImportPrototypeThenProtoAndDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, Variable, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, Variable, ,
                                         ImportPrototypeThenProtoAndDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplate, ,
                                         ImportPrototypeThenProtoAndDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, VariableTemplate, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, VariableTemplate, ,
                                         ImportPrototypeThenProtoAndDefinition)
-ASTIMPORTER_INSTANTIATE_TYPED_TEST_SUITE(RedeclChain, FunctionTemplateSpec, ,
+ASTIMPORTER_INSTANTIATE_TYPED_TEST_CASE(RedeclChain, FunctionTemplateSpec, ,
                                         ImportPrototypeThenProtoAndDefinition)
 
-INSTANTIATE_TEST_SUITE_P(ParameterizedTests, RedeclChainFunction,
-                        DefaultTestValuesForRunOptions);
-INSTANTIATE_TEST_SUITE_P(ParameterizedTests, RedeclChainClass,
-                        DefaultTestValuesForRunOptions);
-INSTANTIATE_TEST_SUITE_P(ParameterizedTests, RedeclChainEnumClass,
-                        DefaultTestValuesForRunOptions);
-INSTANTIATE_TEST_SUITE_P(ParameterizedTests, RedeclChainVariable,
-                        DefaultTestValuesForRunOptions);
-INSTANTIATE_TEST_SUITE_P(ParameterizedTests, RedeclChainFunctionTemplate,
-                        DefaultTestValuesForRunOptions);
-INSTANTIATE_TEST_SUITE_P(ParameterizedTests, RedeclChainClassTemplate,
-                        DefaultTestValuesForRunOptions);
-INSTANTIATE_TEST_SUITE_P(ParameterizedTests, RedeclChainVariableTemplate,
-                        DefaultTestValuesForRunOptions);
-INSTANTIATE_TEST_SUITE_P(ParameterizedTests, RedeclChainFunctionTemplateSpec,
-                        DefaultTestValuesForRunOptions);
-INSTANTIATE_TEST_SUITE_P(ParameterizedTests, RedeclChainClassTemplateSpec,
-                        DefaultTestValuesForRunOptions);
+INSTANTIATE_TEST_CASE_P(ParameterizedTests, RedeclChainFunction,
+                        DefaultTestValuesForRunOptions, );
+INSTANTIATE_TEST_CASE_P(ParameterizedTests, RedeclChainClass,
+                        DefaultTestValuesForRunOptions, );
+INSTANTIATE_TEST_CASE_P(ParameterizedTests, RedeclChainEnumClass,
+                        DefaultTestValuesForRunOptions, );
+INSTANTIATE_TEST_CASE_P(ParameterizedTests, RedeclChainVariable,
+                        DefaultTestValuesForRunOptions, );
+INSTANTIATE_TEST_CASE_P(ParameterizedTests, RedeclChainFunctionTemplate,
+                        DefaultTestValuesForRunOptions, );
+INSTANTIATE_TEST_CASE_P(ParameterizedTests, RedeclChainClassTemplate,
+                        DefaultTestValuesForRunOptions, );
+INSTANTIATE_TEST_CASE_P(ParameterizedTests, RedeclChainVariableTemplate,
+                        DefaultTestValuesForRunOptions, );
+INSTANTIATE_TEST_CASE_P(ParameterizedTests, RedeclChainFunctionTemplateSpec,
+                        DefaultTestValuesForRunOptions, );
+INSTANTIATE_TEST_CASE_P(ParameterizedTests, RedeclChainClassTemplateSpec,
+                        DefaultTestValuesForRunOptions, );
 
 } // end namespace ast_matchers
 } // end namespace clang

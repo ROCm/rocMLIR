@@ -12,8 +12,8 @@
 
 #include "llvm/ADT/STLExtras.h"
 
-#include <climits>
 #include <csignal>
+#include <limits.h>
 #include <unistd.h>
 
 using namespace lldb_private;
@@ -28,7 +28,7 @@ HostProcessPosix::HostProcessPosix()
 HostProcessPosix::HostProcessPosix(lldb::process_t process)
     : HostNativeProcessBase(process) {}
 
-HostProcessPosix::~HostProcessPosix() = default;
+HostProcessPosix::~HostProcessPosix() {}
 
 Status HostProcessPosix::Signal(int signo) const {
   if (m_process == kInvalidPosixProcess) {

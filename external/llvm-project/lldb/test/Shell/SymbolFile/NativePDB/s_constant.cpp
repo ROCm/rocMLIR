@@ -1,5 +1,5 @@
 // clang-format off
-// REQUIRES: lld, x86
+// REQUIRES: lld
 
 // Test that we can display S_CONSTANT records.
 

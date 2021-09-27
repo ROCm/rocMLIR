@@ -18,7 +18,6 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
-#include "llvm/Config/config.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
@@ -77,48 +76,43 @@ static cl::opt<unsigned> StaticFuncStripDirNamePrefix(
 static std::string getInstrProfErrString(instrprof_error Err) {
   switch (Err) {
   case instrprof_error::success:
-    return "success";
+    return "Success";
   case instrprof_error::eof:
-    return "end of File";
+    return "End of File";
   case instrprof_error::unrecognized_format:
-    return "unrecognized instrumentation profile encoding format";
+    return "Unrecognized instrumentation profile encoding format";
   case instrprof_error::bad_magic:
-    return "invalid instrumentation profile data (bad magic)";
+    return "Invalid instrumentation profile data (bad magic)";
   case instrprof_error::bad_header:
-    return "invalid instrumentation profile data (file header is corrupt)";
+    return "Invalid instrumentation profile data (file header is corrupt)";
   case instrprof_error::unsupported_version:
-    return "unsupported instrumentation profile format version";
+    return "Unsupported instrumentation profile format version";
   case instrprof_error::unsupported_hash_type:
-    return "unsupported instrumentation profile hash type";
+    return "Unsupported instrumentation profile hash type";
   case instrprof_error::too_large:
-    return "too much profile data";
+    return "Too much profile data";
   case instrprof_error::truncated:
-    return "truncated profile data";
+    return "Truncated profile data";
   case instrprof_error::malformed:
-    return "malformed instrumentation profile data";
-  case instrprof_error::invalid_prof:
-    return "invalid profile created. Please file a bug "
-           "at: " BUG_REPORT_URL
-           " and include the profraw files that caused this error.";
+    return "Malformed instrumentation profile data";
   case instrprof_error::unknown_function:
-    return "no profile data available for function";
+    return "No profile data available for function";
   case instrprof_error::hash_mismatch:
-    return "function control flow change detected (hash mismatch)";
+    return "Function control flow change detected (hash mismatch)";
   case instrprof_error::count_mismatch:
-    return "function basic block count change detected (counter mismatch)";
+    return "Function basic block count change detected (counter mismatch)";
   case instrprof_error::counter_overflow:
-    return "counter overflow";
+    return "Counter overflow";
   case instrprof_error::value_site_count_mismatch:
-    return "function value site count change detected (counter mismatch)";
+    return "Function value site count change detected (counter mismatch)";
   case instrprof_error::compress_failed:
-    return "failed to compress data (zlib)";
+    return "Failed to compress data (zlib)";
   case instrprof_error::uncompress_failed:
-    return "failed to uncompress data (zlib)";
+    return "Failed to uncompress data (zlib)";
   case instrprof_error::empty_raw_profile:
-    return "empty raw profile file";
+    return "Empty raw profile file";
   case instrprof_error::zlib_unavailable:
-    return "profile uses zlib compression but the profile reader was built "
-           "without zlib support";
+    return "Profile uses zlib compression but the profile reader was built without zlib support";
   }
   llvm_unreachable("A value of instrprof_error has no message.");
 }
@@ -354,29 +348,16 @@ Error InstrProfSymtab::create(Module &M, bool InLTO) {
       return E;
     MD5FuncMap.emplace_back(Function::getGUID(PGOFuncName), &F);
     // In ThinLTO, local function may have been promoted to global and have
-    // suffix ".llvm." added to the function name. We need to add the
-    // stripped function name to the symbol table so that we can find a match
-    // from profile.
-    //
-    // We may have other suffixes similar as ".llvm." which are needed to
-    // be stripped before the matching, but ".__uniq." suffix which is used
-    // to differentiate internal linkage functions in different modules
-    // should be kept. Now this is the only suffix with the pattern ".xxx"
-    // which is kept before matching.
-    const std::string UniqSuffix = ".__uniq.";
-    auto pos = PGOFuncName.find(UniqSuffix);
-    // Search '.' after ".__uniq." if ".__uniq." exists, otherwise
-    // search '.' from the beginning.
-    if (pos != std::string::npos)
-      pos += UniqSuffix.length();
-    else
-      pos = 0;
-    pos = PGOFuncName.find('.', pos);
-    if (pos != std::string::npos && pos != 0) {
-      const std::string &OtherFuncName = PGOFuncName.substr(0, pos);
-      if (Error E = addFuncName(OtherFuncName))
-        return E;
-      MD5FuncMap.emplace_back(Function::getGUID(OtherFuncName), &F);
+    // suffix added to the function name. We need to add the stripped function
+    // name to the symbol table so that we can find a match from profile.
+    if (InLTO) {
+      auto pos = PGOFuncName.find('.');
+      if (pos != std::string::npos) {
+        const std::string &OtherFuncName = PGOFuncName.substr(0, pos);
+        if (Error E = addFuncName(OtherFuncName))
+          return E;
+        MD5FuncMap.emplace_back(Function::getGUID(OtherFuncName), &F);
+      }
     }
   }
   Sorted = false;
@@ -1001,8 +982,7 @@ bool getValueProfDataFromInst(const Instruction &Inst,
                               InstrProfValueKind ValueKind,
                               uint32_t MaxNumValueData,
                               InstrProfValueData ValueData[],
-                              uint32_t &ActualNumValueData, uint64_t &TotalC,
-                              bool GetNoICPValue) {
+                              uint32_t &ActualNumValueData, uint64_t &TotalC) {
   MDNode *MD = Inst.getMetadata(LLVMContext::MD_prof);
   if (!MD)
     return false;
@@ -1043,11 +1023,8 @@ bool getValueProfDataFromInst(const Instruction &Inst,
         mdconst::dyn_extract<ConstantInt>(MD->getOperand(I + 1));
     if (!Value || !Count)
       return false;
-    uint64_t CntValue = Count->getZExtValue();
-    if (!GetNoICPValue && (CntValue == NOMORE_ICP_MAGICNUM))
-      continue;
     ValueData[ActualNumValueData].Value = Value->getZExtValue();
-    ValueData[ActualNumValueData].Count = CntValue;
+    ValueData[ActualNumValueData].Count = Count->getZExtValue();
     ActualNumValueData++;
   }
   return true;
@@ -1098,13 +1075,9 @@ bool needsComdatForCounter(const Function &F, const Module &M) {
 bool isIRPGOFlagSet(const Module *M) {
   auto IRInstrVar =
       M->getNamedGlobal(INSTR_PROF_QUOTE(INSTR_PROF_RAW_VERSION_VAR));
-  if (!IRInstrVar || IRInstrVar->hasLocalLinkage())
+  if (!IRInstrVar || IRInstrVar->isDeclaration() ||
+      IRInstrVar->hasLocalLinkage())
     return false;
-
-  // For CSPGO+LTO, this variable might be marked as non-prevailing and we only
-  // have the decl.
-  if (IRInstrVar->isDeclaration())
-    return true;
 
   // Check if the flag is set.
   if (!IRInstrVar->hasInitializer())
@@ -1141,8 +1114,8 @@ bool canRenameComdatFunc(const Function &F, bool CheckAddressTaken) {
 
 // Create a COMDAT variable INSTR_PROF_RAW_VERSION_VAR to make the runtime
 // aware this is an ir_level profile so it can set the version flag.
-GlobalVariable *createIRLevelProfileFlagVar(Module &M, bool IsCS,
-                                            bool InstrEntryBBEnabled) {
+void createIRLevelProfileFlagVar(Module &M, bool IsCS,
+                                 bool InstrEntryBBEnabled) {
   const StringRef VarName(INSTR_PROF_QUOTE(INSTR_PROF_RAW_VERSION_VAR));
   Type *IntTy64 = Type::getInt64Ty(M.getContext());
   uint64_t ProfileVersion = (INSTR_PROF_RAW_VERSION | VARIANT_MASK_IR_PROF);
@@ -1159,7 +1132,6 @@ GlobalVariable *createIRLevelProfileFlagVar(Module &M, bool IsCS,
     IRLevelVersionVariable->setLinkage(GlobalValue::ExternalLinkage);
     IRLevelVersionVariable->setComdat(M.getOrInsertComdat(VarName));
   }
-  return IRLevelVersionVariable;
 }
 
 // Create the variable for the profile file name.

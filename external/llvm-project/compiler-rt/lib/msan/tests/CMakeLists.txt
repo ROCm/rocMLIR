@@ -9,7 +9,7 @@ set(MSAN_LIBCXX_CFLAGS
   -fsanitize=memory
   -fsanitize-memory-track-origins
   -Wno-pedantic
-  -Xclang -fdepfile-entry=${COMPILER_RT_OUTPUT_DIR}/share/msan_ignorelist.txt
+  -Xclang -fdepfile-entry=${COMPILER_RT_OUTPUT_DIR}/share/msan_blacklist.txt
   )
 
 # Unittest sources and build flags.

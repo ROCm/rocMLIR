@@ -11,11 +11,7 @@
 
 #include "llvm/CodeGen/GlobalISel/InstructionSelect.h"
 #include "llvm/ADT/PostOrderIterator.h"
-#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/Twine.h"
-#include "llvm/Analysis/BlockFrequencyInfo.h"
-#include "llvm/Analysis/LazyBlockFrequencyInfo.h"
-#include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/CodeGen/GlobalISel/GISelKnownBits.h"
 #include "llvm/CodeGen/GlobalISel/InstructionSelector.h"
 #include "llvm/CodeGen/GlobalISel/LegalizerInfo.h"
@@ -54,29 +50,16 @@ INITIALIZE_PASS_BEGIN(InstructionSelect, DEBUG_TYPE,
                       false, false)
 INITIALIZE_PASS_DEPENDENCY(TargetPassConfig)
 INITIALIZE_PASS_DEPENDENCY(GISelKnownBitsAnalysis)
-INITIALIZE_PASS_DEPENDENCY(ProfileSummaryInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(LazyBlockFrequencyInfoPass)
 INITIALIZE_PASS_END(InstructionSelect, DEBUG_TYPE,
                     "Select target instructions out of generic instructions",
                     false, false)
 
-InstructionSelect::InstructionSelect(CodeGenOpt::Level OL)
-    : MachineFunctionPass(ID), OptLevel(OL) {}
-
-// In order not to crash when calling getAnalysis during testing with -run-pass
-// we use the default opt level here instead of None, so that the addRequired()
-// calls are made in getAnalysisUsage().
-InstructionSelect::InstructionSelect()
-    : MachineFunctionPass(ID), OptLevel(CodeGenOpt::Default) {}
+InstructionSelect::InstructionSelect() : MachineFunctionPass(ID) { }
 
 void InstructionSelect::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<TargetPassConfig>();
-  if (OptLevel != CodeGenOpt::None) {
-    AU.addRequired<GISelKnownBitsAnalysis>();
-    AU.addPreserved<GISelKnownBitsAnalysis>();
-    AU.addRequired<ProfileSummaryInfoWrapperPass>();
-    LazyBlockFrequencyInfoPass::getLazyBFIAnalysisUsage(AU);
-  }
+  AU.addRequired<GISelKnownBitsAnalysis>();
+  AU.addPreserved<GISelKnownBitsAnalysis>();
   getSelectionDAGFallbackAnalysisUsage(AU);
   MachineFunctionPass::getAnalysisUsage(AU);
 }
@@ -88,26 +71,13 @@ bool InstructionSelect::runOnMachineFunction(MachineFunction &MF) {
     return false;
 
   LLVM_DEBUG(dbgs() << "Selecting function: " << MF.getName() << '\n');
+  GISelKnownBits &KB = getAnalysis<GISelKnownBitsAnalysis>().get(MF);
 
   const TargetPassConfig &TPC = getAnalysis<TargetPassConfig>();
   InstructionSelector *ISel = MF.getSubtarget().getInstructionSelector();
-
-  CodeGenOpt::Level OldOptLevel = OptLevel;
-  auto RestoreOptLevel = make_scope_exit([=]() { OptLevel = OldOptLevel; });
-  OptLevel = MF.getFunction().hasOptNone() ? CodeGenOpt::None
-                                           : MF.getTarget().getOptLevel();
-
-  GISelKnownBits *KB = nullptr;
-  if (OptLevel != CodeGenOpt::None) {
-    KB = &getAnalysis<GISelKnownBitsAnalysis>().get(MF);
-    PSI = &getAnalysis<ProfileSummaryInfoWrapperPass>().getPSI();
-    if (PSI && PSI->hasProfileSummary())
-      BFI = &getAnalysis<LazyBlockFrequencyInfoPass>().getBFI();
-  }
-
   CodeGenCoverage CoverageInfo;
   assert(ISel && "Cannot work without InstructionSelector");
-  ISel->setupMF(MF, KB, CoverageInfo, PSI, BFI);
+  ISel->setupMF(MF, KB, CoverageInfo);
 
   // An optimization remark emitter. Used to report failures.
   MachineOptimizationRemarkEmitter MORE(MF, /*MBFI=*/nullptr);
@@ -132,7 +102,6 @@ bool InstructionSelect::runOnMachineFunction(MachineFunction &MF) {
 #endif
 
   for (MachineBasicBlock *MBB : post_order(&MF)) {
-    ISel->CurMBB = MBB;
     if (MBB->empty())
       continue;
 

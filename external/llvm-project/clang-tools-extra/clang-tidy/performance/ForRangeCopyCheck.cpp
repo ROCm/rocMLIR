@@ -45,14 +45,10 @@ void ForRangeCopyCheck::registerMatchers(MatchFinder *Finder) {
       hasOverloadedOperatorName("*"),
       callee(
           cxxMethodDecl(returns(unless(hasCanonicalType(referenceType()))))));
-  auto NotConstructedByCopy = cxxConstructExpr(
-      hasDeclaration(cxxConstructorDecl(unless(isCopyConstructor()))));
-  auto ConstructedByConversion = cxxMemberCallExpr(callee(cxxConversionDecl()));
   auto LoopVar =
       varDecl(HasReferenceOrPointerTypeOrIsAllowed,
-              unless(hasInitializer(expr(hasDescendant(expr(
-                  anyOf(materializeTemporaryExpr(), IteratorReturnsValueType,
-                        NotConstructedByCopy, ConstructedByConversion)))))));
+              unless(hasInitializer(expr(hasDescendant(expr(anyOf(
+                  materializeTemporaryExpr(), IteratorReturnsValueType)))))));
   Finder->addMatcher(
       traverse(TK_AsIs,
                cxxForRangeStmt(hasLoopVariable(LoopVar.bind("loopVar")))

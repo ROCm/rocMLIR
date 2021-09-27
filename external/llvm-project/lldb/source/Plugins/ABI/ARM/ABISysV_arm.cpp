@@ -45,7 +45,7 @@ static const RegisterInfo g_register_infos[] = {
     //  ======================= ====================== ==========
     //  ===============
     {"r0",
-     nullptr,
+     "arg1",
      4,
      0,
      eEncodingUint,
@@ -57,7 +57,7 @@ static const RegisterInfo g_register_infos[] = {
      nullptr,
      0},
     {"r1",
-     nullptr,
+     "arg2",
      4,
      0,
      eEncodingUint,
@@ -69,7 +69,7 @@ static const RegisterInfo g_register_infos[] = {
      nullptr,
      0},
     {"r2",
-     nullptr,
+     "arg3",
      4,
      0,
      eEncodingUint,
@@ -81,7 +81,7 @@ static const RegisterInfo g_register_infos[] = {
      nullptr,
      0},
     {"r3",
-     nullptr,
+     "arg4",
      4,
      0,
      eEncodingUint,
@@ -1617,7 +1617,7 @@ ValueObjectSP ABISysV_arm::GetReturnValueObjectImpl(
         thread.GetRegisterContext()->ReadRegisterAsUnsigned(r0_reg_info, 0) &
         UINT32_MAX;
     value.GetScalar() = ptr;
-  } else if (compiler_type.IsVectorType()) {
+  } else if (compiler_type.IsVectorType(nullptr, nullptr)) {
     if (IsArmHardFloat(thread) && (*byte_size == 8 || *byte_size == 16)) {
       is_vfp_candidate = true;
       vfp_byte_size = 8;
@@ -1704,7 +1704,7 @@ ValueObjectSP ABISysV_arm::GetReturnValueObjectImpl(
       if (homogeneous_count > 0 && homogeneous_count <= 4) {
         llvm::Optional<uint64_t> base_byte_size =
             base_type.GetByteSize(&thread);
-        if (base_type.IsVectorType()) {
+        if (base_type.IsVectorType(nullptr, nullptr)) {
           if (base_byte_size &&
               (*base_byte_size == 8 || *base_byte_size == 16)) {
             is_vfp_candidate = true;
@@ -1940,7 +1940,6 @@ bool ABISysV_arm::CreateDefaultUnwindPlan(UnwindPlan &unwind_plan) {
 
   row->GetCFAValue().SetIsRegisterPlusOffset(fp_reg_num, 2 * ptr_size);
   row->SetOffset(0);
-  row->SetUnspecifiedRegistersAreUndefined(true);
 
   row->SetRegisterLocationToAtCFAPlusOffset(fp_reg_num, ptr_size * -2, true);
   row->SetRegisterLocationToAtCFAPlusOffset(pc_reg_num, ptr_size * -1, true);
@@ -2142,3 +2141,5 @@ lldb_private::ConstString ABISysV_arm::GetPluginNameStatic() {
 lldb_private::ConstString ABISysV_arm::GetPluginName() {
   return GetPluginNameStatic();
 }
+
+uint32_t ABISysV_arm::GetPluginVersion() { return 1; }

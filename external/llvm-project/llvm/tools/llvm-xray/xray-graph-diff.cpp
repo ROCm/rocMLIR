@@ -294,7 +294,10 @@ static Twine truncateString(const StringRef &S, size_t n) {
 }
 
 template <typename T> static bool containsNullptr(const T &Collection) {
-  return llvm::is_contained(Collection, nullptr);
+  for (const auto &E : Collection)
+    if (E == nullptr)
+      return true;
+  return false;
 }
 
 static std::string getLabel(const GraphDiffRenderer::GraphT::EdgeValueType &E,
@@ -456,7 +459,7 @@ static CommandRegistration Unused(&GraphDiff, []() -> Error {
   auto &GDR = *GDROrErr;
 
   std::error_code EC;
-  raw_fd_ostream OS(GraphDiffOutput, EC, sys::fs::OpenFlags::OF_TextWithCRLF);
+  raw_fd_ostream OS(GraphDiffOutput, EC, sys::fs::OpenFlags::OF_Text);
   if (EC)
     return make_error<StringError>(
         Twine("Cannot open file '") + GraphDiffOutput + "' for writing.", EC);

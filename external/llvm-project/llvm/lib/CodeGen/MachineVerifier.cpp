@@ -210,11 +210,6 @@ namespace {
     void visitMachineBasicBlockBefore(const MachineBasicBlock *MBB);
     void visitMachineBundleBefore(const MachineInstr *MI);
 
-    /// Verify that all of \p MI's virtual register operands are scalars.
-    /// \returns True if all virtual register operands are scalar. False
-    /// otherwise.
-    bool verifyAllRegOpsScalar(const MachineInstr &MI,
-                               const MachineRegisterInfo &MRI);
     bool verifyVectorElementMatch(LLT Ty0, LLT Ty1, const MachineInstr *MI);
     void verifyPreISelGenericInstruction(const MachineInstr *MI);
     void visitMachineInstrBefore(const MachineInstr *MI);
@@ -228,7 +223,6 @@ namespace {
     void report(const char *msg, const MachineInstr *MI);
     void report(const char *msg, const MachineOperand *MO, unsigned MONum,
                 LLT MOVRegType = LLT{});
-    void report(const Twine &Msg, const MachineInstr *MI);
 
     void report_context(const LiveInterval &LI) const;
     void report_context(const LiveRange &LR, Register VRegUnit,
@@ -504,10 +498,6 @@ void MachineVerifier::report(const char *msg, const MachineOperand *MO,
   errs() << "- operand " << MONum << ":   ";
   MO->print(errs(), MOVRegType, TRI);
   errs() << "\n";
-}
-
-void MachineVerifier::report(const Twine &Msg, const MachineInstr *MI) {
-  report(Msg.str().c_str(), MI);
 }
 
 void MachineVerifier::report_context(SlotIndex Pos) const {
@@ -854,21 +844,6 @@ void MachineVerifier::verifyInlineAsm(const MachineInstr *MI) {
   }
 }
 
-bool MachineVerifier::verifyAllRegOpsScalar(const MachineInstr &MI,
-                                            const MachineRegisterInfo &MRI) {
-  if (none_of(MI.explicit_operands(), [&MRI](const MachineOperand &Op) {
-        if (!Op.isReg())
-          return false;
-        const auto Reg = Op.getReg();
-        if (Reg.isPhysical())
-          return false;
-        return !MRI.getType(Reg).isScalar();
-      }))
-    return true;
-  report("All register operands must have scalar types", &MI);
-  return false;
-}
-
 /// Check that types are consistent when two operands need to have the same
 /// number of vector elements.
 /// \return true if the types are valid.
@@ -965,42 +940,38 @@ void MachineVerifier::verifyPreISelGenericInstruction(const MachineInstr *MI) {
     report(ErrorInfo.data(), MI);
 
   // Verify properties of various specific instruction types
-  unsigned Opc = MI->getOpcode();
-  switch (Opc) {
-  case TargetOpcode::G_ASSERT_SEXT:
+  switch (MI->getOpcode()) {
   case TargetOpcode::G_ASSERT_ZEXT: {
-    std::string OpcName =
-        Opc == TargetOpcode::G_ASSERT_ZEXT ? "G_ASSERT_ZEXT" : "G_ASSERT_SEXT";
     if (!MI->getOperand(2).isImm()) {
-      report(Twine(OpcName, " expects an immediate operand #2"), MI);
+      report("G_ASSERT_ZEXT expects an immediate operand #2", MI);
       break;
     }
 
     Register Dst = MI->getOperand(0).getReg();
     Register Src = MI->getOperand(1).getReg();
+    LLT DstTy = MRI->getType(Dst);
     LLT SrcTy = MRI->getType(Src);
+    verifyVectorElementMatch(DstTy, SrcTy, MI);
     int64_t Imm = MI->getOperand(2).getImm();
     if (Imm <= 0) {
-      report(Twine(OpcName, " size must be >= 1"), MI);
+      report("G_ASSERT_ZEXT size must be >= 1", MI);
       break;
     }
 
     if (Imm >= SrcTy.getScalarSizeInBits()) {
-      report(Twine(OpcName, " size must be less than source bit width"), MI);
+      report("G_ASSERT_ZEXT size must be less than source bit width", MI);
       break;
     }
 
     if (MRI->getRegBankOrNull(Src) != MRI->getRegBankOrNull(Dst)) {
-      report(
-          Twine(OpcName, " source and destination register banks must match"),
-          MI);
+      report("G_ASSERT_ZEXT source and destination register banks must match",
+             MI);
       break;
     }
 
     if (MRI->getRegClassOrNull(Src) != MRI->getRegClassOrNull(Dst))
-      report(
-          Twine(OpcName, " source and destination register classes must match"),
-          MI);
+      report("G_ASSERT_ZEXT source and destination register classes must match",
+             MI);
 
     break;
   }
@@ -1305,10 +1276,6 @@ void MachineVerifier::verifyPreISelGenericInstruction(const MachineInstr *MI) {
     if (!DstTy.isVector() || !SrcTy.isVector())
       report("G_CONCAT_VECTOR requires vector source and destination operands",
              MI);
-
-    if (MI->getNumOperands() < 3)
-      report("G_CONCAT_VECTOR requires at least 2 source operands", MI);
-
     for (unsigned i = 2; i < MI->getNumOperands(); ++i) {
       if (MRI->getType(MI->getOperand(1).getReg()) !=
           MRI->getType(MI->getOperand(i).getReg()))
@@ -1412,7 +1379,7 @@ void MachineVerifier::verifyPreISelGenericInstruction(const MachineInstr *MI) {
       AttributeList Attrs
         = Intrinsic::getAttributes(MF->getFunction().getContext(),
                                    static_cast<Intrinsic::ID>(IntrID));
-      bool DeclHasSideEffects = !Attrs.hasFnAttr(Attribute::ReadNone);
+      bool DeclHasSideEffects = !Attrs.hasFnAttribute(Attribute::ReadNone);
       if (NoSideEffects && DeclHasSideEffects) {
         report("G_INTRINSIC used with intrinsic that accesses memory", MI);
         break;
@@ -1431,7 +1398,10 @@ void MachineVerifier::verifyPreISelGenericInstruction(const MachineInstr *MI) {
       break;
     }
 
+    LLT DstTy = MRI->getType(MI->getOperand(0).getReg());
     LLT SrcTy = MRI->getType(MI->getOperand(1).getReg());
+    verifyVectorElementMatch(DstTy, SrcTy, MI);
+
     int64_t Imm = MI->getOperand(2).getImm();
     if (Imm <= 0)
       report("G_SEXT_INREG size must be >= 1", MI);
@@ -1497,7 +1467,6 @@ void MachineVerifier::verifyPreISelGenericInstruction(const MachineInstr *MI) {
     }
     break;
   }
-  case TargetOpcode::G_MEMCPY_INLINE:
   case TargetOpcode::G_MEMCPY:
   case TargetOpcode::G_MEMMOVE: {
     ArrayRef<MachineMemOperand *> MMOs = MI->memoperands();
@@ -1528,38 +1497,28 @@ void MachineVerifier::verifyPreISelGenericInstruction(const MachineInstr *MI) {
     if (SrcPtrTy.getAddressSpace() != MMOs[1]->getAddrSpace())
       report("inconsistent load address space", MI);
 
-    if (Opc != TargetOpcode::G_MEMCPY_INLINE)
-      if (!MI->getOperand(3).isImm() || (MI->getOperand(3).getImm() & ~1LL))
-        report("'tail' flag (operand 3) must be an immediate 0 or 1", MI);
-
     break;
   }
-  case TargetOpcode::G_BZERO:
   case TargetOpcode::G_MEMSET: {
     ArrayRef<MachineMemOperand *> MMOs = MI->memoperands();
-    std::string Name = Opc == TargetOpcode::G_MEMSET ? "memset" : "bzero";
     if (MMOs.size() != 1) {
-      report(Twine(Name, " must have 1 memory operand"), MI);
+      report("memset must have 1 memory operand", MI);
       break;
     }
 
     if ((!MMOs[0]->isStore() || MMOs[0]->isLoad())) {
-      report(Twine(Name, " memory operand must be a store"), MI);
+      report("memset memory operand must be a store", MI);
       break;
     }
 
     LLT DstPtrTy = MRI->getType(MI->getOperand(0).getReg());
     if (!DstPtrTy.isPointer()) {
-      report(Twine(Name, " operand must be a pointer"), MI);
+      report("memset operand must be a pointer", MI);
       break;
     }
 
     if (DstPtrTy.getAddressSpace() != MMOs[0]->getAddrSpace())
-      report("inconsistent " + Twine(Name, " address space"), MI);
-
-    if (!MI->getOperand(MI->getNumOperands() - 1).isImm() ||
-        (MI->getOperand(MI->getNumOperands() - 1).getImm() & ~1LL))
-      report("'tail' flag (last operand) must be an immediate 0 or 1", MI);
+      report("inconsistent memset address space", MI);
 
     break;
   }
@@ -1590,34 +1549,11 @@ void MachineVerifier::verifyPreISelGenericInstruction(const MachineInstr *MI) {
   case TargetOpcode::G_VECREDUCE_UMAX:
   case TargetOpcode::G_VECREDUCE_UMIN: {
     LLT DstTy = MRI->getType(MI->getOperand(0).getReg());
+    LLT SrcTy = MRI->getType(MI->getOperand(1).getReg());
     if (!DstTy.isScalar())
       report("Vector reduction requires a scalar destination type", MI);
-    break;
-  }
-
-  case TargetOpcode::G_SBFX:
-  case TargetOpcode::G_UBFX: {
-    LLT DstTy = MRI->getType(MI->getOperand(0).getReg());
-    if (DstTy.isVector()) {
-      report("Bitfield extraction is not supported on vectors", MI);
-      break;
-    }
-    break;
-  }
-  case TargetOpcode::G_ROTR:
-  case TargetOpcode::G_ROTL: {
-    LLT Src1Ty = MRI->getType(MI->getOperand(1).getReg());
-    LLT Src2Ty = MRI->getType(MI->getOperand(2).getReg());
-    if (Src1Ty.isVector() != Src2Ty.isVector()) {
-      report("Rotate requires operands to be either all scalars or all vectors",
-             MI);
-      break;
-    }
-    break;
-  }
-  case TargetOpcode::G_LLROUND:
-  case TargetOpcode::G_LROUND: {
-    verifyAllRegOpsScalar(*MI, *MRI);
+    if (!SrcTy.isVector())
+      report("Vector reduction requires vector source=", MI);
     break;
   }
   default:
@@ -1653,8 +1589,6 @@ void MachineVerifier::visitMachineInstrBefore(const MachineInstr *MI) {
       report("Unspillable Terminator does not define a reg", MI);
     Register Def = MI->getOperand(0).getReg();
     if (Def.isVirtual() &&
-        !MF->getProperties().hasProperty(
-            MachineFunctionProperties::Property::NoPHIs) &&
         std::distance(MRI->use_nodbg_begin(Def), MRI->use_nodbg_end()) > 1)
       report("Unspillable Terminator expected to have at most one use!", MI);
   }
@@ -1683,7 +1617,7 @@ void MachineVerifier::visitMachineInstrBefore(const MachineInstr *MI) {
   // Other instructions must have one, unless they are inside a bundle.
   if (LiveInts) {
     bool mapped = !LiveInts->isNotInMIMap(*MI);
-    if (MI->isDebugOrPseudoInstr()) {
+    if (MI->isDebugInstr()) {
       if (mapped)
         report("Debug instruction has a slot index", MI);
     } else if (MI->isInsideBundle()) {
@@ -1708,56 +1642,32 @@ void MachineVerifier::visitMachineInstrBefore(const MachineInstr *MI) {
   // Verify properties of various specific instruction types
   switch (MI->getOpcode()) {
   case TargetOpcode::COPY: {
+    if (foundErrors)
+      break;
     const MachineOperand &DstOp = MI->getOperand(0);
     const MachineOperand &SrcOp = MI->getOperand(1);
-    const Register SrcReg = SrcOp.getReg();
-    const Register DstReg = DstOp.getReg();
-
-    LLT DstTy = MRI->getType(DstReg);
-    LLT SrcTy = MRI->getType(SrcReg);
+    LLT DstTy = MRI->getType(DstOp.getReg());
+    LLT SrcTy = MRI->getType(SrcOp.getReg());
     if (SrcTy.isValid() && DstTy.isValid()) {
       // If both types are valid, check that the types are the same.
       if (SrcTy != DstTy) {
         report("Copy Instruction is illegal with mismatching types", MI);
         errs() << "Def = " << DstTy << ", Src = " << SrcTy << "\n";
       }
-
-      break;
     }
-
-    if (!SrcTy.isValid() && !DstTy.isValid())
-      break;
-
-    // If we have only one valid type, this is likely a copy between a virtual
-    // and physical register.
-    unsigned SrcSize = 0;
-    unsigned DstSize = 0;
-    if (SrcReg.isPhysical() && DstTy.isValid()) {
-      const TargetRegisterClass *SrcRC =
-          TRI->getMinimalPhysRegClassLLT(SrcReg, DstTy);
-      if (SrcRC)
-        SrcSize = TRI->getRegSizeInBits(*SrcRC);
-    }
-
-    if (SrcSize == 0)
-      SrcSize = TRI->getRegSizeInBits(SrcReg, *MRI);
-
-    if (DstReg.isPhysical() && SrcTy.isValid()) {
-      const TargetRegisterClass *DstRC =
-          TRI->getMinimalPhysRegClassLLT(DstReg, SrcTy);
-      if (DstRC)
-        DstSize = TRI->getRegSizeInBits(*DstRC);
-    }
-
-    if (DstSize == 0)
-      DstSize = TRI->getRegSizeInBits(DstReg, *MRI);
-
-    if (SrcSize != 0 && DstSize != 0 && SrcSize != DstSize) {
-      if (!DstOp.getSubReg() && !SrcOp.getSubReg()) {
-        report("Copy Instruction is illegal with mismatching sizes", MI);
-        errs() << "Def Size = " << DstSize << ", Src Size = " << SrcSize
-               << "\n";
-      }
+    if (SrcTy.isValid() || DstTy.isValid()) {
+      // If one of them have valid types, let's just check they have the same
+      // size.
+      unsigned SrcSize = TRI->getRegSizeInBits(SrcOp.getReg(), *MRI);
+      unsigned DstSize = TRI->getRegSizeInBits(DstOp.getReg(), *MRI);
+      assert(SrcSize && "Expecting size here");
+      assert(DstSize && "Expecting size here");
+      if (SrcSize != DstSize)
+        if (!DstOp.getSubReg() && !SrcOp.getSubReg()) {
+          report("Copy Instruction is illegal with mismatching sizes", MI);
+          errs() << "Def Size = " << DstSize << ", Src Size = " << SrcSize
+                 << "\n";
+        }
     }
     break;
   }
@@ -1805,19 +1715,6 @@ void MachineVerifier::visitMachineInstrBefore(const MachineInstr *MI) {
 
     // TODO: verify we have properly encoded deopt arguments
   } break;
-  case TargetOpcode::INSERT_SUBREG: {
-    unsigned InsertedSize;
-    if (unsigned SubIdx = MI->getOperand(2).getSubReg())
-      InsertedSize = TRI->getSubRegIdxSize(SubIdx);
-    else
-      InsertedSize = TRI->getRegSizeInBits(MI->getOperand(2).getReg(), *MRI);
-    unsigned SubRegSize = TRI->getSubRegIdxSize(MI->getOperand(3).getImm());
-    if (SubRegSize < InsertedSize) {
-      report("INSERT_SUBREG expected inserted value to have equal or lesser "
-             "size than the subreg it was inserted into", MI);
-      break;
-    }
-  } break;
   }
 }
 
@@ -1855,12 +1752,9 @@ MachineVerifier::visitMachineOperand(const MachineOperand *MO, unsigned MONum) {
       if (MCOI.OperandType == MCOI::OPERAND_REGISTER &&
           !MO->isReg() && !MO->isFI())
         report("Expected a register operand.", MO, MONum);
-      if (MO->isReg()) {
-        if (MCOI.OperandType == MCOI::OPERAND_IMMEDIATE ||
-            (MCOI.OperandType == MCOI::OPERAND_PCREL &&
-             !TII->isPCRelRegisterOperandLegal(*MO)))
-          report("Expected a non-register operand.", MO, MONum);
-      }
+      if ((MCOI.OperandType == MCOI::OPERAND_IMMEDIATE ||
+           MCOI.OperandType == MCOI::OPERAND_PCREL) && MO->isReg())
+        report("Expected a non-register operand.", MO, MONum);
     }
 
     int TiedTo = MCID.getOperandConstraint(MONum, MCOI::TIED_TO);
@@ -2292,8 +2186,12 @@ void MachineVerifier::checkLiveness(const MachineOperand *MO, unsigned MONum) {
             if (!Register::isPhysicalRegister(MOP.getReg()))
               continue;
 
-            if (llvm::is_contained(TRI->subregs(MOP.getReg()), Reg))
-              Bad = false;
+            for (const MCPhysReg &SubReg : TRI->subregs(MOP.getReg())) {
+              if (SubReg == Reg) {
+                Bad = false;
+                break;
+              }
+            }
           }
         }
         if (Bad)
@@ -3041,15 +2939,6 @@ void MachineVerifier::verifyLiveRangeSegment(const LiveRange &LR,
     // Check that VNI is live-out of all predecessors.
     for (const MachineBasicBlock *Pred : MFI->predecessors()) {
       SlotIndex PEnd = LiveInts->getMBBEndIdx(Pred);
-      // Predecessor of landing pad live-out on last call.
-      if (MFI->isEHPad()) {
-        for (auto I = Pred->rbegin(), E = Pred->rend(); I != E; ++I) {
-          if (I->isCall()) {
-            PEnd = Indexes->getInstructionIndex(*I).getBoundaryIndex();
-            break;
-          }
-        }
-      }
       const VNInfo *PVNI = LR.getVNInfoBefore(PEnd);
 
       // All predecessors must have a live-out value. However for a phi

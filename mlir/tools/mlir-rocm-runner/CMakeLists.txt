@@ -14,15 +14,14 @@ if(MLIR_ROCM_RUNNER_ENABLED)
     LLVMROCmBackendUtils
     MLIRJitRunner
     MLIRAnalysis
+    MLIREDSC
     MLIRExecutionEngine
     MLIRIR
     MLIRParser
     MLIRROCDLIR
     MLIRSupport
-    MLIRGPUTransforms
-    MLIRTargetLLVMIRExport
-    MLIRToLLVMIRTranslationRegistration
-    MLIRTestDialect
+    MLIRTargetLLVMIR
+    MLIRTargetROCDLIR
     MLIRTransforms
     MLIRTranslation
   )

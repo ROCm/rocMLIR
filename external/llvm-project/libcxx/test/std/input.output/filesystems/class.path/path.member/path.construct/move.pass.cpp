@@ -28,8 +28,7 @@ int main(int, char**) {
   assert(globalMemCounter.checkOutstandingNewEq(0));
   const std::string s("we really really really really really really really "
                       "really really long string so that we allocate");
-  ASSERT_WITH_LIBRARY_INTERNAL_ALLOCATIONS(
-      globalMemCounter.checkOutstandingNewEq(1));
+  assert(globalMemCounter.checkOutstandingNewEq(1));
   const fs::path::string_type ps(s.begin(), s.end());
   path p(s);
   {

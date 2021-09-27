@@ -176,26 +176,25 @@ LogicalResult detail::verifyTypesAlongControlFlowEdges(Operation *op) {
   for (unsigned regionNo : llvm::seq(0U, op->getNumRegions())) {
     Region &region = op->getRegion(regionNo);
 
-    // Since there can be multiple `ReturnLike` terminators or others
-    // implementing the `RegionBranchTerminatorOpInterface`, all should have the
-    // same operand types when passing them to the same region.
+    // Since the interface cannot distinguish between different ReturnLike
+    // ops within the region branching to different successors, all ReturnLike
+    // ops in this region should have the same operand types. We will then use
+    // one of them as the representative for type matching.
 
-    Optional<OperandRange> regionReturnOperands;
+    Operation *regionReturn = nullptr;
     for (Block &block : region) {
       Operation *terminator = block.getTerminator();
-      auto terminatorOperands =
-          getRegionBranchSuccessorOperands(terminator, regionNo);
-      if (!terminatorOperands)
+      if (!terminator->hasTrait<OpTrait::ReturnLike>())
         continue;
 
-      if (!regionReturnOperands) {
-        regionReturnOperands = terminatorOperands;
+      if (!regionReturn) {
+        regionReturn = terminator;
         continue;
       }
 
       // Found more than one ReturnLike terminator. Make sure the operand types
       // match with the first one.
-      if (regionReturnOperands->getTypes() != terminatorOperands->getTypes())
+      if (regionReturn->getOperandTypes() != terminator->getOperandTypes())
         return op->emitOpError("Region #")
                << regionNo
                << " operands mismatch between return-like terminators";
@@ -205,11 +204,11 @@ LogicalResult detail::verifyTypesAlongControlFlowEdges(Operation *op) {
         [&](Optional<unsigned> regionNo) -> Optional<TypeRange> {
       // If there is no return-like terminator, the op itself should verify
       // type consistency.
-      if (!regionReturnOperands)
+      if (!regionReturn)
         return llvm::None;
 
-      // All successors get the same set of operand types.
-      return TypeRange(regionReturnOperands->getTypes());
+      // All successors get the same set of operands.
+      return TypeRange(regionReturn->getOperands().getTypes());
     };
 
     if (failed(verifyTypesAlongAllEdges(op, regionNo, inputTypesFromRegion)))
@@ -217,50 +216,4 @@ LogicalResult detail::verifyTypesAlongControlFlowEdges(Operation *op) {
   }
 
   return success();
-}
-
-//===----------------------------------------------------------------------===//
-// RegionBranchTerminatorOpInterface
-//===----------------------------------------------------------------------===//
-
-/// Returns true if the given operation is either annotated with the
-/// `ReturnLike` trait or implements the `RegionBranchTerminatorOpInterface`.
-bool mlir::isRegionReturnLike(Operation *operation) {
-  return dyn_cast<RegionBranchTerminatorOpInterface>(operation) ||
-         operation->hasTrait<OpTrait::ReturnLike>();
-}
-
-/// Returns the mutable operands that are passed to the region with the given
-/// `regionIndex`. If the operation does not implement the
-/// `RegionBranchTerminatorOpInterface` and is not marked as `ReturnLike`, the
-/// result will be `llvm::None`. In all other cases, the resulting
-/// `OperandRange` represents all operands that are passed to the specified
-/// successor region. If `regionIndex` is `llvm::None`, all operands that are
-/// passed to the parent operation will be returned.
-Optional<MutableOperandRange>
-mlir::getMutableRegionBranchSuccessorOperands(Operation *operation,
-                                              Optional<unsigned> regionIndex) {
-  // Try to query a RegionBranchTerminatorOpInterface to determine
-  // all successor operands that will be passed to the successor
-  // input arguments.
-  if (auto regionTerminatorInterface =
-          dyn_cast<RegionBranchTerminatorOpInterface>(operation))
-    return regionTerminatorInterface.getMutableSuccessorOperands(regionIndex);
-
-  // TODO: The ReturnLike trait should imply a default implementation of the
-  // RegionBranchTerminatorOpInterface. This would make this code significantly
-  // easier. Furthermore, this may even make this function obsolete.
-  if (operation->hasTrait<OpTrait::ReturnLike>())
-    return MutableOperandRange(operation);
-  return llvm::None;
-}
-
-/// Returns the read only operands that are passed to the region with the given
-/// `regionIndex`. See `getMutableRegionBranchSuccessorOperands` for more
-/// information.
-Optional<OperandRange>
-mlir::getRegionBranchSuccessorOperands(Operation *operation,
-                                       Optional<unsigned> regionIndex) {
-  auto range = getMutableRegionBranchSuccessorOperands(operation, regionIndex);
-  return range ? Optional<OperandRange>(*range) : llvm::None;
 }

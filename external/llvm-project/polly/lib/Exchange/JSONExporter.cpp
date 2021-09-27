@@ -178,7 +178,7 @@ static void exportScop(Scop &S) {
 
   // Write to file.
   std::error_code EC;
-  ToolOutputFile F(FileName, EC, llvm::sys::fs::OF_TextWithCRLF);
+  ToolOutputFile F(FileName, EC, llvm::sys::fs::OF_Text);
 
   std::string FunctionName = S.getFunction().getName().str();
   errs() << "Writing JScop '" << S.getNameStr() << "' in function '"
@@ -219,7 +219,7 @@ static bool importContext(Scop &S, const json::Object &JScop) {
                                  JScop.getString("context").getValue().str()};
 
   // Check whether the context was parsed successfully.
-  if (NewContext.is_null()) {
+  if (!NewContext) {
     errs() << "The context was not parsed successfully by ISL.\n";
     return false;
   }
@@ -230,8 +230,8 @@ static bool importContext(Scop &S, const json::Object &JScop) {
     return false;
   }
 
-  unsigned OldContextDim = OldContext.dim(isl::dim::param).release();
-  unsigned NewContextDim = NewContext.dim(isl::dim::param).release();
+  unsigned OldContextDim = OldContext.dim(isl::dim::param);
+  unsigned NewContextDim = NewContext.dim(isl::dim::param);
 
   // Check if the imported context has the right number of parameters.
   if (OldContextDim != NewContextDim) {
@@ -321,12 +321,12 @@ static bool importSchedule(Scop &S, const json::Object &JScop,
     return false;
   }
 
-  auto ScheduleMap = isl::union_map::empty(S.getIslCtx());
+  auto ScheduleMap = isl::union_map::empty(S.getParamSpace());
   for (ScopStmt &Stmt : S) {
     if (NewSchedule.find(&Stmt) != NewSchedule.end())
-      ScheduleMap = ScheduleMap.unite(NewSchedule[&Stmt]);
+      ScheduleMap = ScheduleMap.add_map(NewSchedule[&Stmt]);
     else
-      ScheduleMap = ScheduleMap.unite(Stmt.getSchedule());
+      ScheduleMap = ScheduleMap.add_map(Stmt.getSchedule());
   }
 
   S.setSchedule(ScheduleMap);

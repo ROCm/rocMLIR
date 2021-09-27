@@ -156,7 +156,7 @@ bool MVETailPredication::runOnLoop(Loop *L, LPPassManager&) {
 
       Intrinsic::ID ID = Call->getIntrinsicID();
       if (ID == Intrinsic::start_loop_iterations ||
-          ID == Intrinsic::test_start_loop_iterations)
+          ID == Intrinsic::test_set_loop_iterations)
         return cast<IntrinsicInst>(&I);
     }
     return nullptr;
@@ -205,10 +205,6 @@ bool MVETailPredication::IsSafeActiveMask(IntrinsicInst *ActiveLaneMask,
     EnableTailPredication == TailPredication::ForceEnabled;
 
   Value *ElemCount = ActiveLaneMask->getOperand(1);
-  bool Changed = false;
-  if (!L->makeLoopInvariant(ElemCount, Changed))
-    return false;
-
   auto *EC= SE->getSCEV(ElemCount);
   auto *TC = SE->getSCEV(TripCount);
   int VectorWidth =
@@ -293,18 +289,14 @@ bool MVETailPredication::IsSafeActiveMask(IntrinsicInst *ActiveLaneMask,
     // Check for equality of TC and Ceil by calculating SCEV expression
     // TC - Ceil and test it for zero.
     //
-    const SCEV *Sub =
-      SE->getMinusSCEV(SE->getBackedgeTakenCount(L),
-                       SE->getUDivExpr(SE->getAddExpr(SE->getMulExpr(Ceil, VW),
-                                                      SE->getNegativeSCEV(VW)),
-                                       VW));
+    bool Zero = SE->getMinusSCEV(
+                      SE->getBackedgeTakenCount(L),
+                      SE->getUDivExpr(SE->getAddExpr(SE->getMulExpr(Ceil, VW),
+                                                     SE->getNegativeSCEV(VW)),
+                                      VW))
+                    ->isZero();
 
-    // Use context sensitive facts about the path to the loop to refine.  This
-    // comes up as the backedge taken count can incorporate context sensitive
-    // reasoning, and our RHS just above doesn't.
-    Sub = SE->applyLoopGuards(Sub, L);
-
-    if (!Sub->isZero()) {
+    if (!Zero) {
       LLVM_DEBUG(dbgs() << "ARM TP: possible overflow in sub expression.\n");
       return false;
     }

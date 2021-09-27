@@ -130,9 +130,14 @@ void SubtargetFeatureInfo::emitComputeAssemblerAvailableFeatures(
     if (IsOr)
       OS << "(";
 
-    ListSeparator LS(IsOr ? " || " : " && ");
+    bool First = true;
     for (auto *Arg : D->getArgs()) {
-      OS << LS;
+      if (!First) {
+        if (IsOr)
+          OS << " || ";
+        else
+          OS << " && ";
+      }
       if (auto *NotArg = dyn_cast<DagInit>(Arg)) {
         if (NotArg->getOperator()->getAsString() != "not" ||
             NotArg->getNumArgs() != 1)
@@ -144,6 +149,8 @@ void SubtargetFeatureInfo::emitComputeAssemblerAvailableFeatures(
           !cast<DefInit>(Arg)->getDef()->isSubClassOf("SubtargetFeature"))
         PrintFatalError(SFI.TheDef->getLoc(), "Invalid AssemblerCondDag!");
       OS << "FB[" << TargetName << "::" << Arg->getAsString() << "]";
+
+      First = false;
     }
 
     if (IsOr)

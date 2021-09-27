@@ -234,7 +234,6 @@ ICallPromotionFunc::getPromotionCandidatesForCallSite(
   for (uint32_t I = 0; I < NumCandidates; I++) {
     uint64_t Count = ValueDataRef[I].Count;
     assert(Count <= TotalCount);
-    (void)TotalCount;
     uint64_t Target = ValueDataRef[I].Value;
     LLVM_DEBUG(dbgs() << " Candidate " << I << " Count=" << Count
                       << "  Target_func: " << Target << "\n");
@@ -394,7 +393,8 @@ static bool promoteIndirectCalls(Module &M, ProfileSummaryInfo *PSI,
   InstrProfSymtab Symtab;
   if (Error E = Symtab.create(M, InLTO)) {
     std::string SymtabFailure = toString(std::move(E));
-    M.getContext().emitError("Failed to create symtab: " + SymtabFailure);
+    LLVM_DEBUG(dbgs() << "Failed to create symtab: " << SymtabFailure << "\n");
+    (void)SymtabFailure;
     return false;
   }
   bool Changed = false;

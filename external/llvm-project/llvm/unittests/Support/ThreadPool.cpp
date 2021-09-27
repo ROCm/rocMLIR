@@ -47,6 +47,14 @@ protected:
     return false;
   }
 
+  bool isWindows() {
+    // FIXME: Skip some tests below on non-Windows because multi-socket systems
+    // were not fully tested on Unix yet, and llvm::get_thread_affinity_mask()
+    // isn't implemented for Unix.
+    Triple Host(Triple::normalize(sys::getProcessTriple()));
+    return Host.isOSWindows();
+  }
+
   ThreadPoolTest() {
     // Add unsupported configuration here, example:
     //   UnsupportedArchs.push_back(Triple::x86_64);
@@ -83,6 +91,12 @@ protected:
 #define CHECK_UNSUPPORTED()                                                    \
   do {                                                                         \
     if (isUnsupportedOSOrEnvironment())                                        \
+      return;                                                                  \
+  } while (0);
+
+#define SKIP_NON_WINDOWS()                                                     \
+  do {                                                                         \
+    if (!isWindows())                                                          \
       return;                                                                  \
   } while (0);
 
@@ -171,11 +185,6 @@ TEST_F(ThreadPoolTest, PoolDestruction) {
 
 #if LLVM_ENABLE_THREADS == 1
 
-// FIXME: Skip some tests below on non-Windows because multi-socket systems
-// were not fully tested on Unix yet, and llvm::get_thread_affinity_mask()
-// isn't implemented for Unix (need AffinityMask in Support/Unix/Program.inc).
-#ifdef _WIN32
-
 std::vector<llvm::BitVector>
 ThreadPoolTest::RunOnAllSockets(ThreadPoolStrategy S) {
   llvm::SetVector<llvm::BitVector> ThreadsUsed;
@@ -212,12 +221,14 @@ ThreadPoolTest::RunOnAllSockets(ThreadPoolStrategy S) {
 
 TEST_F(ThreadPoolTest, AllThreads_UseAllRessources) {
   CHECK_UNSUPPORTED();
+  SKIP_NON_WINDOWS();
   std::vector<llvm::BitVector> ThreadsUsed = RunOnAllSockets({});
   ASSERT_EQ(llvm::get_cpus(), ThreadsUsed.size());
 }
 
 TEST_F(ThreadPoolTest, AllThreads_OneThreadPerCore) {
   CHECK_UNSUPPORTED();
+  SKIP_NON_WINDOWS();
   std::vector<llvm::BitVector> ThreadsUsed =
       RunOnAllSockets(llvm::heavyweight_hardware_concurrency());
   ASSERT_EQ(llvm::get_cpus(), ThreadsUsed.size());
@@ -229,12 +240,15 @@ extern const char *TestMainArgv0;
 // Just a reachable symbol to ease resolving of the executable's path.
 static cl::opt<std::string> ThreadPoolTestStringArg1("thread-pool-string-arg1");
 
-#ifdef _WIN32
+#ifdef _MSC_VER
 #define setenv(name, var, ignore) _putenv_s(name, var)
 #endif
 
 TEST_F(ThreadPoolTest, AffinityMask) {
   CHECK_UNSUPPORTED();
+
+  // FIXME: implement AffinityMask in Support/Unix/Program.inc
+  SKIP_NON_WINDOWS();
 
   // Skip this test if less than 4 threads are available.
   if (llvm::hardware_concurrency().compute_thread_count() < 4)
@@ -244,12 +258,8 @@ TEST_F(ThreadPoolTest, AffinityMask) {
   if (getenv("LLVM_THREADPOOL_AFFINITYMASK")) {
     std::vector<llvm::BitVector> ThreadsUsed = RunOnAllSockets({});
     // Ensure the threads only ran on CPUs 0-3.
-    // NOTE: Don't use ASSERT* here because this runs in a subprocess,
-    // and will show up as un-executed in the parent.
-    assert(llvm::all_of(ThreadsUsed,
-                        [](auto &T) { return T.getData().front() < 16UL; }) &&
-           "Threads ran on more CPUs than expected! The affinity mask does not "
-           "seem to work.");
+    for (auto &It : ThreadsUsed)
+      ASSERT_LT(It.getData().front(), 16UL);
     return;
   }
   std::string Executable =
@@ -270,5 +280,4 @@ TEST_F(ThreadPoolTest, AffinityMask) {
   ASSERT_EQ(0, Ret);
 }
 
-#endif // #ifdef _WIN32
 #endif // #if LLVM_ENABLE_THREADS == 1

@@ -7,11 +7,6 @@
 # Check that calling an undefined weak function generates an appropriate stub
 # that will fail at runtime with "unreachable".
 
-.functype weakFunc1 () -> ()
-.functype weakFunc2 () -> ()
-.functype weakFunc3 (i32) -> ()
-.functype weakFunc4 () -> ()
-
 .globl  callWeakFuncs
 
 callWeakFuncs:
@@ -29,6 +24,10 @@ callWeakFuncs:
 .weak weakFunc2
 .weak weakFunc3
 .weak weakFunc4
+.functype weakFunc1 () -> ()
+.functype weakFunc2 () -> ()
+.functype weakFunc3 (i32) -> ()
+.functype weakFunc4 () -> ()
 
 # CHECK-GC: removing unused section {{.*}}:(weakFunc4)
 
@@ -57,11 +56,11 @@ callWeakFuncs:
 # CHECK-NEXT:         ElemType:        FUNCREF
 # CHECK-NEXT:         Limits:
 # CHECK-NEXT:           Flags:           [ HAS_MAX ]
-# CHECK-NEXT:           Minimum:         0x1
+# CHECK-NEXT:           Initial:         0x1
 # CHECK-NEXT:           Maximum:         0x1
 # CHECK-NEXT:   - Type:            MEMORY
 # CHECK-NEXT:     Memories:
-# CHECK-NEXT:       - Minimum:         0x2
+# CHECK-NEXT:       - Initial:         0x2
 # CHECK-NEXT:   - Type:            GLOBAL
 # CHECK-NEXT:     Globals:
 # CHECK-NEXT:       - Index:           0

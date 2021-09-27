@@ -240,19 +240,14 @@ public:
   }
 };
 
-class op_inserter {
+class op_inserter
+    : public std::iterator<std::output_iterator_tag, void, void, void, void> {
 private:
   using Container = BasicExpression;
 
   Container *BE;
 
 public:
-  using iterator_category = std::output_iterator_tag;
-  using value_type = void;
-  using difference_type = void;
-  using pointer = void;
-  using reference = void;
-
   explicit op_inserter(BasicExpression &E) : BE(&E) {}
   explicit op_inserter(BasicExpression *E) : BE(E) {}
 
@@ -477,19 +472,14 @@ public:
   }
 };
 
-class int_op_inserter {
+class int_op_inserter
+    : public std::iterator<std::output_iterator_tag, void, void, void, void> {
 private:
   using Container = AggregateValueExpression;
 
   Container *AVE;
 
 public:
-  using iterator_category = std::output_iterator_tag;
-  using value_type = void;
-  using difference_type = void;
-  using pointer = void;
-  using reference = void;
-
   explicit int_op_inserter(AggregateValueExpression &E) : AVE(&E) {}
   explicit int_op_inserter(AggregateValueExpression *E) : AVE(E) {}
 

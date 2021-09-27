@@ -16,7 +16,6 @@ class TestMultipleTargets(TestBase):
     mydir = TestBase.compute_mydir(__file__)
     NO_DEBUG_INFO_TESTCASE = True
 
-    @skipIf(oslist=["linux"], archs=["arm", "aarch64"])
     @skipIfNoSBHeaders
     @skipIfHostIncompatibleWithRemote
     @expectedFailureAll(

@@ -254,7 +254,7 @@ The Loop Vectorizer can vectorize loops that count backwards.
 
 .. code-block:: c++
 
-  void foo(int *A, int n) {
+  int foo(int *A, int n) {
     for (int i = n; i > 0; --i)
       A[i] +=1;
   }
@@ -267,7 +267,7 @@ that scatter/gathers memory.
 
 .. code-block:: c++
 
-  void foo(int * A, int * B, int n) {
+  int foo(int * A, int * B, int n) {
     for (intptr_t i = 0; i < n; ++i)
         A[i] += B[i * 4];
   }
@@ -284,7 +284,7 @@ vectorization is profitable.
 
 .. code-block:: c++
 
-  void foo(int *A, char *B, int n) {
+  int foo(int *A, char *B, int n) {
     for (int i = 0; i < n; ++i)
       A[i] += 4 * B[i];
   }
@@ -303,7 +303,7 @@ ignored (as other compilers do) are still being left un-vectorized.
 
   struct { int A[100], K, B[100]; } Foo;
 
-  void foo() {
+  int foo() {
     for (int i = 0; i < 100; ++i)
       Foo.A[i] = Foo.B[i] + 100;
   }

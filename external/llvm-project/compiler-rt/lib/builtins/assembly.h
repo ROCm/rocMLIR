@@ -105,11 +105,9 @@
   .popsection
 
 #if BTI_FLAG != 0
-#define BTI_C hint #34
-#define BTI_J hint #36
+#define BTI_C bti c
 #else
 #define BTI_C
-#define BTI_J
 #endif
 
 #if (BTI_FLAG | PAC_FLAG) != 0

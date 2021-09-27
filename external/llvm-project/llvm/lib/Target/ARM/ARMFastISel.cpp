@@ -136,13 +136,16 @@ class ARMFastISel final : public FastISel {
     // Code from FastISel.cpp.
 
     unsigned fastEmitInst_r(unsigned MachineInstOpcode,
-                            const TargetRegisterClass *RC, unsigned Op0);
+                            const TargetRegisterClass *RC,
+                            unsigned Op0, bool Op0IsKill);
     unsigned fastEmitInst_rr(unsigned MachineInstOpcode,
                              const TargetRegisterClass *RC,
-                             unsigned Op0, unsigned Op1);
+                             unsigned Op0, bool Op0IsKill,
+                             unsigned Op1, bool Op1IsKill);
     unsigned fastEmitInst_ri(unsigned MachineInstOpcode,
                              const TargetRegisterClass *RC,
-                             unsigned Op0, uint64_t Imm);
+                             unsigned Op0, bool Op0IsKill,
+                             uint64_t Imm);
     unsigned fastEmitInst_i(unsigned MachineInstOpcode,
                             const TargetRegisterClass *RC,
                             uint64_t Imm);
@@ -296,7 +299,7 @@ ARMFastISel::AddOptionalDefs(const MachineInstrBuilder &MIB) {
 
 unsigned ARMFastISel::fastEmitInst_r(unsigned MachineInstOpcode,
                                      const TargetRegisterClass *RC,
-                                     unsigned Op0) {
+                                     unsigned Op0, bool Op0IsKill) {
   Register ResultReg = createResultReg(RC);
   const MCInstrDesc &II = TII.get(MachineInstOpcode);
 
@@ -305,10 +308,10 @@ unsigned ARMFastISel::fastEmitInst_r(unsigned MachineInstOpcode,
   Op0 = constrainOperandRegClass(II, Op0, 1);
   if (II.getNumDefs() >= 1) {
     AddOptionalDefs(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, II,
-                            ResultReg).addReg(Op0));
+                            ResultReg).addReg(Op0, Op0IsKill * RegState::Kill));
   } else {
     AddOptionalDefs(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, II)
-                   .addReg(Op0));
+                   .addReg(Op0, Op0IsKill * RegState::Kill));
     AddOptionalDefs(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
                    TII.get(TargetOpcode::COPY), ResultReg)
                    .addReg(II.ImplicitDefs[0]));
@@ -318,7 +321,8 @@ unsigned ARMFastISel::fastEmitInst_r(unsigned MachineInstOpcode,
 
 unsigned ARMFastISel::fastEmitInst_rr(unsigned MachineInstOpcode,
                                       const TargetRegisterClass *RC,
-                                      unsigned Op0, unsigned Op1) {
+                                      unsigned Op0, bool Op0IsKill,
+                                      unsigned Op1, bool Op1IsKill) {
   unsigned ResultReg = createResultReg(RC);
   const MCInstrDesc &II = TII.get(MachineInstOpcode);
 
@@ -330,12 +334,12 @@ unsigned ARMFastISel::fastEmitInst_rr(unsigned MachineInstOpcode,
   if (II.getNumDefs() >= 1) {
     AddOptionalDefs(
         BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, II, ResultReg)
-            .addReg(Op0)
-            .addReg(Op1));
+            .addReg(Op0, Op0IsKill * RegState::Kill)
+            .addReg(Op1, Op1IsKill * RegState::Kill));
   } else {
     AddOptionalDefs(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, II)
-                   .addReg(Op0)
-                   .addReg(Op1));
+                   .addReg(Op0, Op0IsKill * RegState::Kill)
+                   .addReg(Op1, Op1IsKill * RegState::Kill));
     AddOptionalDefs(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
                            TII.get(TargetOpcode::COPY), ResultReg)
                    .addReg(II.ImplicitDefs[0]));
@@ -345,7 +349,8 @@ unsigned ARMFastISel::fastEmitInst_rr(unsigned MachineInstOpcode,
 
 unsigned ARMFastISel::fastEmitInst_ri(unsigned MachineInstOpcode,
                                       const TargetRegisterClass *RC,
-                                      unsigned Op0, uint64_t Imm) {
+                                      unsigned Op0, bool Op0IsKill,
+                                      uint64_t Imm) {
   unsigned ResultReg = createResultReg(RC);
   const MCInstrDesc &II = TII.get(MachineInstOpcode);
 
@@ -355,11 +360,11 @@ unsigned ARMFastISel::fastEmitInst_ri(unsigned MachineInstOpcode,
   if (II.getNumDefs() >= 1) {
     AddOptionalDefs(
         BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, II, ResultReg)
-            .addReg(Op0)
+            .addReg(Op0, Op0IsKill * RegState::Kill)
             .addImm(Imm));
   } else {
     AddOptionalDefs(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, II)
-                   .addReg(Op0)
+                   .addReg(Op0, Op0IsKill * RegState::Kill)
                    .addImm(Imm));
     AddOptionalDefs(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
                            TII.get(TargetOpcode::COPY), ResultReg)
@@ -846,7 +851,7 @@ void ARMFastISel::ARMSimplifyAddress(Address &Addr, MVT VT, bool useAM3) {
   // get the reg+offset into a register.
   if (needsLowering) {
     Addr.Base.Reg = fastEmit_ri_(MVT::i32, ISD::ADD, Addr.Base.Reg,
-                                 Addr.Offset, MVT::i32);
+                                 /*Op0IsKill*/false, Addr.Offset, MVT::i32);
     Addr.Offset = 0;
   }
 }
@@ -1849,7 +1854,6 @@ CCAssignFn *ARMFastISel::CCAssignFnForCall(CallingConv::ID CC,
     }
   case CallingConv::ARM_AAPCS_VFP:
   case CallingConv::Swift:
-  case CallingConv::SwiftTail:
     if (!isVarArg)
       return (Return ? RetCC_ARM_AAPCS_VFP: CC_ARM_AAPCS_VFP);
     // Fall through to soft float variant, variadic functions don't
@@ -1963,7 +1967,8 @@ bool ARMFastISel::ProcessCallArgs(SmallVectorImpl<Value*> &Args,
         break;
       }
       case CCValAssign::BCvt: {
-        unsigned BC = fastEmit_r(ArgVT, VA.getLocVT(), ISD::BITCAST, Arg);
+        unsigned BC = fastEmit_r(ArgVT, VA.getLocVT(), ISD::BITCAST, Arg,
+                                 /*TODO: Kill=*/false);
         assert(BC != 0 && "Failed to emit a bitcast!");
         Arg = BC;
         ArgVT = VA.getLocVT();
@@ -2181,11 +2186,10 @@ unsigned ARMFastISel::getLibcallReg(const Twine &Name) {
   EVT LCREVT = TLI.getValueType(DL, GVTy);
   if (!LCREVT.isSimple()) return 0;
 
-  GlobalValue *GV = M.getNamedGlobal(Name.str());
-  if (!GV)
-    GV = new GlobalVariable(M, Type::getInt32Ty(*Context), false,
-                            GlobalValue::ExternalLinkage, nullptr, Name);
-
+  GlobalValue *GV = new GlobalVariable(M, Type::getInt32Ty(*Context), false,
+                                       GlobalValue::ExternalLinkage, nullptr,
+                                       Name);
+  assert(GV->getType() == GVTy && "We miscomputed the type for the global!");
   return ARMMaterializeGV(GV, LCREVT.getSimpleVT());
 }
 
@@ -3016,7 +3020,6 @@ bool ARMFastISel::fastLowerArguments() {
   case CallingConv::ARM_AAPCS:
   case CallingConv::ARM_APCS:
   case CallingConv::Swift:
-  case CallingConv::SwiftTail:
     break;
   }
 

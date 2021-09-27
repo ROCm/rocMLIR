@@ -6,24 +6,24 @@
 
 __int128 test_sync_call(__int128 *addr, __int128 val) {
   // CHECK-LABEL: @test_sync_call
-  // CHECK: atomicrmw add i128* {{.*}} seq_cst, align 16
+  // CHECK: atomicrmw add i128
   return __sync_fetch_and_add(addr, val);
 }
 
 __int128 test_c11_call(_Atomic __int128 *addr, __int128 val) {
   // CHECK-LABEL: @test_c11_call
-  // CHECK: atomicrmw sub i128* {{.*}} monotonic, align 16
+  // CHECK: atomicrmw sub
   return __c11_atomic_fetch_sub(addr, val, 0);
 }
 
 __int128 test_atomic_call(__int128 *addr, __int128 val) {
   // CHECK-LABEL: @test_atomic_call
-  // CHECK: atomicrmw or i128* {{.*}} monotonic, align 16
+  // CHECK: atomicrmw or
   return __atomic_fetch_or(addr, val, 0);
 }
 
 __int128 test_expression(_Atomic __int128 *addr) {
   // CHECK-LABEL: @test_expression
-  // CHECK: atomicrmw and i128* {{.*}} seq_cst, align 16
+  // CHECK: atomicrmw and
   *addr &= 1;
 }

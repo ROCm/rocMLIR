@@ -8,16 +8,12 @@
 
 #include "mlir/Dialect/OpenACC/OpenACC.h"
 #include "mlir/Dialect/OpenACC/OpenACCOpsEnums.cpp.inc"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
-#include "mlir/Transforms/DialectConversion.h"
 
 using namespace mlir;
 using namespace acc;
-
-#include "mlir/Dialect/OpenACC/OpenACCOpsDialect.cpp.inc"
 
 //===----------------------------------------------------------------------===//
 // OpenACC operations
@@ -156,31 +152,6 @@ static OptionalParseResult parserOptionalOperandAndTypeWithPrefix(
 static bool isComputeOperation(Operation *op) {
   return isa<acc::ParallelOp>(op) || isa<acc::LoopOp>(op);
 }
-
-namespace {
-/// Pattern to remove operation without region that have constant false `ifCond`
-/// and remove the condition from the operation if the `ifCond` is a true
-/// constant.
-template <typename OpTy>
-struct RemoveConstantIfCondition : public OpRewritePattern<OpTy> {
-  using OpRewritePattern<OpTy>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(OpTy op,
-                                PatternRewriter &rewriter) const override {
-    // Early return if there is no condition.
-    if (!op.ifCond())
-      return success();
-
-    auto constOp = op.ifCond().template getDefiningOp<ConstantOp>();
-    if (constOp && constOp.getValue().template cast<IntegerAttr>().getInt())
-      rewriter.updateRootInPlace(op, [&]() { op.ifCondMutable().erase(0); });
-    else if (constOp)
-      rewriter.eraseOp(op);
-
-    return success();
-  }
-};
-} // namespace
 
 //===----------------------------------------------------------------------===//
 // ParallelOp
@@ -382,6 +353,8 @@ static ParseResult parseParallelOp(OpAsmParser &parser,
 }
 
 static void print(OpAsmPrinter &printer, ParallelOp &op) {
+  printer << ParallelOp::getOperationName();
+
   // async()?
   if (Value async = op.async())
     printer << " " << ParallelOp::getAsyncKeyword() << "(" << async << ": "
@@ -472,27 +445,7 @@ static void print(OpAsmPrinter &printer, ParallelOp &op) {
                       /*printEntryBlockArgs=*/false,
                       /*printBlockTerminators=*/true);
   printer.printOptionalAttrDictWithKeyword(
-      op->getAttrs(), ParallelOp::getOperandSegmentSizeAttr());
-}
-
-unsigned ParallelOp::getNumDataOperands() {
-  return reductionOperands().size() + copyOperands().size() +
-         copyinOperands().size() + copyinReadonlyOperands().size() +
-         copyoutOperands().size() + copyoutZeroOperands().size() +
-         createOperands().size() + createZeroOperands().size() +
-         noCreateOperands().size() + presentOperands().size() +
-         devicePtrOperands().size() + attachOperands().size() +
-         gangPrivateOperands().size() + gangFirstPrivateOperands().size();
-}
-
-Value ParallelOp::getDataOperand(unsigned i) {
-  unsigned numOptional = async() ? 1 : 0;
-  numOptional += numGangs() ? 1 : 0;
-  numOptional += numWorkers() ? 1 : 0;
-  numOptional += vectorLength() ? 1 : 0;
-  numOptional += ifCond() ? 1 : 0;
-  numOptional += selfCond() ? 1 : 0;
-  return getOperand(waitOperands().size() + numOptional + i);
+      op.getAttrs(), ParallelOp::getOperandSegmentSizeAttr());
 }
 
 //===----------------------------------------------------------------------===//
@@ -597,6 +550,8 @@ static ParseResult parseLoopOp(OpAsmParser &parser, OperationState &result) {
 }
 
 static void print(OpAsmPrinter &printer, LoopOp &op) {
+  printer << LoopOp::getOperationName();
+
   unsigned execMapping = op.exec_mapping();
   if (execMapping & OpenACCExecMapping::GANG) {
     printer << " " << LoopOp::getGangKeyword();
@@ -653,8 +608,8 @@ static void print(OpAsmPrinter &printer, LoopOp &op) {
                       /*printBlockTerminators=*/true);
 
   printer.printOptionalAttrDictWithKeyword(
-      op->getAttrs(), {LoopOp::getExecutionMappingAttrName(),
-                       LoopOp::getOperandSegmentSizeAttr()});
+      op.getAttrs(), {LoopOp::getExecutionMappingAttrName(),
+                      LoopOp::getOperandSegmentSizeAttr()});
 }
 
 static LogicalResult verifyLoopOp(acc::LoopOp loopOp) {
@@ -697,20 +652,6 @@ static LogicalResult verify(acc::DataOp dataOp) {
   return success();
 }
 
-unsigned DataOp::getNumDataOperands() {
-  return copyOperands().size() + copyinOperands().size() +
-         copyinReadonlyOperands().size() + copyoutOperands().size() +
-         copyoutZeroOperands().size() + createOperands().size() +
-         createZeroOperands().size() + noCreateOperands().size() +
-         presentOperands().size() + deviceptrOperands().size() +
-         attachOperands().size();
-}
-
-Value DataOp::getDataOperand(unsigned i) {
-  unsigned numOptional = ifCond() ? 1 : 0;
-  return getOperand(numOptional + i);
-}
-
 //===----------------------------------------------------------------------===//
 // ExitDataOp
 //===----------------------------------------------------------------------===//
@@ -741,25 +682,8 @@ static LogicalResult verify(acc::ExitDataOp op) {
   return success();
 }
 
-unsigned ExitDataOp::getNumDataOperands() {
-  return copyoutOperands().size() + deleteOperands().size() +
-         detachOperands().size();
-}
-
-Value ExitDataOp::getDataOperand(unsigned i) {
-  unsigned numOptional = ifCond() ? 1 : 0;
-  numOptional += asyncOperand() ? 1 : 0;
-  numOptional += waitDevnum() ? 1 : 0;
-  return getOperand(waitOperands().size() + numOptional + i);
-}
-
-void ExitDataOp::getCanonicalizationPatterns(RewritePatternSet &results,
-                                             MLIRContext *context) {
-  results.add<RemoveConstantIfCondition<ExitDataOp>>(context);
-}
-
 //===----------------------------------------------------------------------===//
-// EnterDataOp
+// DataEnterOp
 //===----------------------------------------------------------------------===//
 
 static LogicalResult verify(acc::EnterDataOp op) {
@@ -786,23 +710,6 @@ static LogicalResult verify(acc::EnterDataOp op) {
     return op.emitError("wait_devnum cannot appear without waitOperands");
 
   return success();
-}
-
-unsigned EnterDataOp::getNumDataOperands() {
-  return copyinOperands().size() + createOperands().size() +
-         createZeroOperands().size() + attachOperands().size();
-}
-
-Value EnterDataOp::getDataOperand(unsigned i) {
-  unsigned numOptional = ifCond() ? 1 : 0;
-  numOptional += asyncOperand() ? 1 : 0;
-  numOptional += waitDevnum() ? 1 : 0;
-  return getOperand(waitOperands().size() + numOptional + i);
-}
-
-void EnterDataOp::getCanonicalizationPatterns(RewritePatternSet &results,
-                                              MLIRContext *context) {
-  results.add<RemoveConstantIfCondition<EnterDataOp>>(context);
 }
 
 //===----------------------------------------------------------------------===//
@@ -857,23 +764,6 @@ static LogicalResult verify(acc::UpdateOp updateOp) {
     return updateOp.emitError("wait_devnum cannot appear without waitOperands");
 
   return success();
-}
-
-unsigned UpdateOp::getNumDataOperands() {
-  return hostOperands().size() + deviceOperands().size();
-}
-
-Value UpdateOp::getDataOperand(unsigned i) {
-  unsigned numOptional = asyncOperand() ? 1 : 0;
-  numOptional += waitDevnum() ? 1 : 0;
-  numOptional += ifCond() ? 1 : 0;
-  return getOperand(waitOperands().size() + deviceTypeOperands().size() +
-                    numOptional + i);
-}
-
-void UpdateOp::getCanonicalizationPatterns(RewritePatternSet &results,
-                                           MLIRContext *context) {
-  results.add<RemoveConstantIfCondition<UpdateOp>>(context);
 }
 
 //===----------------------------------------------------------------------===//

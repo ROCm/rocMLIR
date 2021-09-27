@@ -19,11 +19,11 @@
 #include "llvm/Support/Program.h"
 #include "llvm/Support/Threading.h"
 
-#include <cerrno>
-#include <climits>
-#include <cstdarg>
-#include <cstdio>
+#include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <stdarg.h>
+#include <stdio.h>
 
 #ifdef _WIN32
 #include "lldb/Host/windows/windows.h"
@@ -307,7 +307,7 @@ FileSystem::CreateDataBuffer(const llvm::Twine &path, uint64_t size,
   std::unique_ptr<llvm::WritableMemoryBuffer> buffer;
   if (size == 0) {
     auto buffer_or_error =
-        llvm::WritableMemoryBuffer::getFile(*external_path, is_volatile);
+        llvm::WritableMemoryBuffer::getFile(*external_path, -1, is_volatile);
     if (!buffer_or_error)
       return nullptr;
     buffer = std::move(*buffer_or_error);
@@ -381,13 +381,13 @@ static int OpenWithFS(const FileSystem &fs, const char *path, int flags,
   return const_cast<FileSystem &>(fs).Open(path, flags, mode);
 }
 
-static int GetOpenFlags(File::OpenOptions options) {
+static int GetOpenFlags(uint32_t options) {
+  const bool read = options & File::eOpenOptionRead;
+  const bool write = options & File::eOpenOptionWrite;
+
   int open_flags = 0;
-  File::OpenOptions rw =
-      options & (File::eOpenOptionReadOnly | File::eOpenOptionWriteOnly |
-                 File::eOpenOptionReadWrite);
-  if (rw == File::eOpenOptionWriteOnly || rw == File::eOpenOptionReadWrite) {
-    if (rw == File::eOpenOptionReadWrite)
+  if (write) {
+    if (read)
       open_flags |= O_RDWR;
     else
       open_flags |= O_WRONLY;
@@ -403,7 +403,7 @@ static int GetOpenFlags(File::OpenOptions options) {
 
     if (options & File::eOpenOptionCanCreateNewOnly)
       open_flags |= O_CREAT | O_EXCL;
-  } else if (rw == File::eOpenOptionReadOnly) {
+  } else if (read) {
     open_flags |= O_RDONLY;
 
 #ifndef _WIN32

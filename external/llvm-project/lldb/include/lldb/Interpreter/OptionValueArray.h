@@ -15,12 +15,12 @@
 
 namespace lldb_private {
 
-class OptionValueArray : public Cloneable<OptionValueArray, OptionValue> {
+class OptionValueArray : public OptionValue {
 public:
   OptionValueArray(uint32_t type_mask = UINT32_MAX, bool raw_value_dump = false)
       : m_type_mask(type_mask), m_values(), m_raw_value_dump(raw_value_dump) {}
 
-  ~OptionValueArray() override = default;
+  ~OptionValueArray() override {}
 
   // Virtual subclass pure virtual overrides
 
@@ -32,14 +32,16 @@ public:
   Status
   SetValueFromString(llvm::StringRef value,
                      VarSetOperationType op = eVarSetOperationAssign) override;
+  Status
+  SetValueFromString(const char *,
+                     VarSetOperationType = eVarSetOperationAssign) = delete;
 
   void Clear() override {
     m_values.clear();
     m_value_was_set = false;
   }
 
-  lldb::OptionValueSP
-  DeepCopy(const lldb::OptionValueSP &new_parent) const override;
+  lldb::OptionValueSP DeepCopy() const override;
 
   bool IsAggregateValue() const override { return true; }
 

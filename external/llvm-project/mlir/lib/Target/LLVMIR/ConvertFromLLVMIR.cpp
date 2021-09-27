@@ -15,14 +15,12 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/Target/LLVMIR/Import.h"
-#include "mlir/Target/LLVMIR/TypeFromLLVM.h"
+#include "mlir/Target/LLVMIR.h"
+#include "mlir/Target/LLVMIR/TypeTranslation.h"
 #include "mlir/Translation.h"
 
-#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Constants.h"
-#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Instructions.h"
@@ -52,7 +50,7 @@ class Importer {
 public:
   Importer(MLIRContext *context, ModuleOp module)
       : b(context), context(context), module(module),
-        unknownLoc(FileLineColLoc::get(context, "imported-bitcode", 0, 0)),
+        unknownLoc(FileLineColLoc::get("imported-bitcode", 0, 0, context)),
         typeTranslator(*context) {
     b.setInsertionPointToStart(module.getBody());
   }
@@ -109,11 +107,10 @@ private:
 
   /// Globals are inserted before the first function, if any.
   Block::iterator getGlobalInsertPt() {
-    auto it = module.getBody()->begin();
-    auto endIt = module.getBody()->end();
-    while (it != endIt && !isa<LLVMFuncOp>(it))
-      ++it;
-    return it;
+    auto i = module.getBody()->begin();
+    while (!isa<LLVMFuncOp, ModuleTerminatorOp>(i))
+      ++i;
+    return i;
   }
 
   /// Functions are always inserted before the module terminator.
@@ -144,13 +141,13 @@ Location Importer::processDebugLoc(const llvm::DebugLoc &loc,
     llvm::raw_string_ostream os(s);
     os << "llvm-imported-inst-%";
     inst->printAsOperand(os, /*PrintType=*/false);
-    return FileLineColLoc::get(context, os.str(), 0, 0);
+    return FileLineColLoc::get(os.str(), 0, 0, context);
   } else if (!loc) {
     return unknownLoc;
   }
   // FIXME: Obtain the filename from DILocationInfo.
-  return FileLineColLoc::get(context, "imported-bitcode", loc.getLine(),
-                             loc.getCol());
+  return FileLineColLoc::get("imported-bitcode", loc.getLine(), loc.getCol(),
+                             context);
 }
 
 Type Importer::processType(llvm::Type *type) {
@@ -245,7 +242,7 @@ Attribute Importer::getConstantAsAttr(llvm::Constant *value) {
       return b.getFloatAttr(FloatType::getF32(context), c->getValueAPF());
   }
   if (auto *f = dyn_cast<llvm::Function>(value))
-    return SymbolRefAttr::get(b.getContext(), f->getName());
+    return b.getSymbolRefAttr(f->getName());
 
   // Convert constant data to a dense elements attribute.
   if (auto *cd = dyn_cast<llvm::ConstantDataSequential>(value)) {
@@ -294,8 +291,7 @@ Attribute Importer::getConstantAsAttr(llvm::Constant *value) {
       if (!nested)
         return nullptr;
 
-      values.append(nested.value_begin<Attribute>(),
-                    nested.value_end<Attribute>());
+      values.append(nested.attr_value_begin(), nested.attr_value_end());
     }
 
     return DenseElementsAttr::get(outerType, values);
@@ -316,19 +312,9 @@ GlobalOp Importer::processGlobal(llvm::GlobalVariable *GV) {
   Type type = processType(GV->getValueType());
   if (!type)
     return nullptr;
-
-  uint64_t alignment = 0;
-  llvm::MaybeAlign maybeAlign = GV->getAlign();
-  if (maybeAlign.hasValue()) {
-    llvm::Align align = maybeAlign.getValue();
-    alignment = align.value();
-  }
-
-  GlobalOp op =
-      b.create<GlobalOp>(UnknownLoc::get(context), type, GV->isConstant(),
-                         convertLinkageFromLLVM(GV->getLinkage()),
-                         GV->getName(), valueAttr, alignment);
-
+  GlobalOp op = b.create<GlobalOp>(
+      UnknownLoc::get(context), type, GV->isConstant(),
+      convertLinkageFromLLVM(GV->getLinkage()), GV->getName(), valueAttr);
   if (GV->hasInitializer() && !valueAttr) {
     Region &r = op.getInitializerRegion();
     currentEntryBlock = b.createBlock(&r);
@@ -338,12 +324,6 @@ GlobalOp Importer::processGlobal(llvm::GlobalVariable *GV) {
       return nullptr;
     b.create<ReturnOp>(op.getLoc(), ArrayRef<Value>({v}));
   }
-  if (GV->hasAtLeastLocalUnnamedAddr())
-    op.unnamed_addrAttr(UnnamedAddrAttr::get(
-        context, convertUnnamedAddrFromLLVM(GV->getUnnamedAddr())));
-  if (GV->hasSection())
-    op.sectionAttr(b.getStringAttr(GV->getSection()));
-
   return globals[GV] = op;
 }
 
@@ -669,8 +649,8 @@ LogicalResult Importer::processInstruction(llvm::Instruction *inst) {
     }
     Operation *op;
     if (llvm::Function *callee = ci->getCalledFunction()) {
-      op = b.create<CallOp>(
-          loc, tys, SymbolRefAttr::get(b.getContext(), callee->getName()), ops);
+      op = b.create<CallOp>(loc, tys, b.getSymbolRefAttr(callee->getName()),
+                            ops);
     } else {
       Value calledValue = processValue(ci->getCalledOperand());
       if (!calledValue)
@@ -714,10 +694,9 @@ LogicalResult Importer::processInstruction(llvm::Instruction *inst) {
 
     Operation *op;
     if (llvm::Function *callee = ii->getCalledFunction()) {
-      op = b.create<InvokeOp>(
-          loc, tys, SymbolRefAttr::get(b.getContext(), callee->getName()), ops,
-          blocks[ii->getNormalDest()], normalArgs, blocks[ii->getUnwindDest()],
-          unwindArgs);
+      op = b.create<InvokeOp>(loc, tys, b.getSymbolRefAttr(callee->getName()),
+                              ops, blocks[ii->getNormalDest()], normalArgs,
+                              blocks[ii->getUnwindDest()], unwindArgs);
     } else {
       ops.insert(ops.begin(), processValue(ii->getCalledOperand()));
       op = b.create<InvokeOp>(loc, tys, ops, blocks[ii->getNormalDest()],
@@ -773,7 +752,7 @@ FlatSymbolRefAttr Importer::getPersonalityAsAttr(llvm::Function *f) {
 
   // If it directly has a name, we can use it.
   if (pf->hasName())
-    return SymbolRefAttr::get(b.getContext(), pf->getName());
+    return b.getSymbolRefAttr(pf->getName());
 
   // If it doesn't have a name, currently, only function pointers that are
   // bitcast to i8* are parsed.
@@ -781,7 +760,7 @@ FlatSymbolRefAttr Importer::getPersonalityAsAttr(llvm::Function *f) {
     if (ce->getOpcode() == llvm::Instruction::BitCast &&
         ce->getType() == llvm::Type::getInt8PtrTy(f->getContext())) {
       if (auto func = dyn_cast<llvm::Function>(ce->getOperand(0)))
-        return SymbolRefAttr::get(b.getContext(), func->getName());
+        return b.getSymbolRefAttr(func->getName());
     }
   }
   return FlatSymbolRefAttr();
@@ -855,7 +834,7 @@ mlir::translateLLVMIRToModule(std::unique_ptr<llvm::Module> llvmModule,
                               MLIRContext *context) {
   context->loadDialect<LLVMDialect>();
   OwningModuleRef module(ModuleOp::create(
-      FileLineColLoc::get(context, "", /*line=*/0, /*column=*/0)));
+      FileLineColLoc::get("", /*line=*/0, /*column=*/0, context)));
 
   Importer deserializer(context, module.get());
   for (llvm::GlobalVariable &gv : llvmModule->globals()) {

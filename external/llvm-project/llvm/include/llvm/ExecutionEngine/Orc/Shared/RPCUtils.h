@@ -243,8 +243,6 @@ public:
   static void consumeAbandoned(ErrorReturnType RetOrErr) {
     consumeError(RetOrErr.takeError());
   }
-
-  static ErrorReturnType returnError(Error Err) { return std::move(Err); }
 };
 
 // ResultTraits specialization for void functions.
@@ -277,8 +275,6 @@ public:
   static void consumeAbandoned(ErrorReturnType Err) {
     consumeError(std::move(Err));
   }
-
-  static ErrorReturnType returnError(Error Err) { return Err; }
 };
 
 // ResultTraits<Error> is equivalent to ResultTraits<void>. This allows
@@ -1498,34 +1494,36 @@ public:
   typename detail::ResultTraits<AltRetT>::ErrorReturnType
   callB(const ArgTs &...Args) {
     bool ReceivedResponse = false;
-    using AltRetTraits = detail::ResultTraits<AltRetT>;
-    using ResultType = typename AltRetTraits::ErrorReturnType;
-    ResultType Result = AltRetTraits::createBlankErrorReturnValue();
+    using ResultType = typename detail::ResultTraits<AltRetT>::ErrorReturnType;
+    auto Result = detail::ResultTraits<AltRetT>::createBlankErrorReturnValue();
 
     // We have to 'Check' result (which we know is in a success state at this
     // point) so that it can be overwritten in the async handler.
     (void)!!Result;
 
-    if (Error Err = this->template appendCallAsync<Func>(
+    if (auto Err = this->template appendCallAsync<Func>(
             [&](ResultType R) {
               Result = std::move(R);
               ReceivedResponse = true;
               return Error::success();
             },
             Args...)) {
-      AltRetTraits::consumeAbandoned(std::move(Result));
-      return AltRetTraits::returnError(std::move(Err));
+      detail::ResultTraits<typename Func::ReturnType>::consumeAbandoned(
+          std::move(Result));
+      return std::move(Err);
     }
 
-    if (Error Err = this->C.send()) {
-      AltRetTraits::consumeAbandoned(std::move(Result));
-      return AltRetTraits::returnError(std::move(Err));
+    if (auto Err = this->C.send()) {
+      detail::ResultTraits<typename Func::ReturnType>::consumeAbandoned(
+          std::move(Result));
+      return std::move(Err);
     }
 
     while (!ReceivedResponse) {
-      if (Error Err = this->handleOne()) {
-        AltRetTraits::consumeAbandoned(std::move(Result));
-        return AltRetTraits::returnError(std::move(Err));
+      if (auto Err = this->handleOne()) {
+        detail::ResultTraits<typename Func::ReturnType>::consumeAbandoned(
+            std::move(Result));
+        return std::move(Err);
       }
     }
 

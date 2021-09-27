@@ -15,7 +15,6 @@ namespace llvm {
 
 struct DWARFSection {
   StringRef Data;
-  uint64_t Address = 0;
 };
 
 struct SectionName {

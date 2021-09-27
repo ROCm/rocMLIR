@@ -13,17 +13,13 @@
 // explicit operator bool() const;
 
 #include <system_error>
-#include <cassert>
 #include <string>
-#include <type_traits>
+#include <cassert>
 
 #include "test_macros.h"
 
 int main(int, char**)
 {
-    static_assert(std::is_constructible<bool, std::error_code>::value, "");
-    static_assert(!std::is_convertible<std::error_code, bool>::value, "");
-
     {
         const std::error_code ec(6, std::generic_category());
         assert(static_cast<bool>(ec));

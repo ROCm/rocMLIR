@@ -15,9 +15,9 @@
 #include "lldb/lldb-private.h"
 #include "llvm/ADT/BitmaskEnum.h"
 
-#include <cstdarg>
-#include <cstdio>
 #include <mutex>
+#include <stdarg.h>
+#include <stdio.h>
 #include <sys/types.h>
 
 namespace lldb_private {
@@ -39,29 +39,24 @@ public:
   // NB this enum is used in the lldb platform gdb-remote packet
   // vFile:open: and existing values cannot be modified.
   //
-  // The first set of values is defined by gdb headers and can be found
-  // in the documentation at:
+  // FIXME
+  // These values do not match the values used by GDB
   // * https://sourceware.org/gdb/onlinedocs/gdb/Open-Flags.html#Open-Flags
-  //
-  // The second half are LLDB extensions and use the highest uint32_t bits
-  // to avoid risk of collisions with future gdb remote protocol changes.
+  // * rdar://problem/46788934
   enum OpenOptions : uint32_t {
-    eOpenOptionReadOnly = 0x0,  // Open file for reading (only)
-    eOpenOptionWriteOnly = 0x1, // Open file for writing (only)
-    eOpenOptionReadWrite = 0x2, // Open file for both reading and writing
+    eOpenOptionRead = (1u << 0),  // Open file for reading
+    eOpenOptionWrite = (1u << 1), // Open file for writing
     eOpenOptionAppend =
-        0x8, // Don't truncate file when opening, append to end of file
-    eOpenOptionCanCreate = 0x200, // Create file if doesn't already exist
-    eOpenOptionTruncate = 0x400,  // Truncate file when opening
+        (1u << 2), // Don't truncate file when opening, append to end of file
+    eOpenOptionTruncate = (1u << 3),    // Truncate file when opening
+    eOpenOptionNonBlocking = (1u << 4), // File reads
+    eOpenOptionCanCreate = (1u << 5),   // Create file if doesn't already exist
     eOpenOptionCanCreateNewOnly =
-        0x800, // Can create file only if it doesn't already exist
-
-    eOpenOptionNonBlocking = (1u << 28), // File reads
-    eOpenOptionDontFollowSymlinks = (1u << 29),
+        (1u << 6), // Can create file only if it doesn't already exist
+    eOpenOptionDontFollowSymlinks = (1u << 7),
     eOpenOptionCloseOnExec =
-        (1u << 30), // Close the file when executing a new process
-    eOpenOptionInvalid = (1u << 31), // Used as invalid value
-    LLVM_MARK_AS_BITMASK_ENUM(/* largest_value= */ eOpenOptionInvalid)
+        (1u << 8), // Close the file when executing a new process
+    LLVM_MARK_AS_BITMASK_ENUM(/* largest_value= */ eOpenOptionCloseOnExec)
   };
 
   static mode_t ConvertOpenOptionsForPOSIXOpen(OpenOptions open_options);
@@ -70,7 +65,10 @@ public:
   static llvm::Expected<const char *>
   GetStreamOpenModeFromOptions(OpenOptions options);
 
-  File() : IOObject(eFDTypeFile){};
+  File()
+      : IOObject(eFDTypeFile), m_is_interactive(eLazyBoolCalculate),
+        m_is_real_terminal(eLazyBoolCalculate),
+        m_supports_colors(eLazyBoolCalculate){};
 
   /// Read bytes from a file from the current file position into buf.
   ///
@@ -308,8 +306,8 @@ public:
   /// Some options like eOpenOptionDontFollowSymlinks only make
   /// sense when a file is being opened (or not at all)
   /// and may not be preserved for this method.  But any valid
-  /// File should return either eOpenOptionReadOnly, eOpenOptionWriteOnly
-  /// or eOpenOptionReadWrite here.
+  /// File should return either or both of eOpenOptionRead and
+  /// eOpenOptionWrite here.
   ///
   /// \return
   ///    OpenOptions flags for this file, or an error.
@@ -362,9 +360,9 @@ public:
   static bool classof(const File *file) { return file->isA(&ID); }
 
 protected:
-  LazyBool m_is_interactive = eLazyBoolCalculate;
-  LazyBool m_is_real_terminal = eLazyBoolCalculate;
-  LazyBool m_supports_colors = eLazyBoolCalculate;
+  LazyBool m_is_interactive;
+  LazyBool m_is_real_terminal;
+  LazyBool m_supports_colors;
 
   void CalculateInteractiveAndTerminal();
 
@@ -375,7 +373,9 @@ private:
 
 class NativeFile : public File {
 public:
-  NativeFile() : m_descriptor(kInvalidDescriptor), m_stream(kInvalidStream) {}
+  NativeFile()
+      : m_descriptor(kInvalidDescriptor), m_own_descriptor(false),
+        m_stream(kInvalidStream), m_options(), m_own_stream(false) {}
 
   NativeFile(FILE *fh, bool transfer_ownership)
       : m_descriptor(kInvalidDescriptor), m_own_descriptor(false), m_stream(fh),
@@ -422,10 +422,10 @@ protected:
 
   // Member variables
   int m_descriptor;
-  bool m_own_descriptor = false;
+  bool m_own_descriptor;
   FILE *m_stream;
-  OpenOptions m_options{};
-  bool m_own_stream = false;
+  OpenOptions m_options;
+  bool m_own_stream;
   std::mutex offset_access_mutex;
 
 private:

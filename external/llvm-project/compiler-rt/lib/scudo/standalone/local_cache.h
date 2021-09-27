@@ -17,25 +17,24 @@ namespace scudo {
 
 template <class SizeClassAllocator> struct SizeClassAllocatorLocalCache {
   typedef typename SizeClassAllocator::SizeClassMap SizeClassMap;
-  typedef typename SizeClassAllocator::CompactPtrT CompactPtrT;
 
   struct TransferBatch {
     static const u32 MaxNumCached = SizeClassMap::MaxNumCachedHint;
-    void setFromArray(CompactPtrT *Array, u32 N) {
+    void setFromArray(void **Array, u32 N) {
       DCHECK_LE(N, MaxNumCached);
       Count = N;
-      memcpy(Batch, Array, sizeof(Batch[0]) * Count);
+      memcpy(Batch, Array, sizeof(void *) * Count);
     }
     void clear() { Count = 0; }
-    void add(CompactPtrT P) {
+    void add(void *P) {
       DCHECK_LT(Count, MaxNumCached);
       Batch[Count++] = P;
     }
-    void copyToArray(CompactPtrT *Array) const {
-      memcpy(Array, Batch, sizeof(Batch[0]) * Count);
+    void copyToArray(void **Array) const {
+      memcpy(Array, Batch, sizeof(void *) * Count);
     }
     u32 getCount() const { return Count; }
-    CompactPtrT get(u32 I) const {
+    void *get(u32 I) const {
       DCHECK_LE(I, Count);
       return Batch[I];
     }
@@ -46,15 +45,19 @@ template <class SizeClassAllocator> struct SizeClassAllocatorLocalCache {
 
   private:
     u32 Count;
-    CompactPtrT Batch[MaxNumCached];
+    void *Batch[MaxNumCached];
   };
 
-  void init(GlobalStats *S, SizeClassAllocator *A) {
-    DCHECK(isEmpty());
-    Stats.init();
+  void initLinkerInitialized(GlobalStats *S, SizeClassAllocator *A) {
+    Stats.initLinkerInitialized();
     if (LIKELY(S))
       S->link(&Stats);
     Allocator = A;
+  }
+
+  void init(GlobalStats *S, SizeClassAllocator *A) {
+    memset(this, 0, sizeof(*this));
+    initLinkerInitialized(S, A);
   }
 
   void destroy(GlobalStats *S) {
@@ -75,10 +78,13 @@ template <class SizeClassAllocator> struct SizeClassAllocatorLocalCache {
     // Count, while Chunks might be further off (depending on Count). That keeps
     // the memory accesses in close quarters.
     const uptr ClassSize = C->ClassSize;
-    CompactPtrT CompactP = C->Chunks[--C->Count];
+    void *P = C->Chunks[--C->Count];
+    // The jury is still out as to whether any kind of PREFETCH here increases
+    // performance. It definitely decreases performance on Android though.
+    // if (!SCUDO_ANDROID) PREFETCH(P);
     Stats.add(StatAllocated, ClassSize);
     Stats.sub(StatFree, ClassSize);
-    return Allocator->decompactPtr(ClassId, CompactP);
+    return P;
   }
 
   void deallocate(uptr ClassId, void *P) {
@@ -91,35 +97,22 @@ template <class SizeClassAllocator> struct SizeClassAllocatorLocalCache {
       drain(C, ClassId);
     // See comment in allocate() about memory accesses.
     const uptr ClassSize = C->ClassSize;
-    C->Chunks[C->Count++] =
-        Allocator->compactPtr(ClassId, reinterpret_cast<uptr>(P));
+    C->Chunks[C->Count++] = P;
     Stats.sub(StatAllocated, ClassSize);
     Stats.add(StatFree, ClassSize);
   }
 
-  bool isEmpty() const {
-    for (uptr I = 0; I < NumClasses; ++I)
-      if (PerClassArray[I].Count)
-        return false;
-    return true;
-  }
-
   void drain() {
-    // Drain BatchClassId last as createBatch can refill it.
-    for (uptr I = 0; I < NumClasses; ++I) {
-      if (I == BatchClassId)
-        continue;
-      while (PerClassArray[I].Count > 0)
-        drain(&PerClassArray[I], I);
+    for (uptr I = 0; I < NumClasses; I++) {
+      PerClass *C = &PerClassArray[I];
+      while (C->Count > 0)
+        drain(C, I);
     }
-    while (PerClassArray[BatchClassId].Count > 0)
-      drain(&PerClassArray[BatchClassId], BatchClassId);
-    DCHECK(isEmpty());
   }
 
   TransferBatch *createBatch(uptr ClassId, void *B) {
-    if (ClassId != BatchClassId)
-      B = allocate(BatchClassId);
+    if (ClassId != SizeClassMap::BatchClassId)
+      B = allocate(SizeClassMap::BatchClassId);
     return reinterpret_cast<TransferBatch *>(B);
   }
 
@@ -127,17 +120,15 @@ template <class SizeClassAllocator> struct SizeClassAllocatorLocalCache {
 
 private:
   static const uptr NumClasses = SizeClassMap::NumClasses;
-  static const uptr BatchClassId = SizeClassMap::BatchClassId;
   struct PerClass {
     u32 Count;
     u32 MaxCount;
-    // Note: ClassSize is zero for the transfer batch.
     uptr ClassSize;
-    CompactPtrT Chunks[2 * TransferBatch::MaxNumCached];
+    void *Chunks[2 * TransferBatch::MaxNumCached];
   };
-  PerClass PerClassArray[NumClasses] = {};
+  PerClass PerClassArray[NumClasses];
   LocalStats Stats;
-  SizeClassAllocator *Allocator = nullptr;
+  SizeClassAllocator *Allocator;
 
   ALWAYS_INLINE void initCacheMaybe(PerClass *C) {
     if (LIKELY(C->MaxCount))
@@ -151,19 +142,13 @@ private:
       PerClass *P = &PerClassArray[I];
       const uptr Size = SizeClassAllocator::getSizeByClassId(I);
       P->MaxCount = 2 * TransferBatch::getMaxCached(Size);
-      if (I != BatchClassId) {
-        P->ClassSize = Size;
-      } else {
-        // ClassSize in this struct is only used for malloc/free stats, which
-        // should only track user allocations, not internal movements.
-        P->ClassSize = 0;
-      }
+      P->ClassSize = Size;
     }
   }
 
   void destroyBatch(uptr ClassId, void *B) {
-    if (ClassId != BatchClassId)
-      deallocate(BatchClassId, B);
+    if (ClassId != SizeClassMap::BatchClassId)
+      deallocate(SizeClassMap::BatchClassId, B);
   }
 
   NOINLINE bool refill(PerClass *C, uptr ClassId) {
@@ -181,10 +166,10 @@ private:
 
   NOINLINE void drain(PerClass *C, uptr ClassId) {
     const u32 Count = Min(C->MaxCount / 2, C->Count);
-    TransferBatch *B =
-        createBatch(ClassId, Allocator->decompactPtr(ClassId, C->Chunks[0]));
+    TransferBatch *B = createBatch(ClassId, C->Chunks[0]);
     if (UNLIKELY(!B))
-      reportOutOfMemory(SizeClassAllocator::getSizeByClassId(BatchClassId));
+      reportOutOfMemory(
+          SizeClassAllocator::getSizeByClassId(SizeClassMap::BatchClassId));
     B->setFromArray(&C->Chunks[0], Count);
     C->Count -= Count;
     for (uptr I = 0; I < C->Count; I++)

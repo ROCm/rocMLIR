@@ -19,6 +19,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
+#include "mlir/Target/ROCDLIR.h"
 #include "mlir/Transforms/Passes.h"
 
 namespace mlir {
@@ -28,6 +29,12 @@ public:
   BackendUtils();
   BackendUtils(const std::string &triple, const std::string &chip,
                const std::string &feature, bool systemOverride = false);
+
+  OwnedBlob compileISAToHsaco(const std::string &isa, Location loc,
+                              StringRef name);
+  std::unique_ptr<llvm::Module>
+  compileModuleToROCDLIR(Operation *m, llvm::LLVMContext &llvmContext,
+                         llvm::StringRef name);
 
   std::string getChip() { return chip; }
   std::string getFeatures() { return features; }
@@ -41,6 +48,14 @@ private:
   using Blob = SmallVector<char, 0>;
   void setupDefaults(std::string &chip, std::string &features,
                      std::string &triple);
+  LogicalResult assembleIsa(const std::string isa, StringRef name,
+                            Blob &result);
+  LogicalResult assembleIsa(const std::string isa, StringRef name, Blob &result,
+                            const std::string &tripleName,
+                            const std::string &targetChip,
+                            const std::string &features);
+  LogicalResult createHsaco(const Blob &isaBlob, StringRef name,
+                            Blob &hsacoBlob);
   void configTarget(std::string &targetChip, std::string &features);
 };
 } // namespace mlir

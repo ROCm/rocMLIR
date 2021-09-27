@@ -12,8 +12,6 @@
 # RUN: wasm-ld --unresolved-symbols=ignore-all %t.o -o %t2.wasm
 # RUN: obj2yaml %t2.wasm | FileCheck %s
 
-.functype foo () -> (i32)
-
 .globl get_foo_addr
 get_foo_addr:
   .functype get_foo_addr () -> (i32)
@@ -22,13 +20,12 @@ get_foo_addr:
 
 .globl _start
 _start:
-  .functype _start () -> (i32)
+  .functype _start () -> ()
   call get_foo_addr
-  call foo
-  drop
   end_function
 
 .weak foo
+.functype foo () -> (i32)
 
 # Verify that we do not generate dynamic relocations for the GOT entry.
 
@@ -78,10 +75,7 @@ _start:
 # RUN: obj2yaml %t3.wasm | FileCheck %s --check-prefix=IMPORT
 
 #      IMPORT:  - Type:            IMPORT
-#      IMPORT:        Field:           foo
-# IMPORT-NEXT:        Kind:            FUNCTION
-# IMPORT-NEXT:        SigIndex:        0
-# IMPORT-NEXT:      - Module:          GOT.func
+#      IMPORT:      - Module:          GOT.func
 # IMPORT-NEXT:        Field:           foo
 # IMPORT-NEXT:        Kind:            GLOBAL
 # IMPORT-NEXT:        GlobalType:      I32

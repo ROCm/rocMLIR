@@ -14,18 +14,19 @@
 namespace mlir {
 
 class FuncOp;
+class MLIRContext;
 class ModuleOp;
 template <typename T>
 class OperationPass;
-class RewritePatternSet;
-using OwningRewritePatternList = RewritePatternSet;
+class OwningRewritePatternList;
 
-void populateShapeToStandardConversionPatterns(RewritePatternSet &patterns);
+void populateShapeToStandardConversionPatterns(
+    OwningRewritePatternList &patterns, MLIRContext *ctx);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertShapeToStandardPass();
 
 void populateConvertShapeConstraintsConversionPatterns(
-    RewritePatternSet &patterns);
+    OwningRewritePatternList &patterns, MLIRContext *ctx);
 
 std::unique_ptr<OperationPass<FuncOp>> createConvertShapeConstraintsPass();
 

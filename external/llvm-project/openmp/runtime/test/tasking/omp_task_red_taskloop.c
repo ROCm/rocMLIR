@@ -6,8 +6,9 @@
 // Parsing error until clang11:
 // UNSUPPORTED: clang-10, clang-9, clang-8, clang-7
 
-// No icc compiler support yet
-// XFAIL: icc
+// Missing GOMP_taskgroup_reduction_(un)register in LLVM/OpenMP
+// Should be removed once the functions are implemented
+// XFAIL: gcc-9, gcc-10
 
 #include <stdio.h>
 #include <omp.h>
@@ -50,18 +51,13 @@ printf("th %d (gen by th %d) passed bar%d in taskloop\n", omp_get_thread_num(), 
   }
   return 0;
 }
-// res = ((1+2)+(2+3)+(3+4)+(4+5)+1+2+3) = 30
-#define res 30
+// res = 2*((1+2)+(2+3)+(3+4)+(4+5)+1+2+3) = 60
+#define res 60
 int main()
 {
   r = 0;
   #pragma omp parallel num_threads(2)
-  { // barrier ensures threads have started before tasks creation
-    #pragma omp barrier
-    // single ensures no race condition between taskgroup reductions
-    #pragma omp single nowait
-      foo();
-  }
+    foo();
   if (r == res) {
     return 0;
   } else {

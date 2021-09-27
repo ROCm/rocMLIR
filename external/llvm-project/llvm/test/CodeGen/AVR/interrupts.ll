@@ -8,7 +8,6 @@ define avr_intrcc void @interrupt_handler() {
 ; CHECK-NEXT: in r0, 63
 ; CHECK-NEXT: push r0
 ; CHECK: clr r0
-; CHECK-NEXT: clr r1
 ; CHECK: pop r0
 ; CHECK-NEXT: out 63, r0
 ; CHECK-NEXT: pop r1
@@ -25,7 +24,6 @@ define void @interrupt_handler_via_ir_attribute() #0 {
 ; CHECK-NEXT: in r0, 63
 ; CHECK-NEXT: push r0
 ; CHECK: clr r0
-; CHECK-NEXT: clr r1
 ; CHECK: pop r0
 ; CHECK-NEXT: out 63, r0
 ; CHECK-NEXT: pop r1
@@ -42,7 +40,6 @@ define avr_signalcc void @signal_handler() {
 ; CHECK-NEXT: in r0, 63
 ; CHECK-NEXT: push r0
 ; CHECK: clr r0
-; CHECK-NEXT: clr r1
 ; CHECK: pop r0
 ; CHECK-NEXT: out 63, r0
 ; CHECK-NEXT: pop r1
@@ -59,7 +56,6 @@ define void @signal_handler_via_attribute() #1 {
 ; CHECK-NEXT: in r0, 63
 ; CHECK-NEXT: push r0
 ; CHECK: clr r0
-; CHECK-NEXT: clr r1
 ; CHECK: pop r0
 ; CHECK-NEXT: out 63, r0
 ; CHECK-NEXT: pop r1
@@ -76,7 +72,6 @@ define avr_intrcc void @interrupt_alloca() {
 ; CHECK-NEXT: in r0, 63
 ; CHECK-NEXT: push r0
 ; CHECK: clr r0
-; CHECK-NEXT: clr r1
 ; CHECK: push r28
 ; CHECK-NEXT: push r29
 ; CHECK-NEXT: in r28, 61

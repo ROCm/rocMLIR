@@ -11,7 +11,7 @@
 
 // <tuple>
 
-// See https://llvm.org/PR20855.
+// See llvm.org/PR20855
 
 #include <functional>
 #include <tuple>

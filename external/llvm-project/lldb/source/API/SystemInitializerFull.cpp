@@ -17,7 +17,6 @@
 #include "lldb/Target/ProcessTrace.h"
 #include "lldb/Utility/Reproducer.h"
 #include "lldb/Utility/Timer.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetSelect.h"
 
 #pragma clang diagnostic push
@@ -30,22 +29,9 @@
 #define LLDB_PLUGIN(p) LLDB_PLUGIN_DECLARE(p)
 #include "Plugins/Plugins.def"
 
-#if LLDB_ENABLE_PYTHON
-#include "Plugins/ScriptInterpreter/Python/ScriptInterpreterPython.h"
-
-constexpr lldb_private::HostInfo::SharedLibraryDirectoryHelper
-    *g_shlib_dir_helper =
-        lldb_private::ScriptInterpreterPython::SharedLibraryDirectoryHelper;
-
-#else
-constexpr lldb_private::HostInfo::SharedLibraryDirectoryHelper
-    *g_shlib_dir_helper = 0;
-#endif
-
 using namespace lldb_private;
 
-SystemInitializerFull::SystemInitializerFull()
-    : SystemInitializerCommon(g_shlib_dir_helper) {}
+SystemInitializerFull::SystemInitializerFull() = default;
 SystemInitializerFull::~SystemInitializerFull() = default;
 
 llvm::Error SystemInitializerFull::Initialize() {
@@ -65,13 +51,6 @@ llvm::Error SystemInitializerFull::Initialize() {
   llvm::InitializeAllAsmPrinters();
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllDisassemblers();
-  // Initialize the command line parser in LLVM. This usually isn't necessary
-  // as we aren't dealing with command line options here, but otherwise some
-  // other code in Clang/LLVM might be tempted to call this function from a
-  // different thread later on which won't work (as the function isn't
-  // thread-safe).
-  const char *arg0 = "lldb";
-  llvm::cl::ParseCommandLineOptions(1, &arg0);
 
 #define LLDB_PLUGIN(p) LLDB_PLUGIN_INITIALIZE(p);
 #include "Plugins/Plugins.def"

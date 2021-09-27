@@ -12,7 +12,8 @@
 
 using namespace llvm;
 
-bool MipsCCState::isF128SoftLibCall(const char *CallSym) {
+/// This function returns true if CallSym is a long double emulation routine.
+static bool isF128SoftLibCall(const char *CallSym) {
   const char *const LibCalls[] = {
       "__addtf3",      "__divtf3",     "__eqtf2",       "__extenddftf2",
       "__extendsftf2", "__fixtfdi",    "__fixtfsi",     "__fixtfti",
@@ -36,7 +37,7 @@ bool MipsCCState::isF128SoftLibCall(const char *CallSym) {
 
 /// This function returns true if Ty is fp128, {f128} or i128 which was
 /// originally a fp128.
-bool MipsCCState::originalTypeIsF128(const Type *Ty, const char *Func) {
+static bool originalTypeIsF128(const Type *Ty, const char *Func) {
   if (Ty->isFP128Ty())
     return true;
 
@@ -46,12 +47,11 @@ bool MipsCCState::originalTypeIsF128(const Type *Ty, const char *Func) {
 
   // If the Ty is i128 and the function being called is a long double emulation
   // routine, then the original type is f128.
-  // FIXME: This is unsound because these functions could be indirectly called
   return (Func && Ty->isIntegerTy(128) && isF128SoftLibCall(Func));
 }
 
 /// Return true if the original type was vXfXX.
-bool MipsCCState::originalEVTTypeIsVectorFloat(EVT Ty) {
+static bool originalEVTTypeIsVectorFloat(EVT Ty) {
   if (Ty.isVector() && Ty.getVectorElementType().isFloatingPoint())
     return true;
 
@@ -59,7 +59,7 @@ bool MipsCCState::originalEVTTypeIsVectorFloat(EVT Ty) {
 }
 
 /// Return true if the original type was vXfXX / vXfXX.
-bool MipsCCState::originalTypeIsVectorFloat(const Type *Ty) {
+static bool originalTypeIsVectorFloat(const Type * Ty) {
   if (Ty->isVectorTy() && Ty->isFPOrFPVectorTy())
     return true;
 
@@ -126,18 +126,6 @@ void MipsCCState::PreAnalyzeReturnForVectorFloat(
   }
 }
 
-void MipsCCState::PreAnalyzeReturnValue(EVT ArgVT) {
-  OriginalRetWasFloatVector.push_back(originalEVTTypeIsVectorFloat(ArgVT));
-}
-
-void MipsCCState::PreAnalyzeCallOperand(const Type *ArgTy, bool IsFixed,
-                                        const char *Func) {
-  OriginalArgWasF128.push_back(originalTypeIsF128(ArgTy, Func));
-  OriginalArgWasFloat.push_back(ArgTy->isFloatingPointTy());
-  OriginalArgWasFloatVector.push_back(ArgTy->isVectorTy());
-  CallOperandIsFixed.push_back(IsFixed);
-}
-
 /// Identify lowered values that originated from f128, float and sret to vXfXX
 /// arguments and record this.
 void MipsCCState::PreAnalyzeCallOperands(
@@ -152,27 +140,6 @@ void MipsCCState::PreAnalyzeCallOperands(
     OriginalArgWasFloatVector.push_back(FuncArg.Ty->isVectorTy());
     CallOperandIsFixed.push_back(Outs[i].IsFixed);
   }
-}
-
-void MipsCCState::PreAnalyzeFormalArgument(const Type *ArgTy,
-                                           ISD::ArgFlagsTy Flags) {
-  // SRet arguments cannot originate from f128 or {f128} returns so we just
-  // push false. We have to handle this specially since SRet arguments
-  // aren't mapped to an original argument.
-  if (Flags.isSRet()) {
-    OriginalArgWasF128.push_back(false);
-    OriginalArgWasFloat.push_back(false);
-    OriginalArgWasFloatVector.push_back(false);
-    return;
-  }
-
-  OriginalArgWasF128.push_back(originalTypeIsF128(ArgTy, nullptr));
-  OriginalArgWasFloat.push_back(ArgTy->isFloatingPointTy());
-
-  // The MIPS vector ABI exhibits a corner case of sorts or quirk; if the
-  // first argument is actually an SRet pointer to a vector, then the next
-  // argument slot is $a2.
-  OriginalArgWasFloatVector.push_back(ArgTy->isVectorTy());
 }
 
 /// Identify lowered values that originated from f128, float and vXfXX arguments

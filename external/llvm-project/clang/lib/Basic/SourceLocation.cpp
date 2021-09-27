@@ -51,7 +51,7 @@ static_assert(std::is_trivially_destructible<SourceRange>::value,
               "used in unions");
 
 unsigned SourceLocation::getHashValue() const {
-  return llvm::DenseMapInfo<UIntTy>::getHashValue(ID);
+  return llvm::DenseMapInfo<unsigned>::getHashValue(ID);
 }
 
 void llvm::FoldingSetTrait<SourceLocation>::Profile(

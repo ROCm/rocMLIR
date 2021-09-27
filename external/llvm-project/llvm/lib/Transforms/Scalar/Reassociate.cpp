@@ -140,7 +140,7 @@ XorOpnd::XorOpnd(Value *V) {
 
   // view the operand as "V | 0"
   SymbolicPart = V;
-  ConstPart = APInt::getZero(V->getType()->getScalarSizeInBits());
+  ConstPart = APInt::getNullValue(V->getType()->getScalarSizeInBits());
   isOr = true;
 }
 
@@ -975,13 +975,12 @@ static bool isLoadCombineCandidate(Instruction *Or) {
 }
 
 /// Return true if it may be profitable to convert this (X|Y) into (X+Y).
-static bool shouldConvertOrWithNoCommonBitsToAdd(Instruction *Or) {
+static bool ShouldConvertOrWithNoCommonBitsToAdd(Instruction *Or) {
   // Don't bother to convert this up unless either the LHS is an associable add
   // or subtract or mul or if this is only used by one of the above.
   // This is only a compile-time improvement, it is not needed for correctness!
   auto isInteresting = [](Value *V) {
-    for (auto Op : {Instruction::Add, Instruction::Sub, Instruction::Mul,
-                    Instruction::Shl})
+    for (auto Op : {Instruction::Add, Instruction::Sub, Instruction::Mul})
       if (isReassociableOp(V, Op))
         return true;
     return false;
@@ -999,7 +998,7 @@ static bool shouldConvertOrWithNoCommonBitsToAdd(Instruction *Or) {
 
 /// If we have (X|Y), and iff X and Y have no common bits set,
 /// transform this into (X+Y) to allow arithmetics reassociation.
-static BinaryOperator *convertOrWithNoCommonBitsToAdd(Instruction *Or) {
+static BinaryOperator *ConvertOrWithNoCommonBitsToAdd(Instruction *Or) {
   // Convert an or into an add.
   BinaryOperator *New =
       CreateAdd(Or->getOperand(0), Or->getOperand(1), "", Or, Or);
@@ -1361,7 +1360,7 @@ bool ReassociatePass::CombineXorOpnd(Instruction *I, XorOpnd *Opnd1,
     APInt C3((~C1) ^ C2);
 
     // Do not increase code size!
-    if (!C3.isZero() && !C3.isAllOnes()) {
+    if (!C3.isNullValue() && !C3.isAllOnesValue()) {
       int NewInstNum = ConstOpnd.getBoolValue() ? 1 : 2;
       if (NewInstNum > DeadInstNum)
         return false;
@@ -1377,7 +1376,7 @@ bool ReassociatePass::CombineXorOpnd(Instruction *I, XorOpnd *Opnd1,
     APInt C3 = C1 ^ C2;
 
     // Do not increase code size
-    if (!C3.isZero() && !C3.isAllOnes()) {
+    if (!C3.isNullValue() && !C3.isAllOnesValue()) {
       int NewInstNum = ConstOpnd.getBoolValue() ? 1 : 2;
       if (NewInstNum > DeadInstNum)
         return false;
@@ -2213,11 +2212,11 @@ void ReassociatePass::OptimizeInst(Instruction *I) {
   // If this is a bitwise or instruction of operands
   // with no common bits set, convert it to X+Y.
   if (I->getOpcode() == Instruction::Or &&
-      shouldConvertOrWithNoCommonBitsToAdd(I) && !isLoadCombineCandidate(I) &&
+      ShouldConvertOrWithNoCommonBitsToAdd(I) && !isLoadCombineCandidate(I) &&
       haveNoCommonBitsSet(I->getOperand(0), I->getOperand(1),
                           I->getModule()->getDataLayout(), /*AC=*/nullptr, I,
                           /*DT=*/nullptr)) {
-    Instruction *NI = convertOrWithNoCommonBitsToAdd(I);
+    Instruction *NI = ConvertOrWithNoCommonBitsToAdd(I);
     RedoInsts.insert(I);
     MadeChange = true;
     I = NI;
@@ -2568,6 +2567,9 @@ PreservedAnalyses ReassociatePass::run(Function &F, FunctionAnalysisManager &) {
   if (MadeChange) {
     PreservedAnalyses PA;
     PA.preserveSet<CFGAnalyses>();
+    PA.preserve<AAManager>();
+    PA.preserve<BasicAA>();
+    PA.preserve<GlobalsAA>();
     return PA;
   }
 

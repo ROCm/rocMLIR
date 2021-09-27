@@ -12,7 +12,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Analysis/AffineAnalysis.h"
-#include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/Analysis/Utils.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/IR/AffineValueMap.h"
@@ -22,8 +21,6 @@
 #include "mlir/IR/IntegerSet.h"
 #include "mlir/Support/MathExtras.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -32,141 +29,6 @@
 using namespace mlir;
 
 using llvm::dbgs;
-
-/// Returns true if `value` (transitively) depends on iteration arguments of the
-/// given `forOp`.
-static bool dependsOnIterArgs(Value value, AffineForOp forOp) {
-  // Compute the backward slice of the value.
-  SetVector<Operation *> slice;
-  getBackwardSlice(value, &slice,
-                   [&](Operation *op) { return !forOp->isAncestor(op); });
-
-  // Check that none of the operands of the operations in the backward slice are
-  // loop iteration arguments, and neither is the value itself.
-  auto argRange = forOp.getRegionIterArgs();
-  llvm::SmallPtrSet<Value, 8> iterArgs(argRange.begin(), argRange.end());
-  if (iterArgs.contains(value))
-    return true;
-
-  for (Operation *op : slice)
-    for (Value operand : op->getOperands())
-      if (iterArgs.contains(operand))
-        return true;
-
-  return false;
-}
-
-/// Get the value that is being reduced by `pos`-th reduction in the loop if
-/// such a reduction can be performed by affine parallel loops. This assumes
-/// floating-point operations are commutative. On success, `kind` will be the
-/// reduction kind suitable for use in affine parallel loop builder. If the
-/// reduction is not supported, returns null.
-static Value getSupportedReduction(AffineForOp forOp, unsigned pos,
-                                   AtomicRMWKind &kind) {
-  auto yieldOp = cast<AffineYieldOp>(forOp.getBody()->back());
-  Value yielded = yieldOp.operands()[pos];
-  Operation *definition = yielded.getDefiningOp();
-  if (!definition)
-    return nullptr;
-  if (!forOp.getRegionIterArgs()[pos].hasOneUse())
-    return nullptr;
-  if (!yielded.hasOneUse())
-    return nullptr;
-
-  Optional<AtomicRMWKind> maybeKind =
-      TypeSwitch<Operation *, Optional<AtomicRMWKind>>(definition)
-          .Case<AddFOp>([](Operation *) { return AtomicRMWKind::addf; })
-          .Case<MulFOp>([](Operation *) { return AtomicRMWKind::mulf; })
-          .Case<AddIOp>([](Operation *) { return AtomicRMWKind::addi; })
-          .Case<MulIOp>([](Operation *) { return AtomicRMWKind::muli; })
-          .Default([](Operation *) -> Optional<AtomicRMWKind> {
-            // TODO: AtomicRMW supports other kinds of reductions this is
-            // currently not detecting, add those when the need arises.
-            return llvm::None;
-          });
-  if (!maybeKind)
-    return nullptr;
-
-  kind = *maybeKind;
-  if (definition->getOperand(0) == forOp.getRegionIterArgs()[pos] &&
-      !dependsOnIterArgs(definition->getOperand(1), forOp))
-    return definition->getOperand(1);
-  if (definition->getOperand(1) == forOp.getRegionIterArgs()[pos] &&
-      !dependsOnIterArgs(definition->getOperand(0), forOp))
-    return definition->getOperand(0);
-
-  return nullptr;
-}
-
-/// Returns true if `forOp' is a parallel loop. If `parallelReductions` is
-/// provided, populates it with descriptors of the parallelizable reductions and
-/// treats them as not preventing parallelization.
-bool mlir::isLoopParallel(AffineForOp forOp,
-                          SmallVectorImpl<LoopReduction> *parallelReductions) {
-  unsigned numIterArgs = forOp.getNumIterOperands();
-
-  // Loop is not parallel if it has SSA loop-carried dependences and reduction
-  // detection is not requested.
-  if (numIterArgs > 0 && !parallelReductions)
-    return false;
-
-  // Find supported reductions of requested.
-  if (parallelReductions) {
-    parallelReductions->reserve(forOp.getNumIterOperands());
-    for (unsigned i = 0; i < numIterArgs; ++i) {
-      AtomicRMWKind kind;
-      if (Value value = getSupportedReduction(forOp, i, kind))
-        parallelReductions->emplace_back(LoopReduction{kind, i, value});
-    }
-
-    // Return later to allow for identifying all parallel reductions even if the
-    // loop is not parallel.
-    if (parallelReductions->size() != numIterArgs)
-      return false;
-  }
-
-  // Check memory dependences.
-  return isLoopMemoryParallel(forOp);
-}
-
-/// Returns true if `forOp' doesn't have memory dependences preventing
-/// parallelization. This function doesn't check iter_args and should be used
-/// only as a building block for full parallel-checking functions.
-bool mlir::isLoopMemoryParallel(AffineForOp forOp) {
-  // Collect all load and store ops in loop nest rooted at 'forOp'.
-  SmallVector<Operation *, 8> loadAndStoreOps;
-  auto walkResult = forOp.walk([&](Operation *op) -> WalkResult {
-    if (isa<AffineReadOpInterface, AffineWriteOpInterface>(op))
-      loadAndStoreOps.push_back(op);
-    else if (!isa<AffineForOp, AffineYieldOp, AffineIfOp>(op) &&
-             !MemoryEffectOpInterface::hasNoEffect(op))
-      return WalkResult::interrupt();
-
-    return WalkResult::advance();
-  });
-
-  // Stop early if the loop has unknown ops with side effects.
-  if (walkResult.wasInterrupted())
-    return false;
-
-  // Dep check depth would be number of enclosing loops + 1.
-  unsigned depth = getNestingDepth(forOp) + 1;
-
-  // Check dependences between all pairs of ops in 'loadAndStoreOps'.
-  for (auto *srcOp : loadAndStoreOps) {
-    MemRefAccess srcAccess(srcOp);
-    for (auto *dstOp : loadAndStoreOps) {
-      MemRefAccess dstAccess(dstOp);
-      FlatAffineValueConstraints dependenceConstraints;
-      DependenceResult result = checkMemrefAccessDependence(
-          srcAccess, dstAccess, depth, &dependenceConstraints,
-          /*dependenceComponents=*/nullptr);
-      if (result.value != DependenceResult::NoDependence)
-        return false;
-    }
-  }
-  return true;
-}
 
 /// Returns the sequence of AffineApplyOp Operations operation in
 /// 'affineApplyOps', which are reachable via a search starting from 'operands',
@@ -220,11 +82,11 @@ void mlir::getReachableAffineApplyOps(
 // the bound operands are added as symbols in the system. Returns failure for
 // the yet unimplemented cases.
 // TODO: Handle non-unit steps through local variables or stride information in
-// FlatAffineValueConstraints. (For eg., by using iv - lb % step = 0 and/or by
-// introducing a method in FlatAffineValueConstraints
-// setExprStride(ArrayRef<int64_t> expr, int64_t stride)
+// FlatAffineConstraints. (For eg., by using iv - lb % step = 0 and/or by
+// introducing a method in FlatAffineConstraints setExprStride(ArrayRef<int64_t>
+// expr, int64_t stride)
 LogicalResult mlir::getIndexSet(MutableArrayRef<Operation *> ops,
-                                FlatAffineValueConstraints *domain) {
+                                FlatAffineConstraints *domain) {
   SmallVector<Value, 4> indices;
   SmallVector<AffineForOp, 8> forOps;
 
@@ -255,7 +117,7 @@ LogicalResult mlir::getIndexSet(MutableArrayRef<Operation *> ops,
 /// 'indexSet' correspond to the loops surrounding 'op' from outermost to
 /// innermost.
 static LogicalResult getOpIndexSet(Operation *op,
-                                   FlatAffineValueConstraints *indexSet) {
+                                   FlatAffineConstraints *indexSet) {
   SmallVector<Operation *, 4> ops;
   getEnclosingAffineForAndIfOps(*op, &ops);
   return getIndexSet(ops, indexSet);
@@ -352,11 +214,10 @@ private:
 // 'srcAccessMap'/'dstAccessMap' (as well as those in 'srcDomain'/'dstDomain')
 // to the position of these values in the merged list.
 static void buildDimAndSymbolPositionMaps(
-    const FlatAffineValueConstraints &srcDomain,
-    const FlatAffineValueConstraints &dstDomain,
-    const AffineValueMap &srcAccessMap, const AffineValueMap &dstAccessMap,
-    ValuePositionMap *valuePosMap,
-    FlatAffineValueConstraints *dependenceConstraints) {
+    const FlatAffineConstraints &srcDomain,
+    const FlatAffineConstraints &dstDomain, const AffineValueMap &srcAccessMap,
+    const AffineValueMap &dstAccessMap, ValuePositionMap *valuePosMap,
+    FlatAffineConstraints *dependenceConstraints) {
 
   // IsDimState is a tri-state boolean. It is used to distinguish three
   // different cases of the values passed to updateValuePosMap.
@@ -413,12 +274,12 @@ static void buildDimAndSymbolPositionMaps(
   // the collected values into dim and symbol parts.
   SmallVector<Value, 4> srcDimValues, dstDimValues, srcSymbolValues,
       dstSymbolValues;
-  srcDomain.getValues(0, srcDomain.getNumDimIds(), &srcDimValues);
-  dstDomain.getValues(0, dstDomain.getNumDimIds(), &dstDimValues);
-  srcDomain.getValues(srcDomain.getNumDimIds(),
-                      srcDomain.getNumDimAndSymbolIds(), &srcSymbolValues);
-  dstDomain.getValues(dstDomain.getNumDimIds(),
-                      dstDomain.getNumDimAndSymbolIds(), &dstSymbolValues);
+  srcDomain.getIdValues(0, srcDomain.getNumDimIds(), &srcDimValues);
+  dstDomain.getIdValues(0, dstDomain.getNumDimIds(), &dstDimValues);
+  srcDomain.getIdValues(srcDomain.getNumDimIds(),
+                        srcDomain.getNumDimAndSymbolIds(), &srcSymbolValues);
+  dstDomain.getIdValues(dstDomain.getNumDimIds(),
+                        dstDomain.getNumDimAndSymbolIds(), &dstSymbolValues);
 
   // Update value position map with dim values from src iteration domain.
   updateValuePosMap(srcDimValues, /*isSrc=*/true, /*isDim=*/TRUE);
@@ -438,15 +299,13 @@ static void buildDimAndSymbolPositionMaps(
 
 // Sets up dependence constraints columns appropriately, in the format:
 // [src-dim-ids, dst-dim-ids, symbol-ids, local-ids, const_term]
-static void
-initDependenceConstraints(const FlatAffineValueConstraints &srcDomain,
-                          const FlatAffineValueConstraints &dstDomain,
-                          const AffineValueMap &srcAccessMap,
-                          const AffineValueMap &dstAccessMap,
-                          const ValuePositionMap &valuePosMap,
-                          FlatAffineValueConstraints *dependenceConstraints) {
+static void initDependenceConstraints(
+    const FlatAffineConstraints &srcDomain,
+    const FlatAffineConstraints &dstDomain, const AffineValueMap &srcAccessMap,
+    const AffineValueMap &dstAccessMap, const ValuePositionMap &valuePosMap,
+    FlatAffineConstraints *dependenceConstraints) {
   // Calculate number of equalities/inequalities and columns required to
-  // initialize FlatAffineValueConstraints for 'dependenceDomain'.
+  // initialize FlatAffineConstraints for 'dependenceDomain'.
   unsigned numIneq =
       srcDomain.getNumInequalities() + dstDomain.getNumInequalities();
   AffineMap srcMap = srcAccessMap.getAffineMap();
@@ -464,11 +323,11 @@ initDependenceConstraints(const FlatAffineValueConstraints &srcDomain,
 
   // Set values corresponding to dependence constraint identifiers.
   SmallVector<Value, 4> srcLoopIVs, dstLoopIVs;
-  srcDomain.getValues(0, srcDomain.getNumDimIds(), &srcLoopIVs);
-  dstDomain.getValues(0, dstDomain.getNumDimIds(), &dstLoopIVs);
+  srcDomain.getIdValues(0, srcDomain.getNumDimIds(), &srcLoopIVs);
+  dstDomain.getIdValues(0, dstDomain.getNumDimIds(), &dstLoopIVs);
 
-  dependenceConstraints->setValues(0, srcLoopIVs.size(), srcLoopIVs);
-  dependenceConstraints->setValues(
+  dependenceConstraints->setIdValues(0, srcLoopIVs.size(), srcLoopIVs);
+  dependenceConstraints->setIdValues(
       srcLoopIVs.size(), srcLoopIVs.size() + dstLoopIVs.size(), dstLoopIVs);
 
   // Set values for the symbolic identifier dimensions. `isSymbolDetermined`
@@ -481,7 +340,7 @@ initDependenceConstraints(const FlatAffineValueConstraints &srcDomain,
     for (auto value : values) {
       if (isSymbolDetermined || !isForInductionVar(value)) {
         assert(isValidSymbol(value) && "expected symbol");
-        dependenceConstraints->setValue(valuePosMap.getSymPos(value), value);
+        dependenceConstraints->setIdValue(valuePosMap.getSymPos(value), value);
       }
     }
   };
@@ -492,10 +351,10 @@ initDependenceConstraints(const FlatAffineValueConstraints &srcDomain,
   setSymbolIds(dstAccessMap.getOperands(), /*isSymbolDetermined=*/false);
 
   SmallVector<Value, 8> srcSymbolValues, dstSymbolValues;
-  srcDomain.getValues(srcDomain.getNumDimIds(),
-                      srcDomain.getNumDimAndSymbolIds(), &srcSymbolValues);
-  dstDomain.getValues(dstDomain.getNumDimIds(),
-                      dstDomain.getNumDimAndSymbolIds(), &dstSymbolValues);
+  srcDomain.getIdValues(srcDomain.getNumDimIds(),
+                        srcDomain.getNumDimAndSymbolIds(), &srcSymbolValues);
+  dstDomain.getIdValues(dstDomain.getNumDimIds(),
+                        dstDomain.getNumDimAndSymbolIds(), &dstSymbolValues);
   // Since we only take symbol Values out of `srcDomain` and `dstDomain`,
   // `isSymbolDetermined` is kept to its default value: true.
   setSymbolIds(srcSymbolValues);
@@ -503,23 +362,23 @@ initDependenceConstraints(const FlatAffineValueConstraints &srcDomain,
 
   for (unsigned i = 0, e = dependenceConstraints->getNumDimAndSymbolIds();
        i < e; i++)
-    assert(dependenceConstraints->hasValue(i));
+    assert(dependenceConstraints->getIds()[i].hasValue());
 }
 
 // Adds iteration domain constraints from 'srcDomain' and 'dstDomain' into
 // 'dependenceDomain'.
 // Uses 'valuePosMap' to determine the position in 'dependenceDomain' to which a
 // srcDomain/dstDomain Value maps.
-static void addDomainConstraints(const FlatAffineValueConstraints &srcDomain,
-                                 const FlatAffineValueConstraints &dstDomain,
+static void addDomainConstraints(const FlatAffineConstraints &srcDomain,
+                                 const FlatAffineConstraints &dstDomain,
                                  const ValuePositionMap &valuePosMap,
-                                 FlatAffineValueConstraints *dependenceDomain) {
+                                 FlatAffineConstraints *dependenceDomain) {
   unsigned depNumDimsAndSymbolIds = dependenceDomain->getNumDimAndSymbolIds();
 
   SmallVector<int64_t, 4> cst(dependenceDomain->getNumCols());
 
   auto addDomain = [&](bool isSrc, bool isEq, unsigned localOffset) {
-    const FlatAffineValueConstraints &domain = isSrc ? srcDomain : dstDomain;
+    const FlatAffineConstraints &domain = isSrc ? srcDomain : dstDomain;
     unsigned numCsts =
         isEq ? domain.getNumEqualities() : domain.getNumInequalities();
     unsigned numDimAndSymbolIds = domain.getNumDimAndSymbolIds();
@@ -527,8 +386,8 @@ static void addDomainConstraints(const FlatAffineValueConstraints &srcDomain,
       return isEq ? domain.atEq(i, j) : domain.atIneq(i, j);
     };
     auto map = [&](unsigned i) -> int64_t {
-      return isSrc ? valuePosMap.getSrcDimOrSymPos(domain.getValue(i))
-                   : valuePosMap.getDstDimOrSymPos(domain.getValue(i));
+      return isSrc ? valuePosMap.getSrcDimOrSymPos(domain.getIdValue(i))
+                   : valuePosMap.getDstDimOrSymPos(domain.getIdValue(i));
     };
 
     for (unsigned i = 0; i < numCsts; ++i) {
@@ -581,8 +440,8 @@ static void addDomainConstraints(const FlatAffineValueConstraints &srcDomain,
 //
 //   d0      d1      s0         c
 //   --      --      --         --
-//   a0     -c0      (a1 - c1)  (a2 - c2) = 0
-//   b0     -f0      (b1 - f1)  (b2 - f2) = 0
+//   a0     -c0      (a1 - c1)  (a1 - c2) = 0
+//   b0     -f0      (b1 - f1)  (b1 - f2) = 0
 //
 // Returns failure if any AffineExpr cannot be flattened (due to it being
 // semi-affine). Returns success otherwise.
@@ -590,7 +449,7 @@ static LogicalResult
 addMemRefAccessConstraints(const AffineValueMap &srcAccessMap,
                            const AffineValueMap &dstAccessMap,
                            const ValuePositionMap &valuePosMap,
-                           FlatAffineValueConstraints *dependenceDomain) {
+                           FlatAffineConstraints *dependenceDomain) {
   AffineMap srcMap = srcAccessMap.getAffineMap();
   AffineMap dstMap = dstAccessMap.getAffineMap();
   assert(srcMap.getNumResults() == dstMap.getNumResults());
@@ -604,7 +463,7 @@ addMemRefAccessConstraints(const AffineValueMap &srcAccessMap,
 
   std::vector<SmallVector<int64_t, 8>> srcFlatExprs;
   std::vector<SmallVector<int64_t, 8>> destFlatExprs;
-  FlatAffineValueConstraints srcLocalVarCst, destLocalVarCst;
+  FlatAffineConstraints srcLocalVarCst, destLocalVarCst;
   // Get flattened expressions for the source destination maps.
   if (failed(getFlattenedAffineExprs(srcMap, &srcFlatExprs, &srcLocalVarCst)) ||
       failed(getFlattenedAffineExprs(dstMap, &destFlatExprs, &destLocalVarCst)))
@@ -614,7 +473,9 @@ addMemRefAccessConstraints(const AffineValueMap &srcAccessMap,
   unsigned srcNumLocalIds = srcLocalVarCst.getNumLocalIds();
   unsigned dstNumLocalIds = destLocalVarCst.getNumLocalIds();
   unsigned numLocalIdsToAdd = srcNumLocalIds + dstNumLocalIds;
-  dependenceDomain->appendLocalId(numLocalIdsToAdd);
+  for (unsigned i = 0; i < numLocalIdsToAdd; i++) {
+    dependenceDomain->addLocalId(dependenceDomain->getNumLocalIds());
+  }
 
   unsigned numDims = dependenceDomain->getNumDimIds();
   unsigned numSymbols = dependenceDomain->getNumSymbolIds();
@@ -662,9 +523,8 @@ addMemRefAccessConstraints(const AffineValueMap &srcAccessMap,
       assert(isValidSymbol(symbol));
       // Check if the symbol is a constant.
       if (auto cOp = symbol.getDefiningOp<ConstantIndexOp>())
-        dependenceDomain->addBound(FlatAffineConstraints::EQ,
-                                   valuePosMap.getSymPos(symbol),
-                                   cOp.getValue());
+        dependenceDomain->setIdToConstant(valuePosMap.getSymPos(symbol),
+                                          cOp.getValue());
     }
   };
 
@@ -718,20 +578,20 @@ addMemRefAccessConstraints(const AffineValueMap &srcAccessMap,
 // Returns the number of outer loop common to 'src/dstDomain'.
 // Loops common to 'src/dst' domains are added to 'commonLoops' if non-null.
 static unsigned
-getNumCommonLoops(const FlatAffineValueConstraints &srcDomain,
-                  const FlatAffineValueConstraints &dstDomain,
+getNumCommonLoops(const FlatAffineConstraints &srcDomain,
+                  const FlatAffineConstraints &dstDomain,
                   SmallVectorImpl<AffineForOp> *commonLoops = nullptr) {
   // Find the number of common loops shared by src and dst accesses.
   unsigned minNumLoops =
       std::min(srcDomain.getNumDimIds(), dstDomain.getNumDimIds());
   unsigned numCommonLoops = 0;
   for (unsigned i = 0; i < minNumLoops; ++i) {
-    if (!isForInductionVar(srcDomain.getValue(i)) ||
-        !isForInductionVar(dstDomain.getValue(i)) ||
-        srcDomain.getValue(i) != dstDomain.getValue(i))
+    if (!isForInductionVar(srcDomain.getIdValue(i)) ||
+        !isForInductionVar(dstDomain.getIdValue(i)) ||
+        srcDomain.getIdValue(i) != dstDomain.getIdValue(i))
       break;
     if (commonLoops != nullptr)
-      commonLoops->push_back(getForInductionVarOwner(srcDomain.getValue(i)));
+      commonLoops->push_back(getForInductionVarOwner(srcDomain.getIdValue(i)));
     ++numCommonLoops;
   }
   if (commonLoops != nullptr)
@@ -742,7 +602,7 @@ getNumCommonLoops(const FlatAffineValueConstraints &srcDomain,
 /// Returns Block common to 'srcAccess.opInst' and 'dstAccess.opInst'.
 static Block *getCommonBlock(const MemRefAccess &srcAccess,
                              const MemRefAccess &dstAccess,
-                             const FlatAffineValueConstraints &srcDomain,
+                             const FlatAffineConstraints &srcDomain,
                              unsigned numCommonLoops) {
   // Get the chain of ancestor blocks to the given `MemRefAccess` instance. The
   // search terminates when either an op with the `AffineScope` trait or
@@ -767,7 +627,7 @@ static Block *getCommonBlock(const MemRefAccess &srcAccess,
     }
     return block;
   }
-  Value commonForIV = srcDomain.getValue(numCommonLoops - 1);
+  Value commonForIV = srcDomain.getIdValue(numCommonLoops - 1);
   AffineForOp forOp = getForInductionVarOwner(commonForIV);
   assert(forOp && "commonForValue was not an induction variable");
 
@@ -793,7 +653,7 @@ static Block *getCommonBlock(const MemRefAccess &srcAccess,
 // 'numCommonLoops' is the number of contiguous surrounding outer loops.
 static bool srcAppearsBeforeDstInAncestralBlock(
     const MemRefAccess &srcAccess, const MemRefAccess &dstAccess,
-    const FlatAffineValueConstraints &srcDomain, unsigned numCommonLoops) {
+    const FlatAffineConstraints &srcDomain, unsigned numCommonLoops) {
   // Get Block common to 'srcAccess.opInst' and 'dstAccess.opInst'.
   auto *commonBlock =
       getCommonBlock(srcAccess, dstAccess, srcDomain, numCommonLoops);
@@ -815,11 +675,10 @@ static bool srcAppearsBeforeDstInAncestralBlock(
 // *) If 'loopDepth == 1' then one constraint is added: i' >= i + 1
 // *) If 'loopDepth == 2' then two constraints are added: i == i' and j' > j + 1
 // *) If 'loopDepth == 3' then two constraints are added: i == i' and j == j'
-static void
-addOrderingConstraints(const FlatAffineValueConstraints &srcDomain,
-                       const FlatAffineValueConstraints &dstDomain,
-                       unsigned loopDepth,
-                       FlatAffineValueConstraints *dependenceDomain) {
+static void addOrderingConstraints(const FlatAffineConstraints &srcDomain,
+                                   const FlatAffineConstraints &dstDomain,
+                                   unsigned loopDepth,
+                                   FlatAffineConstraints *dependenceDomain) {
   unsigned numCols = dependenceDomain->getNumCols();
   SmallVector<int64_t, 4> eq(numCols);
   unsigned numSrcDims = srcDomain.getNumDimIds();
@@ -843,9 +702,9 @@ addOrderingConstraints(const FlatAffineValueConstraints &srcDomain,
 // eliminating all other variables, and reading off distance vectors from
 // equality constraints (if possible), and direction vectors from inequalities.
 static void computeDirectionVector(
-    const FlatAffineValueConstraints &srcDomain,
-    const FlatAffineValueConstraints &dstDomain, unsigned loopDepth,
-    FlatAffineValueConstraints *dependenceDomain,
+    const FlatAffineConstraints &srcDomain,
+    const FlatAffineConstraints &dstDomain, unsigned loopDepth,
+    FlatAffineConstraints *dependenceDomain,
     SmallVector<DependenceComponent, 2> *dependenceComponents) {
   // Find the number of common loops shared by src and dst accesses.
   SmallVector<AffineForOp, 4> commonLoops;
@@ -857,7 +716,9 @@ static void computeDirectionVector(
   unsigned numIdsToEliminate = dependenceDomain->getNumIds();
   // Add new variables to 'dependenceDomain' to represent the direction
   // constraints for each shared loop.
-  dependenceDomain->insertDimId(/*pos=*/0, /*num=*/numCommonLoops);
+  for (unsigned j = 0; j < numCommonLoops; ++j) {
+    dependenceDomain->addDimId(j);
+  }
 
   // Add equality constraints for each common loop, setting newly introduced
   // variable at column 'j' to the 'dst' IV minus the 'src IV.
@@ -882,12 +743,10 @@ static void computeDirectionVector(
   dependenceComponents->resize(numCommonLoops);
   for (unsigned j = 0; j < numCommonLoops; ++j) {
     (*dependenceComponents)[j].op = commonLoops[j].getOperation();
-    auto lbConst =
-        dependenceDomain->getConstantBound(FlatAffineConstraints::LB, j);
+    auto lbConst = dependenceDomain->getConstantLowerBound(j);
     (*dependenceComponents)[j].lb =
         lbConst.getValueOr(std::numeric_limits<int64_t>::min());
-    auto ubConst =
-        dependenceDomain->getConstantBound(FlatAffineConstraints::UB, j);
+    auto ubConst = dependenceDomain->getConstantUpperBound(j);
     (*dependenceComponents)[j].ub =
         ubConst.getValueOr(std::numeric_limits<int64_t>::max());
   }
@@ -999,7 +858,7 @@ void MemRefAccess::getAccessMap(AffineValueMap *accessMap) const {
 // TODO: Support AffineExprs mod/floordiv/ceildiv.
 DependenceResult mlir::checkMemrefAccessDependence(
     const MemRefAccess &srcAccess, const MemRefAccess &dstAccess,
-    unsigned loopDepth, FlatAffineValueConstraints *dependenceConstraints,
+    unsigned loopDepth, FlatAffineConstraints *dependenceConstraints,
     SmallVector<DependenceComponent, 2> *dependenceComponents, bool allowRAR) {
   LLVM_DEBUG(llvm::dbgs() << "Checking for dependence at depth: "
                           << Twine(loopDepth) << " between:\n";);
@@ -1025,12 +884,12 @@ DependenceResult mlir::checkMemrefAccessDependence(
   dstAccess.getAccessMap(&dstAccessMap);
 
   // Get iteration domain for the 'srcAccess' operation.
-  FlatAffineValueConstraints srcDomain;
+  FlatAffineConstraints srcDomain;
   if (failed(getOpIndexSet(srcAccess.opInst, &srcDomain)))
     return DependenceResult::Failure;
 
   // Get iteration domain for 'dstAccess' operation.
-  FlatAffineValueConstraints dstDomain;
+  FlatAffineConstraints dstDomain;
   if (failed(getOpIndexSet(dstAccess.opInst, &dstDomain)))
     return DependenceResult::Failure;
 
@@ -1109,7 +968,7 @@ void mlir::getDependenceComponents(
         auto *dstOp = loadAndStoreOps[j];
         MemRefAccess dstAccess(dstOp);
 
-        FlatAffineValueConstraints dependenceConstraints;
+        FlatAffineConstraints dependenceConstraints;
         SmallVector<DependenceComponent, 2> depComps;
         // TODO: Explore whether it would be profitable to pre-compute and store
         // deps instead of repeatedly checking.

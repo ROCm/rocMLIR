@@ -17,7 +17,6 @@
 
 #include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/PointerSumType.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/ilist.h"
 #include "llvm/ADT/ilist_node.h"
 #include "llvm/ADT/iterator_range.h"
@@ -26,7 +25,6 @@
 #include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/InlineAsm.h"
-#include "llvm/IR/PseudoProbe.h"
 #include "llvm/MC/MCInstrDesc.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/ArrayRecycler.h"
@@ -421,11 +419,11 @@ public:
   /// instruction is indirect; will be an invalid register if this value is
   /// not indirect, and an immediate with value 0 otherwise.
   const MachineOperand &getDebugOffset() const {
-    assert(isNonListDebugValue() && "not a DBG_VALUE");
+    assert(isDebugValue() && "not a DBG_VALUE");
     return getOperand(1);
   }
   MachineOperand &getDebugOffset() {
-    assert(isNonListDebugValue() && "not a DBG_VALUE");
+    assert(isDebugValue() && "not a DBG_VALUE");
     return getOperand(1);
   }
 
@@ -440,7 +438,6 @@ public:
 
   /// Return the operand for the complex address expression referenced by
   /// this DBG_VALUE instruction.
-  const MachineOperand &getDebugExpressionOp() const;
   MachineOperand &getDebugExpressionOp();
 
   /// Return the complex address expression referenced by
@@ -455,11 +452,6 @@ public:
   /// one already, a new and unique number will be assigned.
   unsigned getDebugInstrNum();
 
-  /// Fetch instruction number of this MachineInstr -- but before it's inserted
-  /// into \p MF. Needed for transformations that create an instruction but
-  /// don't immediately insert them.
-  unsigned getDebugInstrNum(MachineFunction &MF);
-
   /// Examine the instruction number of this MachineInstr. May be zero if
   /// it hasn't been assigned a number yet.
   unsigned peekDebugInstrNum() const { return DebugInstrNum; }
@@ -467,12 +459,6 @@ public:
   /// Set instruction number of this MachineInstr. Avoid using unless you're
   /// deserializing this information.
   void setDebugInstrNum(unsigned Num) { DebugInstrNum = Num; }
-
-  /// Drop any variable location debugging information associated with this
-  /// instruction. Use when an instruction is modified in such a way that it no
-  /// longer defines the value it used to. Variable locations using that value
-  /// will be dropped.
-  void dropDebugNumber() { DebugInstrNum = 0; }
 
   /// Emit an error referring to the source location of this instruction.
   /// This should only be used for inline assembly that is somehow
@@ -514,52 +500,26 @@ public:
     return *(debug_operands().begin() + Index);
   }
 
-  SmallSet<Register, 4> getUsedDebugRegs() const {
-    assert(isDebugValue() && "not a DBG_VALUE*");
-    SmallSet<Register, 4> UsedRegs;
-    for (const auto &MO : debug_operands())
-      if (MO.isReg() && MO.getReg())
-        UsedRegs.insert(MO.getReg());
-    return UsedRegs;
+  /// Returns a pointer to the operand corresponding to a debug use of Reg, or
+  /// nullptr if Reg is not used in any debug operand.
+  const MachineOperand *getDebugOperandForReg(Register Reg) const {
+    const MachineOperand *RegOp =
+        find_if(debug_operands(), [Reg](const MachineOperand &Op) {
+          return Op.isReg() && Op.getReg() == Reg;
+        });
+    return RegOp == adl_end(debug_operands()) ? nullptr : RegOp;
   }
-
-  /// Returns whether this debug value has at least one debug operand with the
-  /// register \p Reg.
-  bool hasDebugOperandForReg(Register Reg) const {
-    return any_of(debug_operands(), [Reg](const MachineOperand &Op) {
-      return Op.isReg() && Op.getReg() == Reg;
-    });
-  }
-
-  /// Returns a range of all of the operands that correspond to a debug use of
-  /// \p Reg.
-  template <typename Operand, typename Instruction>
-  static iterator_range<
-      filter_iterator<Operand *, std::function<bool(Operand &Op)>>>
-  getDebugOperandsForReg(Instruction *MI, Register Reg) {
-    std::function<bool(Operand & Op)> OpUsesReg(
-        [Reg](Operand &Op) { return Op.isReg() && Op.getReg() == Reg; });
-    return make_filter_range(MI->debug_operands(), OpUsesReg);
-  }
-  iterator_range<filter_iterator<const MachineOperand *,
-                                 std::function<bool(const MachineOperand &Op)>>>
-  getDebugOperandsForReg(Register Reg) const {
-    return MachineInstr::getDebugOperandsForReg<const MachineOperand,
-                                                const MachineInstr>(this, Reg);
-  }
-  iterator_range<filter_iterator<MachineOperand *,
-                                 std::function<bool(MachineOperand &Op)>>>
-  getDebugOperandsForReg(Register Reg) {
-    return MachineInstr::getDebugOperandsForReg<MachineOperand, MachineInstr>(
-        this, Reg);
-  }
-
-  bool isDebugOperand(const MachineOperand *Op) const {
-    return Op >= adl_begin(debug_operands()) && Op <= adl_end(debug_operands());
+  MachineOperand *getDebugOperandForReg(Register Reg) {
+    MachineOperand *RegOp =
+        find_if(debug_operands(), [Reg](const MachineOperand &Op) {
+          return Op.isReg() && Op.getReg() == Reg;
+        });
+    return RegOp == adl_end(debug_operands()) ? nullptr : RegOp;
   }
 
   unsigned getDebugOperandIndex(const MachineOperand *Op) const {
-    assert(isDebugOperand(Op) && "Expected a debug operand.");
+    assert(Op >= adl_begin(debug_operands()) &&
+           Op <= adl_end(debug_operands()) && "Expected a debug operand.");
     return std::distance(adl_begin(debug_operands()), Op);
   }
 
@@ -639,16 +599,12 @@ public:
   /// location for this DBG_VALUE instruction.
   iterator_range<mop_iterator> debug_operands() {
     assert(isDebugValue() && "Must be a debug value instruction.");
-    return isDebugValueList()
-               ? make_range(operands_begin() + 2, operands_end())
-               : make_range(operands_begin(), operands_begin() + 1);
+    return make_range(operands_begin(), operands_begin() + 1);
   }
   /// \copydoc debug_operands()
   iterator_range<const_mop_iterator> debug_operands() const {
     assert(isDebugValue() && "Must be a debug value instruction.");
-    return isDebugValueList()
-               ? make_range(operands_begin() + 2, operands_end())
-               : make_range(operands_begin(), operands_begin() + 1);
+    return make_range(operands_begin(), operands_begin() + 1);
   }
   /// Returns a range over all explicit operands that are register definitions.
   /// Implicit definition are not included!
@@ -1200,40 +1156,22 @@ public:
     return getOpcode() == TargetOpcode::CFI_INSTRUCTION;
   }
 
-  bool isPseudoProbe() const {
-    return getOpcode() == TargetOpcode::PSEUDO_PROBE;
-  }
-
   // True if the instruction represents a position in the function.
   bool isPosition() const { return isLabel() || isCFIInstruction(); }
 
-  bool isNonListDebugValue() const {
-    return getOpcode() == TargetOpcode::DBG_VALUE;
-  }
-  bool isDebugValueList() const {
-    return getOpcode() == TargetOpcode::DBG_VALUE_LIST;
-  }
-  bool isDebugValue() const {
-    return isNonListDebugValue() || isDebugValueList();
-  }
+  bool isDebugValue() const { return getOpcode() == TargetOpcode::DBG_VALUE; }
   bool isDebugLabel() const { return getOpcode() == TargetOpcode::DBG_LABEL; }
   bool isDebugRef() const { return getOpcode() == TargetOpcode::DBG_INSTR_REF; }
-  bool isDebugPHI() const { return getOpcode() == TargetOpcode::DBG_PHI; }
   bool isDebugInstr() const {
-    return isDebugValue() || isDebugLabel() || isDebugRef() || isDebugPHI();
-  }
-  bool isDebugOrPseudoInstr() const {
-    return isDebugInstr() || isPseudoProbe();
+    return isDebugValue() || isDebugLabel() || isDebugRef();
   }
 
-  bool isDebugOffsetImm() const {
-    return isNonListDebugValue() && getDebugOffset().isImm();
-  }
+  bool isDebugOffsetImm() const { return getDebugOffset().isImm(); }
 
   /// A DBG_VALUE is indirect iff the location operand is a register and
   /// the offset operand is an immediate.
   bool isIndirectDebugValue() const {
-    return isDebugOffsetImm() && getDebugOperand(0).isReg();
+    return isDebugValue() && getDebugOperand(0).isReg() && isDebugOffsetImm();
   }
 
   /// A DBG_VALUE is an entry value iff its debug expression contains the
@@ -1243,13 +1181,8 @@ public:
   /// Return true if the instruction is a debug value which describes a part of
   /// a variable as unavailable.
   bool isUndefDebugValue() const {
-    if (!isDebugValue())
-      return false;
-    // If any $noreg locations are given, this DV is undef.
-    for (const MachineOperand &Op : debug_operands())
-      if (Op.isReg() && !Op.getReg().isValid())
-        return true;
-    return false;
+    return isDebugValue() && getDebugOperand(0).isReg() &&
+           !getDebugOperand(0).getReg().isValid();
   }
 
   bool isPHI() const {
@@ -1324,9 +1257,7 @@ public:
     case TargetOpcode::EH_LABEL:
     case TargetOpcode::GC_LABEL:
     case TargetOpcode::DBG_VALUE:
-    case TargetOpcode::DBG_VALUE_LIST:
     case TargetOpcode::DBG_INSTR_REF:
-    case TargetOpcode::DBG_PHI:
     case TargetOpcode::DBG_LABEL:
     case TargetOpcode::LIFETIME_START:
     case TargetOpcode::LIFETIME_END:
@@ -1480,6 +1411,9 @@ public:
   ///
   /// If GroupNo is not NULL, it will receive the number of the operand group
   /// containing OpIdx.
+  ///
+  /// The flag operand is an immediate that can be decoded with methods like
+  /// InlineAsm::hasRegClassConstraint().
   int findInlineAsmFlagIdx(unsigned OpIdx, unsigned *GroupNo = nullptr) const;
 
   /// Compute the static register class constraint for operand OpIdx.

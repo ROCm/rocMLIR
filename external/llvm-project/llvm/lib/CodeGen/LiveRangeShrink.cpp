@@ -130,7 +130,7 @@ bool LiveRangeShrink::runOnMachineFunction(MachineFunction &MF) {
     for (MachineBasicBlock::iterator Next = MBB.begin(); Next != MBB.end();) {
       MachineInstr &MI = *Next;
       ++Next;
-      if (MI.isPHI() || MI.isDebugOrPseudoInstr())
+      if (MI.isPHI() || MI.isDebugInstr())
         continue;
       if (MI.mayStore())
         SawStore = true;
@@ -156,8 +156,7 @@ bool LiveRangeShrink::runOnMachineFunction(MachineFunction &MF) {
         // If MI has side effects, it should become a barrier for code motion.
         // IOM is rebuild from the next instruction to prevent later
         // instructions from being moved before this MI.
-        if (MI.hasUnmodeledSideEffects() && !MI.isPseudoProbe() &&
-            Next != MBB.end()) {
+        if (MI.hasUnmodeledSideEffects() && Next != MBB.end()) {
           BuildInstOrderMap(Next, IOM);
           SawStore = false;
         }
@@ -219,7 +218,7 @@ bool LiveRangeShrink::runOnMachineFunction(MachineFunction &MF) {
       if (DefMO && Insert && NumEligibleUse > 1 && Barrier <= IOM[Insert]) {
         MachineBasicBlock::iterator I = std::next(Insert->getIterator());
         // Skip all the PHI and debug instructions.
-        while (I != MBB.end() && (I->isPHI() || I->isDebugOrPseudoInstr()))
+        while (I != MBB.end() && (I->isPHI() || I->isDebugInstr()))
           I = std::next(I);
         if (I == MI.getIterator())
           continue;
@@ -235,7 +234,7 @@ bool LiveRangeShrink::runOnMachineFunction(MachineFunction &MF) {
         MachineBasicBlock::iterator EndIter = std::next(MI.getIterator());
         if (MI.getOperand(0).isReg())
           for (; EndIter != MBB.end() && EndIter->isDebugValue() &&
-                 EndIter->hasDebugOperandForReg(MI.getOperand(0).getReg());
+                 EndIter->getDebugOperandForReg(MI.getOperand(0).getReg());
                ++EndIter, ++Next)
             IOM[&*EndIter] = NewOrder;
         MBB.splice(I, &MBB, MI.getIterator(), EndIter);

@@ -28,14 +28,22 @@ void CanonicalIncludes::addMapping(llvm::StringRef Path,
 /// Used to minimize the number of lookups in suffix path mappings.
 constexpr int MaxSuffixComponents = 3;
 
-llvm::StringRef CanonicalIncludes::mapHeader(llvm::StringRef Header) const {
+llvm::StringRef
+CanonicalIncludes::mapHeader(llvm::StringRef Header,
+                             llvm::StringRef QualifiedName) const {
   assert(!Header.empty());
+  if (StdSymbolMapping) {
+    auto SE = StdSymbolMapping->find(QualifiedName);
+    if (SE != StdSymbolMapping->end())
+      return SE->second;
+  }
+
   auto MapIt = FullPathMapping.find(Header);
   if (MapIt != FullPathMapping.end())
     return MapIt->second;
 
   if (!StdSuffixHeaderMapping)
-    return "";
+    return Header;
 
   int Components = 1;
 
@@ -48,11 +56,7 @@ llvm::StringRef CanonicalIncludes::mapHeader(llvm::StringRef Header) const {
     if (MappingIt != StdSuffixHeaderMapping->end())
       return MappingIt->second;
   }
-  return "";
-}
-
-llvm::StringRef CanonicalIncludes::mapSymbol(llvm::StringRef QName) const {
-  return StdSymbolMapping ? StdSymbolMapping->lookup(QName) : "";
+  return Header;
 }
 
 std::unique_ptr<CommentHandler>

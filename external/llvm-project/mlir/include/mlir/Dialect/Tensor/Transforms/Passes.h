@@ -14,11 +14,11 @@
 
 namespace mlir {
 
-class RewritePatternSet;
-using OwningRewritePatternList = RewritePatternSet;
+class OwningRewritePatternList;
 
-void populateTensorBufferizePatterns(BufferizeTypeConverter &typeConverter,
-                                     RewritePatternSet &patterns);
+void populateTensorBufferizePatterns(MLIRContext *context,
+                                     BufferizeTypeConverter &typeConverter,
+                                     OwningRewritePatternList &patterns);
 
 /// Creates an instance of `tensor` dialect bufferization pass.
 std::unique_ptr<Pass> createTensorBufferizePass();

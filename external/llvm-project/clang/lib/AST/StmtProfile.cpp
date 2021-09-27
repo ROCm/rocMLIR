@@ -462,19 +462,6 @@ void OMPClauseProfiler::VisitOMPSimdlenClause(const OMPSimdlenClause *C) {
     Profiler->VisitStmt(C->getSimdlen());
 }
 
-void OMPClauseProfiler::VisitOMPSizesClause(const OMPSizesClause *C) {
-  for (auto E : C->getSizesRefs())
-    if (E)
-      Profiler->VisitExpr(E);
-}
-
-void OMPClauseProfiler::VisitOMPFullClause(const OMPFullClause *C) {}
-
-void OMPClauseProfiler::VisitOMPPartialClause(const OMPPartialClause *C) {
-  if (const Expr *Factor = C->getFactor())
-    Profiler->VisitExpr(Factor);
-}
-
 void OMPClauseProfiler::VisitOMPAllocatorClause(const OMPAllocatorClause *C) {
   if (C->getAllocator())
     Profiler->VisitStmt(C->getAllocator());
@@ -488,18 +475,6 @@ void OMPClauseProfiler::VisitOMPCollapseClause(const OMPCollapseClause *C) {
 void OMPClauseProfiler::VisitOMPDetachClause(const OMPDetachClause *C) {
   if (Expr *Evt = C->getEventHandler())
     Profiler->VisitStmt(Evt);
-}
-
-void OMPClauseProfiler::VisitOMPNovariantsClause(const OMPNovariantsClause *C) {
-  VistOMPClauseWithPreInit(C);
-  if (C->getCondition())
-    Profiler->VisitStmt(C->getCondition());
-}
-
-void OMPClauseProfiler::VisitOMPNocontextClause(const OMPNocontextClause *C) {
-  VistOMPClauseWithPreInit(C);
-  if (C->getCondition())
-    Profiler->VisitStmt(C->getCondition());
 }
 
 void OMPClauseProfiler::VisitOMPDefaultClause(const OMPDefaultClause *C) { }
@@ -562,25 +537,7 @@ void OMPClauseProfiler::VisitOMPSIMDClause(const OMPSIMDClause *) {}
 
 void OMPClauseProfiler::VisitOMPNogroupClause(const OMPNogroupClause *) {}
 
-void OMPClauseProfiler::VisitOMPInitClause(const OMPInitClause *C) {
-  VisitOMPClauseList(C);
-}
-
-void OMPClauseProfiler::VisitOMPUseClause(const OMPUseClause *C) {
-  if (C->getInteropVar())
-    Profiler->VisitStmt(C->getInteropVar());
-}
-
-void OMPClauseProfiler::VisitOMPDestroyClause(const OMPDestroyClause *C) {
-  if (C->getInteropVar())
-    Profiler->VisitStmt(C->getInteropVar());
-}
-
-void OMPClauseProfiler::VisitOMPFilterClause(const OMPFilterClause *C) {
-  VistOMPClauseWithPreInit(C);
-  if (C->getThreadID())
-    Profiler->VisitStmt(C->getThreadID());
-}
+void OMPClauseProfiler::VisitOMPDestroyClause(const OMPDestroyClause *) {}
 
 template<typename T>
 void OMPClauseProfiler::VisitOMPClauseList(T *Node) {
@@ -891,19 +848,7 @@ StmtProfiler::VisitOMPExecutableDirective(const OMPExecutableDirective *S) {
       P.Visit(*I);
 }
 
-void StmtProfiler::VisitOMPCanonicalLoop(const OMPCanonicalLoop *L) {
-  VisitStmt(L);
-}
-
-void StmtProfiler::VisitOMPLoopBasedDirective(const OMPLoopBasedDirective *S) {
-  VisitOMPExecutableDirective(S);
-}
-
 void StmtProfiler::VisitOMPLoopDirective(const OMPLoopDirective *S) {
-  VisitOMPLoopBasedDirective(S);
-}
-
-void StmtProfiler::VisitOMPMetaDirective(const OMPMetaDirective *S) {
   VisitOMPExecutableDirective(S);
 }
 
@@ -913,14 +858,6 @@ void StmtProfiler::VisitOMPParallelDirective(const OMPParallelDirective *S) {
 
 void StmtProfiler::VisitOMPSimdDirective(const OMPSimdDirective *S) {
   VisitOMPLoopDirective(S);
-}
-
-void StmtProfiler::VisitOMPTileDirective(const OMPTileDirective *S) {
-  VisitOMPLoopBasedDirective(S);
-}
-
-void StmtProfiler::VisitOMPUnrollDirective(const OMPUnrollDirective *S) {
-  VisitOMPLoopBasedDirective(S);
 }
 
 void StmtProfiler::VisitOMPForDirective(const OMPForDirective *S) {
@@ -1173,18 +1110,6 @@ void StmtProfiler::VisitOMPTargetTeamsDistributeSimdDirective(
   VisitOMPLoopDirective(S);
 }
 
-void StmtProfiler::VisitOMPInteropDirective(const OMPInteropDirective *S) {
-  VisitOMPExecutableDirective(S);
-}
-
-void StmtProfiler::VisitOMPDispatchDirective(const OMPDispatchDirective *S) {
-  VisitOMPExecutableDirective(S);
-}
-
-void StmtProfiler::VisitOMPMaskedDirective(const OMPMaskedDirective *S) {
-  VisitOMPExecutableDirective(S);
-}
-
 void StmtProfiler::VisitExpr(const Expr *S) {
   VisitStmt(S);
 }
@@ -1203,12 +1128,6 @@ void StmtProfiler::VisitDeclRefExpr(const DeclRefExpr *S) {
     if (S->hasExplicitTemplateArgs())
       VisitTemplateArguments(S->getTemplateArgs(), S->getNumTemplateArgs());
   }
-}
-
-void StmtProfiler::VisitSYCLUniqueStableNameExpr(
-    const SYCLUniqueStableNameExpr *S) {
-  VisitExpr(S);
-  VisitType(S->getTypeSourceInfo()->getType());
 }
 
 void StmtProfiler::VisitPredefinedExpr(const PredefinedExpr *S) {

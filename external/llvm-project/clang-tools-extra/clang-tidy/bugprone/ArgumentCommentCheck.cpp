@@ -20,12 +20,10 @@ namespace clang {
 namespace tidy {
 namespace bugprone {
 namespace {
-AST_MATCHER(Decl, isFromStdNamespaceOrSystemHeader) {
+AST_MATCHER(Decl, isFromStdNamespace) {
   if (const auto *D = Node.getDeclContext()->getEnclosingNamespaceContext())
-    if (D->isStdNamespace())
-      return true;
-  return Node.getASTContext().getSourceManager().isInSystemHeader(
-      Node.getLocation());
+    return D->isStdNamespace();
+  return false;
 }
 } // namespace
 
@@ -68,13 +66,13 @@ void ArgumentCommentCheck::registerMatchers(MatchFinder *Finder) {
                // not specified by the standard, and standard library
                // implementations in practice have to use reserved names to
                // avoid conflicts with same-named macros.
-               unless(hasDeclaration(isFromStdNamespaceOrSystemHeader())))
+               unless(hasDeclaration(isFromStdNamespace())))
           .bind("expr"),
       this);
-  Finder->addMatcher(cxxConstructExpr(unless(hasDeclaration(
-                                          isFromStdNamespaceOrSystemHeader())))
-                         .bind("expr"),
-                     this);
+  Finder->addMatcher(
+      cxxConstructExpr(unless(hasDeclaration(isFromStdNamespace())))
+          .bind("expr"),
+      this);
 }
 
 static std::vector<std::pair<SourceLocation, StringRef>>
@@ -178,8 +176,8 @@ static bool sameName(StringRef InComment, StringRef InDecl, bool StrictMode) {
     return InComment == InDecl;
   InComment = InComment.trim('_');
   InDecl = InDecl.trim('_');
-  // FIXME: compare_insensitive only works for ASCII.
-  return InComment.compare_insensitive(InDecl) == 0;
+  // FIXME: compare_lower only works for ASCII.
+  return InComment.compare_lower(InDecl) == 0;
 }
 
 static bool looksLikeExpectMethod(const CXXMethodDecl *Expect) {

@@ -40,6 +40,7 @@ public:
                                                   bool stop) override;
 
   ConstString GetPluginName() override;
+  uint32_t GetPluginVersion() override;
 
 protected:
   lldb::addr_t GetLoadAddress(lldb::ModuleSP executable);

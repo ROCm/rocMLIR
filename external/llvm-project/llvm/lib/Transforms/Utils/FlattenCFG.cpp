@@ -360,7 +360,7 @@ bool FlattenCFGOpt::CompareIfRegionBlock(BasicBlock *Block1, BasicBlock *Block2,
       for (BasicBlock::iterator BI(PBI2), BE(PTI2); BI != BE; ++BI) {
         if (BI->mayReadFromMemory() || BI->mayWriteToMemory()) {
           // Check alias with Head2.
-          if (!AA || !AA->isNoAlias(&*iter1, &*BI))
+          if (!AA || AA->alias(&*iter1, &*BI))
             return false;
         }
       }
@@ -411,10 +411,8 @@ bool FlattenCFGOpt::CompareIfRegionBlock(BasicBlock *Block1, BasicBlock *Block2,
 /// approach goes for the opposite case.
 bool FlattenCFGOpt::MergeIfRegion(BasicBlock *BB, IRBuilder<> &Builder) {
   BasicBlock *IfTrue2, *IfFalse2;
-  BranchInst *DomBI2 = GetIfCondition(BB, IfTrue2, IfFalse2);
-  if (!DomBI2)
-    return false;
-  Instruction *CInst2 = dyn_cast<Instruction>(DomBI2->getCondition());
+  Value *IfCond2 = GetIfCondition(BB, IfTrue2, IfFalse2);
+  Instruction *CInst2 = dyn_cast_or_null<Instruction>(IfCond2);
   if (!CInst2)
     return false;
 
@@ -423,10 +421,8 @@ bool FlattenCFGOpt::MergeIfRegion(BasicBlock *BB, IRBuilder<> &Builder) {
     return false;
 
   BasicBlock *IfTrue1, *IfFalse1;
-  BranchInst *DomBI1 = GetIfCondition(SecondEntryBlock, IfTrue1, IfFalse1);
-  if (!DomBI1)
-    return false;
-  Instruction *CInst1 = dyn_cast<Instruction>(DomBI1->getCondition());
+  Value *IfCond1 = GetIfCondition(SecondEntryBlock, IfTrue1, IfFalse1);
+  Instruction *CInst1 = dyn_cast_or_null<Instruction>(IfCond1);
   if (!CInst1)
     return false;
 
@@ -483,7 +479,7 @@ bool FlattenCFGOpt::MergeIfRegion(BasicBlock *BB, IRBuilder<> &Builder) {
   FirstEntryBlock->getInstList()
       .splice(FirstEntryBlock->end(), SecondEntryBlock->getInstList());
   BranchInst *PBI = cast<BranchInst>(FirstEntryBlock->getTerminator());
-  assert(PBI->getCondition() == CInst2);
+  assert(PBI->getCondition() == IfCond2);
   BasicBlock *SaveInsertBB = Builder.GetInsertBlock();
   BasicBlock::iterator SaveInsertPt = Builder.GetInsertPoint();
   Builder.SetInsertPoint(PBI);
@@ -498,7 +494,7 @@ bool FlattenCFGOpt::MergeIfRegion(BasicBlock *BB, IRBuilder<> &Builder) {
     PBI->swapSuccessors();
   }
   Value *NC = Builder.CreateBinOp(CombineOp, CInst1, CInst2);
-  PBI->replaceUsesOfWith(CInst2, NC);
+  PBI->replaceUsesOfWith(IfCond2, NC);
   Builder.SetInsertPoint(SaveInsertBB, SaveInsertPt);
 
   // Handle PHI node to replace its predecessors to FirstEntryBlock.

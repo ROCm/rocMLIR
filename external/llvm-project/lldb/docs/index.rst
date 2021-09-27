@@ -72,15 +72,12 @@ are welcome:
 * macOS debugging for i386, x86_64 and AArch64
 * iOS, tvOS, and watchOS simulator debugging on i386, x86_64 and AArch64
 * iOS, tvOS, and watchOS device debugging on ARM and AArch64
-* Linux user-space debugging for i386, x86_64, ARM, AArch64, MIPS64, PPC64le,
-  s390x
-* FreeBSD user-space debugging for i386, x86_64, ARM, AArch64, MIPS64, PPC
-* NetBSD user-space debugging for i386 and x86_64
-* Windows user-space debugging for i386, x86_64, ARM and AArch64 (*)
+* Linux user-space debugging for i386, x86_64 and PPC64le
+* FreeBSD user-space debugging for i386 and x86_64
+* Windows user-space debugging for i386 (*)
 
 (*) Support for Windows is under active development. Basic functionality is
-expected to work, with functionality improving rapidly. ARM and AArch64 support
-is more experimental, with more known issues than the others.
+expected to work, with functionality improving rapidly.
 
 Get Involved
 ------------
@@ -90,7 +87,7 @@ subdirectory:
 
 ::
 
-  $ git clone https://github.com/llvm/llvm-project.git
+  > git clone https://github.com/llvm/llvm-project.git
 
 Note that LLDB generally builds from top-of-trunk using CMake and Ninja.
 Additionally it builds:
@@ -159,6 +156,7 @@ interesting areas to contribute to lldb.
 
    design/overview
    design/reproducers
+   design/structureddataplugins
    design/sbapi
 
 .. toctree::

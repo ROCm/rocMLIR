@@ -137,6 +137,14 @@ static void RawInternalFree(void *ptr, InternalAllocatorCache *cache) {
 
 #endif  // SANITIZER_GO || defined(SANITIZER_USE_MALLOC)
 
+namespace {
+const u64 kBlockMagic = 0x6A6CB03ABCEBC041ull;
+
+struct BlockHeader {
+  u64 magic;
+};
+}  // namespace
+
 static void NORETURN ReportInternalAllocatorOutOfMemory(uptr requested_size) {
   SetAllocatorOutOfMemory();
   Report("FATAL: %s: internal allocator is out of memory trying to allocate "
@@ -145,17 +153,28 @@ static void NORETURN ReportInternalAllocatorOutOfMemory(uptr requested_size) {
 }
 
 void *InternalAlloc(uptr size, InternalAllocatorCache *cache, uptr alignment) {
-  void *p = RawInternalAlloc(size, cache, alignment);
+  uptr s = size + sizeof(BlockHeader);
+  if (s < size)
+    return nullptr;
+  BlockHeader *p = (BlockHeader *)RawInternalAlloc(s, cache, alignment);
   if (UNLIKELY(!p))
-    ReportInternalAllocatorOutOfMemory(size);
-  return p;
+    ReportInternalAllocatorOutOfMemory(s);
+  p->magic = kBlockMagic;
+  return p + 1;
 }
 
 void *InternalRealloc(void *addr, uptr size, InternalAllocatorCache *cache) {
-  void *p = RawInternalRealloc(addr, size, cache);
+  if (!addr)
+    return InternalAlloc(size, cache);
+  uptr s = size + sizeof(BlockHeader);
+  if (s < size)
+    return nullptr;
+  BlockHeader *p = (BlockHeader *)addr - 1;
+  CHECK_EQ(kBlockMagic, p->magic);
+  p = (BlockHeader *)RawInternalRealloc(p, s, cache);
   if (UNLIKELY(!p))
-    ReportInternalAllocatorOutOfMemory(size);
-  return p;
+    ReportInternalAllocatorOutOfMemory(s);
+  return p + 1;
 }
 
 void *InternalReallocArray(void *addr, uptr count, uptr size,
@@ -184,7 +203,12 @@ void *InternalCalloc(uptr count, uptr size, InternalAllocatorCache *cache) {
 }
 
 void InternalFree(void *addr, InternalAllocatorCache *cache) {
-  RawInternalFree(addr, cache);
+  if (!addr)
+    return;
+  BlockHeader *p = (BlockHeader *)addr - 1;
+  CHECK_EQ(kBlockMagic, p->magic);
+  p->magic = 0;
+  RawInternalFree(p, cache);
 }
 
 // LowLevelAllocator

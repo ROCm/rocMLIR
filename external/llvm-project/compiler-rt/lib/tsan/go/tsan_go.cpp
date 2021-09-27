@@ -27,9 +27,13 @@ bool IsExpectedReport(uptr addr, uptr size) {
   return false;
 }
 
-void *Alloc(uptr sz) { return InternalAlloc(sz); }
+void *internal_alloc(MBlockType typ, uptr sz) {
+  return InternalAlloc(sz);
+}
 
-void FreeImpl(void *p) { InternalFree(p); }
+void internal_free(void *p) {
+  InternalFree(p);
+}
 
 // Callback into Go.
 static void (*go_runtime_cb)(uptr cmd, void *ctx);
@@ -99,16 +103,14 @@ ReportLocation *SymbolizeData(uptr addr) {
     MBlock *b = ctx->metamap.GetBlock(cbctx.start);
     if (!b)
       return 0;
-    auto *loc = New<ReportLocation>();
-    loc->type = ReportLocationHeap;
+    ReportLocation *loc = ReportLocation::New(ReportLocationHeap);
     loc->heap_chunk_start = cbctx.start;
     loc->heap_chunk_size = b->siz;
     loc->tid = b->tid;
     loc->stack = SymbolizeStackId(b->stk);
     return loc;
   } else {
-    auto *loc = New<ReportLocation>();
-    loc->type = ReportLocationGlobal;
+    ReportLocation *loc = ReportLocation::New(ReportLocationGlobal);
     loc->global.name = internal_strdup(cbctx.name ? cbctx.name : "??");
     loc->global.file = internal_strdup(cbctx.file ? cbctx.file : "??");
     loc->global.line = cbctx.line;
@@ -140,7 +142,8 @@ Processor *ThreadState::proc() {
 extern "C" {
 
 static ThreadState *AllocGoroutine() {
-  auto *thr = (ThreadState *)Alloc(sizeof(ThreadState));
+  ThreadState *thr = (ThreadState*)internal_alloc(MBlockThreadContex,
+      sizeof(ThreadState));
   internal_memset(thr, 0, sizeof(*thr));
   return thr;
 }
@@ -167,25 +170,25 @@ void __tsan_map_shadow(uptr addr, uptr size) {
 }
 
 void __tsan_read(ThreadState *thr, void *addr, void *pc) {
-  MemoryAccess(thr, (uptr)pc, (uptr)addr, 1, kAccessRead);
+  MemoryRead(thr, (uptr)pc, (uptr)addr, kSizeLog1);
 }
 
 void __tsan_read_pc(ThreadState *thr, void *addr, uptr callpc, uptr pc) {
   if (callpc != 0)
     FuncEntry(thr, callpc);
-  MemoryAccess(thr, (uptr)pc, (uptr)addr, 1, kAccessRead);
+  MemoryRead(thr, (uptr)pc, (uptr)addr, kSizeLog1);
   if (callpc != 0)
     FuncExit(thr);
 }
 
 void __tsan_write(ThreadState *thr, void *addr, void *pc) {
-  MemoryAccess(thr, (uptr)pc, (uptr)addr, 1, kAccessWrite);
+  MemoryWrite(thr, (uptr)pc, (uptr)addr, kSizeLog1);
 }
 
 void __tsan_write_pc(ThreadState *thr, void *addr, uptr callpc, uptr pc) {
   if (callpc != 0)
     FuncEntry(thr, callpc);
-  MemoryAccess(thr, (uptr)pc, (uptr)addr, 1, kAccessWrite);
+  MemoryWrite(thr, (uptr)pc, (uptr)addr, kSizeLog1);
   if (callpc != 0)
     FuncExit(thr);
 }
@@ -210,7 +213,7 @@ void __tsan_malloc(ThreadState *thr, uptr pc, uptr p, uptr sz) {
   CHECK(inited);
   if (thr && pc)
     ctx->metamap.AllocBlock(thr, pc, p, sz);
-  MemoryResetRange(thr, pc, (uptr)p, sz);
+  MemoryResetRange(0, 0, (uptr)p, sz);
 }
 
 void __tsan_free(uptr p, uptr sz) {
@@ -220,13 +223,13 @@ void __tsan_free(uptr p, uptr sz) {
 void __tsan_go_start(ThreadState *parent, ThreadState **pthr, void *pc) {
   ThreadState *thr = AllocGoroutine();
   *pthr = thr;
-  Tid goid = ThreadCreate(parent, (uptr)pc, 0, true);
+  int goid = ThreadCreate(parent, (uptr)pc, 0, true);
   ThreadStart(thr, goid, 0, ThreadType::Regular);
 }
 
 void __tsan_go_end(ThreadState *thr) {
   ThreadFinish(thr);
-  Free(thr);
+  internal_free(thr);
 }
 
 void __tsan_proc_create(Processor **pproc) {
@@ -253,7 +256,9 @@ void __tsan_release_merge(ThreadState *thr, void *addr) {
   Release(thr, 0, (uptr)addr);
 }
 
-void __tsan_finalizer_goroutine(ThreadState *thr) { AcquireGlobal(thr); }
+void __tsan_finalizer_goroutine(ThreadState *thr) {
+  AcquireGlobal(thr, 0);
+}
 
 void __tsan_mutex_before_lock(ThreadState *thr, uptr addr, uptr write) {
   if (write)
@@ -280,7 +285,9 @@ void __tsan_go_ignore_sync_begin(ThreadState *thr) {
   ThreadIgnoreSyncBegin(thr, 0);
 }
 
-void __tsan_go_ignore_sync_end(ThreadState *thr) { ThreadIgnoreSyncEnd(thr); }
+void __tsan_go_ignore_sync_end(ThreadState *thr) {
+  ThreadIgnoreSyncEnd(thr, 0);
+}
 
 void __tsan_report_count(u64 *pn) {
   Lock lock(&ctx->report_mtx);

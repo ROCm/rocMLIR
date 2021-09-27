@@ -12,6 +12,7 @@ target_link_libraries(MLIRMIOpenToGPU
   PUBLIC
   MLIRAffineToStandard
   MLIRMIOpenTransforms
+  MLIRGPU
   MLIRLLVMIR
   MLIRIR
   MLIRPass

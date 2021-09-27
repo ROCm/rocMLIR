@@ -471,7 +471,7 @@ InferAddressSpacesImpl::collectFlatAddressExpressions(Function &F) const {
     } else if (auto *I2P = dyn_cast<IntToPtrInst>(&I)) {
       if (isNoopPtrIntCastPair(cast<Operator>(I2P), *DL, TTI))
         PushPtrOperand(
-            cast<Operator>(I2P->getOperand(0))->getOperand(0));
+            cast<PtrToIntInst>(I2P->getOperand(0))->getPointerOperand());
     }
   }
 
@@ -508,8 +508,8 @@ static Value *operandWithNewAddressSpaceOrCreateUndef(
     SmallVectorImpl<const Use *> *UndefUsesToFix) {
   Value *Operand = OperandUse.get();
 
-  Type *NewPtrTy = PointerType::getWithSamePointeeType(
-      cast<PointerType>(Operand->getType()), NewAddrSpace);
+  Type *NewPtrTy =
+      Operand->getType()->getPointerElementType()->getPointerTo(NewAddrSpace);
 
   if (Constant *C = dyn_cast<Constant>(Operand))
     return ConstantExpr::getAddrSpaceCast(C, NewPtrTy);
@@ -537,8 +537,8 @@ Value *InferAddressSpacesImpl::cloneInstructionWithNewAddressSpace(
     Instruction *I, unsigned NewAddrSpace,
     const ValueToValueMapTy &ValueWithNewAddrSpace,
     SmallVectorImpl<const Use *> *UndefUsesToFix) const {
-  Type *NewPtrType = PointerType::getWithSamePointeeType(
-      cast<PointerType>(I->getType()), NewAddrSpace);
+  Type *NewPtrType =
+      I->getType()->getPointerElementType()->getPointerTo(NewAddrSpace);
 
   if (I->getOpcode() == Instruction::AddrSpaceCast) {
     Value *Src = I->getOperand(0);
@@ -572,8 +572,7 @@ Value *InferAddressSpacesImpl::cloneInstructionWithNewAddressSpace(
   if (AS != UninitializedAddressSpace) {
     // For the assumed address space, insert an `addrspacecast` to make that
     // explicit.
-    Type *NewPtrTy = PointerType::getWithSamePointeeType(
-        cast<PointerType>(I->getType()), AS);
+    auto *NewPtrTy = I->getType()->getPointerElementType()->getPointerTo(AS);
     auto *NewI = new AddrSpaceCastInst(I, NewPtrTy);
     NewI->insertAfter(I);
     return NewI;
@@ -635,10 +634,8 @@ static Value *cloneConstantExprWithNewAddressSpace(
     ConstantExpr *CE, unsigned NewAddrSpace,
     const ValueToValueMapTy &ValueWithNewAddrSpace, const DataLayout *DL,
     const TargetTransformInfo *TTI) {
-  Type *TargetType = CE->getType()->isPointerTy()
-                         ? PointerType::getWithSamePointeeType(
-                               cast<PointerType>(CE->getType()), NewAddrSpace)
-                         : CE->getType();
+  Type *TargetType =
+    CE->getType()->getPointerElementType()->getPointerTo(NewAddrSpace);
 
   if (CE->getOpcode() == Instruction::AddrSpaceCast) {
     // Because CE is flat, the source address space must be specific.
@@ -956,13 +953,7 @@ static bool handleMemIntrinsicPtrUse(MemIntrinsic *MI, Value *OldV,
     if (Dest == OldV)
       Dest = NewV;
 
-    if (isa<MemCpyInlineInst>(MTI)) {
-      MDNode *TBAAStruct = MTI->getMetadata(LLVMContext::MD_tbaa_struct);
-      B.CreateMemCpyInline(Dest, MTI->getDestAlign(), Src,
-                           MTI->getSourceAlign(), MTI->getLength(),
-                           false, // isVolatile
-                           TBAA, TBAAStruct, ScopeMD, NoAliasMD);
-    } else if (isa<MemCpyInst>(MTI)) {
+    if (isa<MemCpyInst>(MTI)) {
       MDNode *TBAAStruct = MTI->getMetadata(LLVMContext::MD_tbaa_struct);
       B.CreateMemCpy(Dest, MTI->getDestAlign(), Src, MTI->getSourceAlign(),
                      MTI->getLength(),

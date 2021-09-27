@@ -23,6 +23,7 @@
 
 static constexpr unsigned default_disasm_byte_size = 32;
 static constexpr unsigned default_disasm_num_ins = 4;
+static constexpr unsigned large_function_threshold = 8000;
 
 using namespace lldb;
 using namespace lldb_private;
@@ -31,7 +32,10 @@ using namespace lldb_private;
 #include "CommandOptions.inc"
 
 CommandObjectDisassemble::CommandOptions::CommandOptions()
-    : Options(), func_name(), plugin_name(), flavor_string(), arch() {
+    : Options(), num_lines_context(0), num_instructions(0), func_name(),
+      current_function(false), start_addr(), end_addr(), at_pc(false),
+      frame_line(false), plugin_name(), flavor_string(), arch(),
+      some_location_specified(false), symbol_containing_addr() {
   OptionParsingStarting(nullptr);
 }
 
@@ -219,7 +223,7 @@ CommandObjectDisassemble::~CommandObjectDisassemble() = default;
 llvm::Error CommandObjectDisassemble::CheckRangeSize(const AddressRange &range,
                                                      llvm::StringRef what) {
   if (m_options.num_instructions > 0 || m_options.force ||
-      range.GetByteSize() < GetDebugger().GetStopDisassemblyMaxSize())
+      range.GetByteSize() < large_function_threshold)
     return llvm::Error::success();
   StreamString msg;
   msg << "Not disassembling " << what << " because it is very large ";
@@ -322,15 +326,13 @@ CommandObjectDisassemble::GetCurrentLineRanges() {
 llvm::Expected<std::vector<AddressRange>>
 CommandObjectDisassemble::GetNameRanges(CommandReturnObject &result) {
   ConstString name(m_options.func_name.c_str());
-
-  ModuleFunctionSearchOptions function_options;
-  function_options.include_symbols = true;
-  function_options.include_inlines = true;
+  const bool include_symbols = true;
+  const bool include_inlines = true;
 
   // Find functions matching the given name.
   SymbolContextList sc_list;
-  GetSelectedTarget().GetImages().FindFunctions(name, eFunctionNameTypeAuto,
-                                                function_options, sc_list);
+  GetSelectedTarget().GetImages().FindFunctions(
+      name, eFunctionNameTypeAuto, include_symbols, include_inlines, sc_list);
 
   std::vector<AddressRange> ranges;
   llvm::Error range_errs = llvm::Error::success();
@@ -416,6 +418,7 @@ bool CommandObjectDisassemble::DoExecute(Args &command,
   if (!m_options.arch.IsValid()) {
     result.AppendError(
         "use the --arch option or set the target architecture to disassemble");
+    result.SetStatus(eReturnStatusFailed);
     return false;
   }
 
@@ -435,6 +438,7 @@ bool CommandObjectDisassemble::DoExecute(Args &command,
       result.AppendErrorWithFormat(
           "Unable to find Disassembler plug-in for the '%s' architecture.\n",
           m_options.arch.GetArchitectureName());
+    result.SetStatus(eReturnStatusFailed);
     return false;
   } else if (flavor_string != nullptr && !disassembler->FlavorValidForArchSpec(
                                              m_options.arch, flavor_string))
@@ -450,6 +454,7 @@ bool CommandObjectDisassemble::DoExecute(Args &command,
         GetCommandInterpreter().GetDebugger().GetTerminalWidth();
     GetOptions()->GenerateOptionUsage(result.GetErrorStream(), this,
                                       terminal_width);
+    result.SetStatus(eReturnStatusFailed);
     return false;
   }
 
@@ -474,6 +479,7 @@ bool CommandObjectDisassemble::DoExecute(Args &command,
       GetRangesForSelectedMode(result);
   if (!ranges) {
     result.AppendError(toString(ranges.takeError()));
+    result.SetStatus(eReturnStatusFailed);
     return result.Succeeded();
   }
 
@@ -503,6 +509,7 @@ bool CommandObjectDisassemble::DoExecute(Args &command,
             "Failed to disassemble memory at 0x%8.8" PRIx64 ".\n",
             cur_range.GetBaseAddress().GetLoadAddress(target));
       }
+      result.SetStatus(eReturnStatusFailed);
     }
     if (print_sc_header)
       result.GetOutputStream() << "\n";

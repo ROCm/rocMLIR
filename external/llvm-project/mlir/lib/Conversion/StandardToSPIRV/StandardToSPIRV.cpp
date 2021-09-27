@@ -15,7 +15,6 @@
 #include "mlir/Dialect/SPIRV/Transforms/SPIRVConversion.h"
 #include "mlir/Dialect/SPIRV/Utils/LayoutUtils.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/SetVector.h"
@@ -127,6 +126,100 @@ static Value emulateSignedRemainder(Location loc, Value lhs, Value rhs,
   return builder.create<spirv::SelectOp>(loc, type, isPositive, abs, absNegate);
 }
 
+/// Returns the offset of the value in `targetBits` representation.
+///
+/// `srcIdx` is an index into a 1-D array with each element having `sourceBits`.
+/// It's assumed to be non-negative.
+///
+/// When accessing an element in the array treating as having elements of
+/// `targetBits`, multiple values are loaded in the same time. The method
+/// returns the offset where the `srcIdx` locates in the value. For example, if
+/// `sourceBits` equals to 8 and `targetBits` equals to 32, the x-th element is
+/// located at (x % 4) * 8. Because there are four elements in one i32, and one
+/// element has 8 bits.
+static Value getOffsetForBitwidth(Location loc, Value srcIdx, int sourceBits,
+                                  int targetBits, OpBuilder &builder) {
+  assert(targetBits % sourceBits == 0);
+  IntegerType targetType = builder.getIntegerType(targetBits);
+  IntegerAttr idxAttr =
+      builder.getIntegerAttr(targetType, targetBits / sourceBits);
+  auto idx = builder.create<spirv::ConstantOp>(loc, targetType, idxAttr);
+  IntegerAttr srcBitsAttr = builder.getIntegerAttr(targetType, sourceBits);
+  auto srcBitsValue =
+      builder.create<spirv::ConstantOp>(loc, targetType, srcBitsAttr);
+  auto m = builder.create<spirv::UModOp>(loc, srcIdx, idx);
+  return builder.create<spirv::IMulOp>(loc, targetType, m, srcBitsValue);
+}
+
+/// Returns an adjusted spirv::AccessChainOp. Based on the
+/// extension/capabilities, certain integer bitwidths `sourceBits` might not be
+/// supported. During conversion if a memref of an unsupported type is used,
+/// load/stores to this memref need to be modified to use a supported higher
+/// bitwidth `targetBits` and extracting the required bits. For an accessing a
+/// 1D array (spv.array or spv.rt_array), the last index is modified to load the
+/// bits needed. The extraction of the actual bits needed are handled
+/// separately. Note that this only works for a 1-D tensor.
+static Value adjustAccessChainForBitwidth(SPIRVTypeConverter &typeConverter,
+                                          spirv::AccessChainOp op,
+                                          int sourceBits, int targetBits,
+                                          OpBuilder &builder) {
+  assert(targetBits % sourceBits == 0);
+  const auto loc = op.getLoc();
+  IntegerType targetType = builder.getIntegerType(targetBits);
+  IntegerAttr attr =
+      builder.getIntegerAttr(targetType, targetBits / sourceBits);
+  auto idx = builder.create<spirv::ConstantOp>(loc, targetType, attr);
+  auto lastDim = op->getOperand(op.getNumOperands() - 1);
+  auto indices = llvm::to_vector<4>(op.indices());
+  // There are two elements if this is a 1-D tensor.
+  assert(indices.size() == 2);
+  indices.back() = builder.create<spirv::SDivOp>(loc, lastDim, idx);
+  Type t = typeConverter.convertType(op.component_ptr().getType());
+  return builder.create<spirv::AccessChainOp>(loc, t, op.base_ptr(), indices);
+}
+
+/// Returns the shifted `targetBits`-bit value with the given offset.
+static Value shiftValue(Location loc, Value value, Value offset, Value mask,
+                        int targetBits, OpBuilder &builder) {
+  Type targetType = builder.getIntegerType(targetBits);
+  Value result = builder.create<spirv::BitwiseAndOp>(loc, value, mask);
+  return builder.create<spirv::ShiftLeftLogicalOp>(loc, targetType, result,
+                                                   offset);
+}
+
+/// Returns true if the allocations of type `t` can be lowered to SPIR-V.
+static bool isAllocationSupported(MemRefType t) {
+  // Currently only support workgroup local memory allocations with static
+  // shape and int or float or vector of int or float element type.
+  if (!(t.hasStaticShape() &&
+        SPIRVTypeConverter::getMemorySpaceForStorageClass(
+            spirv::StorageClass::Workgroup) == t.getMemorySpace()))
+    return false;
+  Type elementType = t.getElementType();
+  if (auto vecType = elementType.dyn_cast<VectorType>())
+    elementType = vecType.getElementType();
+  return elementType.isIntOrFloat();
+}
+
+/// Returns the scope to use for atomic operations use for emulating store
+/// operations of unsupported integer bitwidths, based on the memref
+/// type. Returns None on failure.
+static Optional<spirv::Scope> getAtomicOpScope(MemRefType t) {
+  Optional<spirv::StorageClass> storageClass =
+      SPIRVTypeConverter::getStorageClassForMemorySpace(t.getMemorySpace());
+  if (!storageClass)
+    return {};
+  switch (*storageClass) {
+  case spirv::StorageClass::StorageBuffer:
+    return spirv::Scope::Device;
+  case spirv::StorageClass::Workgroup:
+    return spirv::Scope::Workgroup;
+  default: {
+  }
+  }
+  return {};
+}
+
 //===----------------------------------------------------------------------===//
 // Operation conversion
 //===----------------------------------------------------------------------===//
@@ -136,6 +229,67 @@ static Value emulateSignedRemainder(Location loc, Value lhs, Value rhs,
 // normal RewritePattern.
 
 namespace {
+
+/// Converts an allocation operation to SPIR-V. Currently only supports lowering
+/// to Workgroup memory when the size is constant.  Note that this pattern needs
+/// to be applied in a pass that runs at least at spv.module scope since it wil
+/// ladd global variables into the spv.module.
+class AllocOpPattern final : public OpConversionPattern<AllocOp> {
+public:
+  using OpConversionPattern<AllocOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(AllocOp operation, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    MemRefType allocType = operation.getType();
+    if (!isAllocationSupported(allocType))
+      return operation.emitError("unhandled allocation type");
+
+    // Get the SPIR-V type for the allocation.
+    Type spirvType = getTypeConverter()->convertType(allocType);
+
+    // Insert spv.globalVariable for this allocation.
+    Operation *parent =
+        SymbolTable::getNearestSymbolTable(operation->getParentOp());
+    if (!parent)
+      return failure();
+    Location loc = operation.getLoc();
+    spirv::GlobalVariableOp varOp;
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      Block &entryBlock = *parent->getRegion(0).begin();
+      rewriter.setInsertionPointToStart(&entryBlock);
+      auto varOps = entryBlock.getOps<spirv::GlobalVariableOp>();
+      std::string varName =
+          std::string("__workgroup_mem__") +
+          std::to_string(std::distance(varOps.begin(), varOps.end()));
+      varOp = rewriter.create<spirv::GlobalVariableOp>(
+          loc, TypeAttr::get(spirvType), varName,
+          /*initializer = */ nullptr);
+    }
+
+    // Get pointer to global variable at the current scope.
+    rewriter.replaceOpWithNewOp<spirv::AddressOfOp>(operation, varOp);
+    return success();
+  }
+};
+
+/// Removed a deallocation if it is a supported allocation. Currently only
+/// removes deallocation if the memory space is workgroup memory.
+class DeallocOpPattern final : public OpConversionPattern<DeallocOp> {
+public:
+  using OpConversionPattern<DeallocOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(DeallocOp operation, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    MemRefType deallocType = operation.memref().getType().cast<MemRefType>();
+    if (!isAllocationSupported(deallocType))
+      return operation.emitError("unhandled deallocation type");
+    rewriter.eraseOp(operation);
+    return success();
+  }
+};
 
 /// Converts unary and binary standard operations to SPIR-V operations.
 template <typename StdOp, typename SPIRVOp>
@@ -201,7 +355,7 @@ public:
   }
 };
 
-/// Converts composite std.constant operation to spv.Constant.
+/// Converts composite std.constant operation to spv.constant.
 class ConstantCompositeOpPattern final
     : public OpConversionPattern<ConstantOp> {
 public:
@@ -212,7 +366,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override;
 };
 
-/// Converts scalar std.constant operation to spv.Constant.
+/// Converts scalar std.constant operation to spv.constant.
 class ConstantScalarOpPattern final : public OpConversionPattern<ConstantOp> {
 public:
   using OpConversionPattern<ConstantOp>::OpConversionPattern;
@@ -274,6 +428,26 @@ public:
                   ConversionPatternRewriter &rewriter) const override;
 };
 
+/// Converts std.load to spv.Load.
+class IntLoadOpPattern final : public OpConversionPattern<LoadOp> {
+public:
+  using OpConversionPattern<LoadOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(LoadOp loadOp, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
+/// Converts std.load to spv.Load.
+class LoadOpPattern final : public OpConversionPattern<LoadOp> {
+public:
+  using OpConversionPattern<LoadOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(LoadOp loadOp, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
 /// Converts std.return to spv.Return.
 class ReturnOpPattern final : public OpConversionPattern<ReturnOp> {
 public:
@@ -293,13 +467,23 @@ public:
                   ConversionPatternRewriter &rewriter) const override;
 };
 
-/// Converts std.splat to spv.CompositeConstruct.
-class SplatPattern final : public OpConversionPattern<SplatOp> {
+/// Converts std.store to spv.Store on integers.
+class IntStoreOpPattern final : public OpConversionPattern<StoreOp> {
 public:
-  using OpConversionPattern<SplatOp>::OpConversionPattern;
+  using OpConversionPattern<StoreOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(SplatOp op, ArrayRef<Value> operands,
+  matchAndRewrite(StoreOp storeOp, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
+/// Converts std.store to spv.Store.
+class StoreOpPattern final : public OpConversionPattern<StoreOp> {
+public:
+  using OpConversionPattern<StoreOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(StoreOp storeOp, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override;
 };
 
@@ -323,97 +507,6 @@ public:
     Value one = spirv::ConstantOp::getOne(dstType, loc, rewriter);
     rewriter.template replaceOpWithNewOp<spirv::SelectOp>(
         op, dstType, operands.front(), one, zero);
-    return success();
-  }
-};
-
-/// Converts tensor.extract into loading using access chains from SPIR-V local
-/// variables.
-class TensorExtractPattern final
-    : public OpConversionPattern<tensor::ExtractOp> {
-public:
-  TensorExtractPattern(TypeConverter &typeConverter, MLIRContext *context,
-                       int64_t threshold, PatternBenefit benefit = 1)
-      : OpConversionPattern(typeConverter, context, benefit),
-        byteCountThreshold(threshold) {}
-
-  LogicalResult
-  matchAndRewrite(tensor::ExtractOp extractOp, ArrayRef<Value> operands,
-                  ConversionPatternRewriter &rewriter) const override {
-    TensorType tensorType = extractOp.tensor().getType().cast<TensorType>();
-
-    if (!tensorType.hasStaticShape())
-      return rewriter.notifyMatchFailure(extractOp, "non-static tensor");
-
-    if (tensorType.getNumElements() * tensorType.getElementTypeBitWidth() >
-        byteCountThreshold * 8)
-      return rewriter.notifyMatchFailure(extractOp,
-                                         "exceeding byte count threshold");
-
-    Location loc = extractOp.getLoc();
-    tensor::ExtractOp::Adaptor adaptor(operands);
-
-    int64_t rank = tensorType.getRank();
-    SmallVector<int64_t, 4> strides(rank, 1);
-    for (int i = rank - 2; i >= 0; --i) {
-      strides[i] = strides[i + 1] * tensorType.getDimSize(i + 1);
-    }
-
-    Type varType = spirv::PointerType::get(adaptor.tensor().getType(),
-                                           spirv::StorageClass::Function);
-
-    spirv::VariableOp varOp;
-    if (adaptor.tensor().getDefiningOp<spirv::ConstantOp>()) {
-      varOp = rewriter.create<spirv::VariableOp>(
-          loc, varType, spirv::StorageClass::Function,
-          /*initializer=*/adaptor.tensor());
-    } else {
-      // Need to store the value to the local variable. It's questionable
-      // whether we want to support such case though.
-      return failure();
-    }
-
-    auto &typeConverter = *getTypeConverter<SPIRVTypeConverter>();
-    auto indexType = typeConverter.getIndexType();
-
-    Value index = spirv::linearizeIndex(adaptor.indices(), strides,
-                                        /*offset=*/0, indexType, loc, rewriter);
-    auto acOp = rewriter.create<spirv::AccessChainOp>(loc, varOp, index);
-
-    rewriter.replaceOpWithNewOp<spirv::LoadOp>(extractOp, acOp);
-
-    return success();
-  }
-
-private:
-  int64_t byteCountThreshold;
-};
-
-/// Converts std.trunci to spv.Select if the type of result is i1 or vector of
-/// i1.
-class TruncI1Pattern final : public OpConversionPattern<TruncateIOp> {
-public:
-  using OpConversionPattern<TruncateIOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(TruncateIOp op, ArrayRef<Value> operands,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto dstType =
-        this->getTypeConverter()->convertType(op.getResult().getType());
-    if (!isBoolScalarOrVector(dstType))
-      return failure();
-
-    Location loc = op.getLoc();
-    auto srcType = operands.front().getType();
-    // Check if (x & 1) == 1.
-    Value mask = spirv::ConstantOp::getOne(srcType, loc, rewriter);
-    Value maskedSrc =
-        rewriter.create<spirv::BitwiseAndOp>(loc, srcType, operands[0], mask);
-    Value isOne = rewriter.create<spirv::IEqualOp>(loc, maskedSrc, mask);
-
-    Value zero = spirv::ConstantOp::getZero(dstType, loc, rewriter);
-    Value one = spirv::ConstantOp::getOne(dstType, loc, rewriter);
-    rewriter.replaceOpWithNewOp<spirv::SelectOp>(op, dstType, isOne, one, zero);
     return success();
   }
 };
@@ -453,10 +546,10 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     assert(operands.size() == 1);
     auto srcType = operands.front().getType();
+    if (isBoolScalarOrVector(srcType))
+      return failure();
     auto dstType =
         this->getTypeConverter()->convertType(operation.getResult().getType());
-    if (isBoolScalarOrVector(srcType) || isBoolScalarOrVector(dstType))
-      return failure();
     if (dstType == srcType) {
       // Due to type conversion, we are seeing the same source and target type.
       // Then we can just erase this operation by forwarding its operand.
@@ -471,17 +564,6 @@ public:
 
 /// Converts std.xor to SPIR-V operations.
 class XOrOpPattern final : public OpConversionPattern<XOrOp> {
-public:
-  using OpConversionPattern<XOrOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(XOrOp xorOp, ArrayRef<Value> operands,
-                  ConversionPatternRewriter &rewriter) const override;
-};
-
-/// Converts std.xor to SPIR-V operations if the type of source is i1 or vector
-/// of i1.
-class BoolXOrOpPattern final : public OpConversionPattern<XOrOp> {
 public:
   using OpConversionPattern<XOrOp>::OpConversionPattern;
 
@@ -510,9 +592,6 @@ LogicalResult SignedRemIOpPattern::matchAndRewrite(
 // ConstantOp with composite type.
 //===----------------------------------------------------------------------===//
 
-// TODO: This probably should be split into the vector case and tensor case,
-// so that the tensor case can be moved to TensorToSPIRV conversion. But,
-// std.constant is for the standard dialect though.
 LogicalResult ConstantCompositeOpPattern::matchAndRewrite(
     ConstantOp constOp, ArrayRef<Value> operands,
     ConversionPatternRewriter &rewriter) const {
@@ -558,9 +637,9 @@ LogicalResult ConstantCompositeOpPattern::matchAndRewrite(
   if (srcElemType != dstElemType) {
     SmallVector<Attribute, 8> elements;
     if (srcElemType.isa<FloatType>()) {
-      for (FloatAttr srcAttr : dstElementsAttr.getValues<FloatAttr>()) {
-        FloatAttr dstAttr =
-            convertFloatAttr(srcAttr, dstElemType.cast<FloatType>(), rewriter);
+      for (Attribute srcAttr : dstElementsAttr.getAttributeValues()) {
+        FloatAttr dstAttr = convertFloatAttr(
+            srcAttr.cast<FloatAttr>(), dstElemType.cast<FloatType>(), rewriter);
         if (!dstAttr)
           return failure();
         elements.push_back(dstAttr);
@@ -568,9 +647,10 @@ LogicalResult ConstantCompositeOpPattern::matchAndRewrite(
     } else if (srcElemType.isInteger(1)) {
       return failure();
     } else {
-      for (IntegerAttr srcAttr : dstElementsAttr.getValues<IntegerAttr>()) {
-        IntegerAttr dstAttr = convertIntegerAttr(
-            srcAttr, dstElemType.cast<IntegerType>(), rewriter);
+      for (Attribute srcAttr : dstElementsAttr.getAttributeValues()) {
+        IntegerAttr dstAttr =
+            convertIntegerAttr(srcAttr.cast<IntegerAttr>(),
+                               dstElemType.cast<IntegerType>(), rewriter);
         if (!dstAttr)
           return failure();
         elements.push_back(dstAttr);
@@ -798,6 +878,100 @@ CmpIOpPattern::matchAndRewrite(CmpIOp cmpIOp, ArrayRef<Value> operands,
 }
 
 //===----------------------------------------------------------------------===//
+// LoadOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+IntLoadOpPattern::matchAndRewrite(LoadOp loadOp, ArrayRef<Value> operands,
+                                  ConversionPatternRewriter &rewriter) const {
+  LoadOpAdaptor loadOperands(operands);
+  auto loc = loadOp.getLoc();
+  auto memrefType = loadOp.memref().getType().cast<MemRefType>();
+  if (!memrefType.getElementType().isSignlessInteger())
+    return failure();
+
+  auto &typeConverter = *getTypeConverter<SPIRVTypeConverter>();
+  spirv::AccessChainOp accessChainOp =
+      spirv::getElementPtr(typeConverter, memrefType, loadOperands.memref(),
+                           loadOperands.indices(), loc, rewriter);
+
+  int srcBits = memrefType.getElementType().getIntOrFloatBitWidth();
+  auto dstType = typeConverter.convertType(memrefType)
+                     .cast<spirv::PointerType>()
+                     .getPointeeType()
+                     .cast<spirv::StructType>()
+                     .getElementType(0)
+                     .cast<spirv::ArrayType>()
+                     .getElementType();
+  int dstBits = dstType.getIntOrFloatBitWidth();
+  assert(dstBits % srcBits == 0);
+
+  // If the rewrited load op has the same bit width, use the loading value
+  // directly.
+  if (srcBits == dstBits) {
+    rewriter.replaceOpWithNewOp<spirv::LoadOp>(loadOp,
+                                               accessChainOp.getResult());
+    return success();
+  }
+
+  // Assume that getElementPtr() works linearizely. If it's a scalar, the method
+  // still returns a linearized accessing. If the accessing is not linearized,
+  // there will be offset issues.
+  assert(accessChainOp.indices().size() == 2);
+  Value adjustedPtr = adjustAccessChainForBitwidth(typeConverter, accessChainOp,
+                                                   srcBits, dstBits, rewriter);
+  Value spvLoadOp = rewriter.create<spirv::LoadOp>(
+      loc, dstType, adjustedPtr,
+      loadOp->getAttrOfType<IntegerAttr>(
+          spirv::attributeName<spirv::MemoryAccess>()),
+      loadOp->getAttrOfType<IntegerAttr>("alignment"));
+
+  // Shift the bits to the rightmost.
+  // ____XXXX________ -> ____________XXXX
+  Value lastDim = accessChainOp->getOperand(accessChainOp.getNumOperands() - 1);
+  Value offset = getOffsetForBitwidth(loc, lastDim, srcBits, dstBits, rewriter);
+  Value result = rewriter.create<spirv::ShiftRightArithmeticOp>(
+      loc, spvLoadOp.getType(), spvLoadOp, offset);
+
+  // Apply the mask to extract corresponding bits.
+  Value mask = rewriter.create<spirv::ConstantOp>(
+      loc, dstType, rewriter.getIntegerAttr(dstType, (1 << srcBits) - 1));
+  result = rewriter.create<spirv::BitwiseAndOp>(loc, dstType, result, mask);
+
+  // Apply sign extension on the loading value unconditionally. The signedness
+  // semantic is carried in the operator itself, we relies other pattern to
+  // handle the casting.
+  IntegerAttr shiftValueAttr =
+      rewriter.getIntegerAttr(dstType, dstBits - srcBits);
+  Value shiftValue =
+      rewriter.create<spirv::ConstantOp>(loc, dstType, shiftValueAttr);
+  result = rewriter.create<spirv::ShiftLeftLogicalOp>(loc, dstType, result,
+                                                      shiftValue);
+  result = rewriter.create<spirv::ShiftRightArithmeticOp>(loc, dstType, result,
+                                                          shiftValue);
+  rewriter.replaceOp(loadOp, result);
+
+  assert(accessChainOp.use_empty());
+  rewriter.eraseOp(accessChainOp);
+
+  return success();
+}
+
+LogicalResult
+LoadOpPattern::matchAndRewrite(LoadOp loadOp, ArrayRef<Value> operands,
+                               ConversionPatternRewriter &rewriter) const {
+  LoadOpAdaptor loadOperands(operands);
+  auto memrefType = loadOp.memref().getType().cast<MemRefType>();
+  if (memrefType.getElementType().isSignlessInteger())
+    return failure();
+  auto loadPtr = spirv::getElementPtr(
+      *getTypeConverter<SPIRVTypeConverter>(), memrefType,
+      loadOperands.memref(), loadOperands.indices(), loadOp.getLoc(), rewriter);
+  rewriter.replaceOpWithNewOp<spirv::LoadOp>(loadOp, loadPtr);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ReturnOp
 //===----------------------------------------------------------------------===//
 
@@ -830,19 +1004,101 @@ SelectOpPattern::matchAndRewrite(SelectOp op, ArrayRef<Value> operands,
 }
 
 //===----------------------------------------------------------------------===//
-// SplatOp
+// StoreOp
 //===----------------------------------------------------------------------===//
 
 LogicalResult
-SplatPattern::matchAndRewrite(SplatOp op, ArrayRef<Value> operands,
-                              ConversionPatternRewriter &rewriter) const {
-  auto dstVecType = op.getType().dyn_cast<VectorType>();
-  if (!dstVecType || !spirv::CompositeType::isValid(dstVecType))
+IntStoreOpPattern::matchAndRewrite(StoreOp storeOp, ArrayRef<Value> operands,
+                                   ConversionPatternRewriter &rewriter) const {
+  StoreOpAdaptor storeOperands(operands);
+  auto memrefType = storeOp.memref().getType().cast<MemRefType>();
+  if (!memrefType.getElementType().isSignlessInteger())
     return failure();
-  SplatOp::Adaptor adaptor(operands);
-  SmallVector<Value, 4> source(dstVecType.getNumElements(), adaptor.input());
-  rewriter.replaceOpWithNewOp<spirv::CompositeConstructOp>(op, dstVecType,
-                                                           source);
+
+  auto loc = storeOp.getLoc();
+  auto &typeConverter = *getTypeConverter<SPIRVTypeConverter>();
+  spirv::AccessChainOp accessChainOp =
+      spirv::getElementPtr(typeConverter, memrefType, storeOperands.memref(),
+                           storeOperands.indices(), loc, rewriter);
+  int srcBits = memrefType.getElementType().getIntOrFloatBitWidth();
+  auto dstType = typeConverter.convertType(memrefType)
+                     .cast<spirv::PointerType>()
+                     .getPointeeType()
+                     .cast<spirv::StructType>()
+                     .getElementType(0)
+                     .cast<spirv::ArrayType>()
+                     .getElementType();
+  int dstBits = dstType.getIntOrFloatBitWidth();
+  assert(dstBits % srcBits == 0);
+
+  if (srcBits == dstBits) {
+    rewriter.replaceOpWithNewOp<spirv::StoreOp>(
+        storeOp, accessChainOp.getResult(), storeOperands.value());
+    return success();
+  }
+
+  // Since there are multi threads in the processing, the emulation will be done
+  // with atomic operations. E.g., if the storing value is i8, rewrite the
+  // StoreOp to
+  // 1) load a 32-bit integer
+  // 2) clear 8 bits in the loading value
+  // 3) store 32-bit value back
+  // 4) load a 32-bit integer
+  // 5) modify 8 bits in the loading value
+  // 6) store 32-bit value back
+  // The step 1 to step 3 are done by AtomicAnd as one atomic step, and the step
+  // 4 to step 6 are done by AtomicOr as another atomic step.
+  assert(accessChainOp.indices().size() == 2);
+  Value lastDim = accessChainOp->getOperand(accessChainOp.getNumOperands() - 1);
+  Value offset = getOffsetForBitwidth(loc, lastDim, srcBits, dstBits, rewriter);
+
+  // Create a mask to clear the destination. E.g., if it is the second i8 in
+  // i32, 0xFFFF00FF is created.
+  Value mask = rewriter.create<spirv::ConstantOp>(
+      loc, dstType, rewriter.getIntegerAttr(dstType, (1 << srcBits) - 1));
+  Value clearBitsMask =
+      rewriter.create<spirv::ShiftLeftLogicalOp>(loc, dstType, mask, offset);
+  clearBitsMask = rewriter.create<spirv::NotOp>(loc, dstType, clearBitsMask);
+
+  Value storeVal =
+      shiftValue(loc, storeOperands.value(), offset, mask, dstBits, rewriter);
+  Value adjustedPtr = adjustAccessChainForBitwidth(typeConverter, accessChainOp,
+                                                   srcBits, dstBits, rewriter);
+  Optional<spirv::Scope> scope = getAtomicOpScope(memrefType);
+  if (!scope)
+    return failure();
+  Value result = rewriter.create<spirv::AtomicAndOp>(
+      loc, dstType, adjustedPtr, *scope, spirv::MemorySemantics::AcquireRelease,
+      clearBitsMask);
+  result = rewriter.create<spirv::AtomicOrOp>(
+      loc, dstType, adjustedPtr, *scope, spirv::MemorySemantics::AcquireRelease,
+      storeVal);
+
+  // The AtomicOrOp has no side effect. Since it is already inserted, we can
+  // just remove the original StoreOp. Note that rewriter.replaceOp()
+  // doesn't work because it only accepts that the numbers of result are the
+  // same.
+  rewriter.eraseOp(storeOp);
+
+  assert(accessChainOp.use_empty());
+  rewriter.eraseOp(accessChainOp);
+
+  return success();
+}
+
+LogicalResult
+StoreOpPattern::matchAndRewrite(StoreOp storeOp, ArrayRef<Value> operands,
+                                ConversionPatternRewriter &rewriter) const {
+  StoreOpAdaptor storeOperands(operands);
+  auto memrefType = storeOp.memref().getType().cast<MemRefType>();
+  if (memrefType.getElementType().isSignlessInteger())
+    return failure();
+  auto storePtr =
+      spirv::getElementPtr(*getTypeConverter<SPIRVTypeConverter>(), memrefType,
+                           storeOperands.memref(), storeOperands.indices(),
+                           storeOp.getLoc(), rewriter);
+  rewriter.replaceOpWithNewOp<spirv::StoreOp>(storeOp, storePtr,
+                                              storeOperands.value());
   return success();
 }
 
@@ -866,32 +1122,15 @@ XOrOpPattern::matchAndRewrite(XOrOp xorOp, ArrayRef<Value> operands,
   return success();
 }
 
-LogicalResult
-BoolXOrOpPattern::matchAndRewrite(XOrOp xorOp, ArrayRef<Value> operands,
-                                  ConversionPatternRewriter &rewriter) const {
-  assert(operands.size() == 2);
-
-  if (!isBoolScalarOrVector(operands.front().getType()))
-    return failure();
-
-  auto dstType = getTypeConverter()->convertType(xorOp.getType());
-  if (!dstType)
-    return failure();
-  rewriter.replaceOpWithNewOp<spirv::LogicalNotEqualOp>(xorOp, dstType,
-                                                        operands);
-  return success();
-}
-
 //===----------------------------------------------------------------------===//
 // Pattern population
 //===----------------------------------------------------------------------===//
 
 namespace mlir {
-void populateStandardToSPIRVPatterns(SPIRVTypeConverter &typeConverter,
-                                     RewritePatternSet &patterns) {
-  MLIRContext *context = patterns.getContext();
-
-  patterns.add<
+void populateStandardToSPIRVPatterns(MLIRContext *context,
+                                     SPIRVTypeConverter &typeConverter,
+                                     OwningRewritePatternList &patterns) {
+  patterns.insert<
       // Unary and binary patterns
       BitwiseOpPattern<AndOp, spirv::LogicalAndOp, spirv::BitwiseAndOp>,
       BitwiseOpPattern<OrOp, spirv::LogicalOrOp, spirv::BitwiseOrOp>,
@@ -899,22 +1138,29 @@ void populateStandardToSPIRVPatterns(SPIRVTypeConverter &typeConverter,
       UnaryAndBinaryOpPattern<AddFOp, spirv::FAddOp>,
       UnaryAndBinaryOpPattern<AddIOp, spirv::IAddOp>,
       UnaryAndBinaryOpPattern<CeilFOp, spirv::GLSLCeilOp>,
+      UnaryAndBinaryOpPattern<CosOp, spirv::GLSLCosOp>,
       UnaryAndBinaryOpPattern<DivFOp, spirv::FDivOp>,
+      UnaryAndBinaryOpPattern<ExpOp, spirv::GLSLExpOp>,
       UnaryAndBinaryOpPattern<FloorFOp, spirv::GLSLFloorOp>,
+      UnaryAndBinaryOpPattern<LogOp, spirv::GLSLLogOp>,
       UnaryAndBinaryOpPattern<MulFOp, spirv::FMulOp>,
       UnaryAndBinaryOpPattern<MulIOp, spirv::IMulOp>,
       UnaryAndBinaryOpPattern<NegFOp, spirv::FNegateOp>,
       UnaryAndBinaryOpPattern<RemFOp, spirv::FRemOp>,
+      UnaryAndBinaryOpPattern<RsqrtOp, spirv::GLSLInverseSqrtOp>,
       UnaryAndBinaryOpPattern<ShiftLeftOp, spirv::ShiftLeftLogicalOp>,
       UnaryAndBinaryOpPattern<SignedDivIOp, spirv::SDivOp>,
       UnaryAndBinaryOpPattern<SignedShiftRightOp,
                               spirv::ShiftRightArithmeticOp>,
-      UnaryAndBinaryOpPattern<SubIOp, spirv::ISubOp>,
+      UnaryAndBinaryOpPattern<SinOp, spirv::GLSLSinOp>,
+      UnaryAndBinaryOpPattern<SqrtOp, spirv::GLSLSqrtOp>,
       UnaryAndBinaryOpPattern<SubFOp, spirv::FSubOp>,
+      UnaryAndBinaryOpPattern<SubIOp, spirv::ISubOp>,
+      UnaryAndBinaryOpPattern<TanhOp, spirv::GLSLTanhOp>,
       UnaryAndBinaryOpPattern<UnsignedDivIOp, spirv::UDivOp>,
       UnaryAndBinaryOpPattern<UnsignedRemIOp, spirv::UModOp>,
       UnaryAndBinaryOpPattern<UnsignedShiftRightOp, spirv::ShiftRightLogicalOp>,
-      SignedRemIOpPattern, XOrOpPattern, BoolXOrOpPattern,
+      SignedRemIOpPattern, XOrOpPattern,
 
       // Comparison patterns
       BoolCmpIOpPattern, CmpFOpPattern, CmpFOpNanNonePattern, CmpIOpPattern,
@@ -922,14 +1168,17 @@ void populateStandardToSPIRVPatterns(SPIRVTypeConverter &typeConverter,
       // Constant patterns
       ConstantCompositeOpPattern, ConstantScalarOpPattern,
 
-      ReturnOpPattern, SelectOpPattern, SplatPattern,
+      // Memory patterns
+      AllocOpPattern, DeallocOpPattern, IntLoadOpPattern, IntStoreOpPattern,
+      LoadOpPattern, StoreOpPattern,
+
+      ReturnOpPattern, SelectOpPattern,
 
       // Type cast patterns
-      UIToFPI1Pattern, ZeroExtendI1Pattern, TruncI1Pattern,
+      UIToFPI1Pattern, ZeroExtendI1Pattern,
       TypeCastingOpPattern<IndexCastOp, spirv::SConvertOp>,
       TypeCastingOpPattern<SIToFPOp, spirv::ConvertSToFOp>,
       TypeCastingOpPattern<UIToFPOp, spirv::ConvertUToFOp>,
-      TypeCastingOpPattern<SignExtendIOp, spirv::SConvertOp>,
       TypeCastingOpPattern<ZeroExtendIOp, spirv::UConvertOp>,
       TypeCastingOpPattern<TruncateIOp, spirv::SConvertOp>,
       TypeCastingOpPattern<FPToSIOp, spirv::ConvertFToSOp>,
@@ -939,15 +1188,7 @@ void populateStandardToSPIRVPatterns(SPIRVTypeConverter &typeConverter,
 
   // Give CmpFOpNanKernelPattern a higher benefit so it can prevail when Kernel
   // capability is available.
-  patterns.add<CmpFOpNanKernelPattern>(typeConverter, context,
-                                       /*benefit=*/2);
+  patterns.insert<CmpFOpNanKernelPattern>(typeConverter, context,
+                                          /*benefit=*/2);
 }
-
-void populateTensorToSPIRVPatterns(SPIRVTypeConverter &typeConverter,
-                                   int64_t byteCountThreshold,
-                                   RewritePatternSet &patterns) {
-  patterns.add<TensorExtractPattern>(typeConverter, patterns.getContext(),
-                                     byteCountThreshold);
-}
-
 } // namespace mlir

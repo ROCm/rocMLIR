@@ -150,10 +150,9 @@ static bool mayExtractBlock(const BasicBlock &BB) {
   //
   // Resumes that are not reachable from a cleanup landing pad are considered to
   // be unreachable. It’s not safe to split them out either.
-  if (BB.hasAddressTaken() || BB.isEHPad())
-    return false;
   auto Term = BB.getTerminator();
-  return !isa<InvokeInst>(Term) && !isa<ResumeInst>(Term);
+  return !BB.hasAddressTaken() && !BB.isEHPad() && !isa<InvokeInst>(Term) &&
+         !isa<ResumeInst>(Term);
 }
 
 /// Mark \p F cold. Based on this assumption, also optimize it for minimum size.

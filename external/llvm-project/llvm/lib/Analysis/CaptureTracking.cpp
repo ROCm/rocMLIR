@@ -68,8 +68,8 @@ bool CaptureTracker::isDereferenceableOrNull(Value *O, const DataLayout &DL) {
   if (auto *GEP = dyn_cast<GetElementPtrInst>(O))
     if (GEP->isInBounds())
       return true;
-  bool CanBeNull, CanBeFreed;
-  return O->getPointerDereferenceableBytes(DL, CanBeNull, CanBeFreed);
+  bool CanBeNull;
+  return O->getPointerDereferenceableBytes(DL, CanBeNull);
 }
 
 namespace {
@@ -98,35 +98,73 @@ namespace {
   /// as the given instruction and the use.
   struct CapturesBefore : public CaptureTracker {
 
-    CapturesBefore(bool ReturnCaptures, const Instruction *I,
-                   const DominatorTree *DT, bool IncludeI, const LoopInfo *LI)
-        : BeforeHere(I), DT(DT), ReturnCaptures(ReturnCaptures),
-          IncludeI(IncludeI), Captured(false), LI(LI) {}
+    CapturesBefore(bool ReturnCaptures, const Instruction *I, const DominatorTree *DT,
+                   bool IncludeI)
+      : BeforeHere(I), DT(DT),
+        ReturnCaptures(ReturnCaptures), IncludeI(IncludeI), Captured(false) {}
 
     void tooManyUses() override { Captured = true; }
 
     bool isSafeToPrune(Instruction *I) {
-      if (BeforeHere == I)
-        return !IncludeI;
-
+      BasicBlock *BB = I->getParent();
       // We explore this usage only if the usage can reach "BeforeHere".
       // If use is not reachable from entry, there is no need to explore.
-      if (!DT->isReachableFromEntry(I->getParent()))
+      if (BeforeHere != I && !DT->isReachableFromEntry(BB))
         return true;
 
+      // Compute the case where both instructions are inside the same basic
+      // block.
+      if (BB == BeforeHere->getParent()) {
+        // 'I' dominates 'BeforeHere' => not safe to prune.
+        //
+        // The value defined by an invoke dominates an instruction only
+        // if it dominates every instruction in UseBB. A PHI is dominated only
+        // if the instruction dominates every possible use in the UseBB. Since
+        // UseBB == BB, avoid pruning.
+        if (isa<InvokeInst>(BeforeHere) || isa<PHINode>(I) || I == BeforeHere)
+          return false;
+        if (!BeforeHere->comesBefore(I))
+          return false;
+
+        // 'BeforeHere' comes before 'I', it's safe to prune if we also
+        // guarantee that 'I' never reaches 'BeforeHere' through a back-edge or
+        // by its successors, i.e, prune if:
+        //
+        //  (1) BB is an entry block or have no successors.
+        //  (2) There's no path coming back through BB successors.
+        if (BB == &BB->getParent()->getEntryBlock() ||
+            !BB->getTerminator()->getNumSuccessors())
+          return true;
+
+        SmallVector<BasicBlock*, 32> Worklist;
+        Worklist.append(succ_begin(BB), succ_end(BB));
+        return !isPotentiallyReachableFromMany(Worklist, BB, nullptr, DT);
+      }
+
+      // If the value is defined in the same basic block as use and BeforeHere,
+      // there is no need to explore the use if BeforeHere dominates use.
       // Check whether there is a path from I to BeforeHere.
-      return !isPotentiallyReachable(I, BeforeHere, nullptr, DT, LI);
+      if (BeforeHere != I && DT->dominates(BeforeHere, I) &&
+          !isPotentiallyReachable(I, BeforeHere, nullptr, DT))
+        return true;
+
+      return false;
+    }
+
+    bool shouldExplore(const Use *U) override {
+      Instruction *I = cast<Instruction>(U->getUser());
+
+      if (BeforeHere == I && !IncludeI)
+        return false;
+
+      if (isSafeToPrune(I))
+        return false;
+
+      return true;
     }
 
     bool captured(const Use *U) override {
-      Instruction *I = cast<Instruction>(U->getUser());
-      if (isa<ReturnInst>(I) && !ReturnCaptures)
-        return false;
-
-      // Check isSafeToPrune() here rather than in shouldExplore() to avoid
-      // an expensive reachability query for every instruction we look at.
-      // Instead we only do one for actual capturing candidates.
-      if (isSafeToPrune(I))
+      if (isa<ReturnInst>(U->getUser()) && !ReturnCaptures)
         return false;
 
       Captured = true;
@@ -140,8 +178,6 @@ namespace {
     bool IncludeI;
 
     bool Captured;
-
-    const LoopInfo *LI;
   };
 }
 
@@ -185,8 +221,7 @@ bool llvm::PointerMayBeCaptured(const Value *V,
 bool llvm::PointerMayBeCapturedBefore(const Value *V, bool ReturnCaptures,
                                       bool StoreCaptures, const Instruction *I,
                                       const DominatorTree *DT, bool IncludeI,
-                                      unsigned MaxUsesToExplore,
-                                      const LoopInfo *LI) {
+                                      unsigned MaxUsesToExplore) {
   assert(!isa<GlobalValue>(V) &&
          "It doesn't make sense to ask whether a global is captured.");
 
@@ -197,7 +232,7 @@ bool llvm::PointerMayBeCapturedBefore(const Value *V, bool ReturnCaptures,
   // TODO: See comment in PointerMayBeCaptured regarding what could be done
   // with StoreCaptures.
 
-  CapturesBefore CB(ReturnCaptures, I, DT, IncludeI, LI);
+  CapturesBefore CB(ReturnCaptures, I, DT, IncludeI);
   PointerMayBeCaptured(V, &CB, MaxUsesToExplore);
   if (CB.Captured)
     ++NumCapturedBefore;
@@ -388,8 +423,8 @@ bool llvm::isNonEscapingLocalObject(
       return CacheIt->second;
   }
 
-  // If this is an identified function-local object, check to see if it escapes.
-  if (isIdentifiedFunctionLocal(V)) {
+  // If this is a local allocation, check to see if it escapes.
+  if (isa<AllocaInst>(V) || isNoAliasCall(V)) {
     // Set StoreCaptures to True so that we can assume in our callers that the
     // pointer is not the result of a load instruction. Currently
     // PointerMayBeCaptured doesn't have any special analysis for the
@@ -400,6 +435,20 @@ bool llvm::isNonEscapingLocalObject(
       CacheIt->second = Ret;
     return Ret;
   }
+
+  // If this is an argument that corresponds to a byval or noalias argument,
+  // then it has not escaped before entering the function.  Check if it escapes
+  // inside the function.
+  if (const Argument *A = dyn_cast<Argument>(V))
+    if (A->hasByValAttr() || A->hasNoAliasAttr()) {
+      // Note even if the argument is marked nocapture, we still need to check
+      // for copies made inside the function. The nocapture attribute only
+      // specifies that there are no copies made that outlive the function.
+      auto Ret = !PointerMayBeCaptured(V, false, /*StoreCaptures=*/true);
+      if (IsCapturedCache)
+        CacheIt->second = Ret;
+      return Ret;
+    }
 
   return false;
 }

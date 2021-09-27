@@ -16,6 +16,7 @@
 #ifndef LLVM_CLANG_AST_INTERP_CONTEXT_H
 #define LLVM_CLANG_AST_INTERP_CONTEXT_H
 
+#include "Context.h"
 #include "InterpStack.h"
 #include "clang/AST/APValue.h"
 #include "llvm/ADT/PointerIntPair.h"
@@ -67,7 +68,7 @@ private:
   /// Runs a function.
   bool Run(State &Parent, Function *Func, APValue &Result);
 
-  /// Checks a result from the interpreter.
+  /// Checks a result fromt the interpreter.
   bool Check(State &Parent, llvm::Expected<bool> &&R);
 
 private:

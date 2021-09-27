@@ -339,16 +339,7 @@ void PthreadLockChecker::printState(raw_ostream &Out, ProgramStateRef State,
     }
   }
 
-  DestroyRetValTy DRV = State->get<DestroyRetVal>();
-  if (!DRV.isEmpty()) {
-    Out << Sep << "Mutexes in unresolved possibly destroyed state:" << NL;
-    for (auto I : DRV) {
-      I.first->dumpToStream(Out);
-      Out << ": ";
-      I.second->dumpToStream(Out);
-      Out << NL;
-    }
-  }
+  // TODO: Dump destroyed mutex symbols?
 }
 
 void PthreadLockChecker::AcquirePthreadLock(const CallEvent &Call,
@@ -647,10 +638,8 @@ void PthreadLockChecker::checkDeadSymbols(SymbolReaper &SymReaper,
 
   for (auto I : State->get<LockMap>()) {
     // Stop tracking dead mutex regions as well.
-    if (!SymReaper.isLiveRegion(I.first)) {
+    if (!SymReaper.isLiveRegion(I.first))
       State = State->remove<LockMap>(I.first);
-      State = State->remove<DestroyRetVal>(I.first);
-    }
   }
 
   // TODO: We probably need to clean up the lock stack as well.

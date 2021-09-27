@@ -84,7 +84,7 @@ class RecordDecl;
 class Sema;
 class SourceManager;
 class Stmt;
-class StoredDeclsList;
+struct StoredDeclsList;
 class SwitchCase;
 class TemplateParameterList;
 class Token;
@@ -347,7 +347,7 @@ private:
     union {
       const Decl *Dcl;
       void *Type;
-      SourceLocation::UIntTy Loc;
+      unsigned Loc;
       unsigned Val;
       Module *Mod;
       const Attr *Attribute;
@@ -402,8 +402,8 @@ private:
   /// headers. The declarations themselves are stored as declaration
   /// IDs, since they will be written out to an EAGERLY_DESERIALIZED_DECLS
   /// record.
-  SmallVector<serialization::DeclID, 16> EagerlyDeserializedDecls;
-  SmallVector<serialization::DeclID, 16> ModularCodegenDecls;
+  SmallVector<uint64_t, 16> EagerlyDeserializedDecls;
+  SmallVector<uint64_t, 16> ModularCodegenDecls;
 
   /// DeclContexts that have received extensions since their serialized
   /// form.
@@ -450,7 +450,7 @@ private:
 
   /// A mapping from each known submodule to its ID number, which will
   /// be a positive integer.
-  llvm::DenseMap<const Module *, unsigned> SubmoduleIDs;
+  llvm::DenseMap<Module *, unsigned> SubmoduleIDs;
 
   /// A list of the module file extension writers.
   std::vector<std::unique_ptr<ModuleFileExtensionWriter>>
@@ -510,6 +510,8 @@ private:
   void WriteDeclContextVisibleUpdate(const DeclContext *DC);
   void WriteFPPragmaOptions(const FPOptionsOverride &Opts);
   void WriteOpenCLExtensions(Sema &SemaRef);
+  void WriteOpenCLExtensionTypes(Sema &SemaRef);
+  void WriteOpenCLExtensionDecls(Sema &SemaRef);
   void WriteCUDAPragmas(Sema &SemaRef);
   void WriteObjCCategories();
   void WriteLateParsedTemplates(Sema &SemaRef);
@@ -671,7 +673,7 @@ public:
   /// Retrieve or create a submodule ID for this module, or return 0 if
   /// the submodule is neither local (a submodle of the currently-written module)
   /// nor from an imported module.
-  unsigned getLocalOrImportedSubmoduleID(const Module *Mod);
+  unsigned getLocalOrImportedSubmoduleID(Module *Mod);
 
   /// Note that the identifier II occurs at the given offset
   /// within the identifier table.

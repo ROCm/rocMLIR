@@ -22,8 +22,11 @@ class FrameDisassembleTestCase(TestBase):
 
     def frame_disassemble_test(self):
         """Sample test to ensure SBFrame::Disassemble produces SOME output"""
+        exe = self.getBuildArtifact("a.out")
+
         # Create a target by the debugger.
-        target = self.createTestTarget()
+        target = self.dbg.CreateTarget(exe)
+        self.assertTrue(target, VALID_TARGET)
 
         # Now create a breakpoint in main.c at the source matching
         # "Set a breakpoint here"

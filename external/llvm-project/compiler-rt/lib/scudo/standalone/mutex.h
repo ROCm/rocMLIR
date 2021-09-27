@@ -22,6 +22,7 @@ namespace scudo {
 
 class HybridMutex {
 public:
+  void init() { M = {}; }
   bool tryLock();
   NOINLINE void lock() {
     if (LIKELY(tryLock()))
@@ -47,9 +48,9 @@ private:
   static constexpr u8 NumberOfYields = 8U;
 
 #if SCUDO_LINUX
-  atomic_u32 M = {};
+  atomic_u32 M;
 #elif SCUDO_FUCHSIA
-  sync_mutex_t M = {};
+  sync_mutex_t M;
 #endif
 
   void lockSlow();

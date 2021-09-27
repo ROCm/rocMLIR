@@ -15,11 +15,10 @@
 #include "clang/Sema/CodeCompleteOptions.h"
 #include "clang/Serialization/ModuleFileExtension.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/MemoryBuffer.h"
 #include <cassert>
-#include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace llvm {
@@ -289,9 +288,6 @@ public:
   /// Whether we are performing an implicit module build.
   unsigned BuildingImplicitModule : 1;
 
-  /// Whether to use a filesystem lock when building implicit modules.
-  unsigned BuildingImplicitModuleUsesLock : 1;
-
   /// Whether we should embed all used files into the PCM file.
   unsigned ModulesEmbedAllFiles : 1;
 
@@ -378,10 +374,6 @@ public:
   std::string MTMigrateDir;
   std::string ARCMTMigrateReportOut;
 
-  /// The input kind, either specified via -x argument or deduced from the input
-  /// file name.
-  InputKind DashX;
-
   /// The input files and their types.
   SmallVector<FrontendInputFile, 0> Inputs;
 
@@ -408,7 +400,7 @@ public:
   std::string ActionName;
 
   /// Args to pass to the plugins
-  std::map<std::string, std::vector<std::string>> PluginArgs;
+  std::unordered_map<std::string,std::vector<std::string>> PluginArgs;
 
   /// The list of plugin actions to run in addition to the normal action.
   std::vector<std::string> AddPluginActions;
@@ -464,9 +456,9 @@ public:
         SkipFunctionBodies(false), UseGlobalModuleIndex(true),
         GenerateGlobalModuleIndex(true), ASTDumpDecls(false),
         ASTDumpLookups(false), BuildingImplicitModule(false),
-        BuildingImplicitModuleUsesLock(true), ModulesEmbedAllFiles(false),
-        IncludeTimestamps(true), UseTemporary(true),
-        AllowPCMWithCompilerErrors(false), TimeTraceGranularity(500) {}
+        ModulesEmbedAllFiles(false), IncludeTimestamps(true),
+        UseTemporary(true), AllowPCMWithCompilerErrors(false),
+        TimeTraceGranularity(500) {}
 
   /// getInputKindForExtension - Return the appropriate input kind for a file
   /// extension. For example, "c" would return Language::C.

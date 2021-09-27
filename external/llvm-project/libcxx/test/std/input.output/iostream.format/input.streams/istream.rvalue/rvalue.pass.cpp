@@ -6,6 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+// UNSUPPORTED: c++03
+
 // <istream>
 
 // template <class Stream, class T>
@@ -75,7 +77,7 @@ int main(int, char**)
         // test perfect forwarding
         assert(called == false);
         std::istringstream ss;
-        std::istringstream&& result = (std::move(ss) >> A());
+        std::istringstream&& result = (std::move(ss) >> A{});
         assert(&result == &ss);
         assert(called);
     }

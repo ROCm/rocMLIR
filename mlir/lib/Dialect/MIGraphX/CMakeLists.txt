@@ -13,6 +13,7 @@ add_mlir_dialect_library(MLIRMIGraphX
   )
 target_link_libraries(MLIRMIGraphX
   PUBLIC
+  MLIRGPU
   MLIRIR
   LLVMSupport
   )

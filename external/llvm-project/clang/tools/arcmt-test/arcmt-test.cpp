@@ -207,13 +207,11 @@ static bool performTransformations(StringRef resourcesPath,
 static bool filesCompareEqual(StringRef fname1, StringRef fname2) {
   using namespace llvm;
 
-  ErrorOr<std::unique_ptr<MemoryBuffer>> file1 =
-      MemoryBuffer::getFile(fname1, /*IsText=*/true);
+  ErrorOr<std::unique_ptr<MemoryBuffer>> file1 = MemoryBuffer::getFile(fname1);
   if (!file1)
     return false;
 
-  ErrorOr<std::unique_ptr<MemoryBuffer>> file2 =
-      MemoryBuffer::getFile(fname2, /*IsText=*/true);
+  ErrorOr<std::unique_ptr<MemoryBuffer>> file2 = MemoryBuffer::getFile(fname2);
   if (!file2)
     return false;
 
@@ -242,7 +240,7 @@ static bool verifyTransformedFiles(ArrayRef<std::string> resultFiles) {
   if (RemappingsFile.empty())
     inputBuf = MemoryBuffer::getSTDIN();
   else
-    inputBuf = MemoryBuffer::getFile(RemappingsFile, /*IsText=*/true);
+    inputBuf = MemoryBuffer::getFile(RemappingsFile);
   if (!inputBuf) {
     errs() << "error: could not read remappings input\n";
     return true;

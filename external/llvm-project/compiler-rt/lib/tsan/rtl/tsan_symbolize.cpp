@@ -110,8 +110,7 @@ ReportLocation *SymbolizeData(uptr addr) {
   DataInfo info;
   if (!Symbolizer::GetOrInit()->SymbolizeData(addr, &info))
     return 0;
-  auto *ent = New<ReportLocation>();
-  ent->type = ReportLocationGlobal;
+  ReportLocation *ent = ReportLocation::New(ReportLocationGlobal);
   internal_memcpy(&ent->global, &info, sizeof(info));
   return ent;
 }

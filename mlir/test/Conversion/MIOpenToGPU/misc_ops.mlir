@@ -19,9 +19,9 @@ module {
 
     %idx = muli %bid, %tid : index
 
-    %val = memref.load %arg0[%idx] : memref<?xf32>
+    %val = load %arg0[%idx] : memref<?xf32>
 
-    memref.store %val, %arg1[%idx] : memref<?xf32>
+    store %val, %arg1[%idx] : memref<?xf32>
     return
   }
 }

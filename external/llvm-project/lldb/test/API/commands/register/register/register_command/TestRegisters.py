@@ -41,18 +41,13 @@ class RegisterCommandsTestCase(TestBase):
         self.expect("register read -a", MISSING_EXPECTED_REGISTERS,
                     substrs=['registers were unavailable'], matching=False)
 
-        all_registers = self.res.GetOutput()
-
         if self.getArchitecture() in ['amd64', 'i386', 'x86_64']:
             self.runCmd("register read xmm0")
-            if "ymm15 = " in all_registers:
-              self.runCmd("register read ymm15")  # may be available
-            if "bnd0 = " in all_registers:
-              self.runCmd("register read bnd0")  # may be available
+            self.runCmd("register read ymm15")  # may be available
+            self.runCmd("register read bnd0")  # may be available
         elif self.getArchitecture() in ['arm', 'armv7', 'armv7k', 'arm64', 'arm64e', 'arm64_32']:
             self.runCmd("register read s0")
-            if "q15 = " in all_registers:
-              self.runCmd("register read q15")  # may be available
+            self.runCmd("register read q15")  # may be available
 
         self.expect(
             "register read -s 4",
@@ -202,7 +197,11 @@ class RegisterCommandsTestCase(TestBase):
     # lldb/test/Shell/Register/x86*-fp-read.test.
     @skipUnlessDarwin
     def fp_special_purpose_register_read(self):
-        target = self.createTestTarget()
+        exe = self.getBuildArtifact("a.out")
+
+        # Create a target by the debugger.
+        target = self.dbg.CreateTarget(exe)
+        self.assertTrue(target, VALID_TARGET)
 
         # Launch the process and stop.
         self.expect("run", PROCESS_STOPPED, substrs=['stopped'])
@@ -279,7 +278,11 @@ class RegisterCommandsTestCase(TestBase):
                 1 << fstat_top_pointer_initial)
 
     def fp_register_write(self):
-        target = self.createTestTarget()
+        exe = self.getBuildArtifact("a.out")
+
+        # Create a target by the debugger.
+        target = self.dbg.CreateTarget(exe)
+        self.assertTrue(target, VALID_TARGET)
 
         # Launch the process, stop at the entry point.
         error = lldb.SBError()
@@ -402,13 +405,8 @@ class RegisterCommandsTestCase(TestBase):
             # Returns an SBValueList.
             registerSets = currentFrame.GetRegisters()
             for registerSet in registerSets:
-                set_name = registerSet.GetName().lower()
-                if 'advanced vector extensions' in set_name:
+                if 'advanced vector extensions' in registerSet.GetName().lower():
                     has_avx = True
-                # Darwin reports AVX registers as part of "Floating Point Registers"
-                elif self.platformIsDarwin() and 'floating point registers' in set_name:
-                    has_avx = registerSet.GetChildMemberWithName('ymm0').IsValid()
-
                 # FreeBSD/NetBSD reports missing register sets differently
                 # at the moment and triggers false positive here.
                 # TODO: remove FreeBSD/NetBSD exception when we make unsupported
@@ -423,8 +421,7 @@ class RegisterCommandsTestCase(TestBase):
                 self.write_and_read(currentFrame, "ymm7", new_value)
                 self.expect("expr $ymm0", substrs=['vector_type'])
             else:
-                self.expect("register read ymm0", substrs=["Invalid register name 'ymm0'"],
-                            error=True)
+                self.runCmd("register read ymm0")
 
             if has_mpx:
                 # Test write and read for bnd0.
@@ -439,8 +436,7 @@ class RegisterCommandsTestCase(TestBase):
                 self.write_and_read(currentFrame, "bndstatus", new_value)
                 self.expect("expr $bndstatus", substrs = ['vector_type'])
             else:
-                self.expect("register read bnd0", substrs=["Invalid register name 'bnd0'"],
-                            error=True)
+                self.runCmd("register read bnd0")
 
     def convenience_registers(self):
         """Test convenience registers."""
@@ -462,7 +458,7 @@ class RegisterCommandsTestCase(TestBase):
         # Now write rax with a unique bit pattern and test that eax indeed
         # represents the lower half of rax.
         self.runCmd("register write rax 0x1234567887654321")
-        self.expect("register read rax",
+        self.expect("register read rax 0x1234567887654321",
                     substrs=['0x1234567887654321'])
 
     def convenience_registers_with_process_attach(self, test_16bit_regs):

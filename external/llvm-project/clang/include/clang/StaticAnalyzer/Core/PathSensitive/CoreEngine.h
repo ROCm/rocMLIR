@@ -96,10 +96,9 @@ private:
   /// (This data is owned by AnalysisConsumer.)
   FunctionSummariesTy *FunctionSummaries;
 
-  /// Add path tags with some useful data along the path when we see that
-  /// something interesting is happening. This field is the allocator for such
-  /// tags.
-  DataTag::Factory DataTags;
+  /// Add path note tags along the path when we see that something interesting
+  /// is happening. This field is the allocator for such tags.
+  NoteTag::Factory NoteTags;
 
   void generateNode(const ProgramPoint &Loc,
                     ProgramStateRef State,
@@ -201,7 +200,7 @@ public:
   /// Enqueue a single node created as a result of statement processing.
   void enqueueStmtNode(ExplodedNode *N, const CFGBlock *Block, unsigned Idx);
 
-  DataTag::Factory &getDataTags() { return DataTags; }
+  NoteTag::Factory &getNoteTags() { return NoteTags; }
 };
 
 // TODO: Turn into a class.

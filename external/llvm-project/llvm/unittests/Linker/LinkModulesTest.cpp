@@ -72,7 +72,7 @@ protected:
 };
 
 static void expectNoDiags(const DiagnosticInfo &DI, void *C) {
-  llvm_unreachable("expectNoDiags called!");
+  EXPECT_TRUE(false);
 }
 
 TEST_F(LinkModuleTest, BlockAddress) {

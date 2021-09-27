@@ -132,8 +132,10 @@ bool DeadMachineInstructionElim::eliminateDeadMI(MachineFunction &MF) {
     // Add live-ins from successors to LivePhysRegs. Normally, physregs are not
     // live across blocks, but some targets (x86) can have flags live out of a
     // block.
-    for (const MachineBasicBlock *Succ : MBB->successors())
-      for (const auto &LI : Succ->liveins())
+    for (MachineBasicBlock::succ_iterator S = MBB->succ_begin(),
+                                          E = MBB->succ_end();
+         S != E; S++)
+      for (const auto &LI : (*S)->liveins())
         LivePhysRegs.set(LI.PhysReg);
 
     // Now scan the instructions and delete dead ones, tracking physreg

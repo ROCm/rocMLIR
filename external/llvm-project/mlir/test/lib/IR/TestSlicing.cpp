@@ -35,7 +35,7 @@ static LogicalResult createBackwardSliceFunction(Operation *op,
   builder.setInsertionPointToEnd(clonedFuncOp.addEntryBlock());
   for (auto arg : enumerate(parentFuncOp.getArguments()))
     mapper.map(arg.value(), clonedFuncOp.getArgument(arg.index()));
-  SetVector<Operation *> slice;
+  llvm::SetVector<Operation *> slice;
   getBackwardSlice(op, &slice);
   for (Operation *slicedOp : slice)
     builder.clone(*slicedOp, mapper);
@@ -47,10 +47,6 @@ namespace {
 /// Pass to test slice generated from slice analysis.
 struct SliceAnalysisTestPass
     : public PassWrapper<SliceAnalysisTestPass, OperationPass<ModuleOp>> {
-  StringRef getArgument() const final { return "slice-analysis-test"; }
-  StringRef getDescription() const final {
-    return "Test Slice analysis functionality.";
-  }
   void runOnOperation() override;
   SliceAnalysisTestPass() = default;
   SliceAnalysisTestPass(const SliceAnalysisTestPass &) {}
@@ -78,6 +74,7 @@ void SliceAnalysisTestPass::runOnOperation() {
 
 namespace mlir {
 void registerSliceAnalysisTestPass() {
-  PassRegistration<SliceAnalysisTestPass>();
+  PassRegistration<SliceAnalysisTestPass> pass(
+      "slice-analysis-test", "Test Slice analysis functionality.");
 }
 } // namespace mlir

@@ -171,9 +171,8 @@ TEST_F(SymbolFilePDBTests, TestResolveSymbolContextBasename) {
 
   FileSpec header_spec("test-pdb.cpp");
   SymbolContextList sc_list;
-  SourceLocationSpec location_spec(header_spec, /*line=*/0);
   uint32_t result_count = symfile->ResolveSymbolContext(
-      location_spec, lldb::eSymbolContextCompUnit, sc_list);
+      header_spec, 0, false, lldb::eSymbolContextCompUnit, sc_list);
   EXPECT_EQ(1u, result_count);
   EXPECT_TRUE(ContainsCompileUnit(sc_list, header_spec));
 }
@@ -191,9 +190,8 @@ TEST_F(SymbolFilePDBTests, TestResolveSymbolContextFullPath) {
   FileSpec header_spec(
       R"spec(D:\src\llvm\tools\lldb\unittests\SymbolFile\PDB\Inputs\test-pdb.cpp)spec");
   SymbolContextList sc_list;
-  SourceLocationSpec location_spec(header_spec, /*line=*/0);
   uint32_t result_count = symfile->ResolveSymbolContext(
-      location_spec, lldb::eSymbolContextCompUnit, sc_list);
+      header_spec, 0, false, lldb::eSymbolContextCompUnit, sc_list);
   EXPECT_GE(1u, result_count);
   EXPECT_TRUE(ContainsCompileUnit(sc_list, header_spec));
 }
@@ -216,10 +214,8 @@ TEST_F(SymbolFilePDBTests, TestLookupOfHeaderFileWithInlines) {
   FileSpec alt_cpp_spec("test-pdb-alt.cpp");
   for (const auto &hspec : header_specs) {
     SymbolContextList sc_list;
-    SourceLocationSpec location_spec(hspec, /*line=*/0, /*column=*/llvm::None,
-                                     /*check_inlines=*/true);
     uint32_t result_count = symfile->ResolveSymbolContext(
-        location_spec, lldb::eSymbolContextCompUnit, sc_list);
+        hspec, 0, true, lldb::eSymbolContextCompUnit, sc_list);
     EXPECT_EQ(2u, result_count);
     EXPECT_TRUE(ContainsCompileUnit(sc_list, main_cpp_spec));
     EXPECT_TRUE(ContainsCompileUnit(sc_list, alt_cpp_spec));
@@ -242,9 +238,8 @@ TEST_F(SymbolFilePDBTests, TestLookupOfHeaderFileWithNoInlines) {
                              FileSpec("test-pdb-nested.h")};
   for (const auto &hspec : header_specs) {
     SymbolContextList sc_list;
-    SourceLocationSpec location_spec(hspec, /*line=*/0);
     uint32_t result_count = symfile->ResolveSymbolContext(
-        location_spec, lldb::eSymbolContextCompUnit, sc_list);
+        hspec, 0, false, lldb::eSymbolContextCompUnit, sc_list);
     EXPECT_EQ(0u, result_count);
   }
 }
@@ -269,9 +264,8 @@ TEST_F(SymbolFilePDBTests, TestLineTablesMatchAll) {
   lldb::SymbolContextItem scope =
       lldb::eSymbolContextCompUnit | lldb::eSymbolContextLineEntry;
 
-  SourceLocationSpec location_spec(
-      source_file, /*line=*/0, /*column=*/llvm::None, /*check_inlines=*/true);
-  uint32_t count = symfile->ResolveSymbolContext(location_spec, scope, sc_list);
+  uint32_t count =
+      symfile->ResolveSymbolContext(source_file, 0, true, scope, sc_list);
   EXPECT_EQ(1u, count);
   SymbolContext sc;
   EXPECT_TRUE(sc_list.GetContextAtIndex(0, sc));
@@ -320,9 +314,8 @@ TEST_F(SymbolFilePDBTests, TestLineTablesMatchSpecific) {
       lldb::eSymbolContextCompUnit | lldb::eSymbolContextLineEntry;
 
   // First test with line 7, and verify that only line 7 entries are added.
-  SourceLocationSpec location_spec(
-      source_file, /*line=*/7, /*column=*/llvm::None, /*check_inlines=*/true);
-  uint32_t count = symfile->ResolveSymbolContext(location_spec, scope, sc_list);
+  uint32_t count =
+      symfile->ResolveSymbolContext(source_file, 7, true, scope, sc_list);
   EXPECT_EQ(1u, count);
   SymbolContext sc;
   EXPECT_TRUE(sc_list.GetContextAtIndex(0, sc));
@@ -338,9 +331,7 @@ TEST_F(SymbolFilePDBTests, TestLineTablesMatchSpecific) {
 
   sc_list.Clear();
   // Then test with line 9, and verify that only line 9 entries are added.
-  location_spec = SourceLocationSpec(
-      source_file, /*line=*/9, /*column=*/llvm::None, /*check_inlines=*/true);
-  count = symfile->ResolveSymbolContext(location_spec, scope, sc_list);
+  count = symfile->ResolveSymbolContext(source_file, 9, true, scope, sc_list);
   EXPECT_EQ(1u, count);
   EXPECT_TRUE(sc_list.GetContextAtIndex(0, sc));
 

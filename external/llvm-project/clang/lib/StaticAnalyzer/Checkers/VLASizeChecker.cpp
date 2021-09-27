@@ -20,7 +20,7 @@
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/DynamicExtent.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/DynamicSize.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/raw_ostream.h"
@@ -285,11 +285,21 @@ void VLASizeChecker::checkPreStmt(const DeclStmt *DS, CheckerContext &C) const {
     return;
   }
 
-  // VLASizeChecker is responsible for defining the extent of the array.
+  // VLASizeChecker is responsible for defining the extent of the array being
+  // declared. We do this by multiplying the array length by the element size,
+  // then matching that with the array region's extent symbol.
+
   if (VD) {
-    State =
-        setDynamicExtent(State, State->getRegion(VD, C.getLocationContext()),
-                         ArraySize.castAs<DefinedOrUnknownSVal>(), SVB);
+    // Assume that the array's size matches the region size.
+    const LocationContext *LC = C.getLocationContext();
+    DefinedOrUnknownSVal DynSize =
+        getDynamicSize(State, State->getRegion(VD, LC), SVB);
+
+    DefinedOrUnknownSVal SizeIsKnown = SVB.evalEQ(State, DynSize, *ArraySizeNL);
+    State = State->assume(SizeIsKnown, true);
+
+    // Assume should not fail at this point.
+    assert(State);
   }
 
   // Remember our assumptions!

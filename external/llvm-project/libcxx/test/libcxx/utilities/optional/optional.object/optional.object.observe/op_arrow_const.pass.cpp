@@ -14,19 +14,21 @@
 // UNSUPPORTED: libcxx-no-debug-mode
 
 // ADDITIONAL_COMPILE_FLAGS: -D_LIBCPP_DEBUG=1
+#define _LIBCPP_ASSERT(x, m) ((x) ? (void)0 : std::exit(0))
 
 #include <optional>
+#include <cassert>
 
 #include "test_macros.h"
-#include "debug_macros.h"
 
 struct X {
-    int test() const {return 3;}
+    constexpr int test() const {return 3;}
 };
 
 int main(int, char**) {
     const std::optional<X> opt;
-    TEST_LIBCPP_ASSERT_FAILURE(opt->test(), "optional operator-> called on a disengaged value");
+    assert(opt->test() == 3);
+    assert(false);
 
     return 0;
 }

@@ -110,12 +110,6 @@ public:
     /// This id is used, for example, for the profiling output.
     /// It defaults to "<unknown>".
     virtual StringRef getID() const;
-
-    /// TraversalKind to use while matching and processing
-    /// the result nodes. This API is temporary to facilitate
-    /// third parties porting existing code to the default
-    /// behavior of clang-tidy.
-    virtual llvm::Optional<TraversalKind> getCheckTraversalKind() const;
   };
 
   /// Called when parsing is finished. Intended for testing only.
@@ -167,7 +161,6 @@ public:
                   MatchCallback *Action);
   void addMatcher(const TemplateArgumentLocMatcher &NodeMatch,
                   MatchCallback *Action);
-  void addMatcher(const AttrMatcher &NodeMatch, MatchCallback *Action);
   /// @}
 
   /// Adds a matcher to execute when running over the AST.
@@ -220,7 +213,6 @@ public:
     std::vector<std::pair<CXXCtorInitializerMatcher, MatchCallback *>> CtorInit;
     std::vector<std::pair<TemplateArgumentLocMatcher, MatchCallback *>>
         TemplateArgumentLoc;
-    std::vector<std::pair<AttrMatcher, MatchCallback *>> Attr;
     /// All the callbacks in one container to simplify iteration.
     llvm::SmallPtrSet<MatchCallback *, 16> AllCallbacks;
   };
@@ -288,11 +280,6 @@ public:
   void run(const MatchFinder::MatchResult &Result) override {
     Nodes.push_back(Result.Nodes);
   }
-
-  llvm::Optional<TraversalKind> getCheckTraversalKind() const override {
-    return llvm::None;
-  }
-
   SmallVector<BoundNodes, 1> Nodes;
 };
 }

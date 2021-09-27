@@ -172,8 +172,7 @@ void AVRInstPrinter::printPCRelImm(const MCInst *MI, unsigned OpNo,
 
 void AVRInstPrinter::printMemri(const MCInst *MI, unsigned OpNo,
                                 raw_ostream &O) {
-  assert(MI->getOperand(OpNo).isReg() &&
-         "Expected a register for the first operand");
+  assert(MI->getOperand(OpNo).isReg() && "Expected a register for the first operand");
 
   const MCOperand &OffsetOp = MI->getOperand(OpNo + 1);
 
@@ -196,3 +195,4 @@ void AVRInstPrinter::printMemri(const MCInst *MI, unsigned OpNo,
 }
 
 } // end of namespace llvm
+

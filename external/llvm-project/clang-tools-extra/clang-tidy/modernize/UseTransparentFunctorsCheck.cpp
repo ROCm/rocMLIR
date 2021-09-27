@@ -64,7 +64,7 @@ void UseTransparentFunctorsCheck::registerMatchers(MatchFinder *Finder) {
                      this);
 }
 
-static const StringRef Message = "prefer transparent functors '%0<>'";
+static const StringRef Message = "prefer transparent functors '%0'";
 
 template <typename T> static T getInnerTypeLocAs(TypeLoc Loc) {
   T Result;
@@ -81,7 +81,8 @@ void UseTransparentFunctorsCheck::check(
       Result.Nodes.getNodeAs<ClassTemplateSpecializationDecl>("FunctorClass");
   if (const auto *FuncInst =
           Result.Nodes.getNodeAs<CXXConstructExpr>("FuncInst")) {
-    diag(FuncInst->getBeginLoc(), Message) << FuncClass->getName();
+    diag(FuncInst->getBeginLoc(), Message)
+        << (FuncClass->getName() + "<>").str();
     return;
   }
 
@@ -118,7 +119,7 @@ void UseTransparentFunctorsCheck::check(
   SourceLocation ReportLoc = FunctorLoc.getLocation();
   if (ReportLoc.isInvalid())
     return;
-  diag(ReportLoc, Message) << FuncClass->getName()
+  diag(ReportLoc, Message) << (FuncClass->getName() + "<>").str()
                            << FixItHint::CreateRemoval(
                                   FunctorTypeLoc.getArgLoc(0).getSourceRange());
 }

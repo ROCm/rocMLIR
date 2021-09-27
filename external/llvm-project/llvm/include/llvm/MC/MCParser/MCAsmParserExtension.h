@@ -89,7 +89,6 @@ public:
                   const Twine &Msg = "unexpected token") {
     return getParser().parseToken(T, Msg);
   }
-  bool parseEOL() { return getParser().parseEOL(); }
 
   bool parseMany(function_ref<bool()> parseOne, bool hasComma = true) {
     return getParser().parseMany(parseOne, hasComma);

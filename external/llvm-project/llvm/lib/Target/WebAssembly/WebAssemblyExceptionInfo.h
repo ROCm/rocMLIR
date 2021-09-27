@@ -45,7 +45,7 @@ class WebAssemblyException {
   WebAssemblyException *ParentException = nullptr;
   std::vector<std::unique_ptr<WebAssemblyException>> SubExceptions;
   std::vector<MachineBasicBlock *> Blocks;
-  SmallPtrSet<MachineBasicBlock *, 8> BlockSet;
+  SmallPtrSet<const MachineBasicBlock *, 8> BlockSet;
 
 public:
   WebAssemblyException(MachineBasicBlock *EHPad) : EHPad(EHPad) {}
@@ -68,9 +68,6 @@ public:
     return BlockSet.count(MBB);
   }
 
-  void addToBlocksSet(MachineBasicBlock *MBB) { BlockSet.insert(MBB); }
-  void removeFromBlocksSet(MachineBasicBlock *MBB) { BlockSet.erase(MBB); }
-  void addToBlocksVector(MachineBasicBlock *MBB) { Blocks.push_back(MBB); }
   void addBlock(MachineBasicBlock *MBB) {
     Blocks.push_back(MBB);
     BlockSet.insert(MBB);
@@ -84,10 +81,8 @@ public:
   }
   unsigned getNumBlocks() const { return Blocks.size(); }
   std::vector<MachineBasicBlock *> &getBlocksVector() { return Blocks; }
-  SmallPtrSetImpl<MachineBasicBlock *> &getBlocksSet() { return BlockSet; }
 
-  const std::vector<std::unique_ptr<WebAssemblyException>> &
-  getSubExceptions() const {
+  const std::vector<std::unique_ptr<WebAssemblyException>> &getSubExceptions() const {
     return SubExceptions;
   }
   std::vector<std::unique_ptr<WebAssemblyException>> &getSubExceptions() {
@@ -142,7 +137,7 @@ public:
 
   bool runOnMachineFunction(MachineFunction &) override;
   void releaseMemory() override;
-  void recalculate(MachineFunction &MF, MachineDominatorTree &MDT,
+  void recalculate(MachineDominatorTree &MDT,
                    const MachineDominanceFrontier &MDF);
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 
@@ -154,8 +149,7 @@ public:
     return BBMap.lookup(MBB);
   }
 
-  void changeExceptionFor(const MachineBasicBlock *MBB,
-                          WebAssemblyException *WE) {
+  void changeExceptionFor(MachineBasicBlock *MBB, WebAssemblyException *WE) {
     if (!WE) {
       BBMap.erase(MBB);
       return;

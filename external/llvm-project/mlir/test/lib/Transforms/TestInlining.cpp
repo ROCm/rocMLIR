@@ -22,15 +22,10 @@
 #include "llvm/ADT/StringSet.h"
 
 using namespace mlir;
-using namespace test;
+using namespace mlir::test;
 
 namespace {
 struct Inliner : public PassWrapper<Inliner, FunctionPass> {
-  StringRef getArgument() const final { return "test-inline"; }
-  StringRef getDescription() const final {
-    return "Test inlining region calls";
-  }
-
   void runOnFunction() override {
     auto function = getFunction();
 
@@ -68,6 +63,8 @@ struct Inliner : public PassWrapper<Inliner, FunctionPass> {
 
 namespace mlir {
 namespace test {
-void registerInliner() { PassRegistration<Inliner>(); }
+void registerInliner() {
+  PassRegistration<Inliner>("test-inline", "Test inlining region calls");
+}
 } // namespace test
 } // namespace mlir

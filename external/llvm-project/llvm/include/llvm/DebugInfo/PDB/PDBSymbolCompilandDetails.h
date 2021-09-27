@@ -49,4 +49,4 @@ public:
 } // namespace llvm
 }
 
-#endif // LLVM_DEBUGINFO_PDB_PDBSYMBOLCOMPILANDDETAILS_H
+#endif // LLVM_DEBUGINFO_PDB_PDBFUNCTION_H

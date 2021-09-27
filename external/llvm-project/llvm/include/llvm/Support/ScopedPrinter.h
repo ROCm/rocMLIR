@@ -12,7 +12,6 @@
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/Endian.h"
@@ -32,9 +31,8 @@ template <typename T> struct EnumEntry {
   // "Advanced Micro Devices X86-64" on GNU style
   StringRef AltName;
   T Value;
-  constexpr EnumEntry(StringRef N, StringRef A, T V)
-      : Name(N), AltName(A), Value(V) {}
-  constexpr EnumEntry(StringRef N, T V) : Name(N), AltName(N), Value(V) {}
+  EnumEntry(StringRef N, StringRef A, T V) : Name(N), AltName(A), Value(V) {}
+  EnumEntry(StringRef N, T V) : Name(N), AltName(N), Value(V) {}
 };
 
 struct HexNumber {
@@ -209,28 +207,38 @@ public:
 
   template <typename T> void printList(StringRef Label, const T &List) {
     startLine() << Label << ": [";
-    ListSeparator LS;
-    for (const auto &Item : List)
-      OS << LS << Item;
+    bool Comma = false;
+    for (const auto &Item : List) {
+      if (Comma)
+        OS << ", ";
+      OS << Item;
+      Comma = true;
+    }
     OS << "]\n";
   }
 
   template <typename T, typename U>
   void printList(StringRef Label, const T &List, const U &Printer) {
     startLine() << Label << ": [";
-    ListSeparator LS;
+    bool Comma = false;
     for (const auto &Item : List) {
-      OS << LS;
+      if (Comma)
+        OS << ", ";
       Printer(OS, Item);
+      Comma = true;
     }
     OS << "]\n";
   }
 
   template <typename T> void printHexList(StringRef Label, const T &List) {
     startLine() << Label << ": [";
-    ListSeparator LS;
-    for (const auto &Item : List)
-      OS << LS << hex(Item);
+    bool Comma = false;
+    for (const auto &Item : List) {
+      if (Comma)
+        OS << ", ";
+      OS << hex(Item);
+      Comma = true;
+    }
     OS << "]\n";
   }
 

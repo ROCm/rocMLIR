@@ -10,7 +10,7 @@
 
 #include "llvm/Support/MemoryBuffer.h"
 
-#include <cassert>
+#include <assert.h>
 
 using namespace lldb_private;
 
@@ -21,7 +21,7 @@ DataBufferLLVM::DataBufferLLVM(
          "Cannot construct a DataBufferLLVM with a null buffer");
 }
 
-DataBufferLLVM::~DataBufferLLVM() = default;
+DataBufferLLVM::~DataBufferLLVM() {}
 
 uint8_t *DataBufferLLVM::GetBytes() {
   return reinterpret_cast<uint8_t *>(Buffer->getBufferStart());

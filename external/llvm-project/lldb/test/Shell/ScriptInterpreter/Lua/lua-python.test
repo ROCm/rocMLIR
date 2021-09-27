@@ -1,3 +1,4 @@
+# REQUIRES: lua
 # REQUIRES: python
 # UNSUPPORTED: lldb-repro
 

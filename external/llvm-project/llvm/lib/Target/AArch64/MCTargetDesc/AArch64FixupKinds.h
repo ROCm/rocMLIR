@@ -55,6 +55,9 @@ enum Fixups {
   // branch26 only on ELF.
   fixup_aarch64_pcrel_call26,
 
+  // zero-space placeholder for the ELF R_AARCH64_TLSDESC_CALL relocation.
+  fixup_aarch64_tlsdesc_call,
+
   // Marker
   LastTargetFixupKind,
   NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind

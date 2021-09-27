@@ -23,7 +23,6 @@
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/IR/DebugLoc.h"
-#include "llvm/IR/IRBuilder.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
 #include <sstream>
@@ -569,7 +568,7 @@ bool AArch64LowerHomogeneousPE::lowerProlog(
 /// Process each machine instruction
 /// @param MBB machine basic block
 /// @param MBBI current instruction iterator
-/// @param NextMBBI next instruction iterator which can be updated
+/// @param NextMBBIT next instruction iterator which can be updated
 /// @return True when IR is changed.
 bool AArch64LowerHomogeneousPE::runOnMI(MachineBasicBlock &MBB,
                                         MachineBasicBlock::iterator MBBI,

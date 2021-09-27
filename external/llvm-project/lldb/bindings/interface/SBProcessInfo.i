@@ -62,12 +62,6 @@ public:
 
     lldb::pid_t
     GetParentProcessID ();
-
-    %feature("docstring",
-    "Return the target triple (arch-vendor-os) for the described process."
-    ) GetTriple;
-    const char *
-    GetTriple ();
 };
 
 } // namespace lldb

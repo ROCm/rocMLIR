@@ -32,19 +32,14 @@ set(sources
   X86CmovConversion.cpp
   X86DomainReassignment.cpp
   X86DiscriminateMemOps.cpp
-  X86LowerTileCopy.cpp
   X86LowerAMXType.cpp
-  X86PreAMXConfig.cpp
-  X86LowerAMXIntrinsics.cpp
   X86TileConfig.cpp
-  X86FastTileConfig.cpp
   X86PreTileConfig.cpp
   X86ExpandPseudo.cpp
   X86FastISel.cpp
   X86FixupBWInsts.cpp
   X86FixupLEAs.cpp
   X86AvoidStoreForwardingBlocks.cpp
-  X86DynAllocaExpander.cpp
   X86FixupSetCC.cpp
   X86FlagsCopyLowering.cpp
   X86FloatingPoint.cpp
@@ -81,6 +76,7 @@ set(sources
   X86TargetObjectFile.cpp
   X86TargetTransformInfo.cpp
   X86VZeroUpper.cpp
+  X86WinAllocaExpander.cpp
   X86WinEHState.cpp
   X86InsertWait.cpp
   )
@@ -91,12 +87,10 @@ add_llvm_target(X86CodeGen ${sources}
   AsmPrinter
   CodeGen
   Core
-  Instrumentation
   MC
   SelectionDAG
   Support
   Target
-  TransformUtils
   X86Desc
   X86Info
   GlobalISel

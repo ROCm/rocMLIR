@@ -15,8 +15,8 @@
 // F32-NEXT:     scf.for [[IV_K:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_K]] step [[ONE]] {
 // F32-NEXT:       scf.for [[IV_HO:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_HO]] step [[ONE]] {
 // F32-NEXT:         scf.for [[IV_WO:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_WO]] step [[ONE]] {
-// F32-NEXT:           [[VALUE:%[a-zA-Z_0-9]+]] = memref.load [[SOURCE]]{{\[}}[[IV_N]], [[IV_G]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>
-// F32-NEXT:           memref.store [[VALUE]], [[DEST]]{{\[}}[[IV_N]], [[IV_G]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE]]>
+// F32-NEXT:           [[VALUE:%[a-zA-Z_0-9]+]] = load [[SOURCE]]{{\[}}[[IV_N]], [[IV_G]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>
+// F32-NEXT:           store [[VALUE]], [[DEST]]{{\[}}[[IV_N]], [[IV_G]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE]]>
 // F32-NEXT:         }
 // F32-NEXT:       }
 // F32-NEXT:     }
@@ -37,9 +37,9 @@
 // F16-NEXT:     scf.for [[IV_K:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_K]] step [[ONE]] {
 // F16-NEXT:       scf.for [[IV_HO:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_HO]] step [[ONE]] {
 // F16-NEXT:         scf.for [[IV_WO:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_WO]] step [[ONE]] {
-// F16-NEXT:           [[VALUE:%[a-zA-Z_0-9]+]] = memref.load [[SOURCE]]{{\[}}[[IV_N]], [[IV_G]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>
+// F16-NEXT:           [[VALUE:%[a-zA-Z_0-9]+]] = load [[SOURCE]]{{\[}}[[IV_N]], [[IV_G]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>
 // F16-NEXT:           [[CONVERTED_VALUE:%[a-zA-Z_0-9]+]] = fpext [[VALUE]] : [[TYPE]] to [[PRINT_TYPE]]
-// F16-NEXT:           memref.store [[CONVERTED_VALUE]], [[DEST]]{{\[}}[[IV_N]], [[IV_G]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE]]>
+// F16-NEXT:           store [[CONVERTED_VALUE]], [[DEST]]{{\[}}[[IV_N]], [[IV_G]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE]]>
 // F16-NEXT:         }
 // F16-NEXT:       }
 // F16-NEXT:     }

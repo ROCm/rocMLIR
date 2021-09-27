@@ -176,14 +176,6 @@ func @verbose() {
   return
 }
 
-// CHECK-LABEL: @ptr_elem_interface
-// CHECK-COUNT-3: !llvm.ptr<!test.smpla>
-func @ptr_elem_interface(%arg0: !llvm.ptr<!test.smpla>) {
-  %0 = llvm.load %arg0 : !llvm.ptr<!test.smpla>
-  llvm.store %0, %arg0 : !llvm.ptr<!test.smpla>
-  return
-}
-
 // -----
 
 // Check that type aliases can be used inside LLVM dialect types. Note that

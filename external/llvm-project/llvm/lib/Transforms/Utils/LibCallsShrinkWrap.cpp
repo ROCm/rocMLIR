@@ -304,7 +304,7 @@ void LibCallsShrinkWrap::checkCandidate(CallInst &CI) {
   if (!TLI.getLibFunc(*Callee, Func) || !TLI.has(Func))
     return;
 
-  if (CI.arg_empty())
+  if (CI.getNumArgOperands() == 0)
     return;
   // TODO: Handle long double in other formats.
   Type *ArgType = CI.getArgOperand(0)->getType();
@@ -555,6 +555,7 @@ PreservedAnalyses LibCallsShrinkWrapPass::run(Function &F,
   if (!runImpl(F, TLI, DT))
     return PreservedAnalyses::all();
   auto PA = PreservedAnalyses();
+  PA.preserve<GlobalsAA>();
   PA.preserve<DominatorTreeAnalysis>();
   return PA;
 }

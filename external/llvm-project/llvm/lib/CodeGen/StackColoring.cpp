@@ -678,8 +678,9 @@ unsigned StackColoring::collectMarkers(unsigned NumSlot) {
     // to this bb).
     BitVector BetweenStartEnd;
     BetweenStartEnd.resize(NumSlot);
-    for (const MachineBasicBlock *Pred : MBB->predecessors()) {
-      BlockBitVecMap::const_iterator I = SeenStartMap.find(Pred);
+    for (MachineBasicBlock::const_pred_iterator PI = MBB->pred_begin(),
+             PE = MBB->pred_end(); PI != PE; ++PI) {
+      BlockBitVecMap::const_iterator I = SeenStartMap.find(*PI);
       if (I != SeenStartMap.end()) {
         BetweenStartEnd |= I->second;
       }
@@ -687,8 +688,6 @@ unsigned StackColoring::collectMarkers(unsigned NumSlot) {
 
     // Walk the instructions in the block to look for start/end ops.
     for (MachineInstr &MI : *MBB) {
-      if (MI.isDebugInstr())
-        continue;
       if (MI.getOpcode() == TargetOpcode::LIFETIME_START ||
           MI.getOpcode() == TargetOpcode::LIFETIME_END) {
         int Slot = getStartOrEndSlot(MI);
@@ -820,8 +819,9 @@ void StackColoring::calculateLocalLiveness() {
 
       // Compute LiveIn by unioning together the LiveOut sets of all preds.
       BitVector LocalLiveIn;
-      for (MachineBasicBlock *Pred : BB->predecessors()) {
-        LivenessMap::const_iterator I = BlockLiveness.find(Pred);
+      for (MachineBasicBlock::const_pred_iterator PI = BB->pred_begin(),
+           PE = BB->pred_end(); PI != PE; ++PI) {
+        LivenessMap::const_iterator I = BlockLiveness.find(*PI);
         // PR37130: transformations prior to stack coloring can
         // sometimes leave behind statically unreachable blocks; these
         // can be safely skipped here.

@@ -11,7 +11,7 @@
 #include "llvm/Support/Errno.h"
 #include "llvm/Support/FileSystem.h"
 
-#include <cstddef>
+#include <stddef.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 

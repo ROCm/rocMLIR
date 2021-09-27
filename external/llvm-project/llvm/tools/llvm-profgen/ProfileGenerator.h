@@ -8,13 +8,10 @@
 
 #ifndef LLVM_TOOLS_LLVM_PROGEN_PROFILEGENERATOR_H
 #define LLVM_TOOLS_LLVM_PROGEN_PROFILEGENERATOR_H
-#include "CSPreInliner.h"
 #include "ErrorHandling.h"
 #include "PerfReader.h"
 #include "ProfiledBinary.h"
 #include "llvm/ProfileData/SampleProfWriter.h"
-#include <memory>
-#include <unordered_set>
 
 using namespace llvm;
 using namespace sampleprof;
@@ -25,15 +22,17 @@ namespace sampleprof {
 class ProfileGenerator {
 
 public:
-  ProfileGenerator(ProfiledBinary *B) : Binary(B){};
+  ProfileGenerator(){};
   virtual ~ProfileGenerator() = default;
   static std::unique_ptr<ProfileGenerator>
-  create(ProfiledBinary *Binary, const ContextSampleCounterMap &SampleCounters,
+  create(const BinarySampleCounterMap &BinarySampleCounters,
          enum PerfScriptType SampleType);
   virtual void generateProfile() = 0;
+  // Merge and trim profile with cold context before serialization,
+  // only eligible for CS profile
+  virtual void
+  mergeAndTrimColdProfile(StringMap<FunctionSamples> &ProfileMap){};
   // Use SampleProfileWriter to serialize profile map
-  virtual void write(std::unique_ptr<SampleProfileWriter> Writer,
-                     SampleProfileMap &ProfileMap);
   void write();
 
 protected:
@@ -56,31 +55,44 @@ protected:
                           const RangeSample &Ranges);
 
   // Used by SampleProfileWriter
-  SampleProfileMap ProfileMap;
-
-  ProfiledBinary *Binary = nullptr;
+  StringMap<FunctionSamples> ProfileMap;
 };
 
 class CSProfileGenerator : public ProfileGenerator {
 protected:
-  const ContextSampleCounterMap &SampleCounters;
+  const BinarySampleCounterMap &BinarySampleCounters;
 
 public:
-  CSProfileGenerator(ProfiledBinary *Binary,
-                     const ContextSampleCounterMap &Counters)
-      : ProfileGenerator(Binary), SampleCounters(Counters){};
+  CSProfileGenerator(const BinarySampleCounterMap &Counters)
+      : BinarySampleCounters(Counters){};
 
 public:
-  void generateProfile() override;
+  void generateProfile() override {
+    // Enable context-sensitive functionalities in SampleProf
+    FunctionSamples::ProfileIsCS = true;
+    for (const auto &BI : BinarySampleCounters) {
+      ProfiledBinary *Binary = BI.first;
+      for (const auto &CI : BI.second) {
+        const StringBasedCtxKey *CtxKey =
+            dyn_cast<StringBasedCtxKey>(CI.first.getPtr());
+        StringRef ContextId(CtxKey->Context);
+        // Get or create function profile for the range
+        FunctionSamples &FunctionProfile =
+            getFunctionProfileForContext(ContextId);
 
-  // Trim the context stack at a given depth.
-  template <typename T>
-  static void trimContext(SmallVectorImpl<T> &S, int Depth = MaxContextDepth) {
-    if (Depth < 0 || static_cast<size_t>(Depth) >= S.size())
-      return;
-    std::copy(S.begin() + S.size() - static_cast<size_t>(Depth), S.end(),
-              S.begin());
-    S.resize(Depth);
+        // Fill in function body samples
+        populateFunctionBodySamples(FunctionProfile, CI.second.RangeCounter,
+                                    Binary);
+        // Fill in boundary sample counts as well as call site samples for calls
+        populateFunctionBoundarySamples(ContextId, FunctionProfile,
+                                        CI.second.BranchCounter, Binary);
+      }
+    }
+    // Fill in call site value sample for inlined calls and also use context to
+    // infer missing samples. Since we don't have call count for inlined
+    // functions, we estimate it from inlinee's profile using the entry of the
+    // body sample.
+    populateInferredFunctionSamples();
   }
 
   // Remove adjacent repeated context sequences up to a given sequence length,
@@ -190,68 +202,65 @@ public:
 
 protected:
   // Lookup or create FunctionSamples for the context
-  FunctionSamples &getFunctionProfileForContext(SampleContextFrames ContextId,
-                                                bool WasLeafInlined = false);
-  // Post processing for profiles before writing out, such as mermining
-  // and trimming cold profiles, running preinliner on profiles.
-  void postProcessProfiles();
-  void computeSummaryAndThreshold();
-  void write(std::unique_ptr<SampleProfileWriter> Writer,
-             SampleProfileMap &ProfileMap) override;
-
-  // Thresholds from profile summary to answer isHotCount/isColdCount queries.
-  uint64_t HotCountThreshold;
-  uint64_t ColdCountThreshold;
+  FunctionSamples &getFunctionProfileForContext(StringRef ContextId);
+  // Merge cold context profile whose total sample is below threshold
+  // into base profile.
+  void mergeAndTrimColdProfile(StringMap<FunctionSamples> &ProfileMap) override;
 
 private:
   // Helper function for updating body sample for a leaf location in
   // FunctionProfile
   void updateBodySamplesforFunctionProfile(FunctionSamples &FunctionProfile,
-                                           const SampleContextFrame &LeafLoc,
+                                           const FrameLocation &LeafLoc,
                                            uint64_t Count);
   void populateFunctionBodySamples(FunctionSamples &FunctionProfile,
-                                   const RangeSample &RangeCounters);
-  void populateFunctionBoundarySamples(SampleContextFrames ContextId,
+                                   const RangeSample &RangeCounters,
+                                   ProfiledBinary *Binary);
+  void populateFunctionBoundarySamples(StringRef ContextId,
                                        FunctionSamples &FunctionProfile,
-                                       const BranchSample &BranchCounters);
+                                       const BranchSample &BranchCounters,
+                                       ProfiledBinary *Binary);
   void populateInferredFunctionSamples();
 
 public:
   // Deduplicate adjacent repeated context sequences up to a given sequence
   // length. -1 means no size limit.
   static int32_t MaxCompressionSize;
-  static int MaxContextDepth;
 };
 
-using ProbeCounterMap =
-    std::unordered_map<const MCDecodedPseudoProbe *, uint64_t>;
+using ProbeCounterMap = std::unordered_map<const PseudoProbe *, uint64_t>;
 
 class PseudoProbeCSProfileGenerator : public CSProfileGenerator {
 
 public:
-  PseudoProbeCSProfileGenerator(ProfiledBinary *Binary,
-                                const ContextSampleCounterMap &Counters)
-      : CSProfileGenerator(Binary, Counters) {}
+  PseudoProbeCSProfileGenerator(const BinarySampleCounterMap &Counters)
+      : CSProfileGenerator(Counters) {}
   void generateProfile() override;
 
 private:
   // Go through each address from range to extract the top frame probe by
   // looking up in the Address2ProbeMap
   void extractProbesFromRange(const RangeSample &RangeCounter,
-                              ProbeCounterMap &ProbeCounter);
+                              ProbeCounterMap &ProbeCounter,
+                              ProfiledBinary *Binary);
   // Fill in function body samples from probes
-  void populateBodySamplesWithProbes(const RangeSample &RangeCounter,
-                                     SampleContextFrames ContextStack);
+  void
+  populateBodySamplesWithProbes(const RangeSample &RangeCounter,
+                                SmallVectorImpl<std::string> &ContextStrStack,
+                                ProfiledBinary *Binary);
   // Fill in boundary samples for a call probe
-  void populateBoundarySamplesWithProbes(const BranchSample &BranchCounter,
-                                         SampleContextFrames ContextStack);
+  void populateBoundarySamplesWithProbes(
+      const BranchSample &BranchCounter,
+      SmallVectorImpl<std::string> &ContextStrStack, ProfiledBinary *Binary);
+  // Helper function to get FunctionSamples for the leaf inlined context
+  FunctionSamples &
+  getFunctionProfileForLeafProbe(SmallVectorImpl<std::string> &ContextStrStack,
+                                 const PseudoProbeFuncDesc *LeafFuncDesc);
   // Helper function to get FunctionSamples for the leaf probe
   FunctionSamples &
-  getFunctionProfileForLeafProbe(SampleContextFrames ContextStack,
-                                 const MCDecodedPseudoProbe *LeafProbe);
-
-  // Underlying context table serves for sample profile writer.
-  std::unordered_set<SampleContextFrameVector, SampleContextFrameHash> Contexts;
+  getFunctionProfileForLeafProbe(SmallVectorImpl<std::string> &ContextStrStack,
+                                 const PseudoProbe *LeafProbe,
+                                 ProfiledBinary *Binary);
 };
 
 } // end namespace sampleprof

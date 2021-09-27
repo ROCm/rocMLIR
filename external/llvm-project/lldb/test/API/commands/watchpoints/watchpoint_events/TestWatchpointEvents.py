@@ -24,7 +24,11 @@ class TestWatchpointEvents (TestBase):
     def test_with_python_api(self):
         """Test that adding, deleting and modifying watchpoints sends the appropriate events."""
         self.build()
-        target = self.createTestTarget()
+
+        exe = self.getBuildArtifact("a.out")
+
+        target = self.dbg.CreateTarget(exe)
+        self.assertTrue(target, VALID_TARGET)
 
         self.main_source_spec = lldb.SBFileSpec(self.main_source)
 

@@ -29,7 +29,7 @@
 void llvm_raise(value Prototype, char *Message);
 
 /* unit -> bool */
-value llvm_ee_initialize(value Unit) {
+CAMLprim value llvm_ee_initialize(value Unit) {
   LLVMLinkInMCJIT();
 
   return Val_bool(!LLVMInitializeNativeTarget() &&
@@ -38,7 +38,7 @@ value llvm_ee_initialize(value Unit) {
 }
 
 /* llmodule -> llcompileroption -> ExecutionEngine.t */
-LLVMExecutionEngineRef llvm_ee_create(value OptRecordOpt, LLVMModuleRef M) {
+CAMLprim LLVMExecutionEngineRef llvm_ee_create(value OptRecordOpt, LLVMModuleRef M) {
   value OptRecord;
   LLVMExecutionEngineRef MCJIT;
   char *Error;
@@ -54,26 +54,26 @@ LLVMExecutionEngineRef llvm_ee_create(value OptRecordOpt, LLVMModuleRef M) {
     Options.MCJMM = NULL;
   }
 
-  if (LLVMCreateMCJITCompilerForModule(&MCJIT, M, &Options, sizeof(Options),
-                                       &Error))
+  if (LLVMCreateMCJITCompilerForModule(&MCJIT, M, &Options,
+                                      sizeof(Options), &Error))
     llvm_raise(*caml_named_value("Llvm_executionengine.Error"), Error);
   return MCJIT;
 }
 
 /* ExecutionEngine.t -> unit */
-value llvm_ee_dispose(LLVMExecutionEngineRef EE) {
+CAMLprim value llvm_ee_dispose(LLVMExecutionEngineRef EE) {
   LLVMDisposeExecutionEngine(EE);
   return Val_unit;
 }
 
 /* llmodule -> ExecutionEngine.t -> unit */
-value llvm_ee_add_module(LLVMModuleRef M, LLVMExecutionEngineRef EE) {
+CAMLprim value llvm_ee_add_module(LLVMModuleRef M, LLVMExecutionEngineRef EE) {
   LLVMAddModule(EE, M);
   return Val_unit;
 }
 
 /* llmodule -> ExecutionEngine.t -> llmodule */
-value llvm_ee_remove_module(LLVMModuleRef M, LLVMExecutionEngineRef EE) {
+CAMLprim value llvm_ee_remove_module(LLVMModuleRef M, LLVMExecutionEngineRef EE) {
   LLVMModuleRef RemovedModule;
   char *Error;
   if (LLVMRemoveModule(EE, M, &RemovedModule, &Error))
@@ -82,13 +82,13 @@ value llvm_ee_remove_module(LLVMModuleRef M, LLVMExecutionEngineRef EE) {
 }
 
 /* ExecutionEngine.t -> unit */
-value llvm_ee_run_static_ctors(LLVMExecutionEngineRef EE) {
+CAMLprim value llvm_ee_run_static_ctors(LLVMExecutionEngineRef EE) {
   LLVMRunStaticConstructors(EE);
   return Val_unit;
 }
 
 /* ExecutionEngine.t -> unit */
-value llvm_ee_run_static_dtors(LLVMExecutionEngineRef EE) {
+CAMLprim value llvm_ee_run_static_dtors(LLVMExecutionEngineRef EE) {
   LLVMRunStaticDestructors(EE);
   return Val_unit;
 }
@@ -96,10 +96,10 @@ value llvm_ee_run_static_dtors(LLVMExecutionEngineRef EE) {
 extern value llvm_alloc_data_layout(LLVMTargetDataRef TargetData);
 
 /* ExecutionEngine.t -> Llvm_target.DataLayout.t */
-value llvm_ee_get_data_layout(LLVMExecutionEngineRef EE) {
+CAMLprim value llvm_ee_get_data_layout(LLVMExecutionEngineRef EE) {
   value DataLayout;
   LLVMTargetDataRef OrigDataLayout;
-  char *TargetDataCStr;
+  char* TargetDataCStr;
 
   OrigDataLayout = LLVMGetExecutionEngineTargetData(EE);
   TargetDataCStr = LLVMCopyStringRepOfTargetData(OrigDataLayout);
@@ -110,17 +110,18 @@ value llvm_ee_get_data_layout(LLVMExecutionEngineRef EE) {
 }
 
 /* Llvm.llvalue -> int64 -> llexecutionengine -> unit */
-value llvm_ee_add_global_mapping(LLVMValueRef Global, value Ptr,
-                                 LLVMExecutionEngineRef EE) {
-  LLVMAddGlobalMapping(EE, Global, (void *)(Int64_val(Ptr)));
+CAMLprim value llvm_ee_add_global_mapping(LLVMValueRef Global, value Ptr,
+                                          LLVMExecutionEngineRef EE) {
+  LLVMAddGlobalMapping(EE, Global, (void*) (Int64_val(Ptr)));
   return Val_unit;
 }
 
-value llvm_ee_get_global_value_address(value Name, LLVMExecutionEngineRef EE) {
-  return caml_copy_int64(
-      (int64_t)LLVMGetGlobalValueAddress(EE, String_val(Name)));
+CAMLprim value llvm_ee_get_global_value_address(value Name,
+						LLVMExecutionEngineRef EE) {
+  return caml_copy_int64((int64_t) LLVMGetGlobalValueAddress(EE, String_val(Name)));
 }
 
-value llvm_ee_get_function_address(value Name, LLVMExecutionEngineRef EE) {
-  return caml_copy_int64((int64_t)LLVMGetFunctionAddress(EE, String_val(Name)));
+CAMLprim value llvm_ee_get_function_address(value Name,
+					    LLVMExecutionEngineRef EE) {
+  return caml_copy_int64((int64_t) LLVMGetFunctionAddress(EE, String_val(Name)));
 }

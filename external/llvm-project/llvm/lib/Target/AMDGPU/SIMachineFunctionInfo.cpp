@@ -8,22 +8,6 @@
 
 #include "SIMachineFunctionInfo.h"
 #include "AMDGPUTargetMachine.h"
-#include "AMDGPUSubtarget.h"
-#include "SIRegisterInfo.h"
-#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
-#include "Utils/AMDGPUBaseInfo.h"
-#include "llvm/ADT/Optional.h"
-#include "llvm/CodeGen/LiveIntervals.h"
-#include "llvm/CodeGen/MachineBasicBlock.h"
-#include "llvm/CodeGen/MachineFrameInfo.h"
-#include "llvm/CodeGen/MachineFunction.h"
-#include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/MIRParser/MIParser.h"
-#include "llvm/IR/CallingConv.h"
-#include "llvm/IR/DiagnosticInfo.h"
-#include "llvm/IR/Function.h"
-#include <cassert>
-#include <vector>
 
 #define MAX_LANES 64
 
@@ -67,11 +51,9 @@ SIMachineFunctionInfo::SIMachineFunctionInfo(const MachineFunction &MF)
   const bool UseFixedABI = AMDGPUTargetMachine::EnableFixedFunctionABI &&
                            CC != CallingConv::AMDGPU_Gfx &&
                            (!isEntryFunction() || HasCalls);
-  const bool IsKernel = CC == CallingConv::AMDGPU_KERNEL ||
-                        CC == CallingConv::SPIR_KERNEL;
 
-  if (IsKernel) {
-    if (!F.arg_empty() || ST.getImplicitArgNumBytes(F) != 0)
+  if (CC == CallingConv::AMDGPU_KERNEL || CC == CallingConv::SPIR_KERNEL) {
+    if (!F.arg_empty())
       KernargSegmentPtr = true;
     WorkGroupIDX = true;
     WorkItemIDX = true;
@@ -96,91 +78,95 @@ SIMachineFunctionInfo::SIMachineFunctionInfo(const MachineFunction &MF)
         ArgDescriptor::createRegister(ScratchRSrcReg);
     }
 
-    if (!F.hasFnAttribute("amdgpu-no-implicitarg-ptr"))
+    if (F.hasFnAttribute("amdgpu-implicitarg-ptr"))
       ImplicitArgPtr = true;
   } else {
-    ImplicitArgPtr = false;
-    MaxKernArgAlign = std::max(ST.getAlignmentForImplicitArgPtr(),
-                               MaxKernArgAlign);
+    if (F.hasFnAttribute("amdgpu-implicitarg-ptr")) {
+      KernargSegmentPtr = true;
+      MaxKernArgAlign = std::max(ST.getAlignmentForImplicitArgPtr(),
+                                 MaxKernArgAlign);
+    }
   }
 
-  bool isAmdHsaOrMesa = ST.isAmdHsaOrMesa(F);
-  if (isAmdHsaOrMesa && !ST.enableFlatScratch())
-    PrivateSegmentBuffer = true;
-  else if (ST.isMesaGfxShader(F))
-    ImplicitBufferPtr = true;
-
   if (UseFixedABI) {
-    DispatchPtr = true;
-    QueuePtr = true;
-    ImplicitArgPtr = true;
     WorkGroupIDX = true;
     WorkGroupIDY = true;
     WorkGroupIDZ = true;
     WorkItemIDX = true;
     WorkItemIDY = true;
     WorkItemIDZ = true;
-
-    // FIXME: We don't need this?
-    DispatchID = true;
-  } else if (!AMDGPU::isGraphics(CC)) {
-    if (IsKernel || !F.hasFnAttribute("amdgpu-no-workgroup-id-x"))
+    ImplicitArgPtr = true;
+  } else {
+    if (F.hasFnAttribute("amdgpu-work-group-id-x"))
       WorkGroupIDX = true;
 
-    if (!F.hasFnAttribute("amdgpu-no-workgroup-id-y"))
+    if (F.hasFnAttribute("amdgpu-work-group-id-y"))
       WorkGroupIDY = true;
 
-    if (!F.hasFnAttribute("amdgpu-no-workgroup-id-z"))
+    if (F.hasFnAttribute("amdgpu-work-group-id-z"))
       WorkGroupIDZ = true;
 
-    if (IsKernel || !F.hasFnAttribute("amdgpu-no-workitem-id-x"))
+    if (F.hasFnAttribute("amdgpu-work-item-id-x"))
       WorkItemIDX = true;
 
-    if (!F.hasFnAttribute("amdgpu-no-workitem-id-y"))
+    if (F.hasFnAttribute("amdgpu-work-item-id-y"))
       WorkItemIDY = true;
 
-    if (!F.hasFnAttribute("amdgpu-no-workitem-id-z"))
+    if (F.hasFnAttribute("amdgpu-work-item-id-z"))
       WorkItemIDZ = true;
-
-    if (!F.hasFnAttribute("amdgpu-no-dispatch-ptr"))
-      DispatchPtr = true;
-
-    if (!F.hasFnAttribute("amdgpu-no-queue-ptr"))
-      QueuePtr = true;
-
-    if (!F.hasFnAttribute("amdgpu-no-dispatch-id"))
-      DispatchID = true;
   }
 
-  // FIXME: This attribute is a hack, we just need an analysis on the function
-  // to look for allocas.
   bool HasStackObjects = F.hasFnAttribute("amdgpu-stack-objects");
-
-  // TODO: This could be refined a lot. The attribute is a poor way of
-  // detecting calls or stack objects that may require it before argument
-  // lowering.
-  if (ST.hasFlatAddressSpace() && isEntryFunction() &&
-      (isAmdHsaOrMesa || ST.enableFlatScratch()) &&
-      (HasCalls || HasStackObjects || ST.enableFlatScratch()) &&
-      !ST.flatScratchIsArchitected()) {
-    FlatScratchInit = true;
-  }
-
   if (isEntryFunction()) {
     // X, XY, and XYZ are the only supported combinations, so make sure Y is
     // enabled if Z is.
     if (WorkItemIDZ)
       WorkItemIDY = true;
 
-    if (!ST.flatScratchIsArchitected()) {
-      PrivateSegmentWaveByteOffset = true;
+    PrivateSegmentWaveByteOffset = true;
 
-      // HS and GS always have the scratch wave offset in SGPR5 on GFX9.
-      if (ST.getGeneration() >= AMDGPUSubtarget::GFX9 &&
-          (CC == CallingConv::AMDGPU_HS || CC == CallingConv::AMDGPU_GS))
-        ArgInfo.PrivateSegmentWaveByteOffset =
-            ArgDescriptor::createRegister(AMDGPU::SGPR5);
+    // HS and GS always have the scratch wave offset in SGPR5 on GFX9.
+    if (ST.getGeneration() >= AMDGPUSubtarget::GFX9 &&
+        (CC == CallingConv::AMDGPU_HS || CC == CallingConv::AMDGPU_GS))
+      ArgInfo.PrivateSegmentWaveByteOffset =
+          ArgDescriptor::createRegister(AMDGPU::SGPR5);
+  }
+
+  bool isAmdHsaOrMesa = ST.isAmdHsaOrMesa(F);
+  if (isAmdHsaOrMesa) {
+    if (!ST.enableFlatScratch())
+      PrivateSegmentBuffer = true;
+
+    if (UseFixedABI) {
+      DispatchPtr = true;
+      QueuePtr = true;
+
+      // FIXME: We don't need this?
+      DispatchID = true;
+    } else {
+      if (F.hasFnAttribute("amdgpu-dispatch-ptr"))
+        DispatchPtr = true;
+
+      if (F.hasFnAttribute("amdgpu-queue-ptr"))
+        QueuePtr = true;
+
+      if (F.hasFnAttribute("amdgpu-dispatch-id"))
+        DispatchID = true;
     }
+  } else if (ST.isMesaGfxShader(F)) {
+    ImplicitBufferPtr = true;
+  }
+
+  if (UseFixedABI || F.hasFnAttribute("amdgpu-kernarg-segment-ptr"))
+    KernargSegmentPtr = true;
+
+  if (ST.hasFlatAddressSpace() && isEntryFunction() &&
+      (isAmdHsaOrMesa || ST.enableFlatScratch())) {
+    // TODO: This could be refined a lot. The attribute is a poor way of
+    // detecting calls or stack objects that may require it before argument
+    // lowering.
+    if (HasCalls || HasStackObjects || ST.enableFlatScratch())
+      FlatScratchInit = true;
   }
 
   Attribute A = F.getFnAttribute("amdgpu-git-ptr-high");
@@ -325,13 +311,6 @@ bool SIMachineFunctionInfo::allocateSGPRSpillToVGPR(MachineFunction &MF,
         // partially spill the SGPR to VGPRs.
         SGPRToVGPRSpills.erase(FI);
         NumVGPRSpillLanes -= I;
-
-#if 0
-        DiagnosticInfoResourceLimit DiagOutOfRegs(MF.getFunction(),
-                                                  "VGPRs for SGPR spilling",
-                                                  0, DS_Error);
-        MF.getFunction().getContext().diagnose(DiagOutOfRegs);
-#endif
         return false;
       }
 
@@ -342,7 +321,7 @@ bool SIMachineFunctionInfo::allocateSGPRSpillToVGPR(MachineFunction &MF,
         SpillFI = FrameInfo.CreateSpillStackObject(4, Align(4));
       }
 
-      SpillVGPRs.push_back(SGPRSpillVGPR(LaneVGPR, SpillFI));
+      SpillVGPRs.push_back(SGPRSpillVGPRCSR(LaneVGPR, SpillFI));
 
       // Add this register as live-in to all blocks to avoid machine verifer
       // complaining about use of an undefined physical register.
@@ -368,7 +347,7 @@ bool SIMachineFunctionInfo::reserveVGPRforSGPRSpills(MachineFunction &MF) {
       MF.getRegInfo(), &AMDGPU::VGPR_32RegClass, MF, true);
   if (LaneVGPR == Register())
     return false;
-  SpillVGPRs.push_back(SGPRSpillVGPR(LaneVGPR, None));
+  SpillVGPRs.push_back(SGPRSpillVGPRCSR(LaneVGPR, None));
   FuncInfo->VGPRReservedForSGPRSpill = LaneVGPR;
   return true;
 }
@@ -421,7 +400,7 @@ bool SIMachineFunctionInfo::allocateVGPRSpillToAGPR(MachineFunction &MF,
     OtherUsedRegs.set(Reg);
 
   SmallVectorImpl<MCPhysReg>::const_iterator NextSpillReg = Regs.begin();
-  for (int I = NumLanes - 1; I >= 0; --I) {
+  for (unsigned I = 0; I < NumLanes; ++I) {
     NextSpillReg = std::find_if(
         NextSpillReg, Regs.end(), [&MRI, &OtherUsedRegs](MCPhysReg Reg) {
           return MRI.isAllocatable(Reg) && !MRI.isPhysRegUsed(Reg) &&
@@ -459,21 +438,6 @@ void SIMachineFunctionInfo::removeDeadFrameIndices(MachineFrameInfo &MFI) {
     if (R.second.FullyAllocated)
       MFI.RemoveStackObject(R.first);
   }
-}
-
-int SIMachineFunctionInfo::getScavengeFI(MachineFrameInfo &MFI,
-                                         const SIRegisterInfo &TRI) {
-  if (ScavengeFI)
-    return *ScavengeFI;
-  if (isEntryFunction()) {
-    ScavengeFI = MFI.CreateFixedObject(
-        TRI.getSpillSize(AMDGPU::SGPR_32RegClass), 0, false);
-  } else {
-    ScavengeFI = MFI.CreateStackObject(
-        TRI.getSpillSize(AMDGPU::SGPR_32RegClass),
-        TRI.getSpillAlign(AMDGPU::SGPR_32RegClass), false);
-  }
-  return *ScavengeFI;
 }
 
 MCPhysReg SIMachineFunctionInfo::getNextUserSGPR() const {
@@ -568,8 +532,7 @@ convertArgumentInfo(const AMDGPUFunctionArgInfo &ArgInfo,
 }
 
 yaml::SIMachineFunctionInfo::SIMachineFunctionInfo(
-    const llvm::SIMachineFunctionInfo &MFI, const TargetRegisterInfo &TRI,
-    const llvm::MachineFunction &MF)
+    const llvm::SIMachineFunctionInfo &MFI, const TargetRegisterInfo &TRI)
     : ExplicitKernArgSize(MFI.getExplicitKernArgSize()),
       MaxKernArgAlign(MFI.getMaxKernArgAlign()), LDSSize(MFI.getLDSSize()),
       DynLDSAlign(MFI.getDynLDSAlign()), IsEntryFunction(MFI.isEntryFunction()),
@@ -583,9 +546,6 @@ yaml::SIMachineFunctionInfo::SIMachineFunctionInfo(
       FrameOffsetReg(regToString(MFI.getFrameOffsetReg(), TRI)),
       StackPtrOffsetReg(regToString(MFI.getStackPtrOffsetReg(), TRI)),
       ArgInfo(convertArgumentInfo(MFI.getArgInfo(), TRI)), Mode(MFI.getMode()) {
-  auto SFI = MFI.getOptionalScavengeFI();
-  if (SFI)
-    ScavengeFI = yaml::FrameIndex(*SFI, MF.getFrameInfo());
 }
 
 void yaml::SIMachineFunctionInfo::mappingImpl(yaml::IO &YamlIO) {
@@ -593,8 +553,7 @@ void yaml::SIMachineFunctionInfo::mappingImpl(yaml::IO &YamlIO) {
 }
 
 bool SIMachineFunctionInfo::initializeBaseYamlFields(
-    const yaml::SIMachineFunctionInfo &YamlMFI, const MachineFunction &MF,
-    PerFunctionMIParsingState &PFS, SMDiagnostic &Error, SMRange &SourceRange) {
+  const yaml::SIMachineFunctionInfo &YamlMFI) {
   ExplicitKernArgSize = YamlMFI.ExplicitKernArgSize;
   MaxKernArgAlign = assumeAligned(YamlMFI.MaxKernArgAlign);
   LDSSize = YamlMFI.LDSSize;
@@ -607,24 +566,6 @@ bool SIMachineFunctionInfo::initializeBaseYamlFields(
   WaveLimiter = YamlMFI.WaveLimiter;
   HasSpilledSGPRs = YamlMFI.HasSpilledSGPRs;
   HasSpilledVGPRs = YamlMFI.HasSpilledVGPRs;
-
-  if (YamlMFI.ScavengeFI) {
-    auto FIOrErr = YamlMFI.ScavengeFI->getFI(MF.getFrameInfo());
-    if (!FIOrErr) {
-      // Create a diagnostic for a the frame index.
-      const MemoryBuffer &Buffer =
-          *PFS.SM->getMemoryBuffer(PFS.SM->getMainFileID());
-
-      Error = SMDiagnostic(*PFS.SM, SMLoc(), Buffer.getBufferIdentifier(), 1, 1,
-                           SourceMgr::DK_Error, toString(FIOrErr.takeError()),
-                           "", None, None);
-      SourceRange = YamlMFI.ScavengeFI->SourceRange;
-      return true;
-    }
-    ScavengeFI = *FIOrErr;
-  } else {
-    ScavengeFI = None;
-  }
   return false;
 }
 

@@ -27,13 +27,14 @@ class FileIndexRecord {
 private:
   FileID FID;
   bool IsSystem;
-  mutable bool IsSorted = false;
-  mutable std::vector<DeclOccurrence> Decls;
+  std::vector<DeclOccurrence> Decls;
 
 public:
   FileIndexRecord(FileID FID, bool IsSystem) : FID(FID), IsSystem(IsSystem) {}
 
-  ArrayRef<DeclOccurrence> getDeclOccurrencesSortedByOffset() const;
+  ArrayRef<DeclOccurrence> getDeclOccurrencesSortedByOffset() const {
+    return Decls;
+  }
 
   FileID getFileID() const { return FID; }
   bool isSystem() const { return IsSystem; }
@@ -47,21 +48,7 @@ public:
   /// \param Relations the set of symbols related to this occurrence.
   void addDeclOccurence(SymbolRoleSet Roles, unsigned Offset, const Decl *D,
                         ArrayRef<SymbolRelation> Relations);
-
-  /// Adds an occurrence of the given macro at the supplied \c Offset.
-  ///
-  /// \param Roles the roles the occurrence fulfills in this position.
-  /// \param Offset the offset in the file of this occurrence.
-  /// \param Name the name of the macro.
-  /// \param MI the canonical declaration this is an occurrence of.
-  void addMacroOccurence(SymbolRoleSet Roles, unsigned Offset,
-                         const IdentifierInfo *Name, const MacroInfo *MI);
-
-  /// Remove any macro occurrences for header guards. When preprocessing, this
-  /// will only be accurate after HandleEndOfFile.
-  void removeHeaderGuardMacros();
-
-  void print(llvm::raw_ostream &OS, SourceManager &SM) const;
+  void print(llvm::raw_ostream &OS) const;
 };
 
 } // end namespace index

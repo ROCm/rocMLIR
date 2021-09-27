@@ -17,6 +17,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Analysis/Utils/Local.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
@@ -55,7 +56,6 @@ class MDNode;
 class MemorySSAUpdater;
 class PHINode;
 class StoreInst;
-class SwitchInst;
 class TargetLibraryInfo;
 class TargetTransformInfo;
 
@@ -237,10 +237,6 @@ CallInst *createCallMatchingInvoke(InvokeInst *II);
 /// This function converts the specified invoek into a normall call.
 void changeToCall(InvokeInst *II, DomTreeUpdater *DTU = nullptr);
 
-/// This function removes the default destination from the specified switch.
-void createUnreachableSwitchDefault(SwitchInst *Switch,
-                                    DomTreeUpdater *DTU = nullptr);
-
 ///===---------------------------------------------------------------------===//
 ///  Dbg Intrinsic utilities
 ///
@@ -267,6 +263,21 @@ bool LowerDbgDeclare(Function &F);
 /// Propagate dbg.value intrinsics through the newly inserted PHIs.
 void insertDebugValuesForPHIs(BasicBlock *BB,
                               SmallVectorImpl<PHINode *> &InsertedPHIs);
+
+/// Finds all intrinsics declaring local variables as living in the memory that
+/// 'V' points to. This may include a mix of dbg.declare and
+/// dbg.addr intrinsics.
+TinyPtrVector<DbgVariableIntrinsic *> FindDbgAddrUses(Value *V);
+
+/// Like \c FindDbgAddrUses, but only returns dbg.declare intrinsics, not
+/// dbg.addr.
+TinyPtrVector<DbgDeclareInst *> FindDbgDeclareUses(Value *V);
+
+/// Finds the llvm.dbg.value intrinsics describing a value.
+void findDbgValues(SmallVectorImpl<DbgValueInst *> &DbgValues, Value *V);
+
+/// Finds the debug info intrinsics describing a value.
+void findDbgUsers(SmallVectorImpl<DbgVariableIntrinsic *> &DbgInsts, Value *V);
 
 /// Replaces llvm.dbg.declare instruction when the address it
 /// describes is replaced with a new value. If Deref is true, an
@@ -297,30 +308,12 @@ void salvageDebugInfo(Instruction &I);
 void salvageDebugInfoForDbgValues(Instruction &I,
                                   ArrayRef<DbgVariableIntrinsic *> Insns);
 
-/// Given an instruction \p I and DIExpression \p DIExpr operating on
-/// it, append the effects of \p I to the DIExpression operand list
-/// \p Ops, or return \p nullptr if it cannot be salvaged.
-/// \p CurrentLocOps is the number of SSA values referenced by the
-/// incoming \p Ops.  \return the first non-constant operand
-/// implicitly referred to by Ops. If \p I references more than one
-/// non-constant operand, any additional operands are added to
-/// \p AdditionalValues.
-///
-/// \example
-////
-///   I = add %a, i32 1
-///
-///   Return = %a
-///   Ops = llvm::dwarf::DW_OP_lit1 llvm::dwarf::DW_OP_add
-///
-///   I = add %a, %b
-///
-///   Return = %a
-///   Ops = llvm::dwarf::DW_OP_LLVM_arg0 llvm::dwarf::DW_OP_add
-///   AdditionalValues = %b
-Value *salvageDebugInfoImpl(Instruction &I, uint64_t CurrentLocOps,
-                            SmallVectorImpl<uint64_t> &Ops,
-                            SmallVectorImpl<Value *> &AdditionalValues);
+/// Given an instruction \p I and DIExpression \p DIExpr operating on it, write
+/// the effects of \p I into the returned DIExpression, or return nullptr if
+/// it cannot be salvaged. \p StackVal: whether DW_OP_stack_value should be
+/// appended to the expression.
+DIExpression *salvageDebugInfoImpl(Instruction &I, DIExpression *DIExpr,
+                                   bool StackVal);
 
 /// Point debug users of \p From to \p To or salvage them. Use this function
 /// only when replacing all uses of \p From with \p To, with a guarantee that
@@ -349,7 +342,8 @@ removeAllNonTerminatorAndEHPadInstructions(BasicBlock *BB);
 
 /// Insert an unreachable instruction before the specified
 /// instruction, making it and the rest of the code in the block dead.
-unsigned changeToUnreachable(Instruction *I, bool PreserveLCSSA = false,
+unsigned changeToUnreachable(Instruction *I, bool UseLLVMTrap,
+                             bool PreserveLCSSA = false,
                              DomTreeUpdater *DTU = nullptr,
                              MemorySSAUpdater *MSSAU = nullptr);
 
@@ -492,15 +486,6 @@ bool canReplaceOperandWithVariable(const Instruction *I, unsigned OpIdx);
 
 /// Invert the given true/false value, possibly reusing an existing copy.
 Value *invertCondition(Value *Condition);
-
-
-//===----------------------------------------------------------------------===//
-//  Assorted
-//
-
-/// If we can infer one attribute from another on the declaration of a
-/// function, explicitly materialize the maximal set in the IR.
-bool inferAttributesFromOthers(Function &F);
 
 } // end namespace llvm
 

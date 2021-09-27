@@ -1,7 +1,7 @@
 {
   "trace": {
     "type": "intel-pt",
-    "cpuInfo": {
+    "pt_cpu": {
       "vendor": "intel",
       "model": 79,
       "stepping": 1

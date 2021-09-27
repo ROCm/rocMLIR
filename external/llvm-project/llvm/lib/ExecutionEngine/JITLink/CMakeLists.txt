@@ -1,28 +1,16 @@
 add_llvm_component_library(LLVMJITLink
-  EHFrameSupport.cpp
   JITLink.cpp
   JITLinkGeneric.cpp
   JITLinkMemoryManager.cpp
-
-  # Formats:
-
-  # MachO
+  EHFrameSupport.cpp
+  #macho
   MachO.cpp
   MachO_arm64.cpp
   MachO_x86_64.cpp
   MachOLinkGraphBuilder.cpp
-
-  # ELF
+  #elf
   ELF.cpp
-  ELFLinkGraphBuilder.cpp
-  ELF_aarch64.cpp
-  ELF_riscv.cpp
   ELF_x86_64.cpp
-
-  # Architectures:
-  aarch64.cpp
-  riscv.cpp
-  x86_64.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/ExecutionEngine/JITLink
@@ -36,7 +24,7 @@ add_llvm_component_library(LLVMJITLink
   OrcTargetProcess
   Support
   )
-
+ 
 target_link_libraries(LLVMJITLink
   PRIVATE
   LLVMObject

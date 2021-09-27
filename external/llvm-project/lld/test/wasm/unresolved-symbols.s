@@ -1,9 +1,9 @@
 # RUN: llvm-mc -filetype=obj -triple=wasm32-unknown-unknown %s -o %t1.o
 
-## Check that %t1.o contains undefined symbol undef_func.
+## Check that %t1.o contains undefined symbol undef.
 # RUN: not wasm-ld %t1.o -o /dev/null 2>&1 | \
 # RUN:   FileCheck -check-prefix=ERRUND %s
-# ERRUND: error: {{.*}}1.o: undefined symbol: undef_func
+# ERRUND: error: {{.*}}1.o: undefined symbol: undef
 
 ## report-all is the default one. Check that we get the same error
 # RUN: not wasm-ld %t1.o -o /dev/null --unresolved-symbols=report-all 2>&1 | \
@@ -32,7 +32,7 @@
 # IGNORE-NEXT:        Body:            000B
 # IGNORE-NEXT:      - Index:           1
 # IGNORE-NEXT:        Locals:          []
-# IGNORE-NEXT:        Body:            1080808080001082808080001083808080001A1A0B
+# IGNORE-NEXT:        Body:            1080808080001082808080001083808080000B
 # IGNORE-NEXT:      - Index:           2
 # IGNORE-NEXT:        Locals:          []
 # IGNORE-NEXT:        Body:            4180808080000F0B
@@ -52,41 +52,29 @@
 # IGNORE-NEXT:      - Index:           3
 # IGNORE-NEXT:        Name:            get_func_addr
 
-## --import-undefined should handle unresolved funtions symbols
-# by importing them but still report errors/warning for missing data symbols.
-# `--allow-undefined` should behave like `--import-undefined` +
-# `--unresolve-symbols=ignore`
-# RUN: wasm-ld %t1.o -o %t3.wasm --import-undefined --unresolved-symbols=ignore-all
+## import-functions should not produce errors and should resolve in
+# imports for the missing functions but not the missing data symbols.
+# `--allow-undefined` should behave exactly the same.
+# RUN: wasm-ld %t1.o -o %t3.wasm --unresolved-symbols=import-functions
 # RUN: obj2yaml %t3.wasm | FileCheck -check-prefix=IMPORT %s
 #      IMPORT:  - Type:            IMPORT
 # IMPORT-NEXT:    Imports:
 # IMPORT-NEXT:      - Module:          env
-# IMPORT-NEXT:        Field:           undef_func
+# IMPORT-NEXT:        Field:           undef
 # IMPORT-NEXT:        Kind:            FUNCTION
 # IMPORT-NEXT:        SigIndex:        0
 # IMPORT-NEXT:  - Type:            FUNCTION
-
-## Check that --import-undefined reports unresolved data symbols.
-# RUN: not wasm-ld %t1.o -o %t3.wasm --import-undefined --unresolved-symbols=report-all 2>&1 | FileCheck -check-prefix=IMPORTUNDEFINED %s
-# IMPORTUNDEFINED-NOT: error: {{.*}}1.o: undefined symbol: undef_func
-# IMPORTUNDEFINED: error: {{.*}}1.o: undefined symbol: undef_data
 
 ## Do not report undefines if linking relocatable.
 # RUN: wasm-ld -r %t1.o -o %t4.wasm --unresolved-symbols=report-all
 # RUN: llvm-readobj %t4.wasm > /dev/null 2>&1
 
-.functype undef_func () -> ()
-.functype get_data_addr () -> (i32)
-.functype get_func_addr () -> (i32)
-
 .globl _start
 _start:
     .functype _start () -> ()
-    call undef_func
+    call undef
     call get_data_addr
     call get_func_addr
-    drop
-    drop
     end_function
 
 .globl get_data_addr
@@ -99,6 +87,8 @@ get_data_addr:
 .globl get_func_addr
 get_func_addr:
     .functype get_func_addr () -> (i32)
-    i32.const undef_func
+    i32.const undef
     return
     end_function
+
+.functype undef () -> ()

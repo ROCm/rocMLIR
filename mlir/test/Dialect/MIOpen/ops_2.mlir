@@ -369,10 +369,10 @@ func @miopen_threadwise_copy(%source_coord : memref<2xi32, 5>, %dest_coord : mem
                              %dest_with_externally_defined_affine : memref<?x?x?x?xf32>) {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
-  %source_coord_y = memref.load %source_coord[%c0] : memref<2xi32, 5>
-  %source_coord_x = memref.load %source_coord[%c0] : memref<2xi32, 5>
-  %dest_coord_y = memref.load %dest_coord[%c0] : memref<2xi32, 5>
-  %dest_coord_x = memref.load %dest_coord[%c0] : memref<2xi32, 5>
+  %source_coord_y = load %source_coord[%c0] : memref<2xi32, 5>
+  %source_coord_x = load %source_coord[%c0] : memref<2xi32, 5>
+  %dest_coord_y = load %dest_coord[%c0] : memref<2xi32, 5>
+  %dest_coord_x = load %dest_coord[%c0] : memref<2xi32, 5>
 
   // check source and dest as vanilla memrefs.
   miopen.threadwise_copy(%source, %dest,
@@ -474,8 +474,8 @@ func @miopen_threadwise_load(%source_coord : memref<2xi32, 5>,
                              %source_with_externally_defined_affine : memref<?x?x?x?xf32>) {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
-  %source_coord_y = memref.load %source_coord[%c0] : memref<2xi32, 5>
-  %source_coord_x = memref.load %source_coord[%c0] : memref<2xi32, 5>
+  %source_coord_y = load %source_coord[%c0] : memref<2xi32, 5>
+  %source_coord_x = load %source_coord[%c0] : memref<2xi32, 5>
 
   // check source as vanilla memref, dest as scalar.
   // CHECK: %{{.*}} = miopen.threadwise_load(%{{.*}}, %{{.*}}, %{{.*}}) : memref<?x?xf32>, i32, i32 -> tuple<f32>
@@ -528,8 +528,8 @@ func @miopen_threadwise_store(%data_scalar : tuple<f32>,
                               %dest_with_externally_defined_affine : memref<?x?x?x?xf32>) {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
-  %dest_coord_y = memref.load %dest_coord[%c0] : memref<2xi32, 5>
-  %dest_coord_x = memref.load %dest_coord[%c0] : memref<2xi32, 5>
+  %dest_coord_y = load %dest_coord[%c0] : memref<2xi32, 5>
+  %dest_coord_x = load %dest_coord[%c0] : memref<2xi32, 5>
 
   // check dest as vanilla memrefs, data as scalar.
   // CHECK: miopen.threadwise_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : tuple<f32>, memref<?x?xf32>, i32, i32
@@ -586,10 +586,10 @@ func @miopen_threadwise_copy_v2(%source_offset : i32, %source_coord : memref<2xi
   %c1 = constant 1 : index
   %c0_i32 = constant 0 : i32
 
-  %source_coord_y = memref.load %source_coord[%c0] : memref<2xi32, 5>
-  %source_coord_x = memref.load %source_coord[%c1] : memref<2xi32, 5>
-  %dest_coord_y = memref.load %dest_coord[%c0] : memref<2xi32, 5>
-  %dest_coord_x = memref.load %dest_coord[%c1] : memref<2xi32, 5>
+  %source_coord_y = load %source_coord[%c0] : memref<2xi32, 5>
+  %source_coord_x = load %source_coord[%c1] : memref<2xi32, 5>
+  %dest_coord_y = load %dest_coord[%c0] : memref<2xi32, 5>
+  %dest_coord_x = load %dest_coord[%c1] : memref<2xi32, 5>
 
   // check dest as a vanilla memref.
   miopen.threadwise_copy_v2(%source, %dest, %source_offset,

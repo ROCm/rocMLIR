@@ -29,7 +29,7 @@ static_library("Core") {
     "CommonBugCategories.cpp",
     "ConstraintManager.cpp",
     "CoreEngine.cpp",
-    "DynamicExtent.cpp",
+    "DynamicSize.cpp",
     "DynamicType.cpp",
     "Environment.cpp",
     "ExplodedGraph.cpp",

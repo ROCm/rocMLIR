@@ -22,19 +22,6 @@
 namespace clang {
 namespace clangd {
 
-namespace {
-
-// Returns true if file defining/declaring \p S is covered by \p Index.
-bool isIndexAuthoritative(const SymbolIndex::IndexedFiles &Index,
-                          const Symbol &S) {
-  // We expect the definition to see the canonical declaration, so it seems to
-  // be enough to check only the definition if it exists.
-  const char *OwningFile =
-      S.Definition ? S.Definition.FileURI : S.CanonicalDeclaration.FileURI;
-  return (Index(OwningFile) & IndexContents::Symbols) != IndexContents::None;
-}
-} // namespace
-
 bool MergedIndex::fuzzyFind(
     const FuzzyFindRequest &Req,
     llvm::function_ref<void(const Symbol &)> Callback) const {
@@ -50,44 +37,35 @@ bool MergedIndex::fuzzyFind(
   unsigned DynamicCount = 0;
   unsigned StaticCount = 0;
   unsigned MergedCount = 0;
-  // Number of results ignored due to staleness.
-  unsigned StaticDropped = 0;
   More |= Dynamic->fuzzyFind(Req, [&](const Symbol &S) {
     ++DynamicCount;
     DynB.insert(S);
   });
   SymbolSlab Dyn = std::move(DynB).build();
 
-  llvm::DenseSet<SymbolID> ReportedDynSymbols;
+  llvm::DenseSet<SymbolID> SeenDynamicSymbols;
   {
     auto DynamicContainsFile = Dynamic->indexedFiles();
     More |= Static->fuzzyFind(Req, [&](const Symbol &S) {
-      ++StaticCount;
-      auto DynS = Dyn.find(S.ID);
-      // If symbol also exist in the dynamic index, just merge and report.
-      if (DynS != Dyn.end()) {
-        ++MergedCount;
-        ReportedDynSymbols.insert(S.ID);
-        return Callback(mergeSymbol(*DynS, S));
-      }
-
-      // Otherwise, if the dynamic index owns the symbol's file, it means static
-      // index is stale just drop the symbol.
-      if (isIndexAuthoritative(DynamicContainsFile, S)) {
-        ++StaticDropped;
+      // We expect the definition to see the canonical declaration, so it seems
+      // to be enough to check only the definition if it exists.
+      if (DynamicContainsFile(S.Definition ? S.Definition.FileURI
+                                           : S.CanonicalDeclaration.FileURI))
         return;
-      }
-
-      // If not just report the symbol from static index as is.
-      return Callback(S);
+      auto DynS = Dyn.find(S.ID);
+      ++StaticCount;
+      if (DynS == Dyn.end())
+        return Callback(S);
+      ++MergedCount;
+      SeenDynamicSymbols.insert(S.ID);
+      Callback(mergeSymbol(*DynS, S));
     });
   }
   SPAN_ATTACH(Tracer, "dynamic", DynamicCount);
   SPAN_ATTACH(Tracer, "static", StaticCount);
-  SPAN_ATTACH(Tracer, "static_dropped", StaticDropped);
   SPAN_ATTACH(Tracer, "merged", MergedCount);
   for (const Symbol &S : Dyn)
-    if (!ReportedDynSymbols.count(S.ID))
+    if (!SeenDynamicSymbols.count(S.ID))
       Callback(S);
   return More;
 }
@@ -104,21 +82,17 @@ void MergedIndex::lookup(
   {
     auto DynamicContainsFile = Dynamic->indexedFiles();
     Static->lookup(Req, [&](const Symbol &S) {
-      // If we've seen the symbol before, just merge.
-      if (const Symbol *Sym = B.find(S.ID)) {
-        RemainingIDs.erase(S.ID);
-        return Callback(mergeSymbol(*Sym, S));
-      }
-
-      // If symbol is missing in dynamic index, and dynamic index owns the
-      // symbol's file. Static index is stale, just drop the symbol.
-      if (isIndexAuthoritative(DynamicContainsFile, S))
+      // We expect the definition to see the canonical declaration, so it seems
+      // to be enough to check only the definition if it exists.
+      if (DynamicContainsFile(S.Definition ? S.Definition.FileURI
+                                           : S.CanonicalDeclaration.FileURI))
         return;
-
-      // Dynamic index doesn't know about this file, just use the symbol from
-      // static index.
+      const Symbol *Sym = B.find(S.ID);
       RemainingIDs.erase(S.ID);
-      Callback(S);
+      if (!Sym)
+        Callback(S);
+      else
+        Callback(mergeSymbol(*Sym, S));
     });
   }
   for (const auto &ID : RemainingIDs)
@@ -147,8 +121,7 @@ bool MergedIndex::refs(const RefsRequest &Req,
   // We return less than Req.Limit if static index returns more refs for dirty
   // files.
   bool StaticHadMore = Static->refs(Req, [&](const Ref &O) {
-    if ((DynamicContainsFile(O.Location.FileURI) & IndexContents::References) !=
-        IndexContents::None)
+    if (DynamicContainsFile(O.Location.FileURI))
       return; // ignore refs that have been seen from dynamic index.
     if (Remaining == 0) {
       More = true;
@@ -160,11 +133,11 @@ bool MergedIndex::refs(const RefsRequest &Req,
   return More || StaticHadMore;
 }
 
-llvm::unique_function<IndexContents(llvm::StringRef) const>
+llvm::unique_function<bool(llvm::StringRef) const>
 MergedIndex::indexedFiles() const {
   return [DynamicContainsFile{Dynamic->indexedFiles()},
           StaticContainsFile{Static->indexedFiles()}](llvm::StringRef FileURI) {
-    return DynamicContainsFile(FileURI) | StaticContainsFile(FileURI);
+    return DynamicContainsFile(FileURI) || StaticContainsFile(FileURI);
   };
 }
 

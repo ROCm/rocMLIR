@@ -350,13 +350,13 @@ static bool isMyCode(const SymbolGroup &Group) {
   StringRef Name = Group.name();
   if (Name.startswith("Import:"))
     return false;
-  if (Name.endswith_insensitive(".dll"))
+  if (Name.endswith_lower(".dll"))
     return false;
-  if (Name.equals_insensitive("* linker *"))
+  if (Name.equals_lower("* linker *"))
     return false;
-  if (Name.startswith_insensitive("f:\\binaries\\Intermediate\\vctools"))
+  if (Name.startswith_lower("f:\\binaries\\Intermediate\\vctools"))
     return false;
-  if (Name.startswith_insensitive("f:\\dd\\vctools\\crt"))
+  if (Name.startswith_lower("f:\\dd\\vctools\\crt"))
     return false;
   return true;
 }

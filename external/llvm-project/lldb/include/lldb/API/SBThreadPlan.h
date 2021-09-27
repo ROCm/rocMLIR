@@ -11,11 +11,13 @@
 
 #include "lldb/API/SBDefines.h"
 
-#include <cstdio>
+#include <stdio.h>
 
 namespace lldb {
 
 class LLDB_API SBThreadPlan {
+
+  friend class lldb_private::ThreadPlan;
 
 public:
   SBThreadPlan();
@@ -58,9 +60,6 @@ public:
   /// eStopReasonSignal        1     unix signal number
   /// eStopReasonException     N     exception data
   /// eStopReasonExec          0
-  /// eStopReasonFork          1     pid of the child process
-  /// eStopReasonVFork         1     pid of the child process
-  /// eStopReasonVForkDone     0
   /// eStopReasonPlanComplete  0
   uint64_t GetStopReasonDataAtIndex(uint32_t idx);
 

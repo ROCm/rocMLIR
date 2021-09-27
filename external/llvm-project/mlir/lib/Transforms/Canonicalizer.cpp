@@ -21,46 +21,23 @@ using namespace mlir;
 namespace {
 /// Canonicalize operations in nested regions.
 struct Canonicalizer : public CanonicalizerBase<Canonicalizer> {
-  Canonicalizer(const GreedyRewriteConfig &config) : config(config) {}
-
-  Canonicalizer() {
-    // Default constructed Canonicalizer takes its settings from command line
-    // options.
-    config.useTopDownTraversal = topDownProcessingEnabled;
-    config.enableRegionSimplification = enableRegionSimplification;
-    config.maxIterations = maxIterations;
-  }
-
   /// Initialize the canonicalizer by building the set of patterns used during
   /// execution.
-  LogicalResult initialize(MLIRContext *context) override {
-    RewritePatternSet owningPatterns(context);
-    for (auto *dialect : context->getLoadedDialects())
-      dialect->getCanonicalizationPatterns(owningPatterns);
+  void initialize(MLIRContext *context) override {
+    OwningRewritePatternList owningPatterns;
     for (auto *op : context->getRegisteredOperations())
       op->getCanonicalizationPatterns(owningPatterns, context);
-
-    patterns = FrozenRewritePatternSet(std::move(owningPatterns),
-                                       disabledPatterns, enabledPatterns);
-    return success();
+    patterns = std::move(owningPatterns);
   }
   void runOnOperation() override {
-    (void)applyPatternsAndFoldGreedily(getOperation()->getRegions(), patterns,
-                                       config);
+    (void)applyPatternsAndFoldGreedily(getOperation()->getRegions(), patterns);
   }
 
-  GreedyRewriteConfig config;
-  FrozenRewritePatternSet patterns;
+  FrozenRewritePatternList patterns;
 };
 } // end anonymous namespace
 
 /// Create a Canonicalizer pass.
 std::unique_ptr<Pass> mlir::createCanonicalizerPass() {
   return std::make_unique<Canonicalizer>();
-}
-
-/// Creates an instance of the Canonicalizer pass with the specified config.
-std::unique_ptr<Pass>
-mlir::createCanonicalizerPass(const GreedyRewriteConfig &config) {
-  return std::make_unique<Canonicalizer>(config);
 }

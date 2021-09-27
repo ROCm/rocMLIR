@@ -376,19 +376,18 @@ Streams:
 
   EXPECT_THAT(
       parser->BuildMemoryRegions(),
-      testing::Pair(
-          testing::ElementsAre(
-              MemoryRegionInfo({0x0, 0x10000}, no, no, no, no, ConstString(),
-                               unknown, 0, unknown, unknown),
-              MemoryRegionInfo({0x10000, 0x21000}, yes, yes, no, yes,
-                               ConstString(), unknown, 0, unknown, unknown),
-              MemoryRegionInfo({0x40000, 0x1000}, yes, no, no, yes,
-                               ConstString(), unknown, 0, unknown, unknown),
-              MemoryRegionInfo({0x7ffe0000, 0x1000}, yes, no, no, yes,
-                               ConstString(), unknown, 0, unknown, unknown),
-              MemoryRegionInfo({0x7ffe1000, 0xf000}, no, no, no, yes,
-                               ConstString(), unknown, 0, unknown, unknown)),
-          true));
+      testing::Pair(testing::ElementsAre(
+                        MemoryRegionInfo({0x0, 0x10000}, no, no, no, no,
+                                         ConstString(), unknown, 0, unknown),
+                        MemoryRegionInfo({0x10000, 0x21000}, yes, yes, no, yes,
+                                         ConstString(), unknown, 0, unknown),
+                        MemoryRegionInfo({0x40000, 0x1000}, yes, no, no, yes,
+                                         ConstString(), unknown, 0, unknown),
+                        MemoryRegionInfo({0x7ffe0000, 0x1000}, yes, no, no, yes,
+                                         ConstString(), unknown, 0, unknown),
+                        MemoryRegionInfo({0x7ffe1000, 0xf000}, no, no, no, yes,
+                                         ConstString(), unknown, 0, unknown)),
+                    true));
 }
 
 TEST_F(MinidumpParserTest, GetMemoryRegionInfoFromMemoryList) {
@@ -413,9 +412,9 @@ Streams:
       testing::Pair(
           testing::ElementsAre(
               MemoryRegionInfo({0x1000, 0x10}, yes, unknown, unknown, yes,
-                               ConstString(), unknown, 0, unknown, unknown),
+                               ConstString(), unknown, 0, unknown),
               MemoryRegionInfo({0x2000, 0x20}, yes, unknown, unknown, yes,
-                               ConstString(), unknown, 0, unknown, unknown)),
+                               ConstString(), unknown, 0, unknown)),
           false));
 }
 
@@ -429,9 +428,9 @@ TEST_F(MinidumpParserTest, GetMemoryRegionInfoFromMemory64List) {
       testing::Pair(
           testing::ElementsAre(
               MemoryRegionInfo({0x1000, 0x10}, yes, unknown, unknown, yes,
-                               ConstString(), unknown, 0, unknown, unknown),
+                               ConstString(), unknown, 0, unknown),
               MemoryRegionInfo({0x2000, 0x20}, yes, unknown, unknown, yes,
-                               ConstString(), unknown, 0, unknown, unknown)),
+                               ConstString(), unknown, 0, unknown)),
           false));
 }
 
@@ -456,23 +455,22 @@ Streams:
   ConstString app_process("/system/bin/app_process");
   ConstString linker("/system/bin/linker");
   ConstString liblog("/system/lib/liblog.so");
-  EXPECT_THAT(
-      parser->BuildMemoryRegions(),
-      testing::Pair(
-          testing::ElementsAre(
-              MemoryRegionInfo({0x400d9000, 0x2000}, yes, no, yes, yes,
-                               app_process, unknown, 0, unknown, unknown),
-              MemoryRegionInfo({0x400db000, 0x1000}, yes, no, no, yes,
-                               app_process, unknown, 0, unknown, unknown),
-              MemoryRegionInfo({0x400dc000, 0x1000}, yes, yes, no, yes,
-                               ConstString(), unknown, 0, unknown, unknown),
-              MemoryRegionInfo({0x400ec000, 0x1000}, yes, no, no, yes,
-                               ConstString(), unknown, 0, unknown, unknown),
-              MemoryRegionInfo({0x400ee000, 0x1000}, yes, yes, no, yes, linker,
-                               unknown, 0, unknown, unknown),
-              MemoryRegionInfo({0x400fc000, 0x1000}, yes, yes, yes, yes, liblog,
-                               unknown, 0, unknown, unknown)),
-          true));
+  EXPECT_THAT(parser->BuildMemoryRegions(),
+              testing::Pair(
+                  testing::ElementsAre(
+                      MemoryRegionInfo({0x400d9000, 0x2000}, yes, no, yes, yes,
+                                       app_process, unknown, 0, unknown),
+                      MemoryRegionInfo({0x400db000, 0x1000}, yes, no, no, yes,
+                                       app_process, unknown, 0, unknown),
+                      MemoryRegionInfo({0x400dc000, 0x1000}, yes, yes, no, yes,
+                                       ConstString(), unknown, 0, unknown),
+                      MemoryRegionInfo({0x400ec000, 0x1000}, yes, no, no, yes,
+                                       ConstString(), unknown, 0, unknown),
+                      MemoryRegionInfo({0x400ee000, 0x1000}, yes, yes, no, yes,
+                                       linker, unknown, 0, unknown),
+                      MemoryRegionInfo({0x400fc000, 0x1000}, yes, yes, yes, yes,
+                                       liblog, unknown, 0, unknown)),
+                  true));
 }
 
 TEST_F(MinidumpParserTest, GetMemoryRegionInfoLinuxMapsError) {
@@ -488,12 +486,11 @@ Streams:
                     llvm::Succeeded());
   // Test that when a /proc/maps region fails to parse
   // we handle the error and continue with the rest.
-  EXPECT_THAT(
-      parser->BuildMemoryRegions(),
-      testing::Pair(testing::ElementsAre(MemoryRegionInfo(
-                        {0x400fc000, 0x1000}, yes, yes, yes, yes,
-                        ConstString(nullptr), unknown, 0, unknown, unknown)),
-                    true));
+  EXPECT_THAT(parser->BuildMemoryRegions(),
+              testing::Pair(testing::ElementsAre(MemoryRegionInfo(
+                                {0x400fc000, 0x1000}, yes, yes, yes, yes,
+                                ConstString(nullptr), unknown, 0, unknown)),
+                            true));
 }
 
 // Windows Minidump tests

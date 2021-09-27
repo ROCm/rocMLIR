@@ -45,23 +45,13 @@ const char *const passDeclBegin = R"(
 template <typename DerivedT>
 class {0}Base : public {1} {
 public:
-  using Base = {0}Base;
-
   {0}Base() : {1}(::mlir::TypeID::get<DerivedT>()) {{}
-  {0}Base(const {0}Base &other) : {1}(other) {{}
+  {0}Base(const {0}Base &) : {1}(::mlir::TypeID::get<DerivedT>()) {{}
 
   /// Returns the command-line argument attached to this pass.
-  static constexpr ::llvm::StringLiteral getArgumentName() {
-    return ::llvm::StringLiteral("{2}");
-  }
   ::llvm::StringRef getArgument() const override { return "{2}"; }
 
-  ::llvm::StringRef getDescription() const override { return "{3}"; }
-
   /// Returns the derived pass name.
-  static constexpr ::llvm::StringLiteral getPassName() {
-    return ::llvm::StringLiteral("{0}");
-  }
   ::llvm::StringRef getName() const override { return "{0}"; }
 
   /// Support isa/dyn_cast functionality for the derived pass class.
@@ -76,7 +66,7 @@ public:
 
   /// Return the dialect that must be loaded in the context before this pass.
   void getDependentDialects(::mlir::DialectRegistry &registry) const override {
-    {4}
+    {3}
   }
 
 protected:
@@ -124,8 +114,7 @@ static void emitPassDecl(const Pass &pass, raw_ostream &os) {
                                   dependentDialect);
   }
   os << llvm::formatv(passDeclBegin, defName, pass.getBaseClass(),
-                      pass.getArgument(), pass.getSummary(),
-                      dependentDialectRegistrations);
+                      pass.getArgument(), dependentDialectRegistrations);
   emitPassOptionDecls(pass, os);
   emitPassStatisticDecls(pass, os);
   os << "};\n";
@@ -157,8 +146,8 @@ const char *const passRegistrationCode = R"(
 //===----------------------------------------------------------------------===//
 
 inline void register{0}Pass() {{
-  ::mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {{
-    return {1};
+  ::mlir::registerPass("{1}", "{2}", []() -> std::unique_ptr<::mlir::Pass> {{
+    return {3};
   });
 }
 )";
@@ -178,6 +167,7 @@ static void emitRegistration(ArrayRef<Pass> passes, raw_ostream &os) {
   os << "#ifdef GEN_PASS_REGISTRATION\n";
   for (const Pass &pass : passes) {
     os << llvm::formatv(passRegistrationCode, pass.getDef()->getName(),
+                        pass.getArgument(), pass.getSummary(),
                         pass.getConstructor());
   }
 

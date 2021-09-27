@@ -28,7 +28,7 @@ public:
   // Constructors and Destructors
   DeclVendor(DeclVendorKind kind) : m_kind(kind) {}
 
-  virtual ~DeclVendor() = default;
+  virtual ~DeclVendor() {}
 
   DeclVendorKind GetKind() const { return m_kind; }
 

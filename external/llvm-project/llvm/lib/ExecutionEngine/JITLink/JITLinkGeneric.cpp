@@ -34,14 +34,14 @@ void JITLinkerBase::linkPhase1(std::unique_ptr<JITLinkerBase> Self) {
 
   LLVM_DEBUG({
     dbgs() << "Link graph \"" << G->getName() << "\" pre-pruning:\n";
-    G->dump(dbgs());
+    dumpGraph(dbgs());
   });
 
   prune(*G);
 
   LLVM_DEBUG({
     dbgs() << "Link graph \"" << G->getName() << "\" post-pruning:\n";
-    G->dump(dbgs());
+    dumpGraph(dbgs());
   });
 
   // Run post-pruning passes.
@@ -58,7 +58,7 @@ void JITLinkerBase::linkPhase1(std::unique_ptr<JITLinkerBase> Self) {
   LLVM_DEBUG({
     dbgs() << "Link graph \"" << G->getName()
            << "\" before post-allocation passes:\n";
-    G->dump(dbgs());
+    dumpGraph(dbgs());
   });
 
   // Run post-allocation passes.
@@ -66,27 +66,14 @@ void JITLinkerBase::linkPhase1(std::unique_ptr<JITLinkerBase> Self) {
     return Ctx->notifyFailed(std::move(Err));
 
   // Notify client that the defined symbols have been assigned addresses.
-  LLVM_DEBUG(dbgs() << "Resolving symbols defined in " << G->getName() << "\n");
+  LLVM_DEBUG(
+      { dbgs() << "Resolving symbols defined in " << G->getName() << "\n"; });
 
   if (auto Err = Ctx->notifyResolved(*G))
     return Ctx->notifyFailed(std::move(Err));
 
   auto ExternalSymbols = getExternalSymbolNames();
 
-  // If there are no external symbols then proceed immediately with phase 2.
-  if (ExternalSymbols.empty()) {
-    LLVM_DEBUG({
-      dbgs() << "No external symbols for " << G->getName()
-             << ". Proceeding immediately with link phase 2.\n";
-    });
-    // FIXME: Once callee expressions are defined to be sequenced before
-    //        argument expressions (c++17) we can simplify this. See below.
-    auto &TmpSelf = *Self;
-    TmpSelf.linkPhase2(std::move(Self), AsyncLookupResult(), std::move(Layout));
-    return;
-  }
-
-  // Otherwise look up the externals.
   LLVM_DEBUG({
     dbgs() << "Issuing lookup for external symbols for " << G->getName()
            << " (may trigger materialization/linking of other graphs)...\n";
@@ -134,7 +121,7 @@ void JITLinkerBase::linkPhase2(std::unique_ptr<JITLinkerBase> Self,
   LLVM_DEBUG({
     dbgs() << "Link graph \"" << G->getName()
            << "\" before pre-fixup passes:\n";
-    G->dump(dbgs());
+    dumpGraph(dbgs());
   });
 
   if (auto Err = runPasses(Passes.PreFixupPasses))
@@ -142,7 +129,7 @@ void JITLinkerBase::linkPhase2(std::unique_ptr<JITLinkerBase> Self,
 
   LLVM_DEBUG({
     dbgs() << "Link graph \"" << G->getName() << "\" before copy-and-fixup:\n";
-    G->dump(dbgs());
+    dumpGraph(dbgs());
   });
 
   // Fix up block content.
@@ -151,7 +138,7 @@ void JITLinkerBase::linkPhase2(std::unique_ptr<JITLinkerBase> Self,
 
   LLVM_DEBUG({
     dbgs() << "Link graph \"" << G->getName() << "\" after copy-and-fixup:\n";
-    G->dump(dbgs());
+    dumpGraph(dbgs());
   });
 
   if (auto Err = runPasses(Passes.PostFixupPasses))
@@ -361,6 +348,8 @@ void JITLinkerBase::copyBlockContentToWorkingMemory(
 
     auto SegMem =
         Alloc.getWorkingMemory(static_cast<sys::Memory::ProtectionFlags>(Prot));
+    char *LastBlockEnd = SegMem.data();
+    char *BlockDataPtr = LastBlockEnd;
 
     LLVM_DEBUG({
       dbgs() << "  Processing segment "
@@ -370,64 +359,53 @@ void JITLinkerBase::copyBlockContentToWorkingMemory(
              << " ]\n    Processing content sections:\n";
     });
 
-    if (SegLayout.ContentBlocks.empty()) {
-      LLVM_DEBUG(dbgs() << "    No content blocks.\n");
-      continue;
-    }
-
-    size_t BlockOffset = 0;
-    size_t LastBlockEnd = 0;
-
     for (auto *B : SegLayout.ContentBlocks) {
       LLVM_DEBUG(dbgs() << "    " << *B << ":\n");
 
       // Pad to alignment/alignment-offset.
-      BlockOffset = alignToBlock(BlockOffset, *B);
+      BlockDataPtr = alignToBlock(BlockDataPtr, *B);
 
       LLVM_DEBUG({
-        dbgs() << "      Bumped block offset to "
-               << formatv("{0:x}", BlockOffset) << " to meet block alignment "
-               << B->getAlignment() << " and alignment offset "
-               << B->getAlignmentOffset() << "\n";
+        dbgs() << "      Bumped block pointer to " << (const void *)BlockDataPtr
+               << " to meet block alignment " << B->getAlignment()
+               << " and alignment offset " << B->getAlignmentOffset() << "\n";
       });
 
       // Zero pad up to alignment.
       LLVM_DEBUG({
-        if (LastBlockEnd != BlockOffset)
-          dbgs() << "      Zero padding from " << formatv("{0:x}", LastBlockEnd)
-                 << " to " << formatv("{0:x}", BlockOffset) << "\n";
+        if (LastBlockEnd != BlockDataPtr)
+          dbgs() << "      Zero padding from " << (const void *)LastBlockEnd
+                 << " to " << (const void *)BlockDataPtr << "\n";
       });
 
-      for (; LastBlockEnd != BlockOffset; ++LastBlockEnd)
-        *(SegMem.data() + LastBlockEnd) = 0;
+      while (LastBlockEnd != BlockDataPtr)
+        *LastBlockEnd++ = 0;
 
       // Copy initial block content.
       LLVM_DEBUG({
         dbgs() << "      Copying block " << *B << " content, "
                << B->getContent().size() << " bytes, from "
-               << (const void *)B->getContent().data() << " to offset "
-               << formatv("{0:x}", BlockOffset) << "\n";
+               << (const void *)B->getContent().data() << " to "
+               << (const void *)BlockDataPtr << "\n";
       });
-      memcpy(SegMem.data() + BlockOffset, B->getContent().data(),
-             B->getContent().size());
+      memcpy(BlockDataPtr, B->getContent().data(), B->getContent().size());
 
       // Point the block's content to the fixed up buffer.
-      B->setMutableContent(
-          {SegMem.data() + BlockOffset, B->getContent().size()});
+      B->setContent(StringRef(BlockDataPtr, B->getContent().size()));
 
       // Update block end pointer.
-      LastBlockEnd = BlockOffset + B->getContent().size();
-      BlockOffset = LastBlockEnd;
+      LastBlockEnd = BlockDataPtr + B->getContent().size();
+      BlockDataPtr = LastBlockEnd;
     }
 
     // Zero pad the rest of the segment.
     LLVM_DEBUG({
-      dbgs() << "    Zero padding end of segment from offset "
-             << formatv("{0:x}", LastBlockEnd) << " to "
-             << formatv("{0:x}", SegMem.size()) << "\n";
+      dbgs() << "    Zero padding end of segment from "
+             << (const void *)LastBlockEnd << " to "
+             << (const void *)((char *)SegMem.data() + SegMem.size()) << "\n";
     });
-    for (; LastBlockEnd != SegMem.size(); ++LastBlockEnd)
-      *(SegMem.data() + LastBlockEnd) = 0;
+    while (LastBlockEnd != SegMem.data() + SegMem.size())
+      *LastBlockEnd++ = 0;
   }
 }
 
@@ -435,6 +413,11 @@ void JITLinkerBase::deallocateAndBailOut(Error Err) {
   assert(Err && "Should not be bailing out on success value");
   assert(Alloc && "can not call deallocateAndBailOut before allocation");
   Ctx->notifyFailed(joinErrors(std::move(Err), Alloc->deallocate()));
+}
+
+void JITLinkerBase::dumpGraph(raw_ostream &OS) {
+  assert(G && "Graph is not set yet");
+  G->dump(dbgs(), [this](Edge::Kind K) { return getEdgeKindName(K); });
 }
 
 void prune(LinkGraph &G) {

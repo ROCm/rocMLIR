@@ -16,7 +16,6 @@
 #include "mlir/Analysis/LoopAnalysis.h"
 #include "mlir/Analysis/Utils.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
@@ -33,6 +32,8 @@
 #include <iomanip>
 #include <sstream>
 #define DEBUG_TYPE "affine-loop-fusion"
+
+using llvm::SetVector;
 
 using namespace mlir;
 
@@ -67,23 +68,28 @@ mlir::createLoopFusionPass(unsigned fastMemorySpace,
                                       maximalFusion);
 }
 
+// TODO: Replace when this is modeled through side-effects/op traits
+static bool isMemRefDereferencingOp(Operation &op) {
+  return isa<AffineReadOpInterface, AffineWriteOpInterface, AffineDmaStartOp,
+             AffineDmaWaitOp>(op);
+}
+
 namespace {
 
 // LoopNestStateCollector walks loop nests and collects load and store
-// operations, and whether or not a region holding op other than ForOp and IfOp
-// was encountered in the loop nest.
+// operations, and whether or not an IfInst was encountered in the loop nest.
 struct LoopNestStateCollector {
   SmallVector<AffineForOp, 4> forOps;
   SmallVector<Operation *, 4> loadOpInsts;
   SmallVector<Operation *, 4> storeOpInsts;
-  bool hasNonAffineRegionOp = false;
+  bool hasNonForRegion = false;
 
   void collect(Operation *opToWalk) {
     opToWalk->walk([&](Operation *op) {
       if (isa<AffineForOp>(op))
         forOps.push_back(cast<AffineForOp>(op));
-      else if (op->getNumRegions() != 0 && !isa<AffineIfOp>(op))
-        hasNonAffineRegionOp = true;
+      else if (op->getNumRegions() != 0)
+        hasNonForRegion = true;
       else if (isa<AffineReadOpInterface>(op))
         loadOpInsts.push_back(op);
       else if (isa<AffineWriteOpInterface>(op))
@@ -179,8 +185,8 @@ public:
     // which contain accesses to the same memref 'value'. If the value is a
     // non-memref value, then the dependence is between a graph node which
     // defines an SSA value and another graph node which uses the SSA value
-    // (e.g. a constant or load operation defining a value which is used inside
-    // a loop nest).
+    // (e.g. a constant operation defining a value which is used inside a loop
+    // nest).
     Value value;
   };
 
@@ -258,7 +264,7 @@ public:
         return true;
       // Return true if any use of 'memref' escapes the function.
       for (auto *user : memref.getUsers())
-        if (!isa<AffineMapAccessInterface>(*user))
+        if (!isMemRefDereferencingOp(*user))
           return true;
     }
     return false;
@@ -369,34 +375,12 @@ public:
     return outEdgeCount;
   }
 
-  /// Return all nodes which define SSA values used in node 'id'.
-  void gatherDefiningNodes(unsigned id, DenseSet<unsigned> &definingNodes) {
-    for (MemRefDependenceGraph::Edge edge : inEdges[id])
-      // By definition of edge, if the edge value is a non-memref value,
-      // then the dependence is between a graph node which defines an SSA value
-      // and another graph node which uses the SSA value.
-      if (!edge.value.getType().isa<MemRefType>())
-        definingNodes.insert(edge.id);
-  }
-
   // Computes and returns an insertion point operation, before which the
   // the fused <srcId, dstId> loop nest can be inserted while preserving
   // dependences. Returns nullptr if no such insertion point is found.
   Operation *getFusedLoopNestInsertionPoint(unsigned srcId, unsigned dstId) {
     if (outEdges.count(srcId) == 0)
       return getNode(dstId)->op;
-
-    // Skip if there is any defining node of 'dstId' that depends on 'srcId'.
-    DenseSet<unsigned> definingNodes;
-    gatherDefiningNodes(dstId, definingNodes);
-    if (llvm::any_of(definingNodes, [&](unsigned id) {
-          return hasDependencePath(srcId, id);
-        })) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Can't fuse: a defining op with a user in the dst "
-                    "loop has dependence from the src loop\n");
-      return nullptr;
-    }
 
     // Build set of insts in range (srcId, dstId) which depend on 'srcId'.
     SmallPtrSet<Operation *, 2> srcDepInsts;
@@ -719,7 +703,7 @@ void gatherEscapingMemrefs(unsigned id, MemRefDependenceGraph *mdg,
     // Check if 'memref' escapes through a non-affine op (e.g., std load/store,
     // call op, etc.).
     for (Operation *user : memref.getUsers())
-      if (!isa<AffineMapAccessInterface>(*user))
+      if (!isMemRefDereferencingOp(*user))
         escapingMemRefs.insert(memref);
   }
 }
@@ -745,9 +729,9 @@ bool MemRefDependenceGraph::init(FuncOp f) {
       // all loads and store accesses it contains.
       LoopNestStateCollector collector;
       collector.collect(&op);
-      // Return false if a region holding op other than 'affine.for' and
-      // 'affine.if' was found (not currently supported).
-      if (collector.hasNonAffineRegionOp)
+      // Return false if a non 'affine.for' region was found (not currently
+      // supported).
+      if (collector.hasNonForRegion)
         return false;
       Node node(nextNodeId++, &op);
       for (auto *opInst : collector.loadOpInsts) {
@@ -784,27 +768,6 @@ bool MemRefDependenceGraph::init(FuncOp f) {
       // could be used by loop nest nodes.
       Node node(nextNodeId++, &op);
       nodes.insert({node.id, node});
-    } else if (isa<CallOpInterface>(op)) {
-      // Create graph node for top-level Call Op that takes any argument of
-      // memref type. Call Op that returns one or more memref type results
-      // is already taken care of, by the previous conditions.
-      if (llvm::any_of(op.getOperandTypes(),
-                       [&](Type t) { return t.isa<MemRefType>(); })) {
-        Node node(nextNodeId++, &op);
-        nodes.insert({node.id, node});
-      }
-    } else if (auto effectInterface = dyn_cast<MemoryEffectOpInterface>(op)) {
-      // Create graph node for top-level op, which could have a memory write
-      // side effect.
-      SmallVector<MemoryEffects::EffectInstance, 1> effects;
-      effectInterface.getEffects(effects);
-      if (llvm::any_of(effects, [](const MemoryEffects::EffectInstance &it) {
-            return isa<MemoryEffects::Write, MemoryEffects::Free>(
-                it.getEffect());
-          })) {
-        Node node(nextNodeId++, &op);
-        nodes.insert({node.id, node});
-      }
     }
   }
 
@@ -815,11 +778,10 @@ bool MemRefDependenceGraph::init(FuncOp f) {
   }
 
   // Add dependence edges between nodes which produce SSA values and their
-  // users. Load ops can be considered as the ones producing SSA values.
+  // users.
   for (auto &idAndNode : nodes) {
     const Node &node = idAndNode.second;
-    // Stores don't define SSA values, skip them.
-    if (!node.stores.empty())
+    if (!node.loads.empty() || !node.stores.empty())
       continue;
     auto *opInst = node.op;
     for (auto value : opInst->getResults()) {
@@ -916,12 +878,12 @@ static Value createPrivateMemRef(AffineForOp forOp, Operation *srcStoreOpInst,
   assert(numElements.hasValue() &&
          "non-constant number of elts in local buffer");
 
-  const FlatAffineValueConstraints *cst = region.getConstraints();
+  const FlatAffineConstraints *cst = region.getConstraints();
   // 'outerIVs' holds the values that this memory region is symbolic/parametric
   // on; this would correspond to loop IVs surrounding the level at which the
   // slice is being materialized.
   SmallVector<Value, 8> outerIVs;
-  cst->getValues(rank, cst->getNumIds(), &outerIVs);
+  cst->getIdValues(rank, cst->getNumIds(), &outerIVs);
 
   // Build 'rank' AffineExprs from MemRefRegion 'lbs'
   SmallVector<AffineExpr, 4> offsets;
@@ -947,7 +909,7 @@ static Value createPrivateMemRef(AffineForOp forOp, Operation *srcStoreOpInst,
   if (bufSize <= localBufSizeThreshold && fastMemorySpace.hasValue()) {
     newMemSpace = fastMemorySpace.getValue();
   } else {
-    newMemSpace = oldMemRefType.getMemorySpaceAsInt();
+    newMemSpace = oldMemRefType.getMemorySpace();
   }
   auto newMemRefType = MemRefType::get(newShape, oldMemRefType.getElementType(),
                                        {}, newMemSpace);
@@ -958,7 +920,7 @@ static Value createPrivateMemRef(AffineForOp forOp, Operation *srcStoreOpInst,
   // consumer loop nests to reduce their live range. Currently they are added
   // at the beginning of the function, because loop nests can be reordered
   // during the fusion pass.
-  Value newMemRef = top.create<memref::AllocOp>(forOp.getLoc(), newMemRefType);
+  Value newMemRef = top.create<AllocOp>(forOp.getLoc(), newMemRefType);
 
   // Build an AffineMap to remap access functions based on lower bound offsets.
   SmallVector<AffineExpr, 4> remapExprs;
@@ -988,7 +950,7 @@ static Value createPrivateMemRef(AffineForOp forOp, Operation *srcStoreOpInst,
 
 /// Walking from node 'srcId' to node 'dstId' (exclusive of 'srcId' and
 /// 'dstId'), if there is any non-affine operation accessing 'memref', return
-/// true. Otherwise, return false.
+/// false. Otherwise, return true.
 static bool hasNonAffineUsersOnThePath(unsigned srcId, unsigned dstId,
                                        Value memref,
                                        MemRefDependenceGraph *mdg) {
@@ -1006,7 +968,7 @@ static bool hasNonAffineUsersOnThePath(unsigned srcId, unsigned dstId,
       // Interrupt the walk if found.
       auto walkResult = op->walk([&](Operation *user) {
         // Skip affine ops.
-        if (isa<AffineMapAccessInterface>(*user))
+        if (isMemRefDereferencingOp(*user))
           return WalkResult::advance();
         // Find a non-affine op that uses the memref.
         if (llvm::is_contained(users, user))
@@ -1421,10 +1383,6 @@ public:
       // Skip if 'dstNode' is not a loop nest.
       if (!isa<AffineForOp>(dstNode->op))
         continue;
-      // Skip if 'dstNode' is a loop nest returning values.
-      // TODO: support loop nests that return values.
-      if (dstNode->op->getNumResults() > 0)
-        continue;
 
       LLVM_DEBUG(llvm::dbgs() << "Evaluating dst loop " << dstId << "\n");
 
@@ -1454,11 +1412,6 @@ public:
           auto srcAffineForOp = cast<AffineForOp>(srcNode->op);
           LLVM_DEBUG(llvm::dbgs() << "Evaluating src loop " << srcId
                                   << " for dst loop " << dstId << "\n");
-
-          // Skip if 'srcNode' is a loop nest returning values.
-          // TODO: support loop nests that return values.
-          if (isa<AffineForOp>(srcNode->op) && srcNode->op->getNumResults() > 0)
-            continue;
 
           DenseSet<Value> producerConsumerMemrefs;
           gatherProducerConsumerMemrefs(srcId, dstId, mdg,
@@ -1576,15 +1529,9 @@ public:
 
           DenseSet<Value> privateMemrefs;
           for (Value memref : producerConsumerMemrefs) {
-            // If `memref` is an escaping one, do not create a private memref
-            // for the below scenarios, since doing so will leave the escaping
-            // memref unmodified as all the writes originally meant for the
-            // escaping memref would be performed on the private memref:
-            // 1. The source is to be removed after fusion,
-            // OR
-            // 2. The destination writes to `memref`.
-            if (srcEscapingMemRefs.count(memref) > 0 &&
-                (removeSrcNode || dstNode->getStoreOpCount(memref) > 0))
+            // Don't create a private memref if 'srcNode' writes to escaping
+            // memrefs.
+            if (srcEscapingMemRefs.count(memref) > 0)
               continue;
 
             // Don't create a private memref if 'srcNode' has in edges on
@@ -1652,10 +1599,6 @@ public:
               // Add edge from 'newMemRef' node to dstNode.
               mdg->addEdge(newMemRefNodeId, dstId, newMemRef);
             }
-            // One or more entries for 'newMemRef' alloc op are inserted into
-            // the DenseMap mdg->nodes. Since an insertion may cause DenseMap to
-            // reallocate, update dstNode.
-            dstNode = mdg->getNode(dstId);
           }
 
           // Collect dst loop stats after memref privatization transformation.
@@ -1683,7 +1626,6 @@ public:
   // Visits each node in the graph, and for each node, attempts to fuse it with
   // its sibling nodes (nodes which share a parent, but no dependence edges).
   void fuseSiblingNodes() {
-    LLVM_DEBUG(llvm::dbgs() << "--- Sibling Fusion ---\n");
     init();
     while (!worklist.empty()) {
       unsigned dstId = worklist.back();
@@ -1775,14 +1717,10 @@ public:
       assert(bestDstLoopDepth > 0 && "Unexpected loop fusion depth");
       assert(!depthSliceUnions[bestDstLoopDepth - 1].isEmpty() &&
              "Fusion depth has no computed slice union");
-      // Check if source loop is being inserted in the innermost
-      // destination loop. Based on this, the fused loop may be optimized
-      // further inside `fuseLoops`.
-      bool isInnermostInsertion = (bestDstLoopDepth == dstLoopDepthTest);
+
       // Fuse computation slice of 'sibLoopNest' into 'dstLoopNest'.
       mlir::fuseLoops(sibAffineForOp, dstAffineForOp,
-                      depthSliceUnions[bestDstLoopDepth - 1],
-                      isInnermostInsertion);
+                      depthSliceUnions[bestDstLoopDepth - 1]);
 
       auto dstForInst = cast<AffineForOp>(dstNode->op);
       // Update operation position of fused loop nest (if needed).
@@ -1952,7 +1890,7 @@ public:
         continue;
       // Use list expected to match the dep graph info.
       auto *op = memref.getDefiningOp();
-      if (isa_and_nonnull<memref::AllocOp>(op))
+      if (isa_and_nonnull<AllocOp>(op))
         op->erase();
     }
   }

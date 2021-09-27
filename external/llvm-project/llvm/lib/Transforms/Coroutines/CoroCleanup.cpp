@@ -56,7 +56,8 @@ static void lowerSubFn(IRBuilder<> &Builder, CoroSubFnInst *SubFn) {
 bool Lowerer::lowerRemainingCoroIntrinsics(Function &F) {
   bool Changed = false;
 
-  for (Instruction &I : llvm::make_early_inc_range(instructions(F))) {
+  for (auto IB = inst_begin(F), E = inst_end(F); IB != E;) {
+    Instruction &I = *IB++;
     if (auto *II = dyn_cast<IntrinsicInst>(&I)) {
       switch (II->getIntrinsicID()) {
       default:
@@ -79,23 +80,6 @@ bool Lowerer::lowerRemainingCoroIntrinsics(Function &F) {
       case Intrinsic::coro_subfn_addr:
         lowerSubFn(Builder, cast<CoroSubFnInst>(II));
         break;
-      case Intrinsic::coro_async_size_replace:
-        auto *Target = cast<ConstantStruct>(
-            cast<GlobalVariable>(II->getArgOperand(0)->stripPointerCasts())
-                ->getInitializer());
-        auto *Source = cast<ConstantStruct>(
-            cast<GlobalVariable>(II->getArgOperand(1)->stripPointerCasts())
-                ->getInitializer());
-        auto *TargetSize = Target->getOperand(1);
-        auto *SourceSize = Source->getOperand(1);
-        if (TargetSize->isElementWiseEqual(SourceSize)) {
-          break;
-        }
-        auto *TargetRelativeFunOffset = Target->getOperand(0);
-        auto *NewFuncPtrStruct = ConstantStruct::get(
-            Target->getType(), TargetRelativeFunOffset, SourceSize);
-        Target->replaceAllUsesWith(NewFuncPtrStruct);
-        break;
       }
       II->eraseFromParent();
       Changed = true;
@@ -111,10 +95,10 @@ bool Lowerer::lowerRemainingCoroIntrinsics(Function &F) {
 }
 
 static bool declaresCoroCleanupIntrinsics(const Module &M) {
-  return coro::declaresIntrinsics(
-      M, {"llvm.coro.alloc", "llvm.coro.begin", "llvm.coro.subfn.addr",
-          "llvm.coro.free", "llvm.coro.id", "llvm.coro.id.retcon",
-          "llvm.coro.id.retcon.once", "llvm.coro.async.size.replace"});
+  return coro::declaresIntrinsics(M, {"llvm.coro.alloc", "llvm.coro.begin",
+                                      "llvm.coro.subfn.addr", "llvm.coro.free",
+                                      "llvm.coro.id", "llvm.coro.id.retcon",
+                                      "llvm.coro.id.retcon.once"});
 }
 
 PreservedAnalyses CoroCleanupPass::run(Function &F,

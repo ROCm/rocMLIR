@@ -81,6 +81,8 @@ declare { <16 x i8>, <16 x i8>, <16 x i8>, <16 x i8> } @llvm.arm.mve.vld4q.v16i8
 define arm_aapcs_vfpcc void @test_vst2q_u32(i32* %addr, %struct.uint32x4x2_t %value.coerce) {
 ; CHECK-LABEL: test_vst2q_u32:
 ; CHECK:       @ %bb.0: @ %entry
+; CHECK-NEXT:    @ kill: def $q1 killed $q1 killed $q0_q1 def $q0_q1
+; CHECK-NEXT:    @ kill: def $q0 killed $q0 killed $q0_q1 def $q0_q1
 ; CHECK-NEXT:    vst20.32 {q0, q1}, [r0]
 ; CHECK-NEXT:    vst21.32 {q0, q1}, [r0]
 ; CHECK-NEXT:    bx lr
@@ -95,6 +97,8 @@ entry:
 define arm_aapcs_vfpcc i32* @test_vst2q_u32_post(i32* %addr, %struct.uint32x4x2_t %value.coerce) {
 ; CHECK-LABEL: test_vst2q_u32_post:
 ; CHECK:       @ %bb.0: @ %entry
+; CHECK-NEXT:    @ kill: def $q1 killed $q1 killed $q0_q1 def $q0_q1
+; CHECK-NEXT:    @ kill: def $q0 killed $q0 killed $q0_q1 def $q0_q1
 ; CHECK-NEXT:    vst20.32 {q0, q1}, [r0]
 ; CHECK-NEXT:    vst21.32 {q0, q1}, [r0]!
 ; CHECK-NEXT:    bx lr
@@ -112,6 +116,8 @@ declare void @llvm.arm.mve.vst2q.p0i32.v4i32(i32*, <4 x i32>, <4 x i32>, i32)
 define arm_aapcs_vfpcc void @test_vst2q_f16(half* %addr, %struct.float16x8x2_t %value.coerce) {
 ; CHECK-LABEL: test_vst2q_f16:
 ; CHECK:       @ %bb.0: @ %entry
+; CHECK-NEXT:    @ kill: def $q1 killed $q1 killed $q0_q1 def $q0_q1
+; CHECK-NEXT:    @ kill: def $q0 killed $q0 killed $q0_q1 def $q0_q1
 ; CHECK-NEXT:    vst20.16 {q0, q1}, [r0]
 ; CHECK-NEXT:    vst21.16 {q0, q1}, [r0]
 ; CHECK-NEXT:    bx lr
@@ -126,6 +132,8 @@ entry:
 define arm_aapcs_vfpcc half* @test_vst2q_f16_post(half* %addr, %struct.float16x8x2_t %value.coerce) {
 ; CHECK-LABEL: test_vst2q_f16_post:
 ; CHECK:       @ %bb.0: @ %entry
+; CHECK-NEXT:    @ kill: def $q1 killed $q1 killed $q0_q1 def $q0_q1
+; CHECK-NEXT:    @ kill: def $q0 killed $q0 killed $q0_q1 def $q0_q1
 ; CHECK-NEXT:    vst20.16 {q0, q1}, [r0]
 ; CHECK-NEXT:    vst21.16 {q0, q1}, [r0]!
 ; CHECK-NEXT:    bx lr
@@ -143,6 +151,10 @@ declare void @llvm.arm.mve.vst2q.p0f16.v8f16(half*, <8 x half>, <8 x half>, i32)
 define arm_aapcs_vfpcc void @test_vst4q_s8(i8* %addr, %struct.int8x16x4_t %value.coerce) {
 ; CHECK-LABEL: test_vst4q_s8:
 ; CHECK:       @ %bb.0: @ %entry
+; CHECK-NEXT:    @ kill: def $q3 killed $q3 killed $q0_q1_q2_q3 def $q0_q1_q2_q3
+; CHECK-NEXT:    @ kill: def $q2 killed $q2 killed $q0_q1_q2_q3 def $q0_q1_q2_q3
+; CHECK-NEXT:    @ kill: def $q1 killed $q1 killed $q0_q1_q2_q3 def $q0_q1_q2_q3
+; CHECK-NEXT:    @ kill: def $q0 killed $q0 killed $q0_q1_q2_q3 def $q0_q1_q2_q3
 ; CHECK-NEXT:    vst40.8 {q0, q1, q2, q3}, [r0]
 ; CHECK-NEXT:    vst41.8 {q0, q1, q2, q3}, [r0]
 ; CHECK-NEXT:    vst42.8 {q0, q1, q2, q3}, [r0]
@@ -163,6 +175,10 @@ entry:
 define arm_aapcs_vfpcc i8* @test_vst4q_s8_post(i8* %addr, %struct.int8x16x4_t %value.coerce) {
 ; CHECK-LABEL: test_vst4q_s8_post:
 ; CHECK:       @ %bb.0: @ %entry
+; CHECK-NEXT:    @ kill: def $q3 killed $q3 killed $q0_q1_q2_q3 def $q0_q1_q2_q3
+; CHECK-NEXT:    @ kill: def $q2 killed $q2 killed $q0_q1_q2_q3 def $q0_q1_q2_q3
+; CHECK-NEXT:    @ kill: def $q1 killed $q1 killed $q0_q1_q2_q3 def $q0_q1_q2_q3
+; CHECK-NEXT:    @ kill: def $q0 killed $q0 killed $q0_q1_q2_q3 def $q0_q1_q2_q3
 ; CHECK-NEXT:    vst40.8 {q0, q1, q2, q3}, [r0]
 ; CHECK-NEXT:    vst41.8 {q0, q1, q2, q3}, [r0]
 ; CHECK-NEXT:    vst42.8 {q0, q1, q2, q3}, [r0]

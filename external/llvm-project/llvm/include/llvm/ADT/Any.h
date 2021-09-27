@@ -23,12 +23,7 @@
 
 namespace llvm {
 
-class LLVM_EXTERNAL_VISIBILITY Any {
-
-  // The `Typeid<T>::Id` static data member below is a globally unique
-  // identifier for the type `T`. It is explicitly marked with default
-  // visibility so that when `-fvisibility=hidden` is used, the loader still
-  // merges duplicate definitions across DSO boundaries.
+class Any {
   template <typename T> struct TypeId { static const char Id; };
 
   struct StorageBase {
@@ -119,23 +114,27 @@ template <typename T> const char Any::TypeId<T>::Id = 0;
 template <typename T> bool any_isa(const Any &Value) {
   if (!Value.Storage)
     return false;
-  return Value.Storage->id() == &Any::TypeId<remove_cvref_t<T>>::Id;
+  return Value.Storage->id() ==
+         &Any::TypeId<std::remove_cv_t<std::remove_reference_t<T>>>::Id;
 }
 
 template <class T> T any_cast(const Any &Value) {
-  return static_cast<T>(*any_cast<remove_cvref_t<T>>(&Value));
+  return static_cast<T>(
+      *any_cast<std::remove_cv_t<std::remove_reference_t<T>>>(&Value));
 }
 
 template <class T> T any_cast(Any &Value) {
-  return static_cast<T>(*any_cast<remove_cvref_t<T>>(&Value));
+  return static_cast<T>(
+      *any_cast<std::remove_cv_t<std::remove_reference_t<T>>>(&Value));
 }
 
 template <class T> T any_cast(Any &&Value) {
-  return static_cast<T>(std::move(*any_cast<remove_cvref_t<T>>(&Value)));
+  return static_cast<T>(std::move(
+      *any_cast<std::remove_cv_t<std::remove_reference_t<T>>>(&Value)));
 }
 
 template <class T> const T *any_cast(const Any *Value) {
-  using U = remove_cvref_t<T>;
+  using U = std::remove_cv_t<std::remove_reference_t<T>>;
   assert(Value && any_isa<T>(*Value) && "Bad any cast!");
   if (!Value || !any_isa<U>(*Value))
     return nullptr;

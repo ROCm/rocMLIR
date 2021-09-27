@@ -19,12 +19,12 @@ class _LIBCPP_HIDDEN __future_error_category
     : public __do_message
 {
 public:
-    virtual const char* name() const noexcept;
+    virtual const char* name() const _NOEXCEPT;
     virtual string message(int ev) const;
 };
 
 const char*
-__future_error_category::name() const noexcept
+__future_error_category::name() const _NOEXCEPT
 {
     return "future";
 }
@@ -65,7 +65,7 @@ __future_error_category::message(int ev) const
 #endif
 
 const error_category&
-future_category() noexcept
+future_category() _NOEXCEPT
 {
     static __future_error_category __f;
     return __f;
@@ -77,12 +77,12 @@ future_error::future_error(error_code __ec)
 {
 }
 
-future_error::~future_error() noexcept
+future_error::~future_error() _NOEXCEPT
 {
 }
 
 void
-__assoc_sub_state::__on_zero_shared() noexcept
+__assoc_sub_state::__on_zero_shared() _NOEXCEPT
 {
     delete this;
 }

@@ -4,6 +4,15 @@ set(LLVM_LINK_COMPONENTS
   FrontendOpenMP
   )
 
+get_filename_component(CLANGD_SOURCE_DIR
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../clangd REALPATH)
+get_filename_component(CLANGD_BINARY_DIR
+  ${CMAKE_CURRENT_BINARY_DIR}/../../clangd REALPATH)
+include_directories(
+  ${CLANGD_SOURCE_DIR}
+  ${CLANGD_BINARY_DIR}
+  )
+
 if(CLANG_BUILT_STANDALONE)
   # LLVMTestingSupport library is needed for clangd tests.
   if (EXISTS ${LLVM_MAIN_SRC_DIR}/lib/Testing/Support
@@ -46,7 +55,6 @@ add_unittest(ClangdUnitTests ClangdTests
   DraftStoreTests.cpp
   DumpASTTests.cpp
   ExpectedTypeTest.cpp
-  FeatureModulesTests.cpp
   FileDistanceTests.cpp
   FileIndexTests.cpp
   FindSymbolsTests.cpp
@@ -58,13 +66,10 @@ add_unittest(ClangdUnitTests ClangdTests
   HeadersTests.cpp
   HeaderSourceSwitchTests.cpp
   HoverTests.cpp
-  IncludeCleanerTests.cpp
   IndexActionTests.cpp
   IndexTests.cpp
-  InlayHintTests.cpp
   JSONTransportTests.cpp
   LoggerTests.cpp
-  LSPBinderTests.cpp
   LSPClient.cpp
   ModulesTests.cpp
   ParsedASTTests.cpp
@@ -88,7 +93,6 @@ add_unittest(ClangdUnitTests ClangdTests
   TestIndex.cpp
   TestTU.cpp
   TestWorkspace.cpp
-  TidyProviderTests.cpp
   TypeHierarchyTests.cpp
   URITests.cpp
   XRefsTests.cpp
@@ -99,7 +103,6 @@ add_unittest(ClangdUnitTests ClangdTests
   support/FunctionTests.cpp
   support/MarkupTests.cpp
   support/MemoryTreeTests.cpp
-  support/PathTests.cpp
   support/ThreadingTests.cpp
   support/TestTracer.cpp
   support/TraceTests.cpp

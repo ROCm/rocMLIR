@@ -6,7 +6,7 @@
 ; CHECK: crjlh
 ; CHECK-NOT: llcr
 ; CHECK-NOT: cr
-; CHECK: llgfr %r2, [[RES:%r[0-9]+]]
+; CHECK: llgcr %r2, [[RES:%r[0-9]+]]
 ; CHECK-NOT: llcr
 ; CHECK-NOT: cr
 define zeroext i8 @f1(i8* nocapture, i8 zeroext, i8 zeroext) {
@@ -19,7 +19,7 @@ define zeroext i8 @f1(i8* nocapture, i8 zeroext, i8 zeroext) {
 ; CHECK: crjlh
 ; CHECK-NOT: llhr
 ; CHECK-NOT: cr
-; CHECK: llgfr %r2, [[RES:%r[0-9]+]]
+; CHECK: llghr %r2, [[RES:%r[0-9]+]]
 ; CHECK-NOT: llhr
 ; CHECK-NOT: cr
 define zeroext i16 @f2(i16* nocapture, i16 zeroext, i16 zeroext) {
@@ -53,3 +53,4 @@ define signext i16 @f4(i16* nocapture, i16 signext, i16 signext) {
   %res = extractvalue { i16, i1 } %cx, 0
   ret i16 %res
 }
+

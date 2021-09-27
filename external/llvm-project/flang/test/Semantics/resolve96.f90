@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 
 ! Check distinguishability for specific procedures of defined operators and
 ! assignment. These are different from names because there a normal generic

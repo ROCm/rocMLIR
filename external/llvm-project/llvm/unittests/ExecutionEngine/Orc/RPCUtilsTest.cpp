@@ -871,7 +871,8 @@ TEST(DummyRPC, TestRemoveHandler) {
 
   Server.addHandler<DummyRPCAPI::VoidBool>(
     [](bool B) {
-      llvm_unreachable("Server void(bool) received unexpected result");
+      EXPECT_EQ(B, true)
+        << "Server void(bool) received unexpected result";
     });
 
   Server.removeHandler<DummyRPCAPI::VoidBool>();
@@ -883,7 +884,8 @@ TEST(DummyRPC, TestClearHandlers) {
 
   Server.addHandler<DummyRPCAPI::VoidBool>(
     [](bool B) {
-      llvm_unreachable("Server void(bool) received unexpected result");
+      EXPECT_EQ(B, true)
+        << "Server void(bool) received unexpected result";
     });
 
   Server.clearHandlers();

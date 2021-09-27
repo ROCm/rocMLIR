@@ -109,8 +109,6 @@ public:
 
   // Pretty print this attribute.
   void printPretty(raw_ostream &OS, const PrintingPolicy &Policy) const;
-
-  static StringRef getDocumentation(attr::Kind);
 };
 
 class TypeAttr : public Attr {
@@ -210,8 +208,6 @@ public:
     switch (getKind()) {
     case attr::SwiftContext:
       return ParameterABI::SwiftContext;
-    case attr::SwiftAsyncContext:
-      return ParameterABI::SwiftAsyncContext;
     case attr::SwiftErrorResult:
       return ParameterABI::SwiftErrorResult;
     case attr::SwiftIndirectResult:

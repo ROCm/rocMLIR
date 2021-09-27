@@ -8,16 +8,15 @@
 # CHECK: VersionDefinitions [
 # CHECK: VersionRequirements [
 # CHECK: CGProfile [
-# CHECK: CGProfile [
 # CHECK: Addrsig [
 
 --- !ELF
-FileHeader:
+FileHeader:      
   Class:           ELFCLASS64
   Data:            ELFDATA2LSB
   Type:            ET_REL
   Machine:         EM_X86_64
-Sections:
+Sections:        
   - Name:            .symtab2
     Type:            SHT_SYMTAB
     Link:            .strtab
@@ -50,18 +49,18 @@ Sections:
   - Name:            .llvm.call-graph-profile
     Type:            SHT_LLVM_CALL_GRAPH_PROFILE
     Content:         ''
-    EntSize:         8
+    EntSize:         16
   - Name:            .llvm.call-graph-profile2
     Type:            SHT_LLVM_CALL_GRAPH_PROFILE
     Content:         ''
-    EntSize:         8
+    EntSize:         16
   - Name:            .llvm_addrsig
     Type:            SHT_LLVM_ADDRSIG
     Content:         ''
   - Name:            .llvm_addrsig2
     Type:            SHT_LLVM_ADDRSIG
     Content:         ''
-Symbols:
+Symbols:         
   - Name:            f
 DynamicSymbols: []
 ...

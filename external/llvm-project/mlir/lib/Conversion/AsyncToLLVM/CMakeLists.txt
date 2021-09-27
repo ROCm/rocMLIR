@@ -12,7 +12,6 @@ add_mlir_conversion_library(MLIRAsyncToLLVM
 
   LINK_LIBS PUBLIC
   MLIRAsync
-  MLIRLLVMCommonConversion
   MLIRLLVMIR
   MLIRStandardOpsTransforms
   MLIRStandardToLLVM

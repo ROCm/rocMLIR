@@ -11,6 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#define DEBUG_TYPE "hexagon-shuffle"
+
 #include "MCTargetDesc/HexagonShuffler.h"
 #include "MCTargetDesc/HexagonBaseInfo.h"
 #include "MCTargetDesc/HexagonMCInstrInfo.h"
@@ -30,8 +32,6 @@
 #include <cassert>
 #include <utility>
 #include <vector>
-
-#define DEBUG_TYPE "hexagon-shuffle"
 
 using namespace llvm;
 

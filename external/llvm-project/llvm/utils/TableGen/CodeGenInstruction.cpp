@@ -177,17 +177,17 @@ bool CGIOperandList::hasOperandNamed(StringRef Name, unsigned &OpIdx) const {
 }
 
 std::pair<unsigned,unsigned>
-CGIOperandList::ParseOperandName(StringRef Op, bool AllowWholeOp) {
+CGIOperandList::ParseOperandName(const std::string &Op, bool AllowWholeOp) {
   if (Op.empty() || Op[0] != '$')
     PrintFatalError(TheDef->getLoc(),
                     TheDef->getName() + ": Illegal operand name: '" + Op + "'");
 
-  StringRef OpName = Op.substr(1);
-  StringRef SubOpName;
+  std::string OpName = Op.substr(1);
+  std::string SubOpName;
 
   // Check to see if this is $foo.bar.
-  StringRef::size_type DotIdx = OpName.find_first_of('.');
-  if (DotIdx != StringRef::npos) {
+  std::string::size_type DotIdx = OpName.find_first_of('.');
+  if (DotIdx != std::string::npos) {
     SubOpName = OpName.substr(DotIdx+1);
     if (SubOpName.empty())
       PrintFatalError(TheDef->getLoc(),
@@ -231,16 +231,16 @@ CGIOperandList::ParseOperandName(StringRef Op, bool AllowWholeOp) {
   return std::make_pair(0U, 0U);
 }
 
-static void ParseConstraint(StringRef CStr, CGIOperandList &Ops,
+static void ParseConstraint(const std::string &CStr, CGIOperandList &Ops,
                             Record *Rec) {
   // EARLY_CLOBBER: @early $reg
-  StringRef::size_type wpos = CStr.find_first_of(" \t");
-  StringRef::size_type start = CStr.find_first_not_of(" \t");
-  StringRef Tok = CStr.substr(start, wpos - start);
+  std::string::size_type wpos = CStr.find_first_of(" \t");
+  std::string::size_type start = CStr.find_first_not_of(" \t");
+  std::string Tok = CStr.substr(start, wpos - start);
   if (Tok == "@earlyclobber") {
-    StringRef Name = CStr.substr(wpos+1);
+    std::string Name = CStr.substr(wpos+1);
     wpos = Name.find_first_not_of(" \t");
-    if (wpos == StringRef::npos)
+    if (wpos == std::string::npos)
       PrintFatalError(
         Rec->getLoc(), "Illegal format for @earlyclobber constraint in '" +
         Rec->getName() + "': '" + CStr + "'");
@@ -258,8 +258,8 @@ static void ParseConstraint(StringRef CStr, CGIOperandList &Ops,
   }
 
   // Only other constraint is "TIED_TO" for now.
-  StringRef::size_type pos = CStr.find_first_of('=');
-  if (pos == StringRef::npos)
+  std::string::size_type pos = CStr.find_first_of('=');
+  if (pos == std::string::npos)
     PrintFatalError(
       Rec->getLoc(), "Unrecognized constraint '" + CStr +
       "' in '" + Rec->getName() + "'");
@@ -267,19 +267,20 @@ static void ParseConstraint(StringRef CStr, CGIOperandList &Ops,
 
   // TIED_TO: $src1 = $dst
   wpos = CStr.find_first_of(" \t", start);
-  if (wpos == StringRef::npos || wpos > pos)
+  if (wpos == std::string::npos || wpos > pos)
     PrintFatalError(
       Rec->getLoc(), "Illegal format for tied-to constraint in '" +
       Rec->getName() + "': '" + CStr + "'");
-  StringRef LHSOpName = CStr.substr(start, wpos - start);
+  std::string LHSOpName =
+      std::string(StringRef(CStr).substr(start, wpos - start));
   std::pair<unsigned,unsigned> LHSOp = Ops.ParseOperandName(LHSOpName, false);
 
   wpos = CStr.find_first_not_of(" \t", pos + 1);
-  if (wpos == StringRef::npos)
+  if (wpos == std::string::npos)
     PrintFatalError(
       Rec->getLoc(), "Illegal format for tied-to constraint: '" + CStr + "'");
 
-  StringRef RHSOpName = CStr.substr(wpos);
+  std::string RHSOpName = std::string(StringRef(CStr).substr(wpos));
   std::pair<unsigned,unsigned> RHSOp = Ops.ParseOperandName(RHSOpName, false);
 
   // Sort the operands into order, which should put the output one
@@ -324,27 +325,29 @@ static void ParseConstraint(StringRef CStr, CGIOperandList &Ops,
   Ops[SrcOp.first].Constraints[SrcOp.second] = NewConstraint;
 }
 
-static void ParseConstraints(StringRef CStr, CGIOperandList &Ops, Record *Rec) {
+static void ParseConstraints(const std::string &CStr, CGIOperandList &Ops,
+                             Record *Rec) {
   if (CStr.empty()) return;
 
-  StringRef delims(",");
-  StringRef::size_type bidx, eidx;
+  const std::string delims(",");
+  std::string::size_type bidx, eidx;
 
   bidx = CStr.find_first_not_of(delims);
-  while (bidx != StringRef::npos) {
+  while (bidx != std::string::npos) {
     eidx = CStr.find_first_of(delims, bidx);
-    if (eidx == StringRef::npos)
-      eidx = CStr.size();
+    if (eidx == std::string::npos)
+      eidx = CStr.length();
 
     ParseConstraint(CStr.substr(bidx, eidx - bidx), Ops, Rec);
     bidx = CStr.find_first_not_of(delims, eidx);
   }
 }
 
-void CGIOperandList::ProcessDisableEncoding(StringRef DisableEncoding) {
+void CGIOperandList::ProcessDisableEncoding(std::string DisableEncoding) {
   while (1) {
-    StringRef OpName;
-    std::tie(OpName, DisableEncoding) = getToken(DisableEncoding, " ,\t");
+    std::pair<StringRef, StringRef> P = getToken(DisableEncoding, " ,\t");
+    std::string OpName = std::string(P.first);
+    DisableEncoding = std::string(P.second);
     if (OpName.empty()) break;
 
     // Figure out which operand this is.
@@ -424,11 +427,12 @@ CodeGenInstruction::CodeGenInstruction(Record *R)
   hasChain_Inferred = false;
 
   // Parse Constraints.
-  ParseConstraints(R->getValueAsString("Constraints"), Operands, R);
+  ParseConstraints(std::string(R->getValueAsString("Constraints")), Operands,
+                   R);
 
   // Parse the DisableEncoding field.
   Operands.ProcessDisableEncoding(
-      R->getValueAsString("DisableEncoding"));
+      std::string(R->getValueAsString("DisableEncoding")));
 
   // First check for a ComplexDeprecationPredicate.
   if (R->getValue("ComplexDeprecationPredicate")) {

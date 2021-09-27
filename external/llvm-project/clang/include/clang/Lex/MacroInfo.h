@@ -521,7 +521,7 @@ public:
   }
 
   static void Profile(llvm::FoldingSetNodeID &ID, Module *OwningModule,
-                      const IdentifierInfo *II) {
+                      IdentifierInfo *II) {
     ID.AddPointer(OwningModule);
     ID.AddPointer(II);
   }

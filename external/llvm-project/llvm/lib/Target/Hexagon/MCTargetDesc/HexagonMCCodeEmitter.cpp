@@ -448,7 +448,8 @@ void HexagonMCCodeEmitter::EncodeSingleInstruction(const MCInst &MI,
   ++MCNumEmitted;
 }
 
-[[noreturn]] static void raise_relocation_error(unsigned Width, unsigned Kind) {
+LLVM_ATTRIBUTE_NORETURN
+static void raise_relocation_error(unsigned Width, unsigned Kind) {
   std::string Text;
   raw_string_ostream Stream(Text);
   Stream << "Unrecognized relocation combination: width=" << Width

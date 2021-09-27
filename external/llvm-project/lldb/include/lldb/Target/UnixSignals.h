@@ -104,7 +104,7 @@ protected:
     Signal(const char *name, bool default_suppress, bool default_stop,
            bool default_notify, const char *description, const char *alias);
 
-    ~Signal() = default;
+    ~Signal() {}
   };
 
   virtual void Reset();

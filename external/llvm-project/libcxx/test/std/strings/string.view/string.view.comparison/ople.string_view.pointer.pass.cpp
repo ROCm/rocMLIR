@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-// <string_view>
+// <string>
 
 // template<class charT, class traits, class Allocator>
 //   constexpr bool operator<=(const charT* lhs, basic_string_view<charT,traits> rhs);

@@ -164,7 +164,9 @@ Register MachineSSAUpdater::GetValueInMiddleOfBlock(MachineBasicBlock *BB) {
   Register SingularValue;
 
   bool isFirstPred = true;
-  for (MachineBasicBlock *PredBB : BB->predecessors()) {
+  for (MachineBasicBlock::pred_iterator PI = BB->pred_begin(),
+         E = BB->pred_end(); PI != E; ++PI) {
+    MachineBasicBlock *PredBB = *PI;
     Register PredVal = GetValueAtEndOfBlockInternal(PredBB);
     PredValues.push_back(std::make_pair(PredBB, PredVal));
 
@@ -234,10 +236,10 @@ void MachineSSAUpdater::RewriteUse(MachineOperand &U) {
   U.setReg(NewVR);
 }
 
-namespace llvm {
-
 /// SSAUpdaterTraits<MachineSSAUpdater> - Traits for the SSAUpdaterImpl
 /// template, specialized for MachineSSAUpdater.
+namespace llvm {
+
 template<>
 class SSAUpdaterTraits<MachineSSAUpdater> {
 public:

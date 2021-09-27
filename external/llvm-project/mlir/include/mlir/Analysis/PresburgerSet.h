@@ -67,17 +67,14 @@ public:
   void print(raw_ostream &os) const;
   void dump() const;
 
-  /// Return the complement of this set. Computing the complement of a set
-  /// containing divisions is not yet supported.
+  /// Return the complement of this set.
   PresburgerSet complement() const;
 
   /// Return the set difference of this set and the given set, i.e.,
-  /// return `this \ set`. Subtracting when either set contains divisions is not
-  /// yet supported.
+  /// return `this \ set`.
   PresburgerSet subtract(const PresburgerSet &set) const;
 
   /// Return true if this set is equal to the given set, and false otherwise.
-  /// Checking equality when either set contains divisions is not yet supported.
   bool isEqual(const PresburgerSet &set) const;
 
   /// Return a universe set of the specified type that contains all points.

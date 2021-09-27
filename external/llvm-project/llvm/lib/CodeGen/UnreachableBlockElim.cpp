@@ -114,23 +114,25 @@ bool UnreachableMachineBlockElim::runOnMachineFunction(MachineFunction &F) {
   // Loop over all dead blocks, remembering them and deleting all instructions
   // in them.
   std::vector<MachineBasicBlock*> DeadBlocks;
-  for (MachineBasicBlock &BB : F) {
+  for (MachineFunction::iterator I = F.begin(), E = F.end(); I != E; ++I) {
+    MachineBasicBlock *BB = &*I;
+
     // Test for deadness.
-    if (!Reachable.count(&BB)) {
-      DeadBlocks.push_back(&BB);
+    if (!Reachable.count(BB)) {
+      DeadBlocks.push_back(BB);
 
       // Update dominator and loop info.
-      if (MLI) MLI->removeBlock(&BB);
-      if (MDT && MDT->getNode(&BB)) MDT->eraseNode(&BB);
+      if (MLI) MLI->removeBlock(BB);
+      if (MDT && MDT->getNode(BB)) MDT->eraseNode(BB);
 
-      while (BB.succ_begin() != BB.succ_end()) {
-        MachineBasicBlock* succ = *BB.succ_begin();
+      while (BB->succ_begin() != BB->succ_end()) {
+        MachineBasicBlock* succ = *BB->succ_begin();
 
         MachineBasicBlock::iterator start = succ->begin();
         while (start != succ->end() && start->isPHI()) {
           for (unsigned i = start->getNumOperands() - 1; i >= 2; i-=2)
             if (start->getOperand(i).isMBB() &&
-                start->getOperand(i).getMBB() == &BB) {
+                start->getOperand(i).getMBB() == BB) {
               start->RemoveOperand(i);
               start->RemoveOperand(i-1);
             }
@@ -138,7 +140,7 @@ bool UnreachableMachineBlockElim::runOnMachineFunction(MachineFunction &F) {
           start++;
         }
 
-        BB.removeSuccessor(BB.succ_begin());
+        BB->removeSuccessor(BB->succ_begin());
       }
     }
   }

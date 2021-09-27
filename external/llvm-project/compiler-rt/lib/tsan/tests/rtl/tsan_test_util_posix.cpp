@@ -90,11 +90,16 @@ MemLoc::MemLoc(int offset_from_aligned)
 MemLoc::~MemLoc() {
 }
 
-UserMutex::UserMutex(Type type) : alive_(), type_(type) {}
+Mutex::Mutex(Type type)
+  : alive_()
+  , type_(type) {
+}
 
-UserMutex::~UserMutex() { CHECK(!alive_); }
+Mutex::~Mutex() {
+  CHECK(!alive_);
+}
 
-void UserMutex::Init() {
+void Mutex::Init() {
   CHECK(!alive_);
   alive_ = true;
   if (type_ == Normal)
@@ -109,7 +114,7 @@ void UserMutex::Init() {
     CHECK(0);
 }
 
-void UserMutex::StaticInit() {
+void Mutex::StaticInit() {
   CHECK(!alive_);
   CHECK(type_ == Normal);
   alive_ = true;
@@ -117,7 +122,7 @@ void UserMutex::StaticInit() {
   memcpy(mtx_, &tmp, sizeof(tmp));
 }
 
-void UserMutex::Destroy() {
+void Mutex::Destroy() {
   CHECK(alive_);
   alive_ = false;
   if (type_ == Normal)
@@ -130,7 +135,7 @@ void UserMutex::Destroy() {
     CHECK_EQ(__interceptor_pthread_rwlock_destroy((pthread_rwlock_t*)mtx_), 0);
 }
 
-void UserMutex::Lock() {
+void Mutex::Lock() {
   CHECK(alive_);
   if (type_ == Normal)
     CHECK_EQ(__interceptor_pthread_mutex_lock((pthread_mutex_t*)mtx_), 0);
@@ -142,7 +147,7 @@ void UserMutex::Lock() {
     CHECK_EQ(__interceptor_pthread_rwlock_wrlock((pthread_rwlock_t*)mtx_), 0);
 }
 
-bool UserMutex::TryLock() {
+bool Mutex::TryLock() {
   CHECK(alive_);
   if (type_ == Normal)
     return __interceptor_pthread_mutex_trylock((pthread_mutex_t*)mtx_) == 0;
@@ -155,7 +160,7 @@ bool UserMutex::TryLock() {
   return false;
 }
 
-void UserMutex::Unlock() {
+void Mutex::Unlock() {
   CHECK(alive_);
   if (type_ == Normal)
     CHECK_EQ(__interceptor_pthread_mutex_unlock((pthread_mutex_t*)mtx_), 0);
@@ -167,19 +172,19 @@ void UserMutex::Unlock() {
     CHECK_EQ(__interceptor_pthread_rwlock_unlock((pthread_rwlock_t*)mtx_), 0);
 }
 
-void UserMutex::ReadLock() {
+void Mutex::ReadLock() {
   CHECK(alive_);
   CHECK(type_ == RW);
   CHECK_EQ(__interceptor_pthread_rwlock_rdlock((pthread_rwlock_t*)mtx_), 0);
 }
 
-bool UserMutex::TryReadLock() {
+bool Mutex::TryReadLock() {
   CHECK(alive_);
   CHECK(type_ == RW);
   return __interceptor_pthread_rwlock_tryrdlock((pthread_rwlock_t*)mtx_) ==  0;
 }
 
-void UserMutex::ReadUnlock() {
+void Mutex::ReadUnlock() {
   CHECK(alive_);
   CHECK(type_ == RW);
   CHECK_EQ(__interceptor_pthread_rwlock_unlock((pthread_rwlock_t*)mtx_), 0);
@@ -305,28 +310,28 @@ void ScopedThread::Impl::HandleEvent(Event *ev) {
     __tsan_func_exit();
     break;
   case Event::MUTEX_CREATE:
-    static_cast<UserMutex *>(ev->ptr)->Init();
+    static_cast<Mutex*>(ev->ptr)->Init();
     break;
   case Event::MUTEX_DESTROY:
-    static_cast<UserMutex *>(ev->ptr)->Destroy();
+    static_cast<Mutex*>(ev->ptr)->Destroy();
     break;
   case Event::MUTEX_LOCK:
-    static_cast<UserMutex *>(ev->ptr)->Lock();
+    static_cast<Mutex*>(ev->ptr)->Lock();
     break;
   case Event::MUTEX_TRYLOCK:
-    ev->res = static_cast<UserMutex *>(ev->ptr)->TryLock();
+    ev->res = static_cast<Mutex*>(ev->ptr)->TryLock();
     break;
   case Event::MUTEX_UNLOCK:
-    static_cast<UserMutex *>(ev->ptr)->Unlock();
+    static_cast<Mutex*>(ev->ptr)->Unlock();
     break;
   case Event::MUTEX_READLOCK:
-    static_cast<UserMutex *>(ev->ptr)->ReadLock();
+    static_cast<Mutex*>(ev->ptr)->ReadLock();
     break;
   case Event::MUTEX_TRYREADLOCK:
-    ev->res = static_cast<UserMutex *>(ev->ptr)->TryReadLock();
+    ev->res = static_cast<Mutex*>(ev->ptr)->TryReadLock();
     break;
   case Event::MUTEX_READUNLOCK:
-    static_cast<UserMutex *>(ev->ptr)->ReadUnlock();
+    static_cast<Mutex*>(ev->ptr)->ReadUnlock();
     break;
   case Event::MEMCPY:
     __interceptor_memcpy(ev->ptr, (void*)ev->arg, ev->arg2);
@@ -435,44 +440,44 @@ void ScopedThread::Return() {
   impl_->send(&event);
 }
 
-void ScopedThread::Create(const UserMutex &m) {
+void ScopedThread::Create(const Mutex &m) {
   Event event(Event::MUTEX_CREATE, &m);
   impl_->send(&event);
 }
 
-void ScopedThread::Destroy(const UserMutex &m) {
+void ScopedThread::Destroy(const Mutex &m) {
   Event event(Event::MUTEX_DESTROY, &m);
   impl_->send(&event);
 }
 
-void ScopedThread::Lock(const UserMutex &m) {
+void ScopedThread::Lock(const Mutex &m) {
   Event event(Event::MUTEX_LOCK, &m);
   impl_->send(&event);
 }
 
-bool ScopedThread::TryLock(const UserMutex &m) {
+bool ScopedThread::TryLock(const Mutex &m) {
   Event event(Event::MUTEX_TRYLOCK, &m);
   impl_->send(&event);
   return event.res;
 }
 
-void ScopedThread::Unlock(const UserMutex &m) {
+void ScopedThread::Unlock(const Mutex &m) {
   Event event(Event::MUTEX_UNLOCK, &m);
   impl_->send(&event);
 }
 
-void ScopedThread::ReadLock(const UserMutex &m) {
+void ScopedThread::ReadLock(const Mutex &m) {
   Event event(Event::MUTEX_READLOCK, &m);
   impl_->send(&event);
 }
 
-bool ScopedThread::TryReadLock(const UserMutex &m) {
+bool ScopedThread::TryReadLock(const Mutex &m) {
   Event event(Event::MUTEX_TRYREADLOCK, &m);
   impl_->send(&event);
   return event.res;
 }
 
-void ScopedThread::ReadUnlock(const UserMutex &m) {
+void ScopedThread::ReadUnlock(const Mutex &m) {
   Event event(Event::MUTEX_READUNLOCK, &m);
   impl_->send(&event);
 }

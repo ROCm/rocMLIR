@@ -14,6 +14,7 @@
 #include "mlir/Target/SPIRV/Serialization.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVAttributes.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
+#include "mlir/Dialect/SPIRV/IR/SPIRVModule.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVOps.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVTypes.h"
 #include "mlir/IR/Builders.h"
@@ -59,7 +60,7 @@ protected:
   }
 
   Type getFloatStructType() {
-    OpBuilder opBuilder(module->getRegion());
+    OpBuilder opBuilder(module->body());
     llvm::SmallVector<Type, 1> elementTypes{opBuilder.getF32Type()};
     llvm::SmallVector<spirv::StructType::OffsetInfo, 1> offsetInfo{0};
     auto structType = spirv::StructType::get(elementTypes, offsetInfo);
@@ -67,7 +68,7 @@ protected:
   }
 
   void addGlobalVar(Type type, llvm::StringRef name) {
-    OpBuilder opBuilder(module->getRegion());
+    OpBuilder opBuilder(module->body());
     auto ptrType = spirv::PointerType::get(type, spirv::StorageClass::Uniform);
     opBuilder.create<spirv::GlobalVariableOp>(
         UnknownLoc::get(&context), TypeAttr::get(ptrType),
@@ -101,7 +102,7 @@ protected:
 
 protected:
   MLIRContext context;
-  OwningOpRef<spirv::ModuleOp> module;
+  spirv::OwningSPIRVModuleRef module;
   SmallVector<uint32_t, 0> binary;
 };
 

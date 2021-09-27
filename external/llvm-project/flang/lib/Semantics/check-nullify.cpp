@@ -26,26 +26,27 @@ void NullifyChecker::Leave(const parser::NullifyStmt &nullifyStmt) {
     std::visit(
         common::visitors{
             [&](const parser::Name &name) {
-              const Symbol *symbol{name.symbol};
-              if (context_.HasError(symbol)) {
+              const Symbol &symbol{DEREF(name.symbol)};
+              if (context_.HasError(&symbol)) {
                 // already reported an error
-              } else if (!IsVariableName(*symbol) && !IsProcName(*symbol)) {
+              } else if (!IsVariableName(symbol) && !IsProcName(symbol)) {
                 messages.Say(name.source,
                     "name in NULLIFY statement must be a variable or procedure pointer name"_err_en_US);
-              } else if (!IsPointer(*symbol)) { // C951
+              } else if (!IsPointer(symbol)) { // C951
                 messages.Say(name.source,
                     "name in NULLIFY statement must have the POINTER attribute"_err_en_US);
               } else if (pure) {
-                CheckDefinabilityInPureScope(messages, *symbol, scope, *pure);
+                CheckDefinabilityInPureScope(messages, symbol, scope, *pure);
               }
             },
             [&](const parser::StructureComponent &structureComponent) {
-              if (const auto *checkedExpr{GetExpr(pointerObject)}) {
+              evaluate::ExpressionAnalyzer analyzer{context_};
+              if (MaybeExpr checked{analyzer.Analyze(structureComponent)}) {
                 if (!IsPointer(*structureComponent.component.symbol)) { // C951
                   messages.Say(structureComponent.component.source,
                       "component in NULLIFY statement must have the POINTER attribute"_err_en_US);
                 } else if (pure) {
-                  if (const Symbol * symbol{GetFirstSymbol(*checkedExpr)}) {
+                  if (const Symbol * symbol{GetFirstSymbol(checked)}) {
                     CheckDefinabilityInPureScope(
                         messages, *symbol, scope, *pure);
                   }

@@ -67,20 +67,6 @@ def SystemZAsmParser : AsmParser {
   let ShouldEmitMatchRegisterName = 0;
 }
 
-def ATTAsmParserVariant : AsmParserVariant {
-  int Variant = 0;
-
-  // Variant name.
-  string Name = "att";
-}
-
-def HLASMAsmParserVariant : AsmParserVariant {
-  int Variant = 1;
-
-  // Variant name.
-  string Name = "hlasm";
-}
-
 //===----------------------------------------------------------------------===//
 // Top-level target declaration
 //===----------------------------------------------------------------------===//
@@ -88,6 +74,5 @@ def HLASMAsmParserVariant : AsmParserVariant {
 def SystemZ : Target {
   let InstructionSet = SystemZInstrInfo;
   let AssemblyParsers = [SystemZAsmParser];
-  let AssemblyParserVariants = [ATTAsmParserVariant, HLASMAsmParserVariant];
   let AllowRegisterRenaming = 1;
 }

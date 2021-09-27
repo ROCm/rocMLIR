@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "fold-implementation.h"
-#include "fold-reduction.h"
 
 namespace Fortran::evaluate {
 
@@ -16,7 +15,6 @@ Expr<Type<TypeCategory::Complex, KIND>> FoldIntrinsicFunction(
     FoldingContext &context,
     FunctionRef<Type<TypeCategory::Complex, KIND>> &&funcRef) {
   using T = Type<TypeCategory::Complex, KIND>;
-  using Part = typename T::Part;
   ActualArguments &args{funcRef.arguments()};
   auto *intrinsic{std::get_if<SpecificIntrinsic>(&funcRef.proc().u)};
   CHECK(intrinsic);
@@ -36,31 +34,30 @@ Expr<Type<TypeCategory::Complex, KIND>> FoldIntrinsicFunction(
     return FoldElementalIntrinsic<T, T>(
         context, std::move(funcRef), &Scalar<T>::CONJG);
   } else if (name == "cmplx") {
-    if (args.size() > 0 && args[0].has_value()) {
+    using Part = typename T::Part;
+    if (args.size() == 2) { // CMPLX(X, [KIND])
       if (auto *x{UnwrapExpr<Expr<SomeComplex>>(args[0])}) {
-        // CMPLX(X [, KIND]) with complex X
         return Fold(context, ConvertToType<T>(std::move(*x)));
-      } else {
-        // CMPLX(X [, Y [, KIND]]) with non-complex X
-        Expr<SomeType> re{std::move(*args[0].value().UnwrapExpr())};
-        Expr<SomeType> im{args.size() >= 2 && args[1].has_value()
-                ? std::move(*args[1]->UnwrapExpr())
-                : AsGenericExpr(Constant<Part>{Scalar<Part>{}})};
-        return Fold(context,
-            Expr<T>{
-                ComplexConstructor<KIND>{ToReal<KIND>(context, std::move(re)),
-                    ToReal<KIND>(context, std::move(im))}});
       }
+      Expr<SomeType> re{std::move(*args[0].value().UnwrapExpr())};
+      Expr<SomeType> im{AsGenericExpr(Constant<Part>{Scalar<Part>{}})};
+      return Fold(context,
+          Expr<T>{ComplexConstructor<KIND>{ToReal<KIND>(context, std::move(re)),
+              ToReal<KIND>(context, std::move(im))}});
     }
+    // CMPLX(X, [Y, KIND])
+    CHECK(args.size() == 3);
+    Expr<SomeType> re{std::move(*args[0].value().UnwrapExpr())};
+    Expr<SomeType> im{args[1] ? std::move(*args[1].value().UnwrapExpr())
+                              : AsGenericExpr(Constant<Part>{Scalar<Part>{}})};
+    return Fold(context,
+        Expr<T>{ComplexConstructor<KIND>{ToReal<KIND>(context, std::move(re)),
+            ToReal<KIND>(context, std::move(im))}});
   } else if (name == "merge") {
     return FoldMerge<T>(context, std::move(funcRef));
-  } else if (name == "product") {
-    auto one{Scalar<Part>::FromInteger(value::Integer<8>{1}).value};
-    return FoldProduct<T>(context, std::move(funcRef), Scalar<T>{one});
-  } else if (name == "sum") {
-    return FoldSum<T>(context, std::move(funcRef));
   }
-  // TODO: dot_product, matmul, transfer
+  // TODO: cshift, dot_product, eoshift, matmul, pack, product,
+  // reduce, spread, sum, transfer, transpose, unpack
   return Expr<T>{std::move(funcRef)};
 }
 

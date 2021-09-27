@@ -18,7 +18,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/ConvertUTF.h"
 
-#include <cctype>
+#include <ctype.h>
 #include <locale>
 #include <memory>
 
@@ -475,9 +475,11 @@ static bool ReadEncodedBufferAndDumpToStream(
     return true;
   }
 
+  DataExtractor data(buffer_sp, process_sp->GetByteOrder(),
+                     process_sp->GetAddressByteSize());
+
   StringPrinter::ReadBufferAndDumpToStreamOptions dump_options(options);
-  dump_options.SetData(DataExtractor(buffer_sp, process_sp->GetByteOrder(),
-                                     process_sp->GetAddressByteSize()));
+  dump_options.SetData(data);
   dump_options.SetSourceSize(sourceSize);
   dump_options.SetIsTruncated(is_truncated);
   dump_options.SetNeedsZeroTermination(needs_zero_terminator);

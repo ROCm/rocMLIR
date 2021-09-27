@@ -1,11 +1,11 @@
-; RUN: opt -aa-pipeline=basic-aa -passes='cgscc(function-attrs,function(simplifycfg))' -S < %s | FileCheck %s
+; RUN: opt -aa-pipeline=basic-aa -passes='cgscc(function-attrs,function(simplify-cfg))' -S < %s | FileCheck %s
 
-declare void @readnone() nofree nosync readnone
+declare void @readnone() readnone
 declare void @unknown()
-declare void @reference_function_pointer(void()*) nofree nosync readnone
+declare void @reference_function_pointer(void()*) readnone
 
 ; The @test1_* set of functions checks that when we mutate functions with
-; simplifycfg to delete call edges and this ends up splitting both the SCCs
+; simplify-cfg to delete call edges and this ends up splitting both the SCCs
 ; and the RefSCCs that those functions are in, we re-run the CGSCC passes to
 ; observe the refined call graph structure.
 
@@ -338,4 +338,4 @@ exit:
   ret void
 }
 
-; CHECK: attributes #0 = { nofree nosync readnone }
+; CHECK: attributes #0 = { readnone }

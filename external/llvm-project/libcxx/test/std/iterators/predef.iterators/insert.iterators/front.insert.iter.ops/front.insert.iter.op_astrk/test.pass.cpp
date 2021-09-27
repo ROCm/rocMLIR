@@ -12,31 +12,26 @@
 
 // front_insert_iterator<Cont>& operator*();
 
-#include <cassert>
 #include <iterator>
 #include <list>
+#include <cassert>
+#include "nasty_containers.h"
 
 #include "test_macros.h"
-#include "nasty_containers.h"
-#include "test_constexpr_container.h"
 
 template <class C>
-TEST_CONSTEXPR_CXX20 bool
+void
 test(C c)
 {
     std::front_insert_iterator<C> i(c);
     std::front_insert_iterator<C>& r = *i;
     assert(&r == &i);
-    return true;
 }
 
 int main(int, char**)
 {
     test(std::list<int>());
     test(nasty_list<int>());
-#if TEST_STD_VER >= 20
-    test(ConstexprFixedCapacityDeque<int, 10>());
-    static_assert(test(ConstexprFixedCapacityDeque<int, 10>()));
-#endif
-    return 0;
+
+  return 0;
 }

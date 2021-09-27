@@ -1,4 +1,5 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
+
 ! Errors when comparing LOGICAL operands
 
 program testCompare

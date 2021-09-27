@@ -175,7 +175,7 @@ random_device::operator()()
 #endif
 
 double
-random_device::entropy() const noexcept
+random_device::entropy() const _NOEXCEPT
 {
 #if defined(_LIBCPP_USING_DEV_RANDOM) && defined(RNDGETENTCNT)
   int ent;

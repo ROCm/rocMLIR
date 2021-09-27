@@ -21,7 +21,6 @@
 namespace llvm {
 
 class Function;
-class CallBase;
 
 /// The key we use for assumption attributes.
 constexpr StringRef AssumptionAttrKey = "llvm.assume";
@@ -45,10 +44,6 @@ private:
 
 /// Return true if \p F has the assumption \p AssumptionStr attached.
 bool hasAssumption(Function &F, const KnownAssumptionString &AssumptionStr);
-
-/// Return true if \p CB or the callee has the assumption \p AssumptionStr
-/// attached.
-bool hasAssumption(CallBase &CB, const KnownAssumptionString &AssumptionStr);
 
 } // namespace llvm
 

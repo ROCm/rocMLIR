@@ -25,7 +25,7 @@ RegisterContextCorePOSIX_arm::RegisterContextCorePOSIX_arm(
   m_gpr.SetByteOrder(gpregset.GetByteOrder());
 }
 
-RegisterContextCorePOSIX_arm::~RegisterContextCorePOSIX_arm() = default;
+RegisterContextCorePOSIX_arm::~RegisterContextCorePOSIX_arm() {}
 
 bool RegisterContextCorePOSIX_arm::ReadGPR() { return true; }
 

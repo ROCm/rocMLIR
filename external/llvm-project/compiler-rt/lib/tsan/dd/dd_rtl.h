@@ -19,7 +19,7 @@ namespace __dsan {
 
 typedef DDFlags Flags;
 
-struct UserMutex {
+struct Mutex {
   DDMutex dd;
 };
 
@@ -37,12 +37,12 @@ struct Callback final : public DDCallback {
   u32 Unwind() override;
 };
 
-typedef AddrHashMap<UserMutex, 31051> MutexHashMap;
+typedef AddrHashMap<Mutex, 31051> MutexHashMap;
 
 struct Context {
   DDetector *dd;
 
-  Mutex report_mutex;
+  BlockingMutex report_mutex;
   MutexHashMap mutex_map;
 };
 

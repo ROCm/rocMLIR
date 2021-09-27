@@ -156,7 +156,7 @@ int Disassembler::disassemble(const Target &T, const std::string &Triple,
   }
 
   // Set up initial section manually here
-  Streamer.initSections(false, STI);
+  Streamer.InitSections(false);
 
   bool ErrorOccurred = false;
 

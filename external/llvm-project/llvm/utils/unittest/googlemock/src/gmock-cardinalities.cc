@@ -26,7 +26,8 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
+//
+// Author: wan@google.com (Zhanyong Wan)
 
 // Google Mock - a framework for writing C++ mock classes.
 //
@@ -70,18 +71,18 @@ class BetweenCardinalityImpl : public CardinalityInterface {
 
   // Conservative estimate on the lower/upper bound of the number of
   // calls allowed.
-  int ConservativeLowerBound() const override { return min_; }
-  int ConservativeUpperBound() const override { return max_; }
+  virtual int ConservativeLowerBound() const { return min_; }
+  virtual int ConservativeUpperBound() const { return max_; }
 
-  bool IsSatisfiedByCallCount(int call_count) const override {
+  virtual bool IsSatisfiedByCallCount(int call_count) const {
     return min_ <= call_count && call_count <= max_;
   }
 
-  bool IsSaturatedByCallCount(int call_count) const override {
+  virtual bool IsSaturatedByCallCount(int call_count) const {
     return call_count >= max_;
   }
 
-  void DescribeTo(::std::ostream* os) const override;
+  virtual void DescribeTo(::std::ostream* os) const;
 
  private:
   const int min_;
@@ -91,7 +92,7 @@ class BetweenCardinalityImpl : public CardinalityInterface {
 };
 
 // Formats "n times" in a human-friendly way.
-inline std::string FormatTimes(int n) {
+inline internal::string FormatTimes(int n) {
   if (n == 1) {
     return "once";
   } else if (n == 2) {

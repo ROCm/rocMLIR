@@ -6,8 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-// ADDITIONAL_COMPILE_FLAGS: -D_LIBCPP_DISABLE_DEPRECATION_WARNINGS
-
 // <functional>
 
 // logical_not
@@ -22,10 +20,8 @@ int main(int, char**)
 {
     typedef std::logical_not<int> F;
     const F f = F();
-#if TEST_STD_VER <= 17
     static_assert((std::is_same<F::argument_type, int>::value), "" );
     static_assert((std::is_same<F::result_type, bool>::value), "" );
-#endif
     assert(!f(36));
     assert(f(0));
 #if TEST_STD_VER > 11

@@ -87,8 +87,7 @@ constexpr uint64_t AbsoluteMaxInt64 = static_cast<uint64_t>(MaxInt64);
 
 struct ExpressionFormatParameterisedFixture
     : public ::testing::TestWithParam<
-          std::tuple<ExpressionFormat::Kind, unsigned, bool>> {
-  bool AlternateForm;
+          std::pair<ExpressionFormat::Kind, unsigned>> {
   unsigned Precision;
   bool Signed;
   bool AllowHex;
@@ -109,12 +108,12 @@ struct ExpressionFormatParameterisedFixture
 
   void SetUp() override {
     ExpressionFormat::Kind Kind;
-    std::tie(Kind, Precision, AlternateForm) = GetParam();
+    std::tie(Kind, Precision) = GetParam();
     AllowHex = Kind == ExpressionFormat::Kind::HexLower ||
                Kind == ExpressionFormat::Kind::HexUpper;
     AllowUpperHex = Kind == ExpressionFormat::Kind::HexUpper;
     Signed = Kind == ExpressionFormat::Kind::Signed;
-    Format = ExpressionFormat(Kind, Precision, AlternateForm);
+    Format = ExpressionFormat(Kind, Precision);
 
     if (!AllowHex) {
       MaxUint64Str = std::to_string(MaxUint64);
@@ -139,13 +138,10 @@ struct ExpressionFormatParameterisedFixture
 
   void checkWildcardRegexMatch(StringRef Input,
                                unsigned TrailExtendTo = 0) const {
-    ASSERT_TRUE(TrailExtendTo == 0 || AllowHex);
     SmallVector<StringRef, 4> Matches;
     std::string ExtendedInput = Input.str();
-    size_t PrefixSize = AlternateForm ? 2 : 0;
-    if (TrailExtendTo > Input.size() - PrefixSize) {
-      size_t ExtensionSize = PrefixSize + TrailExtendTo - Input.size();
-      ExtendedInput.append(ExtensionSize, Input[PrefixSize]);
+    if (TrailExtendTo > Input.size()) {
+      ExtendedInput.append(TrailExtendTo - Input.size(), Input[0]);
     }
     ASSERT_TRUE(WildcardRegex.match(ExtendedInput, &Matches))
         << "Wildcard regex does not match " << ExtendedInput;
@@ -156,16 +152,9 @@ struct ExpressionFormatParameterisedFixture
     EXPECT_FALSE(WildcardRegex.match(Input));
   }
 
-  std::string addBasePrefix(StringRef Num) const {
-    StringRef Prefix = AlternateForm ? "0x" : "";
-    return (Twine(Prefix) + Twine(Num)).str();
-  }
-
-  void checkPerCharWildcardRegexMatchFailure(StringRef Chars) const {
-    for (auto C : Chars) {
-      std::string Str = addBasePrefix(StringRef(&C, 1));
-      EXPECT_FALSE(WildcardRegex.match(Str));
-    }
+  void checkWildcardRegexCharMatchFailure(StringRef Chars) const {
+    for (auto C : Chars)
+      EXPECT_FALSE(WildcardRegex.match(StringRef(&C, 1)));
   }
 
   std::string padWithLeadingZeros(StringRef NumStr) const {
@@ -218,10 +207,10 @@ struct ExpressionFormatParameterisedFixture
                 static_cast<uint64_t>(ExpectedVal));
   }
 
-  void checkValueFromStringReprFailure(
-      StringRef Str, StringRef ErrorStr = "unable to represent numeric value") {
+  void checkValueFromStringReprFailure(StringRef Str) {
+    StringRef OverflowErrorStr = "unable to represent numeric value";
     Expected<ExpressionValue> ResultValue = getValueFromStringReprFailure(Str);
-    expectDiagnosticError(ErrorStr, ResultValue.takeError());
+    expectDiagnosticError(OverflowErrorStr, ResultValue.takeError());
   }
 };
 
@@ -235,17 +224,9 @@ TEST_P(ExpressionFormatParameterisedFixture, FormatGetWildcardRegex) {
   // Does not match empty string.
   checkWildcardRegexMatchFailure("");
 
-  // Matches all decimal digits, matches several of them and match 0x prefix
-  // if and only if AlternateForm is true.
+  // Matches all decimal digits and matches several of them.
   StringRef LongNumber = "12345678901234567890";
-  StringRef PrefixedLongNumber = "0x12345678901234567890";
-  if (AlternateForm) {
-    checkWildcardRegexMatch(PrefixedLongNumber);
-    checkWildcardRegexMatchFailure(LongNumber);
-  } else {
-    checkWildcardRegexMatch(LongNumber);
-    checkWildcardRegexMatchFailure(PrefixedLongNumber);
-  }
+  checkWildcardRegexMatch(LongNumber);
 
   // Matches negative digits.
   LongNumber = "-12345678901234567890";
@@ -255,35 +236,27 @@ TEST_P(ExpressionFormatParameterisedFixture, FormatGetWildcardRegex) {
     checkWildcardRegexMatchFailure(LongNumber);
 
   // Check non digits or digits with wrong casing are not matched.
-  std::string LongNumberStr;
   if (AllowHex) {
-    LongNumberStr = addBasePrefix(AcceptedHexOnlyDigits);
-    checkWildcardRegexMatch(LongNumberStr, 16);
-    checkPerCharWildcardRegexMatchFailure(RefusedHexOnlyDigits);
+    checkWildcardRegexMatch(AcceptedHexOnlyDigits, 16);
+    checkWildcardRegexCharMatchFailure(RefusedHexOnlyDigits);
   }
-  checkPerCharWildcardRegexMatchFailure(FirstInvalidCharDigits);
+  checkWildcardRegexCharMatchFailure(FirstInvalidCharDigits);
 
   // Check leading zeros are only accepted if number of digits is less than the
   // precision.
   LongNumber = "01234567890123456789";
   if (Precision) {
-    LongNumberStr = addBasePrefix(LongNumber.take_front(Precision));
-    checkWildcardRegexMatch(LongNumberStr);
-    LongNumberStr = addBasePrefix(LongNumber.take_front(Precision - 1));
-    checkWildcardRegexMatchFailure(LongNumberStr);
-    if (Precision < LongNumber.size()) {
-      LongNumberStr = addBasePrefix(LongNumber.take_front(Precision + 1));
-      checkWildcardRegexMatchFailure(LongNumberStr);
-    }
-  } else {
-    LongNumberStr = addBasePrefix(LongNumber);
-    checkWildcardRegexMatch(LongNumberStr);
-  }
+    checkWildcardRegexMatch(LongNumber.take_front(Precision));
+    checkWildcardRegexMatchFailure(LongNumber.take_front(Precision - 1));
+    if (Precision < LongNumber.size())
+      checkWildcardRegexMatchFailure(LongNumber.take_front(Precision + 1));
+  } else
+    checkWildcardRegexMatch(LongNumber);
 }
 
 TEST_P(ExpressionFormatParameterisedFixture, FormatGetMatchingString) {
-  checkMatchingString(0, addBasePrefix(padWithLeadingZeros("0")));
-  checkMatchingString(9, addBasePrefix(padWithLeadingZeros("9")));
+  checkMatchingString(0, padWithLeadingZeros("0"));
+  checkMatchingString(9, padWithLeadingZeros("9"));
 
   if (Signed) {
     checkMatchingString(-5, padWithLeadingZeros("-5"));
@@ -292,70 +265,58 @@ TEST_P(ExpressionFormatParameterisedFixture, FormatGetMatchingString) {
     checkMatchingString(MinInt64, padWithLeadingZeros(MinInt64Str));
   } else {
     checkMatchingStringFailure(-5);
-    checkMatchingString(MaxUint64,
-                        addBasePrefix(padWithLeadingZeros(MaxUint64Str)));
-    checkMatchingString(MaxInt64,
-                        addBasePrefix(padWithLeadingZeros(MaxInt64Str)));
+    checkMatchingString(MaxUint64, padWithLeadingZeros(MaxUint64Str));
+    checkMatchingString(MaxInt64, padWithLeadingZeros(MaxInt64Str));
     checkMatchingStringFailure(MinInt64);
   }
 
-  checkMatchingString(10, addBasePrefix(padWithLeadingZeros(TenStr)));
-  checkMatchingString(15, addBasePrefix(padWithLeadingZeros(FifteenStr)));
+  checkMatchingString(10, padWithLeadingZeros(TenStr));
+  checkMatchingString(15, padWithLeadingZeros(FifteenStr));
 }
 
 TEST_P(ExpressionFormatParameterisedFixture, FormatValueFromStringRepr) {
-  checkValueFromStringRepr(addBasePrefix("0"), 0);
-  checkValueFromStringRepr(addBasePrefix("9"), 9);
+  checkValueFromStringRepr("0", 0);
+  checkValueFromStringRepr("9", 9);
 
   if (Signed) {
     checkValueFromStringRepr("-5", -5);
     checkValueFromStringReprFailure(MaxUint64Str);
   } else {
-    checkValueFromStringReprFailure("-" + addBasePrefix("5"));
-    checkValueFromStringRepr(addBasePrefix(MaxUint64Str), MaxUint64);
+    checkValueFromStringReprFailure("-5");
+    checkValueFromStringRepr(MaxUint64Str, MaxUint64);
   }
 
-  checkValueFromStringRepr(addBasePrefix(TenStr), 10);
-  checkValueFromStringRepr(addBasePrefix(FifteenStr), 15);
+  checkValueFromStringRepr(TenStr, 10);
+  checkValueFromStringRepr(FifteenStr, 15);
 
   // Wrong casing is not tested because valueFromStringRepr() relies on
   // StringRef's getAsInteger() which does not allow to restrict casing.
-  checkValueFromStringReprFailure(addBasePrefix("G"));
-
-  if (AlternateForm)
-    checkValueFromStringReprFailure("9", "missing alternate form prefix");
+  checkValueFromStringReprFailure("G");
 }
 
 TEST_P(ExpressionFormatParameterisedFixture, FormatBoolOperator) {
   EXPECT_TRUE(bool(Format));
 }
 
-INSTANTIATE_TEST_SUITE_P(
+INSTANTIATE_TEST_CASE_P(
     AllowedExplicitExpressionFormat, ExpressionFormatParameterisedFixture,
-    ::testing::Values(
-        std::make_tuple(ExpressionFormat::Kind::Unsigned, 0, false),
-        std::make_tuple(ExpressionFormat::Kind::Signed, 0, false),
-        std::make_tuple(ExpressionFormat::Kind::HexLower, 0, false),
-        std::make_tuple(ExpressionFormat::Kind::HexLower, 0, true),
-        std::make_tuple(ExpressionFormat::Kind::HexUpper, 0, false),
-        std::make_tuple(ExpressionFormat::Kind::HexUpper, 0, true),
+    ::testing::Values(std::make_pair(ExpressionFormat::Kind::Unsigned, 0),
+                      std::make_pair(ExpressionFormat::Kind::Signed, 0),
+                      std::make_pair(ExpressionFormat::Kind::HexLower, 0),
+                      std::make_pair(ExpressionFormat::Kind::HexUpper, 0),
 
-        std::make_tuple(ExpressionFormat::Kind::Unsigned, 1, false),
-        std::make_tuple(ExpressionFormat::Kind::Signed, 1, false),
-        std::make_tuple(ExpressionFormat::Kind::HexLower, 1, false),
-        std::make_tuple(ExpressionFormat::Kind::HexLower, 1, true),
-        std::make_tuple(ExpressionFormat::Kind::HexUpper, 1, false),
-        std::make_tuple(ExpressionFormat::Kind::HexUpper, 1, true),
+                      std::make_pair(ExpressionFormat::Kind::Unsigned, 1),
+                      std::make_pair(ExpressionFormat::Kind::Signed, 1),
+                      std::make_pair(ExpressionFormat::Kind::HexLower, 1),
+                      std::make_pair(ExpressionFormat::Kind::HexUpper, 1),
 
-        std::make_tuple(ExpressionFormat::Kind::Unsigned, 16, false),
-        std::make_tuple(ExpressionFormat::Kind::Signed, 16, false),
-        std::make_tuple(ExpressionFormat::Kind::HexLower, 16, false),
-        std::make_tuple(ExpressionFormat::Kind::HexLower, 16, true),
-        std::make_tuple(ExpressionFormat::Kind::HexUpper, 16, false),
-        std::make_tuple(ExpressionFormat::Kind::HexUpper, 16, true),
+                      std::make_pair(ExpressionFormat::Kind::Unsigned, 16),
+                      std::make_pair(ExpressionFormat::Kind::Signed, 16),
+                      std::make_pair(ExpressionFormat::Kind::HexLower, 16),
+                      std::make_pair(ExpressionFormat::Kind::HexUpper, 16),
 
-        std::make_tuple(ExpressionFormat::Kind::Unsigned, 20, false),
-        std::make_tuple(ExpressionFormat::Kind::Signed, 20, false)));
+                      std::make_pair(ExpressionFormat::Kind::Unsigned, 20),
+                      std::make_pair(ExpressionFormat::Kind::Signed, 20)), );
 
 TEST_F(FileCheckTest, NoFormatProperties) {
   ExpressionFormat NoFormat(ExpressionFormat::Kind::NoFormat);
@@ -1027,10 +988,8 @@ public:
 
   Expected<size_t> match(StringRef Buffer) {
     StringRef BufferRef = bufferize(SM, Buffer);
-    Pattern::MatchResult Res = P.match(BufferRef, SM);
-    if (Res.TheError)
-      return std::move(Res.TheError);
-    return Res.TheMatch->Pos;
+    size_t MatchLen;
+    return P.match(BufferRef, MatchLen, SM);
   }
 
   void printVariableDefs(FileCheckDiag::MatchType MatchTy,
@@ -1083,16 +1042,6 @@ TEST_F(FileCheckTest, ParseNumericSubstitutionBlock) {
   // Acceptable variable definition with precision specifier.
   EXPECT_FALSE(Tester.parsePattern("[[#%.8X, PADDED_ADDR:]]"));
   EXPECT_FALSE(Tester.parsePattern("[[#%.8, PADDED_NUM:]]"));
-
-  // Acceptable variable definition in alternate form.
-  EXPECT_THAT_EXPECTED(Tester.parseSubst("%#x, PREFIXED_ADDR:"), Succeeded());
-  EXPECT_THAT_EXPECTED(Tester.parseSubst("%#X, PREFIXED_ADDR:"), Succeeded());
-
-  // Acceptable variable definition in alternate form.
-  expectDiagnosticError("alternate form only supported for hex values",
-                        Tester.parseSubst("%#u, PREFIXED_UNSI:").takeError());
-  expectDiagnosticError("alternate form only supported for hex values",
-                        Tester.parseSubst("%#d, PREFIXED_UNSI:").takeError());
 
   // Acceptable variable definition from a numeric expression.
   EXPECT_THAT_EXPECTED(Tester.parseSubst("FOOBAR: FOO+1"), Succeeded());
@@ -1343,9 +1292,6 @@ TEST_F(FileCheckTest, ParsePattern) {
   // Collision with numeric variable.
   EXPECT_TRUE(Tester.parsePattern("[[FOO:]]"));
 
-  // Invalid use of string variable.
-  EXPECT_TRUE(Tester.parsePattern("[[FOO-BAR]]"));
-
   // Valid use of string variable.
   EXPECT_FALSE(Tester.parsePattern("[[BAR]]"));
 
@@ -1445,10 +1391,8 @@ TEST_F(FileCheckTest, Match) {
                        Succeeded());
   Tester.initNextPattern();
   // Match with substitution failure.
-  ASSERT_FALSE(Tester.parsePattern("[[#UNKNOWN1+UNKNOWN2]]"));
-  expectSameErrors<ErrorDiagnostic>(
-      {"undefined variable: UNKNOWN1", "undefined variable: UNKNOWN2"},
-      Tester.match("FOO").takeError());
+  ASSERT_FALSE(Tester.parsePattern("[[#UNKNOWN]]"));
+  expectUndefErrors({"UNKNOWN"}, Tester.match("FOO").takeError());
   Tester.initNextPattern();
   // Check that @LINE matches the later (given the calls to initNextPattern())
   // line number.
@@ -1647,8 +1591,8 @@ TEST_F(FileCheckTest, FileCheckContext) {
   FileCheckRequest Req;
   Cxt.createLineVariable();
   ASSERT_FALSE(P.parsePattern("[[@LINE]]", "CHECK", SM, Req));
-  Pattern::MatchResult Res = P.match("1", SM);
-  ASSERT_THAT_ERROR(std::move(Res.TheError), Succeeded());
+  size_t MatchLen;
+  ASSERT_THAT_EXPECTED(P.match("1", MatchLen, SM), Succeeded());
 
 #ifndef NDEBUG
   // Recreating @LINE pseudo numeric variable fails.

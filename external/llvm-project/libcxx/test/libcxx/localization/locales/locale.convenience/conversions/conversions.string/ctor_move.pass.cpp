@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 // 'do_bytes' throws a std::range_error unexpectedly
-// XFAIL: LIBCXX-WINDOWS-FIXME, powerpc-ibm-aix
+// XFAIL: LIBCXX-WINDOWS-FIXME
 
 // UNSUPPORTED: c++03
 

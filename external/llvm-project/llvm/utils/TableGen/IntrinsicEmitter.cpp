@@ -378,7 +378,7 @@ static void EncodeFixedType(Record *R, std::vector<unsigned char> &ArgCodes,
     MVT VVT = VT;
     if (VVT.isScalableVector())
       Sig.push_back(IIT_SCALABLE_VEC);
-    switch (VVT.getVectorMinNumElements()) {
+    switch (VVT.getVectorNumElements()) {
     default: PrintFatalError("unhandled vector type width in intrinsic!");
     case 1: Sig.push_back(IIT_V1); break;
     case 2: Sig.push_back(IIT_V2); break;
@@ -584,9 +584,6 @@ struct AttributeComparator {
     if (L->isNoDuplicate != R->isNoDuplicate)
       return R->isNoDuplicate;
 
-    if (L->isNoMerge != R->isNoMerge)
-      return R->isNoMerge;
-
     if (L->isNoReturn != R->isNoReturn)
       return R->isNoReturn;
 
@@ -662,165 +659,240 @@ void IntrinsicEmitter::EmitAttributes(const CodeGenIntrinsicTable &Ints,
   OS << "  if (id != 0) {\n";
   OS << "    switch(IntrinsicsToAttributesMap[id - 1]) {\n";
   OS << "    default: llvm_unreachable(\"Invalid attribute number\");\n";
-  for (auto UniqAttribute : UniqAttributes) {
-    OS << "    case " << UniqAttribute.second << ": {\n";
+  for (UniqAttrMapTy::const_iterator I = UniqAttributes.begin(),
+       E = UniqAttributes.end(); I != E; ++I) {
+    OS << "    case " << I->second << ": {\n";
 
-    const CodeGenIntrinsic &Intrinsic = *(UniqAttribute.first);
+    const CodeGenIntrinsic &intrinsic = *(I->first);
 
     // Keep track of the number of attributes we're writing out.
     unsigned numAttrs = 0;
 
     // The argument attributes are alreadys sorted by argument index.
-    unsigned Ai = 0, Ae = Intrinsic.ArgumentAttributes.size();
-    if (Ae) {
-      while (Ai != Ae) {
-        unsigned AttrIdx = Intrinsic.ArgumentAttributes[Ai].Index;
+    unsigned ai = 0, ae = intrinsic.ArgumentAttributes.size();
+    if (ae) {
+      while (ai != ae) {
+        unsigned attrIdx = intrinsic.ArgumentAttributes[ai].Index;
 
-        OS << "      const Attribute::AttrKind AttrParam" << AttrIdx << "[]= {";
-        ListSeparator LS(",");
+        OS << "      const Attribute::AttrKind AttrParam" << attrIdx << "[]= {";
+        bool addComma = false;
 
         bool AllValuesAreZero = true;
         SmallVector<uint64_t, 8> Values;
         do {
-          switch (Intrinsic.ArgumentAttributes[Ai].Kind) {
+          switch (intrinsic.ArgumentAttributes[ai].Kind) {
           case CodeGenIntrinsic::NoCapture:
-            OS << LS << "Attribute::NoCapture";
+            if (addComma)
+              OS << ",";
+            OS << "Attribute::NoCapture";
+            addComma = true;
             break;
           case CodeGenIntrinsic::NoAlias:
-            OS << LS << "Attribute::NoAlias";
+            if (addComma)
+              OS << ",";
+            OS << "Attribute::NoAlias";
+            addComma = true;
             break;
           case CodeGenIntrinsic::NoUndef:
-            OS << LS << "Attribute::NoUndef";
+            if (addComma)
+              OS << ",";
+            OS << "Attribute::NoUndef";
+            addComma = true;
             break;
           case CodeGenIntrinsic::Returned:
-            OS << LS << "Attribute::Returned";
+            if (addComma)
+              OS << ",";
+            OS << "Attribute::Returned";
+            addComma = true;
             break;
           case CodeGenIntrinsic::ReadOnly:
-            OS << LS << "Attribute::ReadOnly";
+            if (addComma)
+              OS << ",";
+            OS << "Attribute::ReadOnly";
+            addComma = true;
             break;
           case CodeGenIntrinsic::WriteOnly:
-            OS << LS << "Attribute::WriteOnly";
+            if (addComma)
+              OS << ",";
+            OS << "Attribute::WriteOnly";
+            addComma = true;
             break;
           case CodeGenIntrinsic::ReadNone:
-            OS << LS << "Attribute::ReadNone";
+            if (addComma)
+              OS << ",";
+            OS << "Attribute::ReadNone";
+            addComma = true;
             break;
           case CodeGenIntrinsic::ImmArg:
-            OS << LS << "Attribute::ImmArg";
+            if (addComma)
+              OS << ',';
+            OS << "Attribute::ImmArg";
+            addComma = true;
             break;
           case CodeGenIntrinsic::Alignment:
-            OS << LS << "Attribute::Alignment";
+            if (addComma)
+              OS << ',';
+            OS << "Attribute::Alignment";
+            addComma = true;
             break;
           }
-          uint64_t V = Intrinsic.ArgumentAttributes[Ai].Value;
+          uint64_t V = intrinsic.ArgumentAttributes[ai].Value;
           Values.push_back(V);
           AllValuesAreZero &= (V == 0);
 
-          ++Ai;
-        } while (Ai != Ae && Intrinsic.ArgumentAttributes[Ai].Index == AttrIdx);
+          ++ai;
+        } while (ai != ae && intrinsic.ArgumentAttributes[ai].Index == attrIdx);
         OS << "};\n";
 
         // Generate attribute value array if not all attribute values are zero.
         if (!AllValuesAreZero) {
-          OS << "      const uint64_t AttrValParam" << AttrIdx << "[]= {";
-          ListSeparator LSV(",");
-          for (const auto V : Values)
-            OS << LSV << V;
+          OS << "      const uint64_t AttrValParam" << attrIdx << "[]= {";
+          addComma = false;
+          for (const auto V : Values) {
+            if (addComma)
+              OS << ',';
+            OS << V;
+            addComma = true;
+          }
           OS << "};\n";
         }
 
         OS << "      AS[" << numAttrs++ << "] = AttributeList::get(C, "
-           << AttrIdx << ", AttrParam" << AttrIdx;
+           << attrIdx << ", AttrParam" << attrIdx;
         if (!AllValuesAreZero)
-          OS << ", AttrValParam" << AttrIdx;
+          OS << ", AttrValParam" << attrIdx;
         OS << ");\n";
       }
     }
 
-    if (!Intrinsic.canThrow ||
-        (Intrinsic.ModRef != CodeGenIntrinsic::ReadWriteMem &&
-         !Intrinsic.hasSideEffects) ||
-        Intrinsic.isNoReturn || Intrinsic.isNoSync || Intrinsic.isNoFree ||
-        Intrinsic.isWillReturn || Intrinsic.isCold || Intrinsic.isNoDuplicate ||
-        Intrinsic.isNoMerge || Intrinsic.isConvergent ||
-        Intrinsic.isSpeculatable) {
+    if (!intrinsic.canThrow ||
+        (intrinsic.ModRef != CodeGenIntrinsic::ReadWriteMem &&
+         !intrinsic.hasSideEffects) ||
+        intrinsic.isNoReturn || intrinsic.isNoSync || intrinsic.isNoFree ||
+        intrinsic.isWillReturn || intrinsic.isCold || intrinsic.isNoDuplicate ||
+        intrinsic.isConvergent || intrinsic.isSpeculatable) {
       OS << "      const Attribute::AttrKind Atts[] = {";
-      ListSeparator LS(",");
-      if (!Intrinsic.canThrow)
-        OS << LS << "Attribute::NoUnwind";
-      if (Intrinsic.isNoReturn)
-        OS << LS << "Attribute::NoReturn";
-      if (Intrinsic.isNoSync)
-        OS << LS << "Attribute::NoSync";
-      if (Intrinsic.isNoFree)
-        OS << LS << "Attribute::NoFree";
-      if (Intrinsic.isWillReturn)
-        OS << LS << "Attribute::WillReturn";
-      if (Intrinsic.isCold)
-        OS << LS << "Attribute::Cold";
-      if (Intrinsic.isNoDuplicate)
-        OS << LS << "Attribute::NoDuplicate";
-      if (Intrinsic.isNoMerge)
-        OS << LS << "Attribute::NoMerge";
-      if (Intrinsic.isConvergent)
-        OS << LS << "Attribute::Convergent";
-      if (Intrinsic.isSpeculatable)
-        OS << LS << "Attribute::Speculatable";
+      bool addComma = false;
+      if (!intrinsic.canThrow) {
+        OS << "Attribute::NoUnwind";
+        addComma = true;
+      }
+      if (intrinsic.isNoReturn) {
+        if (addComma)
+          OS << ",";
+        OS << "Attribute::NoReturn";
+        addComma = true;
+      }
+      if (intrinsic.isNoSync) {
+        if (addComma)
+          OS << ",";
+        OS << "Attribute::NoSync";
+        addComma = true;
+      }
+      if (intrinsic.isNoFree) {
+        if (addComma)
+          OS << ",";
+        OS << "Attribute::NoFree";
+        addComma = true;
+      }
+      if (intrinsic.isWillReturn) {
+        if (addComma)
+          OS << ",";
+        OS << "Attribute::WillReturn";
+        addComma = true;
+      }
+      if (intrinsic.isCold) {
+        if (addComma)
+          OS << ",";
+        OS << "Attribute::Cold";
+        addComma = true;
+      }
+      if (intrinsic.isNoDuplicate) {
+        if (addComma)
+          OS << ",";
+        OS << "Attribute::NoDuplicate";
+        addComma = true;
+      }
+      if (intrinsic.isConvergent) {
+        if (addComma)
+          OS << ",";
+        OS << "Attribute::Convergent";
+        addComma = true;
+      }
+      if (intrinsic.isSpeculatable) {
+        if (addComma)
+          OS << ",";
+        OS << "Attribute::Speculatable";
+        addComma = true;
+      }
 
-      switch (Intrinsic.ModRef) {
+      switch (intrinsic.ModRef) {
       case CodeGenIntrinsic::NoMem:
-        if (Intrinsic.hasSideEffects)
+        if (intrinsic.hasSideEffects)
           break;
-        OS << LS;
+        if (addComma)
+          OS << ",";
         OS << "Attribute::ReadNone";
         break;
       case CodeGenIntrinsic::ReadArgMem:
-        OS << LS;
+        if (addComma)
+          OS << ",";
         OS << "Attribute::ReadOnly,";
         OS << "Attribute::ArgMemOnly";
         break;
       case CodeGenIntrinsic::ReadMem:
-        OS << LS;
+        if (addComma)
+          OS << ",";
         OS << "Attribute::ReadOnly";
         break;
       case CodeGenIntrinsic::ReadInaccessibleMem:
-        OS << LS;
+        if (addComma)
+          OS << ",";
         OS << "Attribute::ReadOnly,";
         OS << "Attribute::InaccessibleMemOnly";
         break;
       case CodeGenIntrinsic::ReadInaccessibleMemOrArgMem:
-        OS << LS;
+        if (addComma)
+          OS << ",";
         OS << "Attribute::ReadOnly,";
         OS << "Attribute::InaccessibleMemOrArgMemOnly";
         break;
       case CodeGenIntrinsic::WriteArgMem:
-        OS << LS;
+        if (addComma)
+          OS << ",";
         OS << "Attribute::WriteOnly,";
         OS << "Attribute::ArgMemOnly";
         break;
       case CodeGenIntrinsic::WriteMem:
-        OS << LS;
+        if (addComma)
+          OS << ",";
         OS << "Attribute::WriteOnly";
         break;
       case CodeGenIntrinsic::WriteInaccessibleMem:
-        OS << LS;
+        if (addComma)
+          OS << ",";
         OS << "Attribute::WriteOnly,";
         OS << "Attribute::InaccessibleMemOnly";
         break;
       case CodeGenIntrinsic::WriteInaccessibleMemOrArgMem:
-        OS << LS;
+        if (addComma)
+          OS << ",";
         OS << "Attribute::WriteOnly,";
         OS << "Attribute::InaccessibleMemOrArgMemOnly";
         break;
       case CodeGenIntrinsic::ReadWriteArgMem:
-        OS << LS;
+        if (addComma)
+          OS << ",";
         OS << "Attribute::ArgMemOnly";
         break;
       case CodeGenIntrinsic::ReadWriteInaccessibleMem:
-        OS << LS;
+        if (addComma)
+          OS << ",";
         OS << "Attribute::InaccessibleMemOnly";
         break;
       case CodeGenIntrinsic::ReadWriteInaccessibleMemOrArgMem:
-        OS << LS;
+        if (addComma)
+          OS << ",";
         OS << "Attribute::InaccessibleMemOrArgMemOnly";
         break;
       case CodeGenIntrinsic::ReadWriteMem:
@@ -905,25 +977,25 @@ void IntrinsicEmitter::EmitIntrinsicToBuiltinMap(
   OS << "  StringRef TargetPrefix(TargetPrefixStr);\n\n";
 
   // Note: this could emit significantly better code if we cared.
-  for (auto &I : BuiltinMap) {
+  for (BIMTy::iterator I = BuiltinMap.begin(), E = BuiltinMap.end();I != E;++I){
     OS << "  ";
-    if (!I.first.empty())
-      OS << "if (TargetPrefix == \"" << I.first << "\") ";
+    if (!I->first.empty())
+      OS << "if (TargetPrefix == \"" << I->first << "\") ";
     else
       OS << "/* Target Independent Builtins */ ";
     OS << "{\n";
 
     // Emit the comparisons for this target prefix.
-    OS << "    static const BuiltinEntry " << I.first << "Names[] = {\n";
-    for (const auto &P : I.second) {
+    OS << "    static const BuiltinEntry " << I->first << "Names[] = {\n";
+    for (const auto &P : I->second) {
       OS << "      {Intrinsic::" << P.second << ", "
          << Table.GetOrAddStringOffset(P.first) << "}, // " << P.first << "\n";
     }
     OS << "    };\n";
-    OS << "    auto I = std::lower_bound(std::begin(" << I.first << "Names),\n";
-    OS << "                              std::end(" << I.first << "Names),\n";
+    OS << "    auto I = std::lower_bound(std::begin(" << I->first << "Names),\n";
+    OS << "                              std::end(" << I->first << "Names),\n";
     OS << "                              BuiltinNameStr);\n";
-    OS << "    if (I != std::end(" << I.first << "Names) &&\n";
+    OS << "    if (I != std::end(" << I->first << "Names) &&\n";
     OS << "        I->getName() == BuiltinNameStr)\n";
     OS << "      return I->IntrinID;\n";
     OS << "  }\n";

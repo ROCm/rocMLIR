@@ -1,10 +1,6 @@
 // RUN: llvm-tblgen %s | FileCheck %s
 // XFAIL: vg_leak
 
-// CHECK: class B<A B:impl = ?> {
-// CHECK:   string value = B:impl.value;
-// CHECK: }
-
 // CHECK: --- Defs ---
 
 // CHECK: def A1 {
@@ -12,7 +8,7 @@
 // CHECK: }
 
 // CHECK: def B1 {
-// CHECK:   string value = ?;
+// CHECK:   string value = A1.value;
 // CHECK: }
 
 class A {

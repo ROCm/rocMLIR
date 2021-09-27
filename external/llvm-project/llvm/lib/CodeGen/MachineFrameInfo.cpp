@@ -173,7 +173,7 @@ uint64_t MachineFrameInfo::estimateStackSize(const MachineFunction &MF) const {
   // value.
   Align StackAlign;
   if (adjustsStack() || hasVarSizedObjects() ||
-      (RegInfo->hasStackRealignment(MF) && getObjectIndexEnd() != 0))
+      (RegInfo->needsStackRealignment(MF) && getObjectIndexEnd() != 0))
     StackAlign = TFI->getStackAlign();
   else
     StackAlign = TFI->getTransientStackAlign();

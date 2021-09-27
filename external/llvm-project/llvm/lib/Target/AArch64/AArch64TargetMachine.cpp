@@ -158,20 +158,8 @@ static cl::opt<bool> EnableFalkorHWPFFix("aarch64-enable-falkor-hwpf-fix",
 
 static cl::opt<bool>
     EnableBranchTargets("aarch64-enable-branch-targets", cl::Hidden,
-                        cl::desc("Enable the AArch64 branch target pass"),
+                        cl::desc("Enable the AAcrh64 branch target pass"),
                         cl::init(true));
-
-static cl::opt<unsigned> SVEVectorBitsMaxOpt(
-    "aarch64-sve-vector-bits-max",
-    cl::desc("Assume SVE vector registers are at most this big, "
-             "with zero meaning no maximum size is assumed."),
-    cl::init(0), cl::Hidden);
-
-static cl::opt<unsigned> SVEVectorBitsMinOpt(
-    "aarch64-sve-vector-bits-min",
-    cl::desc("Assume SVE vector registers are at least this big, "
-             "with zero meaning no minimum size is assumed."),
-    cl::init(0), cl::Hidden);
 
 extern cl::opt<bool> EnableHomogeneousPrologEpilog;
 
@@ -196,7 +184,6 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAArch64Target() {
   initializeAArch64ExpandPseudoPass(*PR);
   initializeAArch64LoadStoreOptPass(*PR);
   initializeAArch64SIMDInstrOptPass(*PR);
-  initializeAArch64O0PreLegalizerCombinerPass(*PR);
   initializeAArch64PreLegalizerCombinerPass(*PR);
   initializeAArch64PostLegalizerCombinerPass(*PR);
   initializeAArch64PostLegalizerLoweringPass(*PR);
@@ -361,54 +348,14 @@ AArch64TargetMachine::getSubtargetImpl(const Function &F) const {
   std::string FS =
       FSAttr.isValid() ? FSAttr.getValueAsString().str() : TargetFS;
 
-  SmallString<512> Key;
-
-  unsigned MinSVEVectorSize = 0;
-  unsigned MaxSVEVectorSize = 0;
-  Attribute VScaleRangeAttr = F.getFnAttribute(Attribute::VScaleRange);
-  if (VScaleRangeAttr.isValid()) {
-    std::tie(MinSVEVectorSize, MaxSVEVectorSize) =
-        VScaleRangeAttr.getVScaleRangeArgs();
-    MinSVEVectorSize *= 128;
-    MaxSVEVectorSize *= 128;
-  } else {
-    MinSVEVectorSize = SVEVectorBitsMinOpt;
-    MaxSVEVectorSize = SVEVectorBitsMaxOpt;
-  }
-
-  assert(MinSVEVectorSize % 128 == 0 &&
-         "SVE requires vector length in multiples of 128!");
-  assert(MaxSVEVectorSize % 128 == 0 &&
-         "SVE requires vector length in multiples of 128!");
-  assert((MaxSVEVectorSize >= MinSVEVectorSize || MaxSVEVectorSize == 0) &&
-         "Minimum SVE vector size should not be larger than its maximum!");
-
-  // Sanitize user input in case of no asserts
-  if (MaxSVEVectorSize == 0)
-    MinSVEVectorSize = (MinSVEVectorSize / 128) * 128;
-  else {
-    MinSVEVectorSize =
-        (std::min(MinSVEVectorSize, MaxSVEVectorSize) / 128) * 128;
-    MaxSVEVectorSize =
-        (std::max(MinSVEVectorSize, MaxSVEVectorSize) / 128) * 128;
-  }
-
-  Key += "SVEMin";
-  Key += std::to_string(MinSVEVectorSize);
-  Key += "SVEMax";
-  Key += std::to_string(MaxSVEVectorSize);
-  Key += CPU;
-  Key += FS;
-
-  auto &I = SubtargetMap[Key];
+  auto &I = SubtargetMap[CPU + FS];
   if (!I) {
     // This needs to be done before we create a new subtarget since any
     // creation will depend on the TM and the code generation flags on the
     // function that reside in TargetOptions.
     resetTargetOptions(F);
     I = std::make_unique<AArch64Subtarget>(TargetTriple, CPU, FS, *this,
-                                           isLittle, MinSVEVectorSize,
-                                           MaxSVEVectorSize);
+                                            isLittle);
   }
   return I.get();
 }
@@ -484,7 +431,6 @@ public:
   void addPostRegAlloc() override;
   void addPreSched2() override;
   void addPreEmitPass() override;
-  void addPreEmitPass2() override;
 
   std::unique_ptr<CSEConfigBase> getCSEConfig() const override;
 };
@@ -615,10 +561,8 @@ bool AArch64PassConfig::addIRTranslator() {
 }
 
 void AArch64PassConfig::addPreLegalizeMachineIR() {
-  if (getOptLevel() == CodeGenOpt::None)
-    addPass(createAArch64O0PreLegalizerCombiner());
-  else
-    addPass(createAArch64PreLegalizerCombiner());
+  bool IsOptNone = getOptLevel() == CodeGenOpt::None;
+  addPass(createAArch64PreLegalizerCombiner(IsOptNone));
 }
 
 bool AArch64PassConfig::addLegalizeMachineIR() {
@@ -643,7 +587,7 @@ void AArch64PassConfig::addPreGlobalInstructionSelect() {
 }
 
 bool AArch64PassConfig::addGlobalInstructionSelect() {
-  addPass(new InstructionSelect(getOptLevel()));
+  addPass(new InstructionSelect());
   if (getOptLevel() != CodeGenOpt::None)
     addPass(createAArch64PostSelectOptimize());
   return false;
@@ -738,12 +682,9 @@ void AArch64PassConfig::addPreEmitPass() {
   if (BranchRelaxation)
     addPass(&BranchRelaxationPassID);
 
-  if (TM->getTargetTriple().isOSWindows()) {
-    // Identify valid longjmp targets for Windows Control Flow Guard.
+  // Identify valid longjmp targets for Windows Control Flow Guard.
+  if (TM->getTargetTriple().isOSWindows())
     addPass(createCFGuardLongjmpPass());
-    // Identify valid eh continuation targets for Windows EHCont Guard.
-    addPass(createEHContGuardCatchretPass());
-  }
 
   if (TM->getOptLevel() != CodeGenOpt::None && EnableCompressJumpTables)
     addPass(createAArch64CompressJumpTablesPass());
@@ -751,11 +692,8 @@ void AArch64PassConfig::addPreEmitPass() {
   if (TM->getOptLevel() != CodeGenOpt::None && EnableCollectLOH &&
       TM->getTargetTriple().isOSBinFormatMachO())
     addPass(createAArch64CollectLOHPass());
-}
 
-void AArch64PassConfig::addPreEmitPass2() {
-  // SVE bundles move prefixes with destructive operations. BLR_RVMARKER pseudo
-  // instructions are lowered to bundles as well.
+  // SVE bundles move prefixes with destructive operations.
   addPass(createUnpackMachineBundles(nullptr));
 }
 

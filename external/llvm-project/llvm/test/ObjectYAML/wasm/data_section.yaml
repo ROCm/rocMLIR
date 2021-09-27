@@ -5,7 +5,7 @@ FileHeader:
 Sections:
   - Type:            MEMORY
     Memories:
-      - Minimum:         0x00000003
+      - Initial:         0x00000003
   - Type:            DATA
     Segments:
       - InitFlags:        0

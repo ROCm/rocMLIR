@@ -12,8 +12,8 @@
 
 #include "llvm/ExecutionEngine/JITLink/MachO_arm64.h"
 
+#include "BasicGOTAndStubsBuilder.h"
 #include "MachOLinkGraphBuilder.h"
-#include "PerGraphGOTAndPLTStubsBuilder.h"
 
 #define DEBUG_TYPE "jitlink"
 
@@ -26,8 +26,7 @@ namespace {
 class MachOLinkGraphBuilder_arm64 : public MachOLinkGraphBuilder {
 public:
   MachOLinkGraphBuilder_arm64(const object::MachOObjectFile &Obj)
-      : MachOLinkGraphBuilder(Obj, Triple("arm64-apple-darwin"),
-                              getMachOARM64RelocationKindName),
+      : MachOLinkGraphBuilder(Obj, Triple("arm64-apple-darwin")),
         NumSymbols(Obj.getSymtabLoadCommand().nsyms) {}
 
 private:
@@ -272,7 +271,7 @@ private:
           if (*Kind != Branch26 && *Kind != Page21 && *Kind != PageOffset12)
             return make_error<JITLinkError>(
                 "Invalid relocation pair: Addend + " +
-                StringRef(getMachOARM64RelocationKindName(*Kind)));
+                getMachOARM64RelocationKindName(*Kind));
 
           LLVM_DEBUG({
             dbgs() << "    Addend: value = " << formatv("{0:x6}", Addend)
@@ -405,14 +404,13 @@ private:
   unsigned NumSymbols = 0;
 };
 
-class PerGraphGOTAndPLTStubsBuilder_MachO_arm64
-    : public PerGraphGOTAndPLTStubsBuilder<
-          PerGraphGOTAndPLTStubsBuilder_MachO_arm64> {
+class MachO_arm64_GOTAndStubsBuilder
+    : public BasicGOTAndStubsBuilder<MachO_arm64_GOTAndStubsBuilder> {
 public:
-  using PerGraphGOTAndPLTStubsBuilder<
-      PerGraphGOTAndPLTStubsBuilder_MachO_arm64>::PerGraphGOTAndPLTStubsBuilder;
+  MachO_arm64_GOTAndStubsBuilder(LinkGraph &G)
+      : BasicGOTAndStubsBuilder<MachO_arm64_GOTAndStubsBuilder>(G) {}
 
-  bool isGOTEdgeToFix(Edge &E) const {
+  bool isGOTEdge(Edge &E) const {
     return E.getKind() == GOTPage21 || E.getKind() == GOTPageOffset12 ||
            E.getKind() == PointerToGOT;
   }
@@ -439,16 +437,16 @@ public:
     return E.getKind() == Branch26 && !E.getTarget().isDefined();
   }
 
-  Symbol &createPLTStub(Symbol &Target) {
+  Symbol &createStub(Symbol &Target) {
     auto &StubContentBlock =
         G.createContentBlock(getStubsSection(), getStubBlockContent(), 0, 1, 0);
     // Re-use GOT entries for stub targets.
-    auto &GOTEntrySymbol = getGOTEntry(Target);
+    auto &GOTEntrySymbol = getGOTEntrySymbol(Target);
     StubContentBlock.addEdge(LDRLiteral19, 0, GOTEntrySymbol, 0);
     return G.addAnonymousSymbol(StubContentBlock, 0, 8, true, false);
   }
 
-  void fixPLTEdge(Edge &E, Symbol &Stub) {
+  void fixExternalBranchEdge(Edge &E, Symbol &Stub) {
     assert(E.getKind() == Branch26 && "Not a Branch32 edge?");
     assert(E.getAddend() == 0 && "Branch32 edge has non-zero addend?");
     E.setTarget(Stub);
@@ -470,13 +468,14 @@ private:
     return *StubsSection;
   }
 
-  ArrayRef<char> getGOTEntryBlockContent() {
-    return {reinterpret_cast<const char *>(NullGOTEntryContent),
-            sizeof(NullGOTEntryContent)};
+  StringRef getGOTEntryBlockContent() {
+    return StringRef(reinterpret_cast<const char *>(NullGOTEntryContent),
+                     sizeof(NullGOTEntryContent));
   }
 
-  ArrayRef<char> getStubBlockContent() {
-    return {reinterpret_cast<const char *>(StubContent), sizeof(StubContent)};
+  StringRef getStubBlockContent() {
+    return StringRef(reinterpret_cast<const char *>(StubContent),
+                     sizeof(StubContent));
   }
 
   static const uint8_t NullGOTEntryContent[8];
@@ -485,10 +484,9 @@ private:
   Section *StubsSection = nullptr;
 };
 
-const uint8_t
-    PerGraphGOTAndPLTStubsBuilder_MachO_arm64::NullGOTEntryContent[8] = {
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-const uint8_t PerGraphGOTAndPLTStubsBuilder_MachO_arm64::StubContent[8] = {
+const uint8_t MachO_arm64_GOTAndStubsBuilder::NullGOTEntryContent[8] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+const uint8_t MachO_arm64_GOTAndStubsBuilder::StubContent[8] = {
     0x10, 0x00, 0x00, 0x58, // LDR x16, <literal>
     0x00, 0x02, 0x1f, 0xd6  // BR  x16
 };
@@ -508,6 +506,20 @@ public:
       : JITLinker(std::move(Ctx), std::move(G), std::move(PassConfig)) {}
 
 private:
+  StringRef getEdgeKindName(Edge::Kind R) const override {
+    return getMachOARM64RelocationKindName(R);
+  }
+
+  static Error targetOutOfRangeError(const Block &B, const Edge &E) {
+    std::string ErrMsg;
+    {
+      raw_string_ostream ErrStream(ErrMsg);
+      ErrStream << "Relocation target out of range: ";
+      printEdge(ErrStream, B, E, getMachOARM64RelocationKindName(E.getKind()));
+      ErrStream << "\n";
+    }
+    return make_error<JITLinkError>(std::move(ErrMsg));
+  }
 
   static unsigned getPageOffset12Shift(uint32_t Instr) {
     constexpr uint32_t LoadStoreImm12Mask = 0x3b000000;
@@ -525,10 +537,9 @@ private:
     return 0;
   }
 
-  Error applyFixup(LinkGraph &G, Block &B, const Edge &E) const {
+  Error applyFixup(Block &B, const Edge &E, char *BlockWorkingMem) const {
     using namespace support;
 
-    char *BlockWorkingMem = B.getAlreadyMutableContent().data();
     char *FixupPtr = BlockWorkingMem + E.getOffset();
     JITTargetAddress FixupAddress = B.getAddress() + E.getOffset();
 
@@ -543,7 +554,7 @@ private:
                                         "aligned");
 
       if (Value < -(1 << 27) || Value > ((1 << 27) - 1))
-        return makeTargetOutOfRangeError(G, B, E);
+        return targetOutOfRangeError(B, E);
 
       uint32_t RawInstr = *(little32_t *)FixupPtr;
       assert((RawInstr & 0x7fffffff) == 0x14000000 &&
@@ -556,7 +567,7 @@ private:
     case Pointer32: {
       uint64_t Value = E.getTarget().getAddress() + E.getAddend();
       if (Value > std::numeric_limits<uint32_t>::max())
-        return makeTargetOutOfRangeError(G, B, E);
+        return targetOutOfRangeError(B, E);
       *(ulittle32_t *)FixupPtr = Value;
       break;
     }
@@ -577,7 +588,7 @@ private:
 
       int64_t PageDelta = TargetPage - PCPage;
       if (PageDelta < -(1 << 30) || PageDelta > ((1 << 30) - 1))
-        return makeTargetOutOfRangeError(G, B, E);
+        return targetOutOfRangeError(B, E);
 
       uint32_t RawInstr = *(ulittle32_t *)FixupPtr;
       assert((RawInstr & 0xffffffe0) == 0x90000000 &&
@@ -627,7 +638,7 @@ private:
         return make_error<JITLinkError>("LDR literal target is not 32-bit "
                                         "aligned");
       if (Delta < -(1 << 20) || Delta > ((1 << 20) - 1))
-        return makeTargetOutOfRangeError(G, B, E);
+        return targetOutOfRangeError(B, E);
 
       uint32_t EncodedImm = (static_cast<uint32_t>(Delta) >> 2) << 5;
       uint32_t FixedInstr = RawInstr | EncodedImm;
@@ -647,7 +658,7 @@ private:
       if (E.getKind() == Delta32 || E.getKind() == NegDelta32) {
         if (Value < std::numeric_limits<int32_t>::min() ||
             Value > std::numeric_limits<int32_t>::max())
-          return makeTargetOutOfRangeError(G, B, E);
+          return targetOutOfRangeError(B, E);
         *(little32_t *)FixupPtr = Value;
       } else
         *(little64_t *)FixupPtr = Value;
@@ -684,18 +695,20 @@ void link_MachO_arm64(std::unique_ptr<LinkGraph> G,
       Config.PrePrunePasses.push_back(markAllSymbolsLive);
 
     // Add an in-place GOT/Stubs pass.
-    Config.PostPrunePasses.push_back(
-        PerGraphGOTAndPLTStubsBuilder_MachO_arm64::asPass);
+    Config.PostPrunePasses.push_back([](LinkGraph &G) -> Error {
+      MachO_arm64_GOTAndStubsBuilder(G).run();
+      return Error::success();
+    });
   }
 
-  if (auto Err = Ctx->modifyPassConfig(*G, Config))
+  if (auto Err = Ctx->modifyPassConfig(G->getTargetTriple(), Config))
     return Ctx->notifyFailed(std::move(Err));
 
   // Construct a JITLinker and run the link function.
   MachOJITLinker_arm64::link(std::move(Ctx), std::move(G), std::move(Config));
 }
 
-const char *getMachOARM64RelocationKindName(Edge::Kind R) {
+StringRef getMachOARM64RelocationKindName(Edge::Kind R) {
   switch (R) {
   case Branch26:
     return "Branch26";

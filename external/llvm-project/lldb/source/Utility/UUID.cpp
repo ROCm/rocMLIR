@@ -12,9 +12,9 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Format.h"
 
-#include <cctype>
-#include <cstdio>
-#include <cstring>
+#include <ctype.h>
+#include <stdio.h>
+#include <string.h>
 
 using namespace lldb_private;
 

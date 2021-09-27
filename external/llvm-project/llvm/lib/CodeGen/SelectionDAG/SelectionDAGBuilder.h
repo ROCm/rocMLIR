@@ -492,10 +492,6 @@ public:
   /// of the specified type Ty. Return empty SDValue() otherwise.
   SDValue getCopyFromRegs(const Value *V, Type *Ty);
 
-  /// Register a dbg_value which relies on a Value which we have not yet seen.
-  void addDanglingDebugInfo(const DbgValueInst *DI, DebugLoc DL,
-                            unsigned Order);
-
   /// If we have dangling debug info that describes \p Variable, or an
   /// overlapping part of variable considering the \p Expr, then this method
   /// will drop that debug info as it isn't valid any longer.
@@ -511,11 +507,11 @@ public:
   /// this cannot be done, produce an Undef debug value record.
   void salvageUnresolvedDbgValue(DanglingDebugInfo &DDI);
 
-  /// For a given list of Values, attempt to create and record a SDDbgValue in
-  /// the SelectionDAG.
-  bool handleDebugValue(ArrayRef<const Value *> Values, DILocalVariable *Var,
-                        DIExpression *Expr, DebugLoc CurDL, DebugLoc InstDL,
-                        unsigned Order, bool IsVariadic);
+  /// For a given Value, attempt to create and record a SDDbgValue in the
+  /// SelectionDAG.
+  bool handleDebugValue(const Value *V, DILocalVariable *Var,
+                        DIExpression *Expr, DebugLoc CurDL,
+                        DebugLoc InstDL, unsigned Order);
 
   /// Evict any dangling debug information, attempting to salvage it first.
   void resolveOrClearDbgInfo();
@@ -553,7 +549,7 @@ public:
   void CopyToExportRegsIfNeeded(const Value *V);
   void ExportFromCurrentBlock(const Value *V);
   void LowerCallTo(const CallBase &CB, SDValue Callee, bool IsTailCall,
-                   bool IsMustTailCall, const BasicBlock *EHPadBB = nullptr);
+                   const BasicBlock *EHPadBB = nullptr);
 
   // Lower range metadata from 0 to N to assert zext to an integer of nearest
   // floor power of two.
@@ -759,15 +755,10 @@ private:
   void visitStoreToSwiftError(const StoreInst &I);
   void visitFreeze(const FreezeInst &I);
 
-  void visitInlineAsm(const CallBase &Call,
-                      const BasicBlock *EHPadBB = nullptr);
+  void visitInlineAsm(const CallBase &Call);
   void visitIntrinsicCall(const CallInst &I, unsigned Intrinsic);
   void visitTargetIntrinsic(const CallInst &I, unsigned Intrinsic);
   void visitConstrainedFPIntrinsic(const ConstrainedFPIntrinsic &FPI);
-  void visitVPLoadGather(const VPIntrinsic &VPIntrin, EVT VT,
-                         SmallVector<SDValue, 7> &OpValues, bool isGather);
-  void visitVPStoreScatter(const VPIntrinsic &VPIntrin,
-                           SmallVector<SDValue, 7> &OpValues, bool isScatter);
   void visitVectorPredicationIntrinsic(const VPIntrinsic &VPIntrin);
 
   void visitVAStart(const CallInst &I);
@@ -782,9 +773,6 @@ private:
   void visitGCResult(const GCResultInst &I);
 
   void visitVectorReduce(const CallInst &I, unsigned Intrinsic);
-  void visitVectorReverse(const CallInst &I);
-  void visitVectorSplice(const CallInst &I);
-  void visitStepVector(const CallInst &I);
 
   void visitUserOp1(const Instruction &I) {
     llvm_unreachable("UserOp1 should not exist at instruction selection time!");
@@ -821,11 +809,6 @@ private:
 
   /// Lowers CallInst to an external symbol.
   void lowerCallToExternalSymbol(const CallInst &I, const char *FunctionName);
-
-  SDValue lowerStartEH(SDValue Chain, const BasicBlock *EHPadBB,
-                       MCSymbol *&BeginLabel);
-  SDValue lowerEndEH(SDValue Chain, const InvokeInst *II,
-                     const BasicBlock *EHPadBB, MCSymbol *BeginLabel);
 };
 
 /// This struct represents the registers (physical or virtual)

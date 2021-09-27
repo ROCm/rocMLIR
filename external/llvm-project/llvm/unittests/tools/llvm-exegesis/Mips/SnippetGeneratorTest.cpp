@@ -29,10 +29,12 @@ using testing::SizeIs;
 MATCHER(IsInvalid, "") { return !arg.isValid(); }
 MATCHER(IsReg, "") { return arg.isReg(); }
 
+class MipsSnippetGeneratorTest : public MipsTestBase {};
+
 template <typename SnippetGeneratorT>
-class MipsSnippetGeneratorTest : public MipsTestBase {
+class SnippetGeneratorTest : public MipsSnippetGeneratorTest {
 protected:
-  MipsSnippetGeneratorTest() : Generator(State, SnippetGenerator::Options()) {}
+  SnippetGeneratorTest() : Generator(State, SnippetGenerator::Options()) {}
 
   std::vector<CodeTemplate> checkAndGetCodeTemplates(unsigned Opcode) {
     randomGenerator().seed(0); // Initialize seed.
@@ -46,12 +48,12 @@ protected:
   SnippetGeneratorT Generator;
 };
 
-using MipsSerialSnippetGeneratorTest = MipsSnippetGeneratorTest<SerialSnippetGenerator>;
+using SerialSnippetGeneratorTest = SnippetGeneratorTest<SerialSnippetGenerator>;
 
-using MipsParallelSnippetGeneratorTest =
-    MipsSnippetGeneratorTest<ParallelSnippetGenerator>;
+using ParallelSnippetGeneratorTest =
+    SnippetGeneratorTest<ParallelSnippetGenerator>;
 
-TEST_F(MipsSerialSnippetGeneratorTest, ImplicitSelfDependencyThroughExplicitRegs) {
+TEST_F(SerialSnippetGeneratorTest, ImplicitSelfDependencyThroughExplicitRegs) {
   // - ADD
   // - Op0 Explicit Def RegClass(GPR32)
   // - Op1 Explicit Use RegClass(GPR32)
@@ -75,7 +77,7 @@ TEST_F(MipsSerialSnippetGeneratorTest, ImplicitSelfDependencyThroughExplicitRegs
       << "Op0 is either set to Op1 or to Op2";
 }
 
-TEST_F(MipsSerialSnippetGeneratorTest,
+TEST_F(SerialSnippetGeneratorTest,
        ImplicitSelfDependencyThroughExplicitRegsForbidAll) {
   // - XOR
   // - Op0 Explicit Def RegClass(GPR32)
@@ -95,7 +97,7 @@ TEST_F(MipsSerialSnippetGeneratorTest,
   consumeError(std::move(Error));
 }
 
-TEST_F(MipsParallelSnippetGeneratorTest, MemoryUse) {
+TEST_F(ParallelSnippetGeneratorTest, MemoryUse) {
   // LB reads from memory.
   // - LB
   // - Op0 Explicit Def RegClass(GPR32)

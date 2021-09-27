@@ -39,11 +39,11 @@ static cl::opt<bool>
               cl::desc("Disable the emission of assembler pseudo instructions"),
               cl::init(false), cl::Hidden);
 
-// Print architectural register names rather than the ABI names (such as x2
-// instead of sp).
-// TODO: Make RISCVInstPrinter::getRegisterName non-static so that this can a
-// member.
-static bool ArchRegNames;
+static cl::opt<bool>
+    ArchRegNames("riscv-arch-reg-names",
+                 cl::desc("Print architectural register names rather than the "
+                          "ABI names (such as x2 instead of sp)"),
+                 cl::init(false), cl::Hidden);
 
 // The command-line flags above are used by llvm-mc and llc. They can be used by
 // `llvm-objdump`, but we override their values here to handle options passed to
@@ -52,7 +52,7 @@ static bool ArchRegNames;
 // this way.
 bool RISCVInstPrinter::applyTargetSpecificCLOption(StringRef Opt) {
   if (Opt == "no-aliases") {
-    PrintAliases = false;
+    NoAliases = true;
     return true;
   }
   if (Opt == "numeric") {
@@ -69,11 +69,11 @@ void RISCVInstPrinter::printInst(const MCInst *MI, uint64_t Address,
   bool Res = false;
   const MCInst *NewMI = MI;
   MCInst UncompressedMI;
-  if (PrintAliases && !NoAliases)
+  if (!NoAliases)
     Res = uncompressInst(UncompressedMI, *MI, MRI, STI);
   if (Res)
     NewMI = const_cast<MCInst *>(&UncompressedMI);
-  if (!PrintAliases || NoAliases || !printAliasInstr(NewMI, Address, STI, O))
+  if (NoAliases || !printAliasInstr(NewMI, Address, STI, O))
     printInstruction(NewMI, Address, STI, O);
   printAnnotation(O, Annot);
 }

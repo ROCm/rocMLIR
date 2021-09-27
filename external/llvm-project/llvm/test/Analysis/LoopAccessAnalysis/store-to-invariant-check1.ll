@@ -1,4 +1,5 @@
-; RUN: opt -passes='require<scalar-evolution>,require<aa>,loop(print-access-info)' -disable-output  < %s 2>&1 | FileCheck %s
+; RUN: opt < %s -loop-accesses -analyze -enable-new-pm=0 | FileCheck -check-prefix=OLDPM %s
+; RUN: opt -passes='require<scalar-evolution>,require<aa>,loop(print-access-info)' -disable-output  < %s 2>&1 | FileCheck -check-prefix=NEWPM %s
 
 ; Test to confirm LAA will find multiple stores to an invariant address in the
 ; inner loop.
@@ -12,10 +13,15 @@
 
 ; The LAA with the new PM is a loop pass so we go from inner to outer loops.
 
-; CHECK: for.body3:
-; CHECK:   Non vectorizable stores to invariant address were found in loop.
-; CHECK: for.cond1.preheader:
-; CHECK:   Non vectorizable stores to invariant address were not found in loop.
+; OLDPM: for.cond1.preheader:
+; OLDPM:   Non vectorizable stores to invariant address were not found in loop.
+; OLDPM: for.body3:
+; OLDPM:   Non vectorizable stores to invariant address were found in loop.
+
+; NEWPM: for.body3:
+; NEWPM:   Non vectorizable stores to invariant address were found in loop.
+; NEWPM: for.cond1.preheader:
+; NEWPM:   Non vectorizable stores to invariant address were not found in loop.
 
 define i32 @foo(i32* nocapture %var1, i32* nocapture readonly %var2, i32 %itr) #0 {
 entry:

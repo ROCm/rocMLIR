@@ -8,14 +8,13 @@ add_clang_unittest(ASTTests
   ASTContextParentMapTest.cpp
   ASTImporterFixtures.cpp
   ASTImporterTest.cpp
-  ASTImporterObjCTest.cpp
   ASTImporterGenericRedeclTest.cpp
   ASTImporterODRStrategiesTest.cpp
   ASTImporterVisibilityTest.cpp
   ASTTraverserTest.cpp
   ASTTypeTraitsTest.cpp
+  ASTTraverserTest.cpp
   ASTVectorTest.cpp
-  AttrTest.cpp
   CommentLexer.cpp
   CommentParser.cpp
   CommentTextTest.cpp
@@ -30,7 +29,6 @@ add_clang_unittest(ASTTests
   SourceLocationTest.cpp
   StmtPrinterTest.cpp
   StructuralEquivalenceTest.cpp
-  TypePrinterTest.cpp
   )
 
 clang_target_link_libraries(ASTTests

@@ -34,7 +34,9 @@ class AsanTestReportDataCase(TestBase):
         self.col_crash = 16
 
     def asan_tests(self):
-        target = self.createTestTarget()
+        exe = self.getBuildArtifact("a.out")
+        target = self.dbg.CreateTarget(exe)
+        self.assertTrue(target, VALID_TARGET)
 
         self.registerSanitizerLibrariesWithTarget(target)
 

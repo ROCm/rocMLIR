@@ -55,8 +55,9 @@ bool latency_sort::operator()(const SUnit *LHS, const SUnit *RHS) const {
 /// of SU, return it, otherwise return null.
 SUnit *LatencyPriorityQueue::getSingleUnscheduledPred(SUnit *SU) {
   SUnit *OnlyAvailablePred = nullptr;
-  for (const SDep &P : SU->Preds) {
-    SUnit &Pred = *P.getSUnit();
+  for (SUnit::const_pred_iterator I = SU->Preds.begin(), E = SU->Preds.end();
+       I != E; ++I) {
+    SUnit &Pred = *I->getSUnit();
     if (!Pred.isScheduled) {
       // We found an available, but not scheduled, predecessor.  If it's the
       // only one we have found, keep track of it... otherwise give up.
@@ -89,8 +90,10 @@ void LatencyPriorityQueue::push(SUnit *SU) {
 // single predecessor has a higher priority, since scheduling it will make
 // the node available.
 void LatencyPriorityQueue::scheduledNode(SUnit *SU) {
-  for (const SDep &Succ : SU->Succs)
-    AdjustPriorityOfUnscheduledPreds(Succ.getSUnit());
+  for (SUnit::const_succ_iterator I = SU->Succs.begin(), E = SU->Succs.end();
+       I != E; ++I) {
+    AdjustPriorityOfUnscheduledPreds(I->getSUnit());
+  }
 }
 
 /// AdjustPriorityOfUnscheduledPreds - One of the predecessors of SU was just

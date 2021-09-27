@@ -25,7 +25,7 @@ public:
   explicit ARMInstrInfo(const ARMSubtarget &STI);
 
   /// Return the noop instruction to use for a noop.
-  MCInst getNop() const override;
+  void getNoop(MCInst &NopInst) const override;
 
   // Return the non-pre/post incrementing version of 'Opc'. Return 0
   // if there is not such an opcode.

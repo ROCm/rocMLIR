@@ -9,6 +9,7 @@
 #ifndef LLVM_DEBUGINFO_GSYM_GSYMREADER_H
 #define LLVM_DEBUGINFO_GSYM_GSYMREADER_H
 
+
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/DebugInfo/GSYM/FileEntry.h"
 #include "llvm/DebugInfo/GSYM/FunctionInfo.h"
@@ -18,9 +19,11 @@
 #include "llvm/Support/DataExtractor.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/ErrorOr.h"
+
 #include <inttypes.h>
 #include <memory>
 #include <stdint.h>
+#include <string>
 #include <vector>
 
 namespace llvm {
@@ -307,4 +310,4 @@ protected:
 } // namespace gsym
 } // namespace llvm
 
-#endif // LLVM_DEBUGINFO_GSYM_GSYMREADER_H
+#endif // #ifndef LLVM_DEBUGINFO_GSYM_GSYMREADER_H

@@ -24,7 +24,7 @@ class SymbolFileDWARF;
 
 class DWARFBaseDIE {
 public:
-  DWARFBaseDIE() = default;
+  DWARFBaseDIE() : m_cu(nullptr), m_die(nullptr) {}
 
   DWARFBaseDIE(DWARFUnit *cu, DWARFDebugInfoEntry *die)
       : m_cu(cu), m_die(die) {}
@@ -115,8 +115,8 @@ public:
                        Recurse recurse = Recurse::yes) const;
 
 protected:
-  DWARFUnit *m_cu = nullptr;
-  DWARFDebugInfoEntry *m_die = nullptr;
+  DWARFUnit *m_cu;
+  DWARFDebugInfoEntry *m_die;
 };
 
 bool operator==(const DWARFBaseDIE &lhs, const DWARFBaseDIE &rhs);

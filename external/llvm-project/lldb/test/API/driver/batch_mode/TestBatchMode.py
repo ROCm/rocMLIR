@@ -16,7 +16,6 @@ class DriverBatchModeTest(PExpectTest):
     mydir = TestBase.compute_mydir(__file__)
     source = 'main.c'
 
-    @skipIf(oslist=["linux"], archs=["arm", "aarch64"]) # Randomly fails on buildbot
     @expectedFlakeyFreeBSD("llvm.org/pr25172 fails rarely on the buildbot")
     def test_batch_mode_run_crash(self):
         """Test that the lldb driver's batch mode works correctly."""
@@ -47,7 +46,6 @@ class DriverBatchModeTest(PExpectTest):
         self.expect_prompt()
         self.expect("frame variable touch_me_not", substrs=['(char *) touch_me_not'])
 
-    @skipIf(oslist=["linux"], archs=["arm", "aarch64"]) # Randomly fails on buildbot
     @expectedFlakeyFreeBSD("llvm.org/pr25172 fails rarely on the buildbot")
     def test_batch_mode_run_exit(self):
         """Test that the lldb driver's batch mode works correctly."""
@@ -77,7 +75,6 @@ class DriverBatchModeTest(PExpectTest):
         import pexpect
         child.expect(pexpect.EOF)
 
-    @skipIf(oslist=["linux"], archs=["arm", "aarch64"]) # Randomly fails on buildbot
     @expectedFlakeyFreeBSD("llvm.org/pr25172 fails rarely on the buildbot")
     def test_batch_mode_launch_stop_at_entry(self):
         """Test that the lldb driver's batch mode works correctly for process launch."""
@@ -112,7 +109,6 @@ class DriverBatchModeTest(PExpectTest):
             self.victim.close()
             self.victim = None
 
-    @skipIf(oslist=["linux"], archs=["arm", "aarch64"]) # Randomly fails on buildbot
     @expectedFlakeyFreeBSD("llvm.org/pr25172 fails rarely on the buildbot")
     @expectedFailureNetBSD
     def test_batch_mode_attach_exit(self):

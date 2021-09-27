@@ -54,8 +54,6 @@ def main():
                       help='Remove attribute annotations (#0) from the end of check line')
   parser.add_argument('--check-attributes', action='store_true',
                       help='Check "Function Attributes" for functions')
-  parser.add_argument('--check-globals', action='store_true',
-                      help='Check global entries (global variables, metadata, attribute sets, ...) for functions')
   parser.add_argument('tests', nargs='+')
   initial_args = common.parse_commandline_args(parser)
 
@@ -80,13 +78,7 @@ def main():
         common.warn('Skipping unparseable RUN line: ' + l)
         continue
 
-      commands = [cmd.strip() for cmd in l.split('|')]
-      assert len(commands) >= 2
-      preprocess_cmd = None
-      if len(commands) > 2:
-        preprocess_cmd = " | ".join(commands[:-2])
-      tool_cmd = commands[-2]
-      filecheck_cmd = commands[-1]
+      (tool_cmd, filecheck_cmd) = tuple([cmd.strip() for cmd in l.split('|', 1)])
       common.verify_filecheck_prefixes(filecheck_cmd)
       if not tool_cmd.startswith(opt_basename + ' '):
         common.warn('Skipping non-%s RUN line: %s' % (opt_basename, l))
@@ -107,30 +99,27 @@ def main():
 
       # FIXME: We should use multiple check prefixes to common check lines. For
       # now, we just ignore all but the last.
-      prefix_list.append((check_prefixes, tool_cmd_args, preprocess_cmd))
+      prefix_list.append((check_prefixes, tool_cmd_args))
 
     global_vars_seen_dict = {}
     builder = common.FunctionTestBuilder(
       run_list=prefix_list,
       flags=ti.args,
-      scrubber_args=[],
-      path=ti.path)
+      scrubber_args=[])
 
-    for prefixes, opt_args, preprocess_cmd in prefix_list:
+    for prefixes, opt_args in prefix_list:
       common.debug('Extracted opt cmd: ' + opt_basename + ' ' + opt_args)
       common.debug('Extracted FileCheck prefixes: ' + str(prefixes))
 
-      raw_tool_output = common.invoke_tool(ti.args.opt_binary, opt_args,
-                                           ti.path, preprocess_cmd=preprocess_cmd,
-                                           verbose=ti.args.verbose)
+      raw_tool_output = common.invoke_tool(ti.args.opt_binary, opt_args, 
+                                           ti.path)
       builder.process_run_line(common.OPT_FUNCTION_RE, common.scrub_body,
-              raw_tool_output, prefixes, False)
+              raw_tool_output, prefixes)
 
     func_dict = builder.finish_and_get_func_dict()
     is_in_function = False
     is_in_function_start = False
-    has_checked_pre_function_globals = False
-    prefix_set = set([prefix for prefixes, _, _ in prefix_list for prefix in prefixes])
+    prefix_set = set([prefix for prefixes, _ in prefix_list for prefix in prefixes])
     common.debug('Rewriting FileCheck prefixes:', str(prefix_set))
     output_lines = []
 
@@ -149,17 +138,13 @@ def main():
       # out all the source lines.
       common.dump_input_lines(output_lines, ti, prefix_set, ';')
 
-      args = ti.args
-      if args.check_globals:
-          common.add_global_checks(builder.global_var_dict(), ';', prefix_list, output_lines, global_vars_seen_dict, args.preserve_names, True)
-
       # Now generate all the checks.
       common.add_checks_at_end(output_lines, prefix_list, builder.func_order(),
                                ';', lambda my_output_lines, prefixes, func:
                                common.add_ir_checks(my_output_lines, ';',
                                                     prefixes,
                                                     func_dict, func, False,
-                                                    args.function_signature,
+                                                    ti.args.function_signature,
                                                     global_vars_seen_dict))
     else:
       # "Normal" mode.
@@ -181,23 +166,20 @@ def main():
                                global_vars_seen_dict)
           is_in_function_start = False
 
-        m = common.IR_FUNCTION_RE.match(input_line)
-        if m and not has_checked_pre_function_globals:
-            if args.check_globals:
-                common.add_global_checks(builder.global_var_dict(), ';', prefix_list, output_lines, global_vars_seen_dict, args.preserve_names, True)
-            has_checked_pre_function_globals = True
-
-        if common.should_add_line_to_output(input_line, prefix_set, not is_in_function):
+        if is_in_function:
+          if common.should_add_line_to_output(input_line, prefix_set):
             # This input line of the function body will go as-is into the output.
             # Except make leading whitespace uniform: 2 spaces.
             input_line = common.SCRUB_LEADING_WHITESPACE_RE.sub(r'  ', input_line)
             output_lines.append(input_line)
-            if input_line.strip() == '}':
-                 is_in_function = False
-                 continue
+          else:
+            continue
+          if input_line.strip() == '}':
+            is_in_function = False
+          continue
 
-        if is_in_function:
-           continue
+        # If it's outside a function, it just gets copied to the output.
+        output_lines.append(input_line)
 
         m = common.IR_FUNCTION_RE.match(input_line)
         if not m:
@@ -208,8 +190,6 @@ def main():
           continue
         is_in_function = is_in_function_start = True
 
-    if args.check_globals:
-        common.add_global_checks(builder.global_var_dict(), ';', prefix_list, output_lines, global_vars_seen_dict, args.preserve_names, False)
     common.debug('Writing %d lines to %s...' % (len(output_lines), ti.path))
 
     with open(ti.path, 'wb') as f:

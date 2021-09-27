@@ -18,17 +18,7 @@
 #include "llvm/ADT/SetVector.h"
 
 namespace polly {
-using llvm::AllocaInst;
-using llvm::BasicBlock;
-using llvm::DataLayout;
-using llvm::DominatorTree;
-using llvm::Function;
-using llvm::ICmpInst;
-using llvm::LoopInfo;
-using llvm::Module;
-using llvm::SetVector;
-using llvm::Type;
-using llvm::Value;
+using namespace llvm;
 
 /// General scheduling types of parallel OpenMP for loops.
 /// Initialization values taken from OpenMP's enum in kmp.h: sched_type.

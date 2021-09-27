@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This is a variant of the UnifyFunctionExitNodes pass. Rather than ensuring
+// This is a variant of the UnifyDivergentExitNodes pass. Rather than ensuring
 // there is at most one ret and one unreachable instruction, it ensures there is
 // at most one divergent exiting block.
 //
@@ -54,9 +54,6 @@ using namespace llvm;
 namespace {
 
 class AMDGPUUnifyDivergentExitNodes : public FunctionPass {
-private:
-  const TargetTransformInfo *TTI = nullptr;
-
 public:
   static char ID; // Pass identification, replacement for typeid
 
@@ -66,9 +63,6 @@ public:
 
   // We can preserve non-critical-edgeness when we unify function exit nodes
   void getAnalysisUsage(AnalysisUsage &AU) const override;
-  BasicBlock *unifyReturnBlockSet(Function &F, DomTreeUpdater &DTU,
-                                  ArrayRef<BasicBlock *> ReturningBlocks,
-                                  StringRef Name);
   bool runOnFunction(Function &F) override;
 };
 
@@ -133,14 +127,48 @@ static bool isUniformlyReached(const LegacyDivergenceAnalysis &DA,
   return true;
 }
 
-BasicBlock *AMDGPUUnifyDivergentExitNodes::unifyReturnBlockSet(
-    Function &F, DomTreeUpdater &DTU, ArrayRef<BasicBlock *> ReturningBlocks,
-    StringRef Name) {
+static void removeDoneExport(Function &F) {
+  ConstantInt *BoolFalse = ConstantInt::getFalse(F.getContext());
+  for (BasicBlock &BB : F) {
+    for (Instruction &I : BB) {
+      if (IntrinsicInst *Intrin = llvm::dyn_cast<IntrinsicInst>(&I)) {
+        if (Intrin->getIntrinsicID() == Intrinsic::amdgcn_exp) {
+          Intrin->setArgOperand(6, BoolFalse); // done
+        } else if (Intrin->getIntrinsicID() == Intrinsic::amdgcn_exp_compr) {
+          Intrin->setArgOperand(4, BoolFalse); // done
+        }
+      }
+    }
+  }
+}
+
+static BasicBlock *unifyReturnBlockSet(Function &F, DomTreeUpdater &DTU,
+                                       ArrayRef<BasicBlock *> ReturningBlocks,
+                                       bool InsertExport,
+                                       const TargetTransformInfo &TTI,
+                                       StringRef Name) {
   // Otherwise, we need to insert a new basic block into the function, add a PHI
   // nodes (if the function returns values), and convert all of the return
   // instructions into unconditional branches.
   BasicBlock *NewRetBlock = BasicBlock::Create(F.getContext(), Name, &F);
   IRBuilder<> B(NewRetBlock);
+
+  if (InsertExport) {
+    // Ensure that there's only one "done" export in the shader by removing the
+    // "done" bit set on the original final export. More than one "done" export
+    // can lead to undefined behavior.
+    removeDoneExport(F);
+
+    Value *Undef = UndefValue::get(B.getFloatTy());
+    B.CreateIntrinsic(Intrinsic::amdgcn_exp, { B.getFloatTy() },
+                      {
+                        B.getInt32(AMDGPU::Exp::ET_NULL),
+                        B.getInt32(0), // enabled channels
+                        Undef, Undef, Undef, Undef, // values
+                        B.getTrue(), // done
+                        B.getTrue(), // valid mask
+                      });
+  }
 
   PHINode *PN = nullptr;
   if (F.getReturnType()->isVoidTy()) {
@@ -149,6 +177,7 @@ BasicBlock *AMDGPUUnifyDivergentExitNodes::unifyReturnBlockSet(
     // If the function doesn't return void... add a PHI node to the block...
     PN = B.CreatePHI(F.getReturnType(), ReturningBlocks.size(),
                      "UnifiedRetVal");
+    assert(!InsertExport);
     B.CreateRet(PN);
   }
 
@@ -174,7 +203,7 @@ BasicBlock *AMDGPUUnifyDivergentExitNodes::unifyReturnBlockSet(
 
   for (BasicBlock *BB : ReturningBlocks) {
     // Cleanup possible branch to unconditional branch to the return.
-    simplifyCFG(BB, *TTI, RequireAndPreserveDomTree ? &DTU : nullptr,
+    simplifyCFG(BB, TTI, RequireAndPreserveDomTree ? &DTU : nullptr,
                 SimplifyCFGOptions().bonusInstThreshold(2));
   }
 
@@ -188,20 +217,24 @@ bool AMDGPUUnifyDivergentExitNodes::runOnFunction(Function &F) {
 
   auto &PDT = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
 
-  // If there's only one exit, we don't need to do anything.
-  if (PDT.root_size() <= 1)
+  // If there's only one exit, we don't need to do anything, unless this is a
+  // pixel shader and that exit is an infinite loop, since we still have to
+  // insert an export in that case.
+  if (PDT.root_size() <= 1 && F.getCallingConv() != CallingConv::AMDGPU_PS)
     return false;
 
   LegacyDivergenceAnalysis &DA = getAnalysis<LegacyDivergenceAnalysis>();
-  TTI = &getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
 
   // Loop over all of the blocks in a function, tracking all of the blocks that
   // return.
   SmallVector<BasicBlock *, 4> ReturningBlocks;
+  SmallVector<BasicBlock *, 4> UniformlyReachedRetBlocks;
   SmallVector<BasicBlock *, 4> UnreachableBlocks;
 
   // Dummy return block for infinite loop.
   BasicBlock *DummyReturnBB = nullptr;
+
+  bool InsertExport = false;
 
   bool Changed = false;
   std::vector<DominatorTree::UpdateType> Updates;
@@ -210,6 +243,8 @@ bool AMDGPUUnifyDivergentExitNodes::runOnFunction(Function &F) {
     if (isa<ReturnInst>(BB->getTerminator())) {
       if (!isUniformlyReached(DA, *BB))
         ReturningBlocks.push_back(BB);
+      else
+        UniformlyReachedRetBlocks.push_back(BB);
     } else if (isa<UnreachableInst>(BB->getTerminator())) {
       if (!isUniformlyReached(DA, *BB))
         UnreachableBlocks.push_back(BB);
@@ -221,6 +256,36 @@ bool AMDGPUUnifyDivergentExitNodes::runOnFunction(Function &F) {
                                            "DummyReturnBlock", &F);
         Type *RetTy = F.getReturnType();
         Value *RetVal = RetTy->isVoidTy() ? nullptr : UndefValue::get(RetTy);
+
+        // For pixel shaders, the producer guarantees that an export is
+        // executed before each return instruction. However, if there is an
+        // infinite loop and we insert a return ourselves, we need to uphold
+        // that guarantee by inserting a null export. This can happen e.g. in
+        // an infinite loop with kill instructions, which is supposed to
+        // terminate. However, we don't need to do this if there is a non-void
+        // return value, since then there is an epilog afterwards which will
+        // still export.
+        //
+        // Note: In the case where only some threads enter the infinite loop,
+        // this can result in the null export happening redundantly after the
+        // original exports. However, The last "real" export happens after all
+        // the threads that didn't enter an infinite loop converged, which
+        // means that the only extra threads to execute the null export are
+        // threads that entered the infinite loop, and they only could've
+        // exited through being killed which sets their exec bit to 0.
+        // Therefore, unless there's an actual infinite loop, which can have
+        // invalid results, or there's a kill after the last export, which we
+        // assume the frontend won't do, this export will have the same exec
+        // mask as the last "real" export, and therefore the valid mask will be
+        // overwritten with the same value and will still be correct. Also,
+        // even though this forces an extra unnecessary export wait, we assume
+        // that this happens rare enough in practice to that we don't have to
+        // worry about performance.
+        if (F.getCallingConv() == CallingConv::AMDGPU_PS &&
+            RetTy->isVoidTy()) {
+          InsertExport = true;
+        }
+
         ReturnInst::Create(F.getContext(), RetVal, DummyReturnBB);
         ReturningBlocks.push_back(DummyReturnBB);
       }
@@ -232,7 +297,7 @@ bool AMDGPUUnifyDivergentExitNodes::runOnFunction(Function &F) {
         BranchInst::Create(LoopHeaderBB, DummyReturnBB, BoolTrue, BB);
         Updates.push_back({DominatorTree::Insert, BB, DummyReturnBB});
       } else { // Conditional branch.
-        SmallVector<BasicBlock *, 2> Successors(successors(BB));
+        SmallVector<BasicBlock *, 2> Successors(succ_begin(BB), succ_end(BB));
 
         // Create a new transition block to hold the conditional branch.
         BasicBlock *TransitionBB = BB->splitBasicBlock(BI, "TransitionBlock");
@@ -312,9 +377,23 @@ bool AMDGPUUnifyDivergentExitNodes::runOnFunction(Function &F) {
   if (ReturningBlocks.empty())
     return Changed; // No blocks return
 
-  if (ReturningBlocks.size() == 1)
+  if (ReturningBlocks.size() == 1 && !InsertExport)
     return Changed; // Already has a single return block
 
-  unifyReturnBlockSet(F, DTU, ReturningBlocks, "UnifiedReturnBlock");
+  const TargetTransformInfo &TTI
+    = getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
+
+  // Unify returning blocks. If we are going to insert the export it is also
+  // necessary to include blocks that are uniformly reached, because in addition
+  // to inserting the export the "done" bits on existing exports will be cleared
+  // and we do not want to end up with the normal export in a non-unified,
+  // uniformly reached block with the "done" bit cleared.
+  auto BlocksToUnify = std::move(ReturningBlocks);
+  if (InsertExport) {
+    llvm::append_range(BlocksToUnify, UniformlyReachedRetBlocks);
+  }
+
+  unifyReturnBlockSet(F, DTU, BlocksToUnify, InsertExport, TTI,
+                      "UnifiedReturnBlock");
   return true;
 }

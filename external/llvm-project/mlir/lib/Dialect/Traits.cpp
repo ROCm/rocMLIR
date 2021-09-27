@@ -15,45 +15,19 @@ using namespace mlir;
 
 bool OpTrait::util::staticallyKnownBroadcastable(ArrayRef<int64_t> shape1,
                                                  ArrayRef<int64_t> shape2) {
-  SmallVector<SmallVector<int64_t, 6>, 2> extents;
-  extents.emplace_back(shape1.begin(), shape1.end());
-  extents.emplace_back(shape2.begin(), shape2.end());
-  return staticallyKnownBroadcastable(extents);
-}
-
-bool OpTrait::util::staticallyKnownBroadcastable(
-    ArrayRef<SmallVector<int64_t, 6>> shapes) {
-  assert(!shapes.empty() && "Expected at least one shape");
-  size_t maxRank = shapes[0].size();
-  for (size_t i = 1; i != shapes.size(); ++i)
-    maxRank = std::max(maxRank, shapes[i].size());
-
-  // We look backwards through every column of `shapes`.
-  for (size_t i = 0; i != maxRank; ++i) {
-    bool seenDynamic = false;
-    Optional<int64_t> nonOneDim;
-    for (ArrayRef<int64_t> extent : shapes) {
-      int64_t dim = i >= extent.size() ? 1 : extent[extent.size() - i - 1];
-
-      if (dim == 1)
-        continue;
-
-      // Dimensions are compatible when
-      //.  1. One is dynamic, the rest are 1
-      if (ShapedType::isDynamic(dim)) {
-        if (seenDynamic || nonOneDim)
-          return false;
-        seenDynamic = true;
-      }
-
-      //   2. All are 1 or a specific constant.
-      if (nonOneDim && dim != *nonOneDim)
-        return false;
-
-      nonOneDim = dim;
-    }
-  }
-  return true;
+  // Two dimensions are compatible when
+  //   1. they are defined and equal, or
+  //   2. one of them is 1
+  return llvm::all_of(llvm::zip(llvm::reverse(shape1), llvm::reverse(shape2)),
+                      [](auto dimensions) {
+                        auto dim1 = std::get<0>(dimensions);
+                        auto dim2 = std::get<1>(dimensions);
+                        if (dim1 == 1 || dim2 == 1)
+                          return true;
+                        if (dim1 == dim2 && !ShapedType::isDynamic(dim1))
+                          return true;
+                        return false;
+                      });
 }
 
 bool OpTrait::util::getBroadcastedShape(ArrayRef<int64_t> shape1,
@@ -192,18 +166,14 @@ static std::tuple<bool, bool> hasTensorOrVectorType(iterator_range types) {
       llvm::any_of(types, [](Type t) { return t.isa<VectorType>(); }));
 }
 
-static bool isCompatibleInferredReturnShape(ArrayRef<int64_t> inferred,
-                                            ArrayRef<int64_t> existing) {
+static bool areCompatibleShapes(ArrayRef<int64_t> shape1,
+                                ArrayRef<int64_t> shape2) {
   auto isCompatible = [](int64_t dim1, int64_t dim2) {
-    // If the inferred and existing dim is the same, or one of them is unknown
-    // then it is compatible, else if the inferred dim is 1 then it is also
-    // compatible. But if the existing dim is 1 and the inferred is greater than
-    // 1 then flag.
-    return dim1 == dim2 || dim1 == -1 || dim2 == -1 || dim1 == 1;
+    return dim1 == dim2 || dim1 == -1 || dim2 == -1;
   };
-  if (inferred.size() != existing.size())
+  if (shape1.size() != shape2.size())
     return false;
-  for (auto p : llvm::zip(inferred, existing))
+  for (auto p : llvm::zip(shape1, shape2))
     if (!isCompatible(std::get<0>(p), std::get<1>(p)))
       return false;
   return true;
@@ -212,20 +182,8 @@ static bool isCompatibleInferredReturnShape(ArrayRef<int64_t> inferred,
 static std::string getShapeString(ArrayRef<int64_t> shape) {
   // TODO: should replace with printing shape more uniformly across here and
   // when in type.
-  std::string ret;
-  llvm::raw_string_ostream ss(ret);
-  ss << '\'';
-  llvm::interleave(
-      shape, ss,
-      [&](int64_t dim) {
-        if (ShapedType::isDynamic(dim))
-          ss << '?';
-        else
-          ss << dim;
-      },
-      "x");
-  ss << '\'';
-  return ss.str();
+  return std::string(
+      formatv("'{0:$[x]}'", llvm::make_range(shape.begin(), shape.end())));
 }
 
 LogicalResult OpTrait::impl::verifyCompatibleOperandBroadcast(Operation *op) {
@@ -268,7 +226,7 @@ LogicalResult OpTrait::impl::verifyCompatibleOperandBroadcast(Operation *op) {
   for (auto type : rankedResults) {
     ArrayRef<int64_t> actualSuffix =
         getShape(type).take_back(resultShape.size());
-    if (!isCompatibleInferredReturnShape(resultShape, actualSuffix))
+    if (!areCompatibleShapes(actualSuffix, resultShape))
       return op->emitOpError()
              << "result type " << getShapeString(getShape(type))
              << " not broadcast compatible with broadcasted operands's shapes "

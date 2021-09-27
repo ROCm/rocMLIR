@@ -11,13 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TOOLS_LLVM_REDUCE_DELTAS_REDUCEALIASES_H
-#define LLVM_TOOLS_LLVM_REDUCE_DELTAS_REDUCEALIASES_H
-
 #include "Delta.h"
 
 namespace llvm {
 void reduceAliasesDeltaPass(TestRunner &Test);
 } // namespace llvm
-
-#endif

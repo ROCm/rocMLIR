@@ -35,15 +35,10 @@ class BasicBlock;
 ///
 /// For a subregion RegionNode there is just one successor. The RegionNode
 /// representing the exit of the subregion.
-template <class NodeRef, class BlockT, class RegionT> class RNSuccIterator {
-public:
-  using iterator_category = std::forward_iterator_tag;
-  using value_type = NodeRef;
-  using difference_type = std::ptrdiff_t;
-  using pointer = value_type *;
-  using reference = value_type &;
-
-private:
+template <class NodeRef, class BlockT, class RegionT>
+class RNSuccIterator
+    : public std::iterator<std::forward_iterator_tag, NodeRef> {
+  using super = std::iterator<std::forward_iterator_tag, NodeRef>;
   using BlockTraits = GraphTraits<BlockT *>;
   using SuccIterTy = typename BlockTraits::ChildIteratorType;
 
@@ -104,6 +99,7 @@ private:
 
 public:
   using Self = RNSuccIterator<NodeRef, BlockT, RegionT>;
+  using value_type = typename super::value_type;
 
   /// Create begin iterator of a RegionNode.
   inline RNSuccIterator(NodeRef node)
@@ -167,7 +163,9 @@ public:
 /// are contained in the Region and its subregions. This is close to a virtual
 /// control flow graph of the Region.
 template <class NodeRef, class BlockT, class RegionT>
-class RNSuccIterator<FlatIt<NodeRef>, BlockT, RegionT> {
+class RNSuccIterator<FlatIt<NodeRef>, BlockT, RegionT>
+    : public std::iterator<std::forward_iterator_tag, NodeRef> {
+  using super = std::iterator<std::forward_iterator_tag, NodeRef>;
   using BlockTraits = GraphTraits<BlockT *>;
   using SuccIterTy = typename BlockTraits::ChildIteratorType;
 
@@ -175,13 +173,8 @@ class RNSuccIterator<FlatIt<NodeRef>, BlockT, RegionT> {
   SuccIterTy Itor;
 
 public:
-  using iterator_category = std::forward_iterator_tag;
-  using value_type = NodeRef;
-  using difference_type = std::ptrdiff_t;
-  using pointer = value_type *;
-  using reference = value_type &;
-
   using Self = RNSuccIterator<FlatIt<NodeRef>, BlockT, RegionT>;
+  using value_type = typename super::value_type;
 
   /// Create the iterator from a RegionNode.
   ///

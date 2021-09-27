@@ -33,7 +33,10 @@ public:
   virtual ~OutputSection() = default;
 
   StringRef getSectionName() const;
-  void setOffset(size_t newOffset) { offset = newOffset; }
+  void setOffset(size_t newOffset) {
+    log("setOffset: " + toString(*this) + ": " + Twine(newOffset));
+    offset = newOffset;
+  }
   void createHeader(size_t bodySize);
   virtual bool isNeeded() const { return true; }
   virtual size_t getSize() const = 0;
@@ -108,7 +111,7 @@ protected:
 // separately and are instead synthesized by the linker.
 class CustomSection : public OutputSection {
 public:
-  CustomSection(std::string name, ArrayRef<InputChunk *> inputSections)
+  CustomSection(std::string name, ArrayRef<InputSection *> inputSections)
       : OutputSection(llvm::wasm::WASM_SEC_CUSTOM, name),
         inputSections(inputSections) {}
 
@@ -125,9 +128,8 @@ public:
   void finalizeContents() override;
 
 protected:
-  void finalizeInputSections();
   size_t payloadSize = 0;
-  std::vector<InputChunk *> inputSections;
+  ArrayRef<InputSection *> inputSections;
   std::string nameData;
 };
 

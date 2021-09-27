@@ -6,12 +6,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <cinttypes>
+#include <inttypes.h>
 
 #include "lldb/Interpreter/CommandHistory.h"
 
 using namespace lldb;
 using namespace lldb_private;
+
+CommandHistory::CommandHistory() : m_mutex(), m_history() {}
+
+CommandHistory::~CommandHistory() {}
 
 size_t CommandHistory::GetSize() const {
   std::lock_guard<std::recursive_mutex> guard(m_mutex);

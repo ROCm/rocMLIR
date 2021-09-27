@@ -13,14 +13,12 @@ define void @testcfg(i32 %V) {
 ; CHECK-NEXT:    [[V_OFF:%.*]] = add i32 [[V:%.*]], -15
 ; CHECK-NEXT:    [[SWITCH:%.*]] = icmp ult i32 [[V_OFF]], 2
 ; CHECK-NEXT:    br i1 [[SWITCH]], label [[L2:%.*]], label [[L1:%.*]]
-; CHECK:       common.ret:
-; CHECK-NEXT:    ret void
 ; CHECK:       L1:
 ; CHECK-NEXT:    call void @foo()
-; CHECK-NEXT:    br label [[COMMON_RET:%.*]]
+; CHECK-NEXT:    ret void
 ; CHECK:       L2:
 ; CHECK-NEXT:    call void @bar()
-; CHECK-NEXT:    br label [[COMMON_RET]]
+; CHECK-NEXT:    ret void
 ;
   %C = icmp eq i32 %V, 18
   %D = icmp eq i32 %V, 180

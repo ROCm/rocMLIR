@@ -83,7 +83,7 @@ public:
 protected:
   friend class ThreadGDBRemote;
 
-  bool ReadRegisterBytes(const RegisterInfo *reg_info);
+  bool ReadRegisterBytes(const RegisterInfo *reg_info, DataExtractor &data);
 
   bool WriteRegisterBytes(const RegisterInfo *reg_info, DataExtractor &data,
                           uint32_t data_offset);
@@ -118,7 +118,6 @@ protected:
   DataExtractor m_reg_data;
   bool m_read_all_at_once;
   bool m_write_all_at_once;
-  bool m_gpacket_cached;
 
 private:
   // Helper function for ReadRegisterBytes().

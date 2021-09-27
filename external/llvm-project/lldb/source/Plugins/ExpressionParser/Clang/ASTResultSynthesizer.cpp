@@ -15,6 +15,7 @@
 #include "lldb/Target/Target.h"
 #include "lldb/Utility/LLDBAssert.h"
 #include "lldb/Utility/Log.h"
+#include "stdlib.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
@@ -26,7 +27,6 @@
 #include "clang/Sema/SemaDiagnostic.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cstdlib>
 
 using namespace llvm;
 using namespace clang;
@@ -43,7 +43,7 @@ ASTResultSynthesizer::ASTResultSynthesizer(ASTConsumer *passthrough,
   m_passthrough_sema = dyn_cast<SemaConsumer>(passthrough);
 }
 
-ASTResultSynthesizer::~ASTResultSynthesizer() = default;
+ASTResultSynthesizer::~ASTResultSynthesizer() {}
 
 void ASTResultSynthesizer::Initialize(ASTContext &Context) {
   m_ast_context = &Context;

@@ -22,7 +22,7 @@
 #===------------------------------------------------------------------------===#
 
 BEGIN {
-  # hardcode the script name
+  # harcode the script name
   script_name = "generate_netbsd_ioctls.awk"
   outputinc = "../lib/sanitizer_common/sanitizer_interceptors_ioctl_netbsd.inc"
 
@@ -337,7 +337,7 @@ END {
   }
 
   pcmd("#undef _")
-  pcmd("}")
+  pcmd("}   // NOLINT")
   pcmd("")
   pcmd("static bool ioctl_initialized = false;")
   pcmd("")

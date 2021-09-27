@@ -138,21 +138,21 @@ public:
 
   // Case-insensitive case matchers.
   StringSwitch &CaseLower(StringLiteral S, T Value) {
-    if (!Result && Str.equals_insensitive(S))
+    if (!Result && Str.equals_lower(S))
       Result = std::move(Value);
 
     return *this;
   }
 
   StringSwitch &EndsWithLower(StringLiteral S, T Value) {
-    if (!Result && Str.endswith_insensitive(S))
+    if (!Result && Str.endswith_lower(S))
       Result = Value;
 
     return *this;
   }
 
   StringSwitch &StartsWithLower(StringLiteral S, T Value) {
-    if (!Result && Str.startswith_insensitive(S))
+    if (!Result && Str.startswith_lower(S))
       Result = std::move(Value);
 
     return *this;

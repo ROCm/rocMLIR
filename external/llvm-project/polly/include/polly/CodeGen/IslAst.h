@@ -27,7 +27,6 @@
 #include "isl/ctx.h"
 
 namespace polly {
-using llvm::SmallPtrSet;
 
 struct Dependences;
 
@@ -37,18 +36,19 @@ public:
   IslAst &operator=(const IslAst &) = delete;
   IslAst(IslAst &&);
   IslAst &operator=(IslAst &&) = delete;
+  ~IslAst();
 
   static IslAst create(Scop &Scop, const Dependences &D);
 
   /// Print a source code representation of the program.
   void pprint(raw_ostream &OS);
 
-  isl::ast_node getAst();
+  __isl_give isl_ast_node *getAst();
 
   const std::shared_ptr<isl_ctx> getSharedIslCtx() const { return Ctx; }
 
   /// Get the run-time conditions for the Scop.
-  isl::ast_expr getRunCondition();
+  __isl_give isl_ast_expr *getRunCondition();
 
   /// Build run-time condition for scop.
   ///
@@ -56,13 +56,14 @@ public:
   /// @param Build The isl_build object to use to build the condition.
   ///
   /// @returns An ast expression that describes the necessary run-time check.
-  static isl::ast_expr buildRunCondition(Scop &S, const isl::ast_build &Build);
+  static isl_ast_expr *buildRunCondition(Scop &S,
+                                         __isl_keep isl_ast_build *Build);
 
 private:
   Scop &S;
+  isl_ast_node *Root = nullptr;
+  isl_ast_expr *RunCondition = nullptr;
   std::shared_ptr<isl_ctx> Ctx;
-  isl::ast_expr RunCondition;
-  isl::ast_node Root;
 
   IslAst(Scop &Scop);
 
@@ -77,6 +78,9 @@ public:
   struct IslAstUserPayload {
     /// Construct and initialize the payload.
     IslAstUserPayload() = default;
+
+    /// Cleanup all isl structs on destruction.
+    ~IslAstUserPayload();
 
     /// Does the dependence analysis determine that there are no loop-carried
     /// dependencies?
@@ -98,7 +102,7 @@ public:
     isl::pw_aff MinimalDependenceDistance;
 
     /// The build environment at the time this node was constructed.
-    isl::ast_build Build;
+    isl_ast_build *Build = nullptr;
 
     /// Set of accesses which break reduction dependences.
     MemoryAccessSet BrokenReductions;
@@ -115,7 +119,7 @@ public:
   IslAst &getIslAst() { return Ast; }
 
   /// Return a copy of the AST root node.
-  isl::ast_node getAst();
+  __isl_give isl_ast_node *getAst();
 
   /// Get the run condition.
   ///
@@ -123,7 +127,7 @@ public:
   /// assumptions that have been taken hold. If the run condition evaluates to
   /// zero/false some assumptions do not hold and the original code needs to
   /// be executed.
-  isl::ast_expr getRunCondition();
+  __isl_give isl_ast_expr *getRunCondition();
 
   void print(raw_ostream &O);
 
@@ -131,37 +135,38 @@ public:
   ///
   ///{
   /// Get the complete payload attached to @p Node.
-  static IslAstUserPayload *getNodePayload(const isl::ast_node &Node);
+  static IslAstUserPayload *getNodePayload(__isl_keep isl_ast_node *Node);
 
   /// Is this loop an innermost loop?
-  static bool isInnermost(const isl::ast_node &Node);
+  static bool isInnermost(__isl_keep isl_ast_node *Node);
 
   /// Is this loop a parallel loop?
-  static bool isParallel(const isl::ast_node &Node);
+  static bool isParallel(__isl_keep isl_ast_node *Node);
 
   /// Is this loop an outermost parallel loop?
-  static bool isOutermostParallel(const isl::ast_node &Node);
+  static bool isOutermostParallel(__isl_keep isl_ast_node *Node);
 
   /// Is this loop an innermost parallel loop?
-  static bool isInnermostParallel(const isl::ast_node &Node);
+  static bool isInnermostParallel(__isl_keep isl_ast_node *Node);
 
   /// Is this loop a reduction parallel loop?
-  static bool isReductionParallel(const isl::ast_node &Node);
+  static bool isReductionParallel(__isl_keep isl_ast_node *Node);
 
   /// Will the loop be run as thread parallel?
-  static bool isExecutedInParallel(const isl::ast_node &Node);
+  static bool isExecutedInParallel(__isl_keep isl_ast_node *Node);
 
   /// Get the nodes schedule or a nullptr if not available.
-  static isl::union_map getSchedule(const isl::ast_node &Node);
+  static __isl_give isl_union_map *getSchedule(__isl_keep isl_ast_node *Node);
 
   /// Get minimal dependence distance or nullptr if not available.
-  static isl::pw_aff getMinimalDependenceDistance(const isl::ast_node &Node);
+  static __isl_give isl_pw_aff *
+  getMinimalDependenceDistance(__isl_keep isl_ast_node *Node);
 
   /// Get the nodes broken reductions or a nullptr if not available.
-  static MemoryAccessSet *getBrokenReductions(const isl::ast_node &Node);
+  static MemoryAccessSet *getBrokenReductions(__isl_keep isl_ast_node *Node);
 
   /// Get the nodes build context or a nullptr if not available.
-  static isl::ast_build getBuild(const isl::ast_node &Node);
+  static __isl_give isl_ast_build *getBuild(__isl_keep isl_ast_node *Node);
 
   ///}
 };

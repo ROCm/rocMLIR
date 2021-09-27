@@ -11,8 +11,6 @@
 //
 // clang-format off
 
-// UNSUPPORTED: libcpp-has-no-incomplete-format
-
 // <format>
 
 // Test the feature test macros defined by <format>

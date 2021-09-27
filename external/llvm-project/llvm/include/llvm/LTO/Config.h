@@ -70,9 +70,6 @@ struct Config {
   /// Run PGO context sensitive IR instrumentation.
   bool RunCSIRInstr = false;
 
-  /// Turn on/off the warning about a hash mismatch in the PGO profile data.
-  bool PGOWarnMismatch = true;
-
   /// Asserts whether we can assume whole program visibility during the LTO
   /// link.
   bool HasWholeProgramVisibility = false;
@@ -173,9 +170,6 @@ struct Config {
 
   bool ShouldDiscardValueNames = true;
   DiagnosticHandlerFunction DiagHandler;
-
-  /// Add FSAFDO discriminators.
-  bool AddFSDiscriminator = false;
 
   /// If this field is set, LTO will write input file paths and symbol
   /// resolutions here in llvm-lto2 command line flag format. This can be

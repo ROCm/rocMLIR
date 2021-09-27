@@ -1,3 +1,4 @@
+# REQUIRES: lua
 # UNSUPPORTED: lldb-repro
 #
 # This tests that the convenience variables are not nil. Given that there is no

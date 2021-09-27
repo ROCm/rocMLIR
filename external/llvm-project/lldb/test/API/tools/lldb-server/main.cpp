@@ -11,18 +11,41 @@
 #include <signal.h>
 #include <unistd.h>
 #endif
-#include "thread.h"
 #include <setjmp.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <string>
 #include <thread>
 #include <time.h>
 #include <vector>
+
 #if defined(__APPLE__)
-#include <TargetConditionals.h>
+__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_3_2)
+int pthread_threadid_np(pthread_t, __uint64_t *);
+#elif defined(__linux__)
+#include <sys/syscall.h>
+#elif defined(__NetBSD__)
+#include <lwp.h>
+#elif defined(_WIN32)
+#include <windows.h>
 #endif
+
+static const char *const RETVAL_PREFIX = "retval:";
+static const char *const SLEEP_PREFIX = "sleep:";
+static const char *const STDERR_PREFIX = "stderr:";
+static const char *const SET_MESSAGE_PREFIX = "set-message:";
+static const char *const PRINT_MESSAGE_COMMAND = "print-message:";
+static const char *const GET_DATA_ADDRESS_PREFIX = "get-data-address-hex:";
+static const char *const GET_STACK_ADDRESS_COMMAND = "get-stack-address-hex:";
+static const char *const GET_HEAP_ADDRESS_COMMAND = "get-heap-address-hex:";
+
+static const char *const GET_CODE_ADDRESS_PREFIX = "get-code-address-hex:";
+static const char *const CALL_FUNCTION_PREFIX = "call-function:";
+
+static const char *const THREAD_PREFIX = "thread:";
+static const char *const THREAD_COMMAND_NEW = "new";
+static const char *const THREAD_COMMAND_PRINT_IDS = "print-ids";
+static const char *const THREAD_COMMAND_SEGFAULT = "segfault";
 
 static const char *const PRINT_PID_COMMAND = "print-pid";
 
@@ -47,6 +70,28 @@ static void print_pid() {
 #endif
 }
 
+static void print_thread_id() {
+// Put in the right magic here for your platform to spit out the thread id (tid)
+// that debugserver/lldb-gdbserver would see as a TID. Otherwise, let the else
+// clause print out the unsupported text so that the unit test knows to skip
+// verifying thread ids.
+#if defined(__APPLE__)
+  __uint64_t tid = 0;
+  pthread_threadid_np(pthread_self(), &tid);
+  printf("%" PRIx64, tid);
+#elif defined(__linux__)
+  // This is a call to gettid() via syscall.
+  printf("%" PRIx64, static_cast<uint64_t>(syscall(__NR_gettid)));
+#elif defined(__NetBSD__)
+  // Technically lwpid_t is 32-bit signed integer
+  printf("%" PRIx64, static_cast<uint64_t>(_lwp_self()));
+#elif defined(_WIN32)
+  printf("%" PRIx64, static_cast<uint64_t>(::GetCurrentThreadId()));
+#else
+  printf("{no-tid-support}");
+#endif
+}
+
 static void signal_handler(int signo) {
 #if defined(_WIN32)
   // No signal support on Windows.
@@ -64,12 +109,15 @@ static void signal_handler(int signo) {
   }
 
   // Print notice that we received the signal on a given thread.
-  char buf[100];
-  if (signal_name)
-    snprintf(buf, sizeof(buf), "received %s on thread id: %" PRIx64 "\n", signal_name, get_thread_id());
-  else
-    snprintf(buf, sizeof(buf), "received signo %d (%s) on thread id: %" PRIx64 "\n", signo, strsignal(signo), get_thread_id());
-  write(STDOUT_FILENO, buf, strlen(buf));
+  {
+    std::lock_guard<std::mutex> lock(g_print_mutex);
+    if (signal_name)
+      printf("received %s on thread id: ", signal_name);
+    else
+      printf("received signo %d (%s) on thread id: ", signo, strsignal(signo));
+    print_thread_id();
+    printf("\n");
+  }
 
   // Reset the signal handler if we're one of the expected signal handlers.
   switch (signo) {
@@ -147,7 +195,9 @@ static void *thread_func(void *arg) {
   const int this_thread_index = s_thread_index++;
   if (g_print_thread_ids) {
     std::lock_guard<std::mutex> lock(g_print_mutex);
-    printf("thread %d id: %" PRIx64 "\n", this_thread_index, get_thread_id());
+    printf("thread %d id: ", this_thread_index);
+    print_thread_id();
+    printf("\n");
   }
 
   if (g_threads_do_segfault) {
@@ -179,7 +229,9 @@ static void *thread_func(void *arg) {
 
     {
       std::lock_guard<std::mutex> lock(g_print_mutex);
-      printf("thread %" PRIx64 ": past SIGSEGV\n", get_thread_id());
+      printf("thread ");
+      print_thread_id();
+      printf(": past SIGSEGV\n");
     }
   }
 
@@ -187,14 +239,6 @@ static void *thread_func(void *arg) {
   std::this_thread::sleep_for(std::chrono::seconds(sleep_seconds_remaining));
 
   return nullptr;
-}
-
-static bool consume_front(std::string &str, const std::string &front) {
-  if (str.find(front) != 0)
-    return false;
-
-  str = str.substr(front.size());
-  return true;
 }
 
 int main(int argc, char **argv) {
@@ -220,29 +264,22 @@ int main(int argc, char **argv) {
 
   sig_result = signal(SIGSEGV, signal_handler);
   if (sig_result == SIG_ERR) {
-    fprintf(stderr, "failed to set SIGSEGV handler: errno=%d\n", errno);
-    exit(1);
-  }
-
-  sig_result = signal(SIGCHLD, SIG_IGN);
-  if (sig_result == SIG_ERR) {
-    fprintf(stderr, "failed to set SIGCHLD handler: errno=%d\n", errno);
+    fprintf(stderr, "failed to set SIGUSR1 handler: errno=%d\n", errno);
     exit(1);
   }
 #endif
 
   // Process command line args.
   for (int i = 1; i < argc; ++i) {
-    std::string arg = argv[i];
-    if (consume_front(arg, "stderr:")) {
+    if (std::strstr(argv[i], STDERR_PREFIX)) {
       // Treat remainder as text to go to stderr.
-      fprintf(stderr, "%s\n", arg.c_str());
-    } else if (consume_front(arg, "retval:")) {
+      fprintf(stderr, "%s\n", (argv[i] + strlen(STDERR_PREFIX)));
+    } else if (std::strstr(argv[i], RETVAL_PREFIX)) {
       // Treat as the return value for the program.
-      return_value = std::atoi(arg.c_str());
-    } else if (consume_front(arg, "sleep:")) {
+      return_value = std::atoi(argv[i] + strlen(RETVAL_PREFIX));
+    } else if (std::strstr(argv[i], SLEEP_PREFIX)) {
       // Treat as the amount of time to have this process sleep (in seconds).
-      int sleep_seconds_remaining = std::atoi(arg.c_str());
+      int sleep_seconds_remaining = std::atoi(argv[i] + strlen(SLEEP_PREFIX));
 
       // Loop around, sleeping until all sleep time is used up.  Note that
       // signals will cause sleep to end early with the number of seconds
@@ -250,31 +287,32 @@ int main(int argc, char **argv) {
       std::this_thread::sleep_for(
           std::chrono::seconds(sleep_seconds_remaining));
 
-    } else if (consume_front(arg, "set-message:")) {
+    } else if (std::strstr(argv[i], SET_MESSAGE_PREFIX)) {
       // Copy the contents after "set-message:" to the g_message buffer.
       // Used for reading inferior memory and verifying contents match
       // expectations.
-      strncpy(g_message, arg.c_str(), sizeof(g_message));
+      strncpy(g_message, argv[i] + strlen(SET_MESSAGE_PREFIX),
+              sizeof(g_message));
 
       // Ensure we're null terminated.
       g_message[sizeof(g_message) - 1] = '\0';
 
-    } else if (consume_front(arg, "print-message:")) {
+    } else if (std::strstr(argv[i], PRINT_MESSAGE_COMMAND)) {
       std::lock_guard<std::mutex> lock(g_print_mutex);
       printf("message: %s\n", g_message);
-    } else if (consume_front(arg, "get-data-address-hex:")) {
+    } else if (std::strstr(argv[i], GET_DATA_ADDRESS_PREFIX)) {
       volatile void *data_p = nullptr;
 
-      if (arg == "g_message")
+      if (std::strstr(argv[i] + strlen(GET_DATA_ADDRESS_PREFIX), "g_message"))
         data_p = &g_message[0];
-      else if (arg == "g_c1")
+      else if (std::strstr(argv[i] + strlen(GET_DATA_ADDRESS_PREFIX), "g_c1"))
         data_p = &g_c1;
-      else if (arg == "g_c2")
+      else if (std::strstr(argv[i] + strlen(GET_DATA_ADDRESS_PREFIX), "g_c2"))
         data_p = &g_c2;
 
       std::lock_guard<std::mutex> lock(g_print_mutex);
       printf("data address: %p\n", data_p);
-    } else if (consume_front(arg, "get-heap-address-hex:")) {
+    } else if (std::strstr(argv[i], GET_HEAP_ADDRESS_COMMAND)) {
       // Create a byte array if not already present.
       if (!heap_array_up)
         heap_array_up.reset(new uint8_t[32]);
@@ -282,54 +320,61 @@ int main(int argc, char **argv) {
       std::lock_guard<std::mutex> lock(g_print_mutex);
       printf("heap address: %p\n", heap_array_up.get());
 
-    } else if (consume_front(arg, "get-stack-address-hex:")) {
+    } else if (std::strstr(argv[i], GET_STACK_ADDRESS_COMMAND)) {
       std::lock_guard<std::mutex> lock(g_print_mutex);
       printf("stack address: %p\n", &return_value);
-    } else if (consume_front(arg, "get-code-address-hex:")) {
+    } else if (std::strstr(argv[i], GET_CODE_ADDRESS_PREFIX)) {
       void (*func_p)() = nullptr;
 
-      if (arg == "hello")
+      if (std::strstr(argv[i] + strlen(GET_CODE_ADDRESS_PREFIX), "hello"))
         func_p = hello;
-      else if (arg == "swap_chars")
+      else if (std::strstr(argv[i] + strlen(GET_CODE_ADDRESS_PREFIX),
+                           "swap_chars"))
         func_p = swap_chars;
 
       std::lock_guard<std::mutex> lock(g_print_mutex);
       printf("code address: %p\n", func_p);
-    } else if (consume_front(arg, "call-function:")) {
+    } else if (std::strstr(argv[i], CALL_FUNCTION_PREFIX)) {
       void (*func_p)() = nullptr;
 
-      if (arg == "hello")
+      // Default to providing the address of main.
+      if (std::strcmp(argv[i] + strlen(CALL_FUNCTION_PREFIX), "hello") == 0)
         func_p = hello;
-      else if (arg == "swap_chars")
+      else if (std::strcmp(argv[i] + strlen(CALL_FUNCTION_PREFIX),
+                           "swap_chars") == 0)
         func_p = swap_chars;
-      func_p();
-#if !defined(_WIN32) && !defined(TARGET_OS_WATCH) && !defined(TARGET_OS_TV)
-    } else if (arg == "fork") {
-      if (fork() == 0)
-        _exit(0);
-    } else if (arg == "vfork") {
-      if (vfork() == 0)
-        _exit(0);
-#endif
-    } else if (consume_front(arg, "thread:new")) {
-        threads.push_back(std::thread(thread_func, nullptr));
-    } else if (consume_front(arg, "thread:print-ids")) {
-      // Turn on thread id announcing.
-      g_print_thread_ids = true;
-
-      // And announce us.
-      {
+      else {
         std::lock_guard<std::mutex> lock(g_print_mutex);
-        printf("thread 0 id: %" PRIx64 "\n", get_thread_id());
+        printf("unknown function: %s\n",
+               argv[i] + strlen(CALL_FUNCTION_PREFIX));
       }
-    } else if (consume_front(arg, "thread:segfault")) {
-      g_threads_do_segfault = true;
-    } else if (consume_front(arg, "print-pid")) {
+      if (func_p)
+        func_p();
+    } else if (std::strstr(argv[i], THREAD_PREFIX)) {
+      // Check if we're creating a new thread.
+      if (std::strstr(argv[i] + strlen(THREAD_PREFIX), THREAD_COMMAND_NEW)) {
+        threads.push_back(std::thread(thread_func, nullptr));
+      } else if (std::strstr(argv[i] + strlen(THREAD_PREFIX),
+                             THREAD_COMMAND_PRINT_IDS)) {
+        // Turn on thread id announcing.
+        g_print_thread_ids = true;
+
+        // And announce us.
+        {
+          std::lock_guard<std::mutex> lock(g_print_mutex);
+          printf("thread 0 id: ");
+          print_thread_id();
+          printf("\n");
+        }
+      } else if (std::strstr(argv[i] + strlen(THREAD_PREFIX),
+                             THREAD_COMMAND_SEGFAULT)) {
+        g_threads_do_segfault = true;
+      } else {
+        // At this point we don't do anything else with threads.
+        // Later use thread index and send command to thread.
+      }
+    } else if (std::strstr(argv[i], PRINT_PID_COMMAND)) {
       print_pid();
-    } else if (consume_front(arg, "print-env:")) {
-      // Print the value of specified envvar to stdout.
-      const char *value = getenv(arg.c_str());
-      printf("%s\n", value ? value : "__unset__");
     } else {
       // Treat the argument as text for stdout.
       printf("%s\n", argv[i]);

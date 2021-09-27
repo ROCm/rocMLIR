@@ -13,7 +13,7 @@
 #include "lldb/Core/SearchFilter.h"
 #include "lldb/lldb-defines.h"
 
-#include <cstddef>
+#include <stddef.h>
 #include <vector>
 
 namespace lldb_private {

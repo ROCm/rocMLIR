@@ -390,9 +390,6 @@ public:
   virtual Expected<LookupSet>
   getResponsibilitySet(const LookupSet &Symbols) = 0;
 
-  /// Specify if this resolver can return valid symbols with zero value.
-  virtual bool allowsZeroSymbols() { return false; }
-
 private:
   virtual void anchor();
 };

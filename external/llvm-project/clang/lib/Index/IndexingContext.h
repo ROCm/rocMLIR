@@ -124,8 +124,6 @@ public:
 private:
   bool shouldIgnoreIfImplicit(const Decl *D);
 
-  bool shouldIndexMacroOccurrence(bool IsRef, SourceLocation Loc);
-
   bool handleDeclOccurrence(const Decl *D, SourceLocation Loc,
                             bool IsRef, const Decl *Parent,
                             SymbolRoleSet Roles,

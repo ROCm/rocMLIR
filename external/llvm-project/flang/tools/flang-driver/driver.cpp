@@ -66,27 +66,27 @@ static int ExecuteFC1Tool(llvm::SmallVectorImpl<const char *> &argV) {
   return 1;
 }
 
-int main(int argc, const char **argv) {
+int main(int argc_, const char **argv_) {
 
   // Initialize variables to call the driver
-  llvm::InitLLVM x(argc, argv);
-  llvm::SmallVector<const char *, 256> args(argv, argv + argc);
+  llvm::InitLLVM x(argc_, argv_);
+  llvm::SmallVector<const char *, 256> argv(argv_, argv_ + argc_);
 
   clang::driver::ParsedClangName targetandMode("flang", "--driver-mode=flang");
-  std::string driverPath = GetExecutablePath(args[0]);
+  std::string driverPath = GetExecutablePath(argv[0]);
 
   // Check if flang-new is in the frontend mode
   auto firstArg = std::find_if(
-      args.begin() + 1, args.end(), [](const char *a) { return a != nullptr; });
-  if (firstArg != args.end()) {
-    if (llvm::StringRef(args[1]).startswith("-cc1")) {
-      llvm::errs() << "error: unknown integrated tool '" << args[1] << "'. "
+      argv.begin() + 1, argv.end(), [](const char *a) { return a != nullptr; });
+  if (firstArg != argv.end()) {
+    if (llvm::StringRef(argv[1]).startswith("-cc1")) {
+      llvm::errs() << "error: unknown integrated tool '" << argv[1] << "'. "
                    << "Valid tools include '-fc1'.\n";
       return 1;
     }
     // Call flang-new frontend
-    if (llvm::StringRef(args[1]).startswith("-fc1")) {
-      return ExecuteFC1Tool(args);
+    if (llvm::StringRef(argv[1]).startswith("-fc1")) {
+      return ExecuteFC1Tool(argv);
     }
   }
 
@@ -94,14 +94,14 @@ int main(int argc, const char **argv) {
 
   // Create DiagnosticsEngine for the compiler driver
   llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> diagOpts =
-      CreateAndPopulateDiagOpts(args);
+      CreateAndPopulateDiagOpts(argv);
   llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> diagID(
       new clang::DiagnosticIDs());
   Fortran::frontend::TextDiagnosticPrinter *diagClient =
       new Fortran::frontend::TextDiagnosticPrinter(llvm::errs(), &*diagOpts);
 
   diagClient->set_prefix(
-      std::string(llvm::sys::path::stem(GetExecutablePath(args[0]))));
+      std::string(llvm::sys::path::stem(GetExecutablePath(argv[0]))));
 
   clang::DiagnosticsEngine diags(diagID, &*diagOpts, diagClient);
 
@@ -110,7 +110,7 @@ int main(int argc, const char **argv) {
       llvm::sys::getDefaultTargetTriple(), diags, "flang LLVM compiler");
   theDriver.setTargetAndMode(targetandMode);
   std::unique_ptr<clang::driver::Compilation> c(
-      theDriver.BuildCompilation(args));
+      theDriver.BuildCompilation(argv));
   llvm::SmallVector<std::pair<int, const clang::driver::Command *>, 4>
       failingCommands;
 
@@ -131,7 +131,7 @@ int main(int argc, const char **argv) {
     // information if possible.
     isCrash = CommandRes < 0;
 #ifdef _WIN32
-    isCrash |= CommandRes == 3;
+    IsCrash |= CommandRes == 3;
 #endif
     if (isCrash) {
       theDriver.generateCompilationDiagnostics(*c, *failingCommand);

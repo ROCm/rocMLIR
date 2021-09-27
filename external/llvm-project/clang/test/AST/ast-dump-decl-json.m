@@ -349,6 +349,7 @@ void f() {
 // CHECK-NEXT:  ]
 // CHECK-NEXT: }
 
+
 // CHECK:  "kind": "ObjCMethodDecl",
 // CHECK-NEXT:  "loc": {
 // CHECK-NEXT:   "offset": 490,
@@ -489,7 +490,7 @@ void f() {
 // CHECK-NEXT:        "type": {
 // CHECK-NEXT:         "qualType": "int"
 // CHECK-NEXT:        },
-// CHECK-NEXT:        "valueCategory": "prvalue",
+// CHECK-NEXT:        "valueCategory": "rvalue",
 // CHECK-NEXT:        "value": "0"
 // CHECK-NEXT:       }
 // CHECK-NEXT:      ]
@@ -498,6 +499,7 @@ void f() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  ]
 // CHECK-NEXT: }
+
 
 // CHECK:  "kind": "ObjCProtocolDecl",
 // CHECK-NEXT:  "loc": {
@@ -1674,6 +1676,7 @@ void f() {
 // CHECK-NEXT:  ]
 // CHECK-NEXT: }
 
+
 // CHECK:  "kind": "FunctionDecl",
 // CHECK-NEXT:  "loc": {
 // CHECK-NEXT:   "offset": 1184,
@@ -1765,7 +1768,7 @@ void f() {
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "void (^)(int, ...)"
 // CHECK-NEXT:      },
-// CHECK-NEXT:      "valueCategory": "prvalue",
+// CHECK-NEXT:      "valueCategory": "rvalue",
 // CHECK-NEXT:      "cleanupsHaveSideEffects": true,
 // CHECK-NEXT:      "cleanups": [
 // CHECK-NEXT:       {
@@ -1792,7 +1795,7 @@ void f() {
 // CHECK-NEXT:        "type": {
 // CHECK-NEXT:         "qualType": "void (^)(int, ...)"
 // CHECK-NEXT:        },
-// CHECK-NEXT:        "valueCategory": "prvalue",
+// CHECK-NEXT:        "valueCategory": "rvalue",
 // CHECK-NEXT:        "inner": [
 // CHECK-NEXT:         {
 // CHECK-NEXT:          "id": "0x{{.*}}",
@@ -1887,7 +1890,7 @@ void f() {
 // CHECK-NEXT:              "type": {
 // CHECK-NEXT:               "qualType": "int"
 // CHECK-NEXT:              },
-// CHECK-NEXT:              "valueCategory": "prvalue",
+// CHECK-NEXT:              "valueCategory": "rvalue",
 // CHECK-NEXT:              "castKind": "LValueToRValue",
 // CHECK-NEXT:              "inner": [
 // CHECK-NEXT:               {
@@ -1958,6 +1961,7 @@ void f() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  ]
 // CHECK-NEXT: }
+
 
 // CHECK:  "kind": "VarDecl",
 // CHECK-NEXT:  "loc": {

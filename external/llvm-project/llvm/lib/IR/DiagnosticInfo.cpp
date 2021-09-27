@@ -70,10 +70,12 @@ void DiagnosticInfoInlineAsm::print(DiagnosticPrinter &DP) const {
 }
 
 void DiagnosticInfoResourceLimit::print(DiagnosticPrinter &DP) const {
-  DP << getResourceName() << " (" << getResourceSize() << ") exceeds limit";
+  DP << getResourceName() << " limit";
+
   if (getResourceLimit() != 0)
-    DP << " (" << getResourceLimit() << ')';
-  DP << " in function '" << getFunction() << '\'';
+    DP << " of " << getResourceLimit();
+
+  DP << " exceeded (" <<  getResourceSize() << ") in " << getFunction();
 }
 
 void DiagnosticInfoDebugMetadataVersion::print(DiagnosticPrinter &DP) const {
@@ -150,7 +152,7 @@ void DiagnosticInfoWithLocationBase::getLocation(StringRef &RelativePath,
   Column = Loc.getColumn();
 }
 
-std::string DiagnosticInfoWithLocationBase::getLocationStr() const {
+const std::string DiagnosticInfoWithLocationBase::getLocationStr() const {
   StringRef Filename("<unknown>");
   unsigned Line = 0;
   unsigned Column = 0;
@@ -289,13 +291,6 @@ OptimizationRemarkMissed::OptimizationRemarkMissed(const char *PassName,
                                    *Inst->getParent()->getParent(),
                                    Inst->getDebugLoc(), Inst->getParent()) {}
 
-OptimizationRemarkMissed::OptimizationRemarkMissed(const char *PassName,
-                                                   StringRef RemarkName,
-                                                   const Function *Func)
-    : DiagnosticInfoIROptimization(
-          DK_OptimizationRemarkMissed, DS_Remark, PassName, RemarkName, *Func,
-          Func->getSubprogram(), getFirstFunctionBlock(Func)) {}
-
 bool OptimizationRemarkMissed::isEnabled() const {
   const Function &Fn = getFunction();
   LLVMContext &Ctx = Fn.getContext();
@@ -324,13 +319,6 @@ OptimizationRemarkAnalysis::OptimizationRemarkAnalysis(
                                    *cast<BasicBlock>(CodeRegion)->getParent(),
                                    Loc, CodeRegion) {}
 
-OptimizationRemarkAnalysis::OptimizationRemarkAnalysis(const char *PassName,
-                                                       StringRef RemarkName,
-                                                       const Function *Func)
-    : DiagnosticInfoIROptimization(
-          DK_OptimizationRemarkAnalysis, DS_Remark, PassName, RemarkName, *Func,
-          Func->getSubprogram(), getFirstFunctionBlock(Func)) {}
-
 bool OptimizationRemarkAnalysis::isEnabled() const {
   const Function &Fn = getFunction();
   LLVMContext &Ctx = Fn.getContext();
@@ -339,10 +327,6 @@ bool OptimizationRemarkAnalysis::isEnabled() const {
 }
 
 void DiagnosticInfoMIRParser::print(DiagnosticPrinter &DP) const {
-  DP << Diagnostic;
-}
-
-void DiagnosticInfoSrcMgr::print(DiagnosticPrinter &DP) const {
   DP << Diagnostic;
 }
 
@@ -401,7 +385,3 @@ std::string DiagnosticInfoOptimizationBase::getMsg() const {
 
 void OptimizationRemarkAnalysisFPCommute::anchor() {}
 void OptimizationRemarkAnalysisAliasing::anchor() {}
-
-void DiagnosticInfoDontCall::print(DiagnosticPrinter &DP) const {
-  DP << "call to " << getFunctionName() << " marked \"dontcall\"";
-}

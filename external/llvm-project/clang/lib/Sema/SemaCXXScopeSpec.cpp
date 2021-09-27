@@ -227,19 +227,12 @@ bool Sema::RequireCompleteDeclContext(CXXScopeSpec &SS,
     return true;
   }
 
-  if (auto *EnumD = dyn_cast<EnumDecl>(tag))
-    // Fixed enum types and scoped enum instantiations are complete, but they
-    // aren't valid as scopes until we see or instantiate their definition.
-    return RequireCompleteEnumDecl(EnumD, loc, &SS);
-
-  return false;
-}
-
-/// Require that the EnumDecl is completed with its enumerators defined or
-/// instantiated. SS, if provided, is the ScopeRef parsed.
-///
-bool Sema::RequireCompleteEnumDecl(EnumDecl *EnumD, SourceLocation L,
-                                   CXXScopeSpec *SS) {
+  // Fixed enum types are complete, but they aren't valid as scopes
+  // until we see a definition, so awkwardly pull out this special
+  // case.
+  auto *EnumD = dyn_cast<EnumDecl>(tag);
+  if (!EnumD)
+    return false;
   if (EnumD->isCompleteDefinition()) {
     // If we know about the definition but it is not visible, complain.
     NamedDecl *SuggestedDef = nullptr;
@@ -248,8 +241,8 @@ bool Sema::RequireCompleteEnumDecl(EnumDecl *EnumD, SourceLocation L,
       // If the user is going to see an error here, recover by making the
       // definition visible.
       bool TreatAsComplete = !isSFINAEContext();
-      diagnoseMissingImport(L, SuggestedDef, MissingImportKind::Definition,
-                            /*Recover*/ TreatAsComplete);
+      diagnoseMissingImport(loc, SuggestedDef, MissingImportKind::Definition,
+                            /*Recover*/TreatAsComplete);
       return !TreatAsComplete;
     }
     return false;
@@ -260,26 +253,19 @@ bool Sema::RequireCompleteEnumDecl(EnumDecl *EnumD, SourceLocation L,
   if (EnumDecl *Pattern = EnumD->getInstantiatedFromMemberEnum()) {
     MemberSpecializationInfo *MSI = EnumD->getMemberSpecializationInfo();
     if (MSI->getTemplateSpecializationKind() != TSK_ExplicitSpecialization) {
-      if (InstantiateEnum(L, EnumD, Pattern,
+      if (InstantiateEnum(loc, EnumD, Pattern,
                           getTemplateInstantiationArgs(EnumD),
                           TSK_ImplicitInstantiation)) {
-        if (SS)
-          SS->SetInvalid(SS->getRange());
+        SS.SetInvalid(SS.getRange());
         return true;
       }
       return false;
     }
   }
 
-  if (SS) {
-    Diag(L, diag::err_incomplete_nested_name_spec)
-        << QualType(EnumD->getTypeForDecl(), 0) << SS->getRange();
-    SS->SetInvalid(SS->getRange());
-  } else {
-    Diag(L, diag::err_incomplete_enum) << QualType(EnumD->getTypeForDecl(), 0);
-    Diag(EnumD->getLocation(), diag::note_declared_at);
-  }
-
+  Diag(loc, diag::err_incomplete_nested_name_spec)
+    << type << SS.getRange();
+  SS.SetInvalid(SS.getRange());
   return true;
 }
 
@@ -442,7 +428,7 @@ bool Sema::isNonTypeNestedNameSpecifier(Scope *S, CXXScopeSpec &SS,
 namespace {
 
 // Callback to only accept typo corrections that can be a valid C++ member
-// initializer: either a non-static field member or a base class.
+// intializer: either a non-static field member or a base class.
 class NestedNameSpecifierValidatorCCC final
     : public CorrectionCandidateCallback {
 public:

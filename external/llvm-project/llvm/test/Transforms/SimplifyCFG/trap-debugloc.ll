@@ -1,8 +1,8 @@
 ; RUN: opt -S -simplifycfg -simplifycfg-require-and-preserve-domtree=1 < %s | FileCheck %s
 ; Radar 9342286
-; Assign DebugLoc to unreachable instruction.
+; Assign DebugLoc to trap instruction.
 define void @foo() nounwind ssp !dbg !0 {
-; CHECK: unreachable, !dbg
+; CHECK: call void @llvm.trap(), !dbg
   store i32 42, i32* null, !dbg !5
   ret void, !dbg !7
 }

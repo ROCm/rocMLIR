@@ -20,16 +20,12 @@ class TestModuleCombinerPass
     : public PassWrapper<TestModuleCombinerPass,
                          OperationPass<mlir::ModuleOp>> {
 public:
-  StringRef getArgument() const final { return "test-spirv-module-combiner"; }
-  StringRef getDescription() const final {
-    return "Tests SPIR-V module combiner library";
-  }
   TestModuleCombinerPass() = default;
   TestModuleCombinerPass(const TestModuleCombinerPass &) {}
   void runOnOperation() override;
 
 private:
-  OwningOpRef<spirv::ModuleOp> combinedModule;
+  mlir::spirv::OwningSPIRVModuleRef combinedModule;
 };
 } // namespace
 
@@ -37,14 +33,7 @@ void TestModuleCombinerPass::runOnOperation() {
   auto modules = llvm::to_vector<4>(getOperation().getOps<spirv::ModuleOp>());
 
   OpBuilder combinedModuleBuilder(modules[0]);
-
-  auto listener = [](spirv::ModuleOp originalModule, StringRef oldSymbol,
-                     StringRef newSymbol) {
-    llvm::outs() << "[" << originalModule.getName() << "] " << oldSymbol
-                 << " -> " << newSymbol << "\n";
-  };
-
-  combinedModule = spirv::combine(modules, combinedModuleBuilder, listener);
+  combinedModule = spirv::combine(modules, combinedModuleBuilder, nullptr);
 
   for (spirv::ModuleOp module : modules)
     module.erase();
@@ -52,6 +41,7 @@ void TestModuleCombinerPass::runOnOperation() {
 
 namespace mlir {
 void registerTestSpirvModuleCombinerPass() {
-  PassRegistration<TestModuleCombinerPass>();
+  PassRegistration<TestModuleCombinerPass> registration(
+      "test-spirv-module-combiner", "Tests SPIR-V module combiner library");
 }
 } // namespace mlir

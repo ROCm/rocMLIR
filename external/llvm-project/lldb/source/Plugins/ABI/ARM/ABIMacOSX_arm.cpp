@@ -42,7 +42,7 @@ static const RegisterInfo g_register_infos[] = {
     //  ======================= =================== ===========================
     //  ======================= ======================
     {"r0",
-     nullptr,
+     "arg1",
      4,
      0,
      eEncodingUint,
@@ -54,7 +54,7 @@ static const RegisterInfo g_register_infos[] = {
      nullptr,
      0},
     {"r1",
-     nullptr,
+     "arg2",
      4,
      0,
      eEncodingUint,
@@ -66,7 +66,7 @@ static const RegisterInfo g_register_infos[] = {
      nullptr,
      0},
     {"r2",
-     nullptr,
+     "arg3",
      4,
      0,
      eEncodingUint,
@@ -78,7 +78,7 @@ static const RegisterInfo g_register_infos[] = {
      nullptr,
      0},
     {"r3",
-     nullptr,
+     "arg4",
      4,
      0,
      eEncodingUint,
@@ -1824,7 +1824,6 @@ bool ABIMacOSX_arm::CreateDefaultUnwindPlan(UnwindPlan &unwind_plan) {
 
   row->GetCFAValue().SetIsRegisterPlusOffset(fp_reg_num, 2 * ptr_size);
   row->SetOffset(0);
-  row->SetUnspecifiedRegistersAreUndefined(true);
 
   row->SetRegisterLocationToAtCFAPlusOffset(fp_reg_num, ptr_size * -2, true);
   row->SetRegisterLocationToAtCFAPlusOffset(pc_reg_num, ptr_size * -1, true);
@@ -2036,3 +2035,5 @@ lldb_private::ConstString ABIMacOSX_arm::GetPluginNameStatic() {
 lldb_private::ConstString ABIMacOSX_arm::GetPluginName() {
   return GetPluginNameStatic();
 }
+
+uint32_t ABIMacOSX_arm::GetPluginVersion() { return 1; }

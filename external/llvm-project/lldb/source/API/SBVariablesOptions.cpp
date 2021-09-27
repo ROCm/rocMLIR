@@ -21,7 +21,9 @@ public:
   VariablesOptionsImpl()
       : m_include_arguments(false), m_include_locals(false),
         m_include_statics(false), m_in_scope_only(false),
-        m_include_runtime_support_values(false) {}
+        m_include_runtime_support_values(false),
+        m_include_recognized_arguments(eLazyBoolCalculate),
+        m_use_dynamic(lldb::eNoDynamicValues) {}
 
   VariablesOptionsImpl(const VariablesOptionsImpl &) = default;
 
@@ -73,9 +75,8 @@ private:
   bool m_include_statics : 1;
   bool m_in_scope_only : 1;
   bool m_include_runtime_support_values : 1;
-  LazyBool m_include_recognized_arguments =
-      eLazyBoolCalculate; // can be overridden with a setting
-  lldb::DynamicValueType m_use_dynamic = lldb::eNoDynamicValues;
+  LazyBool m_include_recognized_arguments; // can be overridden with a setting
+  lldb::DynamicValueType m_use_dynamic;
 };
 
 SBVariablesOptions::SBVariablesOptions()

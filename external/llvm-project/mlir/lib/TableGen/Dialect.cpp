@@ -61,16 +61,8 @@ llvm::Optional<StringRef> Dialect::getExtraClassDeclaration() const {
   return value.empty() ? llvm::Optional<StringRef>() : value;
 }
 
-bool Dialect::hasCanonicalizer() const {
-  return def->getValueAsBit("hasCanonicalizer");
-}
-
 bool Dialect::hasConstantMaterializer() const {
   return def->getValueAsBit("hasConstantMaterializer");
-}
-
-bool Dialect::hasNonDefaultDestructor() const {
-  return def->getValueAsBit("hasNonDefaultDestructor");
 }
 
 bool Dialect::hasOperationAttrVerify() const {
@@ -83,10 +75,6 @@ bool Dialect::hasRegionArgAttrVerify() const {
 
 bool Dialect::hasRegionResultAttrVerify() const {
   return def->getValueAsBit("hasRegionResultAttrVerify");
-}
-
-bool Dialect::hasOperationInterfaceFallback() const {
-  return def->getValueAsBit("hasOperationInterfaceFallback");
 }
 
 bool Dialect::operator==(const Dialect &other) const {

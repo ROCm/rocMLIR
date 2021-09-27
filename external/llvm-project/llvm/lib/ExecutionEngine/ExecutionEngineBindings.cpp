@@ -188,7 +188,8 @@ LLVMBool LLVMCreateMCJITCompilerForModule(
     for (auto &F : *Mod) {
       auto Attrs = F.getAttributes();
       StringRef Value = options.NoFramePointerElim ? "all" : "none";
-      Attrs = Attrs.addFnAttribute(F.getContext(), "frame-pointer", Value);
+      Attrs = Attrs.addAttribute(F.getContext(), AttributeList::FunctionIndex,
+                                 "frame-pointer", Value);
       F.setAttributes(Attrs);
     }
 

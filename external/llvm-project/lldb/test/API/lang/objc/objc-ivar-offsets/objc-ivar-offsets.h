@@ -1,5 +1,4 @@
-#import <objc/NSObject.h>
-#import <stdint.h>
+#import <Foundation/Foundation.h>
 
 @interface BaseClass : NSObject
 {

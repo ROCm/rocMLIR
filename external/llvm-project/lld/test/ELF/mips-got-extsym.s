@@ -15,8 +15,8 @@
 # CHECK-NOT: bar
 
 # CHECK: Symbol table '.symtab'
-# CHECK: {{.*}}: [[BAR:[0-9a-f]+]] {{.*}} bar
 # CHECK: {{.*}}: 00000000            {{.*}} _foo
+# CHECK: {{.*}}: [[BAR:[0-9a-f]+]] {{.*}} bar
 
 # CHECK: Primary GOT:
 # CHECK:  Local entries:

@@ -9,25 +9,14 @@
 #ifndef LLD_MACHO_OUTPUT_SECTION_H
 #define LLD_MACHO_OUTPUT_SECTION_H
 
-#include "Symbols.h"
 #include "lld/Common/LLVM.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/TinyPtrVector.h"
-
-#include <limits>
 
 namespace lld {
 namespace macho {
 
-class Defined;
 class InputSection;
 class OutputSegment;
-
-// The default order value for OutputSections that are not constructed from
-// InputSections (i.e. SyntheticSections). We make it less than INT_MAX in order
-// not to conflict with the ordering of zerofill sections, which must always be
-// placed at the end of their segment.
-constexpr int UnspecifiedInputOrder = std::numeric_limits<int>::max() - 1024;
 
 // Output sections represent the finalized sections present within the final
 // linked executable. They can represent special sections (like the symbol
@@ -36,7 +25,7 @@ constexpr int UnspecifiedInputOrder = std::numeric_limits<int>::max() - 1024;
 class OutputSection {
 public:
   enum Kind {
-    ConcatKind,
+    MergedKind,
     SyntheticKind,
   };
 
@@ -58,6 +47,7 @@ public:
   // Unneeded sections are omitted entirely (header and body).
   virtual bool isNeeded() const { return true; }
 
+  // Specifically finalizes addresses and section size, not content.
   virtual void finalize() {
     // TODO investigate refactoring synthetic section finalization logic into
     // overrides of this function.
@@ -65,16 +55,8 @@ public:
 
   virtual void writeTo(uint8_t *buf) const = 0;
 
-  void assignAddressesToStartEndSymbols();
-
   StringRef name;
-  llvm::TinyPtrVector<Defined *> sectionStartSymbols;
-  llvm::TinyPtrVector<Defined *> sectionEndSymbols;
   OutputSegment *parent = nullptr;
-  // For output sections that don't have explicit ordering requirements, their
-  // output order should be based on the order of the input sections they
-  // contain.
-  int inputOrder = UnspecifiedInputOrder;
 
   uint32_t index = 0;
   uint64_t addr = 0;

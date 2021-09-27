@@ -135,14 +135,11 @@ ldi r17, lo8(gs(foo))
 ; CHECK-NEXT: R_AVR_HI8_LDI_GS foo
 ldi r18, hi8(gs(foo))
 
-; CHECK-NEXT: R_AVR_16 foo
+; CHECK-NEXT: R_AVR_16
 .short foo
 
-; CHECK-NEXT: R_AVR_16_PM foo
+; CHECK-NEXT: R_AVR_16_PM
 .short gs(foo)
-
-; CHECK-NEXT: R_AVR_16_PM foo
-.short pm(foo)
 
 ; CHECK-NEXT: R_AVR_8
 .byte foo

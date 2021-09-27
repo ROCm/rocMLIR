@@ -9,7 +9,6 @@ add_mlir_dialect_library(MLIRTensorTransforms
 
   LINK_LIBS PUBLIC
   MLIRIR
-  MLIRMemRef
   MLIRPass
   MLIRSCF
   MLIRTensor

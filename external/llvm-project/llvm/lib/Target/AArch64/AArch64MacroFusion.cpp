@@ -11,12 +11,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "AArch64MacroFusion.h"
 #include "AArch64Subtarget.h"
 #include "llvm/CodeGen/MacroFusion.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 
 using namespace llvm;
+
+namespace {
 
 /// CMN, CMP, TST followed by Bcc
 static bool isArithmeticBccPair(const MachineInstr *FirstMI,
@@ -409,7 +410,13 @@ static bool shouldScheduleAdjacent(const TargetInstrInfo &TII,
   return false;
 }
 
-std::unique_ptr<ScheduleDAGMutation>
-llvm::createAArch64MacroFusionDAGMutation() {
+} // end namespace
+
+
+namespace llvm {
+
+std::unique_ptr<ScheduleDAGMutation> createAArch64MacroFusionDAGMutation () {
   return createMacroFusionDAGMutation(shouldScheduleAdjacent);
 }
+
+} // end namespace llvm

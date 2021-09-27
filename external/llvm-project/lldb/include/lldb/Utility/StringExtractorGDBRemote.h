@@ -15,15 +15,15 @@
 
 #include <string>
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 class StringExtractorGDBRemote : public StringExtractor {
 public:
   typedef bool (*ResponseValidatorCallback)(
       void *baton, const StringExtractorGDBRemote &response);
 
-  StringExtractorGDBRemote() : StringExtractor() {}
+  StringExtractorGDBRemote() : StringExtractor(), m_validator(nullptr) {}
 
   StringExtractorGDBRemote(llvm::StringRef str)
       : StringExtractor(str), m_validator(nullptr) {}
@@ -88,7 +88,6 @@ public:
     eServerPacketType_vFile_mode,
     eServerPacketType_vFile_exists,
     eServerPacketType_vFile_md5,
-    eServerPacketType_vFile_fstat,
     eServerPacketType_vFile_stat,
     eServerPacketType_vFile_symlink,
     eServerPacketType_vFile_unlink,
@@ -136,7 +135,6 @@ public:
     eServerPacketType_vAttachName,
     eServerPacketType_vCont,
     eServerPacketType_vCont_actions, // vCont?
-    eServerPacketType_vRun,
 
     eServerPacketType_stop_reason, // '?'
 
@@ -164,16 +162,13 @@ public:
     eServerPacketType__m,
     eServerPacketType_notify, // '%' notification
 
-    eServerPacketType_jLLDBTraceSupported,
-    eServerPacketType_jLLDBTraceStart,
-    eServerPacketType_jLLDBTraceStop,
-    eServerPacketType_jLLDBTraceGetState,
-    eServerPacketType_jLLDBTraceGetBinaryData,
+    eServerPacketType_jTraceStart,      // deprecated
+    eServerPacketType_jTraceBufferRead, // deprecated
+    eServerPacketType_jTraceMetaRead,   // deprecated
+    eServerPacketType_jTraceStop,       // deprecated
+    eServerPacketType_jTraceConfigRead, // deprecated
 
-    eServerPacketType_qMemTags, // read memory tags
-    eServerPacketType_QMemTags, // write memory tags
-
-    eServerPacketType_qLLDBSaveCore,
+    eServerPacketType_jLLDBTraceSupportedType,
   };
 
   ServerPacketType GetServerPacketType() const;
@@ -198,17 +193,8 @@ public:
 
   size_t GetEscapedBinaryData(std::string &str);
 
-  static constexpr lldb::pid_t AllProcesses = UINT64_MAX;
-  static constexpr lldb::tid_t AllThreads = UINT64_MAX;
-
-  // Read thread-id from the packet.  If the packet is valid, returns
-  // the pair (PID, TID), otherwise returns llvm::None.  If the packet
-  // does not list a PID, default_pid is used.
-  llvm::Optional<std::pair<lldb::pid_t, lldb::tid_t>>
-  GetPidTid(lldb::pid_t default_pid);
-
 protected:
-  ResponseValidatorCallback m_validator = nullptr;
+  ResponseValidatorCallback m_validator;
   void *m_validator_baton;
 };
 

@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 // UNSUPPORTED: libcpp-has-no-threads
+//  ... test crashes clang
 
 // <atomic>
 
@@ -38,14 +39,16 @@ struct TestFn {
   void operator()() const {
     {
         typedef std::atomic<T> A;
-        A t(T(1));
+        A t;
+        std::atomic_init(&t, T(1));
         assert(std::atomic_fetch_add_explicit(&t, T(2),
                                             std::memory_order_seq_cst) == T(1));
         assert(t == T(3));
     }
     {
         typedef std::atomic<T> A;
-        volatile A t(T(1));
+        volatile A t;
+        std::atomic_init(&t, T(1));
         assert(std::atomic_fetch_add_explicit(&t, T(2),
                                             std::memory_order_seq_cst) == T(1));
         assert(t == T(3));
@@ -60,7 +63,8 @@ testp()
     {
         typedef std::atomic<T> A;
         typedef typename std::remove_pointer<T>::type X;
-        A t(T(1 * sizeof(X)));
+        A t;
+        std::atomic_init(&t, T(1*sizeof(X)));
         assert(std::atomic_fetch_add_explicit(&t, 2,
                                   std::memory_order_seq_cst) == T(1*sizeof(X)));
 #ifdef _LIBCPP_VERSION // libc++ is not conforming
@@ -73,7 +77,8 @@ testp()
     {
         typedef std::atomic<T> A;
         typedef typename std::remove_pointer<T>::type X;
-        volatile A t(T(1 * sizeof(X)));
+        volatile A t;
+        std::atomic_init(&t, T(1*sizeof(X)));
         assert(std::atomic_fetch_add_explicit(&t, 2,
                                   std::memory_order_seq_cst) == T(1*sizeof(X)));
 #ifdef _LIBCPP_VERSION // libc++ is not conforming

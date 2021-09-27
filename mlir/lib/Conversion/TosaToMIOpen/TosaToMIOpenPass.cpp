@@ -35,9 +35,8 @@ public:
   }
 
   void runOnFunction() override {
-    auto &ctx = getContext();
-    OwningRewritePatternList patterns(&ctx);
-    ConversionTarget target(ctx);
+    OwningRewritePatternList patterns;
+    ConversionTarget target(getContext());
     target.addLegalDialect<miopen::MIOpenDialect, linalg::LinalgDialect,
                            StandardOpsDialect>();
     target.addIllegalOp<tosa::Conv2DOp>();

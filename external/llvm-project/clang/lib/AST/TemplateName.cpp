@@ -220,28 +220,19 @@ bool TemplateName::containsUnexpandedParameterPack() const {
   return getDependence() & TemplateNameDependence::UnexpandedPack;
 }
 
-void TemplateName::print(raw_ostream &OS, const PrintingPolicy &Policy,
-                         Qualified Qual) const {
+void
+TemplateName::print(raw_ostream &OS, const PrintingPolicy &Policy,
+                    bool SuppressNNS) const {
   if (TemplateDecl *Template = Storage.dyn_cast<TemplateDecl *>())
-    if (Qual == Qualified::Fully &&
-        getDependence() != TemplateNameDependenceScope::DependentInstantiation)
-      Template->printQualifiedName(OS, Policy);
-    else
-      OS << *Template;
+    OS << *Template;
   else if (QualifiedTemplateName *QTN = getAsQualifiedTemplateName()) {
-    if (Qual == Qualified::Fully &&
-        getDependence() !=
-            TemplateNameDependenceScope::DependentInstantiation) {
-      QTN->getTemplateDecl()->printQualifiedName(OS, Policy);
-      return;
-    }
-    if (Qual == Qualified::AsWritten)
+    if (!SuppressNNS)
       QTN->getQualifier()->print(OS, Policy);
     if (QTN->hasTemplateKeyword())
       OS << "template ";
     OS << *QTN->getDecl();
   } else if (DependentTemplateName *DTN = getAsDependentTemplateName()) {
-    if (Qual == Qualified::AsWritten && DTN->getQualifier())
+    if (!SuppressNNS && DTN->getQualifier())
       DTN->getQualifier()->print(OS, Policy);
     OS << "template ";
 
@@ -251,7 +242,7 @@ void TemplateName::print(raw_ostream &OS, const PrintingPolicy &Policy,
       OS << "operator " << getOperatorSpelling(DTN->getOperator());
   } else if (SubstTemplateTemplateParmStorage *subst
                = getAsSubstTemplateTemplateParm()) {
-    subst->getReplacement().print(OS, Policy, Qual);
+    subst->getReplacement().print(OS, Policy, SuppressNNS);
   } else if (SubstTemplateTemplateParmPackStorage *SubstPack
                                         = getAsSubstTemplateTemplateParmPack())
     OS << *SubstPack->getParameterPack();

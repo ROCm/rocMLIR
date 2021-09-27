@@ -1,13 +1,7 @@
-// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -std=c++11 \
-// RUN:    -analyzer-config eagerly-assume=false -verify %s
-// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -std=c++17 \
-// RUN:    -analyzer-config eagerly-assume=false -verify %s
-// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -std=c++11 \
-// RUN:    -analyzer-config elide-constructors=false -DNO_ELIDE_FLAG              \
-// RUN:    -analyzer-config eagerly-assume=false -verify=expected,no-elide %s
-// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -std=c++17 \
-// RUN:    -analyzer-config elide-constructors=false                              \
-// RUN:    -analyzer-config eagerly-assume=false -verify %s
+// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -std=c++11 -verify -analyzer-config eagerly-assume=false %s
+// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -std=c++17 -verify -analyzer-config eagerly-assume=false %s
+// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -std=c++11 -analyzer-config elide-constructors=false -DNO_ELIDE_FLAG -verify -analyzer-config eagerly-assume=false %s
+// RUN: %clang_analyze_cc1 -analyzer-checker=core,debug.ExprInspection -std=c++17 -analyzer-config elide-constructors=false -DNO_ELIDE_FLAG -verify -analyzer-config eagerly-assume=false %s
 
 // Copy elision always occurs in C++17, otherwise it's under
 // an on-by-default flag.
@@ -155,21 +149,12 @@ public:
 
 ClassWithoutDestructor make1(AddressVector<ClassWithoutDestructor> &v) {
   return ClassWithoutDestructor(v);
-  // no-elide-warning@-1 {{Address of stack memory associated with temporary \
-object of type 'address_vector_tests::ClassWithoutDestructor' is still \
-referred to by the stack variable 'v' upon returning to the caller}}
 }
 ClassWithoutDestructor make2(AddressVector<ClassWithoutDestructor> &v) {
   return make1(v);
-  // no-elide-warning@-1 {{Address of stack memory associated with temporary \
-object of type 'address_vector_tests::ClassWithoutDestructor' is still \
-referred to by the stack variable 'v' upon returning to the caller}}
 }
 ClassWithoutDestructor make3(AddressVector<ClassWithoutDestructor> &v) {
   return make2(v);
-  // no-elide-warning@-1 {{Address of stack memory associated with temporary \
-object of type 'address_vector_tests::ClassWithoutDestructor' is still \
-referred to by the stack variable 'v' upon returning to the caller}}
 }
 
 void testMultipleReturns() {
@@ -191,9 +176,6 @@ void testMultipleReturns() {
 
 void consume(ClassWithoutDestructor c) {
   c.push();
-  // expected-warning@-1 {{Address of stack memory associated with local \
-variable 'c' is still referred to by the stack variable 'v' upon returning \
-to the caller}}
 }
 
 void testArgumentConstructorWithoutDestructor() {
@@ -264,9 +246,6 @@ struct TestCtorInitializer {
   ClassWithDestructor c;
   TestCtorInitializer(AddressVector<ClassWithDestructor> &v)
     : c(ClassWithDestructor(v)) {}
-  // no-elide-warning@-1 {{Address of stack memory associated with temporary \
-object of type 'address_vector_tests::ClassWithDestructor' is still referred \
-to by the stack variable 'v' upon returning to the caller}}
 };
 
 void testCtorInitializer() {
@@ -300,21 +279,12 @@ void testCtorInitializer() {
 
 ClassWithDestructor make1(AddressVector<ClassWithDestructor> &v) {
   return ClassWithDestructor(v);
-  // no-elide-warning@-1 {{Address of stack memory associated with temporary \
-object of type 'address_vector_tests::ClassWithDestructor' is still referred \
-to by the stack variable 'v' upon returning to the caller}}
 }
 ClassWithDestructor make2(AddressVector<ClassWithDestructor> &v) {
   return make1(v);
-  // no-elide-warning@-1 {{Address of stack memory associated with temporary \
-object of type 'address_vector_tests::ClassWithDestructor' is still referred \
-to by the stack variable 'v' upon returning to the caller}}
 }
 ClassWithDestructor make3(AddressVector<ClassWithDestructor> &v) {
   return make2(v);
-  // no-elide-warning@-1 {{Address of stack memory associated with temporary \
-object of type 'address_vector_tests::ClassWithDestructor' is still referred \
-to by the stack variable 'v' upon returning to the caller}}
 }
 
 void testMultipleReturnsWithDestructors() {
@@ -358,9 +328,6 @@ void testMultipleReturnsWithDestructors() {
 
 void consume(ClassWithDestructor c) {
   c.push();
-  // expected-warning@-1 {{Address of stack memory associated with local \
-variable 'c' is still referred to by the stack variable 'v' upon returning \
-to the caller}}
 }
 
 void testArgumentConstructorWithDestructor() {
@@ -395,26 +362,6 @@ void testArgumentConstructorWithDestructor() {
   clang_analyzer_eval(v.buf[7] == v.buf[8]); // expected-warning{{TRUE}}
   clang_analyzer_eval(v.buf[8] == v.buf[9]); // expected-warning{{TRUE}}
 #endif
-}
-
-struct Foo {
-  Foo(Foo **q) {
-    *q = this;
-  }
-};
-
-Foo make1(Foo **r) {
-  return Foo(r);
-  // no-elide-warning@-1 {{Address of stack memory associated with temporary \
-object of type 'address_vector_tests::Foo' is still referred to by the stack \
-variable 'z' upon returning to the caller}}
-}
-
-void test_copy_elision() {
-  Foo *z;
-  // If the copy elided, 'z' points to 'tmp', otherwise it's a dangling pointer.
-  Foo tmp = make1(&z);
-  (void)tmp;
 }
 
 } // namespace address_vector_tests

@@ -62,10 +62,8 @@ public:
   }
 
   SymbolStringPtr& operator=(const SymbolStringPtr &Other) {
-    if (isRealPoolEntry(S)) {
-      assert(S->getValue() && "Releasing SymbolStringPtr with zero ref count");
+    if (isRealPoolEntry(S))
       --S->getValue();
-    }
     S = Other.S;
     if (isRealPoolEntry(S))
       ++S->getValue();
@@ -77,20 +75,16 @@ public:
   }
 
   SymbolStringPtr& operator=(SymbolStringPtr &&Other) {
-    if (isRealPoolEntry(S)) {
-      assert(S->getValue() && "Releasing SymbolStringPtr with zero ref count");
+    if (isRealPoolEntry(S))
       --S->getValue();
-    }
     S = nullptr;
     std::swap(S, Other.S);
     return *this;
   }
 
   ~SymbolStringPtr() {
-    if (isRealPoolEntry(S)) {
-      assert(S->getValue() && "Releasing SymbolStringPtr with zero ref count");
+    if (isRealPoolEntry(S))
       --S->getValue();
-    }
   }
 
   explicit operator bool() const { return S; }

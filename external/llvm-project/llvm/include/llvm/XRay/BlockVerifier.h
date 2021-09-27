@@ -10,8 +10,8 @@
 // associated with a block, following the FDR mode log format's specifications.
 //
 //===----------------------------------------------------------------------===//
-#ifndef LLVM_XRAY_BLOCKVERIFIER_H
-#define LLVM_XRAY_BLOCKVERIFIER_H
+#ifndef LLVM_INCLUDE_LLVM_XRAY_BLOCKVERIFIER_H_
+#define LLVM_INCLUDE_LLVM_XRAY_BLOCKVERIFIER_H_
 
 #include "llvm/XRay/FDRRecords.h"
 #include <array>
@@ -68,4 +68,4 @@ public:
 } // namespace xray
 } // namespace llvm
 
-#endif // LLVM_XRAY_BLOCKVERIFIER_H
+#endif // LLVM_INCLUDE_LLVM_XRAY_BLOCKVERIFIER_H_

@@ -188,8 +188,9 @@ bool ExpandPostRA::runOnMachineFunction(MachineFunction &MF) {
 
   bool MadeChange = false;
 
-  for (MachineBasicBlock &MBB : MF) {
-    for (MachineBasicBlock::iterator mi = MBB.begin(), me = MBB.end();
+  for (MachineFunction::iterator mbbi = MF.begin(), mbbe = MF.end();
+       mbbi != mbbe; ++mbbi) {
+    for (MachineBasicBlock::iterator mi = mbbi->begin(), me = mbbi->end();
          mi != me;) {
       MachineInstr &MI = *mi;
       // Advance iterator here because MI may be erased.

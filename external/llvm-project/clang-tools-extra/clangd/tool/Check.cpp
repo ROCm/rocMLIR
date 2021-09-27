@@ -26,7 +26,6 @@
 
 #include "ClangdLSPServer.h"
 #include "CodeComplete.h"
-#include "Config.h"
 #include "GlobalCompilationDatabase.h"
 #include "Hover.h"
 #include "ParsedAST.h"
@@ -94,8 +93,7 @@ public:
   bool buildCommand(const ThreadsafeFS &TFS) {
     log("Loading compilation database...");
     DirectoryBasedGlobalCompilationDatabase::Options CDBOpts(TFS);
-    CDBOpts.CompileCommandsDir =
-        Config::current().CompileFlags.CDBSearch.FixedCDBPath;
+    CDBOpts.CompileCommandsDir = Opts.CompileCommandsDir;
     std::unique_ptr<GlobalCompilationDatabase> BaseCDB =
         std::make_unique<DirectoryBasedGlobalCompilationDatabase>(CDBOpts);
     BaseCDB = getQueryDriverDatabase(llvm::makeArrayRef(Opts.QueryDriverGlobs),
@@ -181,7 +179,7 @@ public:
       elog("Failed to build AST");
       return false;
     }
-    ErrCount += showErrors(llvm::makeArrayRef(*AST->getDiagnostics())
+    ErrCount += showErrors(llvm::makeArrayRef(AST->getDiagnostics())
                                .drop_front(Preamble->Diags.size()));
 
     if (Opts.BuildDynamicSymbolIndex) {
@@ -192,38 +190,21 @@ public:
   }
 
   // Run AST-based features at each token in the file.
-  void testLocationFeatures(
-      llvm::function_ref<bool(const Position &)> ShouldCheckLine,
-      const bool EnableCodeCompletion) {
+  void testLocationFeatures() {
     log("Testing features at each token (may be slow in large files)");
-    auto &SM = AST->getSourceManager();
-    auto SpelledTokens = AST->getTokens().spelledTokens(SM.getMainFileID());
-
-    CodeCompleteOptions CCOpts = Opts.CodeComplete;
-    CCOpts.Index = &Index;
-
+    auto SpelledTokens =
+        AST->getTokens().spelledTokens(AST->getSourceManager().getMainFileID());
     for (const auto &Tok : SpelledTokens) {
       unsigned Start = AST->getSourceManager().getFileOffset(Tok.location());
       unsigned End = Start + Tok.length();
       Position Pos = offsetToPosition(Inputs.Contents, Start);
-
-      if (!ShouldCheckLine(Pos))
-        continue;
-
       // FIXME: dumping the tokens may leak sensitive code into bug reports.
       // Add an option to turn this off, once we decide how options work.
       vlog("  {0} {1}", Pos, Tok.text(AST->getSourceManager()));
       auto Tree = SelectionTree::createRight(AST->getASTContext(),
                                              AST->getTokens(), Start, End);
-      Tweak::Selection Selection(&Index, *AST, Start, End, std::move(Tree),
-                                 nullptr);
-      // FS is only populated when applying a tweak, not during prepare as
-      // prepare should not do any I/O to be fast.
-      auto Tweaks =
-          prepareTweaks(Selection, Opts.TweakFilter, Opts.FeatureModules);
-      Selection.FS =
-          &AST->getSourceManager().getFileManager().getVirtualFileSystem();
-      for (const auto &T : Tweaks) {
+      Tweak::Selection Selection(&Index, *AST, Start, End, std::move(Tree));
+      for (const auto &T : prepareTweaks(Selection, Opts.TweakFilter)) {
         auto Result = T->apply(Selection);
         if (!Result) {
           elog("    tweak: {0} ==> FAIL: {1}", T->id(), Result.takeError());
@@ -238,22 +219,16 @@ public:
       auto Hover = getHover(*AST, Pos, Style, &Index);
       vlog("    hover: {0}", Hover.hasValue());
 
-      if (EnableCodeCompletion) {
-        Position EndPos = offsetToPosition(Inputs.Contents, End);
-        auto CC = codeComplete(File, EndPos, Preamble.get(), Inputs, CCOpts);
-        vlog("    code completion: {0}",
-             CC.Completions.empty() ? "<empty>" : CC.Completions[0].Name);
-      }
+      // FIXME: it'd be nice to include code completion, but it's too slow.
+      // Maybe in combination with a line restriction?
     }
   }
 };
 
 } // namespace
 
-bool check(llvm::StringRef File,
-           llvm::function_ref<bool(const Position &)> ShouldCheckLine,
-           const ThreadsafeFS &TFS, const ClangdLSPServer::Options &Opts,
-           bool EnableCodeCompletion) {
+bool check(llvm::StringRef File, const ThreadsafeFS &TFS,
+           const ClangdLSPServer::Options &Opts) {
   llvm::SmallString<0> FakeFile;
   llvm::Optional<std::string> Contents;
   if (File.empty()) {
@@ -270,17 +245,11 @@ bool check(llvm::StringRef File,
   }
   log("Testing on source file {0}", File);
 
-  auto ContextProvider = ClangdServer::createConfiguredContextProvider(
-      Opts.ConfigProvider, nullptr);
-  WithContext Ctx(ContextProvider(
-      FakeFile.empty()
-          ? File
-          : /*Don't turn on local configs for an arbitrary temp path.*/ ""));
   Checker C(File, Opts);
   if (!C.buildCommand(TFS) || !C.buildInvocation(TFS, Contents) ||
       !C.buildAST())
     return false;
-  C.testLocationFeatures(ShouldCheckLine, EnableCodeCompletion);
+  C.testLocationFeatures();
 
   log("All checks completed, {0} errors", C.ErrCount);
   return C.ErrCount == 0;

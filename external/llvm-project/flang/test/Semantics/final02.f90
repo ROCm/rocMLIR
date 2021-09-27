@@ -1,4 +1,4 @@
-!RUN: %flang_fc1 -fsyntax-only %s 2>&1 | FileCheck %s
+!RUN: %f18 -fsyntax-only %s 2>&1 | FileCheck %s
 module m
   type :: t1
     integer :: n
@@ -33,9 +33,9 @@ module m
     type(t1) :: x(:)
   end subroutine
   impure elemental subroutine t2fe(x)
-    type(t2), intent(in out) :: x
+    type(t2) :: x
   end subroutine
-  subroutine t3far(x)
+  impure elemental subroutine t3far(x)
     type(t3) :: x(..)
   end subroutine
 end module

@@ -9,12 +9,6 @@ llvm.mlir.global constant @default_external_constant(42) : i64
 // CHECK: llvm.mlir.global internal @global(42 : i64) : i64
 llvm.mlir.global internal @global(42 : i64) : i64
 
-// CHECK: llvm.mlir.global private @aligned_global(42 : i64) {aligned = 64 : i64} : i64
-llvm.mlir.global private @aligned_global(42 : i64) {aligned = 64} : i64
-
-// CHECK: llvm.mlir.global private constant @aligned_global_const(42 : i64) {aligned = 32 : i64} : i64
-llvm.mlir.global private constant @aligned_global_const(42 : i64) {aligned = 32} : i64
-
 // CHECK: llvm.mlir.global internal constant @constant(3.700000e+01 : f64) : f32
 llvm.mlir.global internal constant @constant(37.0) : f32
 
@@ -50,7 +44,7 @@ llvm.mlir.global weak @weak() : i64
 // CHECK: llvm.mlir.global common
 llvm.mlir.global common @common() : i64
 // CHECK: llvm.mlir.global appending
-llvm.mlir.global appending @appending() : !llvm.array<2 x i64>
+llvm.mlir.global appending @appending() : i64
 // CHECK: llvm.mlir.global extern_weak
 llvm.mlir.global extern_weak @extern_weak() : i64
 // CHECK: llvm.mlir.global linkonce_odr
@@ -68,15 +62,6 @@ func @references() {
 
   llvm.return
 }
-
-// CHECK: llvm.mlir.global private local_unnamed_addr constant @local(42 : i64) : i64
-llvm.mlir.global private local_unnamed_addr constant @local(42 : i64) : i64
-
-// CHECK: llvm.mlir.global private unnamed_addr constant @foo(42 : i64) : i64
-llvm.mlir.global private unnamed_addr constant @foo(42 : i64) : i64
-
-// CHECK: llvm.mlir.global internal constant @sectionvar("teststring")  {section = ".mysection"}
-llvm.mlir.global internal constant @sectionvar("teststring")  {section = ".mysection"}: !llvm.array<10 x i8>
 
 // -----
 
@@ -96,20 +81,18 @@ llvm.mlir.global internal constant @constant(37.0) : !llvm.label
 // -----
 
 // expected-error @+1 {{'addr_space' failed to satisfy constraint: 32-bit signless integer attribute whose value is non-negative}}
-"llvm.mlir.global"() ({}) {sym_name = "foo", type = i64, value = 42 : i64, addr_space = -1 : i32, linkage = #llvm.linkage<private>} : () -> ()
+"llvm.mlir.global"() ({}) {sym_name = "foo", type = i64, value = 42 : i64, addr_space = -1 : i32, linkage = 0} : () -> ()
 
 // -----
 
 // expected-error @+1 {{'addr_space' failed to satisfy constraint: 32-bit signless integer attribute whose value is non-negative}}
-"llvm.mlir.global"() ({}) {sym_name = "foo", type = i64, value = 42 : i64, addr_space = 1.0 : f32, linkage = #llvm.linkage<private>} : () -> ()
+"llvm.mlir.global"() ({}) {sym_name = "foo", type = i64, value = 42 : i64, addr_space = 1.0 : f32, linkage = 0} : () -> ()
 
 // -----
 
 func @foo() {
   // expected-error @+1 {{must appear at the module level}}
   llvm.mlir.global internal @bar(42) : i32
-
-  return
 }
 
 // -----

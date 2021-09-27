@@ -38,10 +38,9 @@ struct testbuf
 
 int main(int, char**)
 {
-    // sanity check
-    {
-        testbuf<char> tb("");
-        tb.overflow();
+    {  // sanity check
+    testbuf<char> tb("");
+    tb.overflow();
     }
     {
         testbuf<char> sb("abc");

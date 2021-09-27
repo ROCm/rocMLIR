@@ -9,7 +9,8 @@
 #ifndef LLVM_TOOLS_OBJCOPY_OBJECT_H
 #define LLVM_TOOLS_OBJCOPY_OBJECT_H
 
-#include "CommonConfig.h"
+#include "Buffer.h"
+#include "CopyConfig.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
@@ -18,7 +19,6 @@
 #include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/FileOutputBuffer.h"
-#include "llvm/Support/MemoryBuffer.h"
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -48,12 +48,12 @@ class Object;
 struct Symbol;
 
 class SectionTableRef {
-  ArrayRef<std::unique_ptr<SectionBase>> Sections;
+  MutableArrayRef<std::unique_ptr<SectionBase>> Sections;
 
 public:
-  using iterator = pointee_iterator<const std::unique_ptr<SectionBase> *>;
+  using iterator = pointee_iterator<std::unique_ptr<SectionBase> *>;
 
-  explicit SectionTableRef(ArrayRef<std::unique_ptr<SectionBase>> Secs)
+  explicit SectionTableRef(MutableArrayRef<std::unique_ptr<SectionBase>> Secs)
       : Sections(Secs) {}
   SectionTableRef(const SectionTableRef &) = default;
 
@@ -106,7 +106,7 @@ public:
 
 class SectionWriter : public SectionVisitor {
 protected:
-  WritableMemoryBuffer &Out;
+  Buffer &Out;
 
 public:
   virtual ~SectionWriter() = default;
@@ -123,7 +123,7 @@ public:
   virtual Error visit(const CompressedSection &Sec) override = 0;
   virtual Error visit(const DecompressedSection &Sec) override = 0;
 
-  explicit SectionWriter(WritableMemoryBuffer &Buf) : Out(Buf) {}
+  explicit SectionWriter(Buffer &Buf) : Out(Buf) {}
 };
 
 template <class ELFT> class ELFSectionWriter : public SectionWriter {
@@ -143,7 +143,7 @@ public:
   Error visit(const CompressedSection &Sec) override;
   Error visit(const DecompressedSection &Sec) override;
 
-  explicit ELFSectionWriter(WritableMemoryBuffer &Buf) : SectionWriter(Buf) {}
+  explicit ELFSectionWriter(Buffer &Buf) : SectionWriter(Buf) {}
 };
 
 template <class ELFT> class ELFSectionSizer : public MutableSectionVisitor {
@@ -187,8 +187,7 @@ public:
   Error visit(const CompressedSection &Sec) override;
   Error visit(const DecompressedSection &Sec) override;
 
-  explicit BinarySectionWriter(WritableMemoryBuffer &Buf)
-      : SectionWriter(Buf) {}
+  explicit BinarySectionWriter(Buffer &Buf) : SectionWriter(Buf) {}
 };
 
 using IHexLineData = SmallVector<char, 64>;
@@ -284,8 +283,7 @@ protected:
   virtual void writeData(uint8_t Type, uint16_t Addr, ArrayRef<uint8_t> Data);
 
 public:
-  explicit IHexSectionWriterBase(WritableMemoryBuffer &Buf)
-      : BinarySectionWriter(Buf) {}
+  explicit IHexSectionWriterBase(Buffer &Buf) : BinarySectionWriter(Buf) {}
 
   uint64_t getBufferOffset() const { return Offset; }
   Error visit(const Section &Sec) final;
@@ -298,7 +296,7 @@ public:
 // Real IHEX section writer
 class IHexSectionWriter : public IHexSectionWriterBase {
 public:
-  IHexSectionWriter(WritableMemoryBuffer &Buf) : IHexSectionWriterBase(Buf) {}
+  IHexSectionWriter(Buffer &Buf) : IHexSectionWriterBase(Buf) {}
 
   void writeData(uint8_t Type, uint16_t Addr, ArrayRef<uint8_t> Data) override;
   Error visit(const StringTableSection &Sec) override;
@@ -307,15 +305,14 @@ public:
 class Writer {
 protected:
   Object &Obj;
-  std::unique_ptr<WritableMemoryBuffer> Buf;
-  raw_ostream &Out;
+  Buffer &Buf;
 
 public:
   virtual ~Writer();
   virtual Error finalize() = 0;
   virtual Error write() = 0;
 
-  Writer(Object &O, raw_ostream &Out) : Obj(O), Out(Out) {}
+  Writer(Object &O, Buffer &B) : Obj(O), Buf(B) {}
 };
 
 template <class ELFT> class ELFWriter : public Writer {
@@ -352,7 +349,7 @@ public:
 
   Error finalize() override;
   Error write() override;
-  ELFWriter(Object &Obj, raw_ostream &Out, bool WSH, bool OnlyKeepDebug);
+  ELFWriter(Object &Obj, Buffer &Buf, bool WSH, bool OnlyKeepDebug);
 };
 
 class BinaryWriter : public Writer {
@@ -365,7 +362,7 @@ public:
   ~BinaryWriter() {}
   Error finalize() override;
   Error write() override;
-  BinaryWriter(Object &Obj, raw_ostream &Out) : Writer(Obj, Out) {}
+  BinaryWriter(Object &Obj, Buffer &Buf) : Writer(Obj, Buf) {}
 };
 
 class IHexWriter : public Writer {
@@ -384,7 +381,7 @@ public:
   ~IHexWriter() {}
   Error finalize() override;
   Error write() override;
-  IHexWriter(Object &Obj, raw_ostream &Out) : Writer(Obj, Out) {}
+  IHexWriter(Object &Obj, Buffer &Buf) : Writer(Obj, Buf) {}
 };
 
 class SectionBase {
@@ -1023,6 +1020,10 @@ private:
 
 public:
   template <class T>
+  using Range = iterator_range<
+      pointee_iterator<typename std::vector<std::unique_ptr<T>>::iterator>>;
+
+  template <class T>
   using ConstRange = iterator_range<pointee_iterator<
       typename std::vector<std::unique_ptr<T>>::const_iterator>>;
 
@@ -1050,7 +1051,11 @@ public:
   SymbolTableSection *SymbolTable = nullptr;
   SectionIndexSection *SectionIndexTable = nullptr;
 
-  SectionTableRef sections() const { return SectionTableRef(Sections); }
+  void sortSections();
+  SectionTableRef sections() { return SectionTableRef(Sections); }
+  ConstRange<SectionBase> sections() const {
+    return make_pointee_range(Sections);
+  }
   iterator_range<
       filter_iterator<pointee_iterator<std::vector<SecPtr>::const_iterator>,
                       decltype(&sectionIsAlloc)>>
@@ -1065,11 +1070,11 @@ public:
   }
   SectionTableRef removedSections() { return SectionTableRef(RemovedSections); }
 
+  Range<Segment> segments() { return make_pointee_range(Segments); }
   ConstRange<Segment> segments() const { return make_pointee_range(Segments); }
 
   Error removeSections(bool AllowBrokenLinks,
                        std::function<bool(const SectionBase &)> ToRemove);
-  Error replaceSections(const DenseMap<SectionBase *, SectionBase *> &FromTo);
   Error removeSymbols(function_ref<bool(const Symbol &)> ToRemove);
   template <class T, class... Ts> T &addSection(Ts &&... Args) {
     auto Sec = std::make_unique<T>(std::forward<Ts>(Args)...);

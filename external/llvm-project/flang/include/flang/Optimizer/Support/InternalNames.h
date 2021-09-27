@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_OPTIMIZER_SUPPORT_INTERNALNAMES_H
-#define FORTRAN_OPTIMIZER_SUPPORT_INTERNALNAMES_H
+#ifndef OPTIMIZER_SUPPORT_INTERNALNAMES_H
+#define OPTIMIZER_SUPPORT_INTERNALNAMES_H
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
@@ -32,7 +32,6 @@ struct NameUniquer {
   /// The sort of the unique name
   enum class NameKind {
     NOT_UNIQUED,
-    BLOCK_DATA_NAME,
     COMMON,
     CONSTANT,
     DERIVED_TYPE,
@@ -59,58 +58,55 @@ struct NameUniquer {
     llvm::SmallVector<std::int64_t, 4> kinds;
   };
 
-  /// Unique a common block name
-  static std::string doCommonBlock(llvm::StringRef name);
+  NameUniquer() = default;
 
-  /// Unique a block data unit name
-  static std::string doBlockData(llvm::StringRef name);
+  /// Unique a common block name
+  std::string doCommonBlock(llvm::StringRef name);
 
   /// Unique a (global) constant name
-  static std::string doConstant(llvm::ArrayRef<llvm::StringRef> modules,
-                                llvm::Optional<llvm::StringRef> host,
-                                llvm::StringRef name);
+  std::string doConstant(llvm::ArrayRef<llvm::StringRef> modules,
+                         llvm::Optional<llvm::StringRef> host,
+                         llvm::StringRef name);
 
   /// Unique a dispatch table name
-  static std::string doDispatchTable(llvm::ArrayRef<llvm::StringRef> modules,
-                                     llvm::Optional<llvm::StringRef> host,
-                                     llvm::StringRef name,
-                                     llvm::ArrayRef<std::int64_t> kinds);
+  std::string doDispatchTable(llvm::ArrayRef<llvm::StringRef> modules,
+                              llvm::Optional<llvm::StringRef> host,
+                              llvm::StringRef name,
+                              llvm::ArrayRef<std::int64_t> kinds);
 
   /// Unique a compiler generated name
-  static std::string doGenerated(llvm::StringRef name);
+  std::string doGenerated(llvm::StringRef name);
 
   /// Unique an intrinsic type descriptor
-  static std::string
-  doIntrinsicTypeDescriptor(llvm::ArrayRef<llvm::StringRef> modules,
-                            llvm::Optional<llvm::StringRef> host,
-                            IntrinsicType type, std::int64_t kind);
+  std::string doIntrinsicTypeDescriptor(llvm::ArrayRef<llvm::StringRef> modules,
+                                        llvm::Optional<llvm::StringRef> host,
+                                        IntrinsicType type, std::int64_t kind);
 
   /// Unique a procedure name
-  static std::string doProcedure(llvm::ArrayRef<llvm::StringRef> modules,
-                                 llvm::Optional<llvm::StringRef> host,
-                                 llvm::StringRef name);
+  std::string doProcedure(llvm::ArrayRef<llvm::StringRef> modules,
+                          llvm::Optional<llvm::StringRef> host,
+                          llvm::StringRef name);
 
   /// Unique a derived type name
-  static std::string doType(llvm::ArrayRef<llvm::StringRef> modules,
-                            llvm::Optional<llvm::StringRef> host,
-                            llvm::StringRef name,
-                            llvm::ArrayRef<std::int64_t> kinds);
+  std::string doType(llvm::ArrayRef<llvm::StringRef> modules,
+                     llvm::Optional<llvm::StringRef> host, llvm::StringRef name,
+                     llvm::ArrayRef<std::int64_t> kinds);
 
   /// Unique a (derived) type descriptor name
-  static std::string doTypeDescriptor(llvm::ArrayRef<llvm::StringRef> modules,
-                                      llvm::Optional<llvm::StringRef> host,
-                                      llvm::StringRef name,
-                                      llvm::ArrayRef<std::int64_t> kinds);
-  static std::string doTypeDescriptor(llvm::ArrayRef<std::string> modules,
-                                      llvm::Optional<std::string> host,
-                                      llvm::StringRef name,
-                                      llvm::ArrayRef<std::int64_t> kinds);
+  std::string doTypeDescriptor(llvm::ArrayRef<llvm::StringRef> modules,
+                               llvm::Optional<llvm::StringRef> host,
+                               llvm::StringRef name,
+                               llvm::ArrayRef<std::int64_t> kinds);
+  std::string doTypeDescriptor(llvm::ArrayRef<std::string> modules,
+                               llvm::Optional<std::string> host,
+                               llvm::StringRef name,
+                               llvm::ArrayRef<std::int64_t> kinds);
 
   /// Unique a (global) variable name. A variable with save attribute
   /// defined inside a subprogram also needs to be handled here
-  static std::string doVariable(llvm::ArrayRef<llvm::StringRef> modules,
-                                llvm::Optional<llvm::StringRef> host,
-                                llvm::StringRef name);
+  std::string doVariable(llvm::ArrayRef<llvm::StringRef> modules,
+                         llvm::Optional<llvm::StringRef> host,
+                         llvm::StringRef name);
 
   /// Entry point for the PROGRAM (called by the runtime)
   /// Can be overridden with the `--main-entry-name=<name>` option.
@@ -121,17 +117,12 @@ struct NameUniquer {
   deconstruct(llvm::StringRef uniquedName);
 
 private:
-  static std::string intAsString(std::int64_t i);
-  static std::string doKind(std::int64_t kind);
-  static std::string doKinds(llvm::ArrayRef<std::int64_t> kinds);
-  static std::string toLower(llvm::StringRef name);
-
-  NameUniquer() = delete;
-  NameUniquer(const NameUniquer &) = delete;
-  NameUniquer(NameUniquer &&) = delete;
-  NameUniquer &operator=(const NameUniquer &) = delete;
+  std::string intAsString(std::int64_t i);
+  std::string doKind(std::int64_t kind);
+  std::string doKinds(llvm::ArrayRef<std::int64_t> kinds);
+  std::string toLower(llvm::StringRef name);
 };
 
 } // namespace fir
 
-#endif // FORTRAN_OPTIMIZER_SUPPORT_INTERNALNAMES_H
+#endif // OPTIMIZER_SUPPORT_INTERNALNAMES_H

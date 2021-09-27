@@ -30,7 +30,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <memory>
-#include <tuple>
 
 using namespace llvm;
 
@@ -117,7 +116,6 @@ template <typename CalleeTy> struct UseInfo {
   // Access range if the address (alloca or parameters).
   // It is allowed to be empty-set when there are no known accesses.
   ConstantRange Range;
-  std::map<const Instruction *, ConstantRange> Accesses;
 
   // List of calls which pass address as an argument.
   // Value is offset range of address from base address (alloca or calling
@@ -131,12 +129,6 @@ template <typename CalleeTy> struct UseInfo {
   UseInfo(unsigned PointerSize) : Range{PointerSize, false} {}
 
   void updateRange(const ConstantRange &R) { Range = unionNoWrap(Range, R); }
-  void addRange(const Instruction *I, const ConstantRange &R) {
-    auto Ins = Accesses.emplace(I, R);
-    if (!Ins.second)
-      Ins.first->second = unionNoWrap(Ins.first->second, R);
-    updateRange(R);
-  }
 };
 
 template <typename CalleeTy>
@@ -175,7 +167,7 @@ ConstantRange getStaticAllocaSizeRange(const AllocaInst &AI) {
     if (Overflow)
       return R;
   }
-  R = ConstantRange(APInt::getZero(PointerSize), APSize);
+  R = ConstantRange(APInt::getNullValue(PointerSize), APSize);
   assert(!isUnsafe(R));
   return R;
 }
@@ -216,6 +208,7 @@ template <typename CalleeTy> struct FunctionInfo {
     } else {
       assert(Allocas.empty());
     }
+    O << "\n";
   }
 };
 
@@ -230,7 +223,6 @@ struct StackSafetyInfo::InfoTy {
 struct StackSafetyGlobalInfo::InfoTy {
   GVToSSI Info;
   SmallPtrSet<const AllocaInst *, 8> SafeAllocas;
-  SmallPtrSet<const Instruction *, 8> SafeAccesses;
 };
 
 namespace {
@@ -250,7 +242,7 @@ class StackSafetyLocalAnalysis {
   ConstantRange getMemIntrinsicAccessRange(const MemIntrinsic *MI, const Use &U,
                                            Value *Base);
 
-  void analyzeAllUses(Value *Ptr, UseInfo<GlobalValue> &AS,
+  bool analyzeAllUses(Value *Ptr, UseInfo<GlobalValue> &AS,
                       const StackLifetime &SL);
 
 public:
@@ -271,8 +263,6 @@ ConstantRange StackSafetyLocalAnalysis::offsetFrom(Value *Addr, Value *Base) {
   const SCEV *AddrExp = SE.getTruncateOrZeroExtend(SE.getSCEV(Addr), PtrTy);
   const SCEV *BaseExp = SE.getTruncateOrZeroExtend(SE.getSCEV(Base), PtrTy);
   const SCEV *Diff = SE.getMinusSCEV(AddrExp, BaseExp);
-  if (isa<SCEVCouldNotCompute>(Diff))
-    return UnknownRange;
 
   ConstantRange Offset = SE.getSignedRange(Diff);
   if (isUnsafe(Offset))
@@ -305,8 +295,8 @@ ConstantRange StackSafetyLocalAnalysis::getAccessRange(Value *Addr, Value *Base,
   APInt APSize(PointerSize, Size.getFixedSize(), true);
   if (APSize.isNegative())
     return UnknownRange;
-  return getAccessRange(Addr, Base,
-                        ConstantRange(APInt::getZero(PointerSize), APSize));
+  return getAccessRange(
+      Addr, Base, ConstantRange(APInt::getNullValue(PointerSize), APSize));
 }
 
 ConstantRange StackSafetyLocalAnalysis::getMemIntrinsicAccessRange(
@@ -329,13 +319,14 @@ ConstantRange StackSafetyLocalAnalysis::getMemIntrinsicAccessRange(
   if (Sizes.getUpper().isNegative() || isUnsafe(Sizes))
     return UnknownRange;
   Sizes = Sizes.sextOrTrunc(PointerSize);
-  ConstantRange SizeRange(APInt::getZero(PointerSize), Sizes.getUpper() - 1);
+  ConstantRange SizeRange(APInt::getNullValue(PointerSize),
+                          Sizes.getUpper() - 1);
   return getAccessRange(U, Base, SizeRange);
 }
 
 /// The function analyzes all local uses of Ptr (alloca or argument) and
 /// calculates local access range and all function calls where it was used.
-void StackSafetyLocalAnalysis::analyzeAllUses(Value *Ptr,
+bool StackSafetyLocalAnalysis::analyzeAllUses(Value *Ptr,
                                               UseInfo<GlobalValue> &US,
                                               const StackLifetime &SL) {
   SmallPtrSet<const Value *, 16> Visited;
@@ -356,11 +347,11 @@ void StackSafetyLocalAnalysis::analyzeAllUses(Value *Ptr,
       switch (I->getOpcode()) {
       case Instruction::Load: {
         if (AI && !SL.isAliveAfter(AI, I)) {
-          US.addRange(I, UnknownRange);
-          break;
+          US.updateRange(UnknownRange);
+          return false;
         }
-        US.addRange(I,
-                    getAccessRange(UI, Ptr, DL.getTypeStoreSize(I->getType())));
+        US.updateRange(
+            getAccessRange(UI, Ptr, DL.getTypeStoreSize(I->getType())));
         break;
       }
 
@@ -370,16 +361,15 @@ void StackSafetyLocalAnalysis::analyzeAllUses(Value *Ptr,
       case Instruction::Store: {
         if (V == I->getOperand(0)) {
           // Stored the pointer - conservatively assume it may be unsafe.
-          US.addRange(I, UnknownRange);
-          break;
+          US.updateRange(UnknownRange);
+          return false;
         }
         if (AI && !SL.isAliveAfter(AI, I)) {
-          US.addRange(I, UnknownRange);
-          break;
+          US.updateRange(UnknownRange);
+          return false;
         }
-        US.addRange(
-            I, getAccessRange(
-                   UI, Ptr, DL.getTypeStoreSize(I->getOperand(0)->getType())));
+        US.updateRange(getAccessRange(
+            UI, Ptr, DL.getTypeStoreSize(I->getOperand(0)->getType())));
         break;
       }
 
@@ -387,8 +377,8 @@ void StackSafetyLocalAnalysis::analyzeAllUses(Value *Ptr,
         // Information leak.
         // FIXME: Process parameters correctly. This is a leak only if we return
         // alloca.
-        US.addRange(I, UnknownRange);
-        break;
+        US.updateRange(UnknownRange);
+        return false;
 
       case Instruction::Call:
       case Instruction::Invoke: {
@@ -396,31 +386,25 @@ void StackSafetyLocalAnalysis::analyzeAllUses(Value *Ptr,
           break;
 
         if (AI && !SL.isAliveAfter(AI, I)) {
-          US.addRange(I, UnknownRange);
-          break;
+          US.updateRange(UnknownRange);
+          return false;
         }
 
         if (const MemIntrinsic *MI = dyn_cast<MemIntrinsic>(I)) {
-          US.addRange(I, getMemIntrinsicAccessRange(MI, UI, Ptr));
+          US.updateRange(getMemIntrinsicAccessRange(MI, UI, Ptr));
           break;
         }
 
         const auto &CB = cast<CallBase>(*I);
-        if (CB.getReturnedArgOperand() == V) {
-          if (Visited.insert(I).second)
-            WorkList.push_back(cast<const Instruction>(I));
-        }
-
         if (!CB.isArgOperand(&UI)) {
-          US.addRange(I, UnknownRange);
-          break;
+          US.updateRange(UnknownRange);
+          return false;
         }
 
         unsigned ArgNo = CB.getArgOperandNo(&UI);
         if (CB.isByValArgument(ArgNo)) {
-          US.addRange(I, getAccessRange(
-                             UI, Ptr,
-                             DL.getTypeStoreSize(CB.getParamByValType(ArgNo))));
+          US.updateRange(getAccessRange(
+              UI, Ptr, DL.getTypeStoreSize(CB.getParamByValType(ArgNo))));
           break;
         }
 
@@ -430,8 +414,8 @@ void StackSafetyLocalAnalysis::analyzeAllUses(Value *Ptr,
         const GlobalValue *Callee =
             dyn_cast<GlobalValue>(CB.getCalledOperand()->stripPointerCasts());
         if (!Callee) {
-          US.addRange(I, UnknownRange);
-          break;
+          US.updateRange(UnknownRange);
+          return false;
         }
 
         assert(isa<Function>(Callee) || isa<GlobalAlias>(Callee));
@@ -449,6 +433,8 @@ void StackSafetyLocalAnalysis::analyzeAllUses(Value *Ptr,
       }
     }
   }
+
+  return true;
 }
 
 FunctionInfo<GlobalValue> StackSafetyLocalAnalysis::run() {
@@ -480,7 +466,7 @@ FunctionInfo<GlobalValue> StackSafetyLocalAnalysis::run() {
   }
 
   LLVM_DEBUG(Info.print(dbgs(), F.getName(), &F));
-  LLVM_DEBUG(dbgs() << "\n[StackSafety] done\n");
+  LLVM_DEBUG(dbgs() << "[StackSafety] done\n");
   return Info;
 }
 
@@ -600,7 +586,8 @@ void StackSafetyDataFlowAnalysis<CalleeTy>::runDataFlow() {
   updateAllNodes();
 
   while (!WorkList.empty()) {
-    const CalleeTy *Callee = WorkList.pop_back_val();
+    const CalleeTy *Callee = WorkList.back();
+    WorkList.pop_back();
     updateOneNode(Callee);
   }
 }
@@ -805,7 +792,6 @@ const StackSafetyInfo::InfoTy &StackSafetyInfo::getInfo() const {
 
 void StackSafetyInfo::print(raw_ostream &O) const {
   getInfo().Info.print(O, F->getName(), dyn_cast<Function>(F));
-  O << "\n";
 }
 
 const StackSafetyGlobalInfo::InfoTy &StackSafetyGlobalInfo::getInfo() const {
@@ -818,27 +804,17 @@ const StackSafetyGlobalInfo::InfoTy &StackSafetyGlobalInfo::getInfo() const {
       }
     }
     Info.reset(new InfoTy{
-        createGlobalStackSafetyInfo(std::move(Functions), Index), {}, {}});
-
-    std::map<const Instruction *, bool> AccessIsUnsafe;
+        createGlobalStackSafetyInfo(std::move(Functions), Index), {}});
     for (auto &FnKV : Info->Info) {
       for (auto &KV : FnKV.second.Allocas) {
         ++NumAllocaTotal;
         const AllocaInst *AI = KV.first;
-        auto AIRange = getStaticAllocaSizeRange(*AI);
-        if (AIRange.contains(KV.second.Range)) {
+        if (getStaticAllocaSizeRange(*AI).contains(KV.second.Range)) {
           Info->SafeAllocas.insert(AI);
           ++NumAllocaStackSafe;
         }
-        for (const auto &A : KV.second.Accesses)
-          AccessIsUnsafe[A.first] |= !AIRange.contains(A.second);
       }
     }
-
-    for (const auto &KV : AccessIsUnsafe)
-      if (!KV.second)
-        Info->SafeAccesses.insert(KV.first);
-
     if (StackSafetyPrint)
       print(errs());
   }
@@ -908,11 +884,6 @@ bool StackSafetyGlobalInfo::isSafe(const AllocaInst &AI) const {
   return Info.SafeAllocas.count(&AI);
 }
 
-bool StackSafetyGlobalInfo::accessIsSafe(const Instruction &I) const {
-  const auto &Info = getInfo();
-  return Info.SafeAccesses.count(&I);
-}
-
 void StackSafetyGlobalInfo::print(raw_ostream &O) const {
   auto &SSI = getInfo().Info;
   if (SSI.empty())
@@ -921,13 +892,6 @@ void StackSafetyGlobalInfo::print(raw_ostream &O) const {
   for (auto &F : M.functions()) {
     if (!F.isDeclaration()) {
       SSI.find(&F)->second.print(O, F.getName(), &F);
-      O << "    safe accesses:"
-        << "\n";
-      for (const auto &I : instructions(F)) {
-        if (accessIsSafe(I)) {
-          O << "     " << I << "\n";
-        }
-      }
       O << "\n";
     }
   }

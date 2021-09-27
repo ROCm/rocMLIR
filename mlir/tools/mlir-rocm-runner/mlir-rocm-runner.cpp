@@ -46,12 +46,7 @@ static cl::opt<std::string> features("feature", cl::desc("target features"),
                                      cl::value_desc("AMDGPU target features"),
                                      cl::init(""));
 
-namespace test {
-void registerTestDialect(DialectRegistry &);
-} // namespace test
-
 static LogicalResult runMLIRPasses(ModuleOp m) {
-  m.getContext()->disableMultithreading();
   PassManager pm(m.getContext());
   applyPassManagerCLOptions(pm);
 
@@ -61,19 +56,29 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   }
   BackendUtils utils(tripleName, targetChip, features, systemOverride);
 
+  const char gpuBinaryAnnotation[] = "rocdl.hsaco";
   pm.addPass(createLowerToCFGPass());
   pm.addPass(createGpuKernelOutliningPass());
   auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
   kernelPm.addPass(createStripDebugInfoPass());
   kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
-  kernelPm.addPass(createGpuSerializeToHsacoPass(
-                       utils.getTriple(), utils.getChip(), utils.getFeatures()));
+  kernelPm.addPass(createConvertGPUKernelToBlobPass(
+      [&utils](Operation *m, llvm::LLVMContext &llvmContext,
+               llvm::StringRef name) {
+        return utils.compileModuleToROCDLIR(m, llvmContext, name);
+      },
+      [&utils](const std::string isa, Location loc, StringRef name) {
+        return utils.compileISAToHsaco(isa, loc, name);
+      },
+      utils.getTriple(), utils.getChip(), utils.getFeatures(),
+      gpuBinaryAnnotation));
   auto &funcPm = pm.nest<FuncOp>();
   funcPm.addPass(createGpuAsyncRegionPass());
-  pm.addPass(createGpuToLLVMConversionPass());
+  funcPm.addPass(createAsyncRefCountingPass());
+  pm.addPass(createGpuToLLVMConversionPass(gpuBinaryAnnotation));
   pm.addPass(createAsyncToAsyncRuntimePass());
   pm.addPass(createConvertAsyncToLLVMPass());
-  mlir::LowerToLLVMOptions lower_to_llvm_opts(m.getContext());
+  mlir::LowerToLLVMOptions lower_to_llvm_opts;
   pm.addPass(mlir::createLowerToLLVMPass(lower_to_llvm_opts));
 
   return pm.run(m);
@@ -87,9 +92,6 @@ int main(int argc, char **argv) {
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllAsmParsers();
   llvm::InitializeAllAsmPrinters();
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetAsmPrinter();
-  llvm::InitializeNativeTargetAsmParser();
 
   // Initialize LLVM AMDGPU backend.
   LLVMInitializeAMDGPUTarget();
@@ -99,14 +101,8 @@ int main(int argc, char **argv) {
 
   mlir::initializeLLVMPasses();
 
-  DialectRegistry registry;
-  registerAllDialects(registry);
-#ifdef MLIR_INCLUDE_TESTS
-  ::test::registerTestDialect(registry);
-#endif
-
   mlir::JitRunnerConfig jitRunnerConfig;
   jitRunnerConfig.mlirTransformer = runMLIRPasses;
 
-  return mlir::JitRunnerMain(argc, argv, registry, jitRunnerConfig);
+  return mlir::JitRunnerMain(argc, argv, jitRunnerConfig);
 }

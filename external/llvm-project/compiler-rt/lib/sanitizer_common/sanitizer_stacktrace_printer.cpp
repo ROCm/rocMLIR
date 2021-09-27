@@ -129,7 +129,7 @@ void RenderFrame(InternalScopedString *buffer, const char *format, int frame_no,
       break;
     // Frame number and all fields of AddressInfo structure.
     case 'n':
-      buffer->append("%u", frame_no);
+      buffer->append("%zu", frame_no);
       break;
     case 'p':
       buffer->append("0x%zx", address);
@@ -198,7 +198,8 @@ void RenderFrame(InternalScopedString *buffer, const char *format, int frame_no,
       }
       break;
     default:
-      Report("Unsupported specifier in stack frame format: %c (%p)!\n", *p, p);
+      Report("Unsupported specifier in stack frame format: %c (0x%zx)!\n", *p,
+             *p);
       Die();
     }
   }
@@ -243,14 +244,14 @@ void RenderData(InternalScopedString *buffer, const char *format,
         buffer->append("%s", StripPathPrefix(DI->file, strip_path_prefix));
         break;
       case 'l':
-        buffer->append("%zu", DI->line);
+        buffer->append("%d", DI->line);
         break;
       case 'g':
         buffer->append("%s", DI->name);
         break;
       default:
-        Report("Unsupported specifier in stack frame format: %c (%p)!\n", *p,
-               p);
+        Report("Unsupported specifier in stack frame format: %c (0x%zx)!\n", *p,
+               *p);
         Die();
     }
   }

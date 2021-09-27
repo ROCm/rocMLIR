@@ -74,15 +74,9 @@ void ForwardingReferenceOverloadCheck::registerMatchers(MatchFinder *Finder) {
           unless(hasAnyParameter(
               // No warning: enable_if as constructor parameter.
               parmVarDecl(hasType(isEnableIf())))),
-          unless(hasParent(functionTemplateDecl(anyOf(
+          unless(hasParent(functionTemplateDecl(has(templateTypeParmDecl(
               // No warning: enable_if as type parameter.
-              has(templateTypeParmDecl(hasDefaultArgument(isEnableIf()))),
-              // No warning: enable_if as non-type template parameter.
-              has(nonTypeTemplateParmDecl(
-                  hasType(isEnableIf()),
-                  anyOf(hasDescendant(cxxBoolLiteral()),
-                        hasDescendant(cxxNullPtrLiteralExpr()),
-                        hasDescendant(integerLiteral())))))))))
+              hasDefaultArgument(isEnableIf())))))))
           .bind("ctor");
   Finder->addMatcher(FindOverload, this);
 }

@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "R600MCTargetDesc.h"
+#include "AMDGPUMCTargetDesc.h"
 #include "llvm/MC/MCInstrInfo.h"
 
 using namespace llvm;

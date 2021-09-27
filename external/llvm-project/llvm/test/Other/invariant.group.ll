@@ -1,6 +1,7 @@
 ; RUN: opt -S -early-cse -earlycse-debug-hash < %s | FileCheck %s
 ; RUN: opt -S -gvn < %s | FileCheck %s
 ; RUN: opt -S -newgvn < %s | FileCheck %s
+; RUN: opt -S -O3 < %s | FileCheck %s
 
 ; These tests checks if passes with CSE functionality can do CSE on
 ; launder.invariant.group, that is prohibited if there is a memory clobber

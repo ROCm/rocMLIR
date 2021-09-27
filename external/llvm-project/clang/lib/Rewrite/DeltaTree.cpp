@@ -458,10 +458,7 @@ void DeltaTree::AddDelta(unsigned FileIndex, int Delta) {
 
   DeltaTreeNode::InsertResult InsertRes;
   if (MyRoot->DoInsertion(FileIndex, Delta, &InsertRes)) {
-    Root = new DeltaTreeInteriorNode(InsertRes);
-#ifdef VERIFY_TREE
-    MyRoot = Root;
-#endif
+    Root = MyRoot = new DeltaTreeInteriorNode(InsertRes);
   }
 
 #ifdef VERIFY_TREE

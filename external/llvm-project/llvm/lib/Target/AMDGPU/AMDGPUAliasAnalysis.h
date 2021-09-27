@@ -18,6 +18,7 @@
 namespace llvm {
 
 class DataLayout;
+class MDNode;
 class MemoryLocation;
 
 /// A simple AA result that uses TBAA metadata to answer queries.

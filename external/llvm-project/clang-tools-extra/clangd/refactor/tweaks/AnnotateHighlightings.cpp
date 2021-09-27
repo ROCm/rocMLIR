@@ -8,7 +8,6 @@
 #include "SemanticHighlighting.h"
 #include "refactor/Tweak.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/ScopedPrinter.h"
 
 namespace clang {
 namespace clangd {
@@ -68,19 +67,9 @@ Expected<Tweak::Effect> AnnotateHighlightings::apply(const Selection &Inputs) {
     if (!InsertOffset)
       return InsertOffset.takeError();
 
-    std::string Comment = "/* ";
-    Comment.append(llvm::to_string(Token.Kind));
-    for (unsigned I = 0;
-         I <= static_cast<unsigned>(HighlightingModifier::LastModifier); ++I) {
-      if (Token.Modifiers & (1 << I)) {
-        Comment.append(" [");
-        Comment.append(llvm::to_string(static_cast<HighlightingModifier>(I)));
-        Comment.push_back(']');
-      }
-    }
-    Comment.append(" */");
-    auto InsertReplacement =
-        tooling::Replacement(FilePath, *InsertOffset, 0, Comment);
+    auto InsertReplacement = tooling::Replacement(
+        FilePath, *InsertOffset, 0,
+        ("/* " + toTextMateScope(Token.Kind) + " */").str());
     if (auto Err = Result.add(InsertReplacement))
       return std::move(Err);
   }

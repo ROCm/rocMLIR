@@ -51,8 +51,9 @@ public:
   }
 
   // allocate space for exactly one operand
-  void *operator new(size_t S) { return User::operator new(S, 1); }
-  void operator delete(void *Ptr) { User::operator delete(Ptr); }
+  void *operator new(size_t s) {
+    return User::operator new(s, 1);
+  }
 
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
 
@@ -78,8 +79,9 @@ public:
   }
 
   // allocate space for exactly two operands
-  void *operator new(size_t S) { return User::operator new(S, 2); }
-  void operator delete(void *Ptr) { User::operator delete(Ptr); }
+  void *operator new(size_t s) {
+    return User::operator new(s, 2);
+  }
 
   /// Transparently provide more efficient getOperand methods.
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
@@ -104,8 +106,9 @@ public:
   }
 
   // allocate space for exactly three operands
-  void *operator new(size_t S) { return User::operator new(S, 3); }
-  void operator delete(void *Ptr) { User::operator delete(Ptr); }
+  void *operator new(size_t s) {
+    return User::operator new(s, 3);
+  }
 
   /// Transparently provide more efficient getOperand methods.
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
@@ -131,8 +134,9 @@ public:
   }
 
   // allocate space for exactly two operands
-  void *operator new(size_t S) { return User::operator new(S, 2); }
-  void operator delete(void *Ptr) { User::operator delete(Ptr); }
+  void *operator new(size_t s) {
+    return User::operator new(s, 2);
+  }
 
   /// Transparently provide more efficient getOperand methods.
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
@@ -159,8 +163,9 @@ public:
   }
 
   // allocate space for exactly three operands
-  void *operator new(size_t S) { return User::operator new(S, 3); }
-  void operator delete(void *Ptr) { User::operator delete(Ptr); }
+  void *operator new(size_t s) {
+    return User::operator new(s, 3);
+  }
 
   /// Transparently provide more efficient getOperand methods.
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
@@ -195,8 +200,7 @@ public:
   SmallVector<int, 4> ShuffleMask;
   Constant *ShuffleMaskForBitcode;
 
-  void *operator new(size_t S) { return User::operator new(S, 2); }
-  void operator delete(void *Ptr) { return User::operator delete(Ptr); }
+  void *operator new(size_t s) { return User::operator new(s, 2); }
 
   /// Transparently provide more efficient getOperand methods.
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
@@ -222,8 +226,9 @@ public:
   }
 
   // allocate space for exactly one operand
-  void *operator new(size_t S) { return User::operator new(S, 1); }
-  void operator delete(void *Ptr) { User::operator delete(Ptr); }
+  void *operator new(size_t s) {
+    return User::operator new(s, 1);
+  }
 
   /// Indices - These identify which value to extract.
   const SmallVector<unsigned, 4> Indices;
@@ -253,8 +258,9 @@ public:
   }
 
   // allocate space for exactly one operand
-  void *operator new(size_t S) { return User::operator new(S, 2); }
-  void operator delete(void *Ptr) { User::operator delete(Ptr); }
+  void *operator new(size_t s) {
+    return User::operator new(s, 2);
+  }
 
   /// Indices - These identify the position for the insertion.
   const SmallVector<unsigned, 4> Indices;
@@ -317,8 +323,9 @@ public:
   }
 
   // allocate space for exactly two operands
-  void *operator new(size_t S) { return User::operator new(S, 2); }
-  void operator delete(void *Ptr) { return User::operator delete(Ptr); }
+  void *operator new(size_t s) {
+    return User::operator new(s, 2);
+  }
 
   /// Transparently provide more efficient getOperand methods.
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
@@ -456,26 +463,24 @@ struct InlineAsmKeyType {
   bool HasSideEffects;
   bool IsAlignStack;
   InlineAsm::AsmDialect AsmDialect;
-  bool CanThrow;
 
   InlineAsmKeyType(StringRef AsmString, StringRef Constraints,
                    FunctionType *FTy, bool HasSideEffects, bool IsAlignStack,
-                   InlineAsm::AsmDialect AsmDialect, bool canThrow)
+                   InlineAsm::AsmDialect AsmDialect)
       : AsmString(AsmString), Constraints(Constraints), FTy(FTy),
         HasSideEffects(HasSideEffects), IsAlignStack(IsAlignStack),
-        AsmDialect(AsmDialect), CanThrow(canThrow) {}
+        AsmDialect(AsmDialect) {}
 
   InlineAsmKeyType(const InlineAsm *Asm, SmallVectorImpl<Constant *> &)
       : AsmString(Asm->getAsmString()), Constraints(Asm->getConstraintString()),
         FTy(Asm->getFunctionType()), HasSideEffects(Asm->hasSideEffects()),
-        IsAlignStack(Asm->isAlignStack()), AsmDialect(Asm->getDialect()),
-        CanThrow(Asm->canThrow()) {}
+        IsAlignStack(Asm->isAlignStack()), AsmDialect(Asm->getDialect()) {}
 
   bool operator==(const InlineAsmKeyType &X) const {
     return HasSideEffects == X.HasSideEffects &&
            IsAlignStack == X.IsAlignStack && AsmDialect == X.AsmDialect &&
            AsmString == X.AsmString && Constraints == X.Constraints &&
-           FTy == X.FTy && CanThrow == X.CanThrow;
+           FTy == X.FTy;
   }
 
   bool operator==(const InlineAsm *Asm) const {
@@ -484,12 +489,12 @@ struct InlineAsmKeyType {
            AsmDialect == Asm->getDialect() &&
            AsmString == Asm->getAsmString() &&
            Constraints == Asm->getConstraintString() &&
-           FTy == Asm->getFunctionType() && CanThrow == Asm->canThrow();
+           FTy == Asm->getFunctionType();
   }
 
   unsigned getHash() const {
     return hash_combine(AsmString, Constraints, HasSideEffects, IsAlignStack,
-                        AsmDialect, FTy, CanThrow);
+                        AsmDialect, FTy);
   }
 
   using TypeClass = ConstantInfo<InlineAsm>::TypeClass;
@@ -497,7 +502,7 @@ struct InlineAsmKeyType {
   InlineAsm *create(TypeClass *Ty) const {
     assert(PointerType::getUnqual(FTy) == Ty);
     return new InlineAsm(FTy, std::string(AsmString), std::string(Constraints),
-                         HasSideEffects, IsAlignStack, AsmDialect, CanThrow);
+                         HasSideEffects, IsAlignStack, AsmDialect);
   }
 };
 

@@ -178,11 +178,17 @@
 
 #elif TEST_STD_VER == 17
 
-# ifndef __cpp_lib_addressof_constexpr
-#   error "__cpp_lib_addressof_constexpr should be defined in c++17"
-# endif
-# if __cpp_lib_addressof_constexpr != 201603L
-#   error "__cpp_lib_addressof_constexpr should have the value 201603L in c++17"
+# if TEST_HAS_BUILTIN(__builtin_addressof) || TEST_GCC_VER >= 700
+#   ifndef __cpp_lib_addressof_constexpr
+#     error "__cpp_lib_addressof_constexpr should be defined in c++17"
+#   endif
+#   if __cpp_lib_addressof_constexpr != 201603L
+#     error "__cpp_lib_addressof_constexpr should have the value 201603L in c++17"
+#   endif
+# else
+#   ifdef __cpp_lib_addressof_constexpr
+#     error "__cpp_lib_addressof_constexpr should not be defined when TEST_HAS_BUILTIN(__builtin_addressof) || TEST_GCC_VER >= 700 is not defined!"
+#   endif
 # endif
 
 # ifndef __cpp_lib_allocator_traits_is_always_equal
@@ -268,11 +274,17 @@
 
 #elif TEST_STD_VER == 20
 
-# ifndef __cpp_lib_addressof_constexpr
-#   error "__cpp_lib_addressof_constexpr should be defined in c++20"
-# endif
-# if __cpp_lib_addressof_constexpr != 201603L
-#   error "__cpp_lib_addressof_constexpr should have the value 201603L in c++20"
+# if TEST_HAS_BUILTIN(__builtin_addressof) || TEST_GCC_VER >= 700
+#   ifndef __cpp_lib_addressof_constexpr
+#     error "__cpp_lib_addressof_constexpr should be defined in c++20"
+#   endif
+#   if __cpp_lib_addressof_constexpr != 201603L
+#     error "__cpp_lib_addressof_constexpr should have the value 201603L in c++20"
+#   endif
+# else
+#   ifdef __cpp_lib_addressof_constexpr
+#     error "__cpp_lib_addressof_constexpr should not be defined when TEST_HAS_BUILTIN(__builtin_addressof) || TEST_GCC_VER >= 700 is not defined!"
+#   endif
 # endif
 
 # ifndef __cpp_lib_allocator_traits_is_always_equal
@@ -295,16 +307,16 @@
 #   endif
 # endif
 
-# if !defined(_LIBCPP_HAS_NO_THREADS)
+# if !defined(_LIBCPP_VERSION)
 #   ifndef __cpp_lib_atomic_value_initialization
 #     error "__cpp_lib_atomic_value_initialization should be defined in c++20"
 #   endif
 #   if __cpp_lib_atomic_value_initialization != 201911L
 #     error "__cpp_lib_atomic_value_initialization should have the value 201911L in c++20"
 #   endif
-# else
+# else // _LIBCPP_VERSION
 #   ifdef __cpp_lib_atomic_value_initialization
-#     error "__cpp_lib_atomic_value_initialization should not be defined when !defined(_LIBCPP_HAS_NO_THREADS) is not defined!"
+#     error "__cpp_lib_atomic_value_initialization should not be defined because it is unimplemented in libc++!"
 #   endif
 # endif
 
@@ -315,11 +327,17 @@
 #   error "__cpp_lib_constexpr_dynamic_alloc should have the value 201907L in c++20"
 # endif
 
-# ifndef __cpp_lib_constexpr_memory
-#   error "__cpp_lib_constexpr_memory should be defined in c++20"
-# endif
-# if __cpp_lib_constexpr_memory != 201811L
-#   error "__cpp_lib_constexpr_memory should have the value 201811L in c++20"
+# if !defined(_LIBCPP_VERSION)
+#   ifndef __cpp_lib_constexpr_memory
+#     error "__cpp_lib_constexpr_memory should be defined in c++20"
+#   endif
+#   if __cpp_lib_constexpr_memory != 201811L
+#     error "__cpp_lib_constexpr_memory should have the value 201811L in c++20"
+#   endif
+# else // _LIBCPP_VERSION
+#   ifdef __cpp_lib_constexpr_memory
+#     error "__cpp_lib_constexpr_memory should not be defined because it is unimplemented in libc++!"
+#   endif
 # endif
 
 # ifndef __cpp_lib_enable_shared_from_this
@@ -412,11 +430,17 @@
 
 #elif TEST_STD_VER > 20
 
-# ifndef __cpp_lib_addressof_constexpr
-#   error "__cpp_lib_addressof_constexpr should be defined in c++2b"
-# endif
-# if __cpp_lib_addressof_constexpr != 201603L
-#   error "__cpp_lib_addressof_constexpr should have the value 201603L in c++2b"
+# if TEST_HAS_BUILTIN(__builtin_addressof) || TEST_GCC_VER >= 700
+#   ifndef __cpp_lib_addressof_constexpr
+#     error "__cpp_lib_addressof_constexpr should be defined in c++2b"
+#   endif
+#   if __cpp_lib_addressof_constexpr != 201603L
+#     error "__cpp_lib_addressof_constexpr should have the value 201603L in c++2b"
+#   endif
+# else
+#   ifdef __cpp_lib_addressof_constexpr
+#     error "__cpp_lib_addressof_constexpr should not be defined when TEST_HAS_BUILTIN(__builtin_addressof) || TEST_GCC_VER >= 700 is not defined!"
+#   endif
 # endif
 
 # ifndef __cpp_lib_allocator_traits_is_always_equal
@@ -439,16 +463,16 @@
 #   endif
 # endif
 
-# if !defined(_LIBCPP_HAS_NO_THREADS)
+# if !defined(_LIBCPP_VERSION)
 #   ifndef __cpp_lib_atomic_value_initialization
 #     error "__cpp_lib_atomic_value_initialization should be defined in c++2b"
 #   endif
 #   if __cpp_lib_atomic_value_initialization != 201911L
 #     error "__cpp_lib_atomic_value_initialization should have the value 201911L in c++2b"
 #   endif
-# else
+# else // _LIBCPP_VERSION
 #   ifdef __cpp_lib_atomic_value_initialization
-#     error "__cpp_lib_atomic_value_initialization should not be defined when !defined(_LIBCPP_HAS_NO_THREADS) is not defined!"
+#     error "__cpp_lib_atomic_value_initialization should not be defined because it is unimplemented in libc++!"
 #   endif
 # endif
 
@@ -459,11 +483,17 @@
 #   error "__cpp_lib_constexpr_dynamic_alloc should have the value 201907L in c++2b"
 # endif
 
-# ifndef __cpp_lib_constexpr_memory
-#   error "__cpp_lib_constexpr_memory should be defined in c++2b"
-# endif
-# if __cpp_lib_constexpr_memory != 201811L
-#   error "__cpp_lib_constexpr_memory should have the value 201811L in c++2b"
+# if !defined(_LIBCPP_VERSION)
+#   ifndef __cpp_lib_constexpr_memory
+#     error "__cpp_lib_constexpr_memory should be defined in c++2b"
+#   endif
+#   if __cpp_lib_constexpr_memory != 201811L
+#     error "__cpp_lib_constexpr_memory should have the value 201811L in c++2b"
+#   endif
+# else // _LIBCPP_VERSION
+#   ifdef __cpp_lib_constexpr_memory
+#     error "__cpp_lib_constexpr_memory should not be defined because it is unimplemented in libc++!"
+#   endif
 # endif
 
 # ifndef __cpp_lib_enable_shared_from_this

@@ -74,7 +74,6 @@
 #ifndef LLVM_CODEGEN_MACHINESCHEDULER_H
 #define LLVM_CODEGEN_MACHINESCHEDULER_H
 
-#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
@@ -675,9 +674,6 @@ private:
   // it.
   SmallVector<unsigned, 16> ReservedCyclesIndex;
 
-  // For each PIdx, stores the resource group IDs of its subunits
-  SmallVector<APInt, 16> ResourceGroupSubUnitMasks;
-
 #ifndef NDEBUG
   // Remember the greatest possible stall as an upper bound on the number of
   // times we should retry the pending queue because of a hazard.
@@ -755,14 +751,8 @@ public:
   unsigned getNextResourceCycleByInstance(unsigned InstanceIndex,
                                           unsigned Cycles);
 
-  std::pair<unsigned, unsigned> getNextResourceCycle(const MCSchedClassDesc *SC,
-                                                     unsigned PIdx,
+  std::pair<unsigned, unsigned> getNextResourceCycle(unsigned PIdx,
                                                      unsigned Cycles);
-
-  bool isUnbufferedGroup(unsigned PIdx) const {
-    return SchedModel->getProcResource(PIdx)->SubUnitsIdxBegin &&
-           !SchedModel->getProcResource(PIdx)->BufferSize;
-  }
 
   bool checkHazard(SUnit *SU);
 
@@ -785,8 +775,7 @@ public:
 
   void incExecutedResources(unsigned PIdx, unsigned Count);
 
-  unsigned countResource(const MCSchedClassDesc *SC, unsigned PIdx,
-                         unsigned Cycles, unsigned ReadyCycle);
+  unsigned countResource(unsigned PIdx, unsigned Cycles, unsigned ReadyCycle);
 
   void bumpNode(SUnit *SU);
 
@@ -1012,7 +1001,7 @@ protected:
                      const RegPressureTracker &RPTracker,
                      RegPressureTracker &TempTracker);
 
-  virtual bool tryCandidate(SchedCandidate &Cand, SchedCandidate &TryCand,
+  virtual void tryCandidate(SchedCandidate &Cand, SchedCandidate &TryCand,
                             SchedBoundary *Zone) const;
 
   SUnit *pickNodeBidirectional(bool &IsTopNode);
@@ -1075,7 +1064,7 @@ public:
   }
 
 protected:
-  virtual bool tryCandidate(SchedCandidate &Cand, SchedCandidate &TryCand);
+  virtual void tryCandidate(SchedCandidate &Cand, SchedCandidate &TryCand);
 
   void pickNodeFromQueue(SchedCandidate &Cand);
 };

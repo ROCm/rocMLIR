@@ -27,7 +27,6 @@
 #include "llvm/Object/SymbolSize.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/DynamicLibrary.h"
-#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MSVCErrorWorkarounds.h"
 #include "llvm/Support/Memory.h"
@@ -44,11 +43,9 @@
 using namespace llvm;
 using namespace llvm::object;
 
-static cl::OptionCategory RTDyldCategory("RTDyld Options");
-
-static cl::list<std::string> InputFileList(cl::Positional, cl::ZeroOrMore,
-                                           cl::desc("<input files>"),
-                                           cl::cat(RTDyldCategory));
+static cl::list<std::string>
+InputFileList(cl::Positional, cl::ZeroOrMore,
+              cl::desc("<input files>"));
 
 enum ActionType {
   AC_Execute,
@@ -58,93 +55,94 @@ enum ActionType {
   AC_Verify
 };
 
-static cl::opt<ActionType> Action(
-    cl::desc("Action to perform:"), cl::init(AC_Execute),
-    cl::values(
-        clEnumValN(AC_Execute, "execute",
-                   "Load, link, and execute the inputs."),
-        clEnumValN(AC_PrintLineInfo, "printline",
-                   "Load, link, and print line information for each function."),
-        clEnumValN(AC_PrintDebugLineInfo, "printdebugline",
-                   "Load, link, and print line information for each function "
-                   "using the debug object"),
-        clEnumValN(AC_PrintObjectLineInfo, "printobjline",
-                   "Like -printlineinfo but does not load the object first"),
-        clEnumValN(AC_Verify, "verify",
-                   "Load, link and verify the resulting memory image.")),
-    cl::cat(RTDyldCategory));
+static cl::opt<ActionType>
+Action(cl::desc("Action to perform:"),
+       cl::init(AC_Execute),
+       cl::values(clEnumValN(AC_Execute, "execute",
+                             "Load, link, and execute the inputs."),
+                  clEnumValN(AC_PrintLineInfo, "printline",
+                             "Load, link, and print line information for each function."),
+                  clEnumValN(AC_PrintDebugLineInfo, "printdebugline",
+                             "Load, link, and print line information for each function using the debug object"),
+                  clEnumValN(AC_PrintObjectLineInfo, "printobjline",
+                             "Like -printlineinfo but does not load the object first"),
+                  clEnumValN(AC_Verify, "verify",
+                             "Load, link and verify the resulting memory image.")));
 
 static cl::opt<std::string>
-    EntryPoint("entry", cl::desc("Function to call as entry point."),
-               cl::init("_main"), cl::cat(RTDyldCategory));
+EntryPoint("entry",
+           cl::desc("Function to call as entry point."),
+           cl::init("_main"));
 
-static cl::list<std::string> Dylibs("dylib", cl::desc("Add library."),
-                                    cl::ZeroOrMore, cl::cat(RTDyldCategory));
+static cl::list<std::string>
+Dylibs("dylib",
+       cl::desc("Add library."),
+       cl::ZeroOrMore);
 
 static cl::list<std::string> InputArgv("args", cl::Positional,
                                        cl::desc("<program arguments>..."),
-                                       cl::ZeroOrMore, cl::PositionalEatsArgs,
-                                       cl::cat(RTDyldCategory));
+                                       cl::ZeroOrMore, cl::PositionalEatsArgs);
 
 static cl::opt<std::string>
-    TripleName("triple", cl::desc("Target triple for disassembler"),
-               cl::cat(RTDyldCategory));
+TripleName("triple", cl::desc("Target triple for disassembler"));
 
 static cl::opt<std::string>
-    MCPU("mcpu",
-         cl::desc("Target a specific cpu type (-mcpu=help for details)"),
-         cl::value_desc("cpu-name"), cl::init(""), cl::cat(RTDyldCategory));
+MCPU("mcpu",
+     cl::desc("Target a specific cpu type (-mcpu=help for details)"),
+     cl::value_desc("cpu-name"),
+     cl::init(""));
 
 static cl::list<std::string>
-    CheckFiles("check",
-               cl::desc("File containing RuntimeDyld verifier checks."),
-               cl::ZeroOrMore, cl::cat(RTDyldCategory));
+CheckFiles("check",
+           cl::desc("File containing RuntimeDyld verifier checks."),
+           cl::ZeroOrMore);
 
 static cl::opt<uint64_t>
     PreallocMemory("preallocate",
                    cl::desc("Allocate memory upfront rather than on-demand"),
-                   cl::init(0), cl::cat(RTDyldCategory));
+                   cl::init(0));
 
 static cl::opt<uint64_t> TargetAddrStart(
     "target-addr-start",
     cl::desc("For -verify only: start of phony target address "
              "range."),
     cl::init(4096), // Start at "page 1" - no allocating at "null".
-    cl::Hidden, cl::cat(RTDyldCategory));
+    cl::Hidden);
 
 static cl::opt<uint64_t> TargetAddrEnd(
     "target-addr-end",
     cl::desc("For -verify only: end of phony target address range."),
-    cl::init(~0ULL), cl::Hidden, cl::cat(RTDyldCategory));
+    cl::init(~0ULL), cl::Hidden);
 
 static cl::opt<uint64_t> TargetSectionSep(
     "target-section-sep",
     cl::desc("For -verify only: Separation between sections in "
              "phony target address space."),
-    cl::init(0), cl::Hidden, cl::cat(RTDyldCategory));
+    cl::init(0), cl::Hidden);
 
 static cl::list<std::string>
-    SpecificSectionMappings("map-section",
-                            cl::desc("For -verify only: Map a section to a "
-                                     "specific address."),
-                            cl::ZeroOrMore, cl::Hidden,
-                            cl::cat(RTDyldCategory));
+SpecificSectionMappings("map-section",
+                        cl::desc("For -verify only: Map a section to a "
+                                 "specific address."),
+                        cl::ZeroOrMore,
+                        cl::Hidden);
 
-static cl::list<std::string> DummySymbolMappings(
-    "dummy-extern",
-    cl::desc("For -verify only: Inject a symbol into the extern "
-             "symbol table."),
-    cl::ZeroOrMore, cl::Hidden, cl::cat(RTDyldCategory));
+static cl::list<std::string>
+DummySymbolMappings("dummy-extern",
+                    cl::desc("For -verify only: Inject a symbol into the extern "
+                             "symbol table."),
+                    cl::ZeroOrMore,
+                    cl::Hidden);
 
-static cl::opt<bool> PrintAllocationRequests(
-    "print-alloc-requests",
-    cl::desc("Print allocation requests made to the memory "
-             "manager by RuntimeDyld"),
-    cl::Hidden, cl::cat(RTDyldCategory));
+static cl::opt<bool>
+PrintAllocationRequests("print-alloc-requests",
+                        cl::desc("Print allocation requests made to the memory "
+                                 "manager by RuntimeDyld"),
+                        cl::Hidden);
 
 static cl::opt<bool> ShowTimes("show-times",
                                cl::desc("Show times for llvm-rtdyld phases"),
-                               cl::init(false), cl::cat(RTDyldCategory));
+                               cl::init(false));
 
 ExitOnError ExitOnErr;
 
@@ -206,9 +204,6 @@ public:
   uint8_t *allocateDataSection(uintptr_t Size, unsigned Alignment,
                                unsigned SectionID, StringRef SectionName,
                                bool IsReadOnly) override;
-  TrivialMemoryManager::TLSSection
-  allocateTLSSection(uintptr_t Size, unsigned Alignment, unsigned SectionID,
-                     StringRef SectionName) override;
 
   /// If non null, records subsequent Name -> SectionID mappings.
   void setSectionIDsMap(SectionIDMap *SecIDMap) {
@@ -285,9 +280,6 @@ private:
   uintptr_t SlabSize = 0;
   uintptr_t CurrentSlabOffset = 0;
   SectionIDMap *SecIDMap = nullptr;
-#if defined(__x86_64__) && defined(__ELF__)
-  unsigned UsedTLSStorage = 0;
-#endif
 };
 
 uint8_t *TrivialMemoryManager::allocateCodeSection(uintptr_t Size,
@@ -343,46 +335,6 @@ uint8_t *TrivialMemoryManager::allocateDataSection(uintptr_t Size,
     report_fatal_error("MemoryManager allocation failed: " + EC.message());
   DataMemory.push_back(SectionInfo(SectionName, MB, SectionID));
   return (uint8_t*)MB.base();
-}
-
-// In case the execution needs TLS storage, we define a very small TLS memory
-// area here that will be used in allocateTLSSection().
-#if defined(__x86_64__) && defined(__ELF__)
-extern "C" {
-alignas(16) __attribute__((visibility("hidden"), tls_model("initial-exec"),
-                           used)) thread_local char LLVMRTDyldTLSSpace[16];
-}
-#endif
-
-TrivialMemoryManager::TLSSection
-TrivialMemoryManager::allocateTLSSection(uintptr_t Size, unsigned Alignment,
-                                         unsigned SectionID,
-                                         StringRef SectionName) {
-#if defined(__x86_64__) && defined(__ELF__)
-  if (Size + UsedTLSStorage > sizeof(LLVMRTDyldTLSSpace)) {
-    return {};
-  }
-
-  // Get the offset of the TLSSpace in the TLS block by using a tpoff
-  // relocation here.
-  int64_t TLSOffset;
-  asm("leaq LLVMRTDyldTLSSpace@tpoff, %0" : "=r"(TLSOffset));
-
-  TLSSection Section;
-  // We use the storage directly as the initialization image. This means that
-  // when a new thread is spawned after this allocation, it will not be
-  // initialized correctly. This means, llvm-rtdyld will only support TLS in a
-  // single thread.
-  Section.InitializationImage =
-      reinterpret_cast<uint8_t *>(LLVMRTDyldTLSSpace + UsedTLSStorage);
-  Section.Offset = TLSOffset + UsedTLSStorage;
-
-  UsedTLSStorage += Size;
-
-  return Section;
-#else
-  return {};
-#endif
 }
 
 static const char *ProgramName;
@@ -459,9 +411,8 @@ static int printLineInfoForInput(bool LoadObjects, bool UseDebugObj) {
       }
     }
 
-    std::unique_ptr<DIContext> Context = DWARFContext::create(
-        *SymbolObj, DWARFContext::ProcessDebugRelocations::Process,
-        LoadedObjInfo.get());
+    std::unique_ptr<DIContext> Context =
+        DWARFContext::create(*SymbolObj, LoadedObjInfo.get());
 
     std::vector<std::pair<SymbolRef, uint64_t>> SymAddr =
         object::computeSymbolSizes(*SymbolObj);
@@ -805,7 +756,7 @@ static int linkAndVerify() {
   if (!MAI)
     ErrorAndExit("Unable to create target asm info!");
 
-  MCContext Ctx(Triple(TripleName), MAI.get(), MRI.get(), STI.get());
+  MCContext Ctx(MAI.get(), MRI.get(), nullptr);
 
   std::unique_ptr<MCDisassembler> Disassembler(
     TheTarget->createMCDisassembler(*STI, Ctx));
@@ -889,7 +840,7 @@ static int linkAndVerify() {
         char *CSymAddr = static_cast<char *>(SymAddr);
         StringRef SecContent = Dyld.getSectionContent(SectionID);
         uint64_t SymSize = SecContent.size() - (CSymAddr - SecContent.data());
-        SymInfo.setContent(ArrayRef<char>(CSymAddr, SymSize));
+        SymInfo.setContent(StringRef(CSymAddr, SymSize));
       }
     }
     return SymInfo;
@@ -916,8 +867,7 @@ static int linkAndVerify() {
       return SectionID.takeError();
     RuntimeDyldChecker::MemoryRegionInfo SecInfo;
     SecInfo.setTargetAddress(Dyld.getSectionLoadAddress(*SectionID));
-    StringRef SecContent = Dyld.getSectionContent(*SectionID);
-    SecInfo.setContent(ArrayRef<char>(SecContent.data(), SecContent.size()));
+    SecInfo.setContent(Dyld.getSectionContent(*SectionID));
     return SecInfo;
   };
 
@@ -936,10 +886,8 @@ static int linkAndVerify() {
     RuntimeDyldChecker::MemoryRegionInfo StubMemInfo;
     StubMemInfo.setTargetAddress(Dyld.getSectionLoadAddress(SI.SectionID) +
                                  SI.Offset);
-    StringRef SecContent =
-        Dyld.getSectionContent(SI.SectionID).substr(SI.Offset);
     StubMemInfo.setContent(
-        ArrayRef<char>(SecContent.data(), SecContent.size()));
+        Dyld.getSectionContent(SI.SectionID).substr(SI.Offset));
     return StubMemInfo;
   };
 
@@ -1014,7 +962,6 @@ int main(int argc, char **argv) {
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllDisassemblers();
 
-  cl::HideUnrelatedOptions({&RTDyldCategory, &getColorCategory()});
   cl::ParseCommandLineOptions(argc, argv, "llvm MC-JIT tool\n");
 
   ExitOnErr.setBanner(std::string(argv[0]) + ": ");

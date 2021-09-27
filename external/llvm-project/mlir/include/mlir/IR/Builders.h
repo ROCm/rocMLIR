@@ -10,7 +10,6 @@
 #define MLIR_IR_BUILDERS_H
 
 #include "mlir/IR/OpDefinition.h"
-#include "llvm/Support/Compiler.h"
 
 namespace mlir {
 
@@ -53,10 +52,12 @@ public:
 
   MLIRContext *getContext() const { return context; }
 
-  Identifier getIdentifier(const Twine &str);
+  Identifier getIdentifier(StringRef str);
 
   // Locations.
   Location getUnknownLoc();
+  Location getFileLineColLoc(Identifier filename, unsigned line,
+                             unsigned column);
   Location getFusedLoc(ArrayRef<Location> locs,
                        Attribute metadata = Attribute());
 
@@ -71,7 +72,6 @@ public:
   IndexType getIndexType();
 
   IntegerType getI1Type();
-  IntegerType getI8Type();
   IntegerType getI32Type();
   IntegerType getI64Type();
   IntegerType getIntegerType(unsigned width);
@@ -81,8 +81,7 @@ public:
   NoneType getNoneType();
 
   /// Get or construct an instance of the type 'ty' with provided arguments.
-  template <typename Ty, typename... Args>
-  Ty getType(Args... args) {
+  template <typename Ty, typename... Args> Ty getType(Args... args) {
     return Ty::get(context, args...);
   }
 
@@ -96,8 +95,12 @@ public:
   IntegerAttr getIntegerAttr(Type type, const APInt &value);
   FloatAttr getFloatAttr(Type type, double value);
   FloatAttr getFloatAttr(Type type, const APFloat &value);
-  StringAttr getStringAttr(const Twine &bytes);
+  StringAttr getStringAttr(StringRef bytes);
   ArrayAttr getArrayAttr(ArrayRef<Attribute> value);
+  FlatSymbolRefAttr getSymbolRefAttr(Operation *value);
+  FlatSymbolRefAttr getSymbolRefAttr(StringRef value);
+  SymbolRefAttr getSymbolRefAttr(StringRef value,
+                                 ArrayRef<FlatSymbolRefAttr> nestedReferences);
 
   // Returns a 0-valued attribute of the given `type`. This function only
   // supports boolean, integer, and 16-/32-/64-bit float types, and vector or
@@ -123,7 +126,6 @@ public:
   DenseIntElementsAttr getBoolVectorAttr(ArrayRef<bool> values);
   DenseIntElementsAttr getI32VectorAttr(ArrayRef<int32_t> values);
   DenseIntElementsAttr getI64VectorAttr(ArrayRef<int64_t> values);
-  DenseIntElementsAttr getIndexVectorAttr(ArrayRef<int64_t> values);
 
   /// Tensor-typed DenseIntElementsAttr getters. `values` can be empty.
   /// These are generally preferable for representing general lists of integers
@@ -371,13 +373,11 @@ public:
   /// end of it. The block is inserted at the provided insertion point of
   /// 'parent'.
   Block *createBlock(Region *parent, Region::iterator insertPt = {},
-                     TypeRange argTypes = llvm::None,
-                     ArrayRef<Location> locs = {});
+                     TypeRange argTypes = llvm::None);
 
   /// Add new block with 'argTypes' arguments and set the insertion point to the
   /// end of it. The block is placed before 'insertBefore'.
-  Block *createBlock(Block *insertBefore, TypeRange argTypes = llvm::None,
-                     ArrayRef<Location> locs = {});
+  Block *createBlock(Block *insertBefore, TypeRange argTypes = llvm::None);
 
   //===--------------------------------------------------------------------===//
   // Operation Creation
@@ -389,24 +389,14 @@ public:
   /// Creates an operation given the fields represented as an OperationState.
   Operation *createOperation(const OperationState &state);
 
-private:
-  /// Helper for sanity checking preconditions for create* methods below.
-  void checkHasAbstractOperation(const OperationName &name) {
-    if (LLVM_UNLIKELY(!name.getAbstractOperation()))
-      llvm::report_fatal_error(
-          "Building op `" + name.getStringRef().str() +
-          "` but it isn't registered in this MLIRContext: the dialect may not "
-          "be loaded or this operation isn't registered by the dialect. See "
-          "also https://mlir.llvm.org/getting_started/Faq/"
-          "#registered-loaded-dependent-whats-up-with-dialects-management");
-  }
-
-public:
   /// Create an operation of specific op type at the current insertion point.
   template <typename OpTy, typename... Args>
-  OpTy create(Location location, Args &&...args) {
+  OpTy create(Location location, Args &&... args) {
     OperationState state(location, OpTy::getOperationName());
-    checkHasAbstractOperation(state.name);
+    if (!state.name.getAbstractOperation())
+      llvm::report_fatal_error("Building op `" +
+                               state.name.getStringRef().str() +
+                               "` but it isn't registered in this MLIRContext");
     OpTy::build(*this, state, std::forward<Args>(args)...);
     auto *op = createOperation(state);
     auto result = dyn_cast<OpTy>(op);
@@ -419,11 +409,14 @@ public:
   /// the results after folding the operation.
   template <typename OpTy, typename... Args>
   void createOrFold(SmallVectorImpl<Value> &results, Location location,
-                    Args &&...args) {
+                    Args &&... args) {
     // Create the operation without using 'createOperation' as we don't want to
     // insert it yet.
     OperationState state(location, OpTy::getOperationName());
-    checkHasAbstractOperation(state.name);
+    if (!state.name.getAbstractOperation())
+      llvm::report_fatal_error("Building op `" +
+                               state.name.getStringRef().str() +
+                               "` but it isn't registered in this MLIRContext");
     OpTy::build(*this, state, std::forward<Args>(args)...);
     Operation *op = Operation::create(state);
 
@@ -438,7 +431,7 @@ public:
   template <typename OpTy, typename... Args>
   typename std::enable_if<OpTy::template hasTrait<OpTrait::OneResult>(),
                           Value>::type
-  createOrFold(Location location, Args &&...args) {
+  createOrFold(Location location, Args &&... args) {
     SmallVector<Value, 1> results;
     createOrFold<OpTy>(results, location, std::forward<Args>(args)...);
     return results.front();
@@ -448,7 +441,7 @@ public:
   template <typename OpTy, typename... Args>
   typename std::enable_if<OpTy::template hasTrait<OpTrait::ZeroResult>(),
                           OpTy>::type
-  createOrFold(Location location, Args &&...args) {
+  createOrFold(Location location, Args &&... args) {
     auto op = create<OpTy>(location, std::forward<Args>(args)...);
     SmallVector<Value, 0> unused;
     tryFold(op.getOperation(), unused);
@@ -480,8 +473,7 @@ public:
   Operation *cloneWithoutRegions(Operation &op) {
     return insert(op.cloneWithoutRegions());
   }
-  template <typename OpT>
-  OpT cloneWithoutRegions(OpT op) {
+  template <typename OpT> OpT cloneWithoutRegions(OpT op) {
     return cast<OpT>(cloneWithoutRegions(*op.getOperation()));
   }
 

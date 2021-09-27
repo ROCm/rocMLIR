@@ -1,4 +1,3 @@
-// UNSUPPORTED: -zos, -aix
 // Test this without pch.
 // RUN: %clang_cc1 -include %S/objcxx-ivar-class.h -triple %itanium_abi_triple %s -emit-llvm -o - | FileCheck %s
 

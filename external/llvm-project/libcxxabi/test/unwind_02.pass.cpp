@@ -13,7 +13,6 @@
 
 #if defined(__GNUC__)
 #pragma GCC diagnostic ignored "-Wunreachable-code"
-#pragma GCC diagnostic ignored "-Wdeprecated" // dynamic exception specifications are deprecated
 #endif
 
 struct A

@@ -39,7 +39,7 @@ extern int VSNPrintf(char *buff, int buff_length, const char *format,
 
 namespace __scudo {
 
-void dieWithMessage(const char *Format, ...) {
+FORMAT(1, 2) void NORETURN dieWithMessage(const char *Format, ...) {
   static const char ScudoError[] = "Scudo ERROR: ";
   static constexpr uptr PrefixSize = sizeof(ScudoError) - 1;
   // Our messages are tiny, 256 characters is more than enough.

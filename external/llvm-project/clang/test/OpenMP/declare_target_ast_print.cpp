@@ -277,8 +277,4 @@ int main (int argc, char **argv) {
 // CHECK-NEXT: int ts = 1;
 // CHECK-NEXT: #pragma omp end declare target
 
-// Do not expect anything here since the region is empty.
-#pragma omp declare target
-#pragma omp end declare target
-
 #endif

@@ -28,8 +28,7 @@ int main(int, char**)
         typedef C::iterator R;
         typedef double P;
         C c;
-        typename C::const_iterator e = c.end();
-        R r = c.insert(e, P(3.5));
+        R r = c.insert(c.end(), P(3.5));
         assert(c.size() == 1);
         assert(*r == 3.5);
 
@@ -51,8 +50,7 @@ int main(int, char**)
         typedef C::iterator R;
         typedef MoveOnly P;
         C c;
-        typename C::const_iterator e = c.end();
-        R r = c.insert(e, P(3));
+        R r = c.insert(c.end(), P(3));
         assert(c.size() == 1);
         assert(*r == 3);
 
@@ -74,8 +72,7 @@ int main(int, char**)
         typedef C::iterator R;
         typedef double P;
         C c;
-        typename C::const_iterator e = c.end();
-        R r = c.insert(e, P(3.5));
+        R r = c.insert(c.end(), P(3.5));
         assert(c.size() == 1);
         assert(*r == 3.5);
 
@@ -97,8 +94,7 @@ int main(int, char**)
         typedef C::iterator R;
         typedef MoveOnly P;
         C c;
-        typename C::const_iterator e = c.end();
-        R r = c.insert(e, P(3));
+        R r = c.insert(c.end(), P(3));
         assert(c.size() == 1);
         assert(*r == 3);
 

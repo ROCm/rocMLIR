@@ -8,10 +8,8 @@
 #include <sanitizer/hwasan_interface.h>
 
 int main() {
-  void *alloc = malloc(4096);
-
-  // __hwasan_tag_memory expects untagged pointers.
-  char *p = (char *)__hwasan_tag_pointer(alloc, 0);
+  char *p = (char *)mmap(nullptr, 4096, PROT_READ | PROT_WRITE,
+                         MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
   assert(p);
 
   __hwasan_tag_memory(p, 1, 32);
@@ -28,6 +26,4 @@ int main() {
   // CHECK-NEXT:   {{.*}}0: 0
   // CHECK-NEXT:   {{.*}}0: 0
   // CHECK-NEXT:   {{.*}}0: 4
-
-  free(alloc);
 }

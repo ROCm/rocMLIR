@@ -5,8 +5,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#ifndef LLVM_XRAY_FDRRECORDPRODUCER_H
-#define LLVM_XRAY_FDRRECORDPRODUCER_H
+#ifndef LLVM_INCLUDE_LLVM_XRAY_FDRRECORDPRODUCER_H_
+#define LLVM_INCLUDE_LLVM_XRAY_FDRRECORDPRODUCER_H_
 
 #include "llvm/Support/Error.h"
 #include "llvm/XRay/FDRRecords.h"
@@ -47,4 +47,4 @@ public:
 } // namespace xray
 } // namespace llvm
 
-#endif // LLVM_XRAY_FDRRECORDPRODUCER_H
+#endif // LLVM_INCLUDE_LLVM_XRAY_FDRRECORDPRODUCER_H_

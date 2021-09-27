@@ -11,6 +11,7 @@
 #include "Plugins/Process/gdb-remote/ProcessGDBRemoteLog.h"
 #include "lldb/Host/FileSystem.h"
 #include "lldb/Host/Host.h"
+#include "lldb/Host/HostInfo.h"
 #include "lldb/Host/Socket.h"
 #include "lldb/Utility/Log.h"
 #include "lldb/Utility/ReproducerProvider.h"
@@ -34,11 +35,9 @@
 using namespace lldb_private;
 using namespace lldb_private::repro;
 
-SystemInitializerCommon::SystemInitializerCommon(
-    HostInfo::SharedLibraryDirectoryHelper *helper)
-    : m_shlib_dir_helper(helper) {}
+SystemInitializerCommon::SystemInitializerCommon() {}
 
-SystemInitializerCommon::~SystemInitializerCommon() = default;
+SystemInitializerCommon::~SystemInitializerCommon() {}
 
 /// Initialize the FileSystem based on the current reproducer mode.
 static llvm::Error InitializeFileSystem() {
@@ -96,7 +95,7 @@ llvm::Error SystemInitializerCommon::Initialize() {
 #if defined(_WIN32)
   const char *disable_crash_dialog_var = getenv("LLDB_DISABLE_CRASH_DIALOG");
   if (disable_crash_dialog_var &&
-      llvm::StringRef(disable_crash_dialog_var).equals_insensitive("true")) {
+      llvm::StringRef(disable_crash_dialog_var).equals_lower("true")) {
     // This will prevent Windows from displaying a dialog box requiring user
     // interaction when
     // LLDB crashes.  This is mostly useful when automating LLDB, for example
@@ -126,7 +125,7 @@ llvm::Error SystemInitializerCommon::Initialize() {
     return e;
 
   Log::Initialize();
-  HostInfo::Initialize(m_shlib_dir_helper);
+  HostInfo::Initialize();
 
   llvm::Error error = Socket::Initialize();
   if (error)

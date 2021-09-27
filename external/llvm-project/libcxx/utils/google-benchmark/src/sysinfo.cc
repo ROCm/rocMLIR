@@ -29,17 +29,13 @@
 #include <sys/types.h>  // this header must be included before 'sys/sysctl.h' to avoid compilation error on FreeBSD
 #include <unistd.h>
 #if defined BENCHMARK_OS_FREEBSD || defined BENCHMARK_OS_MACOSX || \
-    defined BENCHMARK_OS_NETBSD || defined BENCHMARK_OS_OPENBSD || \
-    defined BENCHMARK_OS_DRAGONFLY
+    defined BENCHMARK_OS_NETBSD || defined BENCHMARK_OS_OPENBSD
 #define BENCHMARK_HAS_SYSCTL
 #include <sys/sysctl.h>
 #endif
 #endif
 #if defined(BENCHMARK_OS_SOLARIS)
 #include <kstat.h>
-#endif
-#if defined(BENCHMARK_OS_QNX)
-#include <sys/syspage.h>
 #endif
 
 #include <algorithm>
@@ -58,7 +54,6 @@
 #include <memory>
 #include <sstream>
 #include <locale>
-#include <utility>
 
 #include "check.h"
 #include "cycleclock.h"
@@ -211,12 +206,9 @@ bool ReadFromFile(std::string const& fname, ArgT* arg) {
   return f.good();
 }
 
-CPUInfo::Scaling CpuScaling(int num_cpus) {
+bool CpuScalingEnabled(int num_cpus) {
   // We don't have a valid CPU count, so don't even bother.
-  if (num_cpus <= 0) return CPUInfo::Scaling::UNKNOWN;
-#ifdef BENCHMARK_OS_QNX
-  return CPUInfo::Scaling::UNKNOWN;
-#endif
+  if (num_cpus <= 0) return false;
 #ifndef BENCHMARK_OS_WINDOWS
   // On Linux, the CPUfreq subsystem exposes CPU information as files on the
   // local file system. If reading the exported files fails, then we may not be
@@ -225,11 +217,10 @@ CPUInfo::Scaling CpuScaling(int num_cpus) {
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     std::string governor_file =
         StrCat("/sys/devices/system/cpu/cpu", cpu, "/cpufreq/scaling_governor");
-    if (ReadFromFile(governor_file, &res) && res != "performance") return CPUInfo::Scaling::ENABLED;
+    if (ReadFromFile(governor_file, &res) && res != "performance") return true;
   }
-  return CPUInfo::Scaling::DISABLED;
 #endif
-  return CPUInfo::Scaling::UNKNOWN;
+  return false;
 }
 
 int CountSetBitsInCPUMap(std::string Val) {
@@ -273,7 +264,7 @@ std::vector<CPUInfo::CacheInfo> GetCacheSizesFromKVFS() {
       else if (f && suffix != "K")
         PrintErrorAndDie("Invalid cache size format: Expected bytes ", suffix);
       else if (suffix == "K")
-        info.size *= 1024;
+        info.size *= 1000;
     }
     if (!ReadFromFile(StrCat(FPath, "type"), &info.type))
       PrintErrorAndDie("Failed to read from file ", FPath, "type");
@@ -365,42 +356,6 @@ std::vector<CPUInfo::CacheInfo> GetCacheSizesWindows() {
   }
   return res;
 }
-#elif BENCHMARK_OS_QNX
-std::vector<CPUInfo::CacheInfo> GetCacheSizesQNX() {
-  std::vector<CPUInfo::CacheInfo> res;
-  struct cacheattr_entry *cache = SYSPAGE_ENTRY(cacheattr);
-  uint32_t const elsize = SYSPAGE_ELEMENT_SIZE(cacheattr);
-  int num = SYSPAGE_ENTRY_SIZE(cacheattr) / elsize ;
-  for(int i = 0; i < num; ++i ) {
-    CPUInfo::CacheInfo info;
-    switch (cache->flags){
-      case CACHE_FLAG_INSTR :
-        info.type = "Instruction";
-        info.level = 1;
-        break;
-      case CACHE_FLAG_DATA :
-        info.type = "Data";
-        info.level = 1;
-        break;
-      case CACHE_FLAG_UNIFIED :
-        info.type = "Unified";
-        info.level = 2;
-        break;
-      case CACHE_FLAG_SHARED :
-        info.type = "Shared";
-        info.level = 3;
-        break;
-      default :
-        continue;
-        break;
-    }
-    info.size = cache->line_size * cache->num_lines;
-    info.num_sharing = 0;
-    res.push_back(std::move(info));
-    cache = SYSPAGE_ARRAY_ADJ_OFFSET(cacheattr, cache, elsize);
-  }
-  return res;
-}
 #endif
 
 std::vector<CPUInfo::CacheInfo> GetCacheSizes() {
@@ -408,8 +363,6 @@ std::vector<CPUInfo::CacheInfo> GetCacheSizes() {
   return GetCacheSizesMacOSX();
 #elif defined(BENCHMARK_OS_WINDOWS)
   return GetCacheSizesWindows();
-#elif defined(BENCHMARK_OS_QNX)
-  return GetCacheSizesQNX();
 #else
   return GetCacheSizesFromKVFS();
 #endif
@@ -434,20 +387,9 @@ std::string GetSystemName() {
 #endif
   return str;
 #else // defined(BENCHMARK_OS_WINDOWS)
-#ifndef HOST_NAME_MAX
-#ifdef BENCHMARK_HAS_SYSCTL // BSD/Mac Doesnt have HOST_NAME_MAX defined
-#define HOST_NAME_MAX 64
-#elif defined(BENCHMARK_OS_NACL)
-#define HOST_NAME_MAX 64
-#elif defined(BENCHMARK_OS_QNX)
-#define HOST_NAME_MAX 154
-#elif defined(BENCHMARK_OS_RTEMS)
-#define HOST_NAME_MAX 256
-#else
-#warning "HOST_NAME_MAX not defined. using 64"
+#ifdef BENCHMARK_OS_MACOSX //Mac Doesnt have HOST_NAME_MAX defined
 #define HOST_NAME_MAX 64
 #endif
-#endif // def HOST_NAME_MAX
   char hostname[HOST_NAME_MAX];
   int retVal = gethostname(hostname, HOST_NAME_MAX);
   if (retVal != 0) return std::string("");
@@ -479,8 +421,6 @@ int GetNumCPUs() {
             strerror(errno));
   }
   return NumCPU;
-#elif defined(BENCHMARK_OS_QNX)
-  return static_cast<int>(_syspage_ptr->num_cpu);
 #else
   int NumCPUs = 0;
   int MaxID = -1;
@@ -530,11 +470,7 @@ int GetNumCPUs() {
   BENCHMARK_UNREACHABLE();
 }
 
-double GetCPUCyclesPerSecond(CPUInfo::Scaling scaling) {
-  // Currently, scaling is only used on linux path here,
-  // suppress diagnostics about it being unused on other paths.
-  (void)scaling;
-
+double GetCPUCyclesPerSecond() {
 #if defined BENCHMARK_OS_LINUX || defined BENCHMARK_OS_CYGWIN
   long freq;
 
@@ -545,15 +481,8 @@ double GetCPUCyclesPerSecond(CPUInfo::Scaling scaling) {
   // cannot always be relied upon. The same reasons apply to /proc/cpuinfo as
   // well.
   if (ReadFromFile("/sys/devices/system/cpu/cpu0/tsc_freq_khz", &freq)
-      // If CPU scaling is disabled, use the the *current* frequency.
-      // Note that we specifically don't want to read cpuinfo_cur_freq,
-      // because it is only readable by root.
-      || (scaling == CPUInfo::Scaling::DISABLED &&
-          ReadFromFile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq",
-                       &freq))
-      // Otherwise, if CPU scaling may be in effect, we want to use
-      // the *maximum* frequency, not whatever CPU speed some random processor
-      // happens to be using now.
+      // If CPU scaling is in effect, we want to use the *maximum* frequency,
+      // not whatever CPU speed some random processor happens to be using now.
       || ReadFromFile("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq",
                       &freq)) {
     // The value is in kHz (as the file name suggests).  For example, on a
@@ -619,8 +548,6 @@ double GetCPUCyclesPerSecond(CPUInfo::Scaling scaling) {
       "machdep.tsc_freq";
 #elif defined BENCHMARK_OS_OPENBSD
       "hw.cpuspeed";
-#elif defined BENCHMARK_OS_DRAGONFLY
-      "hw.tsc_frequency";
 #else
       "hw.cpufrequency";
 #endif
@@ -673,9 +600,6 @@ double GetCPUCyclesPerSecond(CPUInfo::Scaling scaling) {
   double clock_hz = knp->value.ui64;
   kstat_close(kc);
   return clock_hz;
-#elif defined (BENCHMARK_OS_QNX)
-  return static_cast<double>((int64_t)(SYSPAGE_ENTRY(cpuinfo)->speed) *
-                             (int64_t)(1000 * 1000));
 #endif
   // If we've fallen through, attempt to roughly estimate the CPU clock rate.
   const int estimate_time_ms = 1000;
@@ -685,10 +609,9 @@ double GetCPUCyclesPerSecond(CPUInfo::Scaling scaling) {
 }
 
 std::vector<double> GetLoadAvg() {
-#if (defined BENCHMARK_OS_FREEBSD || defined(BENCHMARK_OS_LINUX) ||     \
-     defined BENCHMARK_OS_MACOSX || defined BENCHMARK_OS_NETBSD ||      \
-     defined BENCHMARK_OS_OPENBSD || defined BENCHMARK_OS_DRAGONFLY) && \
-    !defined(__ANDROID__)
+#if defined BENCHMARK_OS_FREEBSD || defined(BENCHMARK_OS_LINUX) || \
+    defined BENCHMARK_OS_MACOSX || defined BENCHMARK_OS_NETBSD ||  \
+    defined BENCHMARK_OS_OPENBSD
   constexpr int kMaxSamples = 3;
   std::vector<double> res(kMaxSamples, 0.0);
   const int nelem = getloadavg(res.data(), kMaxSamples);
@@ -712,10 +635,11 @@ const CPUInfo& CPUInfo::Get() {
 
 CPUInfo::CPUInfo()
     : num_cpus(GetNumCPUs()),
-      scaling(CpuScaling(num_cpus)),
-      cycles_per_second(GetCPUCyclesPerSecond(scaling)),
+      cycles_per_second(GetCPUCyclesPerSecond()),
       caches(GetCacheSizes()),
+      scaling_enabled(CpuScalingEnabled(num_cpus)),
       load_avg(GetLoadAvg()) {}
+
 
 const SystemInfo& SystemInfo::Get() {
   static const SystemInfo* info = new SystemInfo();

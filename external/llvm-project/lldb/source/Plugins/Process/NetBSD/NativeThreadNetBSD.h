@@ -59,9 +59,6 @@ private:
   void SetStoppedByTrace();
   void SetStoppedByExec();
   void SetStoppedByWatchpoint(uint32_t wp_index);
-  void SetStoppedByFork(lldb::pid_t child_pid, lldb::tid_t child_tid);
-  void SetStoppedByVFork(lldb::pid_t child_pid, lldb::tid_t child_tid);
-  void SetStoppedByVForkDone();
   void SetStoppedWithNoReason();
   void SetStopped();
   void SetRunning();

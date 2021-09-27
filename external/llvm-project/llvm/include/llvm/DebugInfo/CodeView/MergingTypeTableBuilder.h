@@ -19,6 +19,7 @@
 #include "llvm/DebugInfo/CodeView/TypeIndex.h"
 #include "llvm/Support/Allocator.h"
 #include <cstdint>
+#include <memory>
 
 namespace llvm {
 namespace codeview {

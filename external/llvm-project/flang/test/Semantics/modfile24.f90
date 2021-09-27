@@ -1,4 +1,4 @@
-! RUN: %python %S/test_modfile.py %s %flang_fc1
+! RUN: %S/test_modfile.sh %s %t %f18
 ! Test declarations with coarray-spec
 
 ! Different ways of declaring the same coarray.

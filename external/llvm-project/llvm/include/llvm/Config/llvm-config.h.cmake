@@ -50,9 +50,6 @@
 /* LLVM name for the native target MC init function, if available */
 #cmakedefine LLVM_NATIVE_TARGETMC LLVMInitialize${LLVM_NATIVE_ARCH}TargetMC
 
-/* LLVM name for the native target MCA init function, if available */
-#cmakedefine LLVM_NATIVE_TARGETMCA LLVMInitialize${LLVM_NATIVE_ARCH}TargetMCA
-
 /* Define if this is Unixish platform */
 #cmakedefine LLVM_ON_UNIX ${LLVM_ON_UNIX}
 
@@ -96,12 +93,5 @@
 
 /* Define to 1 to enable the experimental new pass manager by default */
 #cmakedefine01 LLVM_ENABLE_NEW_PASS_MANAGER
-
-/* Define if the xar_open() function is supported on this platform. */
-#cmakedefine LLVM_HAVE_LIBXAR ${LLVM_HAVE_LIBXAR}
-
-/* Whether Timers signpost passes in Xcode Instruments */
-#cmakedefine01 LLVM_SUPPORT_XCODE_SIGNPOSTS
-
 
 #endif

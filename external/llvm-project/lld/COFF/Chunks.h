@@ -86,8 +86,8 @@ public:
   // can be stored with 32 bits.
   uint32_t getRVA() const { return rva; }
   void setRVA(uint64_t v) {
-    // This may truncate. The writer checks for overflow later.
     rva = (uint32_t)v;
+    assert(rva == v && "RVA truncated");
   }
 
   // Returns readable/writable/executable bits.
@@ -101,6 +101,7 @@ public:
   // chunk has a back pointer to an output section.
   void setOutputSectionIdx(uint16_t o) { osidx = o; }
   uint16_t getOutputSectionIdx() const { return osidx; }
+  OutputSection *getOutputSection() const;
 
   // Windows-specific.
   // Collect all locations that contain absolute addresses for base relocations.
@@ -203,15 +204,6 @@ public:
   ArrayRef<uint8_t> getContents() const;
   void writeTo(uint8_t *buf) const;
 
-  // Defend against unsorted relocations. This may be overly conservative.
-  void sortRelocations();
-
-  // Write and relocate a portion of the section. This is intended to be called
-  // in a loop. Relocations must be sorted first.
-  void writeAndRelocateSubsection(ArrayRef<uint8_t> sec,
-                                  ArrayRef<uint8_t> subsec,
-                                  uint32_t &nextRelocIndex, uint8_t *buf) const;
-
   uint32_t getOutputCharacteristics() const {
     return header->Characteristics & (permMask | typeMask);
   }
@@ -220,7 +212,6 @@ public:
   }
   void getBaserels(std::vector<Baserel> *res);
   bool isCOMDAT() const;
-  void applyRelocation(uint8_t *off, const coff_relocation &rel) const;
   void applyRelX64(uint8_t *off, uint16_t type, OutputSection *os, uint64_t s,
                    uint64_t p) const;
   void applyRelX86(uint8_t *off, uint16_t type, OutputSection *os, uint64_t s,
@@ -292,12 +283,8 @@ public:
 
   // Allow iteration over the associated child chunks for this section.
   llvm::iterator_range<AssociatedIterator> children() const {
-    // Associated sections do not have children. The assocChildren field is
-    // part of the parent's list of children.
-    bool isAssoc = selection == llvm::COFF::IMAGE_COMDAT_SELECT_ASSOCIATIVE;
-    return llvm::make_range(
-        AssociatedIterator(isAssoc ? nullptr : assocChildren),
-        AssociatedIterator(nullptr));
+    return llvm::make_range(AssociatedIterator(assocChildren),
+                            AssociatedIterator(nullptr));
   }
 
   // The section ID this chunk belongs to in its Obj.
@@ -414,7 +401,7 @@ inline StringRef Chunk::getDebugName() const {
 class MergeChunk : public NonSectionChunk {
 public:
   MergeChunk(uint32_t alignment);
-  static void addSection(COFFLinkerContext &ctx, SectionChunk *c);
+  static void addSection(SectionChunk *c);
   void finalizeContents();
   void assignSubsectionRVAs();
 
@@ -423,6 +410,7 @@ public:
   size_t getSize() const override;
   void writeTo(uint8_t *buf) const override;
 
+  static MergeChunk *instances[Log2MaxSectionAlignment + 1];
   std::vector<SectionChunk *> sections;
 
 private:
@@ -580,17 +568,6 @@ class RVATableChunk : public NonSectionChunk {
 public:
   explicit RVATableChunk(SymbolRVASet s) : syms(std::move(s)) {}
   size_t getSize() const override { return syms.size() * 4; }
-  void writeTo(uint8_t *buf) const override;
-
-private:
-  SymbolRVASet syms;
-};
-
-// Table which contains symbol RVAs with flags. Used for /guard:ehcont.
-class RVAFlagTableChunk : public NonSectionChunk {
-public:
-  explicit RVAFlagTableChunk(SymbolRVASet s) : syms(std::move(s)) {}
-  size_t getSize() const override { return syms.size() * 5; }
   void writeTo(uint8_t *buf) const override;
 
 private:

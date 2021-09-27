@@ -27,10 +27,6 @@ namespace {
 /// This pass applies the permutation on the first maximal perfect nest.
 struct TestLoopPermutation
     : public PassWrapper<TestLoopPermutation, FunctionPass> {
-  StringRef getArgument() const final { return PASS_NAME; }
-  StringRef getDescription() const final {
-    return "Tests affine loop permutation utility";
-  }
   TestLoopPermutation() = default;
   TestLoopPermutation(const TestLoopPermutation &pass){};
 
@@ -66,6 +62,7 @@ void TestLoopPermutation::runOnFunction() {
 
 namespace mlir {
 void registerTestLoopPermutationPass() {
-  PassRegistration<TestLoopPermutation>();
+  PassRegistration<TestLoopPermutation>(
+      PASS_NAME, "Tests affine loop permutation utility");
 }
 } // namespace mlir

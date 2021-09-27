@@ -69,6 +69,9 @@ PassManager<LazyCallGraph::SCC, CGSCCAnalysisManager, LazyCallGraph &,
 
   PreservedAnalyses PA = PreservedAnalyses::all();
 
+  if (DebugLogging)
+    dbgs() << "Starting CGSCC pass manager run.\n";
+
   // The SCC may be refined while we are running passes over it, so set up
   // a pointer that we can update.
   LazyCallGraph::SCC *C = &InitialC;
@@ -119,6 +122,12 @@ PassManager<LazyCallGraph::SCC, CGSCCAnalysisManager, LazyCallGraph &,
     // Finally, we intersect the final preserved analyses to compute the
     // aggregate preserved set for this pass manager.
     PA.intersect(std::move(PassPA));
+
+    // FIXME: Historically, the pass managers all called the LLVM context's
+    // yield function here. We don't have a generic way to acquire the
+    // context and it isn't yet clear what the right pattern is for yielding
+    // in the new pass manager so it is currently omitted.
+    // ...getContext().yield();
   }
 
   // Before we mark all of *this* SCC's analyses as preserved below, intersect
@@ -132,6 +141,9 @@ PassManager<LazyCallGraph::SCC, CGSCCAnalysisManager, LazyCallGraph &,
   // preserved. We mark this with a set so that we don't need to inspect each
   // one individually.
   PA.preserveSet<AllAnalysesOn<LazyCallGraph::SCC>>();
+
+  if (DebugLogging)
+    dbgs() << "Finished CGSCC pass manager run.\n";
 
   return PA;
 }
@@ -426,13 +438,8 @@ PreservedAnalyses DevirtSCCRepeatedPass::run(LazyCallGraph::SCC &InitialC,
       break;
     }
 
-    // If the CGSCC pass wasn't able to provide a valid updated SCC, the
-    // current SCC may simply need to be skipped if invalid.
-    if (UR.InvalidatedSCCs.count(C)) {
-      LLVM_DEBUG(dbgs() << "Skipping invalidated root or island SCC!\n");
-      break;
-    }
-
+    // Check that we didn't miss any update scenario.
+    assert(!UR.InvalidatedSCCs.count(C) && "Processing an invalid SCC!");
     assert(C->begin() != C->end() && "Cannot have an empty SCC!");
 
     // Check whether any of the handles were devirtualized.
@@ -713,7 +720,7 @@ bool FunctionAnalysisManagerCGSCCProxy::Result::invalidate(
   auto PAC = PA.getChecker<FunctionAnalysisManagerCGSCCProxy>();
   if (!PAC.preserved() && !PAC.preservedSet<AllAnalysesOn<LazyCallGraph::SCC>>()) {
     for (LazyCallGraph::Node &N : C)
-      FAM->invalidate(N.getFunction(), PA);
+      FAM->clear(N.getFunction(), N.getFunction().getName());
 
     return false;
   }
@@ -865,7 +872,8 @@ incorporateNewSCCRange(const SCCRangeT &NewSCCRange, LazyCallGraph &G,
   if (FAM)
     updateNewSCCFunctionAnalyses(*C, G, AM, *FAM);
 
-  for (SCC &NewC : llvm::reverse(llvm::drop_begin(NewSCCRange))) {
+  for (SCC &NewC : llvm::reverse(make_range(std::next(NewSCCRange.begin()),
+                                            NewSCCRange.end()))) {
     assert(C != &NewC && "No need to re-visit the current SCC!");
     assert(OldC != &NewC && "Already handled the original SCC!");
     UR.CWorklist.insert(&NewC);
@@ -973,10 +981,8 @@ static LazyCallGraph::SCC &updateCGAndAnalysisManagerForPass(
     RefSCC &TargetRC = TargetC.getOuterRefSCC();
     (void)TargetRC;
     // TODO: This only allows trivial edges to be added for now.
-#ifdef EXPENSIVE_CHECKS
     assert((RC == &TargetRC ||
            RC->isAncestorOf(TargetRC)) && "New ref edge is not trivial!");
-#endif
     RC->insertTrivialRefEdge(N, *RefTarget);
   }
 
@@ -986,10 +992,8 @@ static LazyCallGraph::SCC &updateCGAndAnalysisManagerForPass(
     RefSCC &TargetRC = TargetC.getOuterRefSCC();
     (void)TargetRC;
     // TODO: This only allows trivial edges to be added for now.
-#ifdef EXPENSIVE_CHECKS
     assert((RC == &TargetRC ||
            RC->isAncestorOf(TargetRC)) && "New call edge is not trivial!");
-#endif
     // Add a trivial ref edge to be promoted later on alongside
     // PromotedRefTargets.
     RC->insertTrivialRefEdge(N, *CallTarget);
@@ -1036,9 +1040,9 @@ static LazyCallGraph::SCC &updateCGAndAnalysisManagerForPass(
     if (&TargetRC == RC)
       return false;
 
-    LLVM_DEBUG(dbgs() << "Deleting outgoing edge from '" << N << "' to '"
-                      << *TargetN << "'\n");
     RC->removeOutgoingEdge(N, *TargetN);
+    LLVM_DEBUG(dbgs() << "Deleting outgoing edge from '" << N << "' to '"
+                      << TargetN << "'\n");
     return true;
   });
 
@@ -1063,7 +1067,8 @@ static LazyCallGraph::SCC &updateCGAndAnalysisManagerForPass(
     // "bottom" we will continue processing in the bottom-up walk.
     assert(NewRefSCCs.front() == RC &&
            "New current RefSCC not first in the returned list!");
-    for (RefSCC *NewRC : llvm::reverse(llvm::drop_begin(NewRefSCCs))) {
+    for (RefSCC *NewRC : llvm::reverse(make_range(std::next(NewRefSCCs.begin()),
+                                                  NewRefSCCs.end()))) {
       assert(NewRC != RC && "Should not encounter the current RefSCC further "
                             "in the postorder list of new RefSCCs.");
       UR.RCWorklist.insert(NewRC);
@@ -1082,10 +1087,8 @@ static LazyCallGraph::SCC &updateCGAndAnalysisManagerForPass(
     // The easy case is when the target RefSCC is not this RefSCC. This is
     // only supported when the target RefSCC is a child of this RefSCC.
     if (&TargetRC != RC) {
-#ifdef EXPENSIVE_CHECKS
       assert(RC->isAncestorOf(TargetRC) &&
              "Cannot potentially form RefSCC cycles here!");
-#endif
       RC->switchOutgoingEdgeToRef(N, *RefTarget);
       LLVM_DEBUG(dbgs() << "Switch outgoing call edge to a ref edge from '" << N
                         << "' to '" << *RefTarget << "'\n");
@@ -1118,10 +1121,8 @@ static LazyCallGraph::SCC &updateCGAndAnalysisManagerForPass(
     // The easy case is when the target RefSCC is not this RefSCC. This is
     // only supported when the target RefSCC is a child of this RefSCC.
     if (&TargetRC != RC) {
-#ifdef EXPENSIVE_CHECKS
       assert(RC->isAncestorOf(TargetRC) &&
              "Cannot potentially form RefSCC cycles here!");
-#endif
       RC->switchOutgoingEdgeToCall(N, *CallTarget);
       LLVM_DEBUG(dbgs() << "Switch outgoing ref edge to a call edge from '" << N
                         << "' to '" << *CallTarget << "'\n");

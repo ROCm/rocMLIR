@@ -75,15 +75,12 @@ void AppleDWARFIndex::GetGlobalVariables(
 }
 
 void AppleDWARFIndex::GetGlobalVariables(
-    DWARFUnit &cu, llvm::function_ref<bool(DWARFDIE die)> callback) {
+    const DWARFUnit &cu, llvm::function_ref<bool(DWARFDIE die)> callback) {
   if (!m_apple_names_up)
     return;
 
-  lldbassert(!cu.GetSymbolFileDWARF().GetDwoNum());
-  const DWARFUnit &non_skeleton_cu = cu.GetNonSkeletonUnit();
   DWARFMappedHash::DIEInfoArray hash_data;
-  m_apple_names_up->AppendAllDIEsInRange(non_skeleton_cu.GetOffset(),
-                                         non_skeleton_cu.GetNextUnitOffset(),
+  m_apple_names_up->AppendAllDIEsInRange(cu.GetOffset(), cu.GetNextUnitOffset(),
                                          hash_data);
   DWARFMappedHash::ExtractDIEArray(hash_data, DIERefCallback(callback));
 }

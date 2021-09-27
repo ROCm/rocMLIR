@@ -11,6 +11,7 @@
 #include "clang/AST/RecordLayout.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include <math.h>
+#include <sstream>
 
 using namespace clang::ast_matchers;
 
@@ -58,11 +59,9 @@ void StructPackAlignCheck::check(const MatchFinder::MatchResult &Result) {
     // For each StructField, record how big it is (in bits).
     // Would be good to use a pair of <offset, size> to advise a better
     // packing order.
-    QualType StructFieldTy = StructField->getType();
-    if (StructFieldTy->isIncompleteType())
-      return;
     unsigned int StructFieldWidth =
-        (unsigned int)Result.Context->getTypeInfo(StructFieldTy.getTypePtr())
+        (unsigned int)Result.Context
+            ->getTypeInfo(StructField->getType().getTypePtr())
             .Width;
     FieldSizes.emplace_back(StructFieldWidth, StructField->getFieldIndex());
     // FIXME: Recommend a reorganization of the struct (sort by StructField
@@ -110,13 +109,15 @@ void StructPackAlignCheck::check(const MatchFinder::MatchResult &Result) {
   AlignedAttr *Attribute = Struct->getAttr<AlignedAttr>();
   std::string NewAlignQuantity = std::to_string((int)NewAlign.getQuantity());
   if (Attribute) {
-    FixIt = FixItHint::CreateReplacement(
-        Attribute->getRange(),
-        (Twine("aligned(") + NewAlignQuantity + ")").str());
+    std::ostringstream FixItString;
+    FixItString << "aligned(" << NewAlignQuantity << ")";
+    FixIt =
+        FixItHint::CreateReplacement(Attribute->getRange(), FixItString.str());
   } else {
-    FixIt = FixItHint::CreateInsertion(
-        Struct->getEndLoc().getLocWithOffset(1),
-        (Twine(" __attribute__((aligned(") + NewAlignQuantity + ")))").str());
+    std::ostringstream FixItString;
+    FixItString << " __attribute__((aligned(" << NewAlignQuantity << ")))";
+    FixIt = FixItHint::CreateInsertion(Struct->getEndLoc().getLocWithOffset(1),
+                                       FixItString.str());
   }
 
   // And suggest the minimum power-of-two alignment for the struct as a whole

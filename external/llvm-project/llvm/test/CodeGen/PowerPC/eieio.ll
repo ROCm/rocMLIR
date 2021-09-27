@@ -4,9 +4,7 @@
 
 define void @eieio_test() {
 ; CHECK-LABEL: @eieio_test
-; CHECK: ori r2, r2, 0
-; CHECK-NEXT: ori r2, r2, 0
-; CHECK-NEXT: eieio
+; CHECK: eieio
 ; CHECK-NEXT: blr
 
 entry:

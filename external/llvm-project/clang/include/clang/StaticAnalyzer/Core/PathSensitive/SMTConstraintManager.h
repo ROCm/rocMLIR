@@ -146,7 +146,7 @@ public:
       Solver->addConstraint(NotExp);
 
       Optional<bool> isNotSat = Solver->check();
-      if (!isNotSat.hasValue() || isNotSat.getValue())
+      if (!isSat.hasValue() || isNotSat.getValue())
         return nullptr;
 
       // This is the only solution, store it

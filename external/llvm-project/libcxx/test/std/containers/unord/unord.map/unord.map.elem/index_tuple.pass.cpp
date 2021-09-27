@@ -16,19 +16,24 @@
 
 // mapped_type& operator[](const key_type& k);
 
-// https://llvm.org/PR16542
+// https://bugs.llvm.org/show_bug.cgi?id=16542
 
-#include <cstddef>
-#include <tuple>
 #include <unordered_map>
+#include <tuple>
 
-struct my_hash {
-    std::size_t operator()(const std::tuple<int, int>&) const { return 0; }
+#include "test_macros.h"
+
+using namespace std;
+
+struct my_hash
+{
+    size_t operator()(const tuple<int,int>&) const {return 0;}
 };
 
-int main(int, char**) {
-    std::unordered_map<std::tuple<int, int>, std::size_t, my_hash> m;
-    m[std::make_tuple(2, 3)] = 7;
+int main(int, char**)
+{
+    unordered_map<tuple<int,int>, size_t, my_hash> m;
+    m[make_tuple(2,3)]=7;
 
-    return 0;
+  return 0;
 }

@@ -127,7 +127,9 @@ BasicBlock *llvm::InsertPreheaderForLoop(Loop *L, DominatorTree *DT,
 
   // Compute the set of predecessors of the loop that are not in the loop.
   SmallVector<BasicBlock*, 8> OutsideBlocks;
-  for (BasicBlock *P : predecessors(Header)) {
+  for (pred_iterator PI = pred_begin(Header), PE = pred_end(Header);
+       PI != PE; ++PI) {
+    BasicBlock *P = *PI;
     if (!L->contains(P)) {         // Coming in from outside the loop?
       // If the loop is branched to from an indirect terminator, we won't
       // be able to fully transform the loop, because it prohibits
@@ -379,7 +381,9 @@ static BasicBlock *insertUniqueBackedgeBlock(Loop *L, BasicBlock *Preheader,
 
   // Figure out which basic blocks contain back-edges to the loop header.
   std::vector<BasicBlock*> BackedgeBlocks;
-  for (BasicBlock *P : predecessors(Header)) {
+  for (pred_iterator I = pred_begin(Header), E = pred_end(Header); I != E; ++I){
+    BasicBlock *P = *I;
+
     // Indirect edges cannot be split, so we must fail if we find one.
     if (P->getTerminator()->isIndirectTerminator())
       return nullptr;
@@ -501,9 +505,12 @@ ReprocessLoop:
     if (*BB == L->getHeader()) continue;
 
     SmallPtrSet<BasicBlock*, 4> BadPreds;
-    for (BasicBlock *P : predecessors(*BB))
+    for (pred_iterator PI = pred_begin(*BB),
+         PE = pred_end(*BB); PI != PE; ++PI) {
+      BasicBlock *P = *PI;
       if (!L->contains(P))
         BadPreds.insert(P);
+    }
 
     // Delete each unique out-of-loop (and thus dead) predecessor.
     for (BasicBlock *P : BadPreds) {
@@ -513,7 +520,7 @@ ReprocessLoop:
 
       // Zap the dead pred's terminator and replace it with unreachable.
       Instruction *TI = P->getTerminator();
-      changeToUnreachable(TI, PreserveLCSSA,
+      changeToUnreachable(TI, /*UseLLVMTrap=*/false, PreserveLCSSA,
                           /*DTU=*/nullptr, MSSAU);
       Changed = true;
     }
@@ -779,7 +786,8 @@ namespace {
       AU.addPreserved<DependenceAnalysisWrapperPass>();
       AU.addPreservedID(BreakCriticalEdgesID);  // No critical edges added.
       AU.addPreserved<BranchProbabilityInfoWrapperPass>();
-      AU.addPreserved<MemorySSAWrapperPass>();
+      if (EnableMSSALoopDependency)
+        AU.addPreserved<MemorySSAWrapperPass>();
     }
 
     /// verifyAnalysis() - Verify LoopSimplifyForm's guarantees.
@@ -813,10 +821,12 @@ bool LoopSimplify::runOnFunction(Function &F) {
       &getAnalysis<AssumptionCacheTracker>().getAssumptionCache(F);
   MemorySSA *MSSA = nullptr;
   std::unique_ptr<MemorySSAUpdater> MSSAU;
-  auto *MSSAAnalysis = getAnalysisIfAvailable<MemorySSAWrapperPass>();
-  if (MSSAAnalysis) {
-    MSSA = &MSSAAnalysis->getMSSA();
-    MSSAU = std::make_unique<MemorySSAUpdater>(MSSA);
+  if (EnableMSSALoopDependency) {
+    auto *MSSAAnalysis = getAnalysisIfAvailable<MemorySSAWrapperPass>();
+    if (MSSAAnalysis) {
+      MSSA = &MSSAAnalysis->getMSSA();
+      MSSAU = std::make_unique<MemorySSAUpdater>(MSSA);
+    }
   }
 
   bool PreserveLCSSA = mustPreserveAnalysisID(LCSSAID);
@@ -862,6 +872,9 @@ PreservedAnalyses LoopSimplifyPass::run(Function &F,
   PreservedAnalyses PA;
   PA.preserve<DominatorTreeAnalysis>();
   PA.preserve<LoopAnalysis>();
+  PA.preserve<BasicAA>();
+  PA.preserve<GlobalsAA>();
+  PA.preserve<SCEVAA>();
   PA.preserve<ScalarEvolutionAnalysis>();
   PA.preserve<DependenceAnalysis>();
   if (MSSAAnalysis)
@@ -891,8 +904,9 @@ static void verifyLoop(Loop *L) {
   // Indirectbr can interfere with preheader and unique backedge insertion.
   if (!L->getLoopPreheader() || !L->getLoopLatch()) {
     bool HasIndBrPred = false;
-    for (BasicBlock *Pred : predecessors(L->getHeader()))
-      if (isa<IndirectBrInst>(Pred->getTerminator())) {
+    for (pred_iterator PI = pred_begin(L->getHeader()),
+         PE = pred_end(L->getHeader()); PI != PE; ++PI)
+      if (isa<IndirectBrInst>((*PI)->getTerminator())) {
         HasIndBrPred = true;
         break;
       }

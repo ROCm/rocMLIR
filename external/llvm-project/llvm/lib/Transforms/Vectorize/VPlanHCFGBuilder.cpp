@@ -94,15 +94,13 @@ void PlainCFGBuilder::fixPhiNodes() {
   for (auto *Phi : PhisToFix) {
     assert(IRDef2VPValue.count(Phi) && "Missing VPInstruction for PHINode.");
     VPValue *VPVal = IRDef2VPValue[Phi];
-    assert(isa<VPWidenPHIRecipe>(VPVal) &&
-           "Expected WidenPHIRecipe for phi node.");
-    auto *VPPhi = cast<VPWidenPHIRecipe>(VPVal);
+    assert(isa<VPInstruction>(VPVal) && "Expected VPInstruction for phi node.");
+    auto *VPPhi = cast<VPInstruction>(VPVal);
     assert(VPPhi->getNumOperands() == 0 &&
            "Expected VPInstruction with no operands.");
 
-    for (unsigned I = 0; I != Phi->getNumOperands(); ++I)
-      VPPhi->addIncoming(getOrCreateVPOperand(Phi->getIncomingValue(I)),
-                         BB2VPBB[Phi->getIncomingBlock(I)]);
+    for (Value *Op : Phi->operands())
+      VPPhi->addOperand(getOrCreateVPOperand(Op));
   }
 }
 
@@ -212,13 +210,13 @@ void PlainCFGBuilder::createVPInstructionsForVPBB(VPBasicBlock *VPBB,
       continue;
     }
 
-    VPValue *NewVPV;
+    VPInstruction *NewVPInst;
     if (auto *Phi = dyn_cast<PHINode>(Inst)) {
       // Phi node's operands may have not been visited at this point. We create
       // an empty VPInstruction that we will fix once the whole plain CFG has
       // been built.
-      NewVPV = new VPWidenPHIRecipe(Phi);
-      VPBB->appendRecipe(cast<VPWidenPHIRecipe>(NewVPV));
+      NewVPInst = cast<VPInstruction>(VPIRBuilder.createNaryOp(
+          Inst->getOpcode(), {} /*No operands*/, Inst));
       PhisToFix.push_back(Phi);
     } else {
       // Translate LLVM-IR operands into VPValue operands and set them in the
@@ -229,11 +227,11 @@ void PlainCFGBuilder::createVPInstructionsForVPBB(VPBasicBlock *VPBB,
 
       // Build VPInstruction for any arbitraty Instruction without specific
       // representation in VPlan.
-      NewVPV = cast<VPInstruction>(
+      NewVPInst = cast<VPInstruction>(
           VPIRBuilder.createNaryOp(Inst->getOpcode(), VPOperands, Inst));
     }
 
-    IRDef2VPValue[Inst] = NewVPV;
+    IRDef2VPValue[Inst] = NewVPInst;
   }
 }
 
@@ -255,13 +253,7 @@ VPRegionBlock *PlainCFGBuilder::buildPlainCFG() {
   assert((PreheaderBB->getTerminator()->getNumSuccessors() == 1) &&
          "Unexpected loop preheader");
   VPBasicBlock *PreheaderVPBB = getOrCreateVPBB(PreheaderBB);
-  for (auto &I : *PreheaderBB) {
-    if (I.getType()->isVoidTy())
-      continue;
-    VPValue *VPV = new VPValue(&I);
-    Plan.addExternalDef(VPV);
-    IRDef2VPValue[&I] = VPV;
-  }
+  createVPInstructionsForVPBB(PreheaderVPBB, PreheaderBB);
   // Create empty VPBB for Loop H so that we can link PH->H.
   VPBlockBase *HeaderVPBB = getOrCreateVPBB(TheLoop->getHeader());
   // Preheader's predecessors will be set during the loop RPO traversal below.

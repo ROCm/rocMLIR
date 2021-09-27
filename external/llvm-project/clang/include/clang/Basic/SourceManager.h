@@ -465,9 +465,8 @@ static_assert(sizeof(FileInfo) <= sizeof(ExpansionInfo),
 /// SourceManager keeps an array of these objects, and they are uniquely
 /// identified by the FileID datatype.
 class SLocEntry {
-  static constexpr int OffsetBits = 8 * sizeof(SourceLocation::UIntTy) - 1;
-  SourceLocation::UIntTy Offset : OffsetBits;
-  SourceLocation::UIntTy IsExpansion : 1;
+  unsigned Offset : 31;
+  unsigned IsExpansion : 1;
   union {
     FileInfo File;
     ExpansionInfo Expansion;
@@ -476,7 +475,7 @@ class SLocEntry {
 public:
   SLocEntry() : Offset(), IsExpansion(), File() {}
 
-  SourceLocation::UIntTy getOffset() const { return Offset; }
+  unsigned getOffset() const { return Offset; }
 
   bool isExpansion() const { return IsExpansion; }
   bool isFile() const { return !isExpansion(); }
@@ -491,8 +490,8 @@ public:
     return Expansion;
   }
 
-  static SLocEntry get(SourceLocation::UIntTy Offset, const FileInfo &FI) {
-    assert(!(Offset & (1ULL << OffsetBits)) && "Offset is too large");
+  static SLocEntry get(unsigned Offset, const FileInfo &FI) {
+    assert(!(Offset & (1u << 31)) && "Offset is too large");
     SLocEntry E;
     E.Offset = Offset;
     E.IsExpansion = false;
@@ -500,9 +499,8 @@ public:
     return E;
   }
 
-  static SLocEntry get(SourceLocation::UIntTy Offset,
-                       const ExpansionInfo &Expansion) {
-    assert(!(Offset & (1ULL << OffsetBits)) && "Offset is too large");
+  static SLocEntry get(unsigned Offset, const ExpansionInfo &Expansion) {
+    assert(!(Offset & (1u << 31)) && "Offset is too large");
     SLocEntry E;
     E.Offset = Offset;
     E.IsExpansion = true;
@@ -692,18 +690,17 @@ class SourceManager : public RefCountedBase<SourceManager> {
   /// The starting offset of the next local SLocEntry.
   ///
   /// This is LocalSLocEntryTable.back().Offset + the size of that entry.
-  SourceLocation::UIntTy NextLocalOffset;
+  unsigned NextLocalOffset;
 
   /// The starting offset of the latest batch of loaded SLocEntries.
   ///
   /// This is LoadedSLocEntryTable.back().Offset, except that that entry might
   /// not have been loaded, so that value would be unknown.
-  SourceLocation::UIntTy CurrentLoadedOffset;
+  unsigned CurrentLoadedOffset;
 
-  /// The highest possible offset is 2^32-1 (2^63-1 for 64-bit source
-  /// locations), so CurrentLoadedOffset starts at 2^31 (2^63 resp.).
-  static const SourceLocation::UIntTy MaxLoadedOffset =
-      1ULL << (8 * sizeof(SourceLocation::UIntTy) - 1);
+  /// The highest possible offset is 2^31-1, so CurrentLoadedOffset
+  /// starts at 2^31.
+  static const unsigned MaxLoadedOffset = 1U << 31U;
 
   /// A bitmap that indicates whether the entries of LoadedSLocEntryTable
   /// have already been loaded from the external source.
@@ -868,13 +865,11 @@ public:
   /// This translates NULL into standard input.
   FileID createFileID(const FileEntry *SourceFile, SourceLocation IncludePos,
                       SrcMgr::CharacteristicKind FileCharacter,
-                      int LoadedID = 0,
-                      SourceLocation::UIntTy LoadedOffset = 0);
+                      int LoadedID = 0, unsigned LoadedOffset = 0);
 
   FileID createFileID(FileEntryRef SourceFile, SourceLocation IncludePos,
                       SrcMgr::CharacteristicKind FileCharacter,
-                      int LoadedID = 0,
-                      SourceLocation::UIntTy LoadedOffset = 0);
+                      int LoadedID = 0, unsigned LoadedOffset = 0);
 
   /// Create a new FileID that represents the specified memory buffer.
   ///
@@ -882,7 +877,7 @@ public:
   /// MemoryBuffer, so only pass a MemoryBuffer to this once.
   FileID createFileID(std::unique_ptr<llvm::MemoryBuffer> Buffer,
                       SrcMgr::CharacteristicKind FileCharacter = SrcMgr::C_User,
-                      int LoadedID = 0, SourceLocation::UIntTy LoadedOffset = 0,
+                      int LoadedID = 0, unsigned LoadedOffset = 0,
                       SourceLocation IncludeLoc = SourceLocation());
 
   /// Create a new FileID that represents the specified memory buffer.
@@ -891,7 +886,7 @@ public:
   /// outlive the SourceManager.
   FileID createFileID(const llvm::MemoryBufferRef &Buffer,
                       SrcMgr::CharacteristicKind FileCharacter = SrcMgr::C_User,
-                      int LoadedID = 0, SourceLocation::UIntTy LoadedOffset = 0,
+                      int LoadedID = 0, unsigned LoadedOffset = 0,
                       SourceLocation IncludeLoc = SourceLocation());
 
   /// Get the FileID for \p SourceFile if it exists. Otherwise, create a
@@ -910,11 +905,13 @@ public:
   /// Return a new SourceLocation that encodes the fact
   /// that a token from SpellingLoc should actually be referenced from
   /// ExpansionLoc.
-  SourceLocation
-  createExpansionLoc(SourceLocation Loc, SourceLocation ExpansionLocStart,
-                     SourceLocation ExpansionLocEnd, unsigned TokLength,
-                     bool ExpansionIsTokenRange = true, int LoadedID = 0,
-                     SourceLocation::UIntTy LoadedOffset = 0);
+  SourceLocation createExpansionLoc(SourceLocation Loc,
+                                    SourceLocation ExpansionLocStart,
+                                    SourceLocation ExpansionLocEnd,
+                                    unsigned TokLength,
+                                    bool ExpansionIsTokenRange = true,
+                                    int LoadedID = 0,
+                                    unsigned LoadedOffset = 0);
 
   /// Return a new SourceLocation that encodes that the token starting
   /// at \p TokenStart ends prematurely at \p TokenEnd.
@@ -1101,7 +1098,7 @@ public:
   /// the entry in SLocEntryTable which contains the specified location.
   ///
   FileID getFileID(SourceLocation SpellingLoc) const {
-    SourceLocation::UIntTy SLocOffset = SpellingLoc.getOffset();
+    unsigned SLocOffset = SpellingLoc.getOffset();
 
     // If our one-entry cache covers this offset, just return it.
     if (isOffsetInFileID(LastFileIDLookup, SLocOffset))
@@ -1224,7 +1221,7 @@ public:
     if (!Entry)
       return SourceLocation();
 
-    SourceLocation::UIntTy GlobalOffset = Entry->getOffset() + Offset;
+    unsigned GlobalOffset = Entry->getOffset() + Offset;
     return Entry->isFile() ? SourceLocation::getFileLoc(GlobalOffset)
                            : SourceLocation::getMacroLoc(GlobalOffset);
   }
@@ -1329,17 +1326,17 @@ public:
   ///
   /// If it's true and \p RelativeOffset is non-null, it will be set to the
   /// relative offset of \p Loc inside the chunk.
-  bool
-  isInSLocAddrSpace(SourceLocation Loc, SourceLocation Start, unsigned Length,
-                    SourceLocation::UIntTy *RelativeOffset = nullptr) const {
+  bool isInSLocAddrSpace(SourceLocation Loc,
+                         SourceLocation Start, unsigned Length,
+                         unsigned *RelativeOffset = nullptr) const {
     assert(((Start.getOffset() < NextLocalOffset &&
                Start.getOffset()+Length <= NextLocalOffset) ||
             (Start.getOffset() >= CurrentLoadedOffset &&
                 Start.getOffset()+Length < MaxLoadedOffset)) &&
            "Chunk is not valid SLoc address space");
-    SourceLocation::UIntTy LocOffs = Loc.getOffset();
-    SourceLocation::UIntTy BeginOffs = Start.getOffset();
-    SourceLocation::UIntTy EndOffs = BeginOffs + Length;
+    unsigned LocOffs = Loc.getOffset();
+    unsigned BeginOffs = Start.getOffset();
+    unsigned EndOffs = BeginOffs + Length;
     if (LocOffs >= BeginOffs && LocOffs < EndOffs) {
       if (RelativeOffset)
         *RelativeOffset = LocOffs - BeginOffs;
@@ -1355,8 +1352,8 @@ public:
   /// If it's true and \p RelativeOffset is non-null, it will be set to the
   /// offset of \p RHS relative to \p LHS.
   bool isInSameSLocAddrSpace(SourceLocation LHS, SourceLocation RHS,
-                             SourceLocation::IntTy *RelativeOffset) const {
-    SourceLocation::UIntTy LHSOffs = LHS.getOffset(), RHSOffs = RHS.getOffset();
+                             int *RelativeOffset) const {
+    unsigned LHSOffs = LHS.getOffset(), RHSOffs = RHS.getOffset();
     bool LHSLoaded = LHSOffs >= CurrentLoadedOffset;
     bool RHSLoaded = RHSOffs >= CurrentLoadedOffset;
 
@@ -1520,7 +1517,7 @@ public:
   /// of FileID) to \p relativeOffset.
   bool isInFileID(SourceLocation Loc, FileID FID,
                   unsigned *RelativeOffset = nullptr) const {
-    SourceLocation::UIntTy Offs = Loc.getOffset();
+    unsigned Offs = Loc.getOffset();
     if (isOffsetInFileID(FID, Offs)) {
       if (RelativeOffset)
         *RelativeOffset = Offs - getSLocEntry(FID).getOffset();
@@ -1639,9 +1636,8 @@ public:
   /// offset in the "source location address space".
   ///
   /// Note that we always consider source locations loaded from
-  bool isBeforeInSLocAddrSpace(SourceLocation LHS,
-                               SourceLocation::UIntTy RHS) const {
-    SourceLocation::UIntTy LHSOffset = LHS.getOffset();
+  bool isBeforeInSLocAddrSpace(SourceLocation LHS, unsigned RHS) const {
+    unsigned LHSOffset = LHS.getOffset();
     bool LHSLoaded = LHSOffset >= CurrentLoadedOffset;
     bool RHSLoaded = RHS >= CurrentLoadedOffset;
     if (LHSLoaded == RHSLoaded)
@@ -1703,7 +1699,7 @@ public:
     return getSLocEntryByID(FID.ID, Invalid);
   }
 
-  SourceLocation::UIntTy getNextLocalOffset() const { return NextLocalOffset; }
+  unsigned getNextLocalOffset() const { return NextLocalOffset; }
 
   void setExternalSLocEntrySource(ExternalSLocEntrySource *Source) {
     assert(LoadedSLocEntryTable.empty() &&
@@ -1717,9 +1713,8 @@ public:
   /// NumSLocEntries will be allocated, which occupy a total of TotalSize space
   /// in the global source view. The lowest ID and the base offset of the
   /// entries will be returned.
-  std::pair<int, SourceLocation::UIntTy>
-  AllocateLoadedSLocEntries(unsigned NumSLocEntries,
-                            SourceLocation::UIntTy TotalSize);
+  std::pair<int, unsigned>
+  AllocateLoadedSLocEntries(unsigned NumSLocEntries, unsigned TotalSize);
 
   /// Returns true if \p Loc came from a PCH/Module.
   bool isLoadedSourceLocation(SourceLocation Loc) const {
@@ -1800,15 +1795,14 @@ private:
 
   /// Implements the common elements of storing an expansion info struct into
   /// the SLocEntry table and producing a source location that refers to it.
-  SourceLocation
-  createExpansionLocImpl(const SrcMgr::ExpansionInfo &Expansion,
-                         unsigned TokLength, int LoadedID = 0,
-                         SourceLocation::UIntTy LoadedOffset = 0);
+  SourceLocation createExpansionLocImpl(const SrcMgr::ExpansionInfo &Expansion,
+                                        unsigned TokLength,
+                                        int LoadedID = 0,
+                                        unsigned LoadedOffset = 0);
 
   /// Return true if the specified FileID contains the
   /// specified SourceLocation offset.  This is a very hot method.
-  inline bool isOffsetInFileID(FileID FID,
-                               SourceLocation::UIntTy SLocOffset) const {
+  inline bool isOffsetInFileID(FileID FID, unsigned SLocOffset) const {
     const SrcMgr::SLocEntry &Entry = getSLocEntry(FID);
     // If the entry is after the offset, it can't contain it.
     if (SLocOffset < Entry.getOffset()) return false;
@@ -1842,7 +1836,7 @@ private:
   FileID createFileIDImpl(SrcMgr::ContentCache &File, StringRef Filename,
                           SourceLocation IncludePos,
                           SrcMgr::CharacteristicKind DirCharacter, int LoadedID,
-                          SourceLocation::UIntTy LoadedOffset);
+                          unsigned LoadedOffset);
 
   SrcMgr::ContentCache &getOrCreateContentCache(FileEntryRef SourceFile,
                                                 bool isSystemFile = false);
@@ -1851,9 +1845,9 @@ private:
   SrcMgr::ContentCache &
   createMemBufferContentCache(std::unique_ptr<llvm::MemoryBuffer> Buf);
 
-  FileID getFileIDSlow(SourceLocation::UIntTy SLocOffset) const;
-  FileID getFileIDLocal(SourceLocation::UIntTy SLocOffset) const;
-  FileID getFileIDLoaded(SourceLocation::UIntTy SLocOffset) const;
+  FileID getFileIDSlow(unsigned SLocOffset) const;
+  FileID getFileIDLocal(unsigned SLocOffset) const;
+  FileID getFileIDLoaded(unsigned SLocOffset) const;
 
   SourceLocation getExpansionLocSlowCase(SourceLocation Loc) const;
   SourceLocation getSpellingLocSlowCase(SourceLocation Loc) const;

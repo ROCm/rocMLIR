@@ -53,11 +53,6 @@ struct RISCVMergeBaseOffsetOpt : public MachineFunctionPass {
         MachineFunctionProperties::Property::IsSSA);
   }
 
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.setPreservesCFG();
-    MachineFunctionPass::getAnalysisUsage(AU);
-  }
-
   StringRef getPassName() const override {
     return RISCV_MERGE_BASE_OFFSET_NAME;
   }
@@ -198,7 +193,7 @@ bool RISCVMergeBaseOffsetOpt::detectAndFoldOffset(MachineInstr &HiLUI,
     LLVM_DEBUG(dbgs() << "  Offset Instr: " << Tail);
     foldOffset(HiLUI, LoADDI, Tail, Offset);
     return true;
-  }
+  } break;
   case RISCV::ADD: {
     // The offset is too large to fit in the immediate field of ADDI.
     // This can be in two forms:
@@ -213,7 +208,7 @@ bool RISCVMergeBaseOffsetOpt::detectAndFoldOffset(MachineInstr &HiLUI,
       return false;
     foldOffset(HiLUI, LoADDI, Tail, Offset);
     return true;
-  }
+  } break;
   case RISCV::LB:
   case RISCV::LH:
   case RISCV::LW:
@@ -257,7 +252,7 @@ bool RISCVMergeBaseOffsetOpt::detectAndFoldOffset(MachineInstr &HiLUI,
     Tail.getOperand(1).setReg(HiLUI.getOperand(0).getReg());
     DeadInstrs.insert(&LoADDI);
     return true;
-  }
+  } break;
   }
   return false;
 }
@@ -266,7 +261,6 @@ bool RISCVMergeBaseOffsetOpt::runOnMachineFunction(MachineFunction &Fn) {
   if (skipFunction(Fn.getFunction()))
     return false;
 
-  bool MadeChange = false;
   DeadInstrs.clear();
   MRI = &Fn.getRegInfo();
   for (MachineBasicBlock &MBB : Fn) {
@@ -278,13 +272,13 @@ bool RISCVMergeBaseOffsetOpt::runOnMachineFunction(MachineFunction &Fn) {
       LLVM_DEBUG(dbgs() << "  Found lowered global address with one use: "
                         << *LoADDI->getOperand(2).getGlobal() << "\n");
       // If the use count is only one, merge the offset
-      MadeChange |= detectAndFoldOffset(HiLUI, *LoADDI);
+      detectAndFoldOffset(HiLUI, *LoADDI);
     }
   }
   // Delete dead instructions.
   for (auto *MI : DeadInstrs)
     MI->eraseFromParent();
-  return MadeChange;
+  return true;
 }
 
 /// Returns an instance of the Merge Base Offset Optimization pass.

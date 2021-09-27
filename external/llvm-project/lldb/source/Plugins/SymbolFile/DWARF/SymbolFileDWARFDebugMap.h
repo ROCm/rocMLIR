@@ -97,10 +97,11 @@ public:
   uint32_t ResolveSymbolContext(const lldb_private::Address &so_addr,
                                 lldb::SymbolContextItem resolve_scope,
                                 lldb_private::SymbolContext &sc) override;
-  uint32_t ResolveSymbolContext(
-      const lldb_private::SourceLocationSpec &src_location_spec,
-      lldb::SymbolContextItem resolve_scope,
-      lldb_private::SymbolContextList &sc_list) override;
+  uint32_t
+  ResolveSymbolContext(const lldb_private::FileSpec &file_spec, uint32_t line,
+                       bool check_inlines,
+                       lldb::SymbolContextItem resolve_scope,
+                       lldb_private::SymbolContextList &sc_list) override;
   void
   FindGlobalVariables(lldb_private::ConstString name,
                       const lldb_private::CompilerDeclContext &parent_decl_ctx,
@@ -142,6 +143,8 @@ public:
   // PluginInterface protocol
   lldb_private::ConstString GetPluginName() override;
 
+  uint32_t GetPluginVersion() override;
+
 protected:
   enum { kHaveInitializedOSOs = (1 << 0), kNumFlags };
 
@@ -168,17 +171,18 @@ protected:
     llvm::sys::TimePoint<> oso_mod_time;
     OSOInfoSP oso_sp;
     lldb::CompUnitSP compile_unit_sp;
-    uint32_t first_symbol_index = UINT32_MAX;
-    uint32_t last_symbol_index = UINT32_MAX;
-    uint32_t first_symbol_id = UINT32_MAX;
-    uint32_t last_symbol_id = UINT32_MAX;
+    uint32_t first_symbol_index;
+    uint32_t last_symbol_index;
+    uint32_t first_symbol_id;
+    uint32_t last_symbol_id;
     FileRangeMap file_range_map;
-    bool file_range_map_valid = false;
+    bool file_range_map_valid;
 
     CompileUnitInfo()
         : so_file(), oso_path(), oso_mod_time(), oso_sp(), compile_unit_sp(),
-
-          file_range_map() {}
+          first_symbol_index(UINT32_MAX), last_symbol_index(UINT32_MAX),
+          first_symbol_id(UINT32_MAX), last_symbol_id(UINT32_MAX),
+          file_range_map(), file_range_map_valid(false) {}
 
     const FileRangeMap &GetFileRangeMap(SymbolFileDWARFDebugMap *exe_symfile);
   };
@@ -276,7 +280,8 @@ protected:
   // OSOEntry
   class OSOEntry {
   public:
-    OSOEntry() = default;
+    OSOEntry()
+        : m_exe_sym_idx(UINT32_MAX), m_oso_file_addr(LLDB_INVALID_ADDRESS) {}
 
     OSOEntry(uint32_t exe_sym_idx, lldb::addr_t oso_file_addr)
         : m_exe_sym_idx(exe_sym_idx), m_oso_file_addr(oso_file_addr) {}
@@ -294,8 +299,8 @@ protected:
     }
 
   protected:
-    uint32_t m_exe_sym_idx = UINT32_MAX;
-    lldb::addr_t m_oso_file_addr = LLDB_INVALID_ADDRESS;
+    uint32_t m_exe_sym_idx;
+    lldb::addr_t m_oso_file_addr;
   };
 
   typedef lldb_private::RangeDataVector<lldb::addr_t, lldb::addr_t, OSOEntry>

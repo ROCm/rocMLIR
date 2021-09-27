@@ -17,20 +17,25 @@
 namespace llvm {
 namespace sampleprof {
 
-inline std::string getCallSite(const SampleContextFrame &Callsite) {
-  std::string CallsiteStr = Callsite.CallerName.str();
+// Function name, LineLocation
+typedef std::pair<std::string, LineLocation> FrameLocation;
+
+typedef SmallVector<FrameLocation, 4> FrameLocationStack;
+
+inline std::string getCallSite(const FrameLocation &Callsite) {
+  std::string CallsiteStr = Callsite.first;
   CallsiteStr += ":";
-  CallsiteStr += Twine(Callsite.Callsite.LineOffset).str();
-  if (Callsite.Callsite.Discriminator > 0) {
+  CallsiteStr += Twine(Callsite.second.LineOffset).str();
+  if (Callsite.second.Discriminator > 0) {
     CallsiteStr += ".";
-    CallsiteStr += Twine(Callsite.Callsite.Discriminator).str();
+    CallsiteStr += Twine(Callsite.second.Discriminator).str();
   }
   return CallsiteStr;
 }
 
 // TODO: This operation is expansive. If it ever gets called multiple times we
 // may think of making a class wrapper with internal states for it.
-inline std::string getLocWithContext(const SampleContextFrameVector &Context) {
+inline std::string getLocWithContext(const FrameLocationStack &Context) {
   std::ostringstream OContextStr;
   for (const auto &Callsite : Context) {
     if (OContextStr.str().size())
@@ -43,7 +48,7 @@ inline std::string getLocWithContext(const SampleContextFrameVector &Context) {
 // Reverse call context, i.e., in the order of callee frames to caller frames,
 // is useful during instruction printing or pseudo probe printing.
 inline std::string
-getReversedLocWithContext(const SampleContextFrameVector &Context) {
+getReversedLocWithContext(const FrameLocationStack &Context) {
   std::ostringstream OContextStr;
   for (const auto &Callsite : reverse(Context)) {
     if (OContextStr.str().size())

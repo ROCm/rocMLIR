@@ -36,7 +36,7 @@ GDBRemoteRegisterContext::GDBRemoteRegisterContext(
     : RegisterContext(thread, concrete_frame_idx),
       m_reg_info_sp(std::move(reg_info_sp)), m_reg_valid(), m_reg_data(),
       m_read_all_at_once(read_all_at_once),
-      m_write_all_at_once(write_all_at_once), m_gpacket_cached(false) {
+      m_write_all_at_once(write_all_at_once) {
   // Resize our vector of bools to contain one bool for every register. We will
   // use these boolean values to know when a register value is valid in
   // m_reg_data.
@@ -50,14 +50,13 @@ GDBRemoteRegisterContext::GDBRemoteRegisterContext(
 }
 
 // Destructor
-GDBRemoteRegisterContext::~GDBRemoteRegisterContext() = default;
+GDBRemoteRegisterContext::~GDBRemoteRegisterContext() {}
 
 void GDBRemoteRegisterContext::InvalidateAllRegisters() {
   SetAllRegisterValid(false);
 }
 
 void GDBRemoteRegisterContext::SetAllRegisterValid(bool b) {
-  m_gpacket_cached = b;
   std::vector<bool>::iterator pos, end = m_reg_valid.end();
   for (pos = m_reg_valid.begin(); pos != end; ++pos)
     *pos = b;
@@ -90,7 +89,7 @@ const RegisterSet *GDBRemoteRegisterContext::GetRegisterSet(size_t reg_set) {
 bool GDBRemoteRegisterContext::ReadRegister(const RegisterInfo *reg_info,
                                             RegisterValue &value) {
   // Read the register
-  if (ReadRegisterBytes(reg_info)) {
+  if (ReadRegisterBytes(reg_info, m_reg_data)) {
     const uint32_t reg = reg_info->kinds[eRegisterKindLLDB];
     if (m_reg_valid[reg] == false)
       return false;
@@ -184,7 +183,8 @@ bool GDBRemoteRegisterContext::GetPrimordialRegister(
   return false;
 }
 
-bool GDBRemoteRegisterContext::ReadRegisterBytes(const RegisterInfo *reg_info) {
+bool GDBRemoteRegisterContext::ReadRegisterBytes(const RegisterInfo *reg_info,
+                                                 DataExtractor &data) {
   ExecutionContext exe_ctx(CalculateThread());
 
   Process *process = exe_ctx.GetProcessPtr();
@@ -200,7 +200,7 @@ bool GDBRemoteRegisterContext::ReadRegisterBytes(const RegisterInfo *reg_info) {
   const uint32_t reg = reg_info->kinds[eRegisterKindLLDB];
 
   if (!GetRegisterIsValid(reg)) {
-    if (m_read_all_at_once && !m_gpacket_cached) {
+    if (m_read_all_at_once) {
       if (DataBufferSP buffer_sp =
               gdb_comm.ReadAllRegisters(m_thread.GetProtocolID())) {
         memcpy(const_cast<uint8_t *>(m_reg_data.GetDataStart()),
@@ -221,10 +221,7 @@ bool GDBRemoteRegisterContext::ReadRegisterBytes(const RegisterInfo *reg_info) {
               m_reg_valid[i] = false;
             }
           }
-
-          m_gpacket_cached = true;
-          if (GetRegisterIsValid(reg))
-            return true;
+          return true;
         } else {
           Log *log(ProcessGDBRemoteLog::GetLogIfAnyCategoryIsSet(GDBR_LOG_THREAD |
                                                                 GDBR_LOG_PACKETS));
@@ -236,9 +233,9 @@ bool GDBRemoteRegisterContext::ReadRegisterBytes(const RegisterInfo *reg_info) {
               " bytes "
               "but only got %" PRId64 " bytes.",
               m_reg_data.GetByteSize(), buffer_sp->GetByteSize());
-          return false;
         }
       }
+      return false;
     }
     if (reg_info->value_regs) {
       // Process this composite register request by delegating to the
@@ -252,8 +249,7 @@ bool GDBRemoteRegisterContext::ReadRegisterBytes(const RegisterInfo *reg_info) {
           break;
         // We have a valid primordial register as our constituent. Grab the
         // corresponding register info.
-        const RegisterInfo *prim_reg_info =
-            GetRegisterInfo(eRegisterKindProcessPlugin, prim_reg);
+        const RegisterInfo *prim_reg_info = GetRegisterInfoAtIndex(prim_reg);
         if (prim_reg_info == nullptr)
           success = false;
         else {
@@ -278,6 +274,22 @@ bool GDBRemoteRegisterContext::ReadRegisterBytes(const RegisterInfo *reg_info) {
       return false;
   }
 
+  if (&data != &m_reg_data) {
+    assert(m_reg_data.GetByteSize() >=
+           reg_info->byte_offset + reg_info->byte_size);
+    // If our register context and our register info disagree, which should
+    // never happen, don't read past the end of the buffer.
+    if (m_reg_data.GetByteSize() < reg_info->byte_offset + reg_info->byte_size)
+      return false;
+
+    // If we aren't extracting into our own buffer (which only happens when
+    // this function is called from ReadRegisterValue(uint32_t, Scalar&)) then
+    // we transfer bytes from our buffer into the data buffer that was passed
+    // in
+
+    data.SetByteOrder(m_reg_data.GetByteOrder());
+    data.SetData(m_reg_data, reg_info->byte_offset, reg_info->byte_size);
+  }
   return true;
 }
 
@@ -347,7 +359,7 @@ bool GDBRemoteRegisterContext::WriteRegisterBytes(const RegisterInfo *reg_info,
                                reg_info->byte_size,        // dst length
                                m_reg_data.GetByteOrder())) // dst byte order
   {
-    GDBRemoteClientBase::Lock lock(gdb_comm);
+    GDBRemoteClientBase::Lock lock(gdb_comm, false);
     if (lock) {
       if (m_write_all_at_once) {
         // Invalidate all register values
@@ -383,8 +395,7 @@ bool GDBRemoteRegisterContext::WriteRegisterBytes(const RegisterInfo *reg_info,
               break;
             // We have a valid primordial register as our constituent. Grab the
             // corresponding register info.
-            const RegisterInfo *value_reg_info =
-                GetRegisterInfo(eRegisterKindProcessPlugin, reg);
+            const RegisterInfo *value_reg_info = GetRegisterInfoAtIndex(reg);
             if (value_reg_info == nullptr)
               success = false;
             else
@@ -403,10 +414,9 @@ bool GDBRemoteRegisterContext::WriteRegisterBytes(const RegisterInfo *reg_info,
         if (reg_info->invalidate_regs) {
           for (uint32_t idx = 0, reg = reg_info->invalidate_regs[0];
                reg != LLDB_INVALID_REGNUM;
-               reg = reg_info->invalidate_regs[++idx])
-            SetRegisterIsValid(ConvertRegisterKindToRegisterNumber(
-                                   eRegisterKindProcessPlugin, reg),
-                               false);
+               reg = reg_info->invalidate_regs[++idx]) {
+            SetRegisterIsValid(reg, false);
+          }
         }
 
         return success;
@@ -491,7 +501,7 @@ bool GDBRemoteRegisterContext::ReadAllRegisterValues(
   const bool use_g_packet =
       !gdb_comm.AvoidGPackets((ProcessGDBRemote *)process);
 
-  GDBRemoteClientBase::Lock lock(gdb_comm);
+  GDBRemoteClientBase::Lock lock(gdb_comm, false);
   if (lock) {
     if (gdb_comm.SyncThreadState(m_thread.GetProtocolID()))
       InvalidateAllRegisters();
@@ -509,7 +519,7 @@ bool GDBRemoteRegisterContext::ReadAllRegisterValues(
       if (reg_info
               ->value_regs) // skip registers that are slices of real registers
         continue;
-      ReadRegisterBytes(reg_info);
+      ReadRegisterBytes(reg_info, m_reg_data);
       // ReadRegisterBytes saves the contents of the register in to the
       // m_reg_data buffer
     }
@@ -557,7 +567,7 @@ bool GDBRemoteRegisterContext::WriteAllRegisterValues(
   const bool use_g_packet =
       !gdb_comm.AvoidGPackets((ProcessGDBRemote *)process);
 
-  GDBRemoteClientBase::Lock lock(gdb_comm);
+  GDBRemoteClientBase::Lock lock(gdb_comm, false);
   if (lock) {
     // The data_sp contains the G response packet.
     if (use_g_packet) {
@@ -834,14 +844,14 @@ void GDBRemoteDynamicRegisterInfo::HardcodeARMRegisters(bool from_scratch) {
     static RegisterInfo g_register_infos[] = {
 //   NAME     ALT     SZ   OFF  ENCODING          FORMAT          EH_FRAME             DWARF                GENERIC                 PROCESS PLUGIN  LLDB    VALUE REGS    INVALIDATE REGS SIZE EXPR SIZE LEN
 //   ======   ======  ===  ===  =============     ==========      ===================  ===================  ======================  =============   ====    ==========    =============== ========= ========
-    { "r0",  nullptr,   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r0,          dwarf_r0,            LLDB_REGNUM_GENERIC_ARG1,0,               0 },     nullptr,           nullptr,  nullptr,       0 },
-    { "r1",  nullptr,   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r1,          dwarf_r1,            LLDB_REGNUM_GENERIC_ARG2,1,               1 },     nullptr,           nullptr,  nullptr,       0 },
-    { "r2",  nullptr,   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r2,          dwarf_r2,            LLDB_REGNUM_GENERIC_ARG3,2,               2 },     nullptr,           nullptr,  nullptr,       0 },
-    { "r3",  nullptr,   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r3,          dwarf_r3,            LLDB_REGNUM_GENERIC_ARG4,3,               3 },     nullptr,           nullptr,  nullptr,       0 },
+    { "r0",   "arg1",   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r0,          dwarf_r0,            LLDB_REGNUM_GENERIC_ARG1,0,               0 },     nullptr,           nullptr,  nullptr,       0 },
+    { "r1",   "arg2",   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r1,          dwarf_r1,            LLDB_REGNUM_GENERIC_ARG2,1,               1 },     nullptr,           nullptr,  nullptr,       0 },
+    { "r2",   "arg3",   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r2,          dwarf_r2,            LLDB_REGNUM_GENERIC_ARG3,2,               2 },     nullptr,           nullptr,  nullptr,       0 },
+    { "r3",   "arg4",   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r3,          dwarf_r3,            LLDB_REGNUM_GENERIC_ARG4,3,               3 },     nullptr,           nullptr,  nullptr,       0 },
     { "r4",  nullptr,   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r4,          dwarf_r4,            LLDB_INVALID_REGNUM,     4,               4 },     nullptr,           nullptr,  nullptr,       0 },
     { "r5",  nullptr,   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r5,          dwarf_r5,            LLDB_INVALID_REGNUM,     5,               5 },     nullptr,           nullptr,  nullptr,       0 },
     { "r6",  nullptr,   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r6,          dwarf_r6,            LLDB_INVALID_REGNUM,     6,               6 },     nullptr,           nullptr,  nullptr,       0 },
-    { "r7",  nullptr,   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r7,          dwarf_r7,            LLDB_REGNUM_GENERIC_FP,  7,               7 },     nullptr,           nullptr,  nullptr,       0 },
+    { "r7",     "fp",   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r7,          dwarf_r7,            LLDB_REGNUM_GENERIC_FP,  7,               7 },     nullptr,           nullptr,  nullptr,       0 },
     { "r8",  nullptr,   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r8,          dwarf_r8,            LLDB_INVALID_REGNUM,     8,               8 },     nullptr,           nullptr,  nullptr,       0 },
     { "r9",  nullptr,   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r9,          dwarf_r9,            LLDB_INVALID_REGNUM,     9,               9 },     nullptr,           nullptr,  nullptr,       0 },
     { "r10", nullptr,   4,   0, eEncodingUint,    eFormatHex,   { ehframe_r10,         dwarf_r10,           LLDB_INVALID_REGNUM,    10,              10 },     nullptr,           nullptr,  nullptr,       0 },
@@ -975,12 +985,19 @@ void GDBRemoteDynamicRegisterInfo::HardcodeARMRegisters(bool from_scratch) {
       }
     }
     for (i = 0; i < num_registers; ++i) {
+      ConstString name;
+      ConstString alt_name;
+      if (g_register_infos[i].name && g_register_infos[i].name[0])
+        name.SetCString(g_register_infos[i].name);
+      if (g_register_infos[i].alt_name && g_register_infos[i].alt_name[0])
+        alt_name.SetCString(g_register_infos[i].alt_name);
+
       if (i <= 15 || i == 25)
-        AddRegister(g_register_infos[i], gpr_reg_set);
+        AddRegister(g_register_infos[i], name, alt_name, gpr_reg_set);
       else if (i <= 24)
-        AddRegister(g_register_infos[i], sfp_reg_set);
+        AddRegister(g_register_infos[i], name, alt_name, sfp_reg_set);
       else
-        AddRegister(g_register_infos[i], vfp_reg_set);
+        AddRegister(g_register_infos[i], name, alt_name, vfp_reg_set);
     }
   } else {
     // Add composite registers to our primordial registers, then.
@@ -1016,6 +1033,8 @@ void GDBRemoteDynamicRegisterInfo::HardcodeARMRegisters(bool from_scratch) {
     // If "match" is true, then we can add extra registers.
     if (match) {
       for (i = 0; i < num_composites; ++i) {
+        ConstString name;
+        ConstString alt_name;
         const uint32_t first_primordial_reg =
             g_comp_register_infos[i].value_regs[0];
         const char *reg_name = g_register_infos[first_primordial_reg].name;
@@ -1028,7 +1047,9 @@ void GDBRemoteDynamicRegisterInfo::HardcodeARMRegisters(bool from_scratch) {
               // The name matches the existing primordial entry. Find and
               // assign the offset, and then add this composite register entry.
               g_comp_register_infos[i].byte_offset = reg_info->byte_offset;
-              AddRegister(g_comp_register_infos[i], vfp_reg_set);
+              name.SetCString(g_comp_register_infos[i].name);
+              AddRegister(g_comp_register_infos[i], name, alt_name,
+                          vfp_reg_set);
             }
           }
         }

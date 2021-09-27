@@ -1,4 +1,3 @@
-// UNSUPPORTED: -zos, -aix
 // RUN: clang-import-test -x objective-c -objc-arc -import %S/Inputs/cleanup-objects.m -dump-ast -expression %s | FileCheck %s
 
 // CHECK: FunctionDecl {{.*}} getObj '

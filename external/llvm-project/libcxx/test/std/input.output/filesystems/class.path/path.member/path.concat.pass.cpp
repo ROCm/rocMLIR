@@ -36,9 +36,6 @@
 #include <string_view>
 #include <cassert>
 
-// On Windows, charset conversions cause allocations in the path class in
-// cases where no allocations are done on other platforms.
-
 #include "test_macros.h"
 #include "test_iterators.h"
 #include "count_new.h"
@@ -90,7 +87,7 @@ void doConcatSourceAllocTest(ConcatOperatorTestcase const& TC)
   using Ptr = CharT const*;
   using Str = std::basic_string<CharT>;
   using StrView = std::basic_string_view<CharT>;
-  using InputIter = cpp17_input_iterator<Ptr>;
+  using InputIter = input_iterator<Ptr>;
 
   const Ptr L = TC.lhs;
   const Ptr R = TC.rhs;
@@ -101,7 +98,7 @@ void doConcatSourceAllocTest(ConcatOperatorTestcase const& TC)
     path LHS(L); PathReserve(LHS, ReserveSize);
     Str  RHS(R);
     {
-      TEST_NOT_WIN32(DisableAllocationGuard g);
+      DisableAllocationGuard g;
       LHS += RHS;
     }
     assert(LHS == E);
@@ -111,7 +108,7 @@ void doConcatSourceAllocTest(ConcatOperatorTestcase const& TC)
     path LHS(L); PathReserve(LHS, ReserveSize);
     StrView  RHS(R);
     {
-      TEST_NOT_WIN32(DisableAllocationGuard g);
+      DisableAllocationGuard g;
       LHS += RHS;
     }
     assert(LHS == E);
@@ -121,7 +118,7 @@ void doConcatSourceAllocTest(ConcatOperatorTestcase const& TC)
     path LHS(L); PathReserve(LHS, ReserveSize);
     Ptr RHS(R);
     {
-      TEST_NOT_WIN32(DisableAllocationGuard g);
+      DisableAllocationGuard g;
       LHS += RHS;
     }
     assert(LHS == E);
@@ -130,7 +127,7 @@ void doConcatSourceAllocTest(ConcatOperatorTestcase const& TC)
     path LHS(L); PathReserve(LHS, ReserveSize);
     Ptr RHS(R);
     {
-      TEST_NOT_WIN32(DisableAllocationGuard g);
+      DisableAllocationGuard g;
       LHS.concat(RHS, StrEnd(RHS));
     }
     assert(LHS == E);
@@ -138,23 +135,15 @@ void doConcatSourceAllocTest(ConcatOperatorTestcase const& TC)
   // input iterator - For non-native char types, appends needs to copy the
   // iterator range into a contiguous block of memory before it can perform the
   // code_cvt conversions.
-  // For the path native type, no allocations will be performed because no
-  // conversion is required.
-
-#if TEST_SUPPORTS_LIBRARY_INTERNAL_ALLOCATIONS
-  // Only check allocations if we can pick up allocations done within the
-  // library implementation.
-  bool ExpectNoAllocations = std::is_same<CharT, path::value_type>::value;
-#endif
+  // For "char" no allocations will be performed because no conversion is
+  // required.
+  bool DisableAllocations = std::is_same<CharT, char>::value;
   {
     path LHS(L); PathReserve(LHS, ReserveSize);
     InputIter RHS(R);
     {
-      RequireAllocationGuard g(0); // require "at least zero" allocations by default
-#if TEST_SUPPORTS_LIBRARY_INTERNAL_ALLOCATIONS
-      if (ExpectNoAllocations)
-        g.requireExactly(0);
-#endif
+      RequireAllocationGuard  g; // requires 1 or more allocations occur by default
+      if (DisableAllocations) g.requireExactly(0);
       LHS += RHS;
     }
     assert(LHS == E);
@@ -164,11 +153,8 @@ void doConcatSourceAllocTest(ConcatOperatorTestcase const& TC)
     InputIter RHS(R);
     InputIter REnd(StrEnd(R));
     {
-      RequireAllocationGuard g(0); // require "at least zero" allocations by default
-#if TEST_SUPPORTS_LIBRARY_INTERNAL_ALLOCATIONS
-      if (ExpectNoAllocations)
-        g.requireExactly(0);
-#endif
+      RequireAllocationGuard g;
+      if (DisableAllocations) g.requireExactly(0);
       LHS.concat(RHS, REnd);
     }
     assert(LHS == E);
@@ -182,7 +168,7 @@ void doConcatSourceTest(ConcatOperatorTestcase const& TC)
   using Ptr = CharT const*;
   using Str = std::basic_string<CharT>;
   using StrView = std::basic_string_view<CharT>;
-  using InputIter = cpp17_input_iterator<Ptr>;
+  using InputIter = input_iterator<Ptr>;
   const Ptr L = TC.lhs;
   const Ptr R = TC.rhs;
   const Ptr E = TC.expect;
@@ -312,7 +298,7 @@ void test_sfinae() {
     static_assert(has_concat<It>(), "");
   }
   {
-    using It = cpp17_input_iterator<const char*>;
+    using It = input_iterator<const char*>;
     static_assert(has_concat<It>(), "");
   }
   {
@@ -323,7 +309,7 @@ void test_sfinae() {
       using reference = const char&;
       using difference_type = std::ptrdiff_t;
     };
-    using It = cpp17_input_iterator<const char*, Traits>;
+    using It = input_iterator<const char*, Traits>;
     static_assert(has_concat<It>(), "");
   }
   {
@@ -355,7 +341,7 @@ int main(int, char**)
     }
     {
       path LHS((const char*)TC.lhs);
-      std::basic_string_view<path::value_type> RHS((const path::value_type*)TC.rhs);
+      std::string_view RHS((const char*)TC.rhs);
       path& Ref = (LHS += RHS);
       assert(LHS == (const char*)TC.expect);
       assert(&Ref == &LHS);
@@ -381,7 +367,7 @@ int main(int, char**)
     }
     {
       path LHS((const char*)TC.lhs);
-      std::basic_string_view<path::value_type> RHS((const path::value_type*)TC.rhs);
+      std::string_view RHS((const char*)TC.rhs);
       const char* E = TC.expect;
       PathReserve(LHS, StrLen(E) + 5);
       {

@@ -40,7 +40,6 @@ public:
                       vm_prot_t prot);
   bool RestoreProtections();
   bool GetRegionForAddress(nub_addr_t addr);
-  std::vector<std::string> GetMemoryTypes() const;
 
   uint32_t GetDNBPermissions() const;
 

@@ -12,73 +12,38 @@
 #include "intel-pt.h"
 
 #include "DecodedThread.h"
-#include "forward-declarations.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Utility/FileSpec.h"
 
 namespace lldb_private {
 namespace trace_intel_pt {
 
-/// Base class that handles the decoding of a thread and caches the result.
-class ThreadDecoder {
-public:
-  virtual ~ThreadDecoder() = default;
-
-  ThreadDecoder() = default;
-
-  /// Decode the thread and store the result internally, to avoid
-  /// recomputations.
-  ///
-  /// \return
-  ///     A \a DecodedThread instance.
-  DecodedThreadSP Decode();
-
-  ThreadDecoder(const ThreadDecoder &other) = delete;
-  ThreadDecoder &operator=(const ThreadDecoder &other) = delete;
-
-protected:
-  /// Decode the thread.
-  ///
-  /// \return
-  ///     A \a DecodedThread instance.
-  virtual DecodedThreadSP DoDecode() = 0;
-
-  llvm::Optional<DecodedThreadSP> m_decoded_thread;
-};
-
-/// Decoder implementation for \a lldb_private::ThreadPostMortemTrace, which are
-/// non-live processes that come trace session files.
-class PostMortemThreadDecoder : public ThreadDecoder {
+/// \a lldb_private::ThreadTrace decoder that stores the output from decoding,
+/// avoiding recomputations, as decoding is expensive.
+class ThreadTraceDecoder {
 public:
   /// \param[in] trace_thread
   ///     The thread whose trace file will be decoded.
   ///
-  /// \param[in] trace
-  ///     The main Trace object who owns this decoder and its data.
-  PostMortemThreadDecoder(const lldb::ThreadPostMortemTraceSP &trace_thread,
-                          TraceIntelPT &trace);
+  /// \param[in] pt_cpu
+  ///     The libipt cpu used when recording the trace.
+  ThreadTraceDecoder(const std::shared_ptr<ThreadTrace> &trace_thread,
+                     const pt_cpu &pt_cpu)
+      : m_trace_thread(trace_thread), m_pt_cpu(pt_cpu), m_decoded_thread() {}
 
-private:
-  DecodedThreadSP DoDecode() override;
-
-  lldb::ThreadPostMortemTraceSP m_trace_thread;
-  TraceIntelPT &m_trace;
-};
-
-class LiveThreadDecoder : public ThreadDecoder {
-public:
-  /// \param[in] thread
-  ///     The thread whose traces will be decoded.
+  /// Decode the thread and store the result internally.
   ///
-  /// \param[in] trace
-  ///     The main Trace object who owns this decoder and its data.
-  LiveThreadDecoder(Thread &thread, TraceIntelPT &trace);
+  /// \return
+  ///     A \a DecodedThread instance.
+  const DecodedThread &Decode();
 
 private:
-  DecodedThreadSP DoDecode() override;
+  ThreadTraceDecoder(const ThreadTraceDecoder &other) = delete;
+  ThreadTraceDecoder &operator=(const ThreadTraceDecoder &other) = delete;
 
-  lldb::ThreadSP m_thread_sp;
-  TraceIntelPT &m_trace;
+  std::shared_ptr<ThreadTrace> m_trace_thread;
+  pt_cpu m_pt_cpu;
+  llvm::Optional<DecodedThread> m_decoded_thread;
 };
 
 } // namespace trace_intel_pt

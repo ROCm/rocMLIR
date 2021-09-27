@@ -188,8 +188,9 @@ LLVMUserExpression::DoExecute(DiagnosticManager &diagnostic_manager,
         execution_result == lldb::eExpressionHitBreakpoint) {
       const char *error_desc = nullptr;
 
-      if (user_expression_plan) {
-        if (auto real_stop_info_sp = user_expression_plan->GetRealStopInfo())
+      if (call_plan_sp) {
+        lldb::StopInfoSP real_stop_info_sp = call_plan_sp->GetRealStopInfo();
+        if (real_stop_info_sp)
           error_desc = real_stop_info_sp->GetDescription();
       }
       if (error_desc)

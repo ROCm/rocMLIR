@@ -1,25 +1,10 @@
 ; RUN: llc < %s -mtriple=powerpc64le-unknown-unknown -mcpu=pwr9 \
 ; RUN:   -verify-machineinstrs -ppc-asm-full-reg-names | FileCheck %s
-
-; RUN: llc < %s -mtriple=powerpc64-ibm-aix-xcoff -mcpu=pwr9 \
-; RUN:   -verify-machineinstrs -vec-extabi | \
-; RUN:   FileCheck %s --check-prefixes=AIX,AIX64
-; RUN: llc < %s -mtriple=powerpc-ibm-aix-xcoff -mcpu=pwr9 \
-; RUN:   -verify-machineinstrs  -vec-extabi | \
-; RUN:   FileCheck %s --check-prefixes=AIX,AIX32
-
 define dso_local void @test(i32* %Arr, i32 signext %Len) {
 ; CHECK-LABEL: test:
 ; CHECK:         lxvx [[REG:vs[0-9]+]], r{{[0-9]+}}, r{{[0-9]+}}
 ; CHECK-NOT:     [[REG]]
 ; CHECK:         xxbrw vs{{[0-9]+}}, [[REG]]
-
-; AIX-LABEL:     test:
-; AIX64:         lxvx [[REG64:[0-9]+]], {{[0-9]+}}, {{[0-9]+}}
-; AIX32:         lxv [[REG32:[0-9]+]], {{[0-9]+}}({{[0-9]+}})
-; AIX64-NOT:     [[REG64]]
-; AIX64:         xxbrw {{[0-9]+}}, [[REG64]]
-; AIX32:         xxbrw {{[0-9]+}}, [[REG32]]
 entry:
   %cmp1 = icmp slt i32 0, %Len
   br i1 %cmp1, label %for.body.lr.ph, label %for.cond.cleanup
@@ -92,10 +77,6 @@ define dso_local <8 x i16> @test_halfword(<8 x i16> %a) local_unnamed_addr {
 ; CHECK-LABEL: test_halfword:
 ; CHECK:       xxbrh vs34, vs34
 ; CHECK-NEXT:  blr
-
-; AIX-LABEL:   test_halfword:
-; AIX:         xxbrh 34, 34
-; AIX-NEXT:    blr
 entry:
   %0 = call <8 x i16> @llvm.bswap.v8i16(<8 x i16> %a)
   ret <8 x i16> %0
@@ -105,10 +86,6 @@ define dso_local <2 x i64> @test_doubleword(<2 x i64> %a) local_unnamed_addr {
 ; CHECK-LABEL: test_doubleword:
 ; CHECK:       xxbrd vs34, vs34
 ; CHECK-NEXT:  blr
-
-; AIX-LABEL:   test_doubleword:
-; AIX:         xxbrd 34, 34
-; AIX-NEXT:    blr
 entry:
   %0 = call <2 x i64> @llvm.bswap.v2i64(<2 x i64> %a)
   ret <2 x i64> %0
@@ -118,10 +95,6 @@ define dso_local <1 x i128> @test_quadword(<1 x i128> %a) local_unnamed_addr {
 ; CHECK-LABEL: test_quadword:
 ; CHECK:       xxbrq vs34, vs34
 ; CHECK-NEXT:  blr
-
-; AIX-LABEL:   test_quadword:
-; AIX:         xxbrq 34, 34
-; AIX-NEXT:    blr
 entry:
   %0 = call <1 x i128> @llvm.bswap.v1i128(<1 x i128> %a)
   ret <1 x i128> %0

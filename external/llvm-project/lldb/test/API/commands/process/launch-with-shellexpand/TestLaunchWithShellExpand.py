@@ -25,7 +25,12 @@ class LaunchWithShellExpandTestCase(TestBase):
     @expectedFailureNetBSD
     def test(self):
         self.build()
-        target = self.createTestTarget()
+        exe = self.getBuildArtifact("a.out")
+
+        self.runCmd("target create %s" % exe)
+
+        # Create the target
+        target = self.dbg.CreateTarget(exe)
 
         # Create any breakpoints we need
         breakpoint = target.BreakpointCreateBySourceRegex(

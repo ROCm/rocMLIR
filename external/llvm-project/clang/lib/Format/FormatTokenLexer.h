@@ -54,7 +54,8 @@ private:
   bool tryMergeJSPrivateIdentifier();
   bool tryMergeCSharpStringLiteral();
   bool tryMergeCSharpKeywordVariables();
-  bool tryMergeNullishCoalescingEqual();
+  bool tryMergeCSharpDoubleQuestion();
+  bool tryMergeCSharpNullConditional();
   bool tryTransformCSharpForEach();
   bool tryMergeForEach();
   bool tryTransformTryUsageForC();

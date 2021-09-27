@@ -58,11 +58,9 @@ class ConstantData : public Constant {
 protected:
   explicit ConstantData(Type *Ty, ValueTy VT) : Constant(Ty, VT, nullptr, 0) {}
 
-  void *operator new(size_t S) { return User::operator new(S, 0); }
+  void *operator new(size_t s) { return User::operator new(s, 0); }
 
 public:
-  void operator delete(void *Ptr) { User::operator delete(Ptr); }
-
   ConstantData(const ConstantData &) = delete;
 
   /// Methods to support type inquiry through isa, cast, and dyn_cast.
@@ -81,7 +79,7 @@ class ConstantInt final : public ConstantData {
 
   APInt Val;
 
-  ConstantInt(IntegerType *Ty, const APInt &V);
+  ConstantInt(IntegerType *Ty, const APInt& V);
 
   void destroyConstantImpl();
 
@@ -97,15 +95,16 @@ public:
 
   /// If Ty is a vector type, return a Constant with a splat of the given
   /// value. Otherwise return a ConstantInt for the given value.
-  static Constant *get(Type *Ty, uint64_t V, bool IsSigned = false);
+  static Constant *get(Type *Ty, uint64_t V, bool isSigned = false);
 
   /// Return a ConstantInt with the specified integer value for the specified
   /// type. If the type is wider than 64 bits, the value will be zero-extended
-  /// to fit the type, unless IsSigned is true, in which case the value will
+  /// to fit the type, unless isSigned is true, in which case the value will
   /// be interpreted as a 64-bit signed integer and sign-extended to fit
   /// the type.
   /// Get a ConstantInt for a specific value.
-  static ConstantInt *get(IntegerType *Ty, uint64_t V, bool IsSigned = false);
+  static ConstantInt *get(IntegerType *Ty, uint64_t V,
+                          bool isSigned = false);
 
   /// Return a ConstantInt with the specified value for the specified type. The
   /// value V will be canonicalized to a an unsigned APInt. Accessing it with
@@ -121,16 +120,19 @@ public:
 
   /// Return a ConstantInt constructed from the string strStart with the given
   /// radix.
-  static ConstantInt *get(IntegerType *Ty, StringRef Str, uint8_t Radix);
+  static ConstantInt *get(IntegerType *Ty, StringRef Str,
+                          uint8_t radix);
 
   /// If Ty is a vector type, return a Constant with a splat of the given
   /// value. Otherwise return a ConstantInt for the given value.
-  static Constant *get(Type *Ty, const APInt &V);
+  static Constant *get(Type* Ty, const APInt& V);
 
   /// Return the constant as an APInt value reference. This allows clients to
   /// obtain a full-precision copy of the value.
   /// Return the constant's value.
-  inline const APInt &getValue() const { return Val; }
+  inline const APInt &getValue() const {
+    return Val;
+  }
 
   /// getBitWidth - Return the bitwidth of this constant.
   unsigned getBitWidth() const { return Val.getBitWidth(); }
@@ -139,13 +141,17 @@ public:
   /// has been zero extended as appropriate for the type of this constant. Note
   /// that this method can assert if the value does not fit in 64 bits.
   /// Return the zero extended value.
-  inline uint64_t getZExtValue() const { return Val.getZExtValue(); }
+  inline uint64_t getZExtValue() const {
+    return Val.getZExtValue();
+  }
 
   /// Return the constant as a 64-bit integer value after it has been sign
   /// extended as appropriate for the type of this constant. Note that
   /// this method can assert if the value does not fit in 64 bits.
   /// Return the sign extended value.
-  inline int64_t getSExtValue() const { return Val.getSExtValue(); }
+  inline int64_t getSExtValue() const {
+    return Val.getSExtValue();
+  }
 
   /// Return the constant as an llvm::MaybeAlign.
   /// Note that this method can assert if the value does not fit in 64 bits or
@@ -165,7 +171,9 @@ public:
   /// within is equal to a constant.  This only works for very small values,
   /// because this is all that can be represented with all types.
   /// Determine if this constant's value is same as an unsigned char.
-  bool equalsInt(uint64_t V) const { return Val == V; }
+  bool equalsInt(uint64_t V) const {
+    return Val == V;
+  }
 
   /// getType - Specialize the getType() method to always return an IntegerType,
   /// which reduces the amount of casting needed in parts of the compiler.
@@ -191,27 +199,33 @@ public:
   /// This is just a convenience method to make client code smaller for a
   /// common code. It also correctly performs the comparison without the
   /// potential for an assertion from getZExtValue().
-  bool isZero() const { return Val.isZero(); }
+  bool isZero() const {
+    return Val.isNullValue();
+  }
 
   /// This is just a convenience method to make client code smaller for a
   /// common case. It also correctly performs the comparison without the
   /// potential for an assertion from getZExtValue().
   /// Determine if the value is one.
-  bool isOne() const { return Val.isOne(); }
+  bool isOne() const {
+    return Val.isOneValue();
+  }
 
   /// This function will return true iff every bit in this constant is set
   /// to true.
   /// @returns true iff this constant's bits are all set to true.
   /// Determine if the value is all ones.
-  bool isMinusOne() const { return Val.isAllOnesValue(); }
+  bool isMinusOne() const {
+    return Val.isAllOnesValue();
+  }
 
   /// This function will return true iff this constant represents the largest
   /// value that may be represented by the constant's type.
   /// @returns true iff this is the largest value that may be represented
   /// by this type.
   /// Determine if the value is maximal.
-  bool isMaxValue(bool IsSigned) const {
-    if (IsSigned)
+  bool isMaxValue(bool isSigned) const {
+    if (isSigned)
       return Val.isMaxSignedValue();
     else
       return Val.isMaxValue();
@@ -222,8 +236,8 @@ public:
   /// @returns true if this is the smallest value that may be represented by
   /// this type.
   /// Determine if the value is minimal.
-  bool isMinValue(bool IsSigned) const {
-    if (IsSigned)
+  bool isMinValue(bool isSigned) const {
+    if (isSigned)
       return Val.isMinSignedValue();
     else
       return Val.isMinValue();
@@ -234,7 +248,9 @@ public:
   /// value.
   /// @returns true iff this constant is greater or equal to the given number.
   /// Determine if the value is greater or equal to the given number.
-  bool uge(uint64_t Num) const { return Val.uge(Num); }
+  bool uge(uint64_t Num) const {
+    return Val.uge(Num);
+  }
 
   /// getLimitedValue - If the value is smaller than the specified limit,
   /// return it, otherwise return the limit value.  This causes the value
@@ -259,7 +275,7 @@ class ConstantFP final : public ConstantData {
 
   APFloat Val;
 
-  ConstantFP(Type *Ty, const APFloat &V);
+  ConstantFP(Type *Ty, const APFloat& V);
 
   void destroyConstantImpl();
 
@@ -275,16 +291,15 @@ public:
   /// for the specified value in the specified type. This should only be used
   /// for simple constant values like 2.0/1.0 etc, that are known-valid both as
   /// host double and as the target format.
-  static Constant *get(Type *Ty, double V);
+  static Constant *get(Type* Ty, double V);
 
   /// If Ty is a vector type, return a Constant with a splat of the given
   /// value. Otherwise return a ConstantFP for the given value.
   static Constant *get(Type *Ty, const APFloat &V);
 
-  static Constant *get(Type *Ty, StringRef Str);
+  static Constant *get(Type* Ty, StringRef Str);
   static ConstantFP *get(LLVMContext &Context, const APFloat &V);
-  static Constant *getNaN(Type *Ty, bool Negative = false,
-                          uint64_t Payload = 0);
+  static Constant *getNaN(Type *Ty, bool Negative = false, uint64_t Payload = 0);
   static Constant *getQNaN(Type *Ty, bool Negative = false,
                            APInt *Payload = nullptr);
   static Constant *getSNaN(Type *Ty, bool Negative = false,
@@ -362,7 +377,7 @@ public:
   Constant *getElementValue(unsigned Idx) const;
 
   /// Return the number of elements in the array, vector, or struct.
-  ElementCount getElementCount() const;
+  unsigned getNumElements() const;
 
   /// Methods for support type inquiry through isa, cast, and dyn_cast:
   ///
@@ -417,7 +432,7 @@ class ConstantArray final : public ConstantAggregate {
 
 public:
   // ConstantArray accessors
-  static Constant *get(ArrayType *T, ArrayRef<Constant *> V);
+  static Constant *get(ArrayType *T, ArrayRef<Constant*> V);
 
 private:
   static Constant *getImpl(ArrayType *T, ArrayRef<Constant *> V);
@@ -449,31 +464,32 @@ class ConstantStruct final : public ConstantAggregate {
 
 public:
   // ConstantStruct accessors
-  static Constant *get(StructType *T, ArrayRef<Constant *> V);
+  static Constant *get(StructType *T, ArrayRef<Constant*> V);
 
   template <typename... Csts>
   static std::enable_if_t<are_base_of<Constant, Csts...>::value, Constant *>
-  get(StructType *T, Csts *...Vs) {
-    return get(T, ArrayRef<Constant *>({Vs...}));
+  get(StructType *T, Csts *... Vs) {
+    SmallVector<Constant *, 8> Values({Vs...});
+    return get(T, Values);
   }
 
   /// Return an anonymous struct that has the specified elements.
   /// If the struct is possibly empty, then you must specify a context.
-  static Constant *getAnon(ArrayRef<Constant *> V, bool Packed = false) {
+  static Constant *getAnon(ArrayRef<Constant*> V, bool Packed = false) {
     return get(getTypeForElements(V, Packed), V);
   }
-  static Constant *getAnon(LLVMContext &Ctx, ArrayRef<Constant *> V,
-                           bool Packed = false) {
+  static Constant *getAnon(LLVMContext &Ctx,
+                           ArrayRef<Constant*> V, bool Packed = false) {
     return get(getTypeForElements(Ctx, V, Packed), V);
   }
 
   /// Return an anonymous struct type to use for a constant with the specified
   /// set of elements. The list must not be empty.
-  static StructType *getTypeForElements(ArrayRef<Constant *> V,
+  static StructType *getTypeForElements(ArrayRef<Constant*> V,
                                         bool Packed = false);
   /// This version of the method allows an empty list.
   static StructType *getTypeForElements(LLVMContext &Ctx,
-                                        ArrayRef<Constant *> V,
+                                        ArrayRef<Constant*> V,
                                         bool Packed = false);
 
   /// Specialization - reduce amount of casting.
@@ -501,7 +517,7 @@ class ConstantVector final : public ConstantAggregate {
 
 public:
   // ConstantVector accessors
-  static Constant *get(ArrayRef<Constant *> V);
+  static Constant *get(ArrayRef<Constant*> V);
 
 private:
   static Constant *getImpl(ArrayRef<Constant *> V);
@@ -559,10 +575,10 @@ public:
 
 //===----------------------------------------------------------------------===//
 /// ConstantDataSequential - A vector or array constant whose element type is a
-/// simple 1/2/4/8-byte integer or half/bfloat/float/double, and whose elements
-/// are just simple data values (i.e. ConstantInt/ConstantFP).  This Constant
-/// node has no operands because it stores all of the elements of the constant
-/// as densely packed data, instead of as Value*'s.
+/// simple 1/2/4/8-byte integer or float/double, and whose elements are just
+/// simple data values (i.e. ConstantInt/ConstantFP).  This Constant node has no
+/// operands because it stores all of the elements of the constant as densely
+/// packed data, instead of as Value*'s.
 ///
 /// This is the common base class of ConstantDataArray and ConstantDataVector.
 ///
@@ -651,7 +667,7 @@ public:
   StringRef getAsCString() const {
     assert(isCString() && "Isn't a C string");
     StringRef Str = getAsString();
-    return Str.substr(0, Str.size() - 1);
+    return Str.substr(0, Str.size()-1);
   }
 
   /// Return the raw, underlying, bytes of this data. Note that this is an
@@ -701,14 +717,13 @@ public:
     return ConstantDataArray::get(Context, makeArrayRef(Elts));
   }
 
-  /// getRaw() constructor - Return a constant with array type with an element
+  /// get() constructor - Return a constant with array type with an element
   /// count and element type matching the NumElements and ElementTy parameters
   /// passed in. Note that this can return a ConstantAggregateZero object.
-  /// ElementTy must be one of i8/i16/i32/i64/half/bfloat/float/double. Data is
-  /// the buffer containing the elements. Be careful to make sure Data uses the
+  /// ElementTy needs to be one of i8/i16/i32/i64/float/double. Data is the
+  /// buffer containing the elements. Be careful to make sure Data uses the
   /// right endianness, the buffer will be used as-is.
-  static Constant *getRaw(StringRef Data, uint64_t NumElements,
-                          Type *ElementTy) {
+  static Constant *getRaw(StringRef Data, uint64_t NumElements, Type *ElementTy) {
     Type *Ty = ArrayType::get(ElementTy, NumElements);
     return getImpl(Data, Ty);
   }
@@ -773,18 +788,6 @@ public:
   static Constant *get(LLVMContext &Context, ArrayRef<float> Elts);
   static Constant *get(LLVMContext &Context, ArrayRef<double> Elts);
 
-  /// getRaw() constructor - Return a constant with vector type with an element
-  /// count and element type matching the NumElements and ElementTy parameters
-  /// passed in. Note that this can return a ConstantAggregateZero object.
-  /// ElementTy must be one of i8/i16/i32/i64/half/bfloat/float/double. Data is
-  /// the buffer containing the elements. Be careful to make sure Data uses the
-  /// right endianness, the buffer will be used as-is.
-  static Constant *getRaw(StringRef Data, uint64_t NumElements,
-                          Type *ElementTy) {
-    Type *Ty = VectorType::get(ElementTy, ElementCount::getFixed(NumElements));
-    return getImpl(Data, Ty);
-  }
-
   /// getFP() constructors - Return a constant of vector type with a float
   /// element type taken from argument `ElementType', and count taken from
   /// argument `Elts'.  The amount of bits of the contained type must match the
@@ -797,7 +800,7 @@ public:
 
   /// Return a ConstantVector with the specified constant in each element.
   /// The specified constant has to be a of a compatible type (i8/i16/
-  /// i32/i64/half/bfloat/float/double) and must be a ConstantFP or ConstantInt.
+  /// i32/i64/float/double) and must be a ConstantFP or ConstantInt.
   static Constant *getSplat(unsigned NumElts, Constant *Elt);
 
   /// Returns true if this is a splat constant, meaning that all elements have
@@ -850,14 +853,12 @@ class BlockAddress final : public Constant {
 
   BlockAddress(Function *F, BasicBlock *BB);
 
-  void *operator new(size_t S) { return User::operator new(S, 2); }
+  void *operator new(size_t s) { return User::operator new(s, 2); }
 
   void destroyConstantImpl();
   Value *handleOperandChangeImpl(Value *From, Value *To);
 
 public:
-  void operator delete(void *Ptr) { User::operator delete(Ptr); }
-
   /// Return a BlockAddress for the specified function and basic block.
   static BlockAddress *get(Function *F, BasicBlock *BB);
 
@@ -873,8 +874,8 @@ public:
   /// Transparently provide more efficient getOperand methods.
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
 
-  Function *getFunction() const { return (Function *)Op<0>().get(); }
-  BasicBlock *getBasicBlock() const { return (BasicBlock *)Op<1>().get(); }
+  Function *getFunction() const { return (Function*)Op<0>().get(); }
+  BasicBlock *getBasicBlock() const { return (BasicBlock*)Op<1>().get(); }
 
   /// Methods for support type inquiry through isa, cast, and dyn_cast:
   static bool classof(const Value *V) {
@@ -883,8 +884,9 @@ public:
 };
 
 template <>
-struct OperandTraits<BlockAddress>
-    : public FixedNumOperandTraits<BlockAddress, 2> {};
+struct OperandTraits<BlockAddress> :
+  public FixedNumOperandTraits<BlockAddress, 2> {
+};
 
 DEFINE_TRANSPARENT_OPERAND_ACCESSORS(BlockAddress, Value)
 
@@ -896,14 +898,12 @@ class DSOLocalEquivalent final : public Constant {
 
   DSOLocalEquivalent(GlobalValue *GV);
 
-  void *operator new(size_t S) { return User::operator new(S, 1); }
+  void *operator new(size_t s) { return User::operator new(s, 1); }
 
   void destroyConstantImpl();
   Value *handleOperandChangeImpl(Value *From, Value *To);
 
 public:
-  void operator delete(void *Ptr) { User::operator delete(Ptr); }
-
   /// Return a DSOLocalEquivalent for the specified global value.
   static DSOLocalEquivalent *get(GlobalValue *GV);
 
@@ -975,18 +975,17 @@ public:
   ///
   static Constant *getOffsetOf(Type *Ty, Constant *FieldNo);
 
-  static Constant *getNeg(Constant *C, bool HasNUW = false,
-                          bool HasNSW = false);
+  static Constant *getNeg(Constant *C, bool HasNUW = false, bool HasNSW =false);
   static Constant *getFNeg(Constant *C);
   static Constant *getNot(Constant *C);
-  static Constant *getAdd(Constant *C1, Constant *C2, bool HasNUW = false,
-                          bool HasNSW = false);
+  static Constant *getAdd(Constant *C1, Constant *C2,
+                          bool HasNUW = false, bool HasNSW = false);
   static Constant *getFAdd(Constant *C1, Constant *C2);
-  static Constant *getSub(Constant *C1, Constant *C2, bool HasNUW = false,
-                          bool HasNSW = false);
+  static Constant *getSub(Constant *C1, Constant *C2,
+                          bool HasNUW = false, bool HasNSW = false);
   static Constant *getFSub(Constant *C1, Constant *C2);
-  static Constant *getMul(Constant *C1, Constant *C2, bool HasNUW = false,
-                          bool HasNSW = false);
+  static Constant *getMul(Constant *C1, Constant *C2,
+                          bool HasNUW = false, bool HasNSW = false);
   static Constant *getFMul(Constant *C1, Constant *C2);
   static Constant *getUDiv(Constant *C1, Constant *C2, bool isExact = false);
   static Constant *getSDiv(Constant *C1, Constant *C2, bool isExact = false);
@@ -998,8 +997,8 @@ public:
   static Constant *getOr(Constant *C1, Constant *C2);
   static Constant *getXor(Constant *C1, Constant *C2);
   static Constant *getUMin(Constant *C1, Constant *C2);
-  static Constant *getShl(Constant *C1, Constant *C2, bool HasNUW = false,
-                          bool HasNSW = false);
+  static Constant *getShl(Constant *C1, Constant *C2,
+                          bool HasNUW = false, bool HasNSW = false);
   static Constant *getLShr(Constant *C1, Constant *C2, bool isExact = false);
   static Constant *getAShr(Constant *C1, Constant *C2, bool isExact = false);
   static Constant *getTrunc(Constant *C, Type *Ty, bool OnlyIfReduced = false);
@@ -1108,47 +1107,48 @@ public:
                            bool OnlyIfReduced = false);
 
   // Create a ZExt or BitCast cast constant expression
-  static Constant *
-  getZExtOrBitCast(Constant *C, ///< The constant to zext or bitcast
-                   Type *Ty     ///< The type to zext or bitcast C to
+  static Constant *getZExtOrBitCast(
+    Constant *C,   ///< The constant to zext or bitcast
+    Type *Ty ///< The type to zext or bitcast C to
   );
 
   // Create a SExt or BitCast cast constant expression
-  static Constant *
-  getSExtOrBitCast(Constant *C, ///< The constant to sext or bitcast
-                   Type *Ty     ///< The type to sext or bitcast C to
+  static Constant *getSExtOrBitCast(
+    Constant *C,   ///< The constant to sext or bitcast
+    Type *Ty ///< The type to sext or bitcast C to
   );
 
   // Create a Trunc or BitCast cast constant expression
-  static Constant *
-  getTruncOrBitCast(Constant *C, ///< The constant to trunc or bitcast
-                    Type *Ty     ///< The type to trunc or bitcast C to
+  static Constant *getTruncOrBitCast(
+    Constant *C,   ///< The constant to trunc or bitcast
+    Type *Ty ///< The type to trunc or bitcast C to
   );
 
   /// Create a BitCast, AddrSpaceCast, or a PtrToInt cast constant
   /// expression.
-  static Constant *
-  getPointerCast(Constant *C, ///< The pointer value to be casted (operand 0)
-                 Type *Ty     ///< The type to which cast should be made
+  static Constant *getPointerCast(
+    Constant *C,   ///< The pointer value to be casted (operand 0)
+    Type *Ty ///< The type to which cast should be made
   );
 
   /// Create a BitCast or AddrSpaceCast for a pointer type depending on
   /// the address space.
   static Constant *getPointerBitCastOrAddrSpaceCast(
-      Constant *C, ///< The constant to addrspacecast or bitcast
-      Type *Ty     ///< The type to bitcast or addrspacecast C to
+    Constant *C,   ///< The constant to addrspacecast or bitcast
+    Type *Ty ///< The type to bitcast or addrspacecast C to
   );
 
   /// Create a ZExt, Bitcast or Trunc for integer -> integer casts
-  static Constant *
-  getIntegerCast(Constant *C,  ///< The integer constant to be casted
-                 Type *Ty,     ///< The integer type to cast to
-                 bool IsSigned ///< Whether C should be treated as signed or not
+  static Constant *getIntegerCast(
+    Constant *C,    ///< The integer constant to be casted
+    Type *Ty, ///< The integer type to cast to
+    bool isSigned   ///< Whether C should be treated as signed or not
   );
 
   /// Create a FPExt, Bitcast or FPTrunc for fp -> fp casts
-  static Constant *getFPCast(Constant *C, ///< The integer constant to be casted
-                             Type *Ty     ///< The integer type to cast to
+  static Constant *getFPCast(
+    Constant *C,    ///< The integer constant to be casted
+    Type *Ty ///< The integer type to cast to
   );
 
   /// Return true if this is a convert constant expression
@@ -1178,7 +1178,7 @@ public:
   /// folding if possible.
   ///
   /// \param OnlyIfReducedTy see \a getWithOperands() docs.
-  static Constant *get(unsigned Opcode, Constant *C1, unsigned Flags = 0,
+  static Constant *get(unsigned Opcode, Constant *C1, unsigned Flags = 0, 
                        Type *OnlyIfReducedTy = nullptr);
 
   /// get - Return a binary or shift operator constant expression,
@@ -1213,7 +1213,7 @@ public:
                                     Optional<unsigned> InRangeIndex = None,
                                     Type *OnlyIfReducedTy = nullptr) {
     return getGetElementPtr(
-        Ty, C, makeArrayRef((Value *const *)IdxList.data(), IdxList.size()),
+        Ty, C, makeArrayRef((Value * const *)IdxList.data(), IdxList.size()),
         InBounds, InRangeIndex, OnlyIfReducedTy);
   }
   static Constant *getGetElementPtr(Type *Ty, Constant *C, Constant *Idx,
@@ -1287,10 +1287,14 @@ public:
   /// Return a string representation for an opcode.
   const char *getOpcodeName() const;
 
+  /// Return a constant expression identical to this one, but with the specified
+  /// operand set to the specified value.
+  Constant *getWithOperandReplaced(unsigned OpNo, Constant *Op) const;
+
   /// This returns the current constant expression with the operands replaced
   /// with the specified values. The specified array must have the same number
   /// of operands as our current one.
-  Constant *getWithOperands(ArrayRef<Constant *> Ops) const {
+  Constant *getWithOperands(ArrayRef<Constant*> Ops) const {
     return getWithOperands(Ops, getType());
   }
 
@@ -1330,8 +1334,9 @@ private:
 };
 
 template <>
-struct OperandTraits<ConstantExpr>
-    : public VariadicOperandTraits<ConstantExpr, 1> {};
+struct OperandTraits<ConstantExpr> :
+  public VariadicOperandTraits<ConstantExpr, 1> {
+};
 
 DEFINE_TRANSPARENT_OPERAND_ACCESSORS(ConstantExpr, Constant)
 

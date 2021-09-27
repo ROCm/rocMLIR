@@ -23,10 +23,14 @@ VarSizeStackTrace::~VarSizeStackTrace() {
 }
 
 void VarSizeStackTrace::ResizeBuffer(uptr new_size) {
-  Free(trace_buffer);
-  trace_buffer = (new_size > 0)
-                     ? (uptr *)Alloc(new_size * sizeof(trace_buffer[0]))
-                     : nullptr;
+  if (trace_buffer) {
+    internal_free(trace_buffer);
+  }
+  trace_buffer =
+      (new_size > 0)
+          ? (uptr *)internal_alloc(MBlockStackTrace,
+                                   new_size * sizeof(trace_buffer[0]))
+          : nullptr;
   trace = trace_buffer;
   size = new_size;
 }
@@ -50,8 +54,10 @@ void __sanitizer::BufferedStackTrace::UnwindImpl(
     uptr pc, uptr bp, void *context, bool request_fast, u32 max_depth) {
   uptr top = 0;
   uptr bottom = 0;
-  GetThreadStackTopAndBottom(false, &top, &bottom);
-  bool fast = StackTrace::WillUseFastUnwind(request_fast);
-  Unwind(max_depth, pc, bp, context, top, bottom, fast);
+  if (StackTrace::WillUseFastUnwind(request_fast)) {
+    GetThreadStackTopAndBottom(false, &top, &bottom);
+    Unwind(max_depth, pc, bp, nullptr, top, bottom, true);
+  } else
+    Unwind(max_depth, pc, 0, context, 0, 0, false);
 }
 #endif  // SANITIZER_GO

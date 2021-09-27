@@ -241,7 +241,7 @@ LLVM_DUMP_METHOD void LazyCallGraph::SCC::dump() const {
 }
 #endif
 
-#if !defined(NDEBUG) || defined(EXPENSIVE_CHECKS)
+#ifndef NDEBUG
 void LazyCallGraph::SCC::verify() {
   assert(OuterRefSCC && "Can't have a null RefSCC!");
   assert(!Nodes.empty() && "Can't have an empty SCC!");
@@ -333,7 +333,7 @@ LLVM_DUMP_METHOD void LazyCallGraph::RefSCC::dump() const {
 }
 #endif
 
-#if !defined(NDEBUG) || defined(EXPENSIVE_CHECKS)
+#ifndef NDEBUG
 void LazyCallGraph::RefSCC::verify() {
   assert(G && "Can't have a null graph!");
   assert(!SCCs.empty() && "Can't have an empty SCC!");
@@ -588,7 +588,9 @@ LazyCallGraph::RefSCC::switchInternalEdgeToCall(
   assert(!(*SourceN)[TargetN].isCall() && "Must start with a ref edge!");
   SmallVector<SCC *, 1> DeletedSCCs;
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
+  // In a debug build, verify the RefSCC is valid to start with and when this
+  // routine finishes.
   verify();
   auto VerifyOnExit = make_scope_exit([&]() { verify(); });
 #endif
@@ -618,7 +620,7 @@ LazyCallGraph::RefSCC::switchInternalEdgeToCall(
 
   // Compute the SCCs which (transitively) reach the source.
   auto ComputeSourceConnectedSet = [&](SmallPtrSetImpl<SCC *> &ConnectedSet) {
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
     // Check that the RefSCC is still valid before computing this as the
     // results will be nonsensical of we've broken its invariants.
     verify();
@@ -644,7 +646,7 @@ LazyCallGraph::RefSCC::switchInternalEdgeToCall(
   // but because this is forward connectivity we just "recurse" through the
   // edges.
   auto ComputeTargetConnectedSet = [&](SmallPtrSetImpl<SCC *> &ConnectedSet) {
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
     // Check that the RefSCC is still valid before computing this as the
     // results will be nonsensical of we've broken its invariants.
     verify();
@@ -692,7 +694,7 @@ LazyCallGraph::RefSCC::switchInternalEdgeToCall(
     return false; // No new cycle.
   }
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
   // Before merging, check that the RefSCC remains valid after all the
   // postorder updates.
   verify();
@@ -733,7 +735,9 @@ void LazyCallGraph::RefSCC::switchTrivialInternalEdgeToRef(Node &SourceN,
                                                            Node &TargetN) {
   assert((*SourceN)[TargetN].isCall() && "Must start with a call edge!");
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
+  // In a debug build, verify the RefSCC is valid to start with and when this
+  // routine finishes.
   verify();
   auto VerifyOnExit = make_scope_exit([&]() { verify(); });
 #endif
@@ -753,7 +757,9 @@ iterator_range<LazyCallGraph::RefSCC::iterator>
 LazyCallGraph::RefSCC::switchInternalEdgeToRef(Node &SourceN, Node &TargetN) {
   assert((*SourceN)[TargetN].isCall() && "Must start with a call edge!");
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
+  // In a debug build, verify the RefSCC is valid to start with and when this
+  // routine finishes.
   verify();
   auto VerifyOnExit = make_scope_exit([&]() { verify(); });
 #endif
@@ -950,7 +956,8 @@ void LazyCallGraph::RefSCC::switchOutgoingEdgeToCall(Node &SourceN,
   // just flip the edge here.
   SourceN->setEdgeKind(TargetN, Edge::Call);
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
+  // Check that the RefSCC is still valid.
   verify();
 #endif
 }
@@ -971,7 +978,8 @@ void LazyCallGraph::RefSCC::switchOutgoingEdgeToRef(Node &SourceN,
   // just flip the edge here.
   SourceN->setEdgeKind(TargetN, Edge::Ref);
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
+  // Check that the RefSCC is still valid.
   verify();
 #endif
 }
@@ -983,7 +991,8 @@ void LazyCallGraph::RefSCC::insertInternalRefEdge(Node &SourceN,
 
   SourceN->insertEdgeInternal(TargetN, Edge::Ref);
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
+  // Check that the RefSCC is still valid.
   verify();
 #endif
 }
@@ -1002,7 +1011,8 @@ void LazyCallGraph::RefSCC::insertOutgoingEdge(Node &SourceN, Node &TargetN,
          "Target must be a descendant of the Source.");
 #endif
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
+  // Check that the RefSCC is still valid.
   verify();
 #endif
 }
@@ -1019,7 +1029,9 @@ LazyCallGraph::RefSCC::insertIncomingRefEdge(Node &SourceN, Node &TargetN) {
 
   SmallVector<RefSCC *, 1> DeletedRefSCCs;
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
+  // In a debug build, verify the RefSCC is valid to start with and when this
+  // routine finishes.
   verify();
   auto VerifyOnExit = make_scope_exit([&]() { verify(); });
 #endif
@@ -1155,7 +1167,9 @@ void LazyCallGraph::RefSCC::removeOutgoingEdge(Node &SourceN, Node &TargetN) {
   assert(G->lookupRefSCC(TargetN) != this &&
          "The target must not be a member of this RefSCC");
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
+  // In a debug build, verify the RefSCC is valid to start with and when this
+  // routine finishes.
   verify();
   auto VerifyOnExit = make_scope_exit([&]() { verify(); });
 #endif
@@ -1172,10 +1186,10 @@ LazyCallGraph::RefSCC::removeInternalRefEdge(Node &SourceN,
   // We return a list of the resulting *new* RefSCCs in post-order.
   SmallVector<RefSCC *, 1> Result;
 
-#ifdef EXPENSIVE_CHECKS
-  // Verify the RefSCC is valid to start with and that either we return an empty
-  // list of result RefSCCs and this RefSCC remains valid, or we return new
-  // RefSCCs and this RefSCC is dead.
+#ifndef NDEBUG
+  // In a debug build, verify the RefSCC is valid to start with and that either
+  // we return an empty list of result RefSCCs and this RefSCC remains valid,
+  // or we return new RefSCCs and this RefSCC is dead.
   verify();
   auto VerifyOnExit = make_scope_exit([&]() {
     // If we didn't replace our RefSCC with new ones, check that this one
@@ -1393,7 +1407,7 @@ LazyCallGraph::RefSCC::removeInternalRefEdge(Node &SourceN,
   SCCs.clear();
   SCCIndices.clear();
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
   // Verify the new RefSCCs we've built.
   for (RefSCC *RC : Result)
     RC->verify();
@@ -1405,9 +1419,11 @@ LazyCallGraph::RefSCC::removeInternalRefEdge(Node &SourceN,
 
 void LazyCallGraph::RefSCC::insertTrivialCallEdge(Node &SourceN,
                                                   Node &TargetN) {
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
+  // Check that the RefSCC is still valid when we finish.
   auto ExitVerifier = make_scope_exit([this] { verify(); });
 
+#ifdef EXPENSIVE_CHECKS
   // Check that we aren't breaking some invariants of the SCC graph. Note that
   // this is quadratic in the number of edges in the call graph!
   SCC &SourceC = *G->lookupSCC(SourceN);
@@ -1415,7 +1431,8 @@ void LazyCallGraph::RefSCC::insertTrivialCallEdge(Node &SourceN,
   if (&SourceC != &TargetC)
     assert(SourceC.isAncestorOf(TargetC) &&
            "Call edge is not trivial in the SCC graph!");
-#endif
+#endif // EXPENSIVE_CHECKS
+#endif // NDEBUG
 
   // First insert it into the source or find the existing edge.
   auto InsertResult =
@@ -1433,16 +1450,19 @@ void LazyCallGraph::RefSCC::insertTrivialCallEdge(Node &SourceN,
 }
 
 void LazyCallGraph::RefSCC::insertTrivialRefEdge(Node &SourceN, Node &TargetN) {
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
+  // Check that the RefSCC is still valid when we finish.
   auto ExitVerifier = make_scope_exit([this] { verify(); });
 
+#ifdef EXPENSIVE_CHECKS
   // Check that we aren't breaking some invariants of the RefSCC graph.
   RefSCC &SourceRC = *G->lookupRefSCC(SourceN);
   RefSCC &TargetRC = *G->lookupRefSCC(TargetN);
   if (&SourceRC != &TargetRC)
     assert(SourceRC.isAncestorOf(TargetRC) &&
            "Ref edge is not trivial in the RefSCC graph!");
-#endif
+#endif // EXPENSIVE_CHECKS
+#endif // NDEBUG
 
   // First insert it into the source or find the existing edge.
   auto InsertResult =
@@ -1458,7 +1478,8 @@ void LazyCallGraph::RefSCC::insertTrivialRefEdge(Node &SourceN, Node &TargetN) {
 void LazyCallGraph::RefSCC::replaceNodeFunction(Node &N, Function &NewF) {
   Function &OldF = N.getFunction();
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
+  // Check that the RefSCC is still valid when we finish.
   auto ExitVerifier = make_scope_exit([this] { verify(); });
 
   assert(G->lookupRefSCC(N) == this &&
@@ -1617,7 +1638,7 @@ void LazyCallGraph::addSplitFunction(Function &OriginalFunction,
   SCC *OriginalC = lookupSCC(OriginalN);
   RefSCC *OriginalRC = lookupRefSCC(OriginalN);
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
   OriginalRC->verify();
   auto VerifyOnExit = make_scope_exit([&]() { OriginalRC->verify(); });
 #endif
@@ -1696,12 +1717,14 @@ void LazyCallGraph::addSplitRefRecursiveFunctions(
   Node &OriginalN = get(OriginalFunction);
   RefSCC *OriginalRC = lookupRefSCC(OriginalN);
 
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
   OriginalRC->verify();
   auto VerifyOnExit = make_scope_exit([&]() {
     OriginalRC->verify();
+#ifdef EXPENSIVE_CHECKS
     for (Function *NewFunction : NewFunctions)
       lookupRefSCC(get(*NewFunction))->verify();
+#endif
   });
 #endif
 
@@ -1956,7 +1979,7 @@ void LazyCallGraph::buildRefSCCs() {
         (void)Inserted;
         assert(Inserted && "Cannot already have this RefSCC in the index map!");
         PostOrderRefSCCs.push_back(NewRC);
-#ifdef EXPENSIVE_CHECKS
+#ifndef NDEBUG
         NewRC->verify();
 #endif
       });

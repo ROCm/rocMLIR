@@ -20,14 +20,10 @@ func @execute_no_async_args(%arg0: f32, %arg1: memref<1xf32>) {
   // CHECK: %[[TOKEN:.*]] = call @async_execute_fn(%arg0, %arg1)
   %token = async.execute {
     %c0 = constant 0 : index
-    memref.store %arg0, %arg1[%c0] : memref<1xf32>
+    store %arg0, %arg1[%c0] : memref<1xf32>
     async.yield
   }
   // CHECK: call @mlirAsyncRuntimeAwaitToken(%[[TOKEN]])
-  // CHECK: %[[IS_ERROR:.*]] = call @mlirAsyncRuntimeIsTokenError(%[[TOKEN]])
-  // CHECK: %[[TRUE:.*]] = constant true
-  // CHECK: %[[NOT_ERROR:.*]] = xor %[[IS_ERROR]], %[[TRUE]] : i1
-  // CHECK: assert %[[NOT_ERROR]]
   // CHECK-NEXT: return
   async.await %token : !async.token
   return
@@ -55,7 +51,7 @@ func @execute_no_async_args(%arg0: f32, %arg1: memref<1xf32>) {
 
 // Resume coroutine after suspension.
 // CHECK: ^[[RESUME]]:
-// CHECK: memref.store %arg0, %arg1[%c0] : memref<1xf32>
+// CHECK: store %arg0, %arg1[%c0] : memref<1xf32>
 // CHECK: call @mlirAsyncRuntimeEmplaceToken(%[[RET]])
 
 // Delete coroutine.
@@ -78,32 +74,28 @@ func @nested_async_execute(%arg0: f32, %arg1: f32, %arg2: memref<1xf32>) {
 
     %token1 = async.execute {
       %c1 = constant 1: index
-      memref.store %arg0, %arg2[%c0] : memref<1xf32>
+      store %arg0, %arg2[%c0] : memref<1xf32>
       async.yield
     }
     async.await %token1 : !async.token
 
-    memref.store %arg1, %arg2[%c0] : memref<1xf32>
+    store %arg1, %arg2[%c0] : memref<1xf32>
     async.yield
   }
   // CHECK: call @mlirAsyncRuntimeAwaitToken(%[[TOKEN]])
-  // CHECK: %[[IS_ERROR:.*]] = call @mlirAsyncRuntimeIsTokenError(%[[TOKEN]])
-  // CHECK: %[[TRUE:.*]] = constant true
-  // CHECK: %[[NOT_ERROR:.*]] = xor %[[IS_ERROR]], %[[TRUE]] : i1
-  // CHECK: assert %[[NOT_ERROR]]
+  // CHECK-NEXT: return
   async.await %token0 : !async.token
   return
 }
 
 // Function outlined from the inner async.execute operation.
-// CHECK-LABEL: func private @async_execute_fn(%arg0: f32, %arg1: memref<1xf32>)
+// CHECK-LABEL: func private @async_execute_fn(%arg0: f32, %arg1: memref<1xf32>, %arg2: index)
 // CHECK-SAME: -> !llvm.ptr<i8>
 // CHECK: %[[RET_0:.*]] = call @mlirAsyncRuntimeCreateToken()
 // CHECK: %[[HDL_0:.*]] = llvm.intr.coro.begin
 // CHECK: call @mlirAsyncRuntimeExecute
 // CHECK: llvm.intr.coro.suspend
-// CHECK: %[[C0:.*]] = constant 0 : index
-// CHECK: memref.store %arg0, %arg1[%[[C0]]] : memref<1xf32>
+// CHECK: store %arg0, %arg1[%arg2] : memref<1xf32>
 // CHECK: call @mlirAsyncRuntimeEmplaceToken(%[[RET_0]])
 
 // Function outlined from the outer async.execute operation.
@@ -123,7 +115,7 @@ func @nested_async_execute(%arg0: f32, %arg1: f32, %arg2: memref<1xf32>) {
 // CHECK: llvm.intr.coro.suspend
 
 // Emplace result token after second resumption.
-// CHECK: memref.store %arg2, %arg1[%c0] : memref<1xf32>
+// CHECK: store %arg2, %arg1[%c0] : memref<1xf32>
 // CHECK: call @mlirAsyncRuntimeEmplaceToken(%[[RET_1]])
 
 // -----
@@ -133,13 +125,13 @@ func @async_execute_token_dependency(%arg0: f32, %arg1: memref<1xf32>) {
   // CHECK: %0 = call @async_execute_fn(%arg0, %arg1)
   %token = async.execute {
     %c0 = constant 0 : index
-    memref.store %arg0, %arg1[%c0] : memref<1xf32>
+    store %arg0, %arg1[%c0] : memref<1xf32>
     async.yield
   }
   // CHECK: %1 = call @async_execute_fn_0(%0, %arg0, %arg1)
   %token_0 = async.execute [%token] {
     %c0 = constant 0 : index
-    memref.store %arg0, %arg1[%c0] : memref<1xf32>
+    store %arg0, %arg1[%c0] : memref<1xf32>
     async.yield
   }
   return
@@ -152,7 +144,7 @@ func @async_execute_token_dependency(%arg0: f32, %arg1: memref<1xf32>) {
 // CHECK: %[[HDL_0:.*]] = llvm.intr.coro.begin
 // CHECK: call @mlirAsyncRuntimeExecute
 // CHECK: llvm.intr.coro.suspend
-// CHECK: memref.store %arg0, %arg1[%c0] : memref<1xf32>
+// CHECK: store %arg0, %arg1[%c0] : memref<1xf32>
 // CHECK: call @mlirAsyncRuntimeEmplaceToken(%[[RET_0]])
 
 // Function outlined from the second async.execute operation with dependency.
@@ -171,20 +163,19 @@ func @async_execute_token_dependency(%arg0: f32, %arg1: memref<1xf32>) {
 // CHECK: llvm.intr.coro.suspend
 
 // Emplace result token after second resumption.
-// CHECK: memref.store %arg1, %arg2[%c0] : memref<1xf32>
+// CHECK: store %arg1, %arg2[%c0] : memref<1xf32>
 // CHECK: call @mlirAsyncRuntimeEmplaceToken(%[[RET_1]])
 
 // -----
 
 // CHECK-LABEL: async_group_await_all
 func @async_group_await_all(%arg0: f32, %arg1: memref<1xf32>) {
-  %c = constant 1 : index
-  // CHECK: %[[GROUP:.*]] = call @mlirAsyncRuntimeCreateGroup
-  %0 = async.create_group %c : !async.group
+  // CHECK: %0 = call @mlirAsyncRuntimeCreateGroup()
+  %0 = async.create_group
 
   // CHECK: %[[TOKEN:.*]] = call @async_execute_fn
   %token = async.execute { async.yield }
-  // CHECK: call @mlirAsyncRuntimeAddTokenToGroup(%[[TOKEN]], %[[GROUP]])
+  // CHECK: call @mlirAsyncRuntimeAddTokenToGroup(%[[TOKEN]], %0)
   async.add_to_group %token, %0 : !async.token
 
   // CHECK: call @async_execute_fn_0
@@ -193,7 +184,7 @@ func @async_group_await_all(%arg0: f32, %arg1: memref<1xf32>) {
     async.yield
   }
 
-  // CHECK: call @mlirAsyncRuntimeAwaitAllInGroup(%[[GROUP]])
+  // CHECK: call @mlirAsyncRuntimeAwaitAllInGroup(%0)
   async.await_all %0
 
   return

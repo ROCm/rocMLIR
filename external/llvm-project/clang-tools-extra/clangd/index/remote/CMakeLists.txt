@@ -1,7 +1,5 @@
 if (CLANGD_ENABLE_REMOTE)
   generate_protos(RemoteIndexProto "Index.proto")
-  generate_protos(MonitoringServiceProto "MonitoringService.proto"
-    GRPC)
   generate_protos(RemoteIndexServiceProto "Service.proto"
     DEPENDS "Index.proto"
     GRPC)
@@ -10,9 +8,9 @@ if (CLANGD_ENABLE_REMOTE)
   target_link_libraries(RemoteIndexServiceProto
     PRIVATE
     RemoteIndexProto
-    MonitoringServiceProto
     )
   include_directories(${CMAKE_CURRENT_BINARY_DIR})
+  include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../)
 
   # FIXME(kirillbobyrev): target_compile_definitions is not working with
   # add_clang_library for some reason. Is there any way to make this
@@ -37,8 +35,7 @@ if (CLANGD_ENABLE_REMOTE)
 
   add_subdirectory(marshalling)
   add_subdirectory(server)
-  add_subdirectory(monitor)
 else()
-  # Provides a no-op implementation of clangdRemoteIndex.
+  # Provides a dummy implementation of clangdRemoteIndex.
   add_subdirectory(unimplemented)
 endif()

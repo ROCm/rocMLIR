@@ -89,7 +89,7 @@ static bool runOnFunction(Function &F, bool PostInlining) {
 
     insertCall(F, EntryFunc, &*F.begin()->getFirstInsertionPt(), DL);
     Changed = true;
-    F.removeFnAttr(EntryAttr);
+    F.removeAttribute(AttributeList::FunctionIndex, EntryAttr);
   }
 
   if (!ExitFunc.empty()) {
@@ -111,7 +111,7 @@ static bool runOnFunction(Function &F, bool PostInlining) {
       insertCall(F, ExitFunc, T, DL);
       Changed = true;
     }
-    F.removeFnAttr(ExitAttr);
+    F.removeAttribute(AttributeList::FunctionIndex, ExitAttr);
   }
 
   return Changed;
@@ -182,14 +182,4 @@ llvm::EntryExitInstrumenterPass::run(Function &F, FunctionAnalysisManager &AM) {
   PreservedAnalyses PA;
   PA.preserveSet<CFGAnalyses>();
   return PA;
-}
-
-void llvm::EntryExitInstrumenterPass::printPipeline(
-    raw_ostream &OS, function_ref<StringRef(StringRef)> MapClassName2PassName) {
-  static_cast<PassInfoMixin<llvm::EntryExitInstrumenterPass> *>(this)
-      ->printPipeline(OS, MapClassName2PassName);
-  OS << "<";
-  if (PostInlining)
-    OS << "post-inline";
-  OS << ">";
 }

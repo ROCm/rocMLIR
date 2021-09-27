@@ -11,12 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Support/Timer.h"
-
-#include "DebugOptions.h"
-
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringMap.h"
-#include "llvm/Config/config.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Format.h"
@@ -27,14 +23,6 @@
 #include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/raw_ostream.h"
 #include <limits>
-
-#if HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
-#ifdef HAVE_PROC_PID_RUSAGE
-#include <libproc.h>
-#endif
 
 using namespace llvm;
 
@@ -56,41 +44,20 @@ static ManagedStatic<sys::SmartMutex<true> > TimerLock;
 static ManagedStatic<SignpostEmitter> Signposts;
 
 namespace {
-struct CreateTrackSpace {
-  static void *call() {
-    return new cl::opt<bool>("track-memory",
-                             cl::desc("Enable -time-passes memory "
+  static cl::opt<bool>
+  TrackSpace("track-memory", cl::desc("Enable -time-passes memory "
                                       "tracking (this may be slow)"),
-                             cl::Hidden);
-  }
-};
-static ManagedStatic<cl::opt<bool>, CreateTrackSpace> TrackSpace;
-struct CreateInfoOutputFilename {
-  static void *call() {
-    return new cl::opt<std::string, true>(
-        "info-output-file", cl::value_desc("filename"),
-        cl::desc("File to append -stats and -timer output to"), cl::Hidden,
-        cl::location(getLibSupportInfoOutputFilename()));
-  }
-};
-static ManagedStatic<cl::opt<std::string, true>, CreateInfoOutputFilename>
-    InfoOutputFilename;
-struct CreateSortTimers {
-  static void *call() {
-    return new cl::opt<bool>(
-        "sort-timers",
-        cl::desc("In the report, sort the timers in each group "
-                 "in wall clock time order"),
-        cl::init(true), cl::Hidden);
-  }
-};
-ManagedStatic<cl::opt<bool>, CreateSortTimers> SortTimers;
-} // namespace
+             cl::Hidden);
 
-void llvm::initTimerOptions() {
-  *TrackSpace;
-  *InfoOutputFilename;
-  *SortTimers;
+  static cl::opt<std::string, true>
+  InfoOutputFilename("info-output-file", cl::value_desc("filename"),
+                     cl::desc("File to append -stats and -timer output to"),
+                   cl::Hidden, cl::location(getLibSupportInfoOutputFilename()));
+
+  static cl::opt<bool>
+  SortTimers("sort-timers", cl::desc("In the report, sort the timers in each group "
+                                     "in wall clock time order"),
+             cl::init(true), cl::Hidden);
 }
 
 std::unique_ptr<raw_fd_ostream> llvm::CreateInfoOutputFile() {
@@ -106,7 +73,7 @@ std::unique_ptr<raw_fd_ostream> llvm::CreateInfoOutputFile() {
   // info output file before running commands which write to it.
   std::error_code EC;
   auto Result = std::make_unique<raw_fd_ostream>(
-      OutputFilename, EC, sys::fs::OF_Append | sys::fs::OF_TextWithCRLF);
+      OutputFilename, EC, sys::fs::OF_Append | sys::fs::OF_Text);
   if (!EC)
     return Result;
 
@@ -149,20 +116,8 @@ Timer::~Timer() {
 }
 
 static inline size_t getMemUsage() {
-  if (!*TrackSpace)
-    return 0;
+  if (!TrackSpace) return 0;
   return sys::Process::GetMallocUsage();
-}
-
-static uint64_t getCurInstructionsExecuted() {
-#if defined(HAVE_UNISTD_H) && defined(HAVE_PROC_PID_RUSAGE) &&                 \
-    defined(RUSAGE_INFO_V4)
-  struct rusage_info_v4 ru;
-  if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&ru) == 0) {
-    return ru.ri_instructions;
-  }
-#endif
-  return 0;
 }
 
 TimeRecord TimeRecord::getCurrentTime(bool Start) {
@@ -173,11 +128,9 @@ TimeRecord TimeRecord::getCurrentTime(bool Start) {
 
   if (Start) {
     Result.MemUsed = getMemUsage();
-    Result.InstructionsExecuted = getCurInstructionsExecuted();
     sys::Process::GetTimeUsage(now, user, sys);
   } else {
     sys::Process::GetTimeUsage(now, user, sys);
-    Result.InstructionsExecuted = getCurInstructionsExecuted();
     Result.MemUsed = getMemUsage();
   }
 
@@ -199,7 +152,7 @@ void Timer::stopTimer() {
   Running = false;
   Time += TimeRecord::getCurrentTime(false);
   Time -= StartTime;
-  Signposts->endInterval(this);
+  Signposts->endInterval(this, getName());
 }
 
 void Timer::clear() {
@@ -227,8 +180,6 @@ void TimeRecord::print(const TimeRecord &Total, raw_ostream &OS) const {
 
   if (Total.getMemUsed())
     OS << format("%9" PRId64 "  ", (int64_t)getMemUsed());
-  if (Total.getInstructionsExecuted())
-    OS << format("%9" PRId64 "  ", (int64_t)getInstructionsExecuted());
 }
 
 
@@ -356,7 +307,7 @@ void TimerGroup::addTimer(Timer &T) {
 
 void TimerGroup::PrintQueuedTimers(raw_ostream &OS) {
   // Perhaps sort the timers in descending order by amount of time taken.
-  if (*SortTimers)
+  if (SortTimers)
     llvm::sort(TimersToPrint);
 
   TimeRecord Total;
@@ -388,8 +339,6 @@ void TimerGroup::PrintQueuedTimers(raw_ostream &OS) {
   OS << "   ---Wall Time---";
   if (Total.getMemUsed())
     OS << "  ---Mem---";
-  if (Total.getInstructionsExecuted())
-    OS << "  ---Instr---";
   OS << "  --- Name ---\n";
 
   // Loop through all of the timing data, printing it out.
@@ -483,10 +432,6 @@ const char *TimerGroup::printJSONValues(raw_ostream &OS, const char *delim) {
     if (T.getMemUsed()) {
       OS << delim;
       printJSONValue(OS, R, ".mem", T.getMemUsed());
-    }
-    if (T.getInstructionsExecuted()) {
-      OS << delim;
-      printJSONValue(OS, R, ".instr", T.getInstructionsExecuted());
     }
   }
   TimersToPrint.clear();

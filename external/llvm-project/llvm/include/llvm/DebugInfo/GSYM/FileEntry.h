@@ -13,6 +13,7 @@
 #include "llvm/ADT/Hashing.h"
 #include <functional>
 #include <stdint.h>
+#include <utility>
 
 namespace llvm {
 namespace gsym {
@@ -63,4 +64,4 @@ template <> struct DenseMapInfo<gsym::FileEntry> {
 };
 
 } // namespace llvm
-#endif // LLVM_DEBUGINFO_GSYM_FILEENTRY_H
+#endif // #ifndef LLVM_DEBUGINFO_GSYM_FILEENTRY_H

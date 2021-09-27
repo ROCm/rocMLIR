@@ -703,7 +703,7 @@ void NVPTXAsmPrinter::emitDeclarations(const Module &M, raw_ostream &O) {
   for (Module::const_iterator FI = M.begin(), FE = M.end(); FI != FE; ++FI) {
     const Function *F = &*FI;
 
-    if (F->getAttributes().hasFnAttr("nvptx-libcall-callee")) {
+    if (F->getAttributes().hasFnAttribute("nvptx-libcall-callee")) {
       emitDeclaration(F, O);
       continue;
     }
@@ -1457,7 +1457,7 @@ void NVPTXAsmPrinter::emitFunctionParamList(const Function *F, raw_ostream &O) {
       }
     }
 
-    if (!PAL.hasParamAttr(paramIndex, Attribute::ByVal)) {
+    if (!PAL.hasParamAttribute(paramIndex, Attribute::ByVal)) {
       if (Ty->isAggregateType() || Ty->isVectorTy() || Ty->isIntegerTy(128)) {
         // Just print .param .align <a> .b8 .param[size];
         // <a> = PAL.getparamalignment
@@ -1748,63 +1748,135 @@ void NVPTXAsmPrinter::printScalarConstant(const Constant *CPV, raw_ostream &O) {
   llvm_unreachable("Not scalar type found in printScalarConstant()");
 }
 
+// These utility functions assure we get the right sequence of bytes for a given
+// type even for big-endian machines
+template <typename T> static void ConvertIntToBytes(unsigned char *p, T val) {
+  int64_t vp = (int64_t)val;
+  for (unsigned i = 0; i < sizeof(T); ++i) {
+    p[i] = (unsigned char)vp;
+    vp >>= 8;
+  }
+}
+static void ConvertFloatToBytes(unsigned char *p, float val) {
+  int32_t *vp = (int32_t *)&val;
+  for (unsigned i = 0; i < sizeof(int32_t); ++i) {
+    p[i] = (unsigned char)*vp;
+    *vp >>= 8;
+  }
+}
+static void ConvertDoubleToBytes(unsigned char *p, double val) {
+  int64_t *vp = (int64_t *)&val;
+  for (unsigned i = 0; i < sizeof(int64_t); ++i) {
+    p[i] = (unsigned char)*vp;
+    *vp >>= 8;
+  }
+}
+
 void NVPTXAsmPrinter::bufferLEByte(const Constant *CPV, int Bytes,
-                                   AggBuffer *AggBuffer) {
+                                   AggBuffer *aggBuffer) {
   const DataLayout &DL = getDataLayout();
-  int AllocSize = DL.getTypeAllocSize(CPV->getType());
+
   if (isa<UndefValue>(CPV) || CPV->isNullValue()) {
-    // Non-zero Bytes indicates that we need to zero-fill everything. Otherwise,
-    // only the space allocated by CPV.
-    AggBuffer->addZeros(Bytes ? Bytes : AllocSize);
+    int s = DL.getTypeAllocSize(CPV->getType());
+    if (s < Bytes)
+      s = Bytes;
+    aggBuffer->addZeros(s);
     return;
   }
 
-  // Helper for filling AggBuffer with APInts.
-  auto AddIntToBuffer = [AggBuffer, Bytes](const APInt &Val) {
-    size_t NumBytes = (Val.getBitWidth() + 7) / 8;
-    SmallVector<unsigned char, 16> Buf(NumBytes);
-    for (unsigned I = 0; I < NumBytes; ++I) {
-      Buf[I] = Val.extractBitsAsZExtValue(8, I * 8);
-    }
-    AggBuffer->addBytes(Buf.data(), NumBytes, Bytes);
-  };
-
+  unsigned char ptr[8];
   switch (CPV->getType()->getTypeID()) {
-  case Type::IntegerTyID:
-    if (const auto CI = dyn_cast<ConstantInt>(CPV)) {
-      AddIntToBuffer(CI->getValue());
-      break;
-    }
-    if (const auto *Cexpr = dyn_cast<ConstantExpr>(CPV)) {
-      if (const auto *CI =
-              dyn_cast<ConstantInt>(ConstantFoldConstant(Cexpr, DL))) {
-        AddIntToBuffer(CI->getValue());
-        break;
-      }
-      if (Cexpr->getOpcode() == Instruction::PtrToInt) {
-        Value *V = Cexpr->getOperand(0)->stripPointerCasts();
-        AggBuffer->addSymbol(V, Cexpr->getOperand(0));
-        AggBuffer->addZeros(AllocSize);
-        break;
-      }
-    }
-    llvm_unreachable("unsupported integer const type");
-    break;
 
+  case Type::IntegerTyID: {
+    Type *ETy = CPV->getType();
+    if (ETy == Type::getInt8Ty(CPV->getContext())) {
+      unsigned char c = (unsigned char)cast<ConstantInt>(CPV)->getZExtValue();
+      ConvertIntToBytes<>(ptr, c);
+      aggBuffer->addBytes(ptr, 1, Bytes);
+    } else if (ETy == Type::getInt16Ty(CPV->getContext())) {
+      short int16 = (short)cast<ConstantInt>(CPV)->getZExtValue();
+      ConvertIntToBytes<>(ptr, int16);
+      aggBuffer->addBytes(ptr, 2, Bytes);
+    } else if (ETy == Type::getInt32Ty(CPV->getContext())) {
+      if (const ConstantInt *constInt = dyn_cast<ConstantInt>(CPV)) {
+        int int32 = (int)(constInt->getZExtValue());
+        ConvertIntToBytes<>(ptr, int32);
+        aggBuffer->addBytes(ptr, 4, Bytes);
+        break;
+      } else if (const auto *Cexpr = dyn_cast<ConstantExpr>(CPV)) {
+        if (const auto *constInt = dyn_cast<ConstantInt>(
+                ConstantFoldConstant(Cexpr, DL))) {
+          int int32 = (int)(constInt->getZExtValue());
+          ConvertIntToBytes<>(ptr, int32);
+          aggBuffer->addBytes(ptr, 4, Bytes);
+          break;
+        }
+        if (Cexpr->getOpcode() == Instruction::PtrToInt) {
+          Value *v = Cexpr->getOperand(0)->stripPointerCasts();
+          aggBuffer->addSymbol(v, Cexpr->getOperand(0));
+          aggBuffer->addZeros(4);
+          break;
+        }
+      }
+      llvm_unreachable("unsupported integer const type");
+    } else if (ETy == Type::getInt64Ty(CPV->getContext())) {
+      if (const ConstantInt *constInt = dyn_cast<ConstantInt>(CPV)) {
+        long long int64 = (long long)(constInt->getZExtValue());
+        ConvertIntToBytes<>(ptr, int64);
+        aggBuffer->addBytes(ptr, 8, Bytes);
+        break;
+      } else if (const ConstantExpr *Cexpr = dyn_cast<ConstantExpr>(CPV)) {
+        if (const auto *constInt = dyn_cast<ConstantInt>(
+                ConstantFoldConstant(Cexpr, DL))) {
+          long long int64 = (long long)(constInt->getZExtValue());
+          ConvertIntToBytes<>(ptr, int64);
+          aggBuffer->addBytes(ptr, 8, Bytes);
+          break;
+        }
+        if (Cexpr->getOpcode() == Instruction::PtrToInt) {
+          Value *v = Cexpr->getOperand(0)->stripPointerCasts();
+          aggBuffer->addSymbol(v, Cexpr->getOperand(0));
+          aggBuffer->addZeros(8);
+          break;
+        }
+      }
+      llvm_unreachable("unsupported integer const type");
+    } else
+      llvm_unreachable("unsupported integer const type");
+    break;
+  }
   case Type::HalfTyID:
   case Type::FloatTyID:
-  case Type::DoubleTyID:
-    AddIntToBuffer(cast<ConstantFP>(CPV)->getValueAPF().bitcastToAPInt());
+  case Type::DoubleTyID: {
+    const auto *CFP = cast<ConstantFP>(CPV);
+    Type *Ty = CFP->getType();
+    if (Ty == Type::getHalfTy(CPV->getContext())) {
+      APInt API = CFP->getValueAPF().bitcastToAPInt();
+      uint16_t float16 = API.getLoBits(16).getZExtValue();
+      ConvertIntToBytes<>(ptr, float16);
+      aggBuffer->addBytes(ptr, 2, Bytes);
+    } else if (Ty == Type::getFloatTy(CPV->getContext())) {
+      float float32 = (float) CFP->getValueAPF().convertToFloat();
+      ConvertFloatToBytes(ptr, float32);
+      aggBuffer->addBytes(ptr, 4, Bytes);
+    } else if (Ty == Type::getDoubleTy(CPV->getContext())) {
+      double float64 = CFP->getValueAPF().convertToDouble();
+      ConvertDoubleToBytes(ptr, float64);
+      aggBuffer->addBytes(ptr, 8, Bytes);
+    } else {
+      llvm_unreachable("unsupported fp const type");
+    }
     break;
-
+  }
   case Type::PointerTyID: {
     if (const GlobalValue *GVar = dyn_cast<GlobalValue>(CPV)) {
-      AggBuffer->addSymbol(GVar, GVar);
+      aggBuffer->addSymbol(GVar, GVar);
     } else if (const ConstantExpr *Cexpr = dyn_cast<ConstantExpr>(CPV)) {
       const Value *v = Cexpr->stripPointerCasts();
-      AggBuffer->addSymbol(v, Cexpr);
+      aggBuffer->addSymbol(v, Cexpr);
     }
-    AggBuffer->addZeros(AllocSize);
+    unsigned int s = DL.getTypeAllocSize(CPV->getType());
+    aggBuffer->addZeros(s);
     break;
   }
 
@@ -1812,11 +1884,12 @@ void NVPTXAsmPrinter::bufferLEByte(const Constant *CPV, int Bytes,
   case Type::FixedVectorTyID:
   case Type::StructTyID: {
     if (isa<ConstantAggregate>(CPV) || isa<ConstantDataSequential>(CPV)) {
-      bufferAggregateConstant(CPV, AggBuffer);
-      if (Bytes > AllocSize)
-        AggBuffer->addZeros(Bytes - AllocSize);
+      int ElementSize = DL.getTypeAllocSize(CPV->getType());
+      bufferAggregateConstant(CPV, aggBuffer);
+      if (Bytes > ElementSize)
+        aggBuffer->addZeros(Bytes - ElementSize);
     } else if (isa<ConstantAggregateZero>(CPV))
-      AggBuffer->addZeros(Bytes);
+      aggBuffer->addZeros(Bytes);
     else
       llvm_unreachable("Unexpected Constant type");
     break;

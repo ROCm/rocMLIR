@@ -17,6 +17,7 @@
 //     random_shuffle(RandomAccessIterator first, RandomAccessIterator last,
 //                    RandomNumberGenerator& rand);
 
+// UNSUPPORTED: clang-4.0
 // UNSUPPORTED: c++03, c++11
 
 // ADDITIONAL_COMPILE_FLAGS: -D_LIBCPP_ENABLE_CXX17_REMOVED_RANDOM_SHUFFLE

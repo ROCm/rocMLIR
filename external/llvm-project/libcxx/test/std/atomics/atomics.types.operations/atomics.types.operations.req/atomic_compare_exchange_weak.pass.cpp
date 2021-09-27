@@ -33,8 +33,9 @@ struct TestFn {
   void operator()() const {
     {
         typedef std::atomic<T> A;
+        A a;
         T t(T(1));
-        A a(t);
+        std::atomic_init(&a, t);
         assert(c_cmpxchg_weak_loop(&a, &t, T(2)) == true);
         assert(a == T(2));
         assert(t == T(1));
@@ -44,8 +45,9 @@ struct TestFn {
     }
     {
         typedef std::atomic<T> A;
+        volatile A a;
         T t(T(1));
-        volatile A a(t);
+        std::atomic_init(&a, t);
         assert(c_cmpxchg_weak_loop(&a, &t, T(2)) == true);
         assert(a == T(2));
         assert(t == T(1));

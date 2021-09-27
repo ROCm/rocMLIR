@@ -1,7 +1,7 @@
 // RUN: %clang_cc1 -fno-rtti -emit-llvm-only -triple i686-pc-win32 -fms-extensions -fdump-record-layouts -fsyntax-only %s 2>/dev/null \
-// RUN:            | FileCheck %s --strict-whitespace
+// RUN:            | FileCheck %s
 // RUN: %clang_cc1 -fno-rtti -emit-llvm-only -triple x86_64-pc-win32 -fms-extensions -fdump-record-layouts -fsyntax-only %s 2>/dev/null \
-// RUN:            | FileCheck %s -check-prefix CHECK-X64 --strict-whitespace
+// RUN:            | FileCheck %s -check-prefix CHECK-X64
 
 extern "C" int printf(const char *fmt, ...);
 __declspec(align(4096)) char buffer[4096];
@@ -45,11 +45,19 @@ struct AT3 : AT2, AT1 {
 	}
 };
 
-// CHECK-LABEL:   0 | struct AT3{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct AT3
 // CHECK-NEXT:    0 |   struct AT2 (base)
 // CHECK-NEXT:    0 |     struct AT0 t
-// CHECK-NEXT:    0 |       union AT0::(unnamed at {{.*}} x
-// CHECK-NEXT:    0 |         struct AT0::(unnamed at {{.*}} y
+// CHECK-NEXT:    0 |       union AT0::(anonymous at {{.*}} x
+// CHECK-NEXT:    0 |         struct AT0::(anonymous at {{.*}} y
 // CHECK-NEXT:    0 |           int a
 // CHECK-NEXT:    4 |           struct AT t (empty)
 // CHECK:         0 |         int b
@@ -62,11 +70,19 @@ struct AT3 : AT2, AT1 {
 // CHECK-NEXT:   24 |     int a
 // CHECK-NEXT:      | [sizeof=28, align=4
 // CHECK-NEXT:      |  nvsize=28, nvalign=4]
-// CHECK-X64-LABEL:   0 | struct AT3{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct AT3
 // CHECK-X64-NEXT:    0 |   struct AT2 (base)
 // CHECK-X64-NEXT:    0 |     struct AT0 t
-// CHECK-X64-NEXT:    0 |       union AT0::(unnamed at {{.*}} x
-// CHECK-X64-NEXT:    0 |         struct AT0::(unnamed at {{.*}} y
+// CHECK-X64-NEXT:    0 |       union AT0::(anonymous at {{.*}} x
+// CHECK-X64-NEXT:    0 |         struct AT0::(anonymous at {{.*}} y
 // CHECK-X64-NEXT:    0 |           int a
 // CHECK-X64-NEXT:    4 |           struct AT t (empty)
 // CHECK-X64:         0 |         int b
@@ -100,14 +116,20 @@ struct BT3 : BT0, BT2 {
 	}
 };
 
-// CHECK-LABEL:   0 | struct BT3{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct BT3
 // CHECK-NEXT:    0 |   struct BT0 (base) (empty)
 // CHECK-NEXT:    1 |   struct BT2 (base)
 // CHECK-NEXT:    1 |     struct BT0 (base) (empty)
 // CHECK-NEXT:    1 |     char BT2FieldName0
 // CHECK-NEXT:      | [sizeof=2, align=1
 // CHECK-NEXT:      |  nvsize=2, nvalign=1]
-// CHECK-X64-LABEL:   0 | struct BT3{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct BT3
 // CHECK-X64-NEXT:    0 |   struct BT0 (base) (empty)
 // CHECK-X64-NEXT:    1 |   struct BT2 (base)
 // CHECK-X64-NEXT:    1 |     struct BT0 (base) (empty)
@@ -143,7 +165,11 @@ struct __declspec(align(1)) T3 : virtual T1, virtual T2 {
 	}
 };
 
-// CHECK-LABEL:   0 | struct T3{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct T3
 // CHECK-NEXT:    0 |   (T3 vbtable pointer)
 // CHECK-NEXT:    4 |   struct T1 (virtual base)
 // CHECK-NEXT:    4 |     struct T0 (base) (empty)
@@ -154,7 +180,11 @@ struct __declspec(align(1)) T3 : virtual T1, virtual T2 {
 // CHECK-NEXT:   12 |     char a
 // CHECK-NEXT:      | [sizeof=16, align=4
 // CHECK-NEXT:      |  nvsize=4, nvalign=4]
-// CHECK-X64-LABEL:   0 | struct T3{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct T3
 // CHECK-X64-NEXT:    0 |   (T3 vbtable pointer)
 // CHECK-X64-NEXT:    8 |   struct T1 (virtual base)
 // CHECK-X64-NEXT:    8 |     struct T0 (base) (empty)
@@ -170,7 +200,11 @@ struct B {};
 struct C { int a; };
 struct D : B, virtual C { B b; };
 struct E : D, B {};
-// CHECK-LABEL:   0 | struct E{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct E
 // CHECK-NEXT:    0 |   struct D (base)
 // CHECK-NEXT:    4 |     struct B (base) (empty)
 // CHECK-NEXT:    0 |     (D vbtable pointer)
@@ -180,7 +214,11 @@ struct E : D, B {};
 // CHECK-NEXT:    8 |     int a
 // CHECK-NEXT:      | [sizeof=12, align=4
 // CHECK-NEXT:      |  nvsize=8, nvalign=4]
-// CHECK-X64-LABEL:  0 | struct E{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:   0 | struct E
 // CHECK-X64-NEXT:   0 |   struct D (base)
 // CHECK-X64-NEXT:   8 |     struct B (base) (empty)
 // CHECK-X64-NEXT:   0 |     (D vbtable pointer)
@@ -192,7 +230,8 @@ struct E : D, B {};
 // CHECK-X64-NEXT:     |  nvsize=16, nvalign=8]
 
 struct F : virtual D, virtual B {};
-// CHECK-LABEL:   0 | struct F{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct F
 // CHECK-NEXT:    0 |   (F vbtable pointer)
 // CHECK-NEXT:    4 |   struct C (virtual base)
 // CHECK-NEXT:    4 |     int a
@@ -203,7 +242,8 @@ struct F : virtual D, virtual B {};
 // CHECK:        16 |   struct B (virtual base) (empty)
 // CHECK-NEXT:      | [sizeof=16, align=4
 // CHECK-NEXT:      |  nvsize=4, nvalign=4]
-// CHECK-X64-LABEL:   0 | struct F{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct F
 // CHECK-X64-NEXT:    0 |   (F vbtable pointer)
 // CHECK-X64-NEXT:    8 |   struct C (virtual base)
 // CHECK-X64-NEXT:    8 |     int a
@@ -229,7 +269,11 @@ struct JC4 : JC1, JC2 {
 	JC4() { printf("JC4 : %d\n", (int)((char*)this - buffer)); }
 };
 
-// CHECK-LABEL:   0 | struct JC4{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct JC4
 // CHECK-NEXT:    0 |   struct JC1 (primary base)
 // CHECK-NEXT:    0 |     (JC1 vftable pointer)
 // CHECK-NEXT:    4 |     struct JC0 (base) (empty)
@@ -239,7 +283,11 @@ struct JC4 : JC1, JC2 {
 // CHECK-NEXT:   12 |       struct JC0 (base) (empty)
 // CHECK-NEXT:      | [sizeof=12, align=4
 // CHECK-NEXT:      |  nvsize=12, nvalign=4]
-// CHECK-X64-LABEL:   0 | struct JC4{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct JC4
 // CHECK-X64-NEXT:    0 |   struct JC1 (primary base)
 // CHECK-X64-NEXT:    0 |     (JC1 vftable pointer)
 // CHECK-X64-NEXT:    8 |     struct JC0 (base) (empty)
@@ -266,7 +314,12 @@ struct RX7 : virtual RW { RA a; };
 struct RX8 : RA, virtual RW {};
 
 struct RZ0 : RX0, RY {};
-// CHECK-LABEL:   0 | struct RZ0{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct RZ0
 // CHECK-NEXT:    0 |   struct RX0 (base)
 // CHECK-NEXT:    0 |     struct RB (base)
 // CHECK-NEXT:    0 |       char c
@@ -274,7 +327,12 @@ struct RZ0 : RX0, RY {};
 // CHECK-NEXT:    2 |   struct RY (base) (empty)
 // CHECK-NEXT:      | [sizeof=2, align=1
 // CHECK-NEXT:      |  nvsize=2, nvalign=1]
-// CHECK-X64-LABEL:   0 | struct RZ0{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct RZ0
 // CHECK-X64-NEXT:    0 |   struct RX0 (base)
 // CHECK-X64-NEXT:    0 |     struct RB (base)
 // CHECK-X64-NEXT:    0 |       char c
@@ -284,7 +342,9 @@ struct RZ0 : RX0, RY {};
 // CHECK-X64-NEXT:      |  nvsize=2, nvalign=1]
 
 struct RZ1 : RX1, RY {};
-// CHECK-LABEL:   0 | struct RZ1{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct RZ1
 // CHECK-NEXT:    0 |   struct RX1 (base)
 // CHECK-NEXT:    0 |     struct RA (base) (empty)
 // CHECK-NEXT:    0 |     struct RB (base)
@@ -292,7 +352,9 @@ struct RZ1 : RX1, RY {};
 // CHECK-NEXT:    1 |   struct RY (base) (empty)
 // CHECK-NEXT:      | [sizeof=1, align=1
 // CHECK-NEXT:      |  nvsize=1, nvalign=1]
-// CHECK-X64-LABEL:   0 | struct RZ1{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct RZ1
 // CHECK-X64-NEXT:    0 |   struct RX1 (base)
 // CHECK-X64-NEXT:    0 |     struct RA (base) (empty)
 // CHECK-X64-NEXT:    0 |     struct RB (base)
@@ -302,14 +364,18 @@ struct RZ1 : RX1, RY {};
 // CHECK-X64-NEXT:      |  nvsize=1, nvalign=1]
 
 struct RZ2 : RX2, RY {};
-// CHECK-LABEL:   0 | struct RZ2{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct RZ2
 // CHECK-NEXT:    0 |   struct RX2 (base)
 // CHECK-NEXT:    0 |     struct RA (base) (empty)
 // CHECK-NEXT:    0 |     char a
 // CHECK-NEXT:    2 |   struct RY (base) (empty)
 // CHECK-NEXT:      | [sizeof=2, align=1
 // CHECK-NEXT:      |  nvsize=2, nvalign=1]
-// CHECK-X64-LABEL:   0 | struct RZ2{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct RZ2
 // CHECK-X64-NEXT:    0 |   struct RX2 (base)
 // CHECK-X64-NEXT:    0 |     struct RA (base) (empty)
 // CHECK-X64-NEXT:    0 |     char a
@@ -318,7 +384,9 @@ struct RZ2 : RX2, RY {};
 // CHECK-X64-NEXT:      |  nvsize=2, nvalign=1]
 
 struct RZ3 : RX3, RY {};
-// CHECK-LABEL:   0 | struct RZ3{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct RZ3
 // CHECK-NEXT:    0 |   struct RX3 (base)
 // CHECK-NEXT:    0 |     struct RA (base) (empty)
 // CHECK-NEXT:    0 |     struct RB a
@@ -326,7 +394,9 @@ struct RZ3 : RX3, RY {};
 // CHECK-NEXT:    1 |   struct RY (base) (empty)
 // CHECK-NEXT:      | [sizeof=1, align=1
 // CHECK-NEXT:      |  nvsize=1, nvalign=1]
-// CHECK-X64-LABEL:   0 | struct RZ3{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct RZ3
 // CHECK-X64-NEXT:    0 |   struct RX3 (base)
 // CHECK-X64-NEXT:    0 |     struct RA (base) (empty)
 // CHECK-X64-NEXT:    0 |     struct RB a
@@ -336,14 +406,18 @@ struct RZ3 : RX3, RY {};
 // CHECK-X64-NEXT:      |  nvsize=1, nvalign=1]
 
 struct RZ4 : RX4, RY {};
-// CHECK-LABEL:   0 | struct RZ4{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct RZ4
 // CHECK-NEXT:    0 |   struct RX4 (base)
 // CHECK-NEXT:    0 |     struct RA a (empty)
 // CHECK-NEXT:    1 |     char b
 // CHECK-NEXT:    3 |   struct RY (base) (empty)
 // CHECK-NEXT:      | [sizeof=3, align=1
 // CHECK-NEXT:      |  nvsize=3, nvalign=1]
-// CHECK-X64-LABEL:   0 | struct RZ4{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct RZ4
 // CHECK-X64-NEXT:    0 |   struct RX4 (base)
 // CHECK-X64-NEXT:    0 |     struct RA a (empty)
 // CHECK-X64-NEXT:    1 |     char b
@@ -352,7 +426,9 @@ struct RZ4 : RX4, RY {};
 // CHECK-X64-NEXT:      |  nvsize=3, nvalign=1]
 
 struct RZ5 : RX5, RY {};
-// CHECK-LABEL:   0 | struct RZ5{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct RZ5
 // CHECK-NEXT:    0 |   struct RX5 (base)
 // CHECK-NEXT:    0 |     struct RA a (empty)
 // CHECK-NEXT:    1 |     struct RB b
@@ -360,7 +436,9 @@ struct RZ5 : RX5, RY {};
 // CHECK-NEXT:    2 |   struct RY (base) (empty)
 // CHECK-NEXT:      | [sizeof=2, align=1
 // CHECK-NEXT:      |  nvsize=2, nvalign=1]
-// CHECK-X64-LABEL:   0 | struct RZ5{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct RZ5
 // CHECK-X64-NEXT:    0 |   struct RX5 (base)
 // CHECK-X64-NEXT:    0 |     struct RA a (empty)
 // CHECK-X64-NEXT:    1 |     struct RB b
@@ -370,7 +448,10 @@ struct RZ5 : RX5, RY {};
 // CHECK-X64-NEXT:      |  nvsize=2, nvalign=1]
 
 struct RZ6 : RX6, RY {};
-// CHECK-LABEL:   0 | struct RZ6{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct RZ6
 // CHECK-NEXT:    0 |   struct RX6 (base)
 // CHECK-NEXT:    0 |     (RX6 vbtable pointer)
 // CHECK-NEXT:    4 |     struct RB a
@@ -379,7 +460,10 @@ struct RZ6 : RX6, RY {};
 // CHECK-NEXT:   12 |   struct RV (virtual base) (empty)
 // CHECK-NEXT:      | [sizeof=12, align=4
 // CHECK-NEXT:      |  nvsize=12, nvalign=4]
-// CHECK-X64-LABEL:   0 | struct RZ6{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct RZ6
 // CHECK-X64-NEXT:    0 |   struct RX6 (base)
 // CHECK-X64-NEXT:    0 |     (RX6 vbtable pointer)
 // CHECK-X64-NEXT:    8 |     struct RB a
@@ -390,7 +474,10 @@ struct RZ6 : RX6, RY {};
 // CHECK-X64-NEXT:      |  nvsize=24, nvalign=8]
 
 struct RZ7 : RX7, RY {};
-// CHECK-LABEL:   0 | struct RZ7{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct RZ7
 // CHECK-NEXT:    0 |   struct RX7 (base)
 // CHECK-NEXT:    0 |     (RX7 vbtable pointer)
 // CHECK-NEXT:    4 |     struct RA a (empty)
@@ -399,7 +486,10 @@ struct RZ7 : RX7, RY {};
 // CHECK-NEXT:    8 |     char c
 // CHECK-NEXT:      | [sizeof=9, align=4
 // CHECK-NEXT:      |  nvsize=8, nvalign=4]
-// CHECK-X64-LABEL:   0 | struct RZ7{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct RZ7
 // CHECK-X64-NEXT:    0 |   struct RX7 (base)
 // CHECK-X64-NEXT:    0 |     (RX7 vbtable pointer)
 // CHECK-X64-NEXT:    8 |     struct RA a (empty)
@@ -410,7 +500,9 @@ struct RZ7 : RX7, RY {};
 // CHECK-X64-NEXT:      |  nvsize=16, nvalign=8]
 
 struct RZ8 : RX8, RY {};
-// CHECK-LABEL:   0 | struct RZ8{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct RZ8
 // CHECK-NEXT:    0 |   struct RX8 (base)
 // CHECK-NEXT:    4 |     struct RA (base) (empty)
 // CHECK-NEXT:    0 |     (RX8 vbtable pointer)
@@ -419,7 +511,9 @@ struct RZ8 : RX8, RY {};
 // CHECK-NEXT:    4 |     char c
 // CHECK-NEXT:      | [sizeof=5, align=4
 // CHECK-NEXT:      |  nvsize=4, nvalign=4]
-// CHECK-X64-LABEL:   0 | struct RZ8{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct RZ8
 // CHECK-X64-NEXT:    0 |   struct RX8 (base)
 // CHECK-X64-NEXT:    8 |     struct RA (base) (empty)
 // CHECK-X64-NEXT:    0 |     (RX8 vbtable pointer)
@@ -434,7 +528,11 @@ struct JB {};
 struct JC : JA { virtual void f() {} };
 struct JD : virtual JB, virtual JC { virtual void f() {} JD() {} };
 
-// CHECK-LABEL:   0 | struct JD{{$}}
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK: *** Dumping AST Record Layout
+// CHECK-NEXT:    0 | struct JD
 // CHECK-NEXT:    0 |   (JD vbtable pointer)
 // CHECK-NEXT:    4 |   struct JB (virtual base) (empty)
 // CHECK-NEXT:    4 |   (vtordisp for vbase JC)
@@ -443,7 +541,11 @@ struct JD : virtual JB, virtual JC { virtual void f() {} JD() {} };
 // CHECK-NEXT:   12 |     struct JA (base) (empty)
 // CHECK-NEXT:      | [sizeof=12, align=4
 // CHECK-NEXT:      |  nvsize=4, nvalign=4]
-// CHECK-X64-LABEL:   0 | struct JD{{$}}
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64: *** Dumping AST Record Layout
+// CHECK-X64-NEXT:    0 | struct JD
 // CHECK-X64-NEXT:    0 |   (JD vbtable pointer)
 // CHECK-X64-NEXT:    8 |   struct JB (virtual base) (empty)
 // CHECK-X64-NEXT:   12 |   (vtordisp for vbase JC)

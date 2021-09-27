@@ -14,7 +14,6 @@
 #define LLVM_CLANG_SEMA_ANALYSISBASEDWARNINGS_H
 
 #include "llvm/ADT/DenseMap.h"
-#include <memory>
 
 namespace clang {
 
@@ -47,9 +46,6 @@ public:
 private:
   Sema &S;
   Policy DefaultPolicy;
-
-  class InterProceduralData;
-  std::unique_ptr<InterProceduralData> IPData;
 
   enum VisitFlag { NotVisited = 0, Visited = 1, Pending = 2 };
   llvm::DenseMap<const FunctionDecl*, VisitFlag> VisitedFD;
@@ -92,7 +88,6 @@ private:
 
 public:
   AnalysisBasedWarnings(Sema &s);
-  ~AnalysisBasedWarnings();
 
   void IssueWarnings(Policy P, FunctionScopeInfo *fscope,
                      const Decl *D, QualType BlockType);
@@ -102,7 +97,6 @@ public:
   void PrintStats() const;
 };
 
-} // namespace sema
-} // namespace clang
+}} // end namespace clang::sema
 
 #endif

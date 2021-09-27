@@ -29,7 +29,6 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachinePassManager.h"
 #include "llvm/CodeGen/PreISelIntrinsicLowering.h"
-#include "llvm/CodeGen/ReplaceWithVeclib.h"
 #include "llvm/CodeGen/UnreachableBlockElim.h"
 #include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/IR/PassManager.h"
@@ -55,6 +54,7 @@
 #include "llvm/Transforms/Utils/EntryExitInstrumenter.h"
 #include "llvm/Transforms/Utils/LowerInvoke.h"
 #include <cassert>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -159,7 +159,7 @@ protected:
   class AddIRPass {
   public:
     AddIRPass(ModulePassManager &MPM, bool DebugPM, bool Check = true)
-        : MPM(MPM), FPM() {
+        : MPM(MPM), FPM(DebugPM) {
       if (Check)
         AddingFunctionPasses = false;
     }
@@ -380,6 +380,7 @@ protected:
   /// representation to the MI representation.
   /// Adds IR based lowering and target specific optimization passes and finally
   /// the core instruction selection passes.
+  /// \returns true if an error occurred, false otherwise.
   void addISelPasses(AddIRPass &) const;
 
   /// Add the actual instruction selection passes. This does not include
@@ -650,11 +651,6 @@ void CodeGenPassBuilder<Derived>::addIRPasses(AddIRPass &addPass) const {
   if (getOptLevel() != CodeGenOpt::None && !Opt.DisableConstantHoisting)
     addPass(ConstantHoistingPass());
 
-  // Replace calls to LLVM intrinsics (e.g., exp, log) operating on vector
-  // operands with calls to the corresponding functions in a vector library.
-  if (getOptLevel() != CodeGenOpt::None)
-    addPass(ReplaceWithVeclib());
-
   if (getOptLevel() != CodeGenOpt::None && !Opt.DisablePartialLibcallInlining)
     addPass(PartiallyInlineLibCallsPass());
 
@@ -868,8 +864,6 @@ Error CodeGenPassBuilder<Derived>::addMachinePasses(
 
   // Run post-ra passes.
   derived().addPostRegAlloc(addPass);
-
-  addPass(RemoveRedundantDebugValuesPass());
 
   // Insert prolog/epilog code.  Eliminate abstract frame index references...
   if (getOptLevel() != CodeGenOpt::None) {

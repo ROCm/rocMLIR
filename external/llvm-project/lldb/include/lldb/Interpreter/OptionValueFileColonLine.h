@@ -9,20 +9,19 @@
 #ifndef LLDB_INTERPRETER_OPTIONVALUEFILECOLONLINE_H
 #define LLDB_INTERPRETER_OPTIONVALUEFILECOLONLINE_H
 
-#include "lldb/Interpreter/CommandCompletions.h"
 #include "lldb/Interpreter/OptionValue.h"
+
 #include "lldb/Utility/FileSpec.h"
 #include "llvm/Support/Chrono.h"
 
 namespace lldb_private {
 
-class OptionValueFileColonLine :
-    public Cloneable<OptionValueFileColonLine, OptionValue> {
+class OptionValueFileColonLine : public OptionValue {
 public:
   OptionValueFileColonLine();
   OptionValueFileColonLine(const llvm::StringRef input);
 
-  ~OptionValueFileColonLine() override = default;
+  ~OptionValueFileColonLine() override {}
 
   OptionValue::Type GetType() const override { return eTypeFileLineColumn; }
 
@@ -32,12 +31,17 @@ public:
   Status
   SetValueFromString(llvm::StringRef value,
                      VarSetOperationType op = eVarSetOperationAssign) override;
+  Status
+  SetValueFromString(const char *,
+                     VarSetOperationType = eVarSetOperationAssign) = delete;
 
   void Clear() override {
     m_file_spec.Clear();
     m_line_number = LLDB_INVALID_LINE_NUMBER;
     m_column_number = LLDB_INVALID_COLUMN_NUMBER;
   }
+
+  lldb::OptionValueSP DeepCopy() const override;
 
   void AutoComplete(CommandInterpreter &interpreter,
                     CompletionRequest &request) override;
@@ -50,9 +54,9 @@ public:
 
 protected:
   FileSpec m_file_spec;
-  uint32_t m_line_number = LLDB_INVALID_LINE_NUMBER;
-  uint32_t m_column_number = LLDB_INVALID_COLUMN_NUMBER;
-  uint32_t m_completion_mask = CommandCompletions::eSourceFileCompletion;
+  uint32_t m_line_number;
+  uint32_t m_column_number;
+  uint32_t m_completion_mask;
 };
 
 } // namespace lldb_private

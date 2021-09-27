@@ -92,36 +92,20 @@ bool IsDescriptor(const Symbol &symbol) {
 
 namespace Fortran::evaluate {
 
-DynamicType::DynamicType(int k, const semantics::ParamValue &pv)
-    : category_{TypeCategory::Character}, kind_{k} {
-  CHECK(IsValidKindOfIntrinsicType(category_, kind_));
-  if (auto n{ToInt64(pv.GetExplicit())}) {
-    knownLength_ = *n;
-  } else {
-    charLengthParamValue_ = &pv;
-  }
-}
-
 template <typename A> inline bool PointeeComparison(const A *x, const A *y) {
   return x == y || (x && y && *x == *y);
 }
 
 bool DynamicType::operator==(const DynamicType &that) const {
   return category_ == that.category_ && kind_ == that.kind_ &&
-      PointeeComparison(charLengthParamValue_, that.charLengthParamValue_) &&
-      knownLength().has_value() == that.knownLength().has_value() &&
-      (!knownLength() || *knownLength() == *that.knownLength()) &&
+      PointeeComparison(charLength_, that.charLength_) &&
       PointeeComparison(derived_, that.derived_);
 }
 
 std::optional<Expr<SubscriptInteger>> DynamicType::GetCharLength() const {
-  if (category_ == TypeCategory::Character) {
-    if (knownLength()) {
-      return AsExpr(Constant<SubscriptInteger>(*knownLength()));
-    } else if (charLengthParamValue_) {
-      if (auto length{charLengthParamValue_->GetExplicit()}) {
-        return ConvertToType<SubscriptInteger>(std::move(*length));
-      }
+  if (category_ == TypeCategory::Character && charLength_) {
+    if (auto length{charLength_->GetExplicit()}) {
+      return ConvertToType<SubscriptInteger>(std::move(*length));
     }
   }
   return std::nullopt;
@@ -187,18 +171,16 @@ std::optional<Expr<SubscriptInteger>> DynamicType::MeasureSizeInBytes(
 }
 
 bool DynamicType::IsAssumedLengthCharacter() const {
-  return category_ == TypeCategory::Character && charLengthParamValue_ &&
-      charLengthParamValue_->isAssumed();
+  return category_ == TypeCategory::Character && charLength_ &&
+      charLength_->isAssumed();
 }
 
 bool DynamicType::IsNonConstantLengthCharacter() const {
   if (category_ != TypeCategory::Character) {
     return false;
-  } else if (knownLength()) {
-    return false;
-  } else if (!charLengthParamValue_) {
+  } else if (!charLength_) {
     return true;
-  } else if (const auto &expr{charLengthParamValue_->GetExplicit()}) {
+  } else if (const auto &expr{charLength_->GetExplicit()}) {
     return !IsConstantExpr(*expr);
   } else {
     return true;
@@ -334,6 +316,21 @@ static bool AreCompatibleDerivedTypes(const semantics::DerivedTypeSpec *x,
   }
 }
 
+// Do the kind type parameters of type1 have the same values as the
+// corresponding kind type parameters of type2?
+static bool AreKindCompatible(const semantics::DerivedTypeSpec &type1,
+    const semantics::DerivedTypeSpec &type2) {
+  for (const auto &[name, param1] : type1.parameters()) {
+    if (param1.isKind()) {
+      const semantics::ParamValue *param2{type2.FindParameter(name)};
+      if (!PointeeComparison(&param1, param2)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 // See 7.3.2.3 (5) & 15.5.2.4
 bool DynamicType::IsTkCompatibleWith(const DynamicType &that) const {
   if (IsUnlimitedPolymorphic()) {
@@ -345,7 +342,7 @@ bool DynamicType::IsTkCompatibleWith(const DynamicType &that) const {
   } else if (derived_) {
     return that.derived_ &&
         AreCompatibleDerivedTypes(derived_, that.derived_, IsPolymorphic()) &&
-        AreTypeParamCompatible(*derived_, *that.derived_);
+        AreKindCompatible(*derived_, *that.derived_);
   } else {
     return kind_ == that.kind_;
   }
@@ -445,7 +442,7 @@ bool DynamicType::HasDeferredTypeParameter() const {
       }
     }
   }
-  return charLengthParamValue_ && charLengthParamValue_->isDeferred();
+  return charLength_ && charLength_->isDeferred();
 }
 
 bool SomeKind<TypeCategory::Derived>::operator==(

@@ -295,7 +295,7 @@ bool VLIWPacketizerList::alias(const MachineMemOperand &Op1,
                 MemoryLocation(Op2.getValue(), Overlapb,
                                UseTBAA ? Op2.getAAInfo() : AAMDNodes()));
 
-  return AAResult != AliasResult::NoAlias;
+  return AAResult != NoAlias;
 }
 
 bool VLIWPacketizerList::alias(const MachineInstr &MI1,

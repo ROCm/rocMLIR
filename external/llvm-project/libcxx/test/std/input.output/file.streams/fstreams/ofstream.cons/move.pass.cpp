@@ -6,6 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+// UNSUPPORTED: c++03
+
 // <fstream>
 
 // template <class charT, class traits = char_traits<charT> >
@@ -23,7 +25,7 @@ int main(int, char**)
     std::string temp = get_temp_file_name();
     {
         std::ofstream fso(temp.c_str());
-        std::ofstream fs = std::move(fso);
+        std::ofstream fs = move(fso);
         fs << 3.25;
     }
     {
@@ -35,7 +37,7 @@ int main(int, char**)
     std::remove(temp.c_str());
     {
         std::wofstream fso(temp.c_str());
-        std::wofstream fs = std::move(fso);
+        std::wofstream fs = move(fso);
         fs << 3.25;
     }
     {

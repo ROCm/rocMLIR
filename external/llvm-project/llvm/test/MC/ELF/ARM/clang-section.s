@@ -326,24 +326,12 @@ p:
 //CHECK:     Section: my_bss.2 (0x12)
 //CHECK:   }
 //CHECK:   Symbol {
-//CHECK:     Name: foo
-//CHECK:     Section: my_text.1 (0x4)
+//CHECK:     Name: a
+//CHECK:     Section: my_bss.1 (0xE)
 //CHECK:   }
 //CHECK:   Symbol {
 //CHECK:     Name: b
 //CHECK:     Section: my_data.1 (0xF)
-//CHECK:   }
-//CHECK:   Symbol {
-//CHECK:     Name: goo
-//CHECK:     Section: my_text.2 (0x8)
-//CHECK:   }
-//CHECK:   Symbol {
-//CHECK:     Name: hoo
-//CHECK:     Section: .text (0x2)
-//CHECK:   }
-//CHECK:   Symbol {
-//CHECK:     Name: a
-//CHECK:     Section: my_bss.1 (0xE)
 //CHECK:   }
 //CHECK:   Symbol {
 //CHECK:     Name: c
@@ -362,8 +350,20 @@ p:
 //CHECK:     Section: my_rodata.1 (0x10)
 //CHECK:   }
 //CHECK:   Symbol {
+//CHECK:     Name: foo
+//CHECK:     Section: my_text.1 (0x4)
+//CHECK:   }
+//CHECK:   Symbol {
+//CHECK:     Name: goo
+//CHECK:     Section: my_text.2 (0x8)
+//CHECK:   }
+//CHECK:   Symbol {
 //CHECK:     Name: h
 //CHECK:     Section: .bss (0x11)
+//CHECK:   }
+//CHECK:   Symbol {
+//CHECK:     Name: hoo
+//CHECK:     Section: .text (0x2)
 //CHECK:   }
 //CHECK:   Symbol {
 //CHECK:     Name: i

@@ -16,13 +16,12 @@
 #define LLVM_LIB_TARGET_WEBASSEMBLY_WEBASSEMBLYMACHINEFUNCTIONINFO_H
 
 #include "MCTargetDesc/WebAssemblyMCTargetDesc.h"
+#include "llvm/BinaryFormat/Wasm.h"
 #include "llvm/CodeGen/MIRYamlMapping.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/MC/MCSymbolWasm.h"
 
 namespace llvm {
-
-struct WasmEHFuncInfo;
 
 namespace yaml {
 struct WebAssemblyFunctionInfo;
@@ -31,8 +30,6 @@ struct WebAssemblyFunctionInfo;
 /// This class is derived from MachineFunctionInfo and contains private
 /// WebAssembly-specific information for each MachineFunction.
 class WebAssemblyFunctionInfo final : public MachineFunctionInfo {
-  const MachineFunction &MF;
-
   std::vector<MVT> Params;
   std::vector<MVT> Results;
   std::vector<MVT> Locals;
@@ -66,16 +63,9 @@ class WebAssemblyFunctionInfo final : public MachineFunctionInfo {
   // Function properties.
   bool CFGStackified = false;
 
-  // Catchpad unwind destination info for wasm EH.
-  WasmEHFuncInfo *WasmEHInfo = nullptr;
-
 public:
-  explicit WebAssemblyFunctionInfo(MachineFunction &MF)
-      : MF(MF), WasmEHInfo(MF.getWasmEHFuncInfo()) {}
+  explicit WebAssemblyFunctionInfo(MachineFunction &MF) {}
   ~WebAssemblyFunctionInfo() override;
-
-  const MachineFunction &getMachineFunction() const { return MF; }
-
   void initializeBaseYamlFields(const yaml::WebAssemblyFunctionInfo &YamlMFI);
 
   void addParam(MVT VT) { Params.push_back(VT); }
@@ -161,9 +151,6 @@ public:
 
   bool isCFGStackified() const { return CFGStackified; }
   void setCFGStackified(bool Value = true) { CFGStackified = Value; }
-
-  WasmEHFuncInfo *getWasmEHFuncInfo() const { return WasmEHInfo; }
-  void setWasmEHFuncInfo(WasmEHFuncInfo *Info) { WasmEHInfo = Info; }
 };
 
 void computeLegalValueVTs(const Function &F, const TargetMachine &TM, Type *Ty,
@@ -185,15 +172,8 @@ signatureFromMVTs(const SmallVectorImpl<MVT> &Results,
 
 namespace yaml {
 
-using BBNumberMap = DenseMap<int, int>;
-
 struct WebAssemblyFunctionInfo final : public yaml::MachineFunctionInfo {
-  std::vector<FlowStringValue> Params;
-  std::vector<FlowStringValue> Results;
   bool CFGStackified = false;
-  // The same as WasmEHFuncInfo's SrcToUnwindDest, but stored in the mapping of
-  // BB numbers
-  BBNumberMap SrcToUnwindDest;
 
   WebAssemblyFunctionInfo() = default;
   WebAssemblyFunctionInfo(const llvm::WebAssemblyFunctionInfo &MFI);
@@ -204,23 +184,7 @@ struct WebAssemblyFunctionInfo final : public yaml::MachineFunctionInfo {
 
 template <> struct MappingTraits<WebAssemblyFunctionInfo> {
   static void mapping(IO &YamlIO, WebAssemblyFunctionInfo &MFI) {
-    YamlIO.mapOptional("params", MFI.Params, std::vector<FlowStringValue>());
-    YamlIO.mapOptional("results", MFI.Results, std::vector<FlowStringValue>());
     YamlIO.mapOptional("isCFGStackified", MFI.CFGStackified, false);
-    YamlIO.mapOptional("wasmEHFuncInfo", MFI.SrcToUnwindDest);
-  }
-};
-
-template <> struct CustomMappingTraits<BBNumberMap> {
-  static void inputOne(IO &YamlIO, StringRef Key,
-                       BBNumberMap &SrcToUnwindDest) {
-    YamlIO.mapRequired(Key.str().c_str(),
-                       SrcToUnwindDest[std::atoi(Key.str().c_str())]);
-  }
-
-  static void output(IO &YamlIO, BBNumberMap &SrcToUnwindDest) {
-    for (auto KV : SrcToUnwindDest)
-      YamlIO.mapRequired(std::to_string(KV.first).c_str(), KV.second);
   }
 };
 

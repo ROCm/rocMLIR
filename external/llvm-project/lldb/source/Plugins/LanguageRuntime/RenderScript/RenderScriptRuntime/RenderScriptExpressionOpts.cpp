@@ -185,7 +185,7 @@ RSIRPasses::RSIRPasses(Process *process) {
   EarlyPasses->add(new RenderScriptRuntimeModulePass(process));
 }
 
-RSIRPasses::~RSIRPasses() = default;
+RSIRPasses::~RSIRPasses() {}
 
 } // namespace lldb_renderscript
 } // namespace lldb_private

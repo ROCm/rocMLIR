@@ -62,6 +62,8 @@ public:
   // PluginInterface protocol
   lldb_private::ConstString GetPluginName() override;
 
+  uint32_t GetPluginVersion() override;
+
   // Process Control
   lldb_private::Status DoDestroy() override;
 
@@ -146,7 +148,7 @@ private:
   // Parse thread(s) data structures(prstatus, prpsinfo) from given NOTE segment
   llvm::Error ParseThreadContextsFromNoteSegment(
       const elf::ELFProgramHeader &segment_header,
-      const lldb_private::DataExtractor &segment_data);
+      lldb_private::DataExtractor segment_data);
 
   // Returns number of thread contexts stored in the core file
   uint32_t GetNumThreadContexts();

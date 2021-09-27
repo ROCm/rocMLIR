@@ -41,17 +41,11 @@ Lexer::Lexer(const llvm::SourceMgr &sourceMgr, MLIRContext *context)
 Location Lexer::getEncodedSourceLocation(llvm::SMLoc loc) {
   auto &sourceMgr = getSourceMgr();
   unsigned mainFileID = sourceMgr.getMainFileID();
-
-  // TODO: Fix performance issues in SourceMgr::getLineAndColumn so that we can
-  //       use it here.
-  auto &bufferInfo = sourceMgr.getBufferInfo(mainFileID);
-  unsigned lineNo = bufferInfo.getLineNumber(loc.getPointer());
-  unsigned column =
-      (loc.getPointer() - bufferInfo.getPointerForLineNumber(lineNo)) + 1;
+  auto lineAndColumn = sourceMgr.getLineAndColumn(loc, mainFileID);
   auto *buffer = sourceMgr.getMemoryBuffer(mainFileID);
 
-  return FileLineColLoc::get(context, buffer->getBufferIdentifier(), lineNo,
-                             column);
+  return FileLineColLoc::get(buffer->getBufferIdentifier(), lineAndColumn.first,
+                             lineAndColumn.second, context);
 }
 
 /// emitError - Emit an error message and return an Token::error token.

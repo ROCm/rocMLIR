@@ -26,9 +26,12 @@ using namespace llvm;
 
 namespace {
 using testing::AnyNumber;
-using testing::DoAll;
+using testing::AtLeast;
+using testing::DoDefault;
 using testing::Not;
 using testing::Return;
+using testing::Expectation;
+using testing::Invoke;
 using testing::WithArgs;
 using testing::_;
 
@@ -100,7 +103,7 @@ protected:
             run(_, _, testing::Matcher<ExtraArgTs>(_)...))
         .WillByDefault(Return(this->getResult()));
     ON_CALL(static_cast<DerivedT &>(*this), invalidate(_, _, _))
-        .WillByDefault(&invalidateCallback);
+        .WillByDefault(Invoke(&invalidateCallback));
   }
 };
 
@@ -462,9 +465,9 @@ protected:
                   "exit:\n"
                   "  ret void\n"
                   "}\n")),
-        CallbacksHandle(),
-        PB(nullptr, PipelineTuningOptions(), None, &CallbacksHandle.Callbacks),
-        PM(), LAM(), FAM(), CGAM(), AM() {
+        CallbacksHandle(), PB(false, nullptr, PipelineTuningOptions(), None,
+                              &CallbacksHandle.Callbacks),
+        PM(true), LAM(true), FAM(true), CGAM(true), AM(true) {
 
     EXPECT_TRUE(&CallbacksHandle.Callbacks ==
                 PB.getPassInstrumentationCallbacks());
@@ -524,7 +527,7 @@ using LoopCallbacksTest = PassBuilderCallbacksTest<LoopPassManager>;
 TEST_F(ModuleCallbacksTest, Passes) {
   EXPECT_CALL(AnalysisHandle, run(HasName("<string>"), _));
   EXPECT_CALL(PassHandle, run(HasName("<string>"), _))
-      .WillOnce(&getAnalysisResult);
+      .WillOnce(Invoke(getAnalysisResult));
 
   StringRef PipelineText = "test-transform";
   ASSERT_THAT_ERROR(PB.parsePassPipeline(PM, PipelineText), Succeeded())
@@ -536,7 +539,7 @@ TEST_F(ModuleCallbacksTest, Passes) {
 TEST_F(ModuleCallbacksTest, InstrumentedPasses) {
   EXPECT_CALL(AnalysisHandle, run(HasName("<string>"), _));
   EXPECT_CALL(PassHandle, run(HasName("<string>"), _))
-      .WillOnce(&getAnalysisResult);
+      .WillOnce(Invoke(getAnalysisResult));
 
   CallbacksHandle.registerPassInstrumentation();
   // Non-mock instrumentation not specifically mentioned below can be ignored.
@@ -696,7 +699,8 @@ TEST_F(ModuleCallbacksTest, InstrumentedSkippedPasses) {
 
 TEST_F(FunctionCallbacksTest, Passes) {
   EXPECT_CALL(AnalysisHandle, run(HasName("foo"), _));
-  EXPECT_CALL(PassHandle, run(HasName("foo"), _)).WillOnce(&getAnalysisResult);
+  EXPECT_CALL(PassHandle, run(HasName("foo"), _))
+      .WillOnce(Invoke(getAnalysisResult));
 
   StringRef PipelineText = "test-transform";
   ASSERT_THAT_ERROR(PB.parsePassPipeline(PM, PipelineText), Succeeded())
@@ -711,7 +715,8 @@ TEST_F(FunctionCallbacksTest, InstrumentedPasses) {
   CallbacksHandle.ignoreNonMockPassInstrumentation("foo");
 
   EXPECT_CALL(AnalysisHandle, run(HasName("foo"), _));
-  EXPECT_CALL(PassHandle, run(HasName("foo"), _)).WillOnce(&getAnalysisResult);
+  EXPECT_CALL(PassHandle, run(HasName("foo"), _))
+      .WillOnce(Invoke(getAnalysisResult));
 
   // PassInstrumentation calls should happen in-sequence, in the same order
   // as passes/analyses are scheduled.
@@ -802,7 +807,7 @@ TEST_F(FunctionCallbacksTest, InstrumentedSkippedPasses) {
 TEST_F(LoopCallbacksTest, Passes) {
   EXPECT_CALL(AnalysisHandle, run(HasName("loop"), _, _));
   EXPECT_CALL(PassHandle, run(HasName("loop"), _, _, _))
-      .WillOnce(WithArgs<0, 1, 2>(&getAnalysisResult));
+      .WillOnce(WithArgs<0, 1, 2>(Invoke(getAnalysisResult)));
   EXPECT_CALL(ExtraPassHandle, run(HasName("loop"), _, _, _));
 
   StringRef PipelineText = "test-transform";
@@ -820,7 +825,7 @@ TEST_F(LoopCallbacksTest, InstrumentedPasses) {
 
   EXPECT_CALL(AnalysisHandle, run(HasName("loop"), _, _));
   EXPECT_CALL(PassHandle, run(HasName("loop"), _, _, _))
-      .WillOnce(WithArgs<0, 1, 2>(&getAnalysisResult));
+      .WillOnce(WithArgs<0, 1, 2>(Invoke(getAnalysisResult)));
   EXPECT_CALL(ExtraPassHandle, run(HasName("loop"), _, _, _));
 
   // PassInstrumentation calls should happen in-sequence, in the same order
@@ -885,8 +890,8 @@ TEST_F(LoopCallbacksTest, InstrumentedInvalidatingPasses) {
 
   EXPECT_CALL(AnalysisHandle, run(HasName("loop"), _, _));
   EXPECT_CALL(PassHandle, run(HasName("loop"), _, _, _))
-      .WillOnce(DoAll(WithArgs<0, 1, 2, 3>(&PassHandle.invalidateLoop),
-                      WithArgs<0, 1, 2>(&getAnalysisResult)));
+      .WillOnce(DoAll(WithArgs<0, 1, 2, 3>(Invoke(PassHandle.invalidateLoop)),
+                      WithArgs<0, 1, 2>(Invoke(getAnalysisResult))));
 
   // PassInstrumentation calls should happen in-sequence, in the same order
   // as passes/analyses are scheduled.
@@ -933,12 +938,13 @@ TEST_F(LoopCallbacksTest, InstrumentedInvalidatingLoopNestPasses) {
 
   EXPECT_CALL(AnalysisHandle, run(HasName("loop"), _, _));
   EXPECT_CALL(PassHandle, run(HasName("loop"), _, _, _))
-      .WillOnce(WithArgs<0, 1, 2>(&getAnalysisResult));
+      .WillOnce(WithArgs<0, 1, 2>(Invoke(getAnalysisResult)));
   EXPECT_CALL(ExtraPassHandle, run(HasName("loop"), _, _, _))
-      .WillOnce(DoAll(&ExtraPassHandle.invalidateLoopNest,
-                      [&](LoopNest &, LoopAnalysisManager &,
-                          LoopStandardAnalysisResults &,
-                          LPMUpdater &) { return PreservedAnalyses::all(); }));
+      .WillOnce(DoAll(Invoke(ExtraPassHandle.invalidateLoopNest),
+                      Invoke([&](LoopNest &, LoopAnalysisManager &,
+                                 LoopStandardAnalysisResults &, LPMUpdater &) {
+                        return PreservedAnalyses::all();
+                      })));
 
   // PassInstrumentation calls should happen in-sequence, in the same order
   // as passes/analyses are scheduled.
@@ -1064,7 +1070,7 @@ TEST_F(LoopCallbacksTest, InstrumentedSkippedPasses) {
 TEST_F(CGSCCCallbacksTest, Passes) {
   EXPECT_CALL(AnalysisHandle, run(HasName("(foo)"), _, _));
   EXPECT_CALL(PassHandle, run(HasName("(foo)"), _, _, _))
-      .WillOnce(WithArgs<0, 1, 2>(&getAnalysisResult));
+      .WillOnce(WithArgs<0, 1, 2>(Invoke(getAnalysisResult)));
 
   StringRef PipelineText = "test-transform";
   ASSERT_THAT_ERROR(PB.parsePassPipeline(PM, PipelineText), Succeeded())
@@ -1081,7 +1087,7 @@ TEST_F(CGSCCCallbacksTest, InstrumentedPasses) {
 
   EXPECT_CALL(AnalysisHandle, run(HasName("(foo)"), _, _));
   EXPECT_CALL(PassHandle, run(HasName("(foo)"), _, _, _))
-      .WillOnce(WithArgs<0, 1, 2>(&getAnalysisResult));
+      .WillOnce(WithArgs<0, 1, 2>(Invoke(getAnalysisResult)));
 
   // PassInstrumentation calls should happen in-sequence, in the same order
   // as passes/analyses are scheduled.
@@ -1132,8 +1138,8 @@ TEST_F(CGSCCCallbacksTest, InstrumentedInvalidatingPasses) {
 
   EXPECT_CALL(AnalysisHandle, run(HasName("(foo)"), _, _));
   EXPECT_CALL(PassHandle, run(HasName("(foo)"), _, _, _))
-      .WillOnce(DoAll(WithArgs<0, 1, 2, 3>(&PassHandle.invalidateSCC),
-                      WithArgs<0, 1, 2>(&getAnalysisResult)));
+      .WillOnce(DoAll(WithArgs<0, 1, 2, 3>(Invoke(PassHandle.invalidateSCC)),
+                      WithArgs<0, 1, 2>(Invoke(getAnalysisResult))));
 
   // PassInstrumentation calls should happen in-sequence, in the same order
   // as passes/analyses are scheduled.
@@ -1272,7 +1278,8 @@ TEST_F(LoopCallbacksTest, PassUtilities) {
 TEST_F(ModuleCallbacksTest, ParseTopLevelPipeline) {
   PB.registerParseTopLevelPipelineCallback(
       [this](ModulePassManager &MPM,
-             ArrayRef<PassBuilder::PipelineElement> Pipeline) {
+             ArrayRef<PassBuilder::PipelineElement> Pipeline,
+             bool DebugLogging) {
         auto &FirstName = Pipeline.front().Name;
         auto &InnerPipeline = Pipeline.front().InnerPipeline;
         if (FirstName == "another-pipeline") {
@@ -1293,7 +1300,7 @@ TEST_F(ModuleCallbacksTest, ParseTopLevelPipeline) {
 
   EXPECT_CALL(AnalysisHandle, run(HasName("<string>"), _));
   EXPECT_CALL(PassHandle, run(HasName("<string>"), _))
-      .WillOnce(&getAnalysisResult);
+      .WillOnce(Invoke(getAnalysisResult));
   EXPECT_CALL(AnalysisHandle, invalidate(HasName("<string>"), _, _));
 
   StringRef PipelineText =

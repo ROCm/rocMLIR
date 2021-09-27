@@ -5,7 +5,7 @@
 // A reproducer for a known issue.
 // See reference to double_race.cpp in tsan_rtl_report.cpp for an explanation.
 
-long long buf[2];
+char buf[16];
 volatile int nreport;
 
 void __sanitizer_report_error_summary(const char *summary) {

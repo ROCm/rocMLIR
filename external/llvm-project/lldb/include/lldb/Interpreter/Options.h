@@ -254,7 +254,8 @@ public:
 
 class OptionGroupOptions : public Options {
 public:
-  OptionGroupOptions() = default;
+  OptionGroupOptions()
+      : Options(), m_option_defs(), m_option_infos(), m_did_finalize(false) {}
 
   ~OptionGroupOptions() override = default;
 
@@ -317,7 +318,7 @@ public:
 
   std::vector<OptionDefinition> m_option_defs;
   OptionInfos m_option_infos;
-  bool m_did_finalize = false;
+  bool m_did_finalize;
 };
 
 } // namespace lldb_private

@@ -32,11 +32,9 @@
 ; YAML-NEXT: Name:            Inlined
 ; YAML-NEXT: Function:        main
 ; YAML-NEXT: Args:
-; YAML-NEXT:   - String:          ''''
 ; YAML-NEXT:   - Callee:          tinkywinky
-; YAML-NEXT:   - String:          ''' inlined into '''
+; YAML-NEXT:   - String:          ' inlined into '
 ; YAML-NEXT:   - Caller:          main
-; YAML-NEXT:   - String:          ''''
 ; YAML-NEXT:   - String:          ' with '
 ; YAML-NEXT:   - String:          '(cost='
 ; YAML-NEXT:   - Cost:            '0'
@@ -51,11 +49,9 @@
 ; YAML-HOT-NEXT: Function:        main
 ; YAML-HOT-NEXT: Hotness:         300
 ; YAML-HOT-NEXT: Args:
-; YAML-HOT-NEXT:   - String:          ''''
 ; YAML-HOT-NEXT:   - Callee:          tinkywinky
-; YAML-HOT-NEXT:   - String:          ''' inlined into '''
+; YAML-HOT-NEXT:   - String:          ' inlined into '
 ; YAML-HOT-NEXT:   - Caller:          main
-; YAML-HOT-NEXT:   - String:          ''''
 ; YAML-HOT-NEXT:   - String:          ' with '
 ; YAML-HOT-NEXT:   - String:          '(cost='
 ; YAML-HOT-NEXT:   - Cost:            '0'

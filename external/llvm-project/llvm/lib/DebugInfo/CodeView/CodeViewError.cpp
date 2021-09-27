@@ -9,7 +9,6 @@
 #include "llvm/DebugInfo/CodeView/CodeViewError.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/ManagedStatic.h"
-#include <string>
 
 using namespace llvm;
 using namespace llvm::codeview;

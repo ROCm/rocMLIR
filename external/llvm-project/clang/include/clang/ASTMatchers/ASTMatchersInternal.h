@@ -83,37 +83,6 @@ class BoundNodes;
 
 namespace internal {
 
-/// A type-list implementation.
-///
-/// A "linked list" of types, accessible by using the ::head and ::tail
-/// typedefs.
-template <typename... Ts> struct TypeList {}; // Empty sentinel type list.
-
-template <typename T1, typename... Ts> struct TypeList<T1, Ts...> {
-  /// The first type on the list.
-  using head = T1;
-
-  /// A sublist with the tail. ie everything but the head.
-  ///
-  /// This type is used to do recursion. TypeList<>/EmptyTypeList indicates the
-  /// end of the list.
-  using tail = TypeList<Ts...>;
-};
-
-/// The empty type list.
-using EmptyTypeList = TypeList<>;
-
-/// Helper meta-function to determine if some type \c T is present or
-///   a parent type in the list.
-template <typename AnyTypeList, typename T> struct TypeListContainsSuperOf {
-  static const bool value =
-      std::is_base_of<typename AnyTypeList::head, T>::value ||
-      TypeListContainsSuperOf<typename AnyTypeList::tail, T>::value;
-};
-template <typename T> struct TypeListContainsSuperOf<EmptyTypeList, T> {
-  static const bool value = false;
-};
-
 /// Variadic function object.
 ///
 /// Most of the functions below that use VariadicFunction could be implemented
@@ -164,35 +133,6 @@ inline QualType getUnderlyingType(const FriendDecl &Node) {
 }
 inline QualType getUnderlyingType(const CXXBaseSpecifier &Node) {
   return Node.getType();
-}
-
-/// Unifies obtaining a `TypeSourceInfo` from different node types.
-template <typename T,
-          std::enable_if_t<TypeListContainsSuperOf<
-              TypeList<CXXBaseSpecifier, CXXCtorInitializer,
-                       CXXTemporaryObjectExpr, CXXUnresolvedConstructExpr,
-                       CompoundLiteralExpr, DeclaratorDecl, ObjCPropertyDecl,
-                       TemplateArgumentLoc, TypedefNameDecl>,
-              T>::value> * = nullptr>
-inline TypeSourceInfo *GetTypeSourceInfo(const T &Node) {
-  return Node.getTypeSourceInfo();
-}
-template <typename T,
-          std::enable_if_t<TypeListContainsSuperOf<
-              TypeList<CXXFunctionalCastExpr, ExplicitCastExpr>, T>::value> * =
-              nullptr>
-inline TypeSourceInfo *GetTypeSourceInfo(const T &Node) {
-  return Node.getTypeInfoAsWritten();
-}
-inline TypeSourceInfo *GetTypeSourceInfo(const BlockDecl &Node) {
-  return Node.getSignatureAsWritten();
-}
-inline TypeSourceInfo *GetTypeSourceInfo(const CXXNewExpr &Node) {
-  return Node.getAllocatedTypeSourceInfo();
-}
-inline TypeSourceInfo *
-GetTypeSourceInfo(const ClassTemplateSpecializationDecl &Node) {
-  return Node.getTypeAsWritten();
 }
 
 /// Unifies obtaining the FunctionProtoType pointer from both
@@ -601,17 +541,11 @@ public:
   /// Convert \c this into a \c Matcher<T> by applying dyn_cast<> to the
   /// argument.
   /// \c To must be a base class of \c T.
-  template <typename To> Matcher<To> dynCastTo() const LLVM_LVALUE_FUNCTION {
+  template <typename To>
+  Matcher<To> dynCastTo() const {
     static_assert(std::is_base_of<To, T>::value, "Invalid dynCast call.");
     return Matcher<To>(Implementation);
   }
-
-#if LLVM_HAS_RVALUE_REFERENCE_THIS
-  template <typename To> Matcher<To> dynCastTo() && {
-    static_assert(std::is_base_of<To, T>::value, "Invalid dynCast call.");
-    return Matcher<To>(std::move(Implementation));
-  }
-#endif
 
   /// Forwards the call to the underlying MatcherInterface<T> pointer.
   bool matches(const T &Node,
@@ -629,13 +563,7 @@ public:
   ///
   /// The returned matcher keeps the same restrictions as \c this and remembers
   /// that it is meant to support nodes of type \c T.
-  operator DynTypedMatcher() const LLVM_LVALUE_FUNCTION {
-    return Implementation;
-  }
-
-#if LLVM_HAS_RVALUE_REFERENCE_THIS
-  operator DynTypedMatcher() && { return std::move(Implementation); }
-#endif
+  operator DynTypedMatcher() const { return Implementation; }
 
   /// Allows the conversion of a \c Matcher<Type> to a \c
   /// Matcher<QualType>.
@@ -757,8 +685,7 @@ public:
                       std::is_base_of<NestedNameSpecifier, T>::value ||
                       std::is_base_of<NestedNameSpecifierLoc, T>::value ||
                       std::is_base_of<TypeLoc, T>::value ||
-                      std::is_base_of<QualType, T>::value ||
-                      std::is_base_of<Attr, T>::value,
+                      std::is_base_of<QualType, T>::value,
                   "unsupported type for recursive matching");
     return matchesChildOf(DynTypedNode::create(Node), getASTContext(), Matcher,
                           Builder, Bind);
@@ -772,8 +699,7 @@ public:
                       std::is_base_of<NestedNameSpecifier, T>::value ||
                       std::is_base_of<NestedNameSpecifierLoc, T>::value ||
                       std::is_base_of<TypeLoc, T>::value ||
-                      std::is_base_of<QualType, T>::value ||
-                      std::is_base_of<Attr, T>::value,
+                      std::is_base_of<QualType, T>::value,
                   "unsupported type for recursive matching");
     return matchesDescendantOf(DynTypedNode::create(Node), getASTContext(),
                                Matcher, Builder, Bind);
@@ -787,8 +713,7 @@ public:
     static_assert(std::is_base_of<Decl, T>::value ||
                       std::is_base_of<NestedNameSpecifierLoc, T>::value ||
                       std::is_base_of<Stmt, T>::value ||
-                      std::is_base_of<TypeLoc, T>::value ||
-                      std::is_base_of<Attr, T>::value,
+                      std::is_base_of<TypeLoc, T>::value,
                   "type not allowed for recursive matching");
     return matchesAncestorOf(DynTypedNode::create(Node), getASTContext(),
                              Matcher, Builder, MatchMode);
@@ -911,7 +836,7 @@ public:
 /// Matches overloaded operators with a specific name.
 ///
 /// The type argument ArgT is not used by this matcher but is used by
-/// PolymorphicMatcher and should be StringRef.
+/// PolymorphicMatcherWithParam1 and should be StringRef.
 template <typename T, typename ArgT>
 class HasOverloadedOperatorNameMatcher : public SingleNodeMatcherInterface<T> {
   static_assert(std::is_same<T, CXXOperatorCallExpr>::value ||
@@ -945,7 +870,7 @@ private:
                Names, getOperatorSpelling(Node.getOverloadedOperator()));
   }
 
-  std::vector<std::string> Names;
+  const std::vector<std::string> Names;
 };
 
 /// Matches named declarations with a specific name.
@@ -957,7 +882,7 @@ class HasNameMatcher : public SingleNodeMatcherInterface<NamedDecl> {
 
   bool matchesNode(const NamedDecl &Node) const override;
 
-private:
+ private:
   /// Unqualified match routine.
   ///
   /// It is much faster than the full match, but it only works for unqualified
@@ -979,8 +904,8 @@ private:
   /// It is slower but simple and works on all cases.
   bool matchesNodeFullSlow(const NamedDecl &Node) const;
 
-  bool UseUnqualifiedMatch;
-  std::vector<std::string> Names;
+  const bool UseUnqualifiedMatch;
+  const std::vector<std::string> Names;
 };
 
 /// Trampoline function to use VariadicFunction<> to construct a
@@ -994,14 +919,14 @@ Matcher<ObjCMessageExpr> hasAnySelectorFunc(
 
 /// Matches declarations for QualType and CallExpr.
 ///
-/// Type argument DeclMatcherT is required by PolymorphicMatcher but
+/// Type argument DeclMatcherT is required by PolymorphicMatcherWithParam1 but
 /// not actually used.
 template <typename T, typename DeclMatcherT>
 class HasDeclarationMatcher : public MatcherInterface<T> {
   static_assert(std::is_same<DeclMatcherT, Matcher<Decl>>::value,
                 "instantiated with wrong types");
 
-  DynTypedMatcher InnerMatcher;
+  const DynTypedMatcher InnerMatcher;
 
 public:
   explicit HasDeclarationMatcher(const Matcher<Decl> &InnerMatcher)
@@ -1178,18 +1103,50 @@ struct IsBaseType {
       std::is_same<T, NestedNameSpecifier>::value ||
       std::is_same<T, NestedNameSpecifierLoc>::value ||
       std::is_same<T, CXXCtorInitializer>::value ||
-      std::is_same<T, TemplateArgumentLoc>::value ||
-      std::is_same<T, Attr>::value;
+      std::is_same<T, TemplateArgumentLoc>::value;
 };
 template <typename T>
 const bool IsBaseType<T>::value;
+
+/// A type-list implementation.
+///
+/// A "linked list" of types, accessible by using the ::head and ::tail
+/// typedefs.
+template <typename... Ts> struct TypeList {}; // Empty sentinel type list.
+
+template <typename T1, typename... Ts> struct TypeList<T1, Ts...> {
+  /// The first type on the list.
+  using head = T1;
+
+  /// A sublist with the tail. ie everything but the head.
+  ///
+  /// This type is used to do recursion. TypeList<>/EmptyTypeList indicates the
+  /// end of the list.
+  using tail = TypeList<Ts...>;
+};
+
+/// The empty type list.
+using EmptyTypeList = TypeList<>;
+
+/// Helper meta-function to determine if some type \c T is present or
+///   a parent type in the list.
+template <typename AnyTypeList, typename T>
+struct TypeListContainsSuperOf {
+  static const bool value =
+      std::is_base_of<typename AnyTypeList::head, T>::value ||
+      TypeListContainsSuperOf<typename AnyTypeList::tail, T>::value;
+};
+template <typename T>
+struct TypeListContainsSuperOf<EmptyTypeList, T> {
+  static const bool value = false;
+};
 
 /// A "type list" that contains all types.
 ///
 /// Useful for matchers like \c anything and \c unless.
 using AllNodeBaseTypes =
     TypeList<Decl, Stmt, NestedNameSpecifier, NestedNameSpecifierLoc, QualType,
-             Type, TypeLoc, CXXCtorInitializer, Attr>;
+             Type, TypeLoc, CXXCtorInitializer>;
 
 /// Helper meta-function to extract the argument out of a function of
 ///   type void(Arg).
@@ -1200,23 +1157,11 @@ template <class T> struct ExtractFunctionArgMeta<void(T)> {
   using type = T;
 };
 
-template <class T, class Tuple, std::size_t... I>
-constexpr T *new_from_tuple_impl(Tuple &&t, std::index_sequence<I...>) {
-  return new T(std::get<I>(std::forward<Tuple>(t))...);
-}
-
-template <class T, class Tuple> constexpr T *new_from_tuple(Tuple &&t) {
-  return new_from_tuple_impl<T>(
-      std::forward<Tuple>(t),
-      std::make_index_sequence<
-          std::tuple_size<std::remove_reference_t<Tuple>>::value>{});
-}
-
 /// Default type lists for ArgumentAdaptingMatcher matchers.
 using AdaptativeDefaultFromTypes = AllNodeBaseTypes;
 using AdaptativeDefaultToTypes =
     TypeList<Decl, Stmt, NestedNameSpecifier, NestedNameSpecifierLoc, TypeLoc,
-             QualType, Attr>;
+             QualType>;
 
 /// All types that are supported by HasDeclarationMatcher above.
 using HasDeclarationSupportedTypes =
@@ -1358,35 +1303,19 @@ public:
   VariadicOperatorMatcher(DynTypedMatcher::VariadicOperator Op, Ps &&... Params)
       : Op(Op), Params(std::forward<Ps>(Params)...) {}
 
-  template <typename T> operator Matcher<T>() const LLVM_LVALUE_FUNCTION {
+  template <typename T> operator Matcher<T>() const {
     return DynTypedMatcher::constructVariadic(
                Op, ASTNodeKind::getFromNodeKind<T>(),
                getMatchers<T>(std::index_sequence_for<Ps...>()))
         .template unconditionalConvertTo<T>();
   }
 
-#if LLVM_HAS_RVALUE_REFERENCE_THIS
-  template <typename T> operator Matcher<T>() && {
-    return DynTypedMatcher::constructVariadic(
-               Op, ASTNodeKind::getFromNodeKind<T>(),
-               getMatchers<T>(std::index_sequence_for<Ps...>()))
-        .template unconditionalConvertTo<T>();
-  }
-#endif
 private:
   // Helper method to unpack the tuple into a vector.
   template <typename T, std::size_t... Is>
-  std::vector<DynTypedMatcher>
-  getMatchers(std::index_sequence<Is...>) const LLVM_LVALUE_FUNCTION {
+  std::vector<DynTypedMatcher> getMatchers(std::index_sequence<Is...>) const {
     return {Matcher<T>(std::get<Is>(Params))...};
   }
-
-#if LLVM_HAS_RVALUE_REFERENCE_THIS
-  template <typename T, std::size_t... Is>
-  std::vector<DynTypedMatcher> getMatchers(std::index_sequence<Is...>) && {
-    return {Matcher<T>(std::get<Is>(std::move(Params)))...};
-  }
-#endif
 
   const DynTypedMatcher::VariadicOperator Op;
   std::tuple<Ps...> Params;
@@ -1445,7 +1374,8 @@ struct MapAnyOfMatcherImpl {
             internal::DynTypedMatcher::VO_AnyOf},
         applyMatcher(
             [&](auto... Matcher) {
-              return std::make_tuple(Matcher(InnerMatcher...)...);
+              return std::make_tuple(Matcher(
+                  std::forward<decltype(InnerMatcher)>(InnerMatcher)...)...);
             },
             std::tuple<
                 VariadicDynCastAllOfMatcher<CladeType, MatcherTypes>...>())));
@@ -1476,18 +1406,12 @@ public:
 
   using ReturnTypes = ToTypes;
 
-  template <typename To> operator Matcher<To>() const LLVM_LVALUE_FUNCTION {
+  template <typename To> operator Matcher<To>() const {
     return Matcher<To>(new ArgumentAdapterT<To, T>(InnerMatcher));
   }
 
-#if LLVM_HAS_RVALUE_REFERENCE_THIS
-  template <typename To> operator Matcher<To>() && {
-    return Matcher<To>(new ArgumentAdapterT<To, T>(std::move(InnerMatcher)));
-  }
-#endif
-
 private:
-  Matcher<T> InnerMatcher;
+  const Matcher<T> InnerMatcher;
 };
 
 /// Converts a \c Matcher<T> to a matcher of desired type \c To by
@@ -1502,7 +1426,7 @@ private:
 /// \c HasMatcher<To, T>(InnerMatcher).
 ///
 /// If a matcher does not need knowledge about the inner type, prefer to use
-/// PolymorphicMatcher.
+/// PolymorphicMatcherWithParam1.
 template <template <typename ToArg, typename FromArg> class ArgumentAdapterT,
           typename FromTypes = AdaptativeDefaultFromTypes,
           typename ToTypes = AdaptativeDefaultToTypes>
@@ -1529,7 +1453,7 @@ struct ArgumentAdaptingMatcherFunc {
 };
 
 template <typename T> class TraversalMatcher : public MatcherInterface<T> {
-  DynTypedMatcher InnerMatcher;
+  const DynTypedMatcher InnerMatcher;
   clang::TraversalKind Traversal;
 
 public:
@@ -1555,64 +1479,85 @@ public:
   TraversalWrapper(TraversalKind TK, const MatcherType &InnerMatcher)
       : TK(TK), InnerMatcher(InnerMatcher) {}
 
-  template <typename T> operator Matcher<T>() const LLVM_LVALUE_FUNCTION {
+  template <typename T> operator Matcher<T>() const {
     return internal::DynTypedMatcher::constructRestrictedWrapper(
                new internal::TraversalMatcher<T>(TK, InnerMatcher),
                ASTNodeKind::getFromNodeKind<T>())
         .template unconditionalConvertTo<T>();
   }
 
-#if LLVM_HAS_RVALUE_REFERENCE_THIS
-  template <typename T> operator Matcher<T>() && {
-    return internal::DynTypedMatcher::constructRestrictedWrapper(
-               new internal::TraversalMatcher<T>(TK, std::move(InnerMatcher)),
-               ASTNodeKind::getFromNodeKind<T>())
-        .template unconditionalConvertTo<T>();
-  }
-#endif
-
 private:
   TraversalKind TK;
   MatcherType InnerMatcher;
 };
 
-/// A PolymorphicMatcher<MatcherT, P1, ..., PN> object can be
+/// A PolymorphicMatcherWithParamN<MatcherT, P1, ..., PN> object can be
 /// created from N parameters p1, ..., pN (of type P1, ..., PN) and
 /// used as a Matcher<T> where a MatcherT<T, P1, ..., PN>(p1, ..., pN)
 /// can be constructed.
 ///
 /// For example:
-/// - PolymorphicMatcher<IsDefinitionMatcher>()
+/// - PolymorphicMatcherWithParam0<IsDefinitionMatcher>()
 ///   creates an object that can be used as a Matcher<T> for any type T
 ///   where an IsDefinitionMatcher<T>() can be constructed.
-/// - PolymorphicMatcher<ValueEqualsMatcher, int>(42)
+/// - PolymorphicMatcherWithParam1<ValueEqualsMatcher, int>(42)
 ///   creates an object that can be used as a Matcher<T> for any type T
 ///   where a ValueEqualsMatcher<T, int>(42) can be constructed.
-template <template <typename T, typename... Params> class MatcherT,
-          typename ReturnTypesF, typename... ParamTypes>
-class PolymorphicMatcher {
+template <template <typename T> class MatcherT,
+          typename ReturnTypesF = void(AllNodeBaseTypes)>
+class PolymorphicMatcherWithParam0 {
 public:
-  PolymorphicMatcher(const ParamTypes &... Params) : Params(Params...) {}
+  using ReturnTypes = typename ExtractFunctionArgMeta<ReturnTypesF>::type;
+
+  template <typename T>
+  operator Matcher<T>() const {
+    static_assert(TypeListContainsSuperOf<ReturnTypes, T>::value,
+                  "right polymorphic conversion");
+    return Matcher<T>(new MatcherT<T>());
+  }
+};
+
+template <template <typename T, typename P1> class MatcherT,
+          typename P1,
+          typename ReturnTypesF = void(AllNodeBaseTypes)>
+class PolymorphicMatcherWithParam1 {
+public:
+  explicit PolymorphicMatcherWithParam1(const P1 &Param1)
+      : Param1(Param1) {}
 
   using ReturnTypes = typename ExtractFunctionArgMeta<ReturnTypesF>::type;
 
-  template <typename T> operator Matcher<T>() const LLVM_LVALUE_FUNCTION {
+  template <typename T>
+  operator Matcher<T>() const {
     static_assert(TypeListContainsSuperOf<ReturnTypes, T>::value,
                   "right polymorphic conversion");
-    return Matcher<T>(new_from_tuple<MatcherT<T, ParamTypes...>>(Params));
+    return Matcher<T>(new MatcherT<T, P1>(Param1));
   }
-
-#if LLVM_HAS_RVALUE_REFERENCE_THIS
-  template <typename T> operator Matcher<T>() && {
-    static_assert(TypeListContainsSuperOf<ReturnTypes, T>::value,
-                  "right polymorphic conversion");
-    return Matcher<T>(
-        new_from_tuple<MatcherT<T, ParamTypes...>>(std::move(Params)));
-  }
-#endif
 
 private:
-  std::tuple<ParamTypes...> Params;
+  const P1 Param1;
+};
+
+template <template <typename T, typename P1, typename P2> class MatcherT,
+          typename P1, typename P2,
+          typename ReturnTypesF = void(AllNodeBaseTypes)>
+class PolymorphicMatcherWithParam2 {
+public:
+  PolymorphicMatcherWithParam2(const P1 &Param1, const P2 &Param2)
+      : Param1(Param1), Param2(Param2) {}
+
+  using ReturnTypes = typename ExtractFunctionArgMeta<ReturnTypesF>::type;
+
+  template <typename T>
+  operator Matcher<T>() const {
+    static_assert(TypeListContainsSuperOf<ReturnTypes, T>::value,
+                  "right polymorphic conversion");
+    return Matcher<T>(new MatcherT<T, P1, P2>(Param1, Param2));
+  }
+
+private:
+  const P1 Param1;
+  const P2 Param2;
 };
 
 /// Matches nodes of type T that have child nodes of type ChildT for
@@ -1621,7 +1566,7 @@ private:
 /// ChildT must be an AST base type.
 template <typename T, typename ChildT>
 class HasMatcher : public MatcherInterface<T> {
-  DynTypedMatcher InnerMatcher;
+  const DynTypedMatcher InnerMatcher;
 
 public:
   explicit HasMatcher(const Matcher<ChildT> &InnerMatcher)
@@ -1644,7 +1589,7 @@ class ForEachMatcher : public MatcherInterface<T> {
   static_assert(IsBaseType<ChildT>::value,
                 "for each only accepts base type matcher");
 
-  DynTypedMatcher InnerMatcher;
+  const DynTypedMatcher InnerMatcher;
 
 public:
   explicit ForEachMatcher(const Matcher<ChildT> &InnerMatcher)
@@ -1674,7 +1619,7 @@ class HasDescendantMatcher : public MatcherInterface<T> {
   static_assert(IsBaseType<DescendantT>::value,
                 "has descendant only accepts base type matcher");
 
-  DynTypedMatcher DescendantMatcher;
+  const DynTypedMatcher DescendantMatcher;
 
 public:
   explicit HasDescendantMatcher(const Matcher<DescendantT> &DescendantMatcher)
@@ -1696,7 +1641,7 @@ class HasParentMatcher : public MatcherInterface<T> {
   static_assert(IsBaseType<ParentT>::value,
                 "has parent only accepts base type matcher");
 
-  DynTypedMatcher ParentMatcher;
+  const DynTypedMatcher ParentMatcher;
 
 public:
   explicit HasParentMatcher(const Matcher<ParentT> &ParentMatcher)
@@ -1718,7 +1663,7 @@ class HasAncestorMatcher : public MatcherInterface<T> {
   static_assert(IsBaseType<AncestorT>::value,
                 "has ancestor only accepts base type matcher");
 
-  DynTypedMatcher AncestorMatcher;
+  const DynTypedMatcher AncestorMatcher;
 
 public:
   explicit HasAncestorMatcher(const Matcher<AncestorT> &AncestorMatcher)
@@ -1742,7 +1687,7 @@ class ForEachDescendantMatcher : public MatcherInterface<T> {
   static_assert(IsBaseType<DescendantT>::value,
                 "for each descendant only accepts base type matcher");
 
-  DynTypedMatcher DescendantMatcher;
+  const DynTypedMatcher DescendantMatcher;
 
 public:
   explicit ForEachDescendantMatcher(
@@ -1775,7 +1720,7 @@ public:
   }
 
 private:
-  ValueT ExpectedValue;
+  const ValueT ExpectedValue;
 };
 
 /// Template specializations to easily write matchers for floating point
@@ -1808,7 +1753,7 @@ inline bool ValueEqualsMatcher<FloatingLiteral, llvm::APFloat>::matchesNode(
 /// \c Matcher<T> matches.
 template <typename TLoc, typename T>
 class LocMatcher : public MatcherInterface<TLoc> {
-  DynTypedMatcher InnerMatcher;
+  const DynTypedMatcher InnerMatcher;
 
 public:
   explicit LocMatcher(const Matcher<T> &InnerMatcher)
@@ -1832,7 +1777,7 @@ private:
 ///
 /// Used to implement the \c loc() matcher.
 class TypeLocTypeMatcher : public MatcherInterface<TypeLoc> {
-  DynTypedMatcher InnerMatcher;
+  const DynTypedMatcher InnerMatcher;
 
 public:
   explicit TypeLocTypeMatcher(const Matcher<QualType> &InnerMatcher)
@@ -1851,7 +1796,7 @@ public:
 /// another node of type \c T that can be reached using a given traverse
 /// function.
 template <typename T> class TypeTraverseMatcher : public MatcherInterface<T> {
-  DynTypedMatcher InnerMatcher;
+  const DynTypedMatcher InnerMatcher;
 
 public:
   explicit TypeTraverseMatcher(const Matcher<QualType> &InnerMatcher,
@@ -1876,7 +1821,7 @@ private:
 /// given traverse function.
 template <typename T>
 class TypeLocTraverseMatcher : public MatcherInterface<T> {
-  DynTypedMatcher InnerMatcher;
+  const DynTypedMatcher InnerMatcher;
 
 public:
   explicit TypeLocTraverseMatcher(const Matcher<TypeLoc> &InnerMatcher,
@@ -1931,7 +1876,7 @@ public:
   };
 
 private:
-  Matcher<InnerTBase> InnerMatcher;
+  const Matcher<InnerTBase> InnerMatcher;
 };
 
 /// A simple memoizer of T(*)() functions.
@@ -2094,8 +2039,7 @@ equivalentUnaryOperator(const NodeType &Node) {
 template <>
 inline Optional<UnaryOperatorKind>
 equivalentUnaryOperator<CXXOperatorCallExpr>(const CXXOperatorCallExpr &Node) {
-  if (Node.getNumArgs() != 1 && Node.getOperator() != OO_PlusPlus &&
-      Node.getOperator() != OO_MinusMinus)
+  if (Node.getNumArgs() != 1)
     return None;
   switch (Node.getOperator()) {
   default:
@@ -2106,8 +2050,6 @@ equivalentUnaryOperator<CXXOperatorCallExpr>(const CXXOperatorCallExpr &Node) {
     return UO_Minus;
   case OO_Amp:
     return UO_AddrOf;
-  case OO_Star:
-    return UO_Deref;
   case OO_Tilde:
     return UO_Not;
   case OO_Exclaim:
@@ -2231,7 +2173,7 @@ inline Optional<StringRef> getOpName(const CXXOperatorCallExpr &Node) {
 /// Matches overloaded operators with a specific name.
 ///
 /// The type argument ArgT is not used by this matcher but is used by
-/// PolymorphicMatcher and should be std::vector<std::string>>.
+/// PolymorphicMatcherWithParam1 and should be std::vector<std::string>>.
 template <typename T, typename ArgT = std::vector<std::string>>
 class HasAnyOperatorNameMatcher : public SingleNodeMatcherInterface<T> {
   static_assert(std::is_same<T, BinaryOperator>::value ||
@@ -2277,22 +2219,19 @@ private:
     return BinaryOperator::getOpcodeStr(*optBinaryOpcode);
   }
 
-  std::vector<std::string> Names;
+  const std::vector<std::string> Names;
 };
 
-using HasOpNameMatcher =
-    PolymorphicMatcher<HasAnyOperatorNameMatcher,
-                       void(
-                           TypeList<BinaryOperator, CXXOperatorCallExpr,
-                                    CXXRewrittenBinaryOperator, UnaryOperator>),
-                       std::vector<std::string>>;
+using HasOpNameMatcher = PolymorphicMatcherWithParam1<
+    HasAnyOperatorNameMatcher, std::vector<std::string>,
+    void(TypeList<BinaryOperator, CXXOperatorCallExpr,
+                  CXXRewrittenBinaryOperator, UnaryOperator>)>;
 
 HasOpNameMatcher hasAnyOperatorNameFunc(ArrayRef<const StringRef *> NameRefs);
 
-using HasOverloadOpNameMatcher =
-    PolymorphicMatcher<HasOverloadedOperatorNameMatcher,
-                       void(TypeList<CXXOperatorCallExpr, FunctionDecl>),
-                       std::vector<std::string>>;
+using HasOverloadOpNameMatcher = PolymorphicMatcherWithParam1<
+    HasOverloadedOperatorNameMatcher, std::vector<std::string>,
+    void(TypeList<CXXOperatorCallExpr, FunctionDecl>)>;
 
 HasOverloadOpNameMatcher
 hasAnyOverloadedOperatorNameFunc(ArrayRef<const StringRef *> NameRefs);

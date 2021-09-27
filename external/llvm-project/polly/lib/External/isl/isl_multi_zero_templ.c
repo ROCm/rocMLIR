@@ -49,5 +49,3 @@ error:
 	isl_space_free(space);
 	return NULL;
 }
-
-#include "isl_multi_zero_space_templ.c"

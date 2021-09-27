@@ -9,8 +9,11 @@
 ;
 ; Check the original function, which is wrapped and becomes anonymous
 ; CHECK: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
-; CHECK: define internal noundef i32 @0()
-; CHECK: ret i32 1
+; CHECK: define internal i32 @0()
+; CHECK: %a = alloca i32
+; CHECK: store i32 1, i32* %a
+; CHECK: %b = load i32, i32* %a
+; CHECK: ret i32 %b
 define linkonce i32 @inner1() {
 entry:
   %a = alloca i32

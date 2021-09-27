@@ -102,7 +102,6 @@ public:
   void Put(const std::string &, Provenance);
   void Put(llvm::raw_string_ostream &, Provenance);
 
-  Provenance GetCharProvenance(std::size_t) const;
   Provenance GetTokenProvenance(
       std::size_t token, std::size_t offset = 0) const;
   ProvenanceRange GetTokenProvenanceRange(
@@ -120,7 +119,7 @@ public:
   TokenSequence &ClipComment(bool skipFirst = false);
   const TokenSequence &CheckBadFortranCharacters(Messages &) const;
   void Emit(CookedSource &) const;
-  llvm::raw_ostream &Dump(llvm::raw_ostream &) const;
+  void Dump(llvm::raw_ostream &) const;
 
 private:
   std::size_t TokenBytes(std::size_t token) const {

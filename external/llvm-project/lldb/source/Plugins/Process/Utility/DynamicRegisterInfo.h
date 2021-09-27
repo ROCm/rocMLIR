@@ -35,7 +35,9 @@ public:
   size_t SetRegisterInfo(const lldb_private::StructuredData::Dictionary &dict,
                          const lldb_private::ArchSpec &arch);
 
-  void AddRegister(lldb_private::RegisterInfo reg_info,
+  void AddRegister(lldb_private::RegisterInfo &reg_info,
+                   lldb_private::ConstString &reg_name,
+                   lldb_private::ConstString &reg_alt_name,
                    lldb_private::ConstString &set_name);
 
   void Finalize(const lldb_private::ArchSpec &arch);
@@ -57,9 +59,6 @@ public:
 
   uint32_t ConvertRegisterKindToRegisterNumber(uint32_t kind,
                                                uint32_t num) const;
-
-  const lldb_private::RegisterInfo *GetRegisterInfo(uint32_t kind,
-                                                    uint32_t num) const;
 
   void Dump() const;
 

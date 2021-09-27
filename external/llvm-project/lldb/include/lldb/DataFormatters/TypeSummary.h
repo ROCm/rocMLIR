@@ -9,7 +9,7 @@
 #ifndef LLDB_DATAFORMATTERS_TYPESUMMARY_H
 #define LLDB_DATAFORMATTERS_TYPESUMMARY_H
 
-#include <cstdint>
+#include <stdint.h>
 
 #include <functional>
 #include <memory>
@@ -38,8 +38,8 @@ public:
   TypeSummaryOptions &SetCapping(lldb::TypeSummaryCapping);
 
 private:
-  lldb::LanguageType m_lang = lldb::eLanguageTypeUnknown;
-  lldb::TypeSummaryCapping m_capping = lldb::eTypeSummaryCapped;
+  lldb::LanguageType m_lang;
+  lldb::TypeSummaryCapping m_capping;
 };
 
 class TypeSummaryImpl {
@@ -52,7 +52,7 @@ public:
 
   class Flags {
   public:
-    Flags() = default;
+    Flags() : m_flags(lldb::eTypeOptionCascade) {}
 
     Flags(const Flags &other) : m_flags(other.m_flags) {}
 
@@ -196,7 +196,7 @@ public:
     void SetValue(uint32_t value) { m_flags = value; }
 
   private:
-    uint32_t m_flags = lldb::eTypeOptionCascade;
+    uint32_t m_flags;
   };
 
   bool Cascades() const { return m_flags.GetCascades(); }

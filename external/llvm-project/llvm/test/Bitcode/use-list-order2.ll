@@ -1,4 +1,5 @@
 ; RUN: verify-uselistorder %s
+; XFAIL: *
 
 ; Test 1
 @g1 = global i8 0

@@ -11,24 +11,18 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_OPTIMIZER_CODEGEN_FIR_PASSES
-#define FORTRAN_OPTIMIZER_CODEGEN_FIR_PASSES
+#ifndef FLANG_OPTIMIZER_CODEGEN_PASSES
+#define FLANG_OPTIMIZER_CODEGEN_PASSES
 
 include "mlir/Pass/PassBase.td"
 
-def CodeGenRewrite : Pass<"cg-rewrite"> {
+def CodeGenRewrite : Pass<"cg-rewrite", "mlir::ModuleOp"> {
   let summary = "Rewrite some FIR ops into their code-gen forms.";
   let description = [{
     Fuse specific subgraphs into single Ops for code generation.
   }];
   let constructor = "fir::createFirCodeGenRewritePass()";
-  let dependentDialects = [
-    "fir::FIROpsDialect", "fir::FIRCodeGenDialect", "mlir::BuiltinDialect",
-    "mlir::LLVM::LLVMDialect", "mlir::omp::OpenMPDialect"
-  ];
-  let statistics = [
-    Statistic<"numDCE", "num-dce'd", "Number of operations eliminated">
-  ];
+  let dependentDialects = ["fir::FIROpsDialect"];
 }
 
-#endif // FORTRAN_OPTIMIZER_CODEGEN_FIR_PASSES
+#endif // FLANG_OPTIMIZER_CODEGEN_PASSES

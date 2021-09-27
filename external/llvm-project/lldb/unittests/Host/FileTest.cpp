@@ -46,7 +46,7 @@ TEST(File, GetStreamFromDescriptor) {
   llvm::FileRemover remover(name);
   ASSERT_GE(fd, 0);
 
-  NativeFile file(fd, File::eOpenOptionWriteOnly, true);
+  NativeFile file(fd, File::eOpenOptionWrite, true);
   ASSERT_TRUE(file.IsValid());
 
   FILE *stream = file.GetStream();

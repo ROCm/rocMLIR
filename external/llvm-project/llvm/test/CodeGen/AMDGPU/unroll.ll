@@ -81,7 +81,8 @@ entry:
 
 for.body:                                         ; preds = %entry, %for.inc
   %i1 = phi i32 [ 0, %entry ], [ %inc, %for.inc ]
-  %tobool = icmp eq i32 %i1, 0
+  %and = and i32 %i1, 1
+  %tobool = icmp eq i32 %and, 0
   br i1 %tobool, label %for.inc, label %if.then
 
 if.then:                                          ; preds = %for.body
@@ -92,7 +93,7 @@ if.then:                                          ; preds = %for.body
 
 for.inc:                                          ; preds = %for.body, %if.then
   %inc = add nuw nsw i32 %i1, 1
-  %cmp = icmp ult i32 %inc, 38
+  %cmp = icmp ult i32 %inc, 48
   br i1 %cmp, label %for.body, label %for.end
 
 for.end:                                          ; preds = %for.cond

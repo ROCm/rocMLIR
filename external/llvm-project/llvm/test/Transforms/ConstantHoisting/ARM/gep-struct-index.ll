@@ -19,11 +19,14 @@ i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32,
 i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32,
 i32, i32, i32, i32, i32, i32 }
 
-; Indices for GEPs should not be hoisted.
+; Indices for GEPs that index into a struct type should not be hoisted.
 define i32 @test1(%T* %P) nounwind {
 ; CHECK-LABEL:  @test1
-; CHECK:        %addr1 = getelementptr %T, %T* %P, i32 256, i32 256
-; CHECK:        %addr2 = getelementptr %T, %T* %P, i32 256, i32 256
+; CHECK:        %const = bitcast i32 256 to i32
+; CHECK:        %addr1 = getelementptr %T, %T* %P, i32 %const, i32 256
+; CHECK:        %addr2 = getelementptr %T, %T* %P, i32 %const, i32 256
+; The first index into the pointer is hoisted, but the second one into the
+; struct isn't.
   %addr1 = getelementptr %T, %T* %P, i32 256, i32 256
   %tmp1 = load i32, i32* %addr1
   %addr2 = getelementptr %T, %T* %P, i32 256, i32 256

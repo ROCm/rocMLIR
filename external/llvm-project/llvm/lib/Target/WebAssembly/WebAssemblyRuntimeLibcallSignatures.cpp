@@ -889,15 +889,14 @@ static ManagedStatic<StaticLibcallNameMap> LibcallNameMap;
 // TODO: If the RTLIB::Libcall-taking flavor of GetSignature remains unsed
 // other than here, just roll its logic into this version.
 void llvm::getLibcallSignature(const WebAssemblySubtarget &Subtarget,
-                               StringRef Name,
+                               const char *Name,
                                SmallVectorImpl<wasm::ValType> &Rets,
                                SmallVectorImpl<wasm::ValType> &Params) {
   auto &Map = LibcallNameMap->Map;
   auto Val = Map.find(Name);
 #ifndef NDEBUG
   if (Val == Map.end()) {
-    auto message = std::string("unexpected runtime library name: ") +
-                   std::string(Name);
+    auto message = std::string("unexpected runtime library name: ") + Name;
     llvm_unreachable(message.c_str());
   }
 #endif

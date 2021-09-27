@@ -340,10 +340,9 @@ You can instruct Clang to use libc++ with the ``-stdlib=libc++`` flag.
 libstdc++ (GNU)
 ^^^^^^^^^^^^^^^
 
-`libstdc++ <https://gcc.gnu.org/onlinedocs/libstdc++/>`_ is GCC's
-implementation of the C++ standard library. Clang supports libstdc++
-4.8.3 (released 2014-05-22) and later. Historically Clang implemented
-workarounds for issues discovered in libstdc++, and these are removed
-as fixed libstdc++ becomes sufficiently old.
+`libstdc++ <https://gcc.gnu.org/onlinedocs/libstdc++/>`_ is GCC's implementation
+of the C++ standard library. Clang supports a wide range of versions of
+libstdc++, from around version 4.2 onwards, and will implicitly work around
+some bugs in older versions of libstdc++.
 
 You can instruct Clang to use libstdc++ with the ``-stdlib=libstdc++`` flag.

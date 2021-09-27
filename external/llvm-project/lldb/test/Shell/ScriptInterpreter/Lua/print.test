@@ -1,3 +1,4 @@
+# REQUIRES: lua
 # UNSUPPORTED: lldb-repro
 #
 # RUN: rm -rf %t.stderr %t.stdout

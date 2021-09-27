@@ -17,7 +17,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
-#define NUM_THREADS 8
+#define NUM_THREADS 2
 
 int main(int argc, char *argv[]) {
   int var = 0;

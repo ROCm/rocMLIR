@@ -39,7 +39,7 @@ public:
     return semantics::IsKindTypeParameter(inq.parameter());
   }
   bool operator()(const semantics::Symbol &symbol) const {
-    const auto &ultimate{GetAssociationRoot(symbol)};
+    const auto &ultimate{symbol.GetUltimate()};
     return IsNamedConstant(ultimate) || IsImpliedDoIndex(ultimate) ||
         IsInitialProcedureTarget(ultimate);
   }
@@ -180,19 +180,21 @@ public:
     return false;
   }
   bool operator()(const semantics::Symbol &symbol) {
-    // This function checks only base symbols, not components.
     const Symbol &ultimate{symbol.GetUltimate()};
-    if (const auto *assoc{
-            ultimate.detailsIf<semantics::AssocEntityDetails>()}) {
-      if (const auto &expr{assoc->expr()}) {
-        if (IsVariable(*expr)) {
-          return (*this)(*expr);
-        } else if (messages_) {
-          messages_->Say(
-              "An initial data target may not be an associated expression ('%s')"_err_en_US,
-              ultimate.name());
-          emittedMessage_ = true;
-        }
+    if (IsAllocatable(ultimate)) {
+      if (messages_) {
+        messages_->Say(
+            "An initial data target may not be a reference to an ALLOCATABLE '%s'"_err_en_US,
+            ultimate.name());
+        emittedMessage_ = true;
+      }
+      return false;
+    } else if (ultimate.Corank() > 0) {
+      if (messages_) {
+        messages_->Say(
+            "An initial data target may not be a reference to a coarray '%s'"_err_en_US,
+            ultimate.name());
+        emittedMessage_ = true;
       }
       return false;
     } else if (!ultimate.attrs().test(semantics::Attr::TARGET)) {
@@ -211,9 +213,8 @@ public:
         emittedMessage_ = true;
       }
       return false;
-    } else {
-      return CheckVarOrComponent(ultimate);
     }
+    return true;
   }
   bool operator()(const StaticDataObject &) const { return false; }
   bool operator()(const TypeParamInquiry &) const { return false; }
@@ -232,9 +233,6 @@ public:
         x.u);
   }
   bool operator()(const CoarrayRef &) const { return false; }
-  bool operator()(const Component &x) {
-    return CheckVarOrComponent(x.GetLastSymbol()) && (*this)(x.base());
-  }
   bool operator()(const Substring &x) const {
     return IsConstantExpr(x.lower()) && IsConstantExpr(x.upper()) &&
         (*this)(x.parent());
@@ -260,28 +258,6 @@ public:
   bool operator()(const Relational<SomeType> &) const { return false; }
 
 private:
-  bool CheckVarOrComponent(const semantics::Symbol &symbol) {
-    const Symbol &ultimate{symbol.GetUltimate()};
-    if (IsAllocatable(ultimate)) {
-      if (messages_) {
-        messages_->Say(
-            "An initial data target may not be a reference to an ALLOCATABLE '%s'"_err_en_US,
-            ultimate.name());
-        emittedMessage_ = true;
-      }
-      return false;
-    } else if (ultimate.Corank() > 0) {
-      if (messages_) {
-        messages_->Say(
-            "An initial data target may not be a reference to a coarray '%s'"_err_en_US,
-            ultimate.name());
-        emittedMessage_ = true;
-      }
-      return false;
-    }
-    return true;
-  }
-
   parser::ContextualMessages *messages_;
   bool emittedMessage_{false};
 };
@@ -301,9 +277,7 @@ bool IsInitialProcedureTarget(const semantics::Symbol &symbol) {
   const auto &ultimate{symbol.GetUltimate()};
   return std::visit(
       common::visitors{
-          [](const semantics::SubprogramDetails &subp) {
-            return !subp.isDummy();
-          },
+          [](const semantics::SubprogramDetails &) { return true; },
           [](const semantics::SubprogramNameDetails &) { return true; },
           [&](const semantics::ProcEntityDetails &proc) {
             return !semantics::IsPointer(ultimate) && !proc.isDummy();
@@ -392,9 +366,8 @@ std::optional<Expr<SomeType>> NonPointerInitializationExpr(const Symbol &symbol,
                 .Expand(std::move(folded));
           } else if (auto resultShape{GetShape(context, folded)}) {
             if (CheckConformance(context.messages(), symTS->shape(),
-                    *resultShape, CheckConformanceFlags::None,
-                    "initialized object", "initialization expression")
-                    .value_or(false /*fail if not known now to conform*/)) {
+                    *resultShape, "initialized object",
+                    "initialization expression", false, false)) {
               // make a constant array with adjusted lower bounds
               return ArrayConstantBoundChanger{
                   std::move(*AsConstantExtents(
@@ -460,15 +433,15 @@ public:
       : Base{*this}, scope_{s}, context_{context} {}
   using Base::operator();
 
+  Result operator()(const ProcedureDesignator &) const {
+    return "dummy procedure argument";
+  }
   Result operator()(const CoarrayRef &) const { return "coindexed reference"; }
 
   Result operator()(const semantics::Symbol &symbol) const {
     const auto &ultimate{symbol.GetUltimate()};
-    if (const auto *assoc{
-            ultimate.detailsIf<semantics::AssocEntityDetails>()}) {
-      return (*this)(assoc->expr());
-    } else if (semantics::IsNamedConstant(ultimate) ||
-        ultimate.owner().IsModule() || ultimate.owner().IsSubmodule()) {
+    if (semantics::IsNamedConstant(ultimate) || ultimate.owner().IsModule() ||
+        ultimate.owner().IsSubmodule()) {
       return std::nullopt;
     } else if (scope_.IsDerivedType() &&
         IsVariableName(ultimate)) { // C750, C754
@@ -538,20 +511,6 @@ public:
             "' not allowed for derived type components or type parameter"
             " values";
       }
-      if (auto procChars{
-              characteristics::Procedure::Characterize(x.proc(), context_)}) {
-        const auto iter{std::find_if(procChars->dummyArguments.begin(),
-            procChars->dummyArguments.end(),
-            [](const characteristics::DummyArgument &dummy) {
-              return std::holds_alternative<characteristics::DummyProcedure>(
-                  dummy.u);
-            })};
-        if (iter != procChars->dummyArguments.end()) {
-          return "reference to function '"s + ultimate.name().ToString() +
-              "' with dummy procedure argument '" + iter->name + '\'';
-        }
-      }
-      // References to internal functions are caught in expression semantics.
       // TODO: other checks for standard module procedures
     } else {
       const SpecificIntrinsic &intrin{DEREF(x.proc().GetSpecificIntrinsic())};
@@ -625,19 +584,16 @@ public:
   using Base::operator();
 
   Result operator()(const semantics::Symbol &symbol) const {
-    const auto &ultimate{symbol.GetUltimate()};
-    if (ultimate.attrs().test(semantics::Attr::CONTIGUOUS) ||
-        ultimate.Rank() == 0) {
+    if (symbol.attrs().test(semantics::Attr::CONTIGUOUS) ||
+        symbol.Rank() == 0) {
       return true;
-    } else if (semantics::IsPointer(ultimate)) {
+    } else if (semantics::IsPointer(symbol)) {
       return false;
     } else if (const auto *details{
-                   ultimate.detailsIf<semantics::ObjectEntityDetails>()}) {
+                   symbol.detailsIf<semantics::ObjectEntityDetails>()}) {
       // N.B. ALLOCATABLEs are deferred shape, not assumed, and
       // are obviously contiguous.
       return !details->IsAssumedShape() && !details->IsAssumedRank();
-    } else if (auto assoc{Base::operator()(ultimate)}) {
-      return assoc;
     } else {
       return false;
     }
@@ -645,7 +601,7 @@ public:
 
   Result operator()(const ArrayRef &x) const {
     const auto &symbol{x.GetLastSymbol()};
-    if (!(*this)(symbol).has_value()) {
+    if (!(*this)(symbol)) {
       return false;
     } else if (auto rank{CheckSubscripts(x.subscript())}) {
       // a(:)%b(1,1) is not contiguous; a(1)%b(:,:) is
@@ -658,7 +614,7 @@ public:
     return CheckSubscripts(x.subscript()).has_value();
   }
   Result operator()(const Component &x) const {
-    return x.base().Rank() == 0 && (*this)(x.GetLastSymbol()).value_or(false);
+    return x.base().Rank() == 0 && (*this)(x.GetLastSymbol());
   }
   Result operator()(const ComplexPart &) const { return false; }
   Result operator()(const Substring &) const { return false; }

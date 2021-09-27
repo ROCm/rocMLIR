@@ -455,13 +455,11 @@ static Sema::TemplateDeductionResult DeduceNullPtrTemplateArgument(
     const NonTypeTemplateParmDecl *NTTP, QualType NullPtrType,
     TemplateDeductionInfo &Info,
     SmallVectorImpl<DeducedTemplateArgument> &Deduced) {
-  Expr *Value = S.ImpCastExprToType(
-                     new (S.Context) CXXNullPtrLiteralExpr(S.Context.NullPtrTy,
-                                                           NTTP->getLocation()),
-                     NullPtrType,
-                     NullPtrType->isMemberPointerType() ? CK_NullToMemberPointer
-                                                        : CK_NullToPointer)
-                    .get();
+  Expr *Value =
+      S.ImpCastExprToType(new (S.Context) CXXNullPtrLiteralExpr(
+                              S.Context.NullPtrTy, NTTP->getLocation()),
+                          NullPtrType, CK_NullToPointer)
+          .get();
   return DeduceNonTypeTemplateArgument(S, TemplateParams, NTTP,
                                        DeducedTemplateArgument(Value),
                                        Value->getType(), Info, Deduced);
@@ -1297,12 +1295,12 @@ static Sema::TemplateDeductionResult DeduceTemplateBases(
       AddBases(Match.first);
 
     // We can give up once we have a single item (or have run out of things to
-    // search) since cyclical inheritance isn't valid.
+    // search) since cyclical inheritence isn't valid.
     while (Matches.size() > 1 && !ToVisit.empty()) {
       const RecordType *NextT = ToVisit.pop_back_val();
       Matches.erase(NextT);
 
-      // Always add all bases, since the inheritance tree can contain
+      // Always add all bases, since the inheritence tree can contain
       // disqualifications for multiple matches.
       AddBases(NextT);
     }
@@ -2858,24 +2856,9 @@ static Sema::TemplateDeductionResult ConvertDeducedTemplateArguments(
       return Sema::TDK_Incomplete;
     }
 
-    TemplateArgumentLoc DefArg;
-    {
-      Qualifiers ThisTypeQuals;
-      CXXRecordDecl *ThisContext = nullptr;
-      if (auto *Rec = dyn_cast<CXXRecordDecl>(TD->getDeclContext()))
-        if (Rec->isLambda())
-          if (auto *Method = dyn_cast<CXXMethodDecl>(Rec->getDeclContext())) {
-            ThisContext = Method->getParent();
-            ThisTypeQuals = Method->getMethodQualifiers();
-          }
-
-      Sema::CXXThisScopeRAII ThisScope(S, ThisContext, ThisTypeQuals,
-                                       S.getLangOpts().CPlusPlus17);
-
-      DefArg = S.SubstDefaultTemplateArgumentIfAvailable(
-          TD, TD->getLocation(), TD->getSourceRange().getEnd(), Param, Builder,
-          HasDefaultArg);
-    }
+    TemplateArgumentLoc DefArg = S.SubstDefaultTemplateArgumentIfAvailable(
+        TD, TD->getLocation(), TD->getSourceRange().getEnd(), Param, Builder,
+        HasDefaultArg);
 
     // If there was no default argument, deduction is incomplete.
     if (DefArg.getArgument().isNull()) {
@@ -3094,10 +3077,6 @@ Sema::DeduceTemplateArguments(ClassTemplatePartialSpecializationDecl *Partial,
       *this, Sema::ExpressionEvaluationContext::Unevaluated);
   SFINAETrap Trap(*this);
 
-  // This deduction has no relation to any outer instantiation we might be
-  // performing.
-  LocalInstantiationScope InstantiationScope(*this);
-
   SmallVector<DeducedTemplateArgument, 4> Deduced;
   Deduced.resize(Partial->getTemplateParameters()->size());
   if (TemplateDeductionResult Result
@@ -3145,10 +3124,6 @@ Sema::DeduceTemplateArguments(VarTemplatePartialSpecializationDecl *Partial,
   EnterExpressionEvaluationContext Unevaluated(
       *this, Sema::ExpressionEvaluationContext::Unevaluated);
   SFINAETrap Trap(*this);
-
-  // This deduction has no relation to any outer instantiation we might be
-  // performing.
-  LocalInstantiationScope InstantiationScope(*this);
 
   SmallVector<DeducedTemplateArgument, 4> Deduced;
   Deduced.resize(Partial->getTemplateParameters()->size());
@@ -3894,9 +3869,8 @@ static bool AdjustFunctionParmAndArgTypesForDeduction(
     //   "lvalue reference to A" is used in place of A for type deduction.
     if (isForwardingReference(QualType(ParamRefType, 0), FirstInnerIndex) &&
         Arg->isLValue()) {
-      if (S.getLangOpts().OpenCL && !ArgType.hasAddressSpace())
-        ArgType = S.Context.getAddrSpaceQualType(
-            ArgType, S.Context.getDefaultOpenCLPointeeAddrSpace());
+      if (S.getLangOpts().OpenCL  && !ArgType.hasAddressSpace())
+        ArgType = S.Context.getAddrSpaceQualType(ArgType, LangAS::opencl_generic);
       ArgType = S.Context.getLValueReferenceType(ArgType);
     }
   } else {
@@ -3944,7 +3918,7 @@ static bool AdjustFunctionParmAndArgTypesForDeduction(
   if (isSimpleTemplateIdType(ParamType) ||
       (isa<PointerType>(ParamType) &&
        isSimpleTemplateIdType(
-           ParamType->castAs<PointerType>()->getPointeeType())))
+                              ParamType->getAs<PointerType>()->getPointeeType())))
     TDF |= TDF_DerivedClass;
 
   return false;
@@ -4362,7 +4336,7 @@ Sema::TemplateDeductionResult Sema::DeduceTemplateArguments(
     HasDeducedReturnType = true;
   }
 
-  if (!ArgFunctionType.isNull() && !FunctionType.isNull()) {
+  if (!ArgFunctionType.isNull()) {
     unsigned TDF =
         TDF_TopLevelParameterTypeList | TDF_AllowCompatibleFunctionType;
     // Deduce template arguments from the function type.
@@ -4721,9 +4695,10 @@ CheckDeducedPlaceholderConstraints(Sema &S, const AutoType &Type,
     llvm::raw_string_ostream OS(Buf);
     OS << "'" << Concept->getName();
     if (TypeLoc.hasExplicitTemplateArgs()) {
-      printTemplateArgumentList(
-          OS, Type.getTypeConstraintArguments(), S.getPrintingPolicy(),
-          Type.getTypeConstraintConcept()->getTemplateParameters());
+      OS << "<";
+      for (const auto &Arg : Type.getTypeConstraintArguments())
+        Arg.print(S.getPrintingPolicy(), OS);
+      OS << ">";
     }
     OS << "'";
     OS.flush();
@@ -5489,9 +5464,6 @@ static bool isAtLeastAsSpecializedAs(Sema &S, QualType T1, QualType T2,
                                                Deduced.end());
   Sema::InstantiatingTemplate Inst(S, Info.getLocation(), P2, DeducedArgs,
                                    Info);
-  if (Inst.isInvalid())
-    return false;
-
   auto *TST1 = T1->castAs<TemplateSpecializationType>();
   bool AtLeastAsSpecialized;
   S.runWithSufficientStackSpace(Info.getLocation(), [&] {

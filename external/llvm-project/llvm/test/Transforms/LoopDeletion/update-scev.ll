@@ -1,5 +1,7 @@
+; RUN: opt -S -analyze -scalar-evolution -loop-deletion -scalar-evolution -verify-scev < %s -enable-new-pm=0 | FileCheck %s --check-prefix=SCEV-EXPRS
 ; RUN: opt -S -passes='print<scalar-evolution>,loop-deletion,print<scalar-evolution>' -verify-scev < %s 2>&1 | FileCheck %s --check-prefix=SCEV-EXPRS
-; RUN: opt -S -passes=loop-deletion < %s | FileCheck %s --check-prefix=IR-AFTER-TRANSFORM
+; RUN: opt -S -loop-deletion < %s | FileCheck %s --check-prefix=IR-AFTER-TRANSFORM
+; RUN: opt -S -indvars -loop-deletion -indvars < %s | FileCheck %s --check-prefix=ORIGINAL-CRASH
 
 ; Checking for a crash.  Loop-deletion would change the loop
 ; disposition of an instruction, but not update SCEV.
@@ -9,6 +11,7 @@ target triple = "x86_64-apple-macosx10.11.0"
 
 define void @pr27570() {
 ; IR-AFTER-TRANSFORM-LABEL: @pr27570(
+; ORIGINAL-CRASH: @pr27570(
 entry:
   br label %for.cond
 

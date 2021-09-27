@@ -35,10 +35,10 @@
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
-#include <algorithm>
 #include <cassert>
 #include <iterator>
-#include <utility>
+#include <string>
+#include <vector>
 
 using namespace llvm;
 
@@ -122,9 +122,7 @@ bool VPlanSlp::areVectorizable(ArrayRef<VPValue *> Operands) const {
     unsigned LoadsSeen = 0;
     VPBasicBlock *Parent = cast<VPInstruction>(Operands[0])->getParent();
     for (auto &I : *Parent) {
-      auto *VPI = dyn_cast<VPInstruction>(&I);
-      if (!VPI)
-        break;
+      auto *VPI = cast<VPInstruction>(&I);
       if (VPI->getOpcode() == Instruction::Load &&
           llvm::is_contained(Operands, VPI))
         LoadsSeen++;
@@ -349,7 +347,6 @@ SmallVector<VPlanSlp::MultiNodeOpTy, 4> VPlanSlp::reorderMultiNodeOps() {
   return FinalOrder;
 }
 
-#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 void VPlanSlp::dumpBundle(ArrayRef<VPValue *> Values) {
   dbgs() << " Ops: ";
   for (auto Op : Values) {
@@ -362,7 +359,6 @@ void VPlanSlp::dumpBundle(ArrayRef<VPValue *> Values) {
   }
   dbgs() << "\n";
 }
-#endif
 
 VPInstruction *VPlanSlp::buildGraph(ArrayRef<VPValue *> Values) {
   assert(!Values.empty() && "Need some operands!");

@@ -320,16 +320,16 @@ void InitShadow() {
 }
 
 THREADLOCAL int in_loader;
-Mutex shadow_update_lock;
+BlockingMutex shadow_update_lock(LINKER_INITIALIZED);
 
-void EnterLoader() NO_THREAD_SAFETY_ANALYSIS {
+void EnterLoader() {
   if (in_loader == 0) {
     shadow_update_lock.Lock();
   }
   ++in_loader;
 }
 
-void ExitLoader() NO_THREAD_SAFETY_ANALYSIS {
+void ExitLoader() {
   CHECK(in_loader > 0);
   --in_loader;
   UpdateShadow();
@@ -436,11 +436,11 @@ INTERCEPTOR(int, dlclose, void *handle) {
   return res;
 }
 
-static Mutex interceptor_init_lock;
+static BlockingMutex interceptor_init_lock(LINKER_INITIALIZED);
 static bool interceptors_inited = false;
 
 static void EnsureInterceptorsInitialized() {
-  Lock lock(&interceptor_init_lock);
+  BlockingMutexLock lock(&interceptor_init_lock);
   if (interceptors_inited)
     return;
 

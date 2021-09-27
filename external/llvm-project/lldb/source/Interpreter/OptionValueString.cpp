@@ -117,6 +117,10 @@ Status OptionValueString::SetValueFromString(llvm::StringRef value,
   return error;
 }
 
+lldb::OptionValueSP OptionValueString::DeepCopy() const {
+  return OptionValueSP(new OptionValueString(*this));
+}
+
 Status OptionValueString::SetCurrentValue(llvm::StringRef value) {
   if (m_validator) {
     Status error(m_validator(value.str().c_str(), m_validator_baton));

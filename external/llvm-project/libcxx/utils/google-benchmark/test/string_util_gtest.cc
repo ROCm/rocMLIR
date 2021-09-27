@@ -3,7 +3,6 @@
 //===---------------------------------------------------------------------===//
 
 #include "../src/string_util.h"
-#include "../src/internal_macros.h"
 #include "gtest/gtest.h"
 
 namespace {
@@ -61,11 +60,9 @@ TEST(StringUtilTest, stoul) {
     EXPECT_EQ(0xBEEFul, benchmark::stoul("BEEF", &pos, 16));
     EXPECT_EQ(4ul, pos);
   }
-#ifndef BENCHMARK_HAS_NO_EXCEPTIONS
   {
     ASSERT_THROW(benchmark::stoul("this is a test"), std::invalid_argument);
   }
-#endif
 }
 
 TEST(StringUtilTest, stoi) {
@@ -109,11 +106,9 @@ TEST(StringUtilTest, stoi) {
     EXPECT_EQ(0xBEEF, benchmark::stoi("BEEF", &pos, 16));
     EXPECT_EQ(4ul, pos);
   }
-#ifndef BENCHMARK_HAS_NO_EXCEPTIONS
   {
     ASSERT_THROW(benchmark::stoi("this is a test"), std::invalid_argument);
   }
-#endif
 }
 
 TEST(StringUtilTest, stod) {
@@ -143,19 +138,9 @@ TEST(StringUtilTest, stod) {
     EXPECT_EQ(-1.25e+9, benchmark::stod("-1.25e+9", &pos));
     EXPECT_EQ(8ul, pos);
   }
-#ifndef BENCHMARK_HAS_NO_EXCEPTIONS
   {
     ASSERT_THROW(benchmark::stod("this is a test"), std::invalid_argument);
   }
-#endif
-}
-
-TEST(StringUtilTest, StrSplit) {
-  EXPECT_EQ(benchmark::StrSplit("", ','), std::vector<std::string>{});
-  EXPECT_EQ(benchmark::StrSplit("hello", ','),
-            std::vector<std::string>({"hello"}));
-  EXPECT_EQ(benchmark::StrSplit("hello,there,is,more", ','),
-            std::vector<std::string>({"hello", "there", "is", "more"}));
 }
 
 }  // end namespace

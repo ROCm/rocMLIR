@@ -1,5 +1,8 @@
-int build = BUILD;
+#include <cstdio>
 
-int main() {
-  return BUILD;
+const char* build = BUILD;
+
+int main(int argc, char **argv) {
+  printf("argc: %d\n", argc);
+  return argv[0][0];
 }

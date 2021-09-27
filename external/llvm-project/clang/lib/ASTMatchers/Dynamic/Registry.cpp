@@ -102,9 +102,6 @@ RegistryMaps::RegistryMaps() {
   // Other:
   // equalsNode
 
-  registerMatcher("mapAnyOf",
-                  std::make_unique<internal::MapAnyOfBuilderDescriptor>());
-
   REGISTER_OVERLOADED_2(callee);
   REGISTER_OVERLOADED_2(hasAnyCapture);
   REGISTER_OVERLOADED_2(hasPrefix);
@@ -142,7 +139,6 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(asmStmt);
   REGISTER_MATCHER(atomicExpr);
   REGISTER_MATCHER(atomicType);
-  REGISTER_MATCHER(attr);
   REGISTER_MATCHER(autoType);
   REGISTER_MATCHER(autoreleasePoolStmt)
   REGISTER_MATCHER(binaryConditionalOperator);
@@ -167,16 +163,12 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(complexType);
   REGISTER_MATCHER(compoundLiteralExpr);
   REGISTER_MATCHER(compoundStmt);
-  REGISTER_MATCHER(coawaitExpr);
   REGISTER_MATCHER(conditionalOperator);
   REGISTER_MATCHER(constantArrayType);
   REGISTER_MATCHER(constantExpr);
   REGISTER_MATCHER(containsDeclaration);
   REGISTER_MATCHER(continueStmt);
-  REGISTER_MATCHER(coreturnStmt);
-  REGISTER_MATCHER(coyieldExpr);
   REGISTER_MATCHER(cudaKernelCallExpr);
-  REGISTER_MATCHER(cxxBaseSpecifier);
   REGISTER_MATCHER(cxxBindTemporaryExpr);
   REGISTER_MATCHER(cxxBoolLiteral);
   REGISTER_MATCHER(cxxCatchStmt);
@@ -219,7 +211,6 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(decltypeType);
   REGISTER_MATCHER(deducedTemplateSpecializationType);
   REGISTER_MATCHER(defaultStmt);
-  REGISTER_MATCHER(dependentCoawaitExpr);
   REGISTER_MATCHER(dependentSizedArrayType);
   REGISTER_MATCHER(designatedInitExpr);
   REGISTER_MATCHER(designatorCountIs);
@@ -235,9 +226,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(expr);
   REGISTER_MATCHER(exprWithCleanups);
   REGISTER_MATCHER(fieldDecl);
-  REGISTER_MATCHER(fixedPointLiteral);
   REGISTER_MATCHER(floatLiteral);
-  REGISTER_MATCHER(forCallable);
   REGISTER_MATCHER(forDecomposition);
   REGISTER_MATCHER(forEach);
   REGISTER_MATCHER(forEachArgumentWithParam);
@@ -262,7 +251,6 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(hasAnyArgument);
   REGISTER_MATCHER(hasAnyBase);
   REGISTER_MATCHER(hasAnyBinding);
-  REGISTER_MATCHER(hasAnyBody);
   REGISTER_MATCHER(hasAnyClause);
   REGISTER_MATCHER(hasAnyConstructorInitializer);
   REGISTER_MATCHER(hasAnyDeclaration);
@@ -535,7 +523,6 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(tagType);
   REGISTER_MATCHER(templateArgument);
   REGISTER_MATCHER(templateArgumentCountIs);
-  REGISTER_MATCHER(templateArgumentLoc);
   REGISTER_MATCHER(templateName);
   REGISTER_MATCHER(templateSpecializationType);
   REGISTER_MATCHER(templateTemplateParmDecl);
@@ -562,7 +549,6 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(userDefinedLiteral);
   REGISTER_MATCHER(usesADL);
   REGISTER_MATCHER(usingDecl);
-  REGISTER_MATCHER(usingEnumDecl);
   REGISTER_MATCHER(usingDirectiveDecl);
   REGISTER_MATCHER(valueDecl);
   REGISTER_MATCHER(varDecl);
@@ -575,26 +561,6 @@ RegistryMaps::RegistryMaps() {
 RegistryMaps::~RegistryMaps() = default;
 
 static llvm::ManagedStatic<RegistryMaps> RegistryData;
-
-ASTNodeKind Registry::nodeMatcherType(MatcherCtor Ctor) {
-  return Ctor->nodeMatcherType();
-}
-
-internal::MatcherDescriptorPtr::MatcherDescriptorPtr(MatcherDescriptor *Ptr)
-    : Ptr(Ptr) {}
-
-internal::MatcherDescriptorPtr::~MatcherDescriptorPtr() { delete Ptr; }
-
-bool Registry::isBuilderMatcher(MatcherCtor Ctor) {
-  return Ctor->isBuilderMatcher();
-}
-
-internal::MatcherDescriptorPtr
-Registry::buildMatcherCtor(MatcherCtor Ctor, SourceRange NameRange,
-                           ArrayRef<ParserValue> Args, Diagnostics *Error) {
-  return internal::MatcherDescriptorPtr(
-      Ctor->buildMatcherCtor(NameRange, Args, Error).release());
-}
 
 // static
 llvm::Optional<MatcherCtor> Registry::lookupMatcherCtor(StringRef MatcherName) {
@@ -633,10 +599,7 @@ std::vector<ArgKind> Registry::getAcceptedCompletionTypes(
 
   // Starting with the above seed of acceptable top-level matcher types, compute
   // the acceptable type set for the argument indicated by each context element.
-  std::set<ArgKind> TypeSet;
-  for (auto IT : InitialTypes) {
-    TypeSet.insert(ArgKind::MakeMatcherArg(IT));
-  }
+  std::set<ArgKind> TypeSet(std::begin(InitialTypes), std::end(InitialTypes));
   for (const auto &CtxEntry : Context) {
     MatcherCtor Ctor = CtxEntry.first;
     unsigned ArgNumber = CtxEntry.second;
@@ -667,40 +630,20 @@ Registry::getMatcherCompletions(ArrayRef<ArgKind> AcceptedTypes) {
     bool IsPolymorphic = Matcher.isPolymorphic();
     std::vector<std::vector<ArgKind>> ArgsKinds(NumArgs);
     unsigned MaxSpecificity = 0;
-    bool NodeArgs = false;
     for (const ArgKind& Kind : AcceptedTypes) {
-      if (Kind.getArgKind() != Kind.AK_Matcher &&
-          Kind.getArgKind() != Kind.AK_Node) {
+      if (Kind.getArgKind() != Kind.AK_Matcher)
         continue;
-      }
-
-      if (Kind.getArgKind() == Kind.AK_Node) {
-        NodeArgs = true;
-        unsigned Specificity;
-        ASTNodeKind LeastDerivedKind;
-        if (Matcher.isConvertibleTo(Kind.getNodeKind(), &Specificity,
-                                    &LeastDerivedKind)) {
-          if (MaxSpecificity < Specificity)
-            MaxSpecificity = Specificity;
-          RetKinds.insert(LeastDerivedKind);
-          for (unsigned Arg = 0; Arg != NumArgs; ++Arg)
-            Matcher.getArgKinds(Kind.getNodeKind(), Arg, ArgsKinds[Arg]);
-          if (IsPolymorphic)
-            break;
-        }
-      } else {
-        unsigned Specificity;
-        ASTNodeKind LeastDerivedKind;
-        if (Matcher.isConvertibleTo(Kind.getMatcherKind(), &Specificity,
-                                    &LeastDerivedKind)) {
-          if (MaxSpecificity < Specificity)
-            MaxSpecificity = Specificity;
-          RetKinds.insert(LeastDerivedKind);
-          for (unsigned Arg = 0; Arg != NumArgs; ++Arg)
-            Matcher.getArgKinds(Kind.getMatcherKind(), Arg, ArgsKinds[Arg]);
-          if (IsPolymorphic)
-            break;
-        }
+      unsigned Specificity;
+      ASTNodeKind LeastDerivedKind;
+      if (Matcher.isConvertibleTo(Kind.getMatcherKind(), &Specificity,
+                                  &LeastDerivedKind)) {
+        if (MaxSpecificity < Specificity)
+          MaxSpecificity = Specificity;
+        RetKinds.insert(LeastDerivedKind);
+        for (unsigned Arg = 0; Arg != NumArgs; ++Arg)
+          Matcher.getArgKinds(Kind.getMatcherKind(), Arg, ArgsKinds[Arg]);
+        if (IsPolymorphic)
+          break;
       }
     }
 
@@ -708,49 +651,42 @@ Registry::getMatcherCompletions(ArrayRef<ArgKind> AcceptedTypes) {
       std::string Decl;
       llvm::raw_string_ostream OS(Decl);
 
-      std::string TypedText = std::string(Name);
-
-      if (NodeArgs) {
-        OS << Name;
+      if (IsPolymorphic) {
+        OS << "Matcher<T> " << Name << "(Matcher<T>";
       } else {
+        OS << "Matcher<" << RetKinds << "> " << Name << "(";
+        for (const std::vector<ArgKind> &Arg : ArgsKinds) {
+          if (&Arg != &ArgsKinds[0])
+            OS << ", ";
 
-        if (IsPolymorphic) {
-          OS << "Matcher<T> " << Name << "(Matcher<T>";
-        } else {
-          OS << "Matcher<" << RetKinds << "> " << Name << "(";
-          for (const std::vector<ArgKind> &Arg : ArgsKinds) {
-            if (&Arg != &ArgsKinds[0])
-              OS << ", ";
-
-            bool FirstArgKind = true;
-            std::set<ASTNodeKind> MatcherKinds;
-            // Two steps. First all non-matchers, then matchers only.
-            for (const ArgKind &AK : Arg) {
-              if (AK.getArgKind() == ArgKind::AK_Matcher) {
-                MatcherKinds.insert(AK.getMatcherKind());
-              } else {
-                if (!FirstArgKind)
-                  OS << "|";
-                FirstArgKind = false;
-                OS << AK.asString();
-              }
-            }
-            if (!MatcherKinds.empty()) {
+          bool FirstArgKind = true;
+          std::set<ASTNodeKind> MatcherKinds;
+          // Two steps. First all non-matchers, then matchers only.
+          for (const ArgKind &AK : Arg) {
+            if (AK.getArgKind() == ArgKind::AK_Matcher) {
+              MatcherKinds.insert(AK.getMatcherKind());
+            } else {
               if (!FirstArgKind) OS << "|";
-              OS << "Matcher<" << MatcherKinds << ">";
+              FirstArgKind = false;
+              OS << AK.asString();
             }
           }
+          if (!MatcherKinds.empty()) {
+            if (!FirstArgKind) OS << "|";
+            OS << "Matcher<" << MatcherKinds << ">";
+          }
         }
-        if (Matcher.isVariadic())
-          OS << "...";
-        OS << ")";
-
-        TypedText += "(";
-        if (ArgsKinds.empty())
-          TypedText += ")";
-        else if (ArgsKinds[0][0].getArgKind() == ArgKind::AK_String)
-          TypedText += "\"";
       }
+      if (Matcher.isVariadic())
+        OS << "...";
+      OS << ")";
+
+      std::string TypedText = std::string(Name);
+      TypedText += "(";
+      if (ArgsKinds.empty())
+        TypedText += ")";
+      else if (ArgsKinds[0][0].getArgKind() == ArgKind::AK_String)
+        TypedText += "\"";
 
       Completions.emplace_back(TypedText, OS.str(), MaxSpecificity);
     }

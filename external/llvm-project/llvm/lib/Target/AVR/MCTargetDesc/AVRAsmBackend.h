@@ -55,8 +55,7 @@ public:
     return false;
   }
 
-  bool writeNopData(raw_ostream &OS, uint64_t Count,
-                    const MCSubtargetInfo *STI) const override;
+  bool writeNopData(raw_ostream &OS, uint64_t Count) const override;
 
   bool shouldForceRelocation(const MCAssembler &Asm, const MCFixup &Fixup,
                              const MCValue &Target) override;
@@ -68,3 +67,4 @@ private:
 } // end namespace llvm
 
 #endif // LLVM_AVR_ASM_BACKEND_H
+

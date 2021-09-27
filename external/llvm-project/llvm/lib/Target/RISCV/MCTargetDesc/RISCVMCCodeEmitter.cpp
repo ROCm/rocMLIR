@@ -270,7 +270,7 @@ unsigned RISCVMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
   const MCOperand &MO = MI.getOperand(OpNo);
 
   MCInstrDesc const &Desc = MCII.get(MI.getOpcode());
-  unsigned MIFrm = RISCVII::getFormat(Desc.TSFlags);
+  unsigned MIFrm = Desc.TSFlags & RISCVII::InstFormatMask;
 
   // If the destination is an immediate, there is nothing to do.
   if (MO.isImm())
@@ -358,7 +358,7 @@ unsigned RISCVMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
     }
   } else if (Kind == MCExpr::SymbolRef &&
              cast<MCSymbolRefExpr>(Expr)->getKind() == MCSymbolRefExpr::VK_None) {
-    if (MIFrm == RISCVII::InstFormatJ) {
+    if (Desc.getOpcode() == RISCV::JAL) {
       FixupKind = RISCV::fixup_riscv_jal;
     } else if (MIFrm == RISCVII::InstFormatB) {
       FixupKind = RISCV::fixup_riscv_branch;

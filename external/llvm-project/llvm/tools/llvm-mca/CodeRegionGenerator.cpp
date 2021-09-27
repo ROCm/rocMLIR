@@ -106,20 +106,10 @@ void MCACommentConsumer::HandleComment(SMLoc Loc, StringRef CommentText) {
   Regions.beginRegion(Comment, Loc);
 }
 
-Expected<const CodeRegions &> AsmCodeRegionGenerator::parseCodeRegions(
-    const std::unique_ptr<MCInstPrinter> &IP) {
+Expected<const CodeRegions &> AsmCodeRegionGenerator::parseCodeRegions() {
   MCTargetOptions Opts;
   Opts.PreserveAsmComments = false;
   MCStreamerWrapper Str(Ctx, Regions);
-
-  // Need to initialize an MCTargetStreamer otherwise
-  // certain asm directives will cause a segfault.
-  // Using nulls() so that anything emitted by the MCTagetStreamer
-  // doesn't show up in the llvm-mca output.
-  raw_ostream &OSRef = nulls();
-  formatted_raw_ostream FOSRef(OSRef);
-  TheTarget.createAsmTargetStreamer(Str, FOSRef, IP.get(),
-                                    /*IsVerboseAsm=*/true);
 
   // Create a MCAsmParser and setup the lexer to recognize llvm-mca ASM
   // comments.

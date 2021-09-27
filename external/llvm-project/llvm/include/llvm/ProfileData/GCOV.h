@@ -42,7 +42,7 @@ class GCOVBlock;
 
 namespace GCOV {
 
-enum GCOVVersion { V304, V407, V408, V800, V900, V1200 };
+enum GCOVVersion { V304, V407, V408, V800, V900 };
 
 /// A struct for passing gcov options between functions.
 struct Options {
@@ -108,7 +108,7 @@ public:
   }
 
   /// readGCOVVersion - Read GCOV version.
-  bool readGCOVVersion(GCOV::GCOVVersion &version) {
+  bool readGCOVVersion(GCOV::GCOVVersion &Version) {
     std::string str(de.getBytes(cursor, 4));
     if (str.size() != 4)
       return false;
@@ -117,27 +117,24 @@ public:
     int ver = str[0] >= 'A'
                   ? (str[0] - 'A') * 100 + (str[1] - '0') * 10 + str[2] - '0'
                   : (str[0] - '0') * 10 + str[2] - '0';
-    if (ver >= 120) {
-      this->version = version = GCOV::V1200;
-      return true;
-    } else if (ver >= 90) {
+    if (ver >= 90) {
       // PR gcov-profile/84846, r269678
-      this->version = version = GCOV::V900;
+      Version = GCOV::V900;
       return true;
     } else if (ver >= 80) {
       // PR gcov-profile/48463
-      this->version = version = GCOV::V800;
+      Version = GCOV::V800;
       return true;
     } else if (ver >= 48) {
       // r189778: the exit block moved from the last to the second.
-      this->version = version = GCOV::V408;
+      Version = GCOV::V408;
       return true;
     } else if (ver >= 47) {
       // r173147: split checksum into cfg checksum and line checksum.
-      this->version = version = GCOV::V407;
+      Version = GCOV::V407;
       return true;
     } else if (ver >= 34) {
-      this->version = version = GCOV::V304;
+      Version = GCOV::V304;
       return true;
     }
     errs() << "unexpected version: " << str << "\n";
@@ -170,14 +167,11 @@ public:
     return true;
   }
 
-  bool readString(StringRef &str) {
+  bool readString(StringRef &Str) {
     uint32_t len;
     if (!readInt(len) || len == 0)
       return false;
-    if (version >= GCOV::V1200)
-      str = de.getBytes(cursor, len).drop_back();
-    else
-      str = de.getBytes(cursor, len * 4).split('\0').first;
+    Str = de.getBytes(cursor, len * 4).split('\0').first;
     return bool(cursor);
   }
 
@@ -186,7 +180,6 @@ public:
 
 private:
   MemoryBuffer *Buffer;
-  GCOV::GCOVVersion version{};
 };
 
 /// GCOVFile - Collects coverage information for one pair of coverage file
@@ -197,7 +190,7 @@ public:
 
   bool readGCNO(GCOVBuffer &Buffer);
   bool readGCDA(GCOVBuffer &Buffer);
-  GCOV::GCOVVersion getVersion() const { return version; }
+  GCOV::GCOVVersion getVersion() const { return Version; }
   void print(raw_ostream &OS) const;
   void dump() const;
 
@@ -206,13 +199,13 @@ public:
 
 public:
   bool GCNOInitialized = false;
-  GCOV::GCOVVersion version{};
-  uint32_t checksum = 0;
+  GCOV::GCOVVersion Version;
+  uint32_t Checksum = 0;
   StringRef cwd;
   SmallVector<std::unique_ptr<GCOVFunction>, 16> functions;
-  std::map<uint32_t, GCOVFunction *> identToFunction;
-  uint32_t runCount = 0;
-  uint32_t programCount = 0;
+  std::map<uint32_t, GCOVFunction *> IdentToFunction;
+  uint32_t RunCount = 0;
+  uint32_t ProgramCount = 0;
 
   using iterator = pointee_iterator<
       SmallVectorImpl<std::unique_ptr<GCOVFunction>>::const_iterator>;
@@ -320,4 +313,4 @@ void gcovOneInput(const GCOV::Options &options, StringRef filename,
 
 } // end namespace llvm
 
-#endif // LLVM_PROFILEDATA_GCOV_H
+#endif // LLVM_SUPPORT_GCOV_H

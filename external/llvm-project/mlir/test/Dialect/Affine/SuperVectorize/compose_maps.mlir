@@ -1,4 +1,4 @@
-// RUN: mlir-opt -allow-unregistered-dialect %s -affine-super-vectorizer-test -compose-maps -split-input-file 2>&1 |  FileCheck %s
+// RUN: mlir-opt -allow-unregistered-dialect %s -affine-super-vectorizer-test -compose-maps 2>&1 |  FileCheck %s
 
 // For all these cases, the test traverses the `test_affine_map` ops and
 // composes them in order one-by-one.
@@ -16,16 +16,12 @@ func @simple1() {
   return
 }
 
-// -----
-
 func @simple2() {
   // CHECK: Composed map: (d0)[s0, s1] -> (d0 - s0 + s1)
   "test_affine_map"() { affine_map = affine_map<(d0)[s0] -> (d0 + s0 - 1)> } : () -> ()
   "test_affine_map"() { affine_map = affine_map<(d0)[s0] -> (d0 - s0 + 1)> } : () -> ()
   return
 }
-
-// -----
 
 func @simple3a() {
   // CHECK: Composed map: (d0, d1)[s0, s1, s2, s3] -> ((d0 ceildiv s2) * s0, (d1 ceildiv s3) * s1)
@@ -34,15 +30,11 @@ func @simple3a() {
   return
 }
 
-// -----
-
 func @simple3b() {
   // CHECK: Composed map: (d0, d1)[s0, s1] -> (d0 mod s0, d1 mod s1)
   "test_affine_map"() { affine_map = affine_map<(d0, d1)[s0, s1] -> (d0 mod s0, d1 mod s1)> } : () -> ()
   return
 }
-
-// -----
 
 func @simple3c() {
   // CHECK: Composed map: (d0, d1)[s0, s1, s2, s3, s4, s5] -> ((d0 ceildiv s4) * s4 + d0 mod s2, (d1 ceildiv s5) * s5 + d1 mod s3)
@@ -51,16 +43,12 @@ func @simple3c() {
   return
 }
 
-// -----
-
 func @simple4() {
   // CHECK: Composed map: (d0, d1)[s0, s1] -> (d1 * s1, d0 ceildiv s0)
   "test_affine_map"() { affine_map = affine_map<(d0, d1) -> (d1, d0)> } : () -> ()
   "test_affine_map"() { affine_map = affine_map<(d0, d1)[s0, s1] -> (d0 * s1, d1 ceildiv s0)> } : () -> ()
   return
 }
-
-// -----
 
 func @simple5a() {
   // CHECK: Composed map: (d0) -> (d0 * 3 + 18)
@@ -71,8 +59,6 @@ func @simple5a() {
   return
 }
 
-// -----
-
 func @simple5b() {
   // CHECK: Composed map: (d0) -> ((d0 + 6) ceildiv 2)
   "test_affine_map"() { affine_map = affine_map<(d0) -> (d0 - 1)> } : () -> ()
@@ -81,8 +67,6 @@ func @simple5b() {
   "test_affine_map"() { affine_map = affine_map<(d0) -> (d0 ceildiv 8)> } : () -> ()
   return
 }
-
-// -----
 
 func @simple5c() {
   // CHECK: Composed map: (d0) -> (d0 * 8 + 48)
@@ -93,8 +77,6 @@ func @simple5c() {
   return
 }
 
-// -----
-
 func @simple5d() {
   // CHECK: Composed map: (d0) -> ((d0 * 4) floordiv 3 + 8)
   "test_affine_map"() { affine_map = affine_map<(d0) -> (d0 - 1)> } : () -> ()
@@ -104,8 +86,6 @@ func @simple5d() {
   return
 }
 
-// -----
-
 func @simple5e() {
   // CHECK: Composed map: (d0) -> ((d0 + 6) ceildiv 8)
   "test_affine_map"() { affine_map = affine_map<(d0) -> (d0 - 1)> } : () -> ()
@@ -113,8 +93,6 @@ func @simple5e() {
   "test_affine_map"() { affine_map = affine_map<(d0) -> (d0 ceildiv 8)> } : () -> ()
   return
 }
-
-// -----
 
 func @simple5f() {
   // CHECK: Composed map: (d0) -> ((d0 * 4 - 4) floordiv 3)
@@ -124,16 +102,12 @@ func @simple5f() {
   return
 }
 
-// -----
-
 func @perm_and_proj() {
   // CHECK: Composed map: (d0, d1, d2, d3) -> (d1, d3, d0)
   "test_affine_map"() { affine_map = affine_map<(d0, d1, d2, d3) -> (d3, d1, d2, d0)> } : () -> ()
   "test_affine_map"() { affine_map = affine_map<(d0, d1, d2, d3) -> (d1, d0, d3)> } : () -> ()
   return
 }
-
-// -----
 
 func @symbols1() {
   // CHECK: Composed map: (d0)[s0] -> (d0 + s0 + 1, d0 - s0 - 1)
@@ -142,16 +116,12 @@ func @symbols1() {
   return
 }
 
-// -----
-
 func @drop() {
   // CHECK: Composed map: (d0, d1, d2)[s0, s1] -> (d0 * 2 + d1 + d2 + s1)
   "test_affine_map"() { affine_map = affine_map<(d0, d1, d2)[s0, s1] -> (d0 + s1, d1 + s0, d0 + d1 + d2)> } : () -> ()
   "test_affine_map"() { affine_map = affine_map<(d0, d1, d2) -> (d0 + d2)> } : () -> ()
   return
 }
-
-// -----
 
 func @multi_symbols() {
   // CHECK: Composed map: (d0)[s0, s1, s2] -> (d0 + s1 + s2 + 1, d0 - s0 - s2 - 1)

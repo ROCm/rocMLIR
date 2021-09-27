@@ -19,6 +19,7 @@
 // to the NFA.
 //
 //===----------------------------------------------------------------------===//
+#define DEBUG_TYPE "dfa-emitter"
 
 #include "DFAEmitter.h"
 #include "CodeGenTarget.h"
@@ -37,8 +38,6 @@
 #include <set>
 #include <string>
 #include <vector>
-
-#define DEBUG_TYPE "dfa-emitter"
 
 using namespace llvm;
 
@@ -377,9 +376,11 @@ void CustomDfaEmitter::printActionValue(action_type A, raw_ostream &OS) {
   const ActionTuple &AT = Actions[A];
   if (AT.size() > 1)
     OS << "std::make_tuple(";
-  ListSeparator LS;
+  bool First = true;
   for (const auto &SingleAction : AT) {
-    OS << LS;
+    if (!First)
+      OS << ", ";
+    First = false;
     SingleAction.print(OS);
   }
   if (AT.size() > 1)

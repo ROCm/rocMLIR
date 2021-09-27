@@ -263,12 +263,6 @@ int k = identifier_weird(if)); // expected-error {{use of undeclared identifier 
 
 extern int __identifier(and);
 
-int __identifier("baz") = 0;
-int bar = baz;
-
-void mangled_function();
-extern "C" void __identifier("?mangled_function@@YAXXZ")() {}
-
 void f() {
   __identifier(() // expected-error {{cannot convert '(' token to an identifier}}
   __identifier(void) // expected-error {{use of undeclared identifier 'void'}}
@@ -276,10 +270,8 @@ void f() {
   // FIXME: We should pick a friendlier display name for this token kind.
   __identifier(1) // expected-error {{cannot convert <numeric_constant> token to an identifier}}
   __identifier(+) // expected-error {{cannot convert '+' token to an identifier}}
+  __identifier("foo") // expected-error {{cannot convert <string_literal> token to an identifier}}
   __identifier(;) // expected-error {{cannot convert ';' token to an identifier}}
-  __identifier("1"); // expected-error {{use of undeclared identifier '1'}}
-  __identifier("+"); // expected-error {{use of undeclared identifier '+'}}
-  __identifier(";"); // expected-error {{use of undeclared identifier ';'}}
 }
 
 class inline_definition_pure_spec {

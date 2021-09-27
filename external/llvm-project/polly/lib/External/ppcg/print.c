@@ -9,7 +9,6 @@
 
 #include <isl/aff.h>
 #include <isl/ast_build.h>
-#include <isl/id.h>
 
 #include "print.h"
 #include "util.h"

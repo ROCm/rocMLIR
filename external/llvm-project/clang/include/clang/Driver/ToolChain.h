@@ -166,10 +166,6 @@ private:
     EffectiveTriple = std::move(ET);
   }
 
-  mutable llvm::Optional<CXXStdlibType> cxxStdlibType;
-  mutable llvm::Optional<RuntimeLibType> runtimeLibType;
-  mutable llvm::Optional<UnwindLibType> unwindLibType;
-
 protected:
   MultilibSet Multilibs;
   Multilib SelectedMultilib;
@@ -183,11 +179,6 @@ protected:
   virtual Tool *buildLinker() const;
   virtual Tool *buildStaticLibTool() const;
   virtual Tool *getTool(Action::ActionClass AC) const;
-
-  virtual std::string buildCompilerRTBasename(const llvm::opt::ArgList &Args,
-                                              StringRef Component,
-                                              FileType Type,
-                                              bool AddArch) const;
 
   /// \name Utilities for implementing subclasses.
   ///@{
@@ -380,10 +371,6 @@ public:
   /// Check if the toolchain should use the integrated assembler.
   virtual bool useIntegratedAs() const;
 
-  /// Check if the toolchain should use AsmParser to parse inlineAsm when
-  /// integrated assembler is not default.
-  virtual bool parseInlineAsmUsingAsmParser() const { return false; }
-
   /// IsMathErrnoDefault - Does this tool chain use -fmath-errno by default.
   virtual bool IsMathErrnoDefault() const { return true; }
 
@@ -441,15 +428,16 @@ public:
   getCompilerRTArgString(const llvm::opt::ArgList &Args, StringRef Component,
                          FileType Type = ToolChain::FT_Static) const;
 
-  std::string getCompilerRTBasename(const llvm::opt::ArgList &Args,
-                                    StringRef Component,
-                                    FileType Type = ToolChain::FT_Static) const;
+  virtual std::string
+  getCompilerRTBasename(const llvm::opt::ArgList &Args, StringRef Component,
+                        FileType Type = ToolChain::FT_Static,
+                        bool AddArch = true) const;
 
   // Returns target specific runtime path if it exists.
-  virtual std::string getRuntimePath() const;
+  virtual Optional<std::string> getRuntimePath() const;
 
-  // Returns target specific standard library path if it exists.
-  virtual std::string getStdlibPath() const;
+  // Returns target specific C++ library path if it exists.
+  virtual Optional<std::string> getCXXStdlibPath() const;
 
   // Returns <ResourceDir>/lib/<OSName>/<arch>.  This is used by runtimes (such
   // as OpenMP) to find arch-specific libraries.
@@ -546,12 +534,6 @@ public:
   /// isThreadModelSupported() - Does this target support a thread model?
   virtual bool isThreadModelSupported(const StringRef Model) const;
 
-  virtual std::string getMultiarchTriple(const Driver &D,
-                                         const llvm::Triple &TargetTriple,
-                                         StringRef SysRoot) const {
-    return TargetTriple.str();
-  }
-
   /// ComputeLLVMTriple - Return the LLVM target triple to use, after taking
   /// command line arguments into account.
   virtual std::string
@@ -612,9 +594,6 @@ public:
   // GetUnwindLibType - Determine the unwind library type to use with the
   // given compilation arguments.
   virtual UnwindLibType GetUnwindLibType(const llvm::opt::ArgList &Args) const;
-
-  // Detect the highest available version of libc++ in include path.
-  virtual std::string detectLibcxxVersion(StringRef IncludePath) const;
 
   /// AddClangCXXStdlibIncludeArgs - Add the clang -cc1 level arguments to set
   /// the include paths to use for the given C++ standard library type.
@@ -679,10 +658,6 @@ public:
   /// On Windows, returns the MSVC compatibility version.
   virtual VersionTuple computeMSVCVersion(const Driver *D,
                                           const llvm::opt::ArgList &Args) const;
-
-  /// Get paths of HIP device libraries.
-  virtual llvm::SmallVector<std::string, 12>
-  getHIPDeviceLibs(const llvm::opt::ArgList &Args) const;
 
   /// Return sanitizers which are available in this toolchain.
   virtual SanitizerMask getSupportedSanitizers() const;

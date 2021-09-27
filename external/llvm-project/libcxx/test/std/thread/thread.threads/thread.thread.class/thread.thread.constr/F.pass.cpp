@@ -21,7 +21,6 @@
 #include <atomic>
 #include <cstdlib>
 #include <cassert>
-#include <vector>
 
 #include "test_macros.h"
 
@@ -50,12 +49,10 @@ void  operator delete(void* p) TEST_NOEXCEPT
 
 bool f_run = false;
 
-struct F {
-    std::vector<int> v_;  // so f's copy-ctor calls operator new
-    explicit F() : v_(10) {}
-    void operator()() const { f_run = true; }
-};
-F f;
+void f()
+{
+    f_run = true;
+}
 
 class G
 {
@@ -146,7 +143,7 @@ void test_throwing_new_during_thread_creation() {
             assert(i < numAllocs);
             assert(!f_run); // (2.2)
         }
-        ASSERT_WITH_LIBRARY_INTERNAL_ALLOCATIONS(old_outstanding == outstanding_new); // (2.3)
+        assert(old_outstanding == outstanding_new); // (2.3)
     }
     f_run = false;
     throw_one = 0xFFF;

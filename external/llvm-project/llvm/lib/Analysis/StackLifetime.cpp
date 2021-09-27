@@ -257,12 +257,14 @@ void StackLifetime::calculateLiveIntervals() {
       unsigned AllocaNo = It.second.AllocaNo;
 
       if (IsStart) {
+        assert(!Started.test(AllocaNo) || Start[AllocaNo] == BBStart);
         if (!Started.test(AllocaNo)) {
           Started.set(AllocaNo);
           Ended.reset(AllocaNo);
           Start[AllocaNo] = InstNo;
         }
       } else {
+        assert(!Ended.test(AllocaNo));
         if (Started.test(AllocaNo)) {
           LiveRanges[AllocaNo].addRange(Start[AllocaNo], InstNo);
           Started.reset(AllocaNo);
@@ -397,20 +399,4 @@ PreservedAnalyses StackLifetimePrinterPass::run(Function &F,
   SL.run();
   SL.print(OS);
   return PreservedAnalyses::all();
-}
-
-void StackLifetimePrinterPass::printPipeline(
-    raw_ostream &OS, function_ref<StringRef(StringRef)> MapClassName2PassName) {
-  static_cast<PassInfoMixin<StackLifetimePrinterPass> *>(this)->printPipeline(
-      OS, MapClassName2PassName);
-  OS << "<";
-  switch (Type) {
-  case StackLifetime::LivenessType::May:
-    OS << "may";
-    break;
-  case StackLifetime::LivenessType::Must:
-    OS << "must";
-    break;
-  }
-  OS << ">";
 }

@@ -21,32 +21,7 @@
 #include "isl/isl-noexceptions.h"
 
 namespace polly {
-using llvm::AllocaInst;
-using llvm::ArrayRef;
-using llvm::AssertingVH;
-using llvm::BasicBlock;
-using llvm::BinaryOperator;
-using llvm::CmpInst;
-using llvm::DataLayout;
-using llvm::DenseMap;
-using llvm::DominatorTree;
-using llvm::Function;
-using llvm::Instruction;
-using llvm::LoadInst;
-using llvm::Loop;
-using llvm::LoopInfo;
-using llvm::LoopToScevMapT;
-using llvm::MapVector;
-using llvm::PHINode;
-using llvm::ScalarEvolution;
-using llvm::SetVector;
-using llvm::SmallVector;
-using llvm::StoreInst;
-using llvm::StringRef;
-using llvm::Type;
-using llvm::UnaryInstruction;
-using llvm::Value;
-
+using namespace llvm;
 class MemoryAccess;
 class ScopArrayInfo;
 class IslExprBuilder;
@@ -686,6 +661,8 @@ private:
 
   Value *getVectorValue(ScopStmt &Stmt, Value *Old, ValueMapT &VectorMap,
                         VectorValueMapT &ScalarMaps, Loop *L);
+
+  Type *getVectorPtrTy(const Value *V, int Width);
 
   /// Load a vector from a set of adjacent scalars
   ///

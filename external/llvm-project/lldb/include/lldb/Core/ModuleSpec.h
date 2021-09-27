@@ -27,11 +27,12 @@ class ModuleSpec {
 public:
   ModuleSpec()
       : m_file(), m_platform_file(), m_symbol_file(), m_arch(), m_uuid(),
-        m_object_name(), m_source_mappings() {}
+        m_object_name(), m_object_offset(0), m_object_size(0),
+        m_source_mappings() {}
 
-  /// If the \c data argument is passed, its contents will be used
+  /// If the \param data argument is passed, its contents will be used
   /// as the module contents instead of trying to read them from
-  /// \c file_spec .
+  /// \param file_spec.
   ModuleSpec(const FileSpec &file_spec, const UUID &uuid = UUID(),
              lldb::DataBufferSP data = lldb::DataBufferSP())
       : m_file(file_spec), m_platform_file(), m_symbol_file(), m_arch(),
@@ -270,8 +271,8 @@ protected:
   ArchSpec m_arch;
   UUID m_uuid;
   ConstString m_object_name;
-  uint64_t m_object_offset = 0;
-  uint64_t m_object_size = 0;
+  uint64_t m_object_offset;
+  uint64_t m_object_size;
   llvm::sys::TimePoint<> m_object_mod_time;
   mutable PathMappingList m_source_mappings;
   lldb::DataBufferSP m_data = {};

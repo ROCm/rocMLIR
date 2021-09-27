@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <cerrno>
+#include <errno.h>
 #include <getopt.h>
 #include <netinet/in.h>
 #include <sys/select.h>

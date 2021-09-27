@@ -45,10 +45,6 @@ option(COMPILER_RT_BUILD_MEMPROF "Build memory profiling runtime" ON)
 mark_as_advanced(COMPILER_RT_BUILD_MEMPROF)
 option(COMPILER_RT_BUILD_XRAY_NO_PREINIT "Build xray with no preinit patching" OFF)
 mark_as_advanced(COMPILER_RT_BUILD_XRAY_NO_PREINIT)
-option(COMPILER_RT_BUILD_ORC "Build ORC runtime" ON)
-mark_as_advanced(COMPILER_RT_BUILD_ORC)
-option(COMPILER_RT_BUILD_GWP_ASAN "Build GWP-ASan, and link it into SCUDO" ON)
-mark_as_advanced(COMPILER_RT_BUILD_GWP_ASAN)
 
 set(COMPILER_RT_ASAN_SHADOW_SCALE ""
     CACHE STRING "Override the shadow scale to be used in ASan runtime")
@@ -69,12 +65,8 @@ if (NOT COMPILER_RT_ASAN_SHADOW_SCALE STREQUAL "")
       -D${COMPILER_RT_ASAN_SHADOW_SCALE_DEFINITION})
 endif()
 
-if(FUCHSIA)
-  set(COMPILER_RT_HWASAN_WITH_INTERCEPTORS_DEFAULT OFF)
-else()
-  set(COMPILER_RT_HWASAN_WITH_INTERCEPTORS_DEFAULT ON)
-endif()
-set(COMPILER_RT_HWASAN_WITH_INTERCEPTORS ${COMPILER_RT_HWASAN_WITH_INTERCEPTORS_DEFAULT} CACHE BOOL "Enable libc interceptors in HWASan (testing mode)")
+set(COMPILER_RT_HWASAN_WITH_INTERCEPTORS ON CACHE BOOL
+    "Enable libc interceptors in HWASan (testing mode)")
 
 set(COMPILER_RT_BAREMETAL_BUILD OFF CACHE BOOL
   "Build for a bare-metal target.")
@@ -181,7 +173,7 @@ endif()
 
 option(SANITIZER_ALLOW_CXXABI "Allow use of C++ ABI details in ubsan" ON)
 
-set(SANITIZER_CAN_USE_CXXABI OFF)
+set(SANITIZE_CAN_USE_CXXABI OFF)
 if (cxxabi_supported AND SANITIZER_ALLOW_CXXABI)
   set(SANITIZER_CAN_USE_CXXABI ON)
 endif()
@@ -280,8 +272,8 @@ if(NOT COMPILER_RT_HAS_FUNC_SYMBOL)
   add_definitions(-D__func__=__FUNCTION__)
 endif()
 
-# Provide some common commandline flags for Sanitizer runtimes.
-if("${ANDROID_API_LEVEL}" GREATER_EQUAL 29)
+# Provide some common commmandline flags for Sanitizer runtimes.
+if("${ANDROID_API_LEVEL}" GREATER_EQUAL 28)
   list(APPEND SANITIZER_COMMON_CFLAGS -fno-emulated-tls)
   string(APPEND COMPILER_RT_TEST_COMPILER_CFLAGS " -fno-emulated-tls")
 endif()
@@ -361,24 +353,13 @@ endif()
 
 append_list_if(COMPILER_RT_DEBUG -DSANITIZER_DEBUG=1 SANITIZER_COMMON_CFLAGS)
 
-if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
-  list(APPEND THREAD_SAFETY_FLAGS
-      "-Wthread-safety"
-      "-Wthread-safety-reference"
-      "-Wthread-safety-beta"
-  )
-  list(APPEND SANITIZER_COMMON_CFLAGS ${THREAD_SAFETY_FLAGS})
-  string(REPLACE ";" " " thread_safety_flags_space_sep "${THREAD_SAFETY_FLAGS}")
-  string(APPEND COMPILER_RT_TEST_COMPILER_CFLAGS " ${thread_safety_flags_space_sep}")
-endif()
-
 # If we're using MSVC,
 # always respect the optimization flags set by CMAKE_BUILD_TYPE instead.
 if (NOT MSVC)
 
   # Build with optimization, unless we're in debug mode.
   if(COMPILER_RT_DEBUG)
-    list(APPEND SANITIZER_COMMON_CFLAGS -O1)
+    list(APPEND SANITIZER_COMMON_CFLAGS -O0)
   else()
     list(APPEND SANITIZER_COMMON_CFLAGS -O3)
   endif()
@@ -415,13 +396,6 @@ if(MSVC)
     string(REGEX REPLACE "(^| )/Z[i7I]($| )" " /Z7 "
            "${var_to_update}" "${${var_to_update}}")
   endforeach()
-elseif(APPLE)
-  # On Apple platforms use full debug info (i.e. not `-gline-tables-only`)
-  # for all build types so that the runtime can be debugged.
-  if(NOT COMPILER_RT_HAS_G_FLAG)
-    message(FATAL_ERROR "-g is not supported by host compiler")
-  endif()
-  list(APPEND SANITIZER_COMMON_CFLAGS -g)
 elseif(COMPILER_RT_HAS_GLINE_TABLES_ONLY_FLAG AND NOT COMPILER_RT_DEBUG)
   list(APPEND SANITIZER_COMMON_CFLAGS -gline-tables-only)
 elseif(COMPILER_RT_HAS_G_FLAG)
@@ -438,8 +412,6 @@ endif()
 append_list_if(COMPILER_RT_HAS_WGNU_FLAG -Wno-gnu SANITIZER_COMMON_CFLAGS)
 append_list_if(COMPILER_RT_HAS_WVARIADIC_MACROS_FLAG -Wno-variadic-macros SANITIZER_COMMON_CFLAGS)
 append_list_if(COMPILER_RT_HAS_WC99_EXTENSIONS_FLAG -Wno-c99-extensions SANITIZER_COMMON_CFLAGS)
-# format-pedantic warns about passing T* for %p, which is not useful.
-append_list_if(COMPILER_RT_HAS_WNO_FORMAT_PEDANTIC -Wno-format-pedantic SANITIZER_COMMON_CFLAGS)
 append_list_if(COMPILER_RT_HAS_WD4146_FLAG /wd4146 SANITIZER_COMMON_CFLAGS)
 append_list_if(COMPILER_RT_HAS_WD4291_FLAG /wd4291 SANITIZER_COMMON_CFLAGS)
 append_list_if(COMPILER_RT_HAS_WD4391_FLAG /wd4391 SANITIZER_COMMON_CFLAGS)
@@ -463,18 +435,10 @@ else()
 endif()
 
 append_list_if(COMPILER_RT_HAS_LIBC c SANITIZER_COMMON_LINK_LIBS)
-if("${CMAKE_SYSTEM_NAME}" STREQUAL "Fuchsia")
-  list(APPEND SANITIZER_COMMON_LINK_LIBS zircon)
-endif()
 
 if("${CMAKE_SYSTEM_NAME}" STREQUAL "Fuchsia")
-  set(SANITIZER_NO_UNDEFINED_SYMBOLS_DEFAULT ON)
-else()
-  set(SANITIZER_NO_UNDEFINED_SYMBOLS_DEFAULT OFF)
-endif()
-option(SANITIZER_NO_UNDEFINED_SYMBOLS "Report error on unresolved symbol references" ${SANITIZER_NO_UNDEFINED_SYMBOLS_DEFAULT})
-if (SANITIZER_NO_UNDEFINED_SYMBOLS)
-  list(APPEND SANITIZER_COMMON_LINK_FLAGS -Wl,-z,defs)
+  list(APPEND SANITIZER_COMMON_LINK_FLAGS -Wl,-z,defs,-z,now,-z,relro)
+  list(APPEND SANITIZER_COMMON_LINK_LIBS zircon)
 endif()
 
 # TODO: COMPILER_RT_COMMON_CFLAGS and COMPILER_RT_COMMON_LINK_FLAGS are
@@ -559,9 +523,6 @@ set(COMPILER_RT_GMOCK_CFLAGS
   -I${COMPILER_RT_GMOCK_PATH}
 )
 
-if(COMPILER_RT_HAS_G_FLAG)
-  list(APPEND COMPILER_RT_UNITTEST_CFLAGS -g)
-endif()
 append_list_if(COMPILER_RT_DEBUG -DSANITIZER_DEBUG=1 COMPILER_RT_UNITTEST_CFLAGS)
 append_list_if(COMPILER_RT_HAS_WCOVERED_SWITCH_DEFAULT_FLAG -Wno-covered-switch-default COMPILER_RT_UNITTEST_CFLAGS)
 append_list_if(COMPILER_RT_HAS_WSUGGEST_OVERRIDE_FLAG -Wno-suggest-override COMPILER_RT_UNITTEST_CFLAGS)
@@ -653,7 +614,7 @@ if(COMPILER_RT_INCLUDE_TESTS)
   add_subdirectory(unittests)
   add_subdirectory(test)
   # Don't build llvm-lit for runtimes-build, it will clean up map_config.
-  if (COMPILER_RT_STANDALONE_BUILD AND NOT LLVM_RUNTIMES_BUILD)
+  if (COMPILER_RT_STANDALONE_BUILD AND NOT RUNTIMES_BUILD)
     # If we have a valid source tree, generate llvm-lit into the bin directory.
     # The user can still choose to have the check targets *use* a different lit
     # by specifying -DLLVM_EXTERNAL_LIT, but we generate it regardless.

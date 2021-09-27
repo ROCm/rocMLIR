@@ -6,5 +6,5 @@ float signedzeros(float a) {
 }
 
 // CHECK: attributes
-// NORMAL-NOT: "no-signed-zeros-fp-math"
+// NORMAL: "no-signed-zeros-fp-math"="false"
 // NO-SIGNED-ZEROS: "no-signed-zeros-fp-math"="true"

@@ -9,7 +9,6 @@
 #include "Writer.h"
 #include "llvm/BinaryFormat/Wasm.h"
 #include "llvm/Support/Endian.h"
-#include "llvm/Support/Errc.h"
 #include "llvm/Support/LEB128.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -55,23 +54,23 @@ size_t Writer::finalize() {
 }
 
 Error Writer::write() {
-  size_t TotalSize = finalize();
-  Out.reserveExtraSpace(TotalSize);
+  size_t FileSize = finalize();
+  if (Error E = Buf.allocate(FileSize))
+    return E;
 
   // Write the header.
-  Out.write(Obj.Header.Magic.data(), Obj.Header.Magic.size());
-  uint32_t Version;
-  support::endian::write32le(&Version, Obj.Header.Version);
-  Out.write(reinterpret_cast<const char *>(&Version), sizeof(Version));
+  uint8_t *Ptr = Buf.getBufferStart();
+  Ptr = std::copy(Obj.Header.Magic.begin(), Obj.Header.Magic.end(), Ptr);
+  support::endian::write32le(Ptr, Obj.Header.Version);
+  Ptr += sizeof(Obj.Header.Version);
 
   // Write each section.
   for (size_t I = 0, S = SectionHeaders.size(); I < S; ++I) {
-    Out.write(SectionHeaders[I].data(), SectionHeaders[I].size());
-    Out.write(reinterpret_cast<const char *>(Obj.Sections[I].Contents.data()),
-              Obj.Sections[I].Contents.size());
+    Ptr = std::copy(SectionHeaders[I].begin(), SectionHeaders[I].end(), Ptr);
+    ArrayRef<uint8_t> Contents = Obj.Sections[I].Contents;
+    Ptr = std::copy(Contents.begin(), Contents.end(), Ptr);
   }
-
-  return Error::success();
+  return Buf.commit();
 }
 
 } // end namespace wasm

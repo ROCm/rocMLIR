@@ -8,7 +8,7 @@
 
 #ifdef DECLARE_REGISTER_INFOS_ARM_STRUCT
 
-#include <cstddef>
+#include <stddef.h>
 
 #include "lldb/lldb-defines.h"
 #include "lldb/lldb-enumerations.h"

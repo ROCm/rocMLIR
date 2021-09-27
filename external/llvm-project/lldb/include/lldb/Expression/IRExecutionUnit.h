@@ -214,24 +214,26 @@ private:
 
   Status DisassembleFunction(Stream &stream, lldb::ProcessSP &process_sp);
 
-  void CollectCandidateCNames(std::vector<ConstString> &C_names,
+  struct SearchSpec;
+
+  void CollectCandidateCNames(std::vector<SearchSpec> &C_specs,
                               ConstString name);
 
-  void CollectCandidateCPlusPlusNames(std::vector<ConstString> &CPP_names,
-                                      const std::vector<ConstString> &C_names,
+  void CollectCandidateCPlusPlusNames(std::vector<SearchSpec> &CPP_specs,
+                                      const std::vector<SearchSpec> &C_specs,
                                       const SymbolContext &sc);
 
-  void CollectFallbackNames(std::vector<ConstString> &fallback_names,
-                            const std::vector<ConstString> &C_names);
+  void CollectFallbackNames(std::vector<SearchSpec> &fallback_specs,
+                            const std::vector<SearchSpec> &C_specs);
 
-  lldb::addr_t FindInSymbols(const std::vector<ConstString> &names,
+  lldb::addr_t FindInSymbols(const std::vector<SearchSpec> &specs,
                              const lldb_private::SymbolContext &sc,
                              bool &symbol_was_missing_weak);
 
-  lldb::addr_t FindInRuntimes(const std::vector<ConstString> &names,
+  lldb::addr_t FindInRuntimes(const std::vector<SearchSpec> &specs,
                               const lldb_private::SymbolContext &sc);
 
-  lldb::addr_t FindInUserDefinedSymbols(const std::vector<ConstString> &names,
+  lldb::addr_t FindInUserDefinedSymbols(const std::vector<SearchSpec> &specs,
                                         const lldb_private::SymbolContext &sc);
 
   void ReportSymbolLookupError(ConstString name);

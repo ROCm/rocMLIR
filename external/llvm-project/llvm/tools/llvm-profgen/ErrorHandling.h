@@ -18,9 +18,9 @@
 
 using namespace llvm;
 
-[[noreturn]] inline void exitWithError(const Twine &Message,
-                                       StringRef Whence = StringRef(),
-                                       StringRef Hint = StringRef()) {
+LLVM_ATTRIBUTE_NORETURN inline void
+exitWithError(const Twine &Message, StringRef Whence = StringRef(),
+              StringRef Hint = StringRef()) {
   WithColor::error(errs(), "llvm-profgen");
   if (!Whence.empty())
     errs() << Whence.str() << ": ";
@@ -30,12 +30,12 @@ using namespace llvm;
   ::exit(EXIT_FAILURE);
 }
 
-[[noreturn]] inline void exitWithError(std::error_code EC,
-                                       StringRef Whence = StringRef()) {
+LLVM_ATTRIBUTE_NORETURN inline void
+exitWithError(std::error_code EC, StringRef Whence = StringRef()) {
   exitWithError(EC.message(), Whence);
 }
 
-[[noreturn]] inline void exitWithError(Error E, StringRef Whence) {
+LLVM_ATTRIBUTE_NORETURN inline void exitWithError(Error E, StringRef Whence) {
   exitWithError(errorToErrorCode(std::move(E)), Whence);
 }
 

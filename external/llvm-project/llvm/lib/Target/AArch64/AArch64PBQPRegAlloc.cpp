@@ -14,6 +14,8 @@
 // independent, non-quadword FP/ASIMD floating-point multiply-accumulates.
 //===----------------------------------------------------------------------===//
 
+#define DEBUG_TYPE "aarch64-pbqp"
+
 #include "AArch64PBQPRegAlloc.h"
 #include "AArch64.h"
 #include "AArch64RegisterInfo.h"
@@ -25,8 +27,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-
-#define DEBUG_TYPE "aarch64-pbqp"
 
 using namespace llvm;
 

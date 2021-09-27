@@ -4,8 +4,7 @@
 
 define void @foo(i1 %C, i32* %P) {
 ; CHECK-LABEL: @foo(
-; CHECK-NEXT:  common.ret:
-; CHECK-NEXT:    store i32 7, i32* [[P:%.*]], align 4
+; CHECK-NEXT:    store i32 7, i32* [[P:%.*]]
 ; CHECK-NEXT:    ret void
 ;
   br i1 %C, label %T, label %F

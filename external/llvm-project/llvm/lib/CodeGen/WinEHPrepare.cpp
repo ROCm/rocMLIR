@@ -714,14 +714,16 @@ void WinEHPrepare::demotePHIsOnFunclets(Function &F,
                                         bool DemoteCatchSwitchPHIOnly) {
   // Strip PHI nodes off of EH pads.
   SmallVector<PHINode *, 16> PHINodes;
-  for (BasicBlock &BB : make_early_inc_range(F)) {
-    if (!BB.isEHPad())
+  for (Function::iterator FI = F.begin(), FE = F.end(); FI != FE;) {
+    BasicBlock *BB = &*FI++;
+    if (!BB->isEHPad())
       continue;
-    if (DemoteCatchSwitchPHIOnly && !isa<CatchSwitchInst>(BB.getFirstNonPHI()))
+    if (DemoteCatchSwitchPHIOnly && !isa<CatchSwitchInst>(BB->getFirstNonPHI()))
       continue;
 
-    for (Instruction &I : make_early_inc_range(BB)) {
-      auto *PN = dyn_cast<PHINode>(&I);
+    for (BasicBlock::iterator BI = BB->begin(), BE = BB->end(); BI != BE;) {
+      Instruction *I = &*BI++;
+      auto *PN = dyn_cast<PHINode>(I);
       // Stop at the first non-PHI.
       if (!PN)
         break;
@@ -984,9 +986,9 @@ void WinEHPrepare::removeImplausibleInstructions(Function &F) {
           BasicBlock::iterator CallI =
               std::prev(BB->getTerminator()->getIterator());
           auto *CI = cast<CallInst>(&*CallI);
-          changeToUnreachable(CI);
+          changeToUnreachable(CI, /*UseLLVMTrap=*/false);
         } else {
-          changeToUnreachable(&I);
+          changeToUnreachable(&I, /*UseLLVMTrap=*/false);
         }
 
         // There are no more instructions in the block (except for unreachable),
@@ -1007,7 +1009,7 @@ void WinEHPrepare::removeImplausibleInstructions(Function &F) {
         IsUnreachableCleanupret = CRI->getCleanupPad() != CleanupPad;
       if (IsUnreachableRet || IsUnreachableCatchret ||
           IsUnreachableCleanupret) {
-        changeToUnreachable(TI);
+        changeToUnreachable(TI, /*UseLLVMTrap=*/false);
       } else if (isa<InvokeInst>(TI)) {
         if (Personality == EHPersonality::MSVC_CXX && CleanupPad) {
           // Invokes within a cleanuppad for the MSVC++ personality never
@@ -1023,10 +1025,11 @@ void WinEHPrepare::removeImplausibleInstructions(Function &F) {
 void WinEHPrepare::cleanupPreparedFunclets(Function &F) {
   // Clean-up some of the mess we made by removing useles PHI nodes, trivial
   // branches, etc.
-  for (BasicBlock &BB : llvm::make_early_inc_range(F)) {
-    SimplifyInstructionsInBlock(&BB);
-    ConstantFoldTerminator(&BB, /*DeleteDeadConditions=*/true);
-    MergeBlockIntoPredecessor(&BB);
+  for (Function::iterator FI = F.begin(), FE = F.end(); FI != FE;) {
+    BasicBlock *BB = &*FI++;
+    SimplifyInstructionsInBlock(BB);
+    ConstantFoldTerminator(BB, /*DeleteDeadConditions=*/true);
+    MergeBlockIntoPredecessor(BB);
   }
 
   // We might have some unreachable blocks after cleaning up some impossible
@@ -1106,7 +1109,9 @@ AllocaInst *WinEHPrepare::insertPHILoads(PHINode *PN, Function &F) {
   // Otherwise, we have a PHI on a terminator EHPad, and we give up and insert
   // loads of the slot before every use.
   DenseMap<BasicBlock *, Value *> Loads;
-  for (Use &U : llvm::make_early_inc_range(PN->uses())) {
+  for (Value::use_iterator UI = PN->use_begin(), UE = PN->use_end();
+       UI != UE;) {
+    Use &U = *UI++;
     auto *UsingInst = cast<Instruction>(U.getUser());
     if (isa<PHINode>(UsingInst) && UsingInst->getParent()->isEHPad()) {
       // Use is on an EH pad phi.  Leave it alone; we'll insert loads and

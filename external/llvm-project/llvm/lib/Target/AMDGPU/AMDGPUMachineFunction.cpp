@@ -28,10 +28,12 @@ AMDGPUMachineFunction::AMDGPUMachineFunction(const MachineFunction &MF)
   const Function &F = MF.getFunction();
 
   Attribute MemBoundAttr = F.getFnAttribute("amdgpu-memory-bound");
-  MemoryBound = MemBoundAttr.getValueAsBool();
+  MemoryBound = MemBoundAttr.isStringAttribute() &&
+                MemBoundAttr.getValueAsString() == "true";
 
   Attribute WaveLimitAttr = F.getFnAttribute("amdgpu-wave-limiter");
-  WaveLimiter = WaveLimitAttr.getValueAsBool();
+  WaveLimiter = WaveLimitAttr.isStringAttribute() &&
+                WaveLimitAttr.getValueAsString() == "true";
 
   CallingConv::ID CC = F.getCallingConv();
   if (CC == CallingConv::AMDGPU_KERNEL || CC == CallingConv::SPIR_KERNEL)
@@ -60,18 +62,6 @@ unsigned AMDGPUMachineFunction::allocateLDSGlobal(const DataLayout &DL,
   LDSSize = alignTo(StaticLDSSize, DynLDSAlign);
 
   return Offset;
-}
-
-void AMDGPUMachineFunction::allocateModuleLDSGlobal(const Module *M) {
-  if (isModuleEntryFunction()) {
-    const GlobalVariable *GV = M->getNamedGlobal("llvm.amdgcn.module.lds");
-    if (GV) {
-      unsigned Offset = allocateLDSGlobal(M->getDataLayout(), *GV);
-      (void)Offset;
-      assert(Offset == 0 &&
-             "Module LDS expected to be allocated before other LDS");
-    }
-  }
 }
 
 void AMDGPUMachineFunction::setDynLDSAlign(const DataLayout &DL,

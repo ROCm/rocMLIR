@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "clang/Sema/MultiplexExternalSemaSource.h"
+#include "clang/AST/DeclContextInternals.h"
 #include "clang/Sema/Lookup.h"
 
 using namespace clang;
@@ -268,7 +269,7 @@ void MultiplexExternalSemaSource::ReadExtVectorDecls(
 }
 
 void MultiplexExternalSemaSource::ReadDeclsToCheckForDeferredDiags(
-    llvm::SmallSetVector<Decl *, 4> &Decls) {
+    llvm::SmallVector<Decl *, 4> &Decls) {
   for(size_t i = 0; i < Sources.size(); ++i)
     Sources[i]->ReadDeclsToCheckForDeferredDiags(Decls);
 }

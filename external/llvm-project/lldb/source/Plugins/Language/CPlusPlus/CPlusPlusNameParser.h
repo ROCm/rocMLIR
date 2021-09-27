@@ -69,7 +69,7 @@ private:
     size_t begin_index = 0;
     size_t end_index = 0;
 
-    Range() = default;
+    Range() {}
     Range(size_t begin, size_t end) : begin_index(begin), end_index(end) {
       assert(end >= begin);
     }

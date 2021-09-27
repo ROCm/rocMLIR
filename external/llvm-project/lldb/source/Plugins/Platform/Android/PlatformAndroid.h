@@ -36,6 +36,8 @@ public:
 
   ConstString GetPluginName() override;
 
+  uint32_t GetPluginVersion() override { return 1; }
+
   // lldb_private::Platform functions
 
   Status ConnectRemote(Args &args) override;

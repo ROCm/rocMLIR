@@ -37,8 +37,6 @@
 
 namespace clang {
 namespace clangd {
-class HeuristicResolver;
-
 /// Describes the link between an AST node and a Decl it refers to.
 enum class DeclRelation : unsigned;
 /// A bitfield of DeclRelations.
@@ -82,16 +80,15 @@ class DeclRelationSet;
 /// If callers want to support such decls, they should cast the node directly.
 ///
 /// FIXME: some AST nodes cannot be DynTypedNodes, these cannot be specified.
-llvm::SmallVector<const NamedDecl *, 1>
-targetDecl(const DynTypedNode &, DeclRelationSet Mask,
-           const HeuristicResolver *Resolver);
+llvm::SmallVector<const NamedDecl *, 1> targetDecl(const DynTypedNode &,
+                                                   DeclRelationSet Mask);
 
 /// Similar to targetDecl(), however instead of applying a filter, all possible
 /// decls are returned along with their DeclRelationSets.
 /// This is suitable for indexing, where everything is recorded and filtering
 /// is applied later.
 llvm::SmallVector<std::pair<const NamedDecl *, DeclRelationSet>, 1>
-allTargetDecls(const DynTypedNode &, const HeuristicResolver *);
+allTargetDecls(const DynTypedNode &);
 
 enum class DeclRelation : unsigned {
   // Template options apply when the declaration is an instantiated template.
@@ -149,14 +146,11 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, ReferenceLoc R);
 /// FIXME: currently this does not report references to overloaded operators.
 /// FIXME: extend to report location information about declaration names too.
 void findExplicitReferences(const Stmt *S,
-                            llvm::function_ref<void(ReferenceLoc)> Out,
-                            const HeuristicResolver *Resolver);
+                            llvm::function_ref<void(ReferenceLoc)> Out);
 void findExplicitReferences(const Decl *D,
-                            llvm::function_ref<void(ReferenceLoc)> Out,
-                            const HeuristicResolver *Resolver);
+                            llvm::function_ref<void(ReferenceLoc)> Out);
 void findExplicitReferences(const ASTContext &AST,
-                            llvm::function_ref<void(ReferenceLoc)> Out,
-                            const HeuristicResolver *Resolver);
+                            llvm::function_ref<void(ReferenceLoc)> Out);
 
 /// Find declarations explicitly referenced in the source code defined by \p N.
 /// For templates, will prefer to return a template instantiation whenever
@@ -168,8 +162,7 @@ void findExplicitReferences(const ASTContext &AST,
 ///    ^~~ there is no Decl for 'Ptr<int>', so we return the template pattern.
 /// \p Mask should not contain TemplatePattern or TemplateInstantiation.
 llvm::SmallVector<const NamedDecl *, 1>
-explicitReferenceTargets(DynTypedNode N, DeclRelationSet Mask,
-                         const HeuristicResolver *Resolver);
+explicitReferenceTargets(DynTypedNode N, DeclRelationSet Mask);
 
 // Boring implementation details of bitfield.
 

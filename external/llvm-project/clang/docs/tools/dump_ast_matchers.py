@@ -351,17 +351,13 @@ Flags can be combined with '|' example \"IgnoreCase | BasicRegex\"
 
     m = re.match(
         r"""^.*internal::VariadicFunction\s*<\s*
-              internal::PolymorphicMatcher<[\S\s]+
-              AST_POLYMORPHIC_SUPPORTED_TYPES\(([^)]*)\),\s*(.*);$""",
+              internal::PolymorphicMatcherWithParam1<[\S\s]+
+              AST_POLYMORPHIC_SUPPORTED_TYPES\(([^)]*)\)>,\s*([^,]+),
+              \s*[^>]+>\s*([a-zA-Z]*);$""", 
         declaration, flags=re.X)
 
     if m:
-      results, trailing = m.groups()
-      trailing, name = trailing.rsplit(">", 1)
-      name = name.strip()
-      trailing, _ = trailing.rsplit(",", 1)
-      _, arg = trailing.rsplit(",", 1)
-      arg = arg.strip()
+      results, arg, name = m.groups()[:3]
 
       result_types = [r.strip() for r in results.split(',')]
       for result_type in result_types:

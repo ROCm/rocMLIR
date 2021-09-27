@@ -13,14 +13,7 @@ struct Isa {
 };
 
 struct MyClass {
-  // User memory and `ChunkHeader` overlap. In particular the `free_context_id`
-  // is stored at the beginning of user memory when it is freed. That part of
-  // user memory is not scribbled and is changed when the memory is freed. This
-  // test relies on `isa` being scribbled or unmodified after memory is freed.
-  // In order for this to work the start of `isa` must come after whatever is in
-  // `ChunkHeader` (currently the 64-bit `free_context_id`). The padding here is
-  // to ensure this is the case.
-  uint64_t padding;
+  long padding;
   Isa *isa;
   long data;
 

@@ -13,7 +13,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "PassDetail.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/StandardOps/Transforms/Passes.h"
 #include "mlir/IR/PatternMatch.h"
@@ -71,13 +70,13 @@ public:
   }
 };
 
-/// Converts `memref.reshape` that has a target shape of a statically-known
-/// size to `memref.reinterpret_cast`.
-struct MemRefReshapeOpConverter : public OpRewritePattern<memref::ReshapeOp> {
+/// Converts `memref_reshape` that has a target shape of a statically-known
+/// size to `memref_reinterpret_cast`.
+struct MemRefReshapeOpConverter : public OpRewritePattern<MemRefReshapeOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(memref::ReshapeOp op,
+  LogicalResult matchAndRewrite(MemRefReshapeOp op,
                                 PatternRewriter &rewriter) const final {
     auto shapeType = op.shape().getType().cast<MemRefType>();
     if (!shapeType.hasStaticShape())
@@ -91,24 +90,16 @@ public:
     Location loc = op.getLoc();
     Value stride = rewriter.create<ConstantIndexOp>(loc, 1);
     for (int i = rank - 1; i >= 0; --i) {
-      Value size;
-      // Load dynamic sizes from the shape input, use constants for static dims.
-      if (op.getType().isDynamicDim(i)) {
-        Value index = rewriter.create<ConstantIndexOp>(loc, i);
-        size = rewriter.create<memref::LoadOp>(loc, op.shape(), index);
-        if (!size.getType().isa<IndexType>())
-          size =
-              rewriter.create<IndexCastOp>(loc, size, rewriter.getIndexType());
-        sizes[i] = size;
-      } else {
-        sizes[i] = rewriter.getIndexAttr(op.getType().getDimSize(i));
-        size = rewriter.create<ConstantOp>(loc, sizes[i].get<Attribute>());
-      }
+      Value index = rewriter.create<ConstantIndexOp>(loc, i);
+      Value size = rewriter.create<LoadOp>(loc, op.shape(), index);
+      if (!size.getType().isa<IndexType>())
+        size = rewriter.create<IndexCastOp>(loc, size, rewriter.getIndexType());
+      sizes[i] = size;
       strides[i] = stride;
       if (i > 0)
         stride = rewriter.create<MulIOp>(loc, stride, size);
     }
-    rewriter.replaceOpWithNewOp<memref::ReinterpretCastOp>(
+    rewriter.replaceOpWithNewOp<MemRefReinterpretCastOp>(
         op, op.getType(), op.source(), /*offset=*/rewriter.getIndexAttr(0),
         sizes, strides);
     return success();
@@ -219,17 +210,17 @@ struct StdExpandOpsPass : public StdExpandOpsBase<StdExpandOpsPass> {
   void runOnFunction() override {
     MLIRContext &ctx = getContext();
 
-    RewritePatternSet patterns(&ctx);
-    populateStdExpandOpsPatterns(patterns);
+    OwningRewritePatternList patterns;
+    populateStdExpandOpsPatterns(&ctx, patterns);
 
     ConversionTarget target(getContext());
 
-    target.addLegalDialect<memref::MemRefDialect, StandardOpsDialect>();
+    target.addLegalDialect<StandardOpsDialect>();
     target.addDynamicallyLegalOp<AtomicRMWOp>([](AtomicRMWOp op) {
       return op.kind() != AtomicRMWKind::maxf &&
              op.kind() != AtomicRMWKind::minf;
     });
-    target.addDynamicallyLegalOp<memref::ReshapeOp>([](memref::ReshapeOp op) {
+    target.addDynamicallyLegalOp<MemRefReshapeOp>([](MemRefReshapeOp op) {
       return !op.shape().getType().cast<MemRefType>().hasStaticShape();
     });
     target.addIllegalOp<SignedCeilDivIOp>();
@@ -242,10 +233,11 @@ struct StdExpandOpsPass : public StdExpandOpsBase<StdExpandOpsPass> {
 
 } // namespace
 
-void mlir::populateStdExpandOpsPatterns(RewritePatternSet &patterns) {
-  patterns.add<AtomicRMWOpConverter, MemRefReshapeOpConverter,
-               SignedCeilDivIOpConverter, SignedFloorDivIOpConverter>(
-      patterns.getContext());
+void mlir::populateStdExpandOpsPatterns(MLIRContext *context,
+                                        OwningRewritePatternList &patterns) {
+  patterns.insert<AtomicRMWOpConverter, MemRefReshapeOpConverter,
+                  SignedCeilDivIOpConverter, SignedFloorDivIOpConverter>(
+      context);
 }
 
 std::unique_ptr<Pass> mlir::createStdExpandOpsPass() {

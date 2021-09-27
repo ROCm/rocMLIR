@@ -40,8 +40,6 @@ no_tls:
   .int32  0
   .size no_tls, 4
 
-// Older versions of LLVM did not use the "T" flag so we need to support
-// infering TLS from the name alone.
 .section  .tdata.tls1,"",@
 .globl  tls1
 .p2align  2
@@ -49,14 +47,14 @@ tls1:
   .int32  1
   .size tls1, 4
 
-.section  sec_tls2,"T",@
+.section  .tdata.tls2,"",@
 .globl  tls2
 .p2align  2
 tls2:
   .int32  1
   .size tls2, 4
 
-.section  sec_tls3,"T",@
+.section  .tbss.tls3,"",@
 .globl  tls3
 .p2align  2
 tls3:

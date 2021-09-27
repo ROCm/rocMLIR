@@ -112,13 +112,13 @@ internal:
 // CHECK-NEXT:     Section: .text
 // CHECK-NEXT:   }
 // CHECK-NEXT:   Symbol {
-// CHECK-NEXT:     Name: foo
-// CHECK-NEXT:     Value: 0x201160
+// CHECK-NEXT:     Name: abs
+// CHECK-NEXT:     Value: 0x123
 // CHECK-NEXT:     Size: 0
-// CHECK-NEXT:     Binding: Weak (0x2)
-// CHECK-NEXT:     Type: Object
+// CHECK-NEXT:     Binding: Global
+// CHECK-NEXT:     Type: None
 // CHECK-NEXT:     Other: 0
-// CHECK-NEXT:     Section: .text
+// CHECK-NEXT:     Section: Absolute
 // CHECK-NEXT:   }
 // CHECK-NEXT:   Symbol {
 // CHECK-NEXT:     Name: bar
@@ -128,6 +128,35 @@ internal:
 // CHECK-NEXT:     Type: Object (0x1)
 // CHECK-NEXT:     Other: 0
 // CHECK-NEXT:     Section: Undefined (0x0)
+// CHECK-NEXT:   }
+// CHECK-NEXT:   Symbol {
+// CHECK-NEXT:     Name: common
+// CHECK-NEXT:     Value: 0x202164
+// CHECK-NEXT:     Size: 4
+// CHECK-NEXT:     Binding: Global
+// CHECK-NEXT:     Type: Object
+// CHECK-NEXT:     Other: 0
+// CHECK-NEXT:     Section: .bss
+// CHECK-NEXT:   }
+// CHECK-NEXT:   Symbol {
+// CHECK-NEXT:     Name: foo
+// CHECK-NEXT:     Value: 0x201160
+// CHECK-NEXT:     Size: 0
+// CHECK-NEXT:     Binding: Weak (0x2)
+// CHECK-NEXT:     Type: Object
+// CHECK-NEXT:     Other: 0
+// CHECK-NEXT:     Section: .text
+// CHECK-NEXT:   }
+// CHECK-NEXT:   Symbol {
+// CHECK-NEXT:     Name: protected
+// CHECK-NEXT:     Value: 0x200160
+// CHECK-NEXT:     Size: 0
+// CHECK-NEXT:     Binding: Global
+// CHECK-NEXT:     Type: None
+// CHECK-NEXT:     Other [ (0x3)
+// CHECK-NEXT:       STV_PROTECTED
+// CHECK-NEXT:     ]
+// CHECK-NEXT:     Section: foobar
 // CHECK-NEXT:   }
 // CHECK-NEXT:   Symbol {
 // CHECK-NEXT:     Name: zed
@@ -154,35 +183,6 @@ internal:
 // CHECK-NEXT:     Binding: Global
 // CHECK-NEXT:     Type: None
 // CHECK-NEXT:     Other: 0
-// CHECK-NEXT:     Section: foobar
-// CHECK-NEXT:   }
-// CHECK-NEXT:   Symbol {
-// CHECK-NEXT:     Name: abs
-// CHECK-NEXT:     Value: 0x123
-// CHECK-NEXT:     Size: 0
-// CHECK-NEXT:     Binding: Global
-// CHECK-NEXT:     Type: None
-// CHECK-NEXT:     Other: 0
-// CHECK-NEXT:     Section: Absolute
-// CHECK-NEXT:   }
-// CHECK-NEXT:   Symbol {
-// CHECK-NEXT:     Name: common
-// CHECK-NEXT:     Value: 0x202164
-// CHECK-NEXT:     Size: 4
-// CHECK-NEXT:     Binding: Global
-// CHECK-NEXT:     Type: Object
-// CHECK-NEXT:     Other: 0
-// CHECK-NEXT:     Section: .bss
-// CHECK-NEXT:   }
-// CHECK-NEXT:   Symbol {
-// CHECK-NEXT:     Name: protected
-// CHECK-NEXT:     Value: 0x200160
-// CHECK-NEXT:     Size: 0
-// CHECK-NEXT:     Binding: Global
-// CHECK-NEXT:     Type: None
-// CHECK-NEXT:     Other [ (0x3)
-// CHECK-NEXT:       STV_PROTECTED
-// CHECK-NEXT:     ]
 // CHECK-NEXT:     Section: foobar
 // CHECK-NEXT:   }
 // CHECK-NEXT: ]

@@ -1,3 +1,5 @@
+; RUN: opt -regions -print-region-style=bb  -analyze -enable-new-pm=0 < %s 2>&1 | FileCheck -check-prefix=BBIT %s
+; RUN: opt -regions -print-region-style=rn  -analyze -enable-new-pm=0 < %s 2>&1 | FileCheck -check-prefix=RNIT %s
 ; RUN: opt -passes='print<regions>' -print-region-style=bb -disable-output < %s 2>&1 | FileCheck -check-prefix=BBIT %s
 ; RUN: opt -passes='print<regions>' -print-region-style=rn -disable-output < %s 2>&1 | FileCheck -check-prefix=RNIT %s
 

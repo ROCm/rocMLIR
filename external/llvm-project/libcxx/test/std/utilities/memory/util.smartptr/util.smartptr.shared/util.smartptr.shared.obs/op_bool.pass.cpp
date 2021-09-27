@@ -14,7 +14,6 @@
 
 #include <memory>
 #include <cassert>
-#include <type_traits>
 
 #include "test_macros.h"
 
@@ -26,9 +25,6 @@ struct B : A {};
 
 int main(int, char**)
 {
-    static_assert(std::is_constructible<bool, std::shared_ptr<A> >::value, "");
-    static_assert(!std::is_convertible<std::shared_ptr<A>, bool>::value, "");
-
     {
       const std::shared_ptr<int> p(new int(32));
       assert(p);

@@ -14,7 +14,7 @@ void *Thread2(void *p) {
   return 0;
 }
 
-__attribute__((noinline)) void *alloc() {
+void *alloc() {
   return malloc(99);
 }
 

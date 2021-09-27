@@ -17,52 +17,26 @@
 
 using namespace lldb_private;
 
-std::unique_ptr<RegisterContextCorePOSIX_arm64>
-RegisterContextCorePOSIX_arm64::Create(Thread &thread, const ArchSpec &arch,
-                                       const DataExtractor &gpregset,
-                                       llvm::ArrayRef<CoreNote> notes) {
-  Flags opt_regsets = RegisterInfoPOSIX_arm64::eRegsetMaskDefault;
-
-  DataExtractor sve_data = getRegset(notes, arch.GetTriple(), AARCH64_SVE_Desc);
-  if (sve_data.GetByteSize() > sizeof(sve::user_sve_header))
-    opt_regsets.Set(RegisterInfoPOSIX_arm64::eRegsetMaskSVE);
-
-  // Pointer Authentication register set data is based on struct
-  // user_pac_mask declared in ptrace.h. See reference implementation
-  // in Linux kernel source at arch/arm64/include/uapi/asm/ptrace.h.
-  DataExtractor pac_data = getRegset(notes, arch.GetTriple(), AARCH64_PAC_Desc);
-  if (pac_data.GetByteSize() >= sizeof(uint64_t) * 2)
-    opt_regsets.Set(RegisterInfoPOSIX_arm64::eRegsetMaskPAuth);
-
-  auto register_info_up =
-      std::make_unique<RegisterInfoPOSIX_arm64>(arch, opt_regsets);
-  return std::unique_ptr<RegisterContextCorePOSIX_arm64>(
-      new RegisterContextCorePOSIX_arm64(thread, std::move(register_info_up),
-                                         gpregset, notes));
-}
-
 RegisterContextCorePOSIX_arm64::RegisterContextCorePOSIX_arm64(
     Thread &thread, std::unique_ptr<RegisterInfoPOSIX_arm64> register_info,
     const DataExtractor &gpregset, llvm::ArrayRef<CoreNote> notes)
     : RegisterContextPOSIX_arm64(thread, std::move(register_info)) {
-  m_gpr_data.SetData(std::make_shared<DataBufferHeap>(gpregset.GetDataStart(),
-                                                      gpregset.GetByteSize()));
-  m_gpr_data.SetByteOrder(gpregset.GetByteOrder());
+  m_gpr_buffer = std::make_shared<DataBufferHeap>(gpregset.GetDataStart(),
+                                                  gpregset.GetByteSize());
+  m_gpr.SetData(m_gpr_buffer);
+  m_gpr.SetByteOrder(gpregset.GetByteOrder());
 
-  const llvm::Triple &target_triple =
-      m_register_info_up->GetTargetArchitecture().GetTriple();
-  m_fpr_data = getRegset(notes, target_triple, FPR_Desc);
+  m_fpregset = getRegset(
+      notes, m_register_info_up->GetTargetArchitecture().GetTriple(), FPR_Desc);
 
-  if (m_register_info_up->IsSVEEnabled())
-    m_sve_data = getRegset(notes, target_triple, AARCH64_SVE_Desc);
-
-  if (m_register_info_up->IsPAuthEnabled())
-    m_pac_data = getRegset(notes, target_triple, AARCH64_PAC_Desc);
+  m_sveregset =
+      getRegset(notes, m_register_info_up->GetTargetArchitecture().GetTriple(),
+                AARCH64_SVE_Desc);
 
   ConfigureRegisterContext();
 }
 
-RegisterContextCorePOSIX_arm64::~RegisterContextCorePOSIX_arm64() = default;
+RegisterContextCorePOSIX_arm64::~RegisterContextCorePOSIX_arm64() {}
 
 bool RegisterContextCorePOSIX_arm64::ReadGPR() { return true; }
 
@@ -79,16 +53,16 @@ bool RegisterContextCorePOSIX_arm64::WriteFPR() {
 }
 
 const uint8_t *RegisterContextCorePOSIX_arm64::GetSVEBuffer(uint64_t offset) {
-  return m_sve_data.GetDataStart() + offset;
+  return m_sveregset.GetDataStart() + offset;
 }
 
 void RegisterContextCorePOSIX_arm64::ConfigureRegisterContext() {
-  if (m_sve_data.GetByteSize() > sizeof(sve::user_sve_header)) {
+  if (m_sveregset.GetByteSize() > sizeof(sve::user_sve_header)) {
     uint64_t sve_header_field_offset = 8;
-    m_sve_vector_length = m_sve_data.GetU16(&sve_header_field_offset);
+    m_sve_vector_length = m_sveregset.GetU16(&sve_header_field_offset);
     sve_header_field_offset = 12;
     uint16_t sve_header_flags_field =
-        m_sve_data.GetU16(&sve_header_field_offset);
+        m_sveregset.GetU16(&sve_header_field_offset);
     if ((sve_header_flags_field & sve::ptrace_regs_mask) ==
         sve::ptrace_regs_fpsimd)
       m_sve_state = SVEState::FPSIMD;
@@ -96,16 +70,15 @@ void RegisterContextCorePOSIX_arm64::ConfigureRegisterContext() {
              sve::ptrace_regs_sve)
       m_sve_state = SVEState::Full;
 
-    if (!sve::vl_valid(m_sve_vector_length)) {
+    if (sve::vl_valid(m_sve_vector_length))
+      m_register_info_up->ConfigureVectorRegisterInfos(
+          sve::vq_from_vl(m_sve_vector_length));
+    else {
       m_sve_state = SVEState::Disabled;
       m_sve_vector_length = 0;
     }
   } else
     m_sve_state = SVEState::Disabled;
-
-  if (m_sve_state != SVEState::Disabled)
-    m_register_info_up->ConfigureVectorLength(
-        sve::vq_from_vl(m_sve_vector_length));
 }
 
 uint32_t RegisterContextCorePOSIX_arm64::CalculateSVEOffset(
@@ -131,7 +104,7 @@ bool RegisterContextCorePOSIX_arm64::ReadRegister(const RegisterInfo *reg_info,
 
   offset = reg_info->byte_offset;
   if (offset + reg_info->byte_size <= GetGPRSize()) {
-    uint64_t v = m_gpr_data.GetMaxU64(&offset, reg_info->byte_size);
+    uint64_t v = m_gpr.GetMaxU64(&offset, reg_info->byte_size);
     if (offset == reg_info->byte_offset + reg_info->byte_size) {
       value = v;
       return true;
@@ -146,8 +119,8 @@ bool RegisterContextCorePOSIX_arm64::ReadRegister(const RegisterInfo *reg_info,
     if (m_sve_state == SVEState::Disabled) {
       // SVE is disabled take legacy route for FPU register access
       offset -= GetGPRSize();
-      if (offset < m_fpr_data.GetByteSize()) {
-        value.SetFromMemoryData(reg_info, m_fpr_data.GetDataStart() + offset,
+      if (offset < m_fpregset.GetByteSize()) {
+        value.SetFromMemoryData(reg_info, m_fpregset.GetDataStart() + offset,
                                 reg_info->byte_size, lldb::eByteOrderLittle,
                                 error);
         return error.Success();
@@ -179,7 +152,7 @@ bool RegisterContextCorePOSIX_arm64::ReadRegister(const RegisterInfo *reg_info,
       }
 
       assert(sve_reg_num != LLDB_INVALID_REGNUM);
-      assert(offset < m_sve_data.GetByteSize());
+      assert(offset < m_sveregset.GetByteSize());
       value.SetFromMemoryData(reg_info, GetSVEBuffer(offset),
                               reg_info->byte_size, lldb::eByteOrderLittle,
                               error);
@@ -201,7 +174,7 @@ bool RegisterContextCorePOSIX_arm64::ReadRegister(const RegisterInfo *reg_info,
       if (IsSVEZ(reg)) {
         byte_size = 16;
         offset = CalculateSVEOffset(reg_info);
-        assert(offset < m_sve_data.GetByteSize());
+        assert(offset < m_sveregset.GetByteSize());
         src = GetSVEBuffer(offset);
       }
       value.SetFromMemoryData(reg_info, src, byte_size, lldb::eByteOrderLittle,
@@ -209,7 +182,7 @@ bool RegisterContextCorePOSIX_arm64::ReadRegister(const RegisterInfo *reg_info,
     } break;
     case SVEState::Full:
       offset = CalculateSVEOffset(reg_info);
-      assert(offset < m_sve_data.GetByteSize());
+      assert(offset < m_sveregset.GetByteSize());
       value.SetFromMemoryData(reg_info, GetSVEBuffer(offset),
                               reg_info->byte_size, lldb::eByteOrderLittle,
                               error);
@@ -218,11 +191,6 @@ bool RegisterContextCorePOSIX_arm64::ReadRegister(const RegisterInfo *reg_info,
     default:
       return false;
     }
-  } else if (IsPAuth(reg)) {
-    offset = reg_info->byte_offset - m_register_info_up->GetPAuthOffset();
-    assert(offset < m_pac_data.GetByteSize());
-    value.SetFromMemoryData(reg_info, m_pac_data.GetDataStart() + offset,
-                            reg_info->byte_size, lldb::eByteOrderLittle, error);
   } else
     return false;
 

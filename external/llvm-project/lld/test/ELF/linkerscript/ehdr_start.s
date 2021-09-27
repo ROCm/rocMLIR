@@ -15,6 +15,6 @@
 # CHECK-NEXT:    Section: .text (0x1)
 
 .text
-.global __ehdr_start, _start
+.global _start, __ehdr_start
 _start:
 	.quad __ehdr_start

@@ -19,8 +19,7 @@
 
 int main(int, char**)
 {
-    std::list<int> l;
-    std::front_insert_iterator<std::list<int> > i = l;
+    std::front_insert_iterator<std::list<int> > i = std::list<int>();
 
   return 0;
 }

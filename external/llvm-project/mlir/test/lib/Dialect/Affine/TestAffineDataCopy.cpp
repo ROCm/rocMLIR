@@ -13,7 +13,6 @@
 
 #include "mlir/Analysis/Utils.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/LoopUtils.h"
@@ -29,16 +28,9 @@ namespace {
 
 struct TestAffineDataCopy
     : public PassWrapper<TestAffineDataCopy, FunctionPass> {
-  StringRef getArgument() const final { return PASS_NAME; }
-  StringRef getDescription() const final {
-    return "Tests affine data copy utility functions.";
-  }
   TestAffineDataCopy() = default;
   TestAffineDataCopy(const TestAffineDataCopy &pass){};
 
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<memref::MemRefDialect>();
-  }
   void runOnFunction() override;
 
 private:
@@ -80,8 +72,6 @@ void TestAffineDataCopy::runOnFunction() {
       }
     }
   }
-  if (!load)
-    return;
 
   AffineCopyOptions copyOptions = {/*generateDma=*/false,
                                    /*slowMemorySpace=*/0,
@@ -101,7 +91,7 @@ void TestAffineDataCopy::runOnFunction() {
   // Promote any single iteration loops in the copy nests and simplify
   // load/stores.
   SmallVector<Operation *, 4> copyOps;
-  for (Operation *nest : copyNests) {
+  for (auto nest : copyNests)
     // With a post order walk, the erasure of loops does not affect
     // continuation of the walk or the collection of load/store ops.
     nest->walk([&](Operation *op) {
@@ -112,13 +102,12 @@ void TestAffineDataCopy::runOnFunction() {
       else if (auto storeOp = dyn_cast<AffineStoreOp>(op))
         copyOps.push_back(storeOp);
     });
-  }
 
   // Promoting single iteration loops could lead to simplification of
   // generated load's/store's, and the latter could anyway also be
   // canonicalized.
-  RewritePatternSet patterns(&getContext());
-  for (Operation *op : copyOps) {
+  OwningRewritePatternList patterns;
+  for (auto op : copyOps) {
     patterns.clear();
     if (isa<AffineLoadOp>(op)) {
       AffineLoadOp::getCanonicalizationPatterns(patterns, &getContext());
@@ -126,12 +115,13 @@ void TestAffineDataCopy::runOnFunction() {
       assert(isa<AffineStoreOp>(op) && "expected affine store op");
       AffineStoreOp::getCanonicalizationPatterns(patterns, &getContext());
     }
+    (void)applyOpPatternsAndFold(op, std::move(patterns));
   }
-  (void)applyOpPatternsAndFold(copyOps, std::move(patterns), /*strict=*/true);
 }
 
 namespace mlir {
 void registerTestAffineDataCopyPass() {
-  PassRegistration<TestAffineDataCopy>();
+  PassRegistration<TestAffineDataCopy>(
+      PASS_NAME, "Tests affine data copy utility functions.");
 }
 } // namespace mlir

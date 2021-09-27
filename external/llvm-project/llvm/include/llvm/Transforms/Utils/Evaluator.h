@@ -57,17 +57,10 @@ public:
   bool EvaluateFunction(Function *F, Constant *&RetVal,
                         const SmallVectorImpl<Constant*> &ActualArgs);
 
-  const DenseMap<Constant *, Constant *> &getMutatedMemory() const {
-    return MutatedMemory;
-  }
-
-  const SmallPtrSetImpl<GlobalVariable *> &getInvariants() const {
-    return Invariants;
-  }
-
-private:
-  bool EvaluateBlock(BasicBlock::iterator CurInst, BasicBlock *&NextBB,
-                     bool &StrippedPointerCastsForAliasAnalysis);
+  /// Evaluate all instructions in block BB, returning true if successful, false
+  /// if we can't evaluate it.  NewBB returns the next BB that control flows
+  /// into, or null upon return.
+  bool EvaluateBlock(BasicBlock::iterator CurInst, BasicBlock *&NextBB);
 
   Constant *getVal(Value *V) {
     if (Constant *CV = dyn_cast<Constant>(V)) return CV;
@@ -83,6 +76,15 @@ private:
   /// Casts call result to a type of bitcast call expression
   Constant *castCallResultIfNeeded(Value *CallExpr, Constant *RV);
 
+  const DenseMap<Constant*, Constant*> &getMutatedMemory() const {
+    return MutatedMemory;
+  }
+
+  const SmallPtrSetImpl<GlobalVariable*> &getInvariants() const {
+    return Invariants;
+  }
+
+private:
   /// Given call site return callee and list of its formal arguments
   Function *getCalleeWithFormalArgs(CallBase &CB,
                                     SmallVectorImpl<Constant *> &Formals);
@@ -92,7 +94,7 @@ private:
   bool getFormalParams(CallBase &CB, Function *F,
                        SmallVectorImpl<Constant *> &Formals);
 
-  Constant *ComputeLoadResult(Constant *P, Type *Ty);
+  Constant *ComputeLoadResult(Constant *P);
 
   /// As we compute SSA register values, we store their contents here. The back
   /// of the deque contains the current function and the stack contains the

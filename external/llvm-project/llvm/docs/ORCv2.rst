@@ -730,7 +730,7 @@ For example, to load the whole interface of a runtime library:
     const DataLayout &DL = getDataLayout();
     auto &JD = ES.createJITDylib("main");
 
-    JD.addGenerator(DynamicLibrarySearchGenerator::Load("/path/to/lib"
+    JD.setGenerator(DynamicLibrarySearchGenerator::Load("/path/to/lib"
                                                         DL.getGlobalPrefix()));
 
     // IR added to JD can now link against all symbols exported by the library
@@ -753,7 +753,7 @@ Or, to expose an allowed set of symbols from the main process:
 
     // Use GetForCurrentProcess with a predicate function that checks the
     // allowed list.
-    JD.addGenerator(
+    JD.setGenerator(
       DynamicLibrarySearchGenerator::GetForCurrentProcess(
         DL.getGlobalPrefix(),
         [&](const SymbolStringPtr &S) { return AllowList.count(S); }));
@@ -797,6 +797,10 @@ Current Work
    ExecutionSession and leaving the JITDylib instance in a defunct state until
    all references to it have been released).
 
+4. **JITLink improvements**
+
+   TBD. We really need a separate JITLink design document.
+
 Near Future Work
 ----------------
 
@@ -829,7 +833,7 @@ Further Future Work
    *speculative* JIT compilation: compilation of code that is not needed yet,
    but which we have reason to believe will be needed in the future. This can be
    used to hide compile latency and improve JIT throughput. A proof-of-concept
-   example of speculative compilation with ORC has already been developed (see
+   exmaple of speculative compilation with ORC has already been developed (see
    ``llvm/examples/SpeculativeJIT``). Future work on this is likely to focus on
    re-using and improving existing profiling support (currently used by PGO) to
    feed speculation decisions, as well as built-in tools to simplify use of

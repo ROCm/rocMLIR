@@ -1,7 +1,6 @@
 struct X {
   int v;
   typedef int t;
-  void f(X);
 };
 
 struct YB {
@@ -13,10 +12,6 @@ struct YB {
 struct YBRev {
   typedef int value;
   int type;
-};
-
-struct Z {
-  void f(Z);
 };
 
 template<typename T> struct C : X, T {
@@ -59,10 +54,3 @@ typedef E<YB>::type I;
 #endif
 
 typedef F<YB>::type I;
-
-#if __cplusplus >= 201702L
-template<typename ...T> struct G : T... {
-  using T::f...;
-};
-using Q = decltype(G<X, Z>());
-#endif

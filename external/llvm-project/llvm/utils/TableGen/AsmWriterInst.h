@@ -66,8 +66,7 @@ namespace llvm {
     bool operator!=(const AsmWriterOperand &Other) const {
       if (OperandType != Other.OperandType || Str != Other.Str) return true;
       if (OperandType == isMachineInstrOperand)
-        return MIOpNo != Other.MIOpNo || MiModifier != Other.MiModifier ||
-               PCRel != Other.PCRel;
+        return MIOpNo != Other.MIOpNo || MiModifier != Other.MiModifier;
       return false;
     }
     bool operator==(const AsmWriterOperand &Other) const {

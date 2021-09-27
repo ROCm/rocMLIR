@@ -2,6 +2,6 @@
 // RUN: not mlir-opt %s -test-mlir-reducer -pass-test function-reducer
 
 func @test() {
-  "test.op_crash"() : () -> ()
+  "test.crashOp"() : () -> ()
   return
 }

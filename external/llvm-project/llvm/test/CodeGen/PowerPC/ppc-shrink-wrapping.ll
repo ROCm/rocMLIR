@@ -1,10 +1,5 @@
-; RUN: llc -mtriple=powerpc64le-unknown-linux-gnu -mcpu=pwr8 %s -o - -verify-machineinstrs | FileCheck %s --check-prefixes=CHECK,ENABLE,CHECK-64,ENABLE-64
-; RUN: llc -mtriple=powerpc64le-unknown-linux-gnu %s -o - -enable-shrink-wrap=false -verify-machineinstrs |  FileCheck %s --check-prefixes=CHECK,DISABLE,CHECK-64,DISABLE-64
-; RUN: llc -mtriple=powerpc-ibm-aix-xcoff -mattr=-altivec -mcpu=pwr8 %s -o - -verify-machineinstrs | FileCheck %s --check-prefixes=CHECK,ENABLE,CHECK-32,ENABLE-32
-; RUN: llc -mtriple=powerpc-ibm-aix-xcoff %s -o - -enable-shrink-wrap=false -verify-machineinstrs |  FileCheck %s --check-prefixes=CHECK,DISABLE,CHECK-32,DISABLE-32
-; RUN: llc -mtriple=powerpc64-ibm-aix-xcoff -mattr=-altivec -mcpu=pwr8 %s -o - -verify-machineinstrs | FileCheck %s --check-prefixes=CHECK,ENABLE,CHECK-64,ENABLE-64
-; RUN: llc -mtriple=powerpc64-ibm-aix-xcoff %s -o - -enable-shrink-wrap=false -verify-machineinstrs |  FileCheck %s --check-prefixes=CHECK,DISABLE,CHECK-64,DISABLE-64
-;
+; RUN: llc -mtriple=powerpc64le-unknown-linux-gnu -mcpu=pwr8 %s -o - -verify-machineinstrs | FileCheck %s --check-prefix=CHECK --check-prefix=ENABLE
+; RUN: llc -mtriple=powerpc64le-unknown-linux-gnu %s -o - -enable-shrink-wrap=false -verify-machineinstrs |  FileCheck %s --check-prefix=CHECK --check-prefix=DISABLE
 ;
 ; Note: Lots of tests use inline asm instead of regular calls.
 ; This allows to have a better control on what the allocation will do.
@@ -15,7 +10,7 @@
 
 
 ; Initial motivating example: Simple diamond with a call just on one side.
-; CHECK-LABEL: {{.*}}foo:
+; CHECK-LABEL: foo:
 ;
 ; Compare the arguments and return
 ; No prologue needed.
@@ -24,13 +19,13 @@
 ;
 ; Prologue code.
 ;  At a minimum, we save/restore the link register. Other registers may be saved
-;  as well.
-; CHECK: mflr
+;  as well. 
+; CHECK: mflr 
 ;
 ; Compare the arguments and jump to exit.
 ; After the prologue is set.
 ; DISABLE: cmpw 3, 4
-; DISABLE-NEXT: bge 0, {{.*}}[[EXIT_LABEL:BB[0-9_]+]]
+; DISABLE-NEXT: bge 0, .[[EXIT_LABEL:LBB[0-9_]+]]
 ;
 ; Store %a on the stack
 ; CHECK: stw 3, {{[0-9]+([0-9]+)}}
@@ -38,11 +33,11 @@
 ; CHECK-NEXT: addi 4, 1, {{[0-9]+}}
 ; Set the first argument to zero.
 ; CHECK-NEXT: li 3, 0
-; CHECK-NEXT: bl {{.*}}doSomething
+; CHECK-NEXT: bl doSomething
 ;
 ; With shrink-wrapping, epilogue is just after the call.
 ; Restore the link register and return.
-; Note that there could be other epilog code before the link register is
+; Note that there could be other epilog code before the link register is 
 ; restored but we will not check for it here.
 ; ENABLE: mtlr
 ; ENABLE-NEXT: blr
@@ -74,50 +69,50 @@ false:
 declare i32 @doSomething(i32, i32*)
 
 
+
 ; Check that we do not perform the restore inside the loop whereas the save
 ; is outside.
-; CHECK-LABEL: {{.*}}freqSaveAndRestoreOutsideLoop:
+; CHECK-LABEL: freqSaveAndRestoreOutsideLoop:
 ;
 ; Shrink-wrapping allows to skip the prologue in the else case.
 ; ENABLE: cmplwi 3, 0
-; ENABLE: beq 0, {{.*}}[[ELSE_LABEL:BB[0-9_]+]]
+; ENABLE: beq 0, .[[ELSE_LABEL:LBB[0-9_]+]]
 ;
 ; Prologue code.
 ; Make sure we save the link register
 ; CHECK: mflr {{[0-9]+}}
 ;
 ; DISABLE: cmplwi 3, 0
-; DISABLE: beq 0, {{.*}}[[ELSE_LABEL:BB[0-9_]+]]
+; DISABLE: beq 0, .[[ELSE_LABEL:LBB[0-9_]+]]
 ;
 ; Loop preheader
 ; CHECK-DAG: li [[SUM:[0-9]+]], 0
 ; CHECK-DAG: li [[IV:[0-9]+]], 10
-;
+; 
 ; Loop body
-; CHECK: {{.*}}[[LOOP:BB[0-9_]+]]: # %for.body
-; CHECK: bl {{.*}}something
-;
+; CHECK: .[[LOOP:LBB[0-9_]+]]: # %for.body
+; CHECK: bl something
 ; CHECK-DAG: addi [[IV]], [[IV]], -1
-; CHECK-DAG: add [[SUM]], 3, [[SUM]]
-; CHECK-DAG: cmplwi [[IV]], 0
-; CHECK-NEXT: bne 0, {{.*}}[[LOOP]]
+; CHECK-DAG: add [[SUM]], 3, [[SUM]] 
+; CHECK-NEXT: cmplwi [[IV]], 0
+; CHECK-NEXT: bne 0, .[[LOOP]]
 ;
 ; Next BB.
 ; CHECK: slwi 3, [[SUM]], 3
 ;
 ; Jump to epilogue.
-; DISABLE: b {{.*}}[[EPILOG_BB:BB[0-9_]+]]
+; DISABLE: b .[[EPILOG_BB:LBB[0-9_]+]]
 ;
-; DISABLE: {{.*}}[[ELSE_LABEL]]: # %if.else
+; DISABLE: .[[ELSE_LABEL]]: # %if.else
 ; Shift second argument by one and store into returned register.
 ; DISABLE: slwi 3, 4, 1
-; DISABLE: {{.*}}[[EPILOG_BB]]: # %if.end
+; DISABLE: .[[EPILOG_BB]]: # %if.end
 ;
 ; Epilogue code.
 ; CHECK: mtlr {{[0-9]+}}
 ; CHECK: blr
 ;
-; ENABLE: {{.*}}[[ELSE_LABEL]]: # %if.else
+; ENABLE: .[[ELSE_LABEL]]: # %if.else
 ; Shift second argument by one and store into returned register.
 ; ENABLE: slwi 3, 4, 1
 ; ENABLE-NEXT: blr
@@ -156,7 +151,7 @@ declare i32 @something(...)
 
 ; Check that we do not perform the shrink-wrapping inside the loop even
 ; though that would be legal. The cost model must prevent that.
-; CHECK-LABEL: {{.*}}freqSaveAndRestoreOutsideLoop2:
+; CHECK-LABEL: freqSaveAndRestoreOutsideLoop2:
 ; Prologue code.
 ; Make sure we save the link register before the call
 ; CHECK: mflr {{[0-9]+}}
@@ -164,16 +159,14 @@ declare i32 @something(...)
 ; Loop preheader
 ; CHECK-DAG: li [[SUM:[0-9]+]], 0
 ; CHECK-DAG: li [[IV:[0-9]+]], 10
-;
+; 
 ; Loop body
-; CHECK: {{.*}}[[LOOP:BB[0-9_]+]]: # %for.body
-; CHECK: bl {{.*}}something
-;
+; CHECK: .[[LOOP:LBB[0-9_]+]]: # %for.body
+; CHECK: bl something
 ; CHECK-DAG: addi [[IV]], [[IV]], -1
-; CHECK-DAG: add [[SUM]], 3, [[SUM]]
-; CHECK-DAG: cmplwi [[IV]], 0
-;
-; CHECK-NEXT: bne 0, {{.*}}[[LOOP]]
+; CHECK-DAG: add [[SUM]], 3, [[SUM]] 
+; CHECK-NEXT: cmplwi [[IV]], 0
+; CHECK-NEXT: bne 0, .[[LOOP]]
 ;
 ; Next BB
 ; CHECK: %for.exit
@@ -207,61 +200,49 @@ for.end:                                          ; preds = %for.body
 
 ; Check with a more complex case that we do not have save within the loop and
 ; restore outside.
-; CHECK-LABEL: {{.*}}loopInfoSaveOutsideLoop:
+; CHECK-LABEL: loopInfoSaveOutsideLoop:
 ;
 ; ENABLE: cmplwi 3, 0
-; ENABLE-NEXT: beq 0, {{.*}}[[ELSE_LABEL:BB[0-9_]+]]
+; ENABLE-NEXT: beq 0, .[[ELSE_LABEL:LBB[0-9_]+]]
 ;
 ; Prologue code.
-; Make sure we save the link register
+; Make sure we save the link register 
 ; CHECK: mflr {{[0-9]+}}
 ;
-; DISABLE-64-DAG: std {{[0-9]+}}
-; DISABLE-64-DAG: std {{[0-9]+}}
-; DISABLE-64-DAG: std {{[0-9]+}}
-; DISABLE-64-DAG: stdu 1,
-; DISABLE-64-DAG: cmplwi 3, 0
-;
-; DISABLE-32-DAG: stw {{[0-9]+}}
-; DISABLE-32-DAG: stw {{[0-9]+}}
-; DISABLE-32-DAG: stw {{[0-9]+}}
-; DISABLE-32-DAG: stwu 1,
-; DISABLE-32-DAG: cmplwi 3, 0
-;
-; DISABLE-NEXT: beq 0, {{.*}}[[ELSE_LABEL:BB[0-9_]+]]
+; DISABLE: std
+; DISABLE-NEXT: std
+; DISABLE: cmplwi 3, 0
+; DISABLE-NEXT: beq 0, .[[ELSE_LABEL:LBB[0-9_]+]]
 ;
 ; Loop preheader
 ; CHECK-DAG: li [[SUM:[0-9]+]], 0
 ; CHECK-DAG: li [[IV:[0-9]+]], 10
-;
+; 
 ; Loop body
-; CHECK: {{.*}}[[LOOP:BB[0-9_]+]]: # %for.body
-; CHECK: bl {{.*}}something
-;
+; CHECK: .[[LOOP:LBB[0-9_]+]]: # %for.body
+; CHECK: bl something
 ; CHECK-DAG: addi [[IV]], [[IV]], -1
-; CHECK-DAG: add [[SUM]], 3, [[SUM]]
-; CHECK-DAG: cmplwi [[IV]], 0
-;
-; CHECK-NEXT: bne 0, {{.*}}[[LOOP]]
-;
+; CHECK-DAG: add [[SUM]], 3, [[SUM]] 
+; CHECK-NEXT: cmplwi [[IV]], 0
+; CHECK-NEXT: bne 0, .[[LOOP]]
+; 
 ; Next BB
-; CHECK: bl {{.*}}somethingElse
+; CHECK: bl somethingElse 
 ; CHECK: slwi 3, [[SUM]], 3
 ;
 ; Jump to epilogue
-; DISABLE: b {{.*}}[[EPILOG_BB:BB[0-9_]+]]
+; DISABLE: b .[[EPILOG_BB:LBB[0-9_]+]]
 ;
-; DISABLE: {{.*}}[[ELSE_LABEL]]: # %if.else
+; DISABLE: .[[ELSE_LABEL]]: # %if.else
 ; Shift second argument by one and store into returned register.
 ; DISABLE: slwi 3, 4, 1
 ;
-; DISABLE: {{.*}}[[EPILOG_BB]]: # %if.end
-;
+; DISABLE: .[[EPILOG_BB]]: # %if.end
 ; Epilog code
 ; CHECK: mtlr {{[0-9]+}}
 ; CHECK: blr
-;
-; ENABLE: {{.*}}[[ELSE_LABEL]]: # %if.else
+; 
+; ENABLE: .[[ELSE_LABEL]]: # %if.else
 ; Shift second argument by one and store into returned register.
 ; ENABLE: slwi 3, 4, 1
 ; ENABLE-NEXT: blr
@@ -301,60 +282,49 @@ declare void @somethingElse(...)
 
 ; Check with a more complex case that we do not have restore within the loop and
 ; save outside.
-; CHECK-LABEL: {{.*}}loopInfoRestoreOutsideLoop:
+; CHECK-LABEL: loopInfoRestoreOutsideLoop:
 ;
 ; ENABLE: cmplwi 3, 0
-; ENABLE-NEXT: beq 0, {{.*}}[[ELSE_LABEL:BB[0-9_]+]]
+; ENABLE-NEXT: beq 0, .[[ELSE_LABEL:LBB[0-9_]+]]
 ;
 ; Prologue code.
 ; Make sure we save the link register
 ; CHECK: mflr {{[0-9]+}}
 ;
-; DISABLE-64-DAG: std {{[0-9]+}}
-; DISABLE-64-DAG: std {{[0-9]+}}
-; DISABLE-64-DAG: std {{[0-9]+}}
-; DISABLE-64-DAG: stdu 1,
-; DISABLE-64-DAG: cmplwi 3, 0
+; DISABLE: std
+; DISABLE-NEXT: std
+; DISABLE: cmplwi 3, 0
+; DISABLE-NEXT: beq 0, .[[ELSE_LABEL:LBB[0-9_]+]]
 ;
-; DISABLE-32-DAG: stw {{[0-9]+}}
-; DISABLE-32-DAG: stw {{[0-9]+}}
-; DISABLE-32-DAG: stw {{[0-9]+}}
-; DISABLE-32-DAG: stwu 1,
-; DISABLE-32-DAG: cmplwi 3, 0
-;
-; DISABLE-NEXT: beq 0, {{.*}}[[ELSE_LABEL:BB[0-9_]+]]
-;
-; CHECK: bl {{.*}}somethingElse
+; CHECK: bl somethingElse
 ;
 ; Loop preheader
 ; CHECK-DAG: li [[SUM:[0-9]+]], 0
 ; CHECK-DAG: li [[IV:[0-9]+]], 10
-;
+; 
 ; Loop body
-; CHECK: {{.*}}[[LOOP:BB[0-9_]+]]: # %for.body
-; CHECK: bl {{.*}}something
-;
+; CHECK: .[[LOOP:LBB[0-9_]+]]: # %for.body
+; CHECK: bl something
 ; CHECK-DAG: addi [[IV]], [[IV]], -1
-; CHECK-DAG: add [[SUM]], 3, [[SUM]]
-; CHECK-DAG: cmplwi [[IV]], 0
+; CHECK-DAG: add [[SUM]], 3, [[SUM]] 
+; CHECK-NEXT: cmplwi [[IV]], 0
+; CHECK-NEXT: bne 0, .[[LOOP]]
 ;
-; CHECK-NEXT: bne 0, {{.*}}[[LOOP]]
+; Next BB. 
+; slwi 3, [[SUM]], 3
 ;
-; Next BB.
-; CHECK: slwi 3, [[SUM]], 3
+; DISABLE: b .[[EPILOG_BB:LBB[0-9_]+]]
 ;
-; DISABLE: b {{.*}}[[EPILOG_BB:BB[0-9_]+]]
-;
-; DISABLE: {{.*}}[[ELSE_LABEL]]: # %if.else
+; DISABLE: .[[ELSE_LABEL]]: # %if.else
 ; Shift second argument by one and store into returned register.
 ; DISABLE: slwi 3, 4, 1
-; DISABLE: {{.*}}[[EPILOG_BB]]: # %if.end
+; DISABLE: .[[EPILOG_BB]]: # %if.end
 ;
 ; Epilogue code.
 ; CHECK: mtlr {{[0-9]+}}
 ; CHECK: blr
 ;
-; ENABLE: {{.*}}[[ELSE_LABEL]]: # %if.else
+; ENABLE: .[[ELSE_LABEL]]: # %if.else
 ; Shift second argument by one and store into returned register.
 ; ENABLE: slwi 3, 4, 1
 ; ENABLE-NEXT: blr
@@ -390,7 +360,7 @@ if.end:                                           ; preds = %if.else, %for.end
 }
 
 ; Check that we handle function with no frame information correctly.
-; CHECK-LABEL: {{.*}}emptyFrame:
+; CHECK-LABEL: emptyFrame:
 ; CHECK: # %entry
 ; CHECK-NEXT: li 3, 0
 ; CHECK-NEXT: blr
@@ -401,43 +371,40 @@ entry:
 
 
 ; Check that we handle inline asm correctly.
-; CHECK-LABEL: {{.*}}inlineAsm:
+; CHECK-LABEL: inlineAsm:
 ;
 ; ENABLE: cmplwi 3, 0
-; ENABLE-NEXT: beq 0, {{.*}}[[ELSE_LABEL:BB[0-9_]+]]
+; ENABLE-NEXT: beq 0, .[[ELSE_LABEL:LBB[0-9_]+]]
 ;
 ; Prologue code.
 ; Make sure we save the CSR used in the inline asm: r14
 ; ENABLE-DAG: li [[IV:[0-9]+]], 10
-; ENABLE-64-DAG: std 14, -[[STACK_OFFSET:[0-9]+]](1) # 8-byte Folded Spill
-; ENABLE-32-DAG: stw 14, -[[STACK_OFFSET:[0-9]+]](1) # 4-byte Folded Spill
+; ENABLE-DAG: std 14, -[[STACK_OFFSET:[0-9]+]](1) # 8-byte Folded Spill
 ;
 ; DISABLE: cmplwi 3, 0
-; DISABLE-64-NEXT: std 14, -[[STACK_OFFSET:[0-9]+]](1) # 8-byte Folded Spill
-; DISABLE-32-NEXT: stw 14, -[[STACK_OFFSET:[0-9]+]](1) # 4-byte Folded Spill
-; DISABLE-NEXT: beq 0, {{.*}}[[ELSE_LABEL:BB[0-9_]+]]
+; DISABLE-NEXT: std 14, -[[STACK_OFFSET:[0-9]+]](1) # 8-byte Folded Spill
+; DISABLE-NEXT: beq 0, .[[ELSE_LABEL:LBB[0-9_]+]]
 ; DISABLE: li [[IV:[0-9]+]], 10
 ;
 ; CHECK: nop
 ; CHECK: mtctr [[IV]]
 ;
-; CHECK: {{.*}}[[LOOP_LABEL:BB[0-9_]+]]: # %for.body
+; CHECK: .[[LOOP_LABEL:LBB[0-9_]+]]: # %for.body
 ; Inline asm statement.
 ; CHECK: addi 14, 14, 1
-; CHECK: bdnz {{.*}}[[LOOP_LABEL]]
+; CHECK: bdnz .[[LOOP_LABEL]]
 ;
 ; Epilogue code.
 ; CHECK: li 3, 0
-; CHECK-64-DAG: ld 14, -[[STACK_OFFSET]](1) # 8-byte Folded Reload
-; CHECK-32-DAG: lwz 14, -[[STACK_OFFSET]](1) # 4-byte Folded Reload
-; CHECK-DAG: nop
+; CHECK-DAG: ld 14, -[[STACK_OFFSET]](1) # 8-byte Folded Reload
+; CHECK: nop
 ; CHECK: blr
 ;
 ; CHECK: [[ELSE_LABEL]]
 ; CHECK-NEXT: slwi 3, 4, 1
-; DISABLE-64-NEXT: ld 14, -[[STACK_OFFSET]](1) # 8-byte Folded Reload
-; DISABLE-32-NEXT: lwz 14, -[[STACK_OFFSET]](1) # 4-byte Folded Reload
+; DISABLE: ld 14, -[[STACK_OFFSET]](1) # 8-byte Folded Reload
 ; CHECK-NEXT: blr
+; 
 define i32 @inlineAsm(i32 %cond, i32 %N) {
 entry:
   %tobool = icmp eq i32 %cond, 0
@@ -469,43 +436,35 @@ if.end:                                           ; preds = %for.body, %if.else
 
 
 ; Check that we handle calls to variadic functions correctly.
-; CHECK-LABEL: {{.*}}callVariadicFunc:
+; CHECK-LABEL: callVariadicFunc:
 ;
 ; ENABLE: cmplwi 3, 0
-; ENABLE-NEXT: beq 0, {{.*}}[[ELSE_LABEL:BB[0-9_]+]]
+; ENABLE-NEXT: beq 0, .[[ELSE_LABEL:LBB[0-9_]+]]
 ;
 ; Prologue code.
 ; CHECK: mflr {{[0-9]+}}
-;
+; 
 ; DISABLE: cmplwi 3, 0
-; DISABLE-NEXT: beq 0, {{.*}}[[ELSE_LABEL:BB[0-9_]+]]
+; DISABLE-NEXT: beq 0, .[[ELSE_LABEL:LBB[0-9_]+]]
 ;
 ; Setup of the varags.
-; CHECK-64: mr 4, 3
-; CHECK-64-NEXT: mr 5, 3
-; CHECK-64-NEXT: mr 6, 3
-; CHECK-64-NEXT: mr 7, 3
-; CHECK-64-NEXT: mr 8, 3
-; CHECK-64-NEXT: mr 9, 3
-;
-; CHECK-32: mr 3, 4
-; CHECK-32-NEXT: mr 5, 4
-; CHECK-32-NEXT: mr 6, 4
-; CHECK-32-NEXT: mr 7, 4
-; CHECK-32-NEXT: mr 8, 4
-; CHECK-32-NEXT: mr 9, 4
-;
-; CHECK-NEXT: bl {{.*}}someVariadicFunc
+; CHECK: mr 4, 3
+; CHECK-NEXT: mr 5, 3
+; CHECK-NEXT: mr 6, 3
+; CHECK-NEXT: mr 7, 3
+; CHECK-NEXT: mr 8, 3
+; CHECK-NEXT: mr 9, 3
+; CHECK-NEXT: bl someVariadicFunc
 ; CHECK: slwi 3, 3, 3
-; DISABLE: b {{.*}}[[EPILOGUE_BB:BB[0-9_]+]]
+; DISABLE: b .[[EPILOGUE_BB:LBB[0-9_]+]]
 ;
 ; ENABLE: mtlr {{[0-9]+}}
 ; ENABLE-NEXT: blr
 ;
-; CHECK: {{.*}}[[ELSE_LABEL]]: # %if.else
+; CHECK: .[[ELSE_LABEL]]: # %if.else
 ; CHECK-NEXT: slwi 3, 4, 1
-;
-; DISABLE: {{.*}}[[EPILOGUE_BB]]: # %if.end
+; 
+; DISABLE: .[[EPILOGUE_BB]]: # %if.end
 ; DISABLE: mtlr
 ; CHECK: blr
 define i32 @callVariadicFunc(i32 %cond, i32 %N) {
@@ -535,11 +494,11 @@ declare i32 @someVariadicFunc(i32, ...)
 ; Although this is not incorrect to insert such code, it is useless
 ; and it hurts the binary size.
 ;
-; CHECK-LABEL: {{.*}}noreturn:
+; CHECK-LABEL: noreturn:
 ; DISABLE: mflr {{[0-9]+}}
 ;
 ; CHECK: cmplwi 3, 0
-; CHECK-NEXT: bne{{[-]?}} 0, {{.*}}[[ABORT:BB[0-9_]+]]
+; CHECK-NEXT: bne{{[-]?}} 0, .[[ABORT:LBB[0-9_]+]]
 ;
 ; CHECK: li 3, 42
 ;
@@ -547,9 +506,11 @@ declare i32 @someVariadicFunc(i32, ...)
 ;
 ; CHECK-NEXT: blr
 ;
-; CHECK: {{.*}}[[ABORT]]: # %if.abort
+; CHECK: .[[ABORT]]: # %if.abort
+;
 ; ENABLE: mflr {{[0-9]+}}
-; CHECK: bl {{.*}}abort
+;
+; CHECK: bl abort
 ; ENABLE-NOT: mtlr {{[0-9]+}}
 define i32 @noreturn(i8 signext %bad_thing) {
 entry:
@@ -576,8 +537,8 @@ attributes #0 = { noreturn nounwind }
 ; dominator is itself. In this case, we cannot perform shrink wrapping, but we
 ; should return gracefully and continue compilation.
 ; The only condition for this test is the compilation finishes correctly.
-;
-; CHECK-LABEL: {{.*}}infiniteloop
+; 
+; CHECK-LABEL: infiniteloop
 ; CHECK: blr
 define void @infiniteloop() {
 entry:
@@ -599,7 +560,7 @@ if.end:
 }
 
 ; Another infinite loop test this time with a body bigger than just one block.
-; CHECK-LABEL: {{.*}}infiniteloop2
+; CHECK-LABEL: infiniteloop2
 ; CHECK: blr
 define void @infiniteloop2() {
 entry:
@@ -629,8 +590,10 @@ if.end:
 }
 
 ; Another infinite loop test this time with two nested infinite loop.
-; CHECK-LABEL: {{.*}}infiniteloop3
+; CHECK-LABEL: infiniteloop3
+; CHECK: Lfunc_begin[[FUNCNUM:[0-9]+]]
 ; CHECK: bclr
+; CHECK: Lfunc_end[[FUNCNUM]]
 define void @infiniteloop3() {
 entry:
   br i1 undef, label %loop2a, label %body
@@ -669,7 +632,7 @@ end:
 
 ; Test for a bug that was caused when save point was equal to restore point.
 ; Function Attrs: nounwind
-; CHECK-LABEL: {{.*}}transpose
+; CHECK-LABEL: transpose
 ;
 ; Store of callee-save register saved by shrink wrapping
 ; FIXME: Test disabled: Improved scheduling needs no spills/reloads any longer!
@@ -679,7 +642,7 @@ end:
 ; CHECKXX: ld [[CSR]], -[[STACK_OFFSET]](1) # 8-byte Folded Reload
 ;
 ; Ensure no subsequent uses of callee-save register before end of function
-; CHECKXX-NOT: {{[a-z]+}} [[CSR]]
+; CHECK-NOT: {{[a-z]+}} [[CSR]]
 ; CHECK: blr
 define signext i32 @transpose() {
 entry:

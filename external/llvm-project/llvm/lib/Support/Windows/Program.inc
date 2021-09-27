@@ -67,10 +67,13 @@ ErrorOr<std::string> sys::findProgramByName(StringRef Name,
   if (const char *PathExtEnv = std::getenv("PATHEXT"))
     SplitString(PathExtEnv, PathExts, ";");
 
-  SmallVector<char, MAX_PATH> U8Result;
+  SmallVector<wchar_t, MAX_PATH> U16Result;
+  DWORD Len = MAX_PATH;
   for (StringRef Ext : PathExts) {
-    SmallVector<wchar_t, MAX_PATH> U16Result;
-    DWORD Len = MAX_PATH;
+    SmallVector<wchar_t, MAX_PATH> U16Ext;
+    if (std::error_code EC = windows::UTF8ToUTF16(Ext, U16Ext))
+      return EC;
+
     do {
       U16Result.reserve(Len);
       // Lets attach the extension manually. That is needed for files
@@ -85,23 +88,19 @@ ErrorOr<std::string> sys::findProgramByName(StringRef Name,
                           U16Result.capacity(), U16Result.data(), nullptr);
     } while (Len > U16Result.capacity());
 
-    if (Len == 0)
-      continue;
-
-    U16Result.set_size(Len);
-
-    if (std::error_code EC =
-        windows::UTF16ToUTF8(U16Result.data(), U16Result.size(), U8Result))
-      return EC;
-
-    if (sys::fs::can_execute(U8Result))
+    if (Len != 0)
       break; // Found it.
-
-    U8Result.clear();
   }
 
-  if (U8Result.empty())
+  if (Len == 0)
     return mapWindowsError(::GetLastError());
+
+  U16Result.set_size(Len);
+
+  SmallVector<char, MAX_PATH> U8Result;
+  if (std::error_code EC =
+          windows::UTF16ToUTF8(U16Result.data(), U16Result.size(), U8Result))
+    return EC;
 
   return std::string(U8Result.begin(), U8Result.end());
 }
@@ -488,18 +487,6 @@ ProcessInfo sys::Wait(const ProcessInfo &PI, unsigned SecondsToWait,
   return WaitResult;
 }
 
-std::error_code llvm::sys::ChangeStdinMode(sys::fs::OpenFlags Flags){
-  if (!(Flags & fs::OF_CRLF))
-    return ChangeStdinToBinary();
-  return std::error_code();
-}
-
-std::error_code llvm::sys::ChangeStdoutMode(sys::fs::OpenFlags Flags){
-  if (!(Flags & fs::OF_CRLF))
-    return ChangeStdoutToBinary();
-  return std::error_code();
-}
-
 std::error_code sys::ChangeStdinToBinary() {
   int result = _setmode(_fileno(stdin), _O_BINARY);
   if (result == -1)
@@ -518,7 +505,7 @@ std::error_code
 llvm::sys::writeFileWithEncoding(StringRef FileName, StringRef Contents,
                                  WindowsEncodingMethod Encoding) {
   std::error_code EC;
-  llvm::raw_fd_ostream OS(FileName, EC, llvm::sys::fs::OF_TextWithCRLF);
+  llvm::raw_fd_ostream OS(FileName, EC, llvm::sys::fs::OF_Text);
   if (EC)
     return EC;
 

@@ -24,8 +24,10 @@ void AVRTargetObjectFile::Initialize(MCContext &Ctx, const TargetMachine &TM) {
       Ctx.getELFSection(".progmem.data", ELF::SHT_PROGBITS, ELF::SHF_ALLOC);
 }
 
-MCSection *AVRTargetObjectFile::SelectSectionForGlobal(
-    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
+MCSection *
+AVRTargetObjectFile::SelectSectionForGlobal(const GlobalObject *GO,
+                                            SectionKind Kind,
+                                            const TargetMachine &TM) const {
   // Global values in flash memory are placed in the progmem.data section
   // unless they already have a user assigned section.
   if (AVR::isProgramMemoryAddress(GO) && !GO->hasSection() && Kind.isReadOnly())
@@ -35,3 +37,4 @@ MCSection *AVRTargetObjectFile::SelectSectionForGlobal(
   return Base::SelectSectionForGlobal(GO, Kind, TM);
 }
 } // end of namespace llvm
+

@@ -43,7 +43,9 @@ def Async_ValueType : Async_Type<"Value", "value"> {
   let parameters = (ins "Type":$valueType);
   let builders = [
     TypeBuilderWithInferredContext<(ins "Type":$valueType), [{
-      return $_get(valueType.getContext(), valueType);
+      return Base::get(valueType.getContext(), valueType);
+    }], [{
+      return Base::getChecked($_loc, valueType);
     }]>
   ];
   let skipDefaultBuilders = 1;

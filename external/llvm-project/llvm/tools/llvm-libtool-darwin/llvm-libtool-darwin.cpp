@@ -21,9 +21,8 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/LineIterator.h"
-#include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/Support/WithColor.h"
-#include "llvm/TextAPI/Architecture.h"
+#include "llvm/TextAPI/MachO/Architecture.h"
 #include <map>
 
 using namespace llvm;
@@ -90,11 +89,6 @@ static cl::opt<bool>
     VersionOption("V", cl::desc("Print the version number and exit"),
                   cl::cat(LibtoolCategory));
 
-static cl::opt<bool> NoWarningForNoSymbols(
-    "no_warning_for_no_symbols",
-    cl::desc("Do not warn about files that have no symbols"),
-    cl::cat(LibtoolCategory), cl::init(false));
-
 static const std::array<std::string, 3> StandardSearchDirs{
     "/lib",
     "/usr/lib",
@@ -148,7 +142,7 @@ static Error processFileList() {
   std::tie(FileName, DirName) = StringRef(FileList).rsplit(",");
 
   ErrorOr<std::unique_ptr<MemoryBuffer>> FileOrErr =
-      MemoryBuffer::getFileOrSTDIN(FileName, /*IsText=*/false,
+      MemoryBuffer::getFileOrSTDIN(FileName, /*FileSize=*/-1,
                                    /*RequiresNullTerminator=*/false);
   if (std::error_code EC = FileOrErr.getError())
     return createFileError(FileName, errorCodeToError(EC));
@@ -256,9 +250,6 @@ static Error verifyAndAddMachOObject(MembersPerArchitectureMap &Members,
   if (!ArchType.empty() && !acceptFileArch(FileCPUType, FileCPUSubtype, C)) {
     return Error::success();
   }
-
-  if (!NoWarningForNoSymbols && O->symbols().empty())
-    WithColor::warning() << Member.MemberName + " has no symbols\n";
 
   uint64_t FileCPUID = getCPUID(FileCPUType, FileCPUSubtype);
   Members[FileCPUID].push_back(std::move(Member));
@@ -571,7 +562,7 @@ static Expected<Config> parseCommandLine(int Argc, char **Argv) {
 
 int main(int Argc, char **Argv) {
   InitLLVM X(Argc, Argv);
-  cl::HideUnrelatedOptions({&LibtoolCategory, &getColorCategory()});
+  cl::HideUnrelatedOptions({&LibtoolCategory, &ColorCategory});
   Expected<Config> ConfigOrErr = parseCommandLine(Argc, Argv);
   if (!ConfigOrErr) {
     WithColor::defaultErrorHandler(ConfigOrErr.takeError());

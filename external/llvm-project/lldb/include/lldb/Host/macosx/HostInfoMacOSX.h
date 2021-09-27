@@ -21,6 +21,11 @@ class ArchSpec;
 class HostInfoMacOSX : public HostInfoPosix {
   friend class HostInfoBase;
 
+private:
+  // Static class, unconstructable.
+  HostInfoMacOSX() = delete;
+  ~HostInfoMacOSX() = delete;
+
 public:
   static llvm::VersionTuple GetOSVersion();
   static llvm::VersionTuple GetMacCatalystVersion();

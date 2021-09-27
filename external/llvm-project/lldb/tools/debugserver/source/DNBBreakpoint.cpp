@@ -14,8 +14,8 @@
 #include "DNBLog.h"
 #include "MachProcess.h"
 #include <algorithm>
-#include <cassert>
-#include <cinttypes>
+#include <assert.h>
+#include <inttypes.h>
 
 #pragma mark-- DNBBreakpoint
 DNBBreakpoint::DNBBreakpoint(nub_addr_t addr, nub_size_t byte_size,

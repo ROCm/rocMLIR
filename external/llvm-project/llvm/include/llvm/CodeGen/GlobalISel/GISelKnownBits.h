@@ -5,14 +5,13 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-/// \file
+//
 /// Provides analysis for querying information about KnownBits during GISel
 /// passes.
-///
+//
 //===----------------------------------------------------------------------===//
-
-#ifndef LLVM_CODEGEN_GLOBALISEL_GISELKNOWNBITS_H
-#define LLVM_CODEGEN_GLOBALISEL_GISELKNOWNBITS_H
+#ifndef LLVM_CODEGEN_GLOBALISEL_KNOWNBITSINFO_H
+#define LLVM_CODEGEN_GLOBALISEL_KNOWNBITSINFO_H
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/CodeGen/GlobalISel/GISelChangeObserver.h"
@@ -129,4 +128,4 @@ public:
 };
 } // namespace llvm
 
-#endif // LLVM_CODEGEN_GLOBALISEL_GISELKNOWNBITS_H
+#endif // ifdef

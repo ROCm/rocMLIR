@@ -101,13 +101,13 @@ private:
 bool GCOVFile::readGCNO(GCOVBuffer &buf) {
   if (!buf.readGCNOFormat())
     return false;
-  if (!buf.readGCOVVersion(version))
+  if (!buf.readGCOVVersion(Version))
     return false;
 
-  checksum = buf.getWord();
-  if (version >= GCOV::V900 && !buf.readString(cwd))
-    return false;
-  if (version >= GCOV::V800)
+  Checksum = buf.getWord();
+  if (Version >= GCOV::V900)
+    cwd = buf.getString();
+  if (Version >= GCOV::V800)
     buf.getWord(); // hasUnexecutedBlocks
 
   uint32_t tag, length;
@@ -115,37 +115,34 @@ bool GCOVFile::readGCNO(GCOVBuffer &buf) {
   while ((tag = buf.getWord())) {
     if (!buf.readInt(length))
       return false;
-    uint32_t pos = buf.cursor.tell();
     if (tag == GCOV_TAG_FUNCTION) {
       functions.push_back(std::make_unique<GCOVFunction>(*this));
       fn = functions.back().get();
       fn->ident = buf.getWord();
       fn->linenoChecksum = buf.getWord();
-      if (version >= GCOV::V407)
+      if (Version >= GCOV::V407)
         fn->cfgChecksum = buf.getWord();
       buf.readString(fn->Name);
       StringRef filename;
-      if (version < GCOV::V800) {
-        if (!buf.readString(filename))
-          return false;
+      if (Version < GCOV::V800) {
+        filename = buf.getString();
         fn->startLine = buf.getWord();
       } else {
         fn->artificial = buf.getWord();
-        if (!buf.readString(filename))
-          return false;
+        filename = buf.getString();
         fn->startLine = buf.getWord();
         fn->startColumn = buf.getWord();
         fn->endLine = buf.getWord();
-        if (version >= GCOV::V900)
+        if (Version >= GCOV::V900)
           fn->endColumn = buf.getWord();
       }
       auto r = filenameToIdx.try_emplace(filename, filenameToIdx.size());
       if (r.second)
         filenames.emplace_back(filename);
       fn->srcIdx = r.first->second;
-      identToFunction[fn->ident] = fn;
+      IdentToFunction[fn->ident] = fn;
     } else if (tag == GCOV_TAG_BLOCKS && fn) {
-      if (version < GCOV::V800) {
+      if (Version < GCOV::V800) {
         for (uint32_t i = 0; i != length; ++i) {
           buf.getWord(); // Ignored block flags
           fn->blocks.push_back(std::make_unique<GCOVBlock>(i));
@@ -163,9 +160,7 @@ bool GCOVFile::readGCNO(GCOVBuffer &buf) {
         return false;
       }
       GCOVBlock *src = fn->blocks[srcNo].get();
-      const uint32_t e =
-          version >= GCOV::V1200 ? (length / 4 - 1) / 2 : (length - 1) / 2;
-      for (uint32_t i = 0; i != e; ++i) {
+      for (uint32_t i = 0, e = (length - 1) / 2; i != e; ++i) {
         uint32_t dstNo = buf.getWord(), flags = buf.getWord();
         GCOVBlock *dst = fn->blocks[dstNo].get();
         auto arc = std::make_unique<GCOVArc>(*src, *dst, flags);
@@ -189,18 +184,13 @@ bool GCOVFile::readGCNO(GCOVBuffer &buf) {
         if (line)
           Block.addLine(line);
         else {
-          StringRef filename;
-          buf.readString(filename);
+          StringRef filename = buf.getString();
           if (filename.empty())
             break;
           // TODO Unhandled
         }
       }
     }
-    pos += version >= GCOV::V1200 ? length : 4 * length;
-    if (pos < buf.cursor.tell())
-      return false;
-    buf.de.skip(buf.cursor, pos - buf.cursor.tell());
   }
 
   GCNOInitialized = true;
@@ -216,7 +206,7 @@ bool GCOVFile::readGCDA(GCOVBuffer &buf) {
   GCOV::GCOVVersion GCDAVersion;
   if (!buf.readGCOVVersion(GCDAVersion))
     return false;
-  if (version != GCDAVersion) {
+  if (Version != GCDAVersion) {
     errs() << "GCOV versions do not match.\n";
     return false;
   }
@@ -224,9 +214,9 @@ bool GCOVFile::readGCDA(GCOVBuffer &buf) {
   uint32_t GCDAChecksum;
   if (!buf.readInt(GCDAChecksum))
     return false;
-  if (checksum != GCDAChecksum) {
-    errs() << "file checksums do not match: " << checksum
-           << " != " << GCDAChecksum << "\n";
+  if (Checksum != GCDAChecksum) {
+    errs() << "File checksums do not match: " << Checksum
+           << " != " << GCDAChecksum << ".\n";
     return false;
   }
   uint32_t dummy, tag, length;
@@ -237,19 +227,19 @@ bool GCOVFile::readGCDA(GCOVBuffer &buf) {
       return false;
     uint32_t pos = buf.cursor.tell();
     if (tag == GCOV_TAG_OBJECT_SUMMARY) {
-      buf.readInt(runCount);
+      buf.readInt(RunCount);
       buf.readInt(dummy);
       // clang<11 uses a fake 4.2 format which sets length to 9.
       if (length == 9)
-        buf.readInt(runCount);
+        buf.readInt(RunCount);
     } else if (tag == GCOV_TAG_PROGRAM_SUMMARY) {
       // clang<11 uses a fake 4.2 format which sets length to 0.
       if (length > 0) {
         buf.readInt(dummy);
         buf.readInt(dummy);
-        buf.readInt(runCount);
+        buf.readInt(RunCount);
       }
-      ++programCount;
+      ++ProgramCount;
     } else if (tag == GCOV_TAG_FUNCTION) {
       if (length == 0) // Placeholder
         continue;
@@ -258,12 +248,12 @@ bool GCOVFile::readGCDA(GCOVBuffer &buf) {
       // than 3.
       if (length < 2 || !buf.readInt(ident))
         return false;
-      auto It = identToFunction.find(ident);
+      auto It = IdentToFunction.find(ident);
       uint32_t linenoChecksum, cfgChecksum = 0;
       buf.readInt(linenoChecksum);
-      if (version >= GCOV::V407)
+      if (Version >= GCOV::V407)
         buf.readInt(cfgChecksum);
-      if (It != identToFunction.end()) {
+      if (It != IdentToFunction.end()) {
         fn = It->second;
         if (linenoChecksum != fn->linenoChecksum ||
             cfgChecksum != fn->cfgChecksum) {
@@ -275,14 +265,11 @@ bool GCOVFile::readGCDA(GCOVBuffer &buf) {
         }
       }
     } else if (tag == GCOV_TAG_COUNTER_ARCS && fn) {
-      uint32_t expected = 2 * fn->arcs.size();
-      if (version >= GCOV::V1200)
-        expected *= 4;
-      if (length != expected) {
+      if (length != 2 * fn->arcs.size()) {
         errs() << fn->Name
                << format(
                       ": GCOV_TAG_COUNTER_ARCS mismatch, got %u, expected %u\n",
-                      length, expected);
+                      length, unsigned(2 * fn->arcs.size()));
         return false;
       }
       for (std::unique_ptr<GCOVArc> &arc : fn->arcs) {
@@ -294,7 +281,7 @@ bool GCOVFile::readGCDA(GCOVBuffer &buf) {
       if (fn->blocks.size() >= 2) {
         GCOVBlock &src = *fn->blocks[0];
         GCOVBlock &sink =
-            version < GCOV::V408 ? *fn->blocks.back() : *fn->blocks[1];
+            Version < GCOV::V408 ? *fn->blocks.back() : *fn->blocks[1];
         auto arc = std::make_unique<GCOVArc>(sink, src, GCOV_ARC_ON_TREE);
         sink.addDstEdge(arc.get());
         src.addSrcEdge(arc.get());
@@ -306,7 +293,7 @@ bool GCOVFile::readGCDA(GCOVBuffer &buf) {
           fn->treeArcs[i - 1]->src.count += fn->treeArcs[i - 1]->count;
       }
     }
-    pos += version >= GCOV::V1200 ? length : 4 * length;
+    pos += 4 * length;
     if (pos < buf.cursor.tell())
       return false;
     buf.de.skip(buf.cursor, pos - buf.cursor.tell());
@@ -577,7 +564,7 @@ public:
     // Open source files without requiring a NUL terminator. The concurrent
     // modification may nullify the NUL terminator condition.
     ErrorOr<std::unique_ptr<MemoryBuffer>> BufferOrErr =
-        MemoryBuffer::getFileOrSTDIN(Filename, /*IsText=*/false,
+        MemoryBuffer::getFileOrSTDIN(Filename, -1,
                                      /*RequiresNullTerminator=*/false);
     if (std::error_code EC = BufferOrErr.getError()) {
       errs() << Filename << ": " << EC.message() << "\n";
@@ -748,9 +735,9 @@ void Context::annotateSource(SourceInfo &si, const GCOVFile &file,
   os << "        -:    0:Source:" << si.displayName << '\n';
   os << "        -:    0:Graph:" << gcno << '\n';
   os << "        -:    0:Data:" << gcda << '\n';
-  os << "        -:    0:Runs:" << file.runCount << '\n';
-  if (file.version < GCOV::V900)
-    os << "        -:    0:Programs:" << file.programCount << '\n';
+  os << "        -:    0:Runs:" << file.RunCount << '\n';
+  if (file.Version < GCOV::V900)
+    os << "        -:    0:Programs:" << file.ProgramCount << '\n';
 
   for (size_t lineNum = 1; !source.empty(); ++lineNum) {
     if (lineNum >= si.lines.size()) {
@@ -879,7 +866,7 @@ void Context::print(StringRef filename, StringRef gcno, StringRef gcda,
     Optional<raw_fd_ostream> os;
     if (!options.UseStdout) {
       std::error_code ec;
-      os.emplace(gcovName, ec, sys::fs::OF_TextWithCRLF);
+      os.emplace(gcovName, ec, sys::fs::OF_Text);
       if (ec) {
         errs() << ec.message() << '\n';
         continue;
@@ -894,7 +881,7 @@ void Context::print(StringRef filename, StringRef gcno, StringRef gcda,
     // (PR GCC/82702). We create just one file.
     std::string outputPath(sys::path::filename(filename));
     std::error_code ec;
-    raw_fd_ostream os(outputPath + ".gcov", ec, sys::fs::OF_TextWithCRLF);
+    raw_fd_ostream os(outputPath + ".gcov", ec, sys::fs::OF_Text);
     if (ec) {
       errs() << ec.message() << '\n';
       return;

@@ -13,22 +13,16 @@
 #include "benchmark/benchmark.h"
 
 #include <memory>
-#include <vector>
-
-void *CurrentAllocator;
-template <typename Config> void PostInitCallback() {
-  reinterpret_cast<scudo::Allocator<Config> *>(CurrentAllocator)->initGwpAsan();
-}
 
 template <typename Config> static void BM_malloc_free(benchmark::State &State) {
-  using AllocatorT = scudo::Allocator<Config, PostInitCallback<Config>>;
+  using AllocatorT = scudo::Allocator<Config>;
   auto Deleter = [](AllocatorT *A) {
     A->unmapTestOnly();
     delete A;
   };
   std::unique_ptr<AllocatorT, decltype(Deleter)> Allocator(new AllocatorT,
                                                            Deleter);
-  CurrentAllocator = Allocator.get();
+  Allocator->reset();
 
   const size_t NBytes = State.range(0);
   size_t PageSize = scudo::getPageSizeCached();
@@ -61,18 +55,18 @@ BENCHMARK_TEMPLATE(BM_malloc_free, scudo::FuchsiaConfig)
 
 template <typename Config>
 static void BM_malloc_free_loop(benchmark::State &State) {
-  using AllocatorT = scudo::Allocator<Config, PostInitCallback<Config>>;
+  using AllocatorT = scudo::Allocator<Config>;
   auto Deleter = [](AllocatorT *A) {
     A->unmapTestOnly();
     delete A;
   };
   std::unique_ptr<AllocatorT, decltype(Deleter)> Allocator(new AllocatorT,
                                                            Deleter);
-  CurrentAllocator = Allocator.get();
+  Allocator->reset();
 
   const size_t NumIters = State.range(0);
   size_t PageSize = scudo::getPageSizeCached();
-  std::vector<void *> Ptrs(NumIters);
+  void *Ptrs[NumIters];
 
   for (auto _ : State) {
     size_t SizeLog2 = 0;

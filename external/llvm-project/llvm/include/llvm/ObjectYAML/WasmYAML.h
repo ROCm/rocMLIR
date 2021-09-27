@@ -46,7 +46,7 @@ struct FileHeader {
 
 struct Limits {
   LimitFlags Flags;
-  yaml::Hex32 Minimum;
+  yaml::Hex32 Initial;
   yaml::Hex32 Maximum;
 };
 
@@ -63,9 +63,7 @@ struct Export {
 };
 
 struct ElemSegment {
-  uint32_t Flags;
-  uint32_t TableNumber;
-  ValueType ElemKind;
+  uint32_t TableIndex;
   wasm::WasmInitExpr Offset;
   std::vector<uint32_t> Functions;
 };
@@ -77,7 +75,7 @@ struct Global {
   wasm::WasmInitExpr InitExpr;
 };
 
-struct Tag {
+struct Event {
   uint32_t Index;
   uint32_t Attribute;
   uint32_t SigIndex;
@@ -92,7 +90,7 @@ struct Import {
     Global GlobalImport;
     Table TableImport;
     Limits Memory;
-    Tag TagImport;
+    Event EventImport;
   };
 };
 
@@ -199,17 +197,12 @@ struct CustomSection : Section {
   yaml::BinaryRef Payload;
 };
 
-struct DylinkExport {
-  StringRef Name;
-  SymbolFlags Flags;
-};
-
 struct DylinkSection : CustomSection {
-  DylinkSection() : CustomSection("dylink.0") {}
+  DylinkSection() : CustomSection("dylink") {}
 
   static bool classof(const Section *S) {
     auto C = dyn_cast<CustomSection>(S);
-    return C && C->Name == "dylink.0";
+    return C && C->Name == "dylink";
   }
 
   uint32_t MemorySize;
@@ -217,7 +210,6 @@ struct DylinkSection : CustomSection {
   uint32_t TableSize;
   uint32_t TableAlignment;
   std::vector<StringRef> Needed;
-  std::vector<DylinkExport> ExportInfo;
 };
 
 struct NameSection : CustomSection {
@@ -322,14 +314,14 @@ struct MemorySection : Section {
   std::vector<Limits> Memories;
 };
 
-struct TagSection : Section {
-  TagSection() : Section(wasm::WASM_SEC_TAG) {}
+struct EventSection : Section {
+  EventSection() : Section(wasm::WASM_SEC_EVENT) {}
 
   static bool classof(const Section *S) {
-    return S->Type == wasm::WASM_SEC_TAG;
+    return S->Type == wasm::WASM_SEC_EVENT;
   }
 
-  std::vector<Tag> Tags;
+  std::vector<Event> Events;
 };
 
 struct GlobalSection : Section {
@@ -431,8 +423,7 @@ LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::WasmYAML::SymbolInfo)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::WasmYAML::InitFunction)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::WasmYAML::ComdatEntry)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::WasmYAML::Comdat)
-LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::WasmYAML::Tag)
-LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::WasmYAML::DylinkExport)
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::WasmYAML::Event)
 
 namespace llvm {
 namespace yaml {
@@ -577,12 +568,8 @@ template <> struct ScalarEnumerationTraits<WasmYAML::RelocType> {
   static void enumeration(IO &IO, WasmYAML::RelocType &Kind);
 };
 
-template <> struct MappingTraits<WasmYAML::Tag> {
-  static void mapping(IO &IO, WasmYAML::Tag &Tag);
-};
-
-template <> struct MappingTraits<WasmYAML::DylinkExport> {
-  static void mapping(IO &IO, WasmYAML::DylinkExport &Export);
+template <> struct MappingTraits<WasmYAML::Event> {
+  static void mapping(IO &IO, WasmYAML::Event &Event);
 };
 
 } // end namespace yaml

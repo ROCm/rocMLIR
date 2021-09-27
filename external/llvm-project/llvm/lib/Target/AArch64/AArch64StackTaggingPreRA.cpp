@@ -1,8 +1,9 @@
 //===-- AArch64StackTaggingPreRA.cpp --- Stack Tagging for AArch64 -----===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
 
@@ -202,7 +203,6 @@ void AArch64StackTaggingPreRA::uncheckLoadsAndStores() {
   }
 }
 
-namespace {
 struct SlotWithTag {
   int FI;
   int Tag;
@@ -213,7 +213,6 @@ struct SlotWithTag {
     return FI == Other.FI && Tag == Other.Tag;
   }
 };
-} // namespace
 
 namespace llvm {
 template <> struct DenseMapInfo<SlotWithTag> {
@@ -276,7 +275,8 @@ Optional<int> AArch64StackTaggingPreRA::findFirstSlotCandidate() {
     WorkList.push_back(RetagReg);
 
     while (!WorkList.empty()) {
-      Register UseReg = WorkList.pop_back_val();
+      Register UseReg = WorkList.back();
+      WorkList.pop_back();
       for (auto &UseI : MRI->use_instructions(UseReg)) {
         unsigned Opcode = UseI.getOpcode();
         if (Opcode == AArch64::STGOffset || Opcode == AArch64::ST2GOffset ||

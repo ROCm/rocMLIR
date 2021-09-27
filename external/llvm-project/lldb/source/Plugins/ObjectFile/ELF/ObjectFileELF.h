@@ -9,7 +9,7 @@
 #ifndef LLDB_SOURCE_PLUGINS_OBJECTFILE_ELF_OBJECTFILEELF_H
 #define LLDB_SOURCE_PLUGINS_OBJECTFILE_ELF_OBJECTFILEELF_H
 
-#include <cstdint>
+#include <stdint.h>
 
 #include <vector>
 
@@ -22,13 +22,13 @@
 #include "ELFHeader.h"
 
 struct ELFNote {
-  elf::elf_word n_namesz = 0;
-  elf::elf_word n_descsz = 0;
-  elf::elf_word n_type = 0;
+  elf::elf_word n_namesz;
+  elf::elf_word n_descsz;
+  elf::elf_word n_type;
 
   std::string n_name;
 
-  ELFNote() = default;
+  ELFNote() : n_namesz(0), n_descsz(0), n_type(0) {}
 
   /// Parse an ELFNote entry from the given DataExtractor starting at position
   /// \p offset.
@@ -86,6 +86,8 @@ public:
 
   // PluginInterface protocol
   lldb_private::ConstString GetPluginName() override;
+
+  uint32_t GetPluginVersion() override;
 
   // LLVM RTTI support
   static char ID;

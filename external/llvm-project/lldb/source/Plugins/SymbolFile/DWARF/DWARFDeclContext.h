@@ -23,7 +23,7 @@
 class DWARFDeclContext {
 public:
   struct Entry {
-    Entry() = default;
+    Entry() : tag(llvm::dwarf::DW_TAG_null), name(nullptr) {}
     Entry(dw_tag_t t, const char *n) : tag(t), name(n) {}
 
     bool NameMatches(const Entry &rhs) const {
@@ -37,11 +37,11 @@ public:
     // Test operator
     explicit operator bool() const { return tag != 0; }
 
-    dw_tag_t tag = llvm::dwarf::DW_TAG_null;
-    const char *name = nullptr;
+    dw_tag_t tag;
+    const char *name;
   };
 
-  DWARFDeclContext() : m_entries() {}
+  DWARFDeclContext() : m_entries(), m_language(lldb::eLanguageTypeUnknown) {}
 
   void AppendDeclContext(dw_tag_t tag, const char *name) {
     m_entries.push_back(Entry(tag, name));
@@ -83,7 +83,7 @@ protected:
   typedef std::vector<Entry> collection;
   collection m_entries;
   mutable std::string m_qualified_name;
-  lldb::LanguageType m_language = lldb::eLanguageTypeUnknown;
+  lldb::LanguageType m_language;
 };
 
 #endif // LLDB_SOURCE_PLUGINS_SYMBOLFILE_DWARF_DWARFDECLCONTEXT_H

@@ -14,7 +14,6 @@
 #include "Plugins/TypeSystem/Clang/TypeSystemClang.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
-#include "llvm/IR/Operator.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
@@ -42,12 +41,14 @@
 
 using namespace llvm;
 
+static char ID;
+
 typedef SmallVector<Instruction *, 2> InstrList;
 
 IRForTarget::FunctionValueCache::FunctionValueCache(Maker const &maker)
     : m_maker(maker), m_values() {}
 
-IRForTarget::FunctionValueCache::~FunctionValueCache() = default;
+IRForTarget::FunctionValueCache::~FunctionValueCache() {}
 
 llvm::Value *
 IRForTarget::FunctionValueCache::GetValue(llvm::Function *function) {
@@ -71,9 +72,13 @@ IRForTarget::IRForTarget(lldb_private::ClangExpressionDeclMap *decl_map,
                          lldb_private::IRExecutionUnit &execution_unit,
                          lldb_private::Stream &error_stream,
                          const char *func_name)
-    : m_resolve_vars(resolve_vars), m_func_name(func_name),
-      m_decl_map(decl_map), m_error_stream(error_stream),
-      m_execution_unit(execution_unit),
+    : ModulePass(ID), m_resolve_vars(resolve_vars), m_func_name(func_name),
+      m_module(nullptr), m_decl_map(decl_map),
+      m_CFStringCreateWithBytes(nullptr), m_sel_registerName(nullptr),
+      m_objc_getClass(nullptr), m_intptr_ty(nullptr),
+      m_error_stream(error_stream), m_execution_unit(execution_unit),
+      m_result_store(nullptr), m_result_is_pointer(false),
+      m_reloc_placeholder(nullptr),
       m_entry_instruction_finder(FindEntryInstruction) {}
 
 /* Handy utility functions used at several places in the code */
@@ -99,6 +104,8 @@ static std::string PrintType(const llvm::Type *type, bool truncate = false) {
     s.resize(s.length() - 1);
   return s;
 }
+
+IRForTarget::~IRForTarget() {}
 
 bool IRForTarget::FixFunctionLinkage(llvm::Function &llvm_function) {
   llvm_function.setLinkage(GlobalValue::ExternalLinkage);
@@ -1575,14 +1582,20 @@ bool IRForTarget::UnfoldConstant(Constant *old_constant,
           FunctionValueCache get_element_pointer_maker(
               [&value_maker, &entry_instruction_finder, old_constant,
                constant_expr](llvm::Function *function) -> llvm::Value * {
-                auto *gep = cast<llvm::GEPOperator>(constant_expr);
-                Value *ptr = gep->getPointerOperand();
+                Value *ptr = constant_expr->getOperand(0);
 
                 if (ptr == old_constant)
                   ptr = value_maker.GetValue(function);
 
                 std::vector<Value *> index_vector;
-                for (Value *operand : gep->indices()) {
+
+                unsigned operand_index;
+                unsigned num_operands = constant_expr->getNumOperands();
+
+                for (operand_index = 1; operand_index < num_operands;
+                     ++operand_index) {
+                  Value *operand = constant_expr->getOperand(operand_index);
+
                   if (operand == old_constant)
                     operand = value_maker.GetValue(function);
 
@@ -1592,7 +1605,7 @@ bool IRForTarget::UnfoldConstant(Constant *old_constant,
                 ArrayRef<Value *> indices(index_vector);
 
                 return GetElementPtrInst::Create(
-                    gep->getSourceElementType(), ptr, indices, "",
+                    nullptr, ptr, indices, "",
                     llvm::cast<Instruction>(
                         entry_instruction_finder.GetValue(function)));
               });
@@ -1775,8 +1788,7 @@ bool IRForTarget::ReplaceVariables(Function &llvm_function) {
             ConstantInt *offset_int(
                 ConstantInt::get(offset_type, offset, true));
             GetElementPtrInst *get_element_ptr = GetElementPtrInst::Create(
-                argument->getType()->getPointerElementType(), argument,
-                offset_int, "", entry_instruction);
+                nullptr, argument, offset_int, "", entry_instruction);
 
             if (name == m_result_name && !m_result_is_pointer) {
               BitCastInst *bit_cast = new BitCastInst(
@@ -2009,4 +2021,11 @@ bool IRForTarget::runOnModule(Module &llvm_module) {
   }
 
   return true;
+}
+
+void IRForTarget::assignPassManager(PMStack &pass_mgr_stack,
+                                    PassManagerType pass_mgr_type) {}
+
+PassManagerType IRForTarget::getPotentialPassManagerType() const {
+  return PMT_ModulePassManager;
 }

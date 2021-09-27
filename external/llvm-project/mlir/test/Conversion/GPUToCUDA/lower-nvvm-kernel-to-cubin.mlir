@@ -1,6 +1,6 @@
-// RUN: mlir-opt %s --test-gpu-to-cubin | FileCheck %s
+// RUN: mlir-opt %s --test-kernel-to-cubin -split-input-file | FileCheck %s
 
-// CHECK: gpu.module @foo attributes {gpu.binary = "CUBIN"}
+// CHECK: attributes {nvvm.cubin = "CUBIN"}
 gpu.module @foo {
   llvm.func @kernel(%arg0 : f32, %arg1 : !llvm.ptr<f32>)
     // CHECK: attributes  {gpu.kernel}
@@ -9,7 +9,8 @@ gpu.module @foo {
   }
 }
 
-// CHECK: gpu.module @bar attributes {gpu.binary = "CUBIN"}
+// -----
+
 gpu.module @bar {
   // CHECK: func @kernel_a
   llvm.func @kernel_a()

@@ -64,16 +64,12 @@ inline bool operator<(const DataRefImpl &a, const DataRefImpl &b) {
   return std::memcmp(&a, &b, sizeof(DataRefImpl)) < 0;
 }
 
-template <class content_type> class content_iterator {
+template <class content_type>
+class content_iterator
+    : public std::iterator<std::forward_iterator_tag, content_type> {
   content_type Current;
 
 public:
-  using iterator_category = std::forward_iterator_tag;
-  using value_type = content_type;
-  using difference_type = std::ptrdiff_t;
-  using pointer = value_type *;
-  using reference = value_type &;
-
   content_iterator(content_type symb) : Current(std::move(symb)) {}
 
   const content_type *operator->() const { return &Current; }

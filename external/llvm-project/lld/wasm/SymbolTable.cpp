@@ -9,7 +9,9 @@
 #include "SymbolTable.h"
 #include "Config.h"
 #include "InputChunks.h"
-#include "InputElement.h"
+#include "InputEvent.h"
+#include "InputGlobal.h"
+#include "InputTable.h"
 #include "WriterUtils.h"
 #include "lld/Common/ErrorHandler.h"
 #include "lld/Common/Memory.h"
@@ -168,23 +170,23 @@ static void checkGlobalType(const Symbol *existing, const InputFile *file,
   }
 }
 
-static void checkTagType(const Symbol *existing, const InputFile *file,
-                         const WasmTagType *newType,
-                         const WasmSignature *newSig) {
-  const auto *existingTag = dyn_cast<TagSymbol>(existing);
-  if (!isa<TagSymbol>(existing)) {
-    reportTypeError(existing, file, WASM_SYMBOL_TYPE_TAG);
+static void checkEventType(const Symbol *existing, const InputFile *file,
+                           const WasmEventType *newType,
+                           const WasmSignature *newSig) {
+  auto existingEvent = dyn_cast<EventSymbol>(existing);
+  if (!isa<EventSymbol>(existing)) {
+    reportTypeError(existing, file, WASM_SYMBOL_TYPE_EVENT);
     return;
   }
 
-  const WasmTagType *oldType = cast<TagSymbol>(existing)->getTagType();
-  const WasmSignature *oldSig = existingTag->signature;
+  const WasmEventType *oldType = cast<EventSymbol>(existing)->getEventType();
+  const WasmSignature *oldSig = existingEvent->signature;
   if (newType->Attribute != oldType->Attribute)
-    error("Tag type mismatch: " + existing->getName() + "\n>>> defined as " +
+    error("Event type mismatch: " + existing->getName() + "\n>>> defined as " +
           toString(*oldType) + " in " + toString(existing->getFile()) +
           "\n>>> defined as " + toString(*newType) + " in " + toString(file));
   if (*newSig != *oldSig)
-    warn("Tag signature mismatch: " + existing->getName() +
+    warn("Event signature mismatch: " + existing->getName() +
          "\n>>> defined as " + toString(*oldSig) + " in " +
          toString(existing->getFile()) + "\n>>> defined as " +
          toString(*newSig) + " in " + toString(file));
@@ -234,7 +236,7 @@ DefinedData *SymbolTable::addOptionalDataSymbol(StringRef name,
     return nullptr;
   LLVM_DEBUG(dbgs() << "addOptionalDataSymbol: " << name << "\n");
   auto *rtn = replaceSymbol<DefinedData>(s, name, WASM_SYMBOL_VISIBILITY_HIDDEN);
-  rtn->setVA(value);
+  rtn->setVirtualAddress(value);
   rtn->referenced = true;
   return rtn;
 }
@@ -256,16 +258,16 @@ DefinedGlobal *SymbolTable::addSyntheticGlobal(StringRef name, uint32_t flags,
                                       nullptr, global);
 }
 
-DefinedGlobal *SymbolTable::addOptionalGlobalSymbol(StringRef name,
-                                                    InputGlobal *global) {
-  LLVM_DEBUG(dbgs() << "addOptionalGlobalSymbol: " << name << " -> " << global
+DefinedGlobal *SymbolTable::addOptionalGlobalSymbols(StringRef name,
+                                                     uint32_t flags,
+                                                     InputGlobal *global) {
+  LLVM_DEBUG(dbgs() << "addOptionalGlobalSymbols: " << name << " -> " << global
                     << "\n");
   Symbol *s = find(name);
   if (!s || s->isDefined())
     return nullptr;
   syntheticGlobals.emplace_back(global);
-  return replaceSymbol<DefinedGlobal>(s, name, WASM_SYMBOL_VISIBILITY_HIDDEN,
-                                      nullptr, global);
+  return replaceSymbol<DefinedGlobal>(s, name, flags, nullptr, global);
 }
 
 DefinedTable *SymbolTable::addSyntheticTable(StringRef name, uint32_t flags,
@@ -365,7 +367,7 @@ Symbol *SymbolTable::addDefinedFunction(StringRef name, uint32_t flags,
 }
 
 Symbol *SymbolTable::addDefinedData(StringRef name, uint32_t flags,
-                                    InputFile *file, InputChunk *segment,
+                                    InputFile *file, InputSegment *segment,
                                     uint64_t address, uint64_t size) {
   LLVM_DEBUG(dbgs() << "addDefinedData:" << name << " addr:" << address
                     << "\n");
@@ -413,16 +415,16 @@ Symbol *SymbolTable::addDefinedGlobal(StringRef name, uint32_t flags,
   return s;
 }
 
-Symbol *SymbolTable::addDefinedTag(StringRef name, uint32_t flags,
-                                   InputFile *file, InputTag *tag) {
-  LLVM_DEBUG(dbgs() << "addDefinedTag:" << name << "\n");
+Symbol *SymbolTable::addDefinedEvent(StringRef name, uint32_t flags,
+                                     InputFile *file, InputEvent *event) {
+  LLVM_DEBUG(dbgs() << "addDefinedEvent:" << name << "\n");
 
   Symbol *s;
   bool wasInserted;
   std::tie(s, wasInserted) = insert(name, file);
 
   auto replaceSym = [&]() {
-    replaceSymbol<DefinedTag>(s, name, flags, file, tag);
+    replaceSymbol<DefinedEvent>(s, name, flags, file, event);
   };
 
   if (wasInserted || s->isLazy()) {
@@ -430,7 +432,7 @@ Symbol *SymbolTable::addDefinedTag(StringRef name, uint32_t flags,
     return s;
   }
 
-  checkTagType(s, file, &tag->getType(), &tag->signature);
+  checkEventType(s, file, &event->getType(), &event->signature);
 
   if (shouldReplace(s, file, flags))
     replaceSym();
@@ -548,12 +550,9 @@ Symbol *SymbolTable::addUndefinedFunction(StringRef name,
       else if (getFunctionVariant(s, sig, file, &s))
         replaceSym();
     }
-    if (existingUndefined) {
+    if (existingUndefined)
       setImportAttributes(existingUndefined, importName, importModule, flags,
                           file);
-      if (isCalledDirectly)
-        existingUndefined->isCalledDirectly = true;
-    }
   }
 
   return s;
@@ -629,71 +628,6 @@ Symbol *SymbolTable::addUndefinedTable(StringRef name,
   else if (s->isDefined())
     checkTableType(s, file, type);
   return s;
-}
-
-TableSymbol *SymbolTable::createUndefinedIndirectFunctionTable(StringRef name) {
-  WasmLimits limits{0, 0, 0}; // Set by the writer.
-  WasmTableType *type = make<WasmTableType>();
-  type->ElemType = uint8_t(ValType::FUNCREF);
-  type->Limits = limits;
-  StringRef module(defaultModule);
-  uint32_t flags = config->exportTable ? 0 : WASM_SYMBOL_VISIBILITY_HIDDEN;
-  flags |= WASM_SYMBOL_UNDEFINED;
-  Symbol *sym = addUndefinedTable(name, name, module, flags, nullptr, type);
-  sym->markLive();
-  sym->forceExport = config->exportTable;
-  return cast<TableSymbol>(sym);
-}
-
-TableSymbol *SymbolTable::createDefinedIndirectFunctionTable(StringRef name) {
-  const uint32_t invalidIndex = -1;
-  WasmLimits limits{0, 0, 0}; // Set by the writer.
-  WasmTableType type{uint8_t(ValType::FUNCREF), limits};
-  WasmTable desc{invalidIndex, type, name};
-  InputTable *table = make<InputTable>(desc, nullptr);
-  uint32_t flags = config->exportTable ? 0 : WASM_SYMBOL_VISIBILITY_HIDDEN;
-  TableSymbol *sym = addSyntheticTable(name, flags, table);
-  sym->markLive();
-  sym->forceExport = config->exportTable;
-  return sym;
-}
-
-// Whether or not we need an indirect function table is usually a function of
-// whether an input declares a need for it.  However sometimes it's possible for
-// no input to need the indirect function table, but then a late
-// addInternalGOTEntry causes a function to be allocated an address.  In that
-// case address we synthesize a definition at the last minute.
-TableSymbol *SymbolTable::resolveIndirectFunctionTable(bool required) {
-  Symbol *existing = find(functionTableName);
-  if (existing) {
-    if (!isa<TableSymbol>(existing)) {
-      error(Twine("reserved symbol must be of type table: `") +
-            functionTableName + "`");
-      return nullptr;
-    }
-    if (existing->isDefined()) {
-      error(Twine("reserved symbol must not be defined in input files: `") +
-            functionTableName + "`");
-      return nullptr;
-    }
-  }
-
-  if (config->importTable) {
-    if (existing)
-      return cast<TableSymbol>(existing);
-    if (required)
-      return createUndefinedIndirectFunctionTable(functionTableName);
-  } else if ((existing && existing->isLive()) || config->exportTable ||
-             required) {
-    // A defined table is required.  Either because the user request an exported
-    // table or because the table symbol is already live.  The existing table is
-    // guaranteed to be undefined due to the check above.
-    return createDefinedIndirectFunctionTable(functionTableName);
-  }
-
-  // An indirect function table will only be present in the symbol table if
-  // needed by a reloc; if we get here, we don't need one.
-  return nullptr;
 }
 
 void SymbolTable::addLazy(ArchiveFile *file, const Archive::Symbol *sym) {

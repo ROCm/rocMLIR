@@ -23,6 +23,7 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/AnalysisManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/DynamicSize.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ExprEngine.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/MemRegion.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
@@ -1478,7 +1479,7 @@ SVal RegionStoreManager::getBinding(RegionBindingsConstRef B, Loc L, QualType T)
     return UnknownVal();
 
   if (const FieldRegion* FR = dyn_cast<FieldRegion>(R))
-    return svalBuilder.evalCast(getBindingForField(B, FR), T, QualType{});
+    return CastRetrievedVal(getBindingForField(B, FR), FR, T);
 
   if (const ElementRegion* ER = dyn_cast<ElementRegion>(R)) {
     // FIXME: Here we actually perform an implicit conversion from the loaded
@@ -1486,7 +1487,7 @@ SVal RegionStoreManager::getBinding(RegionBindingsConstRef B, Loc L, QualType T)
     // more intelligently.  For example, an 'element' can encompass multiple
     // bound regions (e.g., several bound bytes), or could be a subset of
     // a larger value.
-    return svalBuilder.evalCast(getBindingForElement(B, ER), T, QualType{});
+    return CastRetrievedVal(getBindingForElement(B, ER), ER, T);
   }
 
   if (const ObjCIvarRegion *IVR = dyn_cast<ObjCIvarRegion>(R)) {
@@ -1496,7 +1497,7 @@ SVal RegionStoreManager::getBinding(RegionBindingsConstRef B, Loc L, QualType T)
     // reinterpretted, it is possible we stored a different value that could
     // fit within the ivar.  Either we need to cast these when storing them
     // or reinterpret them lazily (as we do here).
-    return svalBuilder.evalCast(getBindingForObjCIvar(B, IVR), T, QualType{});
+    return CastRetrievedVal(getBindingForObjCIvar(B, IVR), IVR, T);
   }
 
   if (const VarRegion *VR = dyn_cast<VarRegion>(R)) {
@@ -1506,7 +1507,7 @@ SVal RegionStoreManager::getBinding(RegionBindingsConstRef B, Loc L, QualType T)
     // variable is reinterpretted, it is possible we stored a different value
     // that could fit within the variable.  Either we need to cast these when
     // storing them or reinterpret them lazily (as we do here).
-    return svalBuilder.evalCast(getBindingForVar(B, VR), T, QualType{});
+    return CastRetrievedVal(getBindingForVar(B, VR), VR, T);
   }
 
   const SVal *V = B.lookup(R, BindingKey::Direct);

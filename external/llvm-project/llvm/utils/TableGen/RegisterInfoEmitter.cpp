@@ -305,8 +305,9 @@ EmitRegUnitPressure(raw_ostream &OS, const CodeGenRegBank &RegBank,
   for (unsigned i = 0, e = NumRCUnitSets; i != e; ++i) {
     ArrayRef<unsigned> PSetIDs = RegBank.getRCPressureSetIDs(i);
     PSets[i].reserve(PSetIDs.size());
-    for (unsigned PSetID : PSetIDs) {
-      PSets[i].push_back(RegBank.getRegPressureSet(PSetID).Order);
+    for (ArrayRef<unsigned>::iterator PSetI = PSetIDs.begin(),
+           PSetE = PSetIDs.end(); PSetI != PSetE; ++PSetI) {
+      PSets[i].push_back(RegBank.getRegPressureSet(*PSetI).Order);
     }
     llvm::sort(PSets[i]);
     PSetsSeqs.add(PSets[i]);
@@ -398,9 +399,11 @@ void RegisterInfoEmitter::EmitRegMappingTables(
     return;
 
   // Now we know maximal length of number list. Append -1's, where needed
-  for (auto &DwarfRegNum : DwarfRegNums)
-    for (unsigned I = DwarfRegNum.second.size(), E = maxLength; I != E; ++I)
-      DwarfRegNum.second.push_back(-1);
+  for (DwarfRegNumsVecTy::iterator I = DwarfRegNums.begin(),
+                                   E = DwarfRegNums.end();
+       I != E; ++I)
+    for (unsigned i = I->second.size(), e = maxLength; i != e; ++i)
+      I->second.push_back(-1);
 
   StringRef Namespace = Regs.front().TheDef->getValueAsString("Namespace");
 
@@ -408,10 +411,10 @@ void RegisterInfoEmitter::EmitRegMappingTables(
 
   // Emit reverse information about the dwarf register numbers.
   for (unsigned j = 0; j < 2; ++j) {
-    for (unsigned I = 0, E = maxLength; I != E; ++I) {
+    for (unsigned i = 0, e = maxLength; i != e; ++i) {
       OS << "extern const MCRegisterInfo::DwarfLLVMRegPair " << Namespace;
       OS << (j == 0 ? "DwarfFlavour" : "EHFlavour");
-      OS << I << "Dwarf2L[]";
+      OS << i << "Dwarf2L[]";
 
       if (!isCtor) {
         OS << " = {\n";
@@ -419,15 +422,17 @@ void RegisterInfoEmitter::EmitRegMappingTables(
         // Store the mapping sorted by the LLVM reg num so lookup can be done
         // with a binary search.
         std::map<uint64_t, Record*> Dwarf2LMap;
-        for (auto &DwarfRegNum : DwarfRegNums) {
-          int DwarfRegNo = DwarfRegNum.second[I];
+        for (DwarfRegNumsVecTy::iterator
+               I = DwarfRegNums.begin(), E = DwarfRegNums.end(); I != E; ++I) {
+          int DwarfRegNo = I->second[i];
           if (DwarfRegNo < 0)
             continue;
-          Dwarf2LMap[DwarfRegNo] = DwarfRegNum.first;
+          Dwarf2LMap[DwarfRegNo] = I->first;
         }
 
-        for (auto &I : Dwarf2LMap)
-          OS << "  { " << I.first << "U, " << getQualifiedName(I.second)
+        for (std::map<uint64_t, Record*>::iterator
+               I = Dwarf2LMap.begin(), E = Dwarf2LMap.end(); I != E; ++I)
+          OS << "  { " << I->first << "U, " << getQualifiedName(I->second)
              << " },\n";
 
         OS << "};\n";
@@ -438,10 +443,11 @@ void RegisterInfoEmitter::EmitRegMappingTables(
       // We have to store the size in a const global, it's used in multiple
       // places.
       OS << "extern const unsigned " << Namespace
-         << (j == 0 ? "DwarfFlavour" : "EHFlavour") << I << "Dwarf2LSize";
+         << (j == 0 ? "DwarfFlavour" : "EHFlavour") << i << "Dwarf2LSize";
       if (!isCtor)
         OS << " = array_lengthof(" << Namespace
-           << (j == 0 ? "DwarfFlavour" : "EHFlavour") << I << "Dwarf2L);\n\n";
+           << (j == 0 ? "DwarfFlavour" : "EHFlavour") << i
+           << "Dwarf2L);\n\n";
       else
         OS << ";\n\n";
     }
@@ -480,12 +486,13 @@ void RegisterInfoEmitter::EmitRegMappingTables(
         OS << " = {\n";
         // Store the mapping sorted by the Dwarf reg num so lookup can be done
         // with a binary search.
-        for (auto &DwarfRegNum : DwarfRegNums) {
-          int RegNo = DwarfRegNum.second[i];
+        for (DwarfRegNumsVecTy::iterator
+               I = DwarfRegNums.begin(), E = DwarfRegNums.end(); I != E; ++I) {
+          int RegNo = I->second[i];
           if (RegNo == -1) // -1 is the default value, don't emit a mapping.
             continue;
 
-          OS << "  { " << getQualifiedName(DwarfRegNum.first) << ", " << RegNo
+          OS << "  { " << getQualifiedName(I->first) << ", " << RegNo
              << "U },\n";
         }
         OS << "};\n";
@@ -1022,10 +1029,9 @@ RegisterInfoEmitter::runMCDesc(raw_ostream &OS, CodeGenTarget &Target,
     ArrayRef<const CodeGenRegister*> Roots = RegBank.getRegUnit(i).getRoots();
     assert(!Roots.empty() && "All regunits must have a root register.");
     assert(Roots.size() <= 2 && "More than two roots not supported yet.");
-    OS << "  { ";
-    ListSeparator LS;
-    for (const CodeGenRegister *R : Roots)
-      OS << LS << getQualifiedName(R->TheDef);
+    OS << "  { " << getQualifiedName(Roots.front()->TheDef);
+    for (unsigned r = 1; r != Roots.size(); ++r)
+      OS << ", " << getQualifiedName(Roots[r]->TheDef);
     OS << " },\n";
   }
   OS << "};\n\n";
@@ -1077,15 +1083,12 @@ RegisterInfoEmitter::runMCDesc(raw_ostream &OS, CodeGenTarget &Target,
 
   for (const auto &RC : RegisterClasses) {
     assert(isInt<8>(RC.CopyCost) && "Copy cost too large.");
-    uint32_t RegSize = 0;
-    if (RC.RSI.isSimple())
-      RegSize = RC.RSI.getSimple().RegSize;
     OS << "  { " << RC.getName() << ", " << RC.getName() << "Bits, "
-       << RegClassStrings.get(RC.getName()) << ", " << RC.getOrder().size()
-       << ", sizeof(" << RC.getName() << "Bits), "
-       << RC.getQualifiedName() + "RegClassID"
-       << ", " << RegSize << ", " << RC.CopyCost << ", "
-       << (RC.Allocatable ? "true" : "false") << " },\n";
+       << RegClassStrings.get(RC.getName()) << ", "
+       << RC.getOrder().size() << ", sizeof(" << RC.getName() << "Bits), "
+       << RC.getQualifiedName() + "RegClassID" << ", "
+       << RC.CopyCost << ", "
+       << ( RC.Allocatable ? "true" : "false" ) << " },\n";
   }
 
   OS << "};\n\n";
@@ -1411,7 +1414,6 @@ RegisterInfoEmitter::runTargetDesc(raw_ostream &OS, CodeGenTarget &Target,
          << SuperRegIdxSeqs.get(SuperRegIdxLists[RC.EnumValue]) << ",\n    ";
       printMask(OS, RC.LaneMask);
       OS << ",\n    " << (unsigned)RC.AllocationPriority << ",\n    "
-         << format("0x%02x", RC.TSFlags) << ", /* TSFlags */\n    "
          << (RC.HasDisjunctSubRegs?"true":"false")
          << ", /* HasDisjunctSubRegs */\n    "
          << (RC.CoveredBySubRegs?"true":"false")

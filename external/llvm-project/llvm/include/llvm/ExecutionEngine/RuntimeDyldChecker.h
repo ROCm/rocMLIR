@@ -78,7 +78,7 @@ public:
     MemoryRegionInfo() = default;
 
     /// Constructor for symbols/sections with content.
-    MemoryRegionInfo(ArrayRef<char> Content, JITTargetAddress TargetAddress)
+    MemoryRegionInfo(StringRef Content, JITTargetAddress TargetAddress)
         : ContentPtr(Content.data()), Size(Content.size()),
           TargetAddress(TargetAddress) {}
 
@@ -93,7 +93,7 @@ public:
     }
 
     /// Set the content for this memory region.
-    void setContent(ArrayRef<char> Content) {
+    void setContent(StringRef Content) {
       assert(!ContentPtr && !Size && "Content/zero-fill already set");
       ContentPtr = Content.data();
       Size = Content.size();
@@ -106,9 +106,9 @@ public:
     }
 
     /// Returns the content for this section if there is any.
-    ArrayRef<char> getContent() const {
+    StringRef getContent() const {
       assert(!isZeroFill() && "Can't get content for a zero-fill section");
-      return {ContentPtr, static_cast<size_t>(Size)};
+      return StringRef(ContentPtr, static_cast<size_t>(Size));
     }
 
     /// Returns the zero-fill length for this section.

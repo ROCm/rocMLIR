@@ -73,7 +73,7 @@ public:
   /// Returns the original FunctionDecl.
   const FunctionDecl *getDecl() const { return F; }
 
-  /// Returns the location.
+  /// Returns the lcoation.
   SourceLocation getLoc() const { return Loc; }
 
   /// Returns a parameter descriptor.

@@ -9,8 +9,8 @@
 // Test a utility that can write out XRay FDR Mode formatted trace files.
 //
 //===----------------------------------------------------------------------===//
-#ifndef LLVM_XRAY_FDRTRACEWRITER_H
-#define LLVM_XRAY_FDRTRACEWRITER_H
+#ifndef LLVM_INCLUDE_LLVM_XRAY_FDRTRACEWRITER_H_
+#define LLVM_INCLUDE_LLVM_XRAY_FDRTRACEWRITER_H_
 
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/EndianStream.h"
@@ -52,4 +52,4 @@ private:
 } // namespace xray
 } // namespace llvm
 
-#endif // LLVM_XRAY_FDRTRACEWRITER_H
+#endif // LLVM_INCLUDE_LLVM_XRAY_FDRTRACEWRITER_H_

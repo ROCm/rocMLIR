@@ -13,6 +13,8 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/DebugInfo/GSYM/Range.h"
 #include <stdint.h>
+#include <string>
+
 
 namespace llvm {
 namespace gsym {
@@ -48,4 +50,4 @@ inline raw_ostream &operator<<(raw_ostream &OS, const StringTable &S) {
 
 } // namespace gsym
 } // namespace llvm
-#endif // LLVM_DEBUGINFO_GSYM_STRINGTABLE_H
+#endif // #ifndef LLVM_DEBUGINFO_GSYM_STRINGTABLE_H

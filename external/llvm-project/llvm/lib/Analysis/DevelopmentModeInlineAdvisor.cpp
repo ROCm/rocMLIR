@@ -1,8 +1,9 @@
 //===- DevelopmentModeInlineAdvisor.cpp - runtime-loadable model runner  --===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
 //
@@ -159,9 +160,7 @@ public:
     *CurrentNativeSize += Change;
   }
   void resetNativeSize(Function *F) {
-    PreservedAnalyses PA = PreservedAnalyses::all();
-    PA.abandon<InlineSizeEstimatorAnalysis>();
-    FAM.invalidate(*F, PA);
+    FAM.invalidate<InlineSizeEstimatorAnalysis>(*F);
   }
 
   std::unique_ptr<MLInlineAdvice>
@@ -227,8 +226,6 @@ private:
                    (*CallerSizeEstimateBefore + *CalleeSizeEstimateBefore);
       getAdvisor()->updateNativeSizeEstimate(Reward);
       log(Reward, /*Success=*/true);
-    } else {
-      log(NoReward, /*Success=*/true);
     }
   }
 
@@ -354,22 +351,24 @@ void TrainingLogger::logInlineEvent(const InlineEvent &Event,
   size_t CurrentFeature = 0;
   for (; CurrentFeature < NumberOfFeatures; ++CurrentFeature) {
     int64_t F = ModelRunner.getFeature(CurrentFeature);
-    L->logInt64Value(CurrentFeature, &F);
+    L->logTensorValue(CurrentFeature, &F);
   }
 
   for (size_t I = 1; I < OutputCount; ++I) {
     const auto &Result = *MUTR->lastEvaluationResult();
+    auto &Spec = MUTR->outputLoggedFeatureSpecs()[I].Spec;
     const char *RawData =
         reinterpret_cast<const char *>(Result.getUntypedTensorValue(I));
-    L->logSpecifiedTensorValue(CurrentFeature, RawData);
+    L->logTensorValue(CurrentFeature, RawData,
+                      Spec.getElementCount() * Spec.getElementByteSize());
     ++CurrentFeature;
   }
 
   assert(CurrentFeature == DefaultDecisionPos);
-  L->logInt64Value(DefaultDecisionPos, &Event.DefaultDecision);
-  L->logInt64Value(DecisionPos, &Event.AdvisedDecision);
+  L->logTensorValue(DefaultDecisionPos, &Event.DefaultDecision);
+  L->logTensorValue(DecisionPos, &Event.AdvisedDecision);
   if (InlineSizeEstimatorAnalysis::isEvaluatorRequested())
-    L->logInt64Reward(Event.Reward);
+    L->logReward(Event.Reward);
 
   // For debugging / later use
   Effects.push_back(Event.Effect);
@@ -378,7 +377,7 @@ void TrainingLogger::logInlineEvent(const InlineEvent &Event,
 void TrainingLogger::print() {
   std::error_code EC;
   raw_fd_ostream OutFile(LogFileName, EC);
-  L->flush(OutFile);
+  L->print(OutFile);
 }
 
 DevelopmentModeMLInlineAdvisor::DevelopmentModeMLInlineAdvisor(

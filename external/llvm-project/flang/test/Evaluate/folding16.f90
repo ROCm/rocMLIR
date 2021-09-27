@@ -1,4 +1,4 @@
-! RUN: %python %S/test_folding.py %s %flang_fc1
+! RUN: %S/test_folding.sh %s %t %f18
 ! Ensure that lower bounds are accounted for in intrinsic folding;
 ! this is a regression test for a bug in which they were not
 module m

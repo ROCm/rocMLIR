@@ -288,9 +288,8 @@ void NestedNameSpecifier::print(raw_ostream &OS, const PrintingPolicy &Policy,
     if (ResolveTemplateArguments && Record) {
         // Print the type trait with resolved template parameters.
         Record->printName(OS);
-        printTemplateArgumentList(
-            OS, Record->getTemplateArgs().asArray(), Policy,
-            Record->getSpecializedTemplate()->getTemplateParameters());
+        printTemplateArgumentList(OS, Record->getTemplateArgs().asArray(),
+                                  Policy);
         break;
     }
     const Type *T = getAsType();
@@ -311,8 +310,7 @@ void NestedNameSpecifier::print(raw_ostream &OS, const PrintingPolicy &Policy,
           = dyn_cast<TemplateSpecializationType>(T)) {
       // Print the template name without its corresponding
       // nested-name-specifier.
-      SpecType->getTemplateName().print(OS, InnerPolicy,
-                                        TemplateName::Qualified::None);
+      SpecType->getTemplateName().print(OS, InnerPolicy, true);
 
       // Print the template argument list.
       printTemplateArgumentList(OS, SpecType->template_arguments(),
@@ -357,7 +355,7 @@ NestedNameSpecifierLoc::getLocalDataLength(NestedNameSpecifier *Qualifier) {
   assert(Qualifier && "Expected a non-NULL qualifier");
 
   // Location of the trailing '::'.
-  unsigned Length = sizeof(SourceLocation::UIntTy);
+  unsigned Length = sizeof(unsigned);
 
   switch (Qualifier->getKind()) {
   case NestedNameSpecifier::Global:
@@ -369,7 +367,7 @@ NestedNameSpecifierLoc::getLocalDataLength(NestedNameSpecifier *Qualifier) {
   case NestedNameSpecifier::NamespaceAlias:
   case NestedNameSpecifier::Super:
     // The location of the identifier or namespace name.
-    Length += sizeof(SourceLocation::UIntTy);
+    Length += sizeof(unsigned);
     break;
 
   case NestedNameSpecifier::TypeSpecWithTemplate:
@@ -394,8 +392,8 @@ NestedNameSpecifierLoc::getDataLength(NestedNameSpecifier *Qualifier) {
 /// Load a (possibly unaligned) source location from a given address
 /// and offset.
 static SourceLocation LoadSourceLocation(void *Data, unsigned Offset) {
-  SourceLocation::UIntTy Raw;
-  memcpy(&Raw, static_cast<char *>(Data) + Offset, sizeof(Raw));
+  unsigned Raw;
+  memcpy(&Raw, static_cast<char *>(Data) + Offset, sizeof(unsigned));
   return SourceLocation::getFromRawEncoding(Raw);
 }
 
@@ -432,9 +430,8 @@ SourceRange NestedNameSpecifierLoc::getLocalSourceRange() const {
   case NestedNameSpecifier::Namespace:
   case NestedNameSpecifier::NamespaceAlias:
   case NestedNameSpecifier::Super:
-    return SourceRange(
-        LoadSourceLocation(Data, Offset),
-        LoadSourceLocation(Data, Offset + sizeof(SourceLocation::UIntTy)));
+    return SourceRange(LoadSourceLocation(Data, Offset),
+                       LoadSourceLocation(Data, Offset + sizeof(unsigned)));
 
   case NestedNameSpecifier::TypeSpecWithTemplate:
   case NestedNameSpecifier::TypeSpec: {
@@ -489,10 +486,10 @@ static void Append(char *Start, char *End, char *&Buffer, unsigned &BufferSize,
 /// Save a source location to the given buffer.
 static void SaveSourceLocation(SourceLocation Loc, char *&Buffer,
                                unsigned &BufferSize, unsigned &BufferCapacity) {
-  SourceLocation::UIntTy Raw = Loc.getRawEncoding();
+  unsigned Raw = Loc.getRawEncoding();
   Append(reinterpret_cast<char *>(&Raw),
-         reinterpret_cast<char *>(&Raw) + sizeof(Raw), Buffer, BufferSize,
-         BufferCapacity);
+         reinterpret_cast<char *>(&Raw) + sizeof(unsigned),
+         Buffer, BufferSize, BufferCapacity);
 }
 
 /// Save a pointer to the given buffer.

@@ -20,7 +20,6 @@ add_clang_library(clangAnalysis
   ExprMutationAnalyzer.cpp
   IssueHash.cpp
   LiveVariables.cpp
-  MacroExpansionContext.cpp
   ObjCNoReturn.cpp
   PathDiagnostic.cpp
   PostOrderCFGView.cpp

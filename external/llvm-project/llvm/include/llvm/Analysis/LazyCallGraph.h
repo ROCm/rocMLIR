@@ -60,7 +60,6 @@
 
 namespace llvm {
 
-template <class GraphType> struct GraphTraits;
 class Module;
 class Value;
 
@@ -116,6 +115,8 @@ public:
   class EdgeSequence;
   class SCC;
   class RefSCC;
+  class edge_iterator;
+  class call_edge_iterator;
 
   /// A class used to represent edges in the call graph.
   ///
@@ -419,7 +420,7 @@ public:
   /// outer structure. SCCs do not support mutation of the call graph, that
   /// must be done through the containing \c RefSCC in order to fully reason
   /// about the ordering and connections of the graph.
-  class LLVM_EXTERNAL_VISIBILITY SCC {
+  class SCC {
     friend class LazyCallGraph;
     friend class LazyCallGraph::Node;
 
@@ -463,7 +464,7 @@ public:
     /// Dump a short description of this SCC to stderr.
     void dump() const;
 
-#if !defined(NDEBUG) || defined(EXPENSIVE_CHECKS)
+#ifndef NDEBUG
     /// Verify invariants about the SCC.
     ///
     /// This will attempt to validate all of the basic invariants within an
@@ -584,7 +585,7 @@ public:
     /// Dump a short description of this RefSCC to stderr.
     void dump() const;
 
-#if !defined(NDEBUG) || defined(EXPENSIVE_CHECKS)
+#ifndef NDEBUG
     /// Verify invariants about the RefSCC and all its SCCs.
     ///
     /// This will attempt to validate all of the invariants *within* the

@@ -1,7 +1,6 @@
 set(LLVM_LINK_COMPONENTS
   Core
   FrontendOpenMP
-  MC
   Support
   )
 

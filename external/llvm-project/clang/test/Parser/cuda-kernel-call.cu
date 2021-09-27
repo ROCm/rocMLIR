@@ -10,8 +10,10 @@ void foo(void) {
 
   foo<<<>>>();  // expected-error {{expected expression}}
 
-  S<S<S<int>>> s;
-  S<S<S<>>> s1;
-  (void)(&f<S<S<int>>>==0);
-  (void)(&f<S<S<>>>==0);
+  // The following two are parse errors because -std=c++11 is not enabled.
+
+  S<S<S<int>>> s; // expected-error 2{{use '> >'}}
+  S<S<S<>>> s1; // expected-error 2{{use '> >'}}
+  (void)(&f<S<S<int>>>==0); // expected-error 2{{use '> >'}}
+  (void)(&f<S<S<>>>==0); // expected-error 2{{use '> >'}}
 }

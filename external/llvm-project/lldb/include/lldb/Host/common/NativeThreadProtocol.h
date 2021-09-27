@@ -21,7 +21,7 @@ class NativeThreadProtocol {
 public:
   NativeThreadProtocol(NativeProcessProtocol &process, lldb::tid_t tid);
 
-  virtual ~NativeThreadProtocol() = default;
+  virtual ~NativeThreadProtocol() {}
 
   virtual std::string GetName() = 0;
 

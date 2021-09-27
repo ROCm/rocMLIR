@@ -93,7 +93,7 @@ template <class T> struct ArgTypeTraits<ast_matchers::internal::Matcher<T>> {
   }
 
   static ArgKind getKind() {
-    return ArgKind::MakeMatcherArg(ASTNodeKind::getFromNodeKind<T>());
+    return ArgKind(ASTNodeKind::getFromNodeKind<T>());
   }
 
   static llvm::Optional<std::string> getBestGuess(const VariantValue &) {
@@ -309,16 +309,6 @@ public:
                                 ArrayRef<ParserValue> Args,
                                 Diagnostics *Error) const = 0;
 
-  virtual ASTNodeKind nodeMatcherType() const { return ASTNodeKind(); }
-
-  virtual bool isBuilderMatcher() const { return false; }
-
-  virtual std::unique_ptr<MatcherDescriptor>
-  buildMatcherCtor(SourceRange NameRange, ArrayRef<ParserValue> Args,
-                   Diagnostics *Error) const {
-    return {};
-  }
-
   /// Returns whether the matcher is variadic. Variadic matchers can take any
   /// number of arguments, but they must be of the same type.
   virtual bool isVariadic() const = 0;
@@ -353,8 +343,7 @@ inline bool isRetKindConvertibleTo(ArrayRef<ASTNodeKind> RetKinds,
                                    ASTNodeKind Kind, unsigned *Specificity,
                                    ASTNodeKind *LeastDerivedKind) {
   for (const ASTNodeKind &NodeKind : RetKinds) {
-    if (ArgKind::MakeMatcherArg(NodeKind).isConvertibleTo(
-            ArgKind::MakeMatcherArg(Kind), Specificity)) {
+    if (ArgKind(NodeKind).isConvertibleTo(Kind, Specificity)) {
       if (LeastDerivedKind)
         *LeastDerivedKind = NodeKind;
       return true;
@@ -492,11 +481,9 @@ template <typename ResultT, typename ArgT,
 VariantMatcher
 variadicMatcherDescriptor(StringRef MatcherName, SourceRange NameRange,
                           ArrayRef<ParserValue> Args, Diagnostics *Error) {
-  SmallVector<ArgT *, 8> InnerArgsPtr;
-  InnerArgsPtr.resize_for_overwrite(Args.size());
-  SmallVector<ArgT, 8> InnerArgs;
-  InnerArgs.reserve(Args.size());
+  ArgT **InnerArgs = new ArgT *[Args.size()]();
 
+  bool HasError = false;
   for (size_t i = 0, e = Args.size(); i != e; ++i) {
     using ArgTraits = ArgTypeTraits<ArgT>;
 
@@ -505,7 +492,8 @@ variadicMatcherDescriptor(StringRef MatcherName, SourceRange NameRange,
     if (!ArgTraits::hasCorrectType(Value)) {
       Error->addError(Arg.Range, Error->ET_RegistryWrongArgType)
           << (i + 1) << ArgTraits::getKind().asString() << Value.getTypeAsString();
-      return {};
+      HasError = true;
+      break;
     }
     if (!ArgTraits::hasCorrectValue(Value)) {
       if (llvm::Optional<std::string> BestGuess =
@@ -522,12 +510,24 @@ variadicMatcherDescriptor(StringRef MatcherName, SourceRange NameRange,
             << (i + 1) << ArgTraits::getKind().asString()
             << Value.getTypeAsString();
       }
-      return {};
+      HasError = true;
+      break;
     }
-    InnerArgs.set_size(i + 1);
-    InnerArgsPtr[i] = new (&InnerArgs[i]) ArgT(ArgTraits::get(Value));
+
+    InnerArgs[i] = new ArgT(ArgTraits::get(Value));
   }
-  return outvalueToVariantMatcher(Func(InnerArgsPtr));
+
+  VariantMatcher Out;
+  if (!HasError) {
+    Out = outvalueToVariantMatcher(Func(llvm::makeArrayRef(InnerArgs,
+                                                           Args.size())));
+  }
+
+  for (size_t i = 0, e = Args.size(); i != e; ++i) {
+    delete InnerArgs[i];
+  }
+  delete[] InnerArgs;
+  return Out;
 }
 
 /// Matcher descriptor for variadic functions.
@@ -575,8 +575,6 @@ public:
                                   LeastDerivedKind);
   }
 
-  ASTNodeKind nodeMatcherType() const override { return RetKinds[0]; }
-
 private:
   const RunFunc Func;
   const std::string MatcherName;
@@ -611,8 +609,6 @@ public:
       return false;
     }
   }
-
-  ASTNodeKind nodeMatcherType() const override { return DerivedKind; }
 
 private:
   const ASTNodeKind DerivedKind;
@@ -908,7 +904,7 @@ public:
 
   void getArgKinds(ASTNodeKind ThisKind, unsigned ArgNo,
                    std::vector<ArgKind> &Kinds) const override {
-    Kinds.push_back(ArgKind::MakeMatcherArg(ThisKind));
+    Kinds.push_back(ThisKind);
   }
 
   bool isConvertibleTo(ASTNodeKind Kind, unsigned *Specificity,
@@ -980,7 +976,7 @@ public:
 
   void getArgKinds(ASTNodeKind ThisKind, unsigned,
                    std::vector<ArgKind> &Kinds) const override {
-    Kinds.push_back(ArgKind::MakeMatcherArg(ThisKind));
+    Kinds.push_back(ThisKind);
   }
 
   bool isConvertibleTo(ASTNodeKind Kind, unsigned *Specificity,
@@ -991,62 +987,6 @@ public:
       *LeastDerivedKind = CladeNodeKind;
     return true;
   }
-};
-
-class MapAnyOfBuilderDescriptor : public MatcherDescriptor {
-public:
-  VariantMatcher create(SourceRange, ArrayRef<ParserValue>,
-                        Diagnostics *) const override {
-    return {};
-  }
-
-  bool isBuilderMatcher() const override { return true; }
-
-  std::unique_ptr<MatcherDescriptor>
-  buildMatcherCtor(SourceRange, ArrayRef<ParserValue> Args,
-                   Diagnostics *) const override {
-
-    std::vector<ASTNodeKind> NodeKinds;
-    for (auto Arg : Args) {
-      if (!Arg.Value.isNodeKind())
-        return {};
-      NodeKinds.push_back(Arg.Value.getNodeKind());
-    }
-
-    if (NodeKinds.empty())
-      return {};
-
-    ASTNodeKind CladeNodeKind = NodeKinds.front().getCladeKind();
-
-    for (auto NK : NodeKinds)
-    {
-      if (!NK.getCladeKind().isSame(CladeNodeKind))
-        return {};
-    }
-
-    return std::make_unique<MapAnyOfMatcherDescriptor>(CladeNodeKind,
-                                                       NodeKinds);
-  }
-
-  bool isVariadic() const override { return true; }
-
-  unsigned getNumArgs() const override { return 0; }
-
-  void getArgKinds(ASTNodeKind ThisKind, unsigned,
-                   std::vector<ArgKind> &ArgKinds) const override {
-    ArgKinds.push_back(ArgKind::MakeNodeArg(ThisKind));
-    return;
-  }
-  bool isConvertibleTo(ASTNodeKind Kind, unsigned *Specificity = nullptr,
-                       ASTNodeKind *LeastDerivedKind = nullptr) const override {
-    if (Specificity)
-      *Specificity = 1;
-    if (LeastDerivedKind)
-      *LeastDerivedKind = Kind;
-    return true;
-  }
-
-  bool isPolymorphic() const override { return false; }
 };
 
 /// Helper functions to select the appropriate marshaller functions.

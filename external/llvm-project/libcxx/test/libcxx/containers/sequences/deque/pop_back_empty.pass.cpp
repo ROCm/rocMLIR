@@ -10,20 +10,20 @@
 
 // pop_back() more than the number of elements in a deque
 
-// UNSUPPORTED: libcxx-no-debug-mode
+#define _LIBCPP_ASSERT(x, m) ((x) ? (void)0 : std::exit(0))
 
-// ADDITIONAL_COMPILE_FLAGS: -D_LIBCPP_DEBUG=1
-
+#include <cstdlib>
 #include <deque>
 
 #include "test_macros.h"
-#include "debug_macros.h"
+
 
 int main(int, char**) {
     std::deque<int> q;
     q.push_back(0);
     q.pop_back();
-    TEST_LIBCPP_ASSERT_FAILURE(q.pop_back(), "deque::pop_back called on an empty deque");
+    q.pop_back();
+    std::exit(1);
 
-    return 0;
+  return 0;
 }

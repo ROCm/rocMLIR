@@ -89,7 +89,6 @@ private:
 } // end anonymous namespace
 
 char ShadowStackGCLowering::ID = 0;
-char &llvm::ShadowStackGCLoweringID = ShadowStackGCLowering::ID;
 
 INITIALIZE_PASS_BEGIN(ShadowStackGCLowering, DEBUG_TYPE,
                       "Shadow Stack GC Lowering", false, false)
@@ -239,8 +238,8 @@ void ShadowStackGCLowering::CollectRoots(Function &F) {
 
   SmallVector<std::pair<CallInst *, AllocaInst *>, 16> MetaRoots;
 
-  for (BasicBlock &BB : F)
-    for (BasicBlock::iterator II = BB.begin(), E = BB.end(); II != E;)
+  for (Function::iterator BB = F.begin(), E = F.end(); BB != E; ++BB)
+    for (BasicBlock::iterator II = BB->begin(), E = BB->end(); II != E;)
       if (IntrinsicInst *CI = dyn_cast<IntrinsicInst>(II++))
         if (Function *F = CI->getCalledFunction())
           if (F->getIntrinsicID() == Intrinsic::gcroot) {

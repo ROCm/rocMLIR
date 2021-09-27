@@ -16,15 +16,14 @@
 
 namespace lldb_private {
 
-class OptionValueFileSpecList
-    : public Cloneable<OptionValueFileSpecList, OptionValue> {
+class OptionValueFileSpecList : public OptionValue {
 public:
-  OptionValueFileSpecList() = default;
+  OptionValueFileSpecList() : OptionValue(), m_current_value() {}
 
-  OptionValueFileSpecList(const OptionValueFileSpecList &other)
-      : Cloneable(other), m_current_value(other.GetCurrentValue()) {}
+  OptionValueFileSpecList(const FileSpecList &current_value)
+      : OptionValue(), m_current_value(current_value) {}
 
-  ~OptionValueFileSpecList() override = default;
+  ~OptionValueFileSpecList() override {}
 
   // Virtual subclass pure virtual overrides
 
@@ -36,12 +35,17 @@ public:
   Status
   SetValueFromString(llvm::StringRef value,
                      VarSetOperationType op = eVarSetOperationAssign) override;
+  Status
+  SetValueFromString(const char *,
+                     VarSetOperationType = eVarSetOperationAssign) = delete;
 
   void Clear() override {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     m_current_value.Clear();
     m_value_was_set = false;
   }
+
+  lldb::OptionValueSP DeepCopy() const override;
 
   bool IsAggregateValue() const override { return true; }
 
@@ -63,8 +67,6 @@ public:
   }
 
 protected:
-  lldb::OptionValueSP Clone() const override;
-
   mutable std::recursive_mutex m_mutex;
   FileSpecList m_current_value;
 };

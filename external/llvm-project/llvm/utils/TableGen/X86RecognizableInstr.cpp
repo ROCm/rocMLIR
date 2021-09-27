@@ -125,7 +125,13 @@ RecognizableInstr::RecognizableInstr(DisassemblerTables &tables,
     return;
   }
 
-  ShouldBeEmitted = true;
+  // Special case since there is no attribute class for 64-bit and VEX
+  if (Name == "VMASKMOVDQU64") {
+    ShouldBeEmitted = false;
+    return;
+  }
+
+  ShouldBeEmitted  = true;
 }
 
 void RecognizableInstr::processInstr(DisassemblerTables &tables,
@@ -261,11 +267,6 @@ InstructionContext RecognizableInstr::insnContext() const {
       insnContext = IC_VEX_L_OPSIZE;
     else if (OpPrefix == X86Local::PD && HasVEX_W)
       insnContext = IC_VEX_W_OPSIZE;
-    else if (OpPrefix == X86Local::PD && Is64Bit &&
-             AdSize == X86Local::AdSize32)
-      insnContext = IC_64BIT_VEX_OPSIZE_ADSIZE;
-    else if (OpPrefix == X86Local::PD && Is64Bit)
-      insnContext = IC_64BIT_VEX_OPSIZE;
     else if (OpPrefix == X86Local::PD)
       insnContext = IC_VEX_OPSIZE;
     else if (HasVEX_LPrefix && OpPrefix == X86Local::XS)
@@ -752,8 +753,6 @@ void RecognizableInstr::emitDecodePath(DisassemblerTables &tables) const {
   case X86Local::XOP9:      opcodeType = XOP9_MAP;      break;
   case X86Local::XOPA:      opcodeType = XOPA_MAP;      break;
   case X86Local::ThreeDNow: opcodeType = THREEDNOW_MAP; break;
-  case X86Local::T_MAP5:    opcodeType = MAP5;          break;
-  case X86Local::T_MAP6:    opcodeType = MAP6;          break;
   }
 
   std::unique_ptr<ModRMFilter> filter;
@@ -903,13 +902,10 @@ OperandType RecognizableInstr::typeFromString(const std::string &s,
   TYPE("FR64X",               TYPE_XMM)
   TYPE("f64mem",              TYPE_M)
   TYPE("sdmem",               TYPE_M)
-  TYPE("FR16X",               TYPE_XMM)
   TYPE("FR32",                TYPE_XMM)
   TYPE("FR32X",               TYPE_XMM)
   TYPE("f32mem",              TYPE_M)
-  TYPE("f16mem",              TYPE_M)
   TYPE("ssmem",               TYPE_M)
-  TYPE("shmem",               TYPE_M)
   TYPE("RST",                 TYPE_ST)
   TYPE("RSTi",                TYPE_ST)
   TYPE("i128mem",             TYPE_M)
@@ -1024,7 +1020,6 @@ RecognizableInstr::immediateEncodingFromString(const std::string &s,
   ENCODING("FR128",           ENCODING_IB)
   ENCODING("VR128",           ENCODING_IB)
   ENCODING("VR256",           ENCODING_IB)
-  ENCODING("FR16X",           ENCODING_IB)
   ENCODING("FR32X",           ENCODING_IB)
   ENCODING("FR64X",           ENCODING_IB)
   ENCODING("VR128X",          ENCODING_IB)
@@ -1053,7 +1048,6 @@ RecognizableInstr::rmRegisterEncodingFromString(const std::string &s,
   ENCODING("FR32",            ENCODING_RM)
   ENCODING("FR64X",           ENCODING_RM)
   ENCODING("FR32X",           ENCODING_RM)
-  ENCODING("FR16X",           ENCODING_RM)
   ENCODING("VR64",            ENCODING_RM)
   ENCODING("VR256",           ENCODING_RM)
   ENCODING("VR256X",          ENCODING_RM)
@@ -1065,6 +1059,11 @@ RecognizableInstr::rmRegisterEncodingFromString(const std::string &s,
   ENCODING("VK16",            ENCODING_RM)
   ENCODING("VK32",            ENCODING_RM)
   ENCODING("VK64",            ENCODING_RM)
+  ENCODING("VK1PAIR",         ENCODING_RM)
+  ENCODING("VK2PAIR",         ENCODING_RM)
+  ENCODING("VK4PAIR",         ENCODING_RM)
+  ENCODING("VK8PAIR",         ENCODING_RM)
+  ENCODING("VK16PAIR",        ENCODING_RM)
   ENCODING("BNDR",            ENCODING_RM)
   ENCODING("TILE",            ENCODING_RM)
   errs() << "Unhandled R/M register encoding " << s << "\n";
@@ -1093,7 +1092,6 @@ RecognizableInstr::roRegisterEncodingFromString(const std::string &s,
   ENCODING("VR128X",          ENCODING_REG)
   ENCODING("FR64X",           ENCODING_REG)
   ENCODING("FR32X",           ENCODING_REG)
-  ENCODING("FR16X",           ENCODING_REG)
   ENCODING("VR512",           ENCODING_REG)
   ENCODING("VK1",             ENCODING_REG)
   ENCODING("VK2",             ENCODING_REG)
@@ -1130,7 +1128,6 @@ RecognizableInstr::vvvvRegisterEncodingFromString(const std::string &s,
   ENCODING("FR64",            ENCODING_VVVV)
   ENCODING("VR128",           ENCODING_VVVV)
   ENCODING("VR256",           ENCODING_VVVV)
-  ENCODING("FR16X",           ENCODING_VVVV)
   ENCODING("FR32X",           ENCODING_VVVV)
   ENCODING("FR64X",           ENCODING_VVVV)
   ENCODING("VR128X",          ENCODING_VVVV)
@@ -1143,6 +1140,11 @@ RecognizableInstr::vvvvRegisterEncodingFromString(const std::string &s,
   ENCODING("VK16",            ENCODING_VVVV)
   ENCODING("VK32",            ENCODING_VVVV)
   ENCODING("VK64",            ENCODING_VVVV)
+  ENCODING("VK1PAIR",         ENCODING_VVVV)
+  ENCODING("VK2PAIR",         ENCODING_VVVV)
+  ENCODING("VK4PAIR",         ENCODING_VVVV)
+  ENCODING("VK8PAIR",         ENCODING_VVVV)
+  ENCODING("VK16PAIR",        ENCODING_VVVV)
   ENCODING("TILE",            ENCODING_VVVV)
   errs() << "Unhandled VEX.vvvv register encoding " << s << "\n";
   llvm_unreachable("Unhandled VEX.vvvv register encoding");
@@ -1169,7 +1171,6 @@ RecognizableInstr::memoryEncodingFromString(const std::string &s,
   ENCODING("i32mem",          ENCODING_RM)
   ENCODING("i64mem",          ENCODING_RM)
   ENCODING("i8mem",           ENCODING_RM)
-  ENCODING("shmem",           ENCODING_RM)
   ENCODING("ssmem",           ENCODING_RM)
   ENCODING("sdmem",           ENCODING_RM)
   ENCODING("f128mem",         ENCODING_RM)
@@ -1177,7 +1178,6 @@ RecognizableInstr::memoryEncodingFromString(const std::string &s,
   ENCODING("f512mem",         ENCODING_RM)
   ENCODING("f64mem",          ENCODING_RM)
   ENCODING("f32mem",          ENCODING_RM)
-  ENCODING("f16mem",          ENCODING_RM)
   ENCODING("i128mem",         ENCODING_RM)
   ENCODING("i256mem",         ENCODING_RM)
   ENCODING("i512mem",         ENCODING_RM)

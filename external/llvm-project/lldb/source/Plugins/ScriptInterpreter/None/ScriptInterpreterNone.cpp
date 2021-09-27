@@ -25,7 +25,7 @@ LLDB_PLUGIN_DEFINE(ScriptInterpreterNone)
 ScriptInterpreterNone::ScriptInterpreterNone(Debugger &debugger)
     : ScriptInterpreter(debugger, eScriptLanguageNone) {}
 
-ScriptInterpreterNone::~ScriptInterpreterNone() = default;
+ScriptInterpreterNone::~ScriptInterpreterNone() {}
 
 bool ScriptInterpreterNone::ExecuteOneLine(llvm::StringRef command,
                                            CommandReturnObject *,
@@ -69,3 +69,5 @@ const char *ScriptInterpreterNone::GetPluginDescriptionStatic() {
 lldb_private::ConstString ScriptInterpreterNone::GetPluginName() {
   return GetPluginNameStatic();
 }
+
+uint32_t ScriptInterpreterNone::GetPluginVersion() { return 1; }

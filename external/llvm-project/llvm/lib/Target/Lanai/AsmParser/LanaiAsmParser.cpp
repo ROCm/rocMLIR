@@ -754,9 +754,9 @@ std::unique_ptr<LanaiOperand> LanaiAsmParser::parseIdentifier() {
     return nullptr;
 
   // Check if identifier has a modifier
-  if (Identifier.equals_insensitive("hi"))
+  if (Identifier.equals_lower("hi"))
     Kind = LanaiMCExpr::VK_Lanai_ABS_HI;
-  else if (Identifier.equals_insensitive("lo"))
+  else if (Identifier.equals_lower("lo"))
     Kind = LanaiMCExpr::VK_Lanai_ABS_LO;
 
   // If the identifier corresponds to a variant then extract the real

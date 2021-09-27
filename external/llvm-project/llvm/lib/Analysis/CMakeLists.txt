@@ -1,33 +1,15 @@
 if (DEFINED LLVM_HAVE_TF_AOT OR DEFINED LLVM_HAVE_TF_API)
-  include(TensorFlowCompile)
-  set(LLVM_INLINER_MODEL_PATH_DEFAULT "models/inliner-Oz")
-
-  # This url points to the most recent most which is known to be compatible with
-  # LLVM. When better models are published, this url should be updated to aid
-  # discoverability.
-  set(LLVM_INLINER_MODEL_CURRENT_URL "https://github.com/google/ml-compiler-opt/releases/download/inlining-Oz-v1.1/inlining-Oz-99f0063-v1.1.tar.gz")
-
   if (DEFINED LLVM_HAVE_TF_AOT)
-    # If the path is empty, autogenerate the model
-    if (NOT DEFINED LLVM_INLINER_MODEL_PATH OR "${LLVM_INLINER_MODEL_PATH}" STREQUAL "")
-      set(LLVM_INLINER_MODEL_PATH "autogenerate")
-      message(WARNING "LLVM_INLINER_MODEL_PATH was not set: autogenerating a model to finish the build.")
-    endif()
-
-    tf_find_and_compile(
-      ${LLVM_INLINER_MODEL_PATH}
-      ${LLVM_INLINER_MODEL_CURRENT_URL}
-      ${LLVM_INLINER_MODEL_PATH_DEFAULT}
-      "models/inlining/config.py"
-      serve
-      action
-      InlinerSizeModel
-      llvm::InlinerSizeModel
+    include(TensorFlowCompile)
+    tfcompile(models/inliner serve action InlinerSizeModel llvm::InlinerSizeModel)
+    list(APPEND GeneratedMLSources
+      $<TARGET_OBJECTS:tf_xla_runtime_objects>
+      ${GENERATED_OBJS}
     )
   endif()
 
   if (DEFINED LLVM_HAVE_TF_API)
-    list(APPEND MLLinkDeps ${tensorflow_c_api} ${tensorflow_fx})
+    LIST(APPEND MLLinkDeps ${tensorflow_c_api})
   endif()
 endif()
 
@@ -115,7 +97,6 @@ add_llvm_component_library(LLVMAnalysis
   ObjCARCAnalysisUtils.cpp
   ObjCARCInstKind.cpp
   OptimizationRemarkEmitter.cpp
-  OverflowInstAnalysis.cpp
   PHITransAddr.cpp
   PhiValues.cpp
   PostDominators.cpp
@@ -153,7 +134,6 @@ add_llvm_component_library(LLVMAnalysis
 
   DEPENDS
   intrinsics_gen
-  ${MLDeps}
 
   LINK_LIBS
   ${MLLinkDeps}

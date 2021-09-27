@@ -63,6 +63,7 @@ public:
     return false;
   }
   ConstString GetPluginName() override { return ConstString("Dummy"); }
+  uint32_t GetPluginVersion() override { return 0; }
 };
 } // namespace
 

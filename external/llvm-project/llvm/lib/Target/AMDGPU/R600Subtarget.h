@@ -23,6 +23,7 @@
 
 namespace llvm {
 
+class MCInst;
 class MCInstrInfo;
 
 } // namespace llvm

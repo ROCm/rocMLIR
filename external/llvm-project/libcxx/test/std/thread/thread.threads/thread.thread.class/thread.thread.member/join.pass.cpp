@@ -19,12 +19,9 @@
 #include <cstdlib>
 #include <cassert>
 #include <system_error>
-#include <atomic>
 
 #include "make_test_thread.h"
 #include "test_macros.h"
-
-std::atomic_bool done(false);
 
 class G
 {
@@ -48,7 +45,7 @@ public:
 int G::n_alive = 0;
 bool G::op_run = false;
 
-void foo() { done = true; }
+void foo() {}
 
 int main(int, char**)
 {
@@ -75,11 +72,6 @@ int main(int, char**)
             assert(false);
         } catch (std::system_error const&) {
         }
-        // Wait to make sure that the detached thread has started up.
-        // Without this, we could exit main and start destructing global
-        // resources that are needed when the thread starts up, while the
-        // detached thread would start up only later.
-        while (!done) {}
     }
 #endif
 

@@ -23,7 +23,6 @@ class MachineInstr;
 
 class WebAssemblyDebugValueManager {
   SmallVector<MachineInstr *, 2> DbgValues;
-  unsigned CurrentReg;
 
 public:
   WebAssemblyDebugValueManager(MachineInstr *Instr);

@@ -21,15 +21,15 @@
 #include "lldb/lldb-private-enumerations.h"
 #include "lldb/lldb-types.h"
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace lldb_private {
 class DataExtractor;
 class ExecutionContextScope;
 class Module;
 
-/// A frozen ValueObject copied into host memory.
+// A frozen ValueObject copied into host memory
 class ValueObjectConstResult : public ValueObject {
 public:
   ~ValueObjectConstResult() override;

@@ -11,7 +11,7 @@
 
 #include "lldb/API/SBDefines.h"
 
-#include <cstdio>
+#include <stdio.h>
 #include <vector>
 
 namespace lldb {
@@ -79,7 +79,7 @@ protected:
 
 private:
   mutable lldb::EventSP m_event_sp;
-  mutable lldb_private::Event *m_opaque_ptr = nullptr;
+  mutable lldb_private::Event *m_opaque_ptr;
 };
 
 } // namespace lldb

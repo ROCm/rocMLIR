@@ -28,21 +28,20 @@ bool QuantizedType::classof(Type type) {
   return llvm::isa<QuantizationDialect>(type.getDialect());
 }
 
-LogicalResult
-QuantizedType::verify(function_ref<InFlightDiagnostic()> emitError,
-                      unsigned flags, Type storageType, Type expressedType,
-                      int64_t storageTypeMin, int64_t storageTypeMax) {
+LogicalResult QuantizedType::verifyConstructionInvariants(
+    Location loc, unsigned flags, Type storageType, Type expressedType,
+    int64_t storageTypeMin, int64_t storageTypeMax) {
   // Verify that the storage type is integral.
   // This restriction may be lifted at some point in favor of using bf16
   // or f16 as exact representations on hardware where that is advantageous.
   auto intStorageType = storageType.dyn_cast<IntegerType>();
   if (!intStorageType)
-    return emitError() << "storage type must be integral";
+    return emitError(loc, "storage type must be integral");
   unsigned integralWidth = intStorageType.getWidth();
 
   // Verify storage width.
   if (integralWidth == 0 || integralWidth > MaxStorageBits)
-    return emitError() << "illegal storage type size: " << integralWidth;
+    return emitError(loc, "illegal storage type size: ") << integralWidth;
 
   // Verify storageTypeMin and storageTypeMax.
   bool isSigned =
@@ -54,8 +53,8 @@ QuantizedType::verify(function_ref<InFlightDiagnostic()> emitError,
   if (storageTypeMax - storageTypeMin <= 0 ||
       storageTypeMin < defaultIntegerMin ||
       storageTypeMax > defaultIntegerMax) {
-    return emitError() << "illegal storage min and storage max: ("
-                       << storageTypeMin << ":" << storageTypeMax << ")";
+    return emitError(loc, "illegal storage min and storage max: (")
+           << storageTypeMin << ":" << storageTypeMax << ")";
   }
   return success();
 }
@@ -209,22 +208,21 @@ AnyQuantizedType AnyQuantizedType::get(unsigned flags, Type storageType,
                    storageTypeMin, storageTypeMax);
 }
 
-AnyQuantizedType
-AnyQuantizedType::getChecked(function_ref<InFlightDiagnostic()> emitError,
-                             unsigned flags, Type storageType,
-                             Type expressedType, int64_t storageTypeMin,
-                             int64_t storageTypeMax) {
-  return Base::getChecked(emitError, storageType.getContext(), flags,
-                          storageType, expressedType, storageTypeMin,
-                          storageTypeMax);
+AnyQuantizedType AnyQuantizedType::getChecked(unsigned flags, Type storageType,
+                                              Type expressedType,
+                                              int64_t storageTypeMin,
+                                              int64_t storageTypeMax,
+                                              Location location) {
+  return Base::getChecked(location, flags, storageType, expressedType,
+                          storageTypeMin, storageTypeMax);
 }
 
-LogicalResult
-AnyQuantizedType::verify(function_ref<InFlightDiagnostic()> emitError,
-                         unsigned flags, Type storageType, Type expressedType,
-                         int64_t storageTypeMin, int64_t storageTypeMax) {
-  if (failed(QuantizedType::verify(emitError, flags, storageType, expressedType,
-                                   storageTypeMin, storageTypeMax))) {
+LogicalResult AnyQuantizedType::verifyConstructionInvariants(
+    Location loc, unsigned flags, Type storageType, Type expressedType,
+    int64_t storageTypeMin, int64_t storageTypeMax) {
+  if (failed(QuantizedType::verifyConstructionInvariants(
+          loc, flags, storageType, expressedType, storageTypeMin,
+          storageTypeMax))) {
     return failure();
   }
 
@@ -232,7 +230,7 @@ AnyQuantizedType::verify(function_ref<InFlightDiagnostic()> emitError,
   // If this restriction is ever eliminated, the parser/printer must be
   // extended.
   if (expressedType && !expressedType.isa<FloatType>())
-    return emitError() << "expressed type must be floating point";
+    return emitError(loc, "expressed type must be floating point");
 
   return success();
 }
@@ -246,38 +244,39 @@ UniformQuantizedType UniformQuantizedType::get(unsigned flags, Type storageType,
                    scale, zeroPoint, storageTypeMin, storageTypeMax);
 }
 
-UniformQuantizedType UniformQuantizedType::getChecked(
-    function_ref<InFlightDiagnostic()> emitError, unsigned flags,
-    Type storageType, Type expressedType, double scale, int64_t zeroPoint,
-    int64_t storageTypeMin, int64_t storageTypeMax) {
-  return Base::getChecked(emitError, storageType.getContext(), flags,
-                          storageType, expressedType, scale, zeroPoint,
-                          storageTypeMin, storageTypeMax);
+UniformQuantizedType
+UniformQuantizedType::getChecked(unsigned flags, Type storageType,
+                                 Type expressedType, double scale,
+                                 int64_t zeroPoint, int64_t storageTypeMin,
+                                 int64_t storageTypeMax, Location location) {
+  return Base::getChecked(location, flags, storageType, expressedType, scale,
+                          zeroPoint, storageTypeMin, storageTypeMax);
 }
 
-LogicalResult UniformQuantizedType::verify(
-    function_ref<InFlightDiagnostic()> emitError, unsigned flags,
-    Type storageType, Type expressedType, double scale, int64_t zeroPoint,
-    int64_t storageTypeMin, int64_t storageTypeMax) {
-  if (failed(QuantizedType::verify(emitError, flags, storageType, expressedType,
-                                   storageTypeMin, storageTypeMax))) {
+LogicalResult UniformQuantizedType::verifyConstructionInvariants(
+    Location loc, unsigned flags, Type storageType, Type expressedType,
+    double scale, int64_t zeroPoint, int64_t storageTypeMin,
+    int64_t storageTypeMax) {
+  if (failed(QuantizedType::verifyConstructionInvariants(
+          loc, flags, storageType, expressedType, storageTypeMin,
+          storageTypeMax))) {
     return failure();
   }
 
   // Uniform quantization requires fully expressed parameters, including
   // expressed type.
   if (!expressedType)
-    return emitError() << "uniform quantization requires expressed type";
+    return emitError(loc, "uniform quantization requires expressed type");
 
   // Verify that the expressed type is floating point.
   // If this restriction is ever eliminated, the parser/printer must be
   // extended.
   if (!expressedType.isa<FloatType>())
-    return emitError() << "expressed type must be floating point";
+    return emitError(loc, "expressed type must be floating point");
 
   // Verify scale.
   if (scale <= 0.0 || std::isinf(scale) || std::isnan(scale))
-    return emitError() << "illegal scale: " << scale;
+    return emitError(loc, "illegal scale: ") << scale;
 
   return success();
 }
@@ -299,45 +298,46 @@ UniformQuantizedPerAxisType UniformQuantizedPerAxisType::get(
 }
 
 UniformQuantizedPerAxisType UniformQuantizedPerAxisType::getChecked(
-    function_ref<InFlightDiagnostic()> emitError, unsigned flags,
-    Type storageType, Type expressedType, ArrayRef<double> scales,
-    ArrayRef<int64_t> zeroPoints, int32_t quantizedDimension,
-    int64_t storageTypeMin, int64_t storageTypeMax) {
-  return Base::getChecked(emitError, storageType.getContext(), flags,
-                          storageType, expressedType, scales, zeroPoints,
-                          quantizedDimension, storageTypeMin, storageTypeMax);
+    unsigned flags, Type storageType, Type expressedType,
+    ArrayRef<double> scales, ArrayRef<int64_t> zeroPoints,
+    int32_t quantizedDimension, int64_t storageTypeMin, int64_t storageTypeMax,
+    Location location) {
+  return Base::getChecked(location, flags, storageType, expressedType, scales,
+                          zeroPoints, quantizedDimension, storageTypeMin,
+                          storageTypeMax);
 }
 
-LogicalResult UniformQuantizedPerAxisType::verify(
-    function_ref<InFlightDiagnostic()> emitError, unsigned flags,
-    Type storageType, Type expressedType, ArrayRef<double> scales,
-    ArrayRef<int64_t> zeroPoints, int32_t quantizedDimension,
-    int64_t storageTypeMin, int64_t storageTypeMax) {
-  if (failed(QuantizedType::verify(emitError, flags, storageType, expressedType,
-                                   storageTypeMin, storageTypeMax))) {
+LogicalResult UniformQuantizedPerAxisType::verifyConstructionInvariants(
+    Location loc, unsigned flags, Type storageType, Type expressedType,
+    ArrayRef<double> scales, ArrayRef<int64_t> zeroPoints,
+    int32_t quantizedDimension, int64_t storageTypeMin,
+    int64_t storageTypeMax) {
+  if (failed(QuantizedType::verifyConstructionInvariants(
+          loc, flags, storageType, expressedType, storageTypeMin,
+          storageTypeMax))) {
     return failure();
   }
 
   // Uniform quantization requires fully expressed parameters, including
   // expressed type.
   if (!expressedType)
-    return emitError() << "uniform quantization requires expressed type";
+    return emitError(loc, "uniform quantization requires expressed type");
 
   // Verify that the expressed type is floating point.
   // If this restriction is ever eliminated, the parser/printer must be
   // extended.
   if (!expressedType.isa<FloatType>())
-    return emitError() << "expressed type must be floating point";
+    return emitError(loc, "expressed type must be floating point");
 
   // Ensure that the number of scales and zeroPoints match.
   if (scales.size() != zeroPoints.size())
-    return emitError() << "illegal number of scales and zeroPoints: "
-                       << scales.size() << ", " << zeroPoints.size();
+    return emitError(loc, "illegal number of scales and zeroPoints: ")
+           << scales.size() << ", " << zeroPoints.size();
 
   // Verify scale.
   for (double scale : scales) {
     if (scale <= 0.0 || std::isinf(scale) || std::isnan(scale))
-      return emitError() << "illegal scale: " << scale;
+      return emitError(loc, "illegal scale: ") << scale;
   }
 
   return success();
@@ -360,23 +360,22 @@ CalibratedQuantizedType CalibratedQuantizedType::get(Type expressedType,
   return Base::get(expressedType.getContext(), expressedType, min, max);
 }
 
-CalibratedQuantizedType CalibratedQuantizedType::getChecked(
-    function_ref<InFlightDiagnostic()> emitError, Type expressedType,
-    double min, double max) {
-  return Base::getChecked(emitError, expressedType.getContext(), expressedType,
-                          min, max);
+CalibratedQuantizedType CalibratedQuantizedType::getChecked(Type expressedType,
+                                                            double min,
+                                                            double max,
+                                                            Location location) {
+  return Base::getChecked(location, expressedType, min, max);
 }
 
-LogicalResult
-CalibratedQuantizedType::verify(function_ref<InFlightDiagnostic()> emitError,
-                                Type expressedType, double min, double max) {
+LogicalResult CalibratedQuantizedType::verifyConstructionInvariants(
+    Location loc, Type expressedType, double min, double max) {
   // Verify that the expressed type is floating point.
   // If this restriction is ever eliminated, the parser/printer must be
   // extended.
   if (!expressedType.isa<FloatType>())
-    return emitError() << "expressed type must be floating point";
+    return emitError(loc, "expressed type must be floating point");
   if (max <= min)
-    return emitError() << "illegal min and max: (" << min << ":" << max << ")";
+    return emitError(loc, "illegal min and max: (") << min << ":" << max << ")";
 
   return success();
 }

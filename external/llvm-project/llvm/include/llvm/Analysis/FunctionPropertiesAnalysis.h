@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_ANALYSIS_FUNCTIONPROPERTIESANALYSIS_H
-#define LLVM_ANALYSIS_FUNCTIONPROPERTIESANALYSIS_H
+#ifndef LLVM_FUNCTIONPROPERTIESANALYSIS_H_
+#define LLVM_FUNCTIONPROPERTIESANALYSIS_H_
 
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/PassManager.h"
@@ -83,4 +83,4 @@ public:
 };
 
 } // namespace llvm
-#endif // LLVM_ANALYSIS_FUNCTIONPROPERTIESANALYSIS_H
+#endif // LLVM_FUNCTIONPROPERTIESANALYSIS_H_

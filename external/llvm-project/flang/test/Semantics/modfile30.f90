@@ -1,4 +1,4 @@
-! RUN: %python %S/test_modfile.py %s %flang_fc1
+! RUN: %S/test_modfile.sh %s %t %f18
 ! Verify miscellaneous bugs
 
 ! The function result must be declared after the dummy arguments

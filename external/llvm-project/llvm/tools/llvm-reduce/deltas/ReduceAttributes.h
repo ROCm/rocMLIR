@@ -11,12 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TOOLS_LLVM_REDUCE_DELTAS_REDUCEATTRIBUTES_H
-#define LLVM_TOOLS_LLVM_REDUCE_DELTAS_REDUCEATTRIBUTES_H
-
 namespace llvm {
-class TestRunner;
-void reduceAttributesDeltaPass(TestRunner &Test);
-} // namespace llvm
 
-#endif
+class TestRunner;
+
+void reduceAttributesDeltaPass(TestRunner &Test);
+
+} // namespace llvm

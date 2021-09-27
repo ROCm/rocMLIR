@@ -29,7 +29,7 @@
 #include <utility>
 
 #define PGMATH_DECLARE
-#include "flang/Evaluate/pgmath.h.inc"
+#include "../runtime/pgmath.h.inc"
 
 /// This file implements lowering of Fortran intrinsic procedures.
 /// Intrinsics are lowered to a mix of FIR and MLIR operations as
@@ -283,17 +283,17 @@ struct RuntimeFunction {
 static constexpr RuntimeFunction pgmathFast[] = {
 #define PGMATH_FAST
 #define PGMATH_USE_ALL_TYPES(name, func) RUNTIME_STATIC_DESCRIPTION(name, func)
-#include "flang/Evaluate/pgmath.h.inc"
+#include "../runtime/pgmath.h.inc"
 };
 static constexpr RuntimeFunction pgmathRelaxed[] = {
 #define PGMATH_RELAXED
 #define PGMATH_USE_ALL_TYPES(name, func) RUNTIME_STATIC_DESCRIPTION(name, func)
-#include "flang/Evaluate/pgmath.h.inc"
+#include "../runtime/pgmath.h.inc"
 };
 static constexpr RuntimeFunction pgmathPrecise[] = {
 #define PGMATH_PRECISE
 #define PGMATH_USE_ALL_TYPES(name, func) RUNTIME_STATIC_DESCRIPTION(name, func)
-#include "flang/Evaluate/pgmath.h.inc"
+#include "../runtime/pgmath.h.inc"
 };
 
 static mlir::FunctionType genF32F32FuncType(mlir::MLIRContext *context) {
@@ -919,7 +919,7 @@ mlir::SymbolRefAttr IntrinsicLibrary::getUnrestrictedIntrinsicSymbolRefAttr(
     funcOp = getWrapper(rtCallGenerator, name, signature, loadRefArguments);
   }
 
-  return SymbolRefAttr::get(funcOp);
+  return builder.getSymbolRefAttr(funcOp.getName());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1039,7 +1039,7 @@ mlir::Value IntrinsicLibrary::genDim(mlir::Type resultType,
   }
   assert(fir::isa_real(resultType) && "Only expects real and integer in DIM");
   auto zero = builder.createRealZeroConstant(loc, resultType);
-  auto diff = builder.create<mlir::SubFOp>(loc, args[0], args[1]);
+  auto diff = builder.create<fir::SubfOp>(loc, args[0], args[1]);
   auto cmp =
       builder.create<fir::CmpfOp>(loc, mlir::CmpFPredicate::OGT, diff, zero);
   return builder.create<mlir::SelectOp>(loc, cmp, diff, zero);
@@ -1053,7 +1053,7 @@ mlir::Value IntrinsicLibrary::genDprod(mlir::Type resultType,
          "Result must be double precision in DPROD");
   auto a = builder.createConvert(loc, resultType, args[0]);
   auto b = builder.createConvert(loc, resultType, args[1]);
-  return builder.create<mlir::MulFOp>(loc, a, b);
+  return builder.create<fir::MulfOp>(loc, a, b);
 }
 
 // FLOOR
@@ -1085,7 +1085,7 @@ mlir::Value IntrinsicLibrary::genIchar(mlir::Type resultType,
   Fortran::lower::CharacterExprHelper helper{builder, loc};
   auto dataAndLen = helper.createUnboxChar(arg);
   auto charType = fir::CharacterType::get(
-      builder.getContext(), helper.getCharacterKind(arg.getType()), 1);
+      builder.getContext(), helper.getCharacterKind(arg.getType()));
   auto refType = builder.getRefType(charType);
   auto charAddr = builder.createConvert(loc, refType, dataAndLen.first);
   auto charVal = builder.create<fir::LoadOp>(loc, charType, charAddr);

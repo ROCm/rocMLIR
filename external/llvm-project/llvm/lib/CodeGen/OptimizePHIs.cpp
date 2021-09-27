@@ -83,8 +83,8 @@ bool OptimizePHIs::runOnMachineFunction(MachineFunction &Fn) {
   // introduce new opportunities, e.g., when i64 values are split up for
   // 32-bit targets.
   bool Changed = false;
-  for (MachineBasicBlock &MBB : Fn)
-    Changed |= OptimizeBB(MBB);
+  for (MachineFunction::iterator I = Fn.begin(), E = Fn.end(); I != E; ++I)
+    Changed |= OptimizeBB(*I);
 
   return Changed;
 }
@@ -195,7 +195,9 @@ bool OptimizePHIs::OptimizeBB(MachineBasicBlock &MBB) {
     // Check for dead PHI cycles.
     PHIsInCycle.clear();
     if (IsDeadPHICycle(MI, PHIsInCycle)) {
-      for (MachineInstr *PhiMI : PHIsInCycle) {
+      for (InstrSetIterator PI = PHIsInCycle.begin(), PE = PHIsInCycle.end();
+           PI != PE; ++PI) {
+        MachineInstr *PhiMI = *PI;
         if (MII == PhiMI)
           ++MII;
         PhiMI->eraseFromParent();

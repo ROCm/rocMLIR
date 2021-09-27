@@ -9,7 +9,7 @@
 #ifndef LLDB_UTILITY_STREAMTEE_H
 #define LLDB_UTILITY_STREAMTEE_H
 
-#include <climits>
+#include <limits.h>
 
 #include <mutex>
 
@@ -45,7 +45,7 @@ public:
     m_streams = rhs.m_streams;
   }
 
-  ~StreamTee() override = default;
+  ~StreamTee() override {}
 
   StreamTee &operator=(const StreamTee &rhs) {
     if (this != &rhs) {

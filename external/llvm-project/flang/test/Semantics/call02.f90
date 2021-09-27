@@ -1,9 +1,8 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 ! 15.5.1 procedure reference constraints and restrictions
 
 subroutine s01(elem, subr)
   interface
-    !ERROR: A dummy procedure may not be ELEMENTAL
     elemental real function elem(x)
       real, intent(in), value :: x
     end function
@@ -20,9 +19,11 @@ subroutine s01(elem, subr)
   call subr(cos) ! not an error
   !ERROR: Non-intrinsic ELEMENTAL procedure 'elem' may not be passed as an actual argument
   call subr(elem) ! C1533
-  !ERROR: Actual argument associated with procedure dummy argument 'dummy=' is a null pointer
+  !ERROR: Actual argument associated with procedure dummy argument 'dummy=' is not a procedure
+  !ERROR: Actual argument associated with non-POINTER procedure dummy argument 'dummy=' must be a procedure (and not a procedure pointer)
   call subr(null())
-  !ERROR: Actual argument associated with procedure dummy argument 'dummy=' is typeless
+  !ERROR: Actual argument associated with procedure dummy argument 'dummy=' is not a procedure
+  !ERROR: Actual argument associated with non-POINTER procedure dummy argument 'dummy=' must be a procedure (and not a procedure pointer)
   call subr(B"1010")
 end subroutine
 

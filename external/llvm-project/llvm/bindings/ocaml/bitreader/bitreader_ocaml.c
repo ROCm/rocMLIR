@@ -22,23 +22,21 @@
 void llvm_raise(value Prototype, char *Message);
 
 /* Llvm.llcontext -> Llvm.llmemorybuffer -> Llvm.llmodule */
-LLVMModuleRef llvm_get_module(LLVMContextRef C, LLVMMemoryBufferRef MemBuf) {
+CAMLprim LLVMModuleRef llvm_get_module(LLVMContextRef C, LLVMMemoryBufferRef MemBuf) {
   LLVMModuleRef M;
 
   if (LLVMGetBitcodeModuleInContext2(C, MemBuf, &M))
-    llvm_raise(*caml_named_value("Llvm_bitreader.Error"),
-               LLVMCreateMessage(""));
+    llvm_raise(*caml_named_value("Llvm_bitreader.Error"), LLVMCreateMessage(""));
 
   return M;
 }
 
 /* Llvm.llcontext -> Llvm.llmemorybuffer -> Llvm.llmodule */
-LLVMModuleRef llvm_parse_bitcode(LLVMContextRef C, LLVMMemoryBufferRef MemBuf) {
+CAMLprim LLVMModuleRef llvm_parse_bitcode(LLVMContextRef C, LLVMMemoryBufferRef MemBuf) {
   LLVMModuleRef M;
 
   if (LLVMParseBitcodeInContext2(C, MemBuf, &M))
-    llvm_raise(*caml_named_value("Llvm_bitreader.Error"),
-               LLVMCreateMessage(""));
+    llvm_raise(*caml_named_value("Llvm_bitreader.Error"), LLVMCreateMessage(""));
 
   return M;
 }

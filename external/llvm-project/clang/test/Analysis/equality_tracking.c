@@ -219,17 +219,3 @@ void avoidInfeasibleConstraintforLT(int a, int b) {
   if (c < 0)
     ;
 }
-
-void implyDisequalityFromGT(int a, int b) {
-  if (a > b) {
-    clang_analyzer_eval(a == b); // expected-warning{{FALSE}}
-    clang_analyzer_eval(a != b); // expected-warning{{TRUE}}
-  }
-}
-
-void implyDisequalityFromLT(int a, int b) {
-  if (a < b) {
-    clang_analyzer_eval(a == b); // expected-warning{{FALSE}}
-    clang_analyzer_eval(a != b); // expected-warning{{TRUE}}
-  }
-}

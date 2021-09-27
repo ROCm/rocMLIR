@@ -9,7 +9,7 @@
 #include "PlatformLinux.h"
 #include "lldb/Host/Config.h"
 
-#include <cstdio>
+#include <stdio.h>
 #if LLDB_ENABLE_POSIX
 #include <sys/utsname.h>
 #endif

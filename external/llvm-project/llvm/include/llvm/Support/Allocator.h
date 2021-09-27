@@ -277,7 +277,7 @@ public:
     size_t TotalMemory = 0;
     for (auto I = Slabs.begin(), E = Slabs.end(); I != E; ++I)
       TotalMemory += computeSlabSize(std::distance(Slabs.begin(), I));
-    for (const auto &PtrAndSize : CustomSizedSlabs)
+    for (auto &PtrAndSize : CustomSizedSlabs)
       TotalMemory += PtrAndSize.second;
     return TotalMemory;
   }

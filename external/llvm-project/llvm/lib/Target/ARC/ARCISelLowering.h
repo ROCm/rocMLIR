@@ -77,9 +77,6 @@ public:
 private:
   const ARCSubtarget &Subtarget;
 
-  void ReplaceNodeResults(SDNode *N, SmallVectorImpl<SDValue> &Results,
-                          SelectionDAG &DAG) const override;
-
   // Lower Operand helpers
   SDValue LowerCallArguments(SDValue Chain, CallingConv::ID CallConv,
                              bool isVarArg,

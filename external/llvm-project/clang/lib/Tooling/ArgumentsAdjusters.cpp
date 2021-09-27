@@ -62,8 +62,7 @@ ArgumentsAdjuster getClangSyntaxOnlyAdjuster() {
         HasSyntaxOnly = true;
     }
     if (!HasSyntaxOnly)
-      AdjustedArgs =
-          getInsertArgumentAdjuster("-fsyntax-only")(AdjustedArgs, "");
+      AdjustedArgs.push_back("-fsyntax-only");
     return AdjustedArgs;
   };
 }
@@ -81,6 +80,22 @@ ArgumentsAdjuster getClangStripOutputAdjuster() {
         ++i;
       }
       // Else, the output is specified as -ofoo. Just do nothing.
+    }
+    return AdjustedArgs;
+  };
+}
+
+ArgumentsAdjuster getClangStripSerializeDiagnosticAdjuster() {
+  return [](const CommandLineArguments &Args, StringRef /*unused*/) {
+    CommandLineArguments AdjustedArgs;
+    for (size_t i = 0, e = Args.size(); i < e; ++i) {
+      StringRef Arg = Args[i];
+      if (Arg == "--serialize-diagnostics") {
+        // Skip the diagnostic output argument.
+        ++i;
+        continue;
+      }
+      AdjustedArgs.push_back(Args[i]);
     }
     return AdjustedArgs;
   };
@@ -122,7 +137,7 @@ ArgumentsAdjuster getInsertArgumentAdjuster(const CommandLineArguments &Extra,
 
     CommandLineArguments::iterator I;
     if (Pos == ArgumentInsertPosition::END) {
-      I = std::find(Return.begin(), Return.end(), "--");
+      I = Return.end();
     } else {
       I = Return.begin();
       ++I; // To leave the program name in place

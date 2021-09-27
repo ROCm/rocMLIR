@@ -50,41 +50,17 @@ public:
     return 64;
   }
 
-  TypeSize getRegisterBitWidth(TargetTransformInfo::RegisterKind K) const {
-    switch (K) {
-    case TargetTransformInfo::RGK_Scalar:
-      return TypeSize::getFixed(64);
-    case TargetTransformInfo::RGK_FixedWidthVector:
+  unsigned getRegisterBitWidth(bool Vector) const {
+    if (Vector) {
       // TODO report vregs once vector isel is stable.
-      return TypeSize::getFixed(0);
-    case TargetTransformInfo::RGK_ScalableVector:
-      return TypeSize::getScalable(0);
+      return 0;
     }
-
-    llvm_unreachable("Unsupported register kind");
-  }
-
-  /// \returns How the target needs this vector-predicated operation to be
-  /// transformed.
-  TargetTransformInfo::VPLegalization
-  getVPLegalizationStrategy(const VPIntrinsic &PI) const {
-    using VPLegalization = TargetTransformInfo::VPLegalization;
-    return VPLegalization(VPLegalization::Legal, VPLegalization::Legal);
+    return 64;
   }
 
   unsigned getMinVectorRegisterBitWidth() const {
     // TODO report vregs once vector isel is stable.
     return 0;
-  }
-
-  bool shouldBuildRelLookupTables() const {
-    // NEC nld doesn't support relative lookup tables.  It shows following
-    // errors.  So, we disable it at the moment.
-    //   /opt/nec/ve/bin/nld: src/CMakeFiles/cxxabi_shared.dir/cxa_demangle.cpp
-    //   .o(.rodata+0x17b4): reloc against `.L.str.376': error 2
-    //   /opt/nec/ve/bin/nld: final link failed: Nonrepresentable section on
-    //   output
-    return false;
   }
 };
 

@@ -26,7 +26,8 @@ public:
 
   void Clear() { m_aranges.Clear(); }
 
-  void extract(const lldb_private::DWARFDataExtractor &debug_aranges_data);
+  llvm::Error
+  extract(const lldb_private::DWARFDataExtractor &debug_aranges_data);
 
   // Use append range multiple times and then call sort
   void AppendRange(dw_offset_t cu_offset, dw_addr_t low_pc, dw_addr_t high_pc);

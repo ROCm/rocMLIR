@@ -487,9 +487,7 @@ int symlink_dir(const char *oldname, const char *newname) {
 using ::chdir;
 using ::close;
 using ::fchmod;
-#if defined(AT_SYMLINK_NOFOLLOW) && defined(AT_FDCWD)
 using ::fchmodat;
-#endif
 using ::fstat;
 using ::ftruncate;
 using ::getcwd;

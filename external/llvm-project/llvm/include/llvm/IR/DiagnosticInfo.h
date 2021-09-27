@@ -78,8 +78,6 @@ enum DiagnosticKind {
   DK_MIRParser,
   DK_PGOProfile,
   DK_Unsupported,
-  DK_SrcMgr,
-  DK_DontCall,
   DK_FirstPluginKind // Must be last value to work with
                      // getNextAvailablePluginDiagnosticKind
 };
@@ -132,7 +130,7 @@ using DiagnosticHandlerFunction = std::function<void(const DiagnosticInfo &)>;
 class DiagnosticInfoInlineAsm : public DiagnosticInfo {
 private:
   /// Optional line information. 0 if not set.
-  uint64_t LocCookie = 0;
+  unsigned LocCookie = 0;
   /// Message to be reported.
   const Twine &MsgStr;
   /// Optional origin of the problem.
@@ -150,7 +148,7 @@ public:
   /// \p MsgStr gives the message.
   /// This class does not copy \p MsgStr, therefore the reference must be valid
   /// for the whole life time of the Diagnostic.
-  DiagnosticInfoInlineAsm(uint64_t LocCookie, const Twine &MsgStr,
+  DiagnosticInfoInlineAsm(unsigned LocCookie, const Twine &MsgStr,
                           DiagnosticSeverity Severity = DS_Error)
       : DiagnosticInfo(DK_InlineAsm, Severity), LocCookie(LocCookie),
         MsgStr(MsgStr) {}
@@ -163,7 +161,7 @@ public:
   DiagnosticInfoInlineAsm(const Instruction &I, const Twine &MsgStr,
                           DiagnosticSeverity Severity = DS_Error);
 
-  uint64_t getLocCookie() const { return LocCookie; }
+  unsigned getLocCookie() const { return LocCookie; }
   const Twine &getMsgStr() const { return MsgStr; }
   const Instruction *getInstruction() const { return Instr; }
 
@@ -221,7 +219,7 @@ public:
   DiagnosticInfoStackSize(const Function &Fn, uint64_t StackSize,
                           DiagnosticSeverity Severity = DS_Warning,
                           uint64_t StackLimit = 0)
-      : DiagnosticInfoResourceLimit(Fn, "stack frame size", StackSize, Severity,
+      : DiagnosticInfoResourceLimit(Fn, "stack size", StackSize, Severity,
                                     DK_StackSize, StackLimit) {}
 
   uint64_t getStackSize() const { return getResourceSize(); }
@@ -383,7 +381,7 @@ public:
   /// Return a string with the location information for this diagnostic
   /// in the format "file:line:col". If location information is not available,
   /// it returns "<unknown>:0:0".
-  std::string getLocationStr() const;
+  const std::string getLocationStr() const;
 
   /// Return location information for this diagnostic in three parts:
   /// the relative source file path, line number and column.
@@ -744,11 +742,6 @@ public:
   OptimizationRemarkMissed(const char *PassName, StringRef RemarkName,
                            const Instruction *Inst);
 
-  /// Same as above but \p F is used to derive code region and debug
-  /// location.
-  OptimizationRemarkMissed(const char *PassName, StringRef RemarkName,
-                           const Function *F);
-
   static bool classof(const DiagnosticInfo *DI) {
     return DI->getKind() == DK_OptimizationRemarkMissed;
   }
@@ -800,11 +793,6 @@ public:
   /// location.
   OptimizationRemarkAnalysis(const char *PassName, StringRef RemarkName,
                              const Instruction *Inst);
-
-  /// Same as above but \p F is used to derive code region and debug
-  /// location.
-  OptimizationRemarkAnalysis(const char *PassName, StringRef RemarkName,
-                             const Function *F);
 
   static bool classof(const DiagnosticInfo *DI) {
     return DI->getKind() == DK_OptimizationRemarkAnalysis;
@@ -928,7 +916,6 @@ private:
 };
 
 /// Diagnostic information for machine IR parser.
-// FIXME: Remove this, use DiagnosticInfoSrcMgr instead.
 class DiagnosticInfoMIRParser : public DiagnosticInfo {
   const SMDiagnostic &Diagnostic;
 
@@ -1026,65 +1013,6 @@ public:
   const Twine &getMessage() const { return Msg; }
 
   void print(DiagnosticPrinter &DP) const override;
-};
-
-static DiagnosticSeverity getDiagnosticSeverity(SourceMgr::DiagKind DK) {
-  switch (DK) {
-  case llvm::SourceMgr::DK_Error:
-    return DS_Error;
-    break;
-  case llvm::SourceMgr::DK_Warning:
-    return DS_Warning;
-    break;
-  case llvm::SourceMgr::DK_Note:
-    return DS_Note;
-    break;
-  case llvm::SourceMgr::DK_Remark:
-    return DS_Remark;
-    break;
-  }
-  llvm_unreachable("unknown SourceMgr::DiagKind");
-}
-
-/// Diagnostic information for SMDiagnostic reporting.
-class DiagnosticInfoSrcMgr : public DiagnosticInfo {
-  const SMDiagnostic &Diagnostic;
-
-  // For inlineasm !srcloc translation.
-  bool InlineAsmDiag;
-  unsigned LocCookie;
-
-public:
-  DiagnosticInfoSrcMgr(const SMDiagnostic &Diagnostic,
-                       bool InlineAsmDiag = true, unsigned LocCookie = 0)
-      : DiagnosticInfo(DK_SrcMgr, getDiagnosticSeverity(Diagnostic.getKind())),
-        Diagnostic(Diagnostic), InlineAsmDiag(InlineAsmDiag),
-        LocCookie(LocCookie) {}
-
-  bool isInlineAsmDiag() const { return InlineAsmDiag; }
-  const SMDiagnostic &getSMDiag() const { return Diagnostic; }
-  unsigned getLocCookie() const { return LocCookie; }
-  void print(DiagnosticPrinter &DP) const override;
-
-  static bool classof(const DiagnosticInfo *DI) {
-    return DI->getKind() == DK_SrcMgr;
-  }
-};
-
-class DiagnosticInfoDontCall : public DiagnosticInfo {
-  StringRef CalleeName;
-  unsigned LocCookie;
-
-public:
-  DiagnosticInfoDontCall(StringRef CalleeName, unsigned LocCookie)
-      : DiagnosticInfo(DK_DontCall, DS_Error), CalleeName(CalleeName),
-        LocCookie(LocCookie) {}
-  StringRef getFunctionName() const { return CalleeName; }
-  unsigned getLocCookie() const { return LocCookie; }
-  void print(DiagnosticPrinter &DP) const override;
-  static bool classof(const DiagnosticInfo *DI) {
-    return DI->getKind() == DK_DontCall;
-  }
 };
 
 } // end namespace llvm

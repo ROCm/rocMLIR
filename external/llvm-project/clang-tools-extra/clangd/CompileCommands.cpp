@@ -9,17 +9,9 @@
 #include "CompileCommands.h"
 #include "Config.h"
 #include "support/Logger.h"
-#include "support/Trace.h"
-#include "clang/Driver/Driver.h"
 #include "clang/Driver/Options.h"
-#include "clang/Driver/ToolChain.h"
 #include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Tooling/ArgumentsAdjusters.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/Option/ArgList.h"
 #include "llvm/Option/Option.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Debug.h"
@@ -28,9 +20,6 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Program.h"
-#include <iterator>
-#include <string>
-#include <vector>
 
 namespace clang {
 namespace clangd {
@@ -107,9 +96,9 @@ std::string detectClangPath() {
     if (auto PathCC = llvm::sys::findProgramByName(Name))
       return resolve(std::move(*PathCC));
   // Fallback: a nonexistent 'clang' binary next to clangd.
-  static int StaticForMainAddr;
+  static int Dummy;
   std::string ClangdExecutable =
-      llvm::sys::fs::getMainExecutable("clangd", (void *)&StaticForMainAddr);
+      llvm::sys::fs::getMainExecutable("clangd", (void *)&Dummy);
   SmallString<128> ClangPath;
   ClangPath = llvm::sys::path::parent_path(ClangdExecutable);
   llvm::sys::path::append(ClangPath, "clang");
@@ -127,12 +116,12 @@ const llvm::Optional<std::string> detectSysroot() {
   if (::getenv("SDKROOT"))
     return llvm::None;
   return queryXcrun({"xcrun", "--show-sdk-path"});
+  return llvm::None;
 }
 
 std::string detectStandardResourceDir() {
-  static int StaticForMainAddr; // Just an address in this process.
-  return CompilerInvocation::GetResourcesPath("clangd",
-                                              (void *)&StaticForMainAddr);
+  static int Dummy; // Just an address in this process.
+  return CompilerInvocation::GetResourcesPath("clangd", (void *)&Dummy);
 }
 
 // The path passed to argv[0] is important:
@@ -193,75 +182,11 @@ CommandMangler CommandMangler::detect() {
   return Result;
 }
 
-CommandMangler CommandMangler::forTests() { return CommandMangler(); }
+CommandMangler CommandMangler::forTests() {
+  return CommandMangler();
+}
 
-void CommandMangler::adjust(std::vector<std::string> &Cmd,
-                            llvm::StringRef File) const {
-  trace::Span S("AdjustCompileFlags");
-  // Most of the modifications below assumes the Cmd starts with a driver name.
-  // We might consider injecting a generic driver name like "cc" or "c++", but
-  // a Cmd missing the driver is probably rare enough in practice and errnous.
-  if (Cmd.empty())
-    return;
-  auto &OptTable = clang::driver::getDriverOptTable();
-  // OriginalArgs needs to outlive ArgList.
-  llvm::SmallVector<const char *, 16> OriginalArgs;
-  OriginalArgs.reserve(Cmd.size());
-  for (const auto &S : Cmd)
-    OriginalArgs.push_back(S.c_str());
-  bool IsCLMode = driver::IsClangCL(driver::getDriverMode(
-      OriginalArgs[0], llvm::makeArrayRef(OriginalArgs).slice(1)));
-  // ParseArgs propagates missig arg/opt counts on error, but preserves
-  // everything it could parse in ArgList. So we just ignore those counts.
-  unsigned IgnoredCount;
-  // Drop the executable name, as ParseArgs doesn't expect it. This means
-  // indices are actually of by one between ArgList and OriginalArgs.
-  llvm::opt::InputArgList ArgList;
-  ArgList = OptTable.ParseArgs(
-      llvm::makeArrayRef(OriginalArgs).drop_front(), IgnoredCount, IgnoredCount,
-      /*FlagsToInclude=*/
-      IsCLMode ? (driver::options::CLOption | driver::options::CoreOption)
-               : /*everything*/ 0,
-      /*FlagsToExclude=*/driver::options::NoDriverOption |
-          (IsCLMode ? 0 : driver::options::CLOption));
-
-  llvm::SmallVector<unsigned, 1> IndicesToDrop;
-  // Having multiple architecture options (e.g. when building fat binaries)
-  // results in multiple compiler jobs, which clangd cannot handle. In such
-  // cases strip all the `-arch` options and fallback to default architecture.
-  // As there are no signals to figure out which one user actually wants. They
-  // can explicitly specify one through `CompileFlags.Add` if need be.
-  unsigned ArchOptCount = 0;
-  for (auto *Input : ArgList.filtered(driver::options::OPT_arch)) {
-    ++ArchOptCount;
-    for (auto I = 0U; I <= Input->getNumValues(); ++I)
-      IndicesToDrop.push_back(Input->getIndex() + I);
-  }
-  // If there is a single `-arch` option, keep it.
-  if (ArchOptCount < 2)
-    IndicesToDrop.clear();
-
-  // Strip all the inputs and `--`. We'll put the input for the requested file
-  // explicitly at the end of the flags. This ensures modifications done in the
-  // following steps apply in more cases (like setting -x, which only affects
-  // inputs that come after it).
-  for (auto *Input : ArgList.filtered(driver::options::OPT_INPUT))
-    IndicesToDrop.push_back(Input->getIndex());
-  // Anything after `--` is also treated as input, drop them as well.
-  if (auto *DashDash =
-          ArgList.getLastArgNoClaim(driver::options::OPT__DASH_DASH)) {
-    Cmd.resize(DashDash->getIndex() + 1); // +1 to account for Cmd[0].
-  }
-  llvm::sort(IndicesToDrop);
-  llvm::for_each(llvm::reverse(IndicesToDrop),
-                 // +1 to account for the executable name in Cmd[0] that
-                 // doesn't exist in ArgList.
-                 [&Cmd](unsigned Idx) { Cmd.erase(Cmd.begin() + Idx + 1); });
-  // All the inputs are stripped, append the name for the requested file. Rest
-  // of the modifications should respect `--`.
-  Cmd.push_back("--");
-  Cmd.push_back(File.str());
-
+void CommandMangler::adjust(std::vector<std::string> &Cmd) const {
   for (auto &Edit : Config::current().CompileFlags.Edits)
     Edit(Cmd);
 
@@ -274,24 +199,23 @@ void CommandMangler::adjust(std::vector<std::string> &Cmd,
     return false;
   };
 
-  llvm::erase_if(Cmd, [](llvm::StringRef Elem) {
-    return Elem.startswith("--save-temps") || Elem.startswith("-save-temps");
-  });
+  // clangd should not write files to disk, including dependency files
+  // requested on the command line.
+  Cmd = tooling::getClangStripDependencyFileAdjuster()(Cmd, "");
+  // Strip plugin related command line arguments. Clangd does
+  // not support plugins currently. Therefore it breaks if
+  // compiler tries to load plugins.
+  Cmd = tooling::getStripPluginsAdjuster()(Cmd, "");
+  Cmd = tooling::getClangSyntaxOnlyAdjuster()(Cmd, "");
 
-  std::vector<std::string> ToAppend;
   if (ResourceDir && !Has("-resource-dir"))
-    ToAppend.push_back(("-resource-dir=" + *ResourceDir));
+    Cmd.push_back(("-resource-dir=" + *ResourceDir));
 
   // Don't set `-isysroot` if it is already set or if `--sysroot` is set.
   // `--sysroot` is a superset of the `-isysroot` argument.
   if (Sysroot && !Has("-isysroot") && !Has("--sysroot")) {
-    ToAppend.push_back("-isysroot");
-    ToAppend.push_back(*Sysroot);
-  }
-
-  if (!ToAppend.empty()) {
-    Cmd.insert(llvm::find(Cmd, "--"), std::make_move_iterator(ToAppend.begin()),
-               std::make_move_iterator(ToAppend.end()));
+    Cmd.push_back("-isysroot");
+    Cmd.push_back(*Sysroot);
   }
 
   if (!Cmd.empty()) {
@@ -309,7 +233,7 @@ CommandMangler::operator clang::tooling::ArgumentsAdjuster() && {
   return [Mangler = std::make_shared<CommandMangler>(std::move(*this))](
              const std::vector<std::string> &Args, llvm::StringRef File) {
     auto Result = Args;
-    Mangler->adjust(Result, File);
+    Mangler->adjust(Result);
     return Result;
   };
 }
@@ -363,9 +287,9 @@ enum DriverMode : unsigned char {
 DriverMode getDriverMode(const std::vector<std::string> &Args) {
   DriverMode Mode = DM_GCC;
   llvm::StringRef Argv0 = Args.front();
-  if (Argv0.endswith_insensitive(".exe"))
+  if (Argv0.endswith_lower(".exe"))
     Argv0 = Argv0.drop_back(strlen(".exe"));
-  if (Argv0.endswith_insensitive("cl"))
+  if (Argv0.endswith_lower("cl"))
     Mode = DM_CL;
   for (const llvm::StringRef Arg : Args) {
     if (Arg == "--driver-mode=cl") {
@@ -578,6 +502,7 @@ void ArgStripper::process(std::vector<std::string> &Args) const {
   }
   Args.resize(Write);
 }
+
 
 std::string printArgv(llvm::ArrayRef<llvm::StringRef> Args) {
   std::string Buf;

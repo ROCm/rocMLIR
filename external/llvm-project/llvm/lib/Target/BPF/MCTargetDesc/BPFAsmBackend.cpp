@@ -43,14 +43,12 @@ public:
 
   unsigned getNumFixupKinds() const override { return 1; }
 
-  bool writeNopData(raw_ostream &OS, uint64_t Count,
-                    const MCSubtargetInfo *STI) const override;
+  bool writeNopData(raw_ostream &OS, uint64_t Count) const override;
 };
 
 } // end anonymous namespace
 
-bool BPFAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,
-                                 const MCSubtargetInfo *STI) const {
+bool BPFAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count) const {
   if ((Count % 8) != 0)
     return false;
 
@@ -65,7 +63,7 @@ void BPFAsmBackend::applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,
                                MutableArrayRef<char> Data, uint64_t Value,
                                bool IsResolved,
                                const MCSubtargetInfo *STI) const {
-  if (Fixup.getKind() == FK_SecRel_8) {
+  if (Fixup.getKind() == FK_SecRel_4 || Fixup.getKind() == FK_SecRel_8) {
     // The Value is 0 for global variables, and the in-section offset
     // for static variables. Write to the immediate field of the inst.
     assert(Value <= UINT32_MAX);

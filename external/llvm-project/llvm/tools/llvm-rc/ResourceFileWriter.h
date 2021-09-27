@@ -35,7 +35,7 @@ enum CodePage {
 
 struct WriterParams {
   std::vector<std::string> Include;   // Additional folders to search for files.
-  bool NoInclude;                     // Ignore the INCLUDE variable.
+  std::vector<std::string> NoInclude; // Folders to exclude from file search.
   StringRef InputFilePath;            // The full path of the input file.
   int CodePage = CpAcp;               // The codepage for interpreting characters.
 };

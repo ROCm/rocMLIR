@@ -43,7 +43,7 @@ static bool IsMainFile(llvm::StringRef main, llvm::StringRef other) {
 
   llvm::SmallString<64> normalized(other);
   llvm::sys::path::native(normalized);
-  return main.equals_insensitive(normalized);
+  return main.equals_lower(normalized);
 }
 
 static void ParseCompile3(const CVSymbol &sym, CompilandIndexItem &cci) {

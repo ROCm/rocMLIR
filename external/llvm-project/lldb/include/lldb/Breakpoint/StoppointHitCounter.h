@@ -9,7 +9,7 @@
 #ifndef LLDB_BREAKPOINT_STOPPOINT_HIT_COUNTER_H
 #define LLDB_BREAKPOINT_STOPPOINT_HIT_COUNTER_H
 
-#include <cassert>
+#include <assert.h>
 #include <cstdint>
 #include <limits>
 

@@ -19,8 +19,8 @@
 #include <memory>
 #include <utility>
 
-#include <cassert>
-#include <cstddef>
+#include <assert.h>
+#include <stddef.h>
 
 using namespace lldb;
 using namespace lldb_private;

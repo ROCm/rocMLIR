@@ -221,7 +221,6 @@ def rsp_quoting : Joined<["--"], "rsp-quoting=">,
   HelpText<"Quoting style for response files, 'windows' (default) or 'posix'">;
 def start_lib : F<"start-lib">,
   HelpText<"Start group of objects treated as if they were in a library">;
-defm stdcall_fixup : B_priv<"stdcall-fixup">;
 def thinlto_emit_imports_files :
     F<"thinlto-emit-imports-files">,
     HelpText<"Emit .imports files with -thinlto-index-only">;
@@ -240,14 +239,6 @@ def thinlto_prefix_replace: P<
 def lto_obj_path : P<
     "lto-obj-path",
     "output native object for merged LTO unit to this path">;
-def lto_cs_profile_generate: F<"lto-cs-profile-generate">,
-    HelpText<"Perform context sensitive PGO instrumentation">;
-def lto_cs_profile_file : P<"lto-cs-profile-file",
-    "Context sensitive profile file path">;
-defm lto_pgo_warn_mismatch: B<
-     "lto-pgo-warn-mismatch",
-     "turn on warnings about profile cfg mismatch (default)>",
-     "turn off warnings about profile cfg mismatch">;
 def dash_dash_version : Flag<["--"], "version">,
   HelpText<"Display the version number and exit">;
 def threads
@@ -268,9 +259,9 @@ def wrap : P_priv<"wrap">;
 
 // Flags for debugging
 def lldmap : F<"lldmap">;
-def lldmap_file : P_priv<"lldmap">;
+def lldmap_file : Joined<["/", "-", "/?", "-?"], "lldmap:">;
 def map : F<"map">;
-def map_file : P_priv<"map">;
+def map_file : Joined<["/", "-", "/?", "-?"], "map:">;
 def show_timing : F<"time">;
 def summary : F<"summary">;
 
@@ -278,21 +269,19 @@ def summary : F<"summary">;
 // The flags below do nothing. They are defined only for link.exe compatibility.
 //==============================================================================
 
+class QF<string name> : Joined<["/", "-", "/?", "-?"], name#":">;
+
 def ignoreidl : F<"ignoreidl">;
-def ltcg : F<"ltcg">;
 def nologo : F<"nologo">;
 def throwingnew : F<"throwingnew">;
 def editandcontinue : F<"editandcontinue">;
 def fastfail : F<"fastfail">;
 
-def delay : P_priv<"delay">;
-def errorreport : P_priv<"errorreport">;
-def idlout : P_priv<"idlout">;
-def ilk : P_priv<"ilk">;
-def ltcg_opt : P_priv<"ltcg">;
-def ltcgout : P_priv<"ltcgout">;
-def maxilksize : P_priv<"maxilksize">;
-def tlbid : P_priv<"tlbid">;
-def tlbout : P_priv<"tlbout">;
-def verbose_all : P_priv<"verbose">;
-def guardsym : P_priv<"guardsym">;
+def delay : QF<"delay">;
+def errorreport : QF<"errorreport">;
+def idlout : QF<"idlout">;
+def maxilksize : QF<"maxilksize">;
+def tlbid : QF<"tlbid">;
+def tlbout : QF<"tlbout">;
+def verbose_all : QF<"verbose">;
+def guardsym : QF<"guardsym">;

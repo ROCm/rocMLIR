@@ -475,15 +475,13 @@ std::string DynamicType::AsFortran() const {
   if (derived_) {
     CHECK(category_ == TypeCategory::Derived);
     return DerivedTypeSpecAsFortran(*derived_);
-  } else if (charLengthParamValue_ || knownLength()) {
+  } else if (charLength_) {
     std::string result{"CHARACTER(KIND="s + std::to_string(kind_) + ",LEN="};
-    if (knownLength()) {
-      result += std::to_string(*knownLength()) + "_8";
-    } else if (charLengthParamValue_->isAssumed()) {
+    if (charLength_->isAssumed()) {
       result += '*';
-    } else if (charLengthParamValue_->isDeferred()) {
+    } else if (charLength_->isDeferred()) {
       result += ':';
-    } else if (const auto &length{charLengthParamValue_->GetExplicit()}) {
+    } else if (const auto &length{charLength_->GetExplicit()}) {
       result += length->AsFortran();
     }
     return result + ')';
@@ -616,7 +614,7 @@ llvm::raw_ostream &BaseObject::AsFortran(llvm::raw_ostream &o) const {
 
 llvm::raw_ostream &TypeParamInquiry::AsFortran(llvm::raw_ostream &o) const {
   if (base_) {
-    base_.value().AsFortran(o) << '%';
+    return base_->AsFortran(o) << '%';
   }
   return EmitVar(o, parameter_);
 }
@@ -739,7 +737,7 @@ llvm::raw_ostream &DescriptorInquiry::AsFortran(llvm::raw_ostream &o) const {
   if (field_ == Field::Len) {
     return o << "%len";
   } else {
-    if (field_ != Field::Rank && dimension_ >= 0) {
+    if (dimension_ >= 0) {
       o << ",dim=" << (dimension_ + 1);
     }
     return o << ')';

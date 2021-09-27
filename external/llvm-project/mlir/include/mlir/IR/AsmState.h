@@ -13,7 +13,6 @@
 #ifndef MLIR_IR_ASMSTATE_H_
 #define MLIR_IR_ASMSTATE_H_
 
-#include "mlir/IR/OperationSupport.h"
 #include "mlir/Support/LLVM.h"
 
 #include <memory>
@@ -42,9 +41,7 @@ public:
 
   /// Initialize the asm state at the level of the given operation. A location
   /// map may optionally be provided to be populated when printing.
-  AsmState(Operation *op,
-           const OpPrintingFlags &printerFlags = OpPrintingFlags(),
-           LocationMap *locationMap = nullptr);
+  AsmState(Operation *op, LocationMap *locationMap = nullptr);
   ~AsmState();
 
   /// Return an instance of the internal implementation. Returns nullptr if the

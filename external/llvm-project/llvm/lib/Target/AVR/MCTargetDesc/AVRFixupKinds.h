@@ -141,7 +141,7 @@ namespace fixups {
 template <typename T> inline void adjustBranchTarget(T &val) { val >>= 1; }
 
 } // end of namespace fixups
-} // namespace AVR
-} // namespace llvm
+}
+} // end of namespace llvm::AVR
 
 #endif // LLVM_AVR_FIXUP_KINDS_H

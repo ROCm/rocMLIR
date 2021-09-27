@@ -34,13 +34,13 @@ void LowerVectorToSPIRVPass::runOnOperation() {
 
   auto targetAttr = spirv::lookupTargetEnvOrDefault(module);
   std::unique_ptr<ConversionTarget> target =
-      SPIRVConversionTarget::get(targetAttr);
+      spirv::SPIRVConversionTarget::get(targetAttr);
 
   SPIRVTypeConverter typeConverter(targetAttr);
-  RewritePatternSet patterns(context);
-  populateVectorToSPIRVPatterns(typeConverter, patterns);
+  OwningRewritePatternList patterns;
+  populateVectorToSPIRVPatterns(context, typeConverter, patterns);
 
-  target->addLegalOp<ModuleOp>();
+  target->addLegalOp<ModuleOp, ModuleTerminatorOp>();
   target->addLegalOp<FuncOp>();
 
   if (failed(applyFullConversion(module, *target, std::move(patterns))))

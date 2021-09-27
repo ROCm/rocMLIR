@@ -149,7 +149,6 @@ class TestVSCode_attach(lldbvscode_testcase.VSCodeTestCaseBase):
         ]
         initCommands = ['target list', 'platform list']
         preRunCommands = ['image list a.out', 'image dump sections a.out']
-        postRunCommands = ['help trace', 'help process trace']
         stopCommands = ['frame variable', 'bt']
         exitCommands = ['expr 2+3', 'expr 3+4']
         terminateCommands = ['expr 4+2']
@@ -159,8 +158,7 @@ class TestVSCode_attach(lldbvscode_testcase.VSCodeTestCaseBase):
                     preRunCommands=preRunCommands,
                     stopCommands=stopCommands,
                     exitCommands=exitCommands,
-                    terminateCommands=terminateCommands,
-                    postRunCommands=postRunCommands)
+                    terminateCommands=terminateCommands)
         # Get output from the console. This should contain both the
         # "initCommands" and the "preRunCommands".
         output = self.get_console()
@@ -168,8 +166,6 @@ class TestVSCode_attach(lldbvscode_testcase.VSCodeTestCaseBase):
         self.verify_commands('initCommands', output, initCommands)
         # Verify all "preRunCommands" were found in console output
         self.verify_commands('preRunCommands', output, preRunCommands)
-        # Verify all "postRunCommands" were found in console output
-        self.verify_commands('postRunCommands', output, postRunCommands)
 
         functions = ['main']
         breakpoint_ids = self.set_function_breakpoints(functions)

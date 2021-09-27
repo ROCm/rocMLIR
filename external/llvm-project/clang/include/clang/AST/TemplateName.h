@@ -309,17 +309,16 @@ public:
   /// unexpanded parameter pack (for C++0x variadic templates).
   bool containsUnexpandedParameterPack() const;
 
-  enum class Qualified { None, AsWritten, Fully };
   /// Print the template name.
   ///
   /// \param OS the output stream to which the template name will be
   /// printed.
   ///
-  /// \param Qual print the (Qualified::None) simple name,
-  /// (Qualified::AsWritten) any written (possibly partial) qualifier, or
-  /// (Qualified::Fully) the fully qualified name.
+  /// \param SuppressNNS if true, don't print the
+  /// nested-name-specifier that precedes the template name (if it has
+  /// one).
   void print(raw_ostream &OS, const PrintingPolicy &Policy,
-             Qualified Qual = Qualified::AsWritten) const;
+             bool SuppressNNS = false) const;
 
   /// Debugging aid that dumps the template name.
   void dump(raw_ostream &OS) const;

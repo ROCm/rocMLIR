@@ -25,7 +25,6 @@
 # VM-NEXT: S_NOP 0
 
 # ZERO: S_WAITCNT 0
-# ZERO-NEXT: S_NOP 0
 # ZERO-NEXT: S_WAITCNT 0
 # ZERO-NEXT: S_NOP 0
 # ZERO-NEXT: S_WAITCNT 0
@@ -33,8 +32,6 @@
 
 name:            waitcnt-debug
 liveins:
-machineFunctionInfo:
-  isEntryFunction: true
 body:             |
   bb.0:
     S_NOP 0

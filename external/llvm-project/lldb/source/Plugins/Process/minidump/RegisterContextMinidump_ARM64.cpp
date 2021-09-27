@@ -14,7 +14,7 @@
 #include "lldb/lldb-enumerations.h"
 
 // C includes
-#include <cassert>
+#include <assert.h>
 
 // C++ includes
 

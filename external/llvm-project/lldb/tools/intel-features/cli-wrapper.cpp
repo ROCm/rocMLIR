@@ -18,6 +18,10 @@
 #include "intel-mpx/cli-wrapper-mpxtable.h"
 #endif
 
+#ifdef BUILD_INTEL_PT
+#include "intel-pt/cli-wrapper-pt.h"
+#endif
+
 #include "lldb/API/SBDebugger.h"
 
 namespace lldb {
@@ -25,6 +29,10 @@ bool PluginInitialize(lldb::SBDebugger debugger);
 }
 
 bool lldb::PluginInitialize(lldb::SBDebugger debugger) {
+
+#ifdef BUILD_INTEL_PT
+  PTPluginInitialize(debugger);
+#endif
 
 #ifdef BUILD_INTEL_MPX
   MPXPluginInitialize(debugger);

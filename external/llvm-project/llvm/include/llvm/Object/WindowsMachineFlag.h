@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_OBJECT_WINDOWSMACHINEFLAG_H
-#define LLVM_OBJECT_WINDOWSMACHINEFLAG_H
+#ifndef LLVM_TOOLDRIVERS_MACHINEFLAG_MACHINEFLAG_H
+#define LLVM_TOOLDRIVERS_MACHINEFLAG_MACHINEFLAG_H
 
 namespace llvm {
 

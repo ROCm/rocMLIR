@@ -1,4 +1,4 @@
-! RUN: %python %S/test_symbols.py %s %flang_fc1 -fopenmp
+! RUN: %S/test_symbols.sh %s %t %f18 -fopenmp
 ! OpenMP Version 4.5
 ! 2.7.1 Loop Construct
 ! The loop iteration variable may not appear in a firstprivate directive.

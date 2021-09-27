@@ -1,8 +1,6 @@
-; RUN: opt -loop-reduce -S %s | FileCheck %s
+; RUN: opt < %s -loop-reduce -S | FileCheck %s
 
-;; Test that LSR preserves debug-info for induction variables and scev-based
-;; salvaging produces short DIExpressions that use a constant offset from the
-;; induction variable.
+; Test that LSR preserves debug-info for induction variables.
 
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
 
@@ -23,11 +21,11 @@ for.body:                                         ; preds = %entry, %for.body
   call void @llvm.dbg.value(metadata i8 %i.06, metadata !14, metadata !DIExpression()), !dbg !17
   call void @llvm.dbg.value(metadata i8* %p.addr.05, metadata !13, metadata !DIExpression()), !dbg !16
 ; CHECK-NOT: call void @llvm.dbg.value(metadata i8* undef
-; CHECK: all void @llvm.dbg.value(metadata i8* %lsr.iv, metadata ![[MID_p:[0-9]+]],  metadata !DIExpression(DW_OP_constu, 3, DW_OP_minus, DW_OP_stack_value))
+; CHECK: call void @llvm.dbg.value(metadata i8* %lsr.iv, metadata ![[MID_p:[0-9]+]], metadata !DIExpression(DW_OP_constu, 3, DW_OP_minus, DW_OP_stack_value)), !dbg !16
   %add.ptr = getelementptr inbounds i8, i8* %p.addr.05, i64 3, !dbg !20
   call void @llvm.dbg.value(metadata i8* %add.ptr, metadata !13, metadata !DIExpression()), !dbg !16
 ; CHECK-NOT: call void @llvm.dbg.value(metadata i8* undef
-; CHECK: call void @llvm.dbg.value(metadata i8* %lsr.iv, metadata ![[MID_p]], metadata !DIExpression())
+; CHECK: call void @llvm.dbg.value(metadata i8* %lsr.iv, metadata ![[MID_p]], metadata !DIExpression()), !dbg !16
   store i8 %i.06, i8* %add.ptr, align 1, !dbg !23, !tbaa !24
   %inc = add nuw nsw i8 %i.06, 1, !dbg !27
   call void @llvm.dbg.value(metadata i8 %inc, metadata !14, metadata !DIExpression()), !dbg !17

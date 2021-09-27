@@ -30,10 +30,13 @@ static ThreadContextBase *CreateThreadContext(u32 tid) {
   return new (mem) ThreadContext(tid);
 }
 
+static const uptr kMaxThreads = 1 << 13;
+static const uptr kThreadQuarantineSize = 64;
+
 void InitializeThreadRegistry() {
   static ALIGNED(64) char thread_registry_placeholder[sizeof(ThreadRegistry)];
-  thread_registry =
-      new (thread_registry_placeholder) ThreadRegistry(CreateThreadContext);
+  thread_registry = new (thread_registry_placeholder)
+      ThreadRegistry(CreateThreadContext, kMaxThreads, kThreadQuarantineSize);
 }
 
 ThreadContextLsanBase::ThreadContextLsanBase(int tid)
@@ -91,7 +94,7 @@ void ThreadJoin(u32 tid) {
 }
 
 void EnsureMainThreadIDIsCorrect() {
-  if (GetCurrentThread() == kMainTid)
+  if (GetCurrentThread() == 0)
     CurrentThreadContext()->os_id = GetTid();
 }
 

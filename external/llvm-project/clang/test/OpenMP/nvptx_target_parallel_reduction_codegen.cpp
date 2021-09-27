@@ -54,8 +54,13 @@ int bar(int n){
 
 // CHECK: define {{.*}}void {{@__omp_offloading_.+template.+l27}}(
 //
-// CHECK: call i32 @__kmpc_target_init({{.*}}, i1 true, i1 false, i1 true)
-// CHECK: call void @__kmpc_target_deinit({{.*}}, i1 true, i1 true)
+// CHECK: call void @__kmpc_spmd_kernel_init(i32 {{.+}}, i16 1)
+// CHECK: call void @__kmpc_data_sharing_init_stack_spmd
+// CHECK: br label {{%?}}[[EXECUTE:.+]]
+//
+// CHECK: [[EXECUTE]]
+// CHECK: {{call|invoke}} void [[PFN:@.+]](i32*
+// CHECK: call void @__kmpc_spmd_kernel_deinit_v2(i16 1)
 //
 //
 // define internal void [[PFN]](
@@ -233,8 +238,13 @@ int bar(int n){
 
 // CHECK: define {{.*}}void {{@__omp_offloading_.+template.+l32}}(
 //
-// CHECK: call i32 @__kmpc_target_init({{.*}}, i1 true, i1 false, i1 true)
-// CHECK: call void @__kmpc_target_deinit({{.*}}, i1 true, i1 true)
+// CHECK: call void @__kmpc_spmd_kernel_init(i32 {{.+}}, i16 1)
+// CHECK: call void @__kmpc_data_sharing_init_stack_spmd
+// CHECK: br label {{%?}}[[EXECUTE:.+]]
+//
+// CHECK: [[EXECUTE]]
+// CHECK: {{call|invoke}} void [[PFN1:@.+]](i32*
+// CHECK: call void @__kmpc_spmd_kernel_deinit_v2(i16 1)
 //
 //
 // define internal void [[PFN1]](
@@ -490,8 +500,13 @@ int bar(int n){
 
 // CHECK: define {{.*}}void {{@__omp_offloading_.+template.+l38}}(
 //
-// CHECK: call i32 @__kmpc_target_init({{.*}}, i1 true, i1 false, i1 true)
-// CHECK: call void @__kmpc_target_deinit({{.*}}, i1 true, i1 true)
+// CHECK: call void @__kmpc_spmd_kernel_init(i32 {{.+}}, i16 1)
+// CHECK: call void @__kmpc_data_sharing_init_stack_spmd
+// CHECK: br label {{%?}}[[EXECUTE:.+]]
+//
+// CHECK: [[EXECUTE]]
+// CHECK: {{call|invoke}} void [[PFN2:@.+]](i32*
+// CHECK: call void @__kmpc_spmd_kernel_deinit_v2(i16 1)
 //
 //
 // define internal void [[PFN2]](

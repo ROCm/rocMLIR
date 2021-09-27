@@ -14,6 +14,7 @@
 #ifndef LLVM_CLANG_LEX_MODULEMAP_H
 #define LLVM_CLANG_LEX_MODULEMAP_H
 
+#include "clang/Basic/FileEntry.h"
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/Module.h"
@@ -37,7 +38,6 @@ namespace clang {
 
 class DiagnosticsEngine;
 class DirectoryEntry;
-class FileEntry;
 class FileManager;
 class HeaderSearch;
 class SourceManager;
@@ -648,15 +648,13 @@ public:
 
   /// Sets the umbrella header of the given module to the given
   /// header.
-  void setUmbrellaHeader(Module *Mod, const FileEntry *UmbrellaHeader,
-                         const Twine &NameAsWritten,
-                         const Twine &PathRelativeToRootModuleDirectory);
+  void setUmbrellaHeader(Module *Mod, FileEntryRef UmbrellaHeader,
+                         Twine NameAsWritten);
 
   /// Sets the umbrella directory of the given module to the given
   /// directory.
-  void setUmbrellaDir(Module *Mod, const DirectoryEntry *UmbrellaDir,
-                      const Twine &NameAsWritten,
-                      const Twine &PathRelativeToRootModuleDirectory);
+  void setUmbrellaDir(Module *Mod, DirectoryEntryRef UmbrellaDir,
+                      Twine NameAsWritten);
 
   /// Adds this header to the given module.
   /// \param Role The role of the header wrt the module.
@@ -698,9 +696,6 @@ public:
 
   module_iterator module_begin() const { return Modules.begin(); }
   module_iterator module_end()   const { return Modules.end(); }
-  llvm::iterator_range<module_iterator> modules() const {
-    return {module_begin(), module_end()};
-  }
 
   /// Cache a module load.  M might be nullptr.
   void cacheModuleLoad(const IdentifierInfo &II, Module *M) {

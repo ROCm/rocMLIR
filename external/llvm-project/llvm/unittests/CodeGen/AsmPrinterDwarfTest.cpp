@@ -50,27 +50,25 @@ protected:
     if (!AsmPrinterFixtureBase::init(TripleStr, DwarfVersion, DwarfFormat))
       return false;
 
-    // AsmPrinter::emitDwarfSymbolReference(Label, true) gets the associated
-    // section from `Label` to find its BeginSymbol.
-    // Prepare the test symbol `Val` accordingly.
+    // Create a symbol which will be emitted in the tests and associate it
+    // with a section because that is required in some code paths.
 
     Val = TestPrinter->getCtx().createTempSymbol();
-    MCSection *Sec =
-        TestPrinter->getCtx().getELFSection(".tst", ELF::SHT_PROGBITS, 0);
+    Sec = TestPrinter->getCtx().getELFSection(".tst", ELF::SHT_PROGBITS, 0);
     SecBeginSymbol = Sec->getBeginSymbol();
     TestPrinter->getMS().SwitchSection(Sec);
-    Val->setFragment(&Sec->getDummyFragment());
-
+    TestPrinter->getMS().emitLabel(Val);
     return true;
   }
 
   MCSymbol *Val = nullptr;
+  MCSection *Sec = nullptr;
   MCSymbol *SecBeginSymbol = nullptr;
 };
 
 TEST_F(AsmPrinterEmitDwarfSymbolReferenceTest, COFF) {
   if (!init("x86_64-pc-windows", /*DwarfVersion=*/4, dwarf::DWARF32))
-    GTEST_SKIP();
+    return;
 
   EXPECT_CALL(TestPrinter->getMS(), EmitCOFFSecRel32(Val, 0));
   TestPrinter->getAP()->emitDwarfSymbolReference(Val, false);
@@ -78,7 +76,7 @@ TEST_F(AsmPrinterEmitDwarfSymbolReferenceTest, COFF) {
 
 TEST_F(AsmPrinterEmitDwarfSymbolReferenceTest, COFFForceOffset) {
   if (!init("x86_64-pc-windows", /*DwarfVersion=*/4, dwarf::DWARF32))
-    GTEST_SKIP();
+    return;
 
   EXPECT_CALL(TestPrinter->getMS(),
               emitAbsoluteSymbolDiff(Val, SecBeginSymbol, 4));
@@ -87,7 +85,7 @@ TEST_F(AsmPrinterEmitDwarfSymbolReferenceTest, COFFForceOffset) {
 
 TEST_F(AsmPrinterEmitDwarfSymbolReferenceTest, ELFDWARF32) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF32))
-    GTEST_SKIP();
+    return;
 
   const MCExpr *Arg0 = nullptr;
   EXPECT_CALL(TestPrinter->getMS(), emitValueImpl(_, 4, _))
@@ -101,7 +99,7 @@ TEST_F(AsmPrinterEmitDwarfSymbolReferenceTest, ELFDWARF32) {
 
 TEST_F(AsmPrinterEmitDwarfSymbolReferenceTest, ELFDWARF32ForceOffset) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF32))
-    GTEST_SKIP();
+    return;
 
   EXPECT_CALL(TestPrinter->getMS(),
               emitAbsoluteSymbolDiff(Val, SecBeginSymbol, 4));
@@ -110,7 +108,7 @@ TEST_F(AsmPrinterEmitDwarfSymbolReferenceTest, ELFDWARF32ForceOffset) {
 
 TEST_F(AsmPrinterEmitDwarfSymbolReferenceTest, ELFDWARF64) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF64))
-    GTEST_SKIP();
+    return;
 
   const MCExpr *Arg0 = nullptr;
   EXPECT_CALL(TestPrinter->getMS(), emitValueImpl(_, 8, _))
@@ -124,7 +122,7 @@ TEST_F(AsmPrinterEmitDwarfSymbolReferenceTest, ELFDWARF64) {
 
 TEST_F(AsmPrinterEmitDwarfSymbolReferenceTest, ELFDWARF64ForceOffset) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF64))
-    GTEST_SKIP();
+    return;
 
   EXPECT_CALL(TestPrinter->getMS(),
               emitAbsoluteSymbolDiff(Val, SecBeginSymbol, 8));
@@ -149,7 +147,7 @@ protected:
 
 TEST_F(AsmPrinterEmitDwarfStringOffsetTest, DWARF32) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF32))
-    GTEST_SKIP();
+    return;
 
   const MCExpr *Arg0 = nullptr;
   EXPECT_CALL(TestPrinter->getMS(), emitValueImpl(_, 4, _))
@@ -164,7 +162,7 @@ TEST_F(AsmPrinterEmitDwarfStringOffsetTest, DWARF32) {
 TEST_F(AsmPrinterEmitDwarfStringOffsetTest,
        DWARF32NoRelocationsAcrossSections) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF32))
-    GTEST_SKIP();
+    return;
 
   TestPrinter->setDwarfUsesRelocationsAcrossSections(false);
   EXPECT_CALL(TestPrinter->getMS(), emitIntValue(Val.Offset, 4));
@@ -173,7 +171,7 @@ TEST_F(AsmPrinterEmitDwarfStringOffsetTest,
 
 TEST_F(AsmPrinterEmitDwarfStringOffsetTest, DWARF64) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF64))
-    GTEST_SKIP();
+    return;
 
   const MCExpr *Arg0 = nullptr;
   EXPECT_CALL(TestPrinter->getMS(), emitValueImpl(_, 8, _))
@@ -188,7 +186,7 @@ TEST_F(AsmPrinterEmitDwarfStringOffsetTest, DWARF64) {
 TEST_F(AsmPrinterEmitDwarfStringOffsetTest,
        DWARF64NoRelocationsAcrossSections) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF64))
-    GTEST_SKIP();
+    return;
 
   TestPrinter->setDwarfUsesRelocationsAcrossSections(false);
   EXPECT_CALL(TestPrinter->getMS(), emitIntValue(Val.Offset, 8));
@@ -212,7 +210,7 @@ protected:
 
 TEST_F(AsmPrinterEmitDwarfOffsetTest, DWARF32) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF32))
-    GTEST_SKIP();
+    return;
 
   const MCExpr *Arg0 = nullptr;
   EXPECT_CALL(TestPrinter->getMS(), emitValueImpl(_, 4, _))
@@ -236,7 +234,7 @@ TEST_F(AsmPrinterEmitDwarfOffsetTest, DWARF32) {
 
 TEST_F(AsmPrinterEmitDwarfOffsetTest, DWARF64) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF64))
-    GTEST_SKIP();
+    return;
 
   const MCExpr *Arg0 = nullptr;
   EXPECT_CALL(TestPrinter->getMS(), emitValueImpl(_, 8, _))
@@ -265,7 +263,7 @@ protected:
 
 TEST_F(AsmPrinterEmitDwarfLengthOrOffsetTest, DWARF32) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF32))
-    GTEST_SKIP();
+    return;
 
   EXPECT_CALL(TestPrinter->getMS(), emitIntValue(Val, 4));
   TestPrinter->getAP()->emitDwarfLengthOrOffset(Val);
@@ -273,7 +271,7 @@ TEST_F(AsmPrinterEmitDwarfLengthOrOffsetTest, DWARF32) {
 
 TEST_F(AsmPrinterEmitDwarfLengthOrOffsetTest, DWARF64) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF64))
-    GTEST_SKIP();
+    return;
 
   EXPECT_CALL(TestPrinter->getMS(), emitIntValue(Val, 8));
   TestPrinter->getAP()->emitDwarfLengthOrOffset(Val);
@@ -284,16 +282,34 @@ class AsmPrinterGetUnitLengthFieldByteSizeTest : public AsmPrinterFixtureBase {
 
 TEST_F(AsmPrinterGetUnitLengthFieldByteSizeTest, DWARF32) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF32))
-    GTEST_SKIP();
+    return;
 
   EXPECT_EQ(TestPrinter->getAP()->getUnitLengthFieldByteSize(), 4u);
 }
 
 TEST_F(AsmPrinterGetUnitLengthFieldByteSizeTest, DWARF64) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF64))
-    GTEST_SKIP();
+    return;
 
   EXPECT_EQ(TestPrinter->getAP()->getUnitLengthFieldByteSize(), 12u);
+}
+
+class AsmPrinterMaybeEmitDwarf64MarkTest : public AsmPrinterFixtureBase {};
+
+TEST_F(AsmPrinterMaybeEmitDwarf64MarkTest, DWARF32) {
+  if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF32))
+    return;
+
+  EXPECT_CALL(TestPrinter->getMS(), emitIntValue(_, _)).Times(0);
+  TestPrinter->getAP()->maybeEmitDwarf64Mark();
+}
+
+TEST_F(AsmPrinterMaybeEmitDwarf64MarkTest, DWARF64) {
+  if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF64))
+    return;
+
+  EXPECT_CALL(TestPrinter->getMS(), emitIntValue(dwarf::DW_LENGTH_DWARF64, 4));
+  TestPrinter->getAP()->maybeEmitDwarf64Mark();
 }
 
 class AsmPrinterEmitDwarfUnitLengthAsIntTest : public AsmPrinterFixtureBase {
@@ -303,7 +319,7 @@ protected:
 
 TEST_F(AsmPrinterEmitDwarfUnitLengthAsIntTest, DWARF32) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF32))
-    GTEST_SKIP();
+    return;
 
   EXPECT_CALL(TestPrinter->getMS(), emitIntValue(Val, 4));
   TestPrinter->getAP()->emitDwarfUnitLength(Val, "");
@@ -311,7 +327,7 @@ TEST_F(AsmPrinterEmitDwarfUnitLengthAsIntTest, DWARF32) {
 
 TEST_F(AsmPrinterEmitDwarfUnitLengthAsIntTest, DWARF64) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF64))
-    GTEST_SKIP();
+    return;
 
   InSequence S;
   EXPECT_CALL(TestPrinter->getMS(), emitIntValue(dwarf::DW_LENGTH_DWARF64, 4));
@@ -328,49 +344,32 @@ protected:
     if (!AsmPrinterFixtureBase::init(TripleStr, DwarfVersion, DwarfFormat))
       return false;
 
+    Hi = TestPrinter->getCtx().createTempSymbol();
+    Lo = TestPrinter->getCtx().createTempSymbol();
     return true;
   }
+
+  MCSymbol *Hi = nullptr;
+  MCSymbol *Lo = nullptr;
 };
 
 TEST_F(AsmPrinterEmitDwarfUnitLengthAsHiLoDiffTest, DWARF32) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF32))
-    GTEST_SKIP();
+    return;
 
-  InSequence S;
-  const MCSymbol *Hi = nullptr;
-  const MCSymbol *Lo = nullptr;
-  EXPECT_CALL(TestPrinter->getMS(), emitAbsoluteSymbolDiff(_, _, 4))
-      .WillOnce(DoAll(SaveArg<0>(&Hi), SaveArg<1>(&Lo)));
-  MCSymbol *LTmp = nullptr;
-  EXPECT_CALL(TestPrinter->getMS(), emitLabel(_, _))
-      .WillOnce(SaveArg<0>(&LTmp));
-
-  MCSymbol *HTmp = TestPrinter->getAP()->emitDwarfUnitLength("", "");
-  EXPECT_NE(Lo, nullptr);
-  EXPECT_EQ(Lo, LTmp);
-  EXPECT_NE(Hi, nullptr);
-  EXPECT_EQ(Hi, HTmp);
+  EXPECT_CALL(TestPrinter->getMS(), emitAbsoluteSymbolDiff(Hi, Lo, 4));
+  TestPrinter->getAP()->emitDwarfUnitLength(Hi, Lo, "");
 }
 
 TEST_F(AsmPrinterEmitDwarfUnitLengthAsHiLoDiffTest, DWARF64) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF64))
-    GTEST_SKIP();
+    return;
 
   InSequence S;
-  const MCSymbol *Hi = nullptr;
-  const MCSymbol *Lo = nullptr;
   EXPECT_CALL(TestPrinter->getMS(), emitIntValue(dwarf::DW_LENGTH_DWARF64, 4));
-  EXPECT_CALL(TestPrinter->getMS(), emitAbsoluteSymbolDiff(_, _, 8))
-      .WillOnce(DoAll(SaveArg<0>(&Hi), SaveArg<1>(&Lo)));
-  MCSymbol *LTmp = nullptr;
-  EXPECT_CALL(TestPrinter->getMS(), emitLabel(_, _))
-      .WillOnce(SaveArg<0>(&LTmp));
+  EXPECT_CALL(TestPrinter->getMS(), emitAbsoluteSymbolDiff(Hi, Lo, 8));
 
-  MCSymbol *HTmp = TestPrinter->getAP()->emitDwarfUnitLength("", "");
-  EXPECT_NE(Lo, nullptr);
-  EXPECT_EQ(Lo, LTmp);
-  EXPECT_NE(Hi, nullptr);
-  EXPECT_EQ(Hi, HTmp);
+  TestPrinter->getAP()->emitDwarfUnitLength(Hi, Lo, "");
 }
 
 class AsmPrinterHandlerTest : public AsmPrinterFixtureBase {
@@ -421,7 +420,7 @@ protected:
 
 TEST_F(AsmPrinterHandlerTest, Basic) {
   if (!init("x86_64-pc-linux", /*DwarfVersion=*/4, dwarf::DWARF32))
-    GTEST_SKIP();
+    return;
 
   ASSERT_EQ(BeginCount, 3);
   ASSERT_EQ(EndCount, 3);

@@ -22,18 +22,15 @@ namespace greatergreater {
   void f(S<int>=0); // expected-error {{a space is required between a right angle bracket and an equals sign (use '> =')}}
   void f(S<S<int>>=S<int>()); // expected-error {{use '> >'}} expected-error {{use '> ='}}
   template<typename T> void t();
-  struct R {
-    friend void operator==(void (*)(), R) {}
-    friend void operator>=(void (*)(), R) {}
-  };
   void g() {
-    (void)(&t<int>==R()); // expected-error {{use '> ='}}
-    (void)(&t<int>>=R()); // expected-error {{use '> >'}}
-    (void)(&t<S<int>>>=R());
+    void (*p)() = &t<int>;
+    (void)(&t<int>==p); // expected-error {{use '> ='}}
+    (void)(&t<int>>=p); // expected-error {{use '> >'}}
+    (void)(&t<S<int>>>=p);
 #if __cplusplus <= 199711L
     // expected-error@-2 {{use '> >'}}
 #endif
-    (void)(&t<S<int>>==R()); // expected-error {{use '> >'}} expected-error {{use '> ='}}
+    (void)(&t<S<int>>==p); // expected-error {{use '> >'}} expected-error {{use '> ='}}
   }
 }
 

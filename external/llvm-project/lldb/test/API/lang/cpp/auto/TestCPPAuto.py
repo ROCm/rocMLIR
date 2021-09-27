@@ -11,6 +11,9 @@ class CPPAutoTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
+    @expectedFailureAll(
+        compiler="gcc",
+        bugnumber="GCC generates incomplete debug info")
     def test_with_run_command(self):
         """Test that auto types work in the expression parser"""
         self.build()

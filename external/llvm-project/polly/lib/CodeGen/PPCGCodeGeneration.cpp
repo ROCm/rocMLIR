@@ -117,29 +117,6 @@ static cl::opt<int>
                cl::desc("Minimal number of compute statements to run on GPU."),
                cl::Hidden, cl::init(10 * 512 * 512));
 
-GPURuntime polly::GPURuntimeChoice;
-static cl::opt<GPURuntime, true> XGPURuntimeChoice(
-    "polly-gpu-runtime", cl::desc("The GPU Runtime API to target"),
-    cl::values(clEnumValN(GPURuntime::CUDA, "libcudart",
-                          "use the CUDA Runtime API"),
-               clEnumValN(GPURuntime::OpenCL, "libopencl",
-                          "use the OpenCL Runtime API")),
-    cl::location(polly::GPURuntimeChoice), cl::init(GPURuntime::CUDA),
-    cl::ZeroOrMore, cl::cat(PollyCategory));
-
-GPUArch polly::GPUArchChoice;
-static cl::opt<GPUArch, true>
-    XGPUArchChoice("polly-gpu-arch", cl::desc("The GPU Architecture to target"),
-                   cl::values(clEnumValN(GPUArch::NVPTX64, "nvptx64",
-                                         "target NVIDIA 64-bit architecture"),
-                              clEnumValN(GPUArch::SPIR32, "spir32",
-                                         "target SPIR 32-bit architecture"),
-                              clEnumValN(GPUArch::SPIR64, "spir64",
-                                         "target SPIR 64-bit architecture")),
-                   cl::location(polly::GPUArchChoice),
-                   cl::init(GPUArch::NVPTX64), cl::ZeroOrMore,
-                   cl::cat(PollyCategory));
-
 extern bool polly::PerfMonitoring;
 
 /// Return  a unique name for a Scop, which is the scop region with the
@@ -178,7 +155,7 @@ struct MustKillsInfo {
   /// [params] -> { Stmt_phantom[]  -> scalar_to_kill[] }
   isl::union_map MustKills;
 
-  MustKillsInfo() : KillsSchedule() {}
+  MustKillsInfo() : KillsSchedule(nullptr) {}
 };
 
 /// Check if SAI's uses are entirely contained within Scop S.
@@ -219,15 +196,15 @@ static MustKillsInfo computeMustKillsInfo(const Scop &S) {
       KillMemIds.push_back(isl::manage(SAI->getBasePtrId().release()));
   }
 
-  Info.TaggedMustKills = isl::union_map::empty(ParamSpace.ctx());
-  Info.MustKills = isl::union_map::empty(ParamSpace.ctx());
+  Info.TaggedMustKills = isl::union_map::empty(ParamSpace);
+  Info.MustKills = isl::union_map::empty(ParamSpace);
 
   // Initialising KillsSchedule to `isl_set_empty` creates an empty node in the
   // schedule:
   //     - filter: "[control] -> { }"
   // So, we choose to not create this to keep the output a little nicer,
   // at the cost of some code complexity.
-  Info.KillsSchedule = {};
+  Info.KillsSchedule = nullptr;
 
   for (isl::id &ToKillId : KillMemIds) {
     isl::id KillStmtId = isl::id::alloc(
@@ -278,7 +255,7 @@ static MustKillsInfo computeMustKillsInfo(const Scop &S) {
     isl::union_set KillStmtDomain = isl::set::universe(KillStmtSpace);
 
     isl::schedule KillSchedule = isl::schedule::from_domain(KillStmtDomain);
-    if (!Info.KillsSchedule.is_null())
+    if (Info.KillsSchedule)
       Info.KillsSchedule = isl::manage(
           isl_schedule_set(Info.KillsSchedule.release(), KillSchedule.copy()));
     else
@@ -306,7 +283,7 @@ static __isl_give isl_id_to_ast_expr *pollyBuildAstExprForStmt(
     return NULL;
 
   isl::ast_build Build = isl::manage_copy(Build_C);
-  isl::ctx Ctx = Build.ctx();
+  isl::ctx Ctx = Build.get_ctx();
   isl::id_to_ast_expr RefToExpr = isl::id_to_ast_expr::alloc(Ctx, 0);
 
   Stmt->setAstBuild(Build);
@@ -847,7 +824,7 @@ void GPUNodeBuilder::prepareManagedDeviceArrays() {
     if (Offset) {
       HostPtr = Builder.CreatePointerCast(
           HostPtr, ScopArray->getElementType()->getPointerTo());
-      HostPtr = Builder.CreateGEP(ScopArray->getElementType(), HostPtr, Offset);
+      HostPtr = Builder.CreateGEP(HostPtr, Offset);
     }
 
     HostPtr = Builder.CreatePointerCast(HostPtr, Builder.getInt8PtrTy());
@@ -1124,11 +1101,11 @@ Value *GPUNodeBuilder::getArraySize(gpu_array_info *Array) {
   if (!gpu_array_is_scalar(Array)) {
     isl::multi_pw_aff ArrayBound = isl::manage_copy(Array->bound);
 
-    isl::pw_aff OffsetDimZero = ArrayBound.at(0);
+    isl::pw_aff OffsetDimZero = ArrayBound.get_pw_aff(0);
     isl::ast_expr Res = Build.expr_from(OffsetDimZero);
 
     for (unsigned int i = 1; i < Array->n_index; i++) {
-      isl::pw_aff Bound_I = ArrayBound.at(i);
+      isl::pw_aff Bound_I = ArrayBound.get_pw_aff(i);
       isl::ast_expr Expr = Build.expr_from(Bound_I);
       Res = Res.mul(Expr);
     }
@@ -1151,16 +1128,16 @@ Value *GPUNodeBuilder::getArrayOffset(gpu_array_info *Array) {
 
   isl::set ZeroSet = isl::set::universe(Min.get_space());
 
-  for (long i = 0, n = Min.tuple_dim().release(); i < n; i++)
+  for (long i = 0, n = Min.dim(isl::dim::set); i < n; i++)
     ZeroSet = ZeroSet.fix_si(isl::dim::set, i, 0);
 
   if (Min.is_subset(ZeroSet)) {
     return nullptr;
   }
 
-  isl::ast_expr Result = isl::ast_expr::from_val(isl::val(Min.ctx(), 0));
+  isl::ast_expr Result = isl::ast_expr::from_val(isl::val(Min.get_ctx(), 0));
 
-  for (long i = 0, n = Min.tuple_dim().release(); i < n; i++) {
+  for (long i = 0, n = Min.dim(isl::dim::set); i < n; i++) {
     if (i > 0) {
       isl::pw_aff Bound_I =
           isl::manage(isl_multi_pw_aff_get_pw_aff(Array->bound, i - 1));
@@ -1211,7 +1188,7 @@ void GPUNodeBuilder::createDataTransfer(__isl_take isl_ast_node *TransferStmt,
   if (Offset) {
     HostPtr = Builder.CreatePointerCast(
         HostPtr, ScopArray->getElementType()->getPointerTo());
-    HostPtr = Builder.CreateGEP(ScopArray->getElementType(), HostPtr, Offset);
+    HostPtr = Builder.CreateGEP(HostPtr, Offset);
   }
 
   HostPtr = Builder.CreatePointerCast(HostPtr, Builder.getInt8PtrTy());
@@ -1307,7 +1284,7 @@ void GPUNodeBuilder::createUser(__isl_take isl_ast_node *UserStmt) {
 }
 
 void GPUNodeBuilder::createFor(__isl_take isl_ast_node *Node) {
-  createForSequential(isl::manage(Node).as<isl::ast_node_for>(), false);
+  createForSequential(isl::manage(Node), false);
 }
 
 void GPUNodeBuilder::createKernelCopy(ppcg_kernel_stmt *KernelStmt) {
@@ -1317,13 +1294,12 @@ void GPUNodeBuilder::createKernelCopy(ppcg_kernel_stmt *KernelStmt) {
   isl_ast_expr *Index = isl_ast_expr_copy(KernelStmt->u.c.index);
   Index = isl_ast_expr_address_of(Index);
   Value *GlobalAddr = ExprBuilder.create(Index);
-  Type *IndexTy = cast<PointerType>(GlobalAddr->getType())->getElementType();
 
   if (KernelStmt->u.c.read) {
-    LoadInst *Load = Builder.CreateLoad(IndexTy, GlobalAddr, "shared.read");
+    LoadInst *Load = Builder.CreateLoad(GlobalAddr, "shared.read");
     Builder.CreateStore(Load, LocalAddr);
   } else {
-    LoadInst *Load = Builder.CreateLoad(IndexTy, LocalAddr, "shared.write");
+    LoadInst *Load = Builder.CreateLoad(LocalAddr, "shared.write");
     Builder.CreateStore(Load, GlobalAddr);
   }
 }
@@ -1415,8 +1391,8 @@ const std::set<std::string> CUDALibDeviceFunctions = {
 const std::map<std::string, std::string> IntrinsicToLibdeviceFunc = {
     {"llvm.exp.f64", "exp"},
     {"llvm.exp.f32", "expf"},
-    {"llvm.powi.f64.i32", "powi"},
-    {"llvm.powi.f32.i32", "powif"}};
+    {"llvm.powi.f64", "powi"},
+    {"llvm.powi.f32", "powif"}};
 
 /// Return the corresponding CUDA libdevice function name @p Name.
 /// Note that this function will try to convert instrinsics in the list
@@ -1596,7 +1572,7 @@ std::tuple<Value *, Value *> GPUNodeBuilder::getGridSizes(ppcg_kernel *Kernel) {
 
   isl::multi_pw_aff GridSizePwAffs = isl::manage_copy(Kernel->grid_size);
   for (long i = 0; i < Kernel->n_grid; i++) {
-    isl::pw_aff Size = GridSizePwAffs.at(i);
+    isl::pw_aff Size = GridSizePwAffs.get_pw_aff(i);
     isl::ast_expr GridSize = Context.expr_from(Size);
     Value *Res = ExprBuilder.create(GridSize.release());
     Res = Builder.CreateTrunc(Res, Builder.getInt32Ty());
@@ -1627,8 +1603,7 @@ GPUNodeBuilder::getBlockSizes(ppcg_kernel *Kernel) {
 void GPUNodeBuilder::insertStoreParameter(Instruction *Parameters,
                                           Instruction *Param, int Index) {
   Value *Slot = Builder.CreateGEP(
-      Parameters->getType()->getPointerElementType(), Parameters,
-      {Builder.getInt64(0), Builder.getInt64(Index)});
+      Parameters, {Builder.getInt64(0), Builder.getInt64(Index)});
   Value *ParamTyped = Builder.CreatePointerCast(Param, Builder.getInt8PtrTy());
   Builder.CreateStore(ParamTyped, Slot);
 }
@@ -1682,12 +1657,11 @@ GPUNodeBuilder::createLaunchParameters(ppcg_kernel *Kernel, Function *F,
     if (Offset) {
       DevArray = Builder.CreatePointerCast(
           DevArray, SAI->getElementType()->getPointerTo());
-      DevArray = Builder.CreateGEP(SAI->getElementType(), DevArray,
-                                   Builder.CreateNeg(Offset));
+      DevArray = Builder.CreateGEP(DevArray, Builder.CreateNeg(Offset));
       DevArray = Builder.CreatePointerCast(DevArray, Builder.getInt8PtrTy());
     }
     Value *Slot = Builder.CreateGEP(
-        ArrayTy, Parameters, {Builder.getInt64(0), Builder.getInt64(Index)});
+        Parameters, {Builder.getInt64(0), Builder.getInt64(Index)});
 
     if (gpu_array_is_read_only_scalar(&Prog->array[i])) {
       Value *ValPtr = nullptr;
@@ -2180,7 +2154,7 @@ void GPUNodeBuilder::prepareKernelArguments(ppcg_kernel *Kernel, Function *FN) {
     if (!gpu_array_is_read_only_scalar(&Prog->array[i])) {
       Type *TypePtr = SAI->getElementType()->getPointerTo();
       Value *TypedArgPtr = Builder.CreatePointerCast(Val, TypePtr);
-      Val = Builder.CreateLoad(SAI->getElementType(), TypedArgPtr);
+      Val = Builder.CreateLoad(TypedArgPtr);
     }
 
     Value *Alloca = BlockGen.getOrCreateAlloca(SAI);
@@ -2217,7 +2191,7 @@ void GPUNodeBuilder::finalizeKernelArguments(ppcg_kernel *Kernel) {
     Value *ArgPtr = &*Arg;
     Type *TypePtr = SAI->getElementType()->getPointerTo();
     Value *TypedArgPtr = Builder.CreatePointerCast(ArgPtr, TypePtr);
-    Value *Val = Builder.CreateLoad(SAI->getElementType(), Alloca);
+    Value *Val = Builder.CreateLoad(Alloca);
     Builder.CreateStore(Val, TypedArgPtr);
     StoredScalar = true;
 
@@ -2574,11 +2548,7 @@ public:
   const DataLayout *DL;
   RegionInfo *RI;
 
-  PPCGCodeGeneration() : ScopPass(ID) {
-    // Apply defaults.
-    Runtime = GPURuntimeChoice;
-    Architecture = GPUArchChoice;
-  }
+  PPCGCodeGeneration() : ScopPass(ID) {}
 
   /// Construct compilation options for PPCG.
   ///
@@ -2885,8 +2855,8 @@ public:
     isl::pw_aff Val = isl::aff::var_on_domain(LS, isl::dim::set, 0);
     isl::pw_aff OuterMin = AccessSet.dim_min(0);
     isl::pw_aff OuterMax = AccessSet.dim_max(0);
-    OuterMin = OuterMin.add_dims(isl::dim::in, Val.dim(isl::dim::in).release());
-    OuterMax = OuterMax.add_dims(isl::dim::in, Val.dim(isl::dim::in).release());
+    OuterMin = OuterMin.add_dims(isl::dim::in, Val.dim(isl::dim::in));
+    OuterMax = OuterMax.add_dims(isl::dim::in, Val.dim(isl::dim::in));
     OuterMin = OuterMin.set_tuple_id(isl::dim::in, Array->getBasePtrId());
     OuterMax = OuterMax.set_tuple_id(isl::dim::in, Array->getBasePtrId());
 
@@ -2910,7 +2880,7 @@ public:
 
       isl::pw_aff Val = isl::aff::var_on_domain(
           isl::local_space(Array->getSpace()), isl::dim::set, i);
-      PwAff = PwAff.add_dims(isl::dim::in, Val.dim(isl::dim::in).release());
+      PwAff = PwAff.add_dims(isl::dim::in, Val.dim(isl::dim::in));
       PwAff = PwAff.set_tuple_id(isl::dim::in, Val.get_tuple_id(isl::dim::in));
       isl::set Set = PwAff.gt_set(Val);
       Extent = Set.intersect(Extent);
@@ -3508,11 +3478,9 @@ public:
     Builder.SetInsertPoint(SplitBlock->getTerminator());
 
     isl_ast_build *Build = isl_ast_build_alloc(S->getIslCtx().get());
-    isl::ast_expr Condition =
-        IslAst::buildRunCondition(*S, isl::manage_copy(Build));
+    isl_ast_expr *Condition = IslAst::buildRunCondition(*S, Build);
     isl_ast_expr *SufficientCompute = createSufficientComputeCheck(*S, Build);
-    Condition =
-        isl::manage(isl_ast_expr_and(Condition.release(), SufficientCompute));
+    Condition = isl_ast_expr_and(Condition, SufficientCompute);
     isl_ast_build_free(Build);
 
     // preload invariant loads. Note: This should happen before the RTC
@@ -3539,6 +3507,7 @@ public:
 
       DT->changeImmediateDominator(MergeBlock, ExitingBB);
       DT->eraseNode(ExitingBlock);
+      isl_ast_expr_free(Condition);
       isl_ast_node_free(Root);
     } else {
 
@@ -3559,7 +3528,7 @@ public:
       }
 
       NodeBuilder.addParameters(S->getContext().release());
-      Value *RTC = NodeBuilder.createRTC(Condition.release());
+      Value *RTC = NodeBuilder.createRTC(Condition);
       Builder.GetInsertBlock()->getTerminator()->setOperand(0, RTC);
 
       Builder.SetInsertPoint(&*StartBlock->begin());

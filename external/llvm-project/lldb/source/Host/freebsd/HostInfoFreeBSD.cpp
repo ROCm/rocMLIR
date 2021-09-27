@@ -8,8 +8,8 @@
 
 #include "lldb/Host/freebsd/HostInfoFreeBSD.h"
 
-#include <cstdio>
-#include <cstring>
+#include <stdio.h>
+#include <string.h>
 #include <sys/sysctl.h>
 #include <sys/types.h>
 #include <sys/utsname.h>

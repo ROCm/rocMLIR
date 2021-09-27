@@ -1,4 +1,5 @@
 ; RUN: llc < %s --filetype=obj | llvm-objdump -d - | FileCheck %s
+target datalayout = "e-m:e-p:32:32-i64:64-n32:64-S128"
 target triple = "wasm32-unknown-unknown"
 
 define float @float_sNaN() #0 {
@@ -25,3 +26,4 @@ entry:
 ; CHECK: 00 00 00 00 00 00 fc 7f
   ret double 0x7ffc000000000000
 }
+

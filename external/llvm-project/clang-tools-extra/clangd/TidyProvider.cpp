@@ -11,7 +11,6 @@
 #include "Config.h"
 #include "support/FileCache.h"
 #include "support/Logger.h"
-#include "support/Path.h"
 #include "support/ThreadsafeFS.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
@@ -103,12 +102,23 @@ public:
 
     // Compute absolute paths to all ancestors (substrings of P.Path).
     // Ensure cache entries for each ancestor exist in the map.
+    llvm::StringRef Parent = path::parent_path(AbsPath);
     llvm::SmallVector<DotClangTidyCache *> Caches;
     {
       std::lock_guard<std::mutex> Lock(Mu);
-      for (auto Ancestor = absoluteParent(AbsPath); !Ancestor.empty();
-           Ancestor = absoluteParent(Ancestor)) {
+      for (auto I = path::begin(Parent), E = path::end(Parent); I != E; ++I) {
+        assert(I->end() >= Parent.begin() && I->end() <= Parent.end() &&
+               "Canonical path components should be substrings");
+        llvm::StringRef Ancestor(Parent.begin(), I->end() - Parent.begin());
+#ifdef _WIN32
+        // C:\ is an ancestor, but skip its (relative!) parent C:.
+        if (Ancestor.size() == 2 && Ancestor.back() == ':')
+          continue;
+#endif
+        assert(path::is_absolute(Ancestor));
+
         auto It = Cache.find(Ancestor);
+
         // Assemble the actual config file path only if needed.
         if (It == Cache.end()) {
           llvm::SmallString<256> ConfigPath = Ancestor;

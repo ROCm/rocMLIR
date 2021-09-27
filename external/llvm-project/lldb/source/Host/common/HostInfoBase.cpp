@@ -31,7 +31,12 @@ using namespace lldb;
 using namespace lldb_private;
 
 namespace {
-/// Contains the state of the HostInfoBase plugin.
+// The HostInfoBaseFields is a work around for windows not supporting static
+// variables correctly in a thread safe way. Really each of the variables in
+// HostInfoBaseFields should live in the functions in which they are used and
+// each one should be static, but the work around is in place to avoid this
+// restriction. Ick.
+
 struct HostInfoBaseFields {
   ~HostInfoBaseFields() {
     if (FileSystem::Instance().Exists(m_lldb_process_tmp_dir)) {
@@ -66,18 +71,13 @@ struct HostInfoBaseFields {
   llvm::once_flag m_lldb_global_tmp_dir_once;
   FileSpec m_lldb_global_tmp_dir;
 };
-} // namespace
 
-static HostInfoBaseFields *g_fields = nullptr;
-static HostInfoBase::SharedLibraryDirectoryHelper *g_shlib_dir_helper = nullptr;
-
-void HostInfoBase::Initialize(SharedLibraryDirectoryHelper *helper) {
-  g_shlib_dir_helper = helper;
-  g_fields = new HostInfoBaseFields();
+HostInfoBaseFields *g_fields = nullptr;
 }
 
+void HostInfoBase::Initialize() { g_fields = new HostInfoBaseFields(); }
+
 void HostInfoBase::Terminate() {
-  g_shlib_dir_helper = nullptr;
   delete g_fields;
   g_fields = nullptr;
 }
@@ -249,8 +249,9 @@ bool HostInfoBase::ComputeSharedLibraryDirectory(FileSpec &file_spec) {
       reinterpret_cast<void *>(
           HostInfoBase::ComputeSharedLibraryDirectory)));
 
-  if (g_shlib_dir_helper)
-    g_shlib_dir_helper(lldb_file_spec);
+  // This is necessary because when running the testsuite the shlib might be a
+  // symbolic link inside the Python resource dir.
+  FileSystem::Instance().ResolveSymbolicLink(lldb_file_spec, lldb_file_spec);
 
   // Remove the filename so that this FileSpec only represents the directory.
   file_spec.GetDirectory() = lldb_file_spec.GetDirectory();

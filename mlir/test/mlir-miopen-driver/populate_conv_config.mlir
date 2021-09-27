@@ -1,9 +1,9 @@
 // RUN: mlir-miopen-driver --conv-config "--x2 1 --operation conv2d_bwd_weight  --kernel_id 0 --num_cu 120 --arch amdgcn-amd-amdhsa:gfx908:sramecc+:xnack- --groupsize 1 --fil_layout GNCHW --fil_type fp32 --in_layout NGCHW --out_layout NGCHW --in_type fp32 --out_type fp32 --batchsize 256 --in_channels 1024 --out_channels 2048 --in_h 14 --in_w 14 --fil_h 1 --fil_w 1 --out_h 8 --out_w 8 --dilation_h 2 --dilation_w 2 --conv_stride_h 2 --conv_stride_w 2 --padding_h 1 --padding_w 1 --kernel_name mlir_gen_igemm_conv2d_v4r4_wrw_xdlops" -pv | FileCheck %s --check-prefix=PV
 
-//PV: [[FIL1:%.*]] = memref.alloc() : memref<1x2048x1024x1x1xf32>
-//PV: [[FIL2:%.*]] = memref.alloc() : memref<1x2048x1024x1x1xf32>
+//PV: [[FIL1:%.*]] = alloc() : memref<1x2048x1024x1x1xf32>
+//PV: [[FIL2:%.*]] = alloc() : memref<1x2048x1024x1x1xf32>
 //PV: call @verify_results([[FIL2]], [[FIL1]])
-//PV: %{{.*}} = memref.cast %{{.*}} : memref<256x1x2048x8x8xf32> to memref<*xf32>
+//PV: %{{.*}} = memref_cast %{{.*}} : memref<256x1x2048x8x8xf32> to memref<*xf32>
 //PV-NEXT: [[S1:%.*]] = constant 2 : i32
 //PV-NEXT: [[S2:%.*]] = constant 2 : i32
 //PV-NEXT: [[P1:%.*]] = constant 1 : i32
@@ -20,21 +20,21 @@
 //PV: [[N:%.*]] = constant 110 : i8
 //PV: [[H:%.*]] = constant 104 : i8
 //PV: [[W:%.*]] = constant 119 : i8
-//PV: memref.store [[G]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[K]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[C]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[Y]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[X]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[N]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[G]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[C]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[H]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[W]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[N]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[G]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[K]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[H]], %{{.*}} : memref<5xi8>
-//PV-NEXT: memref.store [[W]], %{{.*}} : memref<5xi8>
+//PV: store [[G]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[K]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[C]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[Y]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[X]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[N]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[G]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[C]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[H]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[W]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[N]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[G]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[K]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[H]], %{{.*}} : memref<5xi8>
+//PV-NEXT: store [[W]], %{{.*}} : memref<5xi8>
 //PV: call @mcpuConv2dBwdWeight(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, [[S1]], [[S2]], [[P1]], [[P2]], [[P3]], [[P4]], [[D1]], [[D2]]) : {{.*}}
 
 // RUN: mlir-miopen-driver --conv-config "--x2 1 --operation conv2d_bwd_weight  --kernel_id 0 --num_cu 120 --arch amdgcn-amd-amdhsa:gfx908:sramecc+:xnack- --groupsize 1 --fil_layout GNCHW --fil_type fp32 --in_layout NGCHW --out_layout NGCHW --in_type fp32 --out_type fp32 --batchsize 256 --in_channels 1024 --out_channels 2048 --in_h 14 --in_w 14 --fil_h 1 --fil_w 1 --out_h 8 --out_w 8 --dilation_h 2 --dilation_w 2 --conv_stride_h 2 --conv_stride_w 2 --padding_h 1 --padding_w 1 --kernel_name mlir_gen_igemm_conv2d_v4r4_wrw_xdlops" -pv_with_gpu | FileCheck %s --check-prefix=PVGPU
@@ -44,9 +44,9 @@
 
 // RUN: mlir-miopen-driver --conv-config "--x2 1 --operation conv2d_bwd_weight  --kernel_id 0 --num_cu 120 --arch amdgcn-amd-amdhsa:gfx908:sramecc+:xnack- --groupsize 1 --fil_layout GNCHW --fil_type fp32 --in_layout NGCHW --out_layout NGCHW --in_type fp32 --out_type fp32 --batchsize 256 --in_channels 1024 --out_channels 2048 --in_h 14 --in_w 14 --fil_h 1 --fil_w 1 --out_h 8 --out_w 8 --dilation_h 2 --dilation_w 2 --conv_stride_h 2 --conv_stride_w 2 --padding_h 1 --padding_w 1 --kernel_name mlir_gen_igemm_conv2d_v4r4_wrw_xdlops" -prc | FileCheck %s --check-prefix=PRC
 
-//PRC:[[FIL:%.*]] = memref.cast %{{.*}} : memref<1x2048x1024x1x1xf32> to memref<*xf32>
+//PRC:[[FIL:%.*]] = memref_cast %{{.*}} : memref<1x2048x1024x1x1xf32> to memref<*xf32>
 //PRC-NEXT: call @print_memref_f32([[FIL]]) : (memref<*xf32>) -> ()
-//PRC: %{{.*}} = memref.cast %{{.*}} : memref<256x1x2048x8x8xf32> to memref<*xf32>
+//PRC: %{{.*}} = memref_cast %{{.*}} : memref<256x1x2048x8x8xf32> to memref<*xf32>
 //PRC-NEXT: [[S1:%.*]] = constant 2 : i32
 //PRC-NEXT: [[S2:%.*]] = constant 2 : i32
 //PRC-NEXT: [[P1:%.*]] = constant 1 : i32
@@ -63,25 +63,25 @@
 //PRC: [[N:%.*]] = constant 110 : i8
 //PRC: [[H:%.*]] = constant 104 : i8
 //PRC: [[W:%.*]] = constant 119 : i8
-//PRC: memref.store [[G]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[K]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[C]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[Y]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[X]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[N]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[G]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[C]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[H]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[W]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[N]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[G]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[K]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[H]], %{{.*}} : memref<5xi8>
-//PRC-NEXT: memref.store [[W]], %{{.*}} : memref<5xi8>
+//PRC: store [[G]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[K]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[C]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[Y]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[X]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[N]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[G]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[C]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[H]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[W]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[N]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[G]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[K]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[H]], %{{.*}} : memref<5xi8>
+//PRC-NEXT: store [[W]], %{{.*}} : memref<5xi8>
 //PRC: call @mcpuConv2dBwdWeight(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, [[S1]], [[S2]], [[P1]], [[P2]], [[P3]], [[P4]], [[D1]], [[D2]]) : {{.*}}
 
 // RUN:  mlir-miopen-driver --conv-config "--x2 1 --operation conv2d_bwd_weight  --kernel_id 0 --num_cu 120 --arch amdgcn-amd-amdhsa:gfx908:sramecc+:xnack- --groupsize 1 --fil_layout GNCHW --fil_type fp32 --in_layout NGCHW --out_layout NGCHW --in_type fp32 --out_type fp32 --batchsize 256 --in_channels 1024 --out_channels 2048 --in_h 14 --in_w 14 --fil_h 1 --fil_w 1 --out_h 8 --out_w 8 --dilation_h 2 --dilation_w 2 --conv_stride_h 2 --conv_stride_w 2 --padding_h 1 --padding_w 1 --kernel_name mlir_gen_igemm_conv2d_v4r4_wrw_xdlops" -ph -pr  | FileCheck %s --check-prefix=PH
 
-//PH: [[FIL:%.*]] = memref.cast %{{.*}} : memref<1x2048x1024x1x1xf32> to memref<*xf32>
+//PH: [[FIL:%.*]] = memref_cast %{{.*}} : memref<1x2048x1024x1x1xf32> to memref<*xf32>
 //PH-NEXT: call @print_memref_f32([[FIL]]) : (memref<*xf32>) -> ()
 

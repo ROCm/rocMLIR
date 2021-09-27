@@ -67,8 +67,10 @@ static Status ValidateSummaryString(const char *str, void *) {
 }
 
 OptionGroupVariable::OptionGroupVariable(bool show_frame_options)
-    : include_frame_options(show_frame_options), summary(ValidateNamedSummary),
-      summary_string(ValidateSummaryString) {}
+    : OptionGroup(), include_frame_options(show_frame_options),
+      summary(ValidateNamedSummary), summary_string(ValidateSummaryString) {}
+
+OptionGroupVariable::~OptionGroupVariable() {}
 
 Status
 OptionGroupVariable::SetOptionValue(uint32_t option_idx,

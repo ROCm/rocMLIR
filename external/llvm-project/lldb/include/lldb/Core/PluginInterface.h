@@ -20,6 +20,8 @@ public:
 
   virtual ConstString GetPluginName() = 0;
 
+  virtual uint32_t GetPluginVersion() = 0;
+
   PluginInterface(const PluginInterface &) = delete;
   PluginInterface &operator=(const PluginInterface &) = delete;
 };

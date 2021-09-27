@@ -24,9 +24,9 @@
 #include <tuple>
 #include <vector>
 
-#include <cassert>
-#include <cinttypes>
-#include <cstdio>
+#include <assert.h>
+#include <inttypes.h>
+#include <stdio.h>
 
 using namespace lldb;
 using namespace lldb_private;

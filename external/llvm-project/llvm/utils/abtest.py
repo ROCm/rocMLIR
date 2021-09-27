@@ -7,10 +7,6 @@
 # list of files which should be linked together and result tested. "link_test"
 # should returns with exitcode 0 if the linking and testing succeeded.
 #
-# If a response file is provided, only the object files that are listed in the
-# file are inspected. In addition, the "link_test" is called with a temporary
-# response file representing one iteration of bisection.
-#
 # abtest.py operates by taking all files from the "before" directory and
 # in each step replacing one of them with a file from the "bad" directory.
 #
@@ -45,10 +41,9 @@ import filecmp
 import os
 import subprocess
 import sys
-import tempfile
 
-# Specify LINKTEST via `--test`. Default value is './link_test'.
-LINKTEST = ""
+
+LINKTEST = "./link_test"
 ESCAPE = "\033[%sm"
 BOLD = ESCAPE % "1"
 RED = ESCAPE % "31"
@@ -239,42 +234,22 @@ def testrun(files):
         return True
 
 
-def prepare_files(gooddir, baddir, rspfile):
-    files_a = []
-    files_b = []
+def prepare_files(gooddir, baddir):
+    files_a = find(gooddir, "*")
+    files_b = find(baddir, "*")
 
-    if rspfile is not None:
-        def get_basename(name):
-            # remove prefix
-            if name.startswith(gooddir):
-                return name[len(gooddir):]
-            if name.startswith(baddir):
-                return name[len(baddir):]
-            assert False, ""
-
-        with open(rspfile, "r") as rf:
-            for line in rf.read().splitlines():
-                for obj in line.split():
-                    assert not os.path.isabs(obj), "TODO: support abs path"
-                    files_a.append(gooddir + "/" + obj)
-                    files_b.append(baddir + "/" + obj)
-    else:
-        get_basename = lambda name: os.path.basename(name)
-        files_a = find(gooddir, "*")
-        files_b = find(baddir, "*")
-
-    basenames_a = set(map(get_basename, files_a))
-    basenames_b = set(map(get_basename, files_b))
+    basenames_a = set(map(os.path.basename, files_a))
+    basenames_b = set(map(os.path.basename, files_b))
 
     for name in files_b:
-        basename = get_basename(name)
+        basename = os.path.basename(name)
         if basename not in basenames_a:
             warn("There is no corresponding file to '%s' in %s" %
                  (name, gooddir))
     choices = []
     skipped = []
     for name in files_a:
-        basename = get_basename(name)
+        basename = os.path.basename(name)
         if basename not in basenames_b:
             warn("There is no corresponding file to '%s' in %s" %
                  (name, baddir))
@@ -296,25 +271,13 @@ def prepare_files(gooddir, baddir, rspfile):
         # Note that we iterate over files_a so we don't change the order
         # (cannot use `picks` as it is a dictionary without order)
         for x in files_a:
-            basename = get_basename(x)
+            basename = os.path.basename(x)
             picked = picks.get(basename)
             if picked is None:
                 assert basename in skipped
                 files.append(x)
             else:
                 files.append(picked)
-
-        # If response file is used, create a temporary response file for the
-        # picked files.
-        if rspfile is not None:
-            with tempfile.NamedTemporaryFile('w', suffix='.rsp',
-                                             delete=False) as tf:
-                tf.write(" ".join(files))
-                tf.flush()
-            ret = testrun([tf.name])
-            os.remove(tf.name)
-            return ret
-
         return testrun(files)
 
     return perform_test, choices
@@ -369,8 +332,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--a', dest='dir_a', default='before')
     parser.add_argument('--b', dest='dir_b', default='after')
-    parser.add_argument('--rsp', default=None)
-    parser.add_argument('--test', default='./link_test')
     parser.add_argument('--insane', help='Skip sanity check',
                         action='store_true')
     parser.add_argument('--seq',
@@ -381,9 +342,6 @@ def main():
 
     gooddir = config.dir_a
     baddir = config.dir_b
-    rspfile = config.rsp
-    global LINKTEST
-    LINKTEST = config.test
 
     # Preparation phase: Creates a dictionary mapping names to a list of two
     # choices each. The bisection algorithm will pick one choice for each name
@@ -394,7 +352,7 @@ def main():
         perform_test, choices = prepare_functions(config.file, gooddir,
                                                   goodfile, badfile)
     else:
-        perform_test, choices = prepare_files(gooddir, baddir, rspfile)
+        perform_test, choices = prepare_files(gooddir, baddir)
 
     info("%d bisection choices" % len(choices))
 

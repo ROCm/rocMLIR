@@ -26,7 +26,6 @@
 #include "index/Index.h"
 #include "support/Path.h"
 #include "clang/Tooling/Core/Replacement.h"
-#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
@@ -35,8 +34,6 @@
 
 namespace clang {
 namespace clangd {
-
-class FeatureModuleSet;
 
 /// An interface base for small context-sensitive refactoring actions.
 /// To implement a new tweak use the following pattern in a .cpp file:
@@ -51,8 +48,7 @@ public:
   /// Input to prepare and apply tweaks.
   struct Selection {
     Selection(const SymbolIndex *Index, ParsedAST &AST, unsigned RangeBegin,
-              unsigned RangeEnd, SelectionTree ASTSelection,
-              llvm::vfs::FileSystem *VFS);
+              unsigned RangeEnd, SelectionTree ASTSelection);
     /// The text of the active document.
     llvm::StringRef Code;
     /// The Index for handling codebase related queries.
@@ -68,9 +64,6 @@ public:
     unsigned SelectionEnd;
     /// The AST nodes that were selected.
     SelectionTree ASTSelection;
-    /// File system used to access source code (for cross-file tweaks).
-    /// This is only populated when applying a tweak, not during prepare.
-    llvm::vfs::FileSystem *FS = nullptr;
     // FIXME: provide a way to get sources and ASTs for other files.
   };
 
@@ -78,9 +71,6 @@ public:
     /// A message to be displayed to the user.
     llvm::Optional<std::string> ShowMessage;
     FileEdits ApplyEdits;
-    /// Whether the edits should be formatted before presenting to the client.
-    /// Note that it applies to all files.
-    bool FormatEdits = true;
 
     static Effect showMessage(StringRef S) {
       Effect E;
@@ -138,15 +128,13 @@ public:
 /// can run on the selection.
 std::vector<std::unique_ptr<Tweak>>
 prepareTweaks(const Tweak::Selection &S,
-              llvm::function_ref<bool(const Tweak &)> Filter,
-              const FeatureModuleSet *Modules);
+              llvm::function_ref<bool(const Tweak &)> Filter);
 
 // Calls prepare() on the tweak with a given ID.
 // If prepare() returns false, returns an error.
 // If prepare() returns true, returns the corresponding tweak.
-llvm::Expected<std::unique_ptr<Tweak>>
-prepareTweak(StringRef ID, const Tweak::Selection &S,
-             const FeatureModuleSet *Modules);
+llvm::Expected<std::unique_ptr<Tweak>> prepareTweak(StringRef TweakID,
+                                                    const Tweak::Selection &S);
 } // namespace clangd
 } // namespace clang
 

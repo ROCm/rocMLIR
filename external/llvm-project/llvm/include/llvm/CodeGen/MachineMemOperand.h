@@ -22,7 +22,6 @@
 #include "llvm/IR/Value.h" // PointerLikeTypeTraits<Value*>
 #include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Support/DataTypes.h"
-#include "llvm/Support/LowLevelTypeImpl.h"
 
 namespace llvm {
 
@@ -44,9 +43,9 @@ struct MachinePointerInfo {
   /// Offset - This is an offset from the base Value*.
   int64_t Offset;
 
-  unsigned AddrSpace = 0;
-
   uint8_t StackID;
+
+  unsigned AddrSpace = 0;
 
   explicit MachinePointerInfo(const Value *v, int64_t offset = 0,
                               uint8_t ID = 0)
@@ -61,8 +60,8 @@ struct MachinePointerInfo {
   }
 
   explicit MachinePointerInfo(unsigned AddressSpace = 0, int64_t offset = 0)
-      : V((const Value *)nullptr), Offset(offset), AddrSpace(AddressSpace),
-        StackID(0) {}
+      : V((const Value *)nullptr), Offset(offset), StackID(0),
+        AddrSpace(AddressSpace) {}
 
   explicit MachinePointerInfo(
     PointerUnion<const Value *, const PseudoSourceValue *> v,
@@ -169,11 +168,7 @@ private:
   };
 
   MachinePointerInfo PtrInfo;
-
-  /// Track the memory type of the access. An access size which is unknown or
-  /// too large to be represented by LLT should use the invalid LLT.
-  LLT MemoryType;
-
+  uint64_t Size;
   Flags FlagVals;
   Align BaseAlign;
   MachineAtomicInfo AtomicInfo;
@@ -188,12 +183,6 @@ public:
   /// occur must also be specified.
   MachineMemOperand(MachinePointerInfo PtrInfo, Flags flags, uint64_t s,
                     Align a, const AAMDNodes &AAInfo = AAMDNodes(),
-                    const MDNode *Ranges = nullptr,
-                    SyncScope::ID SSID = SyncScope::System,
-                    AtomicOrdering Ordering = AtomicOrdering::NotAtomic,
-                    AtomicOrdering FailureOrdering = AtomicOrdering::NotAtomic);
-  MachineMemOperand(MachinePointerInfo PtrInfo, Flags flags, LLT type, Align a,
-                    const AAMDNodes &AAInfo = AAMDNodes(),
                     const MDNode *Ranges = nullptr,
                     SyncScope::ID SSID = SyncScope::System,
                     AtomicOrdering Ordering = AtomicOrdering::NotAtomic,
@@ -228,27 +217,23 @@ public:
 
   unsigned getAddrSpace() const { return PtrInfo.getAddrSpace(); }
 
-  /// Return the memory type of the memory reference. This should only be relied
-  /// on for GlobalISel G_* operation legalization.
-  LLT getMemoryType() const { return MemoryType; }
-
   /// Return the size in bytes of the memory reference.
-  uint64_t getSize() const {
-    return MemoryType.isValid() ? MemoryType.getSizeInBytes() : ~UINT64_C(0);
-  }
+  uint64_t getSize() const { return Size; }
 
   /// Return the size in bits of the memory reference.
-  uint64_t getSizeInBits() const {
-    return MemoryType.isValid() ? MemoryType.getSizeInBits() : ~UINT64_C(0);
-  }
+  uint64_t getSizeInBits() const { return Size * 8; }
 
-  LLT getType() const {
-    return MemoryType;
-  }
+  LLVM_ATTRIBUTE_DEPRECATED(uint64_t getAlignment() const,
+                            "Use getAlign instead");
 
   /// Return the minimum known alignment in bytes of the actual memory
   /// reference.
   Align getAlign() const;
+
+  LLVM_ATTRIBUTE_DEPRECATED(uint64_t getBaseAlignment() const,
+                            "Use getBaseAlign instead") {
+    return BaseAlign.value();
+  }
 
   /// Return the minimum known alignment in bytes of the base address, without
   /// the offset.
@@ -268,7 +253,7 @@ public:
   /// Return the atomic ordering requirements for this memory operation. For
   /// cmpxchg atomic operations, return the atomic ordering requirements when
   /// store occurs.
-  AtomicOrdering getSuccessOrdering() const {
+  AtomicOrdering getOrdering() const {
     return static_cast<AtomicOrdering>(AtomicInfo.Ordering);
   }
 
@@ -276,13 +261,6 @@ public:
   /// when store does not occur.
   AtomicOrdering getFailureOrdering() const {
     return static_cast<AtomicOrdering>(AtomicInfo.FailureOrdering);
-  }
-
-  /// Return a single atomic ordering that is at least as strong as both the
-  /// success and failure orderings for an atomic operation.  (For operations
-  /// other than cmpxchg, this is equivalent to getSuccessOrdering().)
-  AtomicOrdering getMergedOrdering() const {
-    return getMergedAtomicOrdering(getSuccessOrdering(), getFailureOrdering());
   }
 
   bool isLoad() const { return FlagVals & MOLoad; }
@@ -294,16 +272,14 @@ public:
 
   /// Returns true if this operation has an atomic ordering requirement of
   /// unordered or higher, false otherwise.
-  bool isAtomic() const {
-    return getSuccessOrdering() != AtomicOrdering::NotAtomic;
-  }
+  bool isAtomic() const { return getOrdering() != AtomicOrdering::NotAtomic; }
 
   /// Returns true if this memory operation doesn't have any ordering
   /// constraints other than normal aliasing. Volatile and (ordered) atomic
-  /// memory operations can't be reordered.
+  /// memory operations can't be reordered. 
   bool isUnordered() const {
-    return (getSuccessOrdering() == AtomicOrdering::NotAtomic ||
-            getSuccessOrdering() == AtomicOrdering::Unordered) &&
+    return (getOrdering() == AtomicOrdering::NotAtomic ||
+            getOrdering() == AtomicOrdering::Unordered) &&
            !isVolatile();
   }
 
@@ -318,11 +294,6 @@ public:
   void setValue(const Value *NewSV) { PtrInfo.V = NewSV; }
   void setValue(const PseudoSourceValue *NewSV) { PtrInfo.V = NewSV; }
   void setOffset(int64_t NewOffset) { PtrInfo.Offset = NewOffset; }
-
-  /// Reset the tracked memory type.
-  void setType(LLT NewTy) {
-    MemoryType = NewTy;
-  }
 
   /// Profile - Gather unique data for the object.
   ///

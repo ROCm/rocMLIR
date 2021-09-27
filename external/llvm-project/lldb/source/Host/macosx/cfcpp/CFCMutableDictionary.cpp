@@ -25,7 +25,7 @@ operator=(const CFCMutableDictionary &rhs) {
 }
 
 // Destructor
-CFCMutableDictionary::~CFCMutableDictionary() = default;
+CFCMutableDictionary::~CFCMutableDictionary() {}
 
 CFIndex CFCMutableDictionary::GetCount() const {
   CFMutableDictionaryRef dict = get();

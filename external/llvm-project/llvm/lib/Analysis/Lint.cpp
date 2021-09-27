@@ -235,15 +235,14 @@ void Lint::visitCallBase(CallBase &I) {
           for (auto BI = I.arg_begin(); BI != AE; ++BI, ++ArgNo) {
             // Skip ByVal arguments since they will be memcpy'd to the callee's
             // stack so we're not really passing the pointer anyway.
-            if (PAL.hasParamAttr(ArgNo, Attribute::ByVal))
+            if (PAL.hasParamAttribute(ArgNo, Attribute::ByVal))
               continue;
             // If both arguments are readonly, they have no dependence.
             if (Formal->onlyReadsMemory() && I.onlyReadsMemory(ArgNo))
               continue;
             if (AI != BI && (*BI)->getType()->isPointerTy()) {
               AliasResult Result = AA->alias(*AI, *BI);
-              Assert(Result != AliasResult::MustAlias &&
-                         Result != AliasResult::PartialAlias,
+              Assert(Result != MustAlias && Result != PartialAlias,
                      "Unusual: noalias argument aliases another argument", &I);
             }
           }
@@ -268,7 +267,7 @@ void Lint::visitCallBase(CallBase &I) {
       for (Value *Arg : I.args()) {
         // Skip ByVal arguments since they will be memcpy'd to the callee's
         // stack anyway.
-        if (PAL.hasParamAttr(ArgNo++, Attribute::ByVal))
+        if (PAL.hasParamAttribute(ArgNo++, Attribute::ByVal))
           continue;
         Value *Obj = findValue(Arg, /*OffsetOk=*/true);
         Assert(!isa<AllocaInst>(Obj),
@@ -303,7 +302,7 @@ void Lint::visitCallBase(CallBase &I) {
         if (Len->getValue().isIntN(32))
           Size = LocationSize::precise(Len->getValue().getZExtValue());
       Assert(AA->alias(MCI->getSource(), Size, MCI->getDest(), Size) !=
-                 AliasResult::MustAlias,
+                 MustAlias,
              "Undefined behavior: memcpy source and destination overlap", &I);
       break;
     }
@@ -319,8 +318,7 @@ void Lint::visitCallBase(CallBase &I) {
       // isn't expressive enough for what we really want to do. Known partial
       // overlap is not distinguished from the case where nothing is known.
       const LocationSize LS = LocationSize::precise(Size);
-      Assert(AA->alias(MCII->getSource(), LS, MCII->getDest(), LS) !=
-                 AliasResult::MustAlias,
+      Assert(AA->alias(MCII->getSource(), LS, MCII->getDest(), LS) != MustAlias,
              "Undefined behavior: memcpy source and destination overlap", &I);
       break;
     }

@@ -52,7 +52,7 @@ public:
 
   explicit operator bool() { return matchedOperation != nullptr; }
 
-  Operation *getMatchedOperation() const { return matchedOperation; }
+  Operation *getMatchedOperation() { return matchedOperation; }
   ArrayRef<NestedMatch> getMatchedChildren() { return matchedChildren; }
 
 private:
@@ -93,15 +93,8 @@ class NestedPattern {
 public:
   NestedPattern(ArrayRef<NestedPattern> nested,
                 FilterFunctionType filter = defaultFilterFunction);
-  NestedPattern(const NestedPattern &other);
-  NestedPattern &operator=(const NestedPattern &other);
-
-  ~NestedPattern() {
-    // Call destructors manually, ArrayRef is non-owning so it wouldn't call
-    // them, but we should free the memory allocated by std::function outside of
-    // the arena allocator.
-    freeNested();
-  }
+  NestedPattern(const NestedPattern &) = default;
+  NestedPattern &operator=(const NestedPattern &) = default;
 
   /// Returns all the top-level matches in `func`.
   void match(FuncOp func, SmallVectorImpl<NestedMatch> *matches) {
@@ -120,13 +113,6 @@ private:
   friend class NestedPatternContext;
   friend class NestedMatch;
   friend struct State;
-
-  /// Copies the list of nested patterns to the arena allocator associated with
-  /// this pattern.
-  void copyNestedToThis(ArrayRef<NestedPattern> nested);
-
-  /// Calls destructors on nested patterns.
-  void freeNested();
 
   /// Underlying global bump allocator managed by a NestedPatternContext.
   static llvm::BumpPtrAllocator *&allocator();

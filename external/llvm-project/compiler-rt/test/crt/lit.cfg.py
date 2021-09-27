@@ -2,7 +2,6 @@
 
 import os
 import subprocess
-import shlex
 
 # Setup config name.
 config.name = 'CRT' + config.name_suffix
@@ -24,8 +23,8 @@ else:
 
 def get_library_path(file):
     cmd = subprocess.Popen([config.clang.strip(),
-                            '-print-file-name=%s' % file] +
-                           shlex.split(config.target_cflags),
+                            config.target_cflags.strip(),
+                            '-print-file-name=%s' % file],
                            stdout=subprocess.PIPE,
                            env=config.environment,
                            universal_newlines=True)
@@ -40,8 +39,8 @@ def get_library_path(file):
 
 def get_libgcc_file_name():
     cmd = subprocess.Popen([config.clang.strip(),
-                            '-print-libgcc-file-name'] +
-                           shlex.split(config.target_cflags),
+                            config.target_cflags.strip(),
+                            '-print-libgcc-file-name'],
                            stdout=subprocess.PIPE,
                            env=config.environment,
                            universal_newlines=True)

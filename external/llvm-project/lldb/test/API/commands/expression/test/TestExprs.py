@@ -80,7 +80,11 @@ class BasicExprCommandsTestCase(TestBase):
     def test_evaluate_expression_python(self):
         """Test SBFrame.EvaluateExpression() API for evaluating an expression."""
         self.build()
-        target = self.createTestTarget()
+
+        exe = self.getBuildArtifact("a.out")
+
+        target = self.dbg.CreateTarget(exe)
+        self.assertTrue(target, VALID_TARGET)
 
         # Create the breakpoint.
         filespec = lldb.SBFileSpec("main.cpp", False)

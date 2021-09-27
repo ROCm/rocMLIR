@@ -1,3 +1,4 @@
+
 //===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -6,9 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-// UNSUPPORTED: c++03, c++11, c++14
-
 // <numeric>
+// UNSUPPORTED: c++03, c++11, c++14
+// UNSUPPORTED: clang-8
+// UNSUPPORTED: gcc-9
 
 // Became constexpr in C++20
 // template<class InputIterator, class OutputIterator, class T,
@@ -25,32 +27,49 @@
 #include <cassert>
 #include <functional>
 #include <iterator>
+#include <vector>
 
 #include "test_macros.h"
 #include "test_iterators.h"
+// FIXME Remove constexpr vector workaround introduced in D90569
+#if TEST_STD_VER > 17
+#include <span>
+#endif
 
 struct add_one {
     template <typename T>
-    constexpr T operator()(T x) const {
-        return x + 1;
+    constexpr auto operator()(T x) const noexcept {
+        return static_cast<T>(x + 1);
     }
 };
 
-template <class Iter1, class BOp, class UOp, class T>
+template <class Iter1, class BOp, class UOp, class Iter2>
 TEST_CONSTEXPR_CXX20 void
-test(Iter1 first, Iter1 last, BOp bop, UOp uop, const T *rFirst, const T *rLast)
+test(Iter1 first, Iter1 last, BOp bop, UOp uop, Iter2 rFirst, Iter2 rLast)
 {
-    assert((rLast - rFirst) <= 5);  // or else increase the size of "out"
-    T out[5];
+    // C++17 doesn't test constexpr so can use a vector.
+    // C++20 can use vector in constexpr evaluation, but both libc++ and MSVC
+    // don't have the support yet. In these cases use a std::span for the test.
+    // FIXME Remove constexpr vector workaround introduced in D90569
+    size_t size = std::distance(first, last);
+#if TEST_STD_VER < 20 || \
+    (defined(__cpp_lib_constexpr_vector) && __cpp_lib_constexpr_vector >= 201907L)
 
-    // Not in place
-    T *end = std::transform_inclusive_scan(first, last, out, bop, uop);
-    assert(std::equal(out, end, rFirst, rLast));
+    std::vector<typename std::iterator_traits<Iter1>::value_type> v(size);
+#else
+    assert((size <= 5) && "Increment the size of the array");
+    typename std::iterator_traits<Iter1>::value_type b[5];
+    std::span<typename std::iterator_traits<Iter1>::value_type> v{b, size};
+#endif
 
-    // In place
-    std::copy(first, last, out);
-    end = std::transform_inclusive_scan(out, end, out, bop, uop);
-    assert(std::equal(out, end, rFirst, rLast));
+//  Test not in-place
+    std::transform_inclusive_scan(first, last, v.begin(), bop, uop);
+    assert(std::equal(v.begin(), v.end(), rFirst, rLast));
+
+//  Test in-place
+    std::copy(first, last, v.begin());
+    std::transform_inclusive_scan(v.begin(), v.end(), v.begin(), bop, uop);
+    assert(std::equal(v.begin(), v.end(), rFirst, rLast));
 }
 
 
@@ -58,7 +77,7 @@ template <class Iter>
 TEST_CONSTEXPR_CXX20 void
 test()
 {
-    int ia[]           = {  1,  3,   5,   7,    9 };
+          int ia[]     = {  1,  3,   5,   7,    9 };
     const int pResI0[] = {  2,  6,  12,  20,   30 };        // with add_one
     const int mResI0[] = {  2,  8, 48,  384, 3840 };
     const int pResN0[] = { -1, -4,  -9, -16,  -25 };        // with negate
@@ -74,7 +93,7 @@ test()
         test(Iter(ia), Iter(ia + i), std::multiplies<>(), add_one{},       mResI0, mResI0 + i);
         test(Iter(ia), Iter(ia + i), std::plus<>(),       std::negate<>(), pResN0, pResN0 + i);
         test(Iter(ia), Iter(ia + i), std::multiplies<>(), std::negate<>(), mResN0, mResN0 + i);
-    }
+        }
 }
 
 constexpr size_t triangle(size_t n) { return n*(n+1)/2; }
@@ -108,8 +127,18 @@ basic_tests()
     }
 
     {
+    // C++17 doesn't test constexpr so can use a vector.
+    // C++20 can use vector in constexpr evaluation, but both libc++ and MSVC
+    // don't have the support yet. In these cases use a std::span for the test.
+    // FIXME Remove constexpr vector workaround introduced in D90569
+#if TEST_STD_VER < 20 || \
+    (defined(__cpp_lib_constexpr_vector) && __cpp_lib_constexpr_vector >= 201907L)
+    std::vector<size_t> v, res;
+    std::transform_inclusive_scan(v.begin(), v.end(), std::back_inserter(res), std::plus<>(), add_one{});
+#else
     std::array<size_t, 0> v, res;
     std::transform_inclusive_scan(v.begin(), v.end(), res.begin(), std::plus<>(), add_one{});
+#endif
     assert(res.empty());
     }
 }
@@ -120,7 +149,7 @@ test()
     basic_tests();
 
 //  All the iterator categories
-    test<cpp17_input_iterator        <const int*> >();
+    test<input_iterator        <const int*> >();
     test<forward_iterator      <const int*> >();
     test<bidirectional_iterator<const int*> >();
     test<random_access_iterator<const int*> >();

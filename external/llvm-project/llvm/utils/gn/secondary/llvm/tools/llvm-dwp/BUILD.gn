@@ -19,12 +19,16 @@ group("symlinks") {
 
 executable("llvm-dwp") {
   deps = [
-    "//llvm/lib/DWP",
+    "//llvm/lib/CodeGen/AsmPrinter",
     "//llvm/lib/DebugInfo/DWARF",
     "//llvm/lib/MC",
     "//llvm/lib/Object",
     "//llvm/lib/Support",
+    "//llvm/lib/Target",
     "//llvm/lib/Target:TargetsToBuild",
   ]
-  sources = [ "llvm-dwp.cpp" ]
+  sources = [
+    "DWPError.cpp",
+    "llvm-dwp.cpp",
+  ]
 }

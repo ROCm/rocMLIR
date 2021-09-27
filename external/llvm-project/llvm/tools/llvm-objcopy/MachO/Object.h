@@ -180,9 +180,6 @@ struct RelocationInfo {
   Optional<const Section *> Sec;
   // True if Info is a scattered_relocation_info.
   bool Scattered;
-  // True if the type is an ADDEND. r_symbolnum holds the addend instead of a
-  // symbol index.
-  bool IsAddend;
   // True if the r_symbolnum points to a section number (i.e. r_extern=0).
   bool Extern;
   MachO::any_relocation_info Info;
@@ -313,7 +310,6 @@ struct Object {
   ExportInfo Exports;
   IndirectSymbolTable IndirectSymTable;
   LinkData DataInCode;
-  LinkData LinkerOptimizationHint;
   LinkData FunctionStarts;
   LinkData CodeSignature;
 
@@ -329,8 +325,6 @@ struct Object {
   Optional<size_t> DySymTabCommandIndex;
   /// The index LC_DATA_IN_CODE load comamnd if present.
   Optional<size_t> DataInCodeCommandIndex;
-  /// The index of LC_LINKER_OPTIMIZATIN_HINT load comamnd if present.
-  Optional<size_t> LinkerOptimizationHintCommandIndex;
   /// The index LC_FUNCTION_STARTS load comamnd if present.
   Optional<size_t> FunctionStartsCommandIndex;
 

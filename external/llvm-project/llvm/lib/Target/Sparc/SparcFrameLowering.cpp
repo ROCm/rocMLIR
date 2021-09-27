@@ -97,9 +97,14 @@ void SparcFrameLowering::emitPrologue(MachineFunction &MF,
   // Debug location must be unknown since the first debug location is used
   // to determine the end of the prologue.
   DebugLoc dl;
-  bool NeedsStackRealignment = RegInfo.shouldRealignStack(MF);
+  bool NeedsStackRealignment = RegInfo.needsStackRealignment(MF);
 
-  if (NeedsStackRealignment && !RegInfo.canRealignStack(MF))
+  // FIXME: unfortunately, returning false from canRealignStack
+  // actually just causes needsStackRealignment to return false,
+  // rather than reporting an error, as would be sensible. This is
+  // poor, but fixing that bogosity is going to be a large project.
+  // For now, just see if it's lied, and report an error here.
+  if (!NeedsStackRealignment && MFI.getMaxAlign() > getStackAlign())
     report_fatal_error("Function \"" + Twine(MF.getName()) + "\" required "
                        "stack re-alignment, but LLVM couldn't handle it "
                        "(probably because it has a dynamic alloca).");
@@ -247,8 +252,9 @@ bool SparcFrameLowering::hasFP(const MachineFunction &MF) const {
 
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   return MF.getTarget().Options.DisableFramePointerElim(MF) ||
-         RegInfo->hasStackRealignment(MF) || MFI.hasVarSizedObjects() ||
-         MFI.isFrameAddressTaken();
+      RegInfo->needsStackRealignment(MF) ||
+      MFI.hasVarSizedObjects() ||
+      MFI.isFrameAddressTaken();
 }
 
 StackOffset
@@ -274,7 +280,7 @@ SparcFrameLowering::getFrameIndexReference(const MachineFunction &MF, int FI,
   } else if (isFixed) {
     // Otherwise, argument access should always use %fp.
     UseFP = true;
-  } else if (RegInfo->hasStackRealignment(MF)) {
+  } else if (RegInfo->needsStackRealignment(MF)) {
     // If there is dynamic stack realignment, all local object
     // references need to be via %sp, to take account of the
     // re-alignment.

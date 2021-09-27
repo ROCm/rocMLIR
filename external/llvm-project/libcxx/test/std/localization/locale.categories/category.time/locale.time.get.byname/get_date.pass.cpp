@@ -18,8 +18,6 @@
 // GLIBC also fails on the zh_CN test.
 // XFAIL: linux
 
-// XFAIL: LIBCXX-WINDOWS-FIXME
-
 // <locale>
 
 // class time_get_byname<charT, InputIterator>
@@ -35,7 +33,7 @@
 
 #include "platform_support.h" // locale name macros
 
-typedef cpp17_input_iterator<const char*> I;
+typedef input_iterator<const char*> I;
 
 typedef std::time_get_byname<char, I> F;
 

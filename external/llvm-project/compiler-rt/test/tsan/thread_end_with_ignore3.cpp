@@ -1,5 +1,6 @@
 // RUN: %clangxx_tsan -O1 %s -o %t && %deflake %run %t | FileCheck %s
-#include "test.h"
+extern "C" void AnnotateIgnoreReadsBegin(const char *f, int l);
+extern "C" void AnnotateIgnoreReadsEnd(const char *f, int l);
 
 int main() {
   AnnotateIgnoreReadsBegin("", 0);
@@ -14,7 +15,8 @@ int main() {
 // CHECK: ThreadSanitizer: main thread finished with ignores enabled
 // CHECK:   Ignore was enabled at:
 // CHECK:     #0 AnnotateIgnoreReadsBegin
-// CHECK:     #1 main {{.*}}thread_end_with_ignore3.cpp:9
+// CHECK:     #1 main {{.*}}thread_end_with_ignore3.cpp:10
 // CHECK:   Ignore was enabled at:
 // CHECK:     #0 AnnotateIgnoreReadsBegin
-// CHECK:     #1 main {{.*}}thread_end_with_ignore3.cpp:10
+// CHECK:     #1 main {{.*}}thread_end_with_ignore3.cpp:11
+

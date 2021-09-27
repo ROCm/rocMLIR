@@ -6,13 +6,13 @@
 module {
   func @main() {
     // allocate CPU memory for gpu_conv.
-    %0 = memref.alloc() : memref<1x128x3x3x8xf32>
-    %1 = memref.alloc() : memref<128x32x32x1x8xf32>
-    %2 = memref.alloc() : memref<128x30x30x1x128xf32>
+    %0 = alloc() : memref<1x128x3x3x8xf32>
+    %1 = alloc() : memref<128x32x32x1x8xf32>
+    %2 = alloc() : memref<128x30x30x1x128xf32>
 
-    %3 = memref.cast %0 : memref<1x128x3x3x8xf32> to memref<?x?x?x?x?xf32>
-    %4 = memref.cast %1 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
-    %5 = memref.cast %2 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
+    %3 = memref_cast %0 : memref<1x128x3x3x8xf32> to memref<?x?x?x?x?xf32>
+    %4 = memref_cast %1 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
+    %5 = memref_cast %2 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
 
     // populate initial values.
     %c0_i16 = constant 0 : i16
@@ -27,16 +27,16 @@ module {
     call @gpu_conv(%0, %1, %2) : (memref<1x128x3x3x8xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
 
     // allocate CPU memory and initialize
-    %6 = memref.alloc() : memref<1x128x3x3x8xf32>
-    %7 = memref.cast %6 : memref<1x128x3x3x8xf32> to memref<?x?x?x?x?xf32>
+    %6 = alloc() : memref<1x128x3x3x8xf32>
+    %7 = memref_cast %6 : memref<1x128x3x3x8xf32> to memref<?x?x?x?x?xf32>
     call @mcpuMemset5DFloatRandInt(%7, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 
-    %9 = memref.alloc() : memref<128x32x32x1x8xf32>
-    %10 = memref.cast %9 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
+    %9 = alloc() : memref<128x32x32x1x8xf32>
+    %10 = memref_cast %9 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
     call @mcpuMemset5DFloatRandInt(%10, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 
-    %12 = memref.alloc() : memref<128x30x30x1x128xf32>
-    %13 = memref.cast %12 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
+    %12 = alloc() : memref<128x30x30x1x128xf32>
+    %13 = memref_cast %12 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
     call @mcpuMemset5DFloatRandInt(%13, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
     
     // launch cpu convolution
@@ -46,12 +46,12 @@ module {
     call @verify_results(%12, %2) : (memref<128x30x30x1x128xf32>, memref<128x30x30x1x128xf32>) -> ()
 
     // deallocate CPU memory.
-    memref.dealloc %0 : memref<1x128x3x3x8xf32>
-    memref.dealloc %1 : memref<128x32x32x1x8xf32>
-    memref.dealloc %2 : memref<128x30x30x1x128xf32>
-    memref.dealloc %6 : memref<1x128x3x3x8xf32>
-    memref.dealloc %9 : memref<128x32x32x1x8xf32>
-    memref.dealloc %12 : memref<128x30x30x1x128xf32>
+    dealloc %0 : memref<1x128x3x3x8xf32>
+    dealloc %1 : memref<128x32x32x1x8xf32>
+    dealloc %2 : memref<128x30x30x1x128xf32>
+    dealloc %6 : memref<1x128x3x3x8xf32>
+    dealloc %9 : memref<128x32x32x1x8xf32>
+    dealloc %12 : memref<128x30x30x1x128xf32>
     return
   }
 
@@ -59,9 +59,9 @@ module {
   func private @mcpuMemCopy5DFloat(memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>)
 
   func @gpu_conv(%arg0: memref<1x128x3x3x8xf32>, %arg1: memref<128x32x32x1x8xf32>, %arg2: memref<128x30x30x1x128xf32>) {
-    %0 = memref.cast %arg0 : memref<1x128x3x3x8xf32> to memref<?x?x?x?x?xf32>
-    %1 = memref.cast %arg1 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
-    %2 = memref.cast %arg2 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
+    %0 = memref_cast %arg0 : memref<1x128x3x3x8xf32> to memref<?x?x?x?x?xf32>
+    %1 = memref_cast %arg1 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
+    %2 = memref_cast %arg2 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
 
     // allocate GPU memory.
     %3 = call @mgpuMemAlloc5DFloat(%0) : (memref<?x?x?x?x?xf32>) -> memref<?x?x?x?x?xf32>
@@ -78,9 +78,9 @@ module {
     call @mgpuMemCopy5DFloat(%2, %5, %c1_i32) : (memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, i32) -> ()
 
     // launch kernel.
-    %6 = memref.cast %3 : memref<?x?x?x?x?xf32> to memref<1x128x3x3x8xf32>
-    %7 = memref.cast %4 : memref<?x?x?x?x?xf32> to memref<128x32x32x1x8xf32>
-    %8 = memref.cast %5 : memref<?x?x?x?x?xf32> to memref<128x30x30x1x128xf32>
+    %6 = memref_cast %3 : memref<?x?x?x?x?xf32> to memref<1x128x3x3x8xf32>
+    %7 = memref_cast %4 : memref<?x?x?x?x?xf32> to memref<128x32x32x1x8xf32>
+    %8 = memref_cast %5 : memref<?x?x?x?x?xf32> to memref<128x30x30x1x128xf32>
     call @conv2d(%6, %7, %8) : (memref<1x128x3x3x8xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
     call @mgpuMemCopy5DFloat(%5, %2, %c2_i32) : (memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, i32) -> ()
 
@@ -101,13 +101,13 @@ module {
   func private @mgpuMemDealloc5DFloat(memref<?x?x?x?x?xf32>)
 
   func @conv2d_host(%arg0: memref<1x128x3x3x8xf32>, %arg1: memref<128x32x32x1x8xf32>, %arg2: memref<128x30x30x1x128xf32>) {
-    %0 = memref.cast %arg0 : memref<1x128x3x3x8xf32> to memref<?x?x?x?x?xf32>
-    %1 = memref.cast %arg1 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
-    %2 = memref.cast %arg2 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
+    %0 = memref_cast %arg0 : memref<1x128x3x3x8xf32> to memref<?x?x?x?x?xf32>
+    %1 = memref_cast %arg1 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
+    %2 = memref_cast %arg2 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
 
-    %3 = memref.cast %0 : memref<?x?x?x?x?xf32> to memref<*xf32>
-    %4 = memref.cast %1 : memref<?x?x?x?x?xf32> to memref<*xf32>
-    %5 = memref.cast %2 : memref<?x?x?x?x?xf32> to memref<*xf32>
+    %3 = memref_cast %0 : memref<?x?x?x?x?xf32> to memref<*xf32>
+    %4 = memref_cast %1 : memref<?x?x?x?x?xf32> to memref<*xf32>
+    %5 = memref_cast %2 : memref<?x?x?x?x?xf32> to memref<*xf32>
 
     // set up strides, paddings and dilations
     %c1_i32 = constant 1 : i32
@@ -135,30 +135,30 @@ module {
     %w = constant 119 : i8
  
     // allocate memory for layouts 
-    %6 = memref.alloca() : memref<5xi8>
-    %7 = memref.alloca() : memref<5xi8>
-    %8 = memref.alloca() : memref<5xi8>
+    %6 = alloca() : memref<5xi8>
+    %7 = alloca() : memref<5xi8>
+    %8 = alloca() : memref<5xi8>
 
     // store layouts
-    memref.store %g, %6[%c0] : memref<5xi8>
-    memref.store %k, %6[%c1] : memref<5xi8>
-    memref.store %y, %6[%c2] : memref<5xi8>
-    memref.store %x, %6[%c3] : memref<5xi8>
-    memref.store %c, %6[%c4] : memref<5xi8>
-    memref.store %n, %7[%c0] : memref<5xi8>
-    memref.store %h, %7[%c1] : memref<5xi8>
-    memref.store %w, %7[%c2] : memref<5xi8>
-    memref.store %g, %7[%c3] : memref<5xi8>
-    memref.store %c, %7[%c4] : memref<5xi8>
-    memref.store %n, %8[%c0] : memref<5xi8>
-    memref.store %h, %8[%c1] : memref<5xi8>
-    memref.store %w, %8[%c2] : memref<5xi8>
-    memref.store %g, %8[%c3] : memref<5xi8>
-    memref.store %k, %8[%c4] : memref<5xi8>
+    store %g, %6[%c0] : memref<5xi8>
+    store %k, %6[%c1] : memref<5xi8>
+    store %y, %6[%c2] : memref<5xi8>
+    store %x, %6[%c3] : memref<5xi8>
+    store %c, %6[%c4] : memref<5xi8>
+    store %n, %7[%c0] : memref<5xi8>
+    store %h, %7[%c1] : memref<5xi8>
+    store %w, %7[%c2] : memref<5xi8>
+    store %g, %7[%c3] : memref<5xi8>
+    store %c, %7[%c4] : memref<5xi8>
+    store %n, %8[%c0] : memref<5xi8>
+    store %h, %8[%c1] : memref<5xi8>
+    store %w, %8[%c2] : memref<5xi8>
+    store %g, %8[%c3] : memref<5xi8>
+    store %k, %8[%c4] : memref<5xi8>
 
-    %9 = memref.cast %6 : memref<5xi8> to memref<*xi8>
-    %10 = memref.cast %7 : memref<5xi8> to memref<*xi8>
-    %11 = memref.cast %8 : memref<5xi8> to memref<*xi8>
+    %9 = memref_cast %6 : memref<5xi8> to memref<*xi8>
+    %10 = memref_cast %7 : memref<5xi8> to memref<*xi8>
+    %11 = memref_cast %8 : memref<5xi8> to memref<*xi8>
     call @mcpuConv2d(%3, %4, %5, %9, %10, %11, %c1_i32, %c1_i32_0, %c0_i32, %c0_i32_1, %c0_i32, %c0_i32_1,%c1_i32_2, %c1_i32_3) :
                     ( memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32, i32, i32) -> ()
     
@@ -168,10 +168,10 @@ module {
 
   func @verify_results(%arg0: memref<128x30x30x1x128xf32>, %arg1: memref<128x30x30x1x128xf32>) {
     %c0 = constant 0 : index
-    %0 = memref.alloca() : memref<1xi32>
+    %0 = alloca() : memref<1xi32>
     %c0_i32 = constant 0 : i32
     %c1_i32 = constant 1 : i32
-    memref.store %c1_i32, %0[%c0] : memref<1xi32>
+    store %c1_i32, %0[%c0] : memref<1xi32>
     %c1 = constant 1 : index
     %c128 = constant 128 : index
     %c30 = constant 30 : index
@@ -182,21 +182,21 @@ module {
         scf.for %arg4 = %c0 to %c30_0 step %c1 {
           scf.for %arg5 = %c0 to %c1 step %c1 {
             scf.for %arg6 = %c0 to %c128_1 step %c1 {
-              %2 = memref.load %arg0[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x30x30x1x128xf32>
-              %3 = memref.load %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x30x30x1x128xf32>
+              %2 = load %arg0[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x30x30x1x128xf32>
+              %3 = load %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x30x30x1x128xf32>
               %cst = constant 1.000000e-07 : f32
               %4 = subf %2, %3 : f32
               %5 = absf %4 : f32
               %6 = cmpf ugt, %5, %cst : f32
               scf.if %6 {
-                memref.store %c0_i32, %0[%c0] : memref<1xi32>
+                store %c0_i32, %0[%c0] : memref<1xi32>
               }
             }
           }
         }
       }
     }
-    %1 = memref.cast %0 : memref<1xi32> to memref<*xi32>
+    %1 = memref_cast %0 : memref<1xi32> to memref<*xi32>
     call @print_memref_i32(%1) : (memref<*xi32>) -> ()
     return
   }

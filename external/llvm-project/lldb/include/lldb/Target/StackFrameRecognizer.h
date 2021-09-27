@@ -37,7 +37,7 @@ public:
     return lldb::ValueObjectSP();
   }
   virtual lldb::StackFrameSP GetMostRelevantFrame() { return nullptr; };
-  virtual ~RecognizedStackFrame() = default;
+  virtual ~RecognizedStackFrame(){};
 
   std::string GetStopDescription() { return m_stop_desc; }
 
@@ -63,7 +63,7 @@ public:
     return "";
   }
 
-  virtual ~StackFrameRecognizer() = default;
+  virtual ~StackFrameRecognizer(){};
 };
 
 /// \class ScriptedStackFrameRecognizer
@@ -80,7 +80,7 @@ class ScriptedStackFrameRecognizer : public StackFrameRecognizer {
 public:
   ScriptedStackFrameRecognizer(lldb_private::ScriptInterpreter *interpreter,
                                const char *pclass);
-  ~ScriptedStackFrameRecognizer() override = default;
+  ~ScriptedStackFrameRecognizer() override {}
 
   std::string GetName() override {
     return GetPythonClassName();

@@ -50,9 +50,6 @@ public:
 
   lldb::pid_t GetParentProcessID();
 
-  /// Return the target triple (arch-vendor-os) for the described process.
-  const char *GetTriple();
-
 private:
   friend class SBProcess;
 

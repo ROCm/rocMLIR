@@ -16,8 +16,6 @@ namespace {
 /// This pass illustrates the IR nesting through printing.
 struct TestPrintNestingPass
     : public PassWrapper<TestPrintNestingPass, OperationPass<>> {
-  StringRef getArgument() const final { return "test-print-nesting"; }
-  StringRef getDescription() const final { return "Test various printing."; }
   // Entry point for the pass.
   void runOnOperation() override {
     Operation *op = getOperation();
@@ -92,6 +90,7 @@ struct TestPrintNestingPass
 
 namespace mlir {
 void registerTestPrintNestingPass() {
-  PassRegistration<TestPrintNestingPass>();
+  PassRegistration<TestPrintNestingPass>("test-print-nesting",
+                                         "Test various printing.");
 }
 } // namespace mlir

@@ -17,8 +17,8 @@
 #include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 #include <string>
 #include <vector>
 
@@ -55,7 +55,9 @@ struct GDBRemotePacket {
 
   enum Type { ePacketTypeInvalid = 0, ePacketTypeSend, ePacketTypeRecv };
 
-  GDBRemotePacket() : packet() {}
+  GDBRemotePacket()
+      : packet(), type(ePacketTypeInvalid), bytes_transmitted(0), packet_idx(0),
+        tid(LLDB_INVALID_THREAD_ID) {}
 
   void Clear() {
     packet.data.clear();
@@ -72,10 +74,10 @@ struct GDBRemotePacket {
   void Dump(Stream &strm) const;
 
   BinaryData packet;
-  Type type = ePacketTypeInvalid;
-  uint32_t bytes_transmitted = 0;
-  uint32_t packet_idx = 0;
-  lldb::tid_t tid = LLDB_INVALID_THREAD_ID;
+  Type type;
+  uint32_t bytes_transmitted;
+  uint32_t packet_idx;
+  lldb::tid_t tid;
 
 private:
   llvm::StringRef GetTypeStr() const;

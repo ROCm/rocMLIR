@@ -8,7 +8,9 @@
 
 // See bugs.llvm.org/PR20183
 //
-// XFAIL: use_system_cxx_lib && target={{.+}}-apple-macosx10.{{9|10|11}}
+// XFAIL: with_system_cxx_lib=macosx10.11
+// XFAIL: with_system_cxx_lib=macosx10.10
+// XFAIL: with_system_cxx_lib=macosx10.9
 
 // UNSUPPORTED: libcpp-has-no-random-device
 

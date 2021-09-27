@@ -114,16 +114,6 @@ bool llvm::hasVectorInstrinsicScalarOpd(Intrinsic::ID ID,
   }
 }
 
-bool llvm::hasVectorInstrinsicOverloadedScalarOpd(Intrinsic::ID ID,
-                                                  unsigned ScalarOpdIdx) {
-  switch (ID) {
-  case Intrinsic::powi:
-    return (ScalarOpdIdx == 1);
-  default:
-    return false;
-  }
-}
-
 /// Returns intrinsic ID for call.
 /// For the input call instruction it finds mapping intrinsic and returns
 /// its ID, in case it does not found it return not_intrinsic.
@@ -330,12 +320,6 @@ Value *llvm::findScalarElement(Value *V, unsigned EltNo) {
     if (Constant *Elt = C->getAggregateElement(EltNo))
       if (Elt->isNullValue())
         return findScalarElement(Val, EltNo);
-
-  // If the vector is a splat then we can trivially find the scalar element.
-  if (isa<ScalableVectorType>(VTy))
-    if (Value *Splat = getSplatValue(V))
-      if (EltNo < VTy->getElementCount().getKnownMinValue())
-        return Splat;
 
   // Otherwise, we don't know.
   return nullptr;
@@ -602,8 +586,8 @@ llvm::computeMinimumValueSizes(ArrayRef<BasicBlock *> Blocks, DemandedBits &DB,
 
   for (auto I = ECs.begin(), E = ECs.end(); I != E; ++I) {
     uint64_t LeaderDemandedBits = 0;
-    for (Value *M : llvm::make_range(ECs.member_begin(I), ECs.member_end()))
-      LeaderDemandedBits |= DBits[M];
+    for (auto MI = ECs.member_begin(I), ME = ECs.member_end(); MI != ME; ++MI)
+      LeaderDemandedBits |= DBits[*MI];
 
     uint64_t MinBW = (sizeof(LeaderDemandedBits) * 8) -
                      llvm::countLeadingZeros(LeaderDemandedBits);
@@ -616,22 +600,22 @@ llvm::computeMinimumValueSizes(ArrayRef<BasicBlock *> Blocks, DemandedBits &DB,
     // indvars.
     // If we are required to shrink a PHI, abandon this entire equivalence class.
     bool Abort = false;
-    for (Value *M : llvm::make_range(ECs.member_begin(I), ECs.member_end()))
-      if (isa<PHINode>(M) && MinBW < M->getType()->getScalarSizeInBits()) {
+    for (auto MI = ECs.member_begin(I), ME = ECs.member_end(); MI != ME; ++MI)
+      if (isa<PHINode>(*MI) && MinBW < (*MI)->getType()->getScalarSizeInBits()) {
         Abort = true;
         break;
       }
     if (Abort)
       continue;
 
-    for (Value *M : llvm::make_range(ECs.member_begin(I), ECs.member_end())) {
-      if (!isa<Instruction>(M))
+    for (auto MI = ECs.member_begin(I), ME = ECs.member_end(); MI != ME; ++MI) {
+      if (!isa<Instruction>(*MI))
         continue;
-      Type *Ty = M->getType();
-      if (Roots.count(M))
-        Ty = cast<Instruction>(M)->getOperand(0)->getType();
+      Type *Ty = (*MI)->getType();
+      if (Roots.count(*MI))
+        Ty = cast<Instruction>(*MI)->getOperand(0)->getType();
       if (MinBW < Ty->getScalarSizeInBits())
-        MinBWs[cast<Instruction>(M)] = MinBW;
+        MinBWs[cast<Instruction>(*MI)] = MinBW;
     }
   }
 
@@ -724,8 +708,6 @@ MDNode *llvm::intersectAccessGroups(const Instruction *Inst1,
 
 /// \returns \p I after propagating metadata from \p VL.
 Instruction *llvm::propagateMetadata(Instruction *Inst, ArrayRef<Value *> VL) {
-  if (VL.empty())
-    return Inst;
   Instruction *I0 = cast<Instruction>(VL[0]);
   SmallVector<std::pair<unsigned, MDNode *>, 4> Metadata;
   I0->getAllMetadataOtherThanDebugLoc(Metadata);
@@ -909,6 +891,7 @@ bool llvm::maskIsAllZeroOrUndef(Value *Mask) {
   return true;
 }
 
+
 bool llvm::maskIsAllOneOrUndef(Value *Mask) {
   assert(isa<VectorType>(Mask->getType()) &&
          isa<IntegerType>(Mask->getType()->getScalarType()) &&
@@ -946,7 +929,7 @@ APInt llvm::possiblyDemandedEltsInMask(Value *Mask) {
 
   const unsigned VWidth =
       cast<FixedVectorType>(Mask->getType())->getNumElements();
-  APInt DemandedElts = APInt::getAllOnes(VWidth);
+  APInt DemandedElts = APInt::getAllOnesValue(VWidth);
   if (auto *CV = dyn_cast<ConstantVector>(Mask))
     for (unsigned i = 0; i < VWidth; i++)
       if (CV->getAggregateElement(i)->isNullValue())
@@ -974,11 +957,12 @@ void InterleavedAccessInfo::collectConstStrideAccesses(
   DFS.perform(LI);
   for (BasicBlock *BB : make_range(DFS.beginRPO(), DFS.endRPO()))
     for (auto &I : *BB) {
-      Value *Ptr = getLoadStorePointerOperand(&I);
-      if (!Ptr)
+      auto *LI = dyn_cast<LoadInst>(&I);
+      auto *SI = dyn_cast<StoreInst>(&I);
+      if (!LI && !SI)
         continue;
-      Type *ElementTy = getLoadStoreType(&I);
 
+      Value *Ptr = getLoadStorePointerOperand(&I);
       // We don't check wrapping here because we don't know yet if Ptr will be
       // part of a full group or a group with gaps. Checking wrapping for all
       // pointers (even those that end up in groups with no gaps) will be overly
@@ -986,11 +970,12 @@ void InterleavedAccessInfo::collectConstStrideAccesses(
       // wrap around the address space we would do a memory access at nullptr
       // even without the transformation. The wrapping checks are therefore
       // deferred until after we've formed the interleaved groups.
-      int64_t Stride = getPtrStride(PSE, ElementTy, Ptr, TheLoop, Strides,
+      int64_t Stride = getPtrStride(PSE, Ptr, TheLoop, Strides,
                                     /*Assume=*/true, /*ShouldCheckWrap=*/false);
 
       const SCEV *Scev = replaceSymbolicStrideSCEV(PSE, Strides, Ptr);
-      uint64_t Size = DL.getTypeAllocSize(ElementTy);
+      PointerType *PtrTy = cast<PointerType>(Ptr->getType());
+      uint64_t Size = DL.getTypeAllocSize(PtrTy->getElementType());
       AccessStrideInfo[&I] = StrideDescriptor(Stride, Scev, Size,
                                               getLoadStoreAlignment(&I));
     }
@@ -1199,24 +1184,15 @@ void InterleavedAccessInfo::analyzeInterleaving(
     } // Iteration over A accesses.
   }   // Iteration over B accesses.
 
-  auto InvalidateGroupIfMemberMayWrap = [&](InterleaveGroup<Instruction> *Group,
-                                            int Index,
-                                            std::string FirstOrLast) -> bool {
-    Instruction *Member = Group->getMember(Index);
-    assert(Member && "Group member does not exist");
-    Value *MemberPtr = getLoadStorePointerOperand(Member);
-    Type *AccessTy = getLoadStoreType(Member);
-    if (getPtrStride(PSE, AccessTy, MemberPtr, TheLoop, Strides,
-                     /*Assume=*/false, /*ShouldCheckWrap=*/true))
-      return false;
-    LLVM_DEBUG(dbgs() << "LV: Invalidate candidate interleaved group due to "
-                      << FirstOrLast
-                      << " group member potentially pointer-wrapping.\n");
-    releaseGroup(Group);
-    return true;
-  };
-
-  // Remove interleaved groups with gaps whose memory
+  // Remove interleaved store groups with gaps.
+  for (auto *Group : StoreGroups)
+    if (Group->getNumMembers() != Group->getFactor()) {
+      LLVM_DEBUG(
+          dbgs() << "LV: Invalidate candidate interleaved store group due "
+                    "to gaps.\n");
+      releaseGroup(Group);
+    }
+  // Remove interleaved groups with gaps (currently only loads) whose memory
   // accesses may wrap around. We have to revisit the getPtrStride analysis,
   // this time with ShouldCheckWrap=true, since collectConstStrideAccesses does
   // not check wrapping (see documentation there).
@@ -1242,12 +1218,26 @@ void InterleavedAccessInfo::analyzeInterleaving(
     // So we check only group member 0 (which is always guaranteed to exist),
     // and group member Factor - 1; If the latter doesn't exist we rely on
     // peeling (if it is a non-reversed accsess -- see Case 3).
-    if (InvalidateGroupIfMemberMayWrap(Group, 0, std::string("first")))
+    Value *FirstMemberPtr = getLoadStorePointerOperand(Group->getMember(0));
+    if (!getPtrStride(PSE, FirstMemberPtr, TheLoop, Strides, /*Assume=*/false,
+                      /*ShouldCheckWrap=*/true)) {
+      LLVM_DEBUG(
+          dbgs() << "LV: Invalidate candidate interleaved group due to "
+                    "first group member potentially pointer-wrapping.\n");
+      releaseGroup(Group);
       continue;
-    if (Group->getMember(Group->getFactor() - 1))
-      InvalidateGroupIfMemberMayWrap(Group, Group->getFactor() - 1,
-                                     std::string("last"));
-    else {
+    }
+    Instruction *LastMember = Group->getMember(Group->getFactor() - 1);
+    if (LastMember) {
+      Value *LastMemberPtr = getLoadStorePointerOperand(LastMember);
+      if (!getPtrStride(PSE, LastMemberPtr, TheLoop, Strides, /*Assume=*/false,
+                        /*ShouldCheckWrap=*/true)) {
+        LLVM_DEBUG(
+            dbgs() << "LV: Invalidate candidate interleaved group due to "
+                      "last group member potentially pointer-wrapping.\n");
+        releaseGroup(Group);
+      }
+    } else {
       // Case 3: A non-reversed interleaved load group with gaps: We need
       // to execute at least one scalar epilogue iteration. This will ensure
       // we don't speculatively access memory out-of-bounds. We only need
@@ -1264,39 +1254,6 @@ void InterleavedAccessInfo::analyzeInterleaving(
           dbgs() << "LV: Interleaved group requires epilogue iteration.\n");
       RequiresScalarEpilogue = true;
     }
-  }
-
-  for (auto *Group : StoreGroups) {
-    // Case 1: A full group. Can Skip the checks; For full groups, if the wide
-    // store would wrap around the address space we would do a memory access at
-    // nullptr even without the transformation.
-    if (Group->getNumMembers() == Group->getFactor())
-      continue;
-
-    // Interleave-store-group with gaps is implemented using masked wide store.
-    // Remove interleaved store groups with gaps if
-    // masked-interleaved-accesses are not enabled by the target.
-    if (!EnablePredicatedInterleavedMemAccesses) {
-      LLVM_DEBUG(
-          dbgs() << "LV: Invalidate candidate interleaved store group due "
-                    "to gaps.\n");
-      releaseGroup(Group);
-      continue;
-    }
-
-    // Case 2: If first and last members of the group don't wrap this implies
-    // that all the pointers in the group don't wrap.
-    // So we check only group member 0 (which is always guaranteed to exist),
-    // and the last group member. Case 3 (scalar epilog) is not relevant for
-    // stores with gaps, which are implemented with masked-store (rather than
-    // speculative access, as in loads).
-    if (InvalidateGroupIfMemberMayWrap(Group, 0, std::string("first")))
-      continue;
-    for (int Index = Group->getFactor() - 1; Index > 0; Index--)
-      if (Group->getMember(Index)) {
-        InvalidateGroupIfMemberMayWrap(Group, Index, std::string("last"));
-        break;
-      }
   }
 }
 
@@ -1343,14 +1300,10 @@ void InterleaveGroup<Instruction>::addMetadata(Instruction *NewInst) const {
 
 std::string VFABI::mangleTLIVectorName(StringRef VectorName,
                                        StringRef ScalarName, unsigned numArgs,
-                                       ElementCount VF) {
+                                       unsigned VF) {
   SmallString<256> Buffer;
   llvm::raw_svector_ostream Out(Buffer);
-  Out << "_ZGV" << VFABI::_LLVM_ << "N";
-  if (VF.isScalable())
-    Out << 'x';
-  else
-    Out << VF.getFixedValue();
+  Out << "_ZGV" << VFABI::_LLVM_ << "N" << VF;
   for (unsigned I = 0; I < numArgs; ++I)
     Out << "v";
   Out << "_" << ScalarName << "(" << VectorName << ")";
@@ -1359,7 +1312,9 @@ std::string VFABI::mangleTLIVectorName(StringRef VectorName,
 
 void VFABI::getVectorVariantNames(
     const CallInst &CI, SmallVectorImpl<std::string> &VariantMappings) {
-  const StringRef S = CI.getFnAttr(VFABI::MappingsAttrName).getValueAsString();
+  const StringRef S =
+      CI.getAttribute(AttributeList::FunctionIndex, VFABI::MappingsAttrName)
+          .getValueAsString();
   if (S.empty())
     return;
 

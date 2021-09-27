@@ -148,7 +148,6 @@ class StdListSynthProvider:
             self.data_size = self.data_type.GetByteSize()
         except:
             pass
-        return False
 
     def has_children(self):
         return True
@@ -236,7 +235,7 @@ class StdVectorSynthProvider:
                     self.count = 0
             except:
                 pass
-            return False 
+            return True
 
     class StdVBoolImplementation(object):
 
@@ -283,7 +282,7 @@ class StdVectorSynthProvider:
                 self.valid = True
             except:
                 self.valid = False
-            return False
+            return True
 
     def __init__(self, valobj, dict):
         logger = lldb.formatters.Logger.Logger()
@@ -379,7 +378,6 @@ class StdMapSynthProvider:
             self.skip_size = self.Mheader.GetType().GetByteSize()
         except:
             pass
-        return False
 
     def num_children(self):
         logger = lldb.formatters.Logger.Logger()

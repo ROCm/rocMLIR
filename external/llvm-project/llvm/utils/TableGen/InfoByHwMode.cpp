@@ -91,10 +91,13 @@ void ValueTypeByHwMode::writeToStream(raw_ostream &OS) const {
   llvm::sort(Pairs, deref<std::less<PairType>>());
 
   OS << '{';
-  ListSeparator LS(",");
-  for (const PairType *P : Pairs)
-    OS << LS << '(' << getModeName(P->first) << ':'
-       << getMVTName(P->second).str() << ')';
+  for (unsigned i = 0, e = Pairs.size(); i != e; ++i) {
+    const PairType *P = Pairs[i];
+    OS << '(' << getModeName(P->first)
+       << ':' << getMVTName(P->second).str() << ')';
+    if (i != e-1)
+      OS << ',';
+  }
   OS << '}';
 }
 
@@ -180,9 +183,12 @@ void RegSizeInfoByHwMode::writeToStream(raw_ostream &OS) const {
   llvm::sort(Pairs, deref<std::less<PairType>>());
 
   OS << '{';
-  ListSeparator LS(",");
-  for (const PairType *P : Pairs)
-    OS << LS << '(' << getModeName(P->first) << ':' << P->second << ')';
+  for (unsigned i = 0, e = Pairs.size(); i != e; ++i) {
+    const PairType *P = Pairs[i];
+    OS << '(' << getModeName(P->first) << ':' << P->second << ')';
+    if (i != e-1)
+      OS << ',';
+  }
   OS << '}';
 }
 

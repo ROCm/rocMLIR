@@ -14,8 +14,6 @@
 // RUN:   -emit-llvm -o - %s | FileCheck --check-prefix=CHECK-VECTOR %s
 // RUN: %clang_cc1 -triple s390x-linux-gnu -target-cpu arch13 \
 // RUN:   -emit-llvm -o - %s | FileCheck --check-prefix=CHECK-VECTOR %s
-// RUN: %clang_cc1 -triple s390x-linux-gnu -target-cpu arch14 \
-// RUN:   -emit-llvm -o - %s | FileCheck --check-prefix=CHECK-VECTOR %s
 
 // Vector types
 

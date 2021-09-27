@@ -2,7 +2,6 @@
 add_mlir_library(MLIRAffineTransformsTestPasses
   TestAffineDataCopy.cpp
   TestAffineLoopUnswitching.cpp
-  TestAffineLoopParametricTiling.cpp
   TestLoopPermutation.cpp
   TestVectorizationUtils.cpp
 

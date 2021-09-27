@@ -924,9 +924,6 @@ public:
     this->insert(I, E);
   }
 
-  SmallDenseMap(std::initializer_list<typename BaseT::value_type> Vals)
-      : SmallDenseMap(Vals.begin(), Vals.end()) {}
-
   ~SmallDenseMap() {
     this->destroyAll();
     deallocateBuckets();

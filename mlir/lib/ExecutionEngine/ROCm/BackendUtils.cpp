@@ -13,14 +13,9 @@
 #include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 
-#include "mlir/Target/LLVMIR/Export.h"
-#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
-
-#include "llvm/IR/Module.h"
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/LineIterator.h"
 #include "llvm/Support/Program.h"
-#include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
 
 // MC headers.
@@ -89,6 +84,164 @@ BackendUtils::BackendUtils(const std::string &defaultTriple,
 }
 
 BackendUtils::BackendUtils() : BackendUtils("", "", "", true) {}
+
+LogicalResult BackendUtils::assembleIsa(const std::string isa, StringRef name,
+                                        Blob &result,
+                                        const std::string &tripleName,
+                                        const std::string &targetChip,
+                                        const std::string &features) {
+  llvm::raw_svector_ostream os(result);
+
+  std::string error;
+  llvm::Triple theTriple(llvm::Triple::normalize(tripleName));
+  const llvm::Target *theTarget =
+      llvm::TargetRegistry::lookupTarget(theTriple.normalize(), error);
+  if (!theTarget) {
+    llvm::WithColor::error(llvm::errs(), name) << error;
+    return failure();
+  }
+
+  llvm::SourceMgr srcMgr;
+  srcMgr.AddNewSourceBuffer(llvm::MemoryBuffer::getMemBuffer(isa),
+                            llvm::SMLoc());
+
+  const llvm::MCTargetOptions mcOptions;
+  std::unique_ptr<llvm::MCRegisterInfo> mri(
+      theTarget->createMCRegInfo(tripleName));
+  std::unique_ptr<llvm::MCAsmInfo> mai(
+      theTarget->createMCAsmInfo(*mri, tripleName, mcOptions));
+  mai->setRelaxELFRelocations(true);
+
+  llvm::MCObjectFileInfo mofi;
+  llvm::MCContext ctx(mai.get(), mri.get(), &mofi, &srcMgr, &mcOptions);
+  mofi.InitMCObjectFileInfo(theTriple, false, ctx, false);
+
+  SmallString<128> cwd;
+  if (!llvm::sys::fs::current_path(cwd))
+    ctx.setCompilationDir(cwd);
+
+  std::unique_ptr<llvm::MCStreamer> mcStreamer;
+  std::unique_ptr<llvm::MCInstrInfo> mcii(theTarget->createMCInstrInfo());
+  std::unique_ptr<llvm::MCSubtargetInfo> sti(
+      theTarget->createMCSubtargetInfo(tripleName, targetChip, features));
+
+  llvm::MCCodeEmitter *ce = theTarget->createMCCodeEmitter(*mcii, *mri, ctx);
+  llvm::MCAsmBackend *mab =
+      theTarget->createMCAsmBackend(*sti, *mri, mcOptions);
+  mcStreamer.reset(theTarget->createMCObjectStreamer(
+      theTriple, ctx, std::unique_ptr<llvm::MCAsmBackend>(mab),
+      mab->createObjectWriter(os), std::unique_ptr<llvm::MCCodeEmitter>(ce),
+      *sti, mcOptions.MCRelaxAll, mcOptions.MCIncrementalLinkerCompatible,
+      /*DWARFMustBeAtTheEnd*/ false));
+  mcStreamer->setUseAssemblerInfoForParsing(true);
+
+  std::unique_ptr<llvm::MCAsmParser> parser(
+      createMCAsmParser(srcMgr, ctx, *mcStreamer, *mai));
+  std::unique_ptr<llvm::MCTargetAsmParser> tap(
+      theTarget->createMCAsmParser(*sti, *parser, *mcii, mcOptions));
+
+  if (!tap) {
+    llvm::WithColor::error(llvm::errs(), name)
+        << "assembler initialization error.\n";
+    return failure();
+  }
+
+  parser->setTargetParser(*tap);
+  parser->Run(false);
+
+  return success();
+}
+
+LogicalResult BackendUtils::assembleIsa(const std::string isa, StringRef name,
+                                        Blob &result) {
+  return assembleIsa(isa, name, result, triple, chip, features);
+}
+
+static std::mutex mutex;
+LogicalResult BackendUtils::createHsaco(const Blob &isaBlob, StringRef name,
+                                        Blob &hsacoBlob) {
+  const std::lock_guard<std::mutex> lock(mutex);
+  // Save the ISA binary to a temp file.
+  int tempIsaBinaryFd = -1;
+  SmallString<128> tempIsaBinaryFilename;
+  std::error_code ec = llvm::sys::fs::createTemporaryFile(
+      "kernel", "o", tempIsaBinaryFd, tempIsaBinaryFilename);
+  if (ec) {
+    llvm::WithColor::error(llvm::errs(), name)
+        << "temporary file for ISA binary creation error.\n";
+    return failure();
+  }
+  llvm::FileRemover cleanupIsaBinary(tempIsaBinaryFilename);
+  llvm::raw_fd_ostream tempIsaBinaryOs(tempIsaBinaryFd, true);
+  tempIsaBinaryOs << isaBlob;
+  tempIsaBinaryOs.close();
+
+  // Create a temp file for HSA code object.
+  int tempHsacoFD = -1;
+  SmallString<128> tempHsacoFilename;
+  ec = llvm::sys::fs::createTemporaryFile("kernel", "hsaco", tempHsacoFD,
+                                          tempHsacoFilename);
+  if (ec) {
+    llvm::WithColor::error(llvm::errs(), name)
+        << "temporary file for HSA code object creation error.\n";
+    return failure();
+  }
+  llvm::FileRemover cleanupHsaco(tempHsacoFilename);
+
+  // Invoke lld. Expect a true return value from lld.
+  bool ret = lld::elf::link({"ld.lld", "-shared", tempIsaBinaryFilename.c_str(),
+                             "-o", tempHsacoFilename.c_str()},
+                            /*canEarlyExit=*/false, llvm::outs(), llvm::errs());
+  if (!ret) {
+    llvm::WithColor::error(llvm::errs(), name) << "lld invocation error.\n";
+    return failure();
+  }
+
+  // Load the HSA code object.
+  auto hsacoFile = mlir::openInputFile(tempHsacoFilename);
+  if (!hsacoFile) {
+    llvm::WithColor::error(llvm::errs(), name)
+        << "read HSA code object from temp file error.\n";
+    return failure();
+  }
+  hsacoBlob.assign(hsacoFile->getBuffer().begin(),
+                   hsacoFile->getBuffer().end());
+
+  return success();
+}
+
+OwnedBlob BackendUtils::compileISAToHsaco(const std::string &isa, Location loc,
+                                          StringRef name) {
+  // ISA -> ISA in binary form via MC.
+  // Use lld to create HSA code object.
+  Blob isaBlob;
+  Blob hsacoBlob;
+
+  if (succeeded(assembleIsa(isa, name, isaBlob)) &&
+      succeeded(createHsaco(isaBlob, name, hsacoBlob)))
+    return std::make_unique<std::vector<char>>(hsacoBlob.begin(),
+                                               hsacoBlob.end());
+
+  llvm::WithColor::error(llvm::errs(), name)
+      << "producing HSA code object error.\n";
+  return {};
+}
+
+std::unique_ptr<llvm::Module> BackendUtils::compileModuleToROCDLIR(
+    Operation *m, llvm::LLVMContext &llvmContext, llvm::StringRef name) {
+  StringRef amdgcnDataLayout =
+      "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-i64:64-"
+      "v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:"
+      "1024-v2048:2048-n32:64-S32-A5-ni:7";
+
+  auto llvmModule = translateModuleToROCDLIR(m, llvmContext);
+  llvmModule->setTargetTriple(triple);
+  llvmModule->setDataLayout(amdgcnDataLayout);
+
+  // TODO(whchung): Link with ROCm-Device-Libs in case needed (ex: the Module
+  // depends on math functions).
+  return llvmModule;
+}
 
 void BackendUtils::configTarget(std::string &targetChip,
                                 std::string &features) {

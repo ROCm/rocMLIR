@@ -12,8 +12,6 @@
 #define lldb_NativeRegisterContextLinux_arm64_h
 
 #include "Plugins/Process/Linux/NativeRegisterContextLinux.h"
-#include "Plugins/Process/Utility/LinuxPTraceDefines_arm64sve.h"
-#include "Plugins/Process/Utility/NativeRegisterContextDBReg_arm64.h"
 #include "Plugins/Process/Utility/RegisterInfoPOSIX_arm64.h"
 
 #include <asm/ptrace.h>
@@ -23,13 +21,10 @@ namespace process_linux {
 
 class NativeProcessLinux;
 
-class NativeRegisterContextLinux_arm64
-    : public NativeRegisterContextLinux,
-      public NativeRegisterContextDBReg_arm64 {
+class NativeRegisterContextLinux_arm64 : public NativeRegisterContextLinux {
 public:
-  NativeRegisterContextLinux_arm64(
-      const ArchSpec &target_arch, NativeThreadProtocol &native_thread,
-      std::unique_ptr<RegisterInfoPOSIX_arm64> register_info_up);
+  NativeRegisterContextLinux_arm64(const ArchSpec &target_arch,
+                                   NativeThreadProtocol &native_thread);
 
   uint32_t GetRegisterSetCount() const override;
 
@@ -54,10 +49,44 @@ public:
 
   bool RegisterOffsetIsDynamic() const override { return true; }
 
-  llvm::Expected<MemoryTaggingDetails>
-  GetMemoryTaggingDetails(int32_t type) override;
+  // Hardware breakpoints/watchpoint management functions
+
+  uint32_t NumSupportedHardwareBreakpoints() override;
+
+  uint32_t SetHardwareBreakpoint(lldb::addr_t addr, size_t size) override;
+
+  bool ClearHardwareBreakpoint(uint32_t hw_idx) override;
+
+  Status ClearAllHardwareBreakpoints() override;
+
+  Status GetHardwareBreakHitIndex(uint32_t &bp_index,
+                                  lldb::addr_t trap_addr) override;
+
+  uint32_t NumSupportedHardwareWatchpoints() override;
+
+  uint32_t SetHardwareWatchpoint(lldb::addr_t addr, size_t size,
+                                 uint32_t watch_flags) override;
+
+  bool ClearHardwareWatchpoint(uint32_t hw_index) override;
+
+  Status ClearAllHardwareWatchpoints() override;
+
+  Status GetWatchpointHitIndex(uint32_t &wp_index,
+                               lldb::addr_t trap_addr) override;
+
+  lldb::addr_t GetWatchpointHitAddress(uint32_t wp_index) override;
+
+  lldb::addr_t GetWatchpointAddress(uint32_t wp_index) override;
+
+  uint32_t GetWatchpointSize(uint32_t wp_index);
+
+  bool WatchpointIsEnabled(uint32_t wp_index);
+
+  // Debug register type select
+  enum DREGType { eDREGTypeWATCH = 0, eDREGTypeBREAK };
 
 protected:
+
   Status ReadGPR() override;
 
   Status WriteGPR() override;
@@ -76,16 +105,12 @@ protected:
 
   size_t GetFPRSize() override { return sizeof(m_fpr); }
 
-  lldb::addr_t FixWatchpointHitAddress(lldb::addr_t hit_addr) override;
-
 private:
   bool m_gpr_is_valid;
   bool m_fpu_is_valid;
   bool m_sve_buffer_is_valid;
-  bool m_mte_ctrl_is_valid;
 
   bool m_sve_header_is_valid;
-  bool m_pac_mask_is_valid;
 
   struct user_pt_regs m_gpr_arm64; // 64-bit general purpose registers.
 
@@ -93,19 +118,25 @@ private:
       m_fpr; // floating-point registers including extended register sets.
 
   SVEState m_sve_state;
-  struct sve::user_sve_header m_sve_header;
+  struct user_sve_header m_sve_header;
   std::vector<uint8_t> m_sve_ptrace_payload;
 
-  bool m_refresh_hwdebug_info;
-
-  struct user_pac_mask {
-    uint64_t data_mask;
-    uint64_t insn_mask;
+  // Debug register info for hardware breakpoints and watchpoints management.
+  struct DREG {
+    lldb::addr_t address;  // Breakpoint/watchpoint address value.
+    lldb::addr_t hit_addr; // Address at which last watchpoint trigger exception
+                           // occurred.
+    lldb::addr_t real_addr; // Address value that should cause target to stop.
+    uint32_t control;       // Breakpoint/watchpoint control value.
+    uint32_t refcount;      // Serves as enable/disable and reference counter.
   };
 
-  struct user_pac_mask m_pac_mask;
+  struct DREG m_hbr_regs[16]; // Arm native linux hardware breakpoints
+  struct DREG m_hwp_regs[16]; // Arm native linux hardware watchpoints
 
-  uint64_t m_mte_ctrl_reg;
+  uint32_t m_max_hwp_supported;
+  uint32_t m_max_hbp_supported;
+  bool m_refresh_hwdebug_info;
 
   bool IsGPR(unsigned reg) const;
 
@@ -119,15 +150,7 @@ private:
 
   Status WriteSVEHeader();
 
-  Status ReadPAuthMask();
-
-  Status ReadMTEControl();
-
-  Status WriteMTEControl();
-
   bool IsSVE(unsigned reg) const;
-  bool IsPAuth(unsigned reg) const;
-  bool IsMTE(unsigned reg) const;
 
   uint64_t GetSVERegVG() { return m_sve_header.vl / 8; }
 
@@ -135,23 +158,15 @@ private:
 
   void *GetSVEHeader() { return &m_sve_header; }
 
-  void *GetPACMask() { return &m_pac_mask; }
-
-  void *GetMTEControl() { return &m_mte_ctrl_reg; }
-
-  void *GetSVEBuffer() { return m_sve_ptrace_payload.data(); };
+  void *GetSVEBuffer();
 
   size_t GetSVEHeaderSize() { return sizeof(m_sve_header); }
 
-  size_t GetPACMaskSize() { return sizeof(m_pac_mask); }
-
   size_t GetSVEBufferSize() { return m_sve_ptrace_payload.size(); }
 
-  size_t GetMTEControlSize() { return sizeof(m_mte_ctrl_reg); }
+  Status ReadHardwareDebugInfo();
 
-  llvm::Error ReadHardwareDebugInfo() override;
-
-  llvm::Error WriteHardwareDebugRegs(DREGType hwbType) override;
+  Status WriteHardwareDebugRegs(int hwbType);
 
   uint32_t CalculateFprOffset(const RegisterInfo *reg_info) const;
 

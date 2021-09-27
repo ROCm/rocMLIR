@@ -10,7 +10,8 @@ class TestCase(TestBase):
     @skipIf # rdar://problem/53931074
     def test(self):
         self.build()
-        target = self.createTestTarget()
+        exe = self.getBuildArtifact("a.out")
+        target = self.dbg.CreateTarget(exe)
         callee_break = target.BreakpointCreateByName(
             "SomeClass::SomeClass(ParamClass)", None)
         self.assertTrue(callee_break.GetNumLocations() > 0)

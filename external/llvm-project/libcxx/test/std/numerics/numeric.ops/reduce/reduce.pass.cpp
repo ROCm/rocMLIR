@@ -6,9 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-// UNSUPPORTED: c++03, c++11, c++14
-
 // <numeric>
+// UNSUPPORTED: c++03, c++11, c++14
+// UNSUPPORTED: clang-8
+// UNSUPPORTED: gcc-9
 
 // Became constexpr in C++20
 // template<class InputIterator>
@@ -59,7 +60,7 @@ test()
     test_return_type<float>();
     test_return_type<double>();
 
-    test<cpp17_input_iterator<const int*> >();
+    test<input_iterator<const int*> >();
     test<forward_iterator<const int*> >();
     test<bidirectional_iterator<const int*> >();
     test<random_access_iterator<const int*> >();

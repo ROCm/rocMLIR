@@ -32,7 +32,7 @@ RegisterContextCorePOSIX_mips64::RegisterContextCorePOSIX_mips64(
   m_fpr.SetByteOrder(fpregset.GetByteOrder());
 }
 
-RegisterContextCorePOSIX_mips64::~RegisterContextCorePOSIX_mips64() = default;
+RegisterContextCorePOSIX_mips64::~RegisterContextCorePOSIX_mips64() {}
 
 bool RegisterContextCorePOSIX_mips64::ReadGPR() { return true; }
 

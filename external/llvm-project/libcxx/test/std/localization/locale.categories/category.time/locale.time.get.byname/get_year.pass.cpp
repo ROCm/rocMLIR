@@ -26,7 +26,7 @@
 
 #include "platform_support.h" // locale name macros
 
-typedef cpp17_input_iterator<const char*> I;
+typedef input_iterator<const char*> I;
 
 typedef std::time_get_byname<char, I> F;
 

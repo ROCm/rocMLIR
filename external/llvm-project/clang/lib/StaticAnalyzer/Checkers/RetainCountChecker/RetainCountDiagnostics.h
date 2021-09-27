@@ -68,20 +68,17 @@ public:
 };
 
 class RefLeakReport : public RefCountReport {
-  const MemRegion *AllocFirstBinding = nullptr;
-  const MemRegion *AllocBindingToReport = nullptr;
-  const Stmt *AllocStmt = nullptr;
+  const MemRegion* AllocBinding;
+  const Stmt *AllocStmt;
   PathDiagnosticLocation Location;
 
   // Finds the function declaration where a leak warning for the parameter
   // 'sym' should be raised.
-  void deriveParamLocation(CheckerContext &Ctx);
-  // Finds the location where the leaking object is allocated.
-  void deriveAllocLocation(CheckerContext &Ctx);
+  void deriveParamLocation(CheckerContext &Ctx, SymbolRef sym);
+  // Finds the location where a leak warning for 'sym' should be raised.
+  void deriveAllocLocation(CheckerContext &Ctx, SymbolRef sym);
   // Produces description of a leak warning which is printed on the console.
   void createDescription(CheckerContext &Ctx);
-  // Finds the binding that we should use in a leak warning.
-  void findBindingToReport(CheckerContext &Ctx, ExplodedNode *Node);
 
 public:
   RefLeakReport(const RefCountBug &D, const LangOptions &LOpts, ExplodedNode *n,

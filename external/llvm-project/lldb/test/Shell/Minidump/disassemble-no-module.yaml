@@ -1,5 +1,3 @@
-# REQUIRES: x86
-
 # RUN: yaml2obj %s -o %t
 # RUN: %lldb -c %t -o bt -o disassemble 2>&1 | FileCheck %s
 

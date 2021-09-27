@@ -15,7 +15,6 @@
 namespace llvm {
 
 class MCFixup;
-class MCSectionWasm;
 class MCValue;
 class raw_pwrite_stream;
 
@@ -34,9 +33,8 @@ public:
     return W->getFormat() == Triple::Wasm;
   }
 
-  virtual unsigned getRelocType(const MCValue &Target, const MCFixup &Fixup,
-                                const MCSectionWasm &FixupSection,
-                                bool IsLocRel) const = 0;
+  virtual unsigned getRelocType(const MCValue &Target,
+                                const MCFixup &Fixup) const = 0;
 
   /// \name Accessors
   /// @{

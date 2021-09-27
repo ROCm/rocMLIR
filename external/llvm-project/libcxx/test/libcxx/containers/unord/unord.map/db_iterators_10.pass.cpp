@@ -14,12 +14,15 @@
 // UNSUPPORTED: c++03
 
 // ADDITIONAL_COMPILE_FLAGS: -D_LIBCPP_DEBUG=1
+#define _LIBCPP_ASSERT(x, m) ((x) ? (void)0 : std::exit(0))
 
 #include <unordered_map>
+#include <cassert>
+#include <functional>
 #include <string>
+#include <utility>
 
 #include "test_macros.h"
-#include "debug_macros.h"
 #include "min_allocator.h"
 
 int main(int, char**) {
@@ -28,7 +31,8 @@ int main(int, char**) {
     C c;
     c.insert(std::make_pair(1, "one"));
     C::iterator i = c.end();
-    TEST_LIBCPP_ASSERT_FAILURE(*i, "Attempted to dereference a non-dereferenceable unordered container iterator");
+    C::value_type j = *i;
+    assert(false);
 
     return 0;
 }

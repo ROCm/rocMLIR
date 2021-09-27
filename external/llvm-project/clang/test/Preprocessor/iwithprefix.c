@@ -9,6 +9,8 @@
 
 // CHECK: #include <...> search starts here:
 // CHECK: {{.*}}.tmps/first
-// CHECK: {{/|\\}}clang{{/|\\}}{{[.0-9]+}}{{/|\\}}include
+// CHECK: {{/|\\}}lib{{(32|64)?}}{{/|\\}}clang{{/|\\}}{{[.0-9]+}}{{/|\\}}include
 // CHECK: {{.*}}.tmps/second
 // CHECK-NOT: {{.*}}.tmps
+
+

@@ -31,9 +31,11 @@ template <class T>
 struct TestFn {
   void operator()() const {
     typedef std::atomic<T> A;
-    A t(T(1));
+    A t;
+    std::atomic_init(&t, T(1));
     assert(std::atomic_load(&t) == T(1));
-    volatile A vt(T(2));
+    volatile A vt;
+    std::atomic_init(&vt, T(2));
     assert(std::atomic_load(&vt) == T(2));
   }
 };

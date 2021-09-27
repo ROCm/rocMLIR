@@ -187,8 +187,8 @@ private:
     ObjCMethodDecl *MethodDecl;
 
     /// When Kind == EK_Parameter, the ParmVarDecl, with the
-    /// integer indicating whether the parameter is "consumed".
-    llvm::PointerIntPair<ParmVarDecl *, 1> Parameter;
+    /// low bit indicating whether the parameter is "consumed".
+    uintptr_t Parameter;
 
     /// When Kind == EK_Temporary or EK_CompoundLiteralInit, the type
     /// source information for the temporary.
@@ -197,9 +197,9 @@ private:
     struct LN LocAndNRVO;
 
     /// When Kind == EK_Base, the base specifier that provides the
-    /// base class. The integer specifies whether the base is an inherited
+    /// base class. The lower bit specifies whether the base is an inherited
     /// virtual base.
-    llvm::PointerIntPair<const CXXBaseSpecifier *, 1> Base;
+    uintptr_t Base;
 
     /// When Kind == EK_ArrayElement, EK_VectorElement, or
     /// EK_ComplexElement, the index of the array or vector element being
@@ -252,14 +252,15 @@ public:
 
   /// Create the initialization entity for a parameter.
   static InitializedEntity InitializeParameter(ASTContext &Context,
-                                               ParmVarDecl *Parm) {
+                                               const ParmVarDecl *Parm) {
     return InitializeParameter(Context, Parm, Parm->getType());
   }
 
   /// Create the initialization entity for a parameter, but use
   /// another type.
-  static InitializedEntity
-  InitializeParameter(ASTContext &Context, ParmVarDecl *Parm, QualType Type) {
+  static InitializedEntity InitializeParameter(ASTContext &Context,
+                                               const ParmVarDecl *Parm,
+                                               QualType Type) {
     bool Consumed = (Context.getLangOpts().ObjCAutoRefCount &&
                      Parm->hasAttr<NSConsumedAttr>());
 
@@ -268,7 +269,8 @@ public:
     Entity.Type =
       Context.getVariableArrayDecayedType(Type.getUnqualifiedType());
     Entity.Parent = nullptr;
-    Entity.Parameter = {Parm, Consumed};
+    Entity.Parameter
+      = (static_cast<uintptr_t>(Consumed) | reinterpret_cast<uintptr_t>(Parm));
     return Entity;
   }
 
@@ -281,7 +283,7 @@ public:
     Entity.Kind = EK_Parameter;
     Entity.Type = Context.getVariableArrayDecayedType(Type);
     Entity.Parent = nullptr;
-    Entity.Parameter = {nullptr, Consumed};
+    Entity.Parameter = (Consumed);
     return Entity;
   }
 
@@ -335,15 +337,8 @@ public:
   }
 
   /// Create the initialization entity for a temporary.
-  static InitializedEntity InitializeTemporary(ASTContext &Context,
-                                               TypeSourceInfo *TypeInfo) {
-    QualType Type = TypeInfo->getType();
-    if (Context.getLangOpts().OpenCLCPlusPlus) {
-      assert(!Type.hasAddressSpace() && "Temporary already has address space!");
-      Type = Context.getAddrSpaceQualType(Type, LangAS::opencl_private);
-    }
-
-    return InitializeTemporary(TypeInfo, Type);
+  static InitializedEntity InitializeTemporary(TypeSourceInfo *TypeInfo) {
+    return InitializeTemporary(TypeInfo, TypeInfo->getType());
   }
 
   /// Create the initialization entity for a temporary.
@@ -471,19 +466,19 @@ public:
   /// parameter.
   bool isParameterConsumed() const {
     assert(isParameterKind() && "Not a parameter");
-    return Parameter.getInt();
+    return (Parameter & 1);
   }
 
   /// Retrieve the base specifier.
   const CXXBaseSpecifier *getBaseSpecifier() const {
     assert(getKind() == EK_Base && "Not a base specifier");
-    return Base.getPointer();
+    return reinterpret_cast<const CXXBaseSpecifier *>(Base & ~0x1);
   }
 
   /// Return whether the base is an inherited virtual base.
   bool isInheritedVirtualBase() const {
     assert(getKind() == EK_Base && "Not a base specifier");
-    return Base.getInt();
+    return Base & 0x1;
   }
 
   /// Determine whether this is an array new with an unknown bound.
@@ -811,7 +806,7 @@ public:
     SK_ResolveAddressOfOverloadedFunction,
 
     /// Perform a derived-to-base cast, producing an rvalue.
-    SK_CastDerivedToBasePRValue,
+    SK_CastDerivedToBaseRValue,
 
     /// Perform a derived-to-base cast, producing an xvalue.
     SK_CastDerivedToBaseXValue,
@@ -838,8 +833,8 @@ public:
     /// function or via a constructor.
     SK_UserConversion,
 
-    /// Perform a qualification conversion, producing a prvalue.
-    SK_QualificationConversionPRValue,
+    /// Perform a qualification conversion, producing an rvalue.
+    SK_QualificationConversionRValue,
 
     /// Perform a qualification conversion, producing an xvalue.
     SK_QualificationConversionXValue,

@@ -12,7 +12,6 @@
 #include "clang/Basic/TargetInfo.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Triple.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Regex.h"
 
 using namespace clang::ast_matchers;
@@ -131,18 +130,20 @@ void SIMDIntrinsicsCheck::check(const MatchFinder::MatchResult &Result) {
 
   // We have found a std::simd replacement.
   if (!New.empty()) {
+    std::string Message;
     // If Suggest is true, give a P0214 alternative, otherwise point it out it
     // is non-portable.
     if (Suggest) {
-      static const llvm::Regex StdRegex("\\$std"), SimdRegex("\\$simd");
-      diag(Call->getExprLoc(), "'%0' can be replaced by %1")
-          << Old
-          << SimdRegex.sub(SmallString<32>({Std, "::simd"}),
-                           StdRegex.sub(Std, New));
+      Message = (Twine("'") + Old + "' can be replaced by " + New).str();
+      Message = llvm::Regex("\\$std").sub(Std, Message);
+      Message =
+          llvm::Regex("\\$simd").sub((Std.str() + "::simd").str(), Message);
     } else {
-      diag("'%0' is a non-portable %1 intrinsic function")
-          << Old << llvm::Triple::getArchTypeName(Arch);
+      Message = (Twine("'") + Old + "' is a non-portable " +
+                 llvm::Triple::getArchTypeName(Arch) + " intrinsic function")
+                    .str();
     }
+    diag(Call->getExprLoc(), Message);
   }
 }
 

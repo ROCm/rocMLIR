@@ -13,14 +13,14 @@
 
 #include "llvm/Support/ConvertUTF.h"
 
-#include <cassert>
-#include <cctype>
+#include <assert.h>
 #include <cerrno>
-#include <cstdarg>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
+#include <ctype.h>
 #include <io.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 int vasprintf(char **ret, const char *fmt, va_list ap) {
   char *buf;

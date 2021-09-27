@@ -8,9 +8,6 @@
 #ifndef LLVM_FLANG_FRONTEND_FRONTENDOPTIONS_H
 #define LLVM_FLANG_FRONTEND_FRONTENDOPTIONS_H
 
-#include "flang/Common/Fortran-features.h"
-#include "flang/Parser/characters.h"
-#include "flang/Parser/unparse.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/MemoryBuffer.h"
 
@@ -25,7 +22,7 @@ enum ActionKind {
   /// -test-io mode
   InputOutputTest,
 
-  /// -E mode
+  /// -E mode.
   PrintPreprocessedInput,
 
   /// -fsyntax-only
@@ -33,54 +30,6 @@ enum ActionKind {
 
   /// Emit a .o file.
   EmitObj,
-
-  /// Parse, unparse the parse-tree and output a Fortran source file
-  DebugUnparse,
-
-  /// Parse, unparse the parse-tree and output a Fortran source file, skip the
-  /// semantic checks
-  DebugUnparseNoSema,
-
-  /// Parse, resolve the sybmols, unparse the parse-tree and then output a
-  /// Fortran source file
-  DebugUnparseWithSymbols,
-
-  /// Parse, run semantics and then output symbols from semantics
-  DebugDumpSymbols,
-
-  /// Parse, run semantics and then output the parse tree
-  DebugDumpParseTree,
-
-  /// Parse, run semantics and then output the parse tree and symbols
-  DebugDumpAll,
-
-  /// Parse and then output the parse tree, skip the semantic checks
-  DebugDumpParseTreeNoSema,
-
-  /// Dump provenance
-  DebugDumpProvenance,
-
-  /// Parse then output the parsing log
-  DebugDumpParsingLog,
-
-  /// Parse then output the number of objects in the parse tree and the overall
-  /// size
-  DebugMeasureParseTree,
-
-  /// Parse, run semantics and then output the pre-FIR tree
-  DebugPreFIRTree,
-
-  /// `-fget-definition`
-  GetDefinition,
-
-  /// Parse, run semantics and then dump symbol sources map
-  GetSymbolsSources,
-
-  /// Only execute frontend initialization
-  InitOnly,
-
-  /// Run a plugin action
-  PluginAction
 
   /// TODO: RunPreprocessor, EmitLLVM, EmitLLVMOnly,
   /// EmitCodeGenOnly, EmitAssembly, (...)
@@ -94,9 +43,25 @@ bool isFixedFormSuffix(llvm::StringRef suffix);
 /// \return True if the file extension should be processed as free form
 bool isFreeFormSuffix(llvm::StringRef suffix);
 
-/// \param suffix The file extension
-/// \return True if the file should be preprocessed
-bool mustBePreprocessed(llvm::StringRef suffix);
+inline const char *GetActionKindName(const ActionKind ak) {
+  switch (ak) {
+  case InputOutputTest:
+    return "InputOutputTest";
+  case PrintPreprocessedInput:
+    return "PrintPreprocessedInput";
+  case ParseSyntaxOnly:
+    return "ParseSyntaxOnly";
+  default:
+    return "<unknown ActionKind>";
+    // TODO:
+    // case RunPreprocessor:
+    // case ParserSyntaxOnly:
+    // case EmitLLVM:
+    // case EmitLLVMOnly:
+    // case EmitCodeGenOnly:
+    // (...)
+  }
+}
 
 enum class Language : uint8_t {
   Unknown,
@@ -156,12 +121,6 @@ class FrontendInputFile {
   /// stdin this is never modified.
   bool isFixedForm_ = false;
 
-  /// Must this file be preprocessed? Note that in Flang the preprocessor is
-  /// always run. This flag is used to control whether predefined and command
-  /// line preprocessor macros are enabled or not. In practice, this is
-  /// sufficient to implement gfortran`s logic controlled with `-cpp/-nocpp`.
-  unsigned mustBePreprocessed_ : 1;
-
 public:
   FrontendInputFile() = default;
   FrontendInputFile(llvm::StringRef file, InputKind kind)
@@ -172,9 +131,7 @@ public:
     auto pathDotIndex{file.rfind(".")};
     std::string pathSuffix{file.substr(pathDotIndex + 1)};
     isFixedForm_ = isFixedFormSuffix(pathSuffix);
-    mustBePreprocessed_ = mustBePreprocessed(pathSuffix);
   }
-
   FrontendInputFile(const llvm::MemoryBuffer *buffer, InputKind kind)
       : buffer_(buffer), kind_(kind) {}
 
@@ -184,7 +141,6 @@ public:
   bool IsFile() const { return !IsBuffer(); }
   bool IsBuffer() const { return buffer_ != nullptr; }
   bool IsFixedForm() const { return isFixedForm_; }
-  bool MustBePreprocessed() const { return mustBePreprocessed_; }
 
   llvm::StringRef file() const {
     assert(IsFile());
@@ -198,64 +154,32 @@ public:
 };
 
 /// FrontendOptions - Options for controlling the behavior of the frontend.
-struct FrontendOptions {
-  FrontendOptions()
-      : showHelp(false), showVersion(false), instrumentedParse(false),
-        needProvenanceRangeToCharBlockMappings(false) {}
-
+class FrontendOptions {
+public:
   /// Show the -help text.
-  unsigned showHelp : 1;
+  unsigned showHelp_ : 1;
 
   /// Show the -version text.
-  unsigned showVersion : 1;
-
-  /// Instrument the parse to get a more verbose log
-  unsigned instrumentedParse : 1;
-
-  /// Enable Provenance to character-stream mapping. Allows e.g. IDEs to find
-  /// symbols based on source-code location. This is not needed in regular
-  /// compilation.
-  unsigned needProvenanceRangeToCharBlockMappings : 1;
-
-  /// Input values from `-fget-definition`
-  struct GetDefinitionVals {
-    unsigned line;
-    unsigned startColumn;
-    unsigned endColumn;
-  };
-  GetDefinitionVals getDefVals;
+  unsigned showVersion_ : 1;
 
   /// The input files and their types.
-  std::vector<FrontendInputFile> inputs;
+  std::vector<FrontendInputFile> inputs_;
 
   /// The output file, if any.
-  std::string outputFile;
+  std::string outputFile_;
 
   /// The frontend action to perform.
-  frontend::ActionKind programAction;
+  frontend::ActionKind programAction_;
 
   // The form to process files in, if specified.
-  FortranForm fortranForm = FortranForm::Unknown;
+  FortranForm fortranForm_ = FortranForm::Unknown;
 
   // The column after which characters are ignored in fixed form lines in the
   // source file.
-  int fixedFormColumns = 72;
+  int fixedFormColumns_ = 72;
 
-  /// The input kind, either specified via -x argument or deduced from the input
-  /// file name.
-  InputKind dashX;
-
-  // Language features
-  common::LanguageFeatureControl features;
-
-  // Source file encoding
-  Fortran::parser::Encoding encoding{Fortran::parser::Encoding::UTF_8};
-
-  /// The list of plugins to load.
-  std::vector<std::string> plugins;
-
-  /// The name of the action to run when using a plugin action.
-  std::string ActionName;
+public:
+  FrontendOptions() : showHelp_(false), showVersion_(false) {}
 
   // Return the appropriate input kind for a file extension. For example,
   /// "*.f" would return Language::Fortran.

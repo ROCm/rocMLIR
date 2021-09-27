@@ -46,7 +46,7 @@ public:
     return Parent.getBottomFrame();
   }
 
-  // Access objects from the walker context.
+  // Acces objects from the walker context.
   Expr::EvalStatus &getEvalStatus() const override {
     return Parent.getEvalStatus();
   }

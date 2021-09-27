@@ -11,6 +11,7 @@
 #include "AffineMapDetail.h"
 #include "AttributeDetail.h"
 #include "IntegerSetDetail.h"
+#include "LocationDetail.h"
 #include "TypeDetail.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
@@ -23,18 +24,15 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Types.h"
-#include "mlir/Support/DebugAction.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/RWMutex.h"
-#include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/raw_ostream.h"
 #include <memory>
 
@@ -57,9 +55,7 @@ namespace {
 struct MLIRContextOptions {
   llvm::cl::opt<bool> disableThreading{
       "mlir-disable-threading",
-       llvm::cl::desc("Disable multi-threading within MLIR, overrides any "
-                      "further call to MLIRContext::enableMultiThreading()")};
-
+      llvm::cl::desc("Disabling multi-threading within MLIR")};
 
   llvm::cl::opt<bool> printOpOnDiagnostic{
       "mlir-print-op-on-diagnostic",
@@ -75,14 +71,6 @@ struct MLIRContextOptions {
 } // end anonymous namespace
 
 static llvm::ManagedStatic<MLIRContextOptions> clOptions;
-
-static bool isThreadingGloballyDisabled() {
-#if LLVM_ENABLE_THREADS != 0
-  return clOptions.isConstructed() && clOptions->disableThreading;
-#else
-  return true;
-#endif
-}
 
 /// Register a set of useful command-line options that can be used to configure
 /// various flags within the MLIRContext. These flags are used when constructing
@@ -222,13 +210,6 @@ namespace mlir {
 class MLIRContextImpl {
 public:
   //===--------------------------------------------------------------------===//
-  // Debugging
-  //===--------------------------------------------------------------------===//
-
-  /// An action manager for use within the context.
-  DebugActionManager debugActionManager;
-
-  //===--------------------------------------------------------------------===//
   // Identifier uniquing
   //===--------------------------------------------------------------------===//
 
@@ -271,16 +252,6 @@ public:
   // Other
   //===--------------------------------------------------------------------===//
 
-  /// This points to the ThreadPool used when processing MLIR tasks in parallel.
-  /// It can't be nullptr when multi-threading is enabled. Otherwise if
-  /// multi-threading is disabled, and the threadpool wasn't externally provided
-  /// using `setThreadPool`, this will be nullptr.
-  llvm::ThreadPool *threadPool = nullptr;
-
-  /// In case where the thread pool is owned by the context, this ensures
-  /// destruction with the context.
-  std::unique_ptr<llvm::ThreadPool> ownedThreadPool;
-
   /// This is a list of dialects that are created referring to this context.
   /// The MLIRContext owns the objects.
   DenseMap<StringRef, std::unique_ptr<Dialect>> loadedDialects;
@@ -322,7 +293,7 @@ public:
   // Type uniquing
   //===--------------------------------------------------------------------===//
 
-  DenseMap<TypeID, AbstractType *> registeredTypes;
+  DenseMap<TypeID, const AbstractType *> registeredTypes;
   StorageUniquer typeUniquer;
 
   /// Cached Type Instances.
@@ -340,7 +311,7 @@ public:
   // Attribute uniquing
   //===--------------------------------------------------------------------===//
 
-  DenseMap<TypeID, AbstractAttribute *> registeredAttributes;
+  DenseMap<TypeID, const AbstractAttribute *> registeredAttributes;
   StorageUniquer attributeUniquer;
 
   /// Cached Attribute Instances.
@@ -348,17 +319,9 @@ public:
   UnitAttr unitAttr;
   UnknownLoc unknownLocAttr;
   DictionaryAttr emptyDictionaryAttr;
-  StringAttr emptyStringAttr;
 
 public:
-  MLIRContextImpl(bool threadingIsEnabled)
-      : threadingIsEnabled(threadingIsEnabled),
-        identifiers(identifierAllocator) {
-    if (threadingIsEnabled) {
-      ownedThreadPool = std::make_unique<llvm::ThreadPool>();
-      threadPool = ownedThreadPool.get();
-    }
-  }
+  MLIRContextImpl() : identifiers(identifierAllocator) {}
   ~MLIRContextImpl() {
     for (auto typeMapping : registeredTypes)
       typeMapping.second->~AbstractType();
@@ -368,20 +331,13 @@ public:
 };
 } // end namespace mlir
 
-MLIRContext::MLIRContext(Threading setting)
-    : MLIRContext(DialectRegistry(), setting) {}
-
-MLIRContext::MLIRContext(const DialectRegistry &registry, Threading setting)
-    : impl(new MLIRContextImpl(setting == Threading::ENABLED &&
-                               !isThreadingGloballyDisabled())) {
+MLIRContext::MLIRContext() : impl(new MLIRContextImpl()) {
   // Initialize values based on the command line flags if they were provided.
   if (clOptions.isConstructed()) {
+    disableMultithreading(clOptions->disableThreading);
     printOpOnDiagnostic(clOptions->printOpOnDiagnostic);
     printStackTraceOnDiagnostic(clOptions->printStackTraceOnDiagnostic);
   }
-
-  // Pre-populate the registry.
-  registry.appendTo(impl->dialectsRegistry);
 
   // Ensure the builtin dialect is always pre-loaded.
   getOrLoadDialect<BuiltinDialect>();
@@ -416,17 +372,20 @@ MLIRContext::MLIRContext(const DialectRegistry &registry, Threading setting)
   //// Attributes.
   //// Note: These must be registered after the types as they may generate one
   //// of the above types internally.
-  /// Unknown Location Attribute.
-  impl->unknownLocAttr = AttributeUniquer::get<UnknownLoc>(this);
   /// Bool Attributes.
-  impl->falseAttr = IntegerAttr::getBoolAttrUnchecked(impl->int1Ty, false);
-  impl->trueAttr = IntegerAttr::getBoolAttrUnchecked(impl->int1Ty, true);
+  impl->falseAttr = AttributeUniquer::get<IntegerAttr>(
+                        this, impl->int1Ty, APInt(/*numBits=*/1, false))
+                        .cast<BoolAttr>();
+  impl->trueAttr = AttributeUniquer::get<IntegerAttr>(
+                       this, impl->int1Ty, APInt(/*numBits=*/1, true))
+                       .cast<BoolAttr>();
   /// Unit Attribute.
   impl->unitAttr = AttributeUniquer::get<UnitAttr>(this);
+  /// Unknown Location Attribute.
+  impl->unknownLocAttr = AttributeUniquer::get<UnknownLoc>(this);
   /// The empty dictionary attribute.
-  impl->emptyDictionaryAttr = DictionaryAttr::getEmptyUnchecked(this);
-  /// The empty string attribute.
-  impl->emptyStringAttr = StringAttr::getEmptyStringAttrUnchecked(this);
+  impl->emptyDictionaryAttr =
+      AttributeUniquer::get<DictionaryAttr>(this, ArrayRef<NamedAttribute>());
 
   // Register the affine storage objects with the uniquer.
   impl->affineUniquer
@@ -449,14 +408,6 @@ static ArrayRef<T> copyArrayRefInto(llvm::BumpPtrAllocator &allocator,
 }
 
 //===----------------------------------------------------------------------===//
-// Debugging
-//===----------------------------------------------------------------------===//
-
-DebugActionManager &MLIRContext::getDebugActionManager() {
-  return getImpl().debugActionManager;
-}
-
-//===----------------------------------------------------------------------===//
 // Diagnostic Handlers
 //===----------------------------------------------------------------------===//
 
@@ -467,15 +418,7 @@ DiagnosticEngine &MLIRContext::getDiagEngine() { return getImpl().diagEngine; }
 // Dialect and Operation Registration
 //===----------------------------------------------------------------------===//
 
-void MLIRContext::appendDialectRegistry(const DialectRegistry &registry) {
-  registry.appendTo(impl->dialectsRegistry);
-
-  // For the already loaded dialects, register the interfaces immediately.
-  for (const auto &kvp : impl->loadedDialects)
-    registry.registerDelayedInterfaces(kvp.second.get());
-}
-
-const DialectRegistry &MLIRContext::getDialectRegistry() {
+DialectRegistry &MLIRContext::getDialectRegistry() {
   return impl->dialectsRegistry;
 }
 
@@ -493,8 +436,8 @@ std::vector<Dialect *> MLIRContext::getLoadedDialects() {
 }
 std::vector<StringRef> MLIRContext::getAvailableDialects() {
   std::vector<StringRef> result;
-  for (auto dialect : impl->dialectsRegistry.getDialectNames())
-    result.push_back(dialect);
+  for (auto &dialect : impl->dialectsRegistry)
+    result.push_back(dialect.first);
   return result;
 }
 
@@ -510,9 +453,7 @@ Dialect *MLIRContext::getOrLoadDialect(StringRef name) {
   Dialect *dialect = getLoadedDialect(name);
   if (dialect)
     return dialect;
-  DialectAllocatorFunctionRef allocator =
-      impl->dialectsRegistry.getDialectAllocator(name);
-  return allocator ? allocator(this) : nullptr;
+  return impl->dialectsRegistry.loadByName(name, this);
 }
 
 /// Get a dialect for the provided namespace and TypeID: abort the program if a
@@ -542,15 +483,11 @@ MLIRContext::getOrLoadDialect(StringRef dialectNamespace, TypeID dialectID,
     // Refresh all the identifiers dialect field, this catches cases where a
     // dialect may be loaded after identifier prefixed with this dialect name
     // were already created.
-    llvm::SmallString<32> dialectPrefix(dialectNamespace);
-    dialectPrefix.push_back('.');
     for (auto &identifierEntry : impl.identifiers)
-      if (identifierEntry.second.is<MLIRContext *>() &&
-          identifierEntry.first().startswith(dialectPrefix))
+      if (!identifierEntry.second &&
+          identifierEntry.first().startswith(dialectNamespace))
         identifierEntry.second = dialect.get();
 
-    // Actually register the interfaces with delayed registration.
-    impl.dialectsRegistry.registerDelayedInterfaces(dialect.get());
     return dialect.get();
   }
 
@@ -560,11 +497,6 @@ MLIRContext::getOrLoadDialect(StringRef dialectNamespace, TypeID dialectID,
                              "' has already been registered");
 
   return dialect.get();
-}
-
-void MLIRContext::loadAllAvailableDialects() {
-  for (StringRef name : getAvailableDialects())
-    getOrLoadDialect(name);
 }
 
 llvm::hash_code MLIRContext::getRegistryHash() {
@@ -585,58 +517,19 @@ void MLIRContext::allowUnregisteredDialects(bool allowing) {
   impl->allowUnregisteredDialects = allowing;
 }
 
-/// Return true if multi-threading is enabled by the context.
+/// Return true if multi-threading is disabled by the context.
 bool MLIRContext::isMultithreadingEnabled() {
   return impl->threadingIsEnabled && llvm::llvm_is_multithreaded();
 }
 
 /// Set the flag specifying if multi-threading is disabled by the context.
 void MLIRContext::disableMultithreading(bool disable) {
-  // This API can be overridden by the global debugging flag
-  // --mlir-disable-threading
-  if (isThreadingGloballyDisabled())
-    return;
-
   impl->threadingIsEnabled = !disable;
 
   // Update the threading mode for each of the uniquers.
   impl->affineUniquer.disableMultithreading(disable);
   impl->attributeUniquer.disableMultithreading(disable);
   impl->typeUniquer.disableMultithreading(disable);
-
-  // Destroy thread pool (stop all threads) if it is no longer needed, or create
-  // a new one if multithreading was re-enabled.
-  if (disable) {
-    // If the thread pool is owned, explicitly set it to nullptr to avoid
-    // keeping a dangling pointer around. If the thread pool is externally
-    // owned, we don't do anything.
-    if (impl->ownedThreadPool) {
-      assert(impl->threadPool);
-      impl->threadPool = nullptr;
-      impl->ownedThreadPool.reset();
-    }
-  } else if (!impl->threadPool) {
-    // The thread pool isn't externally provided.
-    assert(!impl->ownedThreadPool);
-    impl->ownedThreadPool = std::make_unique<llvm::ThreadPool>();
-    impl->threadPool = impl->ownedThreadPool.get();
-  }
-}
-
-void MLIRContext::setThreadPool(llvm::ThreadPool &pool) {
-  assert(!isMultithreadingEnabled() &&
-         "expected multi-threading to be disabled when setting a ThreadPool");
-  impl->threadPool = &pool;
-  impl->ownedThreadPool.reset();
-  enableMultithreading();
-}
-
-llvm::ThreadPool &MLIRContext::getThreadPool() {
-  assert(isMultithreadingEnabled() &&
-         "expected multi-threading to be enabled within the context");
-  assert(impl->threadPool &&
-         "multi-threading is enabled but threadpool not set");
-  return *impl->threadPool;
 }
 
 void MLIRContext::enterMultiThreadedExecution() {
@@ -732,20 +625,12 @@ void Dialect::addAttribute(TypeID typeID, AbstractAttribute &&attrInfo) {
 /// Get the dialect that registered the attribute with the provided typeid.
 const AbstractAttribute &AbstractAttribute::lookup(TypeID typeID,
                                                    MLIRContext *context) {
-  const AbstractAttribute *abstract = lookupMutable(typeID, context);
-  if (!abstract)
-    llvm::report_fatal_error("Trying to create an Attribute that was not "
-                             "registered in this MLIRContext.");
-  return *abstract;
-}
-
-AbstractAttribute *AbstractAttribute::lookupMutable(TypeID typeID,
-                                                    MLIRContext *context) {
   auto &impl = context->getImpl();
   auto it = impl.registeredAttributes.find(typeID);
   if (it == impl.registeredAttributes.end())
-    return nullptr;
-  return it->second;
+    llvm::report_fatal_error("Trying to create an Attribute that was not "
+                             "registered in this MLIRContext.");
+  return *it->second;
 }
 
 //===----------------------------------------------------------------------===//
@@ -759,8 +644,8 @@ ParseResult AbstractOperation::parseAssembly(OpAsmParser &parser,
 
 /// Look up the specified operation in the operation set and return a pointer
 /// to it if present. Otherwise, return a null pointer.
-AbstractOperation *AbstractOperation::lookupMutable(StringRef opName,
-                                                    MLIRContext *context) {
+const AbstractOperation *AbstractOperation::lookup(StringRef opName,
+                                                   MLIRContext *context) {
   auto &impl = context->getImpl();
   auto it = impl.registeredOperations.find(opName);
   if (it != impl.registeredOperations.end())
@@ -769,34 +654,20 @@ AbstractOperation *AbstractOperation::lookupMutable(StringRef opName,
 }
 
 void AbstractOperation::insert(
-    StringRef name, Dialect &dialect, TypeID typeID,
-    ParseAssemblyFn &&parseAssembly, PrintAssemblyFn &&printAssembly,
-    VerifyInvariantsFn &&verifyInvariants, FoldHookFn &&foldHook,
-    GetCanonicalizationPatternsFn &&getCanonicalizationPatterns,
-    detail::InterfaceMap &&interfaceMap, HasTraitFn &&hasTrait,
-    ArrayRef<StringRef> attrNames) {
-  MLIRContext *ctx = dialect.getContext();
-  auto &impl = ctx->getImpl();
+    StringRef name, Dialect &dialect, OperationProperties opProperties,
+    TypeID typeID, ParseAssemblyFn parseAssembly, PrintAssemblyFn printAssembly,
+    VerifyInvariantsFn verifyInvariants, FoldHookFn foldHook,
+    GetCanonicalizationPatternsFn getCanonicalizationPatterns,
+    detail::InterfaceMap &&interfaceMap, HasTraitFn hasTrait) {
+  AbstractOperation opInfo(name, dialect, opProperties, typeID, parseAssembly,
+                           printAssembly, verifyInvariants, foldHook,
+                           getCanonicalizationPatterns, std::move(interfaceMap),
+                           hasTrait);
+
+  auto &impl = dialect.getContext()->getImpl();
   assert(impl.multiThreadedExecutionContext == 0 &&
          "Registering a new operation kind while in a multi-threaded execution "
          "context");
-
-  // Register the attribute names of this operation.
-  MutableArrayRef<Identifier> cachedAttrNames;
-  if (!attrNames.empty()) {
-    cachedAttrNames = MutableArrayRef<Identifier>(
-        impl.identifierAllocator.Allocate<Identifier>(attrNames.size()),
-        attrNames.size());
-    for (unsigned i : llvm::seq<unsigned>(0, attrNames.size()))
-      new (&cachedAttrNames[i]) Identifier(Identifier::get(attrNames[i], ctx));
-  }
-
-  // Register the information for this operation.
-  AbstractOperation opInfo(
-      name, dialect, typeID, std::move(parseAssembly), std::move(printAssembly),
-      std::move(verifyInvariants), std::move(foldHook),
-      std::move(getCanonicalizationPatterns), std::move(interfaceMap),
-      std::move(hasTrait), cachedAttrNames);
   if (!impl.registeredOperations.insert({name, std::move(opInfo)}).second) {
     llvm::errs() << "error: operation named '" << name
                  << "' is already registered.\n";
@@ -805,40 +676,29 @@ void AbstractOperation::insert(
 }
 
 AbstractOperation::AbstractOperation(
-    StringRef name, Dialect &dialect, TypeID typeID,
-    ParseAssemblyFn &&parseAssembly, PrintAssemblyFn &&printAssembly,
-    VerifyInvariantsFn &&verifyInvariants, FoldHookFn &&foldHook,
-    GetCanonicalizationPatternsFn &&getCanonicalizationPatterns,
-    detail::InterfaceMap &&interfaceMap, HasTraitFn &&hasTrait,
-    ArrayRef<Identifier> attrNames)
+    StringRef name, Dialect &dialect, OperationProperties opProperties,
+    TypeID typeID, ParseAssemblyFn parseAssembly, PrintAssemblyFn printAssembly,
+    VerifyInvariantsFn verifyInvariants, FoldHookFn foldHook,
+    GetCanonicalizationPatternsFn getCanonicalizationPatterns,
+    detail::InterfaceMap &&interfaceMap, HasTraitFn hasTrait)
     : name(Identifier::get(name, dialect.getContext())), dialect(dialect),
-      typeID(typeID), interfaceMap(std::move(interfaceMap)),
-      foldHookFn(std::move(foldHook)),
-      getCanonicalizationPatternsFn(std::move(getCanonicalizationPatterns)),
-      hasTraitFn(std::move(hasTrait)),
-      parseAssemblyFn(std::move(parseAssembly)),
-      printAssemblyFn(std::move(printAssembly)),
-      verifyInvariantsFn(std::move(verifyInvariants)),
-      attributeNames(attrNames) {}
+      typeID(typeID), opProperties(opProperties),
+      interfaceMap(std::move(interfaceMap)), foldHookFn(foldHook),
+      getCanonicalizationPatternsFn(getCanonicalizationPatterns),
+      hasTraitFn(hasTrait), parseAssemblyFn(parseAssembly),
+      printAssemblyFn(printAssembly), verifyInvariantsFn(verifyInvariants) {}
 
 //===----------------------------------------------------------------------===//
 // AbstractType
 //===----------------------------------------------------------------------===//
 
 const AbstractType &AbstractType::lookup(TypeID typeID, MLIRContext *context) {
-  const AbstractType *type = lookupMutable(typeID, context);
-  if (!type)
-    llvm::report_fatal_error(
-        "Trying to create a Type that was not registered in this MLIRContext.");
-  return *type;
-}
-
-AbstractType *AbstractType::lookupMutable(TypeID typeID, MLIRContext *context) {
   auto &impl = context->getImpl();
   auto it = impl.registeredTypes.find(typeID);
   if (it == impl.registeredTypes.end())
-    return nullptr;
-  return it->second;
+    llvm::report_fatal_error(
+        "Trying to create a Type that was not registered in this MLIRContext.");
+  return *it->second;
 }
 
 //===----------------------------------------------------------------------===//
@@ -846,10 +706,7 @@ AbstractType *AbstractType::lookupMutable(TypeID typeID, MLIRContext *context) {
 //===----------------------------------------------------------------------===//
 
 /// Return an identifier for the specified string.
-Identifier Identifier::get(const Twine &string, MLIRContext *context) {
-  SmallString<32> tempStr;
-  StringRef str = string.toStringRef(tempStr);
-
+Identifier Identifier::get(StringRef str, MLIRContext *context) {
   // Check invariants after seeing if we already have something in the
   // identifier table - if we already had it in the table, then it already
   // passed invariant checks.
@@ -964,13 +821,12 @@ IntegerType IntegerType::get(MLIRContext *context, unsigned width,
   return Base::get(context, width, signedness);
 }
 
-IntegerType
-IntegerType::getChecked(function_ref<InFlightDiagnostic()> emitError,
-                        MLIRContext *context, unsigned width,
-                        SignednessSemantics signedness) {
-  if (auto cached = getCachedIntegerType(width, signedness, context))
+IntegerType IntegerType::getChecked(Location location, unsigned width,
+                                    SignednessSemantics signedness) {
+  if (auto cached =
+          getCachedIntegerType(width, signedness, location->getContext()))
     return cached;
-  return Base::getChecked(emitError, context, width, signedness);
+  return Base::getChecked(location, width, signedness);
 }
 
 /// Get an instance of the NoneType.
@@ -1003,7 +859,7 @@ void AttributeUniquer::initializeAttributeStorage(AttributeStorage *storage,
     storage->setType(NoneType::get(ctx));
 }
 
-BoolAttr BoolAttr::get(MLIRContext *context, bool value) {
+BoolAttr BoolAttr::get(bool value, MLIRContext *context) {
   return value ? context->getImpl().trueAttr : context->getImpl().falseAttr;
 }
 
@@ -1011,18 +867,13 @@ UnitAttr UnitAttr::get(MLIRContext *context) {
   return context->getImpl().unitAttr;
 }
 
-UnknownLoc UnknownLoc::get(MLIRContext *context) {
+Location UnknownLoc::get(MLIRContext *context) {
   return context->getImpl().unknownLocAttr;
 }
 
 /// Return empty dictionary.
 DictionaryAttr DictionaryAttr::getEmpty(MLIRContext *context) {
   return context->getImpl().emptyDictionaryAttr;
-}
-
-/// Return an empty string.
-StringAttr StringAttr::get(MLIRContext *context) {
-  return context->getImpl().emptyStringAttr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1119,14 +970,11 @@ IntegerSet IntegerSet::get(unsigned dimCount, unsigned symbolCount,
 // StorageUniquerSupport
 //===----------------------------------------------------------------------===//
 
-/// Utility method to generate a callback that can be used to generate a
-/// diagnostic when checking the construction invariants of a storage object.
-/// This is defined out-of-line to avoid the need to include Location.h.
-llvm::unique_function<InFlightDiagnostic()>
-mlir::detail::getDefaultDiagnosticEmitFn(MLIRContext *ctx) {
-  return [ctx] { return emitError(UnknownLoc::get(ctx)); };
-}
-llvm::unique_function<InFlightDiagnostic()>
-mlir::detail::getDefaultDiagnosticEmitFn(const Location &loc) {
-  return [=] { return emitError(loc); };
+/// Utility method to generate a default location for use when checking the
+/// construction invariants of a storage object. This is defined out-of-line to
+/// avoid the need to include Location.h.
+const AttributeStorage *
+mlir::detail::generateUnknownStorageLocation(MLIRContext *ctx) {
+  return reinterpret_cast<const AttributeStorage *>(
+      ctx->getImpl().unknownLocAttr.getAsOpaquePointer());
 }

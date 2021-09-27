@@ -91,7 +91,7 @@ static bool wouldOpBeTriviallyDeadImpl(Operation *rootOp) {
 }
 
 bool mlir::wouldOpBeTriviallyDead(Operation *op) {
-  if (op->mightHaveTrait<OpTrait::IsTerminator>())
+  if (!op->isKnownNonTerminator())
     return false;
   return wouldOpBeTriviallyDeadImpl(op);
 }

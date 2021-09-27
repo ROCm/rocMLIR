@@ -9,8 +9,11 @@
 
 // UNSUPPORTED: c++03
 
-// See https://llvm.org/PR31384.
+// <tuple>
 
+// template <class TupleLike> tuple(TupleLike&&); // libc++ extension
+
+// See llvm.org/PR31384
 #include <tuple>
 #include <cassert>
 
@@ -47,51 +50,42 @@ int main(int, char**) {
   {
     std::tuple<Explicit> foo = Derived<int>{42}; ((void)foo);
     assert(count == 1);
-    Derived<int> d{42};
-    std::tuple<Explicit> bar(std::move(d)); ((void)bar);
-#if TEST_STD_VER < 17
-    assert(count == 1);
-#else
+    std::tuple<Explicit> bar(Derived<int>{42}); ((void)bar);
     assert(count == 2);
-#endif
   }
   count = 0;
   {
     std::tuple<Implicit> foo = Derived<int>{42}; ((void)foo);
     assert(count == 1);
-    Derived<int> d{42};
-    std::tuple<Implicit> bar(std::move(d)); ((void)bar);
-#if TEST_STD_VER < 17
-    assert(count == 1);
-#else
+    std::tuple<Implicit> bar(Derived<int>{42}); ((void)bar);
     assert(count == 2);
-#endif
   }
   count = 0;
   {
-    static_assert(!std::is_convertible<ExplicitDerived<int>, std::tuple<Explicit>>::value, "");
-    ExplicitDerived<int> d{42};
-    std::tuple<Explicit> bar(std::move(d)); ((void)bar);
-#if TEST_STD_VER < 17
-    assert(count == 0);
-#else
+    static_assert(!std::is_convertible<
+        ExplicitDerived<int>, std::tuple<Explicit>>::value, "");
+    std::tuple<Explicit> bar(ExplicitDerived<int>{42}); ((void)bar);
     assert(count == 1);
-#endif
   }
   count = 0;
   {
+    // FIXME: Libc++ incorrectly rejects this code.
+#ifndef _LIBCPP_VERSION
     std::tuple<Implicit> foo = ExplicitDerived<int>{42}; ((void)foo);
-    static_assert(std::is_convertible<ExplicitDerived<int>, std::tuple<Implicit>>::value, "");
-    assert(count == 0);
-    ExplicitDerived<int> d{42};
-    std::tuple<Implicit> bar(std::move(d)); ((void)bar);
-#if TEST_STD_VER < 17
-    assert(count == 0);
+    static_assert(std::is_convertible<
+        ExplicitDerived<int>, std::tuple<Implicit>>::value,
+        "correct STLs accept this");
 #else
-    assert(count == 1);
+    static_assert(!std::is_convertible<
+        ExplicitDerived<int>, std::tuple<Implicit>>::value,
+        "libc++ incorrectly rejects this");
 #endif
+    assert(count == 0);
+    std::tuple<Implicit> bar(ExplicitDerived<int>{42}); ((void)bar);
+    assert(count == 1);
   }
   count = 0;
+
 
   return 0;
 }

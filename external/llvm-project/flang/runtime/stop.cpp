@@ -1,4 +1,4 @@
-//===-- runtime/stop.cpp --------------------------------------------------===//
+//===-- runtime/stop.cpp ----------------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/Runtime/stop.h"
+#include "stop.h"
 #include "file.h"
 #include "io-error.h"
 #include "terminator.h"

@@ -32,7 +32,7 @@ CFCString::CFCString(const char *cstr, CFStringEncoding cstr_encoding)
 }
 
 // Destructor
-CFCString::~CFCString() = default;
+CFCString::~CFCString() {}
 
 const char *CFCString::GetFileSystemRepresentation(std::string &s) {
   return CFCString::FileSystemRepresentation(get(), s);

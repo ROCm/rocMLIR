@@ -179,7 +179,7 @@ bool HexagonAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
 
 static MCSymbol *smallData(AsmPrinter &AP, const MachineInstr &MI,
                            MCStreamer &OutStreamer, const MCOperand &Imm,
-                           int AlignSize, const MCSubtargetInfo& STI) {
+                           int AlignSize) {
   MCSymbol *Sym;
   int64_t Value;
   if (Imm.getExpr()->evaluateAsAbsolute(Value)) {
@@ -209,7 +209,7 @@ static MCSymbol *smallData(AsmPrinter &AP, const MachineInstr &MI,
       OutStreamer.emitLabel(Sym);
       OutStreamer.emitSymbolAttribute(Sym, MCSA_Global);
       OutStreamer.emitIntValue(Value, AlignSize);
-      OutStreamer.emitCodeAlignment(AlignSize, &STI);
+      OutStreamer.emitCodeAlignment(AlignSize);
     }
   } else {
     assert(Imm.isExpr() && "Expected expression and found none");
@@ -237,7 +237,7 @@ static MCSymbol *smallData(AsmPrinter &AP, const MachineInstr &MI,
       OutStreamer.emitLabel(Sym);
       OutStreamer.emitSymbolAttribute(Sym, MCSA_Local);
       OutStreamer.emitValue(Imm.getExpr(), AlignSize);
-      OutStreamer.emitCodeAlignment(AlignSize, &STI);
+      OutStreamer.emitCodeAlignment(AlignSize);
     }
   }
   return Sym;
@@ -328,8 +328,7 @@ void HexagonAsmPrinter::HexagonProcessInstruction(MCInst &Inst,
       const MCOperand &Imm = MappedInst.getOperand(1);
       MCSectionSubPair Current = OutStreamer->getCurrentSection();
 
-      MCSymbol *Sym =
-          smallData(*this, MI, *OutStreamer, Imm, 8, getSubtargetInfo());
+      MCSymbol *Sym = smallData(*this, MI, *OutStreamer, Imm, 8);
 
       OutStreamer->SwitchSection(Current.first, Current.second);
       MCInst TmpInst;
@@ -346,8 +345,7 @@ void HexagonAsmPrinter::HexagonProcessInstruction(MCInst &Inst,
     if (!OutStreamer->hasRawTextSupport()) {
       MCOperand &Imm = MappedInst.getOperand(1);
       MCSectionSubPair Current = OutStreamer->getCurrentSection();
-      MCSymbol *Sym =
-          smallData(*this, MI, *OutStreamer, Imm, 4, getSubtargetInfo());
+      MCSymbol *Sym = smallData(*this, MI, *OutStreamer, Imm, 4);
       OutStreamer->SwitchSection(Current.first, Current.second);
       MCInst TmpInst;
       MCOperand &Reg = MappedInst.getOperand(0);

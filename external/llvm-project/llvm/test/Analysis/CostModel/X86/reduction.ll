@@ -7,7 +7,9 @@
 
 ; RUN: opt < %s -cost-model -costmodel-reduxcost=true -mtriple=x86_64-apple-darwin -analyze -mcpu=slm | FileCheck %s --check-prefixes=SLM
 
-; These are old tests for matching reduction costs from extract elements - something that has now been removed.
+; Check that we recognize the tree starting at the extractelement as a
+; reduction.
+; NOTE: We're only really interested in the extractelement cost, which represents the entire reduction.
 
 define fastcc float @reduction_cost_float(<4 x float> %rdx) {
 ; SSE2-LABEL: 'reduction_cost_float'
@@ -15,7 +17,7 @@ define fastcc float @reduction_cost_float(<4 x float> %rdx) {
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = fadd <4 x float> %rdx, %rdx.shuf
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <4 x float> %bin.rdx, %rdx.shuf7
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SSSE3-LABEL: 'reduction_cost_float'
@@ -23,7 +25,7 @@ define fastcc float @reduction_cost_float(<4 x float> %rdx) {
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = fadd <4 x float> %rdx, %rdx.shuf
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <4 x float> %bin.rdx, %rdx.shuf7
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SSE42-LABEL: 'reduction_cost_float'
@@ -31,7 +33,7 @@ define fastcc float @reduction_cost_float(<4 x float> %rdx) {
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = fadd <4 x float> %rdx, %rdx.shuf
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <4 x float> %bin.rdx, %rdx.shuf7
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; AVX-LABEL: 'reduction_cost_float'
@@ -39,7 +41,7 @@ define fastcc float @reduction_cost_float(<4 x float> %rdx) {
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = fadd <4 x float> %rdx, %rdx.shuf
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <4 x float> %bin.rdx, %rdx.shuf7
-; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; AVX-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SLM-LABEL: 'reduction_cost_float'
@@ -47,7 +49,7 @@ define fastcc float @reduction_cost_float(<4 x float> %rdx) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = fadd <4 x float> %rdx, %rdx.shuf
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <4 x float> %bin.rdx, %rdx.shuf7
-; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
   %rdx.shuf = shufflevector <4 x float> %rdx, <4 x float> undef, <4 x i32> <i32 2, i32 3, i32 undef, i32 undef>
@@ -67,7 +69,7 @@ define fastcc i32 @reduction_cost_int(<8 x i32> %rdx) {
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx.2 = add <8 x i32> %bin.rdx, %rdx.shuf.2
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf.3 = shufflevector <8 x i32> %bin.rdx.2, <8 x i32> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx.3 = add <8 x i32> %bin.rdx.2, %rdx.shuf.3
-; SSE-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i32> %bin.rdx.3, i32 0
+; SSE-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <8 x i32> %bin.rdx.3, i32 0
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
 ; AVX1-LABEL: 'reduction_cost_int'
@@ -77,7 +79,7 @@ define fastcc i32 @reduction_cost_int(<8 x i32> %rdx) {
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx.2 = add <8 x i32> %bin.rdx, %rdx.shuf.2
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf.3 = shufflevector <8 x i32> %bin.rdx.2, <8 x i32> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx.3 = add <8 x i32> %bin.rdx.2, %rdx.shuf.3
-; AVX1-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i32> %bin.rdx.3, i32 0
+; AVX1-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <8 x i32> %bin.rdx.3, i32 0
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
 ; AVX2-LABEL: 'reduction_cost_int'
@@ -87,7 +89,7 @@ define fastcc i32 @reduction_cost_int(<8 x i32> %rdx) {
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.2 = add <8 x i32> %bin.rdx, %rdx.shuf.2
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.3 = shufflevector <8 x i32> %bin.rdx.2, <8 x i32> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.3 = add <8 x i32> %bin.rdx.2, %rdx.shuf.3
-; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i32> %bin.rdx.3, i32 0
+; AVX2-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <8 x i32> %bin.rdx.3, i32 0
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
 ; SLM-LABEL: 'reduction_cost_int'
@@ -97,7 +99,7 @@ define fastcc i32 @reduction_cost_int(<8 x i32> %rdx) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx.2 = add <8 x i32> %bin.rdx, %rdx.shuf.2
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf.3 = shufflevector <8 x i32> %bin.rdx.2, <8 x i32> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx.3 = add <8 x i32> %bin.rdx.2, %rdx.shuf.3
-; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i32> %bin.rdx.3, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <8 x i32> %bin.rdx.3, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
   %rdx.shuf = shufflevector <8 x i32> %rdx, <8 x i32> undef,
@@ -125,7 +127,7 @@ define fastcc float @pairwise_hadd(<4 x float> %rdx, float %f1) {
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx.1 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 7 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %r2 = fadd float %r, %f1
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -136,7 +138,7 @@ define fastcc float @pairwise_hadd(<4 x float> %rdx, float %f1) {
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx.1 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 7 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %r2 = fadd float %r, %f1
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -147,7 +149,7 @@ define fastcc float @pairwise_hadd(<4 x float> %rdx, float %f1) {
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.1 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r2 = fadd float %r, %f1
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -158,7 +160,7 @@ define fastcc float @pairwise_hadd(<4 x float> %rdx, float %f1) {
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.1 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; AVX-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r2 = fadd float %r, %f1
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -169,7 +171,7 @@ define fastcc float @pairwise_hadd(<4 x float> %rdx, float %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.1 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r2 = fadd float %r, %f1
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -197,7 +199,7 @@ define fastcc float @pairwise_hadd_assoc(<4 x float> %rdx, float %f1) {
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx.1 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 7 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %r2 = fadd float %r, %f1
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -208,7 +210,7 @@ define fastcc float @pairwise_hadd_assoc(<4 x float> %rdx, float %f1) {
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx.1 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 7 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %r2 = fadd float %r, %f1
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -219,7 +221,7 @@ define fastcc float @pairwise_hadd_assoc(<4 x float> %rdx, float %f1) {
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.1 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r2 = fadd float %r, %f1
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -230,7 +232,7 @@ define fastcc float @pairwise_hadd_assoc(<4 x float> %rdx, float %f1) {
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.1 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; AVX-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r2 = fadd float %r, %f1
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -241,7 +243,7 @@ define fastcc float @pairwise_hadd_assoc(<4 x float> %rdx, float %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.1 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r2 = fadd float %r, %f1
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -268,7 +270,7 @@ define fastcc float @pairwise_hadd_skip_first(<4 x float> %rdx, float %f1) {
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx.0 = fadd <4 x float> %rdx.shuf.0.0, %rdx.shuf.0.1
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx.1 = fadd <4 x float> %bin.rdx.0, %rdx.shuf.1.1
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 7 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %r2 = fadd float %r, %f1
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -278,7 +280,7 @@ define fastcc float @pairwise_hadd_skip_first(<4 x float> %rdx, float %f1) {
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx.0 = fadd <4 x float> %rdx.shuf.0.0, %rdx.shuf.0.1
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx.1 = fadd <4 x float> %bin.rdx.0, %rdx.shuf.1.1
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 7 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %r2 = fadd float %r, %f1
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -288,7 +290,7 @@ define fastcc float @pairwise_hadd_skip_first(<4 x float> %rdx, float %f1) {
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.0 = fadd <4 x float> %rdx.shuf.0.0, %rdx.shuf.0.1
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.1 = fadd <4 x float> %bin.rdx.0, %rdx.shuf.1.1
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r2 = fadd float %r, %f1
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -298,7 +300,7 @@ define fastcc float @pairwise_hadd_skip_first(<4 x float> %rdx, float %f1) {
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.0 = fadd <4 x float> %rdx.shuf.0.0, %rdx.shuf.0.1
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.1 = fadd <4 x float> %bin.rdx.0, %rdx.shuf.1.1
-; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; AVX-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r2 = fadd float %r, %f1
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -308,7 +310,7 @@ define fastcc float @pairwise_hadd_skip_first(<4 x float> %rdx, float %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.0 = fadd <4 x float> %rdx.shuf.0.0, %rdx.shuf.0.1
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx.0, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx.1 = fadd <4 x float> %bin.rdx.0, %rdx.shuf.1.1
-; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x float> %bin.rdx.1, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r2 = fadd float %r, %f1
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r2
 ;
@@ -330,31 +332,31 @@ define fastcc double @no_pairwise_reduction2double(<2 x double> %rdx, double %f1
 ; SSE2-LABEL: 'no_pairwise_reduction2double'
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 1, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = fadd <2 x double> %rdx, %rdx.shuf
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <2 x double> %bin.rdx, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %r = extractelement <2 x double> %bin.rdx, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; SSSE3-LABEL: 'no_pairwise_reduction2double'
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 1, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = fadd <2 x double> %rdx, %rdx.shuf
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <2 x double> %bin.rdx, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %r = extractelement <2 x double> %bin.rdx, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; SSE42-LABEL: 'no_pairwise_reduction2double'
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 1, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = fadd <2 x double> %rdx, %rdx.shuf
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <2 x double> %bin.rdx, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %r = extractelement <2 x double> %bin.rdx, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; AVX-LABEL: 'no_pairwise_reduction2double'
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 1, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = fadd <2 x double> %rdx, %rdx.shuf
-; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <2 x double> %bin.rdx, i32 0
+; AVX-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %r = extractelement <2 x double> %bin.rdx, i32 0
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; SLM-LABEL: 'no_pairwise_reduction2double'
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 1, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = fadd <2 x double> %rdx, %rdx.shuf
-; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <2 x double> %bin.rdx, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <2 x double> %bin.rdx, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
   %rdx.shuf = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 1, i32 undef>
@@ -370,7 +372,7 @@ define fastcc float @no_pairwise_reduction4float(<4 x float> %rdx, float %f1) {
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = fadd <4 x float> %rdx, %rdx.shuf
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <4 x float> %bin.rdx, %rdx.shuf7
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SSSE3-LABEL: 'no_pairwise_reduction4float'
@@ -378,7 +380,7 @@ define fastcc float @no_pairwise_reduction4float(<4 x float> %rdx, float %f1) {
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = fadd <4 x float> %rdx, %rdx.shuf
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <4 x float> %bin.rdx, %rdx.shuf7
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SSE42-LABEL: 'no_pairwise_reduction4float'
@@ -386,7 +388,7 @@ define fastcc float @no_pairwise_reduction4float(<4 x float> %rdx, float %f1) {
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = fadd <4 x float> %rdx, %rdx.shuf
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <4 x float> %bin.rdx, %rdx.shuf7
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; AVX-LABEL: 'no_pairwise_reduction4float'
@@ -394,7 +396,7 @@ define fastcc float @no_pairwise_reduction4float(<4 x float> %rdx, float %f1) {
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = fadd <4 x float> %rdx, %rdx.shuf
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <4 x float> %bin.rdx, %rdx.shuf7
-; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; AVX-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SLM-LABEL: 'no_pairwise_reduction4float'
@@ -402,7 +404,7 @@ define fastcc float @no_pairwise_reduction4float(<4 x float> %rdx, float %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = fadd <4 x float> %rdx, %rdx.shuf
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <4 x float> %bin.rdx, %rdx.shuf7
-; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
   %rdx.shuf = shufflevector <4 x float> %rdx, <4 x float> undef, <4 x i32> <i32 2, i32 3, i32 undef, i32 undef>
@@ -420,7 +422,7 @@ define fastcc double @no_pairwise_reduction4double(<4 x double> %rdx, double %f1
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx = fadd <4 x double> %rdx, %rdx.shuf
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf7 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx8 = fadd <4 x double> %bin.rdx, %rdx.shuf7
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; SSSE3-LABEL: 'no_pairwise_reduction4double'
@@ -428,7 +430,7 @@ define fastcc double @no_pairwise_reduction4double(<4 x double> %rdx, double %f1
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx = fadd <4 x double> %rdx, %rdx.shuf
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf7 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx8 = fadd <4 x double> %bin.rdx, %rdx.shuf7
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; SSE42-LABEL: 'no_pairwise_reduction4double'
@@ -436,7 +438,7 @@ define fastcc double @no_pairwise_reduction4double(<4 x double> %rdx, double %f1
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = fadd <4 x double> %rdx, %rdx.shuf
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf7 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <4 x double> %bin.rdx, %rdx.shuf7
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; AVX1-LABEL: 'no_pairwise_reduction4double'
@@ -444,7 +446,7 @@ define fastcc double @no_pairwise_reduction4double(<4 x double> %rdx, double %f1
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = fadd <4 x double> %rdx, %rdx.shuf
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf7 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <4 x double> %bin.rdx, %rdx.shuf7
-; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
+; AVX1-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; AVX2-LABEL: 'no_pairwise_reduction4double'
@@ -452,7 +454,7 @@ define fastcc double @no_pairwise_reduction4double(<4 x double> %rdx, double %f1
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = fadd <4 x double> %rdx, %rdx.shuf
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <4 x double> %bin.rdx, %rdx.shuf7
-; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
+; AVX2-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; SLM-LABEL: 'no_pairwise_reduction4double'
@@ -460,7 +462,7 @@ define fastcc double @no_pairwise_reduction4double(<4 x double> %rdx, double %f1
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx = fadd <4 x double> %rdx, %rdx.shuf
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf7 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx8 = fadd <4 x double> %bin.rdx, %rdx.shuf7
-; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
   %rdx.shuf = shufflevector <4 x double> %rdx, <4 x double> undef, <4 x i32> <i32 2, i32 3, i32 undef, i32 undef>
@@ -480,7 +482,7 @@ define fastcc float @no_pairwise_reduction8float(<8 x float> %rdx, float %f1) {
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx = fadd <8 x float> %bin.rdx4, %rdx.shuf
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf7 = shufflevector <8 x float> %bin.rdx, <8 x float> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx8 = fadd <8 x float> %bin.rdx, %rdx.shuf7
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <8 x float> %bin.rdx8, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 6 for instruction: %r = extractelement <8 x float> %bin.rdx8, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SSSE3-LABEL: 'no_pairwise_reduction8float'
@@ -490,7 +492,7 @@ define fastcc float @no_pairwise_reduction8float(<8 x float> %rdx, float %f1) {
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx = fadd <8 x float> %bin.rdx4, %rdx.shuf
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf7 = shufflevector <8 x float> %bin.rdx, <8 x float> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx8 = fadd <8 x float> %bin.rdx, %rdx.shuf7
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <8 x float> %bin.rdx8, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 6 for instruction: %r = extractelement <8 x float> %bin.rdx8, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SSE42-LABEL: 'no_pairwise_reduction8float'
@@ -500,7 +502,7 @@ define fastcc float @no_pairwise_reduction8float(<8 x float> %rdx, float %f1) {
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = fadd <8 x float> %bin.rdx4, %rdx.shuf
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf7 = shufflevector <8 x float> %bin.rdx, <8 x float> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <8 x float> %bin.rdx, %rdx.shuf7
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <8 x float> %bin.rdx8, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <8 x float> %bin.rdx8, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; AVX1-LABEL: 'no_pairwise_reduction8float'
@@ -510,7 +512,7 @@ define fastcc float @no_pairwise_reduction8float(<8 x float> %rdx, float %f1) {
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = fadd <8 x float> %bin.rdx4, %rdx.shuf
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf7 = shufflevector <8 x float> %bin.rdx, <8 x float> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <8 x float> %bin.rdx, %rdx.shuf7
-; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <8 x float> %bin.rdx8, i32 0
+; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <8 x float> %bin.rdx8, i32 0
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; AVX2-LABEL: 'no_pairwise_reduction8float'
@@ -520,7 +522,7 @@ define fastcc float @no_pairwise_reduction8float(<8 x float> %rdx, float %f1) {
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = fadd <8 x float> %bin.rdx4, %rdx.shuf
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <8 x float> %bin.rdx, <8 x float> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <8 x float> %bin.rdx, %rdx.shuf7
-; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <8 x float> %bin.rdx8, i32 0
+; AVX2-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <8 x float> %bin.rdx8, i32 0
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SLM-LABEL: 'no_pairwise_reduction8float'
@@ -530,7 +532,7 @@ define fastcc float @no_pairwise_reduction8float(<8 x float> %rdx, float %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = fadd <8 x float> %bin.rdx4, %rdx.shuf
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf7 = shufflevector <8 x float> %bin.rdx, <8 x float> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <8 x float> %bin.rdx, %rdx.shuf7
-; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <8 x float> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <8 x float> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
   %rdx.shuf3 = shufflevector <8 x float> %rdx, <8 x float> undef, <8 x i32> <i32 4, i32 5, i32 6, i32 7,i32 undef, i32 undef, i32 undef, i32 undef>
@@ -545,16 +547,22 @@ define fastcc float @no_pairwise_reduction8float(<8 x float> %rdx, float %f1) {
 }
 
 define fastcc i64 @no_pairwise_reduction2i64(<2 x i64> %rdx, i64 %f1) {
-; CHECK-LABEL: 'no_pairwise_reduction2i64'
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf = shufflevector <2 x i64> %rdx, <2 x i64> undef, <2 x i32> <i32 1, i32 undef>
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = add <2 x i64> %rdx, %rdx.shuf
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <2 x i64> %bin.rdx, i32 0
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
+; SSE-LABEL: 'no_pairwise_reduction2i64'
+; SSE-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf = shufflevector <2 x i64> %rdx, <2 x i64> undef, <2 x i32> <i32 1, i32 undef>
+; SSE-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = add <2 x i64> %rdx, %rdx.shuf
+; SSE-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %r = extractelement <2 x i64> %bin.rdx, i32 0
+; SSE-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
+;
+; AVX-LABEL: 'no_pairwise_reduction2i64'
+; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf = shufflevector <2 x i64> %rdx, <2 x i64> undef, <2 x i32> <i32 1, i32 undef>
+; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = add <2 x i64> %rdx, %rdx.shuf
+; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <2 x i64> %bin.rdx, i32 0
+; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
 ;
 ; SLM-LABEL: 'no_pairwise_reduction2i64'
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf = shufflevector <2 x i64> %rdx, <2 x i64> undef, <2 x i32> <i32 1, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx = add <2 x i64> %rdx, %rdx.shuf
-; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <2 x i64> %bin.rdx, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <2 x i64> %bin.rdx, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
 ;
   %rdx.shuf = shufflevector <2 x i64> %rdx, <2 x i64> undef, <2 x i32> <i32 1, i32 undef>
@@ -570,7 +578,7 @@ define fastcc i32 @no_pairwise_reduction4i32(<4 x i32> %rdx, i32 %f1) {
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = add <4 x i32> %rdx, %rdx.shuf
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x i32> %bin.rdx, <4 x i32> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = add <4 x i32> %bin.rdx, %rdx.shuf7
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <4 x i32> %bin.rdx8, i32 0
+; CHECK-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <4 x i32> %bin.rdx8, i32 0
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
 ; SLM-LABEL: 'no_pairwise_reduction4i32'
@@ -578,7 +586,7 @@ define fastcc i32 @no_pairwise_reduction4i32(<4 x i32> %rdx, i32 %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = add <4 x i32> %rdx, %rdx.shuf
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x i32> %bin.rdx, <4 x i32> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = add <4 x i32> %bin.rdx, %rdx.shuf7
-; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <4 x i32> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <4 x i32> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
   %rdx.shuf = shufflevector <4 x i32> %rdx, <4 x i32> undef, <4 x i32> <i32 2, i32 3, i32 undef, i32 undef>
@@ -596,7 +604,7 @@ define fastcc i64 @no_pairwise_reduction4i64(<4 x i64> %rdx, i64 %f1) {
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = add <4 x i64> %rdx, %rdx.shuf
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf7 = shufflevector <4 x i64> %bin.rdx, <4 x i64> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = add <4 x i64> %bin.rdx, %rdx.shuf7
-; SSE-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
+; SSE-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
 ;
 ; AVX1-LABEL: 'no_pairwise_reduction4i64'
@@ -604,7 +612,7 @@ define fastcc i64 @no_pairwise_reduction4i64(<4 x i64> %rdx, i64 %f1) {
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx = add <4 x i64> %rdx, %rdx.shuf
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf7 = shufflevector <4 x i64> %bin.rdx, <4 x i64> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx8 = add <4 x i64> %bin.rdx, %rdx.shuf7
-; AVX1-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
+; AVX1-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
 ;
 ; AVX2-LABEL: 'no_pairwise_reduction4i64'
@@ -612,7 +620,7 @@ define fastcc i64 @no_pairwise_reduction4i64(<4 x i64> %rdx, i64 %f1) {
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = add <4 x i64> %rdx, %rdx.shuf
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <4 x i64> %bin.rdx, <4 x i64> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = add <4 x i64> %bin.rdx, %rdx.shuf7
-; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
+; AVX2-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
 ;
 ; SLM-LABEL: 'no_pairwise_reduction4i64'
@@ -620,7 +628,7 @@ define fastcc i64 @no_pairwise_reduction4i64(<4 x i64> %rdx, i64 %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 8 for instruction: %bin.rdx = add <4 x i64> %rdx, %rdx.shuf
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf7 = shufflevector <4 x i64> %bin.rdx, <4 x i64> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 8 for instruction: %bin.rdx8 = add <4 x i64> %bin.rdx, %rdx.shuf7
-; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 9 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
 ;
   %rdx.shuf = shufflevector <4 x i64> %rdx, <4 x i64> undef, <4 x i32> <i32 2, i32 3, i32 undef, i32 undef>
@@ -640,7 +648,7 @@ define fastcc i16 @no_pairwise_reduction8i16(<8 x i16> %rdx, i16 %f1) {
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = add <8 x i16> %bin.rdx4, %rdx.shuf
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %rdx.shuf7 = shufflevector <8 x i16> %bin.rdx, <8 x i16> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = add <8 x i16> %bin.rdx, %rdx.shuf7
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i16> %bin.rdx8, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <8 x i16> %bin.rdx8, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i16 %r
 ;
 ; SSSE3-LABEL: 'no_pairwise_reduction8i16'
@@ -650,7 +658,7 @@ define fastcc i16 @no_pairwise_reduction8i16(<8 x i16> %rdx, i16 %f1) {
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = add <8 x i16> %bin.rdx4, %rdx.shuf
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <8 x i16> %bin.rdx, <8 x i16> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = add <8 x i16> %bin.rdx, %rdx.shuf7
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i16> %bin.rdx8, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <8 x i16> %bin.rdx8, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i16 %r
 ;
 ; SSE42-LABEL: 'no_pairwise_reduction8i16'
@@ -660,7 +668,7 @@ define fastcc i16 @no_pairwise_reduction8i16(<8 x i16> %rdx, i16 %f1) {
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = add <8 x i16> %bin.rdx4, %rdx.shuf
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <8 x i16> %bin.rdx, <8 x i16> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = add <8 x i16> %bin.rdx, %rdx.shuf7
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i16> %bin.rdx8, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <8 x i16> %bin.rdx8, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i16 %r
 ;
 ; AVX-LABEL: 'no_pairwise_reduction8i16'
@@ -670,7 +678,7 @@ define fastcc i16 @no_pairwise_reduction8i16(<8 x i16> %rdx, i16 %f1) {
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = add <8 x i16> %bin.rdx4, %rdx.shuf
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <8 x i16> %bin.rdx, <8 x i16> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = add <8 x i16> %bin.rdx, %rdx.shuf7
-; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i16> %bin.rdx8, i32 0
+; AVX-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <8 x i16> %bin.rdx8, i32 0
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i16 %r
 ;
 ; SLM-LABEL: 'no_pairwise_reduction8i16'
@@ -680,7 +688,7 @@ define fastcc i16 @no_pairwise_reduction8i16(<8 x i16> %rdx, i16 %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = add <8 x i16> %bin.rdx4, %rdx.shuf
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <8 x i16> %bin.rdx, <8 x i16> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = add <8 x i16> %bin.rdx, %rdx.shuf7
-; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i16> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <8 x i16> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i16 %r
 ;
   %rdx.shuf3 = shufflevector <8 x i16> %rdx, <8 x i16> undef, <8 x i32> <i32 4, i32 5, i32 6, i32 7,i32 undef, i32 undef, i32 undef, i32 undef>
@@ -702,7 +710,7 @@ define fastcc i32 @no_pairwise_reduction8i32(<8 x i32> %rdx, i32 %f1) {
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = add <8 x i32> %bin.rdx4, %rdx.shuf
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf7 = shufflevector <8 x i32> %bin.rdx, <8 x i32> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = add <8 x i32> %bin.rdx, %rdx.shuf7
-; SSE-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i32> %bin.rdx8, i32 0
+; SSE-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <8 x i32> %bin.rdx8, i32 0
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
 ; AVX1-LABEL: 'no_pairwise_reduction8i32'
@@ -712,7 +720,7 @@ define fastcc i32 @no_pairwise_reduction8i32(<8 x i32> %rdx, i32 %f1) {
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx = add <8 x i32> %bin.rdx4, %rdx.shuf
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf7 = shufflevector <8 x i32> %bin.rdx, <8 x i32> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx8 = add <8 x i32> %bin.rdx, %rdx.shuf7
-; AVX1-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i32> %bin.rdx8, i32 0
+; AVX1-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <8 x i32> %bin.rdx8, i32 0
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
 ; AVX2-LABEL: 'no_pairwise_reduction8i32'
@@ -722,7 +730,7 @@ define fastcc i32 @no_pairwise_reduction8i32(<8 x i32> %rdx, i32 %f1) {
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx = add <8 x i32> %bin.rdx4, %rdx.shuf
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf7 = shufflevector <8 x i32> %bin.rdx, <8 x i32> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = add <8 x i32> %bin.rdx, %rdx.shuf7
-; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i32> %bin.rdx8, i32 0
+; AVX2-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <8 x i32> %bin.rdx8, i32 0
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
 ; SLM-LABEL: 'no_pairwise_reduction8i32'
@@ -732,7 +740,7 @@ define fastcc i32 @no_pairwise_reduction8i32(<8 x i32> %rdx, i32 %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx = add <8 x i32> %bin.rdx4, %rdx.shuf
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf7 = shufflevector <8 x i32> %bin.rdx, <8 x i32> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = add <8 x i32> %bin.rdx, %rdx.shuf7
-; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i32> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <8 x i32> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
   %rdx.shuf3 = shufflevector <8 x i32> %rdx, <8 x i32> undef, <8 x i32> <i32 4, i32 5, i32 6, i32 7,i32 undef, i32 undef, i32 undef, i32 undef>
@@ -751,35 +759,35 @@ define fastcc double @pairwise_reduction2double(<2 x double> %rdx, double %f1) {
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 0, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 1, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <2 x double> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <2 x double> %bin.rdx8, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <2 x double> %bin.rdx8, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; SSSE3-LABEL: 'pairwise_reduction2double'
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 0, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 1, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <2 x double> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <2 x double> %bin.rdx8, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <2 x double> %bin.rdx8, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; SSE42-LABEL: 'pairwise_reduction2double'
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 0, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 1, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <2 x double> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <2 x double> %bin.rdx8, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %r = extractelement <2 x double> %bin.rdx8, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; AVX-LABEL: 'pairwise_reduction2double'
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 0, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 1, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <2 x double> %rdx.shuf.1.0, %rdx.shuf.1.1
-; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <2 x double> %bin.rdx8, i32 0
+; AVX-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %r = extractelement <2 x double> %bin.rdx8, i32 0
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; SLM-LABEL: 'pairwise_reduction2double'
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 0, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 1, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <2 x double> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <2 x double> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <2 x double> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
   %rdx.shuf.1.0 = shufflevector <2 x double> %rdx, <2 x double> undef, <2 x i32> <i32 0, i32 undef>
@@ -798,7 +806,7 @@ define fastcc float @pairwise_reduction4float(<4 x float> %rdx, float %f1) {
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 7 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SSSE3-LABEL: 'pairwise_reduction4float'
@@ -808,7 +816,7 @@ define fastcc float @pairwise_reduction4float(<4 x float> %rdx, float %f1) {
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 7 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SSE42-LABEL: 'pairwise_reduction4float'
@@ -818,7 +826,7 @@ define fastcc float @pairwise_reduction4float(<4 x float> %rdx, float %f1) {
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; AVX-LABEL: 'pairwise_reduction4float'
@@ -828,7 +836,7 @@ define fastcc float @pairwise_reduction4float(<4 x float> %rdx, float %f1) {
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; AVX-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SLM-LABEL: 'pairwise_reduction4float'
@@ -838,7 +846,7 @@ define fastcc float @pairwise_reduction4float(<4 x float> %rdx, float %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x float> %bin.rdx, <4 x float> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <4 x float> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x float> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
   %rdx.shuf.0.0 = shufflevector <4 x float> %rdx, <4 x float> undef, <4 x i32> <i32 0, i32 2, i32 undef, i32 undef>
@@ -860,7 +868,7 @@ define fastcc double @pairwise_reduction4double(<4 x double> %rdx, double %f1) {
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf.1.1 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx8 = fadd <4 x double> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; SSSE3-LABEL: 'pairwise_reduction4double'
@@ -870,7 +878,7 @@ define fastcc double @pairwise_reduction4double(<4 x double> %rdx, double %f1) {
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf.1.1 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx8 = fadd <4 x double> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; SSE42-LABEL: 'pairwise_reduction4double'
@@ -880,7 +888,7 @@ define fastcc double @pairwise_reduction4double(<4 x double> %rdx, double %f1) {
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf.1.1 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <4 x double> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; AVX1-LABEL: 'pairwise_reduction4double'
@@ -890,7 +898,7 @@ define fastcc double @pairwise_reduction4double(<4 x double> %rdx, double %f1) {
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf.1.1 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = fadd <4 x double> %rdx.shuf.1.0, %rdx.shuf.1.1
-; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
+; AVX1-NEXT:  Cost Model: Found an estimated cost of 10 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; AVX2-LABEL: 'pairwise_reduction4double'
@@ -900,7 +908,7 @@ define fastcc double @pairwise_reduction4double(<4 x double> %rdx, double %f1) {
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = fadd <4 x double> %rdx.shuf.1.0, %rdx.shuf.1.1
-; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
+; AVX2-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
 ; SLM-LABEL: 'pairwise_reduction4double'
@@ -910,7 +918,7 @@ define fastcc double @pairwise_reduction4double(<4 x double> %rdx, double %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf.1.1 = shufflevector <4 x double> %bin.rdx, <4 x double> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx8 = fadd <4 x double> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %r = extractelement <4 x double> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret double %r
 ;
   %rdx.shuf.0.0 = shufflevector <4 x double> %rdx, <4 x double> undef, <4 x i32> <i32 0, i32 2, i32 undef, i32 undef>
@@ -935,7 +943,7 @@ define fastcc float @pairwise_reduction8float(<8 x float> %rdx, float %f1) {
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x float> %bin.rdx8, <8 x float> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf.2.1 = shufflevector <8 x float> %bin.rdx8, <8 x float> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx9 = fadd <8 x float> %rdx.shuf.2.0, %rdx.shuf.2.1
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <8 x float> %bin.rdx9, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 9 for instruction: %r = extractelement <8 x float> %bin.rdx9, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SSSE3-LABEL: 'pairwise_reduction8float'
@@ -948,7 +956,7 @@ define fastcc float @pairwise_reduction8float(<8 x float> %rdx, float %f1) {
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x float> %bin.rdx8, <8 x float> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf.2.1 = shufflevector <8 x float> %bin.rdx8, <8 x float> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx9 = fadd <8 x float> %rdx.shuf.2.0, %rdx.shuf.2.1
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <8 x float> %bin.rdx9, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 9 for instruction: %r = extractelement <8 x float> %bin.rdx9, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SSE42-LABEL: 'pairwise_reduction8float'
@@ -961,7 +969,7 @@ define fastcc float @pairwise_reduction8float(<8 x float> %rdx, float %f1) {
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x float> %bin.rdx8, <8 x float> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf.2.1 = shufflevector <8 x float> %bin.rdx8, <8 x float> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx9 = fadd <8 x float> %rdx.shuf.2.0, %rdx.shuf.2.1
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <8 x float> %bin.rdx9, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 6 for instruction: %r = extractelement <8 x float> %bin.rdx9, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; AVX1-LABEL: 'pairwise_reduction8float'
@@ -974,7 +982,7 @@ define fastcc float @pairwise_reduction8float(<8 x float> %rdx, float %f1) {
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x float> %bin.rdx8, <8 x float> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf.2.1 = shufflevector <8 x float> %bin.rdx8, <8 x float> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx9 = fadd <8 x float> %rdx.shuf.2.0, %rdx.shuf.2.1
-; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <8 x float> %bin.rdx9, i32 0
+; AVX1-NEXT:  Cost Model: Found an estimated cost of 26 for instruction: %r = extractelement <8 x float> %bin.rdx9, i32 0
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; AVX2-LABEL: 'pairwise_reduction8float'
@@ -987,7 +995,7 @@ define fastcc float @pairwise_reduction8float(<8 x float> %rdx, float %f1) {
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x float> %bin.rdx8, <8 x float> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.2.1 = shufflevector <8 x float> %bin.rdx8, <8 x float> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx9 = fadd <8 x float> %rdx.shuf.2.0, %rdx.shuf.2.1
-; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <8 x float> %bin.rdx9, i32 0
+; AVX2-NEXT:  Cost Model: Found an estimated cost of 8 for instruction: %r = extractelement <8 x float> %bin.rdx9, i32 0
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
 ; SLM-LABEL: 'pairwise_reduction8float'
@@ -1000,7 +1008,7 @@ define fastcc float @pairwise_reduction8float(<8 x float> %rdx, float %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x float> %bin.rdx8, <8 x float> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf.2.1 = shufflevector <8 x float> %bin.rdx8, <8 x float> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx9 = fadd <8 x float> %rdx.shuf.2.0, %rdx.shuf.2.1
-; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r = extractelement <8 x float> %bin.rdx9, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 6 for instruction: %r = extractelement <8 x float> %bin.rdx9, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret float %r
 ;
   %rdx.shuf.0.0 = shufflevector <8 x float> %rdx, <8 x float> undef, <8 x i32> <i32 0, i32 2, i32 4, i32 6,i32 undef, i32 undef, i32 undef, i32 undef>
@@ -1022,14 +1030,14 @@ define fastcc i64 @pairwise_reduction2i64(<2 x i64> %rdx, i64 %f1) {
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <2 x i64> %rdx, <2 x i64> undef, <2 x i32> <i32 0, i32 undef>
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <2 x i64> %rdx, <2 x i64> undef, <2 x i32> <i32 1, i32 undef>
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = add <2 x i64> %rdx.shuf.1.0, %rdx.shuf.1.1
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <2 x i64> %bin.rdx8, i32 0
+; CHECK-NEXT:  Cost Model: Found an estimated cost of 3 for instruction: %r = extractelement <2 x i64> %bin.rdx8, i32 0
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
 ;
 ; SLM-LABEL: 'pairwise_reduction2i64'
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <2 x i64> %rdx, <2 x i64> undef, <2 x i32> <i32 0, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <2 x i64> %rdx, <2 x i64> undef, <2 x i32> <i32 1, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx8 = add <2 x i64> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <2 x i64> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 6 for instruction: %r = extractelement <2 x i64> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
 ;
   %rdx.shuf.1.0 = shufflevector <2 x i64> %rdx, <2 x i64> undef, <2 x i32> <i32 0, i32 undef>
@@ -1048,7 +1056,7 @@ define fastcc i32 @pairwise_reduction4i32(<4 x i32> %rdx, i32 %f1) {
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x i32> %bin.rdx, <4 x i32> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x i32> %bin.rdx, <4 x i32> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = add <4 x i32> %rdx.shuf.1.0, %rdx.shuf.1.1
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <4 x i32> %bin.rdx8, i32 0
+; CHECK-NEXT:  Cost Model: Found an estimated cost of 6 for instruction: %r = extractelement <4 x i32> %bin.rdx8, i32 0
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
 ; SLM-LABEL: 'pairwise_reduction4i32'
@@ -1058,7 +1066,7 @@ define fastcc i32 @pairwise_reduction4i32(<4 x i32> %rdx, i32 %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x i32> %bin.rdx, <4 x i32> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x i32> %bin.rdx, <4 x i32> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = add <4 x i32> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <4 x i32> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 6 for instruction: %r = extractelement <4 x i32> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
   %rdx.shuf.0.0 = shufflevector <4 x i32> %rdx, <4 x i32> undef, <4 x i32> <i32 0, i32 2, i32 undef, i32 undef>
@@ -1080,7 +1088,7 @@ define fastcc i64 @pairwise_reduction4i64(<4 x i64> %rdx, i64 %f1) {
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x i64> %bin.rdx, <4 x i64> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf.1.1 = shufflevector <4 x i64> %bin.rdx, <4 x i64> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx8 = add <4 x i64> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SSE-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
+; SSE-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
 ;
 ; AVX1-LABEL: 'pairwise_reduction4i64'
@@ -1090,7 +1098,7 @@ define fastcc i64 @pairwise_reduction4i64(<4 x i64> %rdx, i64 %f1) {
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x i64> %bin.rdx, <4 x i64> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf.1.1 = shufflevector <4 x i64> %bin.rdx, <4 x i64> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx8 = add <4 x i64> %rdx.shuf.1.0, %rdx.shuf.1.1
-; AVX1-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
+; AVX1-NEXT:  Cost Model: Found an estimated cost of 15 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
 ;
 ; AVX2-LABEL: 'pairwise_reduction4i64'
@@ -1100,7 +1108,7 @@ define fastcc i64 @pairwise_reduction4i64(<4 x i64> %rdx, i64 %f1) {
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x i64> %bin.rdx, <4 x i64> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.1.1 = shufflevector <4 x i64> %bin.rdx, <4 x i64> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx8 = add <4 x i64> %rdx.shuf.1.0, %rdx.shuf.1.1
-; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
+; AVX2-NEXT:  Cost Model: Found an estimated cost of 6 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
 ;
 ; SLM-LABEL: 'pairwise_reduction4i64'
@@ -1110,7 +1118,7 @@ define fastcc i64 @pairwise_reduction4i64(<4 x i64> %rdx, i64 %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.1.0 = shufflevector <4 x i64> %bin.rdx, <4 x i64> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %rdx.shuf.1.1 = shufflevector <4 x i64> %bin.rdx, <4 x i64> undef, <4 x i32> <i32 1, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 8 for instruction: %bin.rdx8 = add <4 x i64> %rdx.shuf.1.0, %rdx.shuf.1.1
-; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 10 for instruction: %r = extractelement <4 x i64> %bin.rdx8, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i64 %r
 ;
   %rdx.shuf.0.0 = shufflevector <4 x i64> %rdx, <4 x i64> undef, <4 x i32> <i32 0, i32 2, i32 undef, i32 undef>
@@ -1135,7 +1143,7 @@ define fastcc i16 @pairwise_reduction8i16(<8 x i16> %rdx, i16 %f1) {
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x i16> %bin.rdx8, <8 x i16> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 5 for instruction: %rdx.shuf.2.1 = shufflevector <8 x i16> %bin.rdx8, <8 x i16> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx9 = add <8 x i16> %rdx.shuf.2.0, %rdx.shuf.2.1
-; SSE2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i16> %bin.rdx9, i32 0
+; SSE2-NEXT:  Cost Model: Found an estimated cost of 29 for instruction: %r = extractelement <8 x i16> %bin.rdx9, i32 0
 ; SSE2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i16 %r
 ;
 ; SSSE3-LABEL: 'pairwise_reduction8i16'
@@ -1148,7 +1156,7 @@ define fastcc i16 @pairwise_reduction8i16(<8 x i16> %rdx, i16 %f1) {
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x i16> %bin.rdx8, <8 x i16> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.2.1 = shufflevector <8 x i16> %bin.rdx8, <8 x i16> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx9 = add <8 x i16> %rdx.shuf.2.0, %rdx.shuf.2.1
-; SSSE3-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i16> %bin.rdx9, i32 0
+; SSSE3-NEXT:  Cost Model: Found an estimated cost of 9 for instruction: %r = extractelement <8 x i16> %bin.rdx9, i32 0
 ; SSSE3-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i16 %r
 ;
 ; SSE42-LABEL: 'pairwise_reduction8i16'
@@ -1161,7 +1169,7 @@ define fastcc i16 @pairwise_reduction8i16(<8 x i16> %rdx, i16 %f1) {
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x i16> %bin.rdx8, <8 x i16> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.2.1 = shufflevector <8 x i16> %bin.rdx8, <8 x i16> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx9 = add <8 x i16> %rdx.shuf.2.0, %rdx.shuf.2.1
-; SSE42-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i16> %bin.rdx9, i32 0
+; SSE42-NEXT:  Cost Model: Found an estimated cost of 9 for instruction: %r = extractelement <8 x i16> %bin.rdx9, i32 0
 ; SSE42-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i16 %r
 ;
 ; AVX-LABEL: 'pairwise_reduction8i16'
@@ -1174,7 +1182,7 @@ define fastcc i16 @pairwise_reduction8i16(<8 x i16> %rdx, i16 %f1) {
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x i16> %bin.rdx8, <8 x i16> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.2.1 = shufflevector <8 x i16> %bin.rdx8, <8 x i16> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx9 = add <8 x i16> %rdx.shuf.2.0, %rdx.shuf.2.1
-; AVX-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i16> %bin.rdx9, i32 0
+; AVX-NEXT:  Cost Model: Found an estimated cost of 9 for instruction: %r = extractelement <8 x i16> %bin.rdx9, i32 0
 ; AVX-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i16 %r
 ;
 ; SLM-LABEL: 'pairwise_reduction8i16'
@@ -1187,7 +1195,7 @@ define fastcc i16 @pairwise_reduction8i16(<8 x i16> %rdx, i16 %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x i16> %bin.rdx8, <8 x i16> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.2.1 = shufflevector <8 x i16> %bin.rdx8, <8 x i16> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx9 = add <8 x i16> %rdx.shuf.2.0, %rdx.shuf.2.1
-; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i16> %bin.rdx9, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 9 for instruction: %r = extractelement <8 x i16> %bin.rdx9, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i16 %r
 ;
   %rdx.shuf.0.0 = shufflevector <8 x i16> %rdx, <8 x i16> undef, <8 x i32> <i32 0, i32 2, i32 4, i32 6,i32 undef, i32 undef, i32 undef, i32 undef>
@@ -1215,7 +1223,7 @@ define fastcc i32 @pairwise_reduction8i32(<8 x i32> %rdx, i32 %f1) {
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x i32> %bin.rdx8, <8 x i32> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf.2.1 = shufflevector <8 x i32> %bin.rdx8, <8 x i32> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx9 = add <8 x i32> %rdx.shuf.2.0, %rdx.shuf.2.1
-; SSE-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i32> %bin.rdx9, i32 0
+; SSE-NEXT:  Cost Model: Found an estimated cost of 7 for instruction: %r = extractelement <8 x i32> %bin.rdx9, i32 0
 ; SSE-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
 ; AVX1-LABEL: 'pairwise_reduction8i32'
@@ -1228,7 +1236,7 @@ define fastcc i32 @pairwise_reduction8i32(<8 x i32> %rdx, i32 %f1) {
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x i32> %bin.rdx8, <8 x i32> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf.2.1 = shufflevector <8 x i32> %bin.rdx8, <8 x i32> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %bin.rdx9 = add <8 x i32> %rdx.shuf.2.0, %rdx.shuf.2.1
-; AVX1-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i32> %bin.rdx9, i32 0
+; AVX1-NEXT:  Cost Model: Found an estimated cost of 33 for instruction: %r = extractelement <8 x i32> %bin.rdx9, i32 0
 ; AVX1-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
 ; AVX2-LABEL: 'pairwise_reduction8i32'
@@ -1241,7 +1249,7 @@ define fastcc i32 @pairwise_reduction8i32(<8 x i32> %rdx, i32 %f1) {
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x i32> %bin.rdx8, <8 x i32> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %rdx.shuf.2.1 = shufflevector <8 x i32> %bin.rdx8, <8 x i32> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %bin.rdx9 = add <8 x i32> %rdx.shuf.2.0, %rdx.shuf.2.1
-; AVX2-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i32> %bin.rdx9, i32 0
+; AVX2-NEXT:  Cost Model: Found an estimated cost of 9 for instruction: %r = extractelement <8 x i32> %bin.rdx9, i32 0
 ; AVX2-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
 ; SLM-LABEL: 'pairwise_reduction8i32'
@@ -1254,7 +1262,7 @@ define fastcc i32 @pairwise_reduction8i32(<8 x i32> %rdx, i32 %f1) {
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %rdx.shuf.2.0 = shufflevector <8 x i32> %bin.rdx8, <8 x i32> undef, <8 x i32> <i32 0, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %rdx.shuf.2.1 = shufflevector <8 x i32> %bin.rdx8, <8 x i32> undef, <8 x i32> <i32 1, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef, i32 undef>
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %bin.rdx9 = add <8 x i32> %rdx.shuf.2.0, %rdx.shuf.2.1
-; SLM-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %r = extractelement <8 x i32> %bin.rdx9, i32 0
+; SLM-NEXT:  Cost Model: Found an estimated cost of 7 for instruction: %r = extractelement <8 x i32> %bin.rdx9, i32 0
 ; SLM-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 %r
 ;
   %rdx.shuf.0.0 = shufflevector <8 x i32> %rdx, <8 x i32> undef, <8 x i32> <i32 0, i32 2, i32 4, i32 6,i32 undef, i32 undef, i32 undef, i32 undef>

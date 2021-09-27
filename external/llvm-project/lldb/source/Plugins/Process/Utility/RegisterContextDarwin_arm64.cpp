@@ -104,7 +104,7 @@ RegisterContextDarwin_arm64::RegisterContextDarwin_arm64(
   }
 }
 
-RegisterContextDarwin_arm64::~RegisterContextDarwin_arm64() = default;
+RegisterContextDarwin_arm64::~RegisterContextDarwin_arm64() {}
 
 void RegisterContextDarwin_arm64::InvalidateAllRegisters() {
   InvalidateAllRegisterStates();

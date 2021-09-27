@@ -9,7 +9,7 @@
 #ifndef LLDB_TOOLS_DEBUGSERVER_SOURCE_STDSTRINGEXTRACTOR_H
 #define LLDB_TOOLS_DEBUGSERVER_SOURCE_STDSTRINGEXTRACTOR_H
 
-#include <cstdint>
+#include <stdint.h>
 #include <string>
 
 

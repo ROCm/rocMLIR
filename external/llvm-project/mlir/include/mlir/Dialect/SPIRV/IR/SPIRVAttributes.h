@@ -69,9 +69,10 @@ public:
   /// Returns `spirv::StorageClass`.
   Optional<StorageClass> getStorageClass();
 
-  static LogicalResult verify(function_ref<InFlightDiagnostic()> emitError,
-                              IntegerAttr descriptorSet, IntegerAttr binding,
-                              IntegerAttr storageClass);
+  static LogicalResult verifyConstructionInvariants(Location loc,
+                                                    IntegerAttr descriptorSet,
+                                                    IntegerAttr binding,
+                                                    IntegerAttr storageClass);
 };
 
 /// An attribute that specifies the SPIR-V (version, capabilities, extensions)
@@ -119,9 +120,10 @@ public:
   /// Returns the capabilities as an integer array attribute.
   ArrayAttr getCapabilitiesAttr();
 
-  static LogicalResult verify(function_ref<InFlightDiagnostic()> emitError,
-                              IntegerAttr version, ArrayAttr capabilities,
-                              ArrayAttr extensions);
+  static LogicalResult verifyConstructionInvariants(Location loc,
+                                                    IntegerAttr version,
+                                                    ArrayAttr capabilities,
+                                                    ArrayAttr extensions);
 };
 
 /// An attribute that specifies the target version, allowed extensions and
@@ -172,10 +174,10 @@ public:
   /// Returns the target resource limits.
   ResourceLimitsAttr getResourceLimits() const;
 
-  static LogicalResult verify(function_ref<InFlightDiagnostic()> emitError,
-                              VerCapExtAttr triple, Vendor vendorID,
-                              DeviceType deviceType, uint32_t deviceID,
-                              DictionaryAttr limits);
+  static LogicalResult
+  verifyConstructionInvariants(Location loc, VerCapExtAttr triple,
+                               Vendor vendorID, DeviceType deviceType,
+                               uint32_t deviceID, DictionaryAttr limits);
 };
 } // namespace spirv
 } // namespace mlir

@@ -724,16 +724,24 @@ bb5:                                              ; preds = %bb3
 
 ; IR-LABEL: @uniformly_reached_export
 ; IR-NEXT: .entry:
-; IR: br i1 [[CND:%.*]], label %[[LOOP:.*]], label %[[EXP:.*]]
+; IR: br i1 [[CND:%.*]], label %[[EXP:.*]], label %[[FLOW:.*]]
+
+; IR: [[FLOW]]:
+; IR-NEXT: phi
+; IR-NEXT: br i1 [[CND2:%.*]], label %[[LOOP:.*]], label %UnifiedReturnBlock
 
 ; IR: [[LOOP]]:
-; IR-NEXT: br i1 false, label %DummyReturnBlock, label %[[LOOP]]
+; IR-NEXT: br i1 false, label %[[FLOW1:.*]], label %[[LOOP]]
 
 ; IR: [[EXP]]:
-; IR-NEXT: call void @llvm.amdgcn.exp.compr.v2f16(i32 immarg 0, i32 immarg 15, <2 x half> <half 0xH3C00, half 0xH0000>, <2 x half> <half 0xH0000, half 0xH3C00>, i1 immarg true, i1 immarg true)
-; IR-NEXT: ret void
+; IR-NEXT: call void @llvm.amdgcn.exp.compr.v2f16(i32 immarg 0, i32 immarg 15, <2 x half> <half 0xH3C00, half 0xH0000>, <2 x half> <half 0xH0000, half 0xH3C00>, i1 immarg false, i1 immarg true)
+; IR-NEXT: br label %[[FLOW]]
 
-; IR: DummyReturnBlock:
+; IR: [[FLOW1]]:
+; IR-NEXT: br label %UnifiedReturnBlock
+
+; IR: UnifiedReturnBlock:
+; IR-NEXT: call void @llvm.amdgcn.exp.f32(i32 9, i32 0, float undef, float undef, float undef, float undef, i1 true, i1 true)
 ; IR-NEXT: ret void
 
 define amdgpu_ps void @uniformly_reached_export(float inreg %tmp25) {

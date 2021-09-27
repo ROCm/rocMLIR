@@ -88,7 +88,7 @@ llvm::Expected<std::vector<SymbolInformation>>
 getWorkspaceSymbols(llvm::StringRef Query, int Limit,
                     const SymbolIndex *const Index, llvm::StringRef HintPath) {
   std::vector<SymbolInformation> Result;
-  if (!Index)
+  if (Query.empty() || !Index)
     return Result;
 
   // Lookup for qualified names are performed as:
@@ -172,58 +172,6 @@ getWorkspaceSymbols(llvm::StringRef Query, int Limit,
 }
 
 namespace {
-std::string getSymbolName(ASTContext &Ctx, const NamedDecl &ND) {
-  // Print `MyClass(Category)` instead of `Category` and `MyClass()` instead
-  // of `anonymous`.
-  if (const auto *Container = dyn_cast<ObjCContainerDecl>(&ND))
-    return printObjCContainer(*Container);
-  // Differentiate between class and instance methods: print `-foo` instead of
-  // `foo` and `+sharedInstance` instead of `sharedInstance`.
-  if (const auto *Method = dyn_cast<ObjCMethodDecl>(&ND)) {
-    std::string Name;
-    llvm::raw_string_ostream OS(Name);
-
-    OS << (Method->isInstanceMethod() ? '-' : '+');
-    Method->getSelector().print(OS);
-
-    OS.flush();
-    return Name;
-  }
-  return printName(Ctx, ND);
-}
-
-std::string getSymbolDetail(ASTContext &Ctx, const NamedDecl &ND) {
-  PrintingPolicy P(Ctx.getPrintingPolicy());
-  P.SuppressScope = true;
-  P.SuppressUnwrittenScope = true;
-  P.AnonymousTagLocations = false;
-  P.PolishForDeclaration = true;
-  std::string Detail;
-  llvm::raw_string_ostream OS(Detail);
-  if (ND.getDescribedTemplateParams()) {
-    OS << "template ";
-  }
-  if (const auto *VD = dyn_cast<ValueDecl>(&ND)) {
-    // FIXME: better printing for dependent type
-    if (isa<CXXConstructorDecl>(VD)) {
-      std::string ConstructorType = VD->getType().getAsString(P);
-      // Print constructor type as "(int)" instead of "void (int)".
-      llvm::StringRef WithoutVoid = ConstructorType;
-      WithoutVoid.consume_front("void ");
-      OS << WithoutVoid;
-    } else if (!isa<CXXDestructorDecl>(VD)) {
-      VD->getType().print(OS, P);
-    }
-  } else if (const auto *TD = dyn_cast<TagDecl>(&ND)) {
-    OS << TD->getKindName();
-  } else if (isa<TypedefNameDecl>(&ND)) {
-    OS << "type alias";
-  } else if (isa<ConceptDecl>(&ND)) {
-    OS << "concept";
-  }
-  return std::move(OS.str());
-}
-
 llvm::Optional<DocumentSymbol> declToSym(ASTContext &Ctx, const NamedDecl &ND) {
   auto &SM = Ctx.getSourceManager();
 
@@ -240,12 +188,11 @@ llvm::Optional<DocumentSymbol> declToSym(ASTContext &Ctx, const NamedDecl &ND) {
   SymbolKind SK = indexSymbolKindToSymbolKind(SymInfo.Kind);
 
   DocumentSymbol SI;
-  SI.name = getSymbolName(Ctx, ND);
+  SI.name = printName(Ctx, ND);
   SI.kind = SK;
   SI.deprecated = ND.isDeprecated();
   SI.range = Range{sourceLocToPosition(SM, SymbolRange->getBegin()),
                    sourceLocToPosition(SM, SymbolRange->getEnd())};
-  SI.detail = getSymbolDetail(Ctx, ND);
 
   SourceLocation NameLoc = ND.getLocation();
   SourceLocation FallbackNameLoc;
@@ -289,103 +236,21 @@ llvm::Optional<DocumentSymbol> declToSym(ASTContext &Ctx, const NamedDecl &ND) {
 ///    - visiting decls is actually simple, so we don't hit the complicated
 ///      cases that RAV mostly helps with (types, expressions, etc.)
 class DocumentOutline {
-  // A DocumentSymbol we're constructing.
-  // We use this instead of DocumentSymbol directly so that we can keep track
-  // of the nodes we insert for macros.
-  class SymBuilder {
-    std::vector<SymBuilder> Children;
-    DocumentSymbol Symbol; // Symbol.children is empty, use Children instead.
-    // Macro expansions that this node or its parents are associated with.
-    // (Thus we will never create further children for these expansions).
-    llvm::SmallVector<SourceLocation> EnclosingMacroLoc;
-
-  public:
-    DocumentSymbol build() && {
-      for (SymBuilder &C : Children) {
-        Symbol.children.push_back(std::move(C).build());
-        // Expand range to ensure children nest properly, which editors expect.
-        // This can fix some edge-cases in the AST, but is vital for macros.
-        // A macro expansion "contains" AST node if it covers the node's primary
-        // location, but it may not span the node's whole range.
-        Symbol.range.start =
-            std::min(Symbol.range.start, Symbol.children.back().range.start);
-        Symbol.range.end =
-            std::max(Symbol.range.end, Symbol.children.back().range.end);
-      }
-      return std::move(Symbol);
-    }
-
-    // Add a symbol as a child of the current one.
-    SymBuilder &addChild(DocumentSymbol S) {
-      Children.emplace_back();
-      Children.back().EnclosingMacroLoc = EnclosingMacroLoc;
-      Children.back().Symbol = std::move(S);
-      return Children.back();
-    }
-
-    // Get an appropriate container for children of this symbol that were
-    // expanded from a macro (whose spelled name is Tok).
-    //
-    // This may return:
-    //  - a macro symbol child of this (either new or previously created)
-    //  - this scope itself, if it *is* the macro symbol or is nested within it
-    SymBuilder &inMacro(const syntax::Token &Tok, const SourceManager &SM,
-                        llvm::Optional<syntax::TokenBuffer::Expansion> Exp) {
-      if (llvm::is_contained(EnclosingMacroLoc, Tok.location()))
-        return *this;
-      // If there's an existing child for this macro, we expect it to be last.
-      if (!Children.empty() && !Children.back().EnclosingMacroLoc.empty() &&
-          Children.back().EnclosingMacroLoc.back() == Tok.location())
-        return Children.back();
-
-      DocumentSymbol Sym;
-      Sym.name = Tok.text(SM).str();
-      Sym.kind = SymbolKind::Null; // There's no suitable kind!
-      Sym.range = Sym.selectionRange =
-          halfOpenToRange(SM, Tok.range(SM).toCharRange(SM));
-
-      // FIXME: Exp is currently unavailable for nested expansions.
-      if (Exp) {
-        // Full range covers the macro args.
-        Sym.range = halfOpenToRange(SM, CharSourceRange::getCharRange(
-                                            Exp->Spelled.front().location(),
-                                            Exp->Spelled.back().endLocation()));
-        // Show macro args as detail.
-        llvm::raw_string_ostream OS(Sym.detail);
-        const syntax::Token *Prev = nullptr;
-        for (const auto &Tok : Exp->Spelled.drop_front()) {
-          // Don't dump arbitrarily long macro args.
-          if (OS.tell() > 80) {
-            OS << " ...)";
-            break;
-          }
-          if (Prev && Prev->endLocation() != Tok.location())
-            OS << ' ';
-          OS << Tok.text(SM);
-          Prev = &Tok;
-        }
-      }
-      SymBuilder &Child = addChild(std::move(Sym));
-      Child.EnclosingMacroLoc.push_back(Tok.location());
-      return Child;
-    }
-  };
-
 public:
   DocumentOutline(ParsedAST &AST) : AST(AST) {}
 
   /// Builds the document outline for the generated AST.
   std::vector<DocumentSymbol> build() {
-    SymBuilder Root;
+    std::vector<DocumentSymbol> Results;
     for (auto &TopLevel : AST.getLocalTopLevelDecls())
-      traverseDecl(TopLevel, Root);
-    return std::move(std::move(Root).build().children);
+      traverseDecl(TopLevel, Results);
+    return Results;
   }
 
 private:
   enum class VisitKind { No, OnlyDecl, OnlyChildren, DeclAndChildren };
 
-  void traverseDecl(Decl *D, SymBuilder &Parent) {
+  void traverseDecl(Decl *D, std::vector<DocumentSymbol> &Results) {
     // Skip symbols which do not originate from the main file.
     if (!isInsideMainFile(D->getLocation(), AST.getSourceManager()))
       return;
@@ -401,76 +266,27 @@ private:
       return;
 
     if (Visit == VisitKind::OnlyChildren)
-      return traverseChildren(D, Parent);
+      return traverseChildren(D, Results);
 
     auto *ND = llvm::cast<NamedDecl>(D);
     auto Sym = declToSym(AST.getASTContext(), *ND);
     if (!Sym)
       return;
-    SymBuilder &MacroParent = possibleMacroContainer(D->getLocation(), Parent);
-    SymBuilder &Child = MacroParent.addChild(std::move(*Sym));
+    Results.push_back(std::move(*Sym));
 
     if (Visit == VisitKind::OnlyDecl)
       return;
 
     assert(Visit == VisitKind::DeclAndChildren && "Unexpected VisitKind");
-    traverseChildren(ND, Child);
+    traverseChildren(ND, Results.back().children);
   }
 
-  // Determines where a decl should appear in the DocumentSymbol hierarchy.
-  //
-  // This is usually a direct child of the relevant AST parent.
-  // But we may also insert nodes for macros. Given:
-  //   #define DECLARE_INT(V) int v;
-  //   namespace a { DECLARE_INT(x) }
-  // We produce:
-  //   Namespace a
-  //     Macro DECLARE_INT(x)
-  //       Variable x
-  //
-  // In the absence of macros, this method simply returns Parent.
-  // Otherwise it may return a macro expansion node instead.
-  // Each macro only has at most one node in the hierarchy, even if it expands
-  // to multiple decls.
-  SymBuilder &possibleMacroContainer(SourceLocation TargetLoc,
-                                     SymBuilder &Parent) {
-    const auto &SM = AST.getSourceManager();
-    // Look at the path of macro-callers from the token to the main file.
-    // Note that along these paths we see the "outer" macro calls first.
-    SymBuilder *CurParent = &Parent;
-    for (SourceLocation Loc = TargetLoc; Loc.isMacroID();
-         Loc = SM.getImmediateMacroCallerLoc(Loc)) {
-      // Find the virtual macro body that our token is being substituted into.
-      FileID MacroBody;
-      if (SM.isMacroArgExpansion(Loc)) {
-        // Loc is part of a macro arg being substituted into a macro body.
-        MacroBody = SM.getFileID(SM.getImmediateExpansionRange(Loc).getBegin());
-      } else {
-        // Loc is already in the macro body.
-        MacroBody = SM.getFileID(Loc);
-      }
-      // The macro body is being substituted for a macro expansion, whose
-      // first token is the name of the macro.
-      SourceLocation MacroName =
-          SM.getSLocEntry(MacroBody).getExpansion().getExpansionLocStart();
-      // Only include the macro expansion in the outline if it was written
-      // directly in the main file, rather than expanded from another macro.
-      if (!MacroName.isValid() || !MacroName.isFileID())
-        continue;
-      // All conditions satisfied, add the macro.
-      if (auto *Tok = AST.getTokens().spelledTokenAt(MacroName))
-        CurParent = &CurParent->inMacro(
-            *Tok, SM, AST.getTokens().expansionStartingAt(Tok));
-    }
-    return *CurParent;
-  }
-
-  void traverseChildren(Decl *D, SymBuilder &Builder) {
+  void traverseChildren(Decl *D, std::vector<DocumentSymbol> &Results) {
     auto *Scope = llvm::dyn_cast<DeclContext>(D);
     if (!Scope)
       return;
     for (auto *C : Scope->decls())
-      traverseDecl(C, Builder);
+      traverseDecl(C, Results);
   }
 
   VisitKind shouldVisit(Decl *D) {

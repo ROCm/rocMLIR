@@ -36,7 +36,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include <array>
 #include <chrono>
-#include <cmath>
 #include <cstdint>
 
 namespace llvm {

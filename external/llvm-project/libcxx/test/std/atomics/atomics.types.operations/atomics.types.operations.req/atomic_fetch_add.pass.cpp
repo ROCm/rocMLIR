@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 // UNSUPPORTED: libcpp-has-no-threads
+//  ... test crashes clang
 
 // <atomic>
 
@@ -38,13 +39,15 @@ struct TestFn {
   void operator()() const {
     {
         typedef std::atomic<T> A;
-        A t(T(1));
+        A t;
+        std::atomic_init(&t, T(1));
         assert(std::atomic_fetch_add(&t, T(2)) == T(1));
         assert(t == T(3));
     }
     {
         typedef std::atomic<T> A;
-        volatile A t(T(1));
+        volatile A t;
+        std::atomic_init(&t, T(1));
         assert(std::atomic_fetch_add(&t, T(2)) == T(1));
         assert(t == T(3));
     }
@@ -57,7 +60,8 @@ void testp()
     {
         typedef std::atomic<T> A;
         typedef typename std::remove_pointer<T>::type X;
-        A t(T(1 * sizeof(X)));
+        A t;
+        std::atomic_init(&t, T(1*sizeof(X)));
         assert(std::atomic_fetch_add(&t, 2) == T(1*sizeof(X)));
 #ifdef _LIBCPP_VERSION // libc++ is nonconforming
         std::atomic_fetch_add<X>(&t, 0);
@@ -69,7 +73,8 @@ void testp()
     {
         typedef std::atomic<T> A;
         typedef typename std::remove_pointer<T>::type X;
-        volatile A t(T(1 * sizeof(X)));
+        volatile A t;
+        std::atomic_init(&t, T(1*sizeof(X)));
         assert(std::atomic_fetch_add(&t, 2) == T(1*sizeof(X)));
 #ifdef _LIBCPP_VERSION // libc++ is nonconforming
         std::atomic_fetch_add<X>(&t, 0);

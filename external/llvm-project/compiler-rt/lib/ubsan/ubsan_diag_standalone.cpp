@@ -20,9 +20,11 @@ void __sanitizer::BufferedStackTrace::UnwindImpl(
     uptr pc, uptr bp, void *context, bool request_fast, u32 max_depth) {
   uptr top = 0;
   uptr bottom = 0;
-  GetThreadStackTopAndBottom(false, &top, &bottom);
-  bool fast = StackTrace::WillUseFastUnwind(request_fast);
-  Unwind(max_depth, pc, bp, context, top, bottom, fast);
+  if (StackTrace::WillUseFastUnwind(request_fast)) {
+    GetThreadStackTopAndBottom(false, &top, &bottom);
+    Unwind(max_depth, pc, bp, nullptr, top, bottom, true);
+  } else
+    Unwind(max_depth, pc, bp, context, 0, 0, false);
 }
 
 extern "C" {

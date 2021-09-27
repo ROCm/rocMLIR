@@ -1,4 +1,8 @@
-; RUN: opt -loop-idiom -S <%s | FileCheck %s
+; RUN: opt -loop-idiom -S <%s 2>%t | FileCheck %s
+; RUN: FileCheck --check-prefix=WARN --allow-empty %s <%t
+
+; If this check fails please read test/CodeGen/AArch64/README for instructions on how to resolve it.
+; WARN-NOT: warning
 
 define void @memcpy_fixed_vec(i64* noalias %a, i64* noalias %b) local_unnamed_addr #1 {
 ; CHECK-LABEL: @memcpy_fixed_vec(

@@ -1,9 +1,10 @@
 ; RUN: llc -march=amdgcn -mcpu=gfx902 -verify-machineinstrs -stop-after=si-form-memory-clauses < %s | FileCheck -check-prefix=GCN %s
 
 ; GCN-LABEL: {{^}}name:{{[ 	]*}}vector_clause
-; GCN: LOAD_DWORDX2
+; GCN:      BUNDLE
 ; GCN-NEXT: LOAD_DWORDX2
-; GCN-NEXT: KILL
+; GCN-NEXT: LOAD_DWORDX2
+; GCN-NEXT: {{^ *[}]}}
 define amdgpu_kernel void @vector_clause(<4 x i32> addrspace(1)* noalias nocapture readonly %arg, <4 x i32> addrspace(1)* noalias nocapture %arg1) {
 bb:
   %tmp = tail call i32 @llvm.amdgcn.workitem.id.x()
@@ -32,7 +33,6 @@ bb:
 
 ; GCN-LABEL: {{^}}name:{{[ 	]*}}no_vector_clause
 ; GCN-NOT:   BUNDLE
-; GCN-NOT:   KILL
 define amdgpu_kernel void @no_vector_clause(<4 x i32> addrspace(1)* noalias nocapture readonly %arg, <4 x i32> addrspace(1)* noalias nocapture %arg1) #0 {
 bb:
   %tmp = tail call i32 @llvm.amdgcn.workitem.id.x()

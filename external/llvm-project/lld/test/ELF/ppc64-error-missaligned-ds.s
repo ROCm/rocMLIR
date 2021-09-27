@@ -21,9 +21,6 @@ test:
         lwa   3, word@toc@l(3)
         blr
 
-.data
        .p2align 4
-pad:
-       .byte 1
-word:
-       .long 0
+       .comm pad, 1, 1
+       .comm word, 4, 1

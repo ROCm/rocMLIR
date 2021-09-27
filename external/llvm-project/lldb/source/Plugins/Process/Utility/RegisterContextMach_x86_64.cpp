@@ -19,7 +19,7 @@ RegisterContextMach_x86_64::RegisterContextMach_x86_64(
     Thread &thread, uint32_t concrete_frame_idx)
     : RegisterContextDarwin_x86_64(thread, concrete_frame_idx) {}
 
-RegisterContextMach_x86_64::~RegisterContextMach_x86_64() = default;
+RegisterContextMach_x86_64::~RegisterContextMach_x86_64() {}
 
 int RegisterContextMach_x86_64::DoReadGPR(lldb::tid_t tid, int flavor,
                                           GPR &gpr) {

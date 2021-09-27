@@ -245,7 +245,7 @@ DescriptorInquiry::DescriptorInquiry(
     : base_{base}, field_{field}, dimension_{dim} {
   const Symbol &last{base_.GetLastSymbol()};
   CHECK(IsDescriptor(last));
-  CHECK(((field == Field::Len || field == Field::Rank) && dim == 0) ||
+  CHECK((field == Field::Len && dim == 0) ||
       (field != Field::Len && dim >= 0 && dim < last.Rank()));
 }
 
@@ -265,11 +265,18 @@ static std::optional<Expr<SubscriptInteger>> SymbolLEN(const Symbol &symbol) {
       return chExpr->LEN();
     }
   } else if (auto dyType{DynamicType::From(ultimate)}) {
-    if (auto len{dyType->GetCharLength()}) {
-      return len;
-    } else if (IsDescriptor(ultimate) && !ultimate.owner().IsDerivedType()) {
-      return Expr<SubscriptInteger>{DescriptorInquiry{
-          NamedEntity{symbol}, DescriptorInquiry::Field::Len}};
+    if (const semantics::ParamValue * len{dyType->charLength()}) {
+      if (len->isExplicit()) {
+        if (auto intExpr{len->GetExplicit()}) {
+          if (IsConstantExpr(*intExpr)) {
+            return ConvertToType<SubscriptInteger>(*std::move(intExpr));
+          }
+        }
+      }
+      if (IsDescriptor(ultimate) && !ultimate.owner().IsDerivedType()) {
+        return Expr<SubscriptInteger>{DescriptorInquiry{
+            NamedEntity{ultimate}, DescriptorInquiry::Field::Len}};
+      }
     }
   }
   return std::nullopt;
@@ -344,16 +351,12 @@ std::optional<Expr<SubscriptInteger>> ProcedureDesignator::LEN() const {
             return c.value().LEN();
           },
           [](const SpecificIntrinsic &i) -> T {
-            // Some cases whose results' lengths can be determined
-            // from the lengths of their arguments are handled in
-            // ProcedureRef::LEN() before coming here.
-            if (const auto &result{i.characteristics.value().functionResult}) {
-              if (const auto *type{result->GetTypeAndShape()}) {
-                if (auto length{type->type().GetCharLength()}) {
-                  return std::move(*length);
-                }
-              }
+            if (i.name == "char") {
+              return Expr<SubscriptInteger>{1};
             }
+            // Some other cases whose results' lengths can be determined
+            // from the lengths of their arguments are handled in
+            // ProcedureRef::LEN().
             return std::nullopt;
           },
       },

@@ -69,6 +69,7 @@ using MemprofAllocator = MemprofAllocatorASVT<LocalAddressSpaceView>;
 using AllocatorCache = MemprofAllocator::AllocatorCache;
 
 struct MemprofThreadLocalMallocStorage {
+  uptr quarantine_cache[16];
   AllocatorCache allocator_cache;
   void CommitBack();
 

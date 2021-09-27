@@ -1,5 +1,3 @@
-include(LLVMDistributionSupport)
-
 set(LLVM_INSTALL_PACKAGE_DIR lib${LLVM_LIBDIR_SUFFIX}/cmake/llvm)
 set(llvm_cmake_builddir "${LLVM_BINARY_DIR}/${LLVM_INSTALL_PACKAGE_DIR}")
 
@@ -79,8 +77,8 @@ endif()
 # LLVM_CONFIG_CMAKE_DIR being the source directory. In contrast in the install
 # tree, both the generated LLVMExports.cmake file and the rest of the cmake
 # source files are put in the same cmake directory.
+set(LLVM_CONFIG_EXPORTS_FILE "${LLVM_EXPORTS_FILE}")
 set(LLVM_CONFIG_EXPORTS "${LLVM_EXPORTS};${LLVM_EXPORTS_BUILDTREE_ONLY}")
-set(LLVM_CONFIG_INCLUDE_EXPORTS "include(\"${LLVM_EXPORTS_FILE}\")")
 set(llvm_config_include_buildtree_only_exports
 "include(\"${LLVM_BUILDTREEONLY_EXPORTS_FILE}\")")
 configure_file(
@@ -122,7 +120,7 @@ if (LLVM_INSTALL_UTILS AND LLVM_BUILD_UTILS)
   set(LLVM_CONFIG_DEFAULT_EXTERNAL_LIT "${LLVM_CONFIG_TOOLS_BINARY_DIR}/llvm-lit")
 endif()
 
-get_config_exports_includes(LLVM LLVM_CONFIG_INCLUDE_EXPORTS)
+set(LLVM_CONFIG_EXPORTS_FILE "\${LLVM_CMAKE_DIR}/LLVMExports.cmake")
 set(LLVM_CONFIG_EXPORTS "${LLVM_EXPORTS}")
 configure_file(
   LLVMConfig.cmake.in
@@ -136,7 +134,11 @@ configure_file(
   @ONLY)
 
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
-  install_distribution_exports(LLVM)
+  get_property(llvm_has_exports GLOBAL PROPERTY LLVM_HAS_EXPORTS)
+  if(llvm_has_exports)
+    install(EXPORT LLVMExports DESTINATION ${LLVM_INSTALL_PACKAGE_DIR}
+            COMPONENT cmake-exports)
+  endif()
 
   install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/LLVMConfig.cmake

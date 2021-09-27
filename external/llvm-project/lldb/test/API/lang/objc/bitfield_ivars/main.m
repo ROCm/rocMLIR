@@ -1,4 +1,4 @@
-#import <objc/NSObject.h>
+#import <Foundation/Foundation.h>
 
 typedef struct {
     unsigned char fieldOne : 1;

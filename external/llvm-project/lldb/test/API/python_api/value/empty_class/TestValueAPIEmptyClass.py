@@ -8,6 +8,7 @@ class ValueAPIEmptyClassTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
+    @add_test_categories(['pyapi'])
     def test(self):
         self.build()
         exe = self.getBuildArtifact("a.out")

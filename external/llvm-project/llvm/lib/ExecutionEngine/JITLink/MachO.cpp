@@ -1,8 +1,9 @@
 //===-------------- MachO.cpp - JIT linker function for MachO -------------===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
 //
@@ -63,9 +64,9 @@ createLinkGraphFromMachOObject(MemoryBufferRef ObjectBuffer) {
 
     switch (CPUType) {
     case MachO::CPU_TYPE_ARM64:
-      return createLinkGraphFromMachOObject_arm64(ObjectBuffer);
+      return createLinkGraphFromMachOObject_arm64(std::move(ObjectBuffer));
     case MachO::CPU_TYPE_X86_64:
-      return createLinkGraphFromMachOObject_x86_64(ObjectBuffer);
+      return createLinkGraphFromMachOObject_x86_64(std::move(ObjectBuffer));
     }
     return make_error<JITLinkError>("MachO-64 CPU type not valid");
   } else

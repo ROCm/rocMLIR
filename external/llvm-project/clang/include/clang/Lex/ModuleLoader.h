@@ -45,6 +45,9 @@ public:
 
     // The module exists but cannot be imported due to a configuration mismatch.
     ConfigMismatch,
+
+    // We failed to load the module, but we shouldn't cache the failure.
+    OtherUncachedFailure,
   };
   llvm::PointerIntPair<Module *, 2, LoadResultKind> Storage;
 

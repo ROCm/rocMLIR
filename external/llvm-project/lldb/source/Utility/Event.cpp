@@ -17,7 +17,7 @@
 
 #include <algorithm>
 
-#include <cctype>
+#include <ctype.h>
 
 using namespace lldb;
 using namespace lldb_private;
@@ -198,7 +198,7 @@ EventDataStructuredData::EventDataStructuredData(
     : EventData(), m_process_sp(process_sp), m_object_sp(object_sp),
       m_plugin_sp(plugin_sp) {}
 
-EventDataStructuredData::~EventDataStructuredData() = default;
+EventDataStructuredData::~EventDataStructuredData() {}
 
 // EventDataStructuredData member functions
 

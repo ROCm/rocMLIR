@@ -1,4 +1,4 @@
-! RUN: %python %S/test_symbols.py %s %flang_fc1 -fopenmp
+! RUN: %S/test_symbols.sh %s %t %f18 -fopenmp
 
 ! Test clauses that accept list.
 ! 2.1 Directive Format

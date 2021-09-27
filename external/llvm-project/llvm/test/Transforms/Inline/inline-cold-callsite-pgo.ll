@@ -4,10 +4,12 @@
 ; and does not get inlined. Another callsite to an identical callee that
 ; is not cold gets inlined because cost is below the inline-threshold.
 
-define i32 @callee1(i32 %x) "function-inline-cost"="30" !prof !21 {
+define i32 @callee1(i32 %x) !prof !21 {
   %x1 = add i32 %x, 1
+  %x2 = add i32 %x1, 1
+  %x3 = add i32 %x2, 1
   call void @extern()
-  ret i32 %x1
+  ret i32 %x3
 }
 
 define i32 @caller(i32 %n) !prof !22 {
@@ -18,7 +20,7 @@ define i32 @caller(i32 %n) !prof !22 {
 cond_true:
 ; CHECK-LABEL: cond_true:
 ; CHECK-NOT: call i32 @callee1
-; CHECK: ret i32 %x1.i
+; CHECK: ret i32 %x3.i
   %i = call i32 @callee1(i32 %n)
   ret i32 %i
 cond_false:

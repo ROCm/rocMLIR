@@ -184,8 +184,9 @@ static unsigned matchOption(const OptTable::Info *I, StringRef Str,
     StringRef Prefix(*Pre);
     if (Str.startswith(Prefix)) {
       StringRef Rest = Str.substr(Prefix.size());
-      bool Matched = IgnoreCase ? Rest.startswith_insensitive(I->Name)
-                                : Rest.startswith(I->Name);
+      bool Matched = IgnoreCase
+          ? Rest.startswith_lower(I->Name)
+          : Rest.startswith(I->Name);
       if (Matched)
         return Prefix.size() + StringRef(I->Name).size();
     }
@@ -375,22 +376,13 @@ Arg *OptTable::parseOneArgGrouped(InputArgList &Args, unsigned &Index) const {
   }
   if (Fallback) {
     Option Opt(Fallback, this);
-    // Check that the last option isn't a flag wrongly given an argument.
-    if (Str[2] == '=')
-      return new Arg(getOption(TheUnknownOptionID), Str, Index++, CStr);
-
     if (Arg *A = Opt.accept(Args, Str.substr(0, 2), true, Index)) {
-      Args.replaceArgString(Index, Twine('-') + Str.substr(2));
+      if (Str.size() == 2)
+        ++Index;
+      else
+        Args.replaceArgString(Index, Twine('-') + Str.substr(2));
       return A;
     }
-  }
-
-  // In the case of an incorrect short option extract the character and move to
-  // the next one.
-  if (Str[1] != '-') {
-    CStr = Args.MakeArgString(Str.substr(0, 2));
-    Args.replaceArgString(Index, Twine('-') + Str.substr(2));
-    return new Arg(getOption(TheUnknownOptionID), CStr, Index, CStr);
   }
 
   return new Arg(getOption(TheUnknownOptionID), Str, Index++, CStr);
@@ -627,13 +619,13 @@ static const char *getOptionHelpGroup(const OptTable &Opts, OptSpecifier Id) {
   return getOptionHelpGroup(Opts, GroupID);
 }
 
-void OptTable::printHelp(raw_ostream &OS, const char *Usage, const char *Title,
+void OptTable::PrintHelp(raw_ostream &OS, const char *Usage, const char *Title,
                          bool ShowHidden, bool ShowAllAliases) const {
-  printHelp(OS, Usage, Title, /*Include*/ 0, /*Exclude*/
+  PrintHelp(OS, Usage, Title, /*Include*/ 0, /*Exclude*/
             (ShowHidden ? 0 : HelpHidden), ShowAllAliases);
 }
 
-void OptTable::printHelp(raw_ostream &OS, const char *Usage, const char *Title,
+void OptTable::PrintHelp(raw_ostream &OS, const char *Usage, const char *Title,
                          unsigned FlagsToInclude, unsigned FlagsToExclude,
                          bool ShowAllAliases) const {
   OS << "OVERVIEW: " << Title << "\n\n";
@@ -663,7 +655,7 @@ void OptTable::printHelp(raw_ostream &OS, const char *Usage, const char *Title,
         HelpText = getOptionHelpText(Alias.getID());
     }
 
-    if (HelpText && (strlen(HelpText) != 0)) {
+    if (HelpText) {
       const char *HelpGroup = getOptionHelpGroup(*this, Id);
       const std::string &OptName = getOptionHelpName(*this, Id);
       GroupedOptionHelp[HelpGroup].push_back({OptName, HelpText});

@@ -11,14 +11,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/Sema/SemaInternal.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
 #include "clang/AST/StmtOpenMP.h"
-#include "clang/Basic/SourceLocation.h"
-#include "clang/Sema/SemaInternal.h"
 #include "llvm/ADT/BitVector.h"
 using namespace clang;
 
@@ -30,10 +29,6 @@ namespace {
 ///    int a[n];
 ///  L:
 ///
-/// We also detect jumps out of protected scopes when it's not possible to do
-/// cleanups properly. Indirect jumps and ASM jumps can't do cleanups because
-/// the target is unknown. Return statements with \c [[clang::musttail]] cannot
-/// handle any cleanups due to the nature of a tail call.
 class JumpScopeChecker {
   Sema &S;
 
@@ -73,7 +68,6 @@ class JumpScopeChecker {
 
   SmallVector<Stmt*, 4> IndirectJumps;
   SmallVector<Stmt*, 4> AsmJumps;
-  SmallVector<AttributedStmt *, 4> MustTailStmts;
   SmallVector<LabelDecl*, 4> IndirectJumpTargets;
   SmallVector<LabelDecl*, 4> AsmJumpTargets;
 public:
@@ -87,7 +81,6 @@ private:
 
   void VerifyJumps();
   void VerifyIndirectOrAsmJumps(bool IsAsmGoto);
-  void VerifyMustTailStmts();
   void NoteJumpIntoScopes(ArrayRef<unsigned> ToScopes);
   void DiagnoseIndirectOrAsmJump(Stmt *IG, unsigned IGScope, LabelDecl *Target,
                                  unsigned TargetScope);
@@ -95,7 +88,6 @@ private:
                  unsigned JumpDiag, unsigned JumpDiagWarning,
                  unsigned JumpDiagCXX98Compat);
   void CheckGotoStmt(GotoStmt *GS);
-  const Attr *GetMustTailAttr(AttributedStmt *AS);
 
   unsigned GetDeepestCommonScope(unsigned A, unsigned B);
 };
@@ -117,7 +109,6 @@ JumpScopeChecker::JumpScopeChecker(Stmt *Body, Sema &s)
   VerifyJumps();
   VerifyIndirectOrAsmJumps(false);
   VerifyIndirectOrAsmJumps(true);
-  VerifyMustTailStmts();
 }
 
 /// GetDeepestCommonScope - Finds the innermost scope enclosing the
@@ -589,15 +580,6 @@ void JumpScopeChecker::BuildScopeInformation(Stmt *S,
     LabelAndGotoScopes[S] = ParentScope;
     break;
 
-  case Stmt::AttributedStmtClass: {
-    AttributedStmt *AS = cast<AttributedStmt>(S);
-    if (GetMustTailAttr(AS)) {
-      LabelAndGotoScopes[AS] = ParentScope;
-      MustTailStmts.push_back(AS);
-    }
-    break;
-  }
-
   default:
     if (auto *ED = dyn_cast<OMPExecutableDirective>(S)) {
       if (!ED->isStandaloneDirective()) {
@@ -965,9 +947,6 @@ void JumpScopeChecker::CheckJump(Stmt *From, Stmt *To, SourceLocation DiagLoc,
   if (!ToScopesWarning.empty()) {
     S.Diag(DiagLoc, JumpDiagWarning);
     NoteJumpIntoScopes(ToScopesWarning);
-    assert(isa<LabelStmt>(To));
-    LabelStmt *Label = cast<LabelStmt>(To);
-    Label->setSideEntry(true);
   }
 
   // Handle errors.
@@ -990,24 +969,6 @@ void JumpScopeChecker::CheckGotoStmt(GotoStmt *GS) {
     S.Diag(GS->getLabel()->getLocation(), diag::note_goto_ms_asm_label)
         << GS->getLabel()->getIdentifier();
   }
-}
-
-void JumpScopeChecker::VerifyMustTailStmts() {
-  for (AttributedStmt *AS : MustTailStmts) {
-    for (unsigned I = LabelAndGotoScopes[AS]; I; I = Scopes[I].ParentScope) {
-      if (Scopes[I].OutDiag) {
-        S.Diag(AS->getBeginLoc(), diag::err_musttail_scope);
-        S.Diag(Scopes[I].Loc, Scopes[I].OutDiag);
-      }
-    }
-  }
-}
-
-const Attr *JumpScopeChecker::GetMustTailAttr(AttributedStmt *AS) {
-  ArrayRef<const Attr *> Attrs = AS->getAttrs();
-  const auto *Iter =
-      llvm::find_if(Attrs, [](const Attr *A) { return isa<MustTailAttr>(A); });
-  return Iter != Attrs.end() ? *Iter : nullptr;
 }
 
 void Sema::DiagnoseInvalidJumps(Stmt *Body) {

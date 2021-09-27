@@ -424,21 +424,6 @@ bool llvm::isLegalToPromote(const CallBase &CB, Function *Callee,
         *FailureReason = "Argument type mismatch";
       return false;
     }
-    // Make sure that the callee and call agree on byval/inalloca. The types do
-    // not have to match.
-
-    if (Callee->hasParamAttribute(I, Attribute::ByVal) !=
-        CB.getAttributes().hasParamAttr(I, Attribute::ByVal)) {
-      if (FailureReason)
-        *FailureReason = "byval mismatch";
-      return false;
-    }
-    if (Callee->hasParamAttribute(I, Attribute::InAlloca) !=
-        CB.getAttributes().hasParamAttr(I, Attribute::InAlloca)) {
-      if (FailureReason)
-        *FailureReason = "inalloca mismatch";
-      return false;
-    }
   }
   for (; I < NumArgs; I++) {
     // Vararg functions can have more arguments than parameters.
@@ -500,19 +485,21 @@ CallBase &llvm::promoteCall(CallBase &CB, Function *Callee,
       CB.setArgOperand(ArgNo, Cast);
 
       // Remove any incompatible attributes for the argument.
-      AttrBuilder ArgAttrs(CallerPAL.getParamAttrs(ArgNo));
+      AttrBuilder ArgAttrs(CallerPAL.getParamAttributes(ArgNo));
       ArgAttrs.remove(AttributeFuncs::typeIncompatible(FormalTy));
 
-      // We may have a different byval/inalloca type.
-      if (ArgAttrs.getByValType())
-        ArgAttrs.addByValAttr(Callee->getParamByValType(ArgNo));
-      if (ArgAttrs.getInAllocaType())
-        ArgAttrs.addInAllocaAttr(Callee->getParamInAllocaType(ArgNo));
+      // If byval is used, this must be a pointer type, and the byval type must
+      // match the element type. Update it if present.
+      if (ArgAttrs.getByValType()) {
+        Type *NewTy = Callee->getParamByValType(ArgNo);
+        ArgAttrs.addByValAttr(
+            NewTy ? NewTy : cast<PointerType>(FormalTy)->getElementType());
+      }
 
       NewArgAttrs.push_back(AttributeSet::get(Ctx, ArgAttrs));
       AttributeChanged = true;
     } else
-      NewArgAttrs.push_back(CallerPAL.getParamAttrs(ArgNo));
+      NewArgAttrs.push_back(CallerPAL.getParamAttributes(ArgNo));
   }
 
   // If the return type of the call site doesn't match that of the callee, cast
@@ -527,7 +514,7 @@ CallBase &llvm::promoteCall(CallBase &CB, Function *Callee,
 
   // Set the new callsite attribute.
   if (AttributeChanged)
-    CB.setAttributes(AttributeList::get(Ctx, CallerPAL.getFnAttrs(),
+    CB.setAttributes(AttributeList::get(Ctx, CallerPAL.getFnAttributes(),
                                         AttributeSet::get(Ctx, RAttrs),
                                         NewArgAttrs));
 

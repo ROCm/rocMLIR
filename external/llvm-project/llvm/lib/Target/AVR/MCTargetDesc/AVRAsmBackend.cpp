@@ -44,7 +44,7 @@ static void signed_width(unsigned Width, uint64_t Value,
     int64_t Max = maxIntN(Width);
 
     Diagnostic += " (expected an integer in the range " + std::to_string(Min) +
-                  " to " + std::to_string(Max) + ")";
+      " to " + std::to_string(Max) + ")";
 
     if (Ctx) {
       Ctx->reportFatalError(Fixup.getLoc(), Diagnostic);
@@ -62,8 +62,8 @@ static void unsigned_width(unsigned Width, uint64_t Value,
 
     int64_t Max = maxUIntN(Width);
 
-    Diagnostic +=
-        " (expected an integer in the range 0 to " + std::to_string(Max) + ")";
+    Diagnostic += " (expected an integer in the range 0 to " +
+      std::to_string(Max) + ")";
 
     if (Ctx) {
       Ctx->reportFatalError(Fixup.getLoc(), Diagnostic);
@@ -233,14 +233,15 @@ static void ms8(unsigned Size, const MCFixup &Fixup, uint64_t &Value,
   ldi::fixup(Size, Fixup, Value, Ctx);
 }
 
-} // namespace ldi
-} // namespace adjust
+} // end of ldi namespace
+} // end of adjust namespace
 
 namespace llvm {
 
 // Prepare value for the target space for it
 void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup,
-                                     const MCValue &Target, uint64_t &Value,
+                                     const MCValue &Target,
+                                     uint64_t &Value,
                                      MCContext *Ctx) const {
   // The size of the fixup in bits.
   uint64_t Size = AVRAsmBackend::getFixupKindInfo(Fixup.getKind()).TargetSize;
@@ -279,8 +280,7 @@ void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup,
     break;
   case AVR::fixup_hh8_ldi:
   case AVR::fixup_hh8_ldi_pm:
-    if (Kind == AVR::fixup_hh8_ldi_pm)
-      adjust::pm(Value);
+    if (Kind == AVR::fixup_hh8_ldi_pm) adjust::pm(Value);
 
     adjust::ldi::hh8(Size, Fixup, Value, Ctx);
     break;
@@ -290,24 +290,21 @@ void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup,
 
   case AVR::fixup_lo8_ldi_neg:
   case AVR::fixup_lo8_ldi_pm_neg:
-    if (Kind == AVR::fixup_lo8_ldi_pm_neg)
-      adjust::pm(Value);
+    if (Kind == AVR::fixup_lo8_ldi_pm_neg) adjust::pm(Value);
 
     adjust::ldi::neg(Value);
     adjust::ldi::lo8(Size, Fixup, Value, Ctx);
     break;
   case AVR::fixup_hi8_ldi_neg:
   case AVR::fixup_hi8_ldi_pm_neg:
-    if (Kind == AVR::fixup_hi8_ldi_pm_neg)
-      adjust::pm(Value);
+    if (Kind == AVR::fixup_hi8_ldi_pm_neg) adjust::pm(Value);
 
     adjust::ldi::neg(Value);
     adjust::ldi::hi8(Size, Fixup, Value, Ctx);
     break;
   case AVR::fixup_hh8_ldi_neg:
   case AVR::fixup_hh8_ldi_pm_neg:
-    if (Kind == AVR::fixup_hh8_ldi_pm_neg)
-      adjust::pm(Value);
+    if (Kind == AVR::fixup_hh8_ldi_pm_neg) adjust::pm(Value);
 
     adjust::ldi::neg(Value);
     adjust::ldi::hh8(Size, Fixup, Value, Ctx);
@@ -458,8 +455,7 @@ MCFixupKindInfo const &AVRAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
   return Infos[Kind - FirstTargetFixupKind];
 }
 
-bool AVRAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,
-                                 const MCSubtargetInfo *STI) const {
+bool AVRAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count) const {
   // If the count is not 2-byte aligned, we must be writing data into the text
   // section (otherwise we have unaligned instructions, and thus have far
   // bigger problems), so just write zeros instead.
@@ -472,9 +468,8 @@ bool AVRAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,
 bool AVRAsmBackend::shouldForceRelocation(const MCAssembler &Asm,
                                           const MCFixup &Fixup,
                                           const MCValue &Target) {
-  switch ((unsigned)Fixup.getKind()) {
-  default:
-    return false;
+  switch ((unsigned) Fixup.getKind()) {
+  default: return false;
   // Fixups which should always be recorded as relocations.
   case AVR::fixup_7_pcrel:
   case AVR::fixup_13_pcrel:
@@ -490,3 +485,4 @@ MCAsmBackend *createAVRAsmBackend(const Target &T, const MCSubtargetInfo &STI,
 }
 
 } // end of namespace llvm
+

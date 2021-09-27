@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 ! Error tests for structure constructors.
 ! Errors caught by expression resolution are tested elsewhere; these are the
 ! errors meant to be caught by name resolution, as well as acceptable use

@@ -11,11 +11,11 @@
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/Errno.h"
 #include <cassert>
-#include <climits>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
+#include <limits.h>
 #include <mutex>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #if defined(TIOCSCTTY)
 #include <sys/ioctl.h>
 #endif
@@ -29,7 +29,8 @@ int posix_openpt(int flags);
 using namespace lldb_private;
 
 // PseudoTerminal constructor
-PseudoTerminal::PseudoTerminal() = default;
+PseudoTerminal::PseudoTerminal()
+    : m_primary_fd(invalid_fd), m_secondary_fd(invalid_fd) {}
 
 // Destructor
 //

@@ -11,7 +11,6 @@
 
 #include "../ClangTidyCheck.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
-#include "clang/StaticAnalyzer/Checkers/MPIFunctionClassifier.h"
 
 namespace clang {
 namespace tidy {
@@ -32,8 +31,6 @@ public:
   void registerMatchers(ast_matchers::MatchFinder *Finder) override;
   void check(const ast_matchers::MatchFinder::MatchResult &Result) override;
 
-  void onEndOfTranslationUnit() override;
-
 private:
   /// Check if the buffer type MPI datatype pairs match.
   ///
@@ -44,8 +41,6 @@ private:
   void checkArguments(ArrayRef<const Type *> BufferTypes,
                       ArrayRef<const Expr *> BufferExprs,
                       ArrayRef<StringRef> MPIDatatypes, const LangOptions &LO);
-
-  Optional<ento::mpi::MPIFunctionClassifier> FuncClassifier;
 };
 
 } // namespace mpi

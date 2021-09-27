@@ -182,7 +182,8 @@ void A15SDOptimizer::eraseInstrWithNoUses(MachineInstr *MI) {
   Front.push_back(MI);
 
   while (Front.size() != 0) {
-    MI = Front.pop_back_val();
+    MI = Front.back();
+    Front.pop_back();
 
     // MI is already known to be dead. We need to see
     // if other instructions can also be removed.

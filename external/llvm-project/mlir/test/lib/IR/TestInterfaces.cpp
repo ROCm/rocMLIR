@@ -10,17 +10,13 @@
 #include "mlir/Pass/Pass.h"
 
 using namespace mlir;
-using namespace test;
+using namespace mlir::test;
 
 namespace {
 /// This test checks various aspects of Type interface generation and
 /// application.
 struct TestTypeInterfaces
     : public PassWrapper<TestTypeInterfaces, OperationPass<ModuleOp>> {
-  StringRef getArgument() const final { return "test-type-interfaces"; }
-  StringRef getDescription() const final {
-    return "Test type interface support.";
-  }
   void runOnOperation() override {
     getOperation().walk([](Operation *op) {
       for (Type type : op->getResultTypes()) {
@@ -44,6 +40,9 @@ struct TestTypeInterfaces
 
 namespace mlir {
 namespace test {
-void registerTestInterfaces() { PassRegistration<TestTypeInterfaces>(); }
+void registerTestInterfaces() {
+  PassRegistration<TestTypeInterfaces> pass("test-type-interfaces",
+                                            "Test type interface support.");
+}
 } // namespace test
 } // namespace mlir

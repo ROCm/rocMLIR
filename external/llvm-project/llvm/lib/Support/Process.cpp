@@ -92,12 +92,13 @@ static bool coreFilesPrevented = !LLVM_ENABLE_CRASH_DUMPS;
 
 bool Process::AreCoreFilesPrevented() { return coreFilesPrevented; }
 
-[[noreturn]] void Process::Exit(int RetCode, bool NoCleanup) {
+LLVM_ATTRIBUTE_NORETURN
+void Process::Exit(int RetCode, bool NoCleanup) {
   if (CrashRecoveryContext *CRC = CrashRecoveryContext::GetCurrent())
     CRC->HandleExit(RetCode);
 
   if (NoCleanup)
-    ExitNoCleanup(RetCode);
+    _Exit(RetCode);
   else
     ::exit(RetCode);
 }

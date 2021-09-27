@@ -29,11 +29,9 @@ group("unittests") {
     "Linker:LinkerTests",
     "MC:MCTests",
     "MI:MITests",
-    "MIR:MIRTests",
     "Object:ObjectTests",
     "ObjectYAML:ObjectYAMLTests",
     "Option:OptionTests",
-    "Passes:PassesBindingsTests",
     "Passes:PluginsTests",
     "ProfileData:ProfileDataTests",
     "Remarks:RemarksTests",
@@ -81,9 +79,6 @@ group("unittests") {
       "Target/PowerPC:PowerPCTests",
       "tools/llvm-exegesis/PowerPC:LLVMExegesisPowerPCTests",
     ]
-  }
-  if (llvm_build_SystemZ) {
-    deps += [ "MC/SystemZ:SystemZAsmLexerTests" ]
   }
   if (llvm_build_WebAssembly) {
     deps += [ "Target/WebAssembly:WebAssemblyTests" ]

@@ -19,12 +19,13 @@ using namespace lldb_private;
 using namespace lldb_private::process_gdb_remote;
 
 GDBRemoteCommunicationHistory::GDBRemoteCommunicationHistory(uint32_t size)
-    : m_packets() {
+    : m_packets(), m_curr_idx(0), m_total_packet_count(0),
+      m_dumped_to_log(false) {
   if (size)
     m_packets.resize(size);
 }
 
-GDBRemoteCommunicationHistory::~GDBRemoteCommunicationHistory() = default;
+GDBRemoteCommunicationHistory::~GDBRemoteCommunicationHistory() {}
 
 void GDBRemoteCommunicationHistory::AddPacket(char packet_char,
                                               GDBRemotePacket::Type type,

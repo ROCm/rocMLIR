@@ -131,7 +131,7 @@ define <16 x i8> @mul_constant_multiuse(i8 %a0, <16 x i8> %a1) {
 define <2 x i64> @shl_constant_op0(i64 %x) {
 ; CHECK-LABEL: @shl_constant_op0(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = shl i64 2, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 1
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 1
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 1
@@ -142,7 +142,7 @@ define <2 x i64> @shl_constant_op0(i64 %x) {
 define <2 x i64> @shl_constant_op0_not_undef_lane(i64 %x) {
 ; CHECK-LABEL: @shl_constant_op0_not_undef_lane(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = shl i64 2, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 1
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 1
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 1
@@ -164,13 +164,20 @@ define <2 x i64> @shl_constant_op0_load(i64* %p) {
 }
 
 define <4 x i32> @shl_constant_op0_multiuse(i32 %a0, <4 x i32> %a1) {
-; CHECK-LABEL: @shl_constant_op0_multiuse(
-; CHECK-NEXT:    [[INS:%.*]] = insertelement <4 x i32> <i32 undef, i32 1, i32 2, i32 3>, i32 [[A0:%.*]], i32 0
-; CHECK-NEXT:    [[MUL_SCALAR:%.*]] = shl i32 [[A0]], 3
-; CHECK-NEXT:    [[MUL:%.*]] = insertelement <4 x i32> <i32 0, i32 16, i32 64, i32 192>, i32 [[MUL_SCALAR]], i64 0
-; CHECK-NEXT:    [[AND:%.*]] = and <4 x i32> [[INS]], [[A1:%.*]]
-; CHECK-NEXT:    [[XOR:%.*]] = xor <4 x i32> [[AND]], [[MUL]]
-; CHECK-NEXT:    ret <4 x i32> [[XOR]]
+; SSE-LABEL: @shl_constant_op0_multiuse(
+; SSE-NEXT:    [[INS:%.*]] = insertelement <4 x i32> <i32 undef, i32 1, i32 2, i32 3>, i32 [[A0:%.*]], i32 0
+; SSE-NEXT:    [[MUL_SCALAR:%.*]] = shl i32 [[A0]], 3
+; SSE-NEXT:    [[MUL:%.*]] = insertelement <4 x i32> <i32 0, i32 16, i32 64, i32 192>, i32 [[MUL_SCALAR]], i64 0
+; SSE-NEXT:    [[AND:%.*]] = and <4 x i32> [[INS]], [[A1:%.*]]
+; SSE-NEXT:    [[XOR:%.*]] = xor <4 x i32> [[AND]], [[MUL]]
+; SSE-NEXT:    ret <4 x i32> [[XOR]]
+;
+; AVX-LABEL: @shl_constant_op0_multiuse(
+; AVX-NEXT:    [[INS:%.*]] = insertelement <4 x i32> <i32 undef, i32 1, i32 2, i32 3>, i32 [[A0:%.*]], i32 0
+; AVX-NEXT:    [[MUL:%.*]] = shl <4 x i32> [[INS]], <i32 3, i32 4, i32 5, i32 6>
+; AVX-NEXT:    [[AND:%.*]] = and <4 x i32> [[INS]], [[A1:%.*]]
+; AVX-NEXT:    [[XOR:%.*]] = xor <4 x i32> [[AND]], [[MUL]]
+; AVX-NEXT:    ret <4 x i32> [[XOR]]
 ;
   %ins = insertelement <4 x i32> <i32 undef, i32 1, i32 2, i32 3>, i32 %a0, i32 0
   %mul = shl <4 x i32> %ins, <i32 3, i32 4, i32 5, i32 6>
@@ -182,7 +189,7 @@ define <4 x i32> @shl_constant_op0_multiuse(i32 %a0, <4 x i32> %a1) {
 define <2 x i64> @shl_constant_op1(i64 %x) {
 ; CHECK-LABEL: @shl_constant_op1(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = shl nuw i64 [[X:%.*]], 5
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 0, i64 poison>, i64 [[BO_SCALAR]], i64 0
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 0, i64 undef>, i64 [[BO_SCALAR]], i64 0
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 0
@@ -217,7 +224,7 @@ define <2 x i64> @shl_constant_op1_load(i64* %p) {
 define <2 x i64> @ashr_constant_op0(i64 %x) {
 ; CHECK-LABEL: @ashr_constant_op0(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = ashr exact i64 2, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 1
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 1
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 1
@@ -228,7 +235,7 @@ define <2 x i64> @ashr_constant_op0(i64 %x) {
 define <2 x i64> @ashr_constant_op0_not_undef_lane(i64 %x) {
 ; CHECK-LABEL: @ashr_constant_op0_not_undef_lane(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = ashr exact i64 2, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 1
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 1
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 1
@@ -239,7 +246,7 @@ define <2 x i64> @ashr_constant_op0_not_undef_lane(i64 %x) {
 define <2 x i64> @ashr_constant_op1(i64 %x) {
 ; CHECK-LABEL: @ashr_constant_op1(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = ashr i64 [[X:%.*]], 5
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 0, i64 poison>, i64 [[BO_SCALAR]], i64 0
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 0, i64 undef>, i64 [[BO_SCALAR]], i64 0
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 0
@@ -261,7 +268,7 @@ define <2 x i64> @ashr_constant_op1_not_undef_lane(i64 %x) {
 define <2 x i64> @lshr_constant_op0(i64 %x) {
 ; CHECK-LABEL: @lshr_constant_op0(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = lshr i64 5, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 0
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 0
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 0
@@ -272,7 +279,7 @@ define <2 x i64> @lshr_constant_op0(i64 %x) {
 define <2 x i64> @lshr_constant_op0_not_undef_lane(i64 %x) {
 ; CHECK-LABEL: @lshr_constant_op0_not_undef_lane(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = lshr i64 5, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 0
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 0
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 0
@@ -283,7 +290,7 @@ define <2 x i64> @lshr_constant_op0_not_undef_lane(i64 %x) {
 define <2 x i64> @lshr_constant_op1(i64 %x) {
 ; CHECK-LABEL: @lshr_constant_op1(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = lshr exact i64 [[X:%.*]], 2
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 poison, i64 0>, i64 [[BO_SCALAR]], i64 1
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 undef, i64 0>, i64 [[BO_SCALAR]], i64 1
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 1
@@ -305,7 +312,7 @@ define <2 x i64> @lshr_constant_op1_not_undef_lane(i64 %x) {
 define <2 x i64> @urem_constant_op0(i64 %x) {
 ; CHECK-LABEL: @urem_constant_op0(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = urem i64 5, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 0
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 0
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 0
@@ -316,7 +323,7 @@ define <2 x i64> @urem_constant_op0(i64 %x) {
 define <2 x i64> @urem_constant_op0_not_undef_lane(i64 %x) {
 ; CHECK-LABEL: @urem_constant_op0_not_undef_lane(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = urem i64 5, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 0
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 0
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 0
@@ -327,7 +334,7 @@ define <2 x i64> @urem_constant_op0_not_undef_lane(i64 %x) {
 define <2 x i64> @urem_constant_op1(i64 %x) {
 ; CHECK-LABEL: @urem_constant_op1(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = urem i64 [[X:%.*]], 2
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 poison, i64 0>, i64 [[BO_SCALAR]], i64 1
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 undef, i64 0>, i64 [[BO_SCALAR]], i64 1
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 1
@@ -349,7 +356,7 @@ define <2 x i64> @urem_constant_op1_not_undef_lane(i64 %x) {
 define <2 x i64> @srem_constant_op0(i64 %x) {
 ; CHECK-LABEL: @srem_constant_op0(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = srem i64 5, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 0
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 0
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 0
@@ -360,7 +367,7 @@ define <2 x i64> @srem_constant_op0(i64 %x) {
 define <2 x i64> @srem_constant_op0_not_undef_lane(i64 %x) {
 ; CHECK-LABEL: @srem_constant_op0_not_undef_lane(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = srem i64 5, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 0
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 0
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 0
@@ -371,7 +378,7 @@ define <2 x i64> @srem_constant_op0_not_undef_lane(i64 %x) {
 define <2 x i64> @srem_constant_op1(i64 %x) {
 ; CHECK-LABEL: @srem_constant_op1(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = srem i64 [[X:%.*]], 2
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 poison, i64 0>, i64 [[BO_SCALAR]], i64 1
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 undef, i64 0>, i64 [[BO_SCALAR]], i64 1
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 1
@@ -393,7 +400,7 @@ define <2 x i64> @srem_constant_op1_not_undef_lane(i64 %x) {
 define <2 x i64> @udiv_constant_op0(i64 %x) {
 ; CHECK-LABEL: @udiv_constant_op0(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = udiv exact i64 5, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 0
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 0
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 0
@@ -404,7 +411,7 @@ define <2 x i64> @udiv_constant_op0(i64 %x) {
 define <2 x i64> @udiv_constant_op0_not_undef_lane(i64 %x) {
 ; CHECK-LABEL: @udiv_constant_op0_not_undef_lane(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = udiv exact i64 5, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 0
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 0
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 0
@@ -415,7 +422,7 @@ define <2 x i64> @udiv_constant_op0_not_undef_lane(i64 %x) {
 define <2 x i64> @udiv_constant_op1(i64 %x) {
 ; CHECK-LABEL: @udiv_constant_op1(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = udiv i64 [[X:%.*]], 2
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 poison, i64 0>, i64 [[BO_SCALAR]], i64 1
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 undef, i64 0>, i64 [[BO_SCALAR]], i64 1
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 1
@@ -437,7 +444,7 @@ define <2 x i64> @udiv_constant_op1_not_undef_lane(i64 %x) {
 define <2 x i64> @sdiv_constant_op0(i64 %x) {
 ; CHECK-LABEL: @sdiv_constant_op0(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = sdiv i64 5, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 0
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 0
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 0
@@ -448,7 +455,7 @@ define <2 x i64> @sdiv_constant_op0(i64 %x) {
 define <2 x i64> @sdiv_constant_op0_not_undef_lane(i64 %x) {
 ; CHECK-LABEL: @sdiv_constant_op0_not_undef_lane(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = sdiv i64 5, [[X:%.*]]
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> poison, i64 [[BO_SCALAR]], i64 0
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> undef, i64 [[BO_SCALAR]], i64 0
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 0
@@ -459,7 +466,7 @@ define <2 x i64> @sdiv_constant_op0_not_undef_lane(i64 %x) {
 define <2 x i64> @sdiv_constant_op1(i64 %x) {
 ; CHECK-LABEL: @sdiv_constant_op1(
 ; CHECK-NEXT:    [[BO_SCALAR:%.*]] = sdiv exact i64 [[X:%.*]], 2
-; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 poison, i64 0>, i64 [[BO_SCALAR]], i64 1
+; CHECK-NEXT:    [[BO:%.*]] = insertelement <2 x i64> <i64 undef, i64 0>, i64 [[BO_SCALAR]], i64 1
 ; CHECK-NEXT:    ret <2 x i64> [[BO]]
 ;
   %ins = insertelement <2 x i64> undef, i64 %x, i32 1

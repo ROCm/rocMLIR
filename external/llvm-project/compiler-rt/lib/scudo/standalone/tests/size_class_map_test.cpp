@@ -35,7 +35,6 @@ struct OneClassSizeClassConfig {
   static const scudo::uptr MaxSizeLog = 5;
   static const scudo::u32 MaxNumCachedHint = 0;
   static const scudo::uptr MaxBytesCachedLog = 0;
-  static const scudo::uptr SizeDelta = 0;
 };
 
 TEST(ScudoSizeClassMapTest, OneClassSizeClassMap) {
@@ -50,7 +49,6 @@ struct LargeMaxSizeClassConfig {
   static const scudo::uptr MaxSizeLog = 63;
   static const scudo::u32 MaxNumCachedHint = 128;
   static const scudo::uptr MaxBytesCachedLog = 16;
-  static const scudo::uptr SizeDelta = 0;
 };
 
 TEST(ScudoSizeClassMapTest, LargeMaxSizeClassMap) {

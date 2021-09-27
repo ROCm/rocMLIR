@@ -32,9 +32,10 @@ int another(int a) {
 // BB_WORLD: world:
 // BB_WORLD: .section .text.world,"ax",@progbits,unique
 // BB_WORLD: world.__part.1:
-// BB_ALL: .section .text.another,"ax",@progbits
+// BB_WORLD: .section .text.another,"ax",@progbits
+// BB_ALL: .section .text.another,"ax",@progbits,unique
 // BB_ALL: another.__part.1:
-// BB_LIST-NOT: .section .text.another,"ax",@progbits
+// BB_LIST-NOT: .section .text.another,"ax",@progbits,unique
 // BB_LIST: another:
 // BB_LIST-NOT: another.__part.1:
 //

@@ -660,13 +660,13 @@ class DeclarationNameLoc {
 
   // The location (if any) of the operator keyword is stored elsewhere.
   struct CXXOpName {
-    SourceLocation::UIntTy BeginOpNameLoc;
-    SourceLocation::UIntTy EndOpNameLoc;
+    unsigned BeginOpNameLoc;
+    unsigned EndOpNameLoc;
   };
 
   // The location (if any) of the operator keyword is stored elsewhere.
   struct CXXLitOpName {
-    SourceLocation::UIntTy OpNameLoc;
+    unsigned OpNameLoc;
   };
 
   // struct {} CXXUsingDirective;

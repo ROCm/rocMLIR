@@ -10,7 +10,7 @@
 
 constexpr size_t Size = 100;
 
-TEST_F(DefaultGuardedPoolAllocatorDeathTest, Fork) {
+TEST_F(DefaultGuardedPoolAllocator, Fork) {
   void *P;
   pid_t Pid = fork();
   EXPECT_GE(Pid, 0);

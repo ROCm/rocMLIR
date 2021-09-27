@@ -32,6 +32,8 @@ public:
 
   // PluginInterface protocol
   lldb_private::ConstString GetPluginName() override;
+
+  uint32_t GetPluginVersion() override;
 };
 
 #endif // LLDB_SOURCE_PLUGINS_SYMBOLVENDOR_MACOSX_SYMBOLVENDORMACOSX_H

@@ -17,12 +17,7 @@
 #include "VulkanRuntime.h"
 
 // Explicitly export entry points to the vulkan-runtime-wrapper.
-
-#ifdef _WIN32
-#define VULKAN_WRAPPER_SYMBOL_EXPORT __declspec(dllexport)
-#else
 #define VULKAN_WRAPPER_SYMBOL_EXPORT __attribute__((visibility("default")))
-#endif // _WIN32
 
 namespace {
 
@@ -70,8 +65,7 @@ private:
 
 } // namespace
 
-template <typename T, int N>
-struct MemRefDescriptor {
+template <typename T, int N> struct MemRefDescriptor {
   T *allocated;
   T *aligned;
   int64_t offset;

@@ -250,10 +250,10 @@ private:
   /// The DWARF compile unit this expression belongs to. It is used to evaluate
   /// values indexing into the .debug_addr section (e.g. DW_OP_GNU_addr_index,
   /// DW_OP_GNU_const_index)
-  const DWARFUnit *m_dwarf_cu = nullptr;
+  const DWARFUnit *m_dwarf_cu;
 
   /// One of the defines that starts with LLDB_REGKIND_
-  lldb::RegisterKind m_reg_kind = lldb::eRegisterKindDWARF;
+  lldb::RegisterKind m_reg_kind;
 
   struct LoclistAddresses {
     lldb::addr_t cu_file_addr;

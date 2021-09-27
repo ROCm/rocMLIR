@@ -6,7 +6,7 @@
 //
 //===---------------------------------------------------------------------===//
 
-#include <cstddef>
+#include <stddef.h>
 
 #include "lldb/Core/dwarf.h"
 #include "llvm/Support/Compiler.h"

@@ -30,7 +30,6 @@
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/ExprCXX.h"
-#include "clang/AST/ExternalASTSource.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/StmtCXX.h"
@@ -163,10 +162,10 @@ SymbolLocation toIndexLocation(const Location &Loc, std::string &URIStorage) {
 SymbolLocation getPreferredLocation(const Location &ASTLoc,
                                     const SymbolLocation &IdxLoc,
                                     std::string &Scratch) {
-  // Also use a mock symbol for the index location so that other fields (e.g.
+  // Also use a dummy symbol for the index location so that other fields (e.g.
   // definition) are not factored into the preference.
   Symbol ASTSym, IdxSym;
-  ASTSym.ID = IdxSym.ID = SymbolID("mock_symbol_id");
+  ASTSym.ID = IdxSym.ID = SymbolID("dummy_id");
   ASTSym.CanonicalDeclaration = toIndexLocation(ASTLoc, Scratch);
   IdxSym.CanonicalDeclaration = IdxLoc;
   auto Merged = mergeSymbol(ASTSym, IdxSym);
@@ -183,14 +182,7 @@ getDeclAtPositionWithRelations(ParsedAST &AST, SourceLocation Pos,
     if (const SelectionTree::Node *N = ST.commonAncestor()) {
       if (NodeKind)
         *NodeKind = N->ASTNode.getNodeKind();
-      // Attributes don't target decls, look at the
-      // thing it's attached to.
-      // We still report the original NodeKind!
-      // This makes the `override` hack work.
-      if (N->ASTNode.get<Attr>() && N->Parent)
-        N = N->Parent;
-      llvm::copy_if(allTargetDecls(N->ASTNode, AST.getHeuristicResolver()),
-                    std::back_inserter(Result),
+      llvm::copy_if(allTargetDecls(N->ASTNode), std::back_inserter(Result),
                     [&](auto &Entry) { return !(Entry.second & ~Relations); });
     }
     return !Result.empty();
@@ -263,7 +255,6 @@ locateMacroReferent(const syntax::Token &TouchedIdentifier, ParsedAST &AST,
       Macro.Name = std::string(M->Name);
       Macro.PreferredDeclaration = *Loc;
       Macro.Definition = Loc;
-      Macro.ID = getSymbolID(M->Name, M->Info, AST.getSourceManager());
       return Macro;
     }
   }
@@ -305,7 +296,7 @@ std::vector<LocatedSymbol> findImplementors(llvm::DenseSet<SymbolID> IDs,
                                             RelationKind Predicate,
                                             const SymbolIndex *Index,
                                             llvm::StringRef MainFilePath) {
-  if (IDs.empty() || !Index)
+  if (IDs.empty())
     return {};
   static constexpr trace::Metric FindImplementorsMetric(
       "find_implementors", trace::Metric::Counter, "case");
@@ -349,7 +340,7 @@ std::vector<LocatedSymbol> findImplementors(llvm::DenseSet<SymbolID> IDs,
 std::vector<LocatedSymbol>
 locateASTReferent(SourceLocation CurLoc, const syntax::Token *TouchedIdentifier,
                   ParsedAST &AST, llvm::StringRef MainFilePath,
-                  const SymbolIndex *Index, ASTNodeKind &NodeKind) {
+                  const SymbolIndex *Index, ASTNodeKind *NodeKind) {
   const SourceManager &SM = AST.getSourceManager();
   // Results follow the order of Symbols.Decls.
   std::vector<LocatedSymbol> Result;
@@ -368,7 +359,6 @@ locateASTReferent(SourceLocation CurLoc, const syntax::Token *TouchedIdentifier,
     Result.emplace_back();
     Result.back().Name = printName(AST.getASTContext(), *D);
     Result.back().PreferredDeclaration = *Loc;
-    Result.back().ID = getSymbolID(D);
     if (const NamedDecl *Def = getDefinition(D))
       Result.back().Definition = makeLocation(
           AST.getASTContext(), nameLocation(*Def, SM), MainFilePath);
@@ -382,7 +372,7 @@ locateASTReferent(SourceLocation CurLoc, const syntax::Token *TouchedIdentifier,
   DeclRelationSet Relations =
       DeclRelation::TemplatePattern | DeclRelation::Alias;
   auto Candidates =
-      getDeclAtPositionWithRelations(AST, CurLoc, Relations, &NodeKind);
+      getDeclAtPositionWithRelations(AST, CurLoc, Relations, NodeKind);
   llvm::DenseSet<SymbolID> VirtualMethods;
   for (const auto &E : Candidates) {
     const NamedDecl *D = E.first;
@@ -398,8 +388,13 @@ locateASTReferent(SourceLocation CurLoc, const syntax::Token *TouchedIdentifier,
         }
       }
       // Special case: void foo() ^override: jump to the overridden method.
-    if (NodeKind.isSame(ASTNodeKind::getFromNodeKind<OverrideAttr>()) ||
-        NodeKind.isSame(ASTNodeKind::getFromNodeKind<FinalAttr>())) {
+      const InheritableAttr *Attr = D->getAttr<OverrideAttr>();
+      if (!Attr)
+        Attr = D->getAttr<FinalAttr>();
+      if (Attr && TouchedIdentifier &&
+          SM.getSpellingLoc(Attr->getLocation()) ==
+              TouchedIdentifier->location()) {
+        LocateASTReferentMetric.record(1, "method-to-base");
         // We may be overridding multiple methods - offer them all.
         for (const NamedDecl *ND : CMD->overridden_methods())
           AddResultDecl(ND);
@@ -501,8 +496,7 @@ std::vector<LocatedSymbol> locateSymbolForType(const ParsedAST &AST,
   }
 
   auto Decls = targetDecl(DynTypedNode::create(Type.getNonReferenceType()),
-                          DeclRelation::TemplatePattern | DeclRelation::Alias,
-                          AST.getHeuristicResolver());
+                          DeclRelation::TemplatePattern | DeclRelation::Alias);
   if (Decls.empty())
     return {};
 
@@ -519,7 +513,6 @@ std::vector<LocatedSymbol> locateSymbolForType(const ParsedAST &AST,
     Results.emplace_back();
     Results.back().Name = printName(ASTContext, *D);
     Results.back().PreferredDeclaration = *Loc;
-    Results.back().ID = getSymbolID(D);
     if (const NamedDecl *Def = getDefinition(D))
       Results.back().Definition =
           makeLocation(ASTContext, nameLocation(*Def, SM), *MainFilePath);
@@ -609,7 +602,6 @@ locateSymbolTextually(const SpelledWord &Word, ParsedAST &AST,
     LocatedSymbol Located;
     Located.PreferredDeclaration = *MaybeDeclLoc;
     Located.Name = (Sym.Name + Sym.TemplateSpecializationArgs).str();
-    Located.ID = Sym.ID;
     if (Sym.Definition) {
       auto MaybeDefLoc = indexToLSPLocation(Sym.Definition, MainFilePath);
       if (!MaybeDefLoc) {
@@ -801,7 +793,7 @@ std::vector<LocatedSymbol> locateSymbolAt(ParsedAST &AST, Position Pos,
 
   ASTNodeKind NodeKind;
   auto ASTResults = locateASTReferent(*CurLoc, TouchedIdentifier, AST,
-                                      *MainFilePath, Index, NodeKind);
+                                      *MainFilePath, Index, &NodeKind);
   if (!ASTResults.empty())
     return ASTResults;
 
@@ -817,8 +809,9 @@ std::vector<LocatedSymbol> locateSymbolAt(ParsedAST &AST, Position Pos,
             Word->Text);
         return {*std::move(Macro)};
       }
-      ASTResults = locateASTReferent(NearbyIdent->location(), NearbyIdent, AST,
-                                     *MainFilePath, Index, NodeKind);
+      ASTResults =
+          locateASTReferent(NearbyIdent->location(), NearbyIdent, AST,
+                            *MainFilePath, Index, /*NodeKind=*/nullptr);
       if (!ASTResults.empty()) {
         log("Found definition heuristically using nearby identifier {0}",
             NearbyIdent->text(SM));
@@ -887,8 +880,8 @@ public:
   };
 
   ReferenceFinder(const ParsedAST &AST,
-                  const llvm::DenseSet<SymbolID> &TargetIDs, bool PerToken)
-      : PerToken(PerToken), AST(AST), TargetIDs(TargetIDs) {}
+                  const llvm::DenseSet<SymbolID> &TargetIDs)
+      : AST(AST), TargetIDs(TargetIDs) {}
 
   std::vector<Reference> take() && {
     llvm::sort(References, [](const Reference &L, const Reference &R) {
@@ -920,43 +913,21 @@ public:
     if (!TargetIDs.contains(ID))
       return true;
     const auto &TB = AST.getTokens();
-
-    llvm::SmallVector<SourceLocation, 1> Locs;
-    if (PerToken) {
-      // Check whether this is one of the few constructs where the reference
-      // can be split over several tokens.
-      if (auto *OME = llvm::dyn_cast_or_null<ObjCMessageExpr>(ASTNode.OrigE)) {
-        OME->getSelectorLocs(Locs);
-      } else if (auto *OMD =
-                     llvm::dyn_cast_or_null<ObjCMethodDecl>(ASTNode.OrigD)) {
-        OMD->getSelectorLocs(Locs);
-      }
-      // Sanity check: we expect the *first* token to match the reported loc.
-      // Otherwise, maybe it was e.g. some other kind of reference to a Decl.
-      if (!Locs.empty() && Locs.front() != Loc)
-        Locs.clear(); // First token doesn't match, assume our guess was wrong.
-    }
-    if (Locs.empty())
-      Locs.push_back(Loc);
-
-    for (SourceLocation L : Locs) {
-      L = SM.getFileLoc(L);
-      if (const auto *Tok = TB.spelledTokenAt(L))
-        References.push_back({*Tok, Roles, ID});
-    }
+    Loc = SM.getFileLoc(Loc);
+    if (const auto *Tok = TB.spelledTokenAt(Loc))
+      References.push_back({*Tok, Roles, ID});
     return true;
   }
 
 private:
-  bool PerToken; // If true, report 3 references for split ObjC selector names.
   std::vector<Reference> References;
   const ParsedAST &AST;
   const llvm::DenseSet<SymbolID> &TargetIDs;
 };
 
 std::vector<ReferenceFinder::Reference>
-findRefs(const llvm::DenseSet<SymbolID> &IDs, ParsedAST &AST, bool PerToken) {
-  ReferenceFinder RefFinder(AST, IDs, PerToken);
+findRefs(const llvm::DenseSet<SymbolID> &IDs, ParsedAST &AST) {
+  ReferenceFinder RefFinder(AST, IDs);
   index::IndexingOptions IndexOpts;
   IndexOpts.SystemSymbolFilter =
       index::IndexingOptions::SystemSymbolFilterKind::All;
@@ -1242,8 +1213,7 @@ std::vector<DocumentHighlight> findDocumentHighlights(ParsedAST &AST,
     if (const SelectionTree::Node *N = ST.commonAncestor()) {
       DeclRelationSet Relations =
           DeclRelation::TemplatePattern | DeclRelation::Alias;
-      auto Decls =
-          targetDecl(N->ASTNode, Relations, AST.getHeuristicResolver());
+      auto Decls = targetDecl(N->ASTNode, Relations);
       if (!Decls.empty()) {
         // FIXME: we may get multiple DocumentHighlights with the same location
         // and different kinds, deduplicate them.
@@ -1251,7 +1221,7 @@ std::vector<DocumentHighlight> findDocumentHighlights(ParsedAST &AST,
         for (const NamedDecl *ND : Decls)
           if (auto ID = getSymbolID(ND))
             Targets.insert(ID);
-        for (const auto &Ref : findRefs(Targets, AST, /*PerToken=*/true))
+        for (const auto &Ref : findRefs(Targets, AST))
           Result.push_back(toHighlight(Ref, SM));
         return true;
       }
@@ -1403,7 +1373,7 @@ ReferencesResult findReferences(ParsedAST &AST, Position Pos, uint32_t Limit,
     }
 
     // We traverse the AST to find references in the main file.
-    auto MainFileRefs = findRefs(Targets, AST, /*PerToken=*/false);
+    auto MainFileRefs = findRefs(Targets, AST);
     // We may get multiple refs with the same location and different Roles, as
     // cross-reference is only interested in locations, we deduplicate them
     // by the location to avoid emitting duplicated locations.
@@ -1736,7 +1706,7 @@ static void fillSuperTypes(const CXXRecordDecl &CXXRD, ASTContext &ASTCtx,
 
 const CXXRecordDecl *findRecordTypeAt(ParsedAST &AST, Position Pos) {
   auto RecordFromNode =
-      [&AST](const SelectionTree::Node *N) -> const CXXRecordDecl * {
+      [](const SelectionTree::Node *N) -> const CXXRecordDecl * {
     if (!N)
       return nullptr;
 
@@ -1744,8 +1714,7 @@ const CXXRecordDecl *findRecordTypeAt(ParsedAST &AST, Position Pos) {
     // instantiations and template patterns, and prefer the former if available
     // (generally, one will be available for non-dependent specializations of a
     // class template).
-    auto Decls = explicitReferenceTargets(N->ASTNode, DeclRelation::Underlying,
-                                          AST.getHeuristicResolver());
+    auto Decls = explicitReferenceTargets(N->ASTNode, DeclRelation::Underlying);
     if (Decls.empty())
       return nullptr;
 
@@ -1973,18 +1942,14 @@ llvm::DenseSet<const Decl *> getNonLocalDeclRefs(ParsedAST &AST,
   if (!FD->hasBody())
     return {};
   llvm::DenseSet<const Decl *> DeclRefs;
-  findExplicitReferences(
-      FD,
-      [&](ReferenceLoc Ref) {
-        for (const Decl *D : Ref.Targets) {
-          if (!index::isFunctionLocalSymbol(D) && !D->isTemplateParameter() &&
-              !Ref.IsDecl)
-            DeclRefs.insert(D);
-        }
-      },
-      AST.getHeuristicResolver());
+  findExplicitReferences(FD, [&](ReferenceLoc Ref) {
+    for (const Decl *D : Ref.Targets) {
+      if (!index::isFunctionLocalSymbol(D) && !D->isTemplateParameter() &&
+          !Ref.IsDecl)
+        DeclRefs.insert(D);
+    }
+  });
   return DeclRefs;
 }
-
 } // namespace clangd
 } // namespace clang

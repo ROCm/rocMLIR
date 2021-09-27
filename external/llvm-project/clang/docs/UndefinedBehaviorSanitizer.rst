@@ -12,9 +12,7 @@ UndefinedBehaviorSanitizer (UBSan) is a fast undefined behavior detector.
 UBSan modifies the program at compile-time to catch various kinds of undefined
 behavior during program execution, for example:
 
-* Array subscript out of bounds, where the bounds can be statically determined
-* Bitwise shifts that are out of bounds for their data type
-* Dereferencing misaligned or null pointers
+* Using misaligned or null pointer
 * Signed integer overflow
 * Conversion to, from, or between floating-point types which would
   overflow the destination
@@ -55,7 +53,6 @@ and define the desired behavior for each kind of check:
 * ``-fsanitize=...``: print a verbose error report and continue execution (default);
 * ``-fno-sanitize-recover=...``: print a verbose error report and exit the program;
 * ``-fsanitize-trap=...``: execute a trap instruction (doesn't require UBSan run-time support).
-* ``-fno-sanitize=...``: disable any check, e.g., -fno-sanitize=alignment.
 
 Note that the ``trap`` / ``recover`` options do not enable the corresponding
 sanitizer, and in general need to be accompanied by a suitable ``-fsanitize=``
@@ -273,8 +270,8 @@ This attribute may not be
 supported by other compilers, so consider using it together with
 ``#if defined(__clang__)``.
 
-Suppressing Errors in Recompiled Code (Ignorelist)
---------------------------------------------------
+Suppressing Errors in Recompiled Code (Blacklist)
+-------------------------------------------------
 
 UndefinedBehaviorSanitizer supports ``src`` and ``fun`` entity types in
 :doc:`SanitizerSpecialCaseList`, that can be used to suppress error reports
@@ -360,9 +357,6 @@ For a file called ``/code/library/file.cpp``, here is what would be emitted:
 More Information
 ================
 
-* From Oracle blog, including a discussion of error messages:
-  `Improving Application Security with UndefinedBehaviorSanitizer (UBSan) and GCC
-  <https://blogs.oracle.com/linux/improving-application-security-with-undefinedbehaviorsanitizer-ubsan-and-gcc>`_
 * From LLVM project blog:
   `What Every C Programmer Should Know About Undefined Behavior
   <http://blog.llvm.org/2011/05/what-every-c-programmer-should-know.html>`_

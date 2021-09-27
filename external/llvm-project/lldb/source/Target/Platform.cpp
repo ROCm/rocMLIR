@@ -497,14 +497,24 @@ bool Platform::GetOSBuildString(std::string &s) {
   s.clear();
 
   if (IsHost())
+#if !defined(__linux__)
     return HostInfo::GetOSBuildString(s);
-  return GetRemoteOSBuildString(s);
+#else
+    return false;
+#endif
+  else
+    return GetRemoteOSBuildString(s);
 }
 
 bool Platform::GetOSKernelDescription(std::string &s) {
   if (IsHost())
+#if !defined(__linux__)
     return HostInfo::GetOSKernelDescription(s);
-  return GetRemoteOSKernelDescription(s);
+#else
+    return false;
+#endif
+  else
+    return GetRemoteOSKernelDescription(s);
 }
 
 void Platform::AddClangModuleCompilationOptions(
@@ -1078,11 +1088,14 @@ Status Platform::KillProcess(const lldb::pid_t pid) {
   return Status();
 }
 
-lldb::ProcessSP Platform::DebugProcess(ProcessLaunchInfo &launch_info,
-                                       Debugger &debugger, Target &target,
-                                       Status &error) {
+lldb::ProcessSP
+Platform::DebugProcess(ProcessLaunchInfo &launch_info, Debugger &debugger,
+                       Target *target, // Can be nullptr, if nullptr create a
+                                       // new target, else use existing one
+                       Status &error) {
   Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_PLATFORM));
-  LLDB_LOG(log, "target = {0})", &target);
+  LLDB_LOGF(log, "Platform::%s entered (target %p)", __FUNCTION__,
+            static_cast<void *>(target));
 
   ProcessSP process_sp;
   // Make sure we stop at the entry point
@@ -1104,7 +1117,7 @@ lldb::ProcessSP Platform::DebugProcess(ProcessLaunchInfo &launch_info,
        filter_callback = get_filter_func(++i, iteration_complete)) {
     if (filter_callback) {
       // Give this ProcessLaunchInfo filter a chance to adjust the launch info.
-      error = (*filter_callback)(launch_info, &target);
+      error = (*filter_callback)(launch_info, target);
       if (!error.Success()) {
         LLDB_LOGF(log,
                   "Platform::%s() StructuredDataPlugin launch "
@@ -1122,7 +1135,7 @@ lldb::ProcessSP Platform::DebugProcess(ProcessLaunchInfo &launch_info,
               __FUNCTION__, launch_info.GetProcessID());
     if (launch_info.GetProcessID() != LLDB_INVALID_PROCESS_ID) {
       ProcessAttachInfo attach_info(launch_info);
-      process_sp = Attach(attach_info, debugger, &target, error);
+      process_sp = Attach(attach_info, debugger, target, error);
       if (process_sp) {
         LLDB_LOGF(log, "Platform::%s Attach() succeeded, Process plugin: %s",
                   __FUNCTION__, process_sp->GetPluginName().AsCString());
@@ -1212,7 +1225,7 @@ Status Platform::PutFile(const FileSpec &source, const FileSpec &destination,
   LLDB_LOGF(log, "[PutFile] Using block by block transfer....\n");
 
   auto source_open_options =
-      File::eOpenOptionReadOnly | File::eOpenOptionCloseOnExec;
+      File::eOpenOptionRead | File::eOpenOptionCloseOnExec;
   namespace fs = llvm::sys::fs;
   if (fs::is_symlink_file(source.GetPath()))
     source_open_options |= File::eOpenOptionDontFollowSymlinks;
@@ -1227,7 +1240,7 @@ Status Platform::PutFile(const FileSpec &source, const FileSpec &destination,
     permissions = lldb::eFilePermissionsFileDefault;
 
   lldb::user_id_t dest_file = OpenFile(
-      destination, File::eOpenOptionCanCreate | File::eOpenOptionWriteOnly |
+      destination, File::eOpenOptionCanCreate | File::eOpenOptionWrite |
                        File::eOpenOptionTruncate | File::eOpenOptionCloseOnExec,
       permissions, error);
   LLDB_LOGF(log, "dest_file = %" PRIu64 "\n", dest_file);
@@ -1650,7 +1663,7 @@ Status Platform::DownloadModuleSlice(const FileSpec &src_file_spec,
     return error;
   }
 
-  auto src_fd = OpenFile(src_file_spec, File::eOpenOptionReadOnly,
+  auto src_fd = OpenFile(src_file_spec, File::eOpenOptionRead,
                          lldb::eFilePermissionsFileDefault, error);
 
   if (error.Fail()) {

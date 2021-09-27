@@ -169,10 +169,3 @@ namespace llvm {
 #include "AArch64GenSystemOperands.inc"
   }
 }
-
-namespace llvm {
-  namespace AArch64SVCR {
-#define GET_SVCR_IMPL
-#include "AArch64GenSystemOperands.inc"
-  }
-}

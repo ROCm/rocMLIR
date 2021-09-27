@@ -44,7 +44,7 @@ const uptr kMaxPathLength = 4096;
 
 const uptr kMaxThreadStackSize = 1 << 30;  // 1Gb
 
-const uptr kErrorMessageBufferSize = 1 << 16;
+static const uptr kErrorMessageBufferSize = 1 << 16;
 
 // Denotes fake PC values that come from JIT/JAVA/etc.
 // For such PC values __tsan_symbolize_external_ex() will be called.
@@ -135,15 +135,6 @@ void UnmapFromTo(uptr from, uptr to);
 uptr MapDynamicShadow(uptr shadow_size_bytes, uptr shadow_scale,
                       uptr min_shadow_base_alignment, uptr &high_mem_end);
 
-// Let S = max(shadow_size, num_aliases * alias_size, ring_buffer_size).
-// Reserves 2*S bytes of address space to the right of the returned address and
-// ring_buffer_size bytes to the left.  The returned address is aligned to 2*S.
-// Also creates num_aliases regions of accessible memory starting at offset S
-// from the returned address.  Each region has size alias_size and is backed by
-// the same physical memory.
-uptr MapDynamicShadowAndAliases(uptr shadow_size, uptr alias_size,
-                                uptr num_aliases, uptr ring_buffer_size);
-
 // Reserve memory range [beg, end]. If madvise_shadow is true then apply
 // madvise (e.g. hugepages, core dumping) requested by options.
 void ReserveShadowMemoryRange(uptr beg, uptr end, const char *name,
@@ -222,8 +213,8 @@ void CatastrophicErrorWrite(const char *buffer, uptr length);
 void RawWrite(const char *buffer);
 bool ColorizeReports();
 void RemoveANSIEscapeSequencesFromString(char *buffer);
-void Printf(const char *format, ...) FORMAT(1, 2);
-void Report(const char *format, ...) FORMAT(1, 2);
+void Printf(const char *format, ...);
+void Report(const char *format, ...);
 void SetPrintfAndReportCallback(void (*callback)(const char *));
 #define VReport(level, ...)                                              \
   do {                                                                   \
@@ -237,16 +228,10 @@ void SetPrintfAndReportCallback(void (*callback)(const char *));
 // Lock sanitizer error reporting and protects against nested errors.
 class ScopedErrorReportLock {
  public:
-  ScopedErrorReportLock() ACQUIRE(mutex_) { Lock(); }
-  ~ScopedErrorReportLock() RELEASE(mutex_) { Unlock(); }
+  ScopedErrorReportLock();
+  ~ScopedErrorReportLock();
 
-  static void Lock() ACQUIRE(mutex_);
-  static void Unlock() RELEASE(mutex_);
-  static void CheckLocked() CHECK_LOCKED(mutex_);
-
- private:
-  static atomic_uintptr_t reporting_thread_;
-  static StaticSpinMutex mutex_;
+  static void CheckLocked();
 };
 
 extern uptr stoptheworld_tracer_pid;
@@ -294,8 +279,8 @@ void InitTlsSize();
 uptr GetTlsSize();
 
 // Other
-void SleepForSeconds(unsigned seconds);
-void SleepForMillis(unsigned millis);
+void SleepForSeconds(int seconds);
+void SleepForMillis(int millis);
 u64 NanoTime();
 u64 MonotonicNanoTime();
 int Atexit(void (*function)(void));
@@ -310,8 +295,8 @@ void NORETURN ReportMmapFailureAndDie(uptr size, const char *mem_type,
                                       const char *mmap_type, error_t err,
                                       bool raw_report = false);
 
-// Specific tools may override behavior of "Die" function to do tool-specific
-// job.
+// Specific tools may override behavior of "Die" and "CheckFailed" functions
+// to do tool-specific job.
 typedef void (*DieCallbackType)(void);
 
 // It's possible to add several callbacks that would be run when "Die" is
@@ -323,7 +308,9 @@ bool RemoveDieCallback(DieCallbackType callback);
 
 void SetUserDieCallback(DieCallbackType callback);
 
-void SetCheckUnwindCallback(void (*callback)());
+typedef void (*CheckFailedCallbackType)(const char *, int, const char *,
+                                       u64, u64);
+void SetCheckFailedCallback(CheckFailedCallbackType callback);
 
 // Callback will be called if soft_rss_limit_mb is given and the limit is
 // exceeded (exceeded==true) or if rss went down below the limit
@@ -357,6 +344,8 @@ void ReportDeadlySignal(const SignalContext &sig, u32 tid,
 void SetAlternateSignalStack();
 void UnsetAlternateSignalStack();
 
+// We don't want a summary too long.
+const int kMaxSummaryLength = 1024;
 // Construct a one-line string:
 //   SUMMARY: SanitizerToolName: error_message
 // and pass it to __sanitizer_report_error_summary.
@@ -453,14 +442,8 @@ inline uptr Log2(uptr x) {
 
 // Don't use std::min, std::max or std::swap, to minimize dependency
 // on libstdc++.
-template <class T>
-constexpr T Min(T a, T b) {
-  return a < b ? a : b;
-}
-template <class T>
-constexpr T Max(T a, T b) {
-  return a > b ? a : b;
-}
+template<class T> T Min(T a, T b) { return a < b ? a : b; }
+template<class T> T Max(T a, T b) { return a > b ? a : b; }
 template<class T> void Swap(T& a, T& b) {
   T tmp = a;
   a = b;
@@ -609,21 +592,21 @@ class InternalMmapVector : public InternalMmapVectorNoCtor<T> {
   InternalMmapVector &operator=(InternalMmapVector &&) = delete;
 };
 
-class InternalScopedString {
+class InternalScopedString : public InternalMmapVector<char> {
  public:
-  InternalScopedString() : buffer_(1) { buffer_[0] = '\0'; }
-
-  uptr length() const { return buffer_.size() - 1; }
-  void clear() {
-    buffer_.resize(1);
-    buffer_[0] = '\0';
+  explicit InternalScopedString(uptr max_length)
+      : InternalMmapVector<char>(max_length), length_(0) {
+    (*this)[0] = '\0';
   }
-  void append(const char *format, ...) FORMAT(2, 3);
-  const char *data() const { return buffer_.data(); }
-  char *data() { return buffer_.data(); }
+  uptr length() { return length_; }
+  void clear() {
+    (*this)[0] = '\0';
+    length_ = 0;
+  }
+  void append(const char *format, ...);
 
  private:
-  InternalMmapVector<char> buffer_;
+  uptr length_;
 };
 
 template <class T>
@@ -697,8 +680,7 @@ enum ModuleArch {
   kModuleArchARMV7S,
   kModuleArchARMV7K,
   kModuleArchARM64,
-  kModuleArchRISCV64,
-  kModuleArchHexagon
+  kModuleArchRISCV64
 };
 
 // Sorts and removes duplicates from the container.
@@ -765,8 +747,6 @@ inline const char *ModuleArchToString(ModuleArch arch) {
       return "arm64";
     case kModuleArchRISCV64:
       return "riscv64";
-    case kModuleArchHexagon:
-      return "hexagon";
   }
   CHECK(0 && "Invalid module arch");
   return "";
@@ -1069,7 +1049,7 @@ class ArrayRef {
 }  // namespace __sanitizer
 
 inline void *operator new(__sanitizer::operator_new_size_type size,
-                          __sanitizer::LowLevelAllocator &alloc) {
+                          __sanitizer::LowLevelAllocator &alloc) {  // NOLINT
   return alloc.Allocate(size);
 }
 

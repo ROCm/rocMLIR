@@ -1,4 +1,5 @@
-; RUN: opt -S -loop-vectorize -mtriple=aarch64-linux-gnu -mattr=+sve < %s | FileCheck %s
+; RUN: opt -S -loop-vectorize -mtriple=aarch64-linux-gnu -mattr=+sve < %s 2>%t | FileCheck %s
+; RUN: FileCheck --check-prefix=WARN --allow-empty %s <%t
 
 ; This test is checking that a scalable load inside a loop does not trigger a
 ; TypeSize error in the loop vectorization legality analysis. It is possible for
@@ -6,6 +7,9 @@
 ; analysis if, for example, the ACLE are used. If we encounter a scalable/vector
 ; load, it should not be considered for analysis, and we should not see a
 ; TypeSize error.
+
+; If this check fails please read test/CodeGen/AArch64/README for instructions on how to resolve it.
+; WARN-NOT: warning:
 
 ; #include <arm_sve.h>
 ;

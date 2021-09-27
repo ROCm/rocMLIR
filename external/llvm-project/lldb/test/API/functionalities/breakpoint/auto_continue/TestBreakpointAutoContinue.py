@@ -32,7 +32,9 @@ class BreakpointAutoContinue(TestBase):
 
     def make_target_and_bkpt(self, additional_options=None, num_expected_loc=1,
                              pattern="Set a breakpoint here"):
-        self.target = self.createTestTarget()
+        exe = self.getBuildArtifact("a.out")
+        self.target = self.dbg.CreateTarget(exe)
+        self.assertTrue(self.target.IsValid(), "Target is not valid")
 
         extra_options_txt = "--auto-continue 1 "
         if additional_options:

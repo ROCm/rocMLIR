@@ -76,7 +76,7 @@ struct LoadCommand {
   std::vector<Section> Sections;
   std::vector<MachO::build_tool_version> Tools;
   std::vector<llvm::yaml::Hex8> PayloadBytes;
-  std::string Content;
+  std::string PayloadString;
   uint64_t ZeroPadBytes;
 };
 

@@ -15,8 +15,6 @@
 // Possibly related to https://gcc.gnu.org/bugzilla/show_bug.cgi?id=16006
 // XFAIL: linux
 
-// XFAIL: LIBCXX-WINDOWS-FIXME
-
 // REQUIRES: locale.ru_RU.UTF-8
 
 // <locale>

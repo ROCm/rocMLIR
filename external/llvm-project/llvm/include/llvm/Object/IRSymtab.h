@@ -26,7 +26,6 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/iterator_range.h"
-#include "llvm/IR/Comdat.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/Object/SymbolicFile.h"
 #include "llvm/Support/Allocator.h"
@@ -81,9 +80,6 @@ struct Module {
 /// This is equivalent to an IR comdat.
 struct Comdat {
   Str Name;
-
-  // llvm::Comdat::SelectionKind
-  Word SelectionKind;
 };
 
 /// Contains the information needed by linkers for symbol resolution, as well as
@@ -136,7 +132,7 @@ struct Header {
   /// when the format changes, but it does not need to be incremented if a
   /// change to LLVM would cause it to create a different symbol table.
   Word Version;
-  enum { kCurrentVersion = 3 };
+  enum { kCurrentVersion = 2 };
 
   /// The producer's version string (LLVM_VERSION_STRING " " LLVM_REVISION).
   /// Consumers should rebuild the symbol table from IR if the producer's
@@ -284,13 +280,11 @@ public:
   StringRef getSourceFileName() const { return str(header().SourceFileName); }
 
   /// Returns a table with all the comdats used by this file.
-  std::vector<std::pair<StringRef, llvm::Comdat::SelectionKind>>
-  getComdatTable() const {
-    std::vector<std::pair<StringRef, llvm::Comdat::SelectionKind>> ComdatTable;
+  std::vector<StringRef> getComdatTable() const {
+    std::vector<StringRef> ComdatTable;
     ComdatTable.reserve(Comdats.size());
     for (auto C : Comdats)
-      ComdatTable.push_back({str(C.Name), llvm::Comdat::SelectionKind(
-                                              uint32_t(C.SelectionKind))});
+      ComdatTable.push_back(str(C.Name));
     return ComdatTable;
   }
 

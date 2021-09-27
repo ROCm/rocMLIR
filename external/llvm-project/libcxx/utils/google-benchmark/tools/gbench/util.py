@@ -5,7 +5,6 @@ import os
 import tempfile
 import subprocess
 import sys
-import functools
 
 # Input file type enumeration
 IT_Invalid = 0
@@ -120,23 +119,6 @@ def load_benchmark_results(fname):
         return json.load(f)
 
 
-def sort_benchmark_results(result):
-    benchmarks = result['benchmarks']
-
-    # From inner key to the outer key!
-    benchmarks = sorted(
-        benchmarks, key=lambda benchmark: benchmark['repetition_index'] if 'repetition_index' in benchmark else -1)
-    benchmarks = sorted(
-        benchmarks, key=lambda benchmark: 1 if 'run_type' in benchmark and benchmark['run_type'] == "aggregate" else 0)
-    benchmarks = sorted(
-        benchmarks, key=lambda benchmark: benchmark['per_family_instance_index'] if 'per_family_instance_index' in benchmark else -1)
-    benchmarks = sorted(
-        benchmarks, key=lambda benchmark: benchmark['family_index'] if 'family_index' in benchmark else -1)
-
-    result['benchmarks'] = benchmarks
-    return result
-
-
 def run_benchmark(exe_name, benchmark_flags):
     """
     Run a benchmark specified by 'exe_name' with the specified
@@ -176,6 +158,7 @@ def run_or_load_benchmark(filename, benchmark_flags):
     ftype = check_input_file(filename)
     if ftype == IT_JSON:
         return load_benchmark_results(filename)
-    if ftype == IT_Executable:
+    elif ftype == IT_Executable:
         return run_benchmark(filename, benchmark_flags)
-    raise ValueError('Unknown file type %s' % ftype)
+    else:
+        assert False  # This branch is unreachable

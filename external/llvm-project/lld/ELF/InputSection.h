@@ -238,7 +238,6 @@ public:
   }
 
 protected:
-  template <typename ELFT>
   void parseCompressedHeader();
   void uncompress() const;
 

@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 // UNSUPPORTED: c++03, c++11
-// <complex>
+// <chrono>
 
 #include <complex>
 #include <type_traits>

@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "InputFiles.h"
-#include "COFFLinkerContext.h"
 #include "Chunks.h"
 #include "Config.h"
 #include "DebugTypes.h"
@@ -70,6 +69,11 @@ std::string lld::toString(const coff::InputFile *file) {
       .str();
 }
 
+std::vector<ObjFile *> ObjFile::instances;
+std::map<std::string, PDBInputFile *> PDBInputFile::instances;
+std::vector<ImportFile *> ImportFile::instances;
+std::vector<BitcodeFile *> BitcodeFile::instances;
+
 /// Checks that Source is compatible with being a weak alias to Target.
 /// If Source is Undefined and has no weak alias set, makes it a weak
 /// alias to Target.
@@ -94,8 +98,7 @@ static bool ignoredSymbolName(StringRef name) {
   return name == "@feat.00" || name == "@comp.id";
 }
 
-ArchiveFile::ArchiveFile(COFFLinkerContext &ctx, MemoryBufferRef m)
-    : InputFile(ctx, ArchiveKind, m) {}
+ArchiveFile::ArchiveFile(MemoryBufferRef m) : InputFile(ArchiveKind, m) {}
 
 void ArchiveFile::parse() {
   // Parse a MemoryBufferRef as an archive file.
@@ -103,7 +106,7 @@ void ArchiveFile::parse() {
 
   // Read the symbol table to construct Lazy objects.
   for (const Archive::Symbol &sym : file->symbols())
-    ctx.symtab.addLazyArchive(this, sym);
+    symtab->addLazyArchive(this, sym);
 }
 
 // Returns a buffer pointing to a member file containing a given symbol.
@@ -141,11 +144,11 @@ void LazyObjFile::fetch() {
 
   InputFile *file;
   if (isBitcode(mb))
-    file = make<BitcodeFile>(ctx, mb, "", 0, std::move(symbols));
+    file = make<BitcodeFile>(mb, "", 0, std::move(symbols));
   else
-    file = make<ObjFile>(ctx, mb, std::move(symbols));
+    file = make<ObjFile>(mb, std::move(symbols));
   mb = {};
-  ctx.symtab.addFile(file);
+  symtab->addFile(file);
 }
 
 void LazyObjFile::parse() {
@@ -155,7 +158,7 @@ void LazyObjFile::parse() {
         CHECK(lto::InputFile::create(this->mb), this);
     for (const lto::InputFile::Symbol &sym : obj->symbols()) {
       if (!sym.isUndefined())
-        ctx.symtab.addLazyObject(this, sym.getName());
+        symtab->addLazyObject(this, sym.getName());
     }
     return;
   }
@@ -172,7 +175,7 @@ void LazyObjFile::parse() {
     StringRef name = check(coffObj->getSymbolName(coffSym));
     if (coffSym.isAbsolute() && ignoredSymbolName(name))
       continue;
-    ctx.symtab.addLazyObject(this, name);
+    symtab->addLazyObject(this, name);
     i += coffSym.getNumberOfAuxSymbols();
   }
 }
@@ -281,8 +284,6 @@ SectionChunk *ObjFile::readSection(uint32_t sectionNumber,
     guardIATChunks.push_back(c);
   else if (name == ".gljmp$y")
     guardLJmpChunks.push_back(c);
-  else if (name == ".gehcont$y")
-    guardEHContChunks.push_back(c);
   else if (name == ".sxdata")
     sxDataChunks.push_back(c);
   else if (config->tailMerge && sec->NumberOfRelocations == 0 &&
@@ -290,7 +291,7 @@ SectionChunk *ObjFile::readSection(uint32_t sectionNumber,
     // COFF sections that look like string literal sections (i.e. no
     // relocations, in .rdata, leader symbol name matches the MSVC name mangling
     // for string literals) are subject to string tail merging.
-    MergeChunk::addSection(ctx, c);
+    MergeChunk::addSection(c);
   else if (name == ".rsrc" || name.startswith(".rsrc$"))
     resourceChunks.push_back(c);
   else
@@ -384,8 +385,8 @@ Symbol *ObjFile::createRegular(COFFSymbolRef sym) {
   if (sym.isExternal()) {
     StringRef name = check(coffObj->getSymbolName(sym));
     if (sc)
-      return ctx.symtab.addRegular(this, name, sym.getGeneric(), sc,
-                                   sym.getValue());
+      return symtab->addRegular(this, name, sym.getGeneric(), sc,
+                                sym.getValue());
     // For MinGW symbols named .weak.* that point to a discarded section,
     // don't create an Undefined symbol. If nothing ever refers to the symbol,
     // everything should be fine. If something actually refers to the symbol
@@ -393,7 +394,7 @@ Symbol *ObjFile::createRegular(COFFSymbolRef sym) {
     // references at the end.
     if (config->mingw && name.startswith(".weak."))
       return nullptr;
-    return ctx.symtab.addUndefined(name, this, false);
+    return symtab->addUndefined(name, this, false);
   }
   if (sc)
     return make<DefinedRegular>(this, /*Name*/ "", /*IsCOMDAT*/ false,
@@ -461,7 +462,7 @@ void ObjFile::initializeSymbols() {
   for (auto &kv : weakAliases) {
     Symbol *sym = kv.first;
     uint32_t idx = kv.second;
-    checkAndSetWeakAlias(&ctx.symtab, this, sym, symbols[idx]);
+    checkAndSetWeakAlias(symtab, this, sym, symbols[idx]);
   }
 
   // Free the memory used by sparseChunks now that symbol loading is finished.
@@ -470,7 +471,7 @@ void ObjFile::initializeSymbols() {
 
 Symbol *ObjFile::createUndefined(COFFSymbolRef sym) {
   StringRef name = check(coffObj->getSymbolName(sym));
-  return ctx.symtab.addUndefined(name, this, sym.isWeakExternal());
+  return symtab->addUndefined(name, this, sym.isWeakExternal());
 }
 
 static const coff_aux_section_definition *findSectionDef(COFFObjectFile *obj,
@@ -497,14 +498,16 @@ void ObjFile::handleComdatSelection(
   // symbol in `Sym` should be discarded, produce a duplicate symbol
   // error, etc.
 
-  SectionChunk *leaderChunk = leader->getChunk();
-  COMDATType leaderSelection = leaderChunk->selection;
+  SectionChunk *leaderChunk = nullptr;
+  COMDATType leaderSelection = IMAGE_COMDAT_SELECT_ANY;
 
-  assert(leader->data && "Comdat leader without SectionChunk?");
-  if (isa<BitcodeFile>(leader->file)) {
-    // If the leader is only a LTO symbol, we don't know e.g. its final size
-    // yet, so we can't do the full strict comdat selection checking yet.
-    selection = leaderSelection = IMAGE_COMDAT_SELECT_ANY;
+  if (leader->data) {
+    leaderChunk = leader->getChunk();
+    leaderSelection = leaderChunk->selection;
+  } else {
+    // FIXME: comdats from LTO files don't know their selection; treat them
+    // as "any".
+    selection = leaderSelection;
   }
 
   if ((selection == IMAGE_COMDAT_SELECT_ANY &&
@@ -540,13 +543,13 @@ void ObjFile::handleComdatSelection(
          Twine((int)leaderSelection) + " in " + toString(leader->getFile()) +
          " and " + Twine((int)selection) + " in " + toString(this))
             .str());
-    ctx.symtab.reportDuplicate(leader, this);
+    symtab->reportDuplicate(leader, this);
     return;
   }
 
   switch (selection) {
   case IMAGE_COMDAT_SELECT_NODUPLICATES:
-    ctx.symtab.reportDuplicate(leader, this);
+    symtab->reportDuplicate(leader, this);
     break;
 
   case IMAGE_COMDAT_SELECT_ANY:
@@ -556,14 +559,12 @@ void ObjFile::handleComdatSelection(
   case IMAGE_COMDAT_SELECT_SAME_SIZE:
     if (leaderChunk->getSize() != getSection(sym)->SizeOfRawData) {
       if (!config->mingw) {
-        ctx.symtab.reportDuplicate(leader, this);
+        symtab->reportDuplicate(leader, this);
       } else {
-        const coff_aux_section_definition *leaderDef = nullptr;
-        if (leaderChunk->file)
-          leaderDef = findSectionDef(leaderChunk->file->getCOFFObj(),
-                                     leaderChunk->getSectionNumber());
+        const coff_aux_section_definition *leaderDef = findSectionDef(
+            leaderChunk->file->getCOFFObj(), leaderChunk->getSectionNumber());
         if (!leaderDef || leaderDef->Length != def->Length)
-          ctx.symtab.reportDuplicate(leader, this);
+          symtab->reportDuplicate(leader, this);
       }
     }
     break;
@@ -574,7 +575,7 @@ void ObjFile::handleComdatSelection(
     // if the two comdat sections have e.g. different alignment.
     // Match that.
     if (leaderChunk->getContents() != newChunk.getContents())
-      ctx.symtab.reportDuplicate(leader, this, &newChunk, sym.getValue());
+      symtab->reportDuplicate(leader, this, &newChunk, sym.getValue());
     break;
   }
 
@@ -617,8 +618,8 @@ Optional<Symbol *> ObjFile::createDefined(
   if (sym.isCommon()) {
     auto *c = make<CommonChunk>(sym);
     chunks.push_back(c);
-    return ctx.symtab.addCommon(this, getName(), sym.getValue(),
-                                sym.getGeneric(), c);
+    return symtab->addCommon(this, getName(), sym.getValue(), sym.getGeneric(),
+                             c);
   }
 
   if (sym.isAbsolute()) {
@@ -631,7 +632,7 @@ Optional<Symbol *> ObjFile::createDefined(
       return nullptr;
 
     if (sym.isExternal())
-      return ctx.symtab.addAbsolute(name, sym);
+      return symtab->addAbsolute(name, sym);
     return make<DefinedAbsolute>(name, sym);
   }
 
@@ -664,7 +665,7 @@ Optional<Symbol *> ObjFile::createDefined(
 
     if (sym.isExternal()) {
       std::tie(leader, prevailing) =
-          ctx.symtab.addComdat(this, getName(), sym.getGeneric());
+          symtab->addComdat(this, getName(), sym.getGeneric());
     } else {
       leader = make<DefinedRegular>(this, /*Name*/ "", /*IsCOMDAT*/ false,
                                     /*IsExternal*/ false, sym.getGeneric());
@@ -786,11 +787,12 @@ void ObjFile::initializeDependencies() {
   else
     data = getDebugSection(".debug$T");
 
+  // Don't make a TpiSource for objects with no debug info. If the object has
   // symbols but no types, make a plain, empty TpiSource anyway, because it
   // simplifies adding the symbols later.
   if (data.empty()) {
     if (!debugChunks.empty())
-      debugTypesObj = makeTpiSource(ctx, this);
+      debugTypesObj = makeTpiSource(this);
     return;
   }
 
@@ -808,7 +810,7 @@ void ObjFile::initializeDependencies() {
 
   // This object file is a PCH file that others will depend on.
   if (isPCH) {
-    debugTypesObj = makePrecompSource(ctx, this);
+    debugTypesObj = makePrecompSource(this);
     return;
   }
 
@@ -816,8 +818,8 @@ void ObjFile::initializeDependencies() {
   if (firstType->kind() == LF_TYPESERVER2) {
     TypeServer2Record ts = cantFail(
         TypeDeserializer::deserializeAs<TypeServer2Record>(firstType->data()));
-    debugTypesObj = makeUseTypeServerSource(ctx, this, ts);
-    enqueuePdbFile(ts.getName(), this);
+    debugTypesObj = makeUseTypeServerSource(this, ts);
+    PDBInputFile::enqueue(ts.getName(), this);
     return;
   }
 
@@ -826,14 +828,14 @@ void ObjFile::initializeDependencies() {
   if (firstType->kind() == LF_PRECOMP) {
     PrecompRecord precomp = cantFail(
         TypeDeserializer::deserializeAs<PrecompRecord>(firstType->data()));
-    debugTypesObj = makeUsePrecompSource(ctx, this, precomp);
+    debugTypesObj = makeUsePrecompSource(this, precomp);
     // Drop the LF_PRECOMP record from the input stream.
     debugTypes = debugTypes.drop_front(firstType->RecordData.size());
     return;
   }
 
   // This is a plain old object file.
-  debugTypesObj = makeTpiSource(ctx, this);
+  debugTypesObj = makeTpiSource(this);
 }
 
 // Make a PDB path assuming the PDB is in the same folder as the OBJ
@@ -851,7 +853,7 @@ static std::string getPdbBaseName(ObjFile *file, StringRef tSPath) {
 
 // The casing of the PDB path stamped in the OBJ can differ from the actual path
 // on disk. With this, we ensure to always use lowercase as a key for the
-// pdbInputFileInstances map, at least on Windows.
+// PDBInputFile::instances map, at least on Windows.
 static std::string normalizePdbPath(StringRef path) {
 #if defined(_WIN32)
   return path.lower();
@@ -875,25 +877,33 @@ static Optional<std::string> findPdbPath(StringRef pdbPath,
   return None;
 }
 
-PDBInputFile::PDBInputFile(COFFLinkerContext &ctx, MemoryBufferRef m)
-    : InputFile(ctx, PDBKind, m) {}
+PDBInputFile::PDBInputFile(MemoryBufferRef m) : InputFile(PDBKind, m) {}
 
 PDBInputFile::~PDBInputFile() = default;
 
-PDBInputFile *PDBInputFile::findFromRecordPath(const COFFLinkerContext &ctx,
-                                               StringRef path,
+PDBInputFile *PDBInputFile::findFromRecordPath(StringRef path,
                                                ObjFile *fromFile) {
   auto p = findPdbPath(path.str(), fromFile);
   if (!p)
     return nullptr;
-  auto it = ctx.pdbInputFileInstances.find(*p);
-  if (it != ctx.pdbInputFileInstances.end())
+  auto it = PDBInputFile::instances.find(*p);
+  if (it != PDBInputFile::instances.end())
     return it->second;
   return nullptr;
 }
 
+void PDBInputFile::enqueue(StringRef path, ObjFile *fromFile) {
+  auto p = findPdbPath(path.str(), fromFile);
+  if (!p)
+    return;
+  auto it = PDBInputFile::instances.emplace(*p, nullptr);
+  if (!it.second)
+    return; // already scheduled for load
+  driver->enqueuePDB(*p);
+}
+
 void PDBInputFile::parse() {
-  ctx.pdbInputFileInstances[mb.getBufferIdentifier().str()] = this;
+  PDBInputFile::instances[mb.getBufferIdentifier().str()] = this;
 
   std::unique_ptr<pdb::IPDBSession> thisSession;
   loadErr.emplace(pdb::NativeSession::createFromPdb(
@@ -911,7 +921,7 @@ void PDBInputFile::parse() {
     loadErr.emplace(expectedInfo.takeError());
     return;
   }
-  debugTypesObj = makeTypeServerSource(ctx, this);
+  debugTypesObj = makeTypeServerSource(this);
 }
 
 // Used only for DWARF debug info, which is not common (except in MinGW
@@ -945,14 +955,10 @@ Optional<DILineInfo> ObjFile::getDILineInfo(uint32_t offset,
   return dwarf->getDILineInfo(offset, sectionIndex);
 }
 
-void ObjFile::enqueuePdbFile(StringRef path, ObjFile *fromFile) {
-  auto p = findPdbPath(path.str(), fromFile);
-  if (!p)
-    return;
-  auto it = ctx.pdbInputFileInstances.emplace(*p, nullptr);
-  if (!it.second)
-    return; // already scheduled for load
-  driver->enqueuePDB(*p);
+static StringRef ltrim1(StringRef s, const char *chars) {
+  if (!s.empty() && strchr(chars, s[0]))
+    return s.substr(1);
+  return s;
 }
 
 void ImportFile::parse() {
@@ -988,31 +994,31 @@ void ImportFile::parse() {
   this->hdr = hdr;
   externalName = extName;
 
-  impSym = ctx.symtab.addImportData(impName, this);
+  impSym = symtab->addImportData(impName, this);
   // If this was a duplicate, we logged an error but may continue;
   // in this case, impSym is nullptr.
   if (!impSym)
     return;
 
   if (hdr->getType() == llvm::COFF::IMPORT_CONST)
-    static_cast<void>(ctx.symtab.addImportData(name, this));
+    static_cast<void>(symtab->addImportData(name, this));
 
   // If type is function, we need to create a thunk which jump to an
   // address pointed by the __imp_ symbol. (This allows you to call
   // DLL functions just like regular non-DLL functions.)
   if (hdr->getType() == llvm::COFF::IMPORT_CODE)
-    thunkSym = ctx.symtab.addImportThunk(
+    thunkSym = symtab->addImportThunk(
         name, cast_or_null<DefinedImportData>(impSym), hdr->Machine);
 }
 
-BitcodeFile::BitcodeFile(COFFLinkerContext &ctx, MemoryBufferRef mb,
-                         StringRef archiveName, uint64_t offsetInArchive)
-    : BitcodeFile(ctx, mb, archiveName, offsetInArchive, {}) {}
+BitcodeFile::BitcodeFile(MemoryBufferRef mb, StringRef archiveName,
+                         uint64_t offsetInArchive)
+    : BitcodeFile(mb, archiveName, offsetInArchive, {}) {}
 
-BitcodeFile::BitcodeFile(COFFLinkerContext &ctx, MemoryBufferRef mb,
-                         StringRef archiveName, uint64_t offsetInArchive,
+BitcodeFile::BitcodeFile(MemoryBufferRef mb, StringRef archiveName,
+                         uint64_t offsetInArchive,
                          std::vector<Symbol *> &&symbols)
-    : InputFile(ctx, BitcodeKind, mb), symbols(std::move(symbols)) {
+    : InputFile(BitcodeKind, mb), symbols(std::move(symbols)) {
   std::string path = mb.getBufferIdentifier().str();
   if (config->thinLTOIndexOnly)
     path = replaceThinLTOSuffix(mb.getBufferIdentifier());
@@ -1034,71 +1040,35 @@ BitcodeFile::BitcodeFile(COFFLinkerContext &ctx, MemoryBufferRef mb,
 
 BitcodeFile::~BitcodeFile() = default;
 
-namespace {
-// Convenience class for initializing a coff_section with specific flags.
-class FakeSection {
-public:
-  FakeSection(int c) { section.Characteristics = c; }
-
-  coff_section section;
-};
-
-// Convenience class for initializing a SectionChunk with specific flags.
-class FakeSectionChunk {
-public:
-  FakeSectionChunk(const coff_section *section) : chunk(nullptr, section) {
-    // Comdats from LTO files can't be fully treated as regular comdats
-    // at this point; we don't know what size or contents they are going to
-    // have, so we can't do proper checking of such aspects of them.
-    chunk.selection = IMAGE_COMDAT_SELECT_ANY;
-  }
-
-  SectionChunk chunk;
-};
-
-FakeSection ltoTextSection(IMAGE_SCN_MEM_EXECUTE);
-FakeSection ltoDataSection(IMAGE_SCN_CNT_INITIALIZED_DATA);
-FakeSectionChunk ltoTextSectionChunk(&ltoTextSection.section);
-FakeSectionChunk ltoDataSectionChunk(&ltoDataSection.section);
-} // namespace
-
 void BitcodeFile::parse() {
   std::vector<std::pair<Symbol *, bool>> comdat(obj->getComdatTable().size());
   for (size_t i = 0; i != obj->getComdatTable().size(); ++i)
-    // FIXME: Check nodeduplicate
-    comdat[i] =
-        ctx.symtab.addComdat(this, saver.save(obj->getComdatTable()[i].first));
+    // FIXME: lto::InputFile doesn't keep enough data to do correct comdat
+    // selection handling.
+    comdat[i] = symtab->addComdat(this, saver.save(obj->getComdatTable()[i]));
   for (const lto::InputFile::Symbol &objSym : obj->symbols()) {
     StringRef symName = saver.save(objSym.getName());
     int comdatIndex = objSym.getComdatIndex();
     Symbol *sym;
-    SectionChunk *fakeSC = nullptr;
-    if (objSym.isExecutable())
-      fakeSC = &ltoTextSectionChunk.chunk;
-    else
-      fakeSC = &ltoDataSectionChunk.chunk;
     if (objSym.isUndefined()) {
-      sym = ctx.symtab.addUndefined(symName, this, false);
+      sym = symtab->addUndefined(symName, this, false);
     } else if (objSym.isCommon()) {
-      sym = ctx.symtab.addCommon(this, symName, objSym.getCommonSize());
+      sym = symtab->addCommon(this, symName, objSym.getCommonSize());
     } else if (objSym.isWeak() && objSym.isIndirect()) {
       // Weak external.
-      sym = ctx.symtab.addUndefined(symName, this, true);
+      sym = symtab->addUndefined(symName, this, true);
       std::string fallback = std::string(objSym.getCOFFWeakExternalFallback());
-      Symbol *alias = ctx.symtab.addUndefined(saver.save(fallback));
-      checkAndSetWeakAlias(&ctx.symtab, this, sym, alias);
+      Symbol *alias = symtab->addUndefined(saver.save(fallback));
+      checkAndSetWeakAlias(symtab, this, sym, alias);
     } else if (comdatIndex != -1) {
-      if (symName == obj->getComdatTable()[comdatIndex].first) {
+      if (symName == obj->getComdatTable()[comdatIndex])
         sym = comdat[comdatIndex].first;
-        if (cast<DefinedRegular>(sym)->data == nullptr)
-          cast<DefinedRegular>(sym)->data = &fakeSC->repl;
-      } else if (comdat[comdatIndex].second) {
-        sym = ctx.symtab.addRegular(this, symName, nullptr, fakeSC);
-      } else {
-        sym = ctx.symtab.addUndefined(symName, this, false);
-      }
+      else if (comdat[comdatIndex].second)
+        sym = symtab->addRegular(this, symName);
+      else
+        sym = symtab->addUndefined(symName, this, false);
     } else {
-      sym = ctx.symtab.addRegular(this, symName, nullptr, fakeSC);
+      sym = symtab->addRegular(this, symName);
     }
     symbols.push_back(sym);
     if (objSym.isUsed())
@@ -1129,94 +1099,4 @@ std::string lld::coff::replaceThinLTOSuffix(StringRef path) {
   if (path.consume_back(suffix))
     return (path + repl).str();
   return std::string(path);
-}
-
-static bool isRVACode(COFFObjectFile *coffObj, uint64_t rva, InputFile *file) {
-  for (size_t i = 1, e = coffObj->getNumberOfSections(); i <= e; i++) {
-    const coff_section *sec = CHECK(coffObj->getSection(i), file);
-    if (rva >= sec->VirtualAddress &&
-        rva <= sec->VirtualAddress + sec->VirtualSize) {
-      return (sec->Characteristics & COFF::IMAGE_SCN_CNT_CODE) != 0;
-    }
-  }
-  return false;
-}
-
-void DLLFile::parse() {
-  // Parse a memory buffer as a PE-COFF executable.
-  std::unique_ptr<Binary> bin = CHECK(createBinary(mb), this);
-
-  if (auto *obj = dyn_cast<COFFObjectFile>(bin.get())) {
-    bin.release();
-    coffObj.reset(obj);
-  } else {
-    error(toString(this) + " is not a COFF file");
-    return;
-  }
-
-  if (!coffObj->getPE32Header() && !coffObj->getPE32PlusHeader()) {
-    error(toString(this) + " is not a PE-COFF executable");
-    return;
-  }
-
-  for (const auto &exp : coffObj->export_directories()) {
-    StringRef dllName, symbolName;
-    uint32_t exportRVA;
-    checkError(exp.getDllName(dllName));
-    checkError(exp.getSymbolName(symbolName));
-    checkError(exp.getExportRVA(exportRVA));
-
-    if (symbolName.empty())
-      continue;
-
-    bool code = isRVACode(coffObj.get(), exportRVA, this);
-
-    Symbol *s = make<Symbol>();
-    s->dllName = dllName;
-    s->symbolName = symbolName;
-    s->importType = code ? ImportType::IMPORT_CODE : ImportType::IMPORT_DATA;
-    s->nameType = ImportNameType::IMPORT_NAME;
-
-    if (coffObj->getMachine() == I386) {
-      s->symbolName = symbolName = saver.save("_" + symbolName);
-      s->nameType = ImportNameType::IMPORT_NAME_NOPREFIX;
-    }
-
-    StringRef impName = saver.save("__imp_" + symbolName);
-    ctx.symtab.addLazyDLLSymbol(this, s, impName);
-    if (code)
-      ctx.symtab.addLazyDLLSymbol(this, s, symbolName);
-  }
-}
-
-MachineTypes DLLFile::getMachineType() {
-  if (coffObj)
-    return static_cast<MachineTypes>(coffObj->getMachine());
-  return IMAGE_FILE_MACHINE_UNKNOWN;
-}
-
-void DLLFile::makeImport(DLLFile::Symbol *s) {
-  if (!seen.insert(s->symbolName).second)
-    return;
-
-  size_t impSize = s->dllName.size() + s->symbolName.size() + 2; // +2 for NULs
-  size_t size = sizeof(coff_import_header) + impSize;
-  char *buf = bAlloc.Allocate<char>(size);
-  memset(buf, 0, size);
-  char *p = buf;
-  auto *imp = reinterpret_cast<coff_import_header *>(p);
-  p += sizeof(*imp);
-  imp->Sig2 = 0xFFFF;
-  imp->Machine = coffObj->getMachine();
-  imp->SizeOfData = impSize;
-  imp->OrdinalHint = 0; // Only linking by name
-  imp->TypeInfo = (s->nameType << 2) | s->importType;
-
-  // Write symbol name and DLL name.
-  memcpy(p, s->symbolName.data(), s->symbolName.size());
-  p += s->symbolName.size() + 1;
-  memcpy(p, s->dllName.data(), s->dllName.size());
-  MemoryBufferRef mbref = MemoryBufferRef(StringRef(buf, size), s->dllName);
-  ImportFile *impFile = make<ImportFile>(ctx, mbref);
-  ctx.symtab.addFile(impFile);
 }

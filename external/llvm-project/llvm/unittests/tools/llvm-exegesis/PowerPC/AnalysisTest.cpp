@@ -1,4 +1,4 @@
-//===-- PPCAnalysisTest.cpp ---------------------------------------*- C++ -*-===//
+//===-- AnalysisTest.cpp ---------------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -23,9 +23,9 @@ namespace {
 using testing::Pair;
 using testing::UnorderedElementsAre;
 
-class PPCAnalysisTest : public ::testing::Test {
+class AnalysisTest : public ::testing::Test {
 protected:
-  PPCAnalysisTest() {
+  AnalysisTest() {
     const std::string TT = "powerpc64le-unknown-linux";
     std::string error;
     const Target *const TheTarget = TargetRegistry::lookupTarget(TT, error);
@@ -69,19 +69,19 @@ protected:
   uint16_t IPAGENIdx = 0;
 };
 
-TEST_F(PPCAnalysisTest, ComputeIdealizedProcResPressure_2ALU) {
+TEST_F(AnalysisTest, ComputeIdealizedProcResPressure_2ALU) {
   const auto Pressure =
       computeIdealizedProcResPressure(STI->getSchedModel(), {{ALUIdx, 2}});
   EXPECT_THAT(Pressure, UnorderedElementsAre(Pair(ALUIdx, 2.0)));
 }
 
-TEST_F(PPCAnalysisTest, ComputeIdealizedProcResPressure_1ALUE) {
+TEST_F(AnalysisTest, ComputeIdealizedProcResPressure_1ALUE) {
   const auto Pressure =
       computeIdealizedProcResPressure(STI->getSchedModel(), {{ALUEIdx, 2}});
   EXPECT_THAT(Pressure, UnorderedElementsAre(Pair(ALUEIdx, 2.0)));
 }
 
-TEST_F(PPCAnalysisTest, ComputeIdealizedProcResPressure_1ALU1IPAGEN) {
+TEST_F(AnalysisTest, ComputeIdealizedProcResPressure_1ALU1IPAGEN) {
   const auto Pressure =
       computeIdealizedProcResPressure(STI->getSchedModel(), {{ALUIdx, 1}, {IPAGENIdx, 1}});
   EXPECT_THAT(Pressure, UnorderedElementsAre(Pair(ALUIdx, 1.0),Pair(IPAGENIdx, 1)));

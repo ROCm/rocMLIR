@@ -26,7 +26,7 @@ class CommandReturnObject {
 public:
   CommandReturnObject(bool colors);
 
-  ~CommandReturnObject() = default;
+  ~CommandReturnObject();
 
   llvm::StringRef GetOutputData() {
     lldb::StreamSP stream_sp(m_out_stream.GetStreamAtIndex(eStreamStringIndex));
@@ -63,28 +63,20 @@ public:
   }
 
   void SetImmediateOutputFile(lldb::FileSP file_sp) {
-    if (m_suppress_immediate_output)
-      return;
     lldb::StreamSP stream_sp(new StreamFile(file_sp));
     m_out_stream.SetStreamAtIndex(eImmediateStreamIndex, stream_sp);
   }
 
   void SetImmediateErrorFile(lldb::FileSP file_sp) {
-    if (m_suppress_immediate_output)
-      return;
     lldb::StreamSP stream_sp(new StreamFile(file_sp));
     m_err_stream.SetStreamAtIndex(eImmediateStreamIndex, stream_sp);
   }
 
   void SetImmediateOutputStream(const lldb::StreamSP &stream_sp) {
-    if (m_suppress_immediate_output)
-      return;
     m_out_stream.SetStreamAtIndex(eImmediateStreamIndex, stream_sp);
   }
 
   void SetImmediateErrorStream(const lldb::StreamSP &stream_sp) {
-    if (m_suppress_immediate_output)
-      return;
     m_err_stream.SetStreamAtIndex(eImmediateStreamIndex, stream_sp);
   }
 
@@ -102,6 +94,8 @@ public:
 
   void AppendMessageWithFormat(const char *format, ...)
       __attribute__((format(printf, 2, 3)));
+
+  void AppendRawWarning(llvm::StringRef in_string);
 
   void AppendWarning(llvm::StringRef in_string);
 
@@ -132,6 +126,8 @@ public:
 
   void SetError(const Status &error, const char *fallback_error_cstr = nullptr);
 
+  void SetError(llvm::StringRef error_cstr);
+
   lldb::ReturnStatus GetStatus();
 
   void SetStatus(lldb::ReturnStatus status);
@@ -148,23 +144,16 @@ public:
 
   void SetInteractive(bool b);
 
-  bool GetSuppressImmediateOutput() const;
-
-  void SetSuppressImmediateOutput(bool b);
-
 private:
   enum { eStreamStringIndex = 0, eImmediateStreamIndex = 1 };
 
   StreamTee m_out_stream;
   StreamTee m_err_stream;
 
-  lldb::ReturnStatus m_status = lldb::eReturnStatusStarted;
-
-  bool m_did_change_process_state = false;
-  bool m_suppress_immediate_output = false;
-
-  /// If true, then the input handle from the debugger will be hooked up.
-  bool m_interactive = true;
+  lldb::ReturnStatus m_status;
+  bool m_did_change_process_state;
+  bool m_interactive; // If true, then the input handle from the debugger will
+                      // be hooked up
 };
 
 } // namespace lldb_private

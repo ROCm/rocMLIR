@@ -2,7 +2,7 @@
 
 func @dim(%arg : tensor<1x?xf32>) {
   %c2 = constant 2 : index
-  tensor.dim %arg, %c2 : tensor<1x?xf32> // expected-error {{'tensor.dim' op index is out of range}}
+  dim %arg, %c2 : tensor<1x?xf32> // expected-error {{'std.dim' op index is out of range}}
   return
 }
 
@@ -10,8 +10,7 @@ func @dim(%arg : tensor<1x?xf32>) {
 
 func @rank(f32) {
 ^bb(%0: f32):
-  "std.rank"(%0): (f32)->index // expected-error {{'std.rank' op operand #0 must be any memref or tensor type}}
-
+  "std.rank"(%0): (f32)->index // expected-error {{'std.rank' op operand #0 must be any tensor or memref type}}
   return
 }
 
@@ -70,7 +69,7 @@ func @affine_apply_wrong_result_count() {
 
 func @unknown_custom_op() {
 ^bb0:
-  %i = test.crazyThing() {value = 0} : () -> index  // expected-error {{custom op 'test.crazyThing' is unknown}}
+  %i = crazyThing() {value = 0} : () -> index  // expected-error {{custom op 'crazyThing' is unknown}}
   return
 }
 
@@ -89,7 +88,7 @@ func @bad_alloc_wrong_dynamic_dim_count() {
   %0 = constant 7 : index
   // Test alloc with wrong number of dynamic dimensions.
   // expected-error@+1 {{dimension operand count does not equal memref dynamic dimension count}}
-  %1 = memref.alloc(%0)[%0] : memref<2x4xf32, affine_map<(d0, d1)[s0] -> ((d0 + s0), d1)>, 1>
+  %1 = alloc(%0)[%0] : memref<2x4xf32, affine_map<(d0, d1)[s0] -> ((d0 + s0), d1)>, 1>
   return
 }
 
@@ -100,7 +99,7 @@ func @bad_alloc_wrong_symbol_count() {
   %0 = constant 7 : index
   // Test alloc with wrong number of symbols
   // expected-error@+1 {{symbol operand count does not equal memref symbol count}}
-  %1 = memref.alloc(%0) : memref<2x?xf32, affine_map<(d0, d1)[s0] -> ((d0 + s0), d1)>, 1>
+  %1 = alloc(%0) : memref<2x?xf32, affine_map<(d0, d1)[s0] -> ((d0 + s0), d1)>, 1>
   return
 }
 
@@ -108,19 +107,19 @@ func @bad_alloc_wrong_symbol_count() {
 
 func @test_store_zero_results() {
 ^bb0:
-  %0 = memref.alloc() : memref<1024x64xf32, affine_map<(d0, d1) -> (d0, d1)>, 1>
+  %0 = alloc() : memref<1024x64xf32, affine_map<(d0, d1) -> (d0, d1)>, 1>
   %1 = constant 0 : index
   %2 = constant 1 : index
-  %3 = memref.load %0[%1, %2] : memref<1024x64xf32, affine_map<(d0, d1) -> (d0, d1)>, 1>
+  %3 = load %0[%1, %2] : memref<1024x64xf32, affine_map<(d0, d1) -> (d0, d1)>, 1>
   // Test that store returns zero results.
-  %4 = memref.store %3, %0[%1, %2] : memref<1024x64xf32, affine_map<(d0, d1) -> (d0, d1)>, 1> // expected-error {{cannot name an operation with no results}}
+  %4 = store %3, %0[%1, %2] : memref<1024x64xf32, affine_map<(d0, d1) -> (d0, d1)>, 1> // expected-error {{cannot name an operation with no results}}
   return
 }
 
 // -----
 
 func @test_store_zero_results2(%x: i32, %p: memref<i32>) {
-  "memref.store"(%x,%p) : (i32, memref<i32>) -> i32  // expected-error {{'memref.store' op requires zero results}}
+  "std.store"(%x,%p) : (i32, memref<i32>) -> i32  // expected-error {{'std.store' op requires zero results}}
   return
 }
 
@@ -128,7 +127,7 @@ func @test_store_zero_results2(%x: i32, %p: memref<i32>) {
 
 func @test_alloc_memref_map_rank_mismatch() {
 ^bb0:
-  %0 = memref.alloc() : memref<1024x64xf32, affine_map<(d0) -> (d0)>, 1> // expected-error {{memref affine map dimension mismatch}}
+  %0 = alloc() : memref<1024x64xf32, affine_map<(d0) -> (d0)>, 1> // expected-error {{memref affine map dimension mismatch}}
   return
 }
 
@@ -159,7 +158,7 @@ func @func_with_ops(f32) {
 
 func @func_with_ops(f32) {
 ^bb0(%a : f32):
-  %sf = addf(%a, %a) : f32  // expected-error {{'std.addf' expected function type}}
+  %sf = addf(%a, %a) : f32  // expected-error {{expected ':'}}
 }
 
 // -----
@@ -237,7 +236,7 @@ func @func_with_ops(i32, i32) {
 func @func_with_ops() {
 ^bb0:
   %c = constant dense<0> : vector<42 x i32>
-  // expected-error@+1 {{all non-scalar operands/results must have the same shape and base type}}
+  // expected-error@+1 {{all non-scalar operands/results must have the same shape and base type: found 'vector<41xi1>' and 'vector<42xi32>'}}
   %r = "std.cmpi"(%c, %c) {predicate = 0} : (vector<42 x i32>, vector<42 x i32>) -> vector<41 x i1>
 }
 
@@ -270,7 +269,7 @@ func @func_with_ops(i1, i32, i64) {
 
 func @func_with_ops(vector<12xi1>, vector<42xi32>, vector<42xi32>) {
 ^bb0(%cond : vector<12xi1>, %t : vector<42xi32>, %f : vector<42xi32>):
-  // expected-error@+1 {{all non-scalar operands/results must have the same shape and base type}}
+  // expected-error@+1 {{all non-scalar operands/results must have the same shape and base type: found 'vector<42xi32>' and 'vector<12xi1>'}}
   %r = "std.select"(%cond, %t, %f) : (vector<12xi1>, vector<42xi32>, vector<42xi32>) -> vector<42xi32>
 }
 
@@ -278,7 +277,7 @@ func @func_with_ops(vector<12xi1>, vector<42xi32>, vector<42xi32>) {
 
 func @func_with_ops(tensor<12xi1>, tensor<42xi32>, tensor<42xi32>) {
 ^bb0(%cond : tensor<12xi1>, %t : tensor<42xi32>, %f : tensor<42xi32>):
-  // expected-error@+1 {{all non-scalar operands/results must have the same shape and base type}}
+  // expected-error@+1 {{all non-scalar operands/results must have the same shape and base type: found 'tensor<42xi32>' and 'tensor<12xi1>'}}
   %r = "std.select"(%cond, %t, %f) : (tensor<12xi1>, tensor<42xi32>, tensor<42xi32>) -> tensor<42xi32>
 }
 
@@ -292,14 +291,14 @@ func @invalid_cmp_shape(%idx : () -> ()) {
 
 func @dma_start_not_enough_operands() {
   // expected-error@+1 {{expected at least 4 operands}}
-  "memref.dma_start"() : () -> ()
+  "std.dma_start"() : () -> ()
 }
 
 // -----
 
 func @dma_no_src_memref(%m : f32, %tag : f32, %c0 : index) {
   // expected-error@+1 {{expected source to be of memref type}}
-  memref.dma_start %m[%c0], %m[%c0], %c0, %tag[%c0] : f32, f32, f32
+  dma_start %m[%c0], %m[%c0], %c0, %tag[%c0] : f32, f32, f32
 }
 
 // -----
@@ -307,7 +306,7 @@ func @dma_no_src_memref(%m : f32, %tag : f32, %c0 : index) {
 func @dma_start_not_enough_operands_for_src(
     %src: memref<2x2x2xf32>, %idx: index) {
   // expected-error@+1 {{expected at least 7 operands}}
-  "memref.dma_start"(%src, %idx, %idx, %idx) : (memref<2x2x2xf32>, index, index, index) -> ()
+  "std.dma_start"(%src, %idx, %idx, %idx) : (memref<2x2x2xf32>, index, index, index) -> ()
 }
 
 // -----
@@ -316,16 +315,16 @@ func @dma_start_src_index_wrong_type(
     %src: memref<2x2xf32>, %idx: index, %dst: memref<2xf32,1>,
     %tag: memref<i32,2>, %flt: f32) {
   // expected-error@+1 {{expected source indices to be of index type}}
-  "memref.dma_start"(%src, %idx, %flt, %dst, %idx, %tag, %idx)
+  "std.dma_start"(%src, %idx, %flt, %dst, %idx, %tag, %idx)
       : (memref<2x2xf32>, index, f32, memref<2xf32,1>, index, memref<i32,2>, index) -> ()
 }
 
 // -----
 
 func @dma_no_dst_memref(%m : f32, %tag : f32, %c0 : index) {
-  %mref = memref.alloc() : memref<8 x f32>
+  %mref = alloc() : memref<8 x f32>
   // expected-error@+1 {{expected destination to be of memref type}}
-  memref.dma_start %mref[%c0], %m[%c0], %c0, %tag[%c0] : memref<8 x f32>, f32, f32
+  dma_start %mref[%c0], %m[%c0], %c0, %tag[%c0] : memref<8 x f32>, f32, f32
 }
 
 // -----
@@ -334,7 +333,7 @@ func @dma_start_not_enough_operands_for_dst(
     %src: memref<2x2xf32>, %idx: index, %dst: memref<2xf32,1>,
     %tag: memref<i32,2>) {
   // expected-error@+1 {{expected at least 7 operands}}
-  "memref.dma_start"(%src, %idx, %idx, %dst, %idx, %idx)
+  "std.dma_start"(%src, %idx, %idx, %dst, %idx, %idx)
       : (memref<2x2xf32>, index, index, memref<2xf32,1>, index, index) -> ()
 }
 
@@ -344,7 +343,7 @@ func @dma_start_dst_index_wrong_type(
     %src: memref<2x2xf32>, %idx: index, %dst: memref<2xf32,1>,
     %tag: memref<i32,2>, %flt: f32) {
   // expected-error@+1 {{expected destination indices to be of index type}}
-  "memref.dma_start"(%src, %idx, %idx, %dst, %flt, %tag, %idx)
+  "std.dma_start"(%src, %idx, %idx, %dst, %flt, %tag, %idx)
       : (memref<2x2xf32>, index, index, memref<2xf32,1>, f32, memref<i32,2>, index) -> ()
 }
 
@@ -354,16 +353,16 @@ func @dma_start_dst_index_wrong_type(
     %src: memref<2x2xf32>, %idx: index, %dst: memref<2xf32,1>,
     %tag: memref<i32,2>, %flt: f32) {
   // expected-error@+1 {{expected num elements to be of index type}}
-  "memref.dma_start"(%src, %idx, %idx, %dst, %idx, %flt, %tag)
+  "std.dma_start"(%src, %idx, %idx, %dst, %idx, %flt, %tag)
       : (memref<2x2xf32>, index, index, memref<2xf32,1>, index, f32, memref<i32,2>) -> ()
 }
 
 // -----
 
 func @dma_no_tag_memref(%tag : f32, %c0 : index) {
-  %mref = memref.alloc() : memref<8 x f32>
+  %mref = alloc() : memref<8 x f32>
   // expected-error@+1 {{expected tag to be of memref type}}
-  memref.dma_start %mref[%c0], %mref[%c0], %c0, %tag[%c0] : memref<8 x f32>, memref<8 x f32>, f32
+  dma_start %mref[%c0], %mref[%c0], %c0, %tag[%c0] : memref<8 x f32>, memref<8 x f32>, f32
 }
 
 // -----
@@ -372,7 +371,7 @@ func @dma_start_not_enough_operands_for_tag(
     %src: memref<2x2xf32>, %idx: index, %dst: memref<2xf32,1>,
     %tag: memref<2xi32,2>) {
   // expected-error@+1 {{expected at least 8 operands}}
-  "memref.dma_start"(%src, %idx, %idx, %dst, %idx, %idx, %tag)
+  "std.dma_start"(%src, %idx, %idx, %dst, %idx, %idx, %tag)
       : (memref<2x2xf32>, index, index, memref<2xf32,1>, index, index, memref<2xi32,2>) -> ()
 }
 
@@ -382,8 +381,17 @@ func @dma_start_dst_index_wrong_type(
     %src: memref<2x2xf32>, %idx: index, %dst: memref<2xf32,1>,
     %tag: memref<2xi32,2>, %flt: f32) {
   // expected-error@+1 {{expected tag indices to be of index type}}
-  "memref.dma_start"(%src, %idx, %idx, %dst, %idx, %idx, %tag, %flt)
+  "std.dma_start"(%src, %idx, %idx, %dst, %idx, %idx, %tag, %flt)
       : (memref<2x2xf32>, index, index, memref<2xf32,1>, index, index, memref<2xi32,2>, f32) -> ()
+}
+
+// -----
+
+func @dma_start_same_space(
+    %src: memref<2x2xf32>, %idx: index, %dst: memref<2xf32>,
+    %tag: memref<i32,2>) {
+  // expected-error@+1 {{DMA should be between different memory spaces}}
+  dma_start %src[%idx, %idx], %dst[%idx], %idx, %tag[] : memref<2x2xf32>, memref<2xf32>, memref<i32,2>
 }
 
 // -----
@@ -392,7 +400,7 @@ func @dma_start_too_many_operands(
     %src: memref<2x2xf32>, %idx: index, %dst: memref<2xf32,1>,
     %tag: memref<i32,2>) {
   // expected-error@+1 {{incorrect number of operands}}
-  "memref.dma_start"(%src, %idx, %idx, %dst, %idx, %idx, %tag, %idx, %idx, %idx)
+  "std.dma_start"(%src, %idx, %idx, %dst, %idx, %idx, %tag, %idx, %idx, %idx)
       : (memref<2x2xf32>, index, index, memref<2xf32,1>, index, index, memref<i32,2>, index, index, index) -> ()
 }
 
@@ -403,7 +411,7 @@ func @dma_start_wrong_stride_type(
     %src: memref<2x2xf32>, %idx: index, %dst: memref<2xf32,1>,
     %tag: memref<i32,2>, %flt: f32) {
   // expected-error@+1 {{expected stride and num elements per stride to be of type index}}
-  "memref.dma_start"(%src, %idx, %idx, %dst, %idx, %idx, %tag, %idx, %flt)
+  "std.dma_start"(%src, %idx, %idx, %dst, %idx, %idx, %tag, %idx, %flt)
       : (memref<2x2xf32>, index, index, memref<2xf32,1>, index, index, memref<i32,2>, index, f32) -> ()
 }
 
@@ -411,28 +419,28 @@ func @dma_start_wrong_stride_type(
 
 func @dma_wait_not_enough_operands() {
   // expected-error@+1 {{expected at least 2 operands}}
-  "memref.dma_wait"() : () -> ()
+  "std.dma_wait"() : () -> ()
 }
 
 // -----
 
 func @dma_wait_no_tag_memref(%tag : f32, %c0 : index) {
   // expected-error@+1 {{expected tag to be of memref type}}
-  "memref.dma_wait"(%tag, %c0, %c0) : (f32, index, index) -> ()
+  "std.dma_wait"(%tag, %c0, %c0) : (f32, index, index) -> ()
 }
 
 // -----
 
 func @dma_wait_wrong_index_type(%tag : memref<2xi32>, %idx: index, %flt: f32) {
   // expected-error@+1 {{expected tag indices to be of index type}}
-  "memref.dma_wait"(%tag, %flt, %idx) : (memref<2xi32>, f32, index) -> ()
+  "std.dma_wait"(%tag, %flt, %idx) : (memref<2xi32>, f32, index) -> ()
 }
 
 // -----
 
 func @dma_wait_wrong_num_elements_type(%tag : memref<2xi32>, %idx: index, %flt: f32) {
   // expected-error@+1 {{expected the number of elements to be of index type}}
-  "memref.dma_wait"(%tag, %idx, %flt) : (memref<2xi32>, index, f32) -> ()
+  "std.dma_wait"(%tag, %idx, %flt) : (memref<2xi32>, index, f32) -> ()
 }
 
 // -----
@@ -506,7 +514,7 @@ func @cmpf_canonical_wrong_result_type(%a : f32, %b : f32) -> f32 {
 // -----
 
 func @cmpf_result_shape_mismatch(%a : vector<42xf32>) {
-  // expected-error@+1 {{all non-scalar operands/results must have the same shape and base type}}
+  // expected-error@+1 {{all non-scalar operands/results must have the same shape and base type: found 'vector<41xi1>' and 'vector<42xf32>'}}
   %r = "std.cmpf"(%a, %a) {predicate = 0} : (vector<42 x f32>, vector<42 x f32>) -> vector<41 x i1>
 }
 
@@ -606,7 +614,7 @@ func @fpext_f32_to_i32(%arg0 : f32) {
 // -----
 
 func @fpext_vec(%arg0 : vector<2xf16>) {
-  // expected-error@+1 {{all non-scalar operands/results must have the same shape and base type}}
+  // expected-error@+1 {{all non-scalar operands/results must have the same shape and base type: found 'vector<3xf32>' and 'vector<2xf16>'}}
   %0 = fpext %arg0 : vector<2xf16> to vector<3xf32>
   return
 }
@@ -678,7 +686,7 @@ func @fptrunc_f32_to_i32(%arg0 : f32) {
 // -----
 
 func @fptrunc_vec(%arg0 : vector<2xf16>) {
-  // expected-error@+1 {{all non-scalar operands/results must have the same shape and base type}}
+  // expected-error@+1 {{all non-scalar operands/results must have the same shape and base type: found 'vector<3xf32>' and 'vector<2xf16>'}}
   %0 = fptrunc %arg0 : vector<2xf16> to vector<3xf32>
   return
 }
@@ -815,7 +823,7 @@ func @trunci_cast_to_same_width(%arg0 : i16) {
 
 func @return_not_in_function() {
   "foo.region"() ({
-    // expected-error@+1 {{'std.return' op expects parent op 'builtin.func'}}
+    // expected-error@+1 {{'std.return' op expects parent op 'func'}}
     return
   }): () -> ()
   return
@@ -833,7 +841,7 @@ func @invalid_splat(%v : f32) {
 
 func @invalid_splat(%v : vector<8xf32>) {
   %w = splat %v : tensor<8xvector<8xf32>>
-  // expected-error@-1 {{must be integer/index/float type}}
+  // expected-error@-1 {{must be integer or float type}}
   return
 }
 
@@ -848,9 +856,9 @@ func @invalid_splat(%v : f32) { // expected-note {{prior use here}}
 // -----
 
 func @invalid_view(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<2048xi8>
+  %0 = alloc() : memref<2048xi8>
   // expected-error@+1 {{expects 1 offset operand}}
-  %1 = memref.view %0[][%arg0, %arg1]
+  %1 = view %0[][%arg0, %arg1]
     : memref<2048xi8> to memref<?x?xf32>
   return
 }
@@ -858,9 +866,9 @@ func @invalid_view(%arg0 : index, %arg1 : index, %arg2 : index) {
 // -----
 
 func @invalid_view(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<2048xi8, affine_map<(d0) -> (d0 floordiv 8, d0 mod 8)>>
+  %0 = alloc() : memref<2048xi8, affine_map<(d0) -> (d0 floordiv 8, d0 mod 8)>>
   // expected-error@+1 {{unsupported map for base memref type}}
-  %1 = memref.view %0[%arg2][%arg0, %arg1]
+  %1 = view %0[%arg2][%arg0, %arg1]
     : memref<2048xi8, affine_map<(d0) -> (d0 floordiv 8, d0 mod 8)>> to
       memref<?x?xf32, affine_map<(d0, d1)[s0] -> (d0 * 4 + d1 + s0)>>
   return
@@ -869,9 +877,9 @@ func @invalid_view(%arg0 : index, %arg1 : index, %arg2 : index) {
 // -----
 
 func @invalid_view(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<2048xi8>
+  %0 = alloc() : memref<2048xi8>
   // expected-error@+1 {{unsupported map for result memref type}}
-  %1 = memref.view %0[%arg2][%arg0, %arg1]
+  %1 = view %0[%arg2][%arg0, %arg1]
     : memref<2048xi8> to memref<?x?xf32, affine_map<(d0, d1)[s0] -> (d0, d1, s0)>>
   return
 }
@@ -879,18 +887,18 @@ func @invalid_view(%arg0 : index, %arg1 : index, %arg2 : index) {
 // -----
 
 func @invalid_view(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<2048xi8, 2>
+  %0 = alloc() : memref<2048xi8, 2>
   // expected-error@+1 {{different memory spaces}}
-  %1 = memref.view %0[%arg2][%arg0, %arg1] :  memref<2048xi8, 2> to memref<?x?xf32, 1>
+  %1 = view %0[%arg2][%arg0, %arg1] :  memref<2048xi8, 2> to memref<?x?xf32, 1>
   return
 }
 
 // -----
 
 func @invalid_view(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<2048xi8>
+  %0 = alloc() : memref<2048xi8>
   // expected-error@+1 {{incorrect number of size operands for type}}
-  %1 = memref.view %0[%arg2][%arg0]
+  %1 = view %0[%arg2][%arg0]
     : memref<2048xi8> to memref<?x?xf32>
   return
 }
@@ -898,9 +906,9 @@ func @invalid_view(%arg0 : index, %arg1 : index, %arg2 : index) {
 // -----
 
 func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<8x16x4xf32>
+  %0 = alloc() : memref<8x16x4xf32>
   // expected-error@+1 {{expected mixed offsets rank to match mixed sizes rank (2 vs 3) so the rank of the result type is well-formed}}
-  %1 = memref.subview %0[0, 0][2, 2, 2][1, 1, 1]
+  %1 = subview %0[0, 0][2, 2, 2][1, 1, 1]
     : memref<8x16x4xf32> to memref<8x16x4xf32>
   return
 }
@@ -908,9 +916,9 @@ func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
 // -----
 
 func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<8x16x4xf32>
+  %0 = alloc() : memref<8x16x4xf32>
   // expected-error@+1 {{expected mixed sizes rank to match mixed strides rank (3 vs 2) so the rank of the result type is well-formed}}
-  %1 = memref.subview %0[0, 0, 0][2, 2, 2][1, 1]
+  %1 = subview %0[0, 0, 0][2, 2, 2][1, 1]
     : memref<8x16x4xf32> to memref<8x16x4xf32>
   return
 }
@@ -918,9 +926,9 @@ func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
 // -----
 
 func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<8x16x4xf32>
+  %0 = alloc() : memref<8x16x4xf32>
   // expected-error@+1 {{expected mixed sizes rank to match mixed strides rank (3 vs 2) so the rank of the result type is well-formed}}
-  %1 = memref.reinterpret_cast %0 to offset: [0], sizes: [2, 2, 2], strides:[1, 1]
+  %1 = memref_reinterpret_cast %0 to offset: [0], sizes: [2, 2, 2], strides:[1, 1]
     : memref<8x16x4xf32> to memref<8x16x4xf32>
   return
 }
@@ -928,9 +936,9 @@ func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
 // -----
 
 func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<8x16x4xf32, offset: 0, strides: [64, 4, 1], 2>
+  %0 = alloc() : memref<8x16x4xf32, offset: 0, strides: [64, 4, 1], 2>
   // expected-error@+1 {{different memory spaces}}
-  %1 = memref.subview %0[0, 0, 0][%arg2, %arg2, %arg2][1, 1, 1]
+  %1 = subview %0[0, 0, 0][%arg2, %arg2, %arg2][1, 1, 1]
     : memref<8x16x4xf32, offset: 0, strides: [64, 4, 1], 2> to
       memref<8x?x4xf32, affine_map<(d0, d1, d2)[s0] -> (d0 * s0 + d1 * 4 + d2)>>
   return
@@ -939,9 +947,9 @@ func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
 // -----
 
 func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<8x16x4xf32, affine_map<(d0, d1, d2) -> (d0 + d1, d1 + d2, d2)>>
+  %0 = alloc() : memref<8x16x4xf32, affine_map<(d0, d1, d2) -> (d0 + d1, d1 + d2, d2)>>
   // expected-error@+1 {{is not strided}}
-  %1 = memref.subview %0[0, 0, 0][%arg2, %arg2, %arg2][1, 1, 1]
+  %1 = subview %0[0, 0, 0][%arg2, %arg2, %arg2][1, 1, 1]
     : memref<8x16x4xf32, affine_map<(d0, d1, d2) -> (d0 + d1, d1 + d2, d2)>> to
       memref<8x?x4xf32, offset: 0, strides: [?, 4, 1]>
   return
@@ -950,9 +958,9 @@ func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
 // -----
 
 func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<8x16x4xf32>
+  %0 = alloc() : memref<8x16x4xf32>
   // expected-error@+1 {{expected <= 3 offset values}}
-  %1 = memref.subview %0[%arg0, %arg1, 0, 0][%arg2, 0, 0, 0][1, 1, 1, 1]
+  %1 = subview %0[%arg0, %arg1, 0, 0][%arg2, 0, 0, 0][1, 1, 1, 1]
     : memref<8x16x4xf32> to
       memref<8x?x4xf32, offset: 0, strides:[?, ?, 4]>
   return
@@ -961,9 +969,20 @@ func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
 // -----
 
 func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<8x16x4xf32>
+  %0 = alloc() : memref<8x16x4xf32>
+  // expected-error@+1 {{expected result type to be 'memref<?x?x?xf32, affine_map<(d0, d1, d2)[s0, s1, s2, s3] -> (d0 * s1 + s0 + d1 * s2 + d2 * s3)>>' or a rank-reduced version. (mismatch of result strides)}}
+  %1 = subview %0[%arg0, %arg1, %arg2][%arg0, %arg1, %arg2][%arg0, %arg1, %arg2]
+    : memref<8x16x4xf32> to
+      memref<?x?x?xf32, offset: ?, strides: [64, 4, 1]>
+  return
+}
+
+// -----
+
+func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
+  %0 = alloc() : memref<8x16x4xf32>
   // expected-error@+1 {{expected result element type to be 'f32'}}
-  %1 = memref.subview %0[0, 0, 0][8, 16, 4][1, 1, 1]
+  %1 = subview %0[0, 0, 0][8, 16, 4][1, 1, 1]
     : memref<8x16x4xf32> to
       memref<8x16x4xi32>
   return
@@ -972,9 +991,9 @@ func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
 // -----
 
 func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<8x16x4xf32>
+  %0 = alloc() : memref<8x16x4xf32>
   // expected-error@+1 {{expected result rank to be smaller or equal to the source rank.}}
-  %1 = memref.subview %0[0, 0, 0][8, 16, 4][1, 1, 1]
+  %1 = subview %0[0, 0, 0][8, 16, 4][1, 1, 1]
     : memref<8x16x4xf32> to
       memref<8x16x4x3xi32>
   return
@@ -983,9 +1002,9 @@ func @invalid_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
 // -----
 
 func @invalid_rank_reducing_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<8x16x4xf32>
+  %0 = alloc() : memref<8x16x4xf32>
   // expected-error@+1 {{expected result type to be 'memref<8x16x4xf32, affine_map<(d0, d1, d2) -> (d0 * 64 + d1 * 4 + d2)>>' or a rank-reduced version. (mismatch of result sizes)}}
-  %1 = memref.subview %0[0, 0, 0][8, 16, 4][1, 1, 1]
+  %1 = subview %0[0, 0, 0][8, 16, 4][1, 1, 1]
     : memref<8x16x4xf32> to memref<16x4xf32>
   return
 }
@@ -993,9 +1012,9 @@ func @invalid_rank_reducing_subview(%arg0 : index, %arg1 : index, %arg2 : index)
 // -----
 
 func @invalid_rank_reducing_subview(%arg0 : index, %arg1 : index, %arg2 : index) {
-  %0 = memref.alloc() : memref<8x16x4xf32>
+  %0 = alloc() : memref<8x16x4xf32>
   // expected-error@+1 {{expected result type to be 'memref<8x16x4xf32, affine_map<(d0, d1, d2) -> (d0 * 64 + d1 * 4 + d2 + 8)>>' or a rank-reduced version. (mismatch of result sizes)}}
-  %1 = memref.subview %0[0, 2, 0][8, 16, 4][1, 1, 1]
+  %1 = subview %0[0, 2, 0][8, 16, 4][1, 1, 1]
     : memref<8x16x4xf32> to memref<16x4xf32>
   return
 }
@@ -1003,8 +1022,8 @@ func @invalid_rank_reducing_subview(%arg0 : index, %arg1 : index, %arg2 : index)
 // -----
 
 func @invalid_rank_reducing_subview(%arg0 : memref<?x?xf32>, %arg1 : index, %arg2 : index) {
-  // expected-error@+1 {{expected result type to be 'memref<?x1xf32, affine_map<(d0, d1)[s0, s1] -> (d0 * s1 + s0 + d1)>>' or a rank-reduced version. (mismatch of result sizes)}}
-  %0 = memref.subview %arg0[0, %arg1][%arg2, 1][1, 1] : memref<?x?xf32> to memref<?xf32>
+  // expected-error@+1 {{expected result type to be 'memref<?x1xf32, affine_map<(d0, d1)[s0, s1] -> (d0 * s1 + s0 + d1)>>' or a rank-reduced version. (mismatch of result strides)}}
+  %0 = subview %arg0[0, %arg1][%arg2, 1][1, 1] : memref<?x?xf32> to memref<?xf32>
   return
 }
 
@@ -1012,7 +1031,7 @@ func @invalid_rank_reducing_subview(%arg0 : memref<?x?xf32>, %arg1 : index, %arg
 
 func @invalid_memref_cast(%arg0 : memref<12x4x16xf32, offset:0, strides:[64, 16, 1]>) {
   // expected-error@+1{{operand type 'memref<12x4x16xf32, affine_map<(d0, d1, d2) -> (d0 * 64 + d1 * 16 + d2)>>' and result type 'memref<12x4x16xf32, affine_map<(d0, d1, d2) -> (d0 * 128 + d1 * 32 + d2 * 2)>>' are cast incompatible}}
-  %0 = memref.cast %arg0 : memref<12x4x16xf32, offset:0, strides:[64, 16, 1]> to memref<12x4x16xf32, offset:0, strides:[128, 32, 2]>
+  %0 = memref_cast %arg0 : memref<12x4x16xf32, offset:0, strides:[64, 16, 1]> to memref<12x4x16xf32, offset:0, strides:[128, 32, 2]>
   return
 }
 
@@ -1020,7 +1039,7 @@ func @invalid_memref_cast(%arg0 : memref<12x4x16xf32, offset:0, strides:[64, 16,
 
 func @invalid_memref_cast(%arg0 : memref<12x4x16xf32, offset:0, strides:[64, 16, 1]>) {
   // expected-error@+1{{operand type 'memref<12x4x16xf32, affine_map<(d0, d1, d2) -> (d0 * 64 + d1 * 16 + d2)>>' and result type 'memref<12x4x16xf32, affine_map<(d0, d1, d2) -> (d0 * 64 + d1 * 16 + d2 + 16)>>' are cast incompatible}}
-  %0 = memref.cast %arg0 : memref<12x4x16xf32, offset:0, strides:[64, 16, 1]> to memref<12x4x16xf32, offset:16, strides:[64, 16, 1]>
+  %0 = memref_cast %arg0 : memref<12x4x16xf32, offset:0, strides:[64, 16, 1]> to memref<12x4x16xf32, offset:16, strides:[64, 16, 1]>
   return
 }
 
@@ -1028,36 +1047,36 @@ func @invalid_memref_cast(%arg0 : memref<12x4x16xf32, offset:0, strides:[64, 16,
 
 // incompatible element types
 func @invalid_memref_cast() {
-  %0 = memref.alloc() : memref<2x5xf32, 0>
+  %0 = alloc() : memref<2x5xf32, 0>
   // expected-error@+1 {{operand type 'memref<2x5xf32>' and result type 'memref<*xi32>' are cast incompatible}}
-  %1 = memref.cast %0 : memref<2x5xf32, 0> to memref<*xi32>
+  %1 = memref_cast %0 : memref<2x5xf32, 0> to memref<*xi32>
   return
 }
 
 // -----
 
 func @invalid_prefetch_rw(%i : index) {
-  %0 = memref.alloc() : memref<10xf32>
+  %0 = alloc() : memref<10xf32>
   // expected-error@+1 {{rw specifier has to be 'read' or 'write'}}
-  memref.prefetch %0[%i], rw, locality<0>, data  : memref<10xf32>
+  prefetch %0[%i], rw, locality<0>, data  : memref<10xf32>
   return
 }
 
 // -----
 
 func @invalid_prefetch_cache_type(%i : index) {
-  %0 = memref.alloc() : memref<10xf32>
+  %0 = alloc() : memref<10xf32>
   // expected-error@+1 {{cache type has to be 'data' or 'instr'}}
-  memref.prefetch %0[%i], read, locality<0>, false  : memref<10xf32>
+  prefetch %0[%i], read, locality<0>, false  : memref<10xf32>
   return
 }
 
 // -----
 
 func @invalid_prefetch_locality_hint(%i : index) {
-  %0 = memref.alloc() : memref<10xf32>
+  %0 = alloc() : memref<10xf32>
   // expected-error@+1 {{32-bit signless integer attribute whose minimum value is 0 whose maximum value is 3}}
-  memref.prefetch %0[%i], read, locality<5>, data  : memref<10xf32>
+  prefetch %0[%i], read, locality<5>, data  : memref<10xf32>
   return
 }
 
@@ -1065,9 +1084,9 @@ func @invalid_prefetch_locality_hint(%i : index) {
 
 // incompatible memory space
 func @invalid_memref_cast() {
-  %0 = memref.alloc() : memref<2x5xf32, 0>
+  %0 = alloc() : memref<2x5xf32, 0>
   // expected-error@+1 {{operand type 'memref<2x5xf32>' and result type 'memref<*xf32, 1>' are cast incompatible}}
-  %1 = memref.cast %0 : memref<2x5xf32, 0> to memref<*xf32, 1>
+  %1 = memref_cast %0 : memref<2x5xf32, 0> to memref<*xf32, 1>
   return
 }
 
@@ -1075,10 +1094,10 @@ func @invalid_memref_cast() {
 
 // unranked to unranked
 func @invalid_memref_cast() {
-  %0 = memref.alloc() : memref<2x5xf32, 0>
-  %1 = memref.cast %0 : memref<2x5xf32, 0> to memref<*xf32, 0>
+  %0 = alloc() : memref<2x5xf32, 0>
+  %1 = memref_cast %0 : memref<2x5xf32, 0> to memref<*xf32, 0>
   // expected-error@+1 {{operand type 'memref<*xf32>' and result type 'memref<*xf32>' are cast incompatible}}
-  %2 = memref.cast %1 : memref<*xf32, 0> to memref<*xf32, 0>
+  %2 = memref_cast %1 : memref<*xf32, 0> to memref<*xf32, 0>
   return
 }
 
@@ -1149,7 +1168,7 @@ func @generic_atomic_rmw_has_side_effects(%I: memref<10xf32>, %i : index) {
   %x = generic_atomic_rmw %I[%i] : memref<10xf32> {
     ^bb0(%old_value : f32):
       %c1 = constant 1.0 : f32
-      %buf = memref.alloc() : memref<2048xf32>
+      %buf = alloc() : memref<2048xf32>
       atomic_yield %c1 : f32
   }
 }
@@ -1171,7 +1190,7 @@ func @atomic_yield_type_mismatch(%I: memref<10xf32>, %i : index) {
 // alignment is not power of 2.
 func @assume_alignment(%0: memref<4x4xf16>) {
   // expected-error@+1 {{alignment must be power of 2}}
-  memref.assume_alignment %0, 12 : memref<4x4xf16>
+  std.assume_alignment %0, 12 : memref<4x4xf16>
   return
 }
 
@@ -1180,23 +1199,23 @@ func @assume_alignment(%0: memref<4x4xf16>) {
 // 0 alignment value.
 func @assume_alignment(%0: memref<4x4xf16>) {
   // expected-error@+1 {{attribute 'alignment' failed to satisfy constraint: 32-bit signless integer attribute whose value is positive}}
-  memref.assume_alignment %0, 0 : memref<4x4xf16>
+  std.assume_alignment %0, 0 : memref<4x4xf16>
   return
 }
 
 // -----
 
 "alloca_without_scoped_alloc_parent"() ( {
-  memref.alloca() : memref<1xf32>
+  std.alloca() : memref<1xf32>
   // expected-error@-1 {{requires an ancestor op with AutomaticAllocationScope trait}}
   return
 }) : () -> ()
 
 // -----
 
-func @slice_wrong_dynamic_type(%t: tensor<8x16x4xf32>, %idx : index) {
+func @subtensor_wrong_dynamic_type(%t: tensor<8x16x4xf32>, %idx : index) {
       // expected-error @+1 {{expected result type to be 'tensor<4x4x4xf32>' or a rank-reduced version. (mismatch of result sizes)}}
-  %0 = tensor.extract_slice %t[0, 2, 0][4, 4, 4][1, 1, 1]
+  %0 = subtensor %t[0, 2, 0][4, 4, 4][1, 1, 1]
     : tensor<8x16x4xf32> to tensor<?x4x4xf32>
 
   return
@@ -1204,9 +1223,9 @@ func @slice_wrong_dynamic_type(%t: tensor<8x16x4xf32>, %idx : index) {
 
 // -----
 
-func @slice_wrong_static_type(%t: tensor<8x16x4xf32>, %idx : index) {
+func @subtensor_wrong_static_type(%t: tensor<8x16x4xf32>, %idx : index) {
       // expected-error @+1 {{expected result type to be 'tensor<?x3x?xf32>' or a rank-reduced version. (mismatch of result sizes)}}
-  %0 = tensor.extract_slice %t[0, 0, 0][%idx, 3, %idx][1, 1, 1]
+  %0 = subtensor %t[0, 0, 0][%idx, 3, %idx][1, 1, 1]
     : tensor<8x16x4xf32> to tensor<4x4x4xf32>
 
   return

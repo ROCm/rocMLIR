@@ -86,15 +86,8 @@ const PathDecomposeTestcase PathTestCases[] =
     , {"/foo/", {"/", "foo", ""}, "/", "", "/", "foo/", "/foo", ""}
     , {"foo/bar", {"foo","bar"}, "",  "", "",  "foo/bar", "foo", "bar"}
     , {"/foo//bar", {"/","foo","bar"}, "/", "", "/", "foo/bar", "/foo", "bar"}
-#ifdef _WIN32
-    , {"//net", {"//net"}, "//net", "//net", "", "", "//net", ""}
-    , {"//net/", {"//net", "/"}, "//net/", "//net", "/", "", "//net/", ""}
-    , {"//net/foo", {"//net", "/", "foo"}, "//net/", "//net", "/", "foo", "//net/", "foo"}
-#else
     , {"//net", {"/", "net"}, "/", "", "/", "net", "/", "net"}
-    , {"//net/", {"/", "net", ""}, "/", "", "/", "net/", "//net", ""}
     , {"//net/foo", {"/", "net", "foo"}, "/", "", "/", "net/foo", "/net", "foo"}
-#endif
     , {"///foo///", {"/", "foo", ""}, "/", "", "/", "foo///", "///foo", ""}
     , {"///foo///bar", {"/", "foo", "bar"}, "/", "", "/", "foo///bar", "///foo", "bar"}
     , {"/.", {"/", "."}, "/", "", "/", ".", "/", "."}
@@ -107,15 +100,6 @@ const PathDecomposeTestcase PathTestCases[] =
     , {"foo/./bar", {"foo", ".", "bar"}, "", "", "", "foo/./bar", "foo/.", "bar"}
     , {"foo/../", {"foo", "..", ""}, "", "", "", "foo/../", "foo/..", ""}
     , {"foo/../bar", {"foo", "..", "bar"}, "", "", "", "foo/../bar", "foo/..", "bar"}
-#ifdef _WIN32
-    , {"c:", {"c:"}, "c:", "c:", "", "", "c:", ""}
-    , {"c:/", {"c:", "/"}, "c:/", "c:", "/", "", "c:/", ""}
-    , {"c:foo", {"c:", "foo"}, "c:", "c:", "", "foo", "c:", "foo"}
-    , {"c:/foo", {"c:", "/", "foo"}, "c:/", "c:", "/", "foo", "c:/", "foo"}
-    , {"c:foo/", {"c:", "foo", ""}, "c:", "c:", "", "foo/", "c:foo", ""}
-    , {"c:/foo/", {"c:", "/", "foo", ""}, "c:/", "c:", "/", "foo/",  "c:/foo", ""}
-    , {"c:/foo/bar", {"c:", "/", "foo", "bar"}, "c:/", "c:", "/", "foo/bar", "c:/foo", "bar"}
-#else
     , {"c:", {"c:"}, "", "", "", "c:", "", "c:"}
     , {"c:/", {"c:", ""}, "", "", "", "c:/", "c:", ""}
     , {"c:foo", {"c:foo"}, "", "", "", "c:foo", "", "c:foo"}
@@ -123,23 +107,13 @@ const PathDecomposeTestcase PathTestCases[] =
     , {"c:foo/", {"c:foo", ""}, "", "", "", "c:foo/", "c:foo", ""}
     , {"c:/foo/", {"c:", "foo", ""}, "", "", "", "c:/foo/",  "c:/foo", ""}
     , {"c:/foo/bar", {"c:", "foo", "bar"}, "", "", "", "c:/foo/bar", "c:/foo", "bar"}
-#endif
     , {"prn:", {"prn:"}, "", "", "", "prn:", "", "prn:"}
-#ifdef _WIN32
-    , {"c:\\", {"c:", "\\"}, "c:\\", "c:", "\\", "", "c:\\", ""}
-    , {"c:\\foo", {"c:", "\\", "foo"}, "c:\\", "c:", "\\", "foo", "c:\\", "foo"}
-    , {"c:foo\\", {"c:", "foo", ""}, "c:", "c:", "", "foo\\", "c:foo", ""}
-    , {"c:\\foo\\", {"c:", "\\", "foo", ""}, "c:\\", "c:", "\\", "foo\\", "c:\\foo", ""}
-    , {"c:\\foo/",  {"c:", "\\", "foo", ""}, "c:\\", "c:", "\\", "foo/", "c:\\foo", ""}
-    , {"c:/foo\\bar", {"c:", "/", "foo", "bar"}, "c:\\", "c:", "\\", "foo\\bar", "c:/foo", "bar"}
-#else
     , {"c:\\", {"c:\\"}, "", "", "", "c:\\", "", "c:\\"}
     , {"c:\\foo", {"c:\\foo"}, "", "", "", "c:\\foo", "", "c:\\foo"}
     , {"c:foo\\", {"c:foo\\"}, "", "", "", "c:foo\\", "", "c:foo\\"}
     , {"c:\\foo\\", {"c:\\foo\\"}, "", "", "", "c:\\foo\\", "", "c:\\foo\\"}
     , {"c:\\foo/",  {"c:\\foo", ""}, "", "", "", "c:\\foo/", "c:\\foo", ""}
     , {"c:/foo\\bar", {"c:", "foo\\bar"}, "", "", "", "c:/foo\\bar", "c:", "foo\\bar"}
-#endif
     , {"//", {"/"}, "/", "", "/", "", "/", ""}
   };
 
@@ -153,9 +127,7 @@ void decompPathTest()
     assert(p.root_path() == TC.root_path);
     assert(p.has_root_path() != TC.root_path.empty());
 
-#ifndef _WIN32
     assert(p.root_name().native().empty());
-#endif
     assert(p.root_name() == TC.root_name);
     assert(p.has_root_name() != TC.root_name.empty());
 
@@ -171,28 +143,7 @@ void decompPathTest()
     assert(p.filename() == TC.filename);
     assert(p.has_filename() != TC.filename.empty());
 
-#ifdef _WIN32
-    if (!p.has_root_name()) {
-      assert(p.is_absolute() == false);
-    } else {
-      std::string root_name = p.root_name().string();
-      assert(root_name.length() >= 2);
-      if (root_name[1] == ':') {
-        // Drive letter, absolute if has a root directory
-        assert(p.is_absolute() == p.has_root_directory());
-      } else {
-        // Possibly a server path
-        // Convert to one separator style, for simplicity
-        std::replace(root_name.begin(), root_name.end(), '\\', '/');
-        if (root_name[0] == '/' && root_name[1] == '/')
-          assert(p.is_absolute() == true);
-        else
-          assert(p.is_absolute() == false);
-      }
-    }
-#else
     assert(p.is_absolute() == p.has_root_directory());
-#endif
     assert(p.is_relative() != p.is_absolute());
     if (p.empty())
       assert(p.is_relative());

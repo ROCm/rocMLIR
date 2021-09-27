@@ -1,12 +1,18 @@
 // RUN: %clangxx_tsan -O1 %s -o %t && %run %t 2>&1 | FileCheck %s
 // UNSUPPORTED: darwin
-#include "test.h"
-#include <errno.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <signal.h>
-#include <sys/time.h>
 #include <sys/types.h>
+#include <sys/time.h>
+#include <unistd.h>
+#include <errno.h>
 
 // Test synchronization in signal handled within IgnoreSync region.
+
+extern "C" void AnnotateIgnoreSyncBegin(const char *f, int l);
+extern "C" void AnnotateIgnoreSyncEnd(const char *f, int l);
 
 const int kSignalCount = 500;
 

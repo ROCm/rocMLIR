@@ -15,8 +15,6 @@
 
 // REQUIRES: locale.en_US.UTF-8
 
-// XFAIL: LIBCXX-WINDOWS-FIXME
-
 #include <locale>
 #include <ios>
 #include <streambuf>

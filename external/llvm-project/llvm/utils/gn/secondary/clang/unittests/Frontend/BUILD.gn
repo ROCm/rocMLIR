@@ -23,6 +23,5 @@ unittest("FrontendTests") {
     "PCHPreambleTest.cpp",
     "ParsedSourceLocationTest.cpp",
     "TextDiagnosticTest.cpp",
-    "UtilsTest.cpp",
   ]
 }

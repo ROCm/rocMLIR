@@ -1,5 +1,8 @@
 // RUN: %clangxx_tsan -O1 %s -o %t && %deflake %run %t | FileCheck %s
-#include "test.h"
+#include <pthread.h>
+#include <stdio.h>
+
+extern "C" void AnnotateIgnoreReadsBegin(const char *f, int l);
 
 void *Thread(void *x) {
   AnnotateIgnoreReadsBegin("", 0);

@@ -1,4 +1,3 @@
-// UNSUPPORTED: -zos, -aix
 // Test this without pch.
 // RUN: %clang_cc1 -include %S/objc_container.h -fsyntax-only -verify %s
 

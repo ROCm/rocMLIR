@@ -17,7 +17,6 @@
 
 #include "lldb/API/SBBreakpoint.h"
 #include "lldb/API/SBBreakpointLocation.h"
-#include "lldb/API/SBDeclaration.h"
 #include "lldb/API/SBValue.h"
 #include "lldb/Host/PosixApi.h"
 
@@ -868,24 +867,14 @@ llvm::json::Value CreateThreadStopped(lldb::SBThread &thread,
   case lldb::eStopReasonInstrumentation:
     body.try_emplace("reason", "breakpoint");
     break;
-  case lldb::eStopReasonProcessorTrace:
-    body.try_emplace("reason", "processor trace");
-    break;
   case lldb::eStopReasonSignal:
+    body.try_emplace("reason", "exception");
+    break;
   case lldb::eStopReasonException:
     body.try_emplace("reason", "exception");
     break;
   case lldb::eStopReasonExec:
     body.try_emplace("reason", "entry");
-    break;
-  case lldb::eStopReasonFork:
-    body.try_emplace("reason", "fork");
-    break;
-  case lldb::eStopReasonVFork:
-    body.try_emplace("reason", "vfork");
-    break;
-  case lldb::eStopReasonVForkDone:
-    body.try_emplace("reason", "vforkdone");
     break;
   case lldb::eStopReasonThreadExiting:
   case lldb::eStopReasonInvalid:
@@ -912,28 +901,6 @@ llvm::json::Value CreateThreadStopped(lldb::SBThread &thread,
   body.try_emplace("allThreadsStopped", true);
   event.try_emplace("body", std::move(body));
   return llvm::json::Value(std::move(event));
-}
-
-const char *GetNonNullVariableName(lldb::SBValue v) {
-  const char *name = v.GetName();
-  return name ? name : "<null>";
-}
-
-std::string CreateUniqueVariableNameForDisplay(lldb::SBValue v,
-                                               bool is_name_duplicated) {
-  lldb::SBStream name_builder;
-  name_builder.Print(GetNonNullVariableName(v));
-  if (is_name_duplicated) {
-    lldb::SBDeclaration declaration = v.GetDeclaration();
-    const char *file_name = declaration.GetFileSpec().GetFilename();
-    const uint32_t line = declaration.GetLine();
-
-    if (file_name != nullptr && line > 0)
-      name_builder.Printf(" @ %s:%u", file_name, line);
-    else if (const char *location = v.GetLocation())
-      name_builder.Printf(" @ %s", location);
-  }
-  return name_builder.GetData();
 }
 
 // "Variable": {
@@ -999,12 +966,10 @@ std::string CreateUniqueVariableNameForDisplay(lldb::SBValue v,
 //   "required": [ "name", "value", "variablesReference" ]
 // }
 llvm::json::Value CreateVariable(lldb::SBValue v, int64_t variablesReference,
-                                 int64_t varID, bool format_hex,
-                                 bool is_name_duplicated) {
+                                 int64_t varID, bool format_hex) {
   llvm::json::Object object;
-  EmplaceSafeString(object, "name",
-                    CreateUniqueVariableNameForDisplay(v, is_name_duplicated));
-
+  auto name = v.GetName();
+  EmplaceSafeString(object, "name", name ? name : "<null>");
   if (format_hex)
     v.SetFormat(lldb::eFormatHex);
   SetValueForKey(v, object, "value");

@@ -15,20 +15,18 @@
 using namespace llvm;
 
 EVT EVT::changeExtendedTypeToInteger() const {
-  assert(isExtended() && "Type is not extended!");
   LLVMContext &Context = LLVMTy->getContext();
   return getIntegerVT(Context, getSizeInBits());
 }
 
 EVT EVT::changeExtendedVectorElementTypeToInteger() const {
-  assert(isExtended() && "Type is not extended!");
   LLVMContext &Context = LLVMTy->getContext();
   EVT IntTy = getIntegerVT(Context, getScalarSizeInBits());
-  return getVectorVT(Context, IntTy, getVectorElementCount());
+  return getVectorVT(Context, IntTy, getVectorNumElements(),
+                     isScalableVector());
 }
 
 EVT EVT::changeExtendedVectorElementType(EVT EltVT) const {
-  assert(isExtended() && "Type is not extended!");
   LLVMContext &Context = LLVMTy->getContext();
   return getVectorVT(Context, EltVT, getVectorElementCount());
 }
@@ -167,7 +165,6 @@ std::string EVT::getEVTString() const {
   case MVT::Glue:      return "glue";
   case MVT::x86mmx:    return "x86mmx";
   case MVT::x86amx:    return "x86amx";
-  case MVT::i64x8:     return "i64x8";
   case MVT::Metadata:  return "Metadata";
   case MVT::Untyped:   return "Untyped";
   case MVT::funcref:   return "funcref";
@@ -199,11 +196,6 @@ Type *EVT::getTypeForEVT(LLVMContext &Context) const {
   case MVT::ppcf128: return Type::getPPC_FP128Ty(Context);
   case MVT::x86mmx:  return Type::getX86_MMXTy(Context);
   case MVT::x86amx:  return Type::getX86_AMXTy(Context);
-  case MVT::i64x8:   return IntegerType::get(Context, 512);
-  case MVT::externref:
-    return PointerType::get(StructType::create(Context), 10);
-  case MVT::funcref:
-    return PointerType::get(StructType::create(Context), 20);
   case MVT::v1i1:
     return FixedVectorType::get(Type::getInt1Ty(Context), 1);
   case MVT::v2i1:
@@ -244,10 +236,6 @@ Type *EVT::getTypeForEVT(LLVMContext &Context) const {
     return FixedVectorType::get(Type::getInt8Ty(Context), 128);
   case MVT::v256i8:
     return FixedVectorType::get(Type::getInt8Ty(Context), 256);
-  case MVT::v512i8:
-    return FixedVectorType::get(Type::getInt8Ty(Context), 512);
-  case MVT::v1024i8:
-    return FixedVectorType::get(Type::getInt8Ty(Context), 1024);
   case MVT::v1i16:
     return FixedVectorType::get(Type::getInt16Ty(Context), 1);
   case MVT::v2i16:
@@ -266,10 +254,6 @@ Type *EVT::getTypeForEVT(LLVMContext &Context) const {
     return FixedVectorType::get(Type::getInt16Ty(Context), 64);
   case MVT::v128i16:
     return FixedVectorType::get(Type::getInt16Ty(Context), 128);
-  case MVT::v256i16:
-    return FixedVectorType::get(Type::getInt16Ty(Context), 256);
-  case MVT::v512i16:
-    return FixedVectorType::get(Type::getInt16Ty(Context), 512);
   case MVT::v1i32:
     return FixedVectorType::get(Type::getInt32Ty(Context), 1);
   case MVT::v2i32:
@@ -280,10 +264,6 @@ Type *EVT::getTypeForEVT(LLVMContext &Context) const {
     return FixedVectorType::get(Type::getInt32Ty(Context), 4);
   case MVT::v5i32:
     return FixedVectorType::get(Type::getInt32Ty(Context), 5);
-  case MVT::v6i32:
-    return FixedVectorType::get(Type::getInt32Ty(Context), 6);
-  case MVT::v7i32:
-    return FixedVectorType::get(Type::getInt32Ty(Context), 7);
   case MVT::v8i32:
     return FixedVectorType::get(Type::getInt32Ty(Context), 8);
   case MVT::v16i32:
@@ -306,8 +286,6 @@ Type *EVT::getTypeForEVT(LLVMContext &Context) const {
     return FixedVectorType::get(Type::getInt64Ty(Context), 1);
   case MVT::v2i64:
     return FixedVectorType::get(Type::getInt64Ty(Context), 2);
-  case MVT::v3i64:
-    return FixedVectorType::get(Type::getInt64Ty(Context), 3);
   case MVT::v4i64:
     return FixedVectorType::get(Type::getInt64Ty(Context), 4);
   case MVT::v8i64:
@@ -324,8 +302,6 @@ Type *EVT::getTypeForEVT(LLVMContext &Context) const {
     return FixedVectorType::get(Type::getInt64Ty(Context), 256);
   case MVT::v1i128:
     return FixedVectorType::get(Type::getInt128Ty(Context), 1);
-  case MVT::v1f16:
-    return FixedVectorType::get(Type::getHalfTy(Context), 1);
   case MVT::v2f16:
     return FixedVectorType::get(Type::getHalfTy(Context), 2);
   case MVT::v3f16:
@@ -342,10 +318,6 @@ Type *EVT::getTypeForEVT(LLVMContext &Context) const {
     return FixedVectorType::get(Type::getHalfTy(Context), 64);
   case MVT::v128f16:
     return FixedVectorType::get(Type::getHalfTy(Context), 128);
-  case MVT::v256f16:
-    return FixedVectorType::get(Type::getHalfTy(Context), 256);
-  case MVT::v512f16:
-    return FixedVectorType::get(Type::getHalfTy(Context), 512);
   case MVT::v2bf16:
     return FixedVectorType::get(Type::getBFloatTy(Context), 2);
   case MVT::v3bf16:
@@ -372,10 +344,6 @@ Type *EVT::getTypeForEVT(LLVMContext &Context) const {
     return FixedVectorType::get(Type::getFloatTy(Context), 4);
   case MVT::v5f32:
     return FixedVectorType::get(Type::getFloatTy(Context), 5);
-  case MVT::v6f32:
-    return FixedVectorType::get(Type::getFloatTy(Context), 6);
-  case MVT::v7f32:
-    return FixedVectorType::get(Type::getFloatTy(Context), 7);
   case MVT::v8f32:
     return FixedVectorType::get(Type::getFloatTy(Context), 8);
   case MVT::v16f32:
@@ -398,8 +366,6 @@ Type *EVT::getTypeForEVT(LLVMContext &Context) const {
     return FixedVectorType::get(Type::getDoubleTy(Context), 1);
   case MVT::v2f64:
     return FixedVectorType::get(Type::getDoubleTy(Context), 2);
-  case MVT::v3f64:
-    return FixedVectorType::get(Type::getDoubleTy(Context), 3);
   case MVT::v4f64:
     return FixedVectorType::get(Type::getDoubleTy(Context), 4);
   case MVT::v8f64:
@@ -490,8 +456,6 @@ Type *EVT::getTypeForEVT(LLVMContext &Context) const {
     return ScalableVectorType::get(Type::getHalfTy(Context), 16);
   case MVT::nxv32f16:
     return ScalableVectorType::get(Type::getHalfTy(Context), 32);
-  case MVT::nxv1bf16:
-    return ScalableVectorType::get(Type::getBFloatTy(Context), 1);
   case MVT::nxv2bf16:
     return ScalableVectorType::get(Type::getBFloatTy(Context), 2);
   case MVT::nxv4bf16:

@@ -29,10 +29,12 @@ using testing::SizeIs;
 MATCHER(IsInvalid, "") { return !arg.isValid(); }
 MATCHER(IsReg, "") { return arg.isReg(); }
 
+class PPCSnippetGeneratorTest : public PPCTestBase {};
+
 template <typename SnippetGeneratorT>
-class PPCSnippetGeneratorTest : public PPCTestBase {
+class SnippetGeneratorTest : public PPCSnippetGeneratorTest {
 protected:
-  PPCSnippetGeneratorTest() : Generator(State, SnippetGenerator::Options()) {}
+  SnippetGeneratorTest() : Generator(State, SnippetGenerator::Options()) {}
 
   std::vector<CodeTemplate> checkAndGetCodeTemplates(unsigned Opcode) {
     randomGenerator().seed(0); // Initialize seed.
@@ -46,12 +48,12 @@ protected:
   SnippetGeneratorT Generator;
 };
 
-using PPCSerialSnippetGeneratorTest = PPCSnippetGeneratorTest<SerialSnippetGenerator>;
+using SerialSnippetGeneratorTest = SnippetGeneratorTest<SerialSnippetGenerator>;
 
-using PPCParallelSnippetGeneratorTest =
-    PPCSnippetGeneratorTest<ParallelSnippetGenerator>;
+using ParallelSnippetGeneratorTest =
+    SnippetGeneratorTest<ParallelSnippetGenerator>;
 
-TEST_F(PPCSerialSnippetGeneratorTest, ImplicitSelfDependencyThroughExplicitRegs) {
+TEST_F(SerialSnippetGeneratorTest, ImplicitSelfDependencyThroughExplicitRegs) {
   // - ADD8
   // - Op0 Explicit Def RegClass(G8RC)
   // - Op1 Explicit Use RegClass(G8RC)
@@ -75,7 +77,7 @@ TEST_F(PPCSerialSnippetGeneratorTest, ImplicitSelfDependencyThroughExplicitRegs)
       << "Op0 is either set to Op1 or to Op2";
 }
 
-TEST_F(PPCSerialSnippetGeneratorTest, ImplicitSelfDependencyThroughTiedRegs) {
+TEST_F(SerialSnippetGeneratorTest, ImplicitSelfDependencyThroughTiedRegs) {
 
   // - RLDIMI
   // - Op0 Explicit Def RegClass(G8RC)
@@ -103,7 +105,7 @@ TEST_F(PPCSerialSnippetGeneratorTest, ImplicitSelfDependencyThroughTiedRegs) {
   EXPECT_THAT(IT.getVariableValues()[3], IsInvalid()) << "Operand 2 is not set";
 }
 
-TEST_F(PPCParallelSnippetGeneratorTest, MemoryUse) {
+TEST_F(ParallelSnippetGeneratorTest, MemoryUse) {
   // - LDX
   // - Op0 Explicit Def RegClass(G8RC)
   // - Op1 Explicit Use Memory RegClass(GPRC)

@@ -87,10 +87,10 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<miopen::GpuAllocOp> {
     auto type = op.output().getType().cast<MemRefType>();
     auto func = op->getParentOfType<gpu::GPUFuncOp>();
 
-    if (type.getMemorySpaceAsInt() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+    if (type.getMemorySpace() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
       Value attribution = func.addWorkgroupAttribution(type);
       op.replaceAllUsesWith(attribution);
-    } else if (type.getMemorySpaceAsInt() ==
+    } else if (type.getMemorySpace() ==
                gpu::GPUDialect::getPrivateAddressSpace()) {
       Value attribution = func.addPrivateAttribution(type);
       op.replaceAllUsesWith(attribution);
@@ -159,13 +159,12 @@ struct MIMFMARewritePattern : public OpRewritePattern<miopen::MFMAV2Op> {
 
 void LowerMIOpenOpsToGPUPass::runOnOperation() {
   auto op = getOperation();
-  auto *ctx = op.getContext();
-  OpBuilder b(ctx);
+  OpBuilder b(op.getContext());
   auto loc = op.getLoc();
 
   // Annotate this module as a container module.
   op->setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
-              UnitAttr::get(ctx));
+              UnitAttr::get(op.getContext()));
 
   auto makeGpuModule = [&](StringRef name) {
     // create a GPUModuleOp in case the GPU module specified does not exist.
@@ -246,19 +245,24 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   int gpuModCount = 0;
   op.walk([this, &gpuModCount](gpu::GPUModuleOp gpuMod) {
     gpuModCount++;
-    auto *ctx = &getContext();
-    OwningRewritePatternList patterns(ctx);
+    OwningRewritePatternList patterns;
 
     // miopen-lowering
-    patterns.insert<MIGPUAllocRewritePattern>(ctx);
-    patterns.insert<MIDataConvertRewritePattern>(ctx);
-    patterns.insert<MIOpRewritePattern<miopen::WorkgroupBarrierOp, gpu::BarrierOp>>(ctx);
-    patterns.insert<MIOpRewritePattern<miopen::LDSBarrierOp, gpu::LDSBarrierOp>>(ctx);
-    patterns.insert<MIIdRewritePattern<miopen::WorkgroupIdOp, gpu::BlockIdOp>>(ctx);
-    patterns.insert<MIIdRewritePattern<miopen::WorkitemIdOp, gpu::ThreadIdOp>>(ctx);
-    patterns.insert<MIOpRewritePattern<ReturnOp, gpu::ReturnOp>>(ctx);
+    patterns.insert<MIGPUAllocRewritePattern>(&getContext());
+    patterns.insert<MIDataConvertRewritePattern>(&getContext());
+    patterns
+        .insert<MIOpRewritePattern<miopen::WorkgroupBarrierOp, gpu::BarrierOp>>(
+            &getContext());
+    patterns
+        .insert<MIOpRewritePattern<miopen::LDSBarrierOp, gpu::LDSBarrierOp>>(
+            &getContext());
+    patterns.insert<MIIdRewritePattern<miopen::WorkgroupIdOp, gpu::BlockIdOp>>(
+        &getContext());
+    patterns.insert<MIIdRewritePattern<miopen::WorkitemIdOp, gpu::ThreadIdOp>>(
+        &getContext());
+    patterns.insert<MIOpRewritePattern<ReturnOp, gpu::ReturnOp>>(&getContext());
 
-    patterns.insert<MIMFMARewritePattern>(ctx);
+    patterns.insert<MIMFMARewritePattern>(&getContext());
     if (failed(applyPatternsAndFoldGreedily(gpuMod, std::move(patterns))))
       signalPassFailure();
   });
@@ -270,35 +274,35 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
 }
 
 void LowerMIOpenOpsWithinGPUModulePass::runOnOperation() {
-  auto *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
+  OwningRewritePatternList patterns;
 
   // miopen-lowering
-  patterns.insert<Conv2DRewritePattern<miopen::Conv2DOp>>(ctx);
-  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(ctx);
-  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>>(ctx);
+  patterns.insert<Conv2DRewritePattern<miopen::Conv2DOp>>(&getContext());
+  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(&getContext());
+  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>>(
+      &getContext());
 
   // TBD: miopen-affine-transform
   // TBD: miopen-affix-params
 
   // miopen-lowering-step2
-  patterns.insert<GridwiseGemmRewritePattern>(ctx);
+  patterns.insert<GridwiseGemmRewritePattern>(&getContext());
 
   // miopen-lowering-step3
-  patterns.insert<FillRewritePattern>(ctx);
-  patterns.insert<MovePosV2RewritePattern>(ctx);
-  patterns.insert<SubviewRewritePattern>(ctx);
-  patterns.insert<TransformRewritePattern>(ctx);
-  patterns.insert<BlockwiseGemmRewritePattern>(ctx);
-  patterns.insert<BlockwiseCopyRewritePattern>(ctx);
+  patterns.insert<FillRewritePattern>(&getContext());
+  patterns.insert<MovePosV2RewritePattern>(&getContext());
+  patterns.insert<SubviewRewritePattern>(&getContext());
+  patterns.insert<TransformRewritePattern>(&getContext());
+  patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
+  patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
 
   // miopen-lowering-step4
-  patterns.insert<ThreadwiseGemmRewritePattern>(ctx);
-  patterns.insert<ThreadwiseCopyRewritePattern>(ctx);
+  patterns.insert<ThreadwiseGemmRewritePattern>(&getContext());
+  patterns.insert<ThreadwiseCopyRewritePattern>(&getContext());
 
   // miopen-lowering-step5
-  populateAffineToStdConversionPatterns(patterns);
-  populateLoopToStdConversionPatterns(patterns);
+  populateAffineToStdConversionPatterns(patterns, &getContext());
+  populateLoopToStdConversionPatterns(patterns, &getContext());
 
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();

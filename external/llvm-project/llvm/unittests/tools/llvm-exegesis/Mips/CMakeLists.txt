@@ -1,10 +1,10 @@
-add_llvm_exegesis_unittest_includes(
+include_directories(
   ${LLVM_MAIN_SRC_DIR}/lib/Target/Mips
   ${LLVM_BINARY_DIR}/lib/Target/Mips
   ${LLVM_MAIN_SRC_DIR}/tools/llvm-exegesis/lib
   )
 
-add_llvm_exegesis_unittest_link_components(
+set(LLVM_LINK_COMPONENTS
   MC
   MCParser
   Object
@@ -13,11 +13,12 @@ add_llvm_exegesis_unittest_link_components(
   Mips
   )
 
-add_llvm_exegesis_unittest_sources(
+add_llvm_target_unittest(LLVMExegesisMipsTests
   BenchmarkResultTest.cpp
   RegisterAliasingTest.cpp
   SnippetGeneratorTest.cpp
   TargetTest.cpp
   )
-add_llvm_exegesis_unittest_link_libraries(
+target_link_libraries(LLVMExegesisMipsTests PRIVATE
+  LLVMExegesis
   LLVMExegesisMips)

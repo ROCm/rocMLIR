@@ -1,4 +1,4 @@
-! RUN: %python %S/test_modfile.py %s %flang_fc1
+! RUN: %S/test_modfile.sh %s %t %f18
 ! Resolution of specification expression references to generic interfaces
 ! that resolve to private specific functions.
 

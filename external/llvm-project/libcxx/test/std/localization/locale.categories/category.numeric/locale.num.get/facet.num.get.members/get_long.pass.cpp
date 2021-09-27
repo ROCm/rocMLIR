@@ -15,7 +15,12 @@
 
 // This test exercises the fix for PR28704, which isn't in the dylib for
 // some systems.
-// XFAIL: use_system_cxx_lib && target={{.+}}-apple-macosx10.{{9|10|11|12|13|14}}
+// XFAIL: with_system_cxx_lib=macosx10.14
+// XFAIL: with_system_cxx_lib=macosx10.13
+// XFAIL: with_system_cxx_lib=macosx10.12
+// XFAIL: with_system_cxx_lib=macosx10.11
+// XFAIL: with_system_cxx_lib=macosx10.10
+// XFAIL: with_system_cxx_lib=macosx10.9
 
 #include <locale>
 #include <ios>
@@ -25,7 +30,7 @@
 #include "test_macros.h"
 #include "test_iterators.h"
 
-typedef std::num_get<char, cpp17_input_iterator<const char*> > F;
+typedef std::num_get<char, input_iterator<const char*> > F;
 
 class my_facet
     : public F
@@ -57,9 +62,9 @@ int main(int, char**)
         assert((ios.flags() & ios.basefield) == ios.dec);
         assert(ios.getloc().name() == "C");
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+3);
         assert(err == ios.goodbit);
@@ -70,9 +75,9 @@ int main(int, char**)
         assert((ios.flags() & ios.basefield) == ios.dec);
         assert(ios.getloc().name() == "C");
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+4);
         assert(err == ios.goodbit);
@@ -82,9 +87,9 @@ int main(int, char**)
         const char str[] = "123";
         oct(ios);
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+3);
         assert(err == ios.goodbit);
@@ -94,9 +99,9 @@ int main(int, char**)
         const char str[] = "123";
         hex(ios);
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+3);
         assert(err == ios.goodbit);
@@ -106,9 +111,9 @@ int main(int, char**)
         const char str[] = "0x123";
         hex(ios);
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -118,9 +123,9 @@ int main(int, char**)
         const char str[] = "123";
         ios.setf(zf, ios.basefield);
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -130,9 +135,9 @@ int main(int, char**)
         const char str[] = "0x123";
         ios.setf(zf, ios.basefield);
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -142,9 +147,9 @@ int main(int, char**)
         const char str[] = "0123";
         ios.setf(zf, ios.basefield);
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -155,9 +160,9 @@ int main(int, char**)
         const char str[] = "2-";
         ios.setf(zf, ios.basefield);
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+1);
         assert(err == ios.goodbit);
@@ -169,9 +174,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "123"; // no separators at all
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -181,9 +186,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+1";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -193,9 +198,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+1_";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -205,9 +210,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+_1";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -217,9 +222,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "_+1";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -229,9 +234,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+1__";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -241,9 +246,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+_1_";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -253,9 +258,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "_+1_";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -265,9 +270,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+__1";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -277,9 +282,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "_+_1";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -289,9 +294,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "__+1";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -301,9 +306,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+1_2";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -313,9 +318,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+12_";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -325,9 +330,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+_12";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -337,9 +342,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+1__2";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -349,9 +354,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+12_3";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -361,9 +366,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+1_23";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -373,9 +378,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+1_23_4";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -385,9 +390,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+123_4";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -397,9 +402,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+12_34";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -409,9 +414,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+12_34_5";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -421,9 +426,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+123_45_6";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -433,9 +438,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+1_23_45_6";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -445,9 +450,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+1_234_56_7";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -457,9 +462,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "+1_234_567_89_0";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -469,9 +474,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "-1_234_567_89_0";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -481,9 +486,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "1_234_567_89_0";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.goodbit);
@@ -493,9 +498,9 @@ int main(int, char**)
         v = -1;
         const char str[] = "1234_567_89_0";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);
@@ -515,9 +520,9 @@ int main(int, char**)
                            "1_2_3_4_5_6_7_8_9_0_1_2_3_4_5_6_7_8_9_0_1_2_3_4_5_6_7_8_9_0_"
                            "1_2_3_4_5_6_7_8_9_0_1_2_3_4_5_6_7_8_9_0_1_2_3_4_5_6_7_8_9_0_";
         std::ios_base::iostate err = ios.goodbit;
-        cpp17_input_iterator<const char*> iter =
-            f.get(cpp17_input_iterator<const char*>(str),
-                  cpp17_input_iterator<const char*>(str+sizeof(str)),
+        input_iterator<const char*> iter =
+            f.get(input_iterator<const char*>(str),
+                  input_iterator<const char*>(str+sizeof(str)),
                   ios, err, v);
         assert(iter.base() == str+sizeof(str)-1);
         assert(err == ios.failbit);

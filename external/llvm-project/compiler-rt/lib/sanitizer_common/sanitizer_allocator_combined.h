@@ -35,9 +35,9 @@ class CombinedAllocator {
     secondary_.InitLinkerInitialized();
   }
 
-  void Init(s32 release_to_os_interval_ms, uptr heap_start = 0) {
+  void Init(s32 release_to_os_interval_ms) {
     stats_.Init();
-    primary_.Init(release_to_os_interval_ms, heap_start);
+    primary_.Init(release_to_os_interval_ms);
     secondary_.Init();
   }
 
@@ -177,12 +177,12 @@ class CombinedAllocator {
 
   // ForceLock() and ForceUnlock() are needed to implement Darwin malloc zone
   // introspection API.
-  void ForceLock() NO_THREAD_SAFETY_ANALYSIS {
+  void ForceLock() {
     primary_.ForceLock();
     secondary_.ForceLock();
   }
 
-  void ForceUnlock() NO_THREAD_SAFETY_ANALYSIS {
+  void ForceUnlock() {
     secondary_.ForceUnlock();
     primary_.ForceUnlock();
   }

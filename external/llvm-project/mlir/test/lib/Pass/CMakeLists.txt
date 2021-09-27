@@ -1,6 +1,5 @@
 # Exclude tests from libMLIR.so
 add_mlir_library(MLIRTestPass
-  TestDynamicPipeline.cpp
   TestPassManager.cpp
 
   EXCLUDE_FROM_LIBMLIR

@@ -24,16 +24,15 @@
 #include "lldb/Utility/StringList.h"
 #include "lldb/lldb-forward.h"
 #include "lldb/lldb-private.h"
-
 #include <mutex>
-#include <stack>
 
 namespace lldb_private {
 class CommandInterpreter;
 
 class CommandInterpreterRunResult {
 public:
-  CommandInterpreterRunResult() = default;
+  CommandInterpreterRunResult()
+      : m_num_errors(0), m_result(lldb::eCommandInterpreterResultSuccess) {}
 
   uint32_t GetNumErrors() const { return m_num_errors; }
 
@@ -51,9 +50,8 @@ protected:
   void SetResult(lldb::CommandInterpreterResult result) { m_result = result; }
 
 private:
-  int m_num_errors = 0;
-  lldb::CommandInterpreterResult m_result =
-      lldb::eCommandInterpreterResultSuccess;
+  int m_num_errors;
+  lldb::CommandInterpreterResult m_result;
 };
 
 class CommandInterpreterRunOptions {
@@ -100,7 +98,14 @@ public:
         m_echo_comment_commands(echo_comments), m_print_results(print_results),
         m_print_errors(print_errors), m_add_to_history(add_to_history) {}
 
-  CommandInterpreterRunOptions() = default;
+  CommandInterpreterRunOptions()
+      : m_stop_on_continue(eLazyBoolCalculate),
+        m_stop_on_error(eLazyBoolCalculate),
+        m_stop_on_crash(eLazyBoolCalculate),
+        m_echo_commands(eLazyBoolCalculate),
+        m_echo_comment_commands(eLazyBoolCalculate),
+        m_print_results(eLazyBoolCalculate), m_print_errors(eLazyBoolCalculate),
+        m_add_to_history(eLazyBoolCalculate) {}
 
   void SetSilent(bool silent) {
     LazyBool value = silent ? eLazyBoolNo : eLazyBoolYes;
@@ -180,14 +185,14 @@ public:
     m_spawn_thread = spawn_thread ? eLazyBoolYes : eLazyBoolNo;
   }
 
-  LazyBool m_stop_on_continue = eLazyBoolCalculate;
-  LazyBool m_stop_on_error = eLazyBoolCalculate;
-  LazyBool m_stop_on_crash = eLazyBoolCalculate;
-  LazyBool m_echo_commands = eLazyBoolCalculate;
-  LazyBool m_echo_comment_commands = eLazyBoolCalculate;
-  LazyBool m_print_results = eLazyBoolCalculate;
-  LazyBool m_print_errors = eLazyBoolCalculate;
-  LazyBool m_add_to_history = eLazyBoolCalculate;
+  LazyBool m_stop_on_continue;
+  LazyBool m_stop_on_error;
+  LazyBool m_stop_on_crash;
+  LazyBool m_echo_commands;
+  LazyBool m_echo_comment_commands;
+  LazyBool m_print_results;
+  LazyBool m_print_errors;
+  LazyBool m_add_to_history;
   LazyBool m_auto_handle_events;
   LazyBool m_spawn_thread;
 
@@ -240,7 +245,7 @@ public:
 
   CommandInterpreter(Debugger &debugger, bool synchronous_execution);
 
-  ~CommandInterpreter() override = default;
+  ~CommandInterpreter() override;
 
   // These two functions fill out the Broadcaster interface:
 
@@ -295,11 +300,10 @@ public:
                                   CommandReturnObject &result);
 
   bool HandleCommand(const char *command_line, LazyBool add_to_history,
-                     const ExecutionContext &override_context,
-                     CommandReturnObject &result);
-
-  bool HandleCommand(const char *command_line, LazyBool add_to_history,
-                     CommandReturnObject &result);
+                     CommandReturnObject &result,
+                     ExecutionContext *override_context = nullptr,
+                     bool repeat_on_empty_command = true,
+                     bool no_context_switching = false);
 
   bool WasInterrupted() const;
 
@@ -308,7 +312,9 @@ public:
   /// \param[in] commands
   ///    The list of commands to execute.
   /// \param[in,out] context
-  ///    The execution context in which to run the commands.
+  ///    The execution context in which to run the commands. Can be nullptr in
+  ///    which case the default
+  ///    context will be used.
   /// \param[in] options
   ///    This object holds the options used to control when to stop, whether to
   ///    execute commands,
@@ -318,13 +324,8 @@ public:
   ///    safely,
   ///    and failed with some explanation if we aborted executing the commands
   ///    at some point.
-  void HandleCommands(const StringList &commands,
-                      const ExecutionContext &context,
-                      const CommandInterpreterRunOptions &options,
-                      CommandReturnObject &result);
-
-  void HandleCommands(const StringList &commands,
-                      const CommandInterpreterRunOptions &options,
+  void HandleCommands(const StringList &commands, ExecutionContext *context,
+                      CommandInterpreterRunOptions &options,
                       CommandReturnObject &result);
 
   /// Execute a list of commands from a file.
@@ -332,7 +333,9 @@ public:
   /// \param[in] file
   ///    The file from which to read in commands.
   /// \param[in,out] context
-  ///    The execution context in which to run the commands.
+  ///    The execution context in which to run the commands. Can be nullptr in
+  ///    which case the default
+  ///    context will be used.
   /// \param[in] options
   ///    This object holds the options used to control when to stop, whether to
   ///    execute commands,
@@ -342,12 +345,8 @@ public:
   ///    safely,
   ///    and failed with some explanation if we aborted executing the commands
   ///    at some point.
-  void HandleCommandsFromFile(FileSpec &file, const ExecutionContext &context,
-                              const CommandInterpreterRunOptions &options,
-                              CommandReturnObject &result);
-
-  void HandleCommandsFromFile(FileSpec &file,
-                              const CommandInterpreterRunOptions &options,
+  void HandleCommandsFromFile(FileSpec &file, ExecutionContext *context,
+                              CommandInterpreterRunOptions &options,
                               CommandReturnObject &result);
 
   CommandObject *GetCommandObjectForCommand(llvm::StringRef &command_line);
@@ -392,7 +391,12 @@ public:
 
   Debugger &GetDebugger() { return m_debugger; }
 
-  ExecutionContext GetExecutionContext() const;
+  ExecutionContext GetExecutionContext() {
+    const bool thread_and_frame_only_if_stopped = true;
+    return m_exe_ctx_ref.Lock(thread_and_frame_only_if_stopped);
+  }
+
+  void UpdateExecutionContext(ExecutionContext *override_context);
 
   lldb::PlatformSP GetPlatform(bool prefer_target_platform);
 
@@ -491,16 +495,11 @@ public:
   bool GetSaveSessionOnQuit() const;
   void SetSaveSessionOnQuit(bool enable);
 
-  FileSpec GetSaveSessionDirectory() const;
-  void SetSaveSessionDirectory(llvm::StringRef path);
-
   bool GetEchoCommands() const;
   void SetEchoCommands(bool enable);
 
   bool GetEchoCommentCommands() const;
   void SetEchoCommentCommands(bool enable);
-
-  bool GetRepeatPreviousCommand() const;
 
   const CommandObject::CommandMap &GetUserCommands() const {
     return m_user_dict;
@@ -582,10 +581,6 @@ protected:
                                      StringList *descriptions = nullptr) const;
 
 private:
-  void OverrideExecutionContext(const ExecutionContext &override_context);
-
-  void RestoreExecutionContext();
-
   Status PreprocessCommand(std::string &command);
 
   void SourceInitFile(FileSpec file, CommandReturnObject &result);
@@ -624,9 +619,8 @@ private:
 
   Debugger &m_debugger; // The debugger session that this interpreter is
                         // associated with
-  // Execution contexts that were temporarily set by some of HandleCommand*
-  // overloads.
-  std::stack<ExecutionContext> m_overriden_exe_contexts;
+  ExecutionContextRef m_exe_ctx_ref; // The current execution context to use
+                                     // when handling commands
   bool m_synchronous_execution;
   bool m_skip_lldbinit_files;
   bool m_skip_app_init_files;

@@ -10,7 +10,7 @@
 //===----------------------------------------------------------------------===//
 
 /// General Purpose Registers: W, X.
-def GPRRegBank : RegisterBank<"GPR", [XSeqPairsClass]>;
+def GPRRegBank : RegisterBank<"GPR", [GPR64all]>;
 
 /// Floating Point/Vector Registers: B, H, S, D, Q.
 def FPRRegBank : RegisterBank<"FPR", [QQQQ]>;

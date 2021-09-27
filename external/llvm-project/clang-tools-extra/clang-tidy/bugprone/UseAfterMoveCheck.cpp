@@ -398,13 +398,7 @@ void UseAfterMoveCheck::registerMatchers(MatchFinder *Finder) {
                hasArgument(0, declRefExpr().bind("arg")),
                anyOf(hasAncestor(lambdaExpr().bind("containing-lambda")),
                      hasAncestor(functionDecl().bind("containing-func"))),
-               unless(inDecltypeOrTemplateArg()),
-               // try_emplace is a common maybe-moving function that returns a
-               // bool to tell callers whether it moved. Ignore std::move inside
-               // try_emplace to avoid false positives as we don't track uses of
-               // the bool.
-               unless(hasParent(cxxMemberCallExpr(
-                   callee(cxxMethodDecl(hasName("try_emplace")))))))
+               unless(inDecltypeOrTemplateArg()))
           .bind("call-move");
 
   Finder->addMatcher(

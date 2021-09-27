@@ -11,10 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/LTO/LTO.h"
-#include "llvm/ADT/ScopeExit.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/StackSafetyAnalysis.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
@@ -36,7 +33,6 @@
 #include "llvm/Object/IRObjectFile.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
-#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
@@ -211,7 +207,7 @@ void llvm::computeLTOCacheKey(
     AddUnsigned(GS->isLive());
     AddUnsigned(GS->canAutoHide());
     for (const ValueInfo &VI : GS->refs()) {
-      AddUnsigned(VI.isDSOLocal(Index.withDSOLocalPropagation()));
+      AddUnsigned(VI.isDSOLocal());
       AddUsedCfiGlobal(VI.getGUID());
     }
     if (auto *GVS = dyn_cast<GlobalVarSummary>(GS)) {
@@ -230,7 +226,7 @@ void llvm::computeLTOCacheKey(
       for (auto &TT : FS->type_checked_load_const_vcalls())
         UsedTypeIds.insert(TT.VFunc.GUID);
       for (auto &ET : FS->calls()) {
-        AddUnsigned(ET.first.isDSOLocal(Index.withDSOLocalPropagation()));
+        AddUnsigned(ET.first.isDSOLocal());
         AddUsedCfiGlobal(ET.first.getGUID());
       }
     }
@@ -567,8 +563,8 @@ void LTO::addModuleToGlobalRes(ArrayRef<InputFile::Symbol> Syms,
 
     // Set the partition to external if we know it is re-defined by the linker
     // with -defsym or -wrap options, used elsewhere, e.g. it is visible to a
-    // regular object, is referenced from llvm.compiler.used/llvm.used, or was
-    // already recorded as being referenced from a different partition.
+    // regular object, is referenced from llvm.compiler_used, or was already
+    // recorded as being referenced from a different partition.
     if (Res.LinkerRedefined || Res.VisibleToRegularObj || Sym.isUsed() ||
         (GlobalRes.Partition != GlobalResolution::Unknown &&
          GlobalRes.Partition != Partition)) {
@@ -756,7 +752,6 @@ LTO::addRegularLTO(BitcodeModule BM, ArrayRef<InputFile::Symbol> Syms,
   Skip();
 
   std::set<const Comdat *> NonPrevailingComdats;
-  SmallSet<StringRef, 2> NonPrevailingAsmSymbols;
   for (const InputFile::Symbol &Sym : Syms) {
     assert(ResI != ResE);
     SymbolResolution Res = *ResI++;
@@ -803,14 +798,7 @@ LTO::addRegularLTO(BitcodeModule BM, ArrayRef<InputFile::Symbol> Syms,
           GV->setDLLStorageClass(GlobalValue::DLLStorageClassTypes::
                                  DefaultStorageClass);
       }
-    } else if (auto *AS = Msym.dyn_cast<ModuleSymbolTable::AsmSymbol *>()) {
-      // Collect non-prevailing symbols.
-      if (!Res.Prevailing)
-        NonPrevailingAsmSymbols.insert(AS->first);
-    } else {
-      llvm_unreachable("unknown symbol type");
     }
-
     // Common resolution: collect the maximum size/alignment over all commons.
     // We also record if we see an instance of a common as prevailing, so that
     // if none is prevailing we can ignore it later.
@@ -824,29 +812,11 @@ LTO::addRegularLTO(BitcodeModule BM, ArrayRef<InputFile::Symbol> Syms,
         CommonRes.Align = max(*SymAlign, CommonRes.Align);
       CommonRes.Prevailing |= Res.Prevailing;
     }
-  }
 
+  }
   if (!M.getComdatSymbolTable().empty())
     for (GlobalValue &GV : M.global_values())
       handleNonPrevailingComdat(GV, NonPrevailingComdats);
-
-  // Prepend ".lto_discard <sym>, <sym>*" directive to each module inline asm
-  // block.
-  if (!M.getModuleInlineAsm().empty()) {
-    std::string NewIA = ".lto_discard";
-    if (!NonPrevailingAsmSymbols.empty()) {
-      // Don't dicard a symbol if there is a live .symver for it.
-      ModuleSymbolTable::CollectAsmSymvers(
-          M, [&](StringRef Name, StringRef Alias) {
-            if (!NonPrevailingAsmSymbols.count(Alias))
-              NonPrevailingAsmSymbols.erase(Name);
-          });
-      NewIA += " " + llvm::join(NonPrevailingAsmSymbols, ", ");
-    }
-    NewIA += "\n";
-    M.setModuleInlineAsm(NewIA + M.getModuleInlineAsm());
-  }
-
   assert(MsymI == MsymE);
   return std::move(Mod);
 }
@@ -1217,7 +1187,7 @@ public:
         return MOrErr.takeError();
 
       return thinBackend(Conf, Task, AddStream, **MOrErr, CombinedIndex,
-                         ImportList, DefinedGlobals, &ModuleMap);
+                         ImportList, DefinedGlobals, ModuleMap);
     };
 
     auto ModuleID = BM.getModuleIdentifier();
@@ -1399,11 +1369,6 @@ ThinBackend lto::createWriteIndexesThinBackend(
 
 Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
                       const DenseSet<GlobalValue::GUID> &GUIDPreservedSymbols) {
-  timeTraceProfilerBegin("ThinLink", StringRef(""));
-  auto TimeTraceScopeExit = llvm::make_scope_exit([]() {
-    if (llvm::timeTraceProfilerEnabled())
-      llvm::timeTraceProfilerEnd();
-  });
   if (ThinLTO.ModuleMap.empty())
     return Error::success();
 
@@ -1486,9 +1451,6 @@ Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
   for (auto &Def : ThinLTO.CombinedIndex.cfiFunctionDefs())
     ExportedGUIDs.insert(
         GlobalValue::getGUID(GlobalValue::dropLLVMManglingEscape(Def)));
-  for (auto &Decl : ThinLTO.CombinedIndex.cfiFunctionDecls())
-    ExportedGUIDs.insert(
-        GlobalValue::getGUID(GlobalValue::dropLLVMManglingEscape(Decl)));
 
   auto isExported = [&](StringRef ModuleIdentifier, ValueInfo VI) {
     const auto &ExportList = ExportLists.find(ModuleIdentifier);
@@ -1517,11 +1479,6 @@ Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
                                   recordNewLinkage, GUIDPreservedSymbols);
 
   generateParamAccessSummary(ThinLTO.CombinedIndex);
-
-  if (llvm::timeTraceProfilerEnabled())
-    llvm::timeTraceProfilerEnd();
-
-  TimeTraceScopeExit.release();
 
   std::unique_ptr<ThinBackendProc> BackendProc =
       ThinLTO.Backend(Conf, ThinLTO.CombinedIndex, ModuleToDefinedGVSummaries,

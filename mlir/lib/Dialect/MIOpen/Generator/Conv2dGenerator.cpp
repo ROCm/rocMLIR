@@ -213,8 +213,8 @@ int Conv2dGenerator::getKernelCount() const {
 
 int Conv2dGenerator::getBwdDataKernelCount() const {
   auto gcdStrideDilationH =
-      math_util::gcd(config.strideHeight, config.dilationHeight);
-  auto gcdStrideDilationW = math_util::gcd(config.strideWidth, config.dilationWidth);
+      math::gcd(config.strideHeight, config.dilationHeight);
+  auto gcdStrideDilationW = math::gcd(config.strideWidth, config.dilationWidth);
 
   auto yTilda = config.strideHeight / gcdStrideDilationH;
   auto xTilda = config.strideWidth / gcdStrideDilationW;
@@ -227,8 +227,8 @@ int Conv2dGenerator::getBwdDataKernelCount() const {
     const auto iYTilda = gemmId / xTilda;
     const auto iXTilda = gemmId % xTilda;
 
-    auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-    auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
+    auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
+    auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
     // gemmK must > 0, otherwise not need to run
     if (yDotSlice * xDotSlice > 0)
       count++;

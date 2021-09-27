@@ -20,8 +20,11 @@ class ExprSyscallTestCase(TestBase):
         self.expr_syscall()
 
     def expr_syscall(self):
+        exe = self.getBuildArtifact("a.out")
+
         # Create a target by the debugger.
-        target = self.createTestTarget()
+        target = self.dbg.CreateTarget(exe)
+        self.assertTrue(target, VALID_TARGET)
 
         listener = lldb.SBListener("my listener")
 

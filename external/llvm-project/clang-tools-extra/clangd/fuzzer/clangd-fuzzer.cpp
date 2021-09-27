@@ -16,6 +16,7 @@
 #include "ClangdServer.h"
 #include "support/ThreadsafeFS.h"
 #include <cstdio>
+#include <sstream>
 
 using namespace clang::clangd;
 

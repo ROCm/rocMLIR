@@ -325,12 +325,12 @@ static int run(int argc, char **argv) {
     std::vector<SymbolResolution> Res;
     for (const InputFile::Symbol &Sym : Input->symbols()) {
       auto I = CommandLineResolutions.find({F, std::string(Sym.getName())});
-      // If it isn't found, look for ".", which would have been added
+      // If it isn't found, look for "$", which would have been added
       // (followed by a hash) when the symbol was promoted during module
       // splitting if it was defined in one part and used in the other.
-      // Try looking up the symbol name before the suffix.
+      // Try looking up the symbol name before the "$".
       if (I == CommandLineResolutions.end()) {
-        auto SplitName = Sym.getName().rsplit(".");
+        auto SplitName = Sym.getName().rsplit("$");
         I = CommandLineResolutions.find({F, std::string(SplitName.first)});
       }
       if (I == CommandLineResolutions.end()) {
@@ -418,8 +418,7 @@ static int dumpSymtab(int argc, char **argv) {
       outs() << '\n';
     }
 
-    ArrayRef<std::pair<StringRef, Comdat::SelectionKind>> ComdatTable =
-        Input->getComdatTable();
+    std::vector<StringRef> ComdatTable = Input->getComdatTable();
     for (const InputFile::Symbol &Sym : Input->symbols()) {
       switch (Sym.getVisibility()) {
       case GlobalValue::HiddenVisibility:
@@ -448,27 +447,8 @@ static int dumpSymtab(int argc, char **argv) {
                << Sym.getCommonAlignment() << '\n';
 
       int Comdat = Sym.getComdatIndex();
-      if (Comdat != -1) {
-        outs() << "         comdat ";
-        switch (ComdatTable[Comdat].second) {
-        case Comdat::Any:
-          outs() << "any";
-          break;
-        case Comdat::ExactMatch:
-          outs() << "exactmatch";
-          break;
-        case Comdat::Largest:
-          outs() << "largest";
-          break;
-        case Comdat::NoDeduplicate:
-          outs() << "nodeduplicate";
-          break;
-        case Comdat::SameSize:
-          outs() << "samesize";
-          break;
-        }
-        outs() << ' ' << ComdatTable[Comdat].first << '\n';
-      }
+      if (Comdat != -1)
+        outs() << "         comdat " << ComdatTable[Comdat] << '\n';
 
       if (TT.isOSBinFormatCOFF() && Sym.isWeak() && Sym.isIndirect())
         outs() << "         fallback " << Sym.getCOFFWeakExternalFallback() << '\n';

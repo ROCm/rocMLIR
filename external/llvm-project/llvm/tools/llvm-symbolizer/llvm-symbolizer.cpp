@@ -66,34 +66,22 @@ static const opt::OptTable::Info InfoTable[] = {
 
 class SymbolizerOptTable : public opt::OptTable {
 public:
-  SymbolizerOptTable() : OptTable(InfoTable) {
-    setGroupedShortOptions(true);
-  }
+  SymbolizerOptTable() : OptTable(InfoTable, true) {}
 };
 } // namespace
 
-template <typename T>
-static void print(const Request &Request, Expected<T> &ResOrErr,
-                  DIPrinter &Printer) {
-  if (ResOrErr) {
-    // No error, print the result.
-    Printer.print(Request, *ResOrErr);
-    return;
-  }
+static cl::list<std::string> ClInputAddresses(cl::Positional,
+                                              cl::desc("<input addresses>..."),
+                                              cl::ZeroOrMore);
 
-  // Handle the error.
-  bool PrintEmpty = true;
-  handleAllErrors(std::move(ResOrErr.takeError()),
-                  [&](const ErrorInfoBase &EI) {
-                    PrintEmpty = Printer.printError(
-                        Request, EI, "LLVMSymbolizer: error reading file: ");
-                  });
-
-  if (PrintEmpty)
-    Printer.print(Request, T());
+template<typename T>
+static bool error(Expected<T> &ResOrErr) {
+  if (ResOrErr)
+    return false;
+  logAllUnhandledErrors(ResOrErr.takeError(), errs(),
+                        "LLVMSymbolizer: error reading file: ");
+  return true;
 }
-
-enum class OutputStyle { LLVM, GNU, JSON };
 
 enum class Command {
   Code,
@@ -148,7 +136,7 @@ static bool parseCommand(StringRef BinaryName, bool IsAddr2Line,
 }
 
 static void symbolizeInput(const opt::InputArgList &Args, uint64_t AdjustVMA,
-                           bool IsAddr2Line, OutputStyle Style,
+                           bool IsAddr2Line, DIPrinter::OutputStyle OutputStyle,
                            StringRef InputString, LLVMSymbolizer &Symbolizer,
                            DIPrinter &Printer) {
   Command Cmd;
@@ -156,49 +144,62 @@ static void symbolizeInput(const opt::InputArgList &Args, uint64_t AdjustVMA,
   uint64_t Offset = 0;
   if (!parseCommand(Args.getLastArgValue(OPT_obj_EQ), IsAddr2Line,
                     StringRef(InputString), Cmd, ModuleName, Offset)) {
-    Printer.printInvalidCommand({ModuleName, None}, InputString);
+    outs() << InputString << "\n";
     return;
   }
 
-  uint64_t AdjustedOffset = Offset - AdjustVMA;
+  if (Args.hasArg(OPT_addresses)) {
+    outs() << "0x";
+    outs().write_hex(Offset);
+    StringRef Delimiter = Args.hasArg(OPT_pretty_print) ? ": " : "\n";
+    outs() << Delimiter;
+  }
+  Offset -= AdjustVMA;
   if (Cmd == Command::Data) {
-    Expected<DIGlobal> ResOrErr = Symbolizer.symbolizeData(
-        ModuleName, {AdjustedOffset, object::SectionedAddress::UndefSection});
-    print({ModuleName, Offset}, ResOrErr, Printer);
+    auto ResOrErr = Symbolizer.symbolizeData(
+        ModuleName, {Offset, object::SectionedAddress::UndefSection});
+    Printer << (error(ResOrErr) ? DIGlobal() : ResOrErr.get());
   } else if (Cmd == Command::Frame) {
-    Expected<std::vector<DILocal>> ResOrErr = Symbolizer.symbolizeFrame(
-        ModuleName, {AdjustedOffset, object::SectionedAddress::UndefSection});
-    print({ModuleName, Offset}, ResOrErr, Printer);
+    auto ResOrErr = Symbolizer.symbolizeFrame(
+        ModuleName, {Offset, object::SectionedAddress::UndefSection});
+    if (!error(ResOrErr)) {
+      for (DILocal Local : *ResOrErr)
+        Printer << Local;
+      if (ResOrErr->empty())
+        outs() << "??\n";
+    }
   } else if (Args.hasFlag(OPT_inlines, OPT_no_inlines, !IsAddr2Line)) {
-    Expected<DIInliningInfo> ResOrErr = Symbolizer.symbolizeInlinedCode(
-        ModuleName, {AdjustedOffset, object::SectionedAddress::UndefSection});
-    print({ModuleName, Offset}, ResOrErr, Printer);
-  } else if (Style == OutputStyle::GNU) {
+    auto ResOrErr = Symbolizer.symbolizeInlinedCode(
+        ModuleName, {Offset, object::SectionedAddress::UndefSection});
+    Printer << (error(ResOrErr) ? DIInliningInfo() : ResOrErr.get());
+  } else if (OutputStyle == DIPrinter::OutputStyle::GNU) {
     // With PrintFunctions == FunctionNameKind::LinkageName (default)
     // and UseSymbolTable == true (also default), Symbolizer.symbolizeCode()
     // may override the name of an inlined function with the name of the topmost
     // caller function in the inlining chain. This contradicts the existing
     // behavior of addr2line. Symbolizer.symbolizeInlinedCode() overrides only
     // the topmost function, which suits our needs better.
-    Expected<DIInliningInfo> ResOrErr = Symbolizer.symbolizeInlinedCode(
-        ModuleName, {AdjustedOffset, object::SectionedAddress::UndefSection});
-    Expected<DILineInfo> Res0OrErr =
-        !ResOrErr
-            ? Expected<DILineInfo>(ResOrErr.takeError())
-            : ((ResOrErr->getNumberOfFrames() == 0) ? DILineInfo()
-                                                    : ResOrErr->getFrame(0));
-    print({ModuleName, Offset}, Res0OrErr, Printer);
+    auto ResOrErr = Symbolizer.symbolizeInlinedCode(
+        ModuleName, {Offset, object::SectionedAddress::UndefSection});
+    if (!ResOrErr || ResOrErr->getNumberOfFrames() == 0) {
+      error(ResOrErr);
+      Printer << DILineInfo();
+    } else {
+      Printer << ResOrErr->getFrame(0);
+    }
   } else {
-    Expected<DILineInfo> ResOrErr = Symbolizer.symbolizeCode(
-        ModuleName, {AdjustedOffset, object::SectionedAddress::UndefSection});
-    print({ModuleName, Offset}, ResOrErr, Printer);
+    auto ResOrErr = Symbolizer.symbolizeCode(
+        ModuleName, {Offset, object::SectionedAddress::UndefSection});
+    Printer << (error(ResOrErr) ? DILineInfo() : ResOrErr.get());
   }
+  if (OutputStyle == DIPrinter::OutputStyle::LLVM)
+    outs() << "\n";
 }
 
 static void printHelp(StringRef ToolName, const SymbolizerOptTable &Tbl,
                       raw_ostream &OS) {
   const char HelpText[] = " [options] addresses...";
-  Tbl.printHelp(OS, (ToolName + HelpText).str().c_str(),
+  Tbl.PrintHelp(OS, (ToolName + HelpText).str().c_str(),
                 ToolName.str().c_str());
   // TODO Replace this with OptTable API once it adds extrahelp support.
   OS << "\nPass @FILE as argument to read options from FILE.\n";
@@ -208,6 +209,7 @@ static opt::InputArgList parseOptions(int Argc, char *Argv[], bool IsAddr2Line,
                                       StringSaver &Saver,
                                       SymbolizerOptTable &Tbl) {
   StringRef ToolName = IsAddr2Line ? "llvm-addr2line" : "llvm-symbolizer";
+  Tbl.setGroupedShortOptions(true);
   // The environment variable specifies initial options which can be overridden
   // by commnad line options.
   Tbl.setInitialOptionsFromEnvironment(IsAddr2Line ? "LLVM_ADDR2LINE_OPTS"
@@ -271,7 +273,7 @@ int main(int argc, char **argv) {
 
   LLVMSymbolizer::Options Opts;
   uint64_t AdjustVMA;
-  PrinterConfig Config;
+  unsigned SourceContextLines;
   parseIntArg(Args, OPT_adjust_vma_EQ, AdjustVMA);
   if (const opt::Arg *A = Args.getLastArg(OPT_basenames, OPT_relativenames)) {
     Opts.PathStyle =
@@ -288,8 +290,7 @@ int main(int argc, char **argv) {
   Opts.FallbackDebugPath =
       Args.getLastArgValue(OPT_fallback_debug_path_EQ).str();
   Opts.PrintFunctions = decideHowToPrintFunctions(Args, IsAddr2Line);
-  parseIntArg(Args, OPT_print_source_context_lines_EQ,
-              Config.SourceContextLines);
+  parseIntArg(Args, OPT_print_source_context_lines_EQ, SourceContextLines);
   Opts.RelativeAddresses = Args.hasArg(OPT_relative_address);
   Opts.UntagAddresses =
       Args.hasFlag(OPT_untag_addresses, OPT_no_untag_addresses, !IsAddr2Line);
@@ -301,10 +302,6 @@ int main(int argc, char **argv) {
   }
 #endif
   Opts.UseSymbolTable = true;
-  Config.PrintAddress = Args.hasArg(OPT_addresses);
-  Config.PrintFunctions = Opts.PrintFunctions != FunctionNameKind::None;
-  Config.Pretty = Args.hasArg(OPT_pretty_print);
-  Config.Verbose = Args.hasArg(OPT_verbose);
 
   for (const opt::Arg *A : Args.filtered(OPT_dsym_hint_EQ)) {
     StringRef Hint(A->getValue());
@@ -316,24 +313,18 @@ int main(int argc, char **argv) {
     }
   }
 
-  auto Style = IsAddr2Line ? OutputStyle::GNU : OutputStyle::LLVM;
+  auto OutputStyle =
+      IsAddr2Line ? DIPrinter::OutputStyle::GNU : DIPrinter::OutputStyle::LLVM;
   if (const opt::Arg *A = Args.getLastArg(OPT_output_style_EQ)) {
-    if (strcmp(A->getValue(), "GNU") == 0)
-      Style = OutputStyle::GNU;
-    else if (strcmp(A->getValue(), "JSON") == 0)
-      Style = OutputStyle::JSON;
-    else
-      Style = OutputStyle::LLVM;
+    OutputStyle = strcmp(A->getValue(), "GNU") == 0
+                      ? DIPrinter::OutputStyle::GNU
+                      : DIPrinter::OutputStyle::LLVM;
   }
 
   LLVMSymbolizer Symbolizer(Opts);
-  std::unique_ptr<DIPrinter> Printer;
-  if (Style == OutputStyle::GNU)
-    Printer = std::make_unique<GNUPrinter>(outs(), errs(), Config);
-  else if (Style == OutputStyle::JSON)
-    Printer = std::make_unique<JSONPrinter>(outs(), Config);
-  else
-    Printer = std::make_unique<LLVMPrinter>(outs(), errs(), Config);
+  DIPrinter Printer(outs(), Opts.PrintFunctions != FunctionNameKind::None,
+                    Args.hasArg(OPT_pretty_print), SourceContextLines,
+                    Args.hasArg(OPT_verbose), OutputStyle);
 
   std::vector<std::string> InputAddresses = Args.getAllArgValues(OPT_INPUT);
   if (InputAddresses.empty()) {
@@ -345,16 +336,14 @@ int main(int argc, char **argv) {
       std::string StrippedInputString(InputString);
       llvm::erase_if(StrippedInputString,
                      [](char c) { return c == '\r' || c == '\n'; });
-      symbolizeInput(Args, AdjustVMA, IsAddr2Line, Style, StrippedInputString,
-                     Symbolizer, *Printer);
+      symbolizeInput(Args, AdjustVMA, IsAddr2Line, OutputStyle,
+                     StrippedInputString, Symbolizer, Printer);
       outs().flush();
     }
   } else {
-    Printer->listBegin();
     for (StringRef Address : InputAddresses)
-      symbolizeInput(Args, AdjustVMA, IsAddr2Line, Style, Address, Symbolizer,
-                     *Printer);
-    Printer->listEnd();
+      symbolizeInput(Args, AdjustVMA, IsAddr2Line, OutputStyle, Address,
+                     Symbolizer, Printer);
   }
 
   return 0;

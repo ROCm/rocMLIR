@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_XRAY_GRAPH_H
-#define LLVM_XRAY_GRAPH_H
+#ifndef LLVM_XRAY_GRAPH_T_H
+#define LLVM_XRAY_GRAPH_T_H
 
 #include <initializer_list>
 #include <stdint.h>

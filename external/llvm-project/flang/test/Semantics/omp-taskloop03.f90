@@ -1,4 +1,4 @@
-! RUN: %S/test_errors.sh %s %t %flang -fopenmp
+! RUN: %S/test_errors.sh %s %t %f18 -fopenmp
 ! XFAIL: *
 
 ! OpenMP Version 4.5

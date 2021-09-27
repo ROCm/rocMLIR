@@ -10,7 +10,6 @@
 #define LLVM_CLANG_TOOLS_EXTRA_CLANG_TIDY_PERFORMANCE_UNNECESSARY_COPY_INITIALIZATION_H
 
 #include "../ClangTidyCheck.h"
-#include "clang/AST/Decl.h"
 
 namespace clang {
 namespace tidy {
@@ -36,14 +35,12 @@ public:
 
 private:
   void handleCopyFromMethodReturn(const VarDecl &Var, const Stmt &BlockStmt,
-                                  const DeclStmt &Stmt, bool IssueFix,
-                                  const VarDecl *ObjectArg,
+                                  bool IssueFix, const VarDecl *ObjectArg,
                                   ASTContext &Context);
   void handleCopyFromLocalVar(const VarDecl &NewVar, const VarDecl &OldVar,
-                              const Stmt &BlockStmt, const DeclStmt &Stmt,
-                              bool IssueFix, ASTContext &Context);
+                              const Stmt &BlockStmt, bool IssueFix,
+                              ASTContext &Context);
   const std::vector<std::string> AllowedTypes;
-  const std::vector<std::string> ExcludedContainerTypes;
 };
 
 } // namespace performance

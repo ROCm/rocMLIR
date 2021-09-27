@@ -14,9 +14,6 @@
 #include "clang/Lex/Lexer.h"
 
 namespace clang {
-
-class Stmt;
-
 namespace tidy {
 namespace utils {
 namespace lexer {
@@ -106,11 +103,6 @@ llvm::Optional<Token> getQualifyingToken(tok::TokenKind TK,
                                          CharSourceRange Range,
                                          const ASTContext &Context,
                                          const SourceManager &SM);
-
-/// Stmt->getEndLoc does not always behave the same way depending on Token type.
-/// See implementation for exceptions.
-SourceLocation getUnifiedEndLoc(const Stmt &S, const SourceManager &SM,
-                                const LangOptions &LangOpts);
 
 } // namespace lexer
 } // namespace utils

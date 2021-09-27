@@ -6,6 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+// GCC 5 does not evaluate static assertions dependent on a template parameter.
+// UNSUPPORTED: gcc-5
+
 // <algorithm>
 
 // template<ForwardIterator Iter>
@@ -19,17 +22,17 @@
 int main(int, char**) {
   int arr[] = {1, 2, 3};
   const int *b = std::begin(arr), *e = std::end(arr);
-  typedef cpp17_input_iterator<const int*> Iter;
+  typedef input_iterator<const int*> Iter;
   {
-    // expected-error@*:* {{"std::min_element requires a ForwardIterator"}}
+    // expected-error@algorithm:* {{"std::min_element requires a ForwardIterator"}}
     std::min_element(Iter(b), Iter(e));
   }
   {
-    // expected-error@*:* {{"std::max_element requires a ForwardIterator"}}
+    // expected-error@algorithm:* {{"std::max_element requires a ForwardIterator"}}
     std::max_element(Iter(b), Iter(e));
   }
   {
-    // expected-error@*:* {{"std::minmax_element requires a ForwardIterator"}}
+    // expected-error@algorithm:* {{"std::minmax_element requires a ForwardIterator"}}
     std::minmax_element(Iter(b), Iter(e));
   }
 

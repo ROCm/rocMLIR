@@ -83,7 +83,7 @@ bool SlotIndexes::runOnMachineFunction(MachineFunction &fn) {
     SlotIndex blockStartIndex(&indexList.back(), SlotIndex::Slot_Block);
 
     for (MachineInstr &MI : MBB) {
-      if (MI.isDebugOrPseudoInstr())
+      if (MI.isDebugInstr())
         continue;
 
       // Insert a store index for the instr.
@@ -241,18 +241,19 @@ void SlotIndexes::repairIndexesInRange(MachineBasicBlock *MBB,
   for (MachineBasicBlock::iterator I = End; I != Begin;) {
     --I;
     MachineInstr &MI = *I;
-    if (!MI.isDebugOrPseudoInstr() && mi2iMap.find(&MI) == mi2iMap.end())
+    if (!MI.isDebugInstr() && mi2iMap.find(&MI) == mi2iMap.end())
       insertMachineInstrInMaps(MI);
   }
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 LLVM_DUMP_METHOD void SlotIndexes::dump() const {
-  for (const IndexListEntry &ILE : indexList) {
-    dbgs() << ILE.getIndex() << " ";
+  for (IndexList::const_iterator itr = indexList.begin();
+       itr != indexList.end(); ++itr) {
+    dbgs() << itr->getIndex() << " ";
 
-    if (ILE.getInstr()) {
-      dbgs() << *ILE.getInstr();
+    if (itr->getInstr()) {
+      dbgs() << *itr->getInstr();
     } else {
       dbgs() << "\n";
     }
@@ -279,3 +280,4 @@ LLVM_DUMP_METHOD void SlotIndex::dump() const {
   dbgs() << "\n";
 }
 #endif
+

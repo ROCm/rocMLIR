@@ -1,5 +1,5 @@
 ! RUN: %flang -E %s 2>&1 | FileCheck %s
-! CHECK: 100 format(3HKWM)
+! CHECK: 100 format(3hKWM)
 ! KWM NOT expanded in Hollerith in FORMAT
 #define KWM 666
 #define HKWM 667

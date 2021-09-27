@@ -85,8 +85,10 @@ static void InitializeLongjmpXorKey();
 static uptr longjmp_xor_key;
 #endif
 
+#ifdef TSAN_RUNTIME_VMA
 // Runtime detected VMA size.
 uptr vmaSize;
+#endif
 
 enum {
   MemTotal  = 0,
@@ -107,12 +109,17 @@ void FillProfileCallback(uptr p, uptr rss, bool file,
     mem[MemShadow] += rss;
   else if (p >= MetaShadowBeg() && p < MetaShadowEnd())
     mem[MemMeta] += rss;
+#if !SANITIZER_GO
+  else if (p >= HeapMemBeg() && p < HeapMemEnd())
+    mem[MemHeap] += rss;
   else if (p >= LoAppMemBeg() && p < LoAppMemEnd())
     mem[file ? MemFile : MemMmap] += rss;
   else if (p >= HiAppMemBeg() && p < HiAppMemEnd())
     mem[file ? MemFile : MemMmap] += rss;
-  else if (p >= HeapMemBeg() && p < HeapMemEnd())
-    mem[MemHeap] += rss;
+#else
+  else if (p >= AppMemBeg() && p < AppMemEnd())
+    mem[file ? MemFile : MemMmap] += rss;
+#endif
   else if (p >= TraceMemBeg() && p < TraceMemEnd())
     mem[MemTrace] += rss;
   else
@@ -212,6 +219,7 @@ void InitializeShadowMemoryPlatform() {
 #endif  // #if !SANITIZER_GO
 
 void InitializePlatformEarly() {
+#ifdef TSAN_RUNTIME_VMA
   vmaSize =
     (MostSignificantSetBitIndex(GET_CURRENT_FRAME()) + 1);
 #if defined(__aarch64__)
@@ -242,20 +250,7 @@ void InitializePlatformEarly() {
     Die();
   }
 # endif
-#elif defined(__mips64)
-# if !SANITIZER_GO
-  if (vmaSize != 40) {
-    Printf("FATAL: ThreadSanitizer: unsupported VMA range\n");
-    Printf("FATAL: Found %zd - Supported 40\n", vmaSize);
-    Die();
-  }
-# else
-  if (vmaSize != 47) {
-    Printf("FATAL: ThreadSanitizer: unsupported VMA range\n");
-    Printf("FATAL: Found %zd - Supported 47\n", vmaSize);
-    Die();
-  }
-# endif
+#endif
 #endif
 }
 
@@ -332,7 +327,7 @@ int ExtractResolvFDs(void *state, int *fds, int nfd) {
 }
 
 // Extract file descriptors passed via UNIX domain sockets.
-// This is required to properly handle "open" of these fds.
+// This is requried to properly handle "open" of these fds.
 // see 'man recvmsg' and 'man 3 cmsg'.
 int ExtractRecvmsgFDs(void *msgp, int *fds, int nfd) {
   int res = 0;
@@ -382,10 +377,6 @@ static uptr UnmangleLongJmpSp(uptr mangled_sp) {
   return mangled_sp ^ xor_key;
 #elif defined(__mips__)
   return mangled_sp;
-#elif defined(__s390x__)
-  // tcbhead_t.stack_guard
-  uptr xor_key = ((uptr *)__builtin_thread_pointer())[5];
-  return mangled_sp ^ xor_key;
 #else
   #error "Unknown platform"
 #endif
@@ -406,8 +397,6 @@ static uptr UnmangleLongJmpSp(uptr mangled_sp) {
 #  define LONG_JMP_SP_ENV_SLOT 13
 # elif defined(__mips64)
 #  define LONG_JMP_SP_ENV_SLOT 1
-# elif defined(__s390x__)
-#  define LONG_JMP_SP_ENV_SLOT 9
 # else
 #  define LONG_JMP_SP_ENV_SLOT 6
 # endif
@@ -494,7 +483,7 @@ ThreadState *cur_thread() {
         dead_thread_state->fast_state.SetIgnoreBit();
         dead_thread_state->ignore_interceptors = 1;
         dead_thread_state->is_dead = true;
-        *const_cast<u32*>(&dead_thread_state->tid) = -1;
+        *const_cast<int*>(&dead_thread_state->tid) = -1;
         CHECK_EQ(0, internal_mprotect(dead_thread_state, sizeof(ThreadState),
                                       PROT_READ));
       }

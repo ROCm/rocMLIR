@@ -257,7 +257,8 @@ private:
   // of debug prints can cause the function to be too large for inlining.  So
   // it's important that we define this function out of line so that it can't be
   // inlined.
-  [[noreturn]] void fatalUncheckedError() const;
+  LLVM_ATTRIBUTE_NORETURN
+  void fatalUncheckedError() const;
 #endif
 
   void assertIsChecked() {
@@ -313,7 +314,7 @@ private:
   }
 
   friend raw_ostream &operator<<(raw_ostream &OS, const Error &E) {
-    if (auto *P = E.getPtr())
+    if (auto P = E.getPtr())
       P->log(OS);
     else
       OS << "success";
@@ -373,7 +374,7 @@ class ErrorList final : public ErrorInfo<ErrorList> {
 public:
   void log(raw_ostream &OS) const override {
     OS << "Multiple errors:\n";
-    for (const auto &ErrPayload : Payloads) {
+    for (auto &ErrPayload : Payloads) {
       ErrPayload->log(OS);
       OS << "\n";
     }
@@ -435,39 +436,6 @@ inline Error joinErrors(Error E1, Error E2) {
 /// Error cannot be copied, this class replaces getError() with
 /// takeError(). It also adds an bool errorIsA<ErrT>() method for testing the
 /// error class type.
-///
-/// Example usage of 'Expected<T>' as a function return type:
-///
-///   @code{.cpp}
-///     Expected<int> myDivide(int A, int B) {
-///       if (B == 0) {
-///         // return an Error
-///         return createStringError(inconvertibleErrorCode(),
-///                                  "B must not be zero!");
-///       }
-///       // return an integer
-///       return A / B;
-///     }
-///   @endcode
-///
-///   Checking the results of to a function returning 'Expected<T>':
-///   @code{.cpp}
-///     if (auto E = Result.takeError()) {
-///       // We must consume the error. Typically one of:
-///       // - return the error to our caller
-///       // - toString(), when logging
-///       // - consumeError(), to silently swallow the error
-///       // - handleErrors(), to distinguish error types
-///       errs() << "Problem with division " << toString(std::move(E)) << "\n";
-///       return;
-///     }
-///     // use the result
-///     outs() << "The answer is " << *Result << "\n";
-///   @endcode
-///
-///  For unit-testing a function returning an 'Expceted<T>', see the
-///  'EXPECT_THAT_EXPECTED' macros in llvm/Testing/Support/Error.h
-
 template <class T> class LLVM_NODISCARD Expected {
   template <class T1> friend class ExpectedAsOutParameter;
   template <class OtherT> friend class Expected;
@@ -624,7 +592,7 @@ private:
   }
 
   template <class T1, class T2>
-  static bool compareThisIfSameType(const T1 &, const T2 &) {
+  static bool compareThisIfSameType(const T1 &a, const T2 &b) {
     return false;
   }
 
@@ -687,7 +655,9 @@ private:
   }
 
 #if LLVM_ENABLE_ABI_BREAKING_CHECKS
-  [[noreturn]] LLVM_ATTRIBUTE_NOINLINE void fatalUncheckedExpected() const {
+  LLVM_ATTRIBUTE_NORETURN
+  LLVM_ATTRIBUTE_NOINLINE
+  void fatalUncheckedExpected() const {
     dbgs() << "Expected<T> must be checked before access or destruction.\n";
     if (HasError) {
       dbgs() << "Unchecked Expected<T> contained error:\n";
@@ -700,7 +670,7 @@ private:
   }
 #endif
 
-  void assertIsChecked() const {
+  void assertIsChecked() {
 #if LLVM_ENABLE_ABI_BREAKING_CHECKS
     if (LLVM_UNLIKELY(Unchecked))
       fatalUncheckedExpected();
@@ -719,7 +689,8 @@ private:
 
 /// Report a serious error, calling any installed error handler. See
 /// ErrorHandling.h.
-[[noreturn]] void report_fatal_error(Error Err, bool gen_crash_diag = true);
+LLVM_ATTRIBUTE_NORETURN void report_fatal_error(Error Err,
+                                                bool gen_crash_diag = true);
 
 /// Report a fatal error if Err is a failure value.
 ///
@@ -1259,18 +1230,11 @@ class FileError final : public ErrorInfo<FileError> {
 
 public:
   void log(raw_ostream &OS) const override {
-    assert(Err && "Trying to log after takeError().");
+    assert(Err && !FileName.empty() && "Trying to log after takeError().");
     OS << "'" << FileName << "': ";
     if (Line.hasValue())
       OS << "line " << Line.getValue() << ": ";
     Err->log(OS);
-  }
-
-  std::string messageWithoutFileInfo() const {
-    std::string Msg;
-    raw_string_ostream OS(Msg);
-    Err->log(OS);
-    return OS.str();
   }
 
   StringRef getFileName() { return FileName; }
@@ -1286,6 +1250,8 @@ private:
   FileError(const Twine &F, Optional<size_t> LineNum,
             std::unique_ptr<ErrorInfoBase> E) {
     assert(E && "Cannot create FileError from Error success value.");
+    assert(!F.isTriviallyEmpty() &&
+           "The file name provided to FileError must not be empty.");
     FileName = F.str();
     Err = std::move(E);
     Line = std::move(LineNum);

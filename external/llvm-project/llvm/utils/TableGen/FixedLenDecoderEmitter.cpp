@@ -973,13 +973,7 @@ emitDecoderFunction(formatted_raw_ostream &OS, DecoderSet &Decoders,
     << "Address, const void *Decoder, bool &DecodeComplete) {\n";
   Indentation += 2;
   OS.indent(Indentation) << "DecodeComplete = true;\n";
-  // TODO: When InsnType is large, using uint64_t limits all fields to 64 bits
-  // It would be better for emitBinaryParser to use a 64-bit tmp whenever
-  // possible but fall back to an InsnType-sized tmp for truly large fields.
-  OS.indent(Indentation) << "using TmpType = "
-                            "std::conditional_t<std::is_integral<InsnType>::"
-                            "value, InsnType, uint64_t>;\n";
-  OS.indent(Indentation) << "TmpType tmp;\n";
+  OS.indent(Indentation) << "InsnType tmp;\n";
   OS.indent(Indentation) << "switch (Idx) {\n";
   OS.indent(Indentation) << "default: llvm_unreachable(\"Invalid index!\");\n";
   unsigned Index = 0;
@@ -1113,24 +1107,18 @@ void FilterChooser::emitBinaryParser(raw_ostream &o, unsigned &Indentation,
                                      bool &OpHasCompleteDecoder) const {
   const std::string &Decoder = OpInfo.Decoder;
 
-  bool UseInsertBits = OpInfo.numFields() != 1 || OpInfo.InitValue != 0;
-
-  if (UseInsertBits) {
+  if (OpInfo.numFields() != 1 || OpInfo.InitValue != 0) {
     o.indent(Indentation) << "tmp = 0x";
     o.write_hex(OpInfo.InitValue);
     o << ";\n";
   }
 
   for (const EncodingField &EF : OpInfo) {
-    o.indent(Indentation);
-    if (UseInsertBits)
-      o << "insertBits(tmp, ";
-    else
-      o << "tmp = ";
-    o << "fieldFromInstruction(insn, " << EF.Base << ", " << EF.Width << ')';
-    if (UseInsertBits)
-      o << ", " << EF.Offset << ", " << EF.Width << ')';
-    else if (EF.Offset != 0)
+    o.indent(Indentation) << "tmp ";
+    if (OpInfo.numFields() != 1 || OpInfo.InitValue != 0) o << '|';
+    o << "= fieldFromInstruction"
+      << "(insn, " << EF.Base << ", " << EF.Width << ')';
+    if (OpInfo.numFields() != 1 || EF.Offset != 0)
       o << " << " << EF.Offset;
     o << ";\n";
   }
@@ -1222,9 +1210,14 @@ bool FilterChooser::emitPredicateMatch(raw_ostream &o, unsigned &Indentation,
     if (IsOr)
       o << "(";
 
-    ListSeparator LS(IsOr ? " || " : " && ");
+    bool First = true;
     for (auto *Arg : D->getArgs()) {
-      o << LS;
+      if (!First) {
+        if (IsOr)
+          o << " || ";
+        else
+          o << " && ";
+      }
       if (auto *NotArg = dyn_cast<DagInit>(Arg)) {
         if (NotArg->getOperator()->getAsString() != "not" ||
             NotArg->getNumArgs() != 1)
@@ -1237,6 +1230,8 @@ bool FilterChooser::emitPredicateMatch(raw_ostream &o, unsigned &Indentation,
         PrintFatalError(Pred->getLoc(), "Invalid AssemblerCondDag!");
       o << "Bits[" << Emitter->PredicateNamespace << "::" << Arg->getAsString()
         << "]";
+
+      First = false;
     }
 
     if (IsOr)
@@ -1506,13 +1501,13 @@ bool FilterChooser::filterProcessor(bool AllowMixed, bool Greedy) {
   if (AllowMixed && !Greedy) {
     assert(numInstructions == 3);
 
-    for (auto Opcode : Opcodes) {
+    for (unsigned i = 0; i < Opcodes.size(); ++i) {
       std::vector<unsigned> StartBits;
       std::vector<unsigned> EndBits;
       std::vector<uint64_t> FieldVals;
       insn_t Insn;
 
-      insnWithID(Insn, Opcode.EncodingID);
+      insnWithID(Insn, Opcodes[i].EncodingID);
 
       // Look for islands of undecoded bits of any instruction.
       if (getIslands(StartBits, EndBits, FieldVals, Insn) > 0) {
@@ -1774,13 +1769,13 @@ void FilterChooser::emitTableEntries(DecoderTableInfo &TableInfo) const {
 
   dumpStack(errs(), "\t\t");
 
-  for (auto Opcode : Opcodes) {
+  for (unsigned i = 0; i < Opcodes.size(); ++i) {
     errs() << '\t';
-    emitNameWithID(errs(), Opcode.EncodingID);
+    emitNameWithID(errs(), Opcodes[i].EncodingID);
     errs() << " ";
     dumpBits(
         errs(),
-        getBitsField(*AllInstructions[Opcode.EncodingID].EncodingDef, "Inst"));
+        getBitsField(*AllInstructions[Opcodes[i].EncodingID].EncodingDef, "Inst"));
     errs() << '\n';
   }
 }
@@ -2154,22 +2149,27 @@ static void emitFieldFromInstruction(formatted_raw_ostream &OS) {
   OS << "// Helper functions for extracting fields from encoded instructions.\n"
      << "// InsnType must either be integral or an APInt-like object that "
         "must:\n"
+     << "// * Have a static const max_size_in_bits equal to the number of bits "
+        "in the\n"
+     << "//   encoding.\n"
      << "// * be default-constructible and copy-constructible\n"
      << "// * be constructible from a uint64_t\n"
      << "// * be constructible from an APInt (this can be private)\n"
-     << "// * Support insertBits(bits, startBit, numBits)\n"
-     << "// * Support extractBitsAsZExtValue(numBits, startBit)\n"
-     << "// * be convertible to bool\n"
-     << "// * Support the ~, &, ==, and != operators with other objects of "
+     << "// * Support getBitsSet(loBit, hiBit)\n"
+     << "// * be convertible to uint64_t\n"
+     << "// * Support the ~, &, ==, !=, and |= operators with other objects of "
         "the same type\n"
+     << "// * Support shift (<<, >>) with signed and unsigned integers on the "
+        "RHS\n"
      << "// * Support put (<<) to raw_ostream&\n"
      << "template <typename InsnType>\n"
      << "#if defined(_MSC_VER) && !defined(__clang__)\n"
      << "__declspec(noinline)\n"
      << "#endif\n"
-     << "static std::enable_if_t<std::is_integral<InsnType>::value, InsnType>\n"
-     << "fieldFromInstruction(const InsnType &insn, unsigned startBit,\n"
-     << "                     unsigned numBits) {\n"
+     << "static InsnType fieldFromInstruction(InsnType insn, unsigned "
+        "startBit,\n"
+     << "                                     unsigned numBits, "
+        "std::true_type) {\n"
      << "  assert(startBit + numBits <= 64 && \"Cannot support >64-bit "
         "extractions!\");\n"
      << "  assert(startBit + numBits <= (sizeof(InsnType) * 8) &&\n"
@@ -2183,32 +2183,22 @@ static void emitFieldFromInstruction(formatted_raw_ostream &OS) {
      << "}\n"
      << "\n"
      << "template <typename InsnType>\n"
-     << "static std::enable_if_t<!std::is_integral<InsnType>::value, "
-        "uint64_t>\n"
-     << "fieldFromInstruction(const InsnType &insn, unsigned startBit,\n"
-     << "                     unsigned numBits) {\n"
-     << "  return insn.extractBitsAsZExtValue(numBits, startBit);\n"
-     << "}\n\n";
-}
-
-// emitInsertBits - Emit the templated helper function insertBits().
-static void emitInsertBits(formatted_raw_ostream &OS) {
-  OS << "// Helper function for inserting bits extracted from an encoded "
-        "instruction into\n"
-     << "// a field.\n"
-     << "template <typename InsnType>\n"
-     << "static std::enable_if_t<std::is_integral<InsnType>::value>\n"
-     << "insertBits(InsnType &field, InsnType bits, unsigned startBit, "
-        "unsigned numBits) {\n"
-     << "  assert(startBit + numBits <= sizeof field * 8);\n"
-     << "  field |= (InsnType)bits << startBit;\n"
+     << "static InsnType fieldFromInstruction(InsnType insn, unsigned "
+        "startBit,\n"
+     << "                                     unsigned numBits, "
+        "std::false_type) {\n"
+     << "  assert(startBit + numBits <= InsnType::max_size_in_bits && "
+        "\"Instruction field out of bounds!\");\n"
+     << "  InsnType fieldMask = InsnType::getBitsSet(0, numBits);\n"
+     << "  return (insn >> startBit) & fieldMask;\n"
      << "}\n"
      << "\n"
      << "template <typename InsnType>\n"
-     << "static std::enable_if_t<!std::is_integral<InsnType>::value>\n"
-     << "insertBits(InsnType &field, uint64_t bits, unsigned startBit, "
-        "unsigned numBits) {\n"
-     << "  field.insertBits(bits, startBit, numBits);\n"
+     << "static InsnType fieldFromInstruction(InsnType insn, unsigned "
+        "startBit,\n"
+     << "                                     unsigned numBits) {\n"
+     << "  return fieldFromInstruction(insn, startBit, numBits, "
+        "std::is_integral<InsnType>());\n"
      << "}\n\n";
 }
 
@@ -2411,7 +2401,6 @@ void FixedLenDecoderEmitter::run(raw_ostream &o) {
   OS << "namespace llvm {\n\n";
 
   emitFieldFromInstruction(OS);
-  emitInsertBits(OS);
 
   Target.reverseBitsForLittleEndianEncoding();
 
@@ -2429,7 +2418,7 @@ void FixedLenDecoderEmitter::run(raw_ostream &o) {
       if (auto *DI = dyn_cast_or_null<DefInit>(RV->getValue())) {
         const CodeGenHwModes &HWM = Target.getHwModes();
         EncodingInfoByHwMode EBM(DI->getDef(), HWM);
-        for (auto &KV : EBM)
+        for (auto &KV : EBM.Map)
           HwModeNames.insert(HWM.getMode(KV.first).Name);
       }
     }
@@ -2447,7 +2436,7 @@ void FixedLenDecoderEmitter::run(raw_ostream &o) {
       if (DefInit *DI = dyn_cast_or_null<DefInit>(RV->getValue())) {
         const CodeGenHwModes &HWM = Target.getHwModes();
         EncodingInfoByHwMode EBM(DI->getDef(), HWM);
-        for (auto &KV : EBM) {
+        for (auto &KV : EBM.Map) {
           NumberedEncodings.emplace_back(KV.second, NumberedInstruction,
                                          HWM.getMode(KV.first).Name);
           HwModeNames.insert(HWM.getMode(KV.first).Name);

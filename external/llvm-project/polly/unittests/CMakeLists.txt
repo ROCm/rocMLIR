@@ -16,13 +16,7 @@ function(add_polly_unittest test_name)
 
     set_property(TARGET ${test_name} PROPERTY FOLDER "Polly")
   endif()
-
-  if(LLVM_LINK_LLVM_DYLIB AND LLVM_POLLY_LINK_INTO_TOOLS)
-    # In this case Polly is already present in libLLVM,
-    # no need to link it again.
-  else()
-    target_link_libraries(${test_name} PRIVATE Polly)
-  endif()
+  target_link_libraries(${test_name} PRIVATE Polly)
 endfunction()
 
 add_subdirectory(Isl)

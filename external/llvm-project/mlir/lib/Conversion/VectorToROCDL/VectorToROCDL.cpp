@@ -14,10 +14,8 @@
 #include "mlir/Conversion/VectorToROCDL/VectorToROCDL.h"
 
 #include "../PassDetail.h"
-#include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
-#include "mlir/Conversion/LLVMCommon/Pattern.h"
-#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
+#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
@@ -44,7 +42,7 @@ static LogicalResult replaceTransferOpWithMubuf(
     LLVMTypeConverter &typeConverter, Location loc, TransferWriteOp xferOp,
     Type &vecTy, Value &dwordConfig, Value &vindex, Value &offsetSizeInBytes,
     Value &glc, Value &slc) {
-  auto adaptor = TransferWriteOpAdaptor(operands, xferOp->getAttrDictionary());
+  auto adaptor = TransferWriteOpAdaptor(operands);
   rewriter.replaceOpWithNewOp<ROCDL::MubufStoreOp>(xferOp, adaptor.vector(),
                                                    dwordConfig, vindex,
                                                    offsetSizeInBytes, glc, slc);
@@ -64,7 +62,7 @@ public:
   LogicalResult
   matchAndRewrite(ConcreteOp xferOp, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    typename ConcreteOp::Adaptor adaptor(operands, xferOp->getAttrDictionary());
+    typename ConcreteOp::Adaptor adaptor(operands);
 
     if (xferOp.getVectorType().getRank() > 1 ||
         llvm::size(xferOp.indices()) == 0)
@@ -74,7 +72,7 @@ public:
       return failure();
 
     // Have it handled in vector->llvm conversion pass.
-    if (xferOp.isDimInBounds(0))
+    if (!xferOp.isMaskedDim(0))
       return failure();
 
     auto toLLVMTy = [&](Type t) {
@@ -96,8 +94,8 @@ public:
     // MUBUF instruction operate only on addresspace 0(unified) or 1(global)
     // In case of 3(LDS): fall back to vector->llvm pass
     // In case of 5(VGPR): wrong
-    if ((memRefType.getMemorySpaceAsInt() != 0) &&
-        (memRefType.getMemorySpaceAsInt() != 1))
+    if ((memRefType.getMemorySpace() != 0) &&
+        (memRefType.getMemorySpace() != 1))
       return failure();
 
     // Note that the dataPtr starts at the offset address specified by
@@ -146,9 +144,9 @@ public:
 } // end anonymous namespace
 
 void mlir::populateVectorToROCDLConversionPatterns(
-    LLVMTypeConverter &converter, RewritePatternSet &patterns) {
-  patterns.add<VectorTransferConversion<TransferReadOp>,
-               VectorTransferConversion<TransferWriteOp>>(converter);
+    LLVMTypeConverter &converter, OwningRewritePatternList &patterns) {
+  patterns.insert<VectorTransferConversion<TransferReadOp>,
+                  VectorTransferConversion<TransferWriteOp>>(converter);
 }
 
 namespace {
@@ -160,10 +158,9 @@ struct LowerVectorToROCDLPass
 
 void LowerVectorToROCDLPass::runOnOperation() {
   LLVMTypeConverter converter(&getContext());
-  RewritePatternSet patterns(&getContext());
+  OwningRewritePatternList patterns;
 
   populateVectorToROCDLConversionPatterns(converter, patterns);
-  populateMemRefToLLVMConversionPatterns(converter, patterns);
   populateStdToLLVMConversionPatterns(converter, patterns);
 
   LLVMConversionTarget target(getContext());

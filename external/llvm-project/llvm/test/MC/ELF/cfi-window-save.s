@@ -1,8 +1,4 @@
-# RUN: llvm-mc -triple x86_64 %s | FileCheck %s --check-prefix=ASM
-# RUN: llvm-mc -filetype=obj -triple x86_64 %s | llvm-readobj -S --sr --sd - | FileCheck %s
-
-# ASM:      .cfi_window_save{{$}}
-# ASM-NEXT: nop
+// RUN: llvm-mc -filetype=obj -triple x86_64-pc-linux-gnu %s -o - | llvm-readobj -S --sr --sd - | FileCheck %s
 
 # Should use SPARC as the target to test this. However, SPARC does not
 # use MC yet.
@@ -40,7 +36,6 @@ f:
 // CHECK:          Name: .rela.eh_frame
 // CHECK-NEXT:     Type: SHT_RELA
 // CHECK-NEXT:     Flags [
-// CHECK-NEXT:       SHF_INFO_LINK
 // CHECK-NEXT:     ]
 // CHECK-NEXT:     Address: 0x0
 // CHECK-NEXT:     Offset:

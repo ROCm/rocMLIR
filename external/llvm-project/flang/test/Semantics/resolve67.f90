@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 ! Test restrictions on what subprograms can be used for defined operators.
 ! See: 15.4.3.4.2
 

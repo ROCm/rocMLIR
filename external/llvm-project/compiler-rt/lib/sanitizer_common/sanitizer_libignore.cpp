@@ -22,9 +22,9 @@ LibIgnore::LibIgnore(LinkerInitialized) {
 }
 
 void LibIgnore::AddIgnoredLibrary(const char *name_templ) {
-  Lock lock(&mutex_);
+  BlockingMutexLock lock(&mutex_);
   if (count_ >= kMaxLibs) {
-    Report("%s: too many ignored libraries (max: %zu)\n", SanitizerToolName,
+    Report("%s: too many ignored libraries (max: %d)\n", SanitizerToolName,
            kMaxLibs);
     Die();
   }
@@ -36,9 +36,9 @@ void LibIgnore::AddIgnoredLibrary(const char *name_templ) {
 }
 
 void LibIgnore::OnLibraryLoaded(const char *name) {
-  Lock lock(&mutex_);
+  BlockingMutexLock lock(&mutex_);
   // Try to match suppressions with symlink target.
-  InternalMmapVector<char> buf(kMaxPathLength);
+  InternalScopedString buf(kMaxPathLength);
   if (name && internal_readlink(name, buf.data(), buf.size() - 1) > 0 &&
       buf[0]) {
     for (uptr i = 0; i < count_; i++) {
@@ -105,7 +105,7 @@ void LibIgnore::OnLibraryLoaded(const char *name) {
           continue;
         if (IsPcInstrumented(range.beg) && IsPcInstrumented(range.end - 1))
           continue;
-        VReport(1, "Adding instrumented range 0x%zx-0x%zx from library '%s'\n",
+        VReport(1, "Adding instrumented range %p-%p from library '%s'\n",
                 range.beg, range.end, mod.full_name());
         const uptr idx =
             atomic_load(&instrumented_ranges_count_, memory_order_relaxed);

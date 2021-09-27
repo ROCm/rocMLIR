@@ -21,7 +21,6 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SlotIndexes.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
-#include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/Config/llvm-config.h"
@@ -86,17 +85,6 @@ MCSymbol *MachineBasicBlock::getSymbol() const {
     }
   }
   return CachedMCSymbol;
-}
-
-MCSymbol *MachineBasicBlock::getEHCatchretSymbol() const {
-  if (!CachedEHCatchretMCSymbol) {
-    const MachineFunction *MF = getParent();
-    SmallString<128> SymbolName;
-    raw_svector_ostream(SymbolName)
-        << "$ehgcr_" << MF->getFunctionNumber() << '_' << getNumber();
-    CachedEHCatchretMCSymbol = MF->getContext().getOrCreateSymbol(SymbolName);
-  }
-  return CachedEHCatchretMCSymbol;
 }
 
 MCSymbol *MachineBasicBlock::getEndSymbol() const {
@@ -222,13 +210,11 @@ MachineBasicBlock::SkipPHIsAndLabels(MachineBasicBlock::iterator I) {
 }
 
 MachineBasicBlock::iterator
-MachineBasicBlock::SkipPHIsLabelsAndDebug(MachineBasicBlock::iterator I,
-                                          bool SkipPseudoOp) {
+MachineBasicBlock::SkipPHIsLabelsAndDebug(MachineBasicBlock::iterator I) {
   const TargetInstrInfo *TII = getParent()->getSubtarget().getInstrInfo();
 
   iterator E = end();
   while (I != E && (I->isPHI() || I->isPosition() || I->isDebugInstr() ||
-                    (SkipPseudoOp && I->isPseudoProbe()) ||
                     TII->isBasicBlockPrologue(*I)))
     ++I;
   // FIXME: This needs to change if we wish to bundle labels / dbg_values
@@ -257,22 +243,18 @@ MachineBasicBlock::instr_iterator MachineBasicBlock::getFirstInstrTerminator() {
   return I;
 }
 
-MachineBasicBlock::iterator
-MachineBasicBlock::getFirstNonDebugInstr(bool SkipPseudoOp) {
+MachineBasicBlock::iterator MachineBasicBlock::getFirstNonDebugInstr() {
   // Skip over begin-of-block dbg_value instructions.
-  return skipDebugInstructionsForward(begin(), end(), SkipPseudoOp);
+  return skipDebugInstructionsForward(begin(), end());
 }
 
-MachineBasicBlock::iterator
-MachineBasicBlock::getLastNonDebugInstr(bool SkipPseudoOp) {
+MachineBasicBlock::iterator MachineBasicBlock::getLastNonDebugInstr() {
   // Skip over end-of-block dbg_value instructions.
   instr_iterator B = instr_begin(), I = instr_end();
   while (I != B) {
     --I;
     // Return instruction that starts a bundle.
     if (I->isDebugInstr() || I->isInsideBundle())
-      continue;
-    if (SkipPseudoOp && I->isPseudoProbe())
       continue;
     return I;
   }
@@ -1093,9 +1075,10 @@ MachineBasicBlock *MachineBasicBlock::SplitCriticalEdge(
          I != E; ++I)
       NewTerminators.push_back(&*I);
 
-    for (MachineInstr *Terminator : Terminators) {
-      if (!is_contained(NewTerminators, Terminator))
-        Indexes->removeMachineInstrFromMaps(*Terminator);
+    for (SmallVectorImpl<MachineInstr*>::iterator I = Terminators.begin(),
+        E = Terminators.end(); I != E; ++I) {
+      if (!is_contained(NewTerminators, *I))
+        Indexes->removeMachineInstrFromMaps(**I);
     }
   }
 
@@ -1378,14 +1361,6 @@ MachineBasicBlock::findDebugLoc(instr_iterator MBBI) {
   return {};
 }
 
-DebugLoc MachineBasicBlock::rfindDebugLoc(reverse_instr_iterator MBBI) {
-  // Skip debug declarations, we don't want a DebugLoc from them.
-  MBBI = skipDebugInstructionsBackward(MBBI, instr_rbegin());
-  if (!MBBI->isDebugInstr())
-    return MBBI->getDebugLoc();
-  return {};
-}
-
 /// Find the previous valid DebugLoc preceding MBBI, skipping and DBG_VALUE
 /// instructions.  Return UnknownLoc if there is none.
 DebugLoc MachineBasicBlock::findPrevDebugLoc(instr_iterator MBBI) {
@@ -1393,16 +1368,6 @@ DebugLoc MachineBasicBlock::findPrevDebugLoc(instr_iterator MBBI) {
   // Skip debug instructions, we don't want a DebugLoc from them.
   MBBI = prev_nodbg(MBBI, instr_begin());
   if (!MBBI->isDebugInstr()) return MBBI->getDebugLoc();
-  return {};
-}
-
-DebugLoc MachineBasicBlock::rfindPrevDebugLoc(reverse_instr_iterator MBBI) {
-  if (MBBI == instr_rend())
-    return {};
-  // Skip debug declarations, we don't want a DebugLoc from them.
-  MBBI = next_nodbg(MBBI, instr_rend());
-  if (MBBI != instr_rend())
-    return MBBI->getDebugLoc();
   return {};
 }
 
@@ -1490,7 +1455,7 @@ MachineBasicBlock::computeRegisterLiveness(const TargetRegisterInfo *TRI,
   // Try searching forwards from Before, looking for reads or defs.
   const_iterator I(Before);
   for (; I != end() && N > 0; ++I) {
-    if (I->isDebugOrPseudoInstr())
+    if (I->isDebugInstr())
       continue;
 
     --N;
@@ -1528,7 +1493,7 @@ MachineBasicBlock::computeRegisterLiveness(const TargetRegisterInfo *TRI,
     do {
       --I;
 
-      if (I->isDebugOrPseudoInstr())
+      if (I->isDebugInstr())
         continue;
 
       --N;
@@ -1562,7 +1527,7 @@ MachineBasicBlock::computeRegisterLiveness(const TargetRegisterInfo *TRI,
 
   // If all the instructions before this in the block are debug instructions,
   // skip over them.
-  while (I != begin() && std::prev(I)->isDebugOrPseudoInstr())
+  while (I != begin() && std::prev(I)->isDebugInstr())
     --I;
 
   // Did we get to the start of the block?
@@ -1602,23 +1567,6 @@ MachineBasicBlock::livein_iterator MachineBasicBlock::livein_begin() const {
       MachineFunctionProperties::Property::TracksLiveness) &&
       "Liveness information is accurate");
   return LiveIns.begin();
-}
-
-MachineBasicBlock::liveout_iterator MachineBasicBlock::liveout_begin() const {
-  const MachineFunction &MF = *getParent();
-  assert(MF.getProperties().hasProperty(
-      MachineFunctionProperties::Property::TracksLiveness) &&
-      "Liveness information is accurate");
-
-  const TargetLowering &TLI = *MF.getSubtarget().getTargetLowering();
-  MCPhysReg ExceptionPointer = 0, ExceptionSelector = 0;
-  if (MF.getFunction().hasPersonalityFn()) {
-    auto PersonalityFn = MF.getFunction().getPersonalityFn();
-    ExceptionPointer = TLI.getExceptionPointerRegister(PersonalityFn);
-    ExceptionSelector = TLI.getExceptionSelectorRegister(PersonalityFn);
-  }
-
-  return liveout_iterator(*this, ExceptionPointer, ExceptionSelector, false);
 }
 
 const MBBSectionID MBBSectionID::ColdSectionID(MBBSectionID::SectionType::Cold);

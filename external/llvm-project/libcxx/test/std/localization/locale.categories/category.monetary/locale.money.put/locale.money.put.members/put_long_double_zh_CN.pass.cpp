@@ -9,8 +9,6 @@
 // NetBSD does not support LC_MONETARY at the moment
 // XFAIL: netbsd
 
-// XFAIL: LIBCXX-WINDOWS-FIXME
-
 // REQUIRES: locale.zh_CN.UTF-8
 
 // <locale>
@@ -21,7 +19,7 @@
 //               long double units) const;
 
 // TODO For zh_CN GLIBC puts the negative sign after the currency symbol.
-// XFAIL: target={{.*}}-linux-gnu{{.*}}
+// XFAIL: linux-gnu
 
 #include <locale>
 #include <ios>

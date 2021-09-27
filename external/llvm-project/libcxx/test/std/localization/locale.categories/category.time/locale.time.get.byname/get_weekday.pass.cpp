@@ -11,8 +11,6 @@
 // REQUIRES: locale.ru_RU.UTF-8
 // REQUIRES: locale.zh_CN.UTF-8
 
-// XFAIL: LIBCXX-WINDOWS-FIXME
-
 // <locale>
 
 // class time_get_byname<charT, InputIterator>
@@ -22,7 +20,7 @@
 //             ios_base::iostate& err, tm* t) const;
 
 // TODO: investigation needed
-// XFAIL: target={{.*}}-linux-gnu{{.*}}
+// XFAIL: linux-gnu
 
 #include <locale>
 #include <cassert>
@@ -31,7 +29,7 @@
 
 #include "platform_support.h" // locale name macros
 
-typedef cpp17_input_iterator<const char*> I;
+typedef input_iterator<const char*> I;
 
 typedef std::time_get_byname<char, I> F;
 

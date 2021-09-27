@@ -469,9 +469,7 @@ class Sema;
       unrelated_class,
       bad_qualifiers,
       lvalue_ref_to_rvalue,
-      rvalue_ref_to_lvalue,
-      too_few_initializers,
-      too_many_initializers,
+      rvalue_ref_to_lvalue
     };
 
     // This can be null, e.g. for implicit object arguments.
@@ -535,14 +533,11 @@ class Sema;
     };
 
     /// ConversionKind - The kind of implicit conversion sequence.
-    unsigned ConversionKind;
+    unsigned ConversionKind : 30;
 
-    /// When initializing an array or std::initializer_list from an
-    /// initializer-list, this is the array or std::initializer_list type being
-    /// initialized. The remainder of the conversion sequence, including ToType,
-    /// describe the worst conversion of an initializer to an element of the
-    /// array or std::initializer_list. (Note, 'worst' is not well defined.)
-    QualType InitializerListContainerType;
+    /// Whether the target is really a std::initializer_list, and the
+    /// sequence only represents the worst element conversion.
+    unsigned StdInitializerListElement : 1;
 
     void setKind(Kind K) {
       destruct();
@@ -573,13 +568,13 @@ class Sema;
     };
 
     ImplicitConversionSequence()
-        : ConversionKind(Uninitialized), InitializerListContainerType() {
+        : ConversionKind(Uninitialized), StdInitializerListElement(false) {
       Standard.setAsIdentityConversion();
     }
 
     ImplicitConversionSequence(const ImplicitConversionSequence &Other)
         : ConversionKind(Other.ConversionKind),
-          InitializerListContainerType(Other.InitializerListContainerType) {
+          StdInitializerListElement(Other.StdInitializerListElement) {
       switch (ConversionKind) {
       case Uninitialized: break;
       case StandardConversion: Standard = Other.Standard; break;
@@ -675,18 +670,14 @@ class Sema;
       Standard.setAllToTypes(T);
     }
 
-    // True iff this is a conversion sequence from an initializer list to an
-    // array or std::initializer.
-    bool hasInitializerListContainerType() const {
-      return !InitializerListContainerType.isNull();
+    /// Whether the target is really a std::initializer_list, and the
+    /// sequence only represents the worst element conversion.
+    bool isStdInitializerListElement() const {
+      return StdInitializerListElement;
     }
-    void setInitializerListContainerType(QualType T) {
-      InitializerListContainerType = T;
-    }
-    QualType getInitializerListContainerType() const {
-      assert(hasInitializerListContainerType() &&
-             "not initializer list container");
-      return InitializerListContainerType;
+
+    void setStdInitializerListElement(bool V = true) {
+      StdInitializerListElement = V;
     }
 
     /// Form an "implicit" conversion sequence from nullptr_t to bool, for a
@@ -768,6 +759,9 @@ class Sema;
 
     /// This candidate was not viable because its address could not be taken.
     ovl_fail_addr_not_available,
+
+    /// This candidate was not viable because its OpenCL extension is disabled.
+    ovl_fail_ext_disabled,
 
     /// This inherited constructor is not viable because it would slice the
     /// argument.
@@ -1057,6 +1051,9 @@ class Sema;
 
     void destroyCandidates();
 
+    /// Whether diagnostics should be deferred.
+    bool shouldDeferDiags(Sema &S, ArrayRef<Expr *> Args, SourceLocation OpLoc);
+
   public:
     OverloadCandidateSet(SourceLocation Loc, CandidateSetKind CSK,
                          OperatorRewriteInfo RewriteInfo = {})
@@ -1068,9 +1065,6 @@ class Sema;
     SourceLocation getLocation() const { return Loc; }
     CandidateSetKind getKind() const { return Kind; }
     OperatorRewriteInfo getRewriteInfo() const { return RewriteInfo; }
-
-    /// Whether diagnostics should be deferred.
-    bool shouldDeferDiags(Sema &S, ArrayRef<Expr *> Args, SourceLocation OpLoc);
 
     /// Determine when this overload candidate will be new to the
     /// overload set.

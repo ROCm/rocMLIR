@@ -92,15 +92,12 @@ public:
     // VE uses release consistency, so need fence for each atomics.
     return true;
   }
-  Instruction *emitLeadingFence(IRBuilderBase &Builder, Instruction *Inst,
+  Instruction *emitLeadingFence(IRBuilder<> &Builder, Instruction *Inst,
                                 AtomicOrdering Ord) const override;
-  Instruction *emitTrailingFence(IRBuilderBase &Builder, Instruction *Inst,
+  Instruction *emitTrailingFence(IRBuilder<> &Builder, Instruction *Inst,
                                  AtomicOrdering Ord) const override;
   TargetLoweringBase::AtomicExpansionKind
   shouldExpandAtomicRMWInIR(AtomicRMWInst *AI) const override;
-  ISD::NodeType getExtendForAtomicOps() const override {
-    return ISD::ANY_EXTEND;
-  }
 
   /// Custom Lower {
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
@@ -186,7 +183,7 @@ public:
                     bool ForCodeSize) const override;
   /// Returns true if the target allows unaligned memory accesses of the
   /// specified type.
-  bool allowsMisalignedMemoryAccesses(EVT VT, unsigned AS, Align A,
+  bool allowsMisalignedMemoryAccesses(EVT VT, unsigned AS, unsigned Align,
                                       MachineMemOperand::Flags Flags,
                                       bool *Fast) const override;
 

@@ -17,13 +17,6 @@ using namespace mlir::pdl_to_pdl_interp;
 
 Position::~Position() {}
 
-/// Returns the depth of the first ancestor operation position.
-unsigned Position::getOperationDepth() const {
-  if (const auto *operationPos = dyn_cast<OperationPosition>(this))
-    return operationPos->getDepth();
-  return parent->getOperationDepth();
-}
-
 //===----------------------------------------------------------------------===//
 // AttributePosition
 
@@ -39,8 +32,18 @@ OperandPosition::OperandPosition(const KeyTy &key) : Base(key) {
 }
 
 //===----------------------------------------------------------------------===//
-// OperandGroupPosition
+// OperationPosition
 
-OperandGroupPosition::OperandGroupPosition(const KeyTy &key) : Base(key) {
-  parent = std::get<0>(key);
+OperationPosition *OperationPosition::get(StorageUniquer &uniquer,
+                                          ArrayRef<unsigned> index) {
+  assert(!index.empty() && "expected at least two indices");
+
+  // Set the parent position if this isn't the root.
+  Position *parent = nullptr;
+  if (index.size() > 1) {
+    auto *node = OperationPosition::get(uniquer, index.drop_back());
+    parent = OperandPosition::get(uniquer, std::make_pair(node, index.back()));
+  }
+  return uniquer.get<OperationPosition>(
+      [parent](OperationPosition *node) { node->parent = parent; }, index);
 }

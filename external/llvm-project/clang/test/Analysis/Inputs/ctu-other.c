@@ -49,9 +49,3 @@ int identImplicit(int in) {
 int structInProto(struct DataType {int a;int b; } * d) {
   return 0;
 }
-
-int switchWithoutCases(int x) {
-  switch (x) {
-  };
-  return 0;
-}

@@ -133,7 +133,7 @@ private:
 } // namespace
 
 Expected<InstructionBenchmark> BenchmarkRunner::runConfiguration(
-    const BenchmarkCode &BC, unsigned NumRepetitions, unsigned LoopBodySize,
+    const BenchmarkCode &BC, unsigned NumRepetitions,
     ArrayRef<std::unique_ptr<const SnippetRepetitor>> Repetitors,
     bool DumpObjectToDisk) const {
   InstructionBenchmark InstrBenchmark;
@@ -168,16 +168,14 @@ Expected<InstructionBenchmark> BenchmarkRunner::runConfiguration(
     // Assemble at least kMinInstructionsForSnippet instructions by repeating
     // the snippet for debug/analysis. This is so that the user clearly
     // understands that the inside instructions are repeated.
-    const int MinInstructionsForSnippet = 4 * Instructions.size();
-    const int LoopBodySizeForSnippet = 2 * Instructions.size();
+    constexpr const int kMinInstructionsForSnippet = 16;
     {
       SmallString<0> Buffer;
       raw_svector_ostream OS(Buffer);
       if (Error E = assembleToStream(
               State.getExegesisTarget(), State.createTargetMachine(),
               BC.LiveIns, BC.Key.RegisterInitialValues,
-              Repetitor->Repeat(Instructions, MinInstructionsForSnippet,
-                                LoopBodySizeForSnippet),
+              Repetitor->Repeat(Instructions, kMinInstructionsForSnippet),
               OS)) {
         return std::move(E);
       }
@@ -189,8 +187,8 @@ Expected<InstructionBenchmark> BenchmarkRunner::runConfiguration(
 
     // Assemble NumRepetitions instructions repetitions of the snippet for
     // measurements.
-    const auto Filler = Repetitor->Repeat(
-        Instructions, InstrBenchmark.NumRepetitions, LoopBodySize);
+    const auto Filler =
+        Repetitor->Repeat(Instructions, InstrBenchmark.NumRepetitions);
 
     object::OwningBinary<object::ObjectFile> ObjectFile;
     if (DumpObjectToDisk) {

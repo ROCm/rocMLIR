@@ -92,7 +92,8 @@ public:
 
 Error writeUniversalBinary(ArrayRef<Slice> Slices, StringRef OutputFileName);
 
-Error writeUniversalBinaryToStream(ArrayRef<Slice> Slices, raw_ostream &Out);
+Expected<std::unique_ptr<MemoryBuffer>>
+writeUniversalBinaryToBuffer(ArrayRef<Slice> Slices);
 
 } // end namespace object
 

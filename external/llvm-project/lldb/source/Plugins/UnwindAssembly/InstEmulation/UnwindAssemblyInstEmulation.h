@@ -58,6 +58,8 @@ public:
 
   lldb_private::ConstString GetPluginName() override;
 
+  uint32_t GetPluginVersion() override;
+
 private:
   // Call CreateInstance to get an instance of this class
   UnwindAssemblyInstEmulation(const lldb_private::ArchSpec &arch,

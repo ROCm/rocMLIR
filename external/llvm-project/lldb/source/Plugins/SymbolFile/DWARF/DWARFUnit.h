@@ -73,8 +73,7 @@ public:
 
   static llvm::Expected<DWARFUnitHeader>
   extract(const lldb_private::DWARFDataExtractor &data, DIERef::Section section,
-          lldb_private::DWARFContext &dwarf_context,
-          lldb::offset_t *offset_ptr);
+          lldb::offset_t *offset_ptr, const llvm::DWARFUnitIndex *index);
 };
 
 class DWARFUnit : public lldb_private::UserID {
@@ -85,14 +84,14 @@ public:
   static llvm::Expected<DWARFUnitSP>
   extract(SymbolFileDWARF &dwarf2Data, lldb::user_id_t uid,
           const lldb_private::DWARFDataExtractor &debug_info,
-          DIERef::Section section, lldb::offset_t *offset_ptr);
+          DIERef::Section section, lldb::offset_t *offset_ptr,
+          const llvm::DWARFUnitIndex *index);
   virtual ~DWARFUnit();
 
   bool IsDWOUnit() { return m_is_dwo; }
   uint64_t GetDWOId();
 
   void ExtractUnitDIEIfNeeded();
-  void ExtractUnitDIENoDwoIfNeeded();
   void ExtractDIEsIfNeeded();
 
   class ScopedExtractDIEs {
@@ -152,7 +151,7 @@ public:
   const DWARFAbbreviationDeclarationSet *GetAbbreviations() const;
   dw_offset_t GetAbbrevOffset() const;
   uint8_t GetAddressByteSize() const { return m_header.GetAddressByteSize(); }
-  dw_addr_t GetAddrBase() const { return m_addr_base ? *m_addr_base : 0; }
+  dw_addr_t GetAddrBase() const { return m_addr_base; }
   dw_addr_t GetBaseAddress() const { return m_base_addr; }
   dw_offset_t GetLineTableOffset();
   dw_addr_t GetRangesBase() const { return m_ranges_base; }
@@ -236,7 +235,15 @@ public:
   /// Return a rangelist's offset based on an index. The index designates
   /// an entry in the rangelist table's offset array and is supplied by
   /// DW_FORM_rnglistx.
-  llvm::Expected<uint64_t> GetRnglistOffset(uint32_t Index);
+  llvm::Optional<uint64_t> GetRnglistOffset(uint32_t Index) const {
+    if (!m_rnglist_table)
+      return llvm::None;
+    if (llvm::Optional<uint64_t> off = m_rnglist_table->getOffsetEntry(
+            m_dwarf.GetDWARFContext().getOrLoadRngListsData().GetAsLLVM(),
+            Index))
+      return *off + m_ranges_base;
+    return llvm::None;
+  }
 
   llvm::Optional<uint64_t> GetLoclistOffset(uint32_t Index) {
     if (!m_loclist_table_header)
@@ -269,7 +276,7 @@ protected:
   // Get the DWARF unit DWARF debug information entry. Parse the single DIE
   // if needed.
   const DWARFDebugInfoEntry *GetUnitDIEPtrOnly() {
-    ExtractUnitDIENoDwoIfNeeded();
+    ExtractUnitDIEIfNeeded();
     // m_first_die_mutex is not required as m_first_die is never cleared.
     if (!m_first_die)
       return NULL;
@@ -283,10 +290,6 @@ protected:
       return NULL;
     return &m_die_array[0];
   }
-
-  const llvm::Optional<llvm::DWARFDebugRnglistTable> &GetRnglistTable();
-
-  lldb_private::DWARFDataExtractor GetRnglistData() const;
 
   SymbolFileDWARF &m_dwarf;
   std::shared_ptr<DWARFUnit> m_dwo;
@@ -318,11 +321,9 @@ protected:
   lldb_private::LazyBool m_is_optimized = lldb_private::eLazyBoolCalculate;
   llvm::Optional<lldb_private::FileSpec> m_comp_dir;
   llvm::Optional<lldb_private::FileSpec> m_file_spec;
-  llvm::Optional<dw_addr_t> m_addr_base; ///< Value of DW_AT_addr_base.
-  dw_addr_t m_loclists_base = 0;         ///< Value of DW_AT_loclists_base.
-  dw_addr_t m_ranges_base = 0;           ///< Value of DW_AT_rnglists_base.
-  llvm::Optional<uint64_t> m_gnu_addr_base;
-  llvm::Optional<uint64_t> m_gnu_ranges_base;
+  dw_addr_t m_addr_base = 0;     ///< Value of DW_AT_addr_base.
+  dw_addr_t m_loclists_base = 0; ///< Value of DW_AT_loclists_base.
+  dw_addr_t m_ranges_base = 0;   ///< Value of DW_AT_rnglists_base.
 
   /// Value of DW_AT_stmt_list.
   dw_offset_t m_line_table_offset = DW_INVALID_OFFSET;
@@ -330,12 +331,10 @@ protected:
   dw_offset_t m_str_offsets_base = 0; // Value of DW_AT_str_offsets_base.
 
   llvm::Optional<llvm::DWARFDebugRnglistTable> m_rnglist_table;
-  bool m_rnglist_table_done = false;
   llvm::Optional<llvm::DWARFListTableHeader> m_loclist_table_header;
 
   const DIERef::Section m_section;
   bool m_is_dwo;
-  bool m_has_parsed_non_skeleton_unit;
   /// Value of DW_AT_GNU_dwo_id (v4) or dwo_id from CU header (v5).
   uint64_t m_dwo_id;
 

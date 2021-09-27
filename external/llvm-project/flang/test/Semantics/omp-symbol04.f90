@@ -1,4 +1,4 @@
-! RUN: %python %S/test_symbols.py %s %flang_fc1 -fopenmp
+! RUN: %S/test_symbols.sh %s %t %f18 -fopenmp
 
 ! 2.15.3 Data-Sharing Attribute Clauses
 ! Both PARALLEL and DO (worksharing) directives need to create new scope,

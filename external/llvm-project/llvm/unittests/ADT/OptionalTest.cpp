@@ -195,14 +195,6 @@ TEST(OptionalTest, NullCopyConstructionTest) {
   EXPECT_EQ(0u, NonDefaultConstructible::Destructions);
 }
 
-TEST(OptionalTest, InPlaceConstructionNonDefaultConstructibleTest) {
-  NonDefaultConstructible::ResetCounts();
-  { Optional<NonDefaultConstructible> A{in_place, 1}; }
-  EXPECT_EQ(0u, NonDefaultConstructible::CopyConstructions);
-  EXPECT_EQ(0u, NonDefaultConstructible::CopyAssignments);
-  EXPECT_EQ(1u, NonDefaultConstructible::Destructions);
-}
-
 TEST(OptionalTest, GetValueOr) {
   Optional<int> A;
   EXPECT_EQ(42, A.getValueOr(42));
@@ -221,11 +213,6 @@ struct MultiArgConstructor {
   MultiArgConstructor(MultiArgConstructor &&) = delete;
   MultiArgConstructor &operator=(const MultiArgConstructor &) = delete;
   MultiArgConstructor &operator=(MultiArgConstructor &&) = delete;
-
-  friend bool operator==(const MultiArgConstructor &LHS,
-                         const MultiArgConstructor &RHS) {
-    return LHS.x == RHS.x && LHS.y == RHS.y;
-  }
 
   static unsigned Destructions;
   ~MultiArgConstructor() {
@@ -255,34 +242,6 @@ TEST(OptionalTest, Emplace) {
   EXPECT_EQ(5, A->x);
   EXPECT_EQ(-5, A->y);
   EXPECT_EQ(1u, MultiArgConstructor::Destructions);
-}
-
-TEST(OptionalTest, InPlaceConstructionMultiArgConstructorTest) {
-  MultiArgConstructor::ResetCounts();
-  {
-    Optional<MultiArgConstructor> A{in_place, 1, 2};
-    EXPECT_TRUE(A.hasValue());
-    EXPECT_EQ(1, A->x);
-    EXPECT_EQ(2, A->y);
-    Optional<MultiArgConstructor> B{in_place, 5, false};
-    EXPECT_TRUE(B.hasValue());
-    EXPECT_EQ(5, B->x);
-    EXPECT_EQ(-5, B->y);
-    EXPECT_EQ(0u, MultiArgConstructor::Destructions);
-  }
-  EXPECT_EQ(2u, MultiArgConstructor::Destructions);
-}
-
-TEST(OptionalTest, InPlaceConstructionAndEmplaceEquivalentTest) {
-  MultiArgConstructor::ResetCounts();
-  {
-    Optional<MultiArgConstructor> A{in_place, 1, 2};
-    Optional<MultiArgConstructor> B;
-    B.emplace(1, 2);
-    EXPECT_EQ(0u, MultiArgConstructor::Destructions);
-    ASSERT_EQ(A, B);
-  }
-  EXPECT_EQ(2u, MultiArgConstructor::Destructions);
 }
 
 struct MoveOnly {
@@ -426,15 +385,6 @@ TEST(OptionalTest, ImmovableEmplace) {
   Optional<Immovable> A;
   Immovable::ResetCounts();
   A.emplace(4);
-  EXPECT_TRUE((bool)A);
-  EXPECT_EQ(4, A->val);
-  EXPECT_EQ(1u, Immovable::Constructions);
-  EXPECT_EQ(0u, Immovable::Destructions);
-}
-
-TEST(OptionalTest, ImmovableInPlaceConstruction) {
-  Immovable::ResetCounts();
-  Optional<Immovable> A{in_place, 4};
   EXPECT_TRUE((bool)A);
   EXPECT_EQ(4, A->val);
   EXPECT_EQ(1u, Immovable::Constructions);
@@ -777,11 +727,10 @@ TEST(OptionalTest, UseInUnitTests) {
   // Test that we invoke the streaming operators when pretty-printing values in
   // EXPECT macros.
   EXPECT_NONFATAL_FAILURE(EXPECT_EQ(llvm::None, ComparableAndStreamable::get()),
-                          "Expected equality of these values:\n"
-                          "  llvm::None\n"
-                          "    Which is: None\n"
-                          "  ComparableAndStreamable::get()\n"
-                          "    Which is: ComparableAndStreamable");
+                          "Expected: llvm::None\n"
+                          "      Which is: None\n"
+                          "To be equal to: ComparableAndStreamable::get()\n"
+                          "      Which is: ComparableAndStreamable");
 
   // Test that it is still possible to compare objects which do not have a
   // custom streaming operator.

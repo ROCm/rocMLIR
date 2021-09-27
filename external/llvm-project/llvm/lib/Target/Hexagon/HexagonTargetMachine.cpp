@@ -238,9 +238,9 @@ const HexagonSubtarget *
 HexagonTargetMachine::getSubtargetImpl(const Function &F) const {
   AttributeList FnAttrs = F.getAttributes();
   Attribute CPUAttr =
-      FnAttrs.getFnAttr("target-cpu");
+      FnAttrs.getAttribute(AttributeList::FunctionIndex, "target-cpu");
   Attribute FSAttr =
-      FnAttrs.getFnAttr("target-features");
+      FnAttrs.getAttribute(AttributeList::FunctionIndex, "target-features");
 
   std::string CPU =
       CPUAttr.isValid() ? CPUAttr.getValueAsString().str() : TargetCPU;
@@ -251,7 +251,8 @@ HexagonTargetMachine::getSubtargetImpl(const Function &F) const {
   // Creating a separate target feature is not strictly necessary, it only
   // exists to make "unsafe-fp-math" force creating a new subtarget.
 
-  if (F.getFnAttribute("unsafe-fp-math").getValueAsBool())
+  if (FnAttrs.hasFnAttribute("unsafe-fp-math") &&
+      F.getFnAttribute("unsafe-fp-math").getValueAsString() == "true")
     FS = FS.empty() ? "+unsafe-fp" : "+unsafe-fp," + FS;
 
   auto &I = SubtargetMap[CPU + FS];
@@ -278,13 +279,14 @@ void HexagonTargetMachine::adjustPassManager(PassManagerBuilder &PMB) {
       });
 }
 
-void HexagonTargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
+void HexagonTargetMachine::registerPassBuilderCallbacks(PassBuilder &PB,
+                                                        bool DebugPassManager) {
   PB.registerLateLoopOptimizationsEPCallback(
-      [=](LoopPassManager &LPM, OptimizationLevel Level) {
+      [=](LoopPassManager &LPM, PassBuilder::OptimizationLevel Level) {
         LPM.addPass(HexagonLoopIdiomRecognitionPass());
       });
   PB.registerLoopOptimizerEndEPCallback(
-      [=](LoopPassManager &LPM, OptimizationLevel Level) {
+      [=](LoopPassManager &LPM, PassBuilder::OptimizationLevel Level) {
         LPM.addPass(HexagonVectorLoopCarriedReusePass());
       });
 }

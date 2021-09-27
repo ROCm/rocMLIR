@@ -22,7 +22,6 @@
 #include "llvm/ADT/SetVector.h"
 
 namespace polly {
-using llvm::SmallSetVector;
 
 class ScopDetection;
 

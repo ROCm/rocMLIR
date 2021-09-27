@@ -1,3 +1,4 @@
+; RUN: opt < %s -asan -enable-new-pm=0 -S | FileCheck %s
 ; RUN: opt < %s -passes='asan-function-pipeline' -S | FileCheck %s
 ; Test that for call instructions, the by-value arguments are instrumented.
 

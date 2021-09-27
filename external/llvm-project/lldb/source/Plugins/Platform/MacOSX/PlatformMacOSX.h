@@ -32,6 +32,8 @@ public:
     return GetPluginNameStatic();
   }
 
+  uint32_t GetPluginVersion() override { return 1; }
+
   lldb_private::Status
   GetSharedModule(const lldb_private::ModuleSpec &module_spec,
                   lldb_private::Process *process, lldb::ModuleSP &module_sp,

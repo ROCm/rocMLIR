@@ -43,7 +43,7 @@ ThreadPlanCallUserExpression::ThreadPlanCallUserExpression(
   SetOkayToDiscard(false);
 }
 
-ThreadPlanCallUserExpression::~ThreadPlanCallUserExpression() = default;
+ThreadPlanCallUserExpression::~ThreadPlanCallUserExpression() {}
 
 void ThreadPlanCallUserExpression::GetDescription(
     Stream *s, lldb::DescriptionLevel level) {
@@ -59,8 +59,8 @@ void ThreadPlanCallUserExpression::DidPush() {
     m_user_expression_sp->WillStartExecuting();
 }
 
-void ThreadPlanCallUserExpression::DidPop() {
-  ThreadPlanCallFunction::DidPop();
+void ThreadPlanCallUserExpression::WillPop() {
+  ThreadPlanCallFunction::WillPop();
   if (m_user_expression_sp)
     m_user_expression_sp.reset();
 }

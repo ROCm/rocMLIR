@@ -1,5 +1,4 @@
 #import "ivars-in-blocks.h"
-#import <stdio.h>
 
 typedef int (^my_block_ptr_type) (int);
 

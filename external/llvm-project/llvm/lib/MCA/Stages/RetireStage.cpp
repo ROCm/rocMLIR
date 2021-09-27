@@ -23,7 +23,8 @@ namespace llvm {
 namespace mca {
 
 llvm::Error RetireStage::cycleStart() {
-  PRF.cycleStart();
+  if (RCU.isEmpty())
+    return llvm::ErrorSuccess();
 
   const unsigned MaxRetirePerCycle = RCU.getMaxRetirePerCycle();
   unsigned NumRetired = 0;
@@ -41,19 +42,8 @@ llvm::Error RetireStage::cycleStart() {
   return llvm::ErrorSuccess();
 }
 
-llvm::Error RetireStage::cycleEnd() {
-  PRF.cycleEnd();
-  return llvm::ErrorSuccess();
-}
-
 llvm::Error RetireStage::execute(InstRef &IR) {
-  Instruction &IS = *IR.getInstruction();
-
-  PRF.onInstructionExecuted(&IS);
-  unsigned TokenID = IS.getRCUTokenID();
-  assert(TokenID != RetireControlUnit::UnhandledTokenID);
-  RCU.onInstructionExecuted(TokenID);
-
+  RCU.onInstructionExecuted(IR.getInstruction()->getRCUTokenID());
   return llvm::ErrorSuccess();
 }
 

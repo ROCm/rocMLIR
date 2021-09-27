@@ -56,11 +56,12 @@ private:
 class RuntimeDyldImpl;
 
 class RuntimeDyld {
-public:
+protected:
   // Change the address associated with a section when resolving relocations.
   // Any relocations already associated with the symbol will be re-resolved.
   void reassignSectionAddress(unsigned SectionID, uint64_t Addr);
 
+public:
   using NotifyStubEmittedFunction = std::function<void(
       StringRef FileName, StringRef SectionName, StringRef SymbolName,
       unsigned SectionID, uint32_t StubOffset)>;
@@ -112,20 +113,6 @@ public:
                                          StringRef SectionName,
                                          bool IsReadOnly) = 0;
 
-    /// An allocated TLS section
-    struct TLSSection {
-      /// The pointer to the initialization image
-      uint8_t *InitializationImage;
-      /// The TLS offset
-      intptr_t Offset;
-    };
-
-    /// Allocate a memory block of (at least) the given size to be used for
-    /// thread-local storage (TLS).
-    virtual TLSSection allocateTLSSection(uintptr_t Size, unsigned Alignment,
-                                          unsigned SectionID,
-                                          StringRef SectionName);
-
     /// Inform the memory manager about the total amount of memory required to
     /// allocate all sections to be loaded:
     /// \p CodeSize - the total size of all code sections
@@ -142,11 +129,6 @@ public:
 
     /// Override to return true to enable the reserveAllocationSpace callback.
     virtual bool needsToReserveAllocationSpace() { return false; }
-
-    /// Override to return false to tell LLVM no stub space will be needed.
-    /// This requires some guarantees depending on architecuture, but when
-    /// you know what you are doing it saves allocated space.
-    virtual bool allowStubAllocation() const { return true; }
 
     /// Register the EH frames with the runtime so that c++ exceptions work.
     ///

@@ -160,7 +160,9 @@ public:
 
   /// Determine whether this template parameter list contains an
   /// unexpanded parameter pack.
-  bool containsUnexpandedParameterPack() const;
+  bool containsUnexpandedParameterPack() const {
+    return ContainsUnexpandedParameterPack;
+  }
 
   /// Determine whether this template parameter list contains a parameter pack.
   bool hasParameterPack() const {
@@ -202,9 +204,6 @@ public:
              bool OmitTemplateKW = false) const;
   void print(raw_ostream &Out, const ASTContext &Context,
              const PrintingPolicy &Policy, bool OmitTemplateKW = false) const;
-
-  static bool shouldIncludeTypeForArgument(const TemplateParameterList *TPL,
-                                           unsigned Idx);
 };
 
 /// Stores a list of template parameters and the associated
@@ -1189,7 +1188,7 @@ class TemplateTypeParmDecl final : public TypeDecl,
 
   /// Whether the type constraint has been initialized. This can be false if the
   /// constraint was not initialized yet or if there was an error forming the
-  /// type constraint.
+  /// type constriant.
   bool TypeConstraintInitialized : 1;
 
   /// Whether this non-type template parameter is an "expanded"

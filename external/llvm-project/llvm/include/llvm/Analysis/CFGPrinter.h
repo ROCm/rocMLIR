@@ -72,15 +72,15 @@ public:
     RawWeights = !!BFI;  // Print RawWeights when BFI is available.
   }
 
-  const BlockFrequencyInfo *getBFI() const { return BFI; }
+  const BlockFrequencyInfo *getBFI() { return BFI; }
 
-  const BranchProbabilityInfo *getBPI() const { return BPI; }
+  const BranchProbabilityInfo *getBPI() { return BPI; }
 
-  const Function *getFunction() const { return this->F; }
+  const Function *getFunction() { return this->F; }
 
-  uint64_t getMaxFreq() const { return MaxFreq; }
+  uint64_t getMaxFreq() { return MaxFreq; }
 
-  uint64_t getFreq(const BasicBlock *BB) const {
+  uint64_t getFreq(const BasicBlock *BB) {
     return BFI->getBlockFreq(BB).getFrequency();
   }
 
@@ -123,7 +123,7 @@ template <>
 struct DOTGraphTraits<DOTFuncInfo *> : public DefaultDOTGraphTraits {
 
   // Cache for is hidden property
-  llvm::DenseMap<const BasicBlock *, bool> isOnDeoptOrUnreachablePath;
+  llvm::DenseMap<const BasicBlock *, bool> isHiddenBasicBlock;
 
   DOTGraphTraits(bool isSimple = false) : DefaultDOTGraphTraits(isSimple) {}
 
@@ -296,7 +296,7 @@ struct DOTGraphTraits<DOTFuncInfo *> : public DefaultDOTGraphTraits {
     return Attrs;
   }
   bool isNodeHidden(const BasicBlock *Node, const DOTFuncInfo *CFGInfo);
-  void computeDeoptOrUnreachablePaths(const Function *F);
+  void computeHiddenNodes(const Function *F);
 };
 } // End llvm namespace
 

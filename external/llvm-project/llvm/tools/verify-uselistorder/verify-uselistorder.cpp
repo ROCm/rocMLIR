@@ -136,7 +136,7 @@ bool TempFile::writeBitcode(const Module &M) const {
 bool TempFile::writeAssembly(const Module &M) const {
   LLVM_DEBUG(dbgs() << " - write assembly\n");
   std::error_code EC;
-  raw_fd_ostream OS(Filename, EC, sys::fs::OF_TextWithCRLF);
+  raw_fd_ostream OS(Filename, EC, sys::fs::OF_Text);
   if (EC) {
     errs() << "verify-uselistorder: error: " << EC.message() << "\n";
     return true;
@@ -202,9 +202,14 @@ ValueMapping::ValueMapping(const Module &M) {
     map(A.getAliasee());
   for (const GlobalIFunc &IF : M.ifuncs())
     map(IF.getResolver());
-  for (const Function &F : M)
-    for (Value *Op : F.operands())
-      map(Op);
+  for (const Function &F : M) {
+    if (F.hasPrefixData())
+      map(F.getPrefixData());
+    if (F.hasPrologueData())
+      map(F.getPrologueData());
+    if (F.hasPersonalityFn())
+      map(F.getPersonalityFn());
+  }
 
   // Function bodies.
   for (const Function &F : M) {
@@ -479,9 +484,14 @@ static void changeUseLists(Module &M, Changer changeValueUseList) {
     changeValueUseList(A.getAliasee());
   for (GlobalIFunc &IF : M.ifuncs())
     changeValueUseList(IF.getResolver());
-  for (Function &F : M)
-    for (Value *Op : F.operands())
-      changeValueUseList(Op);
+  for (Function &F : M) {
+    if (F.hasPrefixData())
+      changeValueUseList(F.getPrefixData());
+    if (F.hasPrologueData())
+      changeValueUseList(F.getPrologueData());
+    if (F.hasPersonalityFn())
+      changeValueUseList(F.getPersonalityFn());
+  }
 
   // Function bodies.
   for (Function &F : M) {
@@ -530,10 +540,11 @@ int main(int argc, char **argv) {
   // Enable debug stream buffering.
   EnableDebugBuffering = true;
 
+  LLVMContext Context;
+
   cl::ParseCommandLineOptions(argc, argv,
                               "llvm tool to verify use-list order\n");
 
-  LLVMContext Context;
   SMDiagnostic Err;
 
   // Load the input module...

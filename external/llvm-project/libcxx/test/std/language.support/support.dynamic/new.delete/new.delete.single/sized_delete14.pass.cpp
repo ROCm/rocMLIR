@@ -12,7 +12,8 @@
 
 // NOTE: Clang does not enable sized-deallocation in C++14 and beyond by
 // default. It is only enabled when -fsized-deallocation is given.
-// XFAIL: clang, apple-clang
+// (except clang-3.6 which temporarily enabled sized-deallocation)
+// UNSUPPORTED: clang, apple-clang
 
 #include <new>
 #include <cstddef>

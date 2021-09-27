@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 // We're building as C, so this test doesn't work when building with modules.
-// UNSUPPORTED: modules-build
+// UNSUPPORTED: -fmodules
 
 // GCC complains about unrecognized arguments because we're compiling the
 // file as C, but we're passing C++ flags on the command-line.
@@ -41,11 +41,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-// The clang-shipped tgmath.h header doesn't work with MSVC/UCRT's complex
-// headers in C mode, see PR46207.
-#ifndef _MSC_VER
-#    include <tgmath.h>
-#endif
+#include <tgmath.h>
 #include <wchar.h>
 #include <wctype.h>
 

@@ -43,11 +43,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Basic/LangStandard.h"
-#include "clang/Driver/Driver.h"
 #include "clang/Driver/Options.h"
 #include "clang/Driver/Types.h"
 #include "clang/Tooling/CompilationDatabase.h"
-#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringExtras.h"
@@ -136,7 +134,8 @@ struct TransferableCommand {
   bool ClangCLMode;
 
   TransferableCommand(CompileCommand C)
-      : Cmd(std::move(C)), Type(guessType(Cmd.Filename)) {
+      : Cmd(std::move(C)), Type(guessType(Cmd.Filename)),
+        ClangCLMode(checkIsCLMode(Cmd.CommandLine)) {
     std::vector<std::string> OldArgs = std::move(Cmd.CommandLine);
     Cmd.CommandLine.clear();
 
@@ -146,9 +145,6 @@ struct TransferableCommand {
       SmallVector<const char *, 16> TmpArgv;
       for (const std::string &S : OldArgs)
         TmpArgv.push_back(S.c_str());
-      ClangCLMode = !TmpArgv.empty() &&
-                    driver::IsClangCL(driver::getDriverMode(
-                        TmpArgv.front(), llvm::makeArrayRef(TmpArgv).slice(1)));
       ArgList = {TmpArgv.begin(), TmpArgv.end()};
     }
 
@@ -181,10 +177,6 @@ struct TransferableCommand {
                            Opt.matches(OPT__SLASH_Fo))))
         continue;
 
-      // ...including when the inputs are passed after --.
-      if (Opt.matches(OPT__DASH_DASH))
-        break;
-
       // Strip -x, but record the overridden language.
       if (const auto GivenType = tryParseTypeArg(*Arg)) {
         Type = *GivenType;
@@ -212,10 +204,8 @@ struct TransferableCommand {
   }
 
   // Produce a CompileCommand for \p filename, based on this one.
-  // (This consumes the TransferableCommand just to avoid copying Cmd).
-  CompileCommand transferTo(StringRef Filename) && {
-    CompileCommand Result = std::move(Cmd);
-    Result.Heuristic = "inferred from " + Result.Filename;
+  CompileCommand transferTo(StringRef Filename) const {
+    CompileCommand Result = Cmd;
     Result.Filename = std::string(Filename);
     bool TypeCertain;
     auto TargetType = guessType(Filename, &TypeCertain);
@@ -243,13 +233,25 @@ struct TransferableCommand {
           llvm::Twine(ClangCLMode ? "/std:" : "-std=") +
           LangStandard::getLangStandardForKind(Std).getName()).str());
     }
-    if (Filename.startswith("-") || (ClangCLMode && Filename.startswith("/")))
-      Result.CommandLine.push_back("--");
     Result.CommandLine.push_back(std::string(Filename));
+    Result.Heuristic = "inferred from " + Cmd.Filename;
     return Result;
   }
 
 private:
+  // Determine whether the given command line is intended for the CL driver.
+  static bool checkIsCLMode(ArrayRef<std::string> CmdLine) {
+    // First look for --driver-mode.
+    for (StringRef S : llvm::reverse(CmdLine)) {
+      if (S.consume_front("--driver-mode="))
+        return S == "cl";
+    }
+
+    // Otherwise just check the clang executable file name.
+    return !CmdLine.empty() &&
+           llvm::sys::path::stem(CmdLine.front()).endswith_lower("cl");
+  }
+
   // Map the language from the --std flag to that of the -x flag.
   static types::ID toType(Language Lang) {
     switch (Lang) {
@@ -519,7 +521,7 @@ public:
         Inner->getCompileCommands(Index.chooseProxy(Filename, foldType(Lang)));
     if (ProxyCommands.empty())
       return {};
-    return {transferCompileCommand(std::move(ProxyCommands.front()), Filename)};
+    return {TransferableCommand(ProxyCommands[0]).transferTo(Filename)};
   }
 
   std::vector<std::string> getAllFiles() const override {
@@ -540,11 +542,6 @@ private:
 std::unique_ptr<CompilationDatabase>
 inferMissingCompileCommands(std::unique_ptr<CompilationDatabase> Inner) {
   return std::make_unique<InterpolatingCompilationDatabase>(std::move(Inner));
-}
-
-tooling::CompileCommand transferCompileCommand(CompileCommand Cmd,
-                                               StringRef Filename) {
-  return TransferableCommand(std::move(Cmd)).transferTo(Filename);
 }
 
 } // namespace tooling

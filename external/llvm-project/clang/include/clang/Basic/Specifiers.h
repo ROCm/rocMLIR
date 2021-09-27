@@ -59,7 +59,6 @@ namespace clang {
     TST_float,
     TST_double,
     TST_float128,
-    TST_ibm128,
     TST_bool,         // _Bool
     TST_decimal32,    // _Decimal32
     TST_decimal64,    // _Decimal64
@@ -106,9 +105,9 @@ namespace clang {
   /// The categorization of expression values, currently following the
   /// C++11 scheme.
   enum ExprValueKind {
-    /// A pr-value expression (in the C++11 taxonomy)
+    /// An r-value expression (a pr-value in the C++11 taxonomy)
     /// produces a temporary value.
-    VK_PRValue,
+    VK_RValue,
 
     /// An l-value expression is a reference to an object with
     /// independent storage.
@@ -267,7 +266,6 @@ namespace clang {
     CC_SpirFunction, // default for OpenCL functions on SPIR target
     CC_OpenCLKernel, // inferred for OpenCL kernels
     CC_Swift,        // __attribute__((swiftcall))
-    CC_SwiftAsync,        // __attribute__((swiftasynccall))
     CC_PreserveMost, // __attribute__((preserve_most))
     CC_PreserveAll,  // __attribute__((preserve_all))
     CC_AArch64VectorCall, // __attribute__((aarch64_vector_pcs))
@@ -286,7 +284,6 @@ namespace clang {
     case CC_SpirFunction:
     case CC_OpenCLKernel:
     case CC_Swift:
-    case CC_SwiftAsync:
       return false;
     default:
       return true;
@@ -347,12 +344,7 @@ namespace clang {
     /// This parameter (which must have pointer type) uses the special
     /// Swift context-pointer ABI treatment.  There can be at
     /// most one parameter on a given function that uses this treatment.
-    SwiftContext,
-
-    /// This parameter (which must have pointer type) uses the special
-    /// Swift asynchronous context-pointer ABI treatment.  There can be at
-    /// most one parameter on a given function that uses this treatment.
-    SwiftAsyncContext,
+    SwiftContext
   };
 
   /// Assigned inheritance model for a class in the MS C++ ABI. Must match order

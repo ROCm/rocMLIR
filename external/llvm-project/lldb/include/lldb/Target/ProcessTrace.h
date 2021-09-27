@@ -15,8 +15,6 @@
 
 namespace lldb_private {
 
-/// Class that represents a defunct process loaded on memory via the "trace
-/// load" command.
 class ProcessTrace : public PostMortemProcess {
 public:
   static void Initialize();
@@ -42,6 +40,8 @@ public:
 
   ConstString GetPluginName() override;
 
+  uint32_t GetPluginVersion() override;
+
   Status DoDestroy() override;
 
   void RefreshStateAfterStop() override;
@@ -53,6 +53,8 @@ public:
         GetPluginName().GetCString());
     return error;
   }
+
+  bool IsAlive() override;
 
   bool WarnBeforeDetach() const override { return false; }
 

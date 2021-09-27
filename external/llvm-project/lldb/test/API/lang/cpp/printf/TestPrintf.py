@@ -5,4 +5,4 @@ lldbinline.MakeInlineTest(
     __file__, globals(), [
         decorators.expectedFailureAll(
             bugnumber="llvm.org/PR36715",
-            oslist=['windows'])])
+            oslist=lldbplatformutil.getDarwinOSTriples()+['windows'])])

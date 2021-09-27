@@ -20,7 +20,7 @@ public:
     llvm::raw_string_ostream Stream(ArgStr);
     const TemplateArgument &Arg = ArgLoc.getArgument();
 
-    Arg.print(Context->getPrintingPolicy(), Stream, /*IncludeType*/ true);
+    Arg.print(Context->getPrintingPolicy(), Stream);
     Match(Stream.str(), ArgLoc.getLocation());
     return ExpectedLocationVisitor<TemplateArgumentLocTraverser>::
       TraverseTemplateArgumentLoc(ArgLoc);

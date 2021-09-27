@@ -514,7 +514,7 @@ void ScheduleDAGInstrs::addVRegDefDeps(SUnit *SU, unsigned OperIdx) {
 /// TODO: Handle ExitSU "uses" properly.
 void ScheduleDAGInstrs::addVRegUseDeps(SUnit *SU, unsigned OperIdx) {
   const MachineInstr *MI = SU->getInstr();
-  assert(!MI->isDebugOrPseudoInstr());
+  assert(!MI->isDebugInstr());
 
   const MachineOperand &MO = MI->getOperand(OperIdx);
   Register Reg = MO.getReg();
@@ -572,7 +572,7 @@ void ScheduleDAGInstrs::initSUnits() {
   SUnits.reserve(NumRegionInstrs);
 
   for (MachineInstr &MI : make_range(RegionBegin, RegionEnd)) {
-    if (MI.isDebugOrPseudoInstr())
+    if (MI.isDebugInstr())
       continue;
 
     SUnit *SU = newSUnit(&MI);
@@ -807,12 +807,11 @@ void ScheduleDAGInstrs::buildSchedGraph(AAResults *AA,
       DbgMI = nullptr;
     }
 
-    if (MI.isDebugValue() || MI.isDebugPHI()) {
+    if (MI.isDebugValue() || MI.isDebugRef()) {
       DbgMI = &MI;
       continue;
     }
-
-    if (MI.isDebugLabel() || MI.isDebugRef() || MI.isPseudoProbe())
+    if (MI.isDebugLabel())
       continue;
 
     SUnit *SU = MISUnitMap[&MI];
@@ -1118,7 +1117,7 @@ void ScheduleDAGInstrs::fixupKills(MachineBasicBlock &MBB) {
 
   // Examine block from end to start...
   for (MachineInstr &MI : make_range(MBB.rbegin(), MBB.rend())) {
-    if (MI.isDebugOrPseudoInstr())
+    if (MI.isDebugInstr())
       continue;
 
     // Update liveness.  Registers that are defed but not used in this
@@ -1153,7 +1152,7 @@ void ScheduleDAGInstrs::fixupKills(MachineBasicBlock &MBB) {
       while (I->isBundledWithSucc())
         ++I;
       do {
-        if (!I->isDebugOrPseudoInstr())
+        if (!I->isDebugInstr())
           toggleKills(MRI, LiveRegs, *I, true);
         --I;
       } while (I != Bundle);

@@ -173,7 +173,7 @@ ObjectFilePDB::loadPDBFile(std::string PdbPath,
   if (ec || magic != llvm::file_magic::pdb)
     return nullptr;
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> ErrorOrBuffer =
-      llvm::MemoryBuffer::getFile(PdbPath, /*IsText=*/false,
+      llvm::MemoryBuffer::getFile(PdbPath, /*FileSize=*/-1,
                                   /*RequiresNullTerminator=*/false);
   if (!ErrorOrBuffer)
     return nullptr;

@@ -6,7 +6,6 @@ unittest("DebugInfoCodeViewTests") {
     "//llvm/lib/Testing/Support",
   ]
   sources = [
-    "GUIDFormatTest.cpp",
     "RandomAccessVisitorTest.cpp",
     "TypeHashingTest.cpp",
     "TypeIndexDiscoveryTest.cpp",

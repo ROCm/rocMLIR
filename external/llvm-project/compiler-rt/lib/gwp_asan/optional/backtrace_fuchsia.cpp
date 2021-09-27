@@ -8,18 +8,12 @@
 
 #include "gwp_asan/optional/backtrace.h"
 
-#include <zircon/sanitizer.h>
+// GWP-ASan on Fuchsia doesn't currently support backtraces.
 
 namespace gwp_asan {
 namespace backtrace {
 
-// Fuchsia's C library provides safe, fast, best-effort backtraces itself.
-options::Backtrace_t getBacktraceFunction() {
-  return __sanitizer_fast_backtrace;
-}
-
-// These are only used in fatal signal handling, which is not used on Fuchsia.
-
+options::Backtrace_t getBacktraceFunction() { return nullptr; }
 PrintBacktrace_t getPrintBacktraceFunction() { return nullptr; }
 SegvBacktrace_t getSegvBacktraceFunction() { return nullptr; }
 

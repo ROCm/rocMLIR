@@ -12,7 +12,6 @@
 #include "lldb/Host/FileSystem.h"
 #include "lldb/Host/HostInfo.h"
 #include "lldb/Interpreter/OptionValueProperties.h"
-#include "lldb/Target/Process.h"
 #include "lldb/Utility/ConstString.h"
 #include "lldb/Utility/FileSpec.h"
 #include "lldb/Utility/Status.h"
@@ -21,7 +20,7 @@
 #include "llvm/Support/DynamicLibrary.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cassert>
+#include <assert.h>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -39,11 +38,11 @@ typedef bool (*PluginInitCallback)();
 typedef void (*PluginTermCallback)();
 
 struct PluginInfo {
-  PluginInfo() = default;
+  PluginInfo() : plugin_init_callback(nullptr), plugin_term_callback(nullptr) {}
 
   llvm::sys::DynamicLibrary library;
-  PluginInitCallback plugin_init_callback = nullptr;
-  PluginTermCallback plugin_term_callback = nullptr;
+  PluginInitCallback plugin_init_callback;
+  PluginTermCallback plugin_term_callback;
 };
 
 typedef std::map<FileSpec, PluginInfo> PluginTerminateMap;
@@ -685,26 +684,11 @@ PluginManager::GetObjectFileCreateMemoryCallbackForPluginName(
 }
 
 Status PluginManager::SaveCore(const lldb::ProcessSP &process_sp,
-                               const FileSpec &outfile,
-                               lldb::SaveCoreStyle &core_style,
-                               const ConstString plugin_name) {
-  if (!plugin_name) {
-    // Try saving core directly from the process plugin first.
-    llvm::Expected<bool> ret = process_sp->SaveCore(outfile.GetPath());
-    if (!ret)
-      return Status(ret.takeError());
-    if (ret.get())
-      return Status();
-  }
-
-  // Fall back to object plugins.
+                               const FileSpec &outfile) {
   Status error;
   auto &instances = GetObjectFileInstances().GetInstances();
   for (auto &instance : instances) {
-    if (plugin_name && instance.name != plugin_name)
-      continue;
-    if (instance.save_core &&
-        instance.save_core(process_sp, outfile, core_style, error))
+    if (instance.save_core && instance.save_core(process_sp, outfile, error))
       return error;
   }
   error.SetErrorString(
@@ -1024,20 +1008,16 @@ PluginManager::GetSymbolVendorCreateCallbackAtIndex(uint32_t idx) {
 
 #pragma mark Trace
 
-struct TraceInstance
-    : public PluginInstance<TraceCreateInstanceForSessionFile> {
-  TraceInstance(
-      ConstString name, std::string description,
-      CallbackType create_callback_for_session_file,
-      TraceCreateInstanceForLiveProcess create_callback_for_live_process,
-      llvm::StringRef schema)
-      : PluginInstance<TraceCreateInstanceForSessionFile>(
-            name, std::move(description), create_callback_for_session_file),
-        schema(schema),
-        create_callback_for_live_process(create_callback_for_live_process) {}
+struct TraceInstance : public PluginInstance<TraceCreateInstance> {
+  TraceInstance(ConstString name, std::string description,
+                CallbackType create_callback, llvm::StringRef schema,
+                TraceGetStartCommand get_start_command)
+      : PluginInstance<TraceCreateInstance>(name, std::move(description),
+                                            create_callback),
+        schema(schema), get_start_command(get_start_command) {}
 
   llvm::StringRef schema;
-  TraceCreateInstanceForLiveProcess create_callback_for_live_process;
+  TraceGetStartCommand get_start_command;
 };
 
 typedef PluginInstances<TraceInstance> TraceInstances;
@@ -1047,33 +1027,21 @@ static TraceInstances &GetTracePluginInstances() {
   return g_instances;
 }
 
-bool PluginManager::RegisterPlugin(
-    ConstString name, const char *description,
-    TraceCreateInstanceForSessionFile create_callback_for_session_file,
-    TraceCreateInstanceForLiveProcess create_callback_for_live_process,
-    llvm::StringRef schema) {
+bool PluginManager::RegisterPlugin(ConstString name, const char *description,
+                                   TraceCreateInstance create_callback,
+                                   llvm::StringRef schema,
+                                   TraceGetStartCommand get_start_command) {
   return GetTracePluginInstances().RegisterPlugin(
-      name, description, create_callback_for_session_file,
-      create_callback_for_live_process, schema);
+      name, description, create_callback, schema, get_start_command);
 }
 
-bool PluginManager::UnregisterPlugin(
-    TraceCreateInstanceForSessionFile create_callback_for_session_file) {
-  return GetTracePluginInstances().UnregisterPlugin(
-      create_callback_for_session_file);
+bool PluginManager::UnregisterPlugin(TraceCreateInstance create_callback) {
+  return GetTracePluginInstances().UnregisterPlugin(create_callback);
 }
 
-TraceCreateInstanceForSessionFile
+TraceCreateInstance
 PluginManager::GetTraceCreateCallback(ConstString plugin_name) {
   return GetTracePluginInstances().GetCallbackForName(plugin_name);
-}
-
-TraceCreateInstanceForLiveProcess
-PluginManager::GetTraceCreateCallbackForLiveProcess(ConstString plugin_name) {
-  for (const TraceInstance &instance : GetTracePluginInstances().GetInstances())
-    if (instance.name == plugin_name)
-      return instance.create_callback_for_live_process;
-  return nullptr;
 }
 
 llvm::StringRef PluginManager::GetTraceSchema(ConstString plugin_name) {
@@ -1083,64 +1051,20 @@ llvm::StringRef PluginManager::GetTraceSchema(ConstString plugin_name) {
   return llvm::StringRef();
 }
 
+CommandObjectSP
+PluginManager::GetTraceStartCommand(llvm::StringRef plugin_name,
+                                    CommandInterpreter &interpreter) {
+  for (const TraceInstance &instance : GetTracePluginInstances().GetInstances())
+    if (instance.name.GetStringRef() == plugin_name)
+      return instance.get_start_command(interpreter);
+  return CommandObjectSP();
+}
+
 llvm::StringRef PluginManager::GetTraceSchema(size_t index) {
   if (TraceInstance *instance =
           GetTracePluginInstances().GetInstanceAtIndex(index))
     return instance->schema;
   return llvm::StringRef();
-}
-
-#pragma mark TraceExporter
-
-struct TraceExporterInstance
-    : public PluginInstance<TraceExporterCreateInstance> {
-  TraceExporterInstance(
-      ConstString name, std::string description,
-      TraceExporterCreateInstance create_instance,
-      ThreadTraceExportCommandCreator create_thread_trace_export_command)
-      : PluginInstance<TraceExporterCreateInstance>(
-            name, std::move(description), create_instance),
-        create_thread_trace_export_command(create_thread_trace_export_command) {
-  }
-
-  ThreadTraceExportCommandCreator create_thread_trace_export_command;
-};
-
-typedef PluginInstances<TraceExporterInstance> TraceExporterInstances;
-
-static TraceExporterInstances &GetTraceExporterInstances() {
-  static TraceExporterInstances g_instances;
-  return g_instances;
-}
-
-bool PluginManager::RegisterPlugin(
-    ConstString name, const char *description,
-    TraceExporterCreateInstance create_callback,
-    ThreadTraceExportCommandCreator create_thread_trace_export_command) {
-  return GetTraceExporterInstances().RegisterPlugin(
-      name, description, create_callback, create_thread_trace_export_command);
-}
-
-TraceExporterCreateInstance
-PluginManager::GetTraceExporterCreateCallback(ConstString plugin_name) {
-  return GetTraceExporterInstances().GetCallbackForName(plugin_name);
-}
-
-bool PluginManager::UnregisterPlugin(
-    TraceExporterCreateInstance create_callback) {
-  return GetTraceExporterInstances().UnregisterPlugin(create_callback);
-}
-
-ThreadTraceExportCommandCreator
-PluginManager::GetThreadTraceExportCommandCreatorAtIndex(uint32_t index) {
-  if (TraceExporterInstance *instance =
-          GetTraceExporterInstances().GetInstanceAtIndex(index))
-    return instance->create_thread_trace_export_command;
-  return nullptr;
-}
-
-const char *PluginManager::GetTraceExporterPluginNameAtIndex(uint32_t index) {
-  return GetTraceExporterInstances().GetNameAtIndex(index);
 }
 
 #pragma mark UnwindAssembly

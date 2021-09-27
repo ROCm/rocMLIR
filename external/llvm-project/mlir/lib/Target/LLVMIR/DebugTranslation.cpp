@@ -95,8 +95,7 @@ void DebugTranslation::translate(LLVMFuncOp func, llvm::Function &llvmFunc) {
     return;
 
   FileLineColLoc fileLoc = extractFileLoc(func.getLoc());
-  auto *file =
-      translateFile(fileLoc ? fileLoc.getFilename().strref() : "<unknown>");
+  auto *file = translateFile(fileLoc ? fileLoc.getFilename() : "<unknown>");
   unsigned line = fileLoc ? fileLoc.getLine() : 0;
 
   // TODO: This is the bare essentials for now. We will likely end

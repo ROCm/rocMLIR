@@ -11,7 +11,7 @@
 #include "lldb/Utility/Flags.h"
 #include "lldb/Utility/Stream.h"
 
-#include <cstdio>
+#include <stdio.h>
 
 using namespace lldb;
 using namespace lldb_private::repro;
@@ -24,7 +24,7 @@ StreamGDBRemote::StreamGDBRemote(uint32_t flags, uint32_t addr_size,
                                  ByteOrder byte_order)
     : StreamString(flags, addr_size, byte_order) {}
 
-StreamGDBRemote::~StreamGDBRemote() = default;
+StreamGDBRemote::~StreamGDBRemote() {}
 
 int StreamGDBRemote::PutEscapedBytes(const void *s, size_t src_len) {
   int bytes_written = 0;
@@ -104,7 +104,7 @@ void GDBRemoteProvider::Keep() {
 
   FileSpec file = GetRoot().CopyByAppendingPathComponent(Info::file);
   std::error_code ec;
-  llvm::raw_fd_ostream os(file.GetPath(), ec, llvm::sys::fs::OF_TextWithCRLF);
+  llvm::raw_fd_ostream os(file.GetPath(), ec, llvm::sys::fs::OF_Text);
   if (ec)
     return;
   yaml::Output yout(os);
@@ -150,8 +150,8 @@ llvm::raw_ostream *GDBRemoteProvider::GetHistoryStream() {
   FileSpec history_file = GetRoot().CopyByAppendingPathComponent(Info::file);
 
   std::error_code EC;
-  m_stream_up = std::make_unique<raw_fd_ostream>(
-      history_file.GetPath(), EC, sys::fs::OpenFlags::OF_TextWithCRLF);
+  m_stream_up = std::make_unique<raw_fd_ostream>(history_file.GetPath(), EC,
+                                                 sys::fs::OpenFlags::OF_Text);
   return m_stream_up.get();
 }
 

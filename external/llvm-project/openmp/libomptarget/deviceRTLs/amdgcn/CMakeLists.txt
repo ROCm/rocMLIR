@@ -6,53 +6,37 @@
 #
 ##===----------------------------------------------------------------------===##
 #
-# Build the AMDGCN Device RTL bitcode library using clang -ffreestanding
+# Build the AMDGCN Device RTL if the ROCM tools are available
 #
 ##===----------------------------------------------------------------------===##
 
-set(LIBOMPTARGET_BUILD_AMDGCN_BCLIB TRUE CACHE BOOL
-  "Can be set to false to disable building this library.")
-
-if (NOT LIBOMPTARGET_BUILD_AMDGCN_BCLIB)
-  libomptarget_say("Not building AMDGCN device RTL: Disabled by LIBOMPTARGET_BUILD_AMDGCN_BCLIB")
-  return()
-endif()
-
-if (NOT LIBOMPTARGET_LLVM_INCLUDE_DIRS)
-  libomptarget_say("Not building AMDGCN device RTL: Missing definition for LIBOMPTARGET_LLVM_INCLUDE_DIRS")
-  return()
-endif()
-
-
-# Copied from nvptx CMakeLists
-if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64")
-  set(aux_triple x86_64-unknown-linux-gnu)
-elseif(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "ppc64le")
-  set(aux_triple powerpc64le-unknown-linux-gnu)
-elseif(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "aarch64")
-  set(aux_triple aarch64-unknown-linux-gnu)
-else()
-  libomptarget_say("Not building AMDGCN device RTL: unknown host arch: ${CMAKE_HOST_SYSTEM_PROCESSOR}")
-  return()
-endif()
+find_package(LLVM QUIET CONFIG
+  PATHS
+  $ENV{AOMP}
+  $ENV{HOME}/rocm/aomp
+  /opt/rocm/aomp
+  /usr/lib/rocm/aomp
+  ${LIBOMPTARGET_NVPTX_CUDA_COMPILER_DIR}
+  ${LIBOMPTARGET_NVPTX_CUDA_LINKER_DIR}
+  ${CMAKE_CXX_COMPILER_DIR}
+  NO_DEFAULT_PATH)
 
 if (LLVM_DIR)
-  # Builds that use pre-installed LLVM have LLVM_DIR set.
-  find_program(CLANG_TOOL clang PATHS ${LLVM_TOOLS_BINARY_DIR} NO_DEFAULT_PATH)
-  find_program(LINK_TOOL llvm-link PATHS ${LLVM_TOOLS_BINARY_DIR}
-    NO_DEFAULT_PATH)
-  find_program(OPT_TOOL opt PATHS ${LLVM_TOOLS_BINARY_DIR} NO_DEFAULT_PATH)
-  libomptarget_say("Building AMDGCN device RTL. Using clang: ${CLANG_TOOL}")
-elseif (LLVM_TOOL_CLANG_BUILD AND NOT CMAKE_CROSSCOMPILING AND NOT OPENMP_STANDALONE_BUILD)
-  # LLVM in-tree builds may use CMake target names to discover the tools.
-  set(CLANG_TOOL $<TARGET_FILE:clang>)
-  set(LINK_TOOL $<TARGET_FILE:llvm-link>)
-  set(OPT_TOOL $<TARGET_FILE:opt>)
-  libomptarget_say("Building AMDGCN device RTL. Using clang from in-tree build")
+  libomptarget_say("Found LLVM ${LLVM_PACKAGE_VERSION}. Configure: ${LLVM_DIR}/LLVMConfig.cmake")
 else()
-  libomptarget_say("Not building AMDGCN device RTL. No appropriate clang found")
+  libomptarget_say("Not building AMDGCN device RTL: AOMP not found")
   return()
 endif()
+
+set(AOMP_INSTALL_PREFIX ${LLVM_INSTALL_PREFIX})
+
+if (AOMP_INSTALL_PREFIX)
+  set(AOMP_BINDIR ${AOMP_INSTALL_PREFIX}/bin)
+else()
+  set(AOMP_BINDIR ${LLVM_BUILD_BINARY_DIR}/bin)
+endif()
+
+libomptarget_say("Building AMDGCN device RTL. LLVM_COMPILER_PATH=${AOMP_BINDIR}")
 
 project(omptarget-amdgcn)
 
@@ -63,7 +47,7 @@ set(optimization_level 2)
 
 # Activate RTL message dumps if requested by the user.
 if(LIBOMPTARGET_NVPTX_DEBUG)
-  set(CUDA_DEBUG -DOMPTARGET_NVPTX_DEBUG=-1 -g)
+  set(CUDA_DEBUG -DOMPTARGET_NVPTX_DEBUG=-1)
 endif()
 
 get_filename_component(devicertl_base_directory
@@ -84,7 +68,6 @@ set(cuda_sources
   ${devicertl_base_directory}/common/src/parallel.cu
   ${devicertl_base_directory}/common/src/reduction.cu
   ${devicertl_base_directory}/common/src/support.cu
-  ${devicertl_base_directory}/common/src/shuffle.cpp
   ${devicertl_base_directory}/common/src/sync.cu
   ${devicertl_base_directory}/common/src/task.cu)
 
@@ -106,38 +89,26 @@ else()
   set(OUTPUTDIR ${CMAKE_ARCHIVE_OUTPUT_DIRECTORY})
 endif()
 
-# create gfx bitcode libraries
-set(mcpus gfx700 gfx701 gfx801 gfx803 gfx900 gfx902 gfx906 gfx908 gfx90a gfx1010 gfx1030 gfx1031)
+# create libraries
+set(mcpus gfx700 gfx701 gfx801 gfx803 gfx900)
 if (DEFINED LIBOMPTARGET_AMDGCN_GFXLIST)
   set(mcpus ${LIBOMPTARGET_AMDGCN_GFXLIST})
 endif()
 
-# Prepend -I to each list element
-set (LIBOMPTARGET_LLVM_INCLUDE_DIRS_AMDGCN "${LIBOMPTARGET_LLVM_INCLUDE_DIRS}")
-list(TRANSFORM LIBOMPTARGET_LLVM_INCLUDE_DIRS_AMDGCN PREPEND "-I")
-
 macro(add_cuda_bc_library)
-  set(cu_cmd ${CLANG_TOOL}
-    -xc++
-    -c
-    -mllvm -openmp-opt-disable
+  set(cu_cmd ${AOMP_BINDIR}/clang++
     -std=c++14
-    -ffreestanding
-    -target amdgcn-amd-amdhsa
-    -emit-llvm
-    -Xclang -aux-triple -Xclang ${aux_triple}
-    -fopenmp -fopenmp-cuda-mode -Xclang -fopenmp-is-device
-    -D__AMDGCN__
-    -Xclang -target-cpu -Xclang ${mcpu}
+    -fcuda-rdc
     -fvisibility=default
+    --cuda-device-only
     -Wno-unused-value
-    -nogpulib
+    -x hip
+    -nogpulib -nogpuinc
     -O${optimization_level}
+    --cuda-gpu-arch=${mcpu}
     ${CUDA_DEBUG}
     -I${CMAKE_CURRENT_SOURCE_DIR}/src
-    -I${devicertl_base_directory}/common/include
-    -I${devicertl_base_directory}
-    ${LIBOMPTARGET_LLVM_INCLUDE_DIRS_AMDGCN})
+    -I${devicertl_base_directory})
 
   set(bc1_files)
 
@@ -155,21 +126,13 @@ macro(add_cuda_bc_library)
 
   add_custom_command(
     OUTPUT linkout.cuda.${mcpu}.bc
-    COMMAND ${LINK_TOOL} ${bc1_files} -o linkout.cuda.${mcpu}.bc
+    COMMAND ${AOMP_BINDIR}/llvm-link ${bc1_files} -o linkout.cuda.${mcpu}.bc
     DEPENDS ${bc1_files})
 
   list(APPEND bc_files linkout.cuda.${mcpu}.bc)
 endmacro()
 
 set(libname "omptarget-amdgcn")
-
-set(toolchain_deps "")
-if(TARGET llvm-link)
-  list(APPEND toolchain_deps llvm-link)
-endif()
-if(TARGET opt)
-  list(APPEND toolchain_deps opt)
-endif()
 
 foreach(mcpu ${mcpus})
   set(bc_files)
@@ -178,12 +141,12 @@ foreach(mcpu ${mcpus})
   set(bc_libname lib${libname}-${mcpu}.bc)
   add_custom_command(
     OUTPUT ${bc_libname}
-    COMMAND ${LINK_TOOL} ${bc_files} | ${OPT_TOOL} --always-inline -o ${OUTPUTDIR}/${bc_libname}
-    DEPENDS ${bc_files} ${toolchain_deps})
+    COMMAND ${AOMP_BINDIR}/llvm-link ${bc_files} | ${AOMP_BINDIR}/opt --always-inline -o ${OUTPUTDIR}/${bc_libname}
+    DEPENDS ${bc_files})
 
   add_custom_target(lib${libname}-${mcpu} ALL DEPENDS ${bc_libname})
 
   install(FILES ${OUTPUTDIR}/${bc_libname}
-     DESTINATION "${OPENMP_INSTALL_LIBDIR}"
+     DESTINATION "${OPENMP_INSTALL_LIBDIR}/libdevice"
   )
 endforeach()

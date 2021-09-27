@@ -84,7 +84,7 @@ CommandObjectScript::CommandObjectScript(CommandInterpreter &interpreter)
           "results.  Start the interactive interpreter if no code is supplied.",
           "script [--language <scripting-language> --] [<script-code>]") {}
 
-CommandObjectScript::~CommandObjectScript() = default;
+CommandObjectScript::~CommandObjectScript() {}
 
 bool CommandObjectScript::DoExecute(llvm::StringRef command,
                                     CommandReturnObject &result) {
@@ -105,6 +105,7 @@ bool CommandObjectScript::DoExecute(llvm::StringRef command,
   if (language == lldb::eScriptLanguageNone) {
     result.AppendError(
         "the script-lang setting is set to none - scripting not available");
+    result.SetStatus(eReturnStatusFailed);
     return false;
   }
 
@@ -113,6 +114,7 @@ bool CommandObjectScript::DoExecute(llvm::StringRef command,
 
   if (script_interpreter == nullptr) {
     result.AppendError("no script interpreter");
+    result.SetStatus(eReturnStatusFailed);
     return false;
   }
 

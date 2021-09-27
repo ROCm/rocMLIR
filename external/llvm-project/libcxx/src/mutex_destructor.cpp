@@ -41,7 +41,7 @@ public:
 };
 
 
-mutex::~mutex() noexcept
+mutex::~mutex() _NOEXCEPT
 {
     __libcpp_mutex_destroy(&__m_);
 }

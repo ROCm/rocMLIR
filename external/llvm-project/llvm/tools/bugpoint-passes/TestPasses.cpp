@@ -143,7 +143,7 @@ private:
   }
 
   bool runOnFunction(Function &F) override {
-    AttributeSet A = F.getAttributes().getFnAttrs();
+    AttributeSet A = F.getAttributes().getFnAttributes();
     if (A.hasAttribute("bugpoint-crash"))
       abort();
     return false;

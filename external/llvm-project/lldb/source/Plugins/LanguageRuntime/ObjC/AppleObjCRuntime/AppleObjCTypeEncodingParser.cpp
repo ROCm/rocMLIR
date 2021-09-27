@@ -59,7 +59,7 @@ uint32_t AppleObjCTypeEncodingParser::ReadNumber(StringLexer &type) {
 // "{CGRect=\"origin\"{CGPoint=\"x\"d\"y\"d}\"size\"{CGSize=\"width\"d\"height\"d}}"
 
 AppleObjCTypeEncodingParser::StructElement::StructElement()
-    : name(""), type(clang::QualType()) {}
+    : name(""), type(clang::QualType()), bitfield(0) {}
 
 AppleObjCTypeEncodingParser::StructElement
 AppleObjCTypeEncodingParser::ReadStructElement(TypeSystemClang &ast_ctx,
@@ -78,13 +78,13 @@ AppleObjCTypeEncodingParser::ReadStructElement(TypeSystemClang &ast_ctx,
 
 clang::QualType AppleObjCTypeEncodingParser::BuildStruct(
     TypeSystemClang &ast_ctx, StringLexer &type, bool for_expression) {
-  return BuildAggregate(ast_ctx, type, for_expression, _C_STRUCT_B, _C_STRUCT_E,
+  return BuildAggregate(ast_ctx, type, for_expression, '{', '}',
                         clang::TTK_Struct);
 }
 
 clang::QualType AppleObjCTypeEncodingParser::BuildUnion(
     TypeSystemClang &ast_ctx, StringLexer &type, bool for_expression) {
-  return BuildAggregate(ast_ctx, type, for_expression, _C_UNION_B, _C_UNION_E,
+  return BuildAggregate(ast_ctx, type, for_expression, '(', ')',
                         clang::TTK_Union);
 }
 
@@ -148,11 +148,11 @@ clang::QualType AppleObjCTypeEncodingParser::BuildAggregate(
 
 clang::QualType AppleObjCTypeEncodingParser::BuildArray(
     TypeSystemClang &ast_ctx, StringLexer &type, bool for_expression) {
-  if (!type.NextIf(_C_ARY_B))
+  if (!type.NextIf('['))
     return clang::QualType();
   uint32_t size = ReadNumber(type);
   clang::QualType element_type(BuildType(ast_ctx, type, for_expression));
-  if (!type.NextIf(_C_ARY_E))
+  if (!type.NextIf(']'))
     return clang::QualType();
   CompilerType array_type(ast_ctx.CreateArrayType(
       CompilerType(&ast_ctx, element_type.getAsOpaquePtr()), size, false));
@@ -166,7 +166,7 @@ clang::QualType AppleObjCTypeEncodingParser::BuildArray(
 // dynamic typing will resolve things for us anyway
 clang::QualType AppleObjCTypeEncodingParser::BuildObjCObjectPointerType(
     TypeSystemClang &clang_ast_ctx, StringLexer &type, bool for_expression) {
-  if (!type.NextIf(_C_ID))
+  if (!type.NextIf('@'))
     return clang::QualType();
 
   clang::ASTContext &ast_ctx = clang_ast_ctx.getASTContext();
@@ -203,9 +203,9 @@ clang::QualType AppleObjCTypeEncodingParser::BuildObjCObjectPointerType(
                      2); // undo our consumption of the string and of the quotes
         name.clear();
         break;
-      case _C_STRUCT_E:
-      case _C_UNION_E:
-      case _C_ARY_E:
+      case '}':
+      case ')':
+      case ']':
       case '"':
         // the quoted string is a class name – see the rule
         break;
@@ -260,13 +260,13 @@ AppleObjCTypeEncodingParser::BuildType(TypeSystemClang &clang_ast_ctx,
   switch (type.Peek()) {
   default:
     break;
-  case _C_STRUCT_B:
+  case '{':
     return BuildStruct(clang_ast_ctx, type, for_expression);
-  case _C_ARY_B:
+  case '[':
     return BuildArray(clang_ast_ctx, type, for_expression);
-  case _C_UNION_B:
+  case '(':
     return BuildUnion(clang_ast_ctx, type, for_expression);
-  case _C_ID:
+  case '@':
     return BuildObjCObjectPointerType(clang_ast_ctx, type, for_expression);
   }
 
@@ -274,46 +274,46 @@ AppleObjCTypeEncodingParser::BuildType(TypeSystemClang &clang_ast_ctx,
   default:
     type.PutBack(1);
     return clang::QualType();
-  case _C_CHR:
+  case 'c':
     return ast_ctx.CharTy;
-  case _C_INT:
+  case 'i':
     return ast_ctx.IntTy;
-  case _C_SHT:
+  case 's':
     return ast_ctx.ShortTy;
-  case _C_LNG:
+  case 'l':
     return ast_ctx.getIntTypeForBitwidth(32, true);
   // this used to be done like this:
   //   return clang_ast_ctx->GetIntTypeFromBitSize(32, true).GetQualType();
   // which uses one of the constants if one is available, but we don't think
   // all this work is necessary.
-  case _C_LNG_LNG:
+  case 'q':
     return ast_ctx.LongLongTy;
-  case _C_UCHR:
+  case 'C':
     return ast_ctx.UnsignedCharTy;
-  case _C_UINT:
+  case 'I':
     return ast_ctx.UnsignedIntTy;
-  case _C_USHT:
+  case 'S':
     return ast_ctx.UnsignedShortTy;
-  case _C_ULNG:
+  case 'L':
     return ast_ctx.getIntTypeForBitwidth(32, false);
-  // see note for _C_LNG
-  case _C_ULNG_LNG:
+  // see note for 'l'
+  case 'Q':
     return ast_ctx.UnsignedLongLongTy;
-  case _C_FLT:
+  case 'f':
     return ast_ctx.FloatTy;
-  case _C_DBL:
+  case 'd':
     return ast_ctx.DoubleTy;
-  case _C_BOOL:
+  case 'B':
     return ast_ctx.BoolTy;
-  case _C_VOID:
+  case 'v':
     return ast_ctx.VoidTy;
-  case _C_CHARPTR:
+  case '*':
     return ast_ctx.getPointerType(ast_ctx.CharTy);
-  case _C_CLASS:
+  case '#':
     return ast_ctx.getObjCClassType();
-  case _C_SEL:
+  case ':':
     return ast_ctx.getObjCSelType();
-  case _C_BFLD: {
+  case 'b': {
     uint32_t size = ReadNumber(type);
     if (bitfield_bit_size) {
       *bitfield_bit_size = size;
@@ -321,7 +321,7 @@ AppleObjCTypeEncodingParser::BuildType(TypeSystemClang &clang_ast_ctx,
     } else
       return clang::QualType();
   }
-  case _C_CONST: {
+  case 'r': {
     clang::QualType target_type =
         BuildType(clang_ast_ctx, type, for_expression);
     if (target_type.isNull())
@@ -331,8 +331,8 @@ AppleObjCTypeEncodingParser::BuildType(TypeSystemClang &clang_ast_ctx,
     else
       return ast_ctx.getConstType(target_type);
   }
-  case _C_PTR: {
-    if (!for_expression && type.NextIf(_C_UNDEF)) {
+  case '^': {
+    if (!for_expression && type.NextIf('?')) {
       // if we are not supporting the concept of unknownAny, but what is being
       // created here is an unknownAny*, then we can just get away with a void*
       // this is theoretically wrong (in the same sense as 'theoretically
@@ -350,7 +350,7 @@ AppleObjCTypeEncodingParser::BuildType(TypeSystemClang &clang_ast_ctx,
         return ast_ctx.getPointerType(target_type);
     }
   }
-  case _C_UNDEF:
+  case '?':
     return for_expression ? ast_ctx.UnknownAnyTy : clang::QualType();
   }
 }

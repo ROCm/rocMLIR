@@ -39,6 +39,8 @@ public:
   // lldb_private::PluginInterface functions
   ConstString GetPluginName() override { return GetPluginNameStatic(); }
 
+  uint32_t GetPluginVersion() override { return 1; }
+
   // lldb_private::Platform functions
   Status
   ResolveExecutable(const ModuleSpec &module_spec, lldb::ModuleSP &module_sp,
@@ -62,7 +64,10 @@ public:
   Status KillProcess(const lldb::pid_t pid) override;
 
   lldb::ProcessSP DebugProcess(ProcessLaunchInfo &launch_info,
-                               Debugger &debugger, Target &target,
+                               Debugger &debugger,
+                               Target *target, // Can be NULL, if NULL create a
+                                               // new target, else use existing
+                                               // one
                                Status &error) override;
 
   lldb::ProcessSP Attach(ProcessAttachInfo &attach_info, Debugger &debugger,

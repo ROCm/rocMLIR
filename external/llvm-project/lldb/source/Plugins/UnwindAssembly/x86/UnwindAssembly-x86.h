@@ -52,6 +52,8 @@ public:
 
   lldb_private::ConstString GetPluginName() override;
 
+  uint32_t GetPluginVersion() override;
+
 private:
   UnwindAssembly_x86(const lldb_private::ArchSpec &arch);
 

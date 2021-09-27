@@ -86,10 +86,10 @@ ProcessSP ProcessWindows::CreateInstance(lldb::TargetSP target_sp,
 
 static bool ShouldUseLLDBServer() {
   llvm::StringRef use_lldb_server = ::getenv("LLDB_USE_LLDB_SERVER");
-  return use_lldb_server.equals_insensitive("on") ||
-         use_lldb_server.equals_insensitive("yes") ||
-         use_lldb_server.equals_insensitive("1") ||
-         use_lldb_server.equals_insensitive("true");
+  return use_lldb_server.equals_lower("on") ||
+         use_lldb_server.equals_lower("yes") ||
+         use_lldb_server.equals_lower("1") ||
+         use_lldb_server.equals_lower("true");
 }
 
 void ProcessWindows::Initialize() {
@@ -147,6 +147,8 @@ size_t ProcessWindows::PutSTDIN(const char *buf, size_t buf_size,
 lldb_private::ConstString ProcessWindows::GetPluginName() {
   return GetPluginNameStatic();
 }
+
+uint32_t ProcessWindows::GetPluginVersion() { return 1; }
 
 Status ProcessWindows::EnableBreakpointSite(BreakpointSite *bp_site) {
   if (bp_site->HardwareRequired())
@@ -392,7 +394,7 @@ void ProcessWindows::RefreshStateAfterStop() {
     RegisterContextSP register_context = stop_thread->GetRegisterContext();
     const uint64_t pc = register_context->GetPC();
     BreakpointSiteSP site(GetBreakpointSiteList().FindByAddress(pc));
-    if (site && site->ValidForThisThread(*stop_thread)) {
+    if (site && site->ValidForThisThread(stop_thread.get())) {
       LLDB_LOG(log,
                "Single-stepped onto a breakpoint in process {0} at "
                "address {1:x} with breakpoint site {2}",
@@ -447,7 +449,7 @@ void ProcessWindows::RefreshStateAfterStop() {
                m_session_data->m_debugger->GetProcess().GetProcessId(), pc,
                site->GetID());
 
-      if (site->ValidForThisThread(*stop_thread)) {
+      if (site->ValidForThisThread(stop_thread.get())) {
         LLDB_LOG(log,
                  "Breakpoint site {0} is valid for this thread ({1:x}), "
                  "creating stop info.",

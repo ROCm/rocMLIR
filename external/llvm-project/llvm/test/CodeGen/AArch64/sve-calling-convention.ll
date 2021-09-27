@@ -1,5 +1,9 @@
-; RUN: llc -mtriple=aarch64-linux-gnu -mattr=+sve -stop-after=finalize-isel < %s | FileCheck %s
-; RUN: llc -mtriple=aarch64-linux-gnu -mattr=+sve -stop-after=prologepilog < %s | FileCheck %s --check-prefix=CHECKCSR
+; RUN: llc -mtriple=aarch64-linux-gnu -mattr=+sve -stop-after=finalize-isel < %s 2>%t | FileCheck %s
+; RUN: llc -mtriple=aarch64-linux-gnu -mattr=+sve -stop-after=prologepilog < %s 2>%t | FileCheck %s --check-prefix=CHECKCSR
+; RUN: FileCheck --check-prefix=WARN --allow-empty %s <%t
+
+; If this check fails please read test/CodeGen/AArch64/README for instructions on how to resolve it.
+; WARN-NOT: warning
 
 ; CHECK-LABEL: name: nosve_signature
 define i32 @nosve_signature() nounwind {
@@ -33,24 +37,10 @@ define i32 @caller_nosve_signature() nounwind {
   ret i32 %res
 }
 
-; CHECK-LABEL: name: caller_nosve_signature_fastcc
-; CHECK: BL @nosve_signature, csr_aarch64_aapcs
-define i32 @caller_nosve_signature_fastcc() nounwind {
-  %res = call fastcc i32 @nosve_signature()
-  ret i32 %res
-}
-
 ; CHECK-LABEL: name: sve_signature_ret_vec_caller
 ; CHECK: BL @sve_signature_ret_vec, csr_aarch64_sve_aapcs
 define <vscale x 4 x i32>  @sve_signature_ret_vec_caller() nounwind {
   %res = call <vscale x 4 x i32> @sve_signature_ret_vec()
-  ret <vscale x 4 x i32> %res
-}
-
-; CHECK-LABEL: name: sve_signature_ret_vec_caller_fastcc
-; CHECK: BL @sve_signature_ret_vec, csr_aarch64_sve_aapcs
-define <vscale x 4 x i32>  @sve_signature_ret_vec_caller_fastcc() nounwind {
-  %res = call fastcc <vscale x 4 x i32> @sve_signature_ret_vec()
   ret <vscale x 4 x i32> %res
 }
 
@@ -61,13 +51,6 @@ define <vscale x 4 x i1>  @sve_signature_ret_pred_caller() nounwind {
   ret <vscale x 4 x i1> %res
 }
 
-; CHECK-LABEL: name: sve_signature_ret_pred_caller_fastcc
-; CHECK: BL @sve_signature_ret_pred, csr_aarch64_sve_aapcs
-define <vscale x 4 x i1>  @sve_signature_ret_pred_caller_fastcc() nounwind {
-  %res = call fastcc <vscale x 4 x i1> @sve_signature_ret_pred()
-  ret <vscale x 4 x i1> %res
-}
-
 ; CHECK-LABEL: name: sve_signature_arg_vec_caller
 ; CHECK: BL @sve_signature_arg_vec, csr_aarch64_sve_aapcs
 define void @sve_signature_arg_vec_caller(<vscale x 4 x i32> %arg) nounwind {
@@ -75,24 +58,10 @@ define void @sve_signature_arg_vec_caller(<vscale x 4 x i32> %arg) nounwind {
   ret void
 }
 
-; CHECK-LABEL: name: sve_signature_arg_vec_caller_fastcc
-; CHECK: BL @sve_signature_arg_vec, csr_aarch64_sve_aapcs
-define void @sve_signature_arg_vec_caller_fastcc(<vscale x 4 x i32> %arg) nounwind {
-  call fastcc void @sve_signature_arg_vec(<vscale x 4 x i32> %arg)
-  ret void
-}
-
 ; CHECK-LABEL: name: sve_signature_arg_pred_caller
 ; CHECK: BL @sve_signature_arg_pred, csr_aarch64_sve_aapcs
 define void @sve_signature_arg_pred_caller(<vscale x 4 x i1> %arg) nounwind {
   call void @sve_signature_arg_pred(<vscale x 4 x i1> %arg)
-  ret void
-}
-
-; CHECK-LABEL: name: sve_signature_arg_pred_caller_fastcc
-; CHECK: BL @sve_signature_arg_pred, csr_aarch64_sve_aapcs
-define void @sve_signature_arg_pred_caller_fastcc(<vscale x 4 x i1> %arg) nounwind {
-  call fastcc void @sve_signature_arg_pred(<vscale x 4 x i1> %arg)
   ret void
 }
 

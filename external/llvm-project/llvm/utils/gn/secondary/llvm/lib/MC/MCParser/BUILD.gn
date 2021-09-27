@@ -18,6 +18,5 @@ static_library("MCParser") {
     "MCTargetAsmParser.cpp",
     "MasmParser.cpp",
     "WasmAsmParser.cpp",
-    "XCOFFAsmParser.cpp",
   ]
 }

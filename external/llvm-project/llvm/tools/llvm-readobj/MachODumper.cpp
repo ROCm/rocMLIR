@@ -256,14 +256,11 @@ static const EnumEntry<unsigned> MachOSymbolRefTypes[] = {
 };
 
 static const EnumEntry<unsigned> MachOSymbolFlags[] = {
-  { "ThumbDef",               0x8 },
   { "ReferencedDynamically", 0x10 },
   { "NoDeadStrip",           0x20 },
   { "WeakRef",               0x40 },
   { "WeakDef",               0x80 },
-  { "SymbolResolver",       0x100 },
   { "AltEntry",             0x200 },
-  { "ColdFunc",             0x400 },
 };
 
 static const EnumEntry<unsigned> MachOSymbolTypes[] = {
@@ -654,9 +651,9 @@ void MachODumper::printSymbol(const SymbolRef &Symbol) {
                 makeArrayRef(MachOSymbolTypes));
   }
   W.printHex("Section", SectionName, MOSymbol.SectionIndex);
-  W.printEnum("RefType", static_cast<uint16_t>(MOSymbol.Flags & 0x7),
+  W.printEnum("RefType", static_cast<uint16_t>(MOSymbol.Flags & 0xF),
               makeArrayRef(MachOSymbolRefTypes));
-  W.printFlags("Flags", static_cast<uint16_t>(MOSymbol.Flags & ~0x7),
+  W.printFlags("Flags", static_cast<uint16_t>(MOSymbol.Flags & ~0xF),
                makeArrayRef(MachOSymbolFlags));
   W.printHex("Value", MOSymbol.Value);
 }

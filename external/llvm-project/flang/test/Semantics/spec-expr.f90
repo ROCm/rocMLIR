@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 ! Tests for the 14 items that specify a "specification expression" in section
 ! 10.1.11
 

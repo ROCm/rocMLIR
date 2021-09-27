@@ -1,3 +1,4 @@
+; RUN: opt < %s -asan -enable-new-pm=0 -S -o %t.ll
 ; RUN: opt < %s -passes='asan-function-pipeline' -S -o %t.ll
 ; RUN: FileCheck %s < %t.ll
 

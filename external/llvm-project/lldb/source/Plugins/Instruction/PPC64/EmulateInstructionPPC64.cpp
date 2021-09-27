@@ -8,7 +8,7 @@
 
 #include "EmulateInstructionPPC64.h"
 
-#include <cstdlib>
+#include <stdlib.h>
 
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Symbol/UnwindPlan.h"

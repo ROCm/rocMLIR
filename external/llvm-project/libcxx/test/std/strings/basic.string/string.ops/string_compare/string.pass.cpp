@@ -29,7 +29,6 @@ template <class S>
 void
 test(const S& s, const S& str, int x)
 {
-    LIBCPP_ASSERT_NOEXCEPT(s.compare(str));
     assert(sign(s.compare(str)) == sign(x));
 }
 

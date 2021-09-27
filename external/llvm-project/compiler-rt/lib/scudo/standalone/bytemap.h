@@ -17,9 +17,10 @@ namespace scudo {
 
 template <uptr Size> class FlatByteMap {
 public:
-  void init() { DCHECK(Size == 0 || Map[0] == 0); }
+  void initLinkerInitialized() {}
+  void init() { memset(Map, 0, sizeof(Map)); }
 
-  void unmapTestOnly() { memset(Map, 0, Size); }
+  void unmapTestOnly() {}
 
   void set(uptr Index, u8 Value) {
     DCHECK_LT(Index, Size);
@@ -35,7 +36,7 @@ public:
   void enable() {}
 
 private:
-  u8 Map[Size] = {};
+  u8 Map[Size];
 };
 
 } // namespace scudo

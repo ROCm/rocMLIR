@@ -548,9 +548,9 @@ private:
   // the names up in the scope that encloses the DO construct to avoid getting
   // the local versions of them.  Then follow the host-, use-, and
   // construct-associations to get the root symbols
-  UnorderedSymbolSet GatherLocals(
+  SymbolSet GatherLocals(
       const std::list<parser::LocalitySpec> &localitySpecs) const {
-    UnorderedSymbolSet symbols;
+    SymbolSet symbols;
     const Scope &parentScope{
         context_.FindScope(currentStatementSourcePosition_).parent()};
     // Loop through the LocalitySpec::Local locality-specs
@@ -568,9 +568,8 @@ private:
     return symbols;
   }
 
-  static UnorderedSymbolSet GatherSymbolsFromExpression(
-      const parser::Expr &expression) {
-    UnorderedSymbolSet result;
+  static SymbolSet GatherSymbolsFromExpression(const parser::Expr &expression) {
+    SymbolSet result;
     if (const auto *expr{GetExpr(expression)}) {
       for (const Symbol &symbol : evaluate::CollectSymbols(*expr)) {
         result.insert(ResolveAssociations(symbol));
@@ -581,9 +580,8 @@ private:
 
   // C1121 - procedures in mask must be pure
   void CheckMaskIsPure(const parser::ScalarLogicalExpr &mask) const {
-    UnorderedSymbolSet references{
-        GatherSymbolsFromExpression(mask.thing.thing.value())};
-    for (const Symbol &ref : OrderBySourcePosition(references)) {
+    SymbolSet references{GatherSymbolsFromExpression(mask.thing.thing.value())};
+    for (const Symbol &ref : references) {
       if (IsProcedure(ref) && !IsPureProcedure(ref)) {
         context_.SayWithDecl(ref, parser::Unwrap<parser::Expr>(mask)->source,
             "%s mask expression may not reference impure procedure '%s'"_err_en_US,
@@ -593,10 +591,10 @@ private:
     }
   }
 
-  void CheckNoCollisions(const UnorderedSymbolSet &refs,
-      const UnorderedSymbolSet &uses, parser::MessageFixedText &&errorMessage,
+  void CheckNoCollisions(const SymbolSet &refs, const SymbolSet &uses,
+      parser::MessageFixedText &&errorMessage,
       const parser::CharBlock &refPosition) const {
-    for (const Symbol &ref : OrderBySourcePosition(refs)) {
+    for (const Symbol &ref : refs) {
       if (uses.find(ref) != uses.end()) {
         context_.SayWithDecl(ref, refPosition, std::move(errorMessage),
             LoopKindName(), ref.name());
@@ -605,8 +603,8 @@ private:
     }
   }
 
-  void HasNoReferences(const UnorderedSymbolSet &indexNames,
-      const parser::ScalarIntExpr &expr) const {
+  void HasNoReferences(
+      const SymbolSet &indexNames, const parser::ScalarIntExpr &expr) const {
     CheckNoCollisions(GatherSymbolsFromExpression(expr.thing.thing.value()),
         indexNames,
         "%s limit expression may not reference index variable '%s'"_err_en_US,
@@ -614,8 +612,8 @@ private:
   }
 
   // C1129, names in local locality-specs can't be in mask expressions
-  void CheckMaskDoesNotReferenceLocal(const parser::ScalarLogicalExpr &mask,
-      const UnorderedSymbolSet &localVars) const {
+  void CheckMaskDoesNotReferenceLocal(
+      const parser::ScalarLogicalExpr &mask, const SymbolSet &localVars) const {
     CheckNoCollisions(GatherSymbolsFromExpression(mask.thing.thing.value()),
         localVars,
         "%s mask expression references variable '%s'"
@@ -625,8 +623,8 @@ private:
 
   // C1129, names in local locality-specs can't be in limit or step
   // expressions
-  void CheckExprDoesNotReferenceLocal(const parser::ScalarIntExpr &expr,
-      const UnorderedSymbolSet &localVars) const {
+  void CheckExprDoesNotReferenceLocal(
+      const parser::ScalarIntExpr &expr, const SymbolSet &localVars) const {
     CheckNoCollisions(GatherSymbolsFromExpression(expr.thing.thing.value()),
         localVars,
         "%s expression references variable '%s'"
@@ -665,7 +663,7 @@ private:
       CheckMaskIsPure(*mask);
     }
     auto &controls{std::get<std::list<parser::ConcurrentControl>>(header.t)};
-    UnorderedSymbolSet indexNames;
+    SymbolSet indexNames;
     for (const parser::ConcurrentControl &control : controls) {
       const auto &indexName{std::get<parser::Name>(control.t)};
       if (indexName.symbol) {
@@ -699,7 +697,7 @@ private:
     const auto &localitySpecs{
         std::get<std::list<parser::LocalitySpec>>(concurrent.t)};
     if (!localitySpecs.empty()) {
-      const UnorderedSymbolSet &localVars{GatherLocals(localitySpecs)};
+      const SymbolSet &localVars{GatherLocals(localitySpecs)};
       for (const auto &c : GetControls(control)) {
         CheckExprDoesNotReferenceLocal(std::get<1>(c.t), localVars);
         CheckExprDoesNotReferenceLocal(std::get<2>(c.t), localVars);
@@ -735,7 +733,7 @@ private:
   void CheckForallIndexesUsed(const evaluate::Assignment &assignment) {
     SymbolVector indexVars{context_.GetIndexVars(IndexVarKind::FORALL)};
     if (!indexVars.empty()) {
-      UnorderedSymbolSet symbols{evaluate::CollectSymbols(assignment.lhs)};
+      SymbolSet symbols{evaluate::CollectSymbols(assignment.lhs)};
       std::visit(
           common::visitors{
               [&](const evaluate::Assignment::BoundsSpec &spec) {

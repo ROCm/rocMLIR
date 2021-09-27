@@ -27,6 +27,7 @@ entry:
 vector.ph:                                        ; preds = %entry
   %n.rnd.up = add i32 %blockSize, 7
   %n.vec = and i32 %n.rnd.up, -8
+  %trip.count.minus.1 = add i32 %blockSize, -1
   br label %vector.body
 
 vector.body:                                      ; preds = %vector.body, %vector.ph
@@ -76,6 +77,7 @@ entry:
 vector.ph:                                        ; preds = %entry
   %n.rnd.up = add i32 %blockSize, 7
   %n.vec = and i32 %n.rnd.up, -8
+  %trip.count.minus.1 = add i32 %blockSize, -1
   br label %vector.body
 
 vector.body:                                      ; preds = %vector.body, %vector.ph

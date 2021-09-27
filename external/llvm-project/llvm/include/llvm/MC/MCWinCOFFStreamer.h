@@ -39,7 +39,7 @@ public:
   /// \name MCStreamer interface
   /// \{
 
-  void initSections(bool NoExecStack, const MCSubtargetInfo &STI) override;
+  void InitSections(bool NoExecStack) override;
   void emitLabel(MCSymbol *Symbol, SMLoc Loc = SMLoc()) override;
   void emitAssemblerFlag(MCAssemblerFlag Flag) override;
   void emitThumbFunc(MCSymbol *Func) override;

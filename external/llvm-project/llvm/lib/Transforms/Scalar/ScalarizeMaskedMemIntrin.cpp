@@ -105,11 +105,6 @@ static bool isConstantIntVector(Value *Mask) {
   return true;
 }
 
-static unsigned adjustForEndian(const DataLayout &DL, unsigned VectorWidth,
-                                unsigned Idx) {
-  return DL.isBigEndian() ? VectorWidth - 1 - Idx : Idx;
-}
-
 // Translate a masked load intrinsic like
 // <16 x i32 > @llvm.masked.load( <16 x i32>* %addr, i32 align,
 //                               <16 x i1> %mask, <16 x i32> %passthru)
@@ -142,8 +137,8 @@ static unsigned adjustForEndian(const DataLayout &DL, unsigned VectorWidth,
 //  %10 = extractelement <16 x i1> %mask, i32 2
 //  br i1 %10, label %cond.load4, label %else5
 //
-static void scalarizeMaskedLoad(const DataLayout &DL, CallInst *CI,
-                                DomTreeUpdater *DTU, bool &ModifiedDT) {
+static void scalarizeMaskedLoad(CallInst *CI, DomTreeUpdater *DTU,
+                                bool &ModifiedDT) {
   Value *Ptr = CI->getArgOperand(0);
   Value *Alignment = CI->getArgOperand(1);
   Value *Mask = CI->getArgOperand(2);
@@ -212,8 +207,7 @@ static void scalarizeMaskedLoad(const DataLayout &DL, CallInst *CI,
     //
     Value *Predicate;
     if (VectorWidth != 1) {
-      Value *Mask = Builder.getInt(APInt::getOneBitSet(
-          VectorWidth, adjustForEndian(DL, VectorWidth, Idx)));
+      Value *Mask = Builder.getInt(APInt::getOneBitSet(VectorWidth, Idx));
       Predicate = Builder.CreateICmpNE(Builder.CreateAnd(SclrMask, Mask),
                                        Builder.getIntN(VectorWidth, 0));
     } else {
@@ -284,8 +278,8 @@ static void scalarizeMaskedLoad(const DataLayout &DL, CallInst *CI,
 //   store i32 %6, i32* %7
 //   br label %else2
 //   . . .
-static void scalarizeMaskedStore(const DataLayout &DL, CallInst *CI,
-                                 DomTreeUpdater *DTU, bool &ModifiedDT) {
+static void scalarizeMaskedStore(CallInst *CI, DomTreeUpdater *DTU,
+                                 bool &ModifiedDT) {
   Value *Src = CI->getArgOperand(0);
   Value *Ptr = CI->getArgOperand(1);
   Value *Alignment = CI->getArgOperand(2);
@@ -346,8 +340,7 @@ static void scalarizeMaskedStore(const DataLayout &DL, CallInst *CI,
     //
     Value *Predicate;
     if (VectorWidth != 1) {
-      Value *Mask = Builder.getInt(APInt::getOneBitSet(
-          VectorWidth, adjustForEndian(DL, VectorWidth, Idx)));
+      Value *Mask = Builder.getInt(APInt::getOneBitSet(VectorWidth, Idx));
       Predicate = Builder.CreateICmpNE(Builder.CreateAnd(SclrMask, Mask),
                                        Builder.getIntN(VectorWidth, 0));
     } else {
@@ -412,8 +405,8 @@ static void scalarizeMaskedStore(const DataLayout &DL, CallInst *CI,
 // . . .
 // %Result = select <16 x i1> %Mask, <16 x i32> %res.phi.select, <16 x i32> %Src
 // ret <16 x i32> %Result
-static void scalarizeMaskedGather(const DataLayout &DL, CallInst *CI,
-                                  DomTreeUpdater *DTU, bool &ModifiedDT) {
+static void scalarizeMaskedGather(CallInst *CI, DomTreeUpdater *DTU,
+                                  bool &ModifiedDT) {
   Value *Ptrs = CI->getArgOperand(0);
   Value *Alignment = CI->getArgOperand(1);
   Value *Mask = CI->getArgOperand(2);
@@ -468,8 +461,7 @@ static void scalarizeMaskedGather(const DataLayout &DL, CallInst *CI,
 
     Value *Predicate;
     if (VectorWidth != 1) {
-      Value *Mask = Builder.getInt(APInt::getOneBitSet(
-          VectorWidth, adjustForEndian(DL, VectorWidth, Idx)));
+      Value *Mask = Builder.getInt(APInt::getOneBitSet(VectorWidth, Idx));
       Predicate = Builder.CreateICmpNE(Builder.CreateAnd(SclrMask, Mask),
                                        Builder.getIntN(VectorWidth, 0));
     } else {
@@ -542,8 +534,8 @@ static void scalarizeMaskedGather(const DataLayout &DL, CallInst *CI,
 // store i32 %Elt1, i32* %Ptr1, align 4
 // br label %else2
 //   . . .
-static void scalarizeMaskedScatter(const DataLayout &DL, CallInst *CI,
-                                   DomTreeUpdater *DTU, bool &ModifiedDT) {
+static void scalarizeMaskedScatter(CallInst *CI, DomTreeUpdater *DTU,
+                                   bool &ModifiedDT) {
   Value *Src = CI->getArgOperand(0);
   Value *Ptrs = CI->getArgOperand(1);
   Value *Alignment = CI->getArgOperand(2);
@@ -595,8 +587,7 @@ static void scalarizeMaskedScatter(const DataLayout &DL, CallInst *CI,
     //
     Value *Predicate;
     if (VectorWidth != 1) {
-      Value *Mask = Builder.getInt(APInt::getOneBitSet(
-          VectorWidth, adjustForEndian(DL, VectorWidth, Idx)));
+      Value *Mask = Builder.getInt(APInt::getOneBitSet(VectorWidth, Idx));
       Predicate = Builder.CreateICmpNE(Builder.CreateAnd(SclrMask, Mask),
                                        Builder.getIntN(VectorWidth, 0));
     } else {
@@ -632,8 +623,8 @@ static void scalarizeMaskedScatter(const DataLayout &DL, CallInst *CI,
   ModifiedDT = true;
 }
 
-static void scalarizeMaskedExpandLoad(const DataLayout &DL, CallInst *CI,
-                                      DomTreeUpdater *DTU, bool &ModifiedDT) {
+static void scalarizeMaskedExpandLoad(CallInst *CI, DomTreeUpdater *DTU,
+                                      bool &ModifiedDT) {
   Value *Ptr = CI->getArgOperand(0);
   Value *Mask = CI->getArgOperand(1);
   Value *PassThru = CI->getArgOperand(2);
@@ -701,8 +692,7 @@ static void scalarizeMaskedExpandLoad(const DataLayout &DL, CallInst *CI,
 
     Value *Predicate;
     if (VectorWidth != 1) {
-      Value *Mask = Builder.getInt(APInt::getOneBitSet(
-          VectorWidth, adjustForEndian(DL, VectorWidth, Idx)));
+      Value *Mask = Builder.getInt(APInt::getOneBitSet(VectorWidth, Idx));
       Predicate = Builder.CreateICmpNE(Builder.CreateAnd(SclrMask, Mask),
                                        Builder.getIntN(VectorWidth, 0));
     } else {
@@ -759,8 +749,7 @@ static void scalarizeMaskedExpandLoad(const DataLayout &DL, CallInst *CI,
   ModifiedDT = true;
 }
 
-static void scalarizeMaskedCompressStore(const DataLayout &DL, CallInst *CI,
-                                         DomTreeUpdater *DTU,
+static void scalarizeMaskedCompressStore(CallInst *CI, DomTreeUpdater *DTU,
                                          bool &ModifiedDT) {
   Value *Src = CI->getArgOperand(0);
   Value *Ptr = CI->getArgOperand(1);
@@ -811,8 +800,7 @@ static void scalarizeMaskedCompressStore(const DataLayout &DL, CallInst *CI,
     //
     Value *Predicate;
     if (VectorWidth != 1) {
-      Value *Mask = Builder.getInt(APInt::getOneBitSet(
-          VectorWidth, adjustForEndian(DL, VectorWidth, Idx)));
+      Value *Mask = Builder.getInt(APInt::getOneBitSet(VectorWidth, Idx));
       Predicate = Builder.CreateICmpNE(Builder.CreateAnd(SclrMask, Mask),
                                        Builder.getIntN(VectorWidth, 0));
     } else {
@@ -873,10 +861,12 @@ static bool runImpl(Function &F, const TargetTransformInfo &TTI,
   auto &DL = F.getParent()->getDataLayout();
   while (MadeChange) {
     MadeChange = false;
-    for (BasicBlock &BB : llvm::make_early_inc_range(F)) {
+    for (Function::iterator I = F.begin(); I != F.end();) {
+      BasicBlock *BB = &*I++;
       bool ModifiedDTOnIteration = false;
-      MadeChange |= optimizeBlock(BB, ModifiedDTOnIteration, TTI, DL,
+      MadeChange |= optimizeBlock(*BB, ModifiedDTOnIteration, TTI, DL,
                                   DTU.hasValue() ? DTU.getPointer() : nullptr);
+
 
       // Restart BB iteration if the dominator tree of the Function was changed
       if (ModifiedDTOnIteration)
@@ -944,46 +934,46 @@ static bool optimizeCallInst(CallInst *CI, bool &ModifiedDT,
               CI->getType(),
               cast<ConstantInt>(CI->getArgOperand(1))->getAlignValue()))
         return false;
-      scalarizeMaskedLoad(DL, CI, DTU, ModifiedDT);
+      scalarizeMaskedLoad(CI, DTU, ModifiedDT);
       return true;
     case Intrinsic::masked_store:
       if (TTI.isLegalMaskedStore(
               CI->getArgOperand(0)->getType(),
               cast<ConstantInt>(CI->getArgOperand(2))->getAlignValue()))
         return false;
-      scalarizeMaskedStore(DL, CI, DTU, ModifiedDT);
+      scalarizeMaskedStore(CI, DTU, ModifiedDT);
       return true;
     case Intrinsic::masked_gather: {
-      MaybeAlign MA =
-          cast<ConstantInt>(CI->getArgOperand(1))->getMaybeAlignValue();
+      unsigned AlignmentInt =
+          cast<ConstantInt>(CI->getArgOperand(1))->getZExtValue();
       Type *LoadTy = CI->getType();
-      Align Alignment = DL.getValueOrABITypeAlignment(MA,
-                                                      LoadTy->getScalarType());
+      Align Alignment =
+          DL.getValueOrABITypeAlignment(MaybeAlign(AlignmentInt), LoadTy);
       if (TTI.isLegalMaskedGather(LoadTy, Alignment))
         return false;
-      scalarizeMaskedGather(DL, CI, DTU, ModifiedDT);
+      scalarizeMaskedGather(CI, DTU, ModifiedDT);
       return true;
     }
     case Intrinsic::masked_scatter: {
-      MaybeAlign MA =
-          cast<ConstantInt>(CI->getArgOperand(2))->getMaybeAlignValue();
+      unsigned AlignmentInt =
+          cast<ConstantInt>(CI->getArgOperand(2))->getZExtValue();
       Type *StoreTy = CI->getArgOperand(0)->getType();
-      Align Alignment = DL.getValueOrABITypeAlignment(MA,
-                                                      StoreTy->getScalarType());
+      Align Alignment =
+          DL.getValueOrABITypeAlignment(MaybeAlign(AlignmentInt), StoreTy);
       if (TTI.isLegalMaskedScatter(StoreTy, Alignment))
         return false;
-      scalarizeMaskedScatter(DL, CI, DTU, ModifiedDT);
+      scalarizeMaskedScatter(CI, DTU, ModifiedDT);
       return true;
     }
     case Intrinsic::masked_expandload:
       if (TTI.isLegalMaskedExpandLoad(CI->getType()))
         return false;
-      scalarizeMaskedExpandLoad(DL, CI, DTU, ModifiedDT);
+      scalarizeMaskedExpandLoad(CI, DTU, ModifiedDT);
       return true;
     case Intrinsic::masked_compressstore:
       if (TTI.isLegalMaskedCompressStore(CI->getArgOperand(0)->getType()))
         return false;
-      scalarizeMaskedCompressStore(DL, CI, DTU, ModifiedDT);
+      scalarizeMaskedCompressStore(CI, DTU, ModifiedDT);
       return true;
     }
   }

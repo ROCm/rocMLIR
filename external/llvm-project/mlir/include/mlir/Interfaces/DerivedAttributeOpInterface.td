@@ -30,14 +30,14 @@ def DerivedAttributeOpInterface : OpInterface<"DerivedAttributeOpInterface"> {
       /*desc=*/"Returns whether name corresponds to a derived attribute.",
       /*retTy=*/"bool",
       /*methodName=*/"isDerivedAttribute",
-      /*args=*/(ins "::mlir::StringRef":$name)
+      /*args=*/(ins "StringRef":$name)
     >,
     InterfaceMethod<
       /*desc=*/[{
         Materializes the derived attributes. Returns null attribute where
         unable to materialize a derived attribute as attribute.
       }],
-      /*retTy=*/"::mlir::DictionaryAttr",
+      /*retTy=*/"DictionaryAttr",
       /*methodName=*/"materializeDerivedAttributes"
     >,
   ];

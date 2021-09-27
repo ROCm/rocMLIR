@@ -42,16 +42,9 @@ private:
   struct Candidate {
     llvm::SmallString<0> Path;
     bool StrictChecking;
-    // Release string for ROCm packages built with SPACK if not empty. The
-    // installation directories of ROCm packages built with SPACK follow the
-    // convention <package_name>-<rocm_release_string>-<hash>.
-    std::string SPACKReleaseStr;
 
-    bool isSPACK() const { return !SPACKReleaseStr.empty(); }
-    Candidate(std::string Path, bool StrictChecking = false,
-              StringRef SPACKReleaseStr = {})
-        : Path(Path), StrictChecking(StrictChecking),
-          SPACKReleaseStr(SPACKReleaseStr.str()) {}
+    Candidate(std::string Path, bool StrictChecking = false)
+        : Path(Path), StrictChecking(StrictChecking) {}
   };
 
   const Driver &D;
@@ -74,8 +67,6 @@ private:
   StringRef RocmPathArg;
   // ROCm device library paths specified by --rocm-device-lib-path.
   std::vector<std::string> RocmDeviceLibPathArg;
-  // HIP runtime path specified by --hip-path.
-  StringRef HIPPathArg;
   // HIP version specified by --hip-version.
   StringRef HIPVersionArg;
   // Wheter -nogpulib is specified.
@@ -97,20 +88,12 @@ private:
   SmallString<0> OpenCL;
   SmallString<0> HIP;
 
-  // Asan runtime library
-  SmallString<0> AsanRTL;
-
   // Libraries swapped based on compile flags.
   ConditionalLibrary WavefrontSize64;
   ConditionalLibrary FiniteOnly;
   ConditionalLibrary UnsafeMath;
   ConditionalLibrary DenormalsAreZero;
   ConditionalLibrary CorrectlyRoundedSqrt;
-
-  // Cache ROCm installation search paths.
-  SmallVector<Candidate, 4> ROCmSearchDirs;
-  bool PrintROCmSearchDirs;
-  bool Verbose;
 
   bool allGenericLibsValid() const {
     return !OCML.empty() && !OCKL.empty() && !OpenCL.empty() && !HIP.empty() &&
@@ -121,14 +104,7 @@ private:
 
   void scanLibDevicePath(llvm::StringRef Path);
   bool parseHIPVersionFile(llvm::StringRef V);
-  const SmallVectorImpl<Candidate> &getInstallationPathCandidates();
-
-  /// Find the path to a SPACK package under the ROCm candidate installation
-  /// directory if the candidate is a SPACK ROCm candidate. \returns empty
-  /// string if the candidate is not SPACK ROCm candidate or the requested
-  /// package is not found.
-  llvm::SmallString<0> findSPACKPackage(const Candidate &Cand,
-                                        StringRef PackageName);
+  SmallVector<Candidate, 4> getInstallationPathCandidates();
 
 public:
   RocmInstallationDetector(const Driver &D, const llvm::Triple &HostTriple,
@@ -136,13 +112,12 @@ public:
                            bool DetectHIPRuntime = true,
                            bool DetectDeviceLib = false);
 
-  /// Get file paths of default bitcode libraries common to AMDGPU based
-  /// toolchains.
-  llvm::SmallVector<std::string, 12>
-  getCommonBitcodeLibs(const llvm::opt::ArgList &DriverArgs,
-                       StringRef LibDeviceFile, bool Wave64, bool DAZ,
-                       bool FiniteOnly, bool UnsafeMathOpt,
-                       bool FastRelaxedMath, bool CorrectSqrt) const;
+  /// Add arguments needed to link default bitcode libraries.
+  void addCommonBitcodeLibCC1Args(const llvm::opt::ArgList &DriverArgs,
+                                  llvm::opt::ArgStringList &CC1Args,
+                                  StringRef LibDeviceFile, bool Wave64,
+                                  bool DAZ, bool FiniteOnly, bool UnsafeMathOpt,
+                                  bool FastRelaxedMath, bool CorrectSqrt) const;
 
   /// Check whether we detected a valid HIP runtime.
   bool hasHIPRuntime() const { return HasHIPRuntime; }
@@ -190,9 +165,6 @@ public:
     assert(!HIP.empty());
     return HIP;
   }
-
-  /// Returns empty string of Asan runtime library is not available.
-  StringRef getAsanRTLPath() const { return AsanRTL; }
 
   StringRef getWavefrontSize64Path(bool Enabled) const {
     return WavefrontSize64.get(Enabled);

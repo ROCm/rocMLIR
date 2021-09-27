@@ -1,9 +1,7 @@
-; RUN: opt < %s -S -passes=hwasan -mtriple=aarch64--linux-android29 | FileCheck --check-prefixes=CHECK,CHECK29 %s
-; RUN: opt < %s -S -passes=hwasan -mtriple=aarch64--linux-android30 | FileCheck --check-prefixes=CHECK,CHECK30 %s
+; RUN: opt < %s -S -hwasan -mtriple=aarch64--linux-android29 | FileCheck --check-prefixes=CHECK,CHECK29 %s
+; RUN: opt < %s -S -hwasan -mtriple=aarch64--linux-android30 | FileCheck --check-prefixes=CHECK,CHECK30 %s
 
 ; CHECK29: @four = global
-
-; CHECK: @specialcaselisted = global i16 2
 
 ; CHECK: @__start_hwasan_globals = external hidden constant [0 x i8]
 ; CHECK: @__stop_hwasan_globals = external hidden constant [0 x i8]
@@ -36,7 +34,3 @@ source_filename = "foo"
 @four = global i32 1
 @sixteen = global [16 x i8] zeroinitializer
 @huge = global [16777232 x i8] zeroinitializer
-@specialcaselisted = global i16 2
-
-!llvm.asan.globals = !{!0}
-!0 = !{i16* @specialcaselisted, null, null, i1 false, i1 true}

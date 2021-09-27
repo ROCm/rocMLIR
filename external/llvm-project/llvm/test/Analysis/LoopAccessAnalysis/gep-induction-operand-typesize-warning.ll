@@ -1,8 +1,12 @@
-; RUN: opt -loop-load-elim -mtriple=aarch64--linux-gnu -mattr=+sve < %s
+; RUN: opt -loop-load-elim -mtriple=aarch64--linux-gnu -mattr=+sve < %s 2>%t
+; RUN: FileCheck --check-prefix=WARN --allow-empty %s < %t
 
 ; This regression test is verifying that a GEP instruction performed on a
 ; scalable vector does not produce a 'assumption that TypeSize is not scalable'
 ; warning in the llvm::getGEPInductionOperand function.
+
+; If this check fails please read test/CodeGen/AArch64/README for instructions on how to resolve it.
+; WARN-NOT: warning:
 
 define void @get_gep_induction_operand_typesize_warning(i64 %n, <vscale x 4 x i32>* %a) {
 entry:

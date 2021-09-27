@@ -1,4 +1,4 @@
-#!/usr/dcs/software/supported/bin/perl
+#!/usr/dcs/software/supported/bin/perl -w
 # LLVM Web Demo script
 #
 
@@ -6,7 +6,6 @@ use strict;
 use CGI;
 use POSIX;
 use Mail::Send;
-use warnings;
 
 $| = 1;
 

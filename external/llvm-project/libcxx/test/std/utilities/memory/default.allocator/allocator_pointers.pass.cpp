@@ -11,9 +11,9 @@
 #include <memory>
 #include <cassert>
 
-#include "test_macros.h"
+// #include <memory>
 
-// <memory>
+#include "test_macros.h"
 //
 // template <class Alloc>
 // struct allocator_traits

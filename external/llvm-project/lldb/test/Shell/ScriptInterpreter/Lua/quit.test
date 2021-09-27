@@ -1,3 +1,4 @@
+# REQUIRES: lua
 # UNSUPPORTED: lldb-repro
 #
 # RUN: cat %s | %lldb --script-language lua 2>&1 | FileCheck %s

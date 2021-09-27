@@ -673,25 +673,12 @@ PreservedAnalyses MemorySanitizerPass::run(Function &F,
   return PreservedAnalyses::all();
 }
 
-PreservedAnalyses
-ModuleMemorySanitizerPass::run(Module &M, ModuleAnalysisManager &AM) {
+PreservedAnalyses MemorySanitizerPass::run(Module &M,
+                                           ModuleAnalysisManager &AM) {
   if (Options.Kernel)
     return PreservedAnalyses::all();
   insertModuleCtor(M);
   return PreservedAnalyses::none();
-}
-
-void MemorySanitizerPass::printPipeline(
-    raw_ostream &OS, function_ref<StringRef(StringRef)> MapClassName2PassName) {
-  static_cast<PassInfoMixin<MemorySanitizerPass> *>(this)->printPipeline(
-      OS, MapClassName2PassName);
-  OS << "<";
-  if (Options.Recover)
-    OS << "recover;";
-  if (Options.Kernel)
-    OS << "kernel;";
-  OS << "track-origins=" << Options.TrackOrigins;
-  OS << ">";
 }
 
 char MemorySanitizerLegacyPass::ID = 0;
@@ -1191,11 +1178,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       FunctionCallee Fn = MS.MaybeStoreOriginFn[SizeIndex];
       Value *ConvertedShadow2 =
           IRB.CreateZExt(ConvertedShadow, IRB.getIntNTy(8 * (1 << SizeIndex)));
-      CallBase *CB = IRB.CreateCall(
-          Fn, {ConvertedShadow2,
-               IRB.CreatePointerCast(Addr, IRB.getInt8PtrTy()), Origin});
-      CB->addParamAttr(0, Attribute::ZExt);
-      CB->addParamAttr(2, Attribute::ZExt);
+      IRB.CreateCall(Fn,
+                     {ConvertedShadow2,
+                      IRB.CreatePointerCast(Addr, IRB.getInt8PtrTy()), Origin});
     } else {
       Value *Cmp = convertToBool(ConvertedShadow, IRB, "_mscmp");
       Instruction *CheckTerm = SplitBlockAndInsertIfThen(
@@ -1265,11 +1250,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       FunctionCallee Fn = MS.MaybeWarningFn[SizeIndex];
       Value *ConvertedShadow2 =
           IRB.CreateZExt(ConvertedShadow, IRB.getIntNTy(8 * (1 << SizeIndex)));
-      CallBase *CB = IRB.CreateCall(
-          Fn, {ConvertedShadow2,
-               MS.TrackOrigins && Origin ? Origin : (Value *)IRB.getInt32(0)});
-      CB->addParamAttr(0, Attribute::ZExt);
-      CB->addParamAttr(1, Attribute::ZExt);
+      IRB.CreateCall(Fn, {ConvertedShadow2, MS.TrackOrigins && Origin
+                                                ? Origin
+                                                : (Value *)IRB.getInt32(0)});
     } else {
       Value *Cmp = convertToBool(ConvertedShadow, IRB, "_mscmp");
       Instruction *CheckTerm = SplitBlockAndInsertIfThen(
@@ -1965,8 +1948,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
     IRBuilder<> IRB(&I);
     Value *Addr = I.getOperand(0);
-    Value *Val = I.getOperand(1);
-    Value *ShadowPtr = getShadowOriginPtr(Addr, IRB, Val->getType(), Align(1),
+    Value *ShadowPtr = getShadowOriginPtr(Addr, IRB, I.getType(), Align(1),
                                           /*isStore*/ true)
                            .first;
 
@@ -1977,9 +1959,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // The other argument can potentially be uninitialized, but we can not
     // detect this situation reliably without possible false positives.
     if (isa<AtomicCmpXchgInst>(I))
-      insertShadowCheck(Val, &I);
+      insertShadowCheck(I.getOperand(1), &I);
 
-    IRB.CreateStore(getCleanShadow(Val), ShadowPtr);
+    IRB.CreateStore(getCleanShadow(&I), ShadowPtr);
 
     setShadow(&I, getCleanShadow(&I));
     setOrigin(&I, getCleanOrigin());
@@ -2206,8 +2188,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (!MS.TrackOrigins) return;
     IRBuilder<> IRB(&I);
     OriginCombiner OC(this, IRB);
-    for (Use &Op : I.operands())
-      OC.Add(Op.get());
+    for (Instruction::op_iterator OI = I.op_begin(); OI != I.op_end(); ++OI)
+      OC.Add(OI->get());
     OC.Done(&I);
   }
 
@@ -2257,8 +2239,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void handleShadowOr(Instruction &I) {
     IRBuilder<> IRB(&I);
     ShadowAndOriginCombiner SC(this, IRB);
-    for (Use &Op : I.operands())
-      SC.Add(Op.get());
+    for (Instruction::op_iterator OI = I.op_begin(); OI != I.op_end(); ++OI)
+      SC.Add(OI->get());
     SC.Done(&I);
   }
 
@@ -2532,23 +2514,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitShl(BinaryOperator &I) { handleShift(I); }
   void visitAShr(BinaryOperator &I) { handleShift(I); }
   void visitLShr(BinaryOperator &I) { handleShift(I); }
-
-  void handleFunnelShift(IntrinsicInst &I) {
-    IRBuilder<> IRB(&I);
-    // If any of the S2 bits are poisoned, the whole thing is poisoned.
-    // Otherwise perform the same shift on S0 and S1.
-    Value *S0 = getShadow(&I, 0);
-    Value *S1 = getShadow(&I, 1);
-    Value *S2 = getShadow(&I, 2);
-    Value *S2Conv =
-        IRB.CreateSExt(IRB.CreateICmpNE(S2, getCleanShadow(S2)), S2->getType());
-    Value *V2 = I.getOperand(2);
-    Function *Intrin = Intrinsic::getDeclaration(
-        I.getModule(), I.getIntrinsicID(), S2Conv->getType());
-    Value *Shift = IRB.CreateCall(Intrin, {S0, S1, V2});
-    setShadow(&I, IRB.CreateOr(Shift, S2Conv));
-    setOriginForNaryOp(I);
-  }
 
   /// Instrument llvm.memmove
   ///
@@ -3147,7 +3112,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (PropagateShadow) {
       std::tie(ShadowPtr, OriginPtr) =
           getShadowOriginPtr(Addr, IRB, ShadowTy, Alignment, /*isStore*/ false);
-      setShadow(&I, IRB.CreateMaskedLoad(ShadowTy, ShadowPtr, Alignment, Mask,
+      setShadow(&I, IRB.CreateMaskedLoad(ShadowPtr, Alignment, Mask,
                                          getShadow(PassThru), "_msmaskedld"));
     } else {
       setShadow(&I, getCleanShadow(&I));
@@ -3542,11 +3507,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       handleBinarySdIntrinsic(I);
       break;
 
-    case Intrinsic::fshl:
-    case Intrinsic::fshr:
-      handleFunnelShift(I);
-      break;
-
     case Intrinsic::is_constant:
       // The result of llvm.is.constant() is always defined.
       setShadow(&I, getCleanShadow(&I));
@@ -3666,9 +3626,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           .addAttribute(Attribute::ArgMemOnly)
           .addAttribute(Attribute::Speculatable);
 
-      Call->removeFnAttrs(B);
+      Call->removeAttributes(AttributeList::FunctionIndex, B);
       if (Function *Func = Call->getCalledFunction()) {
-        Func->removeFnAttrs(B);
+        Func->removeAttributes(AttributeList::FunctionIndex, B);
       }
 
       maybeMarkSanitizerLibraryCallNoBuiltin(Call, TLI);
@@ -3820,7 +3780,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (isAMustTailRetVal(RetVal)) return;
     Value *ShadowPtr = getShadowPtrForRetval(RetVal, IRB);
     bool HasNoUndef =
-        F.hasRetAttribute(Attribute::NoUndef);
+        F.hasAttribute(AttributeList::ReturnIndex, Attribute::NoUndef);
     bool StoreShadow = !(ClEagerChecks && HasNoUndef);
     // FIXME: Consider using SpecialCaseList to specify a list of functions that
     // must always return fully initialized values. For now, we hardcode "main".
@@ -4089,7 +4049,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         NumRetOutputs = 1;
     }
     InlineAsm::ConstraintInfoVector Constraints = IA->ParseConstraints();
-    for (const InlineAsm::ConstraintInfo &Info : Constraints) {
+    for (size_t i = 0, n = Constraints.size(); i < n; i++) {
+      InlineAsm::ConstraintInfo Info = Constraints[i];
       switch (Info.Type) {
       case InlineAsm::isOutput:
         NumOutputs++;
@@ -4189,7 +4150,7 @@ struct VarArgAMD64Helper : public VarArgHelper {
                     MemorySanitizerVisitor &MSV)
       : F(F), MS(MS), MSV(MSV) {
     AMD64FpEndOffset = AMD64FpEndOffsetSSE;
-    for (const auto &Attr : F.getAttributes().getFnAttrs()) {
+    for (const auto &Attr : F.getAttributes().getFnAttributes()) {
       if (Attr.isStringAttribute() &&
           (Attr.getKindAsString() == "target-features")) {
         if (Attr.getValueAsString().contains("-sse"))
@@ -5067,7 +5028,7 @@ struct VarArgSystemZHelper : public VarArgHelper {
   void visitCallBase(CallBase &CB, IRBuilder<> &IRB) override {
     bool IsSoftFloatABI = CB.getCalledFunction()
                               ->getFnAttribute("use-soft-float")
-                              .getValueAsBool();
+                              .getValueAsString() == "true";
     unsigned GpOffset = SystemZGpOffset;
     unsigned FpOffset = SystemZFpOffset;
     unsigned VrIndex = 0;
@@ -5343,9 +5304,6 @@ bool MemorySanitizer::sanitizeFunction(Function &F, TargetLibraryInfo &TLI) {
   if (!CompileKernel && F.getName() == kMsanModuleCtorName)
     return false;
 
-  if (F.hasFnAttribute(Attribute::DisableSanitizerInstrumentation))
-    return false;
-
   MemorySanitizerVisitor Visitor(F, *this, TLI);
 
   // Clear out readonly/readnone attributes.
@@ -5355,7 +5313,7 @@ bool MemorySanitizer::sanitizeFunction(Function &F, TargetLibraryInfo &TLI) {
       .addAttribute(Attribute::WriteOnly)
       .addAttribute(Attribute::ArgMemOnly)
       .addAttribute(Attribute::Speculatable);
-  F.removeFnAttrs(B);
+  F.removeAttributes(AttributeList::FunctionIndex, B);
 
   return Visitor.runOnFunction();
 }

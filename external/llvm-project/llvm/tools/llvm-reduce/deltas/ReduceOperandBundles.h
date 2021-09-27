@@ -11,12 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TOOLS_LLVM_REDUCE_DELTAS_REDUCEOPERANDBUNDLES_H
-#define LLVM_TOOLS_LLVM_REDUCE_DELTAS_REDUCEOPERANDBUNDLES_H
-
 namespace llvm {
-class TestRunner;
-void reduceOperandBundesDeltaPass(TestRunner &Test);
-} // namespace llvm
 
-#endif
+class TestRunner;
+
+void reduceOperandBundesDeltaPass(TestRunner &Test);
+
+} // namespace llvm

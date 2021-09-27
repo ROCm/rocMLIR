@@ -131,9 +131,10 @@ void CallingConvEmitter::EmitAction(Record *Action,
         O << IndentStr << "static const MCPhysReg RegList" << ++Counter
           << "[] = {\n";
         O << IndentStr << "  ";
-        ListSeparator LS;
-        for (unsigned i = 0, e = RegList->size(); i != e; ++i)
-          O << LS << getQualifiedName(RegList->getElementAsRecord(i));
+        for (unsigned i = 0, e = RegList->size(); i != e; ++i) {
+          if (i != 0) O << ", ";
+          O << getQualifiedName(RegList->getElementAsRecord(i));
+        }
         O << "\n" << IndentStr << "};\n";
         O << IndentStr << "if (unsigned Reg = State.AllocateReg(RegList"
           << Counter << ")) {\n";
@@ -161,17 +162,19 @@ void CallingConvEmitter::EmitAction(Record *Action,
         O << IndentStr << "static const MCPhysReg RegList" << RegListNumber
           << "[] = {\n";
         O << IndentStr << "  ";
-        ListSeparator LS;
-        for (unsigned i = 0, e = RegList->size(); i != e; ++i)
-          O << LS << getQualifiedName(RegList->getElementAsRecord(i));
+        for (unsigned i = 0, e = RegList->size(); i != e; ++i) {
+          if (i != 0) O << ", ";
+          O << getQualifiedName(RegList->getElementAsRecord(i));
+        }
         O << "\n" << IndentStr << "};\n";
 
         O << IndentStr << "static const MCPhysReg RegList"
           << ShadowRegListNumber << "[] = {\n";
         O << IndentStr << "  ";
-        ListSeparator LSS;
-        for (unsigned i = 0, e = ShadowRegList->size(); i != e; ++i)
-          O << LSS << getQualifiedName(ShadowRegList->getElementAsRecord(i));
+        for (unsigned i = 0, e = ShadowRegList->size(); i != e; ++i) {
+          if (i != 0) O << ", ";
+          O << getQualifiedName(ShadowRegList->getElementAsRecord(i));
+        }
         O << "\n" << IndentStr << "};\n";
 
         O << IndentStr << "if (unsigned Reg = State.AllocateReg(RegList"
@@ -217,9 +220,10 @@ void CallingConvEmitter::EmitAction(Record *Action,
       O << IndentStr << "static const MCPhysReg ShadowRegList"
           << ShadowRegListNumber << "[] = {\n";
       O << IndentStr << "  ";
-      ListSeparator LS;
-      for (unsigned i = 0, e = ShadowRegList->size(); i != e; ++i)
-        O << LS << getQualifiedName(ShadowRegList->getElementAsRecord(i));
+      for (unsigned i = 0, e = ShadowRegList->size(); i != e; ++i) {
+        if (i != 0) O << ", ";
+        O << getQualifiedName(ShadowRegList->getElementAsRecord(i));
+      }
       O << "\n" << IndentStr << "};\n";
 
       O << IndentStr << "unsigned Offset" << ++Counter

@@ -92,30 +92,30 @@ private:
   std::unique_ptr<driver::Compilation> CompilationJob;
 };
 
-TEST_F(SanitizerArgsTest, Ignorelists) {
+TEST_F(SanitizerArgsTest, Blacklists) {
   const std::string ResourceDir = "/opt/llvm/lib/resources";
-  const std::string UserIgnorelist = "/source/my_ignorelist.txt";
-  const std::string ASanIgnorelist =
-      concatPaths({ResourceDir, "share", "asan_ignorelist.txt"});
+  const std::string UserBlacklist = "/source/my_blacklist.txt";
+  const std::string ASanBlacklist =
+      concatPaths({ResourceDir, "share", "asan_blacklist.txt"});
 
   auto &Command = emulateSingleCompilation(
       /*ExtraArgs=*/{"-fsanitize=address", "-resource-dir", ResourceDir,
-                     std::string("-fsanitize-ignorelist=") + UserIgnorelist},
-      /*ExtraFiles=*/{ASanIgnorelist, UserIgnorelist});
+                     std::string("-fsanitize-blacklist=") + UserBlacklist},
+      /*ExtraFiles=*/{ASanBlacklist, UserBlacklist});
 
-  // System ignorelists are added based on resource-dir.
+  // System blacklists are added based on resource-dir.
   EXPECT_THAT(Command.getArguments(),
-              Contains(StrEq(std::string("-fsanitize-system-ignorelist=") +
-                             ASanIgnorelist)));
-  // User ignorelists should also be added.
+              Contains(StrEq(std::string("-fsanitize-system-blacklist=") +
+                             ASanBlacklist)));
+  // User blacklists should also be added.
   EXPECT_THAT(
       Command.getArguments(),
-      Contains(StrEq(std::string("-fsanitize-ignorelist=") + UserIgnorelist)));
+      Contains(StrEq(std::string("-fsanitize-blacklist=") + UserBlacklist)));
 }
 
 TEST_F(SanitizerArgsTest, XRayLists) {
   const std::string XRayWhitelist = "/source/xray_whitelist.txt";
-  const std::string XRayIgnorelist = "/source/xray_ignorelist.txt";
+  const std::string XRayBlacklist = "/source/xray_blacklist.txt";
   const std::string XRayAttrList = "/source/xray_attr_list.txt";
 
   auto &Command = emulateSingleCompilation(
@@ -123,17 +123,17 @@ TEST_F(SanitizerArgsTest, XRayLists) {
       {
           "-fxray-instrument",
           "-fxray-always-instrument=" + XRayWhitelist,
-          "-fxray-never-instrument=" + XRayIgnorelist,
+          "-fxray-never-instrument=" + XRayBlacklist,
           "-fxray-attr-list=" + XRayAttrList,
       },
-      /*ExtraFiles=*/{XRayWhitelist, XRayIgnorelist, XRayAttrList});
+      /*ExtraFiles=*/{XRayWhitelist, XRayBlacklist, XRayAttrList});
 
-  // Ignorelists exist in the filesystem, so they should be added to the
+  // Blacklists exist in the filesystem, so they should be added to the
   // compilation command, produced by the driver.
   EXPECT_THAT(Command.getArguments(),
               Contains(StrEq("-fxray-always-instrument=" + XRayWhitelist)));
   EXPECT_THAT(Command.getArguments(),
-              Contains(StrEq("-fxray-never-instrument=" + XRayIgnorelist)));
+              Contains(StrEq("-fxray-never-instrument=" + XRayBlacklist)));
   EXPECT_THAT(Command.getArguments(),
               Contains(StrEq("-fxray-attr-list=" + XRayAttrList)));
 }

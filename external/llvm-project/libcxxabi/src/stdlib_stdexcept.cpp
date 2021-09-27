@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "../../libcxx/src/include/refstring.h"
 #include "stdexcept"
 #include "new"
 #include <cstdlib>
@@ -13,37 +14,34 @@
 #include <cstdint>
 #include <cstddef>
 
-// This includes an implementation file from libc++.
-#include "src/include/refstring.h"
-
 static_assert(sizeof(std::__libcpp_refstring) == sizeof(const char *), "");
 
 namespace std  // purposefully not using versioning namespace
 {
 
-logic_error::~logic_error() noexcept {}
+logic_error::~logic_error() _NOEXCEPT {}
 
 const char*
-logic_error::what() const noexcept
+logic_error::what() const _NOEXCEPT
 {
     return __imp_.c_str();
 }
 
-runtime_error::~runtime_error() noexcept {}
+runtime_error::~runtime_error() _NOEXCEPT {}
 
 const char*
-runtime_error::what() const noexcept
+runtime_error::what() const _NOEXCEPT
 {
     return __imp_.c_str();
 }
 
-domain_error::~domain_error() noexcept {}
-invalid_argument::~invalid_argument() noexcept {}
-length_error::~length_error() noexcept {}
-out_of_range::~out_of_range() noexcept {}
+domain_error::~domain_error() _NOEXCEPT {}
+invalid_argument::~invalid_argument() _NOEXCEPT {}
+length_error::~length_error() _NOEXCEPT {}
+out_of_range::~out_of_range() _NOEXCEPT {}
 
-range_error::~range_error() noexcept {}
-overflow_error::~overflow_error() noexcept {}
-underflow_error::~underflow_error() noexcept {}
+range_error::~range_error() _NOEXCEPT {}
+overflow_error::~overflow_error() _NOEXCEPT {}
+underflow_error::~underflow_error() _NOEXCEPT {}
 
 }  // std

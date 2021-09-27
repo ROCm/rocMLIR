@@ -1,4 +1,6 @@
+; RUN: opt -S -analyze -stack-safety-local < %s -enable-new-pm=0 | FileCheck %s --check-prefixes=CHECK,LOCAL
 ; RUN: opt -S -passes="print<stack-safety-local>" -disable-output < %s 2>&1 | FileCheck %s --check-prefixes=CHECK,LOCAL
+; RUN: opt -S -analyze -stack-safety < %s -enable-new-pm=0 | FileCheck %s --check-prefixes=CHECK,GLOBAL
 ; RUN: opt -S -passes="print-stack-safety" -disable-output < %s 2>&1 | FileCheck %s --check-prefixes=CHECK,GLOBAL
 
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
@@ -11,16 +13,12 @@ declare void @llvm.memcpy.p0i8.p0i8.i32(i8* %dest, i8* %src, i32 %len, i1 %isvol
 declare void @llvm.memmove.p0i8.p0i8.i32(i8* %dest, i8* %src, i32 %len, i1 %isvolatile)
 declare void @llvm.memset.p0i8.i64(i8* %dest, i8 %val, i64 %len, i1 %isvolatile)
 
-declare void @unknown_call(i8* %dest)
-declare i8* @retptr(i8* returned)
-
 ; Address leaked.
 define void @LeakAddress() {
 ; CHECK-LABEL: @LeakAddress dso_preemptable{{$}}
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[4]: full-set{{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -34,8 +32,6 @@ define void @StoreInBounds() {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[4]: [0,1){{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: store i8 0, i8* %x1, align 1
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -49,8 +45,6 @@ define void @StoreInBounds2() {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[4]: [0,4){{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: store i32 0, i32* %x, align 4
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -63,8 +57,6 @@ define void @StoreInBounds3() {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[4]: [2,3){{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: store i8 0, i8* %x2, align 1
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -79,8 +71,7 @@ define void @StoreInBounds4() {
 ; CHECK-LABEL: @StoreInBounds4 dso_preemptable{{$}}
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
-; CHECK-NEXT: x[4]: full-set{{$}}
-; GLOBAL-NEXT: safe accesses:
+; CHECK-NEXT: x[4]: [-9223372036854775808,9223372036854775807){{$}}
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -91,29 +82,11 @@ entry:
   ret void
 }
 
-define void @StoreInBounds6() {
-; CHECK-LABEL: @StoreInBounds6 dso_preemptable{{$}}
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: allocas uses:
-; GLOBAL-NEXT: x[4]: full-set, @retptr(arg0, [0,1)){{$}}
-; LOCAL-NEXT: x[4]: [0,1), @retptr(arg0, [0,1)){{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: store i8 0, i8* %x2, align 1
-; CHECK-EMPTY:
-entry:
-  %x = alloca i32, align 4
-  %x1 = bitcast i32* %x to i8*
-  %x2 = call i8* @retptr(i8* %x1)
-  store i8 0, i8* %x2, align 1
-  ret void
-}
-
 define dso_local void @WriteMinMax(i8* %p) {
 ; CHECK-LABEL: @WriteMinMax{{$}}
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: p[]: full-set
 ; CHECK-NEXT: allocas uses:
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %p1 = getelementptr i8, i8* %p, i64 9223372036854775805
@@ -128,7 +101,6 @@ define dso_local void @WriteMax(i8* %p) {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: p[]: [-9223372036854775807,9223372036854775806)
 ; CHECK-NEXT: allocas uses:
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   call void @llvm.memset.p0i8.i64(i8* %p, i8 1, i64 9223372036854775806, i1 0)
@@ -142,7 +114,6 @@ define void @StoreOutOfBounds() {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[4]: [2,6){{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -153,32 +124,12 @@ entry:
   ret void
 }
 
-define void @StoreOutOfBounds2() {
-; CHECK-LABEL: @StoreOutOfBounds2 dso_preemptable{{$}}
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: allocas uses:
-; GLOBAL-NEXT: x[4]: full-set, @retptr(arg0, [2,3)){{$}}
-; LOCAL-NEXT: x[4]: [2,6), @retptr(arg0, [2,3)){{$}}
-; GLOBAL-NEXT: safe accesses:
-; CHECK-EMPTY:
-entry:
-  %x = alloca i32, align 4
-  %x1 = bitcast i32* %x to i8*
-  %x2 = getelementptr i8, i8* %x1, i64 2
-  %x3 = call i8* @retptr(i8* %x2)
-  %x4 = bitcast i8* %x3 to i32*
-  store i32 0, i32* %x4, align 1
-  ret void
-}
-
 ; There is no difference in load vs store handling.
 define void @LoadInBounds() {
 ; CHECK-LABEL: @LoadInBounds dso_preemptable{{$}}
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[4]: [0,1){{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: %v = load i8, i8* %x1, align 1
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -192,7 +143,6 @@ define void @LoadOutOfBounds() {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[4]: [2,6){{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -209,7 +159,6 @@ define i8* @Ret() {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[4]: full-set{{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -226,7 +175,6 @@ define void @DirectCall() {
 ; CHECK-NEXT: allocas uses:
 ; LOCAL-NEXT: x[8]: empty-set, @Foo(arg0, [2,3)){{$}}
 ; GLOBAL-NEXT: x[8]: full-set, @Foo(arg0, [2,3)){{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i64, align 4
@@ -244,7 +192,6 @@ define void @IndirectCall(void (i8*)* %p) {
 ; CHECK-NEXT: p[]: full-set{{$}}
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[4]: full-set{{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -258,9 +205,7 @@ define void @NonConstantOffset(i1 zeroext %z) {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; FIXME: SCEV can't look through selects.
-; CHECK-NEXT: x[4]: [0,4){{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: store i8 0, i8* %x2, align 1
+; CHECK-NEXT: x[4]: [-4,4){{$}}
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -276,7 +221,6 @@ define void @NegativeOffset() {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[40]: [-1600000000000,-1599999999996){{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, i32 10, align 4
@@ -290,7 +234,6 @@ define void @PossiblyNegativeOffset(i16 %z) {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[40]: [-131072,131072){{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, i32 10, align 4
@@ -303,8 +246,7 @@ define void @NonConstantOffsetOOB(i1 zeroext %z) {
 ; CHECK-LABEL: @NonConstantOffsetOOB dso_preemptable{{$}}
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
-; CHECK-NEXT: x[4]: [0,6){{$}}
-; GLOBAL-NEXT: safe accesses:
+; CHECK-NEXT: x[4]: [-8,8){{$}}
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -320,8 +262,6 @@ define void @ArrayAlloca() {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[40]: [36,40){{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: store i32 0, i32* %x3, align 1
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, i32 10, align 4
@@ -337,7 +277,6 @@ define void @ArrayAllocaOOB() {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[40]: [37,41){{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, i32 10, align 4
@@ -353,7 +292,6 @@ define void @DynamicAllocaUnused(i64 %size) {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[0]: empty-set{{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, i64 %size, align 16
@@ -366,7 +304,6 @@ define void @DynamicAlloca(i64 %size) {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[0]: [0,4){{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, i64 %size, align 16
@@ -381,7 +318,6 @@ define void @DynamicAllocaFiniteSizeRange(i1 zeroext %z) {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[0]: [0,4){{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %size = select i1 %z, i64 3, i64 5
@@ -395,8 +331,6 @@ define signext i8 @SimpleLoop() {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[10]: [0,10){{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: %1 = load volatile i8, i8* %p.09, align 1
 ; CHECK-EMPTY:
 entry:
   %x = alloca [10 x i8], align 1
@@ -423,7 +357,6 @@ define signext i8 @SimpleLoopOOB() {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[10]: [0,11){{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca [10 x i8], align 1
@@ -450,7 +383,6 @@ define dso_local void @SizeCheck(i32 %sz) {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x1[128]: [0,4294967295){{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x1 = alloca [128 x i8], align 16
@@ -475,7 +407,6 @@ define void @Scalable(<vscale x 4 x i32>* %p, <vscale x 4 x i32>* %unused, <vsca
 ; CHECK-NEXT:   unused[]: empty-set
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT:   x[0]: [0,1){{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca <vscale x 4 x i32>, align 4
@@ -493,8 +424,6 @@ define void @ZeroSize(%zerosize_type *%p)  {
 ; CHECK-NEXT:   p[]: empty-set
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT:   x[0]: empty-set
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: store %zerosize_type undef, %zerosize_type* %x, align 4
 ; CHECK-EMPTY:
 entry:
   %x = alloca %zerosize_type, align 4
@@ -509,7 +438,6 @@ define void @OperandBundle() {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT:   a[4]: full-set
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %a = alloca i32, align 4
@@ -521,7 +449,6 @@ define void @ByVal(i16* byval(i16) %p) {
   ; CHECK-LABEL: @ByVal dso_preemptable{{$}}
   ; CHECK-NEXT: args uses:
   ; CHECK-NEXT: allocas uses:
-  ; GLOBAL-NEXT: safe accesses:
   ; CHECK-EMPTY:
 entry:
   ret void
@@ -533,9 +460,6 @@ define void @TestByVal() {
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[2]: [0,2)
 ; CHECK-NEXT: y[8]: [0,2)
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: call void @ByVal(i16* byval(i16) %x)
-; GLOBAL-NEXT: call void @ByVal(i16* byval(i16) %y1)
 ; CHECK-EMPTY:
 entry:
   %x = alloca i16, align 4
@@ -555,7 +479,6 @@ define void @TestByValArray() {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: z[800000]: [500000,1300000)
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %z = alloca [100000 x i64], align 4
@@ -571,7 +494,6 @@ define dso_local i8 @LoadMinInt64(i8* %p) {
   ; CHECK-NEXT: args uses:
   ; CHECK-NEXT: p[]: [-9223372036854775808,-9223372036854775807){{$}}
   ; CHECK-NEXT: allocas uses:
-  ; GLOBAL-NEXT: safe accesses:
   ; CHECK-EMPTY:
   %p2 = getelementptr i8, i8* %p, i64 -9223372036854775808
   %v = load i8, i8* %p2, align 1
@@ -584,7 +506,6 @@ define void @Overflow() {
 ; CHECK-NEXT: allocas uses:
 ; LOCAL-NEXT: x[1]: empty-set, @LoadMinInt64(arg0, [-9223372036854775808,-9223372036854775807)){{$}}
 ; GLOBAL-NEXT: x[1]: full-set, @LoadMinInt64(arg0, [-9223372036854775808,-9223372036854775807)){{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i8, align 4
@@ -599,7 +520,6 @@ define void @DeadBlock(i64* %p) {
 ; CHECK-NEXT: p[]: empty-set{{$}}
 ; CHECK-NEXT: allocas uses:
 ; CHECK-NEXT: x[1]: empty-set{{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i8, align 4
@@ -621,7 +541,6 @@ define void @LifeNotStarted() {
 ; CHECK: x[1]: full-set{{$}}
 ; CHECK: y[1]: full-set{{$}}
 ; CHECK: z[1]: full-set{{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i8, align 4
@@ -646,10 +565,6 @@ define void @LifeOK() {
 ; CHECK: x[1]: [0,1){{$}}
 ; CHECK: y[1]: [0,1){{$}}
 ; CHECK: z[1]: [0,1){{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: store i8 5, i8* %x
-; GLOBAL-NEXT: %n = load i8, i8* %y
-; GLOBAL-NEXT: call void @llvm.memset.p0i8.i32(i8* nonnull %z, i8 0, i32 1, i1 false)
 ; CHECK-EMPTY:
 entry:
   %x = alloca i8, align 4
@@ -674,7 +589,6 @@ define void @LifeEnded() {
 ; CHECK: x[1]: full-set{{$}}
 ; CHECK: y[1]: full-set{{$}}
 ; CHECK: z[1]: full-set{{$}}
-; GLOBAL-NEXT: safe accesses:
 ; CHECK-EMPTY:
 entry:
   %x = alloca i8, align 4
@@ -693,237 +607,6 @@ entry:
   %n = load i8, i8* %y
   call void @llvm.memset.p0i8.i32(i8* nonnull %z, i8 0, i32 1, i1 false)
 
-  ret void
-}
-
-define void @TwoAllocasOK() {
-; CHECK-LABEL: @TwoAllocasOK
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: allocas uses:
-; CHECK: a[4]: [0,1){{$}}
-; CHECK: y[1]: [0,1){{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: call void @llvm.memcpy.p0i8.p0i8.i32(i8* %y, i8* %x, i32 1, i1 false)
-; CHECK-EMPTY:
-entry:
-  %a = alloca i32, align 4
-  %x = bitcast i32* %a to i8*
-  %y = alloca i8, align 4
-  call void @llvm.memcpy.p0i8.p0i8.i32(i8* %y, i8* %x, i32 1, i1 false)
-  ret void
-}
-
-define void @TwoAllocasOOBDest() {
-; CHECK-LABEL: @TwoAllocasOOBDest
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: allocas uses:
-; CHECK: a[4]: [0,4){{$}}
-; CHECK: y[1]: [0,4){{$}}
-; GLOBAL-NEXT: safe accesses:
-; CHECK-EMPTY:
-entry:
-  %a = alloca i32, align 4
-  %x = bitcast i32* %a to i8*
-  %y = alloca i8, align 4
-  call void @llvm.memcpy.p0i8.p0i8.i32(i8* %y, i8* %x, i32 4, i1 false)
-  ret void
-}
-
-define void @TwoAllocasOOBSource() {
-; CHECK-LABEL: @TwoAllocasOOBSource
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: allocas uses:
-; CHECK: a[4]: [0,4){{$}}
-; CHECK: y[1]: [0,4){{$}}
-; GLOBAL-NEXT: safe accesses:
-; CHECK-EMPTY:
-entry:
-  %a = alloca i32, align 4
-  %x = bitcast i32* %a to i8*
-  %y = alloca i8, align 4
-  call void @llvm.memcpy.p0i8.p0i8.i32(i8* %x, i8* %y, i32 4, i1 false)
-  ret void
-}
-
-define void @TwoAllocasOOBBoth() {
-; CHECK-LABEL: @TwoAllocasOOBBoth
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: allocas uses:
-; CHECK: a[4]: [0,5){{$}}
-; CHECK: y[1]: [0,5){{$}}
-; GLOBAL-NEXT: safe accesses:
-; CHECK-EMPTY:
-entry:
-  %a = alloca i32, align 4
-  %x = bitcast i32* %a to i8*
-  %y = alloca i8, align 4
-  call void @llvm.memcpy.p0i8.p0i8.i32(i8* %y, i8* %x, i32 5, i1 false)
-  ret void
-}
-
-define void @MixedAccesses() {
-; CHECK-LABEL: @MixedAccesses
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: allocas uses:
-; CHECK: a[4]: [0,5){{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: call void @llvm.memset.p0i8.i32(i8* %x, i8 1, i32 4, i1 false)
-; CHECK-EMPTY:
-entry:
-  %a = alloca i32, align 4
-  %x = bitcast i32* %a to i8*
-  call void @llvm.memset.p0i8.i32(i8* %x, i8 1, i32 5, i1 false)
-  call void @llvm.memset.p0i8.i32(i8* %x, i8 1, i32 4, i1 false)
-  ret void
-}
-
-define void @MixedAccesses2() {
-; CHECK-LABEL: @MixedAccesses2
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: allocas uses:
-; CHECK: a[4]: [0,8){{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: load i32, i32* %a, align 4
-; CHECK-EMPTY:
-entry:
-  %a = alloca i32, align 4
-  %a1 = bitcast i32* %a to i64*
-  %n1 = load i64, i64* %a1, align 4
-  %n2 = load i32, i32* %a, align 4
-  ret void
-}
-
-define void @MixedAccesses3(void (i8*)* %func) {
-; CHECK-LABEL: @MixedAccesses3
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: func[]: full-set
-; CHECK-NEXT: allocas uses:
-; CHECK: a[4]: full-set{{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: load i32, i32* %a, align 4
-; CHECK-EMPTY:
-entry:
-  %a = alloca i32, align 4
-  %x = bitcast i32* %a to i8*
-  %n2 = load i32, i32* %a, align 4
-  call void %func(i8* %x)
-  ret void
-}
-
-define void @MixedAccesses4() {
-; CHECK-LABEL: @MixedAccesses4
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: allocas uses:
-; CHECK: a[4]: full-set{{$}}
-; CHECK: a1[8]: [0,8){{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: load i32, i32* %a, align 4
-; CHECK-EMPTY:
-entry:
-  %a = alloca i32, align 4
-  %a1 = alloca i32*, align 4
-  %n2 = load i32, i32* %a, align 4
-  store i32* %a, i32** %a1
-  ret void
-}
-
-define i32* @MixedAccesses5(i1 %x, i32* %y) {
-; CHECK-LABEL: @MixedAccesses5
-; CHECK-NEXT: args uses:
-; CHECK: y[]: full-set
-; CHECK-NEXT: allocas uses:
-; CHECK: a[4]: full-set{{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: load i32, i32* %a, align 4
-; CHECK-EMPTY:
-entry:
-  %a = alloca i32, align 4
-  br i1 %x, label %tlabel, label %flabel
-flabel:
-  %n = load i32, i32* %a, align 4
-  ret i32* %y
-tlabel:
-  ret i32* %a
-}
-
-define void @DoubleLifetime() {
-; CHECK-LABEL: @DoubleLifetime
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: allocas uses:
-; CHECK: a[4]: full-set{{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: call void @llvm.memset.p0i8.i32(i8* %x, i8 1, i32 4, i1 false)
-; CHECK-EMPTY:
-entry:
-  %a = alloca i32, align 4
-  %x = bitcast i32* %a to i8*
-  call void @llvm.lifetime.start.p0i8(i64 4, i8* %x)
-  call void @llvm.lifetime.end.p0i8(i64 4, i8* %x)
-  call void @llvm.memset.p0i8.i32(i8* %x, i8 1, i32 4, i1 true)
-
-  call void @llvm.lifetime.start.p0i8(i64 4, i8* %x)
-  call void @llvm.memset.p0i8.i32(i8* %x, i8 1, i32 4, i1 false)
-  call void @llvm.lifetime.end.p0i8(i64 4, i8* %x)
-  ret void
-}
-
-define void @DoubleLifetime2() {
-; CHECK-LABEL: @DoubleLifetime2
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: allocas uses:
-; CHECK: a[4]: full-set{{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: call void @llvm.memset.p0i8.i32(i8* %x, i8 1, i32 4, i1 false)
-; CHECK-EMPTY:
-entry:
-  %a = alloca i32, align 4
-  %x = bitcast i32* %a to i8*
-  call void @llvm.lifetime.start.p0i8(i64 4, i8* %x)
-  call void @llvm.lifetime.end.p0i8(i64 4, i8* %x)
-  %n = load i32, i32* %a
-
-  call void @llvm.lifetime.start.p0i8(i64 4, i8* %x)
-  call void @llvm.memset.p0i8.i32(i8* %x, i8 1, i32 4, i1 false)
-  call void @llvm.lifetime.end.p0i8(i64 4, i8* %x)
-  ret void
-}
-
-define void @DoubleLifetime3() {
-; CHECK-LABEL: @DoubleLifetime3
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: allocas uses:
-; CHECK: a[4]: full-set{{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: call void @llvm.memset.p0i8.i32(i8* %x, i8 1, i32 4, i1 false)
-; CHECK-EMPTY:
-entry:
-  %a = alloca i32, align 4
-  %x = bitcast i32* %a to i8*
-  call void @llvm.lifetime.start.p0i8(i64 4, i8* %x)
-  call void @llvm.lifetime.end.p0i8(i64 4, i8* %x)
-  store i32 5, i32* %a
-
-  call void @llvm.lifetime.start.p0i8(i64 4, i8* %x)
-  call void @llvm.memset.p0i8.i32(i8* %x, i8 1, i32 4, i1 false)
-  call void @llvm.lifetime.end.p0i8(i64 4, i8* %x)
-  ret void
-}
-
-define void @DoubleLifetime4() {
-; CHECK-LABEL: @DoubleLifetime4
-; CHECK-NEXT: args uses:
-; CHECK-NEXT: allocas uses:
-; CHECK: a[4]: full-set{{$}}
-; GLOBAL-NEXT: safe accesses:
-; GLOBAL-NEXT: call void @llvm.memset.p0i8.i32(i8* %x, i8 1, i32 4, i1 false)
-; CHECK-EMPTY:
-entry:
-  %a = alloca i32, align 4
-  %x = bitcast i32* %a to i8*
-  call void @llvm.lifetime.start.p0i8(i64 4, i8* %x)
-  call void @llvm.memset.p0i8.i32(i8* %x, i8 1, i32 4, i1 false)
-  call void @llvm.lifetime.end.p0i8(i64 4, i8* %x)
-  call void @unknown_call(i8* %x)
   ret void
 }
 

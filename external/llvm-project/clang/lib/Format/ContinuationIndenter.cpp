@@ -14,12 +14,10 @@
 #include "ContinuationIndenter.h"
 #include "BreakableToken.h"
 #include "FormatInternal.h"
-#include "FormatToken.h"
 #include "WhitespaceManager.h"
 #include "clang/Basic/OperatorPrecedence.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Format/Format.h"
-#include "llvm/ADT/StringSet.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "format-indenter"
@@ -493,24 +491,11 @@ bool ContinuationIndenter::mustBreak(const LineState &State) {
       return true;
   }
 
-  // Break after the closing parenthesis of TypeScript decorators before
-  // functions, getters and setters.
-  static const llvm::StringSet<> BreakBeforeDecoratedTokens = {"get", "set",
-                                                               "function"};
-  if (Style.Language == FormatStyle::LK_JavaScript &&
-      BreakBeforeDecoratedTokens.contains(Current.TokenText) &&
-      Previous.is(tok::r_paren) && Previous.is(TT_JavaAnnotation)) {
-    return true;
-  }
-
   // If the return type spans multiple lines, wrap before the function name.
   if (((Current.is(TT_FunctionDeclarationName) &&
         // Don't break before a C# function when no break after return type
         (!Style.isCSharp() ||
-         Style.AlwaysBreakAfterReturnType != FormatStyle::RTBS_None) &&
-        // Don't always break between a JavaScript `function` and the function
-        // name.
-        Style.Language != FormatStyle::LK_JavaScript) ||
+         Style.AlwaysBreakAfterReturnType != FormatStyle::RTBS_None)) ||
        (Current.is(tok::kw_operator) && !Previous.is(tok::coloncolon))) &&
       !Previous.is(tok::kw_template) && State.Stack.back().BreakBeforeParameter)
     return true;
@@ -958,7 +943,7 @@ unsigned ContinuationIndenter::addTokenOnNewLine(LineState &State,
          State.Line->MustBeDeclaration) ||
         (!Style.AllowAllArgumentsOnNextLine &&
          !State.Line->MustBeDeclaration) ||
-        (Style.PackConstructorInitializers != FormatStyle::PCIS_NextLine &&
+        (!Style.AllowAllConstructorInitializersOnNextLine &&
          PreviousIsBreakingCtorInitializerColon) ||
         Previous.is(TT_DictLiteral))
       State.Stack.back().BreakBeforeParameter = true;
@@ -967,7 +952,7 @@ unsigned ContinuationIndenter::addTokenOnNewLine(LineState &State,
     // and we allow all arguments on the next line, we should not break
     // before the next parameter.
     if (PreviousIsBreakingCtorInitializerColon &&
-        Style.PackConstructorInitializers == FormatStyle::PCIS_NextLine)
+        Style.AllowAllConstructorInitializersOnNextLine)
       State.Stack.back().BreakBeforeParameter = false;
   }
 
@@ -1247,10 +1232,10 @@ unsigned ContinuationIndenter::moveStateToNextToken(LineState &State,
              ? 0
              : 2);
     State.Stack.back().NestedBlockIndent = State.Stack.back().Indent;
-    if (Style.PackConstructorInitializers > FormatStyle::PCIS_BinPack) {
+    if (Style.ConstructorInitializerAllOnOneLineOrOnePerLine) {
       State.Stack.back().AvoidBinPacking = true;
       State.Stack.back().BreakBeforeParameter =
-          Style.PackConstructorInitializers != FormatStyle::PCIS_NextLine;
+          !Style.AllowAllConstructorInitializersOnNextLine;
     } else {
       State.Stack.back().BreakBeforeParameter = false;
     }
@@ -1260,7 +1245,7 @@ unsigned ContinuationIndenter::moveStateToNextToken(LineState &State,
     State.Stack.back().Indent =
         State.FirstIndent + Style.ConstructorInitializerIndentWidth;
     State.Stack.back().NestedBlockIndent = State.Stack.back().Indent;
-    if (Style.PackConstructorInitializers > FormatStyle::PCIS_BinPack)
+    if (Style.ConstructorInitializerAllOnOneLineOrOnePerLine)
       State.Stack.back().AvoidBinPacking = true;
   }
   if (Current.is(TT_InheritanceColon))
@@ -1607,7 +1592,7 @@ void ContinuationIndenter::moveStatePastScopeCloser(LineState &State) {
   // BreakBeforeParameter is calculated based on an incorrect assumption
   // (it is checked whether the whole expression fits into one line without
   // considering a line break inside a message receiver).
-  // We check whether arguments fit after receiver scope closer (into the same
+  // We check whether arguements fit after receiver scope closer (into the same
   // line).
   if (State.Stack.back().BreakBeforeParameter && Current.MatchingParen &&
       Current.MatchingParen->Previous) {
@@ -1666,7 +1651,7 @@ unsigned ContinuationIndenter::reformatRawStringLiteral(
   StringRef OldDelimiter = *getRawStringDelimiter(Current.TokenText);
   StringRef NewDelimiter =
       getCanonicalRawStringDelimiter(Style, RawStringStyle.Language);
-  if (NewDelimiter.empty())
+  if (NewDelimiter.empty() || OldDelimiter.empty())
     NewDelimiter = OldDelimiter;
   // The text of a raw string is between the leading 'R"delimiter(' and the
   // trailing 'delimiter)"'.
@@ -1921,12 +1906,12 @@ ContinuationIndenter::createBreakableToken(const FormatToken &Current,
                                            LineState &State, bool AllowBreak) {
   unsigned StartColumn = State.Column - Current.ColumnWidth;
   if (Current.isStringLiteral()) {
-    // FIXME: String literal breaking is currently disabled for C#, Java, Json
-    // and JavaScript, as it requires strings to be merged using "+" which we
+    // FIXME: String literal breaking is currently disabled for C#, Java and
+    // JavaScript, as it requires strings to be merged using "+" which we
     // don't support.
     if (Style.Language == FormatStyle::LK_Java ||
         Style.Language == FormatStyle::LK_JavaScript || Style.isCSharp() ||
-        Style.isJson() || !Style.BreakStringLiterals || !AllowBreak)
+        !Style.BreakStringLiterals || !AllowBreak)
       return nullptr;
 
     // Don't break string literals inside preprocessor directives (except for
@@ -2007,11 +1992,6 @@ ContinuationIndenter::breakProtrudingToken(const FormatToken &Current,
   if (Current.is(TT_LineComment)) {
     // We don't insert backslashes when breaking line comments.
     ColumnLimit = Style.ColumnLimit;
-  }
-  if (ColumnLimit == 0) {
-    // To make the rest of the function easier set the column limit to the
-    // maximum, if there should be no limit.
-    ColumnLimit = std::numeric_limits<decltype(ColumnLimit)>::max();
   }
   if (Current.UnbreakableTailLength >= ColumnLimit)
     return {0, false};

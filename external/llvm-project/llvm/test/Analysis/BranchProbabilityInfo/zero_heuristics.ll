@@ -1,3 +1,4 @@
+; RUN: opt < %s -analyze -branch-prob -enable-new-pm=0 | FileCheck %s
 ; RUN: opt < %s -passes='print<branch-prob>' -disable-output 2>&1 | FileCheck %s
 
 @A = global i32 0, align 4

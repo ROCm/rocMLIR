@@ -11,13 +11,9 @@
 
 #include "Plugins/Process/Utility/NativeRegisterContextRegisterInfo.h"
 #include "lldb/Host/common/NativeThreadProtocol.h"
-#include "lldb/Target/MemoryTagManager.h"
-#include "llvm/Support/Error.h"
 
 namespace lldb_private {
 namespace process_linux {
-
-class NativeThreadLinux;
 
 class NativeRegisterContextLinux
     : public virtual NativeRegisterContextRegisterInfo {
@@ -28,7 +24,7 @@ public:
   // variant should be compiled into the final executable.
   static std::unique_ptr<NativeRegisterContextLinux>
   CreateHostNativeRegisterContextLinux(const ArchSpec &target_arch,
-                                       NativeThreadLinux &native_thread);
+                                       NativeThreadProtocol &native_thread);
 
   // Invalidates cached values in register context data structures
   virtual void InvalidateAllRegisters(){}
@@ -59,29 +55,7 @@ public:
   /// they are supported.
   virtual llvm::Optional<MmapData> GetMmapData() { return llvm::None; }
 
-  struct MemoryTaggingDetails {
-    /// Object with tag handling utilities. If the function below returns
-    /// a valid structure, you can assume that this pointer is valid.
-    std::unique_ptr<MemoryTagManager> manager;
-    int ptrace_read_req;  /// ptrace operation number for memory tag read
-    int ptrace_write_req; /// ptrace operation number for memory tag write
-  };
-  /// Return architecture specific data needed to use memory tags,
-  /// if they are supported.
-  virtual llvm::Expected<MemoryTaggingDetails>
-  GetMemoryTaggingDetails(int32_t type) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "Architecture does not support memory tagging");
-  }
-
 protected:
-  // NB: This constructor is here only because gcc<=6.5 requires a virtual base
-  // class initializer on abstract class (even though it is never used). It can
-  // be deleted once we move to gcc>=7.0.
-  NativeRegisterContextLinux(NativeThreadProtocol &thread)
-      : NativeRegisterContextRegisterInfo(thread, nullptr) {}
-
   lldb::ByteOrder GetByteOrder() const;
 
   virtual Status ReadRegisterRaw(uint32_t reg_index, RegisterValue &reg_value);

@@ -21,25 +21,24 @@ class OperatingSystemPlugIn(object):
 
     def get_thread_info(self):
         if not self.threads:
-            # FIXME: LLDB is not actually parsing thread stop reasons.
             self.threads = [{
                 'tid': 0x111111111,
                 'name': 'one',
                 'queue': 'queue1',
                 'state': 'stopped',
-                'stop_reason': 'not parsed'
+                'stop_reason': 'none'
             }, {
                 'tid': 0x222222222,
                 'name': 'two',
                 'queue': 'queue2',
                 'state': 'stopped',
-                'stop_reason': 'not parsed'
+                'stop_reason': 'none'
             }, {
                 'tid': 0x333333333,
                 'name': 'three',
                 'queue': 'queue3',
                 'state': 'stopped',
-                'stop_reason': 'not parsed - should be "sigstop" though',
+                'stop_reason': 'sigstop',
                 'core': 0
             }]
         return self.threads

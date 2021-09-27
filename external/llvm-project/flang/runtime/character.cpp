@@ -1,4 +1,4 @@
-//===-- runtime/character.cpp ---------------------------------------------===//
+//===-- runtime/character.cpp -----------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,13 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/Runtime/character.h"
+#include "character.h"
+#include "descriptor.h"
 #include "terminator.h"
-#include "tools.h"
 #include "flang/Common/bit-population-count.h"
 #include "flang/Common/uint128.h"
-#include "flang/Runtime/cpp-type.h"
-#include "flang/Runtime/descriptor.h"
 #include <algorithm>
 #include <cstring>
 
@@ -32,7 +30,7 @@ inline int CompareToBlankPadding(const CHAR *x, std::size_t chars) {
 }
 
 template <typename CHAR>
-int CharacterScalarCompare(
+static int Compare(
     const CHAR *x, const CHAR *y, std::size_t xChars, std::size_t yChars) {
   auto minChars{std::min(xChars, yChars)};
   if constexpr (sizeof(CHAR) == 1) {
@@ -65,13 +63,6 @@ int CharacterScalarCompare(
   return -CompareToBlankPadding(y, yChars - minChars);
 }
 
-template int CharacterScalarCompare<char>(
-    const char *x, const char *y, std::size_t xChars, std::size_t yChars);
-template int CharacterScalarCompare<char16_t>(const char16_t *x,
-    const char16_t *y, std::size_t xChars, std::size_t yChars);
-template int CharacterScalarCompare<char32_t>(const char32_t *x,
-    const char32_t *y, std::size_t xChars, std::size_t yChars);
-
 // Shift count to use when converting between character lengths
 // and byte counts.
 template <typename CHAR>
@@ -83,9 +74,10 @@ static void Compare(Descriptor &result, const Descriptor &x,
   RUNTIME_CHECK(
       terminator, x.rank() == y.rank() || x.rank() == 0 || y.rank() == 0);
   int rank{std::max(x.rank(), y.rank())};
-  SubscriptValue ub[maxRank], xAt[maxRank], yAt[maxRank];
+  SubscriptValue lb[maxRank], ub[maxRank], xAt[maxRank], yAt[maxRank];
   SubscriptValue elements{1};
   for (int j{0}; j < rank; ++j) {
+    lb[j] = 1;
     if (x.rank() > 0 && y.rank() > 0) {
       SubscriptValue xUB{x.GetDimension(j).Extent()};
       SubscriptValue yUB{y.GetDimension(j).Extent()};
@@ -100,23 +92,18 @@ static void Compare(Descriptor &result, const Descriptor &x,
       ub[j] = (x.rank() ? x : y).GetDimension(j).Extent();
     }
     elements *= ub[j];
+    xAt[j] = yAt[j] = 1;
   }
-  x.GetLowerBounds(xAt);
-  y.GetLowerBounds(yAt);
-  result.Establish(
-      TypeCategory::Logical, 1, nullptr, rank, ub, CFI_attribute_allocatable);
-  for (int j{0}; j < rank; ++j) {
-    result.GetDimension(j).SetBounds(1, ub[j]);
-  }
-  if (result.Allocate() != CFI_SUCCESS) {
+  result.Establish(TypeCategory::Logical, 1, ub, rank);
+  if (result.Allocate(lb, ub) != CFI_SUCCESS) {
     terminator.Crash("Compare: could not allocate storage for result");
   }
   std::size_t xChars{x.ElementBytes() >> shift<CHAR>};
   std::size_t yChars{y.ElementBytes() >> shift<char>};
   for (SubscriptValue resultAt{0}; elements-- > 0;
        ++resultAt, x.IncrementSubscripts(xAt), y.IncrementSubscripts(yAt)) {
-    *result.OffsetElement<char>(resultAt) = CharacterScalarCompare<CHAR>(
-        x.Element<CHAR>(xAt), y.Element<CHAR>(yAt), xChars, yChars);
+    *result.OffsetElement<char>(resultAt) =
+        Compare(x.Element<CHAR>(xAt), y.Element<CHAR>(yAt), xChars, yChars);
   }
 }
 
@@ -149,21 +136,17 @@ template <typename CHAR, bool ADJUSTR>
 static void AdjustLRHelper(Descriptor &result, const Descriptor &string,
     const Terminator &terminator) {
   int rank{string.rank()};
-  SubscriptValue ub[maxRank], stringAt[maxRank];
+  SubscriptValue lb[maxRank], ub[maxRank], stringAt[maxRank];
   SubscriptValue elements{1};
   for (int j{0}; j < rank; ++j) {
+    lb[j] = 1;
     ub[j] = string.GetDimension(j).Extent();
     elements *= ub[j];
     stringAt[j] = 1;
   }
-  string.GetLowerBounds(stringAt);
   std::size_t elementBytes{string.ElementBytes()};
-  result.Establish(string.type(), elementBytes, nullptr, rank, ub,
-      CFI_attribute_allocatable);
-  for (int j{0}; j < rank; ++j) {
-    result.GetDimension(j).SetBounds(1, ub[j]);
-  }
-  if (result.Allocate() != CFI_SUCCESS) {
+  result.Establish(string.type(), elementBytes, ub, rank);
+  if (result.Allocate(lb, ub) != CFI_SUCCESS) {
     terminator.Crash("ADJUSTL/R: could not allocate storage for result");
   }
   for (SubscriptValue resultAt{0}; elements-- > 0;
@@ -205,19 +188,16 @@ template <typename INT, typename CHAR>
 static void LenTrim(Descriptor &result, const Descriptor &string,
     const Terminator &terminator) {
   int rank{string.rank()};
-  SubscriptValue ub[maxRank], stringAt[maxRank];
+  SubscriptValue lb[maxRank], ub[maxRank], stringAt[maxRank];
   SubscriptValue elements{1};
   for (int j{0}; j < rank; ++j) {
+    lb[j] = 1;
     ub[j] = string.GetDimension(j).Extent();
     elements *= ub[j];
+    stringAt[j] = 1;
   }
-  string.GetLowerBounds(stringAt);
-  result.Establish(TypeCategory::Integer, sizeof(INT), nullptr, rank, ub,
-      CFI_attribute_allocatable);
-  for (int j{0}; j < rank; ++j) {
-    result.GetDimension(j).SetBounds(1, ub[j]);
-  }
-  if (result.Allocate() != CFI_SUCCESS) {
+  result.Establish(TypeCategory::Integer, sizeof(INT), ub, rank);
+  if (result.Allocate(lb, ub) != CFI_SUCCESS) {
     terminator.Crash("LEN_TRIM: could not allocate storage for result");
   }
   std::size_t stringElementChars{string.ElementBytes() >> shift<CHAR>};
@@ -233,228 +213,22 @@ static void LenTrimKind(Descriptor &result, const Descriptor &string, int kind,
     const Terminator &terminator) {
   switch (kind) {
   case 1:
-    LenTrim<CppTypeFor<TypeCategory::Integer, 1>, CHAR>(
-        result, string, terminator);
+    LenTrim<std::int8_t, CHAR>(result, string, terminator);
     break;
   case 2:
-    LenTrim<CppTypeFor<TypeCategory::Integer, 2>, CHAR>(
-        result, string, terminator);
+    LenTrim<std::int16_t, CHAR>(result, string, terminator);
     break;
   case 4:
-    LenTrim<CppTypeFor<TypeCategory::Integer, 4>, CHAR>(
-        result, string, terminator);
+    LenTrim<std::int32_t, CHAR>(result, string, terminator);
     break;
   case 8:
-    LenTrim<CppTypeFor<TypeCategory::Integer, 8>, CHAR>(
-        result, string, terminator);
+    LenTrim<std::int64_t, CHAR>(result, string, terminator);
     break;
   case 16:
-    LenTrim<CppTypeFor<TypeCategory::Integer, 16>, CHAR>(
-        result, string, terminator);
+    LenTrim<common::uint128_t, CHAR>(result, string, terminator);
     break;
   default:
     terminator.Crash("LEN_TRIM: bad KIND=%d", kind);
-  }
-}
-
-// INDEX implementation
-template <typename CHAR>
-inline std::size_t Index(const CHAR *x, std::size_t xLen, const CHAR *want,
-    std::size_t wantLen, bool back) {
-  if (xLen < wantLen) {
-    return 0;
-  }
-  if (xLen == 0) {
-    return 1; // wantLen is also 0, so trivial match
-  }
-  if (back) {
-    // If wantLen==0, returns xLen + 1 per standard (and all other compilers)
-    std::size_t at{xLen - wantLen + 1};
-    for (; at > 0; --at) {
-      std::size_t j{1};
-      for (; j <= wantLen; ++j) {
-        if (x[at + j - 2] != want[j - 1]) {
-          break;
-        }
-      }
-      if (j > wantLen) {
-        return at;
-      }
-    }
-    return 0;
-  }
-  // Non-trivial forward substring search: use a simplified form of
-  // Boyer-Moore substring searching.
-  for (std::size_t at{1}; at + wantLen - 1 <= xLen;) {
-    // Compare x(at:at+wantLen-1) with want(1:wantLen).
-    // The comparison proceeds from the ends of the substrings forward
-    // so that we can skip ahead by multiple positions on a miss.
-    std::size_t j{wantLen};
-    CHAR ch;
-    for (; j > 0; --j) {
-      ch = x[at + j - 2];
-      if (ch != want[j - 1]) {
-        break;
-      }
-    }
-    if (j == 0) {
-      return at; // found a match
-    }
-    // Suppose we have at==2:
-    // "THAT FORTRAN THAT I RAN" <- the string (x) in which we search
-    //   "THAT I RAN"            <- the string (want) for which we search
-    //          ^------------------ j==7, ch=='T'
-    // We can shift ahead 3 positions to at==5 to align the 'T's:
-    // "THAT FORTRAN THAT I RAN"
-    //      "THAT I RAN"
-    std::size_t shift{1};
-    for (; shift < j; ++shift) {
-      if (want[j - shift - 1] == ch) {
-        break;
-      }
-    }
-    at += shift;
-  }
-  return 0;
-}
-
-// SCAN and VERIFY implementation help.  These intrinsic functions
-// do pretty much the same thing, so they're templatized with a
-// distinguishing flag.
-
-enum class CharFunc { Index, Scan, Verify };
-
-template <typename CHAR, CharFunc FUNC>
-inline std::size_t ScanVerify(const CHAR *x, std::size_t xLen, const CHAR *set,
-    std::size_t setLen, bool back) {
-  std::size_t at{back ? xLen : 1};
-  int increment{back ? -1 : 1};
-  for (; xLen-- > 0; at += increment) {
-    CHAR ch{x[at - 1]};
-    bool inSet{false};
-    // TODO: If set is sorted, could use binary search
-    for (std::size_t j{0}; j < setLen; ++j) {
-      if (set[j] == ch) {
-        inSet = true;
-        break;
-      }
-    }
-    if (inSet != (FUNC == CharFunc::Verify)) {
-      return at;
-    }
-  }
-  return 0;
-}
-
-// Specialization for one-byte characters
-template <bool IS_VERIFY = false>
-inline std::size_t ScanVerify(const char *x, std::size_t xLen, const char *set,
-    std::size_t setLen, bool back) {
-  std::size_t at{back ? xLen : 1};
-  int increment{back ? -1 : 1};
-  if (xLen > 0) {
-    std::uint64_t bitSet[256 / 64]{0};
-    std::uint64_t one{1};
-    for (std::size_t j{0}; j < setLen; ++j) {
-      unsigned setCh{static_cast<unsigned char>(set[j])};
-      bitSet[setCh / 64] |= one << (setCh % 64);
-    }
-    for (; xLen-- > 0; at += increment) {
-      unsigned ch{static_cast<unsigned char>(x[at - 1])};
-      bool inSet{((bitSet[ch / 64] >> (ch % 64)) & 1) != 0};
-      if (inSet != IS_VERIFY) {
-        return at;
-      }
-    }
-  }
-  return 0;
-}
-
-template <typename INT, typename CHAR, CharFunc FUNC>
-static void GeneralCharFunc(Descriptor &result, const Descriptor &string,
-    const Descriptor &arg, const Descriptor *back,
-    const Terminator &terminator) {
-  int rank{string.rank() ? string.rank()
-          : arg.rank()   ? arg.rank()
-          : back         ? back->rank()
-                         : 0};
-  SubscriptValue ub[maxRank], stringAt[maxRank], argAt[maxRank],
-      backAt[maxRank];
-  SubscriptValue elements{1};
-  for (int j{0}; j < rank; ++j) {
-    ub[j] = string.rank() ? string.GetDimension(j).Extent()
-        : arg.rank()      ? arg.GetDimension(j).Extent()
-        : back            ? back->GetDimension(j).Extent()
-                          : 1;
-    elements *= ub[j];
-  }
-  string.GetLowerBounds(stringAt);
-  arg.GetLowerBounds(argAt);
-  if (back) {
-    back->GetLowerBounds(backAt);
-  }
-  result.Establish(TypeCategory::Integer, sizeof(INT), nullptr, rank, ub,
-      CFI_attribute_allocatable);
-  for (int j{0}; j < rank; ++j) {
-    result.GetDimension(j).SetBounds(1, ub[j]);
-  }
-  if (result.Allocate() != CFI_SUCCESS) {
-    terminator.Crash("SCAN/VERIFY: could not allocate storage for result");
-  }
-  std::size_t stringElementChars{string.ElementBytes() >> shift<CHAR>};
-  std::size_t argElementChars{arg.ElementBytes() >> shift<CHAR>};
-  for (SubscriptValue resultAt{0}; elements-- > 0; resultAt += sizeof(INT),
-       string.IncrementSubscripts(stringAt), arg.IncrementSubscripts(argAt),
-       back && back->IncrementSubscripts(backAt)) {
-    if constexpr (FUNC == CharFunc::Index) {
-      *result.OffsetElement<INT>(resultAt) =
-          Index<CHAR>(string.Element<CHAR>(stringAt), stringElementChars,
-              arg.Element<CHAR>(argAt), argElementChars,
-              back && IsLogicalElementTrue(*back, backAt));
-    } else if constexpr (FUNC == CharFunc::Scan) {
-      *result.OffsetElement<INT>(resultAt) =
-          ScanVerify<CHAR, CharFunc::Scan>(string.Element<CHAR>(stringAt),
-              stringElementChars, arg.Element<CHAR>(argAt), argElementChars,
-              back && IsLogicalElementTrue(*back, backAt));
-    } else if constexpr (FUNC == CharFunc::Verify) {
-      *result.OffsetElement<INT>(resultAt) =
-          ScanVerify<CHAR, CharFunc::Verify>(string.Element<CHAR>(stringAt),
-              stringElementChars, arg.Element<CHAR>(argAt), argElementChars,
-              back && IsLogicalElementTrue(*back, backAt));
-    } else {
-      static_assert(FUNC == CharFunc::Index || FUNC == CharFunc::Scan ||
-          FUNC == CharFunc::Verify);
-    }
-  }
-}
-
-template <typename CHAR, CharFunc FUNC>
-static void GeneralCharFuncKind(Descriptor &result, const Descriptor &string,
-    const Descriptor &arg, const Descriptor *back, int kind,
-    const Terminator &terminator) {
-  switch (kind) {
-  case 1:
-    GeneralCharFunc<CppTypeFor<TypeCategory::Integer, 1>, CHAR, FUNC>(
-        result, string, arg, back, terminator);
-    break;
-  case 2:
-    GeneralCharFunc<CppTypeFor<TypeCategory::Integer, 2>, CHAR, FUNC>(
-        result, string, arg, back, terminator);
-    break;
-  case 4:
-    GeneralCharFunc<CppTypeFor<TypeCategory::Integer, 4>, CHAR, FUNC>(
-        result, string, arg, back, terminator);
-    break;
-  case 8:
-    GeneralCharFunc<CppTypeFor<TypeCategory::Integer, 8>, CHAR, FUNC>(
-        result, string, arg, back, terminator);
-    break;
-  case 16:
-    GeneralCharFunc<CppTypeFor<TypeCategory::Integer, 16>, CHAR, FUNC>(
-        result, string, arg, back, terminator);
-    break;
-  default:
-    terminator.Crash("INDEX/SCAN/VERIFY: bad KIND=%d", kind);
   }
 }
 
@@ -470,9 +244,9 @@ static void CopyAndPad(
       to[j] = static_cast<TO>(' ');
     }
   } else if (toChars <= fromChars) {
-    std::memcpy(to, from, toChars * sizeof(TO));
+    std::memcpy(to, from, toChars * shift<TO>);
   } else {
-    std::memcpy(to, from, fromChars * sizeof(TO));
+    std::memcpy(to, from, fromChars * shift<TO>);
     for (std::size_t j{fromChars}; j < toChars; ++j) {
       to[j] = static_cast<TO>(' ');
     }
@@ -485,17 +259,19 @@ static void MaxMinHelper(Descriptor &accumulator, const Descriptor &x,
   RUNTIME_CHECK(terminator,
       accumulator.rank() == 0 || x.rank() == 0 ||
           accumulator.rank() == x.rank());
-  SubscriptValue ub[maxRank], xAt[maxRank];
+  SubscriptValue lb[maxRank], ub[maxRank], xAt[maxRank];
   SubscriptValue elements{1};
   std::size_t accumChars{accumulator.ElementBytes() >> shift<CHAR>};
   std::size_t xChars{x.ElementBytes() >> shift<CHAR>};
   std::size_t chars{std::max(accumChars, xChars)};
   bool reallocate{accumulator.raw().base_addr == nullptr ||
-      accumChars != chars || (accumulator.rank() == 0 && x.rank() > 0)};
+      accumChars != xChars || (accumulator.rank() == 0 && x.rank() > 0)};
   int rank{std::max(accumulator.rank(), x.rank())};
   for (int j{0}; j < rank; ++j) {
+    lb[j] = 1;
     if (x.rank() > 0) {
       ub[j] = x.GetDimension(j).Extent();
+      xAt[j] = x.GetDimension(j).LowerBound();
       if (accumulator.rank() > 0) {
         SubscriptValue accumExt{accumulator.GetDimension(j).Extent()};
         if (accumExt != ub[j]) {
@@ -507,25 +283,22 @@ static void MaxMinHelper(Descriptor &accumulator, const Descriptor &x,
       }
     } else {
       ub[j] = accumulator.GetDimension(j).Extent();
+      xAt[j] = 1;
     }
     elements *= ub[j];
   }
-  x.GetLowerBounds(xAt);
   void *old{nullptr};
   const CHAR *accumData{accumulator.OffsetElement<CHAR>()};
   if (reallocate) {
     old = accumulator.raw().base_addr;
     accumulator.set_base_addr(nullptr);
     accumulator.raw().elem_len = chars << shift<CHAR>;
-    for (int j{0}; j < rank; ++j) {
-      accumulator.GetDimension(j).SetBounds(1, ub[j]);
-    }
-    RUNTIME_CHECK(terminator, accumulator.Allocate() == CFI_SUCCESS);
+    RUNTIME_CHECK(terminator, accumulator.Allocate(lb, ub) == CFI_SUCCESS);
   }
   for (CHAR *result{accumulator.OffsetElement<CHAR>()}; elements-- > 0;
        accumData += accumChars, result += chars, x.IncrementSubscripts(xAt)) {
     const CHAR *xData{x.Element<CHAR>(xAt)};
-    int cmp{CharacterScalarCompare(accumData, xData, accumChars, xChars)};
+    int cmp{Compare(accumData, xData, accumChars, xChars)};
     if constexpr (ISMIN) {
       cmp = -cmp;
     }
@@ -568,9 +341,10 @@ void RTNAME(CharacterConcatenate)(Descriptor &accumulator,
       accumulator.rank() == 0 || from.rank() == 0 ||
           accumulator.rank() == from.rank());
   int rank{std::max(accumulator.rank(), from.rank())};
-  SubscriptValue ub[maxRank], fromAt[maxRank];
+  SubscriptValue lb[maxRank], ub[maxRank], fromAt[maxRank];
   SubscriptValue elements{1};
   for (int j{0}; j < rank; ++j) {
+    lb[j] = 1;
     if (accumulator.rank() > 0 && from.rank() > 0) {
       ub[j] = accumulator.GetDimension(j).Extent();
       SubscriptValue fromUB{from.GetDimension(j).Extent()};
@@ -585,6 +359,7 @@ void RTNAME(CharacterConcatenate)(Descriptor &accumulator,
           (accumulator.rank() ? accumulator : from).GetDimension(j).Extent();
     }
     elements *= ub[j];
+    fromAt[j] = 1;
   }
   std::size_t oldBytes{accumulator.ElementBytes()};
   void *old{accumulator.raw().base_addr};
@@ -592,16 +367,12 @@ void RTNAME(CharacterConcatenate)(Descriptor &accumulator,
   std::size_t fromBytes{from.ElementBytes()};
   accumulator.raw().elem_len += fromBytes;
   std::size_t newBytes{accumulator.ElementBytes()};
-  for (int j{0}; j < rank; ++j) {
-    accumulator.GetDimension(j).SetBounds(1, ub[j]);
-  }
-  if (accumulator.Allocate() != CFI_SUCCESS) {
+  if (accumulator.Allocate(lb, ub) != CFI_SUCCESS) {
     terminator.Crash(
         "CharacterConcatenate: could not allocate storage for result");
   }
   const char *p{static_cast<const char *>(old)};
   char *to{static_cast<char *>(accumulator.raw().base_addr)};
-  from.GetLowerBounds(fromAt);
   for (; elements-- > 0;
        to += newBytes, p += oldBytes, from.IncrementSubscripts(fromAt)) {
     std::memcpy(to, p, oldBytes);
@@ -618,7 +389,8 @@ void RTNAME(CharacterConcatenateScalar1)(
   accumulator.set_base_addr(nullptr);
   std::size_t oldLen{accumulator.ElementBytes()};
   accumulator.raw().elem_len += chars;
-  RUNTIME_CHECK(terminator, accumulator.Allocate() == CFI_SUCCESS);
+  RUNTIME_CHECK(
+      terminator, accumulator.Allocate(nullptr, nullptr) == CFI_SUCCESS);
   std::memcpy(accumulator.OffsetElement<char>(oldLen), from, chars);
   FreeMemory(old);
 }
@@ -666,10 +438,9 @@ void RTNAME(CharacterAssign)(Descriptor &lhs, const Descriptor &rhs,
       for (int j{0}; j < rank; ++j) {
         lhsAt[j] = rhsAt[j];
         ub[j] = rhs.GetDimension(j).UpperBound();
-        lhs.GetDimension(j).SetBounds(lhsAt[j], ub[j]);
       }
     }
-    RUNTIME_CHECK(terminator, lhs.Allocate() == CFI_SUCCESS);
+    RUNTIME_CHECK(terminator, lhs.Allocate(lhsAt, ub) == CFI_SUCCESS);
   }
   switch (lhs.raw().type) {
   case CFI_type_char:
@@ -772,16 +543,14 @@ int RTNAME(CharacterCompareScalar)(const Descriptor &x, const Descriptor &y) {
   RUNTIME_CHECK(terminator, x.raw().type == y.raw().type);
   switch (x.raw().type) {
   case CFI_type_char:
-    return CharacterScalarCompare<char>(x.OffsetElement<char>(),
-        y.OffsetElement<char>(), x.ElementBytes(), y.ElementBytes());
+    return Compare(x.OffsetElement<char>(), y.OffsetElement<char>(),
+        x.ElementBytes(), y.ElementBytes());
   case CFI_type_char16_t:
-    return CharacterScalarCompare<char16_t>(x.OffsetElement<char16_t>(),
-        y.OffsetElement<char16_t>(), x.ElementBytes() >> 1,
-        y.ElementBytes() >> 1);
+    return Compare(x.OffsetElement<char16_t>(), y.OffsetElement<char16_t>(),
+        x.ElementBytes() >> 1, y.ElementBytes() >> 1);
   case CFI_type_char32_t:
-    return CharacterScalarCompare<char32_t>(x.OffsetElement<char32_t>(),
-        y.OffsetElement<char32_t>(), x.ElementBytes() >> 2,
-        y.ElementBytes() >> 2);
+    return Compare(x.OffsetElement<char32_t>(), y.OffsetElement<char32_t>(),
+        x.ElementBytes() >> 2, y.ElementBytes() >> 2);
   default:
     terminator.Crash("CharacterCompareScalar: bad string type code %d",
         static_cast<int>(x.raw().type));
@@ -791,17 +560,17 @@ int RTNAME(CharacterCompareScalar)(const Descriptor &x, const Descriptor &y) {
 
 int RTNAME(CharacterCompareScalar1)(
     const char *x, const char *y, std::size_t xChars, std::size_t yChars) {
-  return CharacterScalarCompare(x, y, xChars, yChars);
+  return Compare(x, y, xChars, yChars);
 }
 
 int RTNAME(CharacterCompareScalar2)(const char16_t *x, const char16_t *y,
     std::size_t xChars, std::size_t yChars) {
-  return CharacterScalarCompare(x, y, xChars, yChars);
+  return Compare(x, y, xChars, yChars);
 }
 
 int RTNAME(CharacterCompareScalar4)(const char32_t *x, const char32_t *y,
     std::size_t xChars, std::size_t yChars) {
-  return CharacterScalarCompare(x, y, xChars, yChars);
+  return Compare(x, y, xChars, yChars);
 }
 
 void RTNAME(CharacterCompare)(
@@ -839,52 +608,16 @@ void RTNAME(CharacterPad1)(char *lhs, std::size_t bytes, std::size_t offset) {
   }
 }
 
-// Intrinsic function entry points
+// Intrinsic functions
 
-void RTNAME(Adjustl)(Descriptor &result, const Descriptor &string,
+void RTNAME(AdjustL)(Descriptor &result, const Descriptor &string,
     const char *sourceFile, int sourceLine) {
   AdjustLR<false>(result, string, sourceFile, sourceLine);
 }
 
-void RTNAME(Adjustr)(Descriptor &result, const Descriptor &string,
+void RTNAME(AdjustR)(Descriptor &result, const Descriptor &string,
     const char *sourceFile, int sourceLine) {
   AdjustLR<true>(result, string, sourceFile, sourceLine);
-}
-
-std::size_t RTNAME(Index1)(const char *x, std::size_t xLen, const char *set,
-    std::size_t setLen, bool back) {
-  return Index<char>(x, xLen, set, setLen, back);
-}
-std::size_t RTNAME(Index2)(const char16_t *x, std::size_t xLen,
-    const char16_t *set, std::size_t setLen, bool back) {
-  return Index<char16_t>(x, xLen, set, setLen, back);
-}
-std::size_t RTNAME(Index4)(const char32_t *x, std::size_t xLen,
-    const char32_t *set, std::size_t setLen, bool back) {
-  return Index<char32_t>(x, xLen, set, setLen, back);
-}
-
-void RTNAME(Index)(Descriptor &result, const Descriptor &string,
-    const Descriptor &substring, const Descriptor *back, int kind,
-    const char *sourceFile, int sourceLine) {
-  Terminator terminator{sourceFile, sourceLine};
-  switch (string.raw().type) {
-  case CFI_type_char:
-    GeneralCharFuncKind<char, CharFunc::Index>(
-        result, string, substring, back, kind, terminator);
-    break;
-  case CFI_type_char16_t:
-    GeneralCharFuncKind<char16_t, CharFunc::Index>(
-        result, string, substring, back, kind, terminator);
-    break;
-  case CFI_type_char32_t:
-    GeneralCharFuncKind<char32_t, CharFunc::Index>(
-        result, string, substring, back, kind, terminator);
-    break;
-  default:
-    terminator.Crash(
-        "INDEX: bad string type code %d", static_cast<int>(string.raw().type));
-  }
 }
 
 std::size_t RTNAME(LenTrim1)(const char *x, std::size_t chars) {
@@ -916,49 +649,12 @@ void RTNAME(LenTrim)(Descriptor &result, const Descriptor &string, int kind,
   }
 }
 
-std::size_t RTNAME(Scan1)(const char *x, std::size_t xLen, const char *set,
-    std::size_t setLen, bool back) {
-  return ScanVerify<char, CharFunc::Scan>(x, xLen, set, setLen, back);
-}
-std::size_t RTNAME(Scan2)(const char16_t *x, std::size_t xLen,
-    const char16_t *set, std::size_t setLen, bool back) {
-  return ScanVerify<char16_t, CharFunc::Scan>(x, xLen, set, setLen, back);
-}
-std::size_t RTNAME(Scan4)(const char32_t *x, std::size_t xLen,
-    const char32_t *set, std::size_t setLen, bool back) {
-  return ScanVerify<char32_t, CharFunc::Scan>(x, xLen, set, setLen, back);
-}
-
-void RTNAME(Scan)(Descriptor &result, const Descriptor &string,
-    const Descriptor &set, const Descriptor *back, int kind,
-    const char *sourceFile, int sourceLine) {
-  Terminator terminator{sourceFile, sourceLine};
-  switch (string.raw().type) {
-  case CFI_type_char:
-    GeneralCharFuncKind<char, CharFunc::Scan>(
-        result, string, set, back, kind, terminator);
-    break;
-  case CFI_type_char16_t:
-    GeneralCharFuncKind<char16_t, CharFunc::Scan>(
-        result, string, set, back, kind, terminator);
-    break;
-  case CFI_type_char32_t:
-    GeneralCharFuncKind<char32_t, CharFunc::Scan>(
-        result, string, set, back, kind, terminator);
-    break;
-  default:
-    terminator.Crash(
-        "SCAN: bad string type code %d", static_cast<int>(string.raw().type));
-  }
-}
-
 void RTNAME(Repeat)(Descriptor &result, const Descriptor &string,
     std::size_t ncopies, const char *sourceFile, int sourceLine) {
   Terminator terminator{sourceFile, sourceLine};
   std::size_t origBytes{string.ElementBytes()};
-  result.Establish(string.type(), origBytes * ncopies, nullptr, 0, nullptr,
-      CFI_attribute_allocatable);
-  if (result.Allocate() != CFI_SUCCESS) {
+  result.Establish(string.type(), origBytes * ncopies, nullptr, 0);
+  if (result.Allocate(nullptr, nullptr) != CFI_SUCCESS) {
     terminator.Crash("REPEAT could not allocate storage for result");
   }
   const char *from{string.OffsetElement()};
@@ -990,46 +686,9 @@ void RTNAME(Trim)(Descriptor &result, const Descriptor &string,
     terminator.Crash(
         "TRIM: bad string type code %d", static_cast<int>(string.raw().type));
   }
-  result.Establish(string.type(), resultBytes, nullptr, 0, nullptr,
-      CFI_attribute_allocatable);
-  RUNTIME_CHECK(terminator, result.Allocate() == CFI_SUCCESS);
+  result.Establish(string.type(), resultBytes, nullptr, 0);
+  RUNTIME_CHECK(terminator, result.Allocate(nullptr, nullptr) == CFI_SUCCESS);
   std::memcpy(result.OffsetElement(), string.OffsetElement(), resultBytes);
-}
-
-std::size_t RTNAME(Verify1)(const char *x, std::size_t xLen, const char *set,
-    std::size_t setLen, bool back) {
-  return ScanVerify<char, CharFunc::Verify>(x, xLen, set, setLen, back);
-}
-std::size_t RTNAME(Verify2)(const char16_t *x, std::size_t xLen,
-    const char16_t *set, std::size_t setLen, bool back) {
-  return ScanVerify<char16_t, CharFunc::Verify>(x, xLen, set, setLen, back);
-}
-std::size_t RTNAME(Verify4)(const char32_t *x, std::size_t xLen,
-    const char32_t *set, std::size_t setLen, bool back) {
-  return ScanVerify<char32_t, CharFunc::Verify>(x, xLen, set, setLen, back);
-}
-
-void RTNAME(Verify)(Descriptor &result, const Descriptor &string,
-    const Descriptor &set, const Descriptor *back, int kind,
-    const char *sourceFile, int sourceLine) {
-  Terminator terminator{sourceFile, sourceLine};
-  switch (string.raw().type) {
-  case CFI_type_char:
-    GeneralCharFuncKind<char, CharFunc::Verify>(
-        result, string, set, back, kind, terminator);
-    break;
-  case CFI_type_char16_t:
-    GeneralCharFuncKind<char16_t, CharFunc::Verify>(
-        result, string, set, back, kind, terminator);
-    break;
-  case CFI_type_char32_t:
-    GeneralCharFuncKind<char32_t, CharFunc::Verify>(
-        result, string, set, back, kind, terminator);
-    break;
-  default:
-    terminator.Crash(
-        "VERIFY: bad string type code %d", static_cast<int>(string.raw().type));
-  }
 }
 
 void RTNAME(CharacterMax)(Descriptor &accumulator, const Descriptor &x,
@@ -1041,5 +700,8 @@ void RTNAME(CharacterMin)(Descriptor &accumulator, const Descriptor &x,
     const char *sourceFile, int sourceLine) {
   MaxMin<true>(accumulator, x, sourceFile, sourceLine);
 }
+
+// TODO: Character MAXVAL/MINVAL
+// TODO: Character MAXLOC/MINLOC
 }
 } // namespace Fortran::runtime

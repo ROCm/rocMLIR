@@ -472,24 +472,8 @@ static const TargetRegisterClass *canFoldCopy(const MachineInstr &MI,
   return nullptr;
 }
 
-MCInst TargetInstrInfo::getNop() const { llvm_unreachable("Not implemented"); }
-
-std::pair<unsigned, unsigned>
-TargetInstrInfo::getPatchpointUnfoldableRange(const MachineInstr &MI) const {
-  switch (MI.getOpcode()) {
-  case TargetOpcode::STACKMAP:
-    // StackMapLiveValues are foldable
-    return std::make_pair(0, StackMapOpers(&MI).getVarIdx());
-  case TargetOpcode::PATCHPOINT:
-    // For PatchPoint, the call args are not foldable (even if reported in the
-    // stackmap e.g. via anyregcc).
-    return std::make_pair(0, PatchPointOpers(&MI).getVarIdx());
-  case TargetOpcode::STATEPOINT:
-    // For statepoints, fold deopt and gc arguments, but not call arguments.
-    return std::make_pair(MI.getNumDefs(), StatepointOpers(&MI).getVarIdx());
-  default:
-    llvm_unreachable("unexpected stackmap opcode");
-  }
+void TargetInstrInfo::getNoop(MCInst &NopInst) const {
+  llvm_unreachable("Not implemented");
 }
 
 static MachineInstr *foldPatchpoint(MachineFunction &MF, MachineInstr &MI,
@@ -497,8 +481,27 @@ static MachineInstr *foldPatchpoint(MachineFunction &MF, MachineInstr &MI,
                                     const TargetInstrInfo &TII) {
   unsigned StartIdx = 0;
   unsigned NumDefs = 0;
-  // getPatchpointUnfoldableRange throws guarantee if MI is not a patchpoint.
-  std::tie(NumDefs, StartIdx) = TII.getPatchpointUnfoldableRange(MI);
+  switch (MI.getOpcode()) {
+  case TargetOpcode::STACKMAP: {
+    // StackMapLiveValues are foldable
+    StartIdx = StackMapOpers(&MI).getVarIdx();
+    break;
+  }
+  case TargetOpcode::PATCHPOINT: {
+    // For PatchPoint, the call args are not foldable (even if reported in the
+    // stackmap e.g. via anyregcc).
+    StartIdx = PatchPointOpers(&MI).getVarIdx();
+    break;
+  }
+  case TargetOpcode::STATEPOINT: {
+    // For statepoints, fold deopt and gc arguments, but not call arguments.
+    StartIdx = StatepointOpers(&MI).getVarIdx();
+    NumDefs = MI.getNumDefs();
+    break;
+  }
+  default:
+    llvm_unreachable("unexpected stackmap opcode");
+  }
 
   unsigned DefToFoldIdx = MI.getNumOperands();
 
@@ -921,8 +924,7 @@ bool TargetInstrInfo::isReallyTriviallyReMaterializableGeneric(
   const MachineRegisterInfo &MRI = MF.getRegInfo();
 
   // Remat clients assume operand 0 is the defined register.
-  if (!MI.getNumOperands() || !MI.getOperand(0).isReg() ||
-      MI.getOperand(0).isTied())
+  if (!MI.getNumOperands() || !MI.getOperand(0).isReg())
     return false;
   Register DefReg = MI.getOperand(0).getReg();
 
@@ -983,6 +985,12 @@ bool TargetInstrInfo::isReallyTriviallyReMaterializableGeneric(
     // Only allow one virtual-register def.  There may be multiple defs of the
     // same virtual register, though.
     if (MO.isDef() && Reg != DefReg)
+      return false;
+
+    // Don't allow any virtual-register uses. Rematting an instruction with
+    // virtual register uses would length the live ranges of the uses, which
+    // is not necessarily a good idea, certainly not "trivial".
+    if (MO.isUse())
       return false;
   }
 
@@ -1257,6 +1265,22 @@ int TargetInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
   unsigned DefClass = DefMI.getDesc().getSchedClass();
   unsigned UseClass = UseMI.getDesc().getSchedClass();
   return ItinData->getOperandLatency(DefClass, DefIdx, UseClass, UseIdx);
+}
+
+/// If we can determine the operand latency from the def only, without itinerary
+/// lookup, do so. Otherwise return -1.
+int TargetInstrInfo::computeDefOperandLatency(
+    const InstrItineraryData *ItinData, const MachineInstr &DefMI) const {
+
+  // Let the target hook getInstrLatency handle missing itineraries.
+  if (!ItinData)
+    return getInstrLatency(ItinData, DefMI);
+
+  if(ItinData->isEmpty())
+    return defaultDefLatency(ItinData->SchedModel, DefMI);
+
+  // ...operand lookup required
+  return -1;
 }
 
 bool TargetInstrInfo::getRegSequenceInputs(

@@ -146,7 +146,7 @@ bar b[1] = { //
     (fn(),   //
      bar())};
 
-// CHECK-LABEL: define{{.*}}f11
+// CHECK-LABEL: define
 __complex double f11() {
   __complex double f;
 // CHECK: store {{.*}} !dbg [[DBG_F11:!.*]]

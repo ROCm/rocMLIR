@@ -54,13 +54,10 @@ public:
                  llvm::function_ref<void(const SymbolID &, const Symbol &)>
                      Callback) const override;
 
-  llvm::unique_function<IndexContents(llvm::StringRef) const>
+  llvm::unique_function<bool(llvm::StringRef) const>
   indexedFiles() const override;
 
-  ProjectAwareIndex(IndexFactory Gen, bool Sync) : Gen(std::move(Gen)) {
-    if (!Sync)
-      Tasks = std::make_unique<AsyncTaskRunner>();
-  }
+  ProjectAwareIndex(IndexFactory Gen) : Gen(std::move(Gen)) {}
 
 private:
   // Returns the index associated with current context, if any.
@@ -71,7 +68,7 @@ private:
   mutable llvm::DenseMap<Config::ExternalIndexSpec,
                          std::unique_ptr<SymbolIndex>>
       IndexForSpec;
-  mutable std::unique_ptr<AsyncTaskRunner> Tasks;
+  mutable AsyncTaskRunner Tasks;
 
   const IndexFactory Gen;
 };
@@ -118,31 +115,30 @@ void ProjectAwareIndex::relations(
     return Idx->relations(Req, Callback);
 }
 
-llvm::unique_function<IndexContents(llvm::StringRef) const>
+llvm::unique_function<bool(llvm::StringRef) const>
 ProjectAwareIndex::indexedFiles() const {
   trace::Span Tracer("ProjectAwareIndex::indexedFiles");
   if (auto *Idx = getIndex())
     return Idx->indexedFiles();
-  return [](llvm::StringRef) { return IndexContents::None; };
+  return [](llvm::StringRef) { return false; };
 }
 
 SymbolIndex *ProjectAwareIndex::getIndex() const {
   const auto &C = Config::current();
-  if (C.Index.External.Kind == Config::ExternalIndexSpec::None)
+  if (!C.Index.External)
     return nullptr;
-  const auto &External = C.Index.External;
+  const auto &External = *C.Index.External;
   std::lock_guard<std::mutex> Lock(Mu);
   auto Entry = IndexForSpec.try_emplace(External, nullptr);
   if (Entry.second)
-    Entry.first->getSecond() = Gen(External, Tasks.get());
+    Entry.first->getSecond() = Gen(External, Tasks);
   return Entry.first->second.get();
 }
 } // namespace
 
-std::unique_ptr<SymbolIndex> createProjectAwareIndex(IndexFactory Gen,
-                                                     bool Sync) {
+std::unique_ptr<SymbolIndex> createProjectAwareIndex(IndexFactory Gen) {
   assert(Gen);
-  return std::make_unique<ProjectAwareIndex>(std::move(Gen), Sync);
+  return std::make_unique<ProjectAwareIndex>(std::move(Gen));
 }
 } // namespace clangd
 } // namespace clang

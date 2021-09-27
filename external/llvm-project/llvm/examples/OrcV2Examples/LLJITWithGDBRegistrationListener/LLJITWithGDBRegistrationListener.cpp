@@ -1,4 +1,4 @@
-//===--------------- LLJITWithGDBRegistrationListener.cpp -----------------===//
+//===--------------- LLJITWithCustomObjectLinkingLayer.cpp ----------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
   InitializeNativeTarget();
   InitializeNativeTargetAsmPrinter();
 
-  cl::ParseCommandLineOptions(argc, argv, "LLJITWithGDBRegistrationListener");
+  cl::ParseCommandLineOptions(argc, argv, "LLJITWithCustomObjectLinkingLayer");
   ExitOnErr.setBanner(std::string(argv[0]) + ": ");
 
   // Detect the host and set code model to small.

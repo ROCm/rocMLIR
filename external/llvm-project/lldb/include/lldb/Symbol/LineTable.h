@@ -12,7 +12,6 @@
 #include "lldb/Core/Address.h"
 #include "lldb/Core/ModuleChild.h"
 #include "lldb/Core/Section.h"
-#include "lldb/Core/SourceLocationSpec.h"
 #include "lldb/Symbol/LineEntry.h"
 #include "lldb/Utility/RangeMap.h"
 #include "lldb/lldb-private.h"
@@ -138,8 +137,12 @@ public:
   ///     CompileUnit::GetSupportFiles()
   ///     FileSpecList::FindFileIndex (uint32_t, const FileSpec &) const
   ///
-  /// \param[in] src_location_spec
-  ///     The source location specifier to match.
+  /// \param[in] line
+  ///     The source line to match.
+  ///
+  /// \param[in] exact
+  ///     If true, match only if you find a line entry exactly matching \a line.
+  ///     If false, return the closest line entry greater than \a line.
   ///
   /// \param[out] line_entry_ptr
   ///     A pointer to a line entry object that will get a copy of
@@ -152,14 +155,13 @@ public:
   ///
   /// \see CompileUnit::GetSupportFiles()
   /// \see FileSpecList::FindFileIndex (uint32_t, const FileSpec &) const
-  uint32_t
-  FindLineEntryIndexByFileIndex(uint32_t start_idx, uint32_t file_idx,
-                                const SourceLocationSpec &src_location_spec,
-                                LineEntry *line_entry_ptr);
+  uint32_t FindLineEntryIndexByFileIndex(uint32_t start_idx, uint32_t file_idx,
+                                         uint32_t line, bool exact,
+                                         LineEntry *line_entry_ptr);
 
   uint32_t FindLineEntryIndexByFileIndex(
-      uint32_t start_idx, const std::vector<uint32_t> &file_idx,
-      const SourceLocationSpec &src_location_spec, LineEntry *line_entry_ptr);
+      uint32_t start_idx, const std::vector<uint32_t> &file_indexes,
+      uint32_t line, bool exact, LineEntry *line_entry_ptr);
 
   size_t FineLineEntriesForFileIndex(uint32_t file_idx, bool append,
                                      SymbolContextList &sc_list);
@@ -209,9 +211,10 @@ public:
 protected:
   struct Entry {
     Entry()
-        : line(0), is_start_of_statement(false), is_start_of_basic_block(false),
+        : file_addr(LLDB_INVALID_ADDRESS), line(0),
+          is_start_of_statement(false), is_start_of_basic_block(false),
           is_prologue_end(false), is_epilogue_begin(false),
-          is_terminal_entry(false) {}
+          is_terminal_entry(false), column(0), file_idx(0) {}
 
     Entry(lldb::addr_t _file_addr, uint32_t _line, uint16_t _column,
           uint16_t _file_idx, bool _is_start_of_statement,
@@ -278,7 +281,7 @@ protected:
 
     // Member variables.
     /// The file address for this line entry.
-    lldb::addr_t file_addr = LLDB_INVALID_ADDRESS;
+    lldb::addr_t file_addr;
     /// The source line number, or zero if there is no line number
     /// information.
     uint32_t line : 27;
@@ -297,10 +300,10 @@ protected:
     uint32_t is_terminal_entry : 1;
     /// The column number of the source line, or zero if there is no
     /// column information.
-    uint16_t column = 0;
+    uint16_t column;
     /// The file index into CompileUnit's file table, or zero if there
     /// is no file information.
-    uint16_t file_idx = 0;
+    uint16_t file_idx;
   };
 
   struct EntrySearchInfo {
@@ -338,75 +341,6 @@ protected:
 private:
   LineTable(const LineTable &) = delete;
   const LineTable &operator=(const LineTable &) = delete;
-
-  template <typename T>
-  uint32_t FindLineEntryIndexByFileIndexImpl(
-      uint32_t start_idx, T file_idx,
-      const SourceLocationSpec &src_location_spec, LineEntry *line_entry_ptr,
-      std::function<bool(T, uint16_t)> file_idx_matcher) {
-    const size_t count = m_entries.size();
-    size_t best_match = UINT32_MAX;
-
-    if (!line_entry_ptr)
-      return best_match;
-
-    const uint32_t line = src_location_spec.GetLine().getValueOr(0);
-    const uint16_t column =
-        src_location_spec.GetColumn().getValueOr(LLDB_INVALID_COLUMN_NUMBER);
-    const bool exact_match = src_location_spec.GetExactMatch();
-
-    for (size_t idx = start_idx; idx < count; ++idx) {
-      // Skip line table rows that terminate the previous row (is_terminal_entry
-      // is non-zero)
-      if (m_entries[idx].is_terminal_entry)
-        continue;
-
-      if (!file_idx_matcher(file_idx, m_entries[idx].file_idx))
-        continue;
-
-      // Exact match always wins.  Otherwise try to find the closest line > the
-      // desired line.
-      // FIXME: Maybe want to find the line closest before and the line closest
-      // after and if they're not in the same function, don't return a match.
-
-      if (column == LLDB_INVALID_COLUMN_NUMBER) {
-        if (m_entries[idx].line < line) {
-          continue;
-        } else if (m_entries[idx].line == line) {
-          ConvertEntryAtIndexToLineEntry(idx, *line_entry_ptr);
-          return idx;
-        } else if (!exact_match) {
-          if (best_match == UINT32_MAX ||
-              m_entries[idx].line < m_entries[best_match].line)
-            best_match = idx;
-        }
-      } else {
-        if (m_entries[idx].line < line) {
-          continue;
-        } else if (m_entries[idx].line == line &&
-                   m_entries[idx].column == column) {
-          ConvertEntryAtIndexToLineEntry(idx, *line_entry_ptr);
-          return idx;
-        } else if (!exact_match) {
-          if (best_match == UINT32_MAX)
-            best_match = idx;
-          else if (m_entries[idx].line < m_entries[best_match].line)
-            best_match = idx;
-          else if (m_entries[idx].line == m_entries[best_match].line)
-            if (m_entries[idx].column &&
-                m_entries[idx].column < m_entries[best_match].column)
-              best_match = idx;
-        }
-      }
-    }
-
-    if (best_match != UINT32_MAX) {
-      if (line_entry_ptr)
-        ConvertEntryAtIndexToLineEntry(best_match, *line_entry_ptr);
-      return best_match;
-    }
-    return UINT32_MAX;
-  }
 };
 
 } // namespace lldb_private

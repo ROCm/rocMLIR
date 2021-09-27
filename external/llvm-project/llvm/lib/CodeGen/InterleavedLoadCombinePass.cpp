@@ -32,7 +32,6 @@
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
-#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/InitializePasses.h"
@@ -313,7 +312,7 @@ public:
     }
 
     // Multiplying by zero removes the coefficient B and defines all bits.
-    if (C.isZero()) {
+    if (C.isNullValue()) {
       ErrorMSBs = 0;
       deleteB();
     }
@@ -464,7 +463,7 @@ public:
       return *this;
     }
 
-    if (C.isZero())
+    if (C.isNullValue())
       return *this;
 
     // Test if the result will be zero
@@ -571,7 +570,7 @@ public:
   bool isProvenEqualTo(const Polynomial &o) {
     // Subtract both polynomials and test if it is fully defined and zero.
     Polynomial r = *this - o;
-    return (r.ErrorMSBs == 0) && (!r.isFirstOrder()) && (r.A.isZero());
+    return (r.ErrorMSBs == 0) && (!r.isFirstOrder()) && (r.A.isNullValue());
   }
 
   /// Print the polynomial into a stream.

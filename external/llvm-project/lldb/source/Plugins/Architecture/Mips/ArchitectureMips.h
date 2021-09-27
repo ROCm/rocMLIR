@@ -21,6 +21,7 @@ public:
   static void Terminate();
 
   ConstString GetPluginName() override;
+  uint32_t GetPluginVersion() override;
 
   void OverrideStopInfo(Thread &thread) const override {}
 

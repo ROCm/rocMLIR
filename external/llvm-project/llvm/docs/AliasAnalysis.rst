@@ -276,7 +276,8 @@ implementing, you just override the interfaces you can improve.
 ``AliasAnalysis`` chaining behavior
 -----------------------------------
 
-Every alias analysis pass chains to another alias analysis implementation (for
+With only one special exception (the :ref:`-no-aa <aliasanalysis-no-aa>` pass)
+every alias analysis pass chains to another alias analysis implementation (for
 example, the user can specify "``-basic-aa -ds-aa -licm``" to get the maximum
 benefit from both alias analyses).  The alias analysis class automatically
 takes care of most of this for methods that you don't override.  For methods
@@ -501,8 +502,18 @@ Available ``AliasAnalysis`` implementations
 -------------------------------------------
 
 This section lists the various implementations of the ``AliasAnalysis``
-interface. All of these :ref:`chain <aliasanalysis-chaining>` to other
+interface.  With the exception of the :ref:`-no-aa <aliasanalysis-no-aa>`
+implementation, all of these :ref:`chain <aliasanalysis-chaining>` to other
 alias analysis implementations.
+
+.. _aliasanalysis-no-aa:
+
+The ``-no-aa`` pass
+^^^^^^^^^^^^^^^^^^^
+
+The ``-no-aa`` pass is just like what it sounds: an alias analysis that never
+returns any useful information.  This pass can be useful if you think that alias
+analysis is doing something wrong and are trying to narrow down a problem.
 
 The ``-basic-aa`` pass
 ^^^^^^^^^^^^^^^^^^^^^^

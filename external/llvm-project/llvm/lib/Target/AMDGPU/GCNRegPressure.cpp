@@ -125,14 +125,12 @@ bool GCNRegPressure::less(const GCNSubtarget &ST,
                           unsigned MaxOccupancy) const {
   const auto SGPROcc = std::min(MaxOccupancy,
                                 ST.getOccupancyWithNumSGPRs(getSGPRNum()));
-  const auto VGPROcc =
-    std::min(MaxOccupancy,
-             ST.getOccupancyWithNumVGPRs(getVGPRNum(ST.hasGFX90AInsts())));
+  const auto VGPROcc = std::min(MaxOccupancy,
+                                ST.getOccupancyWithNumVGPRs(getVGPRNum()));
   const auto OtherSGPROcc = std::min(MaxOccupancy,
                                 ST.getOccupancyWithNumSGPRs(O.getSGPRNum()));
-  const auto OtherVGPROcc =
-    std::min(MaxOccupancy,
-             ST.getOccupancyWithNumVGPRs(O.getVGPRNum(ST.hasGFX90AInsts())));
+  const auto OtherVGPROcc = std::min(MaxOccupancy,
+                                ST.getOccupancyWithNumVGPRs(O.getVGPRNum()));
 
   const auto Occ = std::min(SGPROcc, VGPROcc);
   const auto OtherOcc = std::min(OtherSGPROcc, OtherVGPROcc);
@@ -163,8 +161,7 @@ bool GCNRegPressure::less(const GCNSubtarget &ST,
     }
   }
   return SGPRImportant ? (getSGPRNum() < O.getSGPRNum()):
-                         (getVGPRNum(ST.hasGFX90AInsts()) <
-                          O.getVGPRNum(ST.hasGFX90AInsts()));
+                         (getVGPRNum() < O.getVGPRNum());
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
@@ -172,9 +169,7 @@ LLVM_DUMP_METHOD
 void GCNRegPressure::print(raw_ostream &OS, const GCNSubtarget *ST) const {
   OS << "VGPRs: " << Value[VGPR32] << ' ';
   OS << "AGPRs: " << Value[AGPR32];
-  if (ST) OS << "(O"
-             << ST->getOccupancyWithNumVGPRs(getVGPRNum(ST->hasGFX90AInsts()))
-             << ')';
+  if (ST) OS << "(O" << ST->getOccupancyWithNumVGPRs(getVGPRNum()) << ')';
   OS << ", SGPRs: " << getSGPRNum();
   if (ST) OS << "(O" << ST->getOccupancyWithNumSGPRs(getSGPRNum()) << ')';
   OS << ", LVGPR WT: " << getVGPRTuplesWeight()

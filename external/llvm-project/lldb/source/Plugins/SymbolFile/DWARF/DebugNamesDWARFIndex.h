@@ -32,7 +32,7 @@ public:
   GetGlobalVariables(const RegularExpression &regex,
                      llvm::function_ref<bool(DWARFDIE die)> callback) override;
   void
-  GetGlobalVariables(DWARFUnit &cu,
+  GetGlobalVariables(const DWARFUnit &cu,
                      llvm::function_ref<bool(DWARFDIE die)> callback) override;
   void
   GetObjCMethods(ConstString class_name,

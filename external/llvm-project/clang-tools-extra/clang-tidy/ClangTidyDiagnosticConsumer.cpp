@@ -25,7 +25,6 @@
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Frontend/DiagnosticRenderer.h"
-#include "clang/Lex/Lexer.h"
 #include "clang/Tooling/Core/Diagnostic.h"
 #include "clang/Tooling/Core/Replacement.h"
 #include "llvm/ADT/STLExtras.h"
@@ -63,32 +62,15 @@ protected:
         Loc.isValid()
             ? tooling::DiagnosticMessage(Message, Loc.getManager(), Loc)
             : tooling::DiagnosticMessage(Message);
-
-    // Make sure that if a TokenRange is receieved from the check it is unfurled
-    // into a real CharRange for the diagnostic printer later.
-    // Whatever we store here gets decoupled from the current SourceManager, so
-    // we **have to** know the exact position and length of the highlight.
-    auto ToCharRange = [this, &Loc](const CharSourceRange &SourceRange) {
-      if (SourceRange.isCharRange())
-        return SourceRange;
-      assert(SourceRange.isTokenRange());
-      SourceLocation End = Lexer::getLocForEndOfToken(
-          SourceRange.getEnd(), 0, Loc.getManager(), LangOpts);
-      return CharSourceRange::getCharRange(SourceRange.getBegin(), End);
-    };
-
     if (Level == DiagnosticsEngine::Note) {
       Error.Notes.push_back(TidyMessage);
-      for (const CharSourceRange &SourceRange : Ranges)
-        Error.Notes.back().Ranges.emplace_back(Loc.getManager(),
-                                               ToCharRange(SourceRange));
       return;
     }
     assert(Error.Message.Message.empty() && "Overwriting a diagnostic message");
     Error.Message = TidyMessage;
-    for (const CharSourceRange &SourceRange : Ranges)
-      Error.Message.Ranges.emplace_back(Loc.getManager(),
-                                        ToCharRange(SourceRange));
+    for (const CharSourceRange &SourceRange : Ranges) {
+      Error.Ranges.emplace_back(Loc.getManager(), SourceRange);
+    }
   }
 
   void emitDiagnosticLoc(FullSourceLoc Loc, PresumedLoc PLoc,
@@ -278,11 +260,11 @@ std::string ClangTidyContext::getCheckName(unsigned DiagnosticID) const {
 
 ClangTidyDiagnosticConsumer::ClangTidyDiagnosticConsumer(
     ClangTidyContext &Ctx, DiagnosticsEngine *ExternalDiagEngine,
-    bool RemoveIncompatibleErrors, bool GetFixesFromNotes)
+    bool RemoveIncompatibleErrors)
     : Context(Ctx), ExternalDiagEngine(ExternalDiagEngine),
       RemoveIncompatibleErrors(RemoveIncompatibleErrors),
-      GetFixesFromNotes(GetFixesFromNotes), LastErrorRelatesToUserCode(false),
-      LastErrorPassesLineFilter(false), LastErrorWasIgnored(false) {}
+      LastErrorRelatesToUserCode(false), LastErrorPassesLineFilter(false),
+      LastErrorWasIgnored(false) {}
 
 void ClangTidyDiagnosticConsumer::finalizeLastError() {
   if (!Errors.empty()) {
@@ -392,24 +374,6 @@ bool shouldSuppressDiagnostic(DiagnosticsEngine::Level DiagLevel,
                                        Context, AllowIO);
 }
 
-const llvm::StringMap<tooling::Replacements> *
-getFixIt(const tooling::Diagnostic &Diagnostic, bool GetFixFromNotes) {
-  if (!Diagnostic.Message.Fix.empty())
-    return &Diagnostic.Message.Fix;
-  if (!GetFixFromNotes)
-    return nullptr;
-  const llvm::StringMap<tooling::Replacements> *Result = nullptr;
-  for (const auto &Note : Diagnostic.Notes) {
-    if (!Note.Fix.empty()) {
-      if (Result)
-        // We have 2 different fixes in notes, bail out.
-        return nullptr;
-      Result = &Note.Fix;
-    }
-  }
-  return Result;
-}
-
 } // namespace tidy
 } // namespace clang
 
@@ -446,9 +410,6 @@ void ClangTidyDiagnosticConsumer::HandleDiagnostic(
       case DiagnosticsEngine::Warning:
         CheckName = "clang-diagnostic-warning";
         break;
-      case DiagnosticsEngine::Remark:
-        CheckName = "clang-diagnostic-remark";
-        break;
       default:
         CheckName = "clang-diagnostic-unknown";
         break;
@@ -463,10 +424,7 @@ void ClangTidyDiagnosticConsumer::HandleDiagnostic(
       Level = ClangTidyError::Error;
       LastErrorRelatesToUserCode = true;
       LastErrorPassesLineFilter = true;
-    } else if (DiagLevel == DiagnosticsEngine::Remark) {
-      Level = ClangTidyError::Remark;
     }
-
     bool IsWarningAsError = DiagLevel == DiagnosticsEngine::Warning &&
                             Context.treatAsError(CheckName);
     Errors.emplace_back(CheckName, Level, Context.getCurrentBuildDirectory(),
@@ -700,7 +658,7 @@ void ClangTidyDiagnosticConsumer::removeIncompatibleErrors() {
       std::pair<ClangTidyError *, llvm::StringMap<tooling::Replacements> *>>
       ErrorFixes;
   for (auto &Error : Errors) {
-    if (const auto *Fix = getFixIt(Error, GetFixesFromNotes))
+    if (const auto *Fix = tooling::selectFirstFix(Error))
       ErrorFixes.emplace_back(
           &Error, const_cast<llvm::StringMap<tooling::Replacements> *>(Fix));
   }

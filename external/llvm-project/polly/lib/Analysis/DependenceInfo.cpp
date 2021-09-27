@@ -25,7 +25,6 @@
 #include "polly/ScopInfo.h"
 #include "polly/Support/GICHelper.h"
 #include "polly/Support/ISLTools.h"
-#include "llvm/ADT/Sequence.h"
 #include "llvm/Support/Debug.h"
 #include "isl/aff.h"
 #include "isl/ctx.h"
@@ -190,9 +189,9 @@ static void collectInfo(Scop &S, isl_union_map *&Read,
 
 /// Fix all dimension of @p Zero to 0 and add it to @p user
 static void fixSetToZero(isl::set Zero, isl::union_set *User) {
-  for (auto i : seq<isl_size>(0, Zero.tuple_dim().release()))
+  for (unsigned i = 0; i < Zero.dim(isl::dim::set); i++)
     Zero = Zero.fix_si(isl::dim::set, i, 0);
-  *User = User->unite(Zero);
+  *User = User->add_set(Zero);
 }
 
 /// Compute the privatization dependences for a given dependency @p Map
@@ -642,7 +641,8 @@ bool Dependences::isValidSchedule(
     return true;
 
   isl::union_map Dependences = getDependences(TYPE_RAW | TYPE_WAW | TYPE_WAR);
-  isl::union_map Schedule = isl::union_map::empty(S.getIslCtx());
+  isl::space Space = S.getParamSpace();
+  isl::union_map Schedule = isl::union_map::empty(Space);
 
   isl::space ScheduleSpace;
 
@@ -657,29 +657,23 @@ bool Dependences::isValidSchedule(
     assert(!StmtScat.is_null() &&
            "Schedules that contain extension nodes require special handling.");
 
-    if (ScheduleSpace.is_null())
+    if (!ScheduleSpace)
       ScheduleSpace = StmtScat.get_space().range();
 
-    Schedule = Schedule.unite(StmtScat);
+    Schedule = Schedule.add_map(StmtScat);
   }
 
   Dependences = Dependences.apply_domain(Schedule);
   Dependences = Dependences.apply_range(Schedule);
 
   isl::set Zero = isl::set::universe(ScheduleSpace);
-  for (auto i : seq<isl_size>(0, Zero.tuple_dim().release()))
+  for (unsigned i = 0; i < Zero.dim(isl::dim::set); i++)
     Zero = Zero.fix_si(isl::dim::set, i, 0);
 
   isl::union_set UDeltas = Dependences.deltas();
   isl::set Deltas = singleton(UDeltas, ScheduleSpace);
 
-  isl::space Space = Deltas.get_space();
-  isl::map NonPositive = isl::map::universe(Space.map_from_set());
-  NonPositive =
-      NonPositive.lex_le_at(isl::multi_pw_aff::identity_on_domain(Space));
-  NonPositive = NonPositive.intersect_domain(Deltas);
-  NonPositive = NonPositive.intersect_range(Zero);
-
+  isl::map NonPositive = Deltas.lex_le_set(Zero);
   return NonPositive.is_empty();
 }
 
@@ -783,7 +777,7 @@ void Dependences::releaseMemory() {
 isl::union_map Dependences::getDependences(int Kinds) const {
   assert(hasValidDependences() && "No valid dependences available");
   isl::space Space = isl::manage_copy(RAW).get_space();
-  isl::union_map Deps = Deps.empty(Space.ctx());
+  isl::union_map Deps = Deps.empty(Space);
 
   if (Kinds & TYPE_RAW)
     Deps = Deps.unite(isl::manage_copy(RAW));

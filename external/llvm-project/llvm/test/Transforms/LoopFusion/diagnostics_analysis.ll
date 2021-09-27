@@ -1,5 +1,4 @@
 ; RUN: opt -S -loop-fusion -pass-remarks-analysis=loop-fusion -disable-output < %s 2>&1 | FileCheck %s
-; REQUIRES: asserts
 
 @B = common global [1024 x i32] zeroinitializer, align 16
 

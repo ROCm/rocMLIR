@@ -12,8 +12,8 @@
 #include "lldb/lldb-enumerations.h"
 #include "lldb/lldb-types.h"
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace lldb_private {
 class DataExtractor;

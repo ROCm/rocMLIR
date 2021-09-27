@@ -2,19 +2,17 @@
 // CHECK: Available Dialects:
 // CHECK: acc
 // CHECK: affine
-// CHECK: amx
 // CHECK: arm_neon
 // CHECK: arm_sve
 // CHECK: async
-// CHECK: builtin
+// CHECK: avx512
 // CHECK: complex
-// CHECK: dlti
-// CHECK: emitc
 // CHECK: gpu
 // CHECK: linalg
 // CHECK: llvm
-// CHECK: math
-// CHECK: memref
+// CHECK: llvm_arm_neon
+// CHECK: llvm_arm_sve
+// CHECK: llvm_avx512
 // CHECK: nvvm
 // CHECK: omp
 // CHECK: pdl
@@ -22,12 +20,11 @@
 // CHECK: quant
 // CHECK: rocdl
 // CHECK: scf
+// CHECK: sdbm
 // CHECK: shape
-// CHECK: sparse_tensor
 // CHECK: spv
 // CHECK: std
 // CHECK: tensor
 // CHECK: test
 // CHECK: tosa
 // CHECK: vector
-// CHECK: x86vector

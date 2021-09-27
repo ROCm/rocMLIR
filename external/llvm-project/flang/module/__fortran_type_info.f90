@@ -30,28 +30,22 @@ module __Fortran_type_info
     ! applied, appear in the initial entries in the same order as they
     ! appear in the parent type's bindings, if any.  They are followed
     ! by new local bindings in alphabetic order of theing binding names.
-    type(Binding), pointer, contiguous :: binding(:)
+    type(Binding), pointer :: binding(:)
     character(len=:), pointer :: name
     integer(kind=int64) :: sizeInBytes
+    type(DerivedType), pointer :: parent
     ! Instances of parameterized derived types use the "uninstantiated"
     ! component to point to the pristine original definition.
     type(DerivedType), pointer :: uninstantiated
-    integer(kind=int64), pointer, contiguous :: kindParameter(:) ! values of instance
-    integer(1), pointer, contiguous :: lenParameterKind(:) ! INTEGER kinds of LEN types
-    ! Data components appear in component order.
-    ! The parent component, if any, appears explicitly and first.
-    type(Component), pointer, contiguous :: component(:) ! data components
-    type(ProcPtrComponent), pointer, contiguous :: procptr(:) ! procedure pointers
+    integer(kind=int64) :: typeHash
+    integer(kind=int64), pointer :: kindParameter(:) ! values of instance
+    integer(1), pointer :: lenParameterKind(:) ! INTEGER kinds of LEN types
+    ! Data components appear in alphabetic order.
+    ! The parent component, if any, appears explicitly.
+    type(Component), pointer :: component(:) ! data components
+    type(ProcPtrComponent), pointer :: procptr(:) ! procedure pointers
     ! Special bindings of the ancestral types are not duplicated here.
-    ! Bindings are in ascending order of their "which" code values.
-    type(SpecialBinding), pointer, contiguous :: special(:)
-    ! A little-endian bit set of SpecialBinding::Which codes present in "special"
-    integer(4) :: specialBitSet
-    integer(1) :: hasParent
-    integer(1) :: noInitializationNeeded ! 1 if no component w/ init
-    integer(1) :: noDestructionNeeded ! 1 if no component w/ dealloc/final
-    integer(1) :: noFinalizationNeeded ! 1 if nothing finalizaable
-    integer(1) :: __padding0(4)
+    type(SpecialBinding), pointer :: special(:)
   end type
 
   type :: Binding
@@ -59,7 +53,7 @@ module __Fortran_type_info
     character(len=:), pointer :: name
   end type
 
-  ! Array bounds and type parameters of components are deferred
+  ! Array bounds and type parameters of ocmponents are deferred
   ! (for allocatables and pointers), explicit constants, or
   ! taken from LEN type parameters for automatic components.
   enum, bind(c) ! Value::Genre
@@ -92,9 +86,9 @@ module __Fortran_type_info
     integer(kind=int64) :: offset
     type(Value) :: characterLen ! for category == Character
     type(DerivedType), pointer :: derived ! for category == Derived
-    type(Value), pointer, contiguous :: lenValue(:) ! (SIZE(derived%lenParameterKind))
-    type(Value), pointer, contiguous :: bounds(:, :) ! (2, rank): lower, upper
-    type(__builtin_c_ptr) :: initialization
+    type(Value), pointer :: lenValue(:) ! (SIZE(derived%lenParameterKind))
+    type(Value), pointer :: bounds(:, :) ! (2, rank): lower, upper
+    class(*), pointer :: initialization
   end type
 
   type :: ProcPtrComponent ! procedure pointer components
@@ -104,17 +98,17 @@ module __Fortran_type_info
   end type
 
   enum, bind(c) ! SpecialBinding::Which
-    enumerator :: ScalarAssignment = 1, ElementalAssignment = 2
-    enumerator :: ReadFormatted = 3, ReadUnformatted = 4
-    enumerator :: WriteFormatted = 5, WriteUnformatted = 6
-    enumerator :: ElementalFinal = 7, AssumedRankFinal = 8
-    enumerator :: ScalarFinal = 9 ! higher-rank final procedures follow
+    enumerator :: Assignment = 4, ElementalAssignment = 5
+    enumerator :: Final = 8, ElementalFinal = 9, AssumedRankFinal = 10
+    enumerator :: ReadFormatted = 16, ReadUnformatted = 17
+    enumerator :: WriteFormatted = 18, WriteUnformatted = 19
   end enum
 
   type, bind(c) :: SpecialBinding
     integer(1) :: which ! SpecialBinding::Which
+    integer(1) :: rank ! for which == SpecialBinding::Which::Final only
     integer(1) :: isArgDescriptorSet
-    integer(1) :: __padding0(6)
+    integer(1) :: __padding0(5)
     type(__builtin_c_funptr) :: proc
   end type
 

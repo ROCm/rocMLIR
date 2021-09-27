@@ -31,7 +31,6 @@ X
 // CHECK:        MacroNameTok: __STDC_UTF_32__
 // CHECK-NEXT:   MacroDirective: MD_Define
 // CHECK:      - Callback: MacroDefined
-// CHECK:      - Callback: MacroDefined
 // CHECK-NEXT:   MacroNameTok: MACRO
 // CHECK-NEXT:   MacroDirective: MD_Define
 // CHECK-NEXT: - Callback: MacroExpands

@@ -73,7 +73,7 @@ static Status FindUnusedPort(uint16_t &port) {
   return error;
 }
 
-PlatformAndroidRemoteGDBServer::PlatformAndroidRemoteGDBServer() = default;
+PlatformAndroidRemoteGDBServer::PlatformAndroidRemoteGDBServer() {}
 
 PlatformAndroidRemoteGDBServer::~PlatformAndroidRemoteGDBServer() {
   for (const auto &it : m_port_forwards)

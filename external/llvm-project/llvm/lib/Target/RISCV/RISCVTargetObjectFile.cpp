@@ -84,7 +84,6 @@ MCSection *RISCVELFTargetObjectFile::SelectSectionForGlobal(
 }
 
 void RISCVELFTargetObjectFile::getModuleMetadata(Module &M) {
-  TargetLoweringObjectFileELF::getModuleMetadata(M);
   SmallVector<Module::ModuleFlagEntry, 8> ModuleFlags;
   M.getModuleFlagsMetadata(ModuleFlags);
 

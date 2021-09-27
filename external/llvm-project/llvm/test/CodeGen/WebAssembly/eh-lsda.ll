@@ -1,5 +1,6 @@
-; RUN: llc < %s -disable-wasm-fallthrough-return-opt -wasm-keep-registers -wasm-enable-eh -exception-model=wasm -mattr=+exception-handling | FileCheck -allow-deprecated-dag-overlap %s
+; RUN: llc < %s -disable-wasm-fallthrough-return-opt -wasm-keep-registers -exception-model=wasm -mattr=+exception-handling | FileCheck -allow-deprecated-dag-overlap %s
 
+target datalayout = "e-m:e-p:32:32-i64:64-n32:64-S128"
 target triple = "wasm32-unknown-unknown"
 
 @_ZTIi = external constant i8*
@@ -230,15 +231,10 @@ catch:                                            ; preds = %catch.fallthrough2
 }
 
 declare void @may_throw()
-; Function Attrs: nounwind
-declare i32 @llvm.eh.typeid.for(i8*) #0
-; Function Attrs: nounwind
-declare i8* @llvm.wasm.get.exception(token) #0
-; Function Attrs: nounwind
-declare i32 @llvm.wasm.get.ehselector(token) #0
+declare i32 @llvm.eh.typeid.for(i8*)
+declare i8* @llvm.wasm.get.exception(token)
+declare i32 @llvm.wasm.get.ehselector(token)
 declare void @__cxa_rethrow()
 declare i8* @__cxa_begin_catch(i8*)
 declare void @__cxa_end_catch()
 declare i32 @__gxx_wasm_personality_v0(...)
-
-attributes #0 = { nounwind }

@@ -16,17 +16,6 @@ function(llvm_ExternalProject_BuildCmd out_var target bin_dir)
   endif()
 endfunction()
 
-# is_msvc_triple(out_var triple)
-#   Checks whether the passed triple refers to an MSVC environment
-function(is_msvc_triple out_var triple)
-  if (triple MATCHES ".*-windows-msvc.*")
-    set(${out_var} TRUE PARENT_SCOPE)
-  else()
-    set(${out_var} FALSE PARENT_SCOPE)
-  endif()
-endfunction()
-
-
 # llvm_ExternalProject_Add(name source_dir ...
 #   USE_TOOLCHAIN
 #     Use just-built tools (see TOOLCHAIN_TOOLS)
@@ -48,14 +37,12 @@ endfunction()
 #     Extra variable prefixes (name is always included) to pass down
 #   STRIP_TOOL path
 #     Use provided strip tool instead of the default one.
-#   TARGET_TRIPLE triple
-#     Optional target triple to pass to the compiler
 #   )
 function(llvm_ExternalProject_Add name source_dir)
   cmake_parse_arguments(ARG
     "USE_TOOLCHAIN;EXCLUDE_FROM_ALL;NO_INSTALL;ALWAYS_CLEAN"
     "SOURCE_DIR"
-    "CMAKE_ARGS;TOOLCHAIN_TOOLS;RUNTIME_LIBRARIES;DEPENDS;EXTRA_TARGETS;PASSTHROUGH_PREFIXES;STRIP_TOOL;TARGET_TRIPLE"
+    "CMAKE_ARGS;TOOLCHAIN_TOOLS;RUNTIME_LIBRARIES;DEPENDS;EXTRA_TARGETS;PASSTHROUGH_PREFIXES;STRIP_TOOL"
     ${ARGN})
   canonicalize_tool_name(${name} nameCanon)
 
@@ -71,14 +58,6 @@ function(llvm_ExternalProject_Add name source_dir)
     set(_cmake_system_name "${CMAKE_HOST_SYSTEM_NAME}")
   endif()
 
-  if(NOT ARG_TARGET_TRIPLE)
-    set(target_triple ${LLVM_DEFAULT_TARGET_TRIPLE})
-  else()
-    set(target_triple ${ARG_TARGET_TRIPLE})
-  endif()
-
-  is_msvc_triple(is_msvc_target ${target_triple})
-
   if(NOT ARG_TOOLCHAIN_TOOLS)
     set(ARG_TOOLCHAIN_TOOLS clang)
     # AIX 64-bit XCOFF and big AR format is not yet supported in some of these tools.
@@ -86,7 +65,7 @@ function(llvm_ExternalProject_Add name source_dir)
       list(APPEND ARG_TOOLCHAIN_TOOLS lld llvm-ar llvm-ranlib llvm-nm llvm-objdump)
       if(_cmake_system_name STREQUAL Darwin)
         list(APPEND ARG_TOOLCHAIN_TOOLS llvm-libtool-darwin llvm-lipo)
-      elseif(is_msvc_target)
+      elseif(_cmake_system_name STREQUAL Windows)
         list(APPEND ARG_TOOLCHAIN_TOOLS llvm-lib)
       else()
         # TODO: These tools don't fully support Mach-O format yet.
@@ -159,7 +138,7 @@ function(llvm_ExternalProject_Add name source_dir)
 
   if(ARG_USE_TOOLCHAIN AND NOT CMAKE_CROSSCOMPILING)
     if(CLANG_IN_TOOLCHAIN)
-      if(is_msvc_target)
+      if(_cmake_system_name STREQUAL Windows)
         set(compiler_args -DCMAKE_C_COMPILER=${LLVM_RUNTIME_OUTPUT_INTDIR}/clang-cl${CMAKE_EXECUTABLE_SUFFIX}
                           -DCMAKE_CXX_COMPILER=${LLVM_RUNTIME_OUTPUT_INTDIR}/clang-cl${CMAKE_EXECUTABLE_SUFFIX}
                           -DCMAKE_ASM_COMPILER=${LLVM_RUNTIME_OUTPUT_INTDIR}/clang-cl${CMAKE_EXECUTABLE_SUFFIX})
@@ -170,14 +149,14 @@ function(llvm_ExternalProject_Add name source_dir)
       endif()
     endif()
     if(lld IN_LIST TOOLCHAIN_TOOLS)
-      if(is_msvc_target)
+      if(_cmake_system_name STREQUAL Windows)
         list(APPEND compiler_args -DCMAKE_LINKER=${LLVM_RUNTIME_OUTPUT_INTDIR}/lld-link${CMAKE_EXECUTABLE_SUFFIX})
       elseif(NOT _cmake_system_name STREQUAL Darwin)
         list(APPEND compiler_args -DCMAKE_LINKER=${LLVM_RUNTIME_OUTPUT_INTDIR}/ld.lld${CMAKE_EXECUTABLE_SUFFIX})
       endif()
     endif()
     if(llvm-ar IN_LIST TOOLCHAIN_TOOLS)
-      if(is_msvc_target)
+      if(_cmake_system_name STREQUAL Windows)
         list(APPEND compiler_args -DCMAKE_AR=${LLVM_RUNTIME_OUTPUT_INTDIR}/llvm-lib${CMAKE_EXECUTABLE_SUFFIX})
       else()
         list(APPEND compiler_args -DCMAKE_AR=${LLVM_RUNTIME_OUTPUT_INTDIR}/llvm-ar${CMAKE_EXECUTABLE_SUFFIX})
@@ -232,8 +211,7 @@ function(llvm_ExternalProject_Add name source_dir)
   endif()
 
   if(CMAKE_CROSSCOMPILING)
-    set(compiler_args -DCMAKE_ASM_COMPILER=${CMAKE_ASM_COMPILER}
-                      -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+    set(compiler_args -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
                       -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
                       -DCMAKE_LINKER=${CMAKE_LINKER}
                       -DCMAKE_AR=${CMAKE_AR}
@@ -272,12 +250,6 @@ function(llvm_ExternalProject_Add name source_dir)
   else()
     set(llvm_config_path "$<TARGET_FILE:llvm-config>")
     set(cmake_args ${ARG_CMAKE_ARGS})
-  endif()
-
-  if(ARG_TARGET_TRIPLE)
-    list(APPEND compiler_args -DCMAKE_C_COMPILER_TARGET=${ARG_TARGET_TRIPLE})
-    list(APPEND compiler_args -DCMAKE_CXX_COMPILER_TARGET=${ARG_TARGET_TRIPLE})
-    list(APPEND compiler_args -DCMAKE_ASM_COMPILER_TARGET=${ARG_TARGET_TRIPLE})
   endif()
 
   ExternalProject_Add(${name}

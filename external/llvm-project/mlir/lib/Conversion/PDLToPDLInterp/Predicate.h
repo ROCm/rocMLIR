@@ -45,10 +45,8 @@ enum Kind : unsigned {
   /// Positions, ordered by decreasing priority.
   OperationPos,
   OperandPos,
-  OperandGroupPos,
   AttributePos,
   ResultPos,
-  ResultGroupPos,
   TypePos,
 
   // Questions, ordered by dependency and decreasing priority.
@@ -56,9 +54,7 @@ enum Kind : unsigned {
   OperationNameQuestion,
   TypeQuestion,
   AttributeQuestion,
-  OperandCountAtLeastQuestion,
   OperandCountQuestion,
-  ResultCountAtLeastQuestion,
   ResultCountQuestion,
   EqualToQuestion,
   ConstraintQuestion,
@@ -133,15 +129,21 @@ struct OperationPosition;
 /// predicates, and assists generating bytecode and memory management.
 ///
 /// Operation positions form the base of other positions, which are formed
-/// relative to a parent operation. Operations are anchored at Operand nodes,
-/// except for the root operation which is parentless.
+/// relative to a parent operation, e.g. OperandPosition<[0] -> 1>. Operations
+/// are indexed by child index: [0, 1, 2] refers to the 3rd child of the 2nd
+/// child of the root operation.
+///
+/// Positions are linked to their parent position, which describes how to obtain
+/// a positional value. As a concrete example, getting OperationPosition<[0, 1]>
+/// would be `root->getOperand(1)->getDefiningOp()`, so its parent is
+/// OperandPosition<[0] -> 1>, whose parent is OperationPosition<[0]>.
 class Position : public StorageUniquer::BaseStorage {
 public:
   explicit Position(Predicates::Kind kind) : kind(kind) {}
   virtual ~Position();
 
-  /// Returns the depth of the first ancestor operation position.
-  unsigned getOperationDepth() const;
+  /// Returns the base node position. This is an array of indices.
+  virtual ArrayRef<unsigned> getIndex() const = 0;
 
   /// Returns the parent position. The root operation position has no parent.
   Position *getParent() const { return parent; }
@@ -168,6 +170,9 @@ struct AttributePosition
                            Predicates::AttributePos> {
   explicit AttributePosition(const KeyTy &key);
 
+  /// Returns the index of this position.
+  ArrayRef<unsigned> getIndex() const final { return parent->getIndex(); }
+
   /// Returns the attribute name of this position.
   Identifier getName() const { return key.second; }
 };
@@ -182,33 +187,11 @@ struct OperandPosition
                            Predicates::OperandPos> {
   explicit OperandPosition(const KeyTy &key);
 
+  /// Returns the index of this position.
+  ArrayRef<unsigned> getIndex() const final { return parent->getIndex(); }
+
   /// Returns the operand number of this position.
   unsigned getOperandNumber() const { return key.second; }
-};
-
-//===----------------------------------------------------------------------===//
-// OperandGroupPosition
-
-/// A position describing an operand group of an operation.
-struct OperandGroupPosition
-    : public PredicateBase<
-          OperandGroupPosition, Position,
-          std::tuple<OperationPosition *, Optional<unsigned>, bool>,
-          Predicates::OperandGroupPos> {
-  explicit OperandGroupPosition(const KeyTy &key);
-
-  /// Returns a hash suitable for the given keytype.
-  static llvm::hash_code hashKey(const KeyTy &key) {
-    return llvm::hash_value(key);
-  }
-
-  /// Returns the group number of this position. If None, this group refers to
-  /// all operands.
-  Optional<unsigned> getOperandGroupNumber() const { return std::get<1>(key); }
-
-  /// Returns if the operand group has unknown size. If false, the operand group
-  /// has at max one element.
-  bool isVariadic() const { return std::get<2>(key); }
 };
 
 //===----------------------------------------------------------------------===//
@@ -216,27 +199,30 @@ struct OperandGroupPosition
 
 /// An operation position describes an operation node in the IR. Other position
 /// kinds are formed with respect to an operation position.
-struct OperationPosition : public PredicateBase<OperationPosition, Position,
-                                                std::pair<Position *, unsigned>,
-                                                Predicates::OperationPos> {
-  explicit OperationPosition(const KeyTy &key) : Base(key) {
-    parent = key.first;
-  }
+struct OperationPosition
+    : public PredicateBase<OperationPosition, Position, ArrayRef<unsigned>,
+                           Predicates::OperationPos> {
+  using Base::Base;
 
-  /// Gets the root position.
+  /// Gets the root position, which is always [0].
   static OperationPosition *getRoot(StorageUniquer &uniquer) {
-    return Base::get(uniquer, nullptr, 0);
+    return get(uniquer, ArrayRef<unsigned>(0));
   }
-  /// Gets an operation position with the given parent.
-  static OperationPosition *get(StorageUniquer &uniquer, Position *parent) {
-    return Base::get(uniquer, parent, parent->getOperationDepth() + 1);
+  /// Gets a node position for the given index.
+  static OperationPosition *get(StorageUniquer &uniquer,
+                                ArrayRef<unsigned> index);
+
+  /// Constructs an instance with the given storage allocator.
+  static OperationPosition *construct(StorageUniquer::StorageAllocator &alloc,
+                                      ArrayRef<unsigned> key) {
+    return Base::construct(alloc, alloc.copyInto(key));
   }
 
-  /// Returns the depth of this position.
-  unsigned getDepth() const { return key.second; }
+  /// Returns the index of this position.
+  ArrayRef<unsigned> getIndex() const final { return key; }
 
   /// Returns if this operation position corresponds to the root.
-  bool isRoot() const { return getDepth() == 0; }
+  bool isRoot() const { return key.size() == 1 && key[0] == 0; }
 };
 
 //===----------------------------------------------------------------------===//
@@ -249,35 +235,11 @@ struct ResultPosition
                            Predicates::ResultPos> {
   explicit ResultPosition(const KeyTy &key) : Base(key) { parent = key.first; }
 
+  /// Returns the index of this position.
+  ArrayRef<unsigned> getIndex() const final { return key.first->getIndex(); }
+
   /// Returns the result number of this position.
   unsigned getResultNumber() const { return key.second; }
-};
-
-//===----------------------------------------------------------------------===//
-// ResultGroupPosition
-
-/// A position describing a result group of an operation.
-struct ResultGroupPosition
-    : public PredicateBase<
-          ResultGroupPosition, Position,
-          std::tuple<OperationPosition *, Optional<unsigned>, bool>,
-          Predicates::ResultGroupPos> {
-  explicit ResultGroupPosition(const KeyTy &key) : Base(key) {
-    parent = std::get<0>(key);
-  }
-
-  /// Returns a hash suitable for the given keytype.
-  static llvm::hash_code hashKey(const KeyTy &key) {
-    return llvm::hash_value(key);
-  }
-
-  /// Returns the group number of this position. If None, this group refers to
-  /// all results.
-  Optional<unsigned> getResultGroupNumber() const { return std::get<1>(key); }
-
-  /// Returns if the result group has unknown size. If false, the result group
-  /// has at max one element.
-  bool isVariadic() const { return std::get<2>(key); }
 };
 
 //===----------------------------------------------------------------------===//
@@ -288,11 +250,14 @@ struct ResultGroupPosition
 struct TypePosition : public PredicateBase<TypePosition, Position, Position *,
                                            Predicates::TypePos> {
   explicit TypePosition(const KeyTy &key) : Base(key) {
-    assert((isa<AttributePosition, OperandPosition, OperandGroupPosition,
-                ResultPosition, ResultGroupPosition>(key)) &&
+    assert((isa<AttributePosition>(key) || isa<OperandPosition>(key) ||
+            isa<ResultPosition>(key)) &&
            "expected parent to be an attribute, operand, or result");
     parent = key;
   }
+
+  /// Returns the index of this position.
+  ArrayRef<unsigned> getIndex() const final { return key->getIndex(); }
 };
 
 //===----------------------------------------------------------------------===//
@@ -346,9 +311,8 @@ struct TrueAnswer
   using Base::Base;
 };
 
-/// An Answer representing a `Type` value. The value is stored as either a
-/// TypeAttr, or an ArrayAttr of TypeAttr.
-struct TypeAnswer : public PredicateBase<TypeAnswer, Qualifier, Attribute,
+/// An Answer representing a `Type` value.
+struct TypeAnswer : public PredicateBase<TypeAnswer, Qualifier, Type,
                                          Predicates::TypeAnswer> {
   using Base::Base;
 };
@@ -401,9 +365,6 @@ struct IsNotNullQuestion
 struct OperandCountQuestion
     : public PredicateBase<OperandCountQuestion, Qualifier, void,
                            Predicates::OperandCountQuestion> {};
-struct OperandCountAtLeastQuestion
-    : public PredicateBase<OperandCountAtLeastQuestion, Qualifier, void,
-                           Predicates::OperandCountAtLeastQuestion> {};
 
 /// Compare the name of an operation with a known value.
 struct OperationNameQuestion
@@ -414,9 +375,6 @@ struct OperationNameQuestion
 struct ResultCountQuestion
     : public PredicateBase<ResultCountQuestion, Qualifier, void,
                            Predicates::ResultCountQuestion> {};
-struct ResultCountAtLeastQuestion
-    : public PredicateBase<ResultCountAtLeastQuestion, Qualifier, void,
-                           Predicates::ResultCountAtLeastQuestion> {};
 
 /// Compare the type of an attribute or value with a known type.
 struct TypeQuestion : public PredicateBase<TypeQuestion, Qualifier, void,
@@ -434,10 +392,8 @@ public:
     // Register the types of Positions with the uniquer.
     registerParametricStorageType<AttributePosition>();
     registerParametricStorageType<OperandPosition>();
-    registerParametricStorageType<OperandGroupPosition>();
     registerParametricStorageType<OperationPosition>();
     registerParametricStorageType<ResultPosition>();
-    registerParametricStorageType<ResultGroupPosition>();
     registerParametricStorageType<TypePosition>();
 
     // Register the types of Questions with the uniquer.
@@ -453,10 +409,8 @@ public:
     registerSingletonStorageType<AttributeQuestion>();
     registerSingletonStorageType<IsNotNullQuestion>();
     registerSingletonStorageType<OperandCountQuestion>();
-    registerSingletonStorageType<OperandCountAtLeastQuestion>();
     registerSingletonStorageType<OperationNameQuestion>();
     registerSingletonStorageType<ResultCountQuestion>();
-    registerSingletonStorageType<ResultCountAtLeastQuestion>();
     registerSingletonStorageType<TypeQuestion>();
   }
 };
@@ -479,10 +433,10 @@ public:
   Position *getRoot() { return OperationPosition::getRoot(uniquer); }
 
   /// Returns the parent position defining the value held by the given operand.
-  OperationPosition *getOperandDefiningOp(Position *p) {
-    assert((isa<OperandPosition, OperandGroupPosition>(p)) &&
-           "expected operand position");
-    return OperationPosition::get(uniquer, p);
+  Position *getParent(OperandPosition *p) {
+    std::vector<unsigned> index = p->getIndex();
+    index.push_back(p->getOperandNumber());
+    return OperationPosition::get(uniquer, index);
   }
 
   /// Returns an attribute position for an attribute of the given operation.
@@ -495,27 +449,9 @@ public:
     return OperandPosition::get(uniquer, p, operand);
   }
 
-  /// Returns a position for a group of operands of the given operation.
-  Position *getOperandGroup(OperationPosition *p, Optional<unsigned> group,
-                            bool isVariadic) {
-    return OperandGroupPosition::get(uniquer, p, group, isVariadic);
-  }
-  Position *getAllOperands(OperationPosition *p) {
-    return getOperandGroup(p, /*group=*/llvm::None, /*isVariadic=*/true);
-  }
-
   /// Returns a result position for a result of the given operation.
   Position *getResult(OperationPosition *p, unsigned result) {
     return ResultPosition::get(uniquer, p, result);
-  }
-
-  /// Returns a position for a group of results of the given operation.
-  Position *getResultGroup(OperationPosition *p, Optional<unsigned> group,
-                           bool isVariadic) {
-    return ResultGroupPosition::get(uniquer, p, group, isVariadic);
-  }
-  Position *getAllResults(OperationPosition *p) {
-    return getResultGroup(p, /*group=*/llvm::None, /*isVariadic=*/true);
   }
 
   /// Returns a type position for the given entity.
@@ -560,10 +496,6 @@ public:
     return {OperandCountQuestion::get(uniquer),
             UnsignedAnswer::get(uniquer, count)};
   }
-  Predicate getOperandCountAtLeast(unsigned count) {
-    return {OperandCountAtLeastQuestion::get(uniquer),
-            UnsignedAnswer::get(uniquer, count)};
-  }
 
   /// Create a predicate comparing the name of an operation to a known value.
   Predicate getOperationName(StringRef name) {
@@ -577,15 +509,10 @@ public:
     return {ResultCountQuestion::get(uniquer),
             UnsignedAnswer::get(uniquer, count)};
   }
-  Predicate getResultCountAtLeast(unsigned count) {
-    return {ResultCountAtLeastQuestion::get(uniquer),
-            UnsignedAnswer::get(uniquer, count)};
-  }
 
   /// Create a predicate comparing the type of an attribute or value to a known
-  /// type. The value is stored as either a TypeAttr, or an ArrayAttr of
-  /// TypeAttr.
-  Predicate getTypeConstraint(Attribute type) {
+  /// type.
+  Predicate getTypeConstraint(Type type) {
     return {TypeQuestion::get(uniquer), TypeAnswer::get(uniquer, type)};
   }
 

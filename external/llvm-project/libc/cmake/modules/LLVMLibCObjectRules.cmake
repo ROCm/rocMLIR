@@ -1,13 +1,5 @@
 set(OBJECT_LIBRARY_TARGET_TYPE "OBJECT_LIBRARY")
 
-function(_get_common_compile_options output_var)
-  set(compile_options ${LLVM_CXX_STD_default} ${LIBC_COMPILE_OPTIONS_DEFAULT} ${ARGN})
-  if(NOT ${LIBC_TARGET_OS} STREQUAL "windows")
-    set(compile_options ${compile_options} -fpie -ffreestanding)
-  endif()
-  set(${output_var} ${compile_options} PARENT_SCOPE)
-endfunction()
-
 # Rule which is essentially a wrapper over add_library to compile a set of
 # sources to object files.
 # Usage:
@@ -33,7 +25,6 @@ function(add_object_library target_name)
   get_fq_target_name(${target_name} fq_target_name)
   add_library(
     ${fq_target_name}
-    EXCLUDE_FROM_ALL
     OBJECT
     ${ADD_OBJECT_SRCS}
     ${ADD_OBJECT_HDRS}
@@ -45,8 +36,12 @@ function(add_object_library target_name)
       ${LIBC_SOURCE_DIR}
       ${LIBC_BUILD_DIR}
   )
-  _get_common_compile_options(compile_options ${ADD_OBJECT_COMPILE_OPTIONS})
-  target_compile_options(${fq_target_name} PRIVATE ${compile_options})
+  if(ADD_OBJECT_COMPILE_OPTIONS)
+    target_compile_options(
+      ${fq_target_name}
+      PRIVATE ${ADD_OBJECT_COMPILE_OPTIONS}
+    )
+  endif()
 
   get_fq_deps_list(fq_deps_list ${ADD_OBJECT_DEPENDS})
   if(fq_deps_list)
@@ -152,7 +147,7 @@ function(add_entrypoint_object target_name)
     message(FATAL_ERROR "`add_entrypoint_object` rule requires HDRS to be specified.")
   endif()
 
-  _get_common_compile_options(common_compile_options ${ADD_ENTRYPOINT_OBJ_COMPILE_OPTIONS})
+  set(common_compile_options -fpie ${LLVM_CXX_STD_default} -ffreestanding ${ADD_ENTRYPOINT_OBJ_COMPILE_OPTIONS})
   set(internal_target_name ${fq_target_name}.__internal__)
   set(include_dirs ${LIBC_BUILD_DIR}/include ${LIBC_SOURCE_DIR} ${LIBC_BUILD_DIR})
   get_fq_deps_list(fq_deps_list ${ADD_ENTRYPOINT_OBJ_DEPENDS})
@@ -162,7 +157,6 @@ function(add_entrypoint_object target_name)
     ${internal_target_name}
     # TODO: We don't need an object library for internal consumption.
     # A future change should switch this to a normal static library.
-    EXCLUDE_FROM_ALL
     OBJECT
     ${ADD_ENTRYPOINT_OBJ_SRCS}
     ${ADD_ENTRYPOINT_OBJ_HDRS}
@@ -175,12 +169,13 @@ function(add_entrypoint_object target_name)
     ${fq_target_name}
     # We want an object library as the objects will eventually get packaged into
     # an archive (like libc.a).
-    EXCLUDE_FROM_ALL
     OBJECT
     ${ADD_ENTRYPOINT_OBJ_SRCS}
     ${ADD_ENTRYPOINT_OBJ_HDRS}
   )
-  target_compile_options(${fq_target_name} BEFORE PRIVATE ${common_compile_options} -DLLVM_LIBC_PUBLIC_PACKAGING)
+  target_compile_options(
+      ${fq_target_name} BEFORE PRIVATE ${common_compile_options} -DLLVM_LIBC_PUBLIC_PACKAGING
+  )
   target_include_directories(${fq_target_name} PRIVATE ${include_dirs})
   add_dependencies(${fq_target_name} ${full_deps_list})
 
@@ -273,12 +268,11 @@ function(add_redirector_object target_name)
 
   add_library(
     ${target_name}
-    EXCLUDE_FROM_ALL
     OBJECT
     ${REDIRECTOR_OBJECT_SRC}
   )
   target_compile_options(
     ${target_name}
-    BEFORE PRIVATE -fPIC ${LIBC_COMPILE_OPTIONS_DEFAULT}
+    BEFORE PRIVATE -fPIC
   )
 endfunction(add_redirector_object)

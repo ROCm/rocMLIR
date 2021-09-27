@@ -96,11 +96,11 @@ public:
   Block *getBlock() { return block; }
 
   /// Return the context this operation is associated with.
-  MLIRContext *getContext() { return location->getContext(); }
+  MLIRContext *getContext();
 
   /// Return the dialect this operation is associated with, or nullptr if the
   /// associated dialect is not registered.
-  Dialect *getDialect() { return getName().getDialect(); }
+  Dialect *getDialect();
 
   /// The source location the operation was defined or derived from.
   Location getLoc() { return location; }
@@ -110,11 +110,11 @@ public:
 
   /// Returns the region to which the instruction belongs. Returns nullptr if
   /// the instruction is unlinked.
-  Region *getParentRegion() { return block ? block->getParent() : nullptr; }
+  Region *getParentRegion();
 
   /// Returns the closest surrounding operation that contains this operation
   /// or nullptr if this is a top-level operation.
-  Operation *getParentOp() { return block ? block->getParentOp() : nullptr; }
+  Operation *getParentOp();
 
   /// Return the closest surrounding parent operation that is of type 'OpTy'.
   template <typename OpTy> OpTy getParentOfType() {
@@ -204,9 +204,9 @@ public:
   /// take O(N) where N is the number of operations within the parent block.
   bool isBeforeInBlock(Operation *other);
 
-  void print(raw_ostream &os, const OpPrintingFlags &flags = llvm::None);
+  void print(raw_ostream &os, OpPrintingFlags flags = llvm::None);
   void print(raw_ostream &os, AsmState &state,
-             const OpPrintingFlags &flags = llvm::None);
+             OpPrintingFlags flags = llvm::None);
   void dump();
 
   //===--------------------------------------------------------------------===//
@@ -243,12 +243,6 @@ public:
     getOperandStorage().eraseOperands(idx, length);
   }
 
-  /// Erases the operands that have their corresponding bit set in
-  /// `eraseIndices` and removes them from the operand list.
-  void eraseOperands(const llvm::BitVector &eraseIndices) {
-    getOperandStorage().eraseOperands(eraseIndices);
-  }
-
   // Support operand iteration.
   using operand_range = OperandRange;
   using operand_iterator = operand_range::iterator;
@@ -278,10 +272,10 @@ public:
   //===--------------------------------------------------------------------===//
 
   /// Return the number of results held by this operation.
-  unsigned getNumResults() { return numResults; }
+  unsigned getNumResults();
 
   /// Get the 'idx'th result of this operation.
-  OpResult getResult(unsigned idx) { return OpResult(getOpResultImpl(idx)); }
+  OpResult getResult(unsigned idx) { return OpResult(this, idx); }
 
   /// Support result iteration.
   using result_range = ResultRange;
@@ -289,10 +283,7 @@ public:
 
   result_iterator result_begin() { return getResults().begin(); }
   result_iterator result_end() { return getResults().end(); }
-  result_range getResults() {
-    return numResults == 0 ? result_range(nullptr, 0)
-                           : result_range(getInlineOpResult(0), numResults);
-  }
+  result_range getResults() { return result_range(this); }
 
   result_range getOpResults() { return getResults(); }
   OpResult getOpResult(unsigned idx) { return getResult(idx); }
@@ -302,7 +293,7 @@ public:
   using result_type_range = result_range::type_range;
   result_type_iterator result_type_begin() { return getResultTypes().begin(); }
   result_type_iterator result_type_end() { return getResultTypes().end(); }
-  result_type_range getResultTypes() { return getResults().getTypes(); }
+  result_type_range getResultTypes();
 
   //===--------------------------------------------------------------------===//
   // Attributes
@@ -324,7 +315,7 @@ public:
     attrs = newAttrs;
   }
   void setAttrs(ArrayRef<NamedAttribute> newAttrs) {
-    setAttrs(DictionaryAttr::get(getContext(), newAttrs));
+    setAttrs(DictionaryAttr::get(newAttrs, getContext()));
   }
 
   /// Return the specified attribute if present, null otherwise.
@@ -464,6 +455,47 @@ public:
   // Accessors for various properties of operations
   //===--------------------------------------------------------------------===//
 
+  /// Returns whether the operation is commutative.
+  bool isCommutative() {
+    if (auto *absOp = getAbstractOperation())
+      return absOp->hasProperty(OperationProperty::Commutative);
+    return false;
+  }
+
+  /// Represents the status of whether an operation is a terminator. We
+  /// represent an 'unknown' status because we want to support unregistered
+  /// terminators.
+  enum class TerminatorStatus { Terminator, NonTerminator, Unknown };
+
+  /// Returns the status of whether this operation is a terminator or not.
+  TerminatorStatus getTerminatorStatus() {
+    if (auto *absOp = getAbstractOperation()) {
+      return absOp->hasProperty(OperationProperty::Terminator)
+                 ? TerminatorStatus::Terminator
+                 : TerminatorStatus::NonTerminator;
+    }
+    return TerminatorStatus::Unknown;
+  }
+
+  /// Returns true if the operation is known to be a terminator.
+  bool isKnownTerminator() {
+    return getTerminatorStatus() == TerminatorStatus::Terminator;
+  }
+
+  /// Returns true if the operation is known to *not* be a terminator.
+  bool isKnownNonTerminator() {
+    return getTerminatorStatus() == TerminatorStatus::NonTerminator;
+  }
+
+  /// Returns true if the operation is known to be completely isolated from
+  /// enclosing regions, i.e., no internal regions reference values defined
+  /// above this operation.
+  bool isKnownIsolatedFromAbove() {
+    if (auto *absOp = getAbstractOperation())
+      return absOp->hasProperty(OperationProperty::IsolatedFromAbove);
+    return false;
+  }
+
   /// Attempt to fold this operation with the specified constant operand values
   /// - the elements in "operands" will correspond directly to the operands of
   /// the operation, but may be null if non-constant. If folding is successful,
@@ -474,52 +506,32 @@ public:
   /// Returns true if the operation was registered with a particular trait, e.g.
   /// hasTrait<OperandsAreSignlessIntegerLike>().
   template <template <typename T> class Trait> bool hasTrait() {
-    const AbstractOperation *abstractOp = getAbstractOperation();
-    return abstractOp ? abstractOp->hasTrait<Trait>() : false;
-  }
-
-  /// Returns true if the operation is *might* have the provided trait. This
-  /// means that either the operation is unregistered, or it was registered with
-  /// the provide trait.
-  template <template <typename T> class Trait> bool mightHaveTrait() {
-    const AbstractOperation *abstractOp = getAbstractOperation();
-    return abstractOp ? abstractOp->hasTrait<Trait>() : true;
+    auto *absOp = getAbstractOperation();
+    return absOp ? absOp->hasTrait<Trait>() : false;
   }
 
   //===--------------------------------------------------------------------===//
   // Operation Walkers
   //===--------------------------------------------------------------------===//
 
-  /// Walk the operation by calling the callback for each nested operation
-  /// (including this one), block or region, depending on the callback provided.
-  /// Regions, blocks and operations at the same nesting level are visited in
-  /// lexicographical order. The walk order for enclosing regions, blocks and
-  /// operations with respect to their nested ones is specified by 'Order'
-  /// (post-order by default). A callback on a block or operation is allowed to
-  /// erase that block or operation if either:
-  ///   * the walk is in post-order, or
-  ///   * the walk is in pre-order and the walk is skipped after the erasure.
-  ///
-  /// The callback method can take any of the following forms:
+  /// Walk the operation in postorder, calling the callback for each nested
+  /// operation(including this one). The callback method can take any of the
+  /// following forms:
   ///   void(Operation*) : Walk all operations opaquely.
   ///     * op->walk([](Operation *nestedOp) { ...});
   ///   void(OpT) : Walk all operations of the given derived type.
   ///     * op->walk([](ReturnOp returnOp) { ...});
   ///   WalkResult(Operation*|OpT) : Walk operations, but allow for
-  ///                                interruption/skipping.
+  ///                                interruption/cancellation.
   ///     * op->walk([](... op) {
-  ///         // Skip the walk of this op based on some invariant.
-  ///         if (some_invariant)
-  ///           return WalkResult::skip();
   ///         // Interrupt, i.e cancel, the walk based on some invariant.
-  ///         if (another_invariant)
+  ///         if (some_invariant)
   ///           return WalkResult::interrupt();
   ///         return WalkResult::advance();
   ///       });
-  template <WalkOrder Order = WalkOrder::PostOrder, typename FnT,
-            typename RetT = detail::walkResultType<FnT>>
+  template <typename FnT, typename RetT = detail::walkResultType<FnT>>
   RetT walk(FnT &&callback) {
-    return detail::walk<Order>(this, std::forward<FnT>(callback));
+    return detail::walk(this, std::forward<FnT>(callback));
   }
 
   //===--------------------------------------------------------------------===//
@@ -532,20 +544,52 @@ public:
       result.dropAllUses();
   }
 
-  using use_iterator = result_range::use_iterator;
-  using use_range = result_range::use_range;
+  /// This class implements a use iterator for the Operation. This iterates over
+  /// all uses of all results.
+  class UseIterator final
+      : public llvm::iterator_facade_base<
+            UseIterator, std::forward_iterator_tag, OpOperand> {
+  public:
+    /// Initialize UseIterator for op, specify end to return iterator to last
+    /// use.
+    explicit UseIterator(Operation *op, bool end = false);
 
-  use_iterator use_begin() { return getResults().use_begin(); }
-  use_iterator use_end() { return getResults().use_end(); }
+    using llvm::iterator_facade_base<UseIterator, std::forward_iterator_tag,
+                                     OpOperand>::operator++;
+    UseIterator &operator++();
+    OpOperand *operator->() const { return use.getOperand(); }
+    OpOperand &operator*() const { return *use.getOperand(); }
+
+    bool operator==(const UseIterator &rhs) const { return use == rhs.use; }
+    bool operator!=(const UseIterator &rhs) const { return !(*this == rhs); }
+
+  private:
+    void skipOverResultsWithNoUsers();
+
+    /// The operation whose uses are being iterated over.
+    Operation *op;
+    /// The result of op who's uses are being iterated over.
+    Operation::result_iterator res;
+    /// The use of the result.
+    Value::use_iterator use;
+  };
+  using use_iterator = UseIterator;
+  using use_range = iterator_range<use_iterator>;
+
+  use_iterator use_begin() { return use_iterator(this); }
+  use_iterator use_end() { return use_iterator(this, /*end=*/true); }
 
   /// Returns a range of all uses, which is useful for iterating over all uses.
-  use_range getUses() { return getResults().getUses(); }
+  use_range getUses() { return {use_begin(), use_end()}; }
 
   /// Returns true if this operation has exactly one use.
   bool hasOneUse() { return llvm::hasSingleElement(getUses()); }
 
   /// Returns true if this operation has no uses.
-  bool use_empty() { return getResults().use_empty(); }
+  bool use_empty() {
+    return llvm::all_of(getOpResults(),
+                        [](OpResult result) { return result.use_empty(); });
+  }
 
   /// Returns true if the results of this operation are used outside of the
   /// given block.
@@ -609,7 +653,7 @@ private:
   bool hasValidOrder() { return orderIndex != kInvalidOrderIdx; }
 
 private:
-  Operation(Location location, OperationName name, unsigned numResults,
+  Operation(Location location, OperationName name, TypeRange resultTypes,
             unsigned numSuccessors, unsigned numRegions,
             DictionaryAttr attributes, bool hasOperandStorage);
 
@@ -619,17 +663,17 @@ private:
 
   /// Returns the additional size necessary for allocating the given objects
   /// before an Operation in-memory.
-  static size_t prefixAllocSize(unsigned numOutOfLineResults,
+  static size_t prefixAllocSize(unsigned numTrailingResults,
                                 unsigned numInlineResults) {
-    return sizeof(detail::OutOfLineOpResult) * numOutOfLineResults +
-           sizeof(detail::InlineOpResult) * numInlineResults;
+    return sizeof(detail::TrailingOpResult) * numTrailingResults +
+           sizeof(detail::InLineOpResult) * numInlineResults;
   }
   /// Returns the additional size allocated before this Operation in-memory.
   size_t prefixAllocSize() {
     unsigned numResults = getNumResults();
-    unsigned numOutOfLineResults = OpResult::getNumTrailing(numResults);
+    unsigned numTrailingResults = OpResult::getNumTrailing(numResults);
     unsigned numInlineResults = OpResult::getNumInline(numResults);
-    return prefixAllocSize(numOutOfLineResults, numInlineResults);
+    return prefixAllocSize(numTrailingResults, numInlineResults);
   }
 
   /// Returns the operand storage object.
@@ -638,29 +682,20 @@ private:
     return *getTrailingObjects<detail::OperandStorage>();
   }
 
-  /// Returns a pointer to the use list for the given out-of-line result.
-  detail::OutOfLineOpResult *getOutOfLineOpResult(unsigned resultNumber) {
-    // Out-of-line results are stored in reverse order after (before in memory)
-    // the inline results.
-    return reinterpret_cast<detail::OutOfLineOpResult *>(getInlineOpResult(
-               detail::OpResultImpl::getMaxInlineResults() - 1)) -
+  /// Returns a pointer to the use list for the given trailing result.
+  detail::TrailingOpResult *getTrailingResult(unsigned resultNumber) {
+    // Trailing results are stored in reverse order after(before in memory) the
+    // inline results.
+    return reinterpret_cast<detail::TrailingOpResult *>(
+               getInlineResult(OpResult::getMaxInlineResults() - 1)) -
            ++resultNumber;
   }
 
   /// Returns a pointer to the use list for the given inline result.
-  detail::InlineOpResult *getInlineOpResult(unsigned resultNumber) {
+  detail::InLineOpResult *getInlineResult(unsigned resultNumber) {
     // Inline results are stored in reverse order before the operation in
     // memory.
-    return reinterpret_cast<detail::InlineOpResult *>(this) - ++resultNumber;
-  }
-
-  /// Returns a pointer to the use list for the given result, which may be
-  /// either inline or out-of-line.
-  detail::OpResultImpl *getOpResultImpl(unsigned resultNumber) {
-    unsigned maxInlineResults = detail::OpResultImpl::getMaxInlineResults();
-    if (resultNumber < maxInlineResults)
-      return getInlineOpResult(resultNumber);
-    return getOutOfLineOpResult(resultNumber - maxInlineResults);
+    return reinterpret_cast<detail::InLineOpResult *>(this) - ++resultNumber;
   }
 
   /// Provide a 'getParent' method for ilist_node_with_parent methods.
@@ -681,14 +716,23 @@ private:
   /// O(1) local dominance checks between operations.
   mutable unsigned orderIndex = 0;
 
-  const unsigned numResults;
   const unsigned numSuccs;
-  const unsigned numRegions : 31;
+  const unsigned numRegions : 30;
 
   /// This bit signals whether this operation has an operand storage or not. The
   /// operand storage may be elided for operations that are known to never have
   /// operands.
   bool hasOperandStorage : 1;
+
+  /// This holds the result types of the operation. There are three different
+  /// states recorded here:
+  /// - 0 results : The type below is null.
+  /// - 1 result  : The single result type is held here.
+  /// - N results : The type here is a tuple holding the result types.
+  /// Note: We steal a bit for 'hasSingleResult' from somewhere else so that we
+  /// can use 'resultType` in an ArrayRef<Type>.
+  bool hasSingleResult : 1;
+  Type resultType;
 
   /// This holds the name of the operation.
   OperationName name;

@@ -421,6 +421,7 @@ static_library("builtins") {
         "arm/aeabi_uidivmod.S",
         "arm/aeabi_uldivmod.S",
         "arm/chkstk.S",
+        "mingw_fixfloat.c",
       ]
     }
   }
@@ -428,8 +429,8 @@ static_library("builtins") {
   if (current_cpu == "arm64") {
     sources -= [ "fp_mode.c" ]
     sources += [
-      "aarch64/fp_mode.c",
       "cpu_model.c",
+      "aarch64/fp_mode.c",
     ]
     if (current_os == "mingw") {
       sources += [ "aarch64/chkstk.S" ]
@@ -485,12 +486,6 @@ static_library("builtins") {
     ]
   }
 
-  if (current_cpu == "riscv" || current_cpu == "riscv64") {
-    sources += [
-      "riscv/restore.S",
-      "riscv/save.S",
-    ]
-  }
   if (current_cpu == "riscv") {
     sources += [ "riscv/mulsi3.S" ]
   }

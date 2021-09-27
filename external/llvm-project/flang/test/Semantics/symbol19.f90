@@ -1,4 +1,5 @@
-! RUN: %python %S/test_symbols.py %s %flang_fc1
+! RUN: %S/test_symbols.sh %s %t %f18
+
 
 ! Test that a procedure is only implicitly resolved as an intrinsic function
 ! (resp. subroutine) if this is a function (resp. subroutine)
@@ -17,7 +18,7 @@ end subroutine
 !DEF: /expect_intrinsic (Subroutine) Subprogram
 subroutine expect_intrinsic
  !DEF: /expect_intrinsic/y (Implicit) ObjectEntity REAL(4)
- !DEF: /expect_intrinsic/acos ELEMENTAL, INTRINSIC, PURE (Function) ProcEntity
+ !DEF: /expect_intrinsic/acos INTRINSIC (Function) ProcEntity
  !DEF: /expect_intrinsic/x (Implicit) ObjectEntity REAL(4)
  y = acos(x)
  !DEF: /expect_intrinsic/system_clock INTRINSIC (Subroutine) ProcEntity

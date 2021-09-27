@@ -119,7 +119,7 @@ private:
 
   StringRef TargetTriple, SourceFileName, COFFLinkerOpts;
   std::vector<StringRef> DependentLibraries;
-  std::vector<std::pair<StringRef, Comdat::SelectionKind>> ComdatTable;
+  std::vector<StringRef> ComdatTable;
 
 public:
   ~InputFile();
@@ -172,9 +172,7 @@ public:
   StringRef getSourceFileName() const { return SourceFileName; }
 
   // Returns a table with all the comdats used by this file.
-  ArrayRef<std::pair<StringRef, Comdat::SelectionKind>> getComdatTable() const {
-    return ComdatTable;
-  }
+  ArrayRef<StringRef> getComdatTable() const { return ComdatTable; }
 
   // Returns the only BitcodeModule from InputFile.
   BitcodeModule &getSingleBitcodeModule();

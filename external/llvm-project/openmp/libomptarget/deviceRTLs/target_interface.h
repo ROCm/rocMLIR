@@ -16,24 +16,24 @@
 #include "target_impl.h"
 
 // Calls to the NVPTX layer (assuming 1D layout)
-EXTERN int __kmpc_get_hardware_thread_id_in_block();
+EXTERN int GetThreadIdInBlock();
 EXTERN int GetBlockIdInKernel();
-EXTERN NOINLINE int __kmpc_get_hardware_num_blocks();
-EXTERN NOINLINE int __kmpc_get_hardware_num_threads_in_block();
+EXTERN int GetNumberOfBlocksInKernel();
+EXTERN int GetNumberOfThreadsInBlock();
 EXTERN unsigned GetWarpId();
-EXTERN unsigned GetWarpSize();
 EXTERN unsigned GetLaneId();
 
 // Atomics
-uint32_t __kmpc_atomic_add(uint32_t *, uint32_t);
-uint32_t __kmpc_atomic_inc(uint32_t *, uint32_t);
-uint32_t __kmpc_atomic_max(uint32_t *, uint32_t);
-uint32_t __kmpc_atomic_exchange(uint32_t *, uint32_t);
-uint32_t __kmpc_atomic_cas(uint32_t *, uint32_t, uint32_t);
+extern DEVICE uint32_t __kmpc_atomic_add(uint32_t *, uint32_t);
+extern DEVICE uint32_t __kmpc_atomic_inc(uint32_t *, uint32_t);
+extern DEVICE uint32_t __kmpc_atomic_max(uint32_t *, uint32_t);
+extern DEVICE uint32_t __kmpc_atomic_exchange(uint32_t *, uint32_t);
+extern DEVICE uint32_t __kmpc_atomic_cas(uint32_t *, uint32_t, uint32_t);
 static_assert(sizeof(unsigned long long) == sizeof(uint64_t), "");
-unsigned long long __kmpc_atomic_exchange(unsigned long long *,
-                                          unsigned long long);
-unsigned long long __kmpc_atomic_add(unsigned long long *, unsigned long long);
+extern DEVICE unsigned long long __kmpc_atomic_exchange(unsigned long long *,
+                                                        unsigned long long);
+extern DEVICE unsigned long long __kmpc_atomic_add(unsigned long long *,
+                                                   unsigned long long);
 
 // Locks
 EXTERN void __kmpc_impl_init_lock(omp_lock_t *lock);
@@ -56,6 +56,12 @@ EXTERN __kmpc_impl_lanemask_t __kmpc_impl_lanemask_gt();
 EXTERN uint32_t __kmpc_impl_smid();
 
 EXTERN __kmpc_impl_lanemask_t __kmpc_impl_activemask();
+
+EXTERN int32_t __kmpc_impl_shfl_sync(__kmpc_impl_lanemask_t Mask, int32_t Var,
+                                     int32_t SrcLane);
+EXTERN int32_t __kmpc_impl_shfl_down_sync(__kmpc_impl_lanemask_t Mask,
+                                          int32_t Var, uint32_t Delta,
+                                          int32_t Width);
 
 EXTERN void __kmpc_impl_syncthreads();
 EXTERN void __kmpc_impl_syncwarp(__kmpc_impl_lanemask_t Mask);

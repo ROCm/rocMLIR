@@ -1,5 +1,4 @@
 # Allow the source files to find headers in src/
-include(GNUInstallDirs)
 include_directories(${PROJECT_SOURCE_DIR}/src)
 
 if (DEFINED BENCHMARK_CXX_LINKER_FLAGS)
@@ -18,7 +17,6 @@ foreach(item ${BENCHMARK_MAIN})
 endforeach()
 
 add_library(benchmark ${SOURCE_FILES})
-add_library(benchmark::benchmark ALIAS benchmark)
 set_target_properties(benchmark PROPERTIES
   OUTPUT_NAME "benchmark"
   VERSION ${GENERIC_LIB_VERSION}
@@ -28,25 +26,11 @@ target_include_directories(benchmark PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
     )
 
-# libpfm, if available
-if (HAVE_LIBPFM)
-  target_link_libraries(benchmark libpfm.a)
-  add_definitions(-DHAVE_LIBPFM)
-endif()
-
 # Link threads.
 target_link_libraries(benchmark  ${BENCHMARK_CXX_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 find_library(LIBRT rt)
 if(LIBRT)
   target_link_libraries(benchmark ${LIBRT})
-endif()
-
-if(CMAKE_BUILD_TYPE)
-  string(TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE_UPPER)
-endif()
-if(NOT CMAKE_THREAD_LIBS_INIT AND "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE_UPPER}}" MATCHES ".*-fsanitize=[^ ]*address.*")
-  message(WARNING "CMake's FindThreads.cmake did not fail, but CMAKE_THREAD_LIBS_INIT ended up being empty. This was fixed in https://github.com/Kitware/CMake/commit/d53317130e84898c5328c237186dbd995aaf1c12 Let's guess that -pthread is sufficient.")
-  target_link_libraries(benchmark -pthread)
 endif()
 
 # We need extra libraries on Windows
@@ -61,7 +45,6 @@ endif()
 
 # Benchmark main library
 add_library(benchmark_main "benchmark_main.cc")
-add_library(benchmark::benchmark_main ALIAS benchmark_main)
 set_target_properties(benchmark_main PROPERTIES
   OUTPUT_NAME "benchmark_main"
   VERSION ${GENERIC_LIB_VERSION}
@@ -70,8 +53,13 @@ set_target_properties(benchmark_main PROPERTIES
 target_include_directories(benchmark PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
     )
-target_link_libraries(benchmark_main benchmark::benchmark)
+target_link_libraries(benchmark_main benchmark)
 
+set(include_install_dir "include")
+set(lib_install_dir "lib/")
+set(bin_install_dir "bin/")
+set(config_install_dir "lib/cmake/${PROJECT_NAME}")
+set(pkgconfig_install_dir "lib/pkgconfig")
 
 set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
@@ -95,26 +83,26 @@ if (BENCHMARK_ENABLE_INSTALL)
   install(
     TARGETS benchmark benchmark_main
     EXPORT ${targets_export_name}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    ARCHIVE DESTINATION ${lib_install_dir}
+    LIBRARY DESTINATION ${lib_install_dir}
+    RUNTIME DESTINATION ${bin_install_dir}
+    INCLUDES DESTINATION ${include_install_dir})
 
   install(
     DIRECTORY "${PROJECT_SOURCE_DIR}/include/benchmark"
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    DESTINATION ${include_install_dir}
     FILES_MATCHING PATTERN "*.*h")
 
   install(
       FILES "${project_config}" "${version_config}"
-      DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+      DESTINATION "${config_install_dir}")
 
   install(
       FILES "${pkg_config}"
-      DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
+      DESTINATION "${pkgconfig_install_dir}")
 
   install(
       EXPORT "${targets_export_name}"
       NAMESPACE "${namespace}"
-      DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+      DESTINATION "${config_install_dir}")
 endif()

@@ -31,7 +31,7 @@ namespace __sanitizer {
 void ReportErrorSummary(const char *error_type, const AddressInfo &info,
                         const char *alt_tool_name) {
   if (!common_flags()->print_summary) return;
-  InternalScopedString buff;
+  InternalScopedString buff(kMaxSummaryLength);
   buff.append("%s ", error_type);
   RenderFrame(&buff, "%L %F", 0, info.address, &info,
               common_flags()->symbolize_vs_style,
@@ -120,7 +120,7 @@ void ReportMmapWriteExec(int prot) {
 #endif
 }
 
-#if !SANITIZER_FUCHSIA && !SANITIZER_GO
+#if !SANITIZER_FUCHSIA && !SANITIZER_RTEMS && !SANITIZER_GO
 void StartReportDeadlySignal() {
   // Write the first message using fd=2, just in case.
   // It may actually fail to write in case stderr is closed.
@@ -150,7 +150,7 @@ static void PrintMemoryByte(InternalScopedString *str, const char *before,
 static void MaybeDumpInstructionBytes(uptr pc) {
   if (!common_flags()->dump_instruction_bytes || (pc < GetPageSizeCached()))
     return;
-  InternalScopedString str;
+  InternalScopedString str(1024);
   str.append("First 16 instruction bytes at pc: ");
   if (IsAccessibleMemoryRange(pc, 16)) {
     for (int i = 0; i < 16; ++i) {
@@ -250,17 +250,17 @@ void HandleDeadlySignal(void *siginfo, void *context, u32 tid,
 
 #endif  // !SANITIZER_FUCHSIA && !SANITIZER_GO
 
-atomic_uintptr_t ScopedErrorReportLock::reporting_thread_ = {0};
-StaticSpinMutex ScopedErrorReportLock::mutex_;
+static atomic_uintptr_t reporting_thread = {0};
+static StaticSpinMutex CommonSanitizerReportMutex;
 
-void ScopedErrorReportLock::Lock() {
+ScopedErrorReportLock::ScopedErrorReportLock() {
   uptr current = GetThreadSelf();
   for (;;) {
     uptr expected = 0;
-    if (atomic_compare_exchange_strong(&reporting_thread_, &expected, current,
+    if (atomic_compare_exchange_strong(&reporting_thread, &expected, current,
                                        memory_order_relaxed)) {
       // We've claimed reporting_thread so proceed.
-      mutex_.Lock();
+      CommonSanitizerReportMutex.Lock();
       return;
     }
 
@@ -282,11 +282,13 @@ void ScopedErrorReportLock::Lock() {
   }
 }
 
-void ScopedErrorReportLock::Unlock() {
-  mutex_.Unlock();
-  atomic_store_relaxed(&reporting_thread_, 0);
+ScopedErrorReportLock::~ScopedErrorReportLock() {
+  CommonSanitizerReportMutex.Unlock();
+  atomic_store_relaxed(&reporting_thread, 0);
 }
 
-void ScopedErrorReportLock::CheckLocked() { mutex_.CheckLocked(); }
+void ScopedErrorReportLock::CheckLocked() {
+  CommonSanitizerReportMutex.CheckLocked();
+}
 
 }  // namespace __sanitizer

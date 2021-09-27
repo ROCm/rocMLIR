@@ -110,11 +110,8 @@ public:
   /// loop setup code. Code that cannot be speculated should not be placed
   /// here. SpeculativePreheader is controlling whether it also tries to
   /// find the speculative preheader if the regular preheader is not present.
-  /// With FindMultiLoopPreheader = false, nullptr will be returned if the found
-  /// preheader is the preheader of multiple loops.
-  MachineBasicBlock *
-  findLoopPreheader(MachineLoop *L, bool SpeculativePreheader = false,
-                    bool FindMultiLoopPreheader = false) const;
+  MachineBasicBlock *findLoopPreheader(MachineLoop *L,
+                                       bool SpeculativePreheader = false) const;
 
   /// The iterator interface to the top-level loops in the current function.
   using iterator = LoopInfoBase<MachineBasicBlock, MachineLoop>::iterator;

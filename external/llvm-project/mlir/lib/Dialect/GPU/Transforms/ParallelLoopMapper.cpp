@@ -36,7 +36,7 @@ ParallelLoopDimMapping getParallelLoopDimMappingAttr(Processor processor,
   MLIRContext *context = map.getContext();
   OpBuilder builder(context);
   return ParallelLoopDimMapping::get(
-      ProcessorAttr::get(builder.getContext(), processor),
+      builder.getI64IntegerAttr(static_cast<int32_t>(processor)),
       AffineMapAttr::get(map), AffineMapAttr::get(bound), context);
 }
 
@@ -53,7 +53,7 @@ LogicalResult setMappingAttr(scf::ParallelOp ploopOp,
   }
   ArrayRef<Attribute> mappingAsAttrs(mapping.data(), mapping.size());
   ploopOp->setAttr(getMappingAttrName(),
-                   ArrayAttr::get(ploopOp.getContext(), mappingAsAttrs));
+                   ArrayAttr::get(mappingAsAttrs, ploopOp.getContext()));
   return success();
 }
 } // namespace gpu

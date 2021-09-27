@@ -29,23 +29,20 @@ BigOFunc* FittingCurve(BigO complexity) {
   static const double kLog2E = 1.44269504088896340736;
   switch (complexity) {
     case oN:
-      return [](IterationCount n) -> double { return static_cast<double>(n); };
+      return [](int64_t n) -> double { return static_cast<double>(n); };
     case oNSquared:
-      return [](IterationCount n) -> double { return std::pow(n, 2); };
+      return [](int64_t n) -> double { return std::pow(n, 2); };
     case oNCubed:
-      return [](IterationCount n) -> double { return std::pow(n, 3); };
+      return [](int64_t n) -> double { return std::pow(n, 3); };
     case oLogN:
       /* Note: can't use log2 because Android's GNU STL lacks it */
-      return
-          [](IterationCount n) { return kLog2E * log(static_cast<double>(n)); };
+      return [](int64_t n) { return kLog2E * log(static_cast<double>(n)); };
     case oNLogN:
       /* Note: can't use log2 because Android's GNU STL lacks it */
-      return [](IterationCount n) {
-        return kLog2E * n * log(static_cast<double>(n));
-      };
+      return [](int64_t n) { return kLog2E * n * log(static_cast<double>(n)); };
     case o1:
     default:
-      return [](IterationCount) { return 1.0; };
+      return [](int64_t) { return 1.0; };
   }
 }
 
@@ -82,6 +79,7 @@ std::string GetBigOString(BigO complexity) {
 LeastSq MinimalLeastSq(const std::vector<int64_t>& n,
                        const std::vector<double>& time,
                        BigOFunc* fitting_curve) {
+  double sigma_gn = 0.0;
   double sigma_gn_squared = 0.0;
   double sigma_time = 0.0;
   double sigma_time_gn = 0.0;
@@ -89,6 +87,7 @@ LeastSq MinimalLeastSq(const std::vector<int64_t>& n,
   // Calculate least square fitting parameter
   for (size_t i = 0; i < n.size(); ++i) {
     double gn_i = fitting_curve(n[i]);
+    sigma_gn += gn_i;
     sigma_gn_squared += gn_i * gn_i;
     sigma_time += time[i];
     sigma_time_gn += time[i] * gn_i;
@@ -184,21 +183,14 @@ std::vector<BenchmarkReporter::Run> ComputeBigO(
     result_real = MinimalLeastSq(n, real_time, result_cpu.complexity);
   }
 
-  // Drop the 'args' when reporting complexity.
-  auto run_name = reports[0].run_name;
-  run_name.args.clear();
+  std::string run_name = reports[0].benchmark_name().substr(
+      0, reports[0].benchmark_name().find('/'));
 
   // Get the data from the accumulator to BenchmarkReporter::Run's.
   Run big_o;
   big_o.run_name = run_name;
-  big_o.family_index = reports[0].family_index;
-  big_o.per_family_instance_index = reports[0].per_family_instance_index;
   big_o.run_type = BenchmarkReporter::Run::RT_Aggregate;
-  big_o.repetitions = reports[0].repetitions;
-  big_o.repetition_index = Run::no_repetition_index;
-  big_o.threads = reports[0].threads;
   big_o.aggregate_name = "BigO";
-  big_o.report_label = reports[0].report_label;
   big_o.iterations = 0;
   big_o.real_accumulated_time = result_real.coef;
   big_o.cpu_accumulated_time = result_cpu.coef;
@@ -215,15 +207,11 @@ std::vector<BenchmarkReporter::Run> ComputeBigO(
   // Only add label to mean/stddev if it is same for all runs
   Run rms;
   rms.run_name = run_name;
-  rms.family_index = reports[0].family_index;
-  rms.per_family_instance_index = reports[0].per_family_instance_index;
+  big_o.report_label = reports[0].report_label;
   rms.run_type = BenchmarkReporter::Run::RT_Aggregate;
   rms.aggregate_name = "RMS";
   rms.report_label = big_o.report_label;
   rms.iterations = 0;
-  rms.repetition_index = Run::no_repetition_index;
-  rms.repetitions = reports[0].repetitions;
-  rms.threads = reports[0].threads;
   rms.real_accumulated_time = result_real.rms / multiplier;
   rms.cpu_accumulated_time = result_cpu.rms / multiplier;
   rms.report_rms = true;

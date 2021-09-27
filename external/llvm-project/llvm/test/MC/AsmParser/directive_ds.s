@@ -53,6 +53,6 @@ TEST7:
 TEST8:
        .ds -1
 
-# CHECK-ERROR: :[[#@LINE+2]]:9: error: expected newline
+# CHECK-ERROR: error: unexpected token in '.ds' directive
 TEST9:
-  .ds 1 2
+       .ds 1 2

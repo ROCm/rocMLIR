@@ -55,11 +55,9 @@ llvm::Error TestAsmPrinter::init(const Target *TheTarget, StringRef TripleName,
     return make_error<StringError>("no target machine for target " + TripleName,
                                    inconvertibleErrorCode());
 
-  Triple TheTriple(TripleName);
-  MC.reset(new MCContext(TheTriple, TM->getMCAsmInfo(), TM->getMCRegisterInfo(),
-                         TM->getMCSubtargetInfo()));
+  MC.reset(new MCContext(TM->getMCAsmInfo(), TM->getMCRegisterInfo(),
+                         TM->getObjFileLowering()));
   TM->getObjFileLowering()->Initialize(*MC, *TM);
-  MC->setObjectFileInfo(TM->getObjFileLowering());
 
   MS = new StrictMock<MockMCStreamer>(MC.get());
 

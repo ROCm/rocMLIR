@@ -187,7 +187,10 @@ define i1 @scalar_i32_signbit_shl_and_eq_extra_use_shl_and(i32 %x, i32 %y, i32 %
 
 define i1 @scalar_i32_signbit_shl_and_eq_X_is_constant1(i32 %y) {
 ; CHECK-LABEL: @scalar_i32_signbit_shl_and_eq_X_is_constant1(
-; CHECK-NEXT:    ret i1 true
+; CHECK-NEXT:    [[SHL:%.*]] = shl i32 -2147483648, [[Y:%.*]]
+; CHECK-NEXT:    [[AND:%.*]] = and i32 [[SHL]], 12345
+; CHECK-NEXT:    [[R:%.*]] = icmp eq i32 [[AND]], 0
+; CHECK-NEXT:    ret i1 [[R]]
 ;
   %shl = shl i32 2147483648, %y
   %and = and i32 %shl, 12345
@@ -197,7 +200,10 @@ define i1 @scalar_i32_signbit_shl_and_eq_X_is_constant1(i32 %y) {
 
 define i1 @scalar_i32_signbit_shl_and_eq_X_is_constant2(i32 %y) {
 ; CHECK-LABEL: @scalar_i32_signbit_shl_and_eq_X_is_constant2(
-; CHECK-NEXT:    ret i1 true
+; CHECK-NEXT:    [[SHL:%.*]] = shl i32 -2147483648, [[Y:%.*]]
+; CHECK-NEXT:    [[AND:%.*]] = and i32 [[SHL]], 1
+; CHECK-NEXT:    [[R:%.*]] = icmp eq i32 [[AND]], 0
+; CHECK-NEXT:    ret i1 [[R]]
 ;
   %shl = shl i32 2147483648, %y
   %and = and i32 %shl, 1
@@ -213,7 +219,7 @@ define i1 @scalar_i32_signbit_shl_and_slt(i32 %x, i32 %y) {
 ; CHECK-LABEL: @scalar_i32_signbit_shl_and_slt(
 ; CHECK-NEXT:    [[SHL:%.*]] = shl i32 -2147483648, [[Y:%.*]]
 ; CHECK-NEXT:    [[AND:%.*]] = and i32 [[SHL]], [[X:%.*]]
-; CHECK-NEXT:    [[R:%.*]] = icmp ne i32 [[AND]], 0
+; CHECK-NEXT:    [[R:%.*]] = icmp slt i32 [[AND]], 0
 ; CHECK-NEXT:    ret i1 [[R]]
 ;
   %shl = shl i32 2147483648, %y
@@ -226,7 +232,10 @@ define i1 @scalar_i32_signbit_shl_and_slt(i32 %x, i32 %y) {
 
 define i1 @scalar_i32_signbit_shl_and_eq_nonzero(i32 %x, i32 %y) {
 ; CHECK-LABEL: @scalar_i32_signbit_shl_and_eq_nonzero(
-; CHECK-NEXT:    ret i1 false
+; CHECK-NEXT:    [[SHL:%.*]] = shl i32 -2147483648, [[Y:%.*]]
+; CHECK-NEXT:    [[AND:%.*]] = and i32 [[SHL]], [[X:%.*]]
+; CHECK-NEXT:    [[R:%.*]] = icmp eq i32 [[AND]], 1
+; CHECK-NEXT:    ret i1 [[R]]
 ;
   %shl = shl i32 2147483648, %y
   %and = and i32 %shl, %x

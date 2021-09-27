@@ -12,7 +12,6 @@
 // convert heap-based allocations to stack-based allocations, if possible.
 
 #include "PassDetail.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
 #include "mlir/Pass/Pass.h"
@@ -30,11 +29,11 @@ static bool isKnownControlFlowInterface(Operation *op) {
 /// Check if the size of the allocation is less than the given size. The
 /// transformation is only applied to small buffers since large buffers could
 /// exceed the stack space.
-static bool defaultIsSmallAlloc(Value alloc, unsigned maximumSizeInBytes,
-                                unsigned bitwidthOfIndexType,
-                                unsigned maxRankOfAllocatedMemRef) {
+static bool isSmallAlloc(Value alloc, unsigned maximumSizeInBytes,
+                         unsigned bitwidthOfIndexType,
+                         unsigned maxRankOfAllocatedMemRef) {
   auto type = alloc.getType().dyn_cast<ShapedType>();
-  if (!type || !alloc.getDefiningOp<memref::AllocOp>())
+  if (!type || !alloc.getDefiningOp<AllocOp>())
     return false;
   if (!type.hasStaticShape()) {
     // Check if the dynamic shape dimension of the alloc is produced by RankOp.
@@ -58,13 +57,14 @@ static bool defaultIsSmallAlloc(Value alloc, unsigned maximumSizeInBytes,
 /// Checks whether the given aliases leave the allocation scope.
 static bool
 leavesAllocationScope(Region *parentRegion,
-                      const BufferViewFlowAnalysis::ValueSetT &aliases) {
+                      const BufferAliasAnalysis::ValueSetT &aliases) {
   for (Value alias : aliases) {
     for (auto *use : alias.getUsers()) {
       // If there is at least one alias that leaves the parent region, we know
       // that this alias escapes the whole region and hence the associated
       // allocation leaves allocation scope.
-      if (isRegionReturnLike(use) && use->getParentRegion() == parentRegion)
+      if (use->hasTrait<OpTrait::ReturnLike>() &&
+          use->getParentRegion() == parentRegion)
         return true;
     }
   }
@@ -73,7 +73,7 @@ leavesAllocationScope(Region *parentRegion,
 
 /// Checks, if an automated allocation scope for a given alloc value exists.
 static bool hasAllocationScope(Value alloc,
-                               const BufferViewFlowAnalysis &aliasAnalysis) {
+                               const BufferAliasAnalysis &aliasAnalysis) {
   Region *region = alloc.getParentRegion();
   do {
     if (Operation *parentOp = region->getParentOp()) {
@@ -124,19 +124,12 @@ class BufferAllocationHoisting : public BufferPlacementTransformationBase {
 public:
   BufferAllocationHoisting(Operation *op)
       : BufferPlacementTransformationBase(op), dominators(op),
-        postDominators(op), scopeOp(op) {}
+        postDominators(op) {}
 
   /// Moves allocations upwards.
   void hoist() {
-    SmallVector<Value> allocsAndAllocas;
-    for (BufferPlacementAllocs::AllocEntry &entry : allocs)
-      allocsAndAllocas.push_back(std::get<0>(entry));
-    scopeOp->walk(
-        [&](memref::AllocaOp op) { allocsAndAllocas.push_back(op.memref()); });
-
-    for (auto allocValue : allocsAndAllocas) {
-      if (!StateT::shouldHoistOpType(allocValue.getDefiningOp()))
-        continue;
+    for (BufferPlacementAllocs::AllocEntry &entry : allocs) {
+      Value allocValue = std::get<0>(entry);
       Operation *definingOp = allocValue.getDefiningOp();
       assert(definingOp && "No defining op");
       auto operands = definingOp->getOperands();
@@ -149,13 +142,13 @@ public:
       // Check for additional allocation dependencies to compute an upper bound
       // for hoisting.
       Block *dependencyBlock = nullptr;
-      // If this node has dependencies, check all dependent nodes. This ensures
-      // that all dependency values have been computed before allocating the
-      // buffer.
-      for (Value depValue : operands) {
-        Block *depBlock = depValue.getParentBlock();
-        if (!dependencyBlock || dominators.dominates(dependencyBlock, depBlock))
-          dependencyBlock = depBlock;
+      if (!operands.empty()) {
+        // If this node has dependencies, check all dependent nodes with respect
+        // to a common post dominator. This ensures that all dependency values
+        // have been computed before allocating the buffer.
+        ValueSetT dependencies(std::next(operands.begin()), operands.end());
+        dependencyBlock = findCommonDominator(*operands.begin(), dependencies,
+                                              postDominators);
       }
 
       // Find the actual placement block and determine the start operation using
@@ -193,12 +186,7 @@ private:
             dominators.properlyDominates(upperBound, currentBlock))) {
       // Try to find an immediate dominator and check whether the parent block
       // is above the immediate dominator (if any).
-      DominanceInfoNode *idom = nullptr;
-
-      // DominanceInfo doesn't support getNode queries for single-block regions.
-      if (!currentBlock->isEntryBlock())
-        idom = dominators.getNode(currentBlock)->getIDom();
-
+      DominanceInfoNode *idom = dominators.getNode(currentBlock)->getIDom();
       if (idom && dominators.properlyDominates(parentBlock, idom->getBlock())) {
         // If the current immediate dominator is below the placement block, move
         // to the immediate dominator block.
@@ -233,10 +221,6 @@ private:
 
   /// The map storing the final placement blocks of a given alloc value.
   llvm::DenseMap<Value, Block *> placementBlocks;
-
-  /// The operation that this transformation is working on. It is used to also
-  /// gather allocas.
-  Operation *scopeOp;
 };
 
 /// A state implementation compatible with the `BufferAllocationHoisting` class
@@ -262,11 +246,6 @@ struct BufferAllocationHoistingState : BufferAllocationHoistingStateBase {
   /// Returns true if the given operation does not represent a loop.
   bool isLegalPlacement(Operation *op) {
     return !BufferPlacementTransformationBase::isLoop(op);
-  }
-
-  /// Returns true if the given operation should be considered for hoisting.
-  static bool shouldHoistOpType(Operation *op) {
-    return llvm::isa<memref::AllocOp>(op);
   }
 
   /// Sets the current placement block to the given block.
@@ -301,11 +280,6 @@ struct BufferAllocationLoopHoistingState : BufferAllocationHoistingStateBase {
            !dominators->dominates(aliasDominatorBlock, op->getBlock());
   }
 
-  /// Returns true if the given operation should be considered for hoisting.
-  static bool shouldHoistOpType(Operation *op) {
-    return llvm::isa<memref::AllocOp, memref::AllocaOp>(op);
-  }
-
   /// Does not change the internal placement block, as we want to move
   /// operations out of loops only.
   void recordMoveToDominator(Block *block) {}
@@ -325,7 +299,8 @@ public:
       : BufferPlacementTransformationBase(op) {}
 
   /// Promote buffers to stack-based allocations.
-  void promote(function_ref<bool(Value)> isSmallAlloc) {
+  void promote(unsigned maximumSize, unsigned bitwidthOfIndexType,
+               unsigned maxRankOfAllocatedMemRef) {
     for (BufferPlacementAllocs::AllocEntry &entry : allocs) {
       Value alloc = std::get<0>(entry);
       Operation *dealloc = std::get<1>(entry);
@@ -333,8 +308,9 @@ public:
       // The transformation is done if the allocation is limited to a given
       // size. Furthermore, a deallocation must not be defined for this
       // allocation entry and a parent allocation scope must exist.
-      if (!isSmallAlloc(alloc) || dealloc ||
-          !hasAllocationScope(alloc, aliases))
+      if (!isSmallAlloc(alloc, maximumSize, bitwidthOfIndexType,
+                        maxRankOfAllocatedMemRef) ||
+          dealloc || !hasAllocationScope(alloc, aliases))
         continue;
 
       Operation *startOperation = BufferPlacementAllocs::getStartOperation(
@@ -343,7 +319,7 @@ public:
       // `AutomaticAllocationScope` determined during the initialization phase.
       OpBuilder builder(startOperation);
       Operation *allocOp = alloc.getDefiningOp();
-      Operation *alloca = builder.create<memref::AllocaOp>(
+      Operation *alloca = builder.create<AllocaOp>(
           alloc.getLoc(), alloc.getType().cast<MemRefType>(),
           allocOp->getOperands());
 
@@ -383,9 +359,9 @@ struct BufferLoopHoistingPass : BufferLoopHoistingBase<BufferLoopHoistingPass> {
 
 /// The promote buffer to stack pass that tries to convert alloc nodes into
 /// alloca nodes.
-class PromoteBuffersToStackPass
-    : public PromoteBuffersToStackBase<PromoteBuffersToStackPass> {
-public:
+struct PromoteBuffersToStackPass
+    : PromoteBuffersToStackBase<PromoteBuffersToStackPass> {
+
   PromoteBuffersToStackPass(unsigned maxAllocSizeInBytes,
                             unsigned bitwidthOfIndexType,
                             unsigned maxRankOfAllocatedMemRef) {
@@ -394,28 +370,12 @@ public:
     this->maxRankOfAllocatedMemRef = maxRankOfAllocatedMemRef;
   }
 
-  explicit PromoteBuffersToStackPass(std::function<bool(Value)> isSmallAlloc)
-      : isSmallAlloc(std::move(isSmallAlloc)) {}
-
-  LogicalResult initialize(MLIRContext *context) override {
-    if (isSmallAlloc == nullptr) {
-      isSmallAlloc = [=](Value alloc) {
-        return defaultIsSmallAlloc(alloc, maxAllocSizeInBytes,
-                                   bitwidthOfIndexType,
-                                   maxRankOfAllocatedMemRef);
-      };
-    }
-    return success();
-  }
-
   void runOnFunction() override {
     // Move all allocation nodes and convert candidates into allocas.
     BufferPlacementPromotion optimizer(getFunction());
-    optimizer.promote(isSmallAlloc);
+    optimizer.promote(this->maxAllocSizeInBytes, this->bitwidthOfIndexType,
+                      this->maxRankOfAllocatedMemRef);
   }
-
-private:
-  std::function<bool(Value)> isSmallAlloc;
 };
 
 } // end anonymous namespace
@@ -434,9 +394,4 @@ mlir::createPromoteBuffersToStackPass(unsigned maxAllocSizeInBytes,
                                       unsigned maxRankOfAllocatedMemRef) {
   return std::make_unique<PromoteBuffersToStackPass>(
       maxAllocSizeInBytes, bitwidthOfIndexType, maxRankOfAllocatedMemRef);
-}
-
-std::unique_ptr<Pass>
-mlir::createPromoteBuffersToStackPass(std::function<bool(Value)> isSmallAlloc) {
-  return std::make_unique<PromoteBuffersToStackPass>(std::move(isSmallAlloc));
 }

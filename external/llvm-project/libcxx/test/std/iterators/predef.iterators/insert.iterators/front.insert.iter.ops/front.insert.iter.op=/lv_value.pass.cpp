@@ -13,23 +13,21 @@
 // front_insert_iterator<Cont>&
 //   operator=(const Cont::value_type& value);
 
-#include <cassert>
 #include <iterator>
 #include <list>
+#include <cassert>
+#include "nasty_containers.h"
 
 #include "test_macros.h"
-#include "nasty_containers.h"
-#include "test_constexpr_container.h"
 
 template <class C>
-TEST_CONSTEXPR_CXX20 bool
+void
 test(C c)
 {
     const typename C::value_type v = typename C::value_type();
     std::front_insert_iterator<C> i(c);
     i = v;
     assert(c.front() == v);
-    return true;
 }
 
 class Copyable
@@ -47,9 +45,6 @@ int main(int, char**)
 {
     test(std::list<Copyable>());
     test(nasty_list<Copyable>());
-#if TEST_STD_VER >= 20
-    test(ConstexprFixedCapacityDeque<int, 10>());
-    static_assert(test(ConstexprFixedCapacityDeque<int, 10>()));
-#endif
-    return 0;
+
+  return 0;
 }

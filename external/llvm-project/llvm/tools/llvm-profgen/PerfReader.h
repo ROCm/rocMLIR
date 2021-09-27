@@ -13,7 +13,6 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Regex.h"
-#include <cstdint>
 #include <fstream>
 #include <list>
 #include <map>
@@ -60,10 +59,9 @@ public:
 
 // The type of perfscript
 enum PerfScriptType {
-  PERF_UNKNOWN = 0,
-  PERF_INVALID = 1,
-  PERF_LBR = 2,       // Only LBR sample
-  PERF_LBR_STACK = 3, // Hybrid sample including call stack and LBR stack.
+  PERF_INVILID = 0,
+  PERF_LBR = 1,       // Only LBR sample
+  PERF_LBR_STACK = 2, // Hybrid sample including call stack and LBR stack.
 };
 
 // The parsed LBR sample entry.
@@ -76,32 +74,7 @@ struct LBREntry {
   bool IsArtificial = false;
   LBREntry(uint64_t S, uint64_t T, bool I)
       : Source(S), Target(T), IsArtificial(I) {}
-
-#ifndef NDEBUG
-  void print() const {
-    dbgs() << "from " << format("%#010x", Source) << " to "
-           << format("%#010x", Target);
-    if (IsArtificial)
-      dbgs() << " Artificial";
-  }
-#endif
 };
-
-#ifndef NDEBUG
-static inline void printLBRStack(const SmallVectorImpl<LBREntry> &LBRStack) {
-  for (size_t I = 0; I < LBRStack.size(); I++) {
-    dbgs() << "[" << I << "] ";
-    LBRStack[I].print();
-    dbgs() << "\n";
-  }
-}
-
-static inline void printCallStack(const SmallVectorImpl<uint64_t> &CallStack) {
-  for (size_t I = 0; I < CallStack.size(); I++) {
-    dbgs() << "[" << I << "] " << format("%#010x", CallStack[I]) << "\n";
-  }
-}
-#endif
 
 // Hash interface for generic data of type T
 // Data should implement a \fn getHashCode and a \fn isEqual
@@ -122,9 +95,8 @@ public:
   struct Hash {
     uint64_t operator()(const Hashable<T> &Key) const {
       // Don't make it virtual for getHashCode
-      uint64_t Hash = Key.Data->getHashCode();
-      assert(Hash && "Should generate HashCode for it!");
-      return Hash;
+      assert(Key.Data->getHashCode() && "Should generate HashCode for it!");
+      return Key.Data->getHashCode();
     }
   };
 
@@ -139,31 +111,42 @@ public:
   T *getPtr() const { return Data.get(); }
 };
 
+// Base class to extend for all types of perf sample
 struct PerfSample {
-  // LBR stack recorded in FIFO order.
-  SmallVector<LBREntry, 16> LBRStack;
-  // Call stack recorded in FILO(leaf to root) order, it's used for CS-profile
-  // generation
-  SmallVector<uint64_t, 16> CallStack;
+  uint64_t HashCode = 0;
 
   virtual ~PerfSample() = default;
-  uint64_t getHashCode() const {
-    // Use simple DJB2 hash
-    auto HashCombine = [](uint64_t H, uint64_t V) {
-      return ((H << 5) + H) + V;
-    };
-    uint64_t Hash = 5381;
-    for (const auto &Value : CallStack) {
-      Hash = HashCombine(Hash, Value);
-    }
-    for (const auto &Entry : LBRStack) {
-      Hash = HashCombine(Hash, Entry.Source);
-      Hash = HashCombine(Hash, Entry.Target);
-    }
-    return Hash;
+  uint64_t getHashCode() const { return HashCode; }
+  virtual bool isEqual(const PerfSample *K) const {
+    return HashCode == K->HashCode;
+  };
+
+  // Utilities for LLVM-style RTTI
+  enum PerfKind { PK_HybridSample };
+  const PerfKind Kind;
+  PerfKind getKind() const { return Kind; }
+  PerfSample(PerfKind K) : Kind(K){};
+};
+
+// The parsed hybrid sample including call stack and LBR stack.
+struct HybridSample : public PerfSample {
+  // Profiled binary that current frame address belongs to
+  ProfiledBinary *Binary;
+  // Call stack recorded in FILO(leaf to root) order
+  SmallVector<uint64_t, 16> CallStack;
+  // LBR stack recorded in FIFO order
+  SmallVector<LBREntry, 16> LBRStack;
+
+  HybridSample() : PerfSample(PK_HybridSample){};
+  static bool classof(const PerfSample *K) {
+    return K->getKind() == PK_HybridSample;
   }
 
-  bool isEqual(const PerfSample *Other) const {
+  // Used for sample aggregation
+  bool isEqual(const PerfSample *K) const override {
+    const HybridSample *Other = dyn_cast<HybridSample>(K);
+    if (Other->Binary != Binary)
+      return false;
     const SmallVector<uint64_t, 16> &OtherCallStack = Other->CallStack;
     const SmallVector<LBREntry, 16> &OtherLBRStack = Other->LBRStack;
 
@@ -171,8 +154,11 @@ struct PerfSample {
         LBRStack.size() != OtherLBRStack.size())
       return false;
 
-    if (!std::equal(CallStack.begin(), CallStack.end(), OtherCallStack.begin()))
-      return false;
+    auto Iter = CallStack.begin();
+    for (auto Address : OtherCallStack) {
+      if (Address != *Iter++)
+        return false;
+    }
 
     for (size_t I = 0; I < OtherLBRStack.size(); I++) {
       if (LBRStack[I].Source != OtherLBRStack[I].Source ||
@@ -182,15 +168,24 @@ struct PerfSample {
     return true;
   }
 
-#ifndef NDEBUG
-  void print() const {
-    dbgs() << "LBR stack\n";
-    printLBRStack(LBRStack);
-    dbgs() << "Call stack\n";
-    printCallStack(CallStack);
+  void genHashCode() {
+    // Use simple DJB2 hash
+    auto HashCombine = [](uint64_t H, uint64_t V) {
+      return ((H << 5) + H) + V;
+    };
+    uint64_t Hash = 5381;
+    Hash = HashCombine(Hash, reinterpret_cast<uint64_t>(Binary));
+    for (const auto &Value : CallStack) {
+      Hash = HashCombine(Hash, Value);
+    }
+    for (const auto &Entry : LBRStack) {
+      Hash = HashCombine(Hash, Entry.Source);
+      Hash = HashCombine(Hash, Entry.Target);
+    }
+    HashCode = Hash;
   }
-#endif
 };
+
 // After parsing the sample, we record the samples by aggregating them
 // into this counter. The key stores the sample data and the value is
 // the sample repeat times.
@@ -228,20 +223,19 @@ struct UnwindState {
       BranchSamples.emplace_back(std::make_tuple(Source, Target, Count));
     }
     bool isDummyRoot() { return Address == 0; }
-    bool isLeafFrame() { return Children.empty(); }
   };
 
   ProfiledFrame DummyTrieRoot;
   ProfiledFrame *CurrentLeafFrame;
   // Used to fall through the LBR stack
   uint32_t LBRIndex = 0;
-  // Reference to PerfSample.LBRStack
+  // Reference to HybridSample.LBRStack
   const SmallVector<LBREntry, 16> &LBRStack;
   // Used to iterate the address range
   InstructionPointer InstPtr;
-  UnwindState(const PerfSample *Sample, const ProfiledBinary *Binary)
-      : Binary(Binary), LBRStack(Sample->LBRStack),
-        InstPtr(Binary, Sample->CallStack.front()) {
+  UnwindState(const HybridSample *Sample)
+      : Binary(Sample->Binary), LBRStack(Sample->LBRStack),
+        InstPtr(Sample->Binary, Sample->CallStack.front()) {
     initFrameTrie(Sample->CallStack);
   }
 
@@ -265,6 +259,7 @@ struct UnwindState {
            "IP should align with context leaf");
   }
 
+  const ProfiledBinary *getBinary() const { return Binary; }
   bool hasNextLBR() const { return LBRIndex < LBRStack.size(); }
   uint64_t getCurrentLBRSource() const { return LBRStack[LBRIndex].Source; }
   uint64_t getCurrentLBRTarget() const { return LBRStack[LBRIndex].Target; }
@@ -314,10 +309,8 @@ struct ContextKey {
 
 // String based context id
 struct StringBasedCtxKey : public ContextKey {
-  SampleContextFrameVector Context;
-
-  bool WasLeafInlined;
-  StringBasedCtxKey() : ContextKey(CK_StringBased), WasLeafInlined(false){};
+  std::string Context;
+  StringBasedCtxKey() : ContextKey(CK_StringBased){};
   static bool classof(const ContextKey *K) {
     return K->getKind() == CK_StringBased;
   }
@@ -327,7 +320,7 @@ struct StringBasedCtxKey : public ContextKey {
     return Context == Other->Context;
   }
 
-  void genHashCode() { HashCode = hash_value(SampleContextFrames(Context)); }
+  void genHashCode() { HashCode = hash_value(Context); }
 };
 
 // Probe based context key as the intermediate key of context
@@ -336,7 +329,7 @@ struct StringBasedCtxKey : public ContextKey {
 // need to be splitted by '@' to get the last location frame, so we
 // can just use probe instead and generate the string in the end.
 struct ProbeBasedCtxKey : public ContextKey {
-  SmallVector<const MCDecodedPseudoProbe *, 16> Probes;
+  SmallVector<const PseudoProbe *, 16> Probes;
 
   ProbeBasedCtxKey() : ContextKey(CK_ProbeBased) {}
   static bool classof(const ContextKey *K) {
@@ -373,7 +366,6 @@ struct SampleCounter {
   BranchSample BranchCounter;
 
   void recordRangeCount(uint64_t Start, uint64_t End, uint64_t Repeat) {
-    assert(Start <= End && "Invalid instruction range");
     RangeCounter[{Start, End}] += Repeat;
   }
   void recordBranchCount(uint64_t Source, uint64_t Target, uint64_t Repeat) {
@@ -403,12 +395,11 @@ struct FrameStack {
 };
 
 struct ProbeStack {
-  SmallVector<const MCDecodedPseudoProbe *, 16> Stack;
+  SmallVector<const PseudoProbe *, 16> Stack;
   const ProfiledBinary *Binary;
   ProbeStack(const ProfiledBinary *B) : Binary(B) {}
   bool pushFrame(UnwindState::ProfiledFrame *Cur) {
-    const MCDecodedPseudoProbe *CallProbe =
-        Binary->getCallProbeForAddr(Cur->Address);
+    const PseudoProbe *CallProbe = Binary->getCallProbeForAddr(Cur->Address);
     // We may not find a probe for a merged or external callsite.
     // Callsite merging may cause the loss of original probe IDs.
     // Cutting off the context from here since the inliner will
@@ -460,8 +451,7 @@ class VirtualUnwinder {
 public:
   VirtualUnwinder(ContextSampleCounterMap *Counter, const ProfiledBinary *B)
       : CtxCounterMap(Counter), Binary(B) {}
-  bool unwind(const PerfSample *Sample, uint64_t Repeat);
-  std::set<uint64_t> &getUntrackedCallsites() { return UntrackedCallsites; }
+  bool unwind(const HybridSample *Sample, uint64_t Repeat);
 
 private:
   bool isCallState(UnwindState &State) const {
@@ -496,94 +486,60 @@ private:
   ContextSampleCounterMap *CtxCounterMap;
   // Profiled binary that current frame address belongs to
   const ProfiledBinary *Binary;
-  // Keep track of all untracked callsites
-  std::set<uint64_t> UntrackedCallsites;
 };
 
-// Read perf trace to parse the events and samples.
-class PerfReaderBase {
+// Filename to binary map
+using BinaryMap = StringMap<ProfiledBinary>;
+// Address to binary map for fast look-up
+using AddressBinaryMap = std::map<uint64_t, ProfiledBinary *>;
+// Binary to ContextSampleCounters Map to support multiple binary, we may have
+// same binary loaded at different addresses, they should share the same sample
+// counter
+using BinarySampleCounterMap =
+    std::unordered_map<ProfiledBinary *, ContextSampleCounterMap>;
+
+// Load binaries and read perf trace to parse the events and samples
+class PerfReader {
+
 public:
-  PerfReaderBase(ProfiledBinary *B) : Binary(B) {
-    // Initialize the base address to preferred address.
-    Binary->setBaseAddress(Binary->getPreferredBaseAddress());
-  };
-  virtual ~PerfReaderBase() = default;
-  static std::unique_ptr<PerfReaderBase>
-  create(ProfiledBinary *Binary, cl::list<std::string> &PerfTraceFilenames);
+  PerfReader(cl::list<std::string> &BinaryFilenames);
 
-  // A LBR sample is like:
-  // 40062f 0x5c6313f/0x5c63170/P/-/-/0  0x5c630e7/0x5c63130/P/-/-/0 ...
-  // A heuristic for fast detection by checking whether a
-  // leading "  0x" and the '/' exist.
-  static bool isLBRSample(StringRef Line) {
-    // Skip the leading instruction pointer
-    SmallVector<StringRef, 32> Records;
-    Line.trim().split(Records, " ", 2, false);
-    if (Records.size() < 2)
+  // Hybrid sample(call stack + LBRs) profile traces are seprated by double line
+  // break, search for that within the first 4k charactors to avoid going
+  // through the whole file.
+  static bool isHybridPerfScript(StringRef FileName) {
+    auto BufOrError = MemoryBuffer::getFileOrSTDIN(FileName, 4000);
+    if (!BufOrError)
+      exitWithError(BufOrError.getError(), FileName);
+    auto Buffer = std::move(BufOrError.get());
+    if (Buffer->getBuffer().find("\n\n") == StringRef::npos)
       return false;
-    if (Records[1].startswith("0x") && Records[1].find('/') != StringRef::npos)
-      return true;
-    return false;
-  }
-
-  // The raw hybird sample is like
-  // e.g.
-  // 	          4005dc    # call stack leaf
-  //	          400634
-  //	          400684    # call stack root
-  // 0x4005c8/0x4005dc/P/-/-/0   0x40062f/0x4005b0/P/-/-/0 ...
-  //          ... 0x4005c8/0x4005dc/P/-/-/0    # LBR Entries
-  // Determine the perfscript contains hybrid samples(call stack + LBRs) by
-  // checking whether there is a non-empty call stack immediately followed by
-  // a LBR sample
-  static PerfScriptType checkPerfScriptType(StringRef FileName) {
-    TraceStream TraceIt(FileName);
-    uint64_t FrameAddr = 0;
-    while (!TraceIt.isAtEoF()) {
-      // Skip the aggregated count
-      if (!TraceIt.getCurrentLine().getAsInteger(10, FrameAddr))
-        TraceIt.advance();
-
-      // Detect sample with call stack
-      int32_t Count = 0;
-      while (!TraceIt.isAtEoF() &&
-             !TraceIt.getCurrentLine().ltrim().getAsInteger(16, FrameAddr)) {
-        Count++;
-        TraceIt.advance();
-      }
-      if (!TraceIt.isAtEoF()) {
-        if (isLBRSample(TraceIt.getCurrentLine())) {
-          if (Count > 0)
-            return PERF_LBR_STACK;
-          else
-            return PERF_LBR;
-        }
-        TraceIt.advance();
-      }
-    }
-    return PERF_INVALID;
+    return true;
   }
 
   // The parsed MMap event
   struct MMapEvent {
     uint64_t PID = 0;
-    uint64_t Address = 0;
+    uint64_t BaseAddress = 0;
     uint64_t Size = 0;
     uint64_t Offset = 0;
     StringRef BinaryPath;
   };
 
+  /// Load symbols and disassemble the code of a give binary.
+  /// Also register the binary in the binary table.
+  ///
+  ProfiledBinary &loadBinary(const StringRef BinaryPath,
+                             bool AllowNameConflict = true);
   void updateBinaryAddress(const MMapEvent &Event);
   PerfScriptType getPerfScriptType() const { return PerfType; }
   // Entry of the reader to parse multiple perf traces
   void parsePerfTraces(cl::list<std::string> &PerfTraceFilenames);
-  const ContextSampleCounterMap &getSampleCounters() const {
-    return SampleCounters;
+  const BinarySampleCounterMap &getBinarySampleCounters() const {
+    return BinarySampleCounters;
   }
 
-protected:
-  static PerfScriptType
-  extractPerfType(cl::list<std::string> &PerfTraceFilenames);
+private:
   /// Parse a single line of a PERF_RECORD_MMAP2 event looking for a
   /// mapping between the binary name and its memory layout.
   ///
@@ -592,88 +548,33 @@ protected:
   void parseAndAggregateTrace(StringRef Filename);
   // Parse either an MMAP event or a perf sample
   void parseEventOrSample(TraceStream &TraceIt);
-  // Warn if the relevant mmap event is missing.
-  void warnIfMissingMMap();
-  // Emit accumulate warnings.
-  void warnTruncatedStack();
+  // Parse the hybrid sample including the call and LBR line
+  void parseHybridSample(TraceStream &TraceIt);
   // Extract call stack from the perf trace lines
   bool extractCallstack(TraceStream &TraceIt,
                         SmallVectorImpl<uint64_t> &CallStack);
   // Extract LBR stack from one perf trace line
   bool extractLBRStack(TraceStream &TraceIt,
-                       SmallVectorImpl<LBREntry> &LBRStack);
-  uint64_t parseAggregatedCount(TraceStream &TraceIt);
-  // Parse one sample from multiple perf lines, override this for different
-  // sample type
-  void parseSample(TraceStream &TraceIt);
-  // An aggregated count is given to indicate how many times the sample is
-  // repeated.
-  virtual void parseSample(TraceStream &TraceIt, uint64_t Count) = 0;
+                       SmallVectorImpl<LBREntry> &LBRStack,
+                       ProfiledBinary *Binary);
+  void checkAndSetPerfType(cl::list<std::string> &PerfTraceFilenames);
   // Post process the profile after trace aggregation, we will do simple range
   // overlap computation for AutoFDO, or unwind for CSSPGO(hybrid sample).
-  virtual void generateRawProfile() = 0;
-  virtual void writeRawProfile(StringRef Filename);
-  virtual void writeRawProfile(raw_fd_ostream &OS) = 0;
-
-  ProfiledBinary *Binary = nullptr;
-
-  ContextSampleCounterMap SampleCounters;
-  // Samples with the repeating time generated by the perf reader
-  AggregatedCounter AggregatedSamples;
-  PerfScriptType PerfType = PERF_UNKNOWN;
-  // Keep track of all invalid return addresses
-  std::set<uint64_t> InvalidReturnAddresses;
-};
-
-/*
-  Hybrid perf script includes a group of hybrid samples(LBRs + call stack),
-  which is used to generate CS profile. An example of hybrid sample:
-    4005dc    # call stack leaf
-    400634
-    400684    # call stack root
-    0x4005c8/0x4005dc/P/-/-/0   0x40062f/0x4005b0/P/-/-/0 ...
-          ... 0x4005c8/0x4005dc/P/-/-/0    # LBR Entries
-*/
-class HybridPerfReader : public PerfReaderBase {
-public:
-  HybridPerfReader(ProfiledBinary *Binary) : PerfReaderBase(Binary) {
-    PerfType = PERF_LBR_STACK;
-  };
-  // Parse the hybrid sample including the call and LBR line
-  void parseSample(TraceStream &TraceIt, uint64_t Count) override;
-  void generateRawProfile() override;
-
-private:
+  void generateRawProfile();
   // Unwind the hybrid samples after aggregration
   void unwindSamples();
-  void writeRawProfile(raw_fd_ostream &OS) override;
-};
+  void printUnwinderOutput();
+  // Helper function for looking up binary in AddressBinaryMap
+  ProfiledBinary *getBinary(uint64_t Address);
 
-/*
-  The reader of LBR only perf script.
-  A typical LBR sample is like:
-    40062f 0x4005c8/0x4005dc/P/-/-/0   0x40062f/0x4005b0/P/-/-/0 ...
-          ... 0x4005c8/0x4005dc/P/-/-/0
-*/
-class LBRPerfReader : public PerfReaderBase {
-public:
-  LBRPerfReader(ProfiledBinary *Binary) : PerfReaderBase(Binary) {
-    // There is no context for LBR only sample, so initialize one entry with
-    // fake "empty" context key.
-    std::shared_ptr<StringBasedCtxKey> Key =
-        std::make_shared<StringBasedCtxKey>();
-    Key->genHashCode();
-    SampleCounters.emplace(Hashable<ContextKey>(Key), SampleCounter());
-    PerfType = PERF_LBR;
-  };
-
-  // Parse the LBR only sample.
-  void parseSample(TraceStream &TraceIt, uint64_t Count) override;
-  void generateRawProfile() override;
+  BinaryMap BinaryTable;
+  AddressBinaryMap AddrToBinaryMap; // Used by address-based lookup.
 
 private:
-  void computeCounterFromLBR(const PerfSample *Sample, uint64_t Repeat);
-  void writeRawProfile(raw_fd_ostream &OS) override;
+  BinarySampleCounterMap BinarySampleCounters;
+  // Samples with the repeating time generated by the perf reader
+  AggregatedCounter AggregatedSamples;
+  PerfScriptType PerfType;
 };
 
 } // end namespace sampleprof

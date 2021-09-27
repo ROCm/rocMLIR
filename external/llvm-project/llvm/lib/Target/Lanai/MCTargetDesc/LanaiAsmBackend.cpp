@@ -69,12 +69,10 @@ public:
     return Lanai::NumTargetFixupKinds;
   }
 
-  bool writeNopData(raw_ostream &OS, uint64_t Count,
-                    const MCSubtargetInfo *STI) const override;
+  bool writeNopData(raw_ostream &OS, uint64_t Count) const override;
 };
 
-bool LanaiAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,
-                                   const MCSubtargetInfo *STI) const {
+bool LanaiAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count) const {
   if ((Count % 4) != 0)
     return false;
 

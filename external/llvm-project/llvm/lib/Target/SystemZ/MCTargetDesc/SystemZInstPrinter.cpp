@@ -23,19 +23,18 @@ using namespace llvm;
 
 #include "SystemZGenAsmWriter.inc"
 
-void SystemZInstPrinter::printAddress(const MCAsmInfo *MAI, unsigned Base,
-                                      int64_t Disp, unsigned Index,
-                                      raw_ostream &O) {
+void SystemZInstPrinter::printAddress(unsigned Base, int64_t Disp,
+                                      unsigned Index, raw_ostream &O) {
   O << Disp;
   if (Base || Index) {
     O << '(';
     if (Index) {
-      printFormattedRegName(MAI, Index, O);
+      O << '%' << getRegisterName(Index);
       if (Base)
         O << ',';
     }
     if (Base)
-      printFormattedRegName(MAI, Base, O);
+      O << '%' << getRegisterName(Base);
     O << ')';
   }
 }
@@ -46,7 +45,7 @@ void SystemZInstPrinter::printOperand(const MCOperand &MO, const MCAsmInfo *MAI,
     if (!MO.getReg())
       O << '0';
     else
-      printFormattedRegName(MAI, MO.getReg(), O);
+      O << '%' << getRegisterName(MO.getReg());
   }
   else if (MO.isImm())
     O << MO.getImm();
@@ -56,22 +55,15 @@ void SystemZInstPrinter::printOperand(const MCOperand &MO, const MCAsmInfo *MAI,
     llvm_unreachable("Invalid operand");
 }
 
-void SystemZInstPrinter::printFormattedRegName(const MCAsmInfo *MAI,
-                                               unsigned RegNo, raw_ostream &O) {
-  const char *RegName = getRegisterName(RegNo);
-  if (MAI->getAssemblerDialect() == AD_HLASM) {
-    // Skip register prefix so that only register number is left
-    assert(isalpha(RegName[0]) && isdigit(RegName[1]));
-    O << (RegName + 1);
-  } else
-    O << '%' << RegName;
-}
-
 void SystemZInstPrinter::printInst(const MCInst *MI, uint64_t Address,
                                    StringRef Annot, const MCSubtargetInfo &STI,
                                    raw_ostream &O) {
   printInstruction(MI, Address, O);
   printAnnotation(O, Annot);
+}
+
+void SystemZInstPrinter::printRegName(raw_ostream &O, unsigned RegNo) const {
+  O << '%' << getRegisterName(RegNo);
 }
 
 template <unsigned N>
@@ -194,13 +186,13 @@ void SystemZInstPrinter::printOperand(const MCInst *MI, int OpNum,
 
 void SystemZInstPrinter::printBDAddrOperand(const MCInst *MI, int OpNum,
                                             raw_ostream &O) {
-  printAddress(&MAI, MI->getOperand(OpNum).getReg(),
+  printAddress(MI->getOperand(OpNum).getReg(),
                MI->getOperand(OpNum + 1).getImm(), 0, O);
 }
 
 void SystemZInstPrinter::printBDXAddrOperand(const MCInst *MI, int OpNum,
                                              raw_ostream &O) {
-  printAddress(&MAI, MI->getOperand(OpNum).getReg(),
+  printAddress(MI->getOperand(OpNum).getReg(),
                MI->getOperand(OpNum + 1).getImm(),
                MI->getOperand(OpNum + 2).getReg(), O);
 }
@@ -211,10 +203,8 @@ void SystemZInstPrinter::printBDLAddrOperand(const MCInst *MI, int OpNum,
   uint64_t Disp = MI->getOperand(OpNum + 1).getImm();
   uint64_t Length = MI->getOperand(OpNum + 2).getImm();
   O << Disp << '(' << Length;
-  if (Base) {
-    O << ",";
-    printRegName(O, Base);
-  }
+  if (Base)
+    O << ",%" << getRegisterName(Base);
   O << ')';
 }
 
@@ -223,18 +213,15 @@ void SystemZInstPrinter::printBDRAddrOperand(const MCInst *MI, int OpNum,
   unsigned Base = MI->getOperand(OpNum).getReg();
   uint64_t Disp = MI->getOperand(OpNum + 1).getImm();
   unsigned Length = MI->getOperand(OpNum + 2).getReg();
-  O << Disp << "(";
-  printRegName(O, Length);
-  if (Base) {
-    O << ",";
-    printRegName(O, Base);
-  }
+  O << Disp << "(%" << getRegisterName(Length);
+  if (Base)
+    O << ",%" << getRegisterName(Base);
   O << ')';
 }
 
 void SystemZInstPrinter::printBDVAddrOperand(const MCInst *MI, int OpNum,
                                              raw_ostream &O) {
-  printAddress(&MAI, MI->getOperand(OpNum).getReg(),
+  printAddress(MI->getOperand(OpNum).getReg(),
                MI->getOperand(OpNum + 1).getImm(),
                MI->getOperand(OpNum + 2).getReg(), O);
 }

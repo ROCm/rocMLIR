@@ -156,7 +156,7 @@ inline StringRef getInstrProfRuntimeHookVarUseFuncName() {
 }
 
 inline StringRef getInstrProfCounterBiasVarName() {
-  return INSTR_PROF_QUOTE(INSTR_PROF_PROFILE_COUNTER_BIAS_VAR);
+  return "__llvm_profile_counter_bias";
 }
 
 /// Return the marker used to separate PGO names during serialization.
@@ -260,8 +260,7 @@ bool getValueProfDataFromInst(const Instruction &Inst,
                               InstrProfValueKind ValueKind,
                               uint32_t MaxNumValueData,
                               InstrProfValueData ValueData[],
-                              uint32_t &ActualNumValueData, uint64_t &TotalC,
-                              bool GetNoICPValue = false);
+                              uint32_t &ActualNumValueData, uint64_t &TotalC);
 
 inline StringRef getPGOFuncNameMetadataName() { return "PGOFuncName"; }
 
@@ -291,7 +290,6 @@ enum class instrprof_error {
   truncated,
   malformed,
   unknown_function,
-  invalid_prof,
   hash_mismatch,
   count_mismatch,
   counter_overflow,
@@ -1103,8 +1101,6 @@ namespace RawInstrProf {
 // raw header.
 // Version 5: Bit 60 of FuncHash is reserved for the flag for the context
 // sensitive records.
-// Version 6: Added binary id.
-// Version 7: Reorder binary id and include version in signature.
 const uint64_t Version = INSTR_PROF_RAW_VERSION;
 
 template <class IntPtrT> inline uint64_t getMagic();
@@ -1143,8 +1139,8 @@ void getMemOPSizeRangeFromOption(StringRef Str, int64_t &RangeStart,
 
 // Create a COMDAT variable INSTR_PROF_RAW_VERSION_VAR to make the runtime
 // aware this is an ir_level profile so it can set the version flag.
-GlobalVariable *createIRLevelProfileFlagVar(Module &M, bool IsCS,
-                                            bool InstrEntryBBEnabled);
+void createIRLevelProfileFlagVar(Module &M, bool IsCS,
+                                 bool InstrEntryBBEnabled);
 
 // Create the variable for the profile file name.
 void createProfileFileNameVar(Module &M, StringRef InstrProfileOutput);

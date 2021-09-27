@@ -22,8 +22,6 @@
 # RUN: not wasm-ld %t.o -o / 2>&1 | FileCheck %s -check-prefixes=ROOT,CHECK
 # ROOT: error: cannot open output file /
 
-.functype undefined_symbol () -> ()
-
 _start:
     .functype _start () -> ()
     call undefined_symbol

@@ -1,5 +1,4 @@
 // RUN: %clang_cc1 -fsyntax-only -verify -triple x86_64-linux-pc %s
-// RUN: %clang_cc1 -fsyntax-only -verify -triple x86_64-linux-pc -target-feature +avx512fp16 %s -DHAVE
 // RUN: %clang_cc1 -fsyntax-only -verify -triple spir-unknown-unknown %s -DHAVE
 // RUN: %clang_cc1 -fsyntax-only -verify -triple armv7a-linux-gnu %s -DHAVE
 // RUN: %clang_cc1 -fsyntax-only -verify -triple aarch64-linux-gnu %s -DHAVE
@@ -10,7 +9,8 @@
 _Float16 f;
 
 #ifdef HAVE
-_Complex _Float16 a;
+// FIXME: Should this be valid?
+_Complex _Float16 a; // expected-error {{'_Complex _Float16' is invalid}}
 void builtin_complex() {
   _Float16 a = 0;
   (void)__builtin_complex(a, a); // expected-error {{'_Complex _Float16' is invalid}}

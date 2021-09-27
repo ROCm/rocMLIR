@@ -34,9 +34,8 @@ public:
   virtual void
   GetGlobalVariables(const RegularExpression &regex,
                      llvm::function_ref<bool(DWARFDIE die)> callback) = 0;
-  /// \a cu must be the skeleton unit if possible, not GetNonSkeletonUnit().
   virtual void
-  GetGlobalVariables(DWARFUnit &cu,
+  GetGlobalVariables(const DWARFUnit &cu,
                      llvm::function_ref<bool(DWARFDIE die)> callback) = 0;
   virtual void
   GetObjCMethods(ConstString class_name,

@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 ! Check that computed goto express must be a scalar integer expression
 ! TODO: PGI, for example, accepts a float & converts the value to int.
 

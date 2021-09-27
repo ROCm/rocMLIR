@@ -15,8 +15,6 @@
 
 #include <typeindex>
 
-#include <functional>
-
 #include "poisoned_hash_helper.h"
 
 #include "test_macros.h"

@@ -13,24 +13,21 @@
 // UNSUPPORTED: libcxx-no-debug-mode
 
 // ADDITIONAL_COMPILE_FLAGS: -D_LIBCPP_DEBUG=1
+#define _LIBCPP_ASSERT(x, m) ((x) ? (void)0 : std::exit(0))
 
 #include <unordered_map>
 #include <string>
 #include <cassert>
 
 #include "test_macros.h"
-#include "debug_macros.h"
 
 int main(int, char**) {
     typedef std::unordered_map<int, std::string> C;
-    C c;
-    c.insert(std::make_pair(42, std::string()));
-    C::size_type b = c.bucket(42);
-    C::local_iterator i = c.begin(b);
-    assert(i != c.end(b));
+    C c(1);
+    C::local_iterator i = c.begin(0);
     ++i;
-    assert(i == c.end(b));
-    TEST_LIBCPP_ASSERT_FAILURE(++i, "Attempted to increment a non-incrementable unordered container local_iterator");
+    ++i;
+    assert(false);
 
     return 0;
 }

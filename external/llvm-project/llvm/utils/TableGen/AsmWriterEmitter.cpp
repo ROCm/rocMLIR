@@ -994,7 +994,8 @@ void AsmWriterEmitter::EmitPrintAliasInstruction(raw_ostream &O) {
         });
       }
 
-      for (Record *const R : ReqFeatures) {
+      for (auto I = ReqFeatures.cbegin(); I != ReqFeatures.cend(); I++) {
+        Record *R = *I;
         const DagInit *D = R->getValueAsDag("AssemblerCondDag");
         std::string CombineType = D->getOperator()->getAsString();
         if (CombineType != "any_of" && CombineType != "all_of")

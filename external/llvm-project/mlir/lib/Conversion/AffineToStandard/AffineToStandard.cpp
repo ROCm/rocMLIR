@@ -15,7 +15,6 @@
 
 #include "../PassDetail.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Vector/VectorOps.h"
@@ -45,8 +44,7 @@ public:
       : builder(builder), dimValues(dimValues), symbolValues(symbolValues),
         loc(loc) {}
 
-  template <typename OpTy>
-  Value buildBinaryExpr(AffineBinaryOpExpr expr) {
+  template <typename OpTy> Value buildBinaryExpr(AffineBinaryOpExpr expr) {
     auto lhs = visit(expr.getLHS());
     auto rhs = visit(expr.getRHS());
     if (!lhs || !rhs)
@@ -367,6 +365,47 @@ public:
   }
 };
 
+/// Returns the identity value associated with an AtomicRMWKind op.
+static Value getIdentityValue(AtomicRMWKind op, OpBuilder &builder,
+                              Location loc) {
+  switch (op) {
+  case AtomicRMWKind::addf:
+    return builder.create<ConstantOp>(loc, builder.getF32FloatAttr(0));
+  case AtomicRMWKind::addi:
+    return builder.create<ConstantOp>(loc, builder.getI32IntegerAttr(0));
+  case AtomicRMWKind::mulf:
+    return builder.create<ConstantOp>(loc, builder.getF32FloatAttr(1));
+  case AtomicRMWKind::muli:
+    return builder.create<ConstantOp>(loc, builder.getI32IntegerAttr(1));
+  // TODO: Add remaining reduction operations.
+  default:
+    (void)emitOptionalError(loc, "Reduction operation type not supported");
+    break;
+  }
+  return nullptr;
+}
+
+/// Return the value obtained by applying the reduction operation kind
+/// associated with a binary AtomicRMWKind op to `lhs` and `rhs`.
+static Value getReductionOp(AtomicRMWKind op, OpBuilder &builder, Location loc,
+                            Value lhs, Value rhs) {
+  switch (op) {
+  case AtomicRMWKind::addf:
+    return builder.create<AddFOp>(loc, lhs, rhs);
+  case AtomicRMWKind::addi:
+    return builder.create<AddIOp>(loc, lhs, rhs);
+  case AtomicRMWKind::mulf:
+    return builder.create<MulFOp>(loc, lhs, rhs);
+  case AtomicRMWKind::muli:
+    return builder.create<MulIOp>(loc, lhs, rhs);
+  // TODO: Add remaining reduction operations.
+  default:
+    (void)emitOptionalError(loc, "Reduction operation type not supported");
+    break;
+  }
+  return nullptr;
+}
+
 /// Convert an `affine.parallel` (loop nest) operation into a `scf.parallel`
 /// operation.
 class AffineParallelLowering : public OpRewritePattern<AffineParallelOp> {
@@ -380,28 +419,20 @@ public:
     SmallVector<Value, 8> upperBoundTuple;
     SmallVector<Value, 8> lowerBoundTuple;
     SmallVector<Value, 8> identityVals;
-    // Emit IR computing the lower and upper bound by expanding the map
-    // expression.
-    lowerBoundTuple.reserve(op.getNumDims());
-    upperBoundTuple.reserve(op.getNumDims());
-    for (unsigned i = 0, e = op.getNumDims(); i < e; ++i) {
-      Value lower = lowerAffineMapMax(rewriter, loc, op.getLowerBoundMap(i),
-                                      op.getLowerBoundsOperands());
-      if (!lower)
-        return rewriter.notifyMatchFailure(op, "couldn't convert lower bounds");
-      lowerBoundTuple.push_back(lower);
-
-      Value upper = lowerAffineMapMin(rewriter, loc, op.getUpperBoundMap(i),
-                                      op.getUpperBoundsOperands());
-      if (!upper)
-        return rewriter.notifyMatchFailure(op, "couldn't convert upper bounds");
-      upperBoundTuple.push_back(upper);
-    }
+    // Finding lower and upper bound by expanding the map expression.
+    // Checking if expandAffineMap is not giving NULL.
+    Optional<SmallVector<Value, 8>> lowerBound = expandAffineMap(
+        rewriter, loc, op.lowerBoundsMap(), op.getLowerBoundsOperands());
+    Optional<SmallVector<Value, 8>> upperBound = expandAffineMap(
+        rewriter, loc, op.upperBoundsMap(), op.getUpperBoundsOperands());
+    if (!lowerBound || !upperBound)
+      return failure();
+    upperBoundTuple = *upperBound;
+    lowerBoundTuple = *lowerBound;
     steps.reserve(op.steps().size());
     for (Attribute step : op.steps())
       steps.push_back(rewriter.create<ConstantIndexOp>(
           loc, step.cast<IntegerAttr>().getInt()));
-
     // Get the terminator op.
     Operation *affineParOpTerminator = op.getBody()->getTerminator();
     scf::ParallelOp parOp;
@@ -420,18 +451,15 @@ public:
     // scf.parallel handles the reduction operation differently unlike
     // affine.parallel.
     ArrayRef<Attribute> reductions = op.reductions().getValue();
-    for (auto pair : llvm::zip(reductions, op.getResultTypes())) {
+    for (Attribute reduction : reductions) {
       // For each of the reduction operations get the identity values for
       // initialization of the result values.
-      Attribute reduction = std::get<0>(pair);
-      Type resultType = std::get<1>(pair);
       Optional<AtomicRMWKind> reductionOp = symbolizeAtomicRMWKind(
           static_cast<uint64_t>(reduction.cast<IntegerAttr>().getInt()));
       assert(reductionOp.hasValue() &&
              "Reduction operation cannot be of None Type");
       AtomicRMWKind reductionOpValue = reductionOp.getValue();
-      identityVals.push_back(
-          getIdentityValue(reductionOpValue, resultType, rewriter, loc));
+      identityVals.push_back(getIdentityValue(reductionOpValue, rewriter, loc));
     }
     parOp = rewriter.create<scf::ParallelOp>(
         loc, lowerBoundTuple, upperBoundTuple, steps, identityVals,
@@ -502,8 +530,7 @@ public:
                 : rewriter.create<ConstantIntOp>(loc, /*value=*/1, /*width=*/1);
 
     bool hasElseRegion = !op.elseRegion().empty();
-    auto ifOp = rewriter.create<scf::IfOp>(loc, op.getResultTypes(), cond,
-                                           hasElseRegion);
+    auto ifOp = rewriter.create<scf::IfOp>(loc, cond, hasElseRegion);
     rewriter.inlineRegionBefore(op.thenRegion(), &ifOp.thenRegion().back());
     rewriter.eraseBlock(&ifOp.thenRegion().back());
     if (hasElseRegion) {
@@ -511,8 +538,8 @@ public:
       rewriter.eraseBlock(&ifOp.elseRegion().back());
     }
 
-    // Replace the Affine IfOp finally.
-    rewriter.replaceOp(op, ifOp.results());
+    // Ok, we're done!
+    rewriter.eraseOp(op);
     return success();
   }
 };
@@ -536,8 +563,8 @@ public:
 };
 
 /// Apply the affine map from an 'affine.load' operation to its operands, and
-/// feed the results to a newly created 'memref.load' operation (which replaces
-/// the original 'affine.load').
+/// feed the results to a newly created 'std.load' operation (which replaces the
+/// original 'affine.load').
 class AffineLoadLowering : public OpRewritePattern<AffineLoadOp> {
 public:
   using OpRewritePattern<AffineLoadOp>::OpRewritePattern;
@@ -551,15 +578,14 @@ public:
     if (!resultOperands)
       return failure();
 
-    // Build vector.load memref[expandedMap.results].
-    rewriter.replaceOpWithNewOp<memref::LoadOp>(op, op.getMemRef(),
-                                                *resultOperands);
+    // Build std.load memref[expandedMap.results].
+    rewriter.replaceOpWithNewOp<LoadOp>(op, op.getMemRef(), *resultOperands);
     return success();
   }
 };
 
 /// Apply the affine map from an 'affine.prefetch' operation to its operands,
-/// and feed the results to a newly created 'memref.prefetch' operation (which
+/// and feed the results to a newly created 'std.prefetch' operation (which
 /// replaces the original 'affine.prefetch').
 class AffinePrefetchLowering : public OpRewritePattern<AffinePrefetchOp> {
 public:
@@ -574,16 +600,16 @@ public:
     if (!resultOperands)
       return failure();
 
-    // Build memref.prefetch memref[expandedMap.results].
-    rewriter.replaceOpWithNewOp<memref::PrefetchOp>(
-        op, op.memref(), *resultOperands, op.isWrite(), op.localityHint(),
-        op.isDataCache());
+    // Build std.prefetch memref[expandedMap.results].
+    rewriter.replaceOpWithNewOp<PrefetchOp>(op, op.memref(), *resultOperands,
+                                            op.isWrite(), op.localityHint(),
+                                            op.isDataCache());
     return success();
   }
 };
 
 /// Apply the affine map from an 'affine.store' operation to its operands, and
-/// feed the results to a newly created 'memref.store' operation (which replaces
+/// feed the results to a newly created 'std.store' operation (which replaces
 /// the original 'affine.store').
 class AffineStoreLowering : public OpRewritePattern<AffineStoreOp> {
 public:
@@ -598,17 +624,16 @@ public:
     if (!maybeExpandedMap)
       return failure();
 
-    // Build memref.store valueToStore, memref[expandedMap.results].
-    rewriter.replaceOpWithNewOp<memref::StoreOp>(
-        op, op.getValueToStore(), op.getMemRef(), *maybeExpandedMap);
+    // Build std.store valueToStore, memref[expandedMap.results].
+    rewriter.replaceOpWithNewOp<StoreOp>(op, op.getValueToStore(),
+                                         op.getMemRef(), *maybeExpandedMap);
     return success();
   }
 };
 
 /// Apply the affine maps from an 'affine.dma_start' operation to each of their
 /// respective map operands, and feed the results to a newly created
-/// 'memref.dma_start' operation (which replaces the original
-/// 'affine.dma_start').
+/// 'std.dma_start' operation (which replaces the original 'affine.dma_start').
 class AffineDmaStartLowering : public OpRewritePattern<AffineDmaStartOp> {
 public:
   using OpRewritePattern<AffineDmaStartOp>::OpRewritePattern;
@@ -637,8 +662,8 @@ public:
     if (!maybeExpandedTagMap)
       return failure();
 
-    // Build memref.dma_start operation with affine map results.
-    rewriter.replaceOpWithNewOp<memref::DmaStartOp>(
+    // Build std.dma_start operation with affine map results.
+    rewriter.replaceOpWithNewOp<DmaStartOp>(
         op, op.getSrcMemRef(), *maybeExpandedSrcMap, op.getDstMemRef(),
         *maybeExpandedDstMap, op.getNumElements(), op.getTagMemRef(),
         *maybeExpandedTagMap, op.getStride(), op.getNumElementsPerStride());
@@ -647,7 +672,7 @@ public:
 };
 
 /// Apply the affine map from an 'affine.dma_wait' operation tag memref,
-/// and feed the results to a newly created 'memref.dma_wait' operation (which
+/// and feed the results to a newly created 'std.dma_wait' operation (which
 /// replaces the original 'affine.dma_wait').
 class AffineDmaWaitLowering : public OpRewritePattern<AffineDmaWaitOp> {
 public:
@@ -662,16 +687,16 @@ public:
     if (!maybeExpandedTagMap)
       return failure();
 
-    // Build memref.dma_wait operation with affine map results.
-    rewriter.replaceOpWithNewOp<memref::DmaWaitOp>(
+    // Build std.dma_wait operation with affine map results.
+    rewriter.replaceOpWithNewOp<DmaWaitOp>(
         op, op.getTagMemRef(), *maybeExpandedTagMap, op.getNumElements());
     return success();
   }
 };
 
 /// Apply the affine map from an 'affine.vector_load' operation to its operands,
-/// and feed the results to a newly created 'vector.load' operation (which
-/// replaces the original 'affine.vector_load').
+/// and feed the results to a newly created 'vector.transfer_read' operation
+/// (which replaces the original 'affine.vector_load').
 class AffineVectorLoadLowering : public OpRewritePattern<AffineVectorLoadOp> {
 public:
   using OpRewritePattern<AffineVectorLoadOp>::OpRewritePattern;
@@ -685,16 +710,16 @@ public:
     if (!resultOperands)
       return failure();
 
-    // Build vector.load memref[expandedMap.results].
-    rewriter.replaceOpWithNewOp<vector::LoadOp>(
+    // Build vector.transfer_read memref[expandedMap.results].
+    rewriter.replaceOpWithNewOp<TransferReadOp>(
         op, op.getVectorType(), op.getMemRef(), *resultOperands);
     return success();
   }
 };
 
 /// Apply the affine map from an 'affine.vector_store' operation to its
-/// operands, and feed the results to a newly created 'vector.store' operation
-/// (which replaces the original 'affine.vector_store').
+/// operands, and feed the results to a newly created 'vector.transfer_write'
+/// operation (which replaces the original 'affine.vector_store').
 class AffineVectorStoreLowering : public OpRewritePattern<AffineVectorStoreOp> {
 public:
   using OpRewritePattern<AffineVectorStoreOp>::OpRewritePattern;
@@ -708,7 +733,7 @@ public:
     if (!maybeExpandedMap)
       return failure();
 
-    rewriter.replaceOpWithNewOp<vector::StoreOp>(
+    rewriter.replaceOpWithNewOp<TransferWriteOp>(
         op, op.getValueToStore(), op.getMemRef(), *maybeExpandedMap);
     return success();
   }
@@ -716,9 +741,10 @@ public:
 
 } // end namespace
 
-void mlir::populateAffineToStdConversionPatterns(RewritePatternSet &patterns) {
+void mlir::populateAffineToStdConversionPatterns(
+    OwningRewritePatternList &patterns, MLIRContext *ctx) {
   // clang-format off
-  patterns.add<
+  patterns.insert<
       AffineApplyLowering,
       AffineDmaStartLowering,
       AffineDmaWaitLowering,
@@ -730,28 +756,28 @@ void mlir::populateAffineToStdConversionPatterns(RewritePatternSet &patterns) {
       AffineStoreLowering,
       AffineForLowering,
       AffineIfLowering,
-      AffineYieldOpLowering>(patterns.getContext());
+      AffineYieldOpLowering>(ctx);
   // clang-format on
 }
 
 void mlir::populateAffineToVectorConversionPatterns(
-    RewritePatternSet &patterns) {
+    OwningRewritePatternList &patterns, MLIRContext *ctx) {
   // clang-format off
-  patterns.add<
+  patterns.insert<
       AffineVectorLoadLowering,
-      AffineVectorStoreLowering>(patterns.getContext());
+      AffineVectorStoreLowering>(ctx);
   // clang-format on
 }
 
 namespace {
 class LowerAffinePass : public ConvertAffineToStandardBase<LowerAffinePass> {
   void runOnOperation() override {
-    RewritePatternSet patterns(&getContext());
-    populateAffineToStdConversionPatterns(patterns);
-    populateAffineToVectorConversionPatterns(patterns);
+    OwningRewritePatternList patterns;
+    populateAffineToStdConversionPatterns(patterns, &getContext());
+    populateAffineToVectorConversionPatterns(patterns, &getContext());
     ConversionTarget target(getContext());
-    target.addLegalDialect<memref::MemRefDialect, scf::SCFDialect,
-                           StandardOpsDialect, VectorDialect>();
+    target
+        .addLegalDialect<scf::SCFDialect, StandardOpsDialect, VectorDialect>();
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns))))
       signalPassFailure();

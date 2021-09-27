@@ -149,7 +149,6 @@ public:
     OPC_CheckFoldableChainNode,
 
     OPC_EmitInteger,
-    OPC_EmitStringInteger,
     OPC_EmitRegister,
     OPC_EmitRegister2,
     OPC_EmitConvertToTarget,
@@ -318,7 +317,6 @@ private:
   void CannotYetSelect(SDNode *N);
 
   void Select_FREEZE(SDNode *N);
-  void Select_ARITH_FENCE(SDNode *N);
 
 private:
   void DoInstructionSelection();

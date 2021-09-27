@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/SPIRV/IR/SPIRVGLSLCanonicalization.h"
+#include "mlir/Dialect/SPIRV/IR/SPIRVModule.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -20,23 +21,19 @@ public:
   TestGLSLCanonicalizationPass() = default;
   TestGLSLCanonicalizationPass(const TestGLSLCanonicalizationPass &) {}
   void runOnOperation() override;
-  StringRef getArgument() const final {
-    return "test-spirv-glsl-canonicalization";
-  }
-  StringRef getDescription() const final {
-    return "Tests SPIR-V canonicalization patterns for GLSL extension.";
-  }
 };
 } // namespace
 
 void TestGLSLCanonicalizationPass::runOnOperation() {
-  RewritePatternSet patterns(&getContext());
-  spirv::populateSPIRVGLSLCanonicalizationPatterns(patterns);
+  OwningRewritePatternList patterns;
+  spirv::populateSPIRVGLSLCanonicalizationPatterns(patterns, &getContext());
   (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
 }
 
 namespace mlir {
 void registerTestSpirvGLSLCanonicalizationPass() {
-  PassRegistration<TestGLSLCanonicalizationPass>();
+  PassRegistration<TestGLSLCanonicalizationPass> registration(
+      "test-spirv-glsl-canonicalization",
+      "Tests SPIR-V canonicalization patterns for GLSL extension.");
 }
 } // namespace mlir

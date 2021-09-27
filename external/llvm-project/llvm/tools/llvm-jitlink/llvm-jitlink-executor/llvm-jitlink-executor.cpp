@@ -12,20 +12,15 @@
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ExecutionEngine/Orc/Shared/FDRawByteChannel.h"
-#include "llvm/ExecutionEngine/Orc/TargetProcess/JITLoaderGDB.h"
+#include "llvm/ExecutionEngine/Orc/TargetProcess/OrcRPCTPCServer.h"
 #include "llvm/ExecutionEngine/Orc/TargetProcess/RegisterEHFrames.h"
-#include "llvm/ExecutionEngine/Orc/TargetProcess/SimpleExecutorMemoryManager.h"
-#include "llvm/ExecutionEngine/Orc/TargetProcess/SimpleRemoteEPCServer.h"
 #include "llvm/Support/DynamicLibrary.h"
 #include "llvm/Support/Error.h"
-#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cstring>
 #include <sstream>
 
 #ifdef LLVM_ON_UNIX
 
-#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
@@ -38,8 +33,7 @@ ExitOnError ExitOnErr;
 
 LLVM_ATTRIBUTE_USED void linkComponents() {
   errs() << (void *)&llvm_orc_registerEHFrameSectionWrapper
-         << (void *)&llvm_orc_deregisterEHFrameSectionWrapper
-         << (void *)&llvm_orc_registerJITLoaderGDBWrapper;
+         << (void *)&llvm_orc_deregisterEHFrameSectionWrapper;
 }
 
 void printErrorAndExit(Twine ErrMsg) {
@@ -50,60 +44,40 @@ void printErrorAndExit(Twine ErrMsg) {
   exit(1);
 }
 
-int openListener(std::string Host, std::string PortStr) {
+int openListener(std::string Host, int Port) {
 #ifndef LLVM_ON_UNIX
   // FIXME: Add TCP support for Windows.
   printErrorAndExit("listen option not supported");
   return 0;
 #else
-  addrinfo Hints{};
-  Hints.ai_family = AF_INET;
-  Hints.ai_socktype = SOCK_STREAM;
-  Hints.ai_flags = AI_PASSIVE;
+  int SockFD = socket(PF_INET, SOCK_STREAM, 0);
+  struct sockaddr_in ServerAddr, ClientAddr;
+  socklen_t ClientAddrLen = sizeof(ClientAddr);
+  memset(&ServerAddr, 0, sizeof(ServerAddr));
+  ServerAddr.sin_family = PF_INET;
+  ServerAddr.sin_family = INADDR_ANY;
+  ServerAddr.sin_port = htons(Port);
 
-  addrinfo *AI;
-  if (int EC = getaddrinfo(nullptr, PortStr.c_str(), &Hints, &AI)) {
-    errs() << "Error setting up bind address: " << gai_strerror(EC) << "\n";
+  {
+    // lose the "Address already in use" error message
+    int Yes = 1;
+    if (setsockopt(SockFD, SOL_SOCKET, SO_REUSEADDR, &Yes, sizeof(int)) == -1) {
+      errs() << "Error calling setsockopt.\n";
+      exit(1);
+    }
+  }
+
+  if (bind(SockFD, (struct sockaddr *)&ServerAddr, sizeof(ServerAddr)) < 0) {
+    errs() << "Error on binding.\n";
     exit(1);
   }
 
-  // Create a socket from first addrinfo structure returned by getaddrinfo.
-  int SockFD;
-  if ((SockFD = socket(AI->ai_family, AI->ai_socktype, AI->ai_protocol)) < 0) {
-    errs() << "Error creating socket: " << std::strerror(errno) << "\n";
-    exit(1);
-  }
-
-  // Avoid "Address already in use" errors.
-  const int Yes = 1;
-  if (setsockopt(SockFD, SOL_SOCKET, SO_REUSEADDR, &Yes, sizeof(int)) == -1) {
-    errs() << "Error calling setsockopt: " << std::strerror(errno) << "\n";
-    exit(1);
-  }
-
-  // Bind the socket to the desired port.
-  if (bind(SockFD, AI->ai_addr, AI->ai_addrlen) < 0) {
-    errs() << "Error on binding: " << std::strerror(errno) << "\n";
-    exit(1);
-  }
-
-  // Listen for incomming connections.
-  static constexpr int ConnectionQueueLen = 1;
-  listen(SockFD, ConnectionQueueLen);
-
-#if defined(_AIX)
-  assert(Hi_32(AI->ai_addrlen) == 0 && "Field is a size_t on 64-bit AIX");
-  socklen_t AddrLen = Lo_32(AI->ai_addrlen);
-  return accept(SockFD, AI->ai_addr, &AddrLen);
-#else
-  return accept(SockFD, AI->ai_addr, &AI->ai_addrlen);
+  listen(SockFD, 1);
+  return accept(SockFD, (struct sockaddr *)&ClientAddr, &ClientAddrLen);
 #endif
-
-#endif // LLVM_ON_UNIX
 }
 
 int main(int argc, char *argv[]) {
-#if LLVM_ENABLE_THREADS
 
   ExitOnErr.setBanner(std::string(argv[0]) + ": ");
 
@@ -129,34 +103,26 @@ int main(int argc, char *argv[]) {
 
       int Port = 0;
       if (PortStr.getAsInteger(10, Port))
-        printErrorAndExit("port number '" + PortStr +
-                          "' is not a valid integer");
+        printErrorAndExit("port" + PortStr + " is not a valid integer");
 
-      InFD = OutFD = openListener(Host.str(), PortStr.str());
+      InFD = OutFD = openListener(Host.str(), Port);
     } else
       printErrorAndExit("invalid specifier type \"" + SpecifierType + "\"");
   }
 
-  auto Server =
-      ExitOnErr(SimpleRemoteEPCServer::Create<FDSimpleRemoteEPCTransport>(
-          [](SimpleRemoteEPCServer::Setup &S) -> Error {
-            S.setDispatcher(
-                std::make_unique<SimpleRemoteEPCServer::ThreadDispatcher>());
-            S.bootstrapSymbols() =
-                SimpleRemoteEPCServer::defaultBootstrapSymbols();
-            S.services().push_back(
-                std::make_unique<rt_bootstrap::SimpleExecutorMemoryManager>());
-            return Error::success();
-          },
-          InFD, OutFD));
+  ExitOnErr.setBanner(std::string(argv[0]) + ":");
 
-  ExitOnErr(Server->waitForDisconnect());
+  using JITLinkExecutorEndpoint =
+      shared::MultiThreadedRPCEndpoint<shared::FDRawByteChannel>;
+
+  shared::registerStringError<shared::FDRawByteChannel>();
+
+  shared::FDRawByteChannel C(InFD, OutFD);
+  JITLinkExecutorEndpoint EP(C, true);
+  OrcRPCTPCServer<JITLinkExecutorEndpoint> Server(EP);
+  Server.setProgramName(std::string("llvm-jitlink-executor"));
+
+  ExitOnErr(Server.run());
+
   return 0;
-
-#else
-  errs() << argv[0]
-         << " error: this tool requires threads, but LLVM was "
-            "built with LLVM_ENABLE_THREADS=Off\n";
-  return 1;
-#endif
 }

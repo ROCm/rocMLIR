@@ -34,7 +34,7 @@ public:
 static WasmYAML::Limits makeLimits(const wasm::WasmLimits &Limits) {
   WasmYAML::Limits L;
   L.Flags = Limits.Flags;
-  L.Minimum = Limits.Minimum;
+  L.Initial = Limits.Initial;
   L.Maximum = Limits.Maximum;
   return L;
 }
@@ -51,7 +51,7 @@ static WasmYAML::Table makeTable(uint32_t Index,
 std::unique_ptr<WasmYAML::CustomSection>
 WasmDumper::dumpCustomSection(const WasmSection &WasmSec) {
   std::unique_ptr<WasmYAML::CustomSection> CustomSec;
-  if (WasmSec.Name == "dylink" || WasmSec.Name == "dylink.0") {
+  if (WasmSec.Name == "dylink") {
     std::unique_ptr<WasmYAML::DylinkSection> DylinkSec =
         std::make_unique<WasmYAML::DylinkSection>();
     const wasm::WasmDylinkInfo& Info = Obj.dylinkInfo();
@@ -60,8 +60,6 @@ WasmDumper::dumpCustomSection(const WasmSection &WasmSec) {
     DylinkSec->TableSize = Info.TableSize;
     DylinkSec->TableAlignment = Info.TableAlignment;
     DylinkSec->Needed = Info.Needed;
-    for (const auto &Exp : Info.ExportInfo)
-      DylinkSec->ExportInfo.push_back({Exp.Name, Exp.Flags});
     CustomSec = std::move(DylinkSec);
   } else if (WasmSec.Name == "name") {
     std::unique_ptr<WasmYAML::NameSection> NameSec =
@@ -102,7 +100,7 @@ WasmDumper::dumpCustomSection(const WasmSection &WasmSec) {
         SegmentInfo.Name = Segment.Data.Name;
         SegmentInfo.Index = SegmentIndex;
         SegmentInfo.Alignment = Segment.Data.Alignment;
-        SegmentInfo.Flags = Segment.Data.LinkingFlags;
+        SegmentInfo.Flags = Segment.Data.LinkerFlags;
         LinkingSec->SegmentInfos.push_back(SegmentInfo);
       }
       if (Segment.Data.Comdat != UINT32_MAX) {
@@ -134,7 +132,7 @@ WasmDumper::dumpCustomSection(const WasmSection &WasmSec) {
       case wasm::WASM_SYMBOL_TYPE_FUNCTION:
       case wasm::WASM_SYMBOL_TYPE_GLOBAL:
       case wasm::WASM_SYMBOL_TYPE_TABLE:
-      case wasm::WASM_SYMBOL_TYPE_TAG:
+      case wasm::WASM_SYMBOL_TYPE_EVENT:
         Info.ElementIndex = Symbol.ElementIndex;
         break;
       case wasm::WASM_SYMBOL_TYPE_SECTION:
@@ -240,9 +238,9 @@ ErrorOr<WasmYAML::Object *> WasmDumper::dump() {
           Im.GlobalImport.Type = Import.Global.Type;
           Im.GlobalImport.Mutable = Import.Global.Mutable;
           break;
-        case wasm::WASM_EXTERNAL_TAG:
-          Im.TagImport.Attribute = Import.Tag.Attribute;
-          Im.TagImport.SigIndex = Import.Tag.SigIndex;
+        case wasm::WASM_EXTERNAL_EVENT:
+          Im.EventImport.Attribute = Import.Event.Attribute;
+          Im.EventImport.SigIndex = Import.Event.SigIndex;
           break;
         case wasm::WASM_EXTERNAL_TABLE:
           // FIXME: Currently we always output an index of 0 for any imported
@@ -282,16 +280,16 @@ ErrorOr<WasmYAML::Object *> WasmDumper::dump() {
       S = std::move(MemorySec);
       break;
     }
-    case wasm::WASM_SEC_TAG: {
-      auto TagSec = std::make_unique<WasmYAML::TagSection>();
-      for (auto &Tag : Obj.tags()) {
-        WasmYAML::Tag T;
-        T.Index = Tag.Index;
-        T.Attribute = Tag.Type.Attribute;
-        T.SigIndex = Tag.Type.SigIndex;
-        TagSec->Tags.push_back(T);
+    case wasm::WASM_SEC_EVENT: {
+      auto EventSec = std::make_unique<WasmYAML::EventSection>();
+      for (auto &Event : Obj.events()) {
+        WasmYAML::Event E;
+        E.Index = Event.Index;
+        E.Attribute = Event.Type.Attribute;
+        E.SigIndex = Event.Type.SigIndex;
+        EventSec->Events.push_back(E);
       }
-      S = std::move(TagSec);
+      S = std::move(EventSec);
       break;
     }
     case wasm::WASM_SEC_GLOBAL: {
@@ -329,9 +327,7 @@ ErrorOr<WasmYAML::Object *> WasmDumper::dump() {
       auto ElemSec = std::make_unique<WasmYAML::ElemSection>();
       for (auto &Segment : Obj.elements()) {
         WasmYAML::ElemSegment Seg;
-        Seg.Flags = Segment.Flags;
-        Seg.TableNumber = Segment.TableNumber;
-        Seg.ElemKind = Segment.ElemKind;
+        Seg.TableIndex = Segment.TableIndex;
         Seg.Offset = Segment.Offset;
         append_range(Seg.Functions, Segment.Functions);
         ElemSec->Segments.push_back(Seg);

@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_OPTIMIZER_DIALECT_FIRATTR_H
-#define FORTRAN_OPTIMIZER_DIALECT_FIRATTR_H
+#ifndef OPTIMIZER_DIALECT_FIRATTR_H
+#define OPTIMIZER_DIALECT_FIRATTR_H
 
 #include "mlir/IR/BuiltinAttributes.h"
 
@@ -28,8 +28,6 @@ namespace detail {
 struct RealAttributeStorage;
 struct TypeAttributeStorage;
 } // namespace detail
-
-using KindTy = unsigned;
 
 class ExactTypeAttr
     : public mlir::Attribute::AttrBase<ExactTypeAttr, mlir::Attribute,
@@ -129,7 +127,7 @@ public:
   static constexpr llvm::StringRef getAttrName() { return "real"; }
   static RealAttr get(mlir::MLIRContext *ctxt, const ValueType &key);
 
-  KindTy getFKind() const;
+  int getFKind() const;
   llvm::APFloat getValue() const;
 };
 
@@ -142,4 +140,4 @@ void printFirAttribute(FIROpsDialect *dialect, mlir::Attribute attr,
 
 } // namespace fir
 
-#endif // FORTRAN_OPTIMIZER_DIALECT_FIRATTR_H
+#endif // OPTIMIZER_DIALECT_FIRATTR_H

@@ -38,7 +38,6 @@
 #include "llvm/CodeGen/VirtRegMap.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/InstrTypes.h"
-#include "llvm/IR/Statepoint.h"
 #include "llvm/MC/LaneBitmask.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Pass.h"
@@ -48,7 +47,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/CodeGen/StackMaps.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -475,7 +473,7 @@ bool LiveIntervals::shrinkToUses(LiveInterval *li,
   // Visit all instructions reading li->reg().
   Register Reg = li->reg();
   for (MachineInstr &UseMI : MRI->reg_instructions(Reg)) {
-    if (UseMI.isDebugInstr() || !UseMI.readsVirtualRegister(Reg))
+    if (UseMI.isDebugValue() || !UseMI.readsVirtualRegister(Reg))
       continue;
     SlotIndex Idx = getInstructionIndex(UseMI).getRegSlot();
     LiveQueryResult LRQ = li->Query(Idx);
@@ -704,6 +702,9 @@ void LiveIntervals::pruneValue(LiveRange &LR, SlotIndex Kill,
 void LiveIntervals::addKillFlags(const VirtRegMap *VRM) {
   // Keep track of regunit ranges.
   SmallVector<std::pair<const LiveRange*, LiveRange::const_iterator>, 8> RU;
+  // Keep track of subregister ranges.
+  SmallVector<std::pair<const LiveInterval::SubRange*,
+                        LiveRange::const_iterator>, 4> SRs;
 
   for (unsigned i = 0, e = MRI->getNumVirtRegs(); i != e; ++i) {
     Register Reg = Register::index2VirtReg(i);
@@ -713,21 +714,24 @@ void LiveIntervals::addKillFlags(const VirtRegMap *VRM) {
     if (LI.empty())
       continue;
 
-    // Target may have not allocated this yet.
-    Register PhysReg = VRM->getPhys(Reg);
-    if (!PhysReg)
-      continue;
-
     // Find the regunit intervals for the assigned register. They may overlap
     // the virtual register live range, cancelling any kills.
     RU.clear();
-    for (MCRegUnitIterator Unit(PhysReg, TRI); Unit.isValid();
+    for (MCRegUnitIterator Unit(VRM->getPhys(Reg), TRI); Unit.isValid();
          ++Unit) {
       const LiveRange &RURange = getRegUnit(*Unit);
       if (RURange.empty())
         continue;
       RU.push_back(std::make_pair(&RURange, RURange.find(LI.begin()->end)));
     }
+
+    if (MRI->subRegLivenessEnabled()) {
+      SRs.clear();
+      for (const LiveInterval::SubRange &SR : LI.subranges()) {
+        SRs.push_back(std::make_pair(&SR, SR.find(LI.begin()->end)));
+      }
+    }
+
     // Every instruction that kills Reg corresponds to a segment range end
     // point.
     for (LiveInterval::const_iterator RI = LI.begin(), RE = LI.end(); RI != RE;
@@ -772,18 +776,20 @@ void LiveIntervals::addKillFlags(const VirtRegMap *VRM) {
         // are actually never written by %2. After assignment the <kill>
         // flag at the read instruction is invalid.
         LaneBitmask DefinedLanesMask;
-        if (LI.hasSubRanges()) {
+        if (!SRs.empty()) {
           // Compute a mask of lanes that are defined.
           DefinedLanesMask = LaneBitmask::getNone();
-          for (const LiveInterval::SubRange &SR : LI.subranges())
-            for (const LiveRange::Segment &Segment : SR.segments) {
-              if (Segment.start >= RI->end)
-                break;
-              if (Segment.end == RI->end) {
-                DefinedLanesMask |= SR.LaneMask;
-                break;
-              }
-            }
+          for (auto &SRP : SRs) {
+            const LiveInterval::SubRange &SR = *SRP.first;
+            LiveRange::const_iterator &I = SRP.second;
+            if (I == SR.end())
+              continue;
+            I = SR.advanceTo(I, RI->end);
+            if (I == SR.end() || I->start >= RI->end)
+              continue;
+            // I is overlapping RI
+            DefinedLanesMask |= SR.LaneMask;
+          }
         } else
           DefinedLanesMask = LaneBitmask::getAll();
 
@@ -793,9 +799,7 @@ void LiveIntervals::addKillFlags(const VirtRegMap *VRM) {
             continue;
           if (MO.isUse()) {
             // Reading any undefined lanes?
-            unsigned SubReg = MO.getSubReg();
-            LaneBitmask UseMask = SubReg ? TRI->getSubRegIndexLaneMask(SubReg)
-                                         : MRI->getMaxLaneMaskForVReg(Reg);
+            LaneBitmask UseMask = TRI->getSubRegIndexLaneMask(MO.getSubReg());
             if ((UseMask & ~DefinedLanesMask).any())
               goto CancelKill;
           } else if (MO.getSubReg() == 0) {
@@ -893,23 +897,6 @@ LiveIntervals::addSegmentToEndOfBlock(Register Reg, MachineInstr &startInst) {
 //===----------------------------------------------------------------------===//
 //                          Register mask functions
 //===----------------------------------------------------------------------===//
-/// Check whether use of reg in MI is live-through. Live-through means that
-/// the value is alive on exit from Machine instruction. The example of such
-/// use is a deopt value in statepoint instruction.
-static bool hasLiveThroughUse(const MachineInstr *MI, Register Reg) {
-  if (MI->getOpcode() != TargetOpcode::STATEPOINT)
-    return false;
-  StatepointOpers SO(MI);
-  if (SO.getFlags() & (uint64_t)StatepointFlags::DeoptLiveIn)
-    return false;
-  for (unsigned Idx = SO.getNumDeoptArgsIdx(), E = SO.getNumGCPtrIdx(); Idx < E;
-       ++Idx) {
-    const MachineOperand &MO = MI->getOperand(Idx);
-    if (MO.isReg() && MO.getReg() == Reg)
-      return true;
-  }
-  return false;
-}
 
 bool LiveIntervals::checkRegMaskInterference(LiveInterval &LI,
                                              BitVector &UsableRegs) {
@@ -938,8 +925,11 @@ bool LiveIntervals::checkRegMaskInterference(LiveInterval &LI,
     return false;
 
   bool Found = false;
-  // Utility to union regmasks.
-  auto unionBitMask = [&](unsigned Idx) {
+  while (true) {
+    assert(*SlotI >= LiveI->start);
+    // Loop over all slots overlapping this segment.
+    while (*SlotI < LiveI->end) {
+      // *SlotI overlaps LI. Collect mask bits.
       if (!Found) {
         // This is the first overlap. Initialize UsableRegs to all ones.
         UsableRegs.clear();
@@ -947,28 +937,14 @@ bool LiveIntervals::checkRegMaskInterference(LiveInterval &LI,
         Found = true;
       }
       // Remove usable registers clobbered by this mask.
-      UsableRegs.clearBitsNotInMask(Bits[Idx]);
-  };
-  while (true) {
-    assert(*SlotI >= LiveI->start);
-    // Loop over all slots overlapping this segment.
-    while (*SlotI < LiveI->end) {
-      // *SlotI overlaps LI. Collect mask bits.
-      unionBitMask(SlotI - Slots.begin());
+      UsableRegs.clearBitsNotInMask(Bits[SlotI-Slots.begin()]);
       if (++SlotI == SlotE)
         return Found;
     }
-    // If segment ends with live-through use we need to collect its regmask.
-    if (*SlotI == LiveI->end)
-      if (MachineInstr *MI = getInstructionFromIndex(*SlotI))
-        if (hasLiveThroughUse(MI, LI.reg()))
-          unionBitMask(SlotI++ - Slots.begin());
     // *SlotI is beyond the current LI segment.
-    // Special advance implementation to not miss next LiveI->end.
-    if (++LiveI == LiveE || SlotI == SlotE || *SlotI > LI.endIndex())
+    LiveI = LI.advanceTo(LiveI, *SlotI);
+    if (LiveI == LiveE)
       return Found;
-    while (LiveI->end < *SlotI)
-      ++LiveI;
     // Advance SlotI until it overlaps.
     while (*SlotI < LiveI->start)
       if (++SlotI == SlotE)
@@ -1489,7 +1465,7 @@ private:
 
     MachineBasicBlock::iterator Begin = MBB->begin();
     while (MII != Begin) {
-      if ((--MII)->isDebugOrPseudoInstr())
+      if ((--MII)->isDebugInstr())
         continue;
       SlotIndex Idx = Indexes->getInstructionIndex(*MII);
 
@@ -1584,7 +1560,7 @@ void LiveIntervals::repairOldRegInRange(const MachineBasicBlock::iterator Begin,
   for (MachineBasicBlock::iterator I = End; I != Begin;) {
     --I;
     MachineInstr &MI = *I;
-    if (MI.isDebugOrPseudoInstr())
+    if (MI.isDebugInstr())
       continue;
 
     SlotIndex instrIdx = getInstructionIndex(MI);
@@ -1681,7 +1657,7 @@ LiveIntervals::repairIntervalsInRange(MachineBasicBlock *MBB,
   for (MachineBasicBlock::iterator I = End; I != Begin;) {
     --I;
     MachineInstr &MI = *I;
-    if (MI.isDebugOrPseudoInstr())
+    if (MI.isDebugInstr())
       continue;
     for (MachineInstr::const_mop_iterator MOI = MI.operands_begin(),
                                           MOE = MI.operands_end();

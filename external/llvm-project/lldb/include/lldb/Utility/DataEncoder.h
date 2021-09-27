@@ -16,8 +16,8 @@
 #include "lldb/lldb-forward.h"
 #include "lldb/lldb-types.h"
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace lldb_private {
 
@@ -226,10 +226,10 @@ private:
   size_t GetByteSize() const { return m_end - m_start; }
 
   /// A pointer to the first byte of data.
-  uint8_t *m_start = nullptr;
+  uint8_t *m_start;
 
   /// A pointer to the byte that is past the end of the data.
-  uint8_t *m_end = nullptr;
+  uint8_t *m_end;
 
   /// The byte order of the data we are extracting from.
   lldb::ByteOrder m_byte_order;

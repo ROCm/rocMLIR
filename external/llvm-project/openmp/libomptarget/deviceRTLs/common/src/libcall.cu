@@ -29,7 +29,7 @@ EXTERN double omp_get_wtime(void) {
 
 EXTERN void omp_set_num_threads(int num) {
   // Ignore it for SPMD mode.
-  if (__kmpc_is_spmd_exec_mode())
+  if (isSPMDMode())
     return;
   ASSERT0(LT_FUSSY, isRuntimeInitialized(), "Expected initialized runtime.");
   PRINT(LD_IO, "call omp_set_num_threads(num %d)\n", num);
@@ -41,7 +41,7 @@ EXTERN void omp_set_num_threads(int num) {
 }
 
 EXTERN int omp_get_num_threads(void) {
-  int rc = GetNumberOfOmpThreads(__kmpc_is_spmd_exec_mode());
+  int rc = GetNumberOfOmpThreads(isSPMDMode());
   PRINT(LD_IO, "call omp_get_num_threads() return %d\n", rc);
   return rc;
 }
@@ -60,21 +60,23 @@ EXTERN int omp_get_max_threads(void) {
 }
 
 EXTERN int omp_get_thread_limit(void) {
-  if (__kmpc_is_spmd_exec_mode())
-    return __kmpc_get_hardware_num_threads_in_block();
+  if (isSPMDMode())
+    return GetNumberOfThreadsInBlock();
   int rc = threadLimit;
   PRINT(LD_IO, "call omp_get_thread_limit() return %d\n", rc);
   return rc;
 }
 
 EXTERN int omp_get_thread_num() {
-  int rc = GetOmpThreadId();
+  bool isSPMDExecutionMode = isSPMDMode();
+  int tid = GetLogicalThreadIdInBlock(isSPMDExecutionMode);
+  int rc = GetOmpThreadId(tid, isSPMDExecutionMode);
   PRINT(LD_IO, "call omp_get_thread_num() returns %d\n", rc);
   return rc;
 }
 
 EXTERN int omp_get_num_procs(void) {
-  int rc = GetNumberOfProcsInDevice(__kmpc_is_spmd_exec_mode());
+  int rc = GetNumberOfProcsInDevice(isSPMDMode());
   PRINT(LD_IO, "call omp_get_num_procs() returns %d\n", rc);
   return rc;
 }
@@ -129,7 +131,7 @@ EXTERN int omp_get_max_active_levels(void) {
 }
 
 EXTERN int omp_get_level(void) {
-  int level = __kmpc_parallel_level();
+  int level = parallelLevel[GetWarpId()] & (OMP_ACTIVE_PARALLEL_LEVEL - 1);
   PRINT(LD_IO, "call omp_get_level() returns %d\n", level);
   return level;
 }
@@ -141,8 +143,8 @@ EXTERN int omp_get_active_level(void) {
 }
 
 EXTERN int omp_get_ancestor_thread_num(int level) {
-  if (__kmpc_is_spmd_exec_mode())
-    return level == 1 ? __kmpc_get_hardware_thread_id_in_block() : 0;
+  if (isSPMDMode())
+    return level == 1 ? GetThreadIdInBlock() : 0;
   int rc = -1;
   // If level is 0 or all parallel regions are not active - return 0.
   unsigned parLevel = parallelLevel[GetWarpId()];
@@ -195,8 +197,8 @@ EXTERN int omp_get_ancestor_thread_num(int level) {
 }
 
 EXTERN int omp_get_team_size(int level) {
-  if (__kmpc_is_spmd_exec_mode())
-    return level == 1 ? __kmpc_get_hardware_num_threads_in_block() : 1;
+  if (isSPMDMode())
+    return level == 1 ? GetNumberOfThreadsInBlock() : 1;
   int rc = -1;
   unsigned parLevel = parallelLevel[GetWarpId()];
   // If level is 0 or all parallel regions are not active - return 1.
@@ -215,13 +217,13 @@ EXTERN int omp_get_team_size(int level) {
 
 EXTERN void omp_get_schedule(omp_sched_t *kind, int *modifier) {
   if (isRuntimeUninitialized()) {
-    ASSERT0(LT_FUSSY, __kmpc_is_spmd_exec_mode(),
+    ASSERT0(LT_FUSSY, isSPMDMode(),
             "Expected SPMD mode only with uninitialized runtime.");
     *kind = omp_sched_static;
     *modifier = 1;
   } else {
     omptarget_nvptx_TaskDescr *currTaskDescr =
-        getMyTopTaskDescriptor(__kmpc_is_spmd_exec_mode());
+        getMyTopTaskDescriptor(isSPMDMode());
     *kind = currTaskDescr->GetRuntimeSched();
     *modifier = currTaskDescr->RuntimeChunkSize();
   }
@@ -233,13 +235,13 @@ EXTERN void omp_set_schedule(omp_sched_t kind, int modifier) {
   PRINT(LD_IO, "call omp_set_schedule(sched %d, modif %d)\n", (int)kind,
         modifier);
   if (isRuntimeUninitialized()) {
-    ASSERT0(LT_FUSSY, __kmpc_is_spmd_exec_mode(),
+    ASSERT0(LT_FUSSY, isSPMDMode(),
             "Expected SPMD mode only with uninitialized runtime.");
     return;
   }
   if (kind >= omp_sched_static && kind < omp_sched_auto) {
     omptarget_nvptx_TaskDescr *currTaskDescr =
-        getMyTopTaskDescriptor(__kmpc_is_spmd_exec_mode());
+        getMyTopTaskDescriptor(isSPMDMode());
     currTaskDescr->SetRuntimeSched(kind);
     currTaskDescr->RuntimeChunkSize() = modifier;
     PRINT(LD_IOD, "omp_set_schedule did set sched %d & modif %" PRIu64 "\n",

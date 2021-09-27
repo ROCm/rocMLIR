@@ -22,8 +22,8 @@
 #include <memory>
 #include <string>
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace lldb_private {
 class Event;
@@ -101,7 +101,7 @@ class EventDataReceipt : public EventData {
 public:
   EventDataReceipt() : EventData(), m_predicate(false) {}
 
-  ~EventDataReceipt() override = default;
+  ~EventDataReceipt() override {}
 
   static ConstString GetFlavorString() {
     static ConstString g_flavor("Process::ProcessEventData");

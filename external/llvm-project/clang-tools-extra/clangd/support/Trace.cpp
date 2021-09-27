@@ -112,14 +112,14 @@ private:
             "s",
             llvm::json::Object{{"id", FlowID},
                                {"name", "Context crosses threads"},
-                               {"cat", "mock_cat"}},
+                               {"cat", "dummy"}},
             (*Parent)->TID, (*Parent)->StartTime);
         Tracer->jsonEvent(
             "f",
             llvm::json::Object{{"id", FlowID},
                                {"bp", "e"},
                                {"name", "Context crosses threads"},
-                               {"cat", "mock_cat"}},
+                               {"cat", "dummy"}},
             TID);
       }
     }

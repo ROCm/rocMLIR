@@ -64,10 +64,6 @@ bool isSeparator(path::value_type C) {
   return false;
 }
 
-bool isDriveLetter(path::value_type C) {
-  return (C >= 'a' && C <= 'z') || (C >= 'A' && C <= 'Z');
-}
-
 namespace parser {
 
 using string_view_t = path::__string_view;
@@ -124,13 +120,7 @@ public:
 
     switch (State) {
     case PS_BeforeBegin: {
-      PosPtr TkEnd = consumeRootName(Start, End);
-      if (TkEnd)
-        return makeState(PS_InRootName, Start, TkEnd);
-    }
-      _LIBCPP_FALLTHROUGH();
-    case PS_InRootName: {
-      PosPtr TkEnd = consumeAllSeparators(Start, End);
+      PosPtr TkEnd = consumeSeparator(Start, End);
       if (TkEnd)
         return makeState(PS_InRootDir, Start, TkEnd);
       else
@@ -140,7 +130,7 @@ public:
       return makeState(PS_InFilenames, Start, consumeName(Start, End));
 
     case PS_InFilenames: {
-      PosPtr SepEnd = consumeAllSeparators(Start, End);
+      PosPtr SepEnd = consumeSeparator(Start, End);
       if (SepEnd != End) {
         PosPtr TkEnd = consumeName(SepEnd, End);
         if (TkEnd)
@@ -152,6 +142,7 @@ public:
     case PS_InTrailingSep:
       return makeState(PS_AtEnd);
 
+    case PS_InRootName:
     case PS_AtEnd:
       _LIBCPP_UNREACHABLE();
     }
@@ -166,18 +157,12 @@ public:
     switch (State) {
     case PS_AtEnd: {
       // Try to consume a trailing separator or root directory first.
-      if (PosPtr SepEnd = consumeAllSeparators(RStart, REnd)) {
+      if (PosPtr SepEnd = consumeSeparator(RStart, REnd)) {
         if (SepEnd == REnd)
           return makeState(PS_InRootDir, Path.data(), RStart + 1);
-        PosPtr TkStart = consumeRootName(SepEnd, REnd);
-        if (TkStart == REnd)
-          return makeState(PS_InRootDir, RStart, RStart + 1);
         return makeState(PS_InTrailingSep, SepEnd + 1, RStart + 1);
       } else {
-        PosPtr TkStart = consumeRootName(RStart, REnd);
-        if (TkStart == REnd)
-          return makeState(PS_InRootName, TkStart + 1, RStart + 1);
-        TkStart = consumeName(RStart, REnd);
+        PosPtr TkStart = consumeName(RStart, REnd);
         return makeState(PS_InFilenames, TkStart + 1, RStart + 1);
       }
     }
@@ -185,20 +170,14 @@ public:
       return makeState(PS_InFilenames, consumeName(RStart, REnd) + 1,
                        RStart + 1);
     case PS_InFilenames: {
-      PosPtr SepEnd = consumeAllSeparators(RStart, REnd);
+      PosPtr SepEnd = consumeSeparator(RStart, REnd);
       if (SepEnd == REnd)
         return makeState(PS_InRootDir, Path.data(), RStart + 1);
-      PosPtr TkStart = consumeRootName(SepEnd ? SepEnd : RStart, REnd);
-      if (TkStart == REnd) {
-        if (SepEnd)
-          return makeState(PS_InRootDir, SepEnd + 1, RStart + 1);
-        return makeState(PS_InRootName, TkStart + 1, RStart + 1);
-      }
-      TkStart = consumeName(SepEnd, REnd);
-      return makeState(PS_InFilenames, TkStart + 1, SepEnd + 1);
+      PosPtr TkEnd = consumeName(SepEnd, REnd);
+      return makeState(PS_InFilenames, TkEnd + 1, SepEnd + 1);
     }
     case PS_InRootDir:
-      return makeState(PS_InRootName, Path.data(), RStart + 1);
+      // return makeState(PS_InRootName, Path.data(), RStart + 1);
     case PS_InRootName:
     case PS_BeforeBegin:
       _LIBCPP_UNREACHABLE();
@@ -304,9 +283,8 @@ private:
     _LIBCPP_UNREACHABLE();
   }
 
-  // Consume all consecutive separators.
-  PosPtr consumeAllSeparators(PosPtr P, PosPtr End) const noexcept {
-    if (P == nullptr || P == End || !isSeparator(*P))
+  PosPtr consumeSeparator(PosPtr P, PosPtr End) const noexcept {
+    if (P == End || !isSeparator(*P))
       return nullptr;
     const int Inc = P < End ? 1 : -1;
     P += Inc;
@@ -315,71 +293,14 @@ private:
     return P;
   }
 
-  // Consume exactly N separators, or return nullptr.
-  PosPtr consumeNSeparators(PosPtr P, PosPtr End, int N) const noexcept {
-    PosPtr Ret = consumeAllSeparators(P, End);
-    if (Ret == nullptr)
-      return nullptr;
-    if (P < End) {
-      if (Ret == P + N)
-        return Ret;
-    } else {
-      if (Ret == P - N)
-        return Ret;
-    }
-    return nullptr;
-  }
-
   PosPtr consumeName(PosPtr P, PosPtr End) const noexcept {
-    PosPtr Start = P;
-    if (P == nullptr || P == End || isSeparator(*P))
+    if (P == End || isSeparator(*P))
       return nullptr;
     const int Inc = P < End ? 1 : -1;
     P += Inc;
     while (P != End && !isSeparator(*P))
       P += Inc;
-    if (P == End && Inc < 0) {
-      // Iterating backwards and consumed all the rest of the input.
-      // Check if the start of the string would have been considered
-      // a root name.
-      PosPtr RootEnd = consumeRootName(End + 1, Start);
-      if (RootEnd)
-        return RootEnd - 1;
-    }
     return P;
-  }
-
-  PosPtr consumeDriveLetter(PosPtr P, PosPtr End) const noexcept {
-    if (P == End)
-      return nullptr;
-    if (P < End) {
-      if (P + 1 == End || !isDriveLetter(P[0]) || P[1] != ':')
-        return nullptr;
-      return P + 2;
-    } else {
-      if (P - 1 == End || !isDriveLetter(P[-1]) || P[0] != ':')
-        return nullptr;
-      return P - 2;
-    }
-  }
-
-  PosPtr consumeNetworkRoot(PosPtr P, PosPtr End) const noexcept {
-    if (P == End)
-      return nullptr;
-    if (P < End)
-      return consumeName(consumeNSeparators(P, End, 2), End);
-    else
-      return consumeNSeparators(consumeName(P, End), End, 2);
-  }
-
-  PosPtr consumeRootName(PosPtr P, PosPtr End) const noexcept {
-#if defined(_LIBCPP_WIN32API)
-    if (PosPtr Ret = consumeDriveLetter(P, End))
-      return Ret;
-    if (PosPtr Ret = consumeNetworkRoot(P, End))
-      return Ret;
-#endif
-    return nullptr;
   }
 };
 
@@ -412,7 +333,6 @@ errc __win_err_to_errc(int err) {
       {ERROR_ACCESS_DENIED, errc::permission_denied},
       {ERROR_ALREADY_EXISTS, errc::file_exists},
       {ERROR_BAD_NETPATH, errc::no_such_file_or_directory},
-      {ERROR_BAD_PATHNAME, errc::no_such_file_or_directory},
       {ERROR_BAD_UNIT, errc::no_such_device},
       {ERROR_BROKEN_PIPE, errc::broken_pipe},
       {ERROR_BUFFER_OVERFLOW, errc::filename_too_long},
@@ -667,20 +587,27 @@ _FilesystemClock::time_point _FilesystemClock::now() noexcept {
 
 filesystem_error::~filesystem_error() {}
 
+#if defined(_LIBCPP_WIN32API)
+#define PS_FMT "%ls"
+#else
+#define PS_FMT "%s"
+#endif
+
 void filesystem_error::__create_what(int __num_paths) {
   const char* derived_what = system_error::what();
   __storage_->__what_ = [&]() -> string {
+    const path::value_type* p1 = path1().native().empty() ? PS("\"\"") : path1().c_str();
+    const path::value_type* p2 = path2().native().empty() ? PS("\"\"") : path2().c_str();
     switch (__num_paths) {
-    case 0:
+    default:
       return detail::format_string("filesystem error: %s", derived_what);
     case 1:
-      return detail::format_string("filesystem error: %s [" PATH_CSTR_FMT "]",
-                                   derived_what, path1().c_str());
+      return detail::format_string("filesystem error: %s [" PS_FMT "]", derived_what,
+                                   p1);
     case 2:
-      return detail::format_string("filesystem error: %s [" PATH_CSTR_FMT "] [" PATH_CSTR_FMT "]",
-                                   derived_what, path1().c_str(), path2().c_str());
+      return detail::format_string("filesystem error: %s [" PS_FMT "] [" PS_FMT "]",
+                                   derived_what, p1, p2);
     }
-    _LIBCPP_UNREACHABLE();
   }();
 }
 
@@ -1013,19 +940,13 @@ bool __create_directories(const path& p, error_code* ec) {
     if (not status_known(parent_st))
       return err.report(m_ec);
     if (not exists(parent_st)) {
-      if (parent == p)
-        return err.report(errc::invalid_argument);
       __create_directories(parent, ec);
       if (ec && *ec) {
         return false;
       }
-    } else if (not is_directory(parent_st))
-      return err.report(errc::not_a_directory);
+    }
   }
-  bool ret = __create_directory(p, &m_ec);
-  if (m_ec)
-    return err.report(m_ec);
-  return ret;
+  return __create_directory(p, ec);
 }
 
 bool __create_directory(const path& p, error_code* ec) {
@@ -1034,13 +955,16 @@ bool __create_directory(const path& p, error_code* ec) {
   if (detail::mkdir(p.c_str(), static_cast<int>(perms::all)) == 0)
     return true;
 
-  if (errno != EEXIST)
-    return err.report(capture_errno());
-  error_code mec = capture_errno();
-  error_code ignored_ec;
-  const file_status st = status(p, ignored_ec);
-  if (!is_directory(st))
-    return err.report(mec);
+  if (errno == EEXIST) {
+    error_code mec = capture_errno();
+    error_code ignored_ec;
+    const file_status st = status(p, ignored_ec);
+    if (!is_directory(st)) {
+      err.report(mec);
+    }
+  } else {
+    err.report(capture_errno());
+  }
   return false;
 }
 
@@ -1049,7 +973,7 @@ bool __create_directory(path const& p, path const& attributes, error_code* ec) {
 
   StatT attr_stat;
   error_code mec;
-  file_status st = detail::posix_stat(attributes, attr_stat, &mec);
+  auto st = detail::posix_stat(attributes, attr_stat, &mec);
   if (!status_known(st))
     return err.report(mec);
   if (!is_directory(st))
@@ -1059,14 +983,16 @@ bool __create_directory(path const& p, path const& attributes, error_code* ec) {
   if (detail::mkdir(p.c_str(), attr_stat.st_mode) == 0)
     return true;
 
-  if (errno != EEXIST)
-    return err.report(capture_errno());
-
-  mec = capture_errno();
-  error_code ignored_ec;
-  st = status(p, ignored_ec);
-  if (!is_directory(st))
-    return err.report(mec);
+  if (errno == EEXIST) {
+    error_code mec = capture_errno();
+    error_code ignored_ec;
+    const file_status st = status(p, ignored_ec);
+    if (!is_directory(st)) {
+      err.report(mec);
+    }
+  } else {
+    err.report(capture_errno());
+  }
   return false;
 }
 
@@ -1092,7 +1018,7 @@ void __create_symlink(path const& from, path const& to, error_code* ec) {
 path __current_path(error_code* ec) {
   ErrorHandler<path> err("current_path", ec);
 
-#if defined(_LIBCPP_WIN32API) || defined(__GLIBC__) || defined(__APPLE__)
+#if defined(_LIBCPP_WIN32API)
   // Common extension outside of POSIX getcwd() spec, without needing to
   // preallocate a buffer. Also supported by a number of other POSIX libcs.
   int size = 0;
@@ -1421,19 +1347,6 @@ file_status __symlink_status(const path& p, error_code* ec) {
 path __temp_directory_path(error_code* ec) {
   ErrorHandler<path> err("temp_directory_path", ec);
 
-#if defined(_LIBCPP_WIN32API)
-  wchar_t buf[MAX_PATH];
-  DWORD retval = GetTempPathW(MAX_PATH, buf);
-  if (!retval)
-    return err.report(detail::make_windows_error(GetLastError()));
-  if (retval > MAX_PATH)
-    return err.report(errc::filename_too_long);
-  // GetTempPathW returns a path with a trailing slash, which we
-  // shouldn't include for consistency.
-  if (buf[retval-1] == L'\\')
-    buf[retval-1] = L'\0';
-  path p(buf);
-#else
   const char* env_paths[] = {"TMPDIR", "TMP", "TEMP", "TEMPDIR"};
   const char* ret = nullptr;
 
@@ -1444,15 +1357,14 @@ path __temp_directory_path(error_code* ec) {
     ret = "/tmp";
 
   path p(ret);
-#endif
   error_code m_ec;
   file_status st = detail::posix_stat(p, &m_ec);
   if (!status_known(st))
-    return err.report(m_ec, "cannot access path " PATH_CSTR_FMT, p.c_str());
+    return err.report(m_ec, "cannot access path \"" PS_FMT "\"", p);
 
   if (!exists(st) || !is_directory(st))
-    return err.report(errc::not_a_directory,
-                      "path " PATH_CSTR_FMT " is not a directory", p.c_str());
+    return err.report(errc::not_a_directory, "path \"" PS_FMT "\" is not a directory",
+                      p);
 
   return p;
 }
@@ -1715,7 +1627,6 @@ path path::lexically_normal() const {
   if (NeedTrailingSep)
     Result /= PS("");
 
-  Result.make_preferred();
   return Result;
 }
 
@@ -1936,6 +1847,7 @@ size_t __char_to_wide(const string &str, wchar_t *out, size_t outlen) {
 //                           directory entry definitions
 ///////////////////////////////////////////////////////////////////////////////
 
+#ifndef _LIBCPP_WIN32API
 error_code directory_entry::__do_refresh() noexcept {
   __data_.__reset();
   error_code failure_ec;
@@ -1989,5 +1901,47 @@ error_code directory_entry::__do_refresh() noexcept {
 
   return failure_ec;
 }
+#else
+error_code directory_entry::__do_refresh() noexcept {
+  __data_.__reset();
+  error_code failure_ec;
+
+  file_status st = _VSTD_FS::symlink_status(__p_, failure_ec);
+  if (!status_known(st)) {
+    __data_.__reset();
+    return failure_ec;
+  }
+
+  if (!_VSTD_FS::exists(st) || !_VSTD_FS::is_symlink(st)) {
+    __data_.__cache_type_ = directory_entry::_RefreshNonSymlink;
+    __data_.__type_ = st.type();
+    __data_.__non_sym_perms_ = st.permissions();
+  } else { // we have a symlink
+    __data_.__sym_perms_ = st.permissions();
+    // Get the information about the linked entity.
+    // Ignore errors from stat, since we don't want errors regarding symlink
+    // resolution to be reported to the user.
+    error_code ignored_ec;
+    st = _VSTD_FS::status(__p_, ignored_ec);
+
+    __data_.__type_ = st.type();
+    __data_.__non_sym_perms_ = st.permissions();
+
+    // If we failed to resolve the link, then only partially populate the
+    // cache.
+    if (!status_known(st)) {
+      __data_.__cache_type_ = directory_entry::_RefreshSymlinkUnresolved;
+      return error_code{};
+    }
+    __data_.__cache_type_ = directory_entry::_RefreshSymlink;
+  }
+
+  // FIXME: This is currently broken, and the implementation only a placeholder.
+  // We need to cache last_write_time, file_size, and hard_link_count here before
+  // the implementation actually works.
+
+  return failure_ec;
+}
+#endif
 
 _LIBCPP_END_NAMESPACE_FILESYSTEM

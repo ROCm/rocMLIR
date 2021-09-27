@@ -14,7 +14,6 @@
 #define MLIR_IR_AFFINE_EXPR_VISITOR_H
 
 #include "mlir/IR/AffineExpr.h"
-#include "llvm/ADT/ArrayRef.h"
 
 namespace mlir {
 

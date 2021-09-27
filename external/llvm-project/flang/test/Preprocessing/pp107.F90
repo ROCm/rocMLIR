@@ -1,5 +1,5 @@
 ! RUN: %flang -E %s 2>&1 | FileCheck %s
-! CHECK: res = KWM
+! CHECK: res = kwm
 ! KWM call name split across continuation, no leading &, with & ! comment
       integer, parameter :: KWM = 666
 #define KWM 777

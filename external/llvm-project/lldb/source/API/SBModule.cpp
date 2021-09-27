@@ -397,13 +397,11 @@ lldb::SBSymbolContextList SBModule::FindFunctions(const char *name,
   lldb::SBSymbolContextList sb_sc_list;
   ModuleSP module_sp(GetSP());
   if (name && module_sp) {
-
-    ModuleFunctionSearchOptions function_options;
-    function_options.include_symbols = true;
-    function_options.include_inlines = true;
+    const bool symbols_ok = true;
+    const bool inlines_ok = true;
     FunctionNameType type = static_cast<FunctionNameType>(name_type_mask);
     module_sp->FindFunctions(ConstString(name), CompilerDeclContext(), type,
-                             function_options, *sb_sc_list);
+                             symbols_ok, inlines_ok, *sb_sc_list);
   }
   return LLDB_RECORD_RESULT(sb_sc_list);
 }

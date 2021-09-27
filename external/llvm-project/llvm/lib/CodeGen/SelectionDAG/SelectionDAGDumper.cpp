@@ -145,10 +145,10 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
     unsigned OpNo = getOpcode() == ISD::INTRINSIC_WO_CHAIN ? 0 : 1;
     unsigned IID = cast<ConstantSDNode>(getOperand(OpNo))->getZExtValue();
     if (IID < Intrinsic::num_intrinsics)
-      return Intrinsic::getBaseName((Intrinsic::ID)IID).str();
-    if (!G)
+      return Intrinsic::getName((Intrinsic::ID)IID, None);
+    else if (!G)
       return "Unknown intrinsic";
-    if (const TargetIntrinsicInfo *TII = G->getTarget().getIntrinsicInfo())
+    else if (const TargetIntrinsicInfo *TII = G->getTarget().getIntrinsicInfo())
       return TII->getName(IID);
     llvm_unreachable("Invalid intrinsic ID");
   }
@@ -231,8 +231,6 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::MUL:                        return "mul";
   case ISD::MULHU:                      return "mulhu";
   case ISD::MULHS:                      return "mulhs";
-  case ISD::ABDS:                       return "abds";
-  case ISD::ABDU:                       return "abdu";
   case ISD::SDIV:                       return "sdiv";
   case ISD::UDIV:                       return "udiv";
   case ISD::SREM:                       return "srem";
@@ -290,11 +288,7 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::EXTRACT_SUBVECTOR:          return "extract_subvector";
   case ISD::SCALAR_TO_VECTOR:           return "scalar_to_vector";
   case ISD::VECTOR_SHUFFLE:             return "vector_shuffle";
-  case ISD::VECTOR_SPLICE:              return "vector_splice";
   case ISD::SPLAT_VECTOR:               return "splat_vector";
-  case ISD::SPLAT_VECTOR_PARTS:         return "splat_vector_parts";
-  case ISD::VECTOR_REVERSE:             return "vector_reverse";
-  case ISD::STEP_VECTOR:                return "step_vector";
   case ISD::CARRY_FALSE:                return "carry_false";
   case ISD::ADDC:                       return "addc";
   case ISD::ADDE:                       return "adde";
@@ -526,13 +520,13 @@ static void printMemOperand(raw_ostream &OS, const MachineMemOperand &MMO,
   if (G) {
     const MachineFunction *MF = &G->getMachineFunction();
     return printMemOperand(OS, MMO, MF, MF->getFunction().getParent(),
-                           &MF->getFrameInfo(),
-                           G->getSubtarget().getInstrInfo(), *G->getContext());
+                           &MF->getFrameInfo(), G->getSubtarget().getInstrInfo(),
+                           *G->getContext());
+  } else {
+    LLVMContext Ctx;
+    return printMemOperand(OS, MMO, /*MF=*/nullptr, /*M=*/nullptr,
+                           /*MFI=*/nullptr, /*TII=*/nullptr, Ctx);
   }
-
-  LLVMContext Ctx;
-  return printMemOperand(OS, MMO, /*MF=*/nullptr, /*M=*/nullptr,
-                         /*MFI=*/nullptr, /*TII=*/nullptr, Ctx);
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
@@ -837,38 +831,26 @@ void SDNode::print_details(raw_ostream &OS, const SelectionDAG *G) const {
 
 LLVM_DUMP_METHOD void SDDbgValue::print(raw_ostream &OS) const {
   OS << " DbgVal(Order=" << getOrder() << ')';
-  if (isInvalidated())
-    OS << "(Invalidated)";
-  if (isEmitted())
-    OS << "(Emitted)";
-  OS << "(";
-  bool Comma = false;
-  for (const SDDbgOperand &Op : getLocationOps()) {
-    if (Comma)
-      OS << ", ";
-    switch (Op.getKind()) {
-    case SDDbgOperand::SDNODE:
-      if (Op.getSDNode())
-        OS << "SDNODE=" << PrintNodeId(*Op.getSDNode()) << ':' << Op.getResNo();
-      else
-        OS << "SDNODE";
-      break;
-    case SDDbgOperand::CONST:
-      OS << "CONST";
-      break;
-    case SDDbgOperand::FRAMEIX:
-      OS << "FRAMEIX=" << Op.getFrameIx();
-      break;
-    case SDDbgOperand::VREG:
-      OS << "VREG=" << Op.getVReg();
-      break;
-    }
-    Comma = true;
+  if (isInvalidated()) OS << "(Invalidated)";
+  if (isEmitted()) OS << "(Emitted)";
+  switch (getKind()) {
+  case SDNODE:
+    if (getSDNode())
+      OS << "(SDNODE=" << PrintNodeId(*getSDNode()) << ':' <<  getResNo() << ')';
+    else
+      OS << "(SDNODE)";
+    break;
+  case CONST:
+    OS << "(CONST)";
+    break;
+  case FRAMEIX:
+    OS << "(FRAMEIX=" << getFrameIx() << ')';
+    break;
+  case VREG:
+    OS << "(VREG=" << getVReg() << ')';
+    break;
   }
-  OS << ")";
   if (isIndirect()) OS << "(Indirect)";
-  if (isVariadic())
-    OS << "(Variadic)";
   OS << ":\"" << Var->getName() << '"';
 #ifndef NDEBUG
   if (Expr->getNumElements())
@@ -913,10 +895,12 @@ static void DumpNodes(const SDNode *N, unsigned indent, const SelectionDAG *G) {
 LLVM_DUMP_METHOD void SelectionDAG::dump() const {
   dbgs() << "SelectionDAG has " << AllNodes.size() << " nodes:\n";
 
-  for (const SDNode &N : allnodes()) {
-    if (!N.hasOneUse() && &N != getRoot().getNode() &&
-        (!shouldPrintInline(N, this) || N.use_empty()))
-      DumpNodes(&N, 2, this);
+  for (allnodes_const_iterator I = allnodes_begin(), E = allnodes_end();
+       I != E; ++I) {
+    const SDNode *N = &*I;
+    if (!N->hasOneUse() && N != getRoot().getNode() &&
+        (!shouldPrintInline(*N, this) || N->use_empty()))
+      DumpNodes(N, 2, this);
   }
 
   if (getRoot().getNode()) DumpNodes(getRoot().getNode(), 2, this);
@@ -948,19 +932,17 @@ static bool printOperand(raw_ostream &OS, const SelectionDAG *G,
   if (!Value.getNode()) {
     OS << "<null>";
     return false;
-  }
-
-  if (shouldPrintInline(*Value.getNode(), G)) {
+  } else if (shouldPrintInline(*Value.getNode(), G)) {
     OS << Value->getOperationName(G) << ':';
     Value->print_types(OS, G);
     Value->print_details(OS, G);
     return true;
+  } else {
+    OS << PrintNodeId(*Value.getNode());
+    if (unsigned RN = Value.getResNo())
+      OS << ':' << RN;
+    return false;
   }
-
-  OS << PrintNodeId(*Value.getNode());
-  if (unsigned RN = Value.getResNo())
-    OS << ':' << RN;
-  return false;
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
@@ -1014,12 +996,15 @@ static void printrWithDepthHelper(raw_ostream &OS, const SDNode *N,
 
   N->print(OS, G);
 
+  if (depth < 1)
+    return;
+
   for (const SDValue &Op : N->op_values()) {
     // Don't follow chain operands.
     if (Op.getValueType() == MVT::Other)
       continue;
     OS << '\n';
-    printrWithDepthHelper(OS, Op.getNode(), G, depth - 1, indent + 2);
+    printrWithDepthHelper(OS, Op.getNode(), G, depth-1, indent+2);
   }
 }
 

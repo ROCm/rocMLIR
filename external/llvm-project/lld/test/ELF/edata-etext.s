@@ -32,7 +32,7 @@
 # RELOCATABLE-NEXT:  0000000000000000 *UND* 0000000000000000 _end
 # RELOCATABLE-NEXT:  0000000000000000 *UND* 0000000000000000 _etext
 
-.global _edata,_end,_etext,_start,edata,end,etext
+.global _start,_end,_etext,_edata,end,etext,edata
 .text
 _start:
   nop

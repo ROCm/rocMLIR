@@ -33,7 +33,7 @@ struct UserID {
   UserID(lldb::user_id_t uid = LLDB_INVALID_UID) : m_uid(uid) {}
 
   /// Destructor.
-  ~UserID() = default;
+  ~UserID() {}
 
   /// Clears the object state.
   ///

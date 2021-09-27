@@ -1,5 +1,4 @@
-// RUN: %check_clang_tidy -std=c++11 -check-suffixes=,CXX11 %s misc-static-assert %t
-// RUN: %check_clang_tidy -std=c++17 -check-suffixes=,CXX17 %s misc-static-assert %t
+// RUN: %check_clang_tidy %s misc-static-assert %t
 
 void abort() {}
 #ifdef NDEBUG
@@ -38,8 +37,7 @@ public:
 template <class T> void doSomething(T t) {
   assert(myfunc(1, 2));
   // CHECK-MESSAGES: :[[@LINE-1]]:3: warning: found assert() that could be replaced by static_assert() [misc-static-assert]
-  // CHECK-FIXES-CXX11: {{^  }}static_assert(myfunc(1, 2), "");
-  // CHECK-FIXES-CXX17: {{^  }}static_assert(myfunc(1, 2));
+  // CHECK-FIXES: {{^  }}static_assert(myfunc(1, 2), "");
 
   assert(t.method());
   // CHECK-FIXES: {{^  }}assert(t.method());
@@ -54,8 +52,7 @@ int main() {
 
   assert(myfunc(1, 2) && (3 == 4));
   // CHECK-MESSAGES: :[[@LINE-1]]:3: warning: found assert() that could be
-  // CHECK-FIXES-CXX11: {{^  }}static_assert(myfunc(1, 2) && (3 == 4), "");
-  // CHECK-FIXES-CXX17: {{^  }}static_assert(myfunc(1, 2) && (3 == 4));
+  // CHECK-FIXES: {{^  }}static_assert(myfunc(1, 2) && (3 == 4), "");
 
   int x = 1;
   assert(x == 0);
@@ -77,8 +74,7 @@ int main() {
 
   assert(ZERO_MACRO);
   // CHECK-MESSAGES: :[[@LINE-1]]:3: warning: found assert() that could be
-  // CHECK-FIXES-CXX11: {{^  }}static_assert(ZERO_MACRO, "");
-  // CHECK-FIXES-CXX17: {{^  }}static_assert(ZERO_MACRO);
+  // CHECK-FIXES: {{^  }}static_assert(ZERO_MACRO, "");
 
   assert(!"Don't report me!");
   // CHECK-FIXES: {{^  }}assert(!"Don't report me!");
@@ -140,8 +136,7 @@ int main() {
 
   assert(10 == 5 + 5);
   // CHECK-MESSAGES: :[[@LINE-1]]:3: warning: found assert() that could be
-  // CHECK-FIXES-CXX11: {{^  }}static_assert(10 == 5 + 5, "");
-  // CHECK-FIXES-CXX17: {{^  }}static_assert(10 == 5 + 5);
+  // CHECK-FIXES: {{^  }}static_assert(10 == 5 + 5, "");
 #undef assert
 
   return 0;

@@ -78,12 +78,10 @@ void InitVariablesCheck::check(const MatchFinder::MatchResult &Result) {
     return;
 
   QualType TypePtr = MatchedDecl->getType();
-  llvm::Optional<const char *> InitializationString = llvm::None;
+  const char *InitializationString = nullptr;
   bool AddMathInclude = false;
 
-  if (TypePtr->isEnumeralType())
-    InitializationString = nullptr;
-  else if (TypePtr->isIntegerType())
+  if (TypePtr->isIntegerType())
     InitializationString = " = 0";
   else if (TypePtr->isFloatingType()) {
     InitializationString = " = NAN";
@@ -98,12 +96,11 @@ void InitVariablesCheck::check(const MatchFinder::MatchResult &Result) {
   if (InitializationString) {
     auto Diagnostic =
         diag(MatchedDecl->getLocation(), "variable %0 is not initialized")
-        << MatchedDecl;
-    if (*InitializationString != nullptr)
-      Diagnostic << FixItHint::CreateInsertion(
-          MatchedDecl->getLocation().getLocWithOffset(
-              MatchedDecl->getName().size()),
-          *InitializationString);
+        << MatchedDecl
+        << FixItHint::CreateInsertion(
+               MatchedDecl->getLocation().getLocWithOffset(
+                   MatchedDecl->getName().size()),
+               InitializationString);
     if (AddMathInclude) {
       Diagnostic << IncludeInserter.createIncludeInsertion(
           Source.getFileID(MatchedDecl->getBeginLoc()), MathHeader);

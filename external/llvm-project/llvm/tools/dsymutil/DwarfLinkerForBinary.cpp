@@ -167,7 +167,7 @@ bool DwarfLinkerForBinary::createStreamer(const Triple &TheTriple,
     return true;
 
   Streamer = std::make_unique<DwarfStreamer>(
-      Options.FileType, OutFile, Options.Translator,
+      Options.FileType, OutFile, Options.Translator, Options.Minimize,
       [&](const Twine &Error, StringRef Context, const DWARFDie *) {
         error(Error, Context);
       },
@@ -252,10 +252,7 @@ static Error emitRemarks(const LinkOptions &Options, StringRef BinaryPath,
   }
 
   std::error_code EC;
-  raw_fd_ostream OS(Options.NoOutput ? "-" : Path.str(), EC,
-                    Options.RemarksFormat == remarks::Format::Bitstream
-                        ? sys::fs::OF_None
-                        : sys::fs::OF_Text);
+  raw_fd_ostream OS(Options.NoOutput ? "-" : Path.str(), EC, sys::fs::OF_None);
   if (EC)
     return errorCodeToError(EC);
 
@@ -325,7 +322,6 @@ bool DwarfLinkerForBinary::link(const DebugMap &Map) {
   GeneralLinker.setNumThreads(Options.Threads);
   GeneralLinker.setAccelTableKind(Options.TheAccelTableKind);
   GeneralLinker.setPrependPath(Options.PrependPath);
-  GeneralLinker.setKeepFunctionForStatic(Options.KeepFunctionForStatic);
   if (Options.Translator)
     GeneralLinker.setStringsTranslator(TranslationLambda);
   GeneralLinker.setWarningHandler(

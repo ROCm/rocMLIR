@@ -123,8 +123,6 @@ public:
   /// This is used to emit bytes in \p Data as sequence of .byte directives.
   virtual void emitRawBytes(StringRef Data);
 
-  virtual void emitConstantPools();
-
   virtual void finish();
 };
 
@@ -167,7 +165,7 @@ public:
 
   virtual void emitThumbSet(MCSymbol *Symbol, const MCExpr *Value);
 
-  void emitConstantPools() override;
+  void finish() override;
 
   /// Reset any state between object emissions, i.e. the equivalent of
   /// MCStreamer's reset method.
@@ -178,7 +176,7 @@ public:
   /// MCExpr that can be used to refer to the constant pool location.
   const MCExpr *addConstantPoolEntry(const MCExpr *, SMLoc Loc);
 
-  /// Callback used to implement the .ltorg directive.
+  /// Callback used to implemnt the .ltorg directive.
   /// Emit contents of constant pool for the current section.
   void emitCurrentConstantPool();
 
@@ -188,7 +186,7 @@ private:
 
 /// Streaming machine code generation interface.
 ///
-/// This interface is intended to provide a programmatic interface that is very
+/// This interface is intended to provide a programatic interface that is very
 /// similar to the level that an assembler .s file provides.  It has callbacks
 /// to emit bytes, handle directives, etc.  The implementation of this interface
 /// retains state to know what the current section is etc.
@@ -232,7 +230,7 @@ class MCStreamer {
 
   /// Is the assembler allowed to insert padding automatically?  For
   /// correctness reasons, we sometimes need to ensure instructions aren't
-  /// separated in unexpected ways.  At the moment, this feature is only
+  /// seperated in unexpected ways.  At the moment, this feature is only
   /// useable from an integrated assembler, but assembly syntax is under
   /// discussion for future inclusion.
   bool AllowAutoPadding = false;
@@ -295,7 +293,7 @@ public:
   /// textual assembly, this should do nothing to avoid polluting our output.
   virtual MCSymbol *emitCFILabel();
 
-  /// Retrieve the current frame info if one is available and it is not yet
+  /// Retreive the current frame info if one is available and it is not yet
   /// closed. Otherwise, issue an error and return null.
   WinEH::FrameInfo *EnsureValidWinFrameInfo(SMLoc Loc);
 
@@ -447,7 +445,7 @@ public:
   }
 
   /// Create the default sections and set the initial one.
-  virtual void initSections(bool NoExecStack, const MCSubtargetInfo &STI);
+  virtual void InitSections(bool NoExecStack);
 
   MCSymbol *endSection(MCSection *Section);
 
@@ -584,7 +582,7 @@ public:
                                           MCSymbol *CsectSym,
                                           unsigned ByteAlignment);
 
-  /// Emit a symbol's linkage and visibility with a linkage directive for XCOFF.
+  /// Emit a symbol's linkage and visibilty with a linkage directive for XCOFF.
   ///
   /// \param Symbol - The symbol to emit.
   /// \param Linkage - The linkage of the symbol to emit.
@@ -613,15 +611,14 @@ public:
   ///
   /// This corresponds to an assembler statement such as:
   ///  .symver _start, foo@@SOME_VERSION
-  virtual void emitELFSymverDirective(const MCSymbol *OriginalSym,
-                                      StringRef Name, bool KeepOriginalSym);
+  /// \param AliasName - The versioned alias (i.e. "foo@@SOME_VERSION")
+  /// \param Aliasee - The aliased symbol (i.e. "_start")
+  virtual void emitELFSymverDirective(StringRef AliasName,
+                                      const MCSymbol *Aliasee);
 
   /// Emit a Linker Optimization Hint (LOH) directive.
   /// \param Args - Arguments of the LOH.
   virtual void emitLOHDirective(MCLOHType Kind, const MCLOHArgs &Args) {}
-
-  /// Emit a .gnu_attribute directive.
-  virtual void emitGNUAttribute(unsigned Tag, unsigned Value) {}
 
   /// Emit a common symbol.
   ///
@@ -799,7 +796,7 @@ public:
                         SMLoc Loc = SMLoc());
 
   virtual void emitNops(int64_t NumBytes, int64_t ControlledNopLength,
-                        SMLoc Loc, const MCSubtargetInfo& STI);
+                        SMLoc Loc);
 
   /// Emit NumBytes worth of zeros.
   /// This function properly handles data in virtual sections.
@@ -833,12 +830,10 @@ public:
   ///
   /// \param ByteAlignment - The alignment to reach. This must be a power of
   /// two on some targets.
-  /// \param STI - The MCSubtargetInfo in operation when padding is emitted.
   /// \param MaxBytesToEmit - The maximum numbers of bytes to emit, or 0. If
   /// the alignment cannot be reached in this many bytes, no bytes are
   /// emitted.
   virtual void emitCodeAlignment(unsigned ByteAlignment,
-                                 const MCSubtargetInfo *STI,
                                  unsigned MaxBytesToEmit = 0);
 
   /// Emit some number of copies of \p Value until the byte offset \p
@@ -857,10 +852,6 @@ public:
   /// Switch to a new logical file.  This is used to implement the '.file
   /// "foo.c"' assembler directive.
   virtual void emitFileDirective(StringRef Filename);
-
-  /// Emit ".file assembler diretive with additioal info.
-  virtual void emitFileDirective(StringRef Filename, StringRef CompilerVerion,
-                                 StringRef TimeStamp, StringRef Description);
 
   /// Emit the "identifiers" directive.  This implements the
   /// '.ident "version foo"' assembler directive.
@@ -990,8 +981,6 @@ public:
   virtual void emitCFIDefCfa(int64_t Register, int64_t Offset);
   virtual void emitCFIDefCfaOffset(int64_t Offset);
   virtual void emitCFIDefCfaRegister(int64_t Register);
-  virtual void emitCFILLVMDefAspaceCfa(int64_t Register, int64_t Offset,
-                                       int64_t AddressSpace);
   virtual void emitCFIOffset(int64_t Register, int64_t Offset);
   virtual void emitCFIPersonality(const MCSymbol *Sym, unsigned Encoding);
   virtual void emitCFILsda(const MCSymbol *Sym, unsigned Encoding);
@@ -1090,36 +1079,6 @@ public:
   void Finish(SMLoc EndLoc = SMLoc());
 
   virtual bool mayHaveInstructions(MCSection &Sec) const { return true; }
-
-  /// Emit a special value of 0xffffffff if producing 64-bit debugging info.
-  void maybeEmitDwarf64Mark();
-
-  /// Emit a unit length field. The actual format, DWARF32 or DWARF64, is chosen
-  /// according to the settings.
-  virtual void emitDwarfUnitLength(uint64_t Length, const Twine &Comment);
-
-  /// Emit a unit length field. The actual format, DWARF32 or DWARF64, is chosen
-  /// according to the settings.
-  /// Return the end symbol generated inside, the caller needs to emit it.
-  virtual MCSymbol *emitDwarfUnitLength(const Twine &Prefix,
-                                        const Twine &Comment);
-
-  /// Emit the debug line start label.
-  virtual void emitDwarfLineStartLabel(MCSymbol *StartSym);
-
-  /// Emit the debug line end entry.
-  virtual void emitDwarfLineEndEntry(MCSection *Section, MCSymbol *LastLabel) {}
-
-  /// If targets does not support representing debug line section by .loc/.file
-  /// directives in assembly output, we need to populate debug line section with
-  /// raw debug line contents.
-  virtual void emitDwarfAdvanceLineAddr(int64_t LineDelta,
-                                        const MCSymbol *LastLabel,
-                                        const MCSymbol *Label,
-                                        unsigned PointerSize) {}
-
-  /// Do finalization for the streamer at the end of a section.
-  virtual void doFinalizationAtSectionEnd(MCSection *Section) {}
 };
 
 /// Create a dummy machine code streamer, which does nothing. This is useful for

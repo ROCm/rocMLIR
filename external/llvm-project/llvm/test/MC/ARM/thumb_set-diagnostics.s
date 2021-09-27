@@ -37,7 +37,7 @@
 
 	.thumb_set trailer_trash, 0x11fe1e55,
 
-@ CHECK: error: expected newline
+@ CHECK: error: unexpected token
 @ CHECK: 	.thumb_set trailer_trash, 0x11fe1e55,
 @ CHECK:                                            ^
 

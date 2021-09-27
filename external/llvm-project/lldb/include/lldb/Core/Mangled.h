@@ -17,8 +17,8 @@
 
 #include "llvm/ADT/StringRef.h"
 
-#include <cstddef>
 #include <memory>
+#include <stddef.h>
 
 namespace lldb_private {
 
@@ -43,8 +43,7 @@ public:
   enum ManglingScheme {
     eManglingSchemeNone = 0,
     eManglingSchemeMSVC,
-    eManglingSchemeItanium,
-    eManglingSchemeRustV0
+    eManglingSchemeItanium
   };
 
   /// Default constructor.

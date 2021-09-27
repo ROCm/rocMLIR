@@ -55,10 +55,8 @@ public:
         CalleeSavedFrameSize(0), VarArgsFrameIndex(0) {
     unsigned CallConv = MF.getFunction().getCallingConv();
 
-    this->IsInterruptHandler = CallConv == CallingConv::AVR_INTR ||
-                               MF.getFunction().hasFnAttribute("interrupt");
-    this->IsSignalHandler = CallConv == CallingConv::AVR_SIGNAL ||
-                            MF.getFunction().hasFnAttribute("signal");
+    this->IsInterruptHandler = CallConv == CallingConv::AVR_INTR || MF.getFunction().hasFnAttribute("interrupt");
+    this->IsSignalHandler = CallConv == CallingConv::AVR_SIGNAL || MF.getFunction().hasFnAttribute("signal");
   }
 
   bool getHasSpills() const { return HasSpills; }
@@ -71,9 +69,7 @@ public:
   void setHasStackArgs(bool B) { HasStackArgs = B; }
 
   /// Checks if the function is some form of interrupt service routine.
-  bool isInterruptOrSignalHandler() const {
-    return isInterruptHandler() || isSignalHandler();
-  }
+  bool isInterruptOrSignalHandler() const { return isInterruptHandler() || isSignalHandler(); }
 
   bool isInterruptHandler() const { return IsInterruptHandler; }
   bool isSignalHandler() const { return IsSignalHandler; }
@@ -85,6 +81,6 @@ public:
   void setVarArgsFrameIndex(int Idx) { VarArgsFrameIndex = Idx; }
 };
 
-} // namespace llvm
+} // end llvm namespace
 
 #endif // LLVM_AVR_MACHINE_FUNCTION_INFO_H

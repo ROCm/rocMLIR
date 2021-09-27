@@ -11,7 +11,6 @@ add_llvm_component_library(LLVMWebAssemblyDesc
   MC
   Support
   WebAssemblyInfo
-  WebAssemblyUtils
 
   ADD_TO_COMPONENT
   WebAssembly

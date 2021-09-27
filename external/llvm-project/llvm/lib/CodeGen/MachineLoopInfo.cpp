@@ -115,8 +115,8 @@ DebugLoc MachineLoop::getStartLoc() const {
 }
 
 MachineBasicBlock *
-MachineLoopInfo::findLoopPreheader(MachineLoop *L, bool SpeculativePreheader,
-                                   bool FindMultiLoopPreheader) const {
+MachineLoopInfo::findLoopPreheader(MachineLoop *L,
+                                   bool SpeculativePreheader) const {
   if (MachineBasicBlock *PB = L->getLoopPreheader())
     return PB;
 
@@ -139,14 +139,12 @@ MachineLoopInfo::findLoopPreheader(MachineLoop *L, bool SpeculativePreheader,
 
   // Check if the preheader candidate is a successor of any other loop
   // headers. We want to avoid having two loop setups in the same block.
-  if (!FindMultiLoopPreheader) {
-    for (MachineBasicBlock *S : Preheader->successors()) {
-      if (S == HB)
-        continue;
-      MachineLoop *T = getLoopFor(S);
-      if (T && T->getHeader() == S)
-        return nullptr;
-    }
+  for (MachineBasicBlock *S : Preheader->successors()) {
+    if (S == HB)
+      continue;
+    MachineLoop *T = getLoopFor(S);
+    if (T && T->getHeader() == S)
+      return nullptr;
   }
   return Preheader;
 }

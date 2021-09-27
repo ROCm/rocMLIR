@@ -9,15 +9,10 @@
 #ifndef LLDB_UTILITY_TIMER_H
 #define LLDB_UTILITY_TIMER_H
 
-#include "llvm/ADT/ScopeExit.h"
+#include "lldb/lldb-defines.h"
 #include "llvm/Support/Chrono.h"
-#include "llvm/Support/Signposts.h"
 #include <atomic>
-#include <cstdint>
-
-namespace llvm {
-  class SignpostEmitter;
-}
+#include <stdint.h>
 
 namespace lldb_private {
 class Stream;
@@ -46,11 +41,7 @@ public:
 
   /// Default constructor.
   Timer(Category &category, const char *format, ...)
-#if !defined(_MSC_VER)
-  // MSVC appears to have trouble recognizing the this argument in the constructor.
-      __attribute__((format(printf, 3, 4)))
-#endif
-    ;
+      __attribute__((format(printf, 3, 4)));
 
   /// Destructor
   ~Timer();
@@ -81,28 +72,13 @@ private:
   const Timer &operator=(const Timer &) = delete;
 };
 
-llvm::SignpostEmitter &GetSignposts();
-
 } // namespace lldb_private
 
-// Use a format string because LLVM_PRETTY_FUNCTION might not be a string
-// literal.
 #define LLDB_SCOPED_TIMER()                                                    \
   static ::lldb_private::Timer::Category _cat(LLVM_PRETTY_FUNCTION);           \
-  ::lldb_private::Timer _scoped_timer(_cat, "%s", LLVM_PRETTY_FUNCTION);       \
-  SIGNPOST_EMITTER_START_INTERVAL(::lldb_private::GetSignposts(),              \
-                                  &_scoped_timer, "%s", LLVM_PRETTY_FUNCTION); \
-  auto _scoped_signpost = llvm::make_scope_exit([&_scoped_timer]() {           \
-    ::lldb_private::GetSignposts().endInterval(&_scoped_timer);                \
-  })
-
-#define LLDB_SCOPED_TIMERF(FMT, ...)                                           \
+  ::lldb_private::Timer _scoped_timer(_cat, LLVM_PRETTY_FUNCTION)
+#define LLDB_SCOPED_TIMERF(...)                                                \
   static ::lldb_private::Timer::Category _cat(LLVM_PRETTY_FUNCTION);           \
-  ::lldb_private::Timer _scoped_timer(_cat, FMT, __VA_ARGS__);                 \
-  SIGNPOST_EMITTER_START_INTERVAL(::lldb_private::GetSignposts(),              \
-                                  &_scoped_timer, FMT, __VA_ARGS__);           \
-  auto _scoped_signpost = llvm::make_scope_exit([&_scoped_timer]() {           \
-    ::lldb_private::GetSignposts().endInterval(&_scoped_timer);                \
-  })
+  ::lldb_private::Timer _scoped_timer(_cat, __VA_ARGS__)
 
 #endif // LLDB_UTILITY_TIMER_H

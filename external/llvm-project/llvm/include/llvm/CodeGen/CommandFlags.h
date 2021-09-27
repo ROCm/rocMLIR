@@ -48,11 +48,12 @@ Optional<CodeModel::Model> getExplicitCodeModel();
 
 llvm::ExceptionHandling getExceptionModel();
 
+CodeGenFileType getFileType();
 Optional<CodeGenFileType> getExplicitFileType();
 
 CodeGenFileType getFileType();
 
-FramePointerKind getFramePointerUsage();
+llvm::FramePointer::FP getFramePointerUsage();
 
 bool getEnableUnsafeFPMath();
 
@@ -72,8 +73,6 @@ bool getEnableHonorSignDependentRoundingFPMath();
 llvm::FloatABI::ABIType getFloatABIForCalls();
 
 llvm::FPOpFusion::FPOpFusionMode getFuseFPOps();
-
-SwiftAsyncFramePointerMode getSwiftAsyncFramePointer();
 
 bool getDontPlaceZerosInBSS();
 
@@ -107,6 +106,10 @@ bool getXCOFFTracebackTable();
 
 std::string getBBSections();
 
+std::string getStackProtectorGuard();
+unsigned getStackProtectorGuardOffset();
+std::string getStackProtectorGuardReg();
+
 unsigned getTLSSize();
 
 bool getEmulatedTLS();
@@ -137,10 +140,6 @@ bool getForceDwarfFrameSection();
 
 bool getXRayOmitFunctionIndex();
 
-bool getDebugStrictDwarf();
-
-unsigned getAlignLoops();
-
 /// Create this object with static storage to register codegen-related command
 /// line options.
 struct RegisterCodeGenFlags {
@@ -148,6 +147,9 @@ struct RegisterCodeGenFlags {
 };
 
 llvm::BasicBlockSection getBBSectionsMode(llvm::TargetOptions &Options);
+
+llvm::StackProtectorGuards
+getStackProtectorGuardMode(llvm::TargetOptions &Options);
 
 /// Common utility function tightly tied to the options listed here. Initializes
 /// a TargetOptions object with CodeGen flags and returns it.

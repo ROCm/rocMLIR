@@ -64,7 +64,7 @@ public:
 };
 } // namespace
 
-[[noreturn]] static void reportError(Twine Msg) {
+LLVM_ATTRIBUTE_NORETURN static void reportError(Twine Msg) {
   WithColor::error(errs(), "llvm-mt") << Msg << '\n';
   exit(1);
 }
@@ -109,7 +109,7 @@ int main(int Argc, const char **Argv) {
   }
 
   if (InputArgs.hasArg(OPT_help)) {
-    T.printHelp(outs(), "llvm-mt [options] file...", "Manifest Tool", false);
+    T.PrintHelp(outs(), "llvm-mt [options] file...", "Manifest Tool", false);
     return 0;
   }
 
@@ -135,7 +135,8 @@ int main(int Argc, const char **Argv) {
         MemoryBuffer::getFile(File);
     if (!ManifestOrErr)
       reportError(File, ManifestOrErr.getError());
-    error(Merger.merge(*ManifestOrErr.get()));
+    MemoryBuffer &Manifest = *ManifestOrErr.get();
+    error(Merger.merge(Manifest));
   }
 
   std::unique_ptr<MemoryBuffer> OutputBuffer = Merger.getMergedManifest();

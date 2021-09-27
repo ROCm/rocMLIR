@@ -130,7 +130,7 @@ OPTIONS
 
  Show all symbols, even those usually suppressed.
 
-.. option:: --defined-only
+.. option:: --defined-only, -U
 
  Print only symbols defined in this file.
 
@@ -149,17 +149,20 @@ OPTIONS
 
 .. option:: --format=<format>, -f
 
- Select an output format; *format* may be *sysv*, *posix*, *darwin*, *bsd* or
- *just-symbols*.
+ Select an output format; *format* may be *sysv*, *posix*, *darwin*, or *bsd*.
  The default is *bsd*.
 
 .. option:: --help, -h
 
  Print a summary of command-line options and their meanings.
 
-.. option:: -j
+.. option:: --help-list
 
- Print just the symbol names. Alias for `--format=just-symbols``.
+ Print an uncategorized summary of command-line options and their meanings.
+
+.. option:: --just-symbol-name, -j
+
+ Print just the symbol names.
 
 .. option:: -m
 
@@ -177,7 +180,7 @@ OPTIONS
 
  Show symbols in the order encountered.
 
-.. option:: --no-weak
+.. option:: --no-weak, -W
 
  Don't print weak symbols.
 
@@ -189,7 +192,7 @@ OPTIONS
 
  Use POSIX.2 output format.  Alias for ``--format=posix``.
 
-.. option:: --print-armap
+.. option:: --print-armap, -M
 
  Print the archive symbol table, in addition to the symbols.
 
@@ -200,10 +203,6 @@ OPTIONS
 .. option:: --print-size, -S
 
  Show symbol size as well as address (not applicable for Mach-O).
-
-.. option:: --quiet
-
- Suppress 'no symbols' diagnostic.
 
 .. option:: --radix=<RADIX>, -t
 
@@ -226,10 +225,14 @@ OPTIONS
 
  Print only undefined symbols.
 
-.. option:: --version, -V
+.. option:: --version
 
- Display the version of the :program:`llvm-nm` executable, then exit. Does not
- stack with other commands.
+ Display the version of the :program:`llvm-nm` executable. Does not stack with
+ other commands.
+
+.. option:: --without-aliases
+
+ Exclude aliases from the output.
 
 .. option:: @<FILE>
 
@@ -259,7 +262,7 @@ MACH-O SPECIFIC OPTIONS
 
  Do not add any symbols from the dyldinfo.
 
-.. option:: -s <segment> <section>
+.. option:: -s=<segment section>
 
  Dump only symbols from this segment and section name.
 

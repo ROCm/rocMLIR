@@ -59,7 +59,7 @@ public:
       clang::DeclContext::lookup_result result =
           non_const_interface_decl->lookup(name);
 
-      return (!result.empty());
+      return (result.size() != 0);
     } while (false);
 
     SetNoExternalVisibleDeclsForName(decl_ctx, name);
@@ -555,7 +555,7 @@ uint32_t AppleObjCDeclVendor::FindDecls(ConstString name, bool append,
 
     if (!lookup_result.empty()) {
       if (clang::ObjCInterfaceDecl *result_iface_decl =
-             llvm::dyn_cast<clang::ObjCInterfaceDecl>(*lookup_result.begin())) {
+              llvm::dyn_cast<clang::ObjCInterfaceDecl>(lookup_result[0])) {
         if (log) {
           clang::QualType result_iface_type =
               ast_ctx.getObjCInterfaceType(result_iface_decl);

@@ -365,7 +365,7 @@ SetVector<Instruction *> ConstantHoistingPass::findConstantInsertionPoint(
 void ConstantHoistingPass::collectConstantCandidates(
     ConstCandMapType &ConstCandMap, Instruction *Inst, unsigned Idx,
     ConstantInt *ConstInt) {
-  InstructionCost Cost;
+  unsigned Cost;
   // Ask the target about the cost of materializing the constant for the given
   // instruction and operand index.
   if (auto IntrInst = dyn_cast<IntrinsicInst>(Inst))
@@ -387,7 +387,7 @@ void ConstantHoistingPass::collectConstantCandidates(
       ConstIntCandVec.push_back(ConstantCandidate(ConstInt));
       Itr->second = ConstIntCandVec.size() - 1;
     }
-    ConstIntCandVec[Itr->second].addUser(Inst, Idx, *Cost.getValue());
+    ConstIntCandVec[Itr->second].addUser(Inst, Idx, Cost);
     LLVM_DEBUG(if (isa<ConstantInt>(Inst->getOperand(Idx))) dbgs()
                    << "Collect constant " << *ConstInt << " from " << *Inst
                    << " with cost " << Cost << '\n';
@@ -425,7 +425,7 @@ void ConstantHoistingPass::collectConstantCandidates(
   // usually lowered to a load from constant pool. Such operation is unlikely
   // to be cheaper than compute it by <Base + Offset>, which can be lowered to
   // an ADD instruction or folded into Load/Store instruction.
-  InstructionCost Cost =
+  int Cost =
       TTI->getIntImmCostInst(Instruction::Add, 1, Offset, PtrIntTy,
                              TargetTransformInfo::TCK_SizeAndLatency, Inst);
   ConstCandVecType &ExprCandVec = ConstGEPCandMap[BaseGV];
@@ -439,7 +439,7 @@ void ConstantHoistingPass::collectConstantCandidates(
         ConstExpr));
     Itr->second = ExprCandVec.size() - 1;
   }
-  ExprCandVec[Itr->second].addUser(Inst, Idx, *Cost.getValue());
+  ExprCandVec[Itr->second].addUser(Inst, Idx, Cost);
 }
 
 /// Check the operand for instruction Inst at index Idx.
@@ -581,11 +581,11 @@ ConstantHoistingPass::maximizeConstantsInRange(ConstCandVecType::iterator S,
   }
 
   LLVM_DEBUG(dbgs() << "== Maximize constants in range ==\n");
-  InstructionCost MaxCost = -1;
+  int MaxCost = -1;
   for (auto ConstCand = S; ConstCand != E; ++ConstCand) {
     auto Value = ConstCand->ConstInt->getValue();
     Type *Ty = ConstCand->ConstInt->getType();
-    InstructionCost Cost = 0;
+    int Cost = 0;
     NumUses += ConstCand->Uses.size();
     LLVM_DEBUG(dbgs() << "= Constant: " << ConstCand->ConstInt->getValue()
                       << "\n");
@@ -602,8 +602,8 @@ ConstantHoistingPass::maximizeConstantsInRange(ConstCandVecType::iterator S,
                                    C2->ConstInt->getValue(),
                                    ConstCand->ConstInt->getValue());
         if (Diff) {
-          const InstructionCost ImmCosts =
-              TTI->getIntImmCodeSizeCost(Opcode, OpndIdx, Diff.getValue(), Ty);
+          const int ImmCosts =
+            TTI->getIntImmCodeSizeCost(Opcode, OpndIdx, Diff.getValue(), Ty);
           Cost -= ImmCosts;
           LLVM_DEBUG(dbgs() << "Offset " << Diff.getValue() << " "
                             << "has penalty: " << ImmCosts << "\n"
@@ -762,7 +762,7 @@ void ConstantHoistingPass::emitBaseConstants(Instruction *Base,
       PointerType *Int8PtrTy = Type::getInt8PtrTy(*Ctx,
           cast<PointerType>(Ty)->getAddressSpace());
       Base = new BitCastInst(Base, Int8PtrTy, "base_bitcast", InsertionPt);
-      Mat = GetElementPtrInst::Create(Type::getInt8Ty(*Ctx), Base,
+      Mat = GetElementPtrInst::Create(Int8PtrTy->getElementType(), Base,
           Offset, "mat_gep", InsertionPt);
       Mat = new BitCastInst(Mat, Ty, "mat_bitcast", InsertionPt);
     } else

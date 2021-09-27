@@ -245,8 +245,7 @@ void ParallelLoopGenerator::extractValuesFromStruct(
     SetVector<Value *> OldValues, Type *Ty, Value *Struct, ValueMapT &Map) {
   for (unsigned i = 0; i < OldValues.size(); i++) {
     Value *Address = Builder.CreateStructGEP(Ty, Struct, i);
-    Type *ElemTy = cast<GetElementPtrInst>(Address)->getResultElementType();
-    Value *NewValue = Builder.CreateLoad(ElemTy, Address);
+    Value *NewValue = Builder.CreateLoad(Address);
     NewValue->setName("polly.subfunc.arg." + OldValues[i]->getName());
     Map[OldValues[i]] = NewValue;
   }

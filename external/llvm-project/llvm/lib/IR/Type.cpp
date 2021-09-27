@@ -25,8 +25,8 @@
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/TypeSize.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/TypeSize.h"
 #include <cassert>
 #include <utility>
 
@@ -58,12 +58,6 @@ Type *Type::getPrimitiveType(LLVMContext &C, TypeID IDNumber) {
 
 bool Type::isIntegerTy(unsigned Bitwidth) const {
   return isIntegerTy() && cast<IntegerType>(this)->getBitWidth() == Bitwidth;
-}
-
-bool Type::isOpaquePointerTy() const {
-  if (auto *PTy = dyn_cast<PointerType>(this))
-    return PTy->isOpaque();
-  return false;
 }
 
 bool Type::canLosslesslyBitCastTo(Type *Ty) const {
@@ -296,7 +290,9 @@ IntegerType *IntegerType::get(LLVMContext &C, unsigned NumBits) {
   return Entry;
 }
 
-APInt IntegerType::getMask() const { return APInt::getAllOnes(getBitWidth()); }
+APInt IntegerType::getMask() const {
+  return APInt::getAllOnesValue(getBitWidth());
+}
 
 //===----------------------------------------------------------------------===//
 //                       FunctionType Implementation
@@ -614,8 +610,7 @@ ArrayType *ArrayType::get(Type *ElementType, uint64_t NumElements) {
 bool ArrayType::isValidElementType(Type *ElemTy) {
   return !ElemTy->isVoidTy() && !ElemTy->isLabelTy() &&
          !ElemTy->isMetadataTy() && !ElemTy->isFunctionTy() &&
-         !ElemTy->isTokenTy() && !ElemTy->isX86_AMXTy() &&
-         !isa<ScalableVectorType>(ElemTy);
+         !ElemTy->isTokenTy() && !isa<ScalableVectorType>(ElemTy);
 }
 
 //===----------------------------------------------------------------------===//
@@ -694,32 +689,12 @@ PointerType *PointerType::get(Type *EltTy, unsigned AddressSpace) {
 
   LLVMContextImpl *CImpl = EltTy->getContext().pImpl;
 
-  // Automatically convert typed pointers to opaque pointers.
-  if (CImpl->OpaquePointers)
-    return get(EltTy->getContext(), AddressSpace);
-
   // Since AddressSpace #0 is the common case, we special case it.
   PointerType *&Entry = AddressSpace == 0 ? CImpl->PointerTypes[EltTy]
      : CImpl->ASPointerTypes[std::make_pair(EltTy, AddressSpace)];
 
   if (!Entry)
     Entry = new (CImpl->Alloc) PointerType(EltTy, AddressSpace);
-  return Entry;
-}
-
-PointerType *PointerType::get(LLVMContext &C, unsigned AddressSpace) {
-  LLVMContextImpl *CImpl = C.pImpl;
-  assert(CImpl->OpaquePointers &&
-         "Can only create opaque pointers in opaque pointer mode");
-
-  // Since AddressSpace #0 is the common case, we special case it.
-  PointerType *&Entry =
-      AddressSpace == 0
-          ? CImpl->PointerTypes[nullptr]
-          : CImpl->ASPointerTypes[std::make_pair(nullptr, AddressSpace)];
-
-  if (!Entry)
-    Entry = new (CImpl->Alloc) PointerType(C, AddressSpace);
   return Entry;
 }
 
@@ -730,19 +705,13 @@ PointerType::PointerType(Type *E, unsigned AddrSpace)
   setSubclassData(AddrSpace);
 }
 
-PointerType::PointerType(LLVMContext &C, unsigned AddrSpace)
-    : Type(C, PointerTyID), PointeeTy(nullptr) {
-  setSubclassData(AddrSpace);
-}
-
-PointerType *Type::getPointerTo(unsigned AddrSpace) const {
-  return PointerType::get(const_cast<Type*>(this), AddrSpace);
+PointerType *Type::getPointerTo(unsigned addrs) const {
+  return PointerType::get(const_cast<Type*>(this), addrs);
 }
 
 bool PointerType::isValidElementType(Type *ElemTy) {
   return !ElemTy->isVoidTy() && !ElemTy->isLabelTy() &&
-         !ElemTy->isMetadataTy() && !ElemTy->isTokenTy() &&
-         !ElemTy->isX86_AMXTy();
+         !ElemTy->isMetadataTy() && !ElemTy->isTokenTy();
 }
 
 bool PointerType::isLoadableOrStorableType(Type *ElemTy) {

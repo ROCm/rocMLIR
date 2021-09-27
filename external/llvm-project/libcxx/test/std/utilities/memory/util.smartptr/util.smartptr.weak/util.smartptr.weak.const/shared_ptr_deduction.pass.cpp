@@ -8,6 +8,7 @@
 
 // <memory>
 // UNSUPPORTED: c++03, c++11, c++14
+// UNSUPPORTED: libcpp-no-deduction-guides
 
 // template<class T> class weak_ptr
 

@@ -18,6 +18,7 @@ add_lldb_tool(lldb-test
     lldbTarget
     lldbUtility
     ${LLDB_ALL_PLUGINS}
+    ${host_lib}
 
   LINK_COMPONENTS
     Support

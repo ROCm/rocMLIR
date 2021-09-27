@@ -62,27 +62,6 @@ InitOnlyAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
 void InitOnlyAction::ExecuteAction() {
 }
 
-// Basically PreprocessOnlyAction::ExecuteAction.
-void ReadPCHAndPreprocessAction::ExecuteAction() {
-  Preprocessor &PP = getCompilerInstance().getPreprocessor();
-
-  // Ignore unknown pragmas.
-  PP.IgnorePragmas();
-
-  Token Tok;
-  // Start parsing the specified input file.
-  PP.EnterMainSourceFile();
-  do {
-    PP.Lex(Tok);
-  } while (Tok.isNot(tok::eof));
-}
-
-std::unique_ptr<ASTConsumer>
-ReadPCHAndPreprocessAction::CreateASTConsumer(CompilerInstance &CI,
-                                              StringRef InFile) {
-  return std::make_unique<ASTConsumer>();
-}
-
 //===----------------------------------------------------------------------===//
 // AST Consumer Actions
 //===----------------------------------------------------------------------===//
@@ -239,8 +218,7 @@ GenerateModuleFromModuleMapAction::CreateOutputFile(CompilerInstance &CI,
   // Because this is exposed via libclang we must disable RemoveFileOnSignal.
   return CI.createDefaultOutputFile(/*Binary=*/true, InFile, /*Extension=*/"",
                                     /*RemoveFileOnSignal=*/false,
-                                    /*CreateMissingDirectories=*/true,
-                                    /*ForceUseTemporary=*/true);
+                                    /*CreateMissingDirectories=*/true);
 }
 
 bool GenerateModuleInterfaceAction::BeginSourceFileAction(
@@ -319,8 +297,7 @@ bool GenerateHeaderModuleAction::BeginSourceFileAction(
         << Name;
       continue;
     }
-    Headers.push_back(
-        {std::string(Name), std::string(Name), &FE->getFileEntry()});
+    Headers.push_back({std::string(Name), *FE});
   }
   HS.getModuleMap().createHeaderModule(CI.getLangOpts().CurrentModule, Headers);
 
@@ -745,7 +722,7 @@ void DumpModuleInfoAction::ExecuteAction() {
   if (!OutputFileName.empty() && OutputFileName != "-") {
     std::error_code EC;
     OutFile.reset(new llvm::raw_fd_ostream(OutputFileName.str(), EC,
-                                           llvm::sys::fs::OF_TextWithCRLF));
+                                           llvm::sys::fs::OF_Text));
   }
   llvm::raw_ostream &Out = OutFile.get()? *OutFile.get() : llvm::outs();
 
@@ -818,7 +795,7 @@ void PreprocessOnlyAction::ExecuteAction() {
 void PrintPreprocessedAction::ExecuteAction() {
   CompilerInstance &CI = getCompilerInstance();
   // Output file may need to be set to 'Binary', to avoid converting Unix style
-  // line feeds (<LF>) to Microsoft style line feeds (<CR><LF>) on Windows.
+  // line feeds (<LF>) to Microsoft style line feeds (<CR><LF>).
   //
   // Look to see what type of line endings the file uses. If there's a
   // CRLF, then we won't open the file up in binary mode. If there is
@@ -830,35 +807,30 @@ void PrintPreprocessedAction::ExecuteAction() {
   // all of their source code on a single line. However, that is still a
   // concern, so if we scan for too long, we'll just assume the file should
   // be opened in binary mode.
+  bool BinaryMode = true;
+  const SourceManager& SM = CI.getSourceManager();
+  if (llvm::Optional<llvm::MemoryBufferRef> Buffer =
+          SM.getBufferOrNone(SM.getMainFileID())) {
+    const char *cur = Buffer->getBufferStart();
+    const char *end = Buffer->getBufferEnd();
+    const char *next = (cur != end) ? cur + 1 : end;
 
-  bool BinaryMode = false;
-  if (llvm::Triple(LLVM_HOST_TRIPLE).isOSWindows()) {
-    BinaryMode = true;
-    const SourceManager &SM = CI.getSourceManager();
-    if (llvm::Optional<llvm::MemoryBufferRef> Buffer =
-            SM.getBufferOrNone(SM.getMainFileID())) {
-      const char *cur = Buffer->getBufferStart();
-      const char *end = Buffer->getBufferEnd();
-      const char *next = (cur != end) ? cur + 1 : end;
+    // Limit ourselves to only scanning 256 characters into the source
+    // file.  This is mostly a sanity check in case the file has no
+    // newlines whatsoever.
+    if (end - cur > 256) end = cur + 256;
 
-      // Limit ourselves to only scanning 256 characters into the source
-      // file.  This is mostly a sanity check in case the file has no
-      // newlines whatsoever.
-      if (end - cur > 256)
-        end = cur + 256;
+    while (next < end) {
+      if (*cur == 0x0D) {  // CR
+        if (*next == 0x0A)  // CRLF
+          BinaryMode = false;
 
-      while (next < end) {
-        if (*cur == 0x0D) {  // CR
-          if (*next == 0x0A) // CRLF
-            BinaryMode = false;
+        break;
+      } else if (*cur == 0x0A)  // LF
+        break;
 
-          break;
-        } else if (*cur == 0x0A) // LF
-          break;
-
-        ++cur;
-        ++next;
-      }
+      ++cur;
+      ++next;
     }
   }
 
@@ -890,7 +862,6 @@ void PrintPreambleAction::ExecuteAction() {
   case Language::ObjC:
   case Language::ObjCXX:
   case Language::OpenCL:
-  case Language::OpenCLCXX:
   case Language::CUDA:
   case Language::HIP:
     break;
@@ -992,18 +963,4 @@ void PrintDependencyDirectivesSourceMinimizerAction::ExecuteAction() {
     return;
   }
   llvm::outs() << Output;
-}
-
-void GetDependenciesByModuleNameAction::ExecuteAction() {
-  CompilerInstance &CI = getCompilerInstance();
-  Preprocessor &PP = CI.getPreprocessor();
-  SourceManager &SM = PP.getSourceManager();
-  FileID MainFileID = SM.getMainFileID();
-  SourceLocation FileStart = SM.getLocForStartOfFile(MainFileID);
-  SmallVector<std::pair<IdentifierInfo *, SourceLocation>, 2> Path;
-  IdentifierInfo *ModuleID = PP.getIdentifierInfo(ModuleName);
-  Path.push_back(std::make_pair(ModuleID, FileStart));
-  auto ModResult = CI.loadModule(FileStart, Path, Module::Hidden, false);
-  PPCallbacks *CB = PP.getPPCallbacks();
-  CB->moduleImport(SourceLocation(), Path, ModResult);
 }

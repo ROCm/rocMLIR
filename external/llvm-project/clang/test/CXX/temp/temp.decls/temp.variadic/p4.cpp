@@ -102,9 +102,7 @@ struct HasMixins : public Mixins... {
 struct A { }; // expected-note{{candidate constructor (the implicit copy constructor) not viable: no known conversion from 'int' to 'const A' for 1st argument}} \
 // expected-note{{candidate constructor (the implicit move constructor) not viable: no known conversion from 'int' to 'A' for 1st argument}} \
 // expected-note{{candidate constructor (the implicit default constructor) not viable: requires 0 arguments, but 1 was provided}}
-struct B { }; // expected-note{{candidate constructor (the implicit copy constructor) not viable: no known conversion from 'int' to 'const B' for 1st argument}} \
-// expected-note{{candidate constructor (the implicit move constructor) not viable: no known conversion from 'int' to 'B' for 1st argument}} \
-// expected-note{{candidate constructor (the implicit default constructor) not viable: requires 0 arguments, but 1 was provided}}
+struct B { };
 struct C { };
 struct D { };
 
@@ -125,9 +123,7 @@ template<typename ...Mixins>
 HasMixins<Mixins...>::HasMixins(const HasMixins &other): Mixins(other)... { }
 
 template<typename ...Mixins>
-HasMixins<Mixins...>::HasMixins(int i): Mixins(i)... { }
-// expected-error@-1 {{no matching constructor for initialization of 'A'}}
-// expected-error@-2 {{no matching constructor for initialization of 'B'}}
+HasMixins<Mixins...>::HasMixins(int i): Mixins(i)... { } // expected-error{{no matching constructor for initialization of 'A'}}
 
 void test_has_mixins() {
   HasMixins<A, B> ab;

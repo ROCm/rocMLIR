@@ -726,7 +726,8 @@ static void getObjectCoveragePoints(const object::ObjectFile &O,
       TheTarget->createMCAsmInfo(*MRI, TripleName, MCOptions));
   failIfEmpty(AsmInfo, "no asm info for target " + TripleName);
 
-  MCContext Ctx(TheTriple, AsmInfo.get(), MRI.get(), STI.get());
+  std::unique_ptr<const MCObjectFileInfo> MOFI(new MCObjectFileInfo);
+  MCContext Ctx(AsmInfo.get(), MRI.get(), MOFI.get());
   std::unique_ptr<MCDisassembler> DisAsm(
       TheTarget->createMCDisassembler(*STI, Ctx));
   failIfEmpty(DisAsm, "no disassembler info for target " + TripleName);

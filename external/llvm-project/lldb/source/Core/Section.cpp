@@ -15,7 +15,7 @@
 #include "lldb/Utility/FileSpec.h"
 #include "lldb/Utility/VMRange.h"
 
-#include <cinttypes>
+#include <inttypes.h>
 #include <limits>
 #include <utility>
 

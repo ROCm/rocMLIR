@@ -50,10 +50,6 @@ class VirtRegMap;
     const MachineLoopInfo &Loops;
     const MachineBlockFrequencyInfo &MBFI;
 
-    /// Returns true if Reg of live interval LI is used in instruction with many
-    /// operands like STATEPOINT.
-    bool isLiveAtStatepointVarArg(LiveInterval &LI);
-
   public:
     VirtRegAuxInfo(MachineFunction &MF, LiveIntervals &LIS,
                    const VirtRegMap &VRM, const MachineLoopInfo &Loops,

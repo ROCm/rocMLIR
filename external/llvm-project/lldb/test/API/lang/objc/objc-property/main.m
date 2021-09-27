@@ -22,16 +22,12 @@ static int _class_int = 123;
 
 - (int) getAccessCount;
 
-+ (int) propConflict;
-
 +(BaseClass *) baseClassWithBackedInt: (int) inInt andUnbackedInt: (int) inOtherInt;
 
 @property(getter=myGetUnbackedInt,setter=mySetUnbackedInt:) int unbackedInt;
 @property int backedInt;
 @property (nonatomic, assign) id <MyProtocol> idWithProtocol;
 @property(class) int classInt;
-@property(getter=propConflict,readonly) int propConflict;
-@property(readonly,class) int propConflict;
 @end
 
 @implementation BaseClass
@@ -89,15 +85,6 @@ static int _class_int = 123;
 {
   return _access_count;
 }
-
-- (int) propConflict
-{
-  return 4;
-}
-+ (int) propConflict
-{
-  return 6;
-}
 @end
 
 typedef BaseClass TypedefBaseClass;
@@ -107,7 +94,6 @@ main ()
 {
   BaseClass *mine = [BaseClass baseClassWithBackedInt: 10 andUnbackedInt: 20];
   TypedefBaseClass *typedefd = mine;
-  int propConflict = mine.propConflict + BaseClass.propConflict;
   
   // Set a breakpoint here.
   int nonexistant = mine.nonexistantInt;

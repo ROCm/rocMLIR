@@ -233,8 +233,6 @@ private:
   std::vector<Symbol> Symbols;  // Sorted by SymbolID to allow lookup.
 };
 
-llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const SymbolSlab &Slab);
-
 } // namespace clangd
 } // namespace clang
 

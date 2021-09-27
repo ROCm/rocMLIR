@@ -922,7 +922,7 @@ RegisterContextDarwin_arm::RegisterContextDarwin_arm(
   }
 }
 
-RegisterContextDarwin_arm::~RegisterContextDarwin_arm() = default;
+RegisterContextDarwin_arm::~RegisterContextDarwin_arm() {}
 
 void RegisterContextDarwin_arm::InvalidateAllRegisters() {
   InvalidateAllRegisterStates();

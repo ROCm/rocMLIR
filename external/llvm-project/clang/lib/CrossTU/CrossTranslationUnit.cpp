@@ -92,10 +92,6 @@ public:
 
   std::string message(int Condition) const override {
     switch (static_cast<index_error_code>(Condition)) {
-    case index_error_code::success:
-      // There should not be a success error. Jump to unreachable directly.
-      // Add this case to make the compiler stop complaining.
-      break;
     case index_error_code::unspecified:
       return "An unknown error has occurred.";
     case index_error_code::missing_index_file:
@@ -634,7 +630,7 @@ parseInvocationList(StringRef FileContent, llvm::sys::path::Style PathStyle) {
     SmallString<32> NativeSourcePath(SourcePath);
     llvm::sys::path::native(NativeSourcePath, PathStyle);
 
-    StringRef InvocationKey = NativeSourcePath;
+    StringRef InvocationKey(NativeSourcePath);
 
     if (InvocationList.find(InvocationKey) != InvocationList.end())
       return llvm::make_error<IndexError>(
@@ -671,15 +667,12 @@ llvm::Error CrossTranslationUnitContext::ASTLoader::lazyInitInvocationList() {
   /// Lazily initialize the invocation list member used for on-demand parsing.
   if (InvocationList)
     return llvm::Error::success();
-  if (index_error_code::success != PreviousParsingResult)
-    return llvm::make_error<IndexError>(PreviousParsingResult);
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileContent =
       llvm::MemoryBuffer::getFile(InvocationListFilePath);
-  if (!FileContent) {
-    PreviousParsingResult = index_error_code::invocation_list_file_not_found;
-    return llvm::make_error<IndexError>(PreviousParsingResult);
-  }
+  if (!FileContent)
+    return llvm::make_error<IndexError>(
+        index_error_code::invocation_list_file_not_found);
   std::unique_ptr<llvm::MemoryBuffer> ContentBuffer = std::move(*FileContent);
   assert(ContentBuffer && "If no error was produced after loading, the pointer "
                           "should not be nullptr.");
@@ -687,13 +680,8 @@ llvm::Error CrossTranslationUnitContext::ASTLoader::lazyInitInvocationList() {
   llvm::Expected<InvocationListTy> ExpectedInvocationList =
       parseInvocationList(ContentBuffer->getBuffer(), PathStyle);
 
-  // Handle the error to store the code for next call to this function.
-  if (!ExpectedInvocationList) {
-    llvm::handleAllErrors(
-        ExpectedInvocationList.takeError(),
-        [&](const IndexError &E) { PreviousParsingResult = E.getCode(); });
-    return llvm::make_error<IndexError>(PreviousParsingResult);
-  }
+  if (!ExpectedInvocationList)
+    return ExpectedInvocationList.takeError();
 
   InvocationList = *ExpectedInvocationList;
 
@@ -766,15 +754,31 @@ CrossTranslationUnitContext::getOrCreateASTImporter(ASTUnit *Unit) {
   ASTImporter *NewImporter = new ASTImporter(
       Context, Context.getSourceManager().getFileManager(), From,
       From.getSourceManager().getFileManager(), false, ImporterSharedSt);
+  NewImporter->setFileIDImportHandler([this, Unit](FileID ToID, FileID FromID) {
+    assert(ImportedFileIDs.find(ToID) == ImportedFileIDs.end() &&
+           "FileID already imported, should not happen.");
+    ImportedFileIDs[ToID] = std::make_pair(FromID, Unit);
+  });
   ASTUnitImporterMap[From.getTranslationUnitDecl()].reset(NewImporter);
   return *NewImporter;
 }
 
-llvm::Optional<clang::MacroExpansionContext>
-CrossTranslationUnitContext::getMacroExpansionContextForSourceLocation(
+llvm::Optional<std::pair<SourceLocation, ASTUnit *>>
+CrossTranslationUnitContext::getImportedFromSourceLocation(
     const clang::SourceLocation &ToLoc) const {
-  // FIXME: Implement: Record such a context for every imported ASTUnit; lookup.
-  return llvm::None;
+  const SourceManager &SM = Context.getSourceManager();
+  auto DecToLoc = SM.getDecomposedLoc(ToLoc);
+
+  auto I = ImportedFileIDs.find(DecToLoc.first);
+  if (I == ImportedFileIDs.end())
+    return {};
+
+  FileID FromID = I->second.first;
+  clang::ASTUnit *Unit = I->second.second;
+  SourceLocation FromLoc =
+      Unit->getSourceManager().getComposedLoc(FromID, DecToLoc.second);
+
+  return std::make_pair(FromLoc, Unit);
 }
 
 } // namespace cross_tu

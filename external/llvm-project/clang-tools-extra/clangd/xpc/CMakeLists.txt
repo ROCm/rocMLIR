@@ -7,6 +7,10 @@ include(CreateClangdXPCFramework)
 add_subdirectory(framework)
 add_subdirectory(test-client)
 
+include_directories(
+  ${CMAKE_CURRENT_SOURCE_DIR}/../
+)
+
 set(LLVM_LINK_COMPONENTS
   Support
   )

@@ -33,5 +33,6 @@ struct RuntimeDerivedTypeTables {
 
 RuntimeDerivedTypeTables BuildRuntimeDerivedTypeTables(SemanticsContext &);
 
+void Dump(llvm::raw_ostream &, const RuntimeDerivedTypeTables &);
 } // namespace Fortran::semantics
 #endif // FORTRAN_SEMANTICS_RUNTIME_TYPE_INFO_H_

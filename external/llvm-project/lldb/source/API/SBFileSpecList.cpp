@@ -16,7 +16,7 @@
 #include "lldb/Utility/FileSpec.h"
 #include "lldb/Utility/Stream.h"
 
-#include <climits>
+#include <limits.h>
 
 using namespace lldb;
 using namespace lldb_private;

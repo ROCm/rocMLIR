@@ -701,7 +701,7 @@ MachProcess::GetDeploymentInfo(const struct load_command &lc,
   // DYLD_FORCE_PLATFORM=6. In that case, force the platform to
   // macCatalyst and use the macCatalyst version of the host OS
   // instead of the macOS deployment target.
-  if (is_executable && GetPlatform() == PLATFORM_MACCATALYST) {
+  if (is_executable && GetProcessPlatformViaDYLDSPI() == PLATFORM_MACCATALYST) {
     info.platform = PLATFORM_MACCATALYST;
     std::string catalyst_version = GetMacCatalystVersionString();
     const char *major = catalyst_version.c_str();
@@ -987,15 +987,23 @@ JSONGenerator::ObjectSP MachProcess::GetLoadedDynamicLibrariesInfos(
     nub_process_t pid, nub_addr_t image_list_address, nub_addr_t image_count) {
   JSONGenerator::DictionarySP reply_sp;
 
-  int pointer_size = GetInferiorAddrSize(pid);
+  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
+  struct kinfo_proc processInfo;
+  size_t bufsize = sizeof(processInfo);
+  if (sysctl(mib, (unsigned)(sizeof(mib) / sizeof(int)), &processInfo, &bufsize,
+             NULL, 0) == 0 &&
+      bufsize > 0) {
+    uint32_t pointer_size = 4;
+    if (processInfo.kp_proc.p_flag & P_LP64)
+      pointer_size = 8;
 
-  std::vector<struct binary_image_information> image_infos;
-  size_t image_infos_size = image_count * 3 * pointer_size;
+    std::vector<struct binary_image_information> image_infos;
+    size_t image_infos_size = image_count * 3 * pointer_size;
 
-  uint8_t *image_info_buf = (uint8_t *)malloc(image_infos_size);
-  if (image_info_buf == NULL) {
-    return reply_sp;
-  }
+    uint8_t *image_info_buf = (uint8_t *)malloc(image_infos_size);
+    if (image_info_buf == NULL) {
+      return reply_sp;
+    }
     if (ReadMemory(image_list_address, image_infos_size, image_info_buf) !=
         image_infos_size) {
       return reply_sp;
@@ -1077,6 +1085,7 @@ JSONGenerator::ObjectSP MachProcess::GetLoadedDynamicLibrariesInfos(
     ////  Third, format all of the above in the JSONGenerator object.
 
     return FormatDynamicLibrariesIntoJSON(image_infos);
+  }
 
   return reply_sp;
 }
@@ -1093,12 +1102,6 @@ struct dyld_process_cache_info {
   /// Process is using a private copy of its dyld cache.
   bool privateCache;
 };
-
-uint32_t MachProcess::GetPlatform() {
-  if (m_platform == 0)
-    m_platform = MachProcess::GetProcessPlatformViaDYLDSPI();
-  return m_platform;
-}
 
 uint32_t MachProcess::GetProcessPlatformViaDYLDSPI() {
   kern_return_t kern_ret;
@@ -1143,16 +1146,28 @@ JSONGenerator::ObjectSP
 MachProcess::GetAllLoadedLibrariesInfos(nub_process_t pid) {
   JSONGenerator::DictionarySP reply_sp;
 
-  int pointer_size = GetInferiorAddrSize(pid);
-  std::vector<struct binary_image_information> image_infos;
-  GetAllLoadedBinariesViaDYLDSPI(image_infos);
-  uint32_t platform = GetPlatform();
-  const size_t image_count = image_infos.size();
-  for (size_t i = 0; i < image_count; i++) {
-    GetMachOInformationFromMemory(platform, image_infos[i].load_address,
-                                  pointer_size, image_infos[i].macho_info);
-  }
+  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
+  struct kinfo_proc processInfo;
+  size_t bufsize = sizeof(processInfo);
+  if (sysctl(mib, (unsigned)(sizeof(mib) / sizeof(int)), &processInfo, &bufsize,
+             NULL, 0) == 0 &&
+      bufsize > 0) {
+    uint32_t pointer_size = 4;
+    if (processInfo.kp_proc.p_flag & P_LP64)
+      pointer_size = 8;
+
+    std::vector<struct binary_image_information> image_infos;
+    GetAllLoadedBinariesViaDYLDSPI(image_infos);
+    uint32_t platform = GetProcessPlatformViaDYLDSPI();
+    const size_t image_count = image_infos.size();
+    for (size_t i = 0; i < image_count; i++) {
+      GetMachOInformationFromMemory(platform,
+                                    image_infos[i].load_address, pointer_size,
+                                    image_infos[i].macho_info);
+    }
     return FormatDynamicLibrariesIntoJSON(image_infos);
+  }
+  return reply_sp;
 }
 
 // Fetch information about the shared libraries at the given load addresses
@@ -1162,22 +1177,30 @@ JSONGenerator::ObjectSP MachProcess::GetLibrariesInfoForAddresses(
     nub_process_t pid, std::vector<uint64_t> &macho_addresses) {
   JSONGenerator::DictionarySP reply_sp;
 
-  int pointer_size = GetInferiorAddrSize(pid);
+  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
+  struct kinfo_proc processInfo;
+  size_t bufsize = sizeof(processInfo);
+  if (sysctl(mib, (unsigned)(sizeof(mib) / sizeof(int)), &processInfo, &bufsize,
+             NULL, 0) == 0 &&
+      bufsize > 0) {
+    uint32_t pointer_size = 4;
+    if (processInfo.kp_proc.p_flag & P_LP64)
+      pointer_size = 8;
 
-  std::vector<struct binary_image_information> all_image_infos;
-  GetAllLoadedBinariesViaDYLDSPI(all_image_infos);
-  uint32_t platform = GetPlatform();
+    std::vector<struct binary_image_information> all_image_infos;
+    GetAllLoadedBinariesViaDYLDSPI(all_image_infos);
+    uint32_t platform = GetProcessPlatformViaDYLDSPI();
 
-  std::vector<struct binary_image_information> image_infos;
-  const size_t macho_addresses_count = macho_addresses.size();
-  const size_t all_image_infos_count = all_image_infos.size();
-  for (size_t i = 0; i < macho_addresses_count; i++) {
-    for (size_t j = 0; j < all_image_infos_count; j++) {
-      if (all_image_infos[j].load_address == macho_addresses[i]) {
-        image_infos.push_back(all_image_infos[j]);
+    std::vector<struct binary_image_information> image_infos;
+    const size_t macho_addresses_count = macho_addresses.size();
+    const size_t all_image_infos_count = all_image_infos.size();
+    for (size_t i = 0; i < macho_addresses_count; i++) {
+      for (size_t j = 0; j < all_image_infos_count; j++) {
+        if (all_image_infos[j].load_address == macho_addresses[i]) {
+          image_infos.push_back(all_image_infos[j]);
+        }
       }
     }
-  }
 
     const size_t image_infos_count = image_infos.size();
     for (size_t i = 0; i < image_infos_count; i++) {
@@ -1186,6 +1209,8 @@ JSONGenerator::ObjectSP MachProcess::GetLibrariesInfoForAddresses(
                                     image_infos[i].macho_info);
     }
     return FormatDynamicLibrariesIntoJSON(image_infos);
+  }
+  return reply_sp;
 }
 
 // From dyld's internal podyld_process_info.h:
@@ -1330,7 +1355,6 @@ void MachProcess::Clear(bool detaching) {
   // Clear any cached thread list while the pid and task are still valid
 
   m_task.Clear();
-  m_platform = 0;
   // Now clear out all member variables
   m_pid = INVALID_NUB_PROCESS;
   if (!detaching)
@@ -1622,7 +1646,6 @@ bool MachProcess::Detach() {
 
   // NULL our task out as we have already restored all exception ports
   m_task.Clear();
-  m_platform = 0;
 
   // Clear out any notion of the process we once were
   const bool detaching = true;
@@ -2684,6 +2707,10 @@ MachProcess::GetGenealogyImageInfo(size_t idx) {
 
 bool MachProcess::GetOSVersionNumbers(uint64_t *major, uint64_t *minor,
                                       uint64_t *patch) {
+#if defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) &&                  \
+    (__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 101000)
+  return false;
+#else
   NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
 
   NSOperatingSystemVersion vers =
@@ -2698,6 +2725,7 @@ bool MachProcess::GetOSVersionNumbers(uint64_t *major, uint64_t *minor,
   [pool drain];
 
   return true;
+#endif
 }
 
 std::string MachProcess::GetMacCatalystVersionString() {
@@ -2711,30 +2739,6 @@ std::string MachProcess::GetMacCatalystVersionString() {
   }
   return {};
 }
-
-#if defined(WITH_SPRINGBOARD) || defined(WITH_BKS) || defined(WITH_FBS)
-/// Get the app bundle from the given path. Returns the empty string if the
-/// path doesn't appear to be an app bundle.
-static std::string GetAppBundle(std::string path) {
-  auto pos = path.rfind(".app");
-  // Path doesn't contain `.app`.
-  if (pos == std::string::npos)
-    return {};
-  // Path has `.app` extension.
-  if (pos == path.size() - 4)
-    return path.substr(0, pos + 4);
-
-  // Look for `.app` before a path separator.
-  do {
-    if (path[pos + 4] == '/')
-      return path.substr(0, pos + 4);
-    path = path.substr(0, pos);
-    pos = path.rfind(".app");
-  } while (pos != std::string::npos);
-
-  return {};
-}
-#endif
 
 // Do the process specific setup for attach.  If this returns NULL, then there's
 // no
@@ -2759,8 +2763,10 @@ const void *MachProcess::PrepareForAttach(const char *path,
   if (!waitfor)
     return NULL;
 
-  std::string app_bundle_path = GetAppBundle(path);
-  if (app_bundle_path.empty()) {
+  const char *app_ext = strstr(path, ".app");
+  const bool is_app =
+      app_ext != NULL && (app_ext[4] == '\0' || app_ext[4] == '/');
+  if (!is_app) {
     DNBLogThreadedIf(
         LOG_PROCESS,
         "MachProcess::PrepareForAttach(): path '%s' doesn't contain .app, "
@@ -2785,6 +2791,8 @@ const void *MachProcess::PrepareForAttach(const char *path,
   if (launch_flavor != eLaunchFlavorSpringBoard)
     return NULL;
 #endif
+
+  std::string app_bundle_path(path, app_ext + strlen(".app"));
 
   CFStringRef bundleIDCFStr =
       CopyBundleIDForPath(app_bundle_path.c_str(), attach_err);
@@ -3133,42 +3141,61 @@ pid_t MachProcess::LaunchForDebug(
     break;
 #ifdef WITH_FBS
   case eLaunchFlavorFBS: {
-    std::string app_bundle_path = GetAppBundle(path);
-    if (!app_bundle_path.empty()) {
+    const char *app_ext = strstr(path, ".app");
+    if (app_ext && (app_ext[4] == '\0' || app_ext[4] == '/')) {
+      std::string app_bundle_path(path, app_ext + strlen(".app"));
       m_flags |= (eMachProcessFlagsUsingFBS | eMachProcessFlagsBoardCalculated);
       if (BoardServiceLaunchForDebug(app_bundle_path.c_str(), argv, envp,
                                      no_stdio, disable_aslr, event_data,
                                      unmask_signals, launch_err) != 0)
         return m_pid; // A successful SBLaunchForDebug() returns and assigns a
                       // non-zero m_pid.
+      else
+        break; // We tried a FBS launch, but didn't succeed lets get out
     }
-    DNBLog("Failed to launch '%s' with FBS", app_bundle_path);
   } break;
 #endif
 #ifdef WITH_BKS
   case eLaunchFlavorBKS: {
-    std::string app_bundle_path = GetAppBundle(path);
-    if (!app_bundle_path.empty()) {
+    const char *app_ext = strstr(path, ".app");
+    if (app_ext && (app_ext[4] == '\0' || app_ext[4] == '/')) {
+      std::string app_bundle_path(path, app_ext + strlen(".app"));
       m_flags |= (eMachProcessFlagsUsingBKS | eMachProcessFlagsBoardCalculated);
       if (BoardServiceLaunchForDebug(app_bundle_path.c_str(), argv, envp,
                                      no_stdio, disable_aslr, event_data,
                                      unmask_signals, launch_err) != 0)
         return m_pid; // A successful SBLaunchForDebug() returns and assigns a
                       // non-zero m_pid.
+      else
+        break; // We tried a BKS launch, but didn't succeed lets get out
     }
-    DNBLog("Failed to launch '%s' with BKS", app_bundle_path);
   } break;
 #endif
 #ifdef WITH_SPRINGBOARD
+
   case eLaunchFlavorSpringBoard: {
-    std::string app_bundle_path = GetAppBundle(path);
-    if (!app_bundle_path.empty()) {
+    //  .../whatever.app/whatever ?
+    //  Or .../com.apple.whatever.app/whatever -- be careful of ".app" in
+    //  "com.apple.whatever" here
+    const char *app_ext = strstr(path, ".app/");
+    if (app_ext == NULL) {
+      // .../whatever.app ?
+      int len = strlen(path);
+      if (len > 5) {
+        if (strcmp(path + len - 4, ".app") == 0) {
+          app_ext = path + len - 4;
+        }
+      }
+    }
+    if (app_ext) {
+      std::string app_bundle_path(path, app_ext + strlen(".app"));
       if (SBLaunchForDebug(app_bundle_path.c_str(), argv, envp, no_stdio,
                            disable_aslr, unmask_signals, launch_err) != 0)
         return m_pid; // A successful SBLaunchForDebug() returns and assigns a
                       // non-zero m_pid.
+      else
+        break; // We tried a springboard launch, but didn't succeed lets get out
     }
-    DNBLog("Failed to launch '%s' with SpringBoard", app_bundle_path);
   } break;
 
 #endif
@@ -3181,7 +3208,7 @@ pid_t MachProcess::LaunchForDebug(
     break;
 
   default:
-    DNBLog("Failed to launch: invalid launch flavor: %d", launch_flavor);
+    // Invalid  launch
     launch_err.SetError(NUB_GENERIC_ERROR, DNBError::Generic);
     return INVALID_NUB_PROCESS;
   }
@@ -4164,18 +4191,4 @@ bool MachProcess::ProcessUsingBackBoard() {
 bool MachProcess::ProcessUsingFrontBoard() {
   CalculateBoardStatus();
   return (m_flags & eMachProcessFlagsUsingFBS) != 0;
-}
-
-int MachProcess::GetInferiorAddrSize(pid_t pid) {
-  int pointer_size = 8;
-  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
-  struct kinfo_proc processInfo;
-  size_t bufsize = sizeof(processInfo);
-  if (sysctl(mib, (unsigned)(sizeof(mib) / sizeof(int)), &processInfo, &bufsize,
-             NULL, 0) == 0 &&
-      bufsize > 0) {
-    if ((processInfo.kp_proc.p_flag & P_LP64) == 0)
-      pointer_size = 4;
-  }
-  return pointer_size;
 }

@@ -11,7 +11,7 @@
 
 #include "llvm/ADT/ArrayRef.h"
 
-#include <cstdarg>
+#include <stdarg.h>
 
 using namespace lldb_private;
 

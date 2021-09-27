@@ -13,7 +13,6 @@
 #ifndef MLIR_INTERFACES_VIEWLIKEINTERFACE_H_
 #define MLIR_INTERFACES_VIEWLIKEINTERFACE_H_
 
-#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -30,14 +29,7 @@ struct Range {
 };
 
 class OffsetSizeAndStrideOpInterface;
-
-namespace detail {
-LogicalResult verifyOffsetSizeAndStrideOp(OffsetSizeAndStrideOpInterface op);
-
-bool sameOffsetsSizesAndStrides(
-    OffsetSizeAndStrideOpInterface a, OffsetSizeAndStrideOpInterface b,
-    llvm::function_ref<bool(OpFoldResult, OpFoldResult)> cmp);
-} // namespace detail
+LogicalResult verify(OffsetSizeAndStrideOpInterface op);
 } // namespace mlir
 
 /// Include the generated interface declarations.

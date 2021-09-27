@@ -49,7 +49,6 @@ struct CoverageViewOptions {
   std::string ProjectTitle;
   std::string CreatedTimeStr;
   unsigned NumThreads;
-  std::string CompilationDirectory;
 
   /// Change the output's stream color if the colors are enabled.
   ColoredRawOstream colored_ostream(raw_ostream &OS,

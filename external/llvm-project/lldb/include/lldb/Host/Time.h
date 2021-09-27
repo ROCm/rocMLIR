@@ -19,7 +19,7 @@
 #include <time64.h>
 extern time_t timegm(struct tm *t);
 #else
-#include <ctime>
+#include <time.h>
 #endif
 
 #endif // LLDB_HOST_TIME_H

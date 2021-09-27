@@ -25,7 +25,7 @@
 #include <algorithm>
 #include <chrono>
 
-#include <cerrno>
+#include <errno.h>
 #if defined(_WIN32)
 // Define NOMINMAX to avoid macros that conflict with std::min and std::max
 #define NOMINMAX

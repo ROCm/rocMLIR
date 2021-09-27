@@ -100,23 +100,12 @@ private:
     return storage;
   }
 
-  /// Destroy all of the storage instances within the given shard.
-  void destroyShardInstances(Shard &shard) {
-    if (!destructorFn)
-      return;
-    for (HashedStorage &instance : shard.instances)
-      destructorFn(instance.storage);
-  }
-
 public:
 #if LLVM_ENABLE_THREADS != 0
   /// Initialize the storage uniquer with a given number of storage shards to
-  /// use. The provided shard number is required to be a valid power of 2. The
-  /// destructor function is used to destroy any allocated storage instances.
-  ParametricStorageUniquer(function_ref<void(BaseStorage *)> destructorFn,
-                           size_t numShards = 8)
-      : shards(new std::atomic<Shard *>[numShards]), numShards(numShards),
-        destructorFn(destructorFn) {
+  /// use. The provided shard number is required to be a valid power of 2.
+  ParametricStorageUniquer(size_t numShards = 8)
+      : shards(new std::atomic<Shard *>[numShards]), numShards(numShards) {
     assert(llvm::isPowerOf2_64(numShards) &&
            "the number of shards is required to be a power of 2");
     for (size_t i = 0; i < numShards; i++)
@@ -124,12 +113,9 @@ public:
   }
   ~ParametricStorageUniquer() {
     // Free all of the allocated shards.
-    for (size_t i = 0; i != numShards; ++i) {
-      if (Shard *shard = shards[i].load()) {
-        destroyShardInstances(*shard);
+    for (size_t i = 0; i != numShards; ++i)
+      if (Shard *shard = shards[i].load())
         delete shard;
-      }
-    }
   }
   /// Get or create an instance of a parametric type.
   BaseStorage *
@@ -212,17 +198,10 @@ private:
   /// The number of available shards.
   size_t numShards;
 
-  /// Function to used to destruct any allocated storage instances.
-  function_ref<void(BaseStorage *)> destructorFn;
-
 #else
   /// If multi-threading is disabled, ignore the shard parameter as we will
-  /// always use one shard. The destructor function is used to destroy any
-  /// allocated storage instances.
-  ParametricStorageUniquer(function_ref<void(BaseStorage *)> destructorFn,
-                           size_t numShards = 0)
-      : destructorFn(destructorFn) {}
-  ~ParametricStorageUniquer() { destroyShardInstances(shard); }
+  /// always use one shard.
+  ParametricStorageUniquer(size_t numShards = 0) {}
 
   /// Get or create an instance of a parametric type.
   BaseStorage *
@@ -243,9 +222,6 @@ private:
 private:
   /// The main uniquer shard that is used for allocating storage instances.
   Shard shard;
-
-  /// Function to used to destruct any allocated storage instances.
-  function_ref<void(BaseStorage *)> destructorFn;
 #endif
 };
 } // end anonymous namespace
@@ -341,10 +317,9 @@ auto StorageUniquer::getParametricStorageTypeImpl(
 
 /// Implementation for registering an instance of a derived type with
 /// parametric storage.
-void StorageUniquer::registerParametricStorageTypeImpl(
-    TypeID id, function_ref<void(BaseStorage *)> destructorFn) {
+void StorageUniquer::registerParametricStorageTypeImpl(TypeID id) {
   impl->parametricUniquers.try_emplace(
-      id, std::make_unique<ParametricStorageUniquer>(destructorFn));
+      id, std::make_unique<ParametricStorageUniquer>());
 }
 
 /// Implementation for getting an instance of a derived type with default

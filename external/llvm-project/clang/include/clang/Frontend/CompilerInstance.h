@@ -22,7 +22,6 @@
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/BuryPointer.h"
-#include "llvm/Support/FileSystem.h"
 #include <cassert>
 #include <list>
 #include <memory>
@@ -151,7 +150,7 @@ class CompilerInstance : public ModuleLoader {
   bool HaveFullGlobalModuleIndex = false;
 
   /// One or more modules failed to build.
-  bool DisableGeneratingGlobalModuleIndex = false;
+  bool ModuleBuildFailed = false;
 
   /// The stream for verbose output if owned, otherwise nullptr.
   std::unique_ptr<raw_ostream> OwnedVerboseOutputStream;
@@ -166,10 +165,11 @@ class CompilerInstance : public ModuleLoader {
   /// failed.
   struct OutputFile {
     std::string Filename;
-    Optional<llvm::sys::fs::TempFile> File;
+    std::string TempFilename;
 
-    OutputFile(std::string filename, Optional<llvm::sys::fs::TempFile> file)
-        : Filename(std::move(filename)), File(std::move(file)) {}
+    OutputFile(std::string filename, std::string tempFilename)
+        : Filename(std::move(filename)), TempFilename(std::move(tempFilename)) {
+    }
   };
 
   /// The list of active output files.
@@ -381,9 +381,6 @@ public:
 
   /// Replace the current AuxTarget.
   void setAuxTarget(TargetInfo *Value);
-
-  // Create Target and AuxTarget based on current options
-  bool createTarget();
 
   /// }
   /// @name Virtual File System
@@ -696,13 +693,15 @@ public:
   /// The files created by this are usually removed on signal, and, depending
   /// on FrontendOptions, may also use a temporary file (that is, the data is
   /// written to a temporary file which will atomically replace the target
-  /// output on success).
+  /// output on success). If a client (like libclang) needs to disable
+  /// RemoveFileOnSignal, temporary files will be forced on.
   ///
   /// \return - Null on error.
-  std::unique_ptr<raw_pwrite_stream> createDefaultOutputFile(
-      bool Binary = true, StringRef BaseInput = "", StringRef Extension = "",
-      bool RemoveFileOnSignal = true, bool CreateMissingDirectories = false,
-      bool ForceUseTemporary = false);
+  std::unique_ptr<raw_pwrite_stream>
+  createDefaultOutputFile(bool Binary = true, StringRef BaseInput = "",
+                          StringRef Extension = "",
+                          bool RemoveFileOnSignal = true,
+                          bool CreateMissingDirectories = false);
 
   /// Create a new output file, optionally deriving the output path name, and
   /// add it to the list of tracked output files.

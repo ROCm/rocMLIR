@@ -48,22 +48,14 @@ struct attr_value_binder {
   }
 };
 
-/// Check to see if the specified operation is ConstantLike.  This includes some
-/// quick filters to avoid a semi-expensive test in the common case.
-static bool isConstantLike(Operation *op) {
-  return op->getNumOperands() == 0 && op->getNumResults() == 1 &&
-         op->hasTrait<OpTrait::ConstantLike>();
-}
-
 /// The matcher that matches operations that have the `ConstantLike` trait.
 struct constant_op_matcher {
-  bool match(Operation *op) { return isConstantLike(op); }
+  bool match(Operation *op) { return op->hasTrait<OpTrait::ConstantLike>(); }
 };
 
 /// The matcher that matches operations that have the `ConstantLike` trait, and
 /// binds the folded attribute value.
-template <typename AttrT>
-struct constant_op_binder {
+template <typename AttrT> struct constant_op_binder {
   AttrT *bind_value;
 
   /// Creates a matcher instance that binds the constant attribute value to
@@ -73,7 +65,7 @@ struct constant_op_binder {
   constant_op_binder() : bind_value(nullptr) {}
 
   bool match(Operation *op) {
-    if (!isConstantLike(op))
+    if (!op->hasTrait<OpTrait::ConstantLike>())
       return false;
 
     // Fold the constant to an attribute.
@@ -119,8 +111,7 @@ struct constant_int_op_binder {
 
 /// The matcher that matches a given target constant scalar / vector splat /
 /// tensor splat integer value.
-template <int64_t TargetValue>
-struct constant_int_value_matcher {
+template <int64_t TargetValue> struct constant_int_value_matcher {
   bool match(Operation *op) {
     APInt value;
     return constant_int_op_binder(&value).match(op) && TargetValue == value;
@@ -129,8 +120,7 @@ struct constant_int_value_matcher {
 
 /// The matcher that matches anything except the given target constant scalar /
 /// vector splat / tensor splat integer value.
-template <int64_t TargetNotValue>
-struct constant_int_not_value_matcher {
+template <int64_t TargetNotValue> struct constant_int_not_value_matcher {
   bool match(Operation *op) {
     APInt value;
     return constant_int_op_binder(&value).match(op) && TargetNotValue != value;
@@ -138,8 +128,7 @@ struct constant_int_not_value_matcher {
 };
 
 /// The matcher that matches a certain kind of op.
-template <typename OpClass>
-struct op_matcher {
+template <typename OpClass> struct op_matcher {
   bool match(Operation *op) { return isa<OpClass>(op); }
 };
 
@@ -235,8 +224,7 @@ inline detail::constant_int_value_matcher<1> m_One() {
 }
 
 /// Matches the given OpClass.
-template <typename OpClass>
-inline detail::op_matcher<OpClass> m_Op() {
+template <typename OpClass> inline detail::op_matcher<OpClass> m_Op() {
   return detail::op_matcher<OpClass>();
 }
 

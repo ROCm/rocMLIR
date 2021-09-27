@@ -20,7 +20,7 @@ using namespace lldb_private;
 VariableList::VariableList() : m_variables() {}
 
 // Destructor
-VariableList::~VariableList() = default;
+VariableList::~VariableList() {}
 
 void VariableList::AddVariable(const VariableSP &var_sp) {
   m_variables.push_back(var_sp);

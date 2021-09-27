@@ -12,10 +12,10 @@ target triple = "x86_64-unknown-linux-gnu"
 declare i32 @f(i32)
 declare float @llvm.sqrt.f32(float)
 
-; CHECK-LABEL: @call.dfsan
+; CHECK-LABEL: @"dfs$call"
 define i32 @call() {
   ; CHECK: store{{.*}}__dfsan_arg_tls
-  ; CHECK: call{{.*}}@f.dfsan
+  ; CHECK: call{{.*}}@"dfs$f"
   ; CHECK: load{{.*}}__dfsan_retval_tls
   %r = call i32 @f(i32 0)
 
@@ -35,11 +35,11 @@ declare void @__cxa_end_catch()
 
 declare void @g(...)
 
-; CHECK-LABEL: @h.dfsan
-; CHECK: personality {{.*}} @__gxx_personality_v0.dfsan {{.*}} {
+; CHECK-LABEL: @"dfs$h"
+; CHECK: personality {{.*}} @"dfs$__gxx_personality_v0" {{.*}} {
 define i32 @h() personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
 entry:
-; CHECK: invoke void (...) @g.dfsan(i32 42)
+; CHECK: invoke void (...) @"dfs$g"(i32 42)
   invoke void (...) @g(i32 42)
           to label %try.cont unwind label %lpad
 
@@ -48,12 +48,12 @@ lpad:
           catch i8* null
   %1 = extractvalue { i8*, i32 } %0, 0
 
-  ; CHECK: store {{.*}} @__dfsan_arg_tls  
-  ; CHECK: call {{.*}} @__cxa_begin_catch.dfsan
+  ; CHECK: store {{.*}} @__dfsan_arg_tls
+  ; CHECK: call {{.*}} @"dfs$__cxa_begin_catch"
   ; CHECK: load {{.*}} @__dfsan_retval_tls
   %2 = tail call i8* @__cxa_begin_catch(i8* %1)
 
-  ; CHECK: call {{.*}} @__cxa_end_catch.dfsan
+  ; CHECK: call {{.*}} @"dfs$__cxa_end_catch"
   tail call void @__cxa_end_catch()
   br label %try.cont
 

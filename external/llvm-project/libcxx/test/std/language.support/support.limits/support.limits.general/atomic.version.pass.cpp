@@ -235,16 +235,16 @@
 #   endif
 # endif
 
-# if !defined(_LIBCPP_HAS_NO_THREADS)
+# if !defined(_LIBCPP_VERSION)
 #   ifndef __cpp_lib_atomic_value_initialization
 #     error "__cpp_lib_atomic_value_initialization should be defined in c++20"
 #   endif
 #   if __cpp_lib_atomic_value_initialization != 201911L
 #     error "__cpp_lib_atomic_value_initialization should have the value 201911L in c++20"
 #   endif
-# else
+# else // _LIBCPP_VERSION
 #   ifdef __cpp_lib_atomic_value_initialization
-#     error "__cpp_lib_atomic_value_initialization should not be defined when !defined(_LIBCPP_HAS_NO_THREADS) is not defined!"
+#     error "__cpp_lib_atomic_value_initialization should not be defined because it is unimplemented in libc++!"
 #   endif
 # endif
 
@@ -354,16 +354,16 @@
 #   endif
 # endif
 
-# if !defined(_LIBCPP_HAS_NO_THREADS)
+# if !defined(_LIBCPP_VERSION)
 #   ifndef __cpp_lib_atomic_value_initialization
 #     error "__cpp_lib_atomic_value_initialization should be defined in c++2b"
 #   endif
 #   if __cpp_lib_atomic_value_initialization != 201911L
 #     error "__cpp_lib_atomic_value_initialization should have the value 201911L in c++2b"
 #   endif
-# else
+# else // _LIBCPP_VERSION
 #   ifdef __cpp_lib_atomic_value_initialization
-#     error "__cpp_lib_atomic_value_initialization should not be defined when !defined(_LIBCPP_HAS_NO_THREADS) is not defined!"
+#     error "__cpp_lib_atomic_value_initialization should not be defined because it is unimplemented in libc++!"
 #   endif
 # endif
 

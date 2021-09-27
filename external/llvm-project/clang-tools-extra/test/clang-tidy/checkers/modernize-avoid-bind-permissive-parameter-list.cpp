@@ -1,6 +1,6 @@
 // RUN: %check_clang_tidy -std=c++14-or-later %s modernize-avoid-bind %t -- \
 // RUN:   -config="{CheckOptions: [ \
-// RUN:     {key: modernize-avoid-bind.PermissiveParameterList, value: true}]}" --
+// RUN:     {key: modernize-avoid-bind.PermissiveParameterList, value: 1}]}" --
 
 namespace std {
 inline namespace impl {

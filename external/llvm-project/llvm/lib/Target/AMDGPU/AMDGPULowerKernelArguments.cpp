@@ -15,7 +15,6 @@
 #include "GCNSubtarget.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
-#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/Target/TargetMachine.h"
 #define DEBUG_TYPE "amdgpu-lower-kernel-arguments"
@@ -82,9 +81,9 @@ bool AMDGPULowerKernelArguments::runOnFunction(Function &F) {
       Builder.CreateIntrinsic(Intrinsic::amdgcn_kernarg_segment_ptr, {}, {},
                               nullptr, F.getName() + ".kernarg.segment");
 
-  KernArgSegment->addRetAttr(Attribute::NonNull);
-  KernArgSegment->addRetAttr(
-      Attribute::getWithDereferenceableBytes(Ctx, TotalKernArgSize));
+  KernArgSegment->addAttribute(AttributeList::ReturnIndex, Attribute::NonNull);
+  KernArgSegment->addAttribute(AttributeList::ReturnIndex,
+    Attribute::getWithDereferenceableBytes(Ctx, TotalKernArgSize));
 
   unsigned AS = KernArgSegment->getType()->getPointerAddressSpace();
   uint64_t ExplicitArgOffset = 0;
@@ -232,7 +231,8 @@ bool AMDGPULowerKernelArguments::runOnFunction(Function &F) {
     }
   }
 
-  KernArgSegment->addRetAttr(
+  KernArgSegment->addAttribute(
+      AttributeList::ReturnIndex,
       Attribute::getWithAlignment(Ctx, std::max(KernArgBaseAlign, MaxAlign)));
 
   return true;

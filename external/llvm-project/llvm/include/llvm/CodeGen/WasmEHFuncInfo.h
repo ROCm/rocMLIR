@@ -15,7 +15,6 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/PointerUnion.h"
-#include "llvm/ADT/SmallPtrSet.h"
 
 namespace llvm {
 
@@ -24,7 +23,7 @@ class Function;
 class MachineBasicBlock;
 
 namespace WebAssembly {
-enum Tag { CPP_EXCEPTION = 0, C_LONGJMP = 1 };
+enum EventTag { CPP_EXCEPTION = 0, C_LONGJMP = 1 };
 }
 
 using BBOrMBB = PointerUnion<const BasicBlock *, MachineBasicBlock *>;
@@ -32,59 +31,27 @@ using BBOrMBB = PointerUnion<const BasicBlock *, MachineBasicBlock *>;
 struct WasmEHFuncInfo {
   // When there is an entry <A, B>, if an exception is not caught by A, it
   // should next unwind to the EH pad B.
-  DenseMap<BBOrMBB, BBOrMBB> SrcToUnwindDest;
-  DenseMap<BBOrMBB, SmallPtrSet<BBOrMBB, 4>> UnwindDestToSrcs; // reverse map
+  DenseMap<BBOrMBB, BBOrMBB> EHPadUnwindMap;
 
   // Helper functions
-  const BasicBlock *getUnwindDest(const BasicBlock *BB) const {
-    assert(hasUnwindDest(BB));
-    return SrcToUnwindDest.lookup(BB).get<const BasicBlock *>();
+  const BasicBlock *getEHPadUnwindDest(const BasicBlock *BB) const {
+    return EHPadUnwindMap.lookup(BB).get<const BasicBlock *>();
   }
-  SmallPtrSet<const BasicBlock *, 4> getUnwindSrcs(const BasicBlock *BB) const {
-    assert(hasUnwindSrcs(BB));
-    const auto &Set = UnwindDestToSrcs.lookup(BB);
-    SmallPtrSet<const BasicBlock *, 4> Ret;
-    for (const auto P : Set)
-      Ret.insert(P.get<const BasicBlock *>());
-    return Ret;
+  void setEHPadUnwindDest(const BasicBlock *BB, const BasicBlock *Dest) {
+    EHPadUnwindMap[BB] = Dest;
   }
-  void setUnwindDest(const BasicBlock *BB, const BasicBlock *Dest) {
-    SrcToUnwindDest[BB] = Dest;
-    if (!UnwindDestToSrcs.count(Dest))
-      UnwindDestToSrcs[Dest] = SmallPtrSet<BBOrMBB, 4>();
-    UnwindDestToSrcs[Dest].insert(BB);
-  }
-  bool hasUnwindDest(const BasicBlock *BB) const {
-    return SrcToUnwindDest.count(BB);
-  }
-  bool hasUnwindSrcs(const BasicBlock *BB) const {
-    return UnwindDestToSrcs.count(BB);
+  bool hasEHPadUnwindDest(const BasicBlock *BB) const {
+    return EHPadUnwindMap.count(BB);
   }
 
-  MachineBasicBlock *getUnwindDest(MachineBasicBlock *MBB) const {
-    assert(hasUnwindDest(MBB));
-    return SrcToUnwindDest.lookup(MBB).get<MachineBasicBlock *>();
+  MachineBasicBlock *getEHPadUnwindDest(MachineBasicBlock *MBB) const {
+    return EHPadUnwindMap.lookup(MBB).get<MachineBasicBlock *>();
   }
-  SmallPtrSet<MachineBasicBlock *, 4>
-  getUnwindSrcs(MachineBasicBlock *MBB) const {
-    assert(hasUnwindSrcs(MBB));
-    const auto &Set = UnwindDestToSrcs.lookup(MBB);
-    SmallPtrSet<MachineBasicBlock *, 4> Ret;
-    for (const auto P : Set)
-      Ret.insert(P.get<MachineBasicBlock *>());
-    return Ret;
+  void setEHPadUnwindDest(MachineBasicBlock *MBB, MachineBasicBlock *Dest) {
+    EHPadUnwindMap[MBB] = Dest;
   }
-  void setUnwindDest(MachineBasicBlock *MBB, MachineBasicBlock *Dest) {
-    SrcToUnwindDest[MBB] = Dest;
-    if (!UnwindDestToSrcs.count(Dest))
-      UnwindDestToSrcs[Dest] = SmallPtrSet<BBOrMBB, 4>();
-    UnwindDestToSrcs[Dest].insert(MBB);
-  }
-  bool hasUnwindDest(MachineBasicBlock *MBB) const {
-    return SrcToUnwindDest.count(MBB);
-  }
-  bool hasUnwindSrcs(MachineBasicBlock *MBB) const {
-    return UnwindDestToSrcs.count(MBB);
+  bool hasEHPadUnwindDest(MachineBasicBlock *MBB) const {
+    return EHPadUnwindMap.count(MBB);
   }
 };
 

@@ -840,7 +840,8 @@ bool BranchProbabilityInfo::calcEstimatedHeuristics(const BasicBlock *BB) {
   SmallVector<uint32_t, 4> SuccWeights;
   uint64_t TotalWeight = 0;
   // Go over all successors of BB and put their weights into SuccWeights.
-  for (const BasicBlock *SuccBB : successors(BB)) {
+  for (const_succ_iterator I = succ_begin(BB), E = succ_end(BB); I != E; ++I) {
+    const BasicBlock *SuccBB = *I;
     Optional<uint32_t> Weight;
     const LoopBlock SuccLoopBB = getLoopBlock(SuccBB);
     const LoopEdge Edge{LoopBB, SuccLoopBB};
@@ -1093,8 +1094,10 @@ void BranchProbabilityInfo::print(raw_ostream &OS) const {
   // or the function it is currently running over.
   assert(LastF && "Cannot print prior to running over a function");
   for (const auto &BI : *LastF) {
-    for (const BasicBlock *Succ : successors(&BI))
-      printEdgeProbability(OS << "  ", &BI, Succ);
+    for (const_succ_iterator SI = succ_begin(&BI), SE = succ_end(&BI); SI != SE;
+         ++SI) {
+      printEdgeProbability(OS << "  ", &BI, *SI);
+    }
   }
 }
 
@@ -1103,6 +1106,26 @@ isEdgeHot(const BasicBlock *Src, const BasicBlock *Dst) const {
   // Hot probability is at least 4/5 = 80%
   // FIXME: Compare against a static "hot" BranchProbability.
   return getEdgeProbability(Src, Dst) > BranchProbability(4, 5);
+}
+
+const BasicBlock *
+BranchProbabilityInfo::getHotSucc(const BasicBlock *BB) const {
+  auto MaxProb = BranchProbability::getZero();
+  const BasicBlock *MaxSucc = nullptr;
+
+  for (const auto *Succ : successors(BB)) {
+    auto Prob = getEdgeProbability(BB, Succ);
+    if (Prob > MaxProb) {
+      MaxProb = Prob;
+      MaxSucc = Succ;
+    }
+  }
+
+  // Hot probability is at least 4/5 = 80%
+  if (MaxProb > BranchProbability(4, 5))
+    return MaxSucc;
+
+  return nullptr;
 }
 
 /// Get the raw edge probability for the edge. If can't find it, return a
@@ -1171,7 +1194,6 @@ void BranchProbabilityInfo::setEdgeProbability(
   // should be within Probs.size / BranchProbability::getDenominator.
   assert(TotalNumerator <= BranchProbability::getDenominator() + Probs.size());
   assert(TotalNumerator >= BranchProbability::getDenominator() - Probs.size());
-  (void)TotalNumerator;
 }
 
 void BranchProbabilityInfo::copyEdgeProbabilities(BasicBlock *Src,

@@ -21,7 +21,7 @@ using namespace llvm;
 
 namespace {
 struct Context {
-  const char *TripleName = "x86_64-pc-linux";
+  const char *Triple = "x86_64-pc-linux";
   std::unique_ptr<MCRegisterInfo> MRI;
   std::unique_ptr<MCAsmInfo> MAI;
   std::unique_ptr<MCContext> Ctx;
@@ -33,15 +33,14 @@ struct Context {
 
     // If we didn't build x86, do not run the test.
     std::string Error;
-    const Target *TheTarget = TargetRegistry::lookupTarget(TripleName, Error);
+    const Target *TheTarget = TargetRegistry::lookupTarget(Triple, Error);
     if (!TheTarget)
       return;
 
-    MRI.reset(TheTarget->createMCRegInfo(TripleName));
+    MRI.reset(TheTarget->createMCRegInfo(Triple));
     MCTargetOptions MCOptions;
-    MAI.reset(TheTarget->createMCAsmInfo(*MRI, TripleName, MCOptions));
-    Ctx = std::make_unique<MCContext>(Triple(TripleName), MAI.get(), MRI.get(),
-                                      /*MSTI=*/nullptr);
+    MAI.reset(TheTarget->createMCAsmInfo(*MRI, Triple, MCOptions));
+    Ctx = std::make_unique<MCContext>(MAI.get(), MRI.get(), nullptr);
   }
 
   operator bool() { return Ctx.get(); }

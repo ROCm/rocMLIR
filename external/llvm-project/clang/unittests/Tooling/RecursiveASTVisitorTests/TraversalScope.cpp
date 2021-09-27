@@ -16,12 +16,6 @@ class Visitor : public ExpectedLocationVisitor<Visitor, clang::TestVisitor> {
 public:
   Visitor(ASTContext *Context) { this->Context = Context; }
 
-  bool VisitTranslationUnitDecl(TranslationUnitDecl *D) {
-    auto &SM = D->getParentASTContext().getSourceManager();
-    Match("TU", SM.getLocForStartOfFile(SM.getMainFileID()));
-    return true;
-  }
-
   bool VisitNamedDecl(NamedDecl *D) {
     if (!D->isImplicit())
       Match(D->getName(), D->getLocation());
@@ -47,7 +41,6 @@ struct foo {
   Ctx.setTraversalScope({&Bar});
 
   Visitor V(&Ctx);
-  V.ExpectMatch("TU", 1, 1);
   V.DisallowMatch("foo", 2, 8);
   V.ExpectMatch("bar", 3, 10);
   V.ExpectMatch("baz", 4, 12);

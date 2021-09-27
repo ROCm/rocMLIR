@@ -47,9 +47,11 @@ bool UnpackMachineBundles::runOnMachineFunction(MachineFunction &MF) {
     return false;
 
   bool Changed = false;
-  for (MachineBasicBlock &MBB : MF) {
-    for (MachineBasicBlock::instr_iterator MII = MBB.instr_begin(),
-           MIE = MBB.instr_end(); MII != MIE; ) {
+  for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; ++I) {
+    MachineBasicBlock *MBB = &*I;
+
+    for (MachineBasicBlock::instr_iterator MII = MBB->instr_begin(),
+           MIE = MBB->instr_end(); MII != MIE; ) {
       MachineInstr *MI = &*MII;
 
       // Remove BUNDLE instruction and the InsideBundle flags from bundled
@@ -254,7 +256,8 @@ llvm::finalizeBundle(MachineBasicBlock &MBB,
 /// MachineFunction. Return true if any bundles are finalized.
 bool llvm::finalizeBundles(MachineFunction &MF) {
   bool Changed = false;
-  for (MachineBasicBlock &MBB : MF) {
+  for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; ++I) {
+    MachineBasicBlock &MBB = *I;
     MachineBasicBlock::instr_iterator MII = MBB.instr_begin();
     MachineBasicBlock::instr_iterator MIE = MBB.instr_end();
     if (MII == MIE)

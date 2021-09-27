@@ -382,8 +382,7 @@ void foo(int arg) {
 // CK1-DAG: [[BP]] = load [1 x i8*]*, [1 x i8*]** [[BP_PRIV:%[^,]+]],
 // CK1-DAG: [[P]] = load [1 x i8*]*, [1 x i8*]** [[P_PRIV:%[^,]+]],
 // CK1-DAG: [[S]] = load [1 x i64]*, [1 x i64]** [[S_PRIV:%[^,]+]],
-// CK1-DAG: [[FN:%.+]] = bitcast void (i8*, ...)* {{%.*}} to void (i8*,
-// CK1-DAG: call void [[FN]](i8* %{{[^,]+}}, [1 x i8*]** [[BP_PRIV]], [1 x i8*]** [[P_PRIV]], [1 x i64]** [[S_PRIV]])
+// CK1-DAG: call void (i8*, ...) %{{.+}}(i8* %{{[^,]+}}, [1 x i8*]** [[BP_PRIV]], [1 x i8*]** [[P_PRIV]], [1 x i64]** [[S_PRIV]])
 // CK1: ret i32 0
 // CK1: }
 
@@ -395,8 +394,7 @@ void foo(int arg) {
 // CK1-DAG: [[BP]] = load [1 x i8*]*, [1 x i8*]** [[BP_PRIV:%[^,]+]],
 // CK1-DAG: [[P]] = load [1 x i8*]*, [1 x i8*]** [[P_PRIV:%[^,]+]],
 // CK1-DAG: [[S]] = load [1 x i64]*, [1 x i64]** [[S_PRIV:%[^,]+]],
-// CK1-DAG: [[FN:%.+]] = bitcast void (i8*, ...)* {{%.*}} to void (i8*,
-// CK1-DAG: call void [[FN]](i8* %{{[^,]+}}, [1 x i8*]** [[BP_PRIV]], [1 x i8*]** [[P_PRIV]], [1 x i64]** [[S_PRIV]])
+// CK1-DAG: call void (i8*, ...) %{{.+}}(i8* %{{[^,]+}}, [1 x i8*]** [[BP_PRIV]], [1 x i8*]** [[P_PRIV]], [1 x i64]** [[S_PRIV]])
 // CK1: ret i32 0
 // CK1: }
 
@@ -408,8 +406,7 @@ void foo(int arg) {
 // CK1-DAG: [[BP]] = load [1 x i8*]*, [1 x i8*]** [[BP_PRIV:%[^,]+]],
 // CK1-DAG: [[P]] = load [1 x i8*]*, [1 x i8*]** [[P_PRIV:%[^,]+]],
 // CK1-DAG: [[S]] = load [1 x i64]*, [1 x i64]** [[S_PRIV:%[^,]+]],
-// CK1-DAG: [[FN:%.+]] = bitcast void (i8*, ...)* {{%.*}} to void (i8*,
-// CK1-DAG: call void [[FN]](i8* %{{[^,]+}}, [1 x i8*]** [[BP_PRIV]], [1 x i8*]** [[P_PRIV]], [1 x i64]** [[S_PRIV]])
+// CK1-DAG: call void (i8*, ...) %{{.+}}(i8* %{{[^,]+}}, [1 x i8*]** [[BP_PRIV]], [1 x i8*]** [[P_PRIV]], [1 x i64]** [[S_PRIV]])
 // CK1-NOT: __tgt_target_data_end
 // CK1: ret i32 0
 // CK1: }
@@ -422,8 +419,7 @@ void foo(int arg) {
 // CK1-DAG: [[BP]] = load [2 x i8*]*, [2 x i8*]** [[BP_PRIV:%[^,]+]],
 // CK1-DAG: [[P]] = load [2 x i8*]*, [2 x i8*]** [[P_PRIV:%[^,]+]],
 // CK1-DAG: [[S]] = load [2 x i64]*, [2 x i64]** [[S_PRIV:%[^,]+]],
-// CK1-DAG: [[FN:%.+]] = bitcast void (i8*, ...)* {{%.*}} to void (i8*,
-// CK1-DAG: call void [[FN]](i8* %{{[^,]+}}, [2 x i8*]** [[BP_PRIV]], [2 x i8*]** [[P_PRIV]], [2 x i64]** [[S_PRIV]])
+// CK1-DAG: call void (i8*, ...) %{{.+}}(i8* %{{[^,]+}}, [2 x i8*]** [[BP_PRIV]], [2 x i8*]** [[P_PRIV]], [2 x i64]** [[S_PRIV]])
 // CK1-NOT: __tgt_target_data_end
 // CK1: ret i32 0
 // CK1: }

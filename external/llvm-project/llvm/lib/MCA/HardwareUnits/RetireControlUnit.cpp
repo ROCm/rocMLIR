@@ -21,10 +21,8 @@ namespace mca {
 
 RetireControlUnit::RetireControlUnit(const MCSchedModel &SM)
     : NextAvailableSlotIdx(0), CurrentInstructionSlotIdx(0),
-      AvailableEntries(SM.isOutOfOrder() ? SM.MicroOpBufferSize : 0),
-      MaxRetirePerCycle(0) {
-  assert(SM.isOutOfOrder() &&
-         "RetireControlUnit is not available for in-order processors");
+      NumROBEntries(SM.MicroOpBufferSize),
+      AvailableEntries(SM.MicroOpBufferSize), MaxRetirePerCycle(0) {
   // Check if the scheduling model provides extra information about the machine
   // processor. If so, then use that information to set the reorder buffer size
   // and the maximum number of instructions retired per cycle.
@@ -49,7 +47,6 @@ unsigned RetireControlUnit::dispatch(const InstRef &IR) {
   Queue[NextAvailableSlotIdx] = {IR, Entries, false};
   NextAvailableSlotIdx += std::max(1U, Entries);
   NextAvailableSlotIdx %= Queue.size();
-  assert(TokenID < UnhandledTokenID && "Invalid token ID");
 
   AvailableEntries -= Entries;
   return TokenID;

@@ -1,8 +1,7 @@
-// RUN: %libomptarget-compile-run-and-check-generic
-// XFAIL: nvptx64-nvidia-cuda
-
-// Fails on amdgcn with error: GPU Memory Error
-// XFAIL: amdgcn-amd-amdhsa
+// RUN: %libomptarget-compile-run-and-check-aarch64-unknown-linux-gnu
+// RUN: %libomptarget-compile-run-and-check-powerpc64-ibm-linux-gnu
+// RUN: %libomptarget-compile-run-and-check-powerpc64le-ibm-linux-gnu
+// RUN: %libomptarget-compile-run-and-check-x86_64-pc-linux-gnu
 
 #include <stdio.h>
 #include <omp.h>

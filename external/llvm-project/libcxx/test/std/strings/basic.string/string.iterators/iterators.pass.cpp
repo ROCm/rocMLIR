@@ -22,46 +22,69 @@
 
 #include "test_macros.h"
 
-template<class C>
-void test()
-{
-    { // N3644 testing
-        typename C::iterator ii1{}, ii2{};
-        typename C::iterator ii4 = ii1;
-        typename C::const_iterator cii{};
-        assert ( ii1 == ii2 );
-        assert ( ii1 == ii4 );
-
-        assert (!(ii1 != ii2 ));
-
-        assert ( (ii1 == cii ));
-        assert ( (cii == ii1 ));
-        assert (!(ii1 != cii ));
-        assert (!(cii != ii1 ));
-        assert (!(ii1 <  cii ));
-        assert (!(cii <  ii1 ));
-        assert ( (ii1 <= cii ));
-        assert ( (cii <= ii1 ));
-        assert (!(ii1 >  cii ));
-        assert (!(cii >  ii1 ));
-        assert ( (ii1 >= cii ));
-        assert ( (cii >= ii1 ));
-        assert (cii - ii1 == 0);
-        assert (ii1 - cii == 0);
-    }
-}
-
 int main(int, char**)
 {
-    test<std::string>();
-    test<std::wstring>();
+    { // N3644 testing
+        typedef std::string C;
+        C::iterator ii1{}, ii2{};
+        C::iterator ii4 = ii1;
+        C::const_iterator cii{};
+        assert ( ii1 == ii2 );
+        assert ( ii1 == ii4 );
+        assert ( ii1 == cii );
+        assert ( !(ii1 != ii2 ));
+        assert ( !(ii1 != cii ));
+    }
+
+    { // N3644 testing
+        typedef std::wstring C;
+        C::iterator ii1{}, ii2{};
+        C::iterator ii4 = ii1;
+        C::const_iterator cii{};
+        assert ( ii1 == ii2 );
+        assert ( ii1 == ii4 );
+        assert ( ii1 == cii );
+        assert ( !(ii1 != ii2 ));
+        assert ( !(ii1 != cii ));
+    }
 
 #if defined(__cpp_lib_char8_t) && __cpp_lib_char8_t >= 201811L
-    test<std::u8string>();
+    {
+        typedef std::u8string C;
+        C::iterator ii1{}, ii2{};
+        C::iterator ii4 = ii1;
+        C::const_iterator cii{};
+        assert ( ii1 == ii2 );
+        assert ( ii1 == ii4 );
+        assert ( ii1 == cii );
+        assert ( !(ii1 != ii2 ));
+        assert ( !(ii1 != cii ));
+    }
 #endif
 
-    test<std::u16string>();
-    test<std::u32string>();
+    { // N3644 testing
+        typedef std::u16string C;
+        C::iterator ii1{}, ii2{};
+        C::iterator ii4 = ii1;
+        C::const_iterator cii{};
+        assert ( ii1 == ii2 );
+        assert ( ii1 == ii4 );
+        assert ( ii1 == cii );
+        assert ( !(ii1 != ii2 ));
+        assert ( !(ii1 != cii ));
+    }
 
-    return 0;
+    { // N3644 testing
+        typedef std::u32string C;
+        C::iterator ii1{}, ii2{};
+        C::iterator ii4 = ii1;
+        C::const_iterator cii{};
+        assert ( ii1 == ii2 );
+        assert ( ii1 == ii4 );
+        assert ( ii1 == cii );
+        assert ( !(ii1 != ii2 ));
+        assert ( !(ii1 != cii ));
+    }
+
+  return 0;
 }

@@ -52,14 +52,15 @@ enum PassDebugLevel {
 };
 } // namespace
 
-static cl::opt<enum PassDebugLevel> PassDebugging(
-    "debug-pass", cl::Hidden,
-    cl::desc("Print legacy PassManager debugging information"),
-    cl::values(clEnumVal(Disabled, "disable debug output"),
-               clEnumVal(Arguments, "print pass arguments to pass to 'opt'"),
-               clEnumVal(Structure, "print pass structure before run()"),
-               clEnumVal(Executions, "print pass name before it is executed"),
-               clEnumVal(Details, "print pass details when it is executed")));
+static cl::opt<enum PassDebugLevel>
+PassDebugging("debug-pass", cl::Hidden,
+                  cl::desc("Print PassManager debugging information"),
+                  cl::values(
+  clEnumVal(Disabled  , "disable debug output"),
+  clEnumVal(Arguments , "print pass arguments to pass to 'opt'"),
+  clEnumVal(Structure , "print pass structure before run()"),
+  clEnumVal(Executions, "print pass name before it is executed"),
+  clEnumVal(Details   , "print pass details when it is executed")));
 
 /// isPassDebuggingExecutionsOrMore - Return true if -debug-pass=Executions
 /// or higher is specified.
@@ -242,8 +243,6 @@ void PassManagerPrettyStackEntry::print(raw_ostream &OS) const {
 
 namespace llvm {
 namespace legacy {
-bool debugPassSpecified() { return PassDebugging != Disabled; }
-
 //===----------------------------------------------------------------------===//
 // FunctionPassManagerImpl
 //
@@ -747,10 +746,8 @@ void PMTopLevelManager::schedulePass(Pass *P) {
   }
 
   if (PI && !PI->isAnalysis() && shouldPrintBeforePass(PI->getPassArgument())) {
-    Pass *PP =
-        P->createPrinterPass(dbgs(), ("*** IR Dump Before " + P->getPassName() +
-                                      " (" + PI->getPassArgument() + ") ***")
-                                         .str());
+    Pass *PP = P->createPrinterPass(
+        dbgs(), ("*** IR Dump Before " + P->getPassName() + " ***").str());
     PP->assignPassManager(activeStack, getTopLevelPassManagerType());
   }
 
@@ -758,10 +755,8 @@ void PMTopLevelManager::schedulePass(Pass *P) {
   P->assignPassManager(activeStack, getTopLevelPassManagerType());
 
   if (PI && !PI->isAnalysis() && shouldPrintAfterPass(PI->getPassArgument())) {
-    Pass *PP =
-        P->createPrinterPass(dbgs(), ("*** IR Dump After " + P->getPassName() +
-                                      " (" + PI->getPassArgument() + ") ***")
-                                         .str());
+    Pass *PP = P->createPrinterPass(
+        dbgs(), ("*** IR Dump After " + P->getPassName() + " ***").str());
     PP->assignPassManager(activeStack, getTopLevelPassManagerType());
   }
 }
@@ -950,13 +945,14 @@ void PMDataManager::removeNotPreservedAnalysis(Pass *P) {
 
   // Check inherited analysis also. If P is not preserving analysis
   // provided by parent manager then remove it here.
-  for (DenseMap<AnalysisID, Pass *> *IA : InheritedAnalysis) {
-    if (!IA)
+  for (unsigned Index = 0; Index < PMT_Last; ++Index) {
+
+    if (!InheritedAnalysis[Index])
       continue;
 
-    for (DenseMap<AnalysisID, Pass *>::iterator I = IA->begin(),
-                                                E = IA->end();
-         I != E;) {
+    for (DenseMap<AnalysisID, Pass*>::iterator
+           I = InheritedAnalysis[Index]->begin(),
+           E = InheritedAnalysis[Index]->end(); I != E; ) {
       DenseMap<AnalysisID, Pass *>::iterator Info = I++;
       if (Info->second->getAsImmutablePass() == nullptr &&
           !is_contained(PreservedSet, Info->first)) {
@@ -966,7 +962,7 @@ void PMDataManager::removeNotPreservedAnalysis(Pass *P) {
           dbgs() << " -- '" <<  P->getPassName() << "' is not preserving '";
           dbgs() << S->getPassName() << "'\n";
         }
-        IA->erase(Info);
+        InheritedAnalysis[Index]->erase(Info);
       }
     }
   }

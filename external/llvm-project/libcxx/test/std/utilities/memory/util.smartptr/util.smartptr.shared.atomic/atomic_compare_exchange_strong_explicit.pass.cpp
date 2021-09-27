@@ -21,8 +21,6 @@
 // UNSUPPORTED: c++03
 
 #include <memory>
-
-#include <atomic>
 #include <cassert>
 
 #include "test_macros.h"

@@ -19,16 +19,14 @@ namespace {
 class ARMAsmBackendELF : public ARMAsmBackend {
 public:
   uint8_t OSABI;
-  ARMAsmBackendELF(const Target &T, bool isThumb, uint8_t OSABI,
+  ARMAsmBackendELF(const Target &T, const MCSubtargetInfo &STI, uint8_t OSABI,
                    support::endianness Endian)
-      : ARMAsmBackend(T, isThumb, Endian), OSABI(OSABI) {}
+      : ARMAsmBackend(T, STI, Endian), OSABI(OSABI) {}
 
   std::unique_ptr<MCObjectTargetWriter>
   createObjectTargetWriter() const override {
     return createARMELFObjectWriter(OSABI);
   }
-
-  Optional<MCFixupKind> getFixupKind(StringRef Name) const override;
 };
 }
 

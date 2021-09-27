@@ -19,15 +19,9 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ValueSymbolTable.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
-
-static cl::opt<bool> EnableOCLManglingMismatchWA(
-    "amdgpu-enable-ocl-mangling-mismatch-workaround", cl::init(true),
-    cl::ReallyHidden,
-    cl::desc("Enable the workaround for OCL name mangling mismatch."));
 
 namespace {
 
@@ -352,7 +346,7 @@ const unsigned UnmangledFuncInfo::TableSize =
 static AMDGPULibFunc::Param getRetType(AMDGPULibFunc::EFuncId id,
                                        const AMDGPULibFunc::Param (&Leads)[2]) {
   AMDGPULibFunc::Param Res = Leads[0];
-  // TBD - This switch may require to be extended for other intrinsics
+  // TBD - This switch may require to be extended for other intriniscs
   switch (id) {
   case AMDGPULibFunc::EI_SINCOS:
     Res.PtrKind = AMDGPULibFunc::BYVALUE;
@@ -778,7 +772,7 @@ namespace {
 
 
 class ItaniumMangler {
-  SmallVector<AMDGPULibFunc::Param, 10> Str; // list of accumulated substitutions
+  SmallVector<AMDGPULibFunc::Param, 10> Str; // list of accumulated substituions
   bool  UseAddrSpace;
 
   int findSubst(const AMDGPULibFunc::Param& P) const {
@@ -832,8 +826,7 @@ public:
       unsigned AS = UseAddrSpace
                         ? AMDGPULibFuncBase::getAddrSpaceFromEPtrKind(p.PtrKind)
                         : 0;
-      if (EnableOCLManglingMismatchWA || AS != 0)
-        os << "U3AS" << AS;
+      if (AS != 0) os << "U3AS" << AS;
       Ptr = p;
       p.PtrKind = 0;
     }
@@ -990,8 +983,10 @@ FunctionCallee AMDGPULibFunc::getOrInsertFunction(Module *M,
   } else {
     AttributeList Attr;
     LLVMContext &Ctx = M->getContext();
-    Attr = Attr.addFnAttribute(Ctx, Attribute::ReadOnly);
-    Attr = Attr.addFnAttribute(Ctx, Attribute::NoUnwind);
+    Attr = Attr.addAttribute(Ctx, AttributeList::FunctionIndex,
+                             Attribute::ReadOnly);
+    Attr = Attr.addAttribute(Ctx, AttributeList::FunctionIndex,
+                             Attribute::NoUnwind);
     C = M->getOrInsertFunction(FuncName, FuncTy, Attr);
   }
 

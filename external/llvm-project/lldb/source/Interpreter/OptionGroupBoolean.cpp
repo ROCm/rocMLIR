@@ -33,6 +33,8 @@ OptionGroupBoolean::OptionGroupBoolean(uint32_t usage_mask, bool required,
   m_option_definition.usage_text = usage_text;
 }
 
+OptionGroupBoolean::~OptionGroupBoolean() {}
+
 Status OptionGroupBoolean::SetOptionValue(uint32_t option_idx,
                                           llvm::StringRef option_value,
                                           ExecutionContext *execution_context) {

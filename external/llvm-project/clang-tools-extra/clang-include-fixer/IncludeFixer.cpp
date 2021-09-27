@@ -245,7 +245,7 @@ clang::TypoCorrection IncludeFixerSemaSource::CorrectTypo(
     // parent_path.
     // FIXME: Don't rely on source text.
     const char *End = Source.end();
-    while (isAsciiIdentifierContinue(*End) || *End == ':')
+    while (isIdentifierBody(*End) || *End == ':')
       ++End;
 
     return std::string(Source.begin(), End);

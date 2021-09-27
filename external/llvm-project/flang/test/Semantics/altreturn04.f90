@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 ! Functions cannot use alt return
 
 REAL FUNCTION altreturn01(X)

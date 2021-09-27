@@ -59,8 +59,10 @@ void DurationFactoryFloatCheck::check(const MatchFinder::MatchResult &Result) {
     SimpleArg = stripFloatLiteralFraction(Result, *Arg);
 
   if (SimpleArg) {
-    diag(MatchedCall->getBeginLoc(), "use the integer version of absl::%0")
-        << MatchedCall->getDirectCallee()->getName()
+    diag(MatchedCall->getBeginLoc(),
+         (llvm::Twine("use the integer version of absl::") +
+          MatchedCall->getDirectCallee()->getName())
+             .str())
         << FixItHint::CreateReplacement(Arg->getSourceRange(), *SimpleArg);
   }
 }

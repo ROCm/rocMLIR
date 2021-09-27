@@ -17,10 +17,9 @@ define i1 @test1(i32 %a, i32 %b) {
 
 define i1 @test1_logical(i32 %a, i32 %b) {
 ; CHECK-LABEL: @test1_logical(
-; CHECK-NEXT:    [[TMP1:%.*]] = icmp slt i32 [[A:%.*]], 0
-; CHECK-NEXT:    [[TMP2:%.*]] = icmp slt i32 [[B:%.*]], 0
-; CHECK-NEXT:    [[OR_COND:%.*]] = select i1 [[TMP1]], i1 true, i1 [[TMP2]]
-; CHECK-NEXT:    ret i1 [[OR_COND]]
+; CHECK-NEXT:    [[TMP1:%.*]] = or i32 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[TMP2:%.*]] = icmp slt i32 [[TMP1]], 0
+; CHECK-NEXT:    ret i1 [[TMP2]]
 ;
   %1 = icmp slt i32 %a, 0
   %2 = icmp slt i32 %b, 0
@@ -42,10 +41,9 @@ define i1 @test2(i32 %a, i32 %b) {
 
 define i1 @test2_logical(i32 %a, i32 %b) {
 ; CHECK-LABEL: @test2_logical(
-; CHECK-NEXT:    [[TMP1:%.*]] = icmp sgt i32 [[A:%.*]], -1
-; CHECK-NEXT:    [[TMP2:%.*]] = icmp sgt i32 [[B:%.*]], -1
-; CHECK-NEXT:    [[OR_COND:%.*]] = select i1 [[TMP1]], i1 true, i1 [[TMP2]]
-; CHECK-NEXT:    ret i1 [[OR_COND]]
+; CHECK-NEXT:    [[TMP1:%.*]] = and i32 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[TMP2:%.*]] = icmp sgt i32 [[TMP1]], -1
+; CHECK-NEXT:    ret i1 [[TMP2]]
 ;
   %1 = icmp sgt i32 %a, -1
   %2 = icmp sgt i32 %b, -1
@@ -67,10 +65,9 @@ define i1 @test3(i32 %a, i32 %b) {
 
 define i1 @test3_logical(i32 %a, i32 %b) {
 ; CHECK-LABEL: @test3_logical(
-; CHECK-NEXT:    [[TMP1:%.*]] = icmp slt i32 [[A:%.*]], 0
-; CHECK-NEXT:    [[TMP2:%.*]] = icmp slt i32 [[B:%.*]], 0
-; CHECK-NEXT:    [[OR_COND:%.*]] = select i1 [[TMP1]], i1 [[TMP2]], i1 false
-; CHECK-NEXT:    ret i1 [[OR_COND]]
+; CHECK-NEXT:    [[TMP1:%.*]] = and i32 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[TMP2:%.*]] = icmp slt i32 [[TMP1]], 0
+; CHECK-NEXT:    ret i1 [[TMP2]]
 ;
   %1 = icmp slt i32 %a, 0
   %2 = icmp slt i32 %b, 0
@@ -92,10 +89,9 @@ define i1 @test4(i32 %a, i32 %b) {
 
 define i1 @test4_logical(i32 %a, i32 %b) {
 ; CHECK-LABEL: @test4_logical(
-; CHECK-NEXT:    [[TMP1:%.*]] = icmp sgt i32 [[A:%.*]], -1
-; CHECK-NEXT:    [[TMP2:%.*]] = icmp sgt i32 [[B:%.*]], -1
-; CHECK-NEXT:    [[OR_COND:%.*]] = select i1 [[TMP1]], i1 [[TMP2]], i1 false
-; CHECK-NEXT:    ret i1 [[OR_COND]]
+; CHECK-NEXT:    [[TMP1:%.*]] = or i32 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[TMP2:%.*]] = icmp sgt i32 [[TMP1]], -1
+; CHECK-NEXT:    ret i1 [[TMP2]]
 ;
   %1 = icmp sgt i32 %a, -1
   %2 = icmp sgt i32 %b, -1
@@ -109,7 +105,7 @@ define void @test5(i32 %a) {
 ; CHECK-NEXT:    [[TMP2:%.*]] = icmp eq i32 [[TMP1]], 0
 ; CHECK-NEXT:    br i1 [[TMP2]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; CHECK:       if.then:
-; CHECK-NEXT:    tail call void @foo() #[[ATTR0:[0-9]+]]
+; CHECK-NEXT:    tail call void @foo() [[ATTR0:#.*]]
 ; CHECK-NEXT:    ret void
 ; CHECK:       if.end:
 ; CHECK-NEXT:    ret void
@@ -135,7 +131,7 @@ define void @test5_logical(i32 %a) {
 ; CHECK-NEXT:    [[TMP2:%.*]] = icmp eq i32 [[TMP1]], 0
 ; CHECK-NEXT:    br i1 [[TMP2]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; CHECK:       if.then:
-; CHECK-NEXT:    tail call void @foo() #[[ATTR0]]
+; CHECK-NEXT:    tail call void @foo() [[ATTR0]]
 ; CHECK-NEXT:    ret void
 ; CHECK:       if.end:
 ; CHECK-NEXT:    ret void
@@ -161,7 +157,7 @@ define void @test6(i32 %a) {
 ; CHECK-NEXT:    [[TMP2:%.*]] = icmp eq i32 [[TMP1]], 0
 ; CHECK-NEXT:    br i1 [[TMP2]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; CHECK:       if.then:
-; CHECK-NEXT:    tail call void @foo() #[[ATTR0]]
+; CHECK-NEXT:    tail call void @foo() [[ATTR0]]
 ; CHECK-NEXT:    ret void
 ; CHECK:       if.end:
 ; CHECK-NEXT:    ret void
@@ -187,7 +183,7 @@ define void @test6_logical(i32 %a) {
 ; CHECK-NEXT:    [[TMP2:%.*]] = icmp eq i32 [[TMP1]], 0
 ; CHECK-NEXT:    br i1 [[TMP2]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; CHECK:       if.then:
-; CHECK-NEXT:    tail call void @foo() #[[ATTR0]]
+; CHECK-NEXT:    tail call void @foo() [[ATTR0]]
 ; CHECK-NEXT:    ret void
 ; CHECK:       if.end:
 ; CHECK-NEXT:    ret void
@@ -213,7 +209,7 @@ define void @test7(i32 %a) {
 ; CHECK-NEXT:    [[DOTNOT:%.*]] = icmp eq i32 [[TMP1]], 0
 ; CHECK-NEXT:    br i1 [[DOTNOT]], label [[IF_END:%.*]], label [[IF_THEN:%.*]]
 ; CHECK:       if.then:
-; CHECK-NEXT:    tail call void @foo() #[[ATTR0]]
+; CHECK-NEXT:    tail call void @foo() [[ATTR0]]
 ; CHECK-NEXT:    ret void
 ; CHECK:       if.end:
 ; CHECK-NEXT:    ret void
@@ -239,7 +235,7 @@ define void @test7_logical(i32 %a) {
 ; CHECK-NEXT:    [[DOTNOT:%.*]] = icmp eq i32 [[TMP1]], 0
 ; CHECK-NEXT:    br i1 [[DOTNOT]], label [[IF_END:%.*]], label [[IF_THEN:%.*]]
 ; CHECK:       if.then:
-; CHECK-NEXT:    tail call void @foo() #[[ATTR0]]
+; CHECK-NEXT:    tail call void @foo() [[ATTR0]]
 ; CHECK-NEXT:    ret void
 ; CHECK:       if.end:
 ; CHECK-NEXT:    ret void

@@ -7,6 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 // <numeric>
+// UNSUPPORTED: clang-8
+// UNSUPPORTED: gcc-9
 
 // Became constexpr in C++20
 // template <InputIterator Iter, MoveConstructible T,
@@ -101,7 +103,7 @@ test()
 TEST_CONSTEXPR_CXX20 bool
 test()
 {
-    test<cpp17_input_iterator<const int*> >();
+    test<input_iterator<const int*> >();
     test<forward_iterator<const int*> >();
     test<bidirectional_iterator<const int*> >();
     test<random_access_iterator<const int*> >();

@@ -9,8 +9,8 @@
 // Implements the required interoperability API from ISO_Fortran_binding.h
 // as specified in section 18.5.5 of Fortran 2018.
 
-#include "flang/ISO_Fortran_binding.h"
-#include "flang/Runtime/descriptor.h"
+#include "../include/flang/ISO_Fortran_binding.h"
+#include "descriptor.h"
 #include <cstdlib>
 
 namespace Fortran::ISO {
@@ -56,7 +56,7 @@ int CFI_allocate(CFI_cdesc_t *descriptor, const CFI_index_t lower_bounds[],
     return CFI_INVALID_RANK;
   }
   if (descriptor->type < CFI_type_signed_char ||
-      descriptor->type > CFI_TYPE_LAST) {
+      descriptor->type > CFI_type_struct) {
     return CFI_INVALID_TYPE;
   }
   if (!IsCharacterType(descriptor->type)) {
@@ -228,20 +228,17 @@ int CFI_establish(CFI_cdesc_t *descriptor, void *base_addr,
   if (rank > 0 && base_addr && !extents) {
     return CFI_INVALID_EXTENT;
   }
-  if (type < CFI_type_signed_char || type > CFI_TYPE_LAST) {
+  if (type < CFI_type_signed_char || type > CFI_type_struct) {
     return CFI_INVALID_TYPE;
   }
   if (!descriptor) {
     return CFI_INVALID_DESCRIPTOR;
   }
-  if (type == CFI_type_struct || type == CFI_type_other ||
-      IsCharacterType(type)) {
-    if (elem_len <= 0) {
-      return CFI_INVALID_ELEM_LEN;
-    }
-  } else {
-    elem_len = MinElemLen(type);
-    assert(elem_len > 0 && "Unknown element length for type");
+  std::size_t minElemLen{MinElemLen(type)};
+  if (minElemLen > 0) {
+    elem_len = minElemLen;
+  } else if (elem_len <= 0) {
+    return CFI_INVALID_ELEM_LEN;
   }
   descriptor->base_addr = base_addr;
   descriptor->elem_len = elem_len;

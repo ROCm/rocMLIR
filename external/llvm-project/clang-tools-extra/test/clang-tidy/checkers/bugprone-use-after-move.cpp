@@ -32,31 +32,6 @@ struct weak_ptr {
   bool expired() const;
 };
 
-template <typename T1, typename T2>
-struct pair {};
-
-template <typename Key, typename T>
-struct map {
-  struct iterator {};
-
-  map();
-  void clear();
-  bool empty();
-  template <class... Args>
-  pair<iterator, bool> try_emplace(const Key &key, Args &&...args);
-};
-
-template <typename Key, typename T>
-struct unordered_map {
-  struct iterator {};
-
-  unordered_map();
-  void clear();
-  bool empty();
-  template <class... Args>
-  pair<iterator, bool> try_emplace(const Key &key, Args &&...args);
-};
-
 #define DECLARE_STANDARD_CONTAINER(name) \
   template <typename T>                  \
   struct name {                          \
@@ -80,9 +55,11 @@ DECLARE_STANDARD_CONTAINER_WITH_ASSIGN(deque);
 DECLARE_STANDARD_CONTAINER_WITH_ASSIGN(forward_list);
 DECLARE_STANDARD_CONTAINER_WITH_ASSIGN(list);
 DECLARE_STANDARD_CONTAINER(set);
+DECLARE_STANDARD_CONTAINER(map);
 DECLARE_STANDARD_CONTAINER(multiset);
 DECLARE_STANDARD_CONTAINER(multimap);
 DECLARE_STANDARD_CONTAINER(unordered_set);
+DECLARE_STANDARD_CONTAINER(unordered_map);
 DECLARE_STANDARD_CONTAINER(unordered_multiset);
 DECLARE_STANDARD_CONTAINER(unordered_multimap);
 
@@ -506,22 +483,6 @@ class IgnoreMemberVariables {
   }
 };
 
-// Ignore moves that happen in a try_emplace.
-void ignoreMoveInTryEmplace() {
-  {
-    std::map<int, A> amap;
-    A a;
-    amap.try_emplace(1, std::move(a));
-    a.foo();
-  }
-  {
-    std::unordered_map<int, A> amap;
-    A a;
-    amap.try_emplace(1, std::move(a));
-    a.foo();
-  }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // Tests involving control flow.
 
@@ -815,7 +776,7 @@ void standardContainerClearIsReinit() {
     container.empty();
   }
   {
-    std::map<int, int> container;
+    std::map<int> container;
     std::move(container);
     container.clear();
     container.empty();
@@ -839,7 +800,7 @@ void standardContainerClearIsReinit() {
     container.empty();
   }
   {
-    std::unordered_map<int, int> container;
+    std::unordered_map<int> container;
     std::move(container);
     container.clear();
     container.empty();

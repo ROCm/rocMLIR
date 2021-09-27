@@ -66,17 +66,16 @@ void test_core(void) {
   // CHECK-ASM: vsceg %{{.*}}, 0(%{{.*}},%{{.*}}), 1
 
   vd = vec_xl(idx, cptrd);
-  // CHECK-ASM-NEXT: lgf     %r5, 0(%r3)
-  // CHECK-ASM-NEXT: lg      %r13, 0(%r4)
-  // CHECK-ASM-NEXT: vl      %v0, 0(%r5,%r13){{$}}
-  // CHECK-ASM-NEXT: vst
+  // CHECK-ASM: vl
 
   vd = vec_xld2(idx, cptrd);
-  // CHECK-ASM:      vst
+  // CHECK-ASM: vl
 
   vec_xst(vd, idx, ptrd);
+  // CHECK-ASM: vst
 
   vec_xstd2(vd, idx, ptrd);
+  // CHECK-ASM: vst
 
   vd = vec_splat(vd, 0);
   // CHECK: shufflevector <2 x double> %{{.*}}, <2 x double> poison, <2 x i32> zeroinitializer

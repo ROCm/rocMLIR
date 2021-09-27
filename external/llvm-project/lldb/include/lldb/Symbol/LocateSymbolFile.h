@@ -9,7 +9,7 @@
 #ifndef LLDB_SYMBOL_LOCATESYMBOLFILE_H
 #define LLDB_SYMBOL_LOCATESYMBOLFILE_H
 
-#include <cstdint>
+#include <stdint.h>
 
 #include "lldb/Core/FileSpecList.h"
 #include "lldb/Utility/FileSpec.h"

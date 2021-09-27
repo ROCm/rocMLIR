@@ -30,6 +30,10 @@ public:
     return Def->getValueAsString("clausePrefix");
   }
 
+  StringRef getIncludeHeader() const {
+    return Def->getValueAsString("includeHeader");
+  }
+
   StringRef getClauseEnumSetClass() const {
     return Def->getValueAsString("clauseEnumSetClass");
   }
@@ -46,11 +50,11 @@ public:
     return Def->getValueAsBit("enableBitmaskEnumInNamespace");
   }
 
-  std::vector<Record *> getDirectives() const {
+  const std::vector<Record *> getDirectives() const {
     return Records.getAllDerivedDefinitions("Directive");
   }
 
-  std::vector<Record *> getClauses() const {
+  const std::vector<Record *> getClauses() const {
     return Records.getAllDerivedDefinitions("Clause");
   }
 
@@ -60,7 +64,7 @@ private:
   const llvm::Record *Def;
   const llvm::RecordKeeper &Records;
 
-  std::vector<Record *> getDirectiveLanguages() const {
+  const std::vector<Record *> getDirectiveLanguages() const {
     return Records.getAllDerivedDefinitions("DirectiveLanguage");
   }
 };

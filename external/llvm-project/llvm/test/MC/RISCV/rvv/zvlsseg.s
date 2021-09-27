@@ -5,7 +5,8 @@
 # RUN:   | FileCheck %s --check-prefix=CHECK-ERROR
 # RUN: llvm-mc -triple=riscv64 -filetype=obj --mattr=+experimental-v \
 # RUN:   --mattr=+experimental-zvlsseg %s \
-# RUN:   | llvm-objdump -d --mattr=+experimental-v --mattr=+experimental-zvlsseg -M no-aliases - \
+# RUN:   | llvm-objdump -d --mattr=+experimental-v --mattr=+experimental-zvlsseg \
+# RUN:   --riscv-no-aliases - \
 # RUN:   | FileCheck %s --check-prefix=CHECK-INST
 # RUN: llvm-mc -triple=riscv64 -filetype=obj --mattr=+experimental-v \
 # RUN:   --mattr=+experimental-zvlsseg %s \

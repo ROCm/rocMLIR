@@ -613,7 +613,7 @@ ClassImplementsAllMethodsAndProperties(ASTContext &Ctx,
         continue;
       HasAtleastOneRequiredProperty = true;
       DeclContext::lookup_result R = IDecl->lookup(Property->getDeclName());
-      if (R.empty()) {
+      if (R.size() == 0) {
         // Relax the rule and look into class's implementation for a synthesize
         // or dynamic declaration. Class is implementing a property coming from
         // another protocol. This still makes the target protocol as conforming.
@@ -621,12 +621,14 @@ ClassImplementsAllMethodsAndProperties(ASTContext &Ctx,
                                   Property->getDeclName().getAsIdentifierInfo(),
                                   Property->getQueryKind()))
           return false;
-      } else if (auto *ClassProperty = R.find_first<ObjCPropertyDecl>()) {
-        if ((ClassProperty->getPropertyAttributes() !=
-             Property->getPropertyAttributes()) ||
-            !Ctx.hasSameType(ClassProperty->getType(), Property->getType()))
-          return false;
-      } else
+      }
+      else if (ObjCPropertyDecl *ClassProperty = dyn_cast<ObjCPropertyDecl>(R[0])) {
+          if ((ClassProperty->getPropertyAttributes()
+              != Property->getPropertyAttributes()) ||
+              !Ctx.hasSameType(ClassProperty->getType(), Property->getType()))
+            return false;
+      }
+      else
         return false;
     }
 
@@ -643,12 +645,12 @@ ClassImplementsAllMethodsAndProperties(ASTContext &Ctx,
       if (MD->getImplementationControl() == ObjCMethodDecl::Optional)
         continue;
       DeclContext::lookup_result R = ImpDecl->lookup(MD->getDeclName());
-      if (R.empty())
+      if (R.size() == 0)
         return false;
       bool match = false;
       HasAtleastOneRequiredMethod = true;
-      for (NamedDecl *ND : R)
-        if (ObjCMethodDecl *ImpMD = dyn_cast<ObjCMethodDecl>(ND))
+      for (unsigned I = 0, N = R.size(); I != N; ++I)
+        if (ObjCMethodDecl *ImpMD = dyn_cast<ObjCMethodDecl>(R[0]))
           if (Ctx.ObjCMethodsAreEqual(MD, ImpMD)) {
             match = true;
             break;
@@ -1144,7 +1146,7 @@ static bool AttributesMatch(const Decl *Decl1, const Decl *Decl2,
 
 static bool IsValidIdentifier(ASTContext &Ctx,
                               const char *Name) {
-  if (!isAsciiIdentifierStart(Name[0]))
+  if (!isIdentifierHead(Name[0]))
     return false;
   std::string NameString = Name;
   NameString[0] = toLowercase(NameString[0]);

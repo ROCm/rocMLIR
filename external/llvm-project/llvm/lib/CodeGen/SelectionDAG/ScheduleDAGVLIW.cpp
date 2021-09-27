@@ -136,11 +136,12 @@ void ScheduleDAGVLIW::releaseSucc(SUnit *SU, const SDep &D) {
 
 void ScheduleDAGVLIW::releaseSuccessors(SUnit *SU) {
   // Top down: release successors.
-  for (SDep &Succ : SU->Succs) {
-    assert(!Succ.isAssignedRegDep() &&
+  for (SUnit::succ_iterator I = SU->Succs.begin(), E = SU->Succs.end();
+       I != E; ++I) {
+    assert(!I->isAssignedRegDep() &&
            "The list-td scheduler doesn't yet support physreg dependencies!");
 
-    releaseSucc(SU, Succ);
+    releaseSucc(SU, *I);
   }
 }
 

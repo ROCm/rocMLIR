@@ -28,7 +28,7 @@ thumb_target:
 // CHECK-NEXT:        add     r12, pc
 // CHECK-NEXT:        bx      r12
 // CHECK:  00013004 <__CortexA8657417_11FFE>:
-// CHECK-NEXT: 13004: b.w     0x11004 <thumb_target>
+// CHECK-NEXT: 13004: b.w     #-8196
  .section .text.02
  /// Take us over thunk section spacing
  .space 16 * 1024 * 1024

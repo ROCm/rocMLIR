@@ -348,13 +348,17 @@ void SearchableTableEmitter::emitLookupFunction(const GenericTable &Table,
       IndexRowsStorage.push_back(Entry.first);
 
       OS << "    { ";
-      ListSeparator LS;
+      bool NeedComma = false;
       for (const auto &Field : Index.Fields) {
+        if (NeedComma)
+          OS << ", ";
+        NeedComma = true;
+
         std::string Repr = primaryRepresentation(
             Index.Loc, Field, Entry.first->getValueInit(Field.Name));
         if (isa<StringRecTy>(Field.RecType))
           Repr = StringRef(Repr).upper();
-        OS << LS << Repr;
+        OS << Repr;
       }
       OS << ", " << Entry.second << " },\n";
     }
@@ -505,11 +509,15 @@ void SearchableTableEmitter::emitGenericTable(const GenericTable &Table,
     Record *Entry = Table.Entries[i];
     OS << "  { ";
 
-    ListSeparator LS;
-    for (const auto &Field : Table.Fields)
-      OS << LS
-         << primaryRepresentation(Table.Locs[0], Field,
+    bool NeedComma = false;
+    for (const auto &Field : Table.Fields) {
+      if (NeedComma)
+        OS << ", ";
+      NeedComma = true;
+
+      OS << primaryRepresentation(Table.Locs[0], Field,
                                   Entry->getValueInit(Field.Name));
+    }
 
     OS << " }, // " << i << "\n";
   }

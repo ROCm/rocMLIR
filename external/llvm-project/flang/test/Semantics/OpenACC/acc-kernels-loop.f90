@@ -1,4 +1,4 @@
-! RUN: %python %S/../test_errors.py %s %flang -fopenacc
+! RUN: %S/../test_errors.sh %s %t %f18 -fopenacc
 
 ! Check OpenACC clause validity for the following construct and directive:
 !   2.11 Kernels Loop
@@ -21,8 +21,6 @@ program openacc_kernels_loop_validity
   real :: reduction_r
   logical :: reduction_l
   real(8), dimension(N, N) :: aa, bb, cc
-  real(8), dimension(:), allocatable :: dd
-  real(8), pointer :: p
   logical :: ifCondition = .TRUE.
   type(atype) :: t
   type(atype), dimension(10) :: ta
@@ -220,8 +218,7 @@ program openacc_kernels_loop_validity
     a(i) = 3.14
   end do
 
-  !ERROR: Argument `aa` on the ATTACH clause must be a variable or array with the POINTER or ALLOCATABLE attribute
-  !$acc kernels loop attach(aa, dd, p)
+  !$acc kernels loop attach(aa, bb, cc)
   do i = 1, N
     a(i) = 3.14
   end do

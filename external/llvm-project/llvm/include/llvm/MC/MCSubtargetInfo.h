@@ -89,7 +89,6 @@ class MCSubtargetInfo {
   const unsigned *OperandCycles;       // Itinerary operand cycles
   const unsigned *ForwardingPaths;
   FeatureBitset FeatureBits;           // Feature bits for current CPU + FS
-  std::string FeatureString;           // Feature string
 
 public:
   MCSubtargetInfo(const MCSubtargetInfo &) = default;
@@ -112,8 +111,6 @@ public:
   void setFeatureBits(const FeatureBitset &FeatureBits_) {
     FeatureBits = FeatureBits_;
   }
-
-  StringRef getFeatureString() const { return FeatureString; }
 
   bool hasFeature(unsigned Feature) const {
     return FeatureBits[Feature];

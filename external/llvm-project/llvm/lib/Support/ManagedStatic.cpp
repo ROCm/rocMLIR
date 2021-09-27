@@ -18,10 +18,16 @@
 using namespace llvm;
 
 static const ManagedStaticBase *StaticList = nullptr;
+static std::recursive_mutex *ManagedStaticMutex = nullptr;
+static llvm::once_flag mutex_init_flag;
+
+static void initializeMutex() {
+  ManagedStaticMutex = new std::recursive_mutex();
+}
 
 static std::recursive_mutex *getManagedStaticMutex() {
-  static std::recursive_mutex m;
-  return &m;
+  llvm::call_once(mutex_init_flag, initializeMutex);
+  return ManagedStaticMutex;
 }
 
 void ManagedStaticBase::RegisterManagedStatic(void *(*Creator)(),
@@ -69,10 +75,9 @@ void ManagedStaticBase::destroy() const {
 }
 
 /// llvm_shutdown - Deallocate and destroy all ManagedStatic variables.
-/// IMPORTANT: it's only safe to call llvm_shutdown() in single thread,
-/// without any other threads executing LLVM APIs.
-/// llvm_shutdown() should be the last use of LLVM APIs.
 void llvm::llvm_shutdown() {
+  std::lock_guard<std::recursive_mutex> Lock(*getManagedStaticMutex());
+
   while (StaticList)
     StaticList->destroy();
 }

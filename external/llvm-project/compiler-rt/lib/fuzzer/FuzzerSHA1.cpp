@@ -134,13 +134,12 @@ void sha1_hashBlock(sha1nfo *s) {
 	s->state[4] += e;
 }
 
-// Adds the least significant byte of |data|.
-void sha1_addUncounted(sha1nfo *s, uint32_t data) {
-  uint8_t *const b = (uint8_t *)s->buffer;
+void sha1_addUncounted(sha1nfo *s, uint8_t data) {
+	uint8_t * const b = (uint8_t*) s->buffer;
 #ifdef SHA_BIG_ENDIAN
-  b[s->bufferOffset] = static_cast<uint8_t>(data);
+	b[s->bufferOffset] = data;
 #else
-  b[s->bufferOffset ^ 3] = static_cast<uint8_t>(data);
+	b[s->bufferOffset ^ 3] = data;
 #endif
 	s->bufferOffset++;
 	if (s->bufferOffset == BLOCK_LENGTH) {

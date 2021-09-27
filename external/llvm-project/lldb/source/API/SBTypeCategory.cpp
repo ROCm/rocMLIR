@@ -363,7 +363,9 @@ bool SBTypeCategory::AddTypeFormat(SBTypeNameSpecifier type_name,
 
   if (type_name.IsRegex())
     m_opaque_sp->GetRegexTypeFormatsContainer()->Add(
-        RegularExpression(type_name.GetName()), format.GetSP());
+        RegularExpression(
+            llvm::StringRef::withNullAsEmpty(type_name.GetName())),
+        format.GetSP());
   else
     m_opaque_sp->GetTypeFormatsContainer()->Add(
         ConstString(type_name.GetName()), format.GetSP());
@@ -440,7 +442,9 @@ bool SBTypeCategory::AddTypeSummary(SBTypeNameSpecifier type_name,
 
   if (type_name.IsRegex())
     m_opaque_sp->GetRegexTypeSummariesContainer()->Add(
-        RegularExpression(type_name.GetName()), summary.GetSP());
+        RegularExpression(
+            llvm::StringRef::withNullAsEmpty(type_name.GetName())),
+        summary.GetSP());
   else
     m_opaque_sp->GetTypeSummariesContainer()->Add(
         ConstString(type_name.GetName()), summary.GetSP());
@@ -483,7 +487,9 @@ bool SBTypeCategory::AddTypeFilter(SBTypeNameSpecifier type_name,
 
   if (type_name.IsRegex())
     m_opaque_sp->GetRegexTypeFiltersContainer()->Add(
-        RegularExpression(type_name.GetName()), filter.GetSP());
+        RegularExpression(
+            llvm::StringRef::withNullAsEmpty(type_name.GetName())),
+        filter.GetSP());
   else
     m_opaque_sp->GetTypeFiltersContainer()->Add(
         ConstString(type_name.GetName()), filter.GetSP());
@@ -560,7 +566,9 @@ bool SBTypeCategory::AddTypeSynthetic(SBTypeNameSpecifier type_name,
 
   if (type_name.IsRegex())
     m_opaque_sp->GetRegexTypeSyntheticsContainer()->Add(
-        RegularExpression(type_name.GetName()), synth.GetSP());
+        RegularExpression(
+            llvm::StringRef::withNullAsEmpty(type_name.GetName())),
+        synth.GetSP());
   else
     m_opaque_sp->GetTypeSyntheticsContainer()->Add(
         ConstString(type_name.GetName()), synth.GetSP());

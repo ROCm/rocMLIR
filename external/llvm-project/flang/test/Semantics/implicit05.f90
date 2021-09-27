@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 subroutine s
   !ERROR: 'a' does not follow 'b' alphabetically
   implicit integer(b-a)

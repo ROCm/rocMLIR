@@ -454,6 +454,7 @@ enum ConversionResultFlags ConvertDecimalToDouble(
       reinterpret_cast<const void *>(&result.binary), sizeof *d);
   return result.flags;
 }
+#if __x86_64__ && !defined(_MSC_VER)
 enum ConversionResultFlags ConvertDecimalToLongDouble(
     const char **p, long double *ld, enum FortranRounding rounding) {
   auto result{Fortran::decimal::ConvertToBinary<64>(*p, rounding)};
@@ -461,5 +462,6 @@ enum ConversionResultFlags ConvertDecimalToLongDouble(
       reinterpret_cast<const void *>(&result.binary), sizeof *ld);
   return result.flags;
 }
+#endif
 }
 } // namespace Fortran::decimal

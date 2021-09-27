@@ -44,9 +44,9 @@ class DwarfStreamer : public DwarfEmitter {
 public:
   DwarfStreamer(OutputFileType OutFileType, raw_pwrite_stream &OutFile,
                 std::function<StringRef(StringRef Input)> Translator,
-                messageHandler Error, messageHandler Warning)
+                bool Minimize, messageHandler Error, messageHandler Warning)
       : OutFile(OutFile), OutFileType(OutFileType), Translator(Translator),
-        ErrorHandler(Error), WarningHandler(Warning) {}
+        Minimize(Minimize), ErrorHandler(Error), WarningHandler(Warning) {}
 
   bool init(Triple TheTriple);
 
@@ -189,6 +189,7 @@ private:
   raw_pwrite_stream &OutFile;
   OutputFileType OutFileType = OutputFileType::Object;
   std::function<StringRef(StringRef Input)> Translator;
+  bool Minimize = true;
 
   uint64_t RangesSectionSize = 0;
   uint64_t LocSectionSize = 0;

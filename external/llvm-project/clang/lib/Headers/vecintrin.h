@@ -1016,84 +1016,64 @@ vec_scatter_element(__vector double __vec,
 
 static inline __ATTRS_o_ai __vector signed char
 vec_xl(long __offset, const signed char *__ptr) {
-  __vector signed char V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector signed char));
-  return V;
+  return *(const __vector signed char *)
+          ((const char *)__ptr + __offset);
 }
 
 static inline __ATTRS_o_ai __vector unsigned char
 vec_xl(long __offset, const unsigned char *__ptr) {
-  __vector unsigned char V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector unsigned char));
-  return V;
+  return *(const __vector unsigned char *)
+          ((const char *)__ptr + __offset);
 }
 
 static inline __ATTRS_o_ai __vector signed short
 vec_xl(long __offset, const signed short *__ptr) {
-  __vector signed short V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector signed short));
-  return V;
+  return *(const __vector signed short *)
+          ((const char *)__ptr + __offset);
 }
 
 static inline __ATTRS_o_ai __vector unsigned short
 vec_xl(long __offset, const unsigned short *__ptr) {
-  __vector unsigned short V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector unsigned short));
-  return V;
+  return *(const __vector unsigned short *)
+          ((const char *)__ptr + __offset);
 }
 
 static inline __ATTRS_o_ai __vector signed int
 vec_xl(long __offset, const signed int *__ptr) {
-  __vector signed int V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector signed int));
-  return V;
+  return *(const __vector signed int *)
+          ((const char *)__ptr + __offset);
 }
 
 static inline __ATTRS_o_ai __vector unsigned int
 vec_xl(long __offset, const unsigned int *__ptr) {
-  __vector unsigned int V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector unsigned int));
-  return V;
+  return *(const __vector unsigned int *)
+          ((const char *)__ptr + __offset);
 }
 
 static inline __ATTRS_o_ai __vector signed long long
 vec_xl(long __offset, const signed long long *__ptr) {
-  __vector signed long long V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector signed long long));
-  return V;
+  return *(const __vector signed long long *)
+          ((const char *)__ptr + __offset);
 }
 
 static inline __ATTRS_o_ai __vector unsigned long long
 vec_xl(long __offset, const unsigned long long *__ptr) {
-  __vector unsigned long long V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector unsigned long long));
-  return V;
+  return *(const __vector unsigned long long *)
+          ((const char *)__ptr + __offset);
 }
 
 #if __ARCH__ >= 12
 static inline __ATTRS_o_ai __vector float
 vec_xl(long __offset, const float *__ptr) {
-  __vector float V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector float));
-  return V;
+  return *(const __vector float *)
+          ((const char *)__ptr + __offset);
 }
 #endif
 
 static inline __ATTRS_o_ai __vector double
 vec_xl(long __offset, const double *__ptr) {
-  __vector double V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector double));
-  return V;
+  return *(const __vector double *)
+          ((const char *)__ptr + __offset);
 }
 
 /*-- vec_xld2 ---------------------------------------------------------------*/
@@ -1101,82 +1081,64 @@ vec_xl(long __offset, const double *__ptr) {
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector signed char
 vec_xld2(long __offset, const signed char *__ptr) {
-  __vector signed char V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector signed char));
-  return V;
+  return *(const __vector signed char *)
+          ((const char *)__ptr + __offset);
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector unsigned char
 vec_xld2(long __offset, const unsigned char *__ptr) {
-  __vector unsigned char V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector unsigned char));
-  return V;
+  return *(const __vector unsigned char *)
+          ((const char *)__ptr + __offset);
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector signed short
 vec_xld2(long __offset, const signed short *__ptr) {
-  __vector signed short V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector signed short));
-  return V;
+  return *(const __vector signed short *)
+          ((const char *)__ptr + __offset);
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector unsigned short
 vec_xld2(long __offset, const unsigned short *__ptr) {
-  __vector unsigned short V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector unsigned short));
-  return V;
+  return *(const __vector unsigned short *)
+          ((const char *)__ptr + __offset);
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector signed int
 vec_xld2(long __offset, const signed int *__ptr) {
-  __vector signed int V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector signed int));
-  return V;
+  return *(const __vector signed int *)
+          ((const char *)__ptr + __offset);
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector unsigned int
 vec_xld2(long __offset, const unsigned int *__ptr) {
-  __vector unsigned int V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector unsigned int));
-  return V;
+  return *(const __vector unsigned int *)
+          ((const char *)__ptr + __offset);
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector signed long long
 vec_xld2(long __offset, const signed long long *__ptr) {
-  __vector signed long long V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector signed long long));
-  return V;
+  return *(const __vector signed long long *)
+          ((const char *)__ptr + __offset);
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector unsigned long long
 vec_xld2(long __offset, const unsigned long long *__ptr) {
-  __vector unsigned long long V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector unsigned long long));
-  return V;
+  return *(const __vector unsigned long long *)
+          ((const char *)__ptr + __offset);
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector double
 vec_xld2(long __offset, const double *__ptr) {
-  __vector double V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector double));
-  return V;
+  return *(const __vector double *)
+          ((const char *)__ptr + __offset);
 }
 
 /*-- vec_xlw4 ---------------------------------------------------------------*/
@@ -1184,128 +1146,99 @@ vec_xld2(long __offset, const double *__ptr) {
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector signed char
 vec_xlw4(long __offset, const signed char *__ptr) {
-  __vector signed char V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector signed char));
-  return V;
+  return *(const __vector signed char *)
+          ((const char *)__ptr + __offset);
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector unsigned char
 vec_xlw4(long __offset, const unsigned char *__ptr) {
-  __vector unsigned char V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector unsigned char));
-  return V;
+  return *(const __vector unsigned char *)
+          ((const char *)__ptr + __offset);
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector signed short
 vec_xlw4(long __offset, const signed short *__ptr) {
-  __vector signed short V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector signed short));
-  return V;
+  return *(const __vector signed short *)
+          ((const char *)__ptr + __offset);
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector unsigned short
 vec_xlw4(long __offset, const unsigned short *__ptr) {
-  __vector unsigned short V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector unsigned short));
-  return V;
+  return *(const __vector unsigned short *)
+          ((const char *)__ptr + __offset);
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector signed int
 vec_xlw4(long __offset, const signed int *__ptr) {
-  __vector signed int V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector signed int));
-  return V;
+  return *(const __vector signed int *)
+          ((const char *)__ptr + __offset);
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai __vector unsigned int
 vec_xlw4(long __offset, const unsigned int *__ptr) {
-  __vector unsigned int V;
-  __builtin_memcpy(&V, ((const char *)__ptr + __offset),
-                   sizeof(__vector unsigned int));
-  return V;
+  return *(const __vector unsigned int *)
+          ((const char *)__ptr + __offset);
 }
 
 /*-- vec_xst ----------------------------------------------------------------*/
 
 static inline __ATTRS_o_ai void
 vec_xst(__vector signed char __vec, long __offset, signed char *__ptr) {
-  __vector signed char V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector signed char));
+  *(__vector signed char *)((char *)__ptr + __offset) = __vec;
 }
 
 static inline __ATTRS_o_ai void
 vec_xst(__vector unsigned char __vec, long __offset, unsigned char *__ptr) {
-  __vector unsigned char V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector unsigned char));
+  *(__vector unsigned char *)((char *)__ptr + __offset) = __vec;
 }
 
 static inline __ATTRS_o_ai void
 vec_xst(__vector signed short __vec, long __offset, signed short *__ptr) {
-  __vector signed short V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector signed short));
+  *(__vector signed short *)((char *)__ptr + __offset) = __vec;
 }
 
 static inline __ATTRS_o_ai void
 vec_xst(__vector unsigned short __vec, long __offset, unsigned short *__ptr) {
-  __vector unsigned short V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector unsigned short));
+  *(__vector unsigned short *)((char *)__ptr + __offset) = __vec;
 }
 
 static inline __ATTRS_o_ai void
 vec_xst(__vector signed int __vec, long __offset, signed int *__ptr) {
-  __vector signed int V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V, sizeof(__vector signed int));
+  *(__vector signed int *)((char *)__ptr + __offset) = __vec;
 }
 
 static inline __ATTRS_o_ai void
 vec_xst(__vector unsigned int __vec, long __offset, unsigned int *__ptr) {
-  __vector unsigned int V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector unsigned int));
+  *(__vector unsigned int *)((char *)__ptr + __offset) = __vec;
 }
 
 static inline __ATTRS_o_ai void
 vec_xst(__vector signed long long __vec, long __offset,
-        signed long long *__ptr) {
-  __vector signed long long V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector signed long long));
+          signed long long *__ptr) {
+  *(__vector signed long long *)((char *)__ptr + __offset) = __vec;
 }
 
 static inline __ATTRS_o_ai void
 vec_xst(__vector unsigned long long __vec, long __offset,
-        unsigned long long *__ptr) {
-  __vector unsigned long long V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector unsigned long long));
+          unsigned long long *__ptr) {
+  *(__vector unsigned long long *)((char *)__ptr + __offset) = __vec;
 }
 
 #if __ARCH__ >= 12
 static inline __ATTRS_o_ai void
 vec_xst(__vector float __vec, long __offset, float *__ptr) {
-  __vector float V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V, sizeof(__vector float));
+  *(__vector float *)((char *)__ptr + __offset) = __vec;
 }
 #endif
 
 static inline __ATTRS_o_ai void
 vec_xst(__vector double __vec, long __offset, double *__ptr) {
-  __vector double V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V, sizeof(__vector double));
+  *(__vector double *)((char *)__ptr + __offset) = __vec;
 }
 
 /*-- vec_xstd2 --------------------------------------------------------------*/
@@ -1313,73 +1246,57 @@ vec_xst(__vector double __vec, long __offset, double *__ptr) {
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(__vector signed char __vec, long __offset, signed char *__ptr) {
-  __vector signed char V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector signed char));
+  *(__vector signed char *)((char *)__ptr + __offset) = __vec;
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(__vector unsigned char __vec, long __offset, unsigned char *__ptr) {
-  __vector unsigned char V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector unsigned char));
+  *(__vector unsigned char *)((char *)__ptr + __offset) = __vec;
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(__vector signed short __vec, long __offset, signed short *__ptr) {
-  __vector signed short V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector signed short));
+  *(__vector signed short *)((char *)__ptr + __offset) = __vec;
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(__vector unsigned short __vec, long __offset, unsigned short *__ptr) {
-  __vector unsigned short V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector unsigned short));
+  *(__vector unsigned short *)((char *)__ptr + __offset) = __vec;
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(__vector signed int __vec, long __offset, signed int *__ptr) {
-  __vector signed int V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V, sizeof(__vector signed int));
+  *(__vector signed int *)((char *)__ptr + __offset) = __vec;
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(__vector unsigned int __vec, long __offset, unsigned int *__ptr) {
-  __vector unsigned int V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector unsigned int));
+  *(__vector unsigned int *)((char *)__ptr + __offset) = __vec;
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(__vector signed long long __vec, long __offset,
           signed long long *__ptr) {
-  __vector signed long long V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector signed long long));
+  *(__vector signed long long *)((char *)__ptr + __offset) = __vec;
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(__vector unsigned long long __vec, long __offset,
           unsigned long long *__ptr) {
-  __vector unsigned long long V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector unsigned long long));
+  *(__vector unsigned long long *)((char *)__ptr + __offset) = __vec;
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(__vector double __vec, long __offset, double *__ptr) {
-  __vector double V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V, sizeof(__vector double));
+  *(__vector double *)((char *)__ptr + __offset) = __vec;
 }
 
 /*-- vec_xstw4 --------------------------------------------------------------*/
@@ -1387,48 +1304,37 @@ vec_xstd2(__vector double __vec, long __offset, double *__ptr) {
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstw4(__vector signed char __vec, long __offset, signed char *__ptr) {
-  __vector signed char V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector signed char));
+  *(__vector signed char *)((char *)__ptr + __offset) = __vec;
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstw4(__vector unsigned char __vec, long __offset, unsigned char *__ptr) {
-  __vector unsigned char V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector unsigned char));
+  *(__vector unsigned char *)((char *)__ptr + __offset) = __vec;
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstw4(__vector signed short __vec, long __offset, signed short *__ptr) {
-  __vector signed short V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector signed short));
+  *(__vector signed short *)((char *)__ptr + __offset) = __vec;
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstw4(__vector unsigned short __vec, long __offset, unsigned short *__ptr) {
-  __vector unsigned short V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector unsigned short));
+  *(__vector unsigned short *)((char *)__ptr + __offset) = __vec;
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstw4(__vector signed int __vec, long __offset, signed int *__ptr) {
-  __vector signed int V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V, sizeof(__vector signed int));
+  *(__vector signed int *)((char *)__ptr + __offset) = __vec;
 }
 
 // This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstw4(__vector unsigned int __vec, long __offset, unsigned int *__ptr) {
-  __vector unsigned int V = __vec;
-  __builtin_memcpy(((char *)__ptr + __offset), &V,
-                   sizeof(__vector unsigned int));
+  *(__vector unsigned int *)((char *)__ptr + __offset) = __vec;
 }
 
 /*-- vec_load_bndry ---------------------------------------------------------*/
@@ -9352,41 +9258,6 @@ vec_fp_test_data_class(__vector double __a, int __b, int *__c)
                                    __VEC_CLASS_FP_SUBNORMAL | \
                                    __VEC_CLASS_FP_ZERO | \
                                    __VEC_CLASS_FP_INFINITY)
-
-/*-- vec_extend_to_fp32_hi --------------------------------------------------*/
-
-#if __ARCH__ >= 14
-#define vec_extend_to_fp32_hi(X, W) \
-  ((__vector float)__builtin_s390_vclfnhs((X), (W)));
-#endif
-
-/*-- vec_extend_to_fp32_hi --------------------------------------------------*/
-
-#if __ARCH__ >= 14
-#define vec_extend_to_fp32_lo(X, W) \
-  ((__vector float)__builtin_s390_vclfnls((X), (W)));
-#endif
-
-/*-- vec_round_from_fp32 ----------------------------------------------------*/
-
-#if __ARCH__ >= 14
-#define vec_round_from_fp32(X, Y, W) \
-  ((__vector unsigned short)__builtin_s390_vcrnfs((X), (Y), (W)));
-#endif
-
-/*-- vec_convert_to_fp16 ----------------------------------------------------*/
-
-#if __ARCH__ >= 14
-#define vec_convert_to_fp16(X, W) \
-  ((__vector unsigned short)__builtin_s390_vcfn((X), (W)));
-#endif
-
-/*-- vec_convert_from_fp16 --------------------------------------------------*/
-
-#if __ARCH__ >= 14
-#define vec_convert_from_fp16(X, W) \
-  ((__vector unsigned short)__builtin_s390_vcnf((X), (W)));
-#endif
 
 /*-- vec_cp_until_zero ------------------------------------------------------*/
 

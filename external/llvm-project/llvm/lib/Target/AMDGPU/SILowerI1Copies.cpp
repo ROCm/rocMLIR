@@ -598,11 +598,6 @@ void SILowerI1Copies::lowerPhis() {
 
     MachineBasicBlock *PostDomBound =
         PDT->findNearestCommonDominator(DomBlocks);
-
-    // FIXME: This fails to find irreducible cycles. If we have a def (other
-    // than a constant) in a pair of blocks that end up looping back to each
-    // other, it will be mishandle. Due to structurization this shouldn't occur
-    // in practice.
     unsigned FoundLoopLevel = LF.findLoop(PostDomBound);
 
     SSAUpdater.Initialize(DstReg);
@@ -737,9 +732,6 @@ bool SILowerI1Copies::isConstantLaneMask(Register Reg, bool &Val) const {
   const MachineInstr *MI;
   for (;;) {
     MI = MRI->getUniqueVRegDef(Reg);
-    if (MI->getOpcode() == AMDGPU::IMPLICIT_DEF)
-      return true;
-
     if (MI->getOpcode() != AMDGPU::COPY)
       break;
 
@@ -816,9 +808,9 @@ void SILowerI1Copies::buildMergeLaneMasks(MachineBasicBlock &MBB,
                                           MachineBasicBlock::iterator I,
                                           const DebugLoc &DL, unsigned DstReg,
                                           unsigned PrevReg, unsigned CurReg) {
-  bool PrevVal = false;
+  bool PrevVal;
   bool PrevConstant = isConstantLaneMask(PrevReg, PrevVal);
-  bool CurVal = false;
+  bool CurVal;
   bool CurConstant = isConstantLaneMask(CurReg, CurVal);
 
   if (PrevConstant && CurConstant) {

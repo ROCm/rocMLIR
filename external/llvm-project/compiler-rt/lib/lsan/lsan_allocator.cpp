@@ -123,18 +123,14 @@ void Deallocate(void *p) {
 
 void *Reallocate(const StackTrace &stack, void *p, uptr new_size,
                  uptr alignment) {
-  if (new_size > max_malloc_size) {
-    ReportAllocationSizeTooBig(new_size, stack);
-    return nullptr;
-  }
   RegisterDeallocation(p);
-  void *new_p =
-      allocator.Reallocate(GetAllocatorCache(), p, new_size, alignment);
-  if (new_p)
-    RegisterAllocation(stack, new_p, new_size);
-  else if (new_size != 0)
-    RegisterAllocation(stack, p, new_size);
-  return new_p;
+  if (new_size > max_malloc_size) {
+    allocator.Deallocate(GetAllocatorCache(), p);
+    return ReportAllocationSizeTooBig(new_size, stack);
+  }
+  p = allocator.Reallocate(GetAllocatorCache(), p, new_size, alignment);
+  RegisterAllocation(stack, p, new_size);
+  return p;
 }
 
 void GetAllocatorCacheRange(uptr *begin, uptr *end) {

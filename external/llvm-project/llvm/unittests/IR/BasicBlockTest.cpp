@@ -37,12 +37,10 @@ TEST(BasicBlockTest, PhiRange) {
   BranchInst::Create(BB.get(), BB2.get());
 
   // Make sure this doesn't crash if there are no phis.
-  int PhiCount = 0;
   for (auto &PN : BB->phis()) {
     (void)PN;
-    PhiCount++;
+    EXPECT_TRUE(false) << "empty block should have no phis";
   }
-  ASSERT_EQ(PhiCount, 0) << "empty block should have no phis";
 
   // Make it a cycle.
   auto *BI = BranchInst::Create(BB.get(), BB.get());

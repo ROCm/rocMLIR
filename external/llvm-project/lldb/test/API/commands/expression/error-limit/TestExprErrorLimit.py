@@ -17,7 +17,7 @@ class TestCase(TestBase):
         # FIXME: The only reason this test needs to create a real target is because
         # the settings of the dummy target can't be changed with `settings set`.
         self.build()
-        target = self.createTestTarget()
+        target = self.dbg.CreateTarget(self.getBuildArtifact("a.out"))
 
         # Our test expression that is just several lines of malformed
         # integer literals (with a 'yerror' integer suffix). Every error

@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file is a part of XRay, a dynamic runtime instrumentation system.
+// This file is a part of XRay, a dynamic runtime instruementation system.
 //
 // Defines the interface for a buffer queue implementation.
 //

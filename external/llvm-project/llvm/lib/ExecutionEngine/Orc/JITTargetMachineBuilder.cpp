@@ -65,13 +65,9 @@ JITTargetMachineBuilder &JITTargetMachineBuilder::addFeatures(
 }
 
 #ifndef NDEBUG
-void JITTargetMachineBuilderPrinter::print(raw_ostream &OS) const {
-  OS << Indent << "{\n"
-     << Indent << "  Triple = \"" << JTMB.TT.str() << "\"\n"
-     << Indent << "  CPU = \"" << JTMB.CPU << "\"\n"
-     << Indent << "  Features = \"" << JTMB.Features.getString() << "\"\n"
-     << Indent << "  Options = <not-printable>\n"
-     << Indent << "  Relocation Model = ";
+raw_ostream &operator<<(raw_ostream &OS, const JITTargetMachineBuilder &JTMB) {
+  OS << "{ Triple = \"" << JTMB.TT.str() << "\", CPU = \"" << JTMB.CPU
+     << "\", Options = <not-printable>, Relocation Model = ";
 
   if (JTMB.RM) {
     switch (*JTMB.RM) {
@@ -95,10 +91,9 @@ void JITTargetMachineBuilderPrinter::print(raw_ostream &OS) const {
       break;
     }
   } else
-    OS << "unspecified (will use target default)";
+    OS << "unspecified";
 
-  OS << "\n"
-     << Indent << "  Code Model = ";
+  OS << ", Code Model = ";
 
   if (JTMB.CM) {
     switch (*JTMB.CM) {
@@ -119,10 +114,9 @@ void JITTargetMachineBuilderPrinter::print(raw_ostream &OS) const {
       break;
     }
   } else
-    OS << "unspecified (will use target default)";
+    OS << "unspecified";
 
-  OS << "\n"
-     << Indent << "  Optimization Level = ";
+  OS << ", Optimization Level = ";
   switch (JTMB.OptLevel) {
   case CodeGenOpt::None:
     OS << "None";
@@ -138,7 +132,8 @@ void JITTargetMachineBuilderPrinter::print(raw_ostream &OS) const {
     break;
   }
 
-  OS << "\n" << Indent << "}\n";
+  OS << " }";
+  return OS;
 }
 #endif // NDEBUG
 

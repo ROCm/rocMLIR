@@ -22,7 +22,7 @@ define half @fms16(half %a, half %b, half %c) nounwind readnone ssp {
 ; CHECK-LABEL: fms16:
 ; CHECK: fmsub h0, h0, h1, h2
 entry:
-  %mul = fneg half %b
+  %mul = fmul half %b, -1.000000e+00
   %0 = tail call half @llvm.fma.f16(half %a, half %mul, half %c)
   ret half %0
 }
@@ -32,7 +32,7 @@ define half @fms16_com(half %a, half %b, half %c) nounwind readnone ssp {
 ; CHECK:       fmsub h0, h1, h0, h2
 ; CHECK-NEXT:  ret
 entry:
-  %mul = fneg half %b
+  %mul = fmul half %b, -1.000000e+00
   %0 = tail call half @llvm.fma.f16(half %mul, half %a, half %c)
   ret half %0
 }
@@ -42,7 +42,7 @@ define half @fnms16(half %a, half %b, half %c) nounwind readnone ssp {
 ; CHECK:       fnmsub h0, h0, h1, h2
 ; CHECK-NEXT:  ret
 entry:
-  %mul = fneg half %c
+  %mul = fmul half %c, -1.000000e+00
   %0 = tail call half @llvm.fma.f16(half %a, half %b, half %mul)
   ret half %0
 }

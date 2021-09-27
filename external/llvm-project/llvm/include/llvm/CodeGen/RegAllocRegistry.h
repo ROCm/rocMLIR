@@ -14,7 +14,6 @@
 #ifndef LLVM_CODEGEN_REGALLOCREGISTRY_H
 #define LLVM_CODEGEN_REGALLOCREGISTRY_H
 
-#include "llvm/CodeGen/RegAllocCommon.h"
 #include "llvm/CodeGen/MachinePassRegistry.h"
 
 namespace llvm {

@@ -10,20 +10,9 @@ struct S {
   S(signed int*);
 };
 void f(const S& s);
-
-// First call to f emits all candidates.  Second call emits just the first 4.
-void g() { f(0); }
-// CHECK: {{conversion from 'int' to 'const S' is ambiguous}}
-// CHECK-NEXT: {{candidate constructor}}
-// CHECK-NEXT: {{candidate constructor}}
-// CHECK-NEXT: {{candidate constructor}}
-// CHECK-NEXT: {{candidate constructor}}
-// CHECK-NEXT: {{candidate constructor}}
-// CHECK-NEXT: {{candidate constructor}}
-// CHECK-NEXT: {{candidate constructor}}
-// CHECK-NEXT: {{candidate constructor}}
-
-void h() { f(0); }
+void g() {
+  f(0);
+}
 // CHECK: {{conversion from 'int' to 'const S' is ambiguous}}
 // CHECK-NEXT: {{candidate constructor}}
 // CHECK-NEXT: {{candidate constructor}}

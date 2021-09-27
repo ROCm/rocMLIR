@@ -19,7 +19,6 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/Type.h"
-#include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
@@ -1088,9 +1087,6 @@ class TemplateDiff {
             Ty->getAs<TemplateSpecializationType>())
       return TST;
 
-    if (const auto* SubstType = Ty->getAs<SubstTemplateTypeParmType>())
-      Ty = SubstType->getReplacementType();
-
     const RecordType *RT = Ty->getAs<RecordType>();
 
     if (!RT)
@@ -1760,7 +1756,7 @@ class TemplateDiff {
       if (FromIntType->isBooleanType()) {
         OS << ((FromInt == 0) ? "false" : "true");
       } else {
-        OS << toString(FromInt, 10);
+        OS << FromInt.toString(10);
       }
       return;
     }
@@ -1804,7 +1800,7 @@ class TemplateDiff {
       if (IntType->isBooleanType()) {
         OS << ((Val == 0) ? "false" : "true");
       } else {
-        OS << toString(Val, 10);
+        OS << Val.toString(10);
       }
     } else if (E) {
       PrintExpr(E);

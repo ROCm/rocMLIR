@@ -12,7 +12,7 @@
 
 // class path
 
-// path& replace_filename( const path& replacement );
+// path& replace_filename()
 
 #include "filesystem_include.h"
 #include <type_traits>
@@ -35,19 +35,10 @@ const ReplaceFilenameTestcase TestCases[] =
     , {"/foo", "/", ""}
     , {"foo", "bar", "bar"}
     , {"/", "/bar", "bar"}
-#ifdef _WIN32
-    , {"\\", "\\bar", "bar"}
-#else
     , {"\\", "bar", "bar"}
-#endif
     , {"///", "///bar", "bar"}
-#ifdef _WIN32
-    , {"\\\\", "\\\\bar", "bar"}
-    , {"\\/\\", "\\/\\bar", "bar"}
-#else
     , {"\\\\", "bar", "bar"}
     , {"\\/\\", "\\/bar", "bar"}
-#endif
     , {".", "bar", "bar"}
     , {"..", "bar", "bar"}
     , {"/foo\\baz/bong/", "/foo\\baz/bong/bar", "bar"}

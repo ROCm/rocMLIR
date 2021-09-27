@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 ! Test comparisons that use the intrinsic SHAPE() as an operand
 program testShape
 contains

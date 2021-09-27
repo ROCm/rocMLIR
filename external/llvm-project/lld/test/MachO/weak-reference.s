@@ -34,10 +34,10 @@
 # YAML-LABEL: WeakBindOpcodes:
 # YAML:        - Opcode:          BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM
 # YAML-NEXT:     Imm:             0
-# YAML-NEXT:     Symbol:          _weak_foo_fn
+# YAML-NEXT:     Symbol:          _weak_foo
 # YAML:        - Opcode:          BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM
 # YAML-NEXT:     Imm:             0
-# YAML-NEXT:     Symbol:          _weak_foo
+# YAML-NEXT:     Symbol:          _weak_foo_fn
 # YAML-LABEL: LazyBindOpcodes:
 # YAML:        - Opcode:          BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM
 # YAML-NEXT:     Imm:             1
@@ -79,10 +79,13 @@
 # STRONG-YAML-LABEL: WeakBindOpcodes:
 # STRONG-YAML:        - Opcode:          BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM
 # STRONG-YAML-NEXT:     Imm:             0
-# STRONG-YAML-NEXT:     Symbol:          _weak_foo_fn
+# STRONG-YAML-NEXT:     Symbol:          _weak_foo
 # STRONG-YAML:        - Opcode:          BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM
 # STRONG-YAML-NEXT:     Imm:             0
 # STRONG-YAML-NEXT:     Symbol:          _weak_foo
+# STRONG-YAML:        - Opcode:          BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM
+# STRONG-YAML-NEXT:     Imm:             0
+# STRONG-YAML-NEXT:     Symbol:          _weak_foo_fn
 # STRONG-YAML-LABEL: LazyBindOpcodes:
 # STRONG-YAML:        - Opcode:          BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM
 # STRONG-YAML-NEXT:     Imm:             0
@@ -101,7 +104,7 @@ _foo_fn:
 _weak_foo:
 _weak_foo_fn:
 
-.section __DATA,__thread_vars,thread_local_variables
+.section	__DATA,__thread_vars,thread_local_variables
 .globl _foo_tlv
 _foo_tlv:
 

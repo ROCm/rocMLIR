@@ -1,5 +1,5 @@
 // RUN: %clangxx_tsan -O1 %s -o %t && %deflake %run %t | FileCheck %s
-#include "test.h"
+extern "C" void AnnotateIgnoreWritesBegin(const char *f, int l);
 
 int main() {
   AnnotateIgnoreWritesBegin("", 0);

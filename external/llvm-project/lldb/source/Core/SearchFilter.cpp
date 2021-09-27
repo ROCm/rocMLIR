@@ -27,8 +27,8 @@
 #include <mutex>
 #include <string>
 
-#include <cinttypes>
-#include <cstring>
+#include <inttypes.h>
+#include <string.h>
 
 namespace lldb_private {
 class Address;

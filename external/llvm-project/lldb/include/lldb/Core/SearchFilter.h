@@ -15,7 +15,7 @@
 #include "lldb/Utility/FileSpec.h"
 #include "lldb/lldb-forward.h"
 
-#include <cstdint>
+#include <stdint.h>
 
 namespace lldb_private {
 class Address;

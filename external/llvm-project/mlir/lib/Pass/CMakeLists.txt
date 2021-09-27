@@ -1,7 +1,6 @@
 add_mlir_library(MLIRPass
   IRPrinting.cpp
   Pass.cpp
-  PassCrashRecovery.cpp
   PassManagerOptions.cpp
   PassRegistry.cpp
   PassStatistics.cpp

@@ -16,14 +16,11 @@ read_global:
   end_function
 
 write_global:
-  .functype write_global (i32, i64, f32, f64) -> ()
+  .functype write_global (i32) -> ()
   local.get 0
   global.set foo_global
-  local.get 1
   global.set global2
-  local.get 2
   global.set global3
-  local.get 3
   global.set global4
   end_function
 

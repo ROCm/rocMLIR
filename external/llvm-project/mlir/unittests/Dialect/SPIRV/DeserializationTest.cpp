@@ -14,6 +14,7 @@
 
 #include "mlir/Target/SPIRV/Deserialization.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
+#include "mlir/Dialect/SPIRV/IR/SPIRVModule.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVOps.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/MLIRContext.h"
@@ -44,7 +45,7 @@ protected:
   }
 
   /// Performs deserialization and returns the constructed spv.module op.
-  OwningOpRef<spirv::ModuleOp> deserialize() {
+  spirv::OwningSPIRVModuleRef deserialize() {
     return spirv::deserialize(binary, &context);
   }
 

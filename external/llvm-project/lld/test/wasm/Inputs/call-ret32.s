@@ -1,5 +1,3 @@
-.functype ret32 (f32) -> (i32)
-
   .globl  call_ret32
 call_ret32:
   .functype call_ret32 () -> (i32)
@@ -14,3 +12,5 @@ call_ret32:
 ret32_address:
   .int32  ret32
   .size ret32_address, 4
+
+  .functype ret32 (f32) -> (i32)

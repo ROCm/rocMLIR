@@ -63,8 +63,7 @@ public:
                const MCRegisterInfo &RI, const MCInstrAnalysis *IA);
 
   void clear() {
-    Descriptors.clear();
-    VariantDescriptors.clear();
+    VariantDescriptors.shrink_and_clear();
     FirstCallInst = true;
     FirstReturnInst = true;
   }

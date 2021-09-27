@@ -708,7 +708,6 @@ public:
   ///
   Init *resolveReferences(Resolver &R) const override;
 
-  bool isComplete() const override;
   bool isConcrete() const override;
   std::string getAsString() const override;
 
@@ -862,7 +861,7 @@ public:
 /// !op (X, Y, Z) - Combine two inits.
 class TernOpInit : public OpInit, public FoldingSetNode {
 public:
-  enum TernaryOp : uint8_t { SUBST, FOREACH, FILTER, IF, DAG, SUBSTR, FIND };
+  enum TernaryOp : uint8_t { SUBST, FOREACH, FILTER, IF, DAG, SUBSTR };
 
 private:
   Init *LHS, *MHS, *RHS;
@@ -1470,19 +1469,6 @@ inline raw_ostream &operator<<(raw_ostream &OS, const RecordVal &RV) {
 }
 
 class Record {
-public:
-  struct AssertionInfo {
-    SMLoc Loc;
-    Init *Condition;
-    Init *Message;
-
-    // User-defined constructor to support std::make_unique(). It can be
-    // removed in C++20 when braced initialization is supported.
-    AssertionInfo(SMLoc Loc, Init *Condition, Init *Message)
-        : Loc(Loc), Condition(Condition), Message(Message) {}
-  };
-
-private:
   static unsigned LastID;
 
   Init *Name;
@@ -1491,7 +1477,8 @@ private:
   SmallVector<SMLoc, 4> Locs;
   SmallVector<Init *, 0> TemplateArgs;
   SmallVector<RecordVal, 0> Values;
-  SmallVector<AssertionInfo, 0> Assertions;
+  // Vector of [source location, condition Init, message Init].
+  SmallVector<std::tuple<SMLoc, Init *, Init *>, 0> Assertions;
 
   // All superclasses in the inheritance forest in post-order (yes, it
   // must be a forest; diamond-shaped inheritance is not allowed).
@@ -1529,7 +1516,7 @@ public:
   // original record. All other fields can be copied normally.
   Record(const Record &O)
     : Name(O.Name), Locs(O.Locs), TemplateArgs(O.TemplateArgs),
-      Values(O.Values), Assertions(O.Assertions), SuperClasses(O.SuperClasses),
+      Values(O.Values), SuperClasses(O.SuperClasses),
       TrackedRecords(O.TrackedRecords), ID(LastID++),
       IsAnonymous(O.IsAnonymous), IsClass(O.IsClass) { }
 
@@ -1566,7 +1553,9 @@ public:
 
   ArrayRef<RecordVal> getValues() const { return Values; }
 
-  ArrayRef<AssertionInfo> getAssertions() const { return Assertions; }
+  ArrayRef<std::tuple<SMLoc, Init *, Init *>> getAssertions() const {
+    return Assertions;
+  }
 
   ArrayRef<std::pair<Record *, SMRange>>  getSuperClasses() const {
     return SuperClasses;
@@ -1579,7 +1568,9 @@ public:
   void getDirectSuperClasses(SmallVectorImpl<Record *> &Classes) const;
 
   bool isTemplateArg(Init *Name) const {
-    return llvm::is_contained(TemplateArgs, Name);
+    for (Init *TA : TemplateArgs)
+      if (TA == Name) return true;
+    return false;
   }
 
   const RecordVal *getValue(const Init *Name) const {
@@ -1624,14 +1615,8 @@ public:
   }
 
   void addAssertion(SMLoc Loc, Init *Condition, Init *Message) {
-    Assertions.push_back(AssertionInfo(Loc, Condition, Message));
+    Assertions.push_back(std::make_tuple(Loc, Condition, Message));
   }
-
-  void appendAssertions(const Record *Rec) {
-    Assertions.append(Rec->Assertions);
-  }
-
-  void checkRecordAssertions();
 
   bool isSubClassOf(const Record *R) const {
     for (const auto &SCPair : SuperClasses)
@@ -2040,12 +2025,6 @@ public:
   explicit MapResolver(Record *CurRec = nullptr) : Resolver(CurRec) {}
 
   void set(Init *Key, Init *Value) { Map[Key] = {Value, false}; }
-
-  bool isComplete(Init *VarName) const {
-    auto It = Map.find(VarName);
-    assert(It != Map.end() && "key must be present in map");
-    return It->second.V->isComplete();
-  }
 
   Init *resolve(Init *VarName) override;
 };

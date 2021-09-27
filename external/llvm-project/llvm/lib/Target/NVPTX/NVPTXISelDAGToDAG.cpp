@@ -850,7 +850,7 @@ bool NVPTXDAGToDAGISel::tryLoad(SDNode *N) {
   if (!LoadedVT.isSimple())
     return false;
 
-  AtomicOrdering Ordering = LD->getSuccessOrdering();
+  AtomicOrdering Ordering = LD->getOrdering();
   // In order to lower atomic loads with stronger guarantees we would need to
   // use load.acquire or insert fences. However these features were only added
   // with PTX ISA 6.0 / sm_70.
@@ -1717,7 +1717,7 @@ bool NVPTXDAGToDAGISel::tryStore(SDNode *N) {
   if (!StoreVT.isSimple())
     return false;
 
-  AtomicOrdering Ordering = ST->getSuccessOrdering();
+  AtomicOrdering Ordering = ST->getOrdering();
   // In order to lower atomic loads with stronger guarantees we would need to
   // use store.release or insert fences. However these features were only added
   // with PTX ISA 6.0 / sm_70.

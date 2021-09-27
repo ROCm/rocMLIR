@@ -43,7 +43,6 @@ Using Clang as a Compiler
    MSVCCompatibility
    OpenCLSupport
    OpenMPSupport
-   SYCLSupport
    ThinLTO
    APINotes
    CommandGuide/index
@@ -80,7 +79,6 @@ Using Clang Tools
    ClangFormat
    ClangFormatStyleOptions
    ClangFormattedStatus
-   ClangNvlinkWrapper
    ClangOffloadBundler
 
 Design Documents

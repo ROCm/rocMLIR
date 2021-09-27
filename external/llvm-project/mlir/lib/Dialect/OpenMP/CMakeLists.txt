@@ -9,5 +9,4 @@ add_mlir_dialect_library(MLIROpenMP
 
   LINK_LIBS PUBLIC
   MLIRIR
-  MLIRLLVMIR
   )

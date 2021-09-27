@@ -1,11 +1,10 @@
-add_llvm_exegesis_unittest_includes(
+include_directories(
   ${LLVM_MAIN_SRC_DIR}/lib/Target/ARM
   ${LLVM_BINARY_DIR}/lib/Target/ARM
   ${LLVM_MAIN_SRC_DIR}/tools/llvm-exegesis/lib
   )
 
-add_llvm_exegesis_unittest_link_components(
-  Core
+set(LLVM_LINK_COMPONENTS
   MC
   MCParser
   Object
@@ -14,6 +13,7 @@ add_llvm_exegesis_unittest_link_components(
   ARM
   )
 
-add_llvm_exegesis_unittest_sources(
+add_llvm_target_unittest(LLVMExegesisARMTests
   AssemblerTest.cpp
   )
+target_link_libraries(LLVMExegesisARMTests PRIVATE LLVMExegesis)

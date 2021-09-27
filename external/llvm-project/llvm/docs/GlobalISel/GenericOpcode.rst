@@ -186,18 +186,10 @@ Extract a register of the specified size, starting from the block given by
 index. This will almost certainly be mapped to sub-register COPYs after
 register banks have been selected.
 
-.. code-block:: none
-
-  %3:_(s32) = G_EXTRACT %2:_(s64), 32
-
 G_INSERT
 ^^^^^^^^
 
 Insert a smaller register into a larger one at the specified bit-index.
-
-.. code-block:: none
-
-  %2:_(s64) = G_INSERT %0:(_s64), %1:_(s32), 0
 
 G_MERGE_VALUES
 ^^^^^^^^^^^^^^
@@ -241,45 +233,6 @@ Reverse the order of the bits in a scalar.
 
   %1:_(s32) = G_BITREVERSE %0:_(s32)
 
-G_SBFX, G_UBFX
-^^^^^^^^^^^^^^
-
-Extract a range of bits from a register.
-
-The source operands are registers as follows:
-
-- Source
-- The least-significant bit for the extraction
-- The width of the extraction
-
-The least-significant bit (lsb) and width operands are in the range:
-
-::
-
-      0 <= lsb < lsb + width <= source bitwidth, where all values are unsigned
-
-G_SBFX sign-extends the result, while G_UBFX zero-extends the result.
-
-.. code-block:: none
-
-  ; Extract 5 bits starting at bit 1 from %x and store them in %a.
-  ; Sign-extend the result.
-  ;
-  ; Example:
-  ; %x = 0...0000[10110]1 ---> %a = 1...111111[10110]
-  %lsb_one = G_CONSTANT i32 1
-  %width_five = G_CONSTANT i32 5
-  %a:_(s32) = G_SBFX %x, %lsb_one, %width_five
-
-  ; Extract 3 bits starting at bit 2 from %x and store them in %b. Zero-extend
-  ; the result.
-  ;
-  ; Example:
-  ; %x = 1...11111[100]11 ---> %b = 0...00000[100]
-  %lsb_two = G_CONSTANT i32 2
-  %width_three = G_CONSTANT i32 3
-  %b:_(s32) = G_UBFX %x, %lsb_two, %width_three
-
 Integer Operations
 -------------------
 
@@ -290,18 +243,7 @@ These each perform their respective integer arithmetic on a scalar.
 
 .. code-block:: none
 
-  %dst:_(s32) = G_ADD %src0:_(s32), %src1:_(s32)
-
-The above example adds %src1 to %src0 and stores the result in %dst.
-
-G_SDIVREM, G_UDIVREM
-^^^^^^^^^^^^^^^^^^^^
-
-Perform integer division and remainder thereby producing two results.
-
-.. code-block:: none
-
-  %div:_(s32), %rem:_(s32) = G_SDIVREM %0:_(s32), %1:_(s32)
+  %2:_(s32) = G_ADD %0:_(s32), %1:_(s32)
 
 G_SADDSAT, G_UADDSAT, G_SSUBSAT, G_USUBSAT, G_SSHLSAT, G_USHLSAT
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -316,11 +258,6 @@ G_SHL, G_LSHR, G_ASHR
 ^^^^^^^^^^^^^^^^^^^^^
 
 Shift the bits of a scalar left or right inserting zeros (sign-bit for G_ASHR).
-
-G_ROTR, G_ROTL
-^^^^^^^^^^^^^^
-
-Rotate the bits right (G_ROTR) or left (G_ROTL).
 
 G_ICMP
 ^^^^^^
@@ -573,19 +510,6 @@ G_INTRINSIC_ROUND
 
 Returns the operand rounded to the nearest integer.
 
-G_LROUND, G_LLROUND
-^^^^^^^^^^^^^^^^^^^
-
-Returns the source operand rounded to the nearest integer with ties away from
-zero.
-
-See the LLVM LangRef entry on '``llvm.lround.*'`` for details on behaviour.
-
-.. code-block:: none
-
-  %rounded_32:_(s32) = G_LROUND %round_me:_(s64)
-  %rounded_64:_(s64) = G_LLROUND %round_me:_(s64)
-
 Vector Specific Operations
 --------------------------
 
@@ -730,36 +654,6 @@ G_FENCE
 
   I couldn't find any documentation on this at the time of writing.
 
-G_MEMCPY
-^^^^^^^^
-
-Generic memcpy. Expects two MachineMemOperands covering the store and load
-respectively, in addition to explicit operands.
-
-G_MEMCPY_INLINE
-^^^^^^^^^^^^^^^
-
-Generic inlined memcpy. Like G_MEMCPY, but it is guaranteed that this version
-will not be lowered as a call to an external function. Currently the size
-operand is required to evaluate as a constant (not an immediate), though that is
-expected to change when llvm.memcpy.inline is taught to support dynamic sizes.
-
-G_MEMMOVE
-^^^^^^^^^
-
-Generic memmove. Similar to G_MEMCPY, but the source and destination memory
-ranges are allowed to overlap.
-
-G_MEMSET
-^^^^^^^^
-
-Generic memset. Expects a MachineMemOperand in addition to explicit operands.
-
-G_BZERO
-^^^^^^^
-
-Generic bzero. Expects a MachineMemOperand in addition to explicit operands.
-
 Control Flow
 ------------
 
@@ -770,58 +664,34 @@ Implement the φ node in the SSA graph representing the function.
 
 .. code-block:: none
 
-  %dst(s8) = G_PHI %src1(s8), %bb.<id1>, %src2(s8), %bb.<id2>
+  %1(s8) = G_PHI %7(s8), %bb.0, %3(s8), %bb.1
 
 G_BR
 ^^^^
 
 Unconditional branch
 
-.. code-block:: none
-
-  G_BR %bb.<id>
-
 G_BRCOND
 ^^^^^^^^
 
 Conditional branch
-
-.. code-block:: none
-
-  G_BRCOND %condition, %basicblock.<id>
 
 G_BRINDIRECT
 ^^^^^^^^^^^^
 
 Indirect branch
 
-.. code-block:: none
-
-  G_BRINDIRECT %src(p0)
-
 G_BRJT
 ^^^^^^
 
 Indirect branch to jump table entry
 
-.. code-block:: none
-
-  G_BRJT %ptr(p0), %jti, %idx(s64)
-
 G_JUMP_TABLE
 ^^^^^^^^^^^^
 
-Generates a pointer to the address of the jump table specified by the source 
-operand. The source operand is a jump table index.
-G_JUMP_TABLE can be used in conjunction with G_BRJT to support jump table 
-codegen with GlobalISel.
+.. caution::
 
-.. code-block:: none
-
-  %dst:_(p0) = G_JUMP_TABLE %jump-table.0
-
-The above example generates a pointer to the source jump table index.
-
+  I found no documentation for this instruction at the time of writing.
 
 G_INTRINSIC, G_INTRINSIC_W_SIDE_EFFECTS
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -860,7 +730,7 @@ G_DYN_STACKALLOC
 ^^^^^^^^^^^^^^^^
 
 Dynamically realigns the stack pointer to the specified size and alignment.
-An alignment value of `0` or `1` means no specific alignment.
+An alignment value of `0` or `1` mean no specific alignment.
 
 .. code-block:: none
 
@@ -872,10 +742,10 @@ Optimization Hints
 These instructions do not correspond to any target instructions. They act as
 hints for various combines.
 
-G_ASSERT_SEXT, G_ASSERT_ZEXT
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+G_ASSERT_ZEXT
+^^^^^^^^^^^^^
 
-This signifies that the contents of a register were previously extended from a
+Signifies that the contents of a register were previously zero-extended from a
 smaller type.
 
 The smaller type is denoted using an immediate operand. For scalars, this is the
@@ -884,12 +754,10 @@ element type.
 
 .. code-block:: none
 
-  %x_was_zexted:_(s32) = G_ASSERT_ZEXT %x(s32), 16
-  %y_was_zexted:_(<2 x s32>) = G_ASSERT_ZEXT %y(<2 x s32>), 16
+  %x_assert:_(s32) = G_ASSERT_ZEXT %x(s32), 16
+  %y_assert:_(<2 x s32>) = G_ASSERT_ZEXT %y(<2 x s32>), 16
 
-  %z_was_sexted:_(s32) = G_ASSERT_SEXT %z(s32), 8
-
-G_ASSERT_SEXT and G_ASSERT_ZEXT act like copies, albeit with some restrictions.
+G_ASSERT_ZEXT acts like a restricted form of copy.
 
 The source and destination registers must
 

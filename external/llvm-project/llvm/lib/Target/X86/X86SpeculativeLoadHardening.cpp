@@ -850,9 +850,11 @@ getRegClassForUnfoldedLoad(MachineFunction &MF, const X86InstrInfo &TII,
 void X86SpeculativeLoadHardeningPass::unfoldCallAndJumpLoads(
     MachineFunction &MF) {
   for (MachineBasicBlock &MBB : MF)
-    // We use make_early_inc_range here so we can remove instructions if needed
-    // without disturbing the iteration.
-    for (MachineInstr &MI : llvm::make_early_inc_range(MBB.instrs())) {
+    for (auto MII = MBB.instr_begin(), MIE = MBB.instr_end(); MII != MIE;) {
+      // Grab a reference and increment the iterator so we can remove this
+      // instruction if needed without disturbing the iteration.
+      MachineInstr &MI = *MII++;
+
       // Must either be a call or a branch.
       if (!MI.isCall() && !MI.isBranch())
         continue;
@@ -1572,7 +1574,7 @@ void X86SpeculativeLoadHardeningPass::hardenLoadAddr(
     MachineInstr &MI, MachineOperand &BaseMO, MachineOperand &IndexMO,
     SmallDenseMap<unsigned, unsigned, 32> &AddrRegToHardenedReg) {
   MachineBasicBlock &MBB = *MI.getParent();
-  const DebugLoc &Loc = MI.getDebugLoc();
+  DebugLoc Loc = MI.getDebugLoc();
 
   // Check if EFLAGS are alive by seeing if there is a def of them or they
   // live-in, and then seeing if that def is in turn used.
@@ -1913,9 +1915,8 @@ unsigned X86SpeculativeLoadHardeningPass::hardenValueInRegister(
 
   auto *RC = MRI->getRegClass(Reg);
   int Bytes = TRI->getRegSizeInBits(*RC) / 8;
+
   unsigned StateReg = PS->SSA.GetValueAtEndOfBlock(&MBB);
-  assert((Bytes == 1 || Bytes == 2 || Bytes == 4 || Bytes == 8) &&
-         "Unknown register size");
 
   // FIXME: Need to teach this about 32-bit mode.
   if (Bytes != 8) {
@@ -1958,7 +1959,7 @@ unsigned X86SpeculativeLoadHardeningPass::hardenValueInRegister(
 /// Returns the newly hardened register.
 unsigned X86SpeculativeLoadHardeningPass::hardenPostLoad(MachineInstr &MI) {
   MachineBasicBlock &MBB = *MI.getParent();
-  const DebugLoc &Loc = MI.getDebugLoc();
+  DebugLoc Loc = MI.getDebugLoc();
 
   auto &DefOp = MI.getOperand(0);
   Register OldDefReg = DefOp.getReg();
@@ -2009,7 +2010,7 @@ unsigned X86SpeculativeLoadHardeningPass::hardenPostLoad(MachineInstr &MI) {
 /// predicate state from the stack pointer and continue to harden loads.
 void X86SpeculativeLoadHardeningPass::hardenReturnInstr(MachineInstr &MI) {
   MachineBasicBlock &MBB = *MI.getParent();
-  const DebugLoc &Loc = MI.getDebugLoc();
+  DebugLoc Loc = MI.getDebugLoc();
   auto InsertPt = MI.getIterator();
 
   if (FenceCallAndRet)
@@ -2058,7 +2059,7 @@ void X86SpeculativeLoadHardeningPass::tracePredStateThroughCall(
   MachineBasicBlock &MBB = *MI.getParent();
   MachineFunction &MF = *MBB.getParent();
   auto InsertPt = MI.getIterator();
-  const DebugLoc &Loc = MI.getDebugLoc();
+  DebugLoc Loc = MI.getDebugLoc();
 
   if (FenceCallAndRet) {
     if (MI.isReturn())

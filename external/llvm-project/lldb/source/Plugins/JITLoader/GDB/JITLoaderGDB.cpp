@@ -438,6 +438,8 @@ lldb_private::ConstString JITLoaderGDB::GetPluginName() {
   return GetPluginNameStatic();
 }
 
+uint32_t JITLoaderGDB::GetPluginVersion() { return 1; }
+
 void JITLoaderGDB::Initialize() {
   PluginManager::RegisterPlugin(GetPluginNameStatic(),
                                 GetPluginDescriptionStatic(), CreateInstance,

@@ -18,6 +18,8 @@ vector.ph:
   %tmp = add i32 %N, -1
   %n.rnd.up = add i32 %tmp, 8
   %n.vec = and i32 %n.rnd.up, -8
+  %broadcast.splatinsert1 = insertelement <8 x i32> undef, i32 %tmp, i32 0
+  %broadcast.splat2 = shufflevector <8 x i32> %broadcast.splatinsert1, <8 x i32> undef, <8 x i32> zeroinitializer
   %0 = add i32 %n.vec, -8
   %1 = lshr i32 %0, 3
   %2 = add i32 %1, 1
@@ -28,8 +30,14 @@ vector.body:                                      ; preds = %vector.body, %vecto
   %index = phi i32 [ 0, %vector.ph], [ %index.next, %vector.body ]
   %vec.phi = phi <8 x i16> [ zeroinitializer, %vector.ph], [ %tmp8, %vector.body ]
   %3 = phi i32 [ %start, %vector.ph], [ %4, %vector.body ]
+  %broadcast.splatinsert = insertelement <8 x i32> undef, i32 %index, i32 0
+  %broadcast.splat = shufflevector <8 x i32> %broadcast.splatinsert, <8 x i32> undef, <8 x i32> zeroinitializer
+  %induction = add <8 x i32> %broadcast.splat, <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
   %tmp2 = getelementptr inbounds i16, i16* %A, i32 %index
+
+  ; %tmp3 = icmp ule <8 x i32> %induction, %broadcast.splat2
   %tmp3 = call <8 x i1> @llvm.get.active.lane.mask.v8i1.i32(i32 %index, i32 %N)
+
   %tmp4 = bitcast i16* %tmp2 to <8 x i16>*
   %wide.masked.load = call <8 x i16> @llvm.masked.load.v8i16.p0v8i16(<8 x i16>* %tmp4, i32 4, <8 x i1> %tmp3, <8 x i16> undef)
   %tmp5 = getelementptr inbounds i16, i16* %B, i32 %index
@@ -79,6 +87,8 @@ vector.ph:
   %tmp = add i32 %N, -1
   %n.rnd.up = add nuw nsw i32 %tmp, 8
   %n.vec = and i32 %n.rnd.up, -8
+  %broadcast.splatinsert1 = insertelement <8 x i32> undef, i32 %tmp, i32 0
+  %broadcast.splat2 = shufflevector <8 x i32> %broadcast.splatinsert1, <8 x i32> undef, <8 x i32> zeroinitializer
   %broadcast.splatinsert3 = insertelement <8 x i16> undef, i16 %B, i32 0
   %broadcast.splat4 = shufflevector <8 x i16> %broadcast.splatinsert3, <8 x i16> undef, <8 x i32> zeroinitializer
   %0 = add i32 %n.vec, -8
@@ -91,8 +101,14 @@ vector.body:                                      ; preds = %vector.body, %vecto
   %index = phi i32 [ 0, %vector.ph], [ %index.next, %vector.body ]
   %vec.phi = phi <8 x i16> [ zeroinitializer, %vector.ph], [ %tmp6, %vector.body ]
   %3 = phi i32 [ %start, %vector.ph], [ %4, %vector.body ]
+  %broadcast.splatinsert = insertelement <8 x i32> undef, i32 %index, i32 0
+  %broadcast.splat = shufflevector <8 x i32> %broadcast.splatinsert, <8 x i32> undef, <8 x i32> zeroinitializer
+  %induction = add <8 x i32> %broadcast.splat, <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
   %tmp2 = getelementptr inbounds i16, i16* %A, i32 %index
+
+  ; %tmp3 = icmp ule <8 x i32> %induction, %broadcast.splat2
   %tmp3 = call <8 x i1> @llvm.get.active.lane.mask.v8i1.i32(i32 %index, i32 %N)
+
   %tmp4 = bitcast i16* %tmp2 to <8 x i16>*
   %wide.masked.load = call <8 x i16> @llvm.masked.load.v8i16.p0v8i16(<8 x i16>* %tmp4, i32 4, <8 x i1> %tmp3, <8 x i16> undef)
   %tmp5 = add <8 x i16> %vec.phi, %broadcast.splat4
@@ -135,6 +151,8 @@ entry:
   %tmp = add i32 %N, -1
   %n.rnd.up = add nuw nsw i32 %tmp, 8
   %n.vec = and i32 %n.rnd.up, -8
+  %broadcast.splatinsert1 = insertelement <8 x i32> undef, i32 %tmp, i32 0
+  %broadcast.splat2 = shufflevector <8 x i32> %broadcast.splatinsert1, <8 x i32> undef, <8 x i32> zeroinitializer
   %broadcast.splatinsert3 = insertelement <8 x i16> undef, i16 %B, i32 0
   %broadcast.splat4 = shufflevector <8 x i16> %broadcast.splatinsert3, <8 x i16> undef, <8 x i32> zeroinitializer
   %0 = add i32 %n.vec, -8
@@ -147,8 +165,14 @@ vector.body:                                      ; preds = %vector.body, %vecto
   %index = phi i32 [ 0, %entry], [ %index.next, %vector.body ]
   %vec.phi = phi <8 x i16> [ zeroinitializer, %entry], [ %tmp6, %vector.body ]
   %3 = phi i32 [ %start, %entry ], [ %4, %vector.body ]
+  %broadcast.splatinsert = insertelement <8 x i32> undef, i32 %index, i32 0
+  %broadcast.splat = shufflevector <8 x i32> %broadcast.splatinsert, <8 x i32> undef, <8 x i32> zeroinitializer
+  %induction = add <8 x i32> %broadcast.splat, <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
   %tmp2 = getelementptr inbounds i16, i16* %A, i32 %index
+
+  ; %tmp3 = icmp ule <8 x i32> %induction, %broadcast.splat2
   %tmp3 = call <8 x i1> @llvm.get.active.lane.mask.v8i1.i32(i32 %index, i32 %N)
+
   %tmp4 = bitcast i16* %tmp2 to <8 x i16>*
   %wide.masked.load = call <8 x i16> @llvm.masked.load.v8i16.p0v8i16(<8 x i16>* %tmp4, i32 4, <8 x i1> %tmp3, <8 x i16> undef)
   %tmp5 = add <8 x i16> %vec.phi, %broadcast.splat4
@@ -203,6 +227,7 @@ for.body:
   br i1 %cmp433, label %vector.ph, label %for.end
 
 vector.ph:                                        ; preds = %for.body
+  %trip.count.minus.1 = add i32 %8, -1
   %start = call i32 @llvm.start.loop.iterations.i32(i32 %7)
   br label %vector.body
 

@@ -28,6 +28,9 @@ using namespace llvm;
 
 namespace {
 
+// Length of the suffix "massv", which is specific to IBM MASSV library entries.
+const unsigned MASSVSuffixLength = 5;
+
 static StringRef MASSVFuncs[] = {
 #define TLI_DEFINE_MASSV_VECFUNCS_NAMES
 #include "llvm/Analysis/VecFuncs.def"
@@ -67,26 +70,20 @@ bool PPCLowerMASSVEntries::isMASSVFunc(StringRef Name) {
 
 // FIXME:
 /// Returns a string corresponding to the specified PowerPC subtarget. e.g.:
-/// "_P8" for Power8, "_P9" for Power9. The string is used as a suffix while
+/// "P8" for Power8, "P9" for Power9. The string is used as a suffix while
 /// generating subtarget-specific MASSV library functions. Current support
-/// includes minimum subtarget Power8 for Linux and Power7 for AIX.
+/// includes  Power8 and Power9 subtargets.
 StringRef PPCLowerMASSVEntries::getCPUSuffix(const PPCSubtarget *Subtarget) {
-  // Assume generic when Subtarget is unavailable.
+  // Assume Power8 when Subtarget is unavailable.
   if (!Subtarget)
-    return "";
-  // TODO: add _P10 enties to Linux MASS lib and remove the check for AIX
-  if (Subtarget->isAIXABI() && Subtarget->hasP10Vector())
-    return "_P10";
+    return "P8";
   if (Subtarget->hasP9Vector())
-    return "_P9";
+    return "P9";
   if (Subtarget->hasP8Vector())
-    return "_P8";
-  if (Subtarget->isAIXABI())
-    return "_P7";
+    return "P8";
 
-  report_fatal_error(
-      "Mininum subtarget for -vector-library=MASSV option is Power8 on Linux "
-      "and Power7 on AIX when vectorization is not disabled.");
+  report_fatal_error("Unsupported Subtarget: MASSV is supported only on "
+                     "Power8 and Power9 subtargets.");
 }
 
 /// Creates PowerPC subtarget-specific name corresponding to the specified
@@ -95,7 +92,7 @@ std::string
 PPCLowerMASSVEntries::createMASSVFuncName(Function &Func,
                                           const PPCSubtarget *Subtarget) {
   StringRef Suffix = getCPUSuffix(Subtarget);
-  auto GenericName = Func.getName().str();
+  auto GenericName = Func.getName().drop_back(MASSVSuffixLength).str();
   std::string MASSVEntryName = GenericName + Suffix.str();
   return MASSVEntryName;
 }
@@ -104,7 +101,7 @@ PPCLowerMASSVEntries::createMASSVFuncName(Function &Func,
 /// intrinsics when the exponent is 0.25 or 0.75.
 bool PPCLowerMASSVEntries::handlePowSpecialCases(CallInst *CI, Function &Func,
                                                  Module &M) {
-  if (Func.getName() != "__powf4" && Func.getName() != "__powd2")
+  if (Func.getName() != "__powf4_massv" && Func.getName() != "__powd2_massv")
     return false;
 
   if (Constant *Exp = dyn_cast<Constant>(CI->getArgOperand(1)))

@@ -119,6 +119,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         return ret.GetOutput()
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_legacy_file_out_script(self):
         with open(self.out_filename, 'w') as f:
@@ -134,6 +135,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual(readStrippedLines(f), ['2', 'FOO'])
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_legacy_file_out(self):
         with open(self.out_filename, 'w') as f:
@@ -142,6 +144,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         with open(self.out_filename, 'r') as f:
             self.assertIn('deadbeef', f.read())
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_legacy_file_err_with_get(self):
         with open(self.out_filename, 'w') as f:
@@ -156,6 +159,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertTrue(re.search(r'FOOBAR', errors))
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_legacy_file_err(self):
         with open(self.out_filename, 'w') as f:
@@ -165,6 +169,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertIn("is not a valid command", f.read())
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_legacy_file_error(self):
         with open(self.out_filename, 'w') as f:
@@ -174,6 +179,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             errors = f.read()
             self.assertTrue(re.search(r'error:.*lolwut', errors))
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_type_errors(self):
         sbf = lldb.SBFile()
@@ -184,6 +190,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertRaises(Exception, sbf.Read, u"ham sandwich")
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_write_fileno(self):
         with open(self.out_filename, 'w') as f:
@@ -198,6 +205,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual(readStrippedLines(f), ['FOO', 'BAR'])
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_write(self):
         with open(self.out_filename, 'w') as f:
@@ -211,6 +219,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual(f.read().strip(), 'FOO')
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_read_fileno(self):
         with open(self.out_filename, 'w') as f:
@@ -224,6 +233,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual(buffer[:n], b'FOO')
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_read(self):
         with open(self.out_filename, 'w') as f:
@@ -239,6 +249,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertTrue(f.closed)
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_fileno_out(self):
         with open(self.out_filename, 'w') as f:
@@ -253,6 +264,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual(readStrippedLines(f), ['3', 'quux'])
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_fileno_help(self):
         with open(self.out_filename, 'w') as f:
@@ -264,6 +276,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertTrue(re.search(r'Show a list of all debugger commands', f.read()))
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_help(self):
         with open(self.out_filename, 'w') as f:
@@ -274,6 +287,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertIn('Show a list of all debugger commands', f.read())
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_immediate(self):
         with open(self.out_filename, 'w') as f:
@@ -290,6 +304,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertTrue(re.search(r'QUUX', output))
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_immediate_string(self):
@@ -306,6 +321,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertTrue(re.search(r'QUUX', output))
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_immediate_sbfile_string(self):
@@ -321,6 +337,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertTrue(re.search(r'Show a list of all debugger commands', output))
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_fileno_inout(self):
         with open(self.in_filename, 'w') as f:
@@ -344,6 +361,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertTrue(re.search(r'Show a list of all debugger commands', f.read()))
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_inout(self):
         with open(self.in_filename, 'w') as f:
@@ -362,6 +380,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertIn('Show a list of all debugger commands', output)
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_binary_inout(self):
         with open(self.in_filename, 'w') as f:
@@ -380,6 +399,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertIn('Show a list of all debugger commands', output)
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_string_inout(self):
@@ -397,6 +417,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertIn('0xfff', output)
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_bytes_inout(self):
@@ -414,6 +435,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertIn(b'Set a breakpoint', output)
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_fileno_error(self):
         with open(self.out_filename, 'w') as f:
@@ -432,6 +454,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertTrue(re.search(r'zork', errors))
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_replace_stdout(self):
         f = io.StringIO()
@@ -442,6 +465,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual(sys.stdout, f)
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_replace_stdout_with_nonfile(self):
         f = io.StringIO()
@@ -457,6 +481,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertEqual(f.getvalue(), "FOO")
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_write_borrowed(self):
         with open(self.out_filename, 'w') as f:
@@ -472,6 +497,7 @@ class FileHandleTestCase(lldbtest.TestBase):
 
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_write_forced(self):
@@ -493,6 +519,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual(f.read().strip(), 'FOO')
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_write_forced_borrowed(self):
@@ -514,6 +541,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual(f.read().strip(), 'FOO')
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_write_string(self):
@@ -527,6 +555,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertTrue(f.closed)
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_string_out(self):
@@ -537,6 +566,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertEqual(f.getvalue().strip(), "'foobar'")
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_string_error(self):
@@ -548,6 +578,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertTrue(re.search(r'error:.*lolwut', errors))
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_write_bytes(self):
@@ -560,6 +591,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         sbf.Close()
         self.assertTrue(f.closed)
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_read_string(self):
@@ -571,6 +603,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertEqual(buf[:n], b'zork')
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_read_string_one_byte(self):
@@ -583,6 +616,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertEqual(e.GetCString(), "can't read less than 6 bytes from a utf8 text stream")
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_read_bytes(self):
@@ -594,6 +628,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertEqual(buf[:n], b'zork')
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_out(self):
@@ -606,6 +641,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual(f.read().strip(), '4')
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_file_out(self):
@@ -617,6 +653,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual(f.read().strip(), '4')
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbfile_error(self):
         with open(self.out_filename, 'w') as f:
@@ -629,6 +666,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertTrue(re.search(r'error:.*lolwut', errors))
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_file_error(self):
         with open(self.out_filename, 'w') as f:
@@ -640,6 +678,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertTrue(re.search(r'error:.*lolwut', errors))
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_exceptions(self):
         self.assertRaises(Exception, lldb.SBFile, None)
@@ -658,6 +697,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertIn('OH NOE', error.GetCString())
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_exceptions_logged(self):
@@ -669,6 +709,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertTrue(any('OH NOE' in msg for msg in messages))
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_flush(self):
@@ -699,6 +740,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertFalse(f.closed)
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_fileno_flush(self):
         with open(self.out_filename, 'w') as f:
@@ -720,6 +762,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual(f.read(), 'foobar')
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_close(self):
         with open(self.out_filename, 'w') as f:
@@ -738,6 +781,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertTrue(re.search(r'ZAP', output))
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_stdout(self):
@@ -748,6 +792,7 @@ class FileHandleTestCase(lldbtest.TestBase):
         self.assertEqual(f.getvalue().strip().split(), ["foobar", "7"])
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_stdout_file(self):
         with open(self.out_filename, 'w') as f:
@@ -763,6 +808,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual(lines, ["foobar"])
 
 
+    @add_test_categories(['pyapi'])
     @skipIf(py_version=['<', (3,)])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_identity(self):
@@ -819,6 +865,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual("foobar", f.read().strip())
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_back_and_forth(self):
         with open(self.out_filename, 'w') as f:
@@ -838,6 +885,7 @@ class FileHandleTestCase(lldbtest.TestBase):
             self.assertEqual(list(range(10)), list(map(int, f.read().strip().split())))
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_set_filehandle_none(self):
         self.assertRaises(Exception, self.dbg.SetOutputFile, None)
@@ -876,6 +924,7 @@ class FileHandleTestCase(lldbtest.TestBase):
                 self.assertEqual(sbf.GetFile().fileno(), 0)
 
 
+    @add_test_categories(['pyapi'])
     @skipIfReproducer # lldb::FileSP used in typemap cannot be instrumented.
     def test_sbstream(self):
 

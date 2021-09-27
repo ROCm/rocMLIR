@@ -10,17 +10,9 @@
 
 #include "mlir/CAPI/IR.h"
 #include "mlir/InitAllDialects.h"
-#include "mlir/InitAllPasses.h"
-#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 
 void mlirRegisterAllDialects(MlirContext context) {
-  mlir::registerAllDialects(*unwrap(context));
+  registerAllDialects(unwrap(context)->getDialectRegistry());
   // TODO: we may not want to eagerly load here.
-  unwrap(context)->loadAllAvailableDialects();
+  unwrap(context)->getDialectRegistry().loadAll(unwrap(context));
 }
-
-void mlirRegisterAllLLVMTranslations(MlirContext context) {
-  mlir::registerLLVMDialectTranslation(*unwrap(context));
-}
-
-void mlirRegisterAllPasses() { mlir::registerAllPasses(); }

@@ -1,6 +1,6 @@
-// RUN: mlir-opt %s --test-gpu-to-hsaco | FileCheck %s
+// RUN: mlir-opt %s --test-kernel-to-hsaco -split-input-file | FileCheck %s
 
-// CHECK: gpu.module @foo attributes {gpu.binary = "HSACO"}
+// CHECK: attributes {rocdl.hsaco = "HSACO"}
 gpu.module @foo {
   llvm.func @kernel(%arg0 : f32, %arg1 : !llvm.ptr<f32>)
     // CHECK: attributes  {gpu.kernel}
@@ -9,7 +9,8 @@ gpu.module @foo {
   }
 }
 
-// CHECK: gpu.module @bar attributes {gpu.binary = "HSACO"}
+// -----
+
 gpu.module @bar {
   // CHECK: func @kernel_a
   llvm.func @kernel_a()

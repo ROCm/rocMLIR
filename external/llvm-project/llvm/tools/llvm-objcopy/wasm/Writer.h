@@ -9,6 +9,7 @@
 #ifndef LLVM_TOOLS_LLVM_OBJCOPY_WASM_WRITER_H
 #define LLVM_TOOLS_LLVM_OBJCOPY_WASM_WRITER_H
 
+#include "Buffer.h"
 #include "Object.h"
 #include <cstdint>
 #include <vector>
@@ -19,13 +20,13 @@ namespace wasm {
 
 class Writer {
 public:
-  Writer(Object &Obj, raw_ostream &Out) : Obj(Obj), Out(Out) {}
+  Writer(Object &Obj, Buffer &Buf) : Obj(Obj), Buf(Buf) {}
   Error write();
 
 private:
   using SectionHeader = SmallVector<char, 8>;
   Object &Obj;
-  raw_ostream &Out;
+  Buffer &Buf;
   std::vector<SectionHeader> SectionHeaders;
 
   /// Generate a wasm section section header for S.

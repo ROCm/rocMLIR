@@ -63,38 +63,25 @@ public:
 
   /// Parse a floating point value from the stream.
   ParseResult parseFloat(double &result) override {
-    bool isNegative = parser.consumeIf(Token::minus);
+    bool negative = parser.consumeIf(Token::minus);
     Token curTok = parser.getToken();
-    llvm::SMLoc loc = curTok.getLoc();
 
     // Check for a floating point value.
     if (curTok.is(Token::floatliteral)) {
       auto val = curTok.getFloatingPointValue();
       if (!val.hasValue())
-        return emitError(loc, "floating point value too large");
+        return emitError(curTok.getLoc(), "floating point value too large");
       parser.consumeToken(Token::floatliteral);
-      result = isNegative ? -*val : *val;
+      result = negative ? -*val : *val;
       return success();
     }
 
-    // Check for a hexadecimal float value.
-    if (curTok.is(Token::integer)) {
-      Optional<APFloat> apResult;
-      if (failed(parser.parseFloatFromIntegerLiteral(
-              apResult, curTok, isNegative, APFloat::IEEEdouble(),
-              /*typeSizeInBits=*/64)))
-        return failure();
-
-      parser.consumeToken(Token::integer);
-      result = apResult->convertToDouble();
-      return success();
-    }
-
-    return emitError(loc, "expected floating point literal");
+    // TODO: support hex floating point values.
+    return emitError(getCurrentLocation(), "expected floating point literal");
   }
 
   /// Parse an optional integer value from the stream.
-  OptionalParseResult parseOptionalInteger(APInt &result) override {
+  OptionalParseResult parseOptionalInteger(uint64_t &result) override {
     return parser.parseOptionalInteger(result);
   }
 
@@ -238,19 +225,19 @@ public:
   }
 
   /// Parses a quoted string token if present.
-  ParseResult parseOptionalString(std::string *string) override {
+  ParseResult parseOptionalString(StringRef *string) override {
     if (!parser.getToken().is(Token::string))
       return failure();
 
     if (string)
-      *string = parser.getToken().getStringValue();
+      *string = parser.getTokenSpelling().drop_front().drop_back();
     parser.consumeToken();
     return success();
   }
 
   /// Returns true if the current token corresponds to a keyword.
   bool isCurrentTokenAKeyword() const {
-    return parser.getToken().isAny(Token::bare_identifier, Token::inttype) ||
+    return parser.getToken().is(Token::bare_identifier) ||
            parser.getToken().isKeyword();
   }
 
@@ -306,10 +293,6 @@ public:
   ParseResult parseDimensionList(SmallVectorImpl<int64_t> &dimensions,
                                  bool allowDynamic) override {
     return parser.parseDimensionListRanked(dimensions, allowDynamic);
-  }
-
-  ParseResult parseXInDimensionList() override {
-    return parser.parseXInDimensionList();
   }
 
   OptionalParseResult parseOptionalType(Type &result) override {
@@ -490,7 +473,7 @@ static T parseSymbol(StringRef inputStr, MLIRContext *context,
       inputStr, /*BufferName=*/"<mlir_parser_buffer>",
       /*RequiresNullTerminator=*/false);
   sourceMgr.AddNewSourceBuffer(std::move(memBuffer), SMLoc());
-  ParserState state(sourceMgr, context, symbolState, /*asmState=*/nullptr);
+  ParserState state(sourceMgr, context, symbolState);
   Parser parser(state);
 
   Token startTok = parser.getToken();
@@ -541,9 +524,9 @@ Attribute Parser::parseExtendedAttr(Type type) {
 
         // Otherwise, form a new opaque attribute.
         return OpaqueAttr::getChecked(
-            [&] { return emitError(loc); },
             Identifier::get(dialectName, state.context), symbolData,
-            attrType ? attrType : NoneType::get(state.context));
+            attrType ? attrType : NoneType::get(state.context),
+            getEncodedSourceLocation(loc));
       });
 
   // Ensure that the attribute has the same type as requested.
@@ -580,7 +563,7 @@ Type Parser::parseExtendedType() {
 
         // Otherwise, form a new opaque type.
         return OpaqueType::getChecked(
-            [&] { return emitError(loc); },
+            getEncodedSourceLocation(loc),
             Identifier::get(dialectName, state.context), symbolData);
       });
 }

@@ -10,16 +10,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CODEGEN_MIRPARSER_MIPARSER_H
-#define LLVM_CODEGEN_MIRPARSER_MIPARSER_H
+#ifndef LLVM_LIB_CODEGEN_MIRPARSER_MIPARSER_H
+#define LLVM_LIB_CODEGEN_MIRPARSER_MIPARSER_H
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/Register.h"
 #include "llvm/Support/Allocator.h"
-#include "llvm/Support/SMLoc.h"
-#include <utility>
 
 namespace llvm {
 
@@ -166,9 +164,6 @@ struct PerFunctionMIParsingState {
   const SlotMapping &IRSlots;
   PerTargetMIParsingState &Target;
 
-  std::map<unsigned, TrackingMDNodeRef> MachineMetadataNodes;
-  std::map<unsigned, std::pair<TempMDTuple, SMLoc>> MachineForwardRefMDNodes;
-
   DenseMap<unsigned, MachineBasicBlock *> MBBSlots;
   DenseMap<Register, VRegInfo *> VRegInfos;
   StringMap<VRegInfo *> VRegInfosNamed;
@@ -238,9 +233,6 @@ bool parseStackObjectReference(PerFunctionMIParsingState &PFS, int &FI,
 bool parseMDNode(PerFunctionMIParsingState &PFS, MDNode *&Node, StringRef Src,
                  SMDiagnostic &Error);
 
-bool parseMachineMetadata(PerFunctionMIParsingState &PFS, StringRef Src,
-                          SMRange SourceRange, SMDiagnostic &Error);
-
 } // end namespace llvm
 
-#endif // LLVM_CODEGEN_MIRPARSER_MIPARSER_H
+#endif // LLVM_LIB_CODEGEN_MIRPARSER_MIPARSER_H

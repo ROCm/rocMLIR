@@ -14,19 +14,25 @@ namespace lldb {
 class LLDB_API SBTrace {
 public:
   SBTrace();
+  size_t GetTraceData(SBError &error, void *buf,
+                      size_t size, size_t offset,
+                      lldb::tid_t thread_id);
 
-  const char *GetStartConfigurationHelp();
+  size_t GetMetaData(SBError &error, void *buf,
+                     size_t size, size_t offset,
+                     lldb::tid_t thread_id);
 
-  SBError Start(const SBStructuredData &configuration);
+  void StopTrace(SBError &error,
+                 lldb::tid_t thread_id);
 
-  SBError Start(const SBThread &thread, const SBStructuredData &configuration);
+  void GetTraceConfig(SBTraceOptions &options,
+                      SBError &error);
 
-  SBError Stop();
-
-  SBError Stop(const SBThread &thread);
+  lldb::user_id_t GetTraceUID();
 
   explicit operator bool() const;
 
   bool IsValid();
+
 };
 } // namespace lldb

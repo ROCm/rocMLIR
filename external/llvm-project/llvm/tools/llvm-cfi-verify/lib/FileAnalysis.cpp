@@ -374,9 +374,7 @@ Error FileAnalysis::initialiseDisassemblyMembers() {
   MCPU = "";
   std::string ErrorString;
 
-  LLVMSymbolizer::Options Opt;
-  Opt.UseSymbolTable = false;
-  Symbolizer.reset(new LLVMSymbolizer(Opt));
+  Symbolizer.reset(new LLVMSymbolizer());
 
   ObjectTarget =
       TargetRegistry::lookupTarget(ArchName, ObjectTriple, ErrorString);
@@ -407,8 +405,7 @@ Error FileAnalysis::initialiseDisassemblyMembers() {
   if (!MII)
     return make_error<UnsupportedDisassembly>("Failed to initialise MII.");
 
-  Context.reset(new MCContext(Triple(TripleName), AsmInfo.get(),
-                              RegisterInfo.get(), SubtargetInfo.get()));
+  Context.reset(new MCContext(AsmInfo.get(), RegisterInfo.get(), &MOFI));
 
   Disassembler.reset(
       ObjectTarget->createMCDisassembler(*SubtargetInfo, *Context));

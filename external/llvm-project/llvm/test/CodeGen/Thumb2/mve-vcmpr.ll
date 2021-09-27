@@ -433,19 +433,21 @@ entry:
 define arm_aapcs_vfpcc <2 x i64> @vcmp_eq_v2i64(<2 x i64> %src, i64 %src2, <2 x i64> %a, <2 x i64> %b) {
 ; CHECK-LABEL: vcmp_eq_v2i64:
 ; CHECK:       @ %bb.0: @ %entry
-; CHECK-NEXT:    vmov r2, r3, d1
-; CHECK-NEXT:    eors r3, r1
-; CHECK-NEXT:    eors r2, r0
+; CHECK-NEXT:    vmov r2, s3
+; CHECK-NEXT:    vmov r3, s2
+; CHECK-NEXT:    eors r2, r1
+; CHECK-NEXT:    eors r3, r0
 ; CHECK-NEXT:    orrs r2, r3
-; CHECK-NEXT:    vmov r12, r3, d0
+; CHECK-NEXT:    vmov r3, s1
 ; CHECK-NEXT:    cset r2, eq
-; CHECK-NEXT:    cmp r2, #0
+; CHECK-NEXT:    tst.w r2, #1
 ; CHECK-NEXT:    csetm r2, ne
 ; CHECK-NEXT:    eors r1, r3
-; CHECK-NEXT:    eor.w r0, r0, r12
+; CHECK-NEXT:    vmov r3, s0
+; CHECK-NEXT:    eors r0, r3
 ; CHECK-NEXT:    orrs r0, r1
 ; CHECK-NEXT:    cset r0, eq
-; CHECK-NEXT:    cmp r0, #0
+; CHECK-NEXT:    tst.w r0, #1
 ; CHECK-NEXT:    csetm r0, ne
 ; CHECK-NEXT:    vmov q0[2], q0[0], r0, r2
 ; CHECK-NEXT:    vmov q0[3], q0[1], r0, r2
@@ -464,19 +466,21 @@ entry:
 define arm_aapcs_vfpcc <2 x i32> @vcmp_eq_v2i32(<2 x i64> %src, i64 %src2, <2 x i32> %a, <2 x i32> %b) {
 ; CHECK-LABEL: vcmp_eq_v2i32:
 ; CHECK:       @ %bb.0: @ %entry
-; CHECK-NEXT:    vmov r2, r3, d1
-; CHECK-NEXT:    eors r3, r1
-; CHECK-NEXT:    eors r2, r0
+; CHECK-NEXT:    vmov r2, s3
+; CHECK-NEXT:    vmov r3, s2
+; CHECK-NEXT:    eors r2, r1
+; CHECK-NEXT:    eors r3, r0
 ; CHECK-NEXT:    orrs r2, r3
-; CHECK-NEXT:    vmov r12, r3, d0
+; CHECK-NEXT:    vmov r3, s1
 ; CHECK-NEXT:    cset r2, eq
-; CHECK-NEXT:    cmp r2, #0
+; CHECK-NEXT:    tst.w r2, #1
 ; CHECK-NEXT:    csetm r2, ne
 ; CHECK-NEXT:    eors r1, r3
-; CHECK-NEXT:    eor.w r0, r0, r12
+; CHECK-NEXT:    vmov r3, s0
+; CHECK-NEXT:    eors r0, r3
 ; CHECK-NEXT:    orrs r0, r1
 ; CHECK-NEXT:    cset r0, eq
-; CHECK-NEXT:    cmp r0, #0
+; CHECK-NEXT:    tst.w r0, #1
 ; CHECK-NEXT:    csetm r0, ne
 ; CHECK-NEXT:    vmov q0[2], q0[0], r0, r2
 ; CHECK-NEXT:    vmov q0[3], q0[1], r0, r2
@@ -499,17 +503,19 @@ define arm_aapcs_vfpcc <2 x i32> @vcmp_multi_v2i32(<2 x i64> %a, <2 x i32> %b, <
 ; CHECK-NEXT:    push {r4, lr}
 ; CHECK-NEXT:    .vsave {d8, d9}
 ; CHECK-NEXT:    vpush {d8, d9}
-; CHECK-NEXT:    vmov r0, r1, d1
+; CHECK-NEXT:    vmov r0, s3
 ; CHECK-NEXT:    movs r3, #0
+; CHECK-NEXT:    vmov r1, s2
+; CHECK-NEXT:    vmov r2, s0
 ; CHECK-NEXT:    orrs r0, r1
-; CHECK-NEXT:    vmov r1, r2, d0
+; CHECK-NEXT:    vmov r1, s1
 ; CHECK-NEXT:    cset r0, eq
-; CHECK-NEXT:    cmp r0, #0
+; CHECK-NEXT:    tst.w r0, #1
 ; CHECK-NEXT:    csetm r0, ne
 ; CHECK-NEXT:    orrs r1, r2
 ; CHECK-NEXT:    vmov r2, s10
 ; CHECK-NEXT:    cset r1, eq
-; CHECK-NEXT:    cmp r1, #0
+; CHECK-NEXT:    tst.w r1, #1
 ; CHECK-NEXT:    csetm r1, ne
 ; CHECK-NEXT:    vmov q0[2], q0[0], r1, r0
 ; CHECK-NEXT:    vmov q0[3], q0[1], r1, r0
@@ -535,12 +541,12 @@ define arm_aapcs_vfpcc <2 x i32> @vcmp_multi_v2i32(<2 x i64> %a, <2 x i32> %b, <
 ; CHECK-NEXT:    cmp r0, #0
 ; CHECK-NEXT:    cset r0, ne
 ; CHECK-NEXT:    vmov q3[2], q3[0], r1, lr
-; CHECK-NEXT:    cmp r0, #0
+; CHECK-NEXT:    tst.w r0, #1
 ; CHECK-NEXT:    vmov q3[3], q3[1], r1, lr
 ; CHECK-NEXT:    csetm r0, ne
 ; CHECK-NEXT:    cmp r2, #0
 ; CHECK-NEXT:    cset r1, ne
-; CHECK-NEXT:    cmp r1, #0
+; CHECK-NEXT:    tst.w r1, #1
 ; CHECK-NEXT:    csetm r1, ne
 ; CHECK-NEXT:    vmov q4[2], q4[0], r1, r0
 ; CHECK-NEXT:    vmov q4[3], q4[1], r1, r0
@@ -548,11 +554,11 @@ define arm_aapcs_vfpcc <2 x i32> @vcmp_multi_v2i32(<2 x i64> %a, <2 x i32> %b, <
 ; CHECK-NEXT:    vmov r1, s4
 ; CHECK-NEXT:    cmp r0, #0
 ; CHECK-NEXT:    cset r0, ne
-; CHECK-NEXT:    cmp r0, #0
+; CHECK-NEXT:    tst.w r0, #1
 ; CHECK-NEXT:    csetm r0, ne
 ; CHECK-NEXT:    cmp r1, #0
 ; CHECK-NEXT:    cset r1, ne
-; CHECK-NEXT:    cmp r1, #0
+; CHECK-NEXT:    tst.w r1, #1
 ; CHECK-NEXT:    csetm r1, ne
 ; CHECK-NEXT:    vmov q1[2], q1[0], r1, r0
 ; CHECK-NEXT:    vmov q1[3], q1[1], r1, r0
@@ -1008,19 +1014,21 @@ entry:
 define arm_aapcs_vfpcc <2 x i64> @vcmp_r_eq_v2i64(<2 x i64> %src, i64 %src2, <2 x i64> %a, <2 x i64> %b) {
 ; CHECK-LABEL: vcmp_r_eq_v2i64:
 ; CHECK:       @ %bb.0: @ %entry
-; CHECK-NEXT:    vmov r2, r3, d1
-; CHECK-NEXT:    eors r3, r1
-; CHECK-NEXT:    eors r2, r0
+; CHECK-NEXT:    vmov r2, s3
+; CHECK-NEXT:    vmov r3, s2
+; CHECK-NEXT:    eors r2, r1
+; CHECK-NEXT:    eors r3, r0
 ; CHECK-NEXT:    orrs r2, r3
-; CHECK-NEXT:    vmov r12, r3, d0
+; CHECK-NEXT:    vmov r3, s1
 ; CHECK-NEXT:    cset r2, eq
-; CHECK-NEXT:    cmp r2, #0
+; CHECK-NEXT:    tst.w r2, #1
 ; CHECK-NEXT:    csetm r2, ne
 ; CHECK-NEXT:    eors r1, r3
-; CHECK-NEXT:    eor.w r0, r0, r12
+; CHECK-NEXT:    vmov r3, s0
+; CHECK-NEXT:    eors r0, r3
 ; CHECK-NEXT:    orrs r0, r1
 ; CHECK-NEXT:    cset r0, eq
-; CHECK-NEXT:    cmp r0, #0
+; CHECK-NEXT:    tst.w r0, #1
 ; CHECK-NEXT:    csetm r0, ne
 ; CHECK-NEXT:    vmov q0[2], q0[0], r0, r2
 ; CHECK-NEXT:    vmov q0[3], q0[1], r0, r2
@@ -1039,19 +1047,21 @@ entry:
 define arm_aapcs_vfpcc <2 x i32> @vcmp_r_eq_v2i32(<2 x i64> %src, i64 %src2, <2 x i32> %a, <2 x i32> %b) {
 ; CHECK-LABEL: vcmp_r_eq_v2i32:
 ; CHECK:       @ %bb.0: @ %entry
-; CHECK-NEXT:    vmov r2, r3, d1
-; CHECK-NEXT:    eors r3, r1
-; CHECK-NEXT:    eors r2, r0
+; CHECK-NEXT:    vmov r2, s3
+; CHECK-NEXT:    vmov r3, s2
+; CHECK-NEXT:    eors r2, r1
+; CHECK-NEXT:    eors r3, r0
 ; CHECK-NEXT:    orrs r2, r3
-; CHECK-NEXT:    vmov r12, r3, d0
+; CHECK-NEXT:    vmov r3, s1
 ; CHECK-NEXT:    cset r2, eq
-; CHECK-NEXT:    cmp r2, #0
+; CHECK-NEXT:    tst.w r2, #1
 ; CHECK-NEXT:    csetm r2, ne
 ; CHECK-NEXT:    eors r1, r3
-; CHECK-NEXT:    eor.w r0, r0, r12
+; CHECK-NEXT:    vmov r3, s0
+; CHECK-NEXT:    eors r0, r3
 ; CHECK-NEXT:    orrs r0, r1
 ; CHECK-NEXT:    cset r0, eq
-; CHECK-NEXT:    cmp r0, #0
+; CHECK-NEXT:    tst.w r0, #1
 ; CHECK-NEXT:    csetm r0, ne
 ; CHECK-NEXT:    vmov q0[2], q0[0], r0, r2
 ; CHECK-NEXT:    vmov q0[3], q0[1], r0, r2
@@ -1074,17 +1084,19 @@ define arm_aapcs_vfpcc <2 x i32> @vcmp_r_multi_v2i32(<2 x i64> %a, <2 x i32> %b,
 ; CHECK-NEXT:    push {r4, lr}
 ; CHECK-NEXT:    .vsave {d8, d9}
 ; CHECK-NEXT:    vpush {d8, d9}
-; CHECK-NEXT:    vmov r0, r1, d1
+; CHECK-NEXT:    vmov r0, s3
 ; CHECK-NEXT:    movs r3, #0
+; CHECK-NEXT:    vmov r1, s2
+; CHECK-NEXT:    vmov r2, s0
 ; CHECK-NEXT:    orrs r0, r1
-; CHECK-NEXT:    vmov r1, r2, d0
+; CHECK-NEXT:    vmov r1, s1
 ; CHECK-NEXT:    cset r0, eq
-; CHECK-NEXT:    cmp r0, #0
+; CHECK-NEXT:    tst.w r0, #1
 ; CHECK-NEXT:    csetm r0, ne
 ; CHECK-NEXT:    orrs r1, r2
 ; CHECK-NEXT:    vmov r2, s10
 ; CHECK-NEXT:    cset r1, eq
-; CHECK-NEXT:    cmp r1, #0
+; CHECK-NEXT:    tst.w r1, #1
 ; CHECK-NEXT:    csetm r1, ne
 ; CHECK-NEXT:    vmov q0[2], q0[0], r1, r0
 ; CHECK-NEXT:    vmov q0[3], q0[1], r1, r0
@@ -1110,12 +1122,12 @@ define arm_aapcs_vfpcc <2 x i32> @vcmp_r_multi_v2i32(<2 x i64> %a, <2 x i32> %b,
 ; CHECK-NEXT:    cmp r0, #0
 ; CHECK-NEXT:    cset r0, ne
 ; CHECK-NEXT:    vmov q3[2], q3[0], r1, lr
-; CHECK-NEXT:    cmp r0, #0
+; CHECK-NEXT:    tst.w r0, #1
 ; CHECK-NEXT:    vmov q3[3], q3[1], r1, lr
 ; CHECK-NEXT:    csetm r0, ne
 ; CHECK-NEXT:    cmp r2, #0
 ; CHECK-NEXT:    cset r1, ne
-; CHECK-NEXT:    cmp r1, #0
+; CHECK-NEXT:    tst.w r1, #1
 ; CHECK-NEXT:    csetm r1, ne
 ; CHECK-NEXT:    vmov q4[2], q4[0], r1, r0
 ; CHECK-NEXT:    vmov q4[3], q4[1], r1, r0
@@ -1123,11 +1135,11 @@ define arm_aapcs_vfpcc <2 x i32> @vcmp_r_multi_v2i32(<2 x i64> %a, <2 x i32> %b,
 ; CHECK-NEXT:    vmov r1, s4
 ; CHECK-NEXT:    cmp r0, #0
 ; CHECK-NEXT:    cset r0, ne
-; CHECK-NEXT:    cmp r0, #0
+; CHECK-NEXT:    tst.w r0, #1
 ; CHECK-NEXT:    csetm r0, ne
 ; CHECK-NEXT:    cmp r1, #0
 ; CHECK-NEXT:    cset r1, ne
-; CHECK-NEXT:    cmp r1, #0
+; CHECK-NEXT:    tst.w r1, #1
 ; CHECK-NEXT:    csetm r1, ne
 ; CHECK-NEXT:    vmov q1[2], q1[0], r1, r0
 ; CHECK-NEXT:    vmov q1[3], q1[1], r1, r0

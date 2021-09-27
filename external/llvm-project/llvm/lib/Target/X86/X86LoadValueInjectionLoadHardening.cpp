@@ -372,9 +372,9 @@ X86LoadValueInjectionLoadHardeningPass::getGadgetGraph(
             auto Use = DFG.addr<UseNode *>(UseID);
             if (Use.Addr->getFlags() & NodeAttrs::PhiRef) { // phi node
               NodeAddr<PhiNode *> Phi = Use.Addr->getOwner(DFG);
-              for (const auto& I : L.getRealUses(Phi.Id)) {
+              for (auto I : L.getRealUses(Phi.Id)) {
                 if (DFG.getPRI().alias(RegisterRef(I.first), DefReg)) {
-                  for (const auto &UA : I.second)
+                  for (auto UA : I.second)
                     Uses.emplace(UA.first);
                 }
               }
@@ -417,7 +417,7 @@ X86LoadValueInjectionLoadHardeningPass::getGadgetGraph(
             // Check whether the use propagates to more defs.
             NodeAddr<InstrNode *> Owner{Use.Addr->getOwner(DFG)};
             rdf::NodeList AnalyzedChildDefs;
-            for (const auto &ChildDef :
+            for (auto &ChildDef :
                  Owner.Addr->members_if(DataFlowGraph::IsDef, DFG)) {
               if (!DefsVisited.insert(ChildDef.Id).second)
                 continue; // Already visited this def

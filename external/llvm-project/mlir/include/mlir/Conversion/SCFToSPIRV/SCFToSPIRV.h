@@ -15,13 +15,13 @@
 #include <memory>
 
 namespace mlir {
+class MLIRContext;
 class Pass;
 
 // Owning list of rewriting patterns.
+class OwningRewritePatternList;
 class SPIRVTypeConverter;
 struct ScfToSPIRVContextImpl;
-class RewritePatternSet;
-using OwningRewritePatternList = RewritePatternSet;
 
 struct ScfToSPIRVContext {
   ScfToSPIRVContext();
@@ -35,9 +35,10 @@ private:
 
 /// Collects a set of patterns to lower from scf.for, scf.if, and
 /// loop.terminator to CFG operations within the SPIR-V dialect.
-void populateSCFToSPIRVPatterns(SPIRVTypeConverter &typeConverter,
+void populateSCFToSPIRVPatterns(MLIRContext *context,
+                                SPIRVTypeConverter &typeConverter,
                                 ScfToSPIRVContext &scfToSPIRVContext,
-                                RewritePatternSet &patterns);
+                                OwningRewritePatternList &patterns);
 } // namespace mlir
 
 #endif // MLIR_CONVERSION_SCFTOSPIRV_SCFTOSPIRV_H_

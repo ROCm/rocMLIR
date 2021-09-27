@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "Selection.h"
-#include "AST.h"
 #include "SourceCode.h"
 #include "support/Logger.h"
 #include "support/Trace.h"
@@ -56,27 +55,6 @@ void recordMetrics(const SelectionTree &S, const LangOptions &Lang) {
   }
   if (Common)
     SelectionUsedRecovery.record(0, LanguageLabel); // unused.
-}
-
-SourceRange getSourceRange(const DynTypedNode &N) {
-  // MemberExprs to implicitly access anonymous fields should not claim any
-  // tokens for themselves. Given:
-  //   struct A { struct { int b; }; };
-  // The clang AST reports the following nodes for an access to b:
-  //   A().b;
-  //   [----] MemberExpr, base = A().<anonymous>, member = b
-  //   [----] MemberExpr: base = A(), member = <anonymous>
-  //   [-]    CXXConstructExpr
-  // For our purposes, we don't want the second MemberExpr to own any tokens,
-  // so we reduce its range to match the CXXConstructExpr.
-  // (It's not clear that changing the clang AST would be correct in general).
-  if (const auto *ME = N.get<MemberExpr>()) {
-    if (!ME->getMemberDecl()->getDeclName())
-      return ME->getBase()
-                 ? getSourceRange(DynTypedNode::create(*ME->getBase()))
-                 : SourceRange();
-  }
-  return N.getSourceRange();
 }
 
 // An IntervalSet maintains a set of disjoint subranges of an array.
@@ -491,6 +469,7 @@ public:
   // Two categories of nodes are not "well-behaved":
   //  - those without source range information, we don't record those
   //  - those that can't be stored in DynTypedNode.
+  // We're missing some interesting things like Attr due to the latter.
   bool TraverseDecl(Decl *X) {
     if (X && isa<TranslationUnitDecl>(X))
       return Base::TraverseDecl(X); // Already pushed by constructor.
@@ -516,9 +495,6 @@ public:
   }
   bool TraverseCXXBaseSpecifier(const CXXBaseSpecifier &X) {
     return traverseNode(&X, [&] { return Base::TraverseCXXBaseSpecifier(X); });
-  }
-  bool TraverseAttr(Attr *X) {
-    return traverseNode(X, [&] { return Base::TraverseAttr(X); });
   }
   // Stmt is the same, but this form allows the data recursion optimization.
   bool dataTraverseStmtPre(Stmt *X) {
@@ -632,7 +608,7 @@ private:
   // An optimization for a common case: nodes outside macro expansions that
   // don't intersect the selection may be recursively skipped.
   bool canSafelySkipNode(const DynTypedNode &N) {
-    SourceRange S = getSourceRange(N);
+    SourceRange S = N.getSourceRange();
     if (auto *TL = N.get<TypeLoc>()) {
       // FIXME: TypeLoc::getBeginLoc()/getEndLoc() are pretty fragile
       // heuristics. We should consider only pruning critical TypeLoc nodes, to
@@ -654,11 +630,6 @@ private:
       if (auto AT = TL->getAs<AttributedTypeLoc>())
         S = AT.getModifiedLoc().getSourceRange();
     }
-    // SourceRange often doesn't manage to accurately cover attributes.
-    // Fortunately, attributes are rare.
-    if (llvm::any_of(getAttributes(N),
-                     [](const Attr *A) { return !A->isImplicit(); }))
-      return false;
     if (!SelChecker.mayHit(S)) {
       dlog("{1}skip: {0}", printNodeToString(N, PrintPolicy), indent());
       dlog("{1}skipped range = {0}", S.printToString(SM), indent(1));
@@ -694,7 +665,7 @@ private:
   void pop() {
     Node &N = *Stack.top();
     dlog("{1}pop: {0}", printNodeToString(N.ASTNode, PrintPolicy), indent(-1));
-    claimRange(getSourceRange(N.ASTNode), N.Selected);
+    claimRange(N.ASTNode.getSourceRange(), N.Selected);
     if (N.Selected == NoTokens)
       N.Selected = SelectionTree::Unselected;
     if (N.Selected || !N.Children.empty()) {
@@ -779,7 +750,8 @@ llvm::SmallString<256> abbreviatedString(DynTypedNode N,
   }
   auto Pos = Result.find('\n');
   if (Pos != llvm::StringRef::npos) {
-    bool MoreText = !llvm::all_of(Result.str().drop_front(Pos), llvm::isSpace);
+    bool MoreText =
+        !llvm::all_of(llvm::StringRef(Result).drop_front(Pos), llvm::isSpace);
     Result.resize(Pos);
     if (MoreText)
       Result.append(" …");
@@ -896,13 +868,13 @@ const DeclContext &SelectionTree::Node::getDeclContext() const {
 
 const SelectionTree::Node &SelectionTree::Node::ignoreImplicit() const {
   if (Children.size() == 1 &&
-      getSourceRange(Children.front()->ASTNode) == getSourceRange(ASTNode))
+      Children.front()->ASTNode.getSourceRange() == ASTNode.getSourceRange())
     return Children.front()->ignoreImplicit();
   return *this;
 }
 
 const SelectionTree::Node &SelectionTree::Node::outerImplicit() const {
-  if (Parent && getSourceRange(Parent->ASTNode) == getSourceRange(ASTNode))
+  if (Parent && Parent->ASTNode.getSourceRange() == ASTNode.getSourceRange())
     return Parent->outerImplicit();
   return *this;
 }

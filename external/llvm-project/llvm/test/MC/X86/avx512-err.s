@@ -20,6 +20,3 @@ vpmuld %xmm1, %xmm2, %xmm3
 
 // ERR: invalid instruction mnemonic 'maskmov'
 maskmov %mm1, %mm2
-
-// ERR: invalid instruction mnemonic 'cmpeqsh'
-cmpeqsh %xmm2, %xmm1, %k0

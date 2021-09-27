@@ -14,9 +14,9 @@
 
 namespace Fortran::runtime {
 
-#if FLANG_BIG_ENDIAN
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 constexpr bool isHostLittleEndian{false};
-#elif FLANG_LITTLE_ENDIAN
+#elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 constexpr bool isHostLittleEndian{true};
 #else
 #error host endianness is not known

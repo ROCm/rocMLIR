@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 ! C716 If both kind-param and exponent-letter appear, exponent-letter 
 ! shall be E.
 ! C717 The value of kind-param shall specify an approximation method that 

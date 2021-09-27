@@ -14,8 +14,9 @@
 #include "AArch64ExpandImm.h"
 #include "MCTargetDesc/AArch64AddressingModes.h"
 
-using namespace llvm;
-using namespace llvm::AArch64_IMM;
+namespace llvm {
+
+namespace AArch64_IMM {
 
 /// Helper function which extracts the specified 16-bit chunk from a
 /// 64-bit value.
@@ -301,8 +302,8 @@ static inline void expandMOVImmSimple(uint64_t Imm, unsigned BitSize,
 
 /// Expand a MOVi32imm or MOVi64imm pseudo instruction to one or more
 /// real move-immediate instructions to synthesize the immediate.
-void AArch64_IMM::expandMOVImm(uint64_t Imm, unsigned BitSize,
-                               SmallVectorImpl<ImmInsnModel> &Insn) {
+void expandMOVImm(uint64_t Imm, unsigned BitSize,
+		  SmallVectorImpl<ImmInsnModel> &Insn) {
   const unsigned Mask = 0xFFFF;
 
   // Scan the immediate and count the number of 16-bit chunks which are either
@@ -404,3 +405,7 @@ void AArch64_IMM::expandMOVImm(uint64_t Imm, unsigned BitSize,
   // four-instruction sequence.
   expandMOVImmSimple(Imm, BitSize, OneChunks, ZeroChunks, Insn);
 }
+
+} // end namespace AArch64_AM
+
+} // end namespace llvm

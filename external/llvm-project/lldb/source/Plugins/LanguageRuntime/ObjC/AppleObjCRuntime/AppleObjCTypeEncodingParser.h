@@ -9,11 +9,11 @@
 #ifndef LLDB_SOURCE_PLUGINS_LANGUAGERUNTIME_OBJC_APPLEOBJCRUNTIME_APPLEOBJCTYPEENCODINGPARSER_H
 #define LLDB_SOURCE_PLUGINS_LANGUAGERUNTIME_OBJC_APPLEOBJCRUNTIME_APPLEOBJCTYPEENCODINGPARSER_H
 
-#include "Plugins/Language/ObjC/ObjCConstants.h"
-#include "Plugins/LanguageRuntime/ObjC/ObjCLanguageRuntime.h"
+#include "clang/AST/ASTContext.h"
+
 #include "lldb/lldb-private.h"
 
-#include "clang/AST/ASTContext.h"
+#include "Plugins/LanguageRuntime/ObjC/ObjCLanguageRuntime.h"
 
 namespace lldb_private {
 class StringLexer;
@@ -29,7 +29,7 @@ private:
   struct StructElement {
     std::string name;
     clang::QualType type;
-    uint32_t bitfield = 0;
+    uint32_t bitfield;
 
     StructElement();
     ~StructElement() = default;

@@ -39,7 +39,6 @@ public:
   const uint16_t RegsSize;
   const uint16_t RegSetSize;
   const uint16_t ID;
-  const uint16_t RegSizeInBits;
   const int8_t CopyCost;
   const bool Allocatable;
 
@@ -78,12 +77,6 @@ public:
   bool contains(MCRegister Reg1, MCRegister Reg2) const {
     return contains(Reg1) && contains(Reg2);
   }
-
-  /// Return the size of the physical register in bits if we are able to
-  /// determine it. This always returns zero for registers of targets that use
-  /// HW modes, as we need more information to determine the size of registers
-  /// in such cases. Use TargetRegisterInfo to cover them.
-  unsigned getSizeInBits() const { return RegSizeInBits; }
 
   /// getCopyCost - Return the cost of copying a value between two registers in
   /// this class. A negative number means the register class is very expensive

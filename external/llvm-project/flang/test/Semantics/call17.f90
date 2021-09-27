@@ -1,4 +1,4 @@
-! RUN: %flang_fc1 -fsyntax-only %s 2>&1 | FileCheck %s --allow-empty
+! RUN: %f18 -fsyntax-only $s 2>&1 | FileCheck %s
 
 ! Regression test: don't emit a bogus error about an invalid specification expression
 ! in the declaration of a binding

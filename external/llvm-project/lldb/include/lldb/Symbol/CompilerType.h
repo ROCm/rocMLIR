@@ -71,12 +71,10 @@ public:
 
   bool IsValid() const { return m_type != nullptr && m_type_system != nullptr; }
 
-  bool IsArrayType(CompilerType *element_type = nullptr,
-                   uint64_t *size = nullptr,
-                   bool *is_incomplete = nullptr) const;
+  bool IsArrayType(CompilerType *element_type, uint64_t *size,
+                   bool *is_incomplete) const;
 
-  bool IsVectorType(CompilerType *element_type = nullptr,
-                    uint64_t *size = nullptr) const;
+  bool IsVectorType(CompilerType *element_type, uint64_t *size) const;
 
   bool IsArrayOfScalarType() const;
 
@@ -112,8 +110,7 @@ public:
 
   bool IsFunctionPointerType() const;
 
-  bool
-  IsBlockPointerType(CompilerType *function_pointer_type_ptr = nullptr) const;
+  bool IsBlockPointerType(CompilerType *function_pointer_type_ptr) const;
 
   bool IsIntegerType(bool &is_signed) const;
 

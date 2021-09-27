@@ -15,8 +15,6 @@
 using namespace clang;
 using namespace clang::serialization;
 
-char TestModuleFileExtension::ID = 0;
-
 TestModuleFileExtension::Writer::~Writer() { }
 
 void TestModuleFileExtension::Writer::writeExtensionContents(
@@ -93,14 +91,16 @@ TestModuleFileExtension::getExtensionMetadata() const {
   return { BlockName, MajorVersion, MinorVersion, UserInfo };
 }
 
-void TestModuleFileExtension::hashExtension(
-    ExtensionHashBuilder &HBuilder) const {
+llvm::hash_code TestModuleFileExtension::hashExtension(
+                  llvm::hash_code Code) const {
   if (Hashed) {
-    HBuilder.add(BlockName);
-    HBuilder.add(MajorVersion);
-    HBuilder.add(MinorVersion);
-    HBuilder.add(UserInfo);
+    Code = llvm::hash_combine(Code, BlockName);
+    Code = llvm::hash_combine(Code, MajorVersion);
+    Code = llvm::hash_combine(Code, MinorVersion);
+    Code = llvm::hash_combine(Code, UserInfo);
   }
+
+  return Code;
 }
 
 std::unique_ptr<ModuleFileExtensionWriter>
@@ -126,12 +126,4 @@ TestModuleFileExtension::createExtensionReader(
 
   return std::unique_ptr<ModuleFileExtensionReader>(
                                                     new TestModuleFileExtension::Reader(this, Stream));
-}
-
-std::string TestModuleFileExtension::str() const {
-  std::string Buffer;
-  llvm::raw_string_ostream OS(Buffer);
-  OS << BlockName << ":" << MajorVersion << ":" << MinorVersion << ":" << Hashed
-     << ":" << UserInfo;
-  return OS.str();
 }

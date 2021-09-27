@@ -33,7 +33,7 @@ def main():
   parser.add_argument(
       '--no_x86_scrub_sp', action='store_false', dest='x86_scrub_sp')
   parser.add_argument(
-      '--x86_scrub_rip', action='store_true', default=False,
+      '--x86_scrub_rip', action='store_true', default=True,
       help='Use more regex for x86 rip matching to reduce diffs between various subtargets')
   parser.add_argument(
       '--no_x86_scrub_rip', action='store_false', dest='x86_scrub_rip')
@@ -60,13 +60,8 @@ def main():
         common.warn('Skipping unparseable RUN line: ' + l)
         continue
 
-      commands = [cmd.strip() for cmd in l.split('|')]
-      assert len(commands) >= 2
-      preprocess_cmd = None
-      if len(commands) > 2:
-        preprocess_cmd = " | ".join(commands[:-2])
-      llc_cmd = commands[-2]
-      filecheck_cmd = commands[-1]
+      commands = [cmd.strip() for cmd in l.split('|', 1)]
+      llc_cmd = commands[0]
       llc_tool = llc_cmd.split(' ')[0]
 
       triple_in_cmd = None
@@ -79,6 +74,9 @@ def main():
       if m:
         march_in_cmd = m.groups()[0]
 
+      filecheck_cmd = ''
+      if len(commands) > 1:
+        filecheck_cmd = commands[1]
       common.verify_filecheck_prefixes(filecheck_cmd)
       if llc_tool not in LLC_LIKE_TOOLS:
         common.warn('Skipping non-llc RUN line: ' + l)
@@ -99,8 +97,7 @@ def main():
 
       # FIXME: We should use multiple check prefixes to common check lines. For
       # now, we just ignore all but the last.
-      run_list.append((check_prefixes, llc_tool, llc_cmd_args, preprocess_cmd,
-                       triple_in_cmd, march_in_cmd))
+      run_list.append((check_prefixes, llc_cmd_args, triple_in_cmd, march_in_cmd))
 
     if ti.path.endswith('.mir'):
       check_indent = '  '
@@ -108,28 +105,25 @@ def main():
       check_indent = ''
 
     builder = common.FunctionTestBuilder(
-        run_list=run_list,
+        run_list=run_list, 
         flags=type('', (object,), {
             'verbose': ti.args.verbose,
             'function_signature': False,
-            'check_attributes': False,
-            'replace_value_regex': []}),
-        scrubber_args=[ti.args],
-        path=ti.path)
+            'check_attributes': False}),
+        scrubber_args=[ti.args])
 
-    for prefixes, llc_tool, llc_args, preprocess_cmd, triple_in_cmd, march_in_cmd in run_list:
+    for prefixes, llc_args, triple_in_cmd, march_in_cmd in run_list:
       common.debug('Extracted LLC cmd:', llc_tool, llc_args)
       common.debug('Extracted FileCheck prefixes:', str(prefixes))
 
       raw_tool_output = common.invoke_tool(ti.args.llc_binary or llc_tool,
-                                           llc_args, ti.path, preprocess_cmd,
-                                           verbose=ti.args.verbose)
+                                           llc_args, ti.path)
       triple = triple_in_cmd or triple_in_ir
       if not triple:
         triple = asm.get_triple_from_march(march_in_cmd)
 
       scrubber, function_re = asm.get_run_handler(triple)
-      builder.process_run_line(function_re, scrubber, raw_tool_output, prefixes, True)
+      builder.process_run_line(function_re, scrubber, raw_tool_output, prefixes)
 
     func_dict = builder.finish_and_get_func_dict()
 

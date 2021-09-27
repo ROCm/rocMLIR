@@ -6,8 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-// ADDITIONAL_COMPILE_FLAGS: -D_LIBCPP_DISABLE_DEPRECATION_WARNINGS
-
 // UNSUPPORTED: c++03, c++11
 
 // <functional>
@@ -35,10 +33,8 @@ void
 test()
 {
     typedef std::hash<T> H;
-#if TEST_STD_VER <= 17
-    static_assert((std::is_same<typename H::argument_type, T>::value), "");
-    static_assert((std::is_same<typename H::result_type, std::size_t>::value), "");
-#endif
+    static_assert((std::is_same<typename H::argument_type, T>::value), "" );
+    static_assert((std::is_same<typename H::result_type, std::size_t>::value), "" );
     ASSERT_NOEXCEPT(H()(T()));
     typedef typename std::underlying_type<T>::type under_type;
 

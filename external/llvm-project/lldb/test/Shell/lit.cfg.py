@@ -36,16 +36,12 @@ config.excludes = ['Inputs', 'CMakeLists.txt', 'README.txt', 'LICENSE.txt']
 config.test_source_root = os.path.dirname(__file__)
 
 # test_exec_root: The root path where tests should be run.
-config.test_exec_root = os.path.join(config.lldb_obj_root, 'test', 'Shell')
+config.test_exec_root = os.path.join(config.lldb_obj_root, 'test')
 
-# Propagate environment vars.
-llvm_config.with_system_environment([
-    'FREEBSD_LEGACY_PLUGIN',
-    'HOME',
-    'TEMP',
-    'TMP',
-    'XDG_CACHE_HOME',
-])
+# Propagate reproducer environment vars.
+if 'LLDB_CAPTURE_REPRODUCER' in os.environ:
+  config.environment['LLDB_CAPTURE_REPRODUCER'] = os.environ[
+      'LLDB_CAPTURE_REPRODUCER']
 
 # Support running the test suite under the lldb-repro wrapper. This makes it
 # possible to capture a test suite run and then rerun all the test from the
@@ -141,5 +137,5 @@ if platform.system() == 'NetBSD' and os.geteuid() != 0:
 if can_set_dbregs:
     config.available_features.add('dbregs-set')
 
-if 'LD_PRELOAD' in os.environ:
-    config.available_features.add('ld_preload-present')
+# pass control variable through
+llvm_config.with_system_environment('FREEBSD_LEGACY_PLUGIN')

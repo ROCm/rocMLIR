@@ -79,23 +79,7 @@ class UnresolvedSetImpl;
 class VarTemplateDecl;
 
 /// The top declaration context.
-class TranslationUnitDecl : public Decl,
-                            public DeclContext,
-                            public Redeclarable<TranslationUnitDecl> {
-  using redeclarable_base = Redeclarable<TranslationUnitDecl>;
-
-  TranslationUnitDecl *getNextRedeclarationImpl() override {
-    return getNextRedeclaration();
-  }
-
-  TranslationUnitDecl *getPreviousDeclImpl() override {
-    return getPreviousDecl();
-  }
-
-  TranslationUnitDecl *getMostRecentDeclImpl() override {
-    return getMostRecentDecl();
-  }
-
+class TranslationUnitDecl : public Decl, public DeclContext {
   ASTContext &Ctx;
 
   /// The (most recently entered) anonymous namespace for this
@@ -107,16 +91,6 @@ class TranslationUnitDecl : public Decl,
   virtual void anchor();
 
 public:
-  using redecl_range = redeclarable_base::redecl_range;
-  using redecl_iterator = redeclarable_base::redecl_iterator;
-
-  using redeclarable_base::getMostRecentDecl;
-  using redeclarable_base::getPreviousDecl;
-  using redeclarable_base::isFirstDecl;
-  using redeclarable_base::redecls;
-  using redeclarable_base::redecls_begin;
-  using redeclarable_base::redecls_end;
-
   ASTContext &getASTContext() const { return Ctx; }
 
   NamespaceDecl *getAnonymousNamespace() const { return AnonymousNamespace; }
@@ -382,10 +356,6 @@ public:
   /// a C++ class.
   bool isCXXInstanceMember() const;
 
-  /// Determine if the declaration obeys the reserved identifier rules of the
-  /// given language.
-  ReservedIdentifierStatus isReserved(const LangOptions &LangOpts) const;
-
   /// Determine what kind of linkage this entity has.
   ///
   /// This is not the linkage as defined by the standard or the codegen notion
@@ -607,18 +577,6 @@ public:
   /// Set whether this is an inline namespace declaration.
   void setInline(bool Inline) {
     AnonOrFirstNamespaceAndInline.setInt(Inline);
-  }
-
-  /// Returns true if the inline qualifier for \c Name is redundant.
-  bool isRedundantInlineQualifierFor(DeclarationName Name) const {
-    if (!isInline())
-      return false;
-    auto X = lookup(Name);
-    // We should not perform a lookup within a transparent context, so find a
-    // non-transparent parent context.
-    auto Y = getParent()->getNonTransparentContext()->lookup(Name);
-    return std::distance(X.begin(), X.end()) ==
-      std::distance(Y.begin(), Y.end());
   }
 
   /// Get the original (first) namespace declaration.
@@ -1522,9 +1480,6 @@ public:
     NonParmVarDeclBits.EscapingByref = true;
   }
 
-  /// Determines if this variable's alignment is dependent.
-  bool hasDependentAlignment() const;
-
   /// Retrieve the variable declaration from which this variable could
   /// be instantiated, if it is an instantiation (rather than a non-template).
   VarDecl *getTemplateInstantiationPattern() const;
@@ -1992,8 +1947,8 @@ private:
 protected:
   FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC, SourceLocation StartLoc,
                const DeclarationNameInfo &NameInfo, QualType T,
-               TypeSourceInfo *TInfo, StorageClass S, bool UsesFPIntrin,
-               bool isInlineSpecified, ConstexprSpecKind ConstexprKind,
+               TypeSourceInfo *TInfo, StorageClass S, bool isInlineSpecified,
+               ConstexprSpecKind ConstexprKind,
                Expr *TrailingRequiresClause = nullptr);
 
   using redeclarable_base = Redeclarable<FunctionDecl>;
@@ -2027,23 +1982,23 @@ public:
   static FunctionDecl *
   Create(ASTContext &C, DeclContext *DC, SourceLocation StartLoc,
          SourceLocation NLoc, DeclarationName N, QualType T,
-         TypeSourceInfo *TInfo, StorageClass SC, bool UsesFPIntrin = false,
-         bool isInlineSpecified = false, bool hasWrittenPrototype = true,
+         TypeSourceInfo *TInfo, StorageClass SC, bool isInlineSpecified = false,
+         bool hasWrittenPrototype = true,
          ConstexprSpecKind ConstexprKind = ConstexprSpecKind::Unspecified,
          Expr *TrailingRequiresClause = nullptr) {
     DeclarationNameInfo NameInfo(N, NLoc);
     return FunctionDecl::Create(C, DC, StartLoc, NameInfo, T, TInfo, SC,
-                                UsesFPIntrin, isInlineSpecified,
-                                hasWrittenPrototype, ConstexprKind,
-                                TrailingRequiresClause);
+                                isInlineSpecified, hasWrittenPrototype,
+                                ConstexprKind, TrailingRequiresClause);
   }
 
-  static FunctionDecl *
-  Create(ASTContext &C, DeclContext *DC, SourceLocation StartLoc,
-         const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
-         StorageClass SC, bool UsesFPIntrin, bool isInlineSpecified,
-         bool hasWrittenPrototype, ConstexprSpecKind ConstexprKind,
-         Expr *TrailingRequiresClause);
+  static FunctionDecl *Create(ASTContext &C, DeclContext *DC,
+                              SourceLocation StartLoc,
+                              const DeclarationNameInfo &NameInfo, QualType T,
+                              TypeSourceInfo *TInfo, StorageClass SC,
+                              bool isInlineSpecified, bool hasWrittenPrototype,
+                              ConstexprSpecKind ConstexprKind,
+                              Expr *TrailingRequiresClause);
 
   static FunctionDecl *CreateDeserialized(ASTContext &C, unsigned ID);
 
@@ -2595,14 +2550,6 @@ public:
     FunctionDeclBits.IsInlineSpecified = I;
     FunctionDeclBits.IsInline = I;
   }
-
-  /// Determine whether the function was declared in source context
-  /// that requires constrained FP intrinsics
-  bool UsesFPIntrin() const { return FunctionDeclBits.UsesFPIntrin; }
-
-  /// Set whether the function was declared in source context
-  /// that requires constrained FP intrinsics
-  void setUsesFPIntrin(bool I) { FunctionDeclBits.UsesFPIntrin = I; }
 
   /// Flag that this function is implicitly inline.
   void setImplicitlyInline(bool I = true) { FunctionDeclBits.IsInline = I; }

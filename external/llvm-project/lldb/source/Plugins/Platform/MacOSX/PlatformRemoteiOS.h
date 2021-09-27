@@ -41,6 +41,8 @@ public:
     return GetPluginNameStatic();
   }
 
+  uint32_t GetPluginVersion() override { return 1; }
+
   bool GetSupportedArchitectureAtIndex(uint32_t idx,
                                        lldb_private::ArchSpec &arch) override;
 

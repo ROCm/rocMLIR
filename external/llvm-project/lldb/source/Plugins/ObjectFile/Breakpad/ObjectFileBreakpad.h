@@ -46,6 +46,8 @@ public:
   // PluginInterface protocol
   ConstString GetPluginName() override { return GetPluginNameStatic(); }
 
+  uint32_t GetPluginVersion() override { return 1; }
+
   // LLVM RTTI support
   static char ID;
   bool isA(const void *ClassID) const override {

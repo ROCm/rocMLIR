@@ -15,7 +15,16 @@
 
 namespace llvm {
 
+class FunctionPass;
+class GCNTargetMachine;
+class ImmutablePass;
+class ModulePass;
+class Pass;
+class Target;
 class TargetMachine;
+class TargetOptions;
+class PassRegistry;
+class Module;
 
 // GlobalISel passes
 void initializeAMDGPUPreLegalizerCombinerPass(PassRegistry &);
@@ -25,18 +34,28 @@ FunctionPass *createAMDGPUPostLegalizeCombiner(bool IsOptNone);
 FunctionPass *createAMDGPURegBankCombiner(bool IsOptNone);
 void initializeAMDGPURegBankCombinerPass(PassRegistry &);
 
+// R600 Passes
+FunctionPass *createR600VectorRegMerger();
+FunctionPass *createR600ExpandSpecialInstrsPass();
+FunctionPass *createR600EmitClauseMarkers();
+FunctionPass *createR600ClauseMergePass();
+FunctionPass *createR600Packetizer();
+FunctionPass *createR600ControlFlowFinalizer();
+FunctionPass *createAMDGPUCFGStructurizerPass();
+FunctionPass *createR600ISelDag(TargetMachine *TM, CodeGenOpt::Level OptLevel);
+
 // SI Passes
 FunctionPass *createGCNDPPCombinePass();
 FunctionPass *createSIAnnotateControlFlowPass();
 FunctionPass *createSIFoldOperandsPass();
 FunctionPass *createSIPeepholeSDWAPass();
 FunctionPass *createSILowerI1CopiesPass();
+FunctionPass *createSIAddIMGInitPass();
 FunctionPass *createSIShrinkInstructionsPass();
 FunctionPass *createSILoadStoreOptimizerPass();
 FunctionPass *createSIWholeQuadModePass();
 FunctionPass *createSIFixControlFlowLiveIntervalsPass();
 FunctionPass *createSIOptimizeExecMaskingPreRAPass();
-FunctionPass *createSIOptimizeVGPRLiveRangePass();
 FunctionPass *createSIFixSGPRCopiesPass();
 FunctionPass *createSIMemoryLegalizerPass();
 FunctionPass *createSIInsertWaitcntsPass();
@@ -52,10 +71,7 @@ FunctionPass *createAMDGPUMachineCFGStructurizerPass();
 FunctionPass *createAMDGPUPropagateAttributesEarlyPass(const TargetMachine *);
 ModulePass *createAMDGPUPropagateAttributesLatePass(const TargetMachine *);
 FunctionPass *createAMDGPURewriteOutArgumentsPass();
-ModulePass *createAMDGPUReplaceLDSUseWithPointerPass();
-ModulePass *createAMDGPULowerModuleLDSPass();
 FunctionPass *createSIModeRegisterPass();
-FunctionPass *createGCNPreRAOptimizationsPass();
 
 struct AMDGPUSimplifyLibCallsPass : PassInfoMixin<AMDGPUSimplifyLibCallsPass> {
   AMDGPUSimplifyLibCallsPass(TargetMachine &TM) : TM(TM) {}
@@ -77,8 +93,6 @@ extern char &AMDGPUMachineCFGStructurizerID;
 void initializeAMDGPUAlwaysInlinePass(PassRegistry&);
 
 Pass *createAMDGPUAnnotateKernelFeaturesPass();
-Pass *createAMDGPUAttributorPass();
-void initializeAMDGPUAttributorPass(PassRegistry &);
 void initializeAMDGPUAnnotateKernelFeaturesPass(PassRegistry &);
 extern char &AMDGPUAnnotateKernelFeaturesID;
 
@@ -93,10 +107,6 @@ extern char &AMDGPULowerIntrinsicsID;
 ModulePass *createAMDGPUFixFunctionBitcastsPass();
 void initializeAMDGPUFixFunctionBitcastsPass(PassRegistry &);
 extern char &AMDGPUFixFunctionBitcastsID;
-
-ModulePass *createAMDGPUCtorDtorLoweringPass();
-void initializeAMDGPUCtorDtorLoweringPass(PassRegistry &);
-extern char &AMDGPUCtorDtorLoweringID;
 
 FunctionPass *createAMDGPULowerKernelArgumentsPass();
 void initializeAMDGPULowerKernelArgumentsPass(PassRegistry &);
@@ -135,26 +145,26 @@ private:
   TargetMachine &TM;
 };
 
-void initializeAMDGPUReplaceLDSUseWithPointerPass(PassRegistry &);
-extern char &AMDGPUReplaceLDSUseWithPointerID;
-
-struct AMDGPUReplaceLDSUseWithPointerPass
-    : PassInfoMixin<AMDGPUReplaceLDSUseWithPointerPass> {
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
-};
-
-void initializeAMDGPULowerModuleLDSPass(PassRegistry &);
-extern char &AMDGPULowerModuleLDSID;
-
-struct AMDGPULowerModuleLDSPass : PassInfoMixin<AMDGPULowerModuleLDSPass> {
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
-};
-
 void initializeAMDGPURewriteOutArgumentsPass(PassRegistry &);
 extern char &AMDGPURewriteOutArgumentsID;
 
 void initializeGCNDPPCombinePass(PassRegistry &);
 extern char &GCNDPPCombineID;
+
+void initializeR600ClauseMergePassPass(PassRegistry &);
+extern char &R600ClauseMergePassID;
+
+void initializeR600ControlFlowFinalizerPass(PassRegistry &);
+extern char &R600ControlFlowFinalizerID;
+
+void initializeR600ExpandSpecialInstrsPassPass(PassRegistry &);
+extern char &R600ExpandSpecialInstrsPassID;
+
+void initializeR600VectorRegMergerPass(PassRegistry &);
+extern char &R600VectorRegMergerID;
+
+void initializeR600PacketizerPass(PassRegistry &);
+extern char &R600PacketizerID;
 
 void initializeSIFoldOperandsPass(PassRegistry &);
 extern char &SIFoldOperandsID;
@@ -186,11 +196,14 @@ extern char &SIWholeQuadModeID;
 void initializeSILowerControlFlowPass(PassRegistry &);
 extern char &SILowerControlFlowID;
 
+void initializeSIRemoveShortExecBranchesPass(PassRegistry &);
+extern char &SIRemoveShortExecBranchesID;
+
 void initializeSIPreEmitPeepholePass(PassRegistry &);
 extern char &SIPreEmitPeepholeID;
 
-void initializeSILateBranchLoweringPass(PassRegistry &);
-extern char &SILateBranchLoweringPassID;
+void initializeSIInsertSkipsPass(PassRegistry &);
+extern char &SIInsertSkipsPassID;
 
 void initializeSIOptimizeExecMaskingPass(PassRegistry &);
 extern char &SIOptimizeExecMaskingID;
@@ -203,6 +216,9 @@ extern char &AMDGPUSimplifyLibCallsID;
 
 void initializeAMDGPUUseNativeCallsPass(PassRegistry &);
 extern char &AMDGPUUseNativeCallsID;
+
+void initializeSIAddIMGInitPass(PassRegistry &);
+extern char &SIAddIMGInitID;
 
 void initializeAMDGPUPerfHintAnalysisPass(PassRegistry &);
 extern char &AMDGPUPerfHintAnalysisID;
@@ -247,14 +263,12 @@ private:
   bool GlobalOpt;
 };
 
+ModulePass *createR600OpenCLImageTypeLoweringPass();
 FunctionPass *createAMDGPUAnnotateUniformValues();
 
 ModulePass *createAMDGPUPrintfRuntimeBinding();
 void initializeAMDGPUPrintfRuntimeBindingPass(PassRegistry&);
 extern char &AMDGPUPrintfRuntimeBindingID;
-
-void initializeAMDGPUResourceUsageAnalysisPass(PassRegistry &);
-extern char &AMDGPUResourceUsageAnalysisID;
 
 struct AMDGPUPrintfRuntimeBindingPass
     : PassInfoMixin<AMDGPUPrintfRuntimeBindingPass> {
@@ -271,9 +285,6 @@ struct AMDGPUUnifyMetadataPass : PassInfoMixin<AMDGPUUnifyMetadataPass> {
 
 void initializeSIOptimizeExecMaskingPreRAPass(PassRegistry&);
 extern char &SIOptimizeExecMaskingPreRAID;
-
-void initializeSIOptimizeVGPRLiveRangePass(PassRegistry &);
-extern char &SIOptimizeVGPRLiveRangeID;
 
 void initializeAMDGPUAnnotateUniformValuesPass(PassRegistry&);
 extern char &AMDGPUAnnotateUniformValuesPassID;
@@ -319,11 +330,11 @@ ModulePass *createAMDGPUOpenCLEnqueuedBlockLoweringPass();
 void initializeAMDGPUOpenCLEnqueuedBlockLoweringPass(PassRegistry &);
 extern char &AMDGPUOpenCLEnqueuedBlockLoweringID;
 
+void initializeGCNRegBankReassignPass(PassRegistry &);
+extern char &GCNRegBankReassignID;
+
 void initializeGCNNSAReassignPass(PassRegistry &);
 extern char &GCNNSAReassignID;
-
-void initializeGCNPreRAOptimizationsPass(PassRegistry &);
-extern char &GCNPreRAOptimizationsID;
 
 namespace AMDGPU {
 enum TargetIndex {
@@ -358,9 +369,9 @@ namespace AMDGPUAS {
 
     BUFFER_FAT_POINTER = 7, ///< Address space for 160-bit buffer fat pointers.
 
-    /// Address space for direct addressable parameter memory (CONST0).
+    /// Address space for direct addressible parameter memory (CONST0).
     PARAM_D_ADDRESS = 6,
-    /// Address space for indirect addressable parameter memory (VTX1).
+    /// Address space for indirect addressible parameter memory (VTX1).
     PARAM_I_ADDRESS = 7,
 
     // Do not re-order the CONSTANT_BUFFER_* enums.  Several places depend on

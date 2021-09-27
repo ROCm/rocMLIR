@@ -65,7 +65,7 @@ TEST(ThreadSanitizer, WriteThenRead) {
 }
 
 TEST(ThreadSanitizer, WriteThenLockedRead) {
-  UserMutex m(UserMutex::RW);
+  Mutex m(Mutex::RW);
   MainThread t0;
   t0.Create(m);
   MemLoc l;
@@ -84,7 +84,7 @@ TEST(ThreadSanitizer, WriteThenLockedRead) {
 }
 
 TEST(ThreadSanitizer, LockedWriteThenRead) {
-  UserMutex m(UserMutex::RW);
+  Mutex m(Mutex::RW);
   MainThread t0;
   t0.Create(m);
   MemLoc l;

@@ -8,7 +8,6 @@
 
 #include "mlir/Transforms/Bufferize.h"
 #include "PassDetail.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Shape/Transforms/Passes.h"
 #include "mlir/Pass/Pass.h"
 
@@ -19,13 +18,13 @@ struct ShapeBufferizePass : public ShapeBufferizeBase<ShapeBufferizePass> {
   void runOnFunction() override {
     MLIRContext &ctx = getContext();
 
-    RewritePatternSet patterns(&ctx);
+    OwningRewritePatternList patterns;
     BufferizeTypeConverter typeConverter;
-    ConversionTarget target(ctx);
+    ConversionTarget target(getContext());
 
     populateBufferizeMaterializationLegality(target);
-    populateShapeStructuralTypeConversionsAndLegality(typeConverter, patterns,
-                                                      target);
+    populateShapeStructuralTypeConversionsAndLegality(&ctx, typeConverter,
+                                                      patterns, target);
 
     if (failed(
             applyPartialConversion(getFunction(), target, std::move(patterns))))

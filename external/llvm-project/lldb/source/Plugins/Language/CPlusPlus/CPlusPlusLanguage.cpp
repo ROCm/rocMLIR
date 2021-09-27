@@ -59,45 +59,13 @@ lldb_private::ConstString CPlusPlusLanguage::GetPluginNameStatic() {
   return g_name;
 }
 
-bool CPlusPlusLanguage::SymbolNameFitsToLanguage(Mangled mangled) const {
-  const char *mangled_name = mangled.GetMangledName().GetCString();
-  return mangled_name && CPlusPlusLanguage::IsCPPMangledName(mangled_name);
-}
-
-ConstString CPlusPlusLanguage::GetDemangledFunctionNameWithoutArguments(
-    Mangled mangled) const {
-  const char *mangled_name_cstr = mangled.GetMangledName().GetCString();
-  ConstString demangled_name = mangled.GetDemangledName();
-  if (demangled_name && mangled_name_cstr && mangled_name_cstr[0]) {
-    if (mangled_name_cstr[0] == '_' && mangled_name_cstr[1] == 'Z' &&
-        (mangled_name_cstr[2] != 'T' && // avoid virtual table, VTT structure,
-                                        // typeinfo structure, and typeinfo
-                                        // mangled_name
-         mangled_name_cstr[2] != 'G' && // avoid guard variables
-         mangled_name_cstr[2] != 'Z'))  // named local entities (if we
-                                        // eventually handle eSymbolTypeData,
-                                        // we will want this back)
-    {
-      CPlusPlusLanguage::MethodName cxx_method(demangled_name);
-      if (!cxx_method.GetBasename().empty()) {
-        std::string shortname;
-        if (!cxx_method.GetContext().empty())
-          shortname = cxx_method.GetContext().str() + "::";
-        shortname += cxx_method.GetBasename().str();
-        return ConstString(shortname);
-      }
-    }
-  }
-  if (demangled_name)
-    return demangled_name;
-  return mangled.GetMangledName();
-}
-
 // PluginInterface protocol
 
 lldb_private::ConstString CPlusPlusLanguage::GetPluginName() {
   return GetPluginNameStatic();
 }
+
+uint32_t CPlusPlusLanguage::GetPluginVersion() { return 1; }
 
 // Static Functions
 
@@ -424,10 +392,9 @@ public:
 };
 } // namespace
 
-std::vector<ConstString> CPlusPlusLanguage::GenerateAlternateFunctionManglings(
-    const ConstString mangled_name) const {
-  std::vector<ConstString> alternates;
-
+uint32_t CPlusPlusLanguage::FindAlternateFunctionManglings(
+    const ConstString mangled_name, std::set<ConstString> &alternates) {
+  const auto start_size = alternates.size();
   /// Get a basic set of alternative manglings for the given symbol `name`, by
   /// making a few basic possible substitutions on basic types, storage duration
   /// and `const`ness for the given symbol. The output parameter `alternates`
@@ -440,7 +407,7 @@ std::vector<ConstString> CPlusPlusLanguage::GenerateAlternateFunctionManglings(
       strncmp(mangled_name.GetCString(), "_ZNK", 4)) {
     std::string fixed_scratch("_ZNK");
     fixed_scratch.append(mangled_name.GetCString() + 3);
-    alternates.push_back(ConstString(fixed_scratch));
+    alternates.insert(ConstString(fixed_scratch));
   }
 
   // Maybe we're looking for a static symbol but we thought it was global...
@@ -448,7 +415,7 @@ std::vector<ConstString> CPlusPlusLanguage::GenerateAlternateFunctionManglings(
       strncmp(mangled_name.GetCString(), "_ZL", 3)) {
     std::string fixed_scratch("_ZL");
     fixed_scratch.append(mangled_name.GetCString() + 2);
-    alternates.push_back(ConstString(fixed_scratch));
+    alternates.insert(ConstString(fixed_scratch));
   }
 
   TypeSubstitutor TS;
@@ -458,24 +425,24 @@ std::vector<ConstString> CPlusPlusLanguage::GenerateAlternateFunctionManglings(
   // parameter, try finding matches which have the general case 'c'.
   if (ConstString char_fixup =
           TS.substitute(mangled_name.GetStringRef(), "a", "c"))
-    alternates.push_back(char_fixup);
+    alternates.insert(char_fixup);
 
   // long long parameter mangling 'x', may actually just be a long 'l' argument
   if (ConstString long_fixup =
           TS.substitute(mangled_name.GetStringRef(), "x", "l"))
-    alternates.push_back(long_fixup);
+    alternates.insert(long_fixup);
 
   // unsigned long long parameter mangling 'y', may actually just be unsigned
   // long 'm' argument
   if (ConstString ulong_fixup =
           TS.substitute(mangled_name.GetStringRef(), "y", "m"))
-    alternates.push_back(ulong_fixup);
+    alternates.insert(ulong_fixup);
 
   if (ConstString ctor_fixup =
           CtorDtorSubstitutor().substitute(mangled_name.GetStringRef()))
-    alternates.push_back(ctor_fixup);
+    alternates.insert(ctor_fixup);
 
-  return alternates;
+  return alternates.size() - start_size;
 }
 
 static void LoadLibCxxFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
@@ -1087,7 +1054,7 @@ CPlusPlusLanguage::GetHardcodedSummaries() {
                       .SetSkipReferences(false),
                   lldb_private::formatters::VectorTypeSummaryProvider,
                   "vector_type pointer summary provider"));
-          if (valobj.GetCompilerType().IsVectorType()) {
+          if (valobj.GetCompilerType().IsVectorType(nullptr, nullptr)) {
             if (fmt_mgr.GetCategory(g_vectortypes)->IsEnabled())
               return formatter_sp;
           }
@@ -1107,7 +1074,7 @@ CPlusPlusLanguage::GetHardcodedSummaries() {
                       .SetSkipReferences(false),
                   lldb_private::formatters::BlockPointerSummaryProvider,
                   "block pointer summary provider"));
-          if (valobj.GetCompilerType().IsBlockPointerType()) {
+          if (valobj.GetCompilerType().IsBlockPointerType(nullptr)) {
             return formatter_sp;
           }
           return nullptr;
@@ -1137,7 +1104,7 @@ CPlusPlusLanguage::GetHardcodedSynthetics() {
                   .SetNonCacheable(true),
               "vector_type synthetic children",
               lldb_private::formatters::VectorTypeSyntheticFrontEndCreator));
-      if (valobj.GetCompilerType().IsVectorType()) {
+      if (valobj.GetCompilerType().IsVectorType(nullptr, nullptr)) {
         if (fmt_mgr.GetCategory(g_vectortypes)->IsEnabled())
           return formatter_sp;
       }
@@ -1156,7 +1123,7 @@ CPlusPlusLanguage::GetHardcodedSynthetics() {
                   .SetNonCacheable(true),
               "block pointer synthetic children",
               lldb_private::formatters::BlockPointerSyntheticFrontEndCreator));
-      if (valobj.GetCompilerType().IsBlockPointerType()) {
+      if (valobj.GetCompilerType().IsBlockPointerType(nullptr)) {
         return formatter_sp;
       }
       return nullptr;
@@ -1180,7 +1147,7 @@ bool CPlusPlusLanguage::IsSourceFile(llvm::StringRef file_path) const {
   const auto suffixes = {".cpp", ".cxx", ".c++", ".cc",  ".c",
                          ".h",   ".hh",  ".hpp", ".hxx", ".h++"};
   for (auto suffix : suffixes) {
-    if (file_path.endswith_insensitive(suffix))
+    if (file_path.endswith_lower(suffix))
       return true;
   }
 

@@ -100,7 +100,7 @@ struct OptionEnumValueElement {
 using OptionEnumValues = llvm::ArrayRef<OptionEnumValueElement>;
 
 struct OptionValidator {
-  virtual ~OptionValidator() = default;
+  virtual ~OptionValidator() {}
   virtual bool IsValid(Platform &platform,
                        const ExecutionContext &target) const = 0;
   virtual const char *ShortConditionString() const = 0;

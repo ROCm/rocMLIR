@@ -17,7 +17,6 @@ add_llvm_component_library(LLVMExecutionEngine
   Core
   MC
   Object
-  OrcTargetProcess
   RuntimeDyld
   Support
   Target

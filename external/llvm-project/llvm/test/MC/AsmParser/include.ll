@@ -1,5 +1,4 @@
 ; RUN: llc -I %p/Inputs -filetype asm -o - %s | FileCheck %s
-; UNSUPPORTED: -zos
 ; REQUIRES: default_triple
 
 module asm ".include \22module.x\22"

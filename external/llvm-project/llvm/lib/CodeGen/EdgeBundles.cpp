@@ -46,8 +46,9 @@ bool EdgeBundles::runOnMachineFunction(MachineFunction &mf) {
   for (const auto &MBB : *MF) {
     unsigned OutE = 2 * MBB.getNumber() + 1;
     // Join the outgoing bundle with the ingoing bundles of all successors.
-    for (const MachineBasicBlock *Succ : MBB.successors())
-      EC.join(OutE, 2 * Succ->getNumber());
+    for (MachineBasicBlock::const_succ_iterator SI = MBB.succ_begin(),
+           SE = MBB.succ_end(); SI != SE; ++SI)
+      EC.join(OutE, 2 * (*SI)->getNumber());
   }
   EC.compress();
   if (ViewEdgeBundles)
@@ -68,9 +69,9 @@ bool EdgeBundles::runOnMachineFunction(MachineFunction &mf) {
   return false;
 }
 
+/// Specialize WriteGraph, the standard implementation won't work.
 namespace llvm {
 
-/// Specialize WriteGraph, the standard implementation won't work.
 template<>
 raw_ostream &WriteGraph<>(raw_ostream &O, const EdgeBundles &G,
                           bool ShortNames,
@@ -85,9 +86,10 @@ raw_ostream &WriteGraph<>(raw_ostream &O, const EdgeBundles &G,
       << "\"\n"
       << "\t\"" << printMBBReference(MBB) << "\" -> " << G.getBundle(BB, true)
       << '\n';
-    for (const MachineBasicBlock *Succ : MBB.successors())
+    for (MachineBasicBlock::const_succ_iterator SI = MBB.succ_begin(),
+           SE = MBB.succ_end(); SI != SE; ++SI)
       O << "\t\"" << printMBBReference(MBB) << "\" -> \""
-        << printMBBReference(*Succ) << "\" [ color=lightgray ]\n";
+        << printMBBReference(**SI) << "\" [ color=lightgray ]\n";
   }
   O << "}\n";
   return O;

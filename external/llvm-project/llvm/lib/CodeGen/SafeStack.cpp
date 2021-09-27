@@ -373,13 +373,9 @@ bool SafeStack::IsSafeStackAlloca(const Value *AllocaPtr, uint64_t AllocaSize) {
 
 Value *SafeStack::getStackGuard(IRBuilder<> &IRB, Function &F) {
   Value *StackGuardVar = TL.getIRStackGuard(IRB);
-  Module *M = F.getParent();
-
-  if (!StackGuardVar) {
-    TL.insertSSPDeclarations(*M);
-    return IRB.CreateCall(Intrinsic::getDeclaration(M, Intrinsic::stackguard));
-  }
-
+  if (!StackGuardVar)
+    StackGuardVar =
+        F.getParent()->getOrInsertGlobal("__stack_chk_guard", StackPtrTy);
   return IRB.CreateLoad(StackPtrTy, StackGuardVar, "StackGuard");
 }
 
@@ -425,7 +421,8 @@ void SafeStack::findInsts(Function &F,
   for (Argument &Arg : F.args()) {
     if (!Arg.hasByValAttr())
       continue;
-    uint64_t Size = DL.getTypeStoreSize(Arg.getParamByValType());
+    uint64_t Size =
+        DL.getTypeStoreSize(Arg.getType()->getPointerElementType());
     if (IsSafeStackAlloca(&Arg, Size))
       continue;
 
@@ -526,7 +523,7 @@ Value *SafeStack::moveStaticAllocasToUnsafeStack(
   }
 
   for (Argument *Arg : ByValArguments) {
-    Type *Ty = Arg->getParamByValType();
+    Type *Ty = Arg->getType()->getPointerElementType();
     uint64_t Size = DL.getTypeStoreSize(Ty);
     if (Size == 0)
       Size = 1; // Don't create zero-sized stack objects.
@@ -583,7 +580,7 @@ Value *SafeStack::moveStaticAllocasToUnsafeStack(
   for (Argument *Arg : ByValArguments) {
     unsigned Offset = SSL.getObjectOffset(Arg);
     MaybeAlign Align(SSL.getObjectAlignment(Arg));
-    Type *Ty = Arg->getParamByValType();
+    Type *Ty = Arg->getType()->getPointerElementType();
 
     uint64_t Size = DL.getTypeStoreSize(Ty);
     if (Size == 0)

@@ -270,7 +270,7 @@ protected:
 static const char *g_synth_addreader_instructions =
     "Enter your Python command(s). Type 'DONE' to end.\n"
     "You must define a Python class with these methods:\n"
-    "    def __init__(self, valobj, internal_dict):\n"
+    "    def __init__(self, valobj, dict):\n"
     "    def num_children(self):\n"
     "    def get_child_at_index(self, index):\n"
     "    def get_child_index(self, name):\n"
@@ -377,6 +377,7 @@ protected:
       result.AppendError("must either provide a children list, a Python class "
                          "name, or use -P and type a Python class "
                          "line-by-line");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
   }
@@ -638,6 +639,7 @@ protected:
     if (argc < 1) {
       result.AppendErrorWithFormat("%s takes one or more args.\n",
                                    m_cmd_name.c_str());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -646,6 +648,7 @@ protected:
         m_command_options.m_custom_type_name.empty()) {
       result.AppendErrorWithFormat("%s needs a valid format.\n",
                                    m_cmd_name.c_str());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -678,6 +681,7 @@ protected:
     for (auto &arg_entry : command.entries()) {
       if (arg_entry.ref().empty()) {
         result.AppendError("empty typenames not allowed");
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
 
@@ -687,6 +691,7 @@ protected:
         if (!typeRX.IsValid()) {
           result.AppendError(
               "regex format error (maybe this is not really a regex?)");
+          result.SetStatus(eReturnStatusFailed);
           return false;
         }
         category_sp->GetRegexTypeSummariesContainer()->Delete(typeCS);
@@ -816,6 +821,7 @@ protected:
 
     if (argc != 1) {
       result.AppendErrorWithFormat("%s takes 1 arg.\n", m_cmd_name.c_str());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -824,6 +830,7 @@ protected:
 
     if (!typeCS) {
       result.AppendError("empty typenames not allowed");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -861,6 +868,7 @@ protected:
       return result.Succeeded();
     } else {
       result.AppendErrorWithFormat("no custom formatter for %s.\n", typeA);
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
   }
@@ -1065,16 +1073,19 @@ protected:
         result.AppendErrorWithFormat(
             "syntax error in category regular expression '%s'",
             m_options.m_category_regex.GetCurrentValueAsRef().str().c_str());
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
     }
 
     if (argc == 1) {
       const char *arg = command.GetArgumentAtIndex(0);
-      formatter_regex = std::make_unique<RegularExpression>(arg);
+      formatter_regex = std::make_unique<RegularExpression>(
+          llvm::StringRef::withNullAsEmpty(arg));
       if (!formatter_regex->IsValid()) {
         result.AppendErrorWithFormat("syntax error in regular expression '%s'",
                                      arg);
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
     }
@@ -1156,7 +1167,9 @@ protected:
               bool escape = true;
               if (category->GetName() == category_regex->GetText()) {
                 escape = false;
-              } else if (category_regex->Execute(category->GetName())) {
+              } else if (category_regex->Execute(
+                             llvm::StringRef::withNullAsEmpty(
+                                 category->GetName()))) {
                 escape = false;
               }
 
@@ -1283,6 +1296,7 @@ bool CommandObjectTypeSummaryAdd::Execute_ScriptSummary(
   if (argc < 1 && !m_options.m_name) {
     result.AppendErrorWithFormat("%s takes one or more args.\n",
                                  m_cmd_name.c_str());
+    result.SetStatus(eReturnStatusFailed);
     return false;
   }
 
@@ -1294,6 +1308,7 @@ bool CommandObjectTypeSummaryAdd::Execute_ScriptSummary(
     const char *funct_name = m_options.m_python_function.c_str();
     if (!funct_name || !funct_name[0]) {
       result.AppendError("function name empty.\n");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -1317,6 +1332,7 @@ bool CommandObjectTypeSummaryAdd::Execute_ScriptSummary(
     if (!interpreter) {
       result.AppendError("script interpreter missing - unable to generate "
                          "function wrapper.\n");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
     StringList funct_sl;
@@ -1324,11 +1340,13 @@ bool CommandObjectTypeSummaryAdd::Execute_ScriptSummary(
     std::string funct_name_str;
     if (!interpreter->GenerateTypeScriptFunction(funct_sl, funct_name_str)) {
       result.AppendError("unable to generate function wrapper.\n");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
     if (funct_name_str.empty()) {
       result.AppendError(
           "script interpreter failed to generate a valid function name.\n");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -1345,6 +1363,7 @@ bool CommandObjectTypeSummaryAdd::Execute_ScriptSummary(
     for (auto &entry : command.entries()) {
       if (entry.ref().empty()) {
         result.AppendError("empty typenames not allowed");
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
 
@@ -1373,6 +1392,7 @@ bool CommandObjectTypeSummaryAdd::Execute_ScriptSummary(
         m_options.m_category, &error);
     if (error.Fail()) {
       result.AppendError(error.AsCString());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
   }
@@ -1383,6 +1403,7 @@ bool CommandObjectTypeSummaryAdd::Execute_ScriptSummary(
     if (error.Fail()) {
       result.AppendError(error.AsCString());
       result.AppendError("added to types, but not given a name");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
   }
@@ -1399,12 +1420,14 @@ bool CommandObjectTypeSummaryAdd::Execute_StringSummary(
   if (argc < 1 && !m_options.m_name) {
     result.AppendErrorWithFormat("%s takes one or more args.\n",
                                  m_cmd_name.c_str());
+    result.SetStatus(eReturnStatusFailed);
     return false;
   }
 
   if (!m_options.m_flags.GetShowMembersOneLiner() &&
       m_options.m_format_string.empty()) {
     result.AppendError("empty summary strings not allowed");
+    result.SetStatus(eReturnStatusFailed);
     return false;
   }
 
@@ -1415,6 +1438,7 @@ bool CommandObjectTypeSummaryAdd::Execute_StringSummary(
   // ${var%S} is an endless recursion, prevent it
   if (strcmp(format_cstr, "${var%S}") == 0) {
     result.AppendError("recursive summary not allowed");
+    result.SetStatus(eReturnStatusFailed);
     return false;
   }
 
@@ -1422,11 +1446,13 @@ bool CommandObjectTypeSummaryAdd::Execute_StringSummary(
       new StringSummaryFormat(m_options.m_flags, format_cstr));
   if (!string_format) {
     result.AppendError("summary creation failed");
+    result.SetStatus(eReturnStatusFailed);
     return false;
   }
   if (string_format->m_error.Fail()) {
     result.AppendErrorWithFormat("syntax error: %s",
                                  string_format->m_error.AsCString("<unknown>"));
+    result.SetStatus(eReturnStatusFailed);
     return false;
   }
   lldb::TypeSummaryImplSP entry(string_format.release());
@@ -1436,6 +1462,7 @@ bool CommandObjectTypeSummaryAdd::Execute_StringSummary(
   for (auto &arg_entry : command.entries()) {
     if (arg_entry.ref().empty()) {
       result.AppendError("empty typenames not allowed");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
     ConstString typeCS(arg_entry.ref());
@@ -1446,6 +1473,7 @@ bool CommandObjectTypeSummaryAdd::Execute_StringSummary(
 
     if (error.Fail()) {
       result.AppendError(error.AsCString());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
   }
@@ -1456,6 +1484,7 @@ bool CommandObjectTypeSummaryAdd::Execute_StringSummary(
     if (error.Fail()) {
       result.AppendError(error.AsCString());
       result.AppendError("added to types, but not given a name");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
   }
@@ -1584,6 +1613,7 @@ bool CommandObjectTypeSummaryAdd::DoExecute(Args &command,
     return Execute_ScriptSummary(command, result);
 #else
     result.AppendError("python is disabled");
+    result.SetStatus(eReturnStatusFailed);
     return false;
 #endif
   }
@@ -1790,6 +1820,7 @@ protected:
     if (argc < 1) {
       result.AppendErrorWithFormat("%s takes 1 or more args.\n",
                                    m_cmd_name.c_str());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -1893,6 +1924,7 @@ protected:
     if (argc < 1 && m_options.m_language == lldb::eLanguageTypeUnknown) {
       result.AppendErrorWithFormat("%s takes arguments and/or a language",
                                    m_cmd_name.c_str());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -1905,6 +1937,7 @@ protected:
 
         if (!typeCS) {
           result.AppendError("empty category name not allowed");
+          result.SetStatus(eReturnStatusFailed);
           return false;
         }
         DataVisualization::Categories::Enable(typeCS);
@@ -1961,6 +1994,7 @@ protected:
     if (argc < 1) {
       result.AppendErrorWithFormat("%s takes 1 or more arg.\n",
                                    m_cmd_name.c_str());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -1973,6 +2007,7 @@ protected:
 
       if (!typeCS) {
         result.AppendError("empty category name not allowed");
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
       if (!DataVisualization::Categories::Delete(typeCS))
@@ -1983,6 +2018,7 @@ protected:
       return result.Succeeded();
     } else {
       result.AppendError("cannot delete one or more categories\n");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
   }
@@ -2071,6 +2107,7 @@ protected:
     if (argc < 1 && m_options.m_language == lldb::eLanguageTypeUnknown) {
       result.AppendErrorWithFormat("%s takes arguments and/or a language",
                                    m_cmd_name.c_str());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -2084,6 +2121,7 @@ protected:
 
         if (!typeCS) {
           result.AppendError("empty category name not allowed");
+          result.SetStatus(eReturnStatusFailed);
           return false;
         }
         DataVisualization::Categories::Disable(typeCS);
@@ -2137,15 +2175,18 @@ protected:
 
     if (argc == 1) {
       const char *arg = command.GetArgumentAtIndex(0);
-      regex = std::make_unique<RegularExpression>(arg);
+      regex = std::make_unique<RegularExpression>(
+          llvm::StringRef::withNullAsEmpty(arg));
       if (!regex->IsValid()) {
         result.AppendErrorWithFormat(
             "syntax error in category regular expression '%s'", arg);
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
     } else if (argc != 0) {
       result.AppendErrorWithFormat("%s takes 0 or one arg.\n",
                                    m_cmd_name.c_str());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -2155,7 +2196,8 @@ protected:
             bool escape = true;
             if (regex->GetText() == category_sp->GetName()) {
               escape = false;
-            } else if (regex->Execute(category_sp->GetName())) {
+            } else if (regex->Execute(llvm::StringRef::withNullAsEmpty(
+                           category_sp->GetName()))) {
               escape = false;
             }
 
@@ -2263,6 +2305,7 @@ bool CommandObjectTypeSynthAdd::Execute_HandwritePython(
   for (auto &entry : command.entries()) {
     if (entry.ref().empty()) {
       result.AppendError("empty typenames not allowed");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -2285,6 +2328,7 @@ bool CommandObjectTypeSynthAdd::Execute_PythonClass(
   if (argc < 1) {
     result.AppendErrorWithFormat("%s takes one or more args.\n",
                                  m_cmd_name.c_str());
+    result.SetStatus(eReturnStatusFailed);
     return false;
   }
 
@@ -2292,6 +2336,7 @@ bool CommandObjectTypeSynthAdd::Execute_PythonClass(
     result.AppendErrorWithFormat("%s needs either a Python class name or -P to "
                                  "directly input Python code.\n",
                                  m_cmd_name.c_str());
+    result.SetStatus(eReturnStatusFailed);
     return false;
   }
 
@@ -2324,6 +2369,7 @@ bool CommandObjectTypeSynthAdd::Execute_PythonClass(
   for (auto &arg_entry : command.entries()) {
     if (arg_entry.ref().empty()) {
       result.AppendError("empty typenames not allowed");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -2332,6 +2378,7 @@ bool CommandObjectTypeSynthAdd::Execute_PythonClass(
                   m_options.m_regex ? eRegexSynth : eRegularSynth,
                   m_options.m_category, &error)) {
       result.AppendError(error.AsCString());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
   }
@@ -2586,12 +2633,14 @@ protected:
     if (argc < 1) {
       result.AppendErrorWithFormat("%s takes one or more args.\n",
                                    m_cmd_name.c_str());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
     if (m_options.m_expr_paths.empty()) {
       result.AppendErrorWithFormat("%s needs one or more children.\n",
                                    m_cmd_name.c_str());
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -2621,6 +2670,7 @@ protected:
     for (auto &arg_entry : command.entries()) {
       if (arg_entry.ref().empty()) {
         result.AppendError("empty typenames not allowed");
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
 
@@ -2629,6 +2679,7 @@ protected:
                      m_options.m_regex ? eRegexFilter : eRegularFilter,
                      m_options.m_category, &error)) {
         result.AppendError(error.AsCString());
+        result.SetStatus(eReturnStatusFailed);
         return false;
       }
     }
@@ -2666,7 +2717,8 @@ protected:
 
   class CommandOptions : public OptionGroup {
   public:
-    CommandOptions() : OptionGroup() {}
+    CommandOptions()
+        : OptionGroup(), m_show_help(false), m_language(eLanguageTypeUnknown) {}
 
     ~CommandOptions() override = default;
 
@@ -2703,8 +2755,8 @@ protected:
 
     // Options table: Required for subclasses of Options.
 
-    bool m_show_help = false;
-    lldb::LanguageType m_language = eLanguageTypeUnknown;
+    bool m_show_help;
+    lldb::LanguageType m_language;
   };
 
   OptionGroupOptions m_option_group;
@@ -2744,7 +2796,7 @@ public:
   bool DoExecute(llvm::StringRef raw_command_line,
                  CommandReturnObject &result) override {
     if (raw_command_line.empty()) {
-      result.AppendError(
+      result.SetError(
           "type lookup cannot be invoked without a type name as argument");
       return false;
     }
@@ -2875,6 +2927,7 @@ protected:
     Thread *thread = GetDefaultThread();
     if (!thread) {
       result.AppendError("no default thread");
+      result.SetStatus(lldb::eReturnStatusFailed);
       return false;
     }
 
@@ -2907,6 +2960,7 @@ protected:
       return true;
     } else {
       result.AppendError("failed to evaluate expression");
+      result.SetStatus(lldb::eReturnStatusFailed);
       return false;
     }
   }

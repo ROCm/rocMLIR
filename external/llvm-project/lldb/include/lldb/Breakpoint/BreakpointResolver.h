@@ -204,8 +204,7 @@ protected:
   /// filter the results to find the first breakpoint >= (line, column).
   void SetSCMatchesByLine(SearchFilter &filter, SymbolContextList &sc_list,
                           bool skip_prologue, llvm::StringRef log_ident,
-                          uint32_t line = 0,
-                          llvm::Optional<uint16_t> column = llvm::None);
+                          uint32_t line = 0, uint32_t column = 0);
   void SetSCMatchesByLine(SearchFilter &, SymbolContextList &, bool,
                           const char *) = delete;
 

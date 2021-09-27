@@ -6,9 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-// Triggers a Clang assertion: https://bugs.llvm.org/show_bug.cgi?id=45879
-// UNSUPPORTED: clang-13, clang-14
-
 // <tuple>
 
 // template <class... Types> class tuple;
@@ -24,31 +21,20 @@
 
 #include "test_macros.h"
 
-struct B {
+struct B
+{
     int id_;
 
-    constexpr explicit B(int i = 0) : id_(i) {}
+    explicit B(int i = 0) : id_(i) {}
 };
 
-struct D : B {
-    constexpr explicit D(int i = 0) : B(i) {}
+struct D
+    : B
+{
+    explicit D(int i = 0) : B(i) {}
 };
 
-struct NonAssignable {
-    NonAssignable& operator=(NonAssignable const&) = delete;
-    NonAssignable& operator=(NonAssignable&&) = delete;
-};
-
-struct NothrowCopyAssignable {
-    NothrowCopyAssignable& operator=(NothrowCopyAssignable const&) noexcept { return *this; }
-};
-
-struct PotentiallyThrowingCopyAssignable {
-    PotentiallyThrowingCopyAssignable& operator=(PotentiallyThrowingCopyAssignable const&) { return *this; }
-};
-
-TEST_CONSTEXPR_CXX20
-bool test()
+int main(int, char**)
 {
     {
         typedef std::tuple<long> T0;
@@ -101,33 +87,6 @@ bool test()
         assert(std::get<0>(t) == 43);
         assert(&std::get<0>(t) == &x);
     }
-    return true;
-}
 
-int main(int, char**)
-{
-    test();
-#if TEST_STD_VER >= 20
-    static_assert(test());
-#endif
-
-    {
-        using T = std::tuple<int, NonAssignable>;
-        using U = std::tuple<NonAssignable, int>;
-        static_assert(!std::is_assignable<T&, U const&>::value, "");
-        static_assert(!std::is_assignable<U&, T const&>::value, "");
-    }
-    {
-        typedef std::tuple<NothrowCopyAssignable, long> T0;
-        typedef std::tuple<NothrowCopyAssignable, int> T1;
-        static_assert(std::is_nothrow_assignable<T0&, T1 const&>::value, "");
-    }
-    {
-        typedef std::tuple<PotentiallyThrowingCopyAssignable, long> T0;
-        typedef std::tuple<PotentiallyThrowingCopyAssignable, int> T1;
-        static_assert(std::is_assignable<T0&, T1 const&>::value, "");
-        static_assert(!std::is_nothrow_assignable<T0&, T1 const&>::value, "");
-    }
-
-    return 0;
+  return 0;
 }

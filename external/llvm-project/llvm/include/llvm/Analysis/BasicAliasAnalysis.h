@@ -35,6 +35,7 @@ class DataLayout;
 class DominatorTree;
 class Function;
 class GEPOperator;
+class LoopInfo;
 class PHINode;
 class SelectInst;
 class TargetLibraryInfo;
@@ -55,20 +56,23 @@ class BasicAAResult : public AAResultBase<BasicAAResult> {
   const TargetLibraryInfo &TLI;
   AssumptionCache &AC;
   DominatorTree *DT;
+  LoopInfo *LI;
   PhiValues *PV;
 
 public:
   BasicAAResult(const DataLayout &DL, const Function &F,
                 const TargetLibraryInfo &TLI, AssumptionCache &AC,
-                DominatorTree *DT = nullptr, PhiValues *PV = nullptr)
-      : AAResultBase(), DL(DL), F(F), TLI(TLI), AC(AC), DT(DT), PV(PV) {}
+                DominatorTree *DT = nullptr, LoopInfo *LI = nullptr,
+                PhiValues *PV = nullptr)
+      : AAResultBase(), DL(DL), F(F), TLI(TLI), AC(AC), DT(DT), LI(LI), PV(PV)
+        {}
 
   BasicAAResult(const BasicAAResult &Arg)
       : AAResultBase(Arg), DL(Arg.DL), F(Arg.F), TLI(Arg.TLI), AC(Arg.AC),
-        DT(Arg.DT), PV(Arg.PV) {}
+        DT(Arg.DT),  LI(Arg.LI), PV(Arg.PV) {}
   BasicAAResult(BasicAAResult &&Arg)
       : AAResultBase(std::move(Arg)), DL(Arg.DL), F(Arg.F), TLI(Arg.TLI),
-        AC(Arg.AC), DT(Arg.DT), PV(Arg.PV) {}
+        AC(Arg.AC), DT(Arg.DT), LI(Arg.LI), PV(Arg.PV) {}
 
   /// Handle invalidation events in the new pass manager.
   bool invalidate(Function &Fn, const PreservedAnalyses &PA,
@@ -116,8 +120,14 @@ private:
     // Context instruction to use when querying information about this index.
     const Instruction *CxtI;
 
-    /// True if all operations in this expression are NSW.
-    bool IsNSW;
+    bool operator==(const VariableGEPIndex &Other) const {
+      return V == Other.V && ZExtBits == Other.ZExtBits &&
+             SExtBits == Other.SExtBits && Scale == Other.Scale;
+    }
+
+    bool operator!=(const VariableGEPIndex &Other) const {
+      return !operator==(Other);
+    }
 
     void dump() const {
       print(dbgs());
@@ -142,9 +152,6 @@ private:
     SmallVector<VariableGEPIndex, 4> VarIndices;
     // Is GEP index scale compile-time constant.
     bool HasCompileTimeConstantScale;
-    // Are all operations inbounds GEPs or non-indexing operations?
-    // (None iff expression doesn't involve any geps)
-    Optional<bool> InBounds;
 
     void dump() const {
       print(dbgs());
@@ -152,15 +159,15 @@ private:
     }
     void print(raw_ostream &OS) const {
       OS << "(DecomposedGEP Base=" << Base->getName()
-         << ", Offset=" << Offset
-         << ", VarIndices=[";
+	 << ", Offset=" << Offset
+	 << ", VarIndices=[";
       for (size_t i = 0; i < VarIndices.size(); i++) {
-        if (i != 0)
-          OS << ", ";
-        VarIndices[i].print(OS);
+       if (i != 0)
+         OS << ", ";
+       VarIndices[i].print(OS);
       }
       OS << "], HasCompileTimeConstantScale=" << HasCompileTimeConstantScale
-         << ")";
+	 << ")";
     }
   };
 
@@ -183,9 +190,19 @@ private:
   /// Tracks instructions visited by pointsToConstantMemory.
   SmallPtrSet<const Value *, 16> Visited;
 
+  static const Value *
+  GetLinearExpression(const Value *V, APInt &Scale, APInt &Offset,
+                      unsigned &ZExtBits, unsigned &SExtBits,
+                      const DataLayout &DL, unsigned Depth, AssumptionCache *AC,
+                      DominatorTree *DT, bool &NSW, bool &NUW);
+
   static DecomposedGEP
   DecomposeGEPExpression(const Value *V, const DataLayout &DL,
                          AssumptionCache *AC, DominatorTree *DT);
+
+  static bool isGEPBaseAtNegativeOffset(const GEPOperator *GEPOp,
+      const DecomposedGEP &DecompGEP, const DecomposedGEP &DecompObject,
+      LocationSize ObjectAccessSize);
 
   /// A Heuristic for aliasGEP that searches for a constant offset
   /// between the variables.
@@ -207,23 +224,29 @@ private:
                           const SmallVectorImpl<VariableGEPIndex> &Src);
 
   AliasResult aliasGEP(const GEPOperator *V1, LocationSize V1Size,
-                       const Value *V2, LocationSize V2Size,
+                       const AAMDNodes &V1AAInfo, const Value *V2,
+                       LocationSize V2Size, const AAMDNodes &V2AAInfo,
                        const Value *UnderlyingV1, const Value *UnderlyingV2,
                        AAQueryInfo &AAQI);
 
   AliasResult aliasPHI(const PHINode *PN, LocationSize PNSize,
-                       const Value *V2, LocationSize V2Size, AAQueryInfo &AAQI);
+                       const AAMDNodes &PNAAInfo, const Value *V2,
+                       LocationSize V2Size, const AAMDNodes &V2AAInfo,
+                       AAQueryInfo &AAQI);
 
   AliasResult aliasSelect(const SelectInst *SI, LocationSize SISize,
-                          const Value *V2, LocationSize V2Size,
+                          const AAMDNodes &SIAAInfo, const Value *V2,
+                          LocationSize V2Size, const AAMDNodes &V2AAInfo,
                           AAQueryInfo &AAQI);
 
   AliasResult aliasCheck(const Value *V1, LocationSize V1Size,
-                         const Value *V2, LocationSize V2Size,
+                         const AAMDNodes &V1AATag, const Value *V2,
+                         LocationSize V2Size, const AAMDNodes &V2AATag,
                          AAQueryInfo &AAQI);
 
   AliasResult aliasCheckRecursive(const Value *V1, LocationSize V1Size,
-                                  const Value *V2, LocationSize V2Size,
+                                  const AAMDNodes &V1AATag, const Value *V2,
+                                  LocationSize V2Size, const AAMDNodes &V2AATag,
                                   AAQueryInfo &AAQI, const Value *O1,
                                   const Value *O2);
 };

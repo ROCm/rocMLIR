@@ -189,9 +189,7 @@ size_t ObjectFilePECOFF::GetModuleSpecifications(
 
 bool ObjectFilePECOFF::SaveCore(const lldb::ProcessSP &process_sp,
                                 const lldb_private::FileSpec &outfile,
-                                lldb::SaveCoreStyle &core_style,
                                 lldb_private::Status &error) {
-  core_style = eSaveCoreFull;
   return SaveMiniDump(process_sp, outfile, error);
 }
 
@@ -263,7 +261,7 @@ ObjectFilePECOFF::ObjectFilePECOFF(const lldb::ModuleSP &module_sp,
   ::memset(&m_coff_header, 0, sizeof(m_coff_header));
 }
 
-ObjectFilePECOFF::~ObjectFilePECOFF() = default;
+ObjectFilePECOFF::~ObjectFilePECOFF() {}
 
 bool ObjectFilePECOFF::ParseHeader() {
   ModuleSP module_sp(GetModule());
@@ -1208,3 +1206,5 @@ ObjectFile::Strata ObjectFilePECOFF::CalculateStrata() { return eStrataUser; }
 
 // PluginInterface protocol
 ConstString ObjectFilePECOFF::GetPluginName() { return GetPluginNameStatic(); }
+
+uint32_t ObjectFilePECOFF::GetPluginVersion() { return 1; }

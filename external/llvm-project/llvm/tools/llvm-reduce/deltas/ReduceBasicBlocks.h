@@ -10,8 +10,6 @@
 // to reduce uninteresting Arguments from defined functions.
 //
 //===----------------------------------------------------------------------===//
-#ifndef LLVM_TOOLS_LLVM_REDUCE_DELTAS_REDUCEBASICBLOCKS_H
-#define LLVM_TOOLS_LLVM_REDUCE_DELTAS_REDUCEBASICBLOCKS_H
 
 #include "Delta.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
@@ -20,5 +18,3 @@
 namespace llvm {
 void reduceBasicBlocksDeltaPass(TestRunner &Test);
 } // namespace llvm
-
-#endif

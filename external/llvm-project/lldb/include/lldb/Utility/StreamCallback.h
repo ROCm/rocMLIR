@@ -12,8 +12,8 @@
 #include "lldb/lldb-types.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace lldb_private {
 

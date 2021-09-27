@@ -203,7 +203,7 @@ static void printModuleId(raw_ostream &OS, InputIter Begin, InputIter End,
       OS << ".";
 
     StringRef Name = getModuleNameFromComponent(*It);
-    if (!AllowStringLiterals || isValidAsciiIdentifier(Name))
+    if (!AllowStringLiterals || isValidIdentifier(Name))
       OS << Name;
     else {
       OS << '"';
@@ -245,10 +245,12 @@ bool Module::fullModuleNameIs(ArrayRef<StringRef> nameParts) const {
 
 Module::DirectoryName Module::getUmbrellaDir() const {
   if (Header U = getUmbrellaHeader())
-    return {"", "", U.Entry->getDir()};
+    return {"", U.Entry->getDir()};
 
-  return {UmbrellaAsWritten, UmbrellaRelativeToRootModuleDirectory,
-          Umbrella.dyn_cast<const DirectoryEntry *>()};
+  if (auto *ME = Umbrella.dyn_cast<const DirectoryEntryRef::MapEntry *>())
+    return {UmbrellaAsWritten, DirectoryEntryRef(*ME)};
+
+  return {"", None};
 }
 
 void Module::addTopHeader(const FileEntry *File) {
@@ -430,7 +432,7 @@ void Module::buildVisibleModulesCache() const {
   }
 }
 
-void Module::print(raw_ostream &OS, unsigned Indent, bool Dump) const {
+void Module::print(raw_ostream &OS, unsigned Indent) const {
   OS.indent(Indent);
   if (IsFramework)
     OS << "framework ";
@@ -536,7 +538,7 @@ void Module::print(raw_ostream &OS, unsigned Indent, bool Dump) const {
     // the module. Regular inferred submodules are OK, as we need to look at all
     // those header files anyway.
     if (!(*MI)->IsInferred || (*MI)->IsFramework)
-      (*MI)->print(OS, Indent + 2, Dump);
+      (*MI)->print(OS, Indent + 2);
 
   for (unsigned I = 0, N = Exports.size(); I != N; ++I) {
     OS.indent(Indent + 2);
@@ -558,13 +560,6 @@ void Module::print(raw_ostream &OS, unsigned Indent, bool Dump) const {
     if (UnresolvedExports[I].Wildcard)
       OS << (UnresolvedExports[I].Id.empty() ? "*" : ".*");
     OS << "\n";
-  }
-
-  if (Dump) {
-    for (Module *M : Imports) {
-      OS.indent(Indent + 2);
-      llvm::errs() << "import " << M->getFullModuleName() << "\n";
-    }
   }
 
   for (unsigned I = 0, N = DirectUses.size(); I != N; ++I) {
@@ -627,7 +622,7 @@ void Module::print(raw_ostream &OS, unsigned Indent, bool Dump) const {
 }
 
 LLVM_DUMP_METHOD void Module::dump() const {
-  print(llvm::errs(), 0, true);
+  print(llvm::errs());
 }
 
 void VisibleModuleSet::setVisible(Module *M, SourceLocation Loc,

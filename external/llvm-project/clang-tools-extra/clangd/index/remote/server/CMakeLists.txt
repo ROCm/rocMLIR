@@ -14,10 +14,7 @@ target_link_libraries(clangd-index-server
   clangDaemon
   clangdSupport
 
-  MonitoringServiceProto
   RemoteIndexProto
   RemoteIndexServiceProto
   clangdRemoteMarshalling
-
-  ${REFLECTION_LIBRARY}
   )

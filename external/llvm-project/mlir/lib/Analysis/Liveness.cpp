@@ -63,16 +63,21 @@ struct BlockInfoBuilder {
       for (Value result : operation.getResults())
         gatherOutValues(result);
 
-    // Mark all nested operation results as defined, and nested operation
-    // operands as used. All defined value will be removed from the used set
-    // at the end.
+    // Mark all nested operation results as defined.
     block->walk([&](Operation *op) {
       for (Value result : op->getResults())
         defValues.insert(result);
-      for (Value operand : op->getOperands())
-        useValues.insert(operand);
     });
-    llvm::set_subtract(useValues, defValues);
+
+    // Check all operations for used operands.
+    block->walk([&](Operation *op) {
+      for (Value operand : op->getOperands()) {
+        // If the operand is already defined in the scope of this
+        // block, we can skip the value in the use set.
+        if (!defValues.count(operand))
+          useValues.insert(operand);
+      }
+    });
   }
 
   /// Updates live-in information of the current block. To do so it uses the
@@ -89,16 +94,16 @@ struct BlockInfoBuilder {
     if (newIn.size() == inValues.size())
       return false;
 
-    inValues = std::move(newIn);
+    inValues = newIn;
     return true;
   }
 
   /// Updates live-out information of the current block. It iterates over all
   /// successors and unifies their live-in values with the current live-out
   /// values.
-  void updateLiveOut(const DenseMap<Block *, BlockInfoBuilder> &builders) {
+  template <typename SourceT> void updateLiveOut(SourceT &source) {
     for (Block *succ : block->getSuccessors()) {
-      const BlockInfoBuilder &builder = builders.find(succ)->second;
+      BlockInfoBuilder &builder = source[succ];
       llvm::set_union(outValues, builder.inValues);
     }
   }
@@ -123,9 +128,9 @@ struct BlockInfoBuilder {
 /// Builds the internal liveness block mapping.
 static void buildBlockMapping(Operation *operation,
                               DenseMap<Block *, BlockInfoBuilder> &builders) {
-  SetVector<Block *> toProcess;
+  llvm::SetVector<Block *> toProcess;
 
-  operation->walk<WalkOrder::PreOrder>([&](Block *block) {
+  operation->walk([&](Block *block) {
     BlockInfoBuilder &builder =
         builders.try_emplace(block, block).first->second;
 
@@ -133,7 +138,7 @@ static void buildBlockMapping(Operation *operation,
       toProcess.insert(block->pred_begin(), block->pred_end());
   });
 
-  // Propagate the in and out-value sets (fixpoint iteration).
+  // Propagate the in and out-value sets (fixpoint iteration)
   while (!toProcess.empty()) {
     Block *current = toProcess.pop_back_val();
     BlockInfoBuilder &builder = builders[current];
@@ -157,6 +162,7 @@ Liveness::Liveness(Operation *op) : operation(op) { build(); }
 
 /// Initializes the internal mappings.
 void Liveness::build() {
+
   // Build internal block mapping.
   DenseMap<Block *, BlockInfoBuilder> builders;
   buildBlockMapping(operation, builders);
@@ -236,8 +242,9 @@ const Liveness::ValueSetT &Liveness::getLiveOut(Block *block) const {
   return getLiveness(block)->out();
 }
 
-/// Returns true if `value` is not live after `operation`.
-bool Liveness::isDeadAfter(Value value, Operation *operation) const {
+/// Returns true if the given operation represent the last use of the given
+/// value.
+bool Liveness::isLastUse(Value value, Operation *operation) const {
   Block *block = operation->getBlock();
   const LivenessBlockInfo *blockInfo = getLiveness(block);
 
@@ -263,7 +270,7 @@ void Liveness::print(raw_ostream &os) const {
   DenseMap<Block *, size_t> blockIds;
   DenseMap<Operation *, size_t> operationIds;
   DenseMap<Value, size_t> valueIds;
-  operation->walk<WalkOrder::PreOrder>([&](Block *block) {
+  operation->walk([&](Block *block) {
     blockIds.insert({block, blockIds.size()});
     for (BlockArgument argument : block->getArguments())
       valueIds.insert({argument, valueIds.size()});
@@ -297,7 +304,7 @@ void Liveness::print(raw_ostream &os) const {
   };
 
   // Dump information about in and out values.
-  operation->walk<WalkOrder::PreOrder>([&](Block *block) {
+  operation->walk([&](Block *block) {
     os << "// - Block: " << blockIds[block] << "\n";
     const auto *liveness = getLiveness(block);
     os << "// --- LiveIn: ";

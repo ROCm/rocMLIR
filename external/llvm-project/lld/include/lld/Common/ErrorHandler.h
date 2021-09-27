@@ -107,7 +107,7 @@ public:
 
   void error(const Twine &msg);
   void error(const Twine &msg, ErrorTag tag, ArrayRef<StringRef> args);
-  [[noreturn]] void fatal(const Twine &msg);
+  LLVM_ATTRIBUTE_NORETURN void fatal(const Twine &msg);
   void log(const Twine &msg);
   void message(const Twine &msg);
   void warn(const Twine &msg);
@@ -124,8 +124,6 @@ private:
   using Colors = raw_ostream::Colors;
 
   std::string getLocation(const Twine &msg);
-  void reportDiagnostic(StringRef location, Colors c, StringRef diagKind,
-                        const Twine &msg);
 };
 
 /// Returns the default error handler.
@@ -135,13 +133,15 @@ inline void error(const Twine &msg) { errorHandler().error(msg); }
 inline void error(const Twine &msg, ErrorTag tag, ArrayRef<StringRef> args) {
   errorHandler().error(msg, tag, args);
 }
-[[noreturn]] inline void fatal(const Twine &msg) { errorHandler().fatal(msg); }
+inline LLVM_ATTRIBUTE_NORETURN void fatal(const Twine &msg) {
+  errorHandler().fatal(msg);
+}
 inline void log(const Twine &msg) { errorHandler().log(msg); }
 inline void message(const Twine &msg) { errorHandler().message(msg); }
 inline void warn(const Twine &msg) { errorHandler().warn(msg); }
 inline uint64_t errorCount() { return errorHandler().errorCount; }
 
-[[noreturn]] void exitLld(int val);
+LLVM_ATTRIBUTE_NORETURN void exitLld(int val);
 
 void diagnosticHandler(const llvm::DiagnosticInfo &di);
 void checkError(Error e);

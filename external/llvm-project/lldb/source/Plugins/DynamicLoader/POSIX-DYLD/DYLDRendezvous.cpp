@@ -24,35 +24,28 @@
 using namespace lldb;
 using namespace lldb_private;
 
-DYLDRendezvous::DYLDRendezvous(Process *process)
-    : m_process(process), m_rendezvous_addr(LLDB_INVALID_ADDRESS),
-      m_executable_interpreter(false), m_current(), m_previous(),
-      m_loaded_modules(), m_soentries(), m_added_soentries(),
-      m_removed_soentries() {
-  m_thread_info.valid = false;
-  UpdateExecutablePath();
-}
-
-addr_t DYLDRendezvous::ResolveRendezvousAddress() {
+/// Locates the address of the rendezvous structure.  Returns the address on
+/// success and LLDB_INVALID_ADDRESS on failure.
+static addr_t ResolveRendezvousAddress(Process *process) {
   Log *log(GetLogIfAnyCategoriesSet(LIBLLDB_LOG_DYNAMIC_LOADER));
   addr_t info_location;
   addr_t info_addr;
   Status error;
 
-  if (!m_process) {
+  if (!process) {
     LLDB_LOGF(log, "%s null process provided", __FUNCTION__);
     return LLDB_INVALID_ADDRESS;
   }
 
   // Try to get it from our process.  This might be a remote process and might
   // grab it via some remote-specific mechanism.
-  info_location = m_process->GetImageInfoAddress();
+  info_location = process->GetImageInfoAddress();
   LLDB_LOGF(log, "%s info_location = 0x%" PRIx64, __FUNCTION__, info_location);
 
   // If the process fails to return an address, fall back to seeing if the
   // local object file can help us find it.
   if (info_location == LLDB_INVALID_ADDRESS) {
-    Target *target = &m_process->GetTarget();
+    Target *target = &process->GetTarget();
     if (target) {
       ObjectFile *obj_file = target->GetExecutableModule()->GetObjectFile();
       Address addr = obj_file->GetImageInfoAddress(target);
@@ -63,20 +56,6 @@ addr_t DYLDRendezvous::ResolveRendezvousAddress() {
                   "%s resolved via direct object file approach to 0x%" PRIx64,
                   __FUNCTION__, info_location);
       } else {
-        const Symbol *_r_debug =
-            target->GetExecutableModule()->FindFirstSymbolWithNameAndType(
-                ConstString("_r_debug"));
-        if (_r_debug) {
-          info_addr = _r_debug->GetAddress().GetLoadAddress(target);
-          if (info_addr != LLDB_INVALID_ADDRESS) {
-            LLDB_LOGF(log,
-                      "%s resolved by finding symbol '_r_debug' whose value is "
-                      "0x%" PRIx64,
-                      __FUNCTION__, info_addr);
-            m_executable_interpreter = true;
-            return info_addr;
-          }
-        }
         LLDB_LOGF(log,
                   "%s FAILED - direct object file approach did not yield a "
                   "valid address",
@@ -91,9 +70,9 @@ addr_t DYLDRendezvous::ResolveRendezvousAddress() {
   }
 
   LLDB_LOGF(log, "%s reading pointer (%" PRIu32 " bytes) from 0x%" PRIx64,
-            __FUNCTION__, m_process->GetAddressByteSize(), info_location);
+            __FUNCTION__, process->GetAddressByteSize(), info_location);
 
-  info_addr = m_process->ReadPointerFromMemory(info_location, error);
+  info_addr = process->ReadPointerFromMemory(info_location, error);
   if (error.Fail()) {
     LLDB_LOGF(log, "%s FAILED - could not read from the info location: %s",
               __FUNCTION__, error.AsCString());
@@ -109,6 +88,14 @@ addr_t DYLDRendezvous::ResolveRendezvousAddress() {
   }
 
   return info_addr;
+}
+
+DYLDRendezvous::DYLDRendezvous(Process *process)
+    : m_process(process), m_rendezvous_addr(LLDB_INVALID_ADDRESS), m_current(),
+      m_previous(), m_loaded_modules(), m_soentries(), m_added_soentries(),
+      m_removed_soentries() {
+  m_thread_info.valid = false;
+  UpdateExecutablePath();
 }
 
 void DYLDRendezvous::UpdateExecutablePath() {
@@ -145,8 +132,7 @@ bool DYLDRendezvous::Resolve() {
             __FUNCTION__, uint64_t(address_size), uint64_t(padding));
 
   if (m_rendezvous_addr == LLDB_INVALID_ADDRESS)
-    cursor = info_addr =
-        ResolveRendezvousAddress();
+    cursor = info_addr = ResolveRendezvousAddress(m_process);
   else
     cursor = info_addr = m_rendezvous_addr;
   LLDB_LOGF(log, "DYLDRendezvous::%s cursor = 0x%" PRIx64, __FUNCTION__,
@@ -310,10 +296,8 @@ bool DYLDRendezvous::SaveSOEntriesFromRemote(
       return false;
 
     // Only add shared libraries and not the executable.
-    if (!SOEntryIsMainExecutable(entry)) {
-      UpdateFileSpecIfNecessary(entry);
+    if (!SOEntryIsMainExecutable(entry))
       m_soentries.push_back(entry);
-    }
   }
 
   m_loaded_modules = module_list;
@@ -340,7 +324,6 @@ bool DYLDRendezvous::AddSOEntriesFromRemote(
 
     // Only add shared libraries and not the executable.
     if (!SOEntryIsMainExecutable(entry)) {
-      UpdateFileSpecIfNecessary(entry);
       m_soentries.push_back(entry);
       m_added_soentries.push_back(entry);
     }
@@ -400,8 +383,6 @@ bool DYLDRendezvous::AddSOEntries() {
     if (SOEntryIsMainExecutable(entry))
       continue;
 
-    UpdateFileSpecIfNecessary(entry);
-
     pos = std::find(m_soentries.begin(), m_soentries.end(), entry);
     if (pos == m_soentries.end()) {
       m_soentries.push_back(entry);
@@ -443,10 +424,6 @@ bool DYLDRendezvous::SOEntryIsMainExecutable(const SOEntry &entry) {
   case llvm::Triple::Linux:
     if (triple.isAndroid())
       return entry.file_spec == m_exe_file_spec;
-    // If we are debugging ld.so, then all SOEntries should be treated as
-    // libraries, including the "main" one (denoted by an empty string).
-    if (!entry.file_spec && m_executable_interpreter)
-      return false;
     return !entry.file_spec;
   default:
     return false;
@@ -469,8 +446,6 @@ bool DYLDRendezvous::TakeSnapshot(SOEntryList &entry_list) {
     // Only add shared libraries and not the executable.
     if (SOEntryIsMainExecutable(entry))
       continue;
-
-    UpdateFileSpecIfNecessary(entry);
 
     entry_list.push_back(entry);
   }
@@ -534,19 +509,6 @@ void DYLDRendezvous::UpdateBaseAddrIfNecessary(SOEntry &entry,
         m_process->GetFileLoadAddress(entry.file_spec, is_loaded, load_addr);
     if (error.Success() && is_loaded)
       entry.base_addr = load_addr;
-  }
-}
-
-void DYLDRendezvous::UpdateFileSpecIfNecessary(SOEntry &entry) {
-  // Updates filename if empty. It is useful while debugging ld.so,
-  // when the link map returns empty string for the main executable.
-  if (!entry.file_spec) {
-    MemoryRegionInfo region;
-    Status region_status =
-        m_process->GetMemoryRegionInfo(entry.dyn_addr, region);
-    if (!region.GetName().IsEmpty())
-      entry.file_spec.SetFile(region.GetName().AsCString(),
-                              FileSpec::Style::native);
   }
 }
 

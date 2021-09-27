@@ -8,7 +8,6 @@ add_clang_unittest(ClangAnalysisTests
   CFGTest.cpp
   CloneDetectionTest.cpp
   ExprMutationAnalyzerTest.cpp
-  MacroExpansionContextTest.cpp
   )
 
 clang_target_link_libraries(ClangAnalysisTests
@@ -18,13 +17,6 @@ clang_target_link_libraries(ClangAnalysisTests
   clangASTMatchers
   clangBasic
   clangFrontend
-  clangLex
   clangSerialization
-  clangTesting
   clangTooling
-  )
-
-target_link_libraries(ClangAnalysisTests
-  PRIVATE
-  LLVMTestingSupport
   )

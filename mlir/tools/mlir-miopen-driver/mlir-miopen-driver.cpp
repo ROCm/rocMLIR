@@ -39,6 +39,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include "bf16convert.hpp"
+#include "mlir/Dialect/SCF/EDSC/Builders.h"
 #include <unordered_map>
 
 using namespace llvm;
@@ -305,10 +306,6 @@ static cl::opt<std::string> randomSide(
              "By default, populate random numbers to both tensors."),
     cl::value_desc("tensor"), cl::init("both"));
 
-namespace test {
-void registerTestDialect(DialectRegistry &);
-} // namespace test
-
 static void correctParameters() {
   std::string filterLayoutValue = filterLayout.getValue();
   std::string inputLayoutValue = inputLayout.getValue();
@@ -535,11 +532,11 @@ static mlir::Value allocAndInitializeTensor(OpBuilder &builder, Block *block,
 
   // Emit CPU alloc
   auto cpuAllocOp =
-      builder.create<memref::AllocOp>(builder.getUnknownLoc(), memRefType);
+      builder.create<AllocOp>(builder.getUnknownLoc(), memRefType);
   block->push_back(cpuAllocOp);
 
   // Emit memref cast
-  auto cpuMemRefCastOp = builder.create<memref::CastOp>(
+  auto cpuMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), cpuAllocOp, fiveDimUnknownSizeMemRefType);
   block->push_back(cpuMemRefCastOp);
 
@@ -635,7 +632,7 @@ static FuncOp createConvertTensor(ModuleOp &module, OpBuilder &builder,
   auto arguments = convertResultFuncOp.getArguments();
   mlir::Value sourceMemRef = arguments[0];
   mlir::Value convertedMemRef = arguments[1];
-  mlir::Value sourceValue = innermostLoopBuilder.create<memref::LoadOp>(
+  mlir::Value sourceValue = innermostLoopBuilder.create<LoadOp>(
       builder.getUnknownLoc(), originalDataType, sourceMemRef, loopIVVector);
   mlir::Value convertedValue;
   if (originalDataType == convertedDataType) {
@@ -657,7 +654,7 @@ static FuncOp createConvertTensor(ModuleOp &module, OpBuilder &builder,
       convertedValue = innermostLoopBuilder.create<SIToFPOp>(
           builder.getUnknownLoc(), sourceValue, f32Type);
   }
-  innermostLoopBuilder.create<memref::StoreOp>(builder.getUnknownLoc(), convertedValue,
+  innermostLoopBuilder.create<StoreOp>(builder.getUnknownLoc(), convertedValue,
                                        convertedMemRef, loopIVVector);
 
   // Emit return op.
@@ -690,7 +687,7 @@ allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
       ArrayRef<int64_t>(sourceDimension.begin(), sourceDimension.end()),
       floatType);
   auto cpuAllocOp =
-      builder.create<memref::AllocOp>(builder.getUnknownLoc(), floatMemRefType);
+      builder.create<AllocOp>(builder.getUnknownLoc(), floatMemRefType);
   block->push_back(cpuAllocOp);
 
   if (dataType == builder.getF16Type()) { // f16
@@ -703,13 +700,13 @@ allocAndCopyTensor(ModuleOp &module, OpBuilder &builder, Block *block,
     block->push_back(convertResultCallOp);
   } else { // bf16
     // Emit memref cast
-    auto cpuMemRefCastOp = builder.create<memref::CastOp>(
+    auto cpuMemRefCastOp = builder.create<MemRefCastOp>(
         builder.getUnknownLoc(), cpuAllocOp, fiveDimUnknownSizeFloatType);
     block->push_back(cpuMemRefCastOp);
 
     auto sourceUnknownSizeMemRefType =
         MemRefType::get({-1, -1, -1, -1, -1}, dataType);
-    auto sourceMemRefCastOp = builder.create<memref::CastOp>(
+    auto sourceMemRefCastOp = builder.create<MemRefCastOp>(
         builder.getUnknownLoc(), sourceOriginalAllocOp,
         sourceUnknownSizeMemRefType);
     block->push_back(sourceMemRefCastOp);
@@ -760,13 +757,13 @@ createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   auto unrankedMemRefType =
       UnrankedMemRefType::get(filterMemRefType.getElementType(), 0);
 
-  auto filterMemRefCastOp = builder.create<memref::CastOp>(
+  auto filterMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), cpuConvBlock->getArgument(0),
       unrankedMemRefType);
-  auto inputMemRefCastOp = builder.create<memref::CastOp>(
+  auto inputMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), cpuConvBlock->getArgument(1),
       unrankedMemRefType);
-  auto outputMemRefCastOp = builder.create<memref::CastOp>(
+  auto outputMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), cpuConvBlock->getArgument(2),
       unrankedMemRefType);
   cpuConvBlock->push_back(filterMemRefCastOp);
@@ -883,11 +880,11 @@ createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   auto layoutMemRefType = MemRefType::get(
       ArrayRef<int64_t>(layoutVector.begin(), layoutVector.end()), charType);
   auto filLayoutAllocOp =
-      builder.create<memref::AllocaOp>(builder.getUnknownLoc(), layoutMemRefType);
+      builder.create<AllocaOp>(builder.getUnknownLoc(), layoutMemRefType);
   auto inLayoutAllocOp =
-      builder.create<memref::AllocaOp>(builder.getUnknownLoc(), layoutMemRefType);
+      builder.create<AllocaOp>(builder.getUnknownLoc(), layoutMemRefType);
   auto outLayoutAllocOp =
-      builder.create<memref::AllocaOp>(builder.getUnknownLoc(), layoutMemRefType);
+      builder.create<AllocaOp>(builder.getUnknownLoc(), layoutMemRefType);
   cpuConvBlock->push_back(filLayoutAllocOp);
   cpuConvBlock->push_back(inLayoutAllocOp);
   cpuConvBlock->push_back(outLayoutAllocOp);
@@ -898,21 +895,21 @@ createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   std::string in_layout = genConfig.inputLayout;
   std::string out_layout = genConfig.outputLayout;
   for (int i = 0; i < 5; i++) {
-    auto storeOp = builder.create<memref::StoreOp>(
+    auto storeOp = builder.create<StoreOp>(
         builder.getUnknownLoc(), layoutConstOps[fil_layout[i]],
         filLayoutAllocOp, ValueRange{indexOpVec[i]});
     cpuConvBlock->push_back(storeOp);
   }
 
   for (int i = 0; i < 5; i++) {
-    auto storeOp = builder.create<memref::StoreOp>(
+    auto storeOp = builder.create<StoreOp>(
         builder.getUnknownLoc(), layoutConstOps[in_layout[i]], inLayoutAllocOp,
         ValueRange{indexOpVec[i]});
     cpuConvBlock->push_back(storeOp);
   }
 
   for (int i = 0; i < 5; i++) {
-    auto storeOp = builder.create<memref::StoreOp>(
+    auto storeOp = builder.create<StoreOp>(
         builder.getUnknownLoc(), layoutConstOps[out_layout[i]],
         outLayoutAllocOp, ValueRange{indexOpVec[i]});
     cpuConvBlock->push_back(storeOp);
@@ -923,11 +920,11 @@ createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   // %7 = memref_cast %4 : memref<5xi8> to memref<*xi8>
   // %8 = memref_cast %5 : memref<5xi8> to memref<*xi8>
   auto unrankedLayoutMemRefType = UnrankedMemRefType::get(charType, 0);
-  auto filLayoutMemRefCastOp = builder.create<memref::CastOp>(
+  auto filLayoutMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), filLayoutAllocOp, unrankedLayoutMemRefType);
-  auto inLayoutMemRefCastOp = builder.create<memref::CastOp>(
+  auto inLayoutMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), inLayoutAllocOp, unrankedLayoutMemRefType);
-  auto outLayoutMemRefCastOp = builder.create<memref::CastOp>(
+  auto outLayoutMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), outLayoutAllocOp, unrankedLayoutMemRefType);
 
   cpuConvBlock->push_back(filLayoutMemRefCastOp);
@@ -990,7 +987,7 @@ getConvertedCpuResults(ModuleOp &module, OpBuilder &builder, Block *block,
 
   // Emit allocOp for converted CPU results.
   auto cpuConvertedResults =
-      builder.create<memref::AllocOp>(builder.getUnknownLoc(), convertedMemRefType);
+      builder.create<AllocOp>(builder.getUnknownLoc(), convertedMemRefType);
   block->push_back(cpuConvertedResults);
 
   if (dataType == builder.getF16Type()) { // f16
@@ -1018,13 +1015,13 @@ getConvertedCpuResults(ModuleOp &module, OpBuilder &builder, Block *block,
     module.push_back(convertFuncOp);
 
     // Emit memref cast
-    auto cpuConvertedMemRefCastOp = builder.create<memref::CastOp>(
+    auto cpuConvertedMemRefCastOp = builder.create<MemRefCastOp>(
         builder.getUnknownLoc(), cpuConvertedResults,
         fiveDimUnknownSizeMemRefType);
     block->push_back(cpuConvertedMemRefCastOp);
 
     // Emit memref_cast
-    auto cpuOrigianlMemRefCastOp = builder.create<memref::CastOp>(
+    auto cpuOrigianlMemRefCastOp = builder.create<MemRefCastOp>(
         builder.getUnknownLoc(), cpuOriginalAllocOp,
         fiveDimUnknownSizeMemRefFloat);
     block->push_back(cpuOrigianlMemRefCastOp);
@@ -1064,7 +1061,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
       ArrayRef<int64_t>(oneElementVector.begin(), oneElementVector.end()),
       builder.getIntegerType(32));
   auto cmpResultAllocOp =
-      builder.create<memref::AllocaOp>(builder.getUnknownLoc(), resultMemRefType);
+      builder.create<AllocaOp>(builder.getUnknownLoc(), resultMemRefType);
   verifyResultsBlock->push_back(cmpResultAllocOp);
 
   // %c0_i32 = constant 0 : i32
@@ -1078,7 +1075,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
 
   // store %c1_i32, %result[%c0] : memref<1xi32>
   auto storeOp1 =
-      builder.create<memref::StoreOp>(builder.getUnknownLoc(), c1ConstantInt32Op,
+      builder.create<StoreOp>(builder.getUnknownLoc(), c1ConstantInt32Op,
                               cmpResultAllocOp, ValueRange{c0IndexOp});
   verifyResultsBlock->push_back(storeOp1);
 
@@ -1151,11 +1148,11 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
 
   auto bt4 = OpBuilder::atBlockTerminator(loop4.getBody());
   auto iv4 = loop4.getInductionVar();
-  auto cpuLoadOp = bt4.create<memref::LoadOp>(builder.getUnknownLoc(),
+  auto cpuLoadOp = bt4.create<LoadOp>(builder.getUnknownLoc(),
                                       verifyResultsBlock->getArgument(0),
                                       ValueRange{iv0, iv1, iv2, iv3, iv4});
 
-  auto gpuLoadOp = bt4.create<memref::LoadOp>(builder.getUnknownLoc(),
+  auto gpuLoadOp = bt4.create<LoadOp>(builder.getUnknownLoc(),
                                       verifyResultsBlock->getArgument(1),
                                       ValueRange{iv0, iv1, iv2, iv3, iv4});
 
@@ -1188,7 +1185,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   }
   auto thenBody = ifOp.getThenBodyBuilder();
 
-  thenBody.create<memref::StoreOp>(builder.getUnknownLoc(), c0ConstantInt32Op,
+  thenBody.create<StoreOp>(builder.getUnknownLoc(), c0ConstantInt32Op,
                            cmpResultAllocOp, ValueRange{c0IndexOp});
 
   verifyResultsBlock->push_back(loop0);
@@ -1196,7 +1193,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   // Emit print function call
   auto unrankedMemRefType =
       UnrankedMemRefType::get(builder.getIntegerType(32), 0);
-  auto printMemRefCastOp = builder.create<memref::CastOp>(
+  auto printMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), cmpResultAllocOp, unrankedMemRefType);
   auto printMemRefFuncOp =
       makeFuncDecl(builder, "print_memref_i32", {unrankedMemRefType}, {});
@@ -1245,13 +1242,13 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   auto fiveDimUnknownSizeMemRefType =
       MemRefType::get({-1, -1, -1, -1, -1}, dataType);
 
-  auto filterMemRefCastOp = builder.create<memref::CastOp>(
+  auto filterMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), gpuConvBlock->getArgument(0),
       fiveDimUnknownSizeMemRefType);
-  auto inputMemRefCastOp = builder.create<memref::CastOp>(
+  auto inputMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), gpuConvBlock->getArgument(1),
       fiveDimUnknownSizeMemRefType);
-  auto outputMemRefCastOp = builder.create<memref::CastOp>(
+  auto outputMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), gpuConvBlock->getArgument(2),
       fiveDimUnknownSizeMemRefType);
   gpuConvBlock->push_back(filterMemRefCastOp);
@@ -1351,11 +1348,11 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   // Emit memref_cast.
 
-  auto filterGpuMemRefCastOp = builder.create<memref::CastOp>(
+  auto filterGpuMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), filterGpuAllocOp.getResult(0), filterMemRefType);
-  auto inputGpuMemRefCastOp = builder.create<memref::CastOp>(
+  auto inputGpuMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), inputGpuAllocOp.getResult(0), inputMemRefType);
-  auto outputGpuMemRefCastOp = builder.create<memref::CastOp>(
+  auto outputGpuMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), outputGpuAllocOp.getResult(0), outputMemRefType);
   gpuConvBlock->push_back(filterGpuMemRefCastOp);
   gpuConvBlock->push_back(inputGpuMemRefCastOp);
@@ -1660,21 +1657,21 @@ static LogicalResult populateHostHarnessLogic(
 
   // Emit CPU alloc.
   auto filterHostAllocOp =
-      builder.create<memref::AllocOp>(builder.getUnknownLoc(), filterMemRefType);
+      builder.create<AllocOp>(builder.getUnknownLoc(), filterMemRefType);
   auto inputHostAllocOp =
-      builder.create<memref::AllocOp>(builder.getUnknownLoc(), inputMemRefType);
+      builder.create<AllocOp>(builder.getUnknownLoc(), inputMemRefType);
   auto outputHostAllocOp =
-      builder.create<memref::AllocOp>(builder.getUnknownLoc(), outputMemRefType);
+      builder.create<AllocOp>(builder.getUnknownLoc(), outputMemRefType);
   block->push_back(filterHostAllocOp);
   block->push_back(inputHostAllocOp);
   block->push_back(outputHostAllocOp);
 
   // Emit memref_cast.
-  auto filterMemRefCastOp = builder.create<memref::CastOp>(
+  auto filterMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), filterHostAllocOp, fiveDimUnknownSizeMemRefType);
-  auto inputMemRefCastOp = builder.create<memref::CastOp>(
+  auto inputMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), inputHostAllocOp, fiveDimUnknownSizeMemRefType);
-  auto outputMemRefCastOp = builder.create<memref::CastOp>(
+  auto outputMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), outputHostAllocOp, fiveDimUnknownSizeMemRefType);
   block->push_back(filterMemRefCastOp);
   block->push_back(inputMemRefCastOp);
@@ -1752,7 +1749,7 @@ static LogicalResult populateHostHarnessLogic(
   if (printResultTensor.getValue()) {
     // Emit CPU alloc for memref to be printed out.
     auto printHostAllocOp =
-        builder.create<memref::AllocOp>(builder.getUnknownLoc(), printMemRefType);
+        builder.create<AllocOp>(builder.getUnknownLoc(), printMemRefType);
     block->push_back(printHostAllocOp);
 
     if (dataType == builder.getIntegerType(16)) { // i16 only
@@ -1760,7 +1757,7 @@ static LogicalResult populateHostHarnessLogic(
       auto unknownSizeMemRefFloatType =
           MemRefType::get({-1, -1, -1, -1, -1}, floatType);
 
-      auto printUnkownSizeMemRefCastOp = builder.create<memref::CastOp>(
+      auto printUnkownSizeMemRefCastOp = builder.create<MemRefCastOp>(
           builder.getUnknownLoc(), printHostAllocOp,
           unknownSizeMemRefFloatType);
       block->push_back(printUnkownSizeMemRefCastOp);
@@ -1788,7 +1785,7 @@ static LogicalResult populateHostHarnessLogic(
     // Emit print function call.
     StringRef printMemRefFuncName = "print_memref_f32";
     auto unrankedMemRefType = UnrankedMemRefType::get(builder.getF32Type(), 0);
-    auto printMemRefCastOp = builder.create<memref::CastOp>(
+    auto printMemRefCastOp = builder.create<MemRefCastOp>(
         builder.getUnknownLoc(), printHostAllocOp, unrankedMemRefType);
     auto printMemRefFuncOp =
         makeFuncDecl(builder, printMemRefFuncName, {unrankedMemRefType}, {});
@@ -1800,17 +1797,17 @@ static LogicalResult populateHostHarnessLogic(
     block->push_back(printMemRefCallOp);
 
     auto printHostDeallocOp =
-        builder.create<memref::DeallocOp>(builder.getUnknownLoc(), printHostAllocOp);
+        builder.create<DeallocOp>(builder.getUnknownLoc(), printHostAllocOp);
     block->push_back(printHostDeallocOp);
   }
 
   // Emit CPU dealloc.
   auto filterHostDeallocOp =
-      builder.create<memref::DeallocOp>(builder.getUnknownLoc(), filterHostAllocOp);
+      builder.create<DeallocOp>(builder.getUnknownLoc(), filterHostAllocOp);
   auto inputHostDeallocOp =
-      builder.create<memref::DeallocOp>(builder.getUnknownLoc(), inputHostAllocOp);
+      builder.create<DeallocOp>(builder.getUnknownLoc(), inputHostAllocOp);
   auto outputHostDeallocOp =
-      builder.create<memref::DeallocOp>(builder.getUnknownLoc(), outputHostAllocOp);
+      builder.create<DeallocOp>(builder.getUnknownLoc(), outputHostAllocOp);
   block->push_back(filterHostDeallocOp);
   block->push_back(inputHostDeallocOp);
   block->push_back(outputHostDeallocOp);
@@ -1854,21 +1851,21 @@ static LogicalResult populateValidationLogic(
 
   // Emit CPU alloc.
   auto filterHostAllocOp =
-      builder.create<memref::AllocOp>(builder.getUnknownLoc(), filterMemRefType);
+      builder.create<AllocOp>(builder.getUnknownLoc(), filterMemRefType);
   auto inputHostAllocOp =
-      builder.create<memref::AllocOp>(builder.getUnknownLoc(), inputMemRefType);
+      builder.create<AllocOp>(builder.getUnknownLoc(), inputMemRefType);
   auto outputHostAllocOp =
-      builder.create<memref::AllocOp>(builder.getUnknownLoc(), outputMemRefType);
+      builder.create<AllocOp>(builder.getUnknownLoc(), outputMemRefType);
   block->push_back(filterHostAllocOp);
   block->push_back(inputHostAllocOp);
   block->push_back(outputHostAllocOp);
 
   // Emit memref_cast.
-  auto filterMemRefCastOp = builder.create<memref::CastOp>(
+  auto filterMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), filterHostAllocOp, fiveDimUnknownSizeMemRefType);
-  auto inputMemRefCastOp = builder.create<memref::CastOp>(
+  auto inputMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), inputHostAllocOp, fiveDimUnknownSizeMemRefType);
-  auto outputMemRefCastOp = builder.create<memref::CastOp>(
+  auto outputMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), outputHostAllocOp, fiveDimUnknownSizeMemRefType);
   block->push_back(filterMemRefCastOp);
   block->push_back(inputMemRefCastOp);
@@ -2117,15 +2114,15 @@ static LogicalResult populateValidationLogic(
 
   // Emit CPU dealloc.
   if (dataType != builder.getF32Type()) {
-    auto verifierResultsDeallocOp = builder.create<memref::DeallocOp>(
+    auto verifierResultsDeallocOp = builder.create<DeallocOp>(
         builder.getUnknownLoc(), verifierConvertedResults);
     block->push_back(verifierResultsDeallocOp);
 
-    auto verifierFilterHostDeallocOp = builder.create<memref::DeallocOp>(
+    auto verifierFilterHostDeallocOp = builder.create<DeallocOp>(
         builder.getUnknownLoc(), verifierFilterHostAllocOp);
-    auto verifierInputHostDeallocOp = builder.create<memref::DeallocOp>(
+    auto verifierInputHostDeallocOp = builder.create<DeallocOp>(
         builder.getUnknownLoc(), verifierInputHostAllocOp);
-    auto verifierOutputHostDeallocOp = builder.create<memref::DeallocOp>(
+    auto verifierOutputHostDeallocOp = builder.create<DeallocOp>(
         builder.getUnknownLoc(), verifierOutputHostAllocOp);
     block->push_back(verifierFilterHostDeallocOp);
     block->push_back(verifierInputHostDeallocOp);
@@ -2133,11 +2130,11 @@ static LogicalResult populateValidationLogic(
   }
 
   auto filterHostDeallocOp =
-      builder.create<memref::DeallocOp>(builder.getUnknownLoc(), filterHostAllocOp);
+      builder.create<DeallocOp>(builder.getUnknownLoc(), filterHostAllocOp);
   auto inputHostDeallocOp =
-      builder.create<memref::DeallocOp>(builder.getUnknownLoc(), inputHostAllocOp);
+      builder.create<DeallocOp>(builder.getUnknownLoc(), inputHostAllocOp);
   auto outputHostDeallocOp =
-      builder.create<memref::DeallocOp>(builder.getUnknownLoc(), outputHostAllocOp);
+      builder.create<DeallocOp>(builder.getUnknownLoc(), outputHostAllocOp);
   block->push_back(filterHostDeallocOp);
   block->push_back(inputHostDeallocOp);
   block->push_back(outputHostDeallocOp);
@@ -2303,17 +2300,17 @@ static LogicalResult populateCpuConvolutionLogic(
 
   if (dataType != builder.getF32Type()) {
     auto allocOp =
-        builder.create<memref::AllocOp>(builder.getUnknownLoc(), floatMemRefType);
+        builder.create<AllocOp>(builder.getUnknownLoc(), floatMemRefType);
     block->push_back(allocOp);
     printAllocOp = allocOp;
 
     if (dataType == builder.getIntegerType(16)) { // bf16 only
 
-      auto printUnkownSizeMemRefCastOp = builder.create<memref::CastOp>(
+      auto printUnkownSizeMemRefCastOp = builder.create<MemRefCastOp>(
           builder.getUnknownLoc(), printAllocOp, fiveDimUnknownSizeFloatType);
       block->push_back(printUnkownSizeMemRefCastOp);
 
-      auto dataTypeMemRefCastOp = builder.create<memref::CastOp>(
+      auto dataTypeMemRefCastOp = builder.create<MemRefCastOp>(
           builder.getUnknownLoc(), cpuConvertedResults,
           fiveDimUnknownSizeMemRefType);
       block->push_back(dataTypeMemRefCastOp);
@@ -2337,7 +2334,7 @@ static LogicalResult populateCpuConvolutionLogic(
   // Emit print function call.
   StringRef printMemRefFuncName = "print_memref_f32";
   auto unrankedMemRefType = UnrankedMemRefType::get(builder.getF32Type(), 0);
-  auto printMemRefCastOp = builder.create<memref::CastOp>(
+  auto printMemRefCastOp = builder.create<MemRefCastOp>(
       builder.getUnknownLoc(), printAllocOp, unrankedMemRefType);
   auto printMemRefFuncOp =
       makeFuncDecl(builder, printMemRefFuncName, {unrankedMemRefType}, {});
@@ -2350,32 +2347,32 @@ static LogicalResult populateCpuConvolutionLogic(
 
   // Emit CPU dealloc.
   auto filterDeallocOp =
-      builder.create<memref::DeallocOp>(builder.getUnknownLoc(), cpuFilterAllocOp);
+      builder.create<DeallocOp>(builder.getUnknownLoc(), cpuFilterAllocOp);
   auto inputDeallocOp =
-      builder.create<memref::DeallocOp>(builder.getUnknownLoc(), cpuInputAllocOp);
+      builder.create<DeallocOp>(builder.getUnknownLoc(), cpuInputAllocOp);
   auto outputDeallocOp =
-      builder.create<memref::DeallocOp>(builder.getUnknownLoc(), cpuOutputAllocOp);
+      builder.create<DeallocOp>(builder.getUnknownLoc(), cpuOutputAllocOp);
   block->push_back(filterDeallocOp);
   block->push_back(inputDeallocOp);
   block->push_back(outputDeallocOp);
 
   if (dataType != builder.getF32Type()) {
-    auto filterHostDeallocOp = builder.create<memref::DeallocOp>(
+    auto filterHostDeallocOp = builder.create<DeallocOp>(
         builder.getUnknownLoc(), cpuFilterHostAllocOp);
     auto inputHostDeallocOp =
-        builder.create<memref::DeallocOp>(builder.getUnknownLoc(), cpuInputHostAllocOp);
-    auto outputHostDeallocOp = builder.create<memref::DeallocOp>(
+        builder.create<DeallocOp>(builder.getUnknownLoc(), cpuInputHostAllocOp);
+    auto outputHostDeallocOp = builder.create<DeallocOp>(
         builder.getUnknownLoc(), cpuOutputHostAllocOp);
     block->push_back(filterHostDeallocOp);
     block->push_back(inputHostDeallocOp);
     block->push_back(outputHostDeallocOp);
 
     auto cpuResultsDeallocOp =
-        builder.create<memref::DeallocOp>(builder.getUnknownLoc(), cpuConvertedResults);
+        builder.create<DeallocOp>(builder.getUnknownLoc(), cpuConvertedResults);
     block->push_back(cpuResultsDeallocOp);
 
     auto printDeallocOp =
-        builder.create<memref::DeallocOp>(builder.getUnknownLoc(), printAllocOp);
+        builder.create<DeallocOp>(builder.getUnknownLoc(), printAllocOp);
     block->push_back(printDeallocOp);
   }
 
@@ -2535,14 +2532,10 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 }
 
 int main(int argc, char **argv) {
-  DialectRegistry registry;
-  registerAllDialects(registry);
-#ifdef MLIR_INCLUDE_TESTS
-  test::registerTestDialect(registry);
-#endif
-  MLIRContext context(registry);
+  MLIRContext context;
+  mlir::registerAllDialects(context.getDialectRegistry());
   context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect,
-                      scf::SCFDialect, AffineDialect, memref::MemRefDialect>();
+                      scf::SCFDialect, AffineDialect>();
   mlir::registerAllPasses();
   mlir::registerMIOpenConversionPasses();
   miopen::registerPasses();

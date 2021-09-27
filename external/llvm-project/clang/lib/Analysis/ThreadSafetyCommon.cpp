@@ -26,7 +26,6 @@
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/OperatorKinds.h"
 #include "clang/Basic/Specifiers.h"
-#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
 #include <algorithm>
@@ -41,7 +40,7 @@ using namespace threadSafety;
 std::string threadSafety::getSourceLiteralString(const Expr *CE) {
   switch (CE->getStmtClass()) {
     case Stmt::IntegerLiteralClass:
-      return toString(cast<IntegerLiteral>(CE)->getValue(), 10, true);
+      return cast<IntegerLiteral>(CE)->getValue().toString(10, true);
     case Stmt::StringLiteralClass: {
       std::string ret("\"");
       ret += cast<StringLiteral>(CE)->getString();

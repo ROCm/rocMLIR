@@ -38,27 +38,27 @@ void PreferRegisterOverUnsignedCheck::check(
   const auto *VarType = Result.Nodes.getNodeAs<QualType>("varType");
   const auto *UserVarDecl = Result.Nodes.getNodeAs<VarDecl>("var");
 
-  bool NeedsQualification = true;
+  StringRef Replacement = "llvm::Register";
   const DeclContext *Context = UserVarDecl->getDeclContext();
   while (Context) {
     if (const auto *Namespace = dyn_cast<NamespaceDecl>(Context))
       if (isa<TranslationUnitDecl>(Namespace->getDeclContext()) &&
           Namespace->getName() == "llvm")
-        NeedsQualification = false;
+        Replacement = "Register";
     for (const auto *UsingDirective : Context->using_directives()) {
       const NamespaceDecl *Namespace = UsingDirective->getNominatedNamespace();
       if (isa<TranslationUnitDecl>(Namespace->getDeclContext()) &&
           Namespace->getName() == "llvm")
-        NeedsQualification = false;
+        Replacement = "Register";
     }
     Context = Context->getParent();
   }
   diag(UserVarDecl->getLocation(),
-       "variable %0 declared as %1; use '%select{|llvm::}2Register' instead")
-      << UserVarDecl << *VarType << NeedsQualification
+       "variable %0 declared as %1; use '%2' instead")
+      << UserVarDecl << *VarType << Replacement
       << FixItHint::CreateReplacement(
              UserVarDecl->getTypeSourceInfo()->getTypeLoc().getSourceRange(),
-             NeedsQualification ? "llvm::Register" : "Register");
+             Replacement);
 }
 
 } // namespace llvm_check

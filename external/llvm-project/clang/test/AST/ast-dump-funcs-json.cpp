@@ -183,6 +183,7 @@ int main() {
 // CHECK-NEXT:  }
 // CHECK-NEXT: }
 
+
 // CHECK:  "kind": "CXXMethodDecl",
 // CHECK-NEXT:  "loc": {
 // CHECK-NEXT:   "offset": 232,
@@ -277,13 +278,14 @@ int main() {
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "int"
 // CHECK-NEXT:      },
-// CHECK-NEXT:      "valueCategory": "prvalue",
+// CHECK-NEXT:      "valueCategory": "rvalue",
 // CHECK-NEXT:      "value": "12"
 // CHECK-NEXT:     }
 // CHECK-NEXT:    ]
 // CHECK-NEXT:   }
 // CHECK-NEXT:  ]
 // CHECK-NEXT: }
+
 
 // CHECK:  "kind": "CXXMethodDecl",
 // CHECK-NEXT:  "loc": {
@@ -313,6 +315,7 @@ int main() {
 // CHECK-NEXT:  "virtual": true,
 // CHECK-NEXT:  "pure": true
 // CHECK-NEXT: }
+
 
 // CHECK:  "kind": "CXXMethodDecl",
 // CHECK-NEXT:  "loc": {
@@ -407,7 +410,7 @@ int main() {
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "int"
 // CHECK-NEXT:      },
-// CHECK-NEXT:      "valueCategory": "prvalue",
+// CHECK-NEXT:      "valueCategory": "rvalue",
 // CHECK-NEXT:      "value": "100"
 // CHECK-NEXT:     }
 // CHECK-NEXT:    ]
@@ -430,6 +433,7 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  ]
 // CHECK-NEXT: }
+
 
 // CHECK:  "kind": "CXXMethodDecl",
 // CHECK-NEXT:  "loc": {
@@ -645,6 +649,7 @@ int main() {
 // CHECK-NEXT:  ]
 // CHECK-NEXT: }
 
+
 // CHECK:  "kind": "FunctionDecl",
 // CHECK-NEXT:  "loc": {
 // CHECK-NEXT:   "offset": 504,
@@ -742,13 +747,14 @@ int main() {
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "int"
 // CHECK-NEXT:      },
-// CHECK-NEXT:      "valueCategory": "prvalue",
+// CHECK-NEXT:      "valueCategory": "rvalue",
 // CHECK-NEXT:      "value": "12"
 // CHECK-NEXT:     }
 // CHECK-NEXT:    ]
 // CHECK-NEXT:   }
 // CHECK-NEXT:  ]
 // CHECK-NEXT: }
+
 
 // CHECK:  "kind": "FunctionDecl",
 // CHECK-NEXT:  "loc": {

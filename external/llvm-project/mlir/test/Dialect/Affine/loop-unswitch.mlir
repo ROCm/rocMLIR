@@ -245,7 +245,9 @@ func @multiple_if(%N : index) {
   }
   return
 }
-// CHECK:      call
+// CHECK:      affine.if
+// CHECK-NEXT:   call
+// CHECK-NEXT: }
 // CHECK-NEXT: affine.if
 // CHECK-NEXT:   affine.for
 // CHECK-NEXT:     call

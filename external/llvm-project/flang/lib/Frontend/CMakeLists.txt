@@ -14,15 +14,11 @@ add_flang_library(flangFrontend
   LINK_LIBS
   FortranParser
   FortranSemantics
-  FortranEvaluate
   FortranCommon
-  FortranLower
   clangBasic
   clangDriver
 
   LINK_COMPONENTS
   Option
   Support
-  FrontendOpenACC
-  FrontendOpenMP
 )

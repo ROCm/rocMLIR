@@ -68,4 +68,4 @@ struct S {
 void delete_s(S *s) { delete[] s; }
 }
 
-// CHECK: attributes [[NUW]] = { mustprogress noinline nounwind{{.*}} }
+// CHECK: attributes [[NUW]] = { noinline nounwind{{.*}} }

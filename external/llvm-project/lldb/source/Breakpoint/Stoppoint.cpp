@@ -14,10 +14,10 @@ using namespace lldb;
 using namespace lldb_private;
 
 // Stoppoint constructor
-Stoppoint::Stoppoint() = default;
+Stoppoint::Stoppoint() : m_bid(LLDB_INVALID_BREAK_ID) {}
 
 // Destructor
-Stoppoint::~Stoppoint() = default;
+Stoppoint::~Stoppoint() {}
 
 break_id_t Stoppoint::GetID() const { return m_bid; }
 

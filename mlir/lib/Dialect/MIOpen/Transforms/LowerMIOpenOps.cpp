@@ -115,58 +115,54 @@ template struct Conv2DRewritePattern<miopen::Conv2DBwdDataOp>;
 template struct Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>;
 
 void LowerMIOpenOpsStep1Pass::runOnOperation() {
-  MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-  patterns.insert<Conv2DRewritePattern<miopen::Conv2DOp>>(ctx);
-  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(ctx);
-  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>>(ctx);
+  OwningRewritePatternList patterns;
+  patterns.insert<Conv2DRewritePattern<miopen::Conv2DOp>>(&getContext());
+  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(&getContext());
+  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>>(
+      &getContext());
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }
 
 void LowerMIOpenOpsStep2Pass::runOnOperation() {
-  MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-  patterns.insert<GridwiseGemmRewritePattern>(ctx);
-  patterns.insert<GridwiseGemmV2RewritePattern>(ctx);
+  OwningRewritePatternList patterns;
+  patterns.insert<GridwiseGemmRewritePattern>(&getContext());
+  patterns.insert<GridwiseGemmV2RewritePattern>(&getContext());
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }
 
 void LowerMIOpenOpsStep3Pass::runOnOperation() {
-  MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-  patterns.insert<FillRewritePattern>(ctx);
-  patterns.insert<MovePosV2RewritePattern>(ctx);
-  patterns.insert<SubviewRewritePattern>(ctx);
-  patterns.insert<TransformRewritePattern>(ctx);
-  patterns.insert<BlockwiseGemmRewritePattern>(ctx);
-  patterns.insert<BlockwiseGemmV2RewritePattern>(ctx);
-  patterns.insert<BlockwiseCopyRewritePattern>(ctx);
-  patterns.insert<BlockwiseLoadRewritePattern>(ctx);
-  patterns.insert<BlockwiseStoreRewritePattern>(ctx);
+  OwningRewritePatternList patterns;
+  patterns.insert<FillRewritePattern>(&getContext());
+  patterns.insert<MovePosV2RewritePattern>(&getContext());
+  patterns.insert<SubviewRewritePattern>(&getContext());
+  patterns.insert<TransformRewritePattern>(&getContext());
+  patterns.insert<BlockwiseGemmRewritePattern>(&getContext());
+  patterns.insert<BlockwiseGemmV2RewritePattern>(&getContext());
+  patterns.insert<BlockwiseCopyRewritePattern>(&getContext());
+  patterns.insert<BlockwiseLoadRewritePattern>(&getContext());
+  patterns.insert<BlockwiseStoreRewritePattern>(&getContext());
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }
 
 void LowerMIOpenOpsStep4Pass::runOnOperation() {
-  MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-  patterns.insert<ThreadwiseGemmRewritePattern>(ctx);
-  patterns.insert<ThreadwiseCopyRewritePattern>(ctx);
-  patterns.insert<ThreadwiseLoadRewritePattern>(ctx);
-  patterns.insert<ThreadwiseStoreRewritePattern>(ctx);
-  patterns.insert<ThreadwiseCopyV2RewritePattern>(ctx);
-  patterns.insert<XdlopsGemmV2RewritePattern>(ctx);
+  OwningRewritePatternList patterns;
+  patterns.insert<ThreadwiseGemmRewritePattern>(&getContext());
+  patterns.insert<ThreadwiseCopyRewritePattern>(&getContext());
+  patterns.insert<ThreadwiseLoadRewritePattern>(&getContext());
+  patterns.insert<ThreadwiseStoreRewritePattern>(&getContext());
+  patterns.insert<ThreadwiseCopyV2RewritePattern>(&getContext());
+  patterns.insert<XdlopsGemmV2RewritePattern>(&getContext());
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }
 
 void LowerMIOpenOpsStep5Pass::runOnOperation() {
-  MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-  populateAffineToStdConversionPatterns(patterns);
-  populateLoopToStdConversionPatterns(patterns);
+  OwningRewritePatternList patterns;
+  populateAffineToStdConversionPatterns(patterns, &getContext());
+  populateLoopToStdConversionPatterns(patterns, &getContext());
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }

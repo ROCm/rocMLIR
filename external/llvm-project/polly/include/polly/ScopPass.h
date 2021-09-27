@@ -20,24 +20,12 @@
 #include "polly/ScopInfo.h"
 #include "llvm/ADT/PriorityWorklist.h"
 #include "llvm/Analysis/RegionPass.h"
-#include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/PassManagerImpl.h"
 
-namespace polly {
-using llvm::AllAnalysesOn;
-using llvm::AnalysisManager;
-using llvm::DominatorTreeAnalysis;
-using llvm::InnerAnalysisManagerProxy;
-using llvm::LoopAnalysis;
-using llvm::OuterAnalysisManagerProxy;
-using llvm::PassManager;
-using llvm::RegionInfoAnalysis;
-using llvm::ScalarEvolutionAnalysis;
-using llvm::SmallPriorityWorklist;
-using llvm::TargetIRAnalysis;
-using llvm::TargetTransformInfo;
+using namespace llvm;
 
+namespace polly {
 class Scop;
 class SPMUpdater;
 struct ScopStandardAnalysisResults;
@@ -188,7 +176,6 @@ struct ScopStandardAnalysisResults {
   ScalarEvolution &SE;
   LoopInfo &LI;
   RegionInfo &RI;
-  TargetTransformInfo &TTI;
 };
 
 class SPMUpdater {
@@ -222,19 +209,11 @@ public:
   explicit FunctionToScopPassAdaptor(ScopPassT Pass) : Pass(std::move(Pass)) {}
 
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM) {
-    ScopDetection &SD = AM.getResult<ScopAnalysis>(F);
-    ScopInfo &SI = AM.getResult<ScopInfoAnalysis>(F);
-    if (SI.empty()) {
-      // With no scops having been detected, no IR changes have been made and
-      // therefore all analyses are preserved. However, we must still free the
-      // Scop analysis results which may hold AssertingVH that cause an error
-      // if its value is destroyed.
-      PreservedAnalyses PA = PreservedAnalyses::all();
-      PA.abandon<ScopInfoAnalysis>();
-      PA.abandon<ScopAnalysis>();
-      AM.invalidate(F, PA);
-      return PreservedAnalyses::all();
-    }
+    PreservedAnalyses PA = PreservedAnalyses::all();
+    auto &SD = AM.getResult<ScopAnalysis>(F);
+    auto &SI = AM.getResult<ScopInfoAnalysis>(F);
+    if (SI.empty())
+      return PA;
 
     SmallPriorityWorklist<Region *, 4> Worklist;
     for (auto &S : SI)
@@ -245,8 +224,7 @@ public:
                                       AM.getResult<ScopInfoAnalysis>(F),
                                       AM.getResult<ScalarEvolutionAnalysis>(F),
                                       AM.getResult<LoopAnalysis>(F),
-                                      AM.getResult<RegionInfoAnalysis>(F),
-                                      AM.getResult<TargetIRAnalysis>(F)};
+                                      AM.getResult<RegionInfoAnalysis>(F)};
 
     ScopAnalysisManager &SAM =
         AM.getResult<ScopAnalysisManagerFunctionProxy>(F).getManager();
@@ -255,7 +233,7 @@ public:
 
     while (!Worklist.empty()) {
       Region *R = Worklist.pop_back_val();
-      if (!SD.isMaxRegionInScop(*R, /*Verifying=*/false))
+      if (!SD.isMaxRegionInScop(*R))
         continue;
       Scop *scop = SI.getScop(R);
       if (!scop)
@@ -265,18 +243,20 @@ public:
       PreservedAnalyses PassPA = Pass.run(*scop, SAM, AR, Updater);
 
       SAM.invalidate(*scop, PassPA);
+      PA.intersect(std::move(PassPA));
       if (Updater.invalidateCurrentScop())
         SI.recompute();
     };
 
-    // FIXME: For the same reason as we add a BarrierNoopPass in the legacy pass
-    // manager, do not preserve any analyses. While CodeGeneration may preserve
-    // IR analyses sufficiently to process another Scop in the same function (it
-    // has to, otherwise the ScopDetection result itself would need to be
-    // invalidated), it is not sufficient for other purposes. For instance,
-    // CodeGeneration does not inform LoopInfo about new loops in the
-    // Polly-generated IR.
-    return PreservedAnalyses::none();
+    PA.preserveSet<AllAnalysesOn<Scop>>();
+    PA.preserve<ScopAnalysisManagerFunctionProxy>();
+    PA.preserve<DominatorTreeAnalysis>();
+    PA.preserve<ScopAnalysis>();
+    PA.preserve<ScopInfoAnalysis>();
+    PA.preserve<ScalarEvolutionAnalysis>();
+    PA.preserve<LoopAnalysis>();
+    PA.preserve<RegionInfoAnalysis>();
+    return PA;
   }
 
 private:

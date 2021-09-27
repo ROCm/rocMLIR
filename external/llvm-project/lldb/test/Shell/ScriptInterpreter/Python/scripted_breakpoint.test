@@ -1,3 +1,4 @@
+# REQUIRES: python
 # UNSUPPORTED: lldb-repro
 #
 # Test that the scripting language argument to "breakpoint command" is honored

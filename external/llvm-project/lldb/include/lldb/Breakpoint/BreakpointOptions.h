@@ -43,7 +43,9 @@ public:
                      | eCondition | eAutoContinue)
   };
   struct CommandData {
-    CommandData() : user_source(), script_source() {}
+    CommandData()
+        : user_source(), script_source(),
+          interpreter(lldb::eScriptLanguageNone), stop_on_error(true) {}
 
     CommandData(const StringList &user_source, lldb::ScriptLanguage interp)
         : user_source(user_source), script_source(), interpreter(interp),
@@ -61,10 +63,9 @@ public:
 
     StringList user_source;
     std::string script_source;
-    enum lldb::ScriptLanguage interpreter =
-        lldb::eScriptLanguageNone; // eScriptLanguageNone means command
-                                   // interpreter.
-    bool stop_on_error = true;
+    enum lldb::ScriptLanguage
+        interpreter; // eScriptLanguageNone means command interpreter.
+    bool stop_on_error;
 
   private:
     enum class OptionNames : uint32_t {

@@ -22,14 +22,6 @@ _start:
  .cantunwind
  .fnend
 
-// CHECK:          Name: __exidx_start
-// CHECK-NEXT:     Value: 0x100D4
-// CHECK-NEXT:     Size: 0
-// CHECK-NEXT:     Binding: Local
-// CHECK-NEXT:     Type: None
-// CHECK-NEXT:     Other [
-// CHECK-NEXT:       STV_HIDDEN
-// CHECK-NEXT:     ]
 // CHECK:          Name: __exidx_end
 // CHECK-NEXT:     Value: 0x100E4
 // CHECK-NEXT:     Size: 0
@@ -39,5 +31,14 @@ _start:
 // CHECK-NEXT:       STV_HIDDEN
 // CHECK-NEXT:     ]
 // CHECK-NEXT:     Section: .ARM.exidx
+// CHECK:          Name: __exidx_start
+// CHECK-NEXT:     Value: 0x100D4
+// CHECK-NEXT:     Size: 0
+// CHECK-NEXT:     Binding: Local
+// CHECK-NEXT:     Type: None
+// CHECK-NEXT:     Other [
+// CHECK-NEXT:       STV_HIDDEN
+// CHECK-NEXT:     ]
+// CHECK-NEXT:   Section: .ARM.exidx
 // CHECK:          Symbol {
 // CHECK-NEXT:     Name: __tls_get_addr

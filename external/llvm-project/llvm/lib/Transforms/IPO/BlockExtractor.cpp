@@ -36,10 +36,9 @@ static cl::opt<std::string> BlockExtractorFile(
     "extract-blocks-file", cl::value_desc("filename"),
     cl::desc("A file containing list of basic blocks to extract"), cl::Hidden);
 
-static cl::opt<bool>
-    BlockExtractorEraseFuncs("extract-blocks-erase-funcs",
-                             cl::desc("Erase the existing functions"),
-                             cl::Hidden);
+cl::opt<bool> BlockExtractorEraseFuncs("extract-blocks-erase-funcs",
+                                       cl::desc("Erase the existing functions"),
+                                       cl::Hidden);
 namespace {
 class BlockExtractor {
 public:

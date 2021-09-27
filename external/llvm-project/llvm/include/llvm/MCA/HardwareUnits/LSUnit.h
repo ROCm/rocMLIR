@@ -12,8 +12,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_MCA_HARDWAREUNITS_LSUNIT_H
-#define LLVM_MCA_HARDWAREUNITS_LSUNIT_H
+#ifndef LLVM_MCA_LSUNIT_H
+#define LLVM_MCA_LSUNIT_H
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
@@ -160,15 +160,10 @@ public:
       MG->onGroupIssued(CriticalMemoryInstruction, true);
   }
 
-  void onInstructionExecuted(const InstRef &IR) {
+  void onInstructionExecuted() {
     assert(isReady() && !isExecuted() && "Invalid internal state!");
     --NumExecuting;
     ++NumExecuted;
-
-    if (CriticalMemoryInstruction &&
-        CriticalMemoryInstruction.getSourceIndex() == IR.getSourceIndex()) {
-      CriticalMemoryInstruction.invalidate();
-    }
 
     if (!isExecuted())
       return;
@@ -477,4 +472,4 @@ public:
 } // namespace mca
 } // namespace llvm
 
-#endif // LLVM_MCA_HARDWAREUNITS_LSUNIT_H
+#endif // LLVM_MCA_LSUNIT_H

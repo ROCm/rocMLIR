@@ -92,13 +92,14 @@ void *BackgroundThread(void *arg) {
 #endif
 
 void WriteToSyslog(const char *msg) {
-  InternalScopedString msg_copy;
+  InternalScopedString msg_copy(kErrorMessageBufferSize);
   msg_copy.append("%s", msg);
-  const char *p = msg_copy.data();
+  char *p = msg_copy.data();
+  char *q;
 
   // Print one line at a time.
   // syslog, at least on Android, has an implicit message length limit.
-  while (char* q = internal_strchr(p, '\n')) {
+  while ((q = internal_strchr(p, '\n'))) {
     *q = '\0';
     WriteOneLineToSyslog(p);
     p = q + 1;
@@ -138,7 +139,7 @@ uptr ReservedAddressRange::InitAligned(uptr size, uptr align,
   return start;
 }
 
-#if !SANITIZER_FUCHSIA
+#if !SANITIZER_FUCHSIA && !SANITIZER_RTEMS
 
 // Reserve memory range [beg, end].
 // We need to use inclusive range because end+1 may not be representable.
@@ -189,7 +190,7 @@ void ProtectGap(uptr addr, uptr size, uptr zero_base_shadow_start,
   Die();
 }
 
-#endif  // !SANITIZER_FUCHSIA
+#endif  // !SANITIZER_FUCHSIA && !SANITIZER_RTEMS
 
 }  // namespace __sanitizer
 

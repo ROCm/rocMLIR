@@ -49,7 +49,7 @@ AliasResult ObjCARCAAResult::alias(const MemoryLocation &LocA,
   AliasResult Result =
       AAResultBase::alias(MemoryLocation(SA, LocA.Size, LocA.AATags),
                           MemoryLocation(SB, LocB.Size, LocB.AATags), AAQI);
-  if (Result != AliasResult::MayAlias)
+  if (Result != MayAlias)
     return Result;
 
   // If that failed, climb to the underlying object, including climbing through
@@ -61,13 +61,13 @@ AliasResult ObjCARCAAResult::alias(const MemoryLocation &LocA,
                                  MemoryLocation::getBeforeOrAfter(UB), AAQI);
     // We can't use MustAlias or PartialAlias results here because
     // GetUnderlyingObjCPtr may return an offsetted pointer value.
-    if (Result == AliasResult::NoAlias)
-      return AliasResult::NoAlias;
+    if (Result == NoAlias)
+      return NoAlias;
   }
 
   // If that failed, fail. We don't need to chain here, since that's covered
   // by the earlier precise query.
-  return AliasResult::MayAlias;
+  return MayAlias;
 }
 
 bool ObjCARCAAResult::pointsToConstantMemory(const MemoryLocation &Loc,

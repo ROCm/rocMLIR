@@ -25,7 +25,7 @@
 
 #include "llvm/ADT/StringRef.h"
 
-#include <cassert>
+#include <assert.h>
 #include <memory>
 
 namespace lldb_private {
@@ -60,7 +60,7 @@ ValueObjectRegisterSet::ValueObjectRegisterSet(ExecutionContextScope *exe_scope,
   }
 }
 
-ValueObjectRegisterSet::~ValueObjectRegisterSet() = default;
+ValueObjectRegisterSet::~ValueObjectRegisterSet() {}
 
 CompilerType ValueObjectRegisterSet::GetCompilerTypeImpl() {
   return CompilerType();
@@ -118,9 +118,8 @@ ValueObject *ValueObjectRegisterSet::CreateChildAtIndex(
   if (m_reg_ctx_sp && m_reg_set) {
     const size_t num_children = GetNumChildren();
     if (idx < num_children)
-      valobj = new ValueObjectRegister(
-          *this, m_reg_ctx_sp,
-          m_reg_ctx_sp->GetRegisterInfoAtIndex(m_reg_set->registers[idx]));
+      valobj = new ValueObjectRegister(*this, m_reg_ctx_sp,
+                                       m_reg_set->registers[idx]);
   }
   return valobj;
 }
@@ -133,7 +132,8 @@ ValueObjectRegisterSet::GetChildMemberWithName(ConstString name,
     const RegisterInfo *reg_info =
         m_reg_ctx_sp->GetRegisterInfoByName(name.GetStringRef());
     if (reg_info != nullptr)
-      valobj = new ValueObjectRegister(*this, m_reg_ctx_sp, reg_info);
+      valobj = new ValueObjectRegister(*this, m_reg_ctx_sp,
+                                       reg_info->kinds[eRegisterKindLLDB]);
   }
   if (valobj)
     return valobj->GetSP();
@@ -155,7 +155,8 @@ ValueObjectRegisterSet::GetIndexOfChildWithName(ConstString name) {
 #pragma mark -
 #pragma mark ValueObjectRegister
 
-void ValueObjectRegister::ConstructObject(const RegisterInfo *reg_info) {
+void ValueObjectRegister::ConstructObject(uint32_t reg_num) {
+  const RegisterInfo *reg_info = m_reg_ctx_sp->GetRegisterInfoAtIndex(reg_num);
   if (reg_info) {
     m_reg_info = *reg_info;
     if (reg_info->name)
@@ -167,32 +168,32 @@ void ValueObjectRegister::ConstructObject(const RegisterInfo *reg_info) {
 
 ValueObjectRegister::ValueObjectRegister(ValueObject &parent,
                                          lldb::RegisterContextSP &reg_ctx_sp,
-                                         const RegisterInfo *reg_info)
+                                         uint32_t reg_num)
     : ValueObject(parent), m_reg_ctx_sp(reg_ctx_sp), m_reg_info(),
       m_reg_value(), m_type_name(), m_compiler_type() {
   assert(reg_ctx_sp.get());
-  ConstructObject(reg_info);
+  ConstructObject(reg_num);
 }
 
 ValueObjectSP ValueObjectRegister::Create(ExecutionContextScope *exe_scope,
                                           lldb::RegisterContextSP &reg_ctx_sp,
-                                          const RegisterInfo *reg_info) {
+                                          uint32_t reg_num) {
   auto manager_sp = ValueObjectManager::Create();
-  return (new ValueObjectRegister(exe_scope, *manager_sp, reg_ctx_sp, reg_info))
+  return (new ValueObjectRegister(exe_scope, *manager_sp, reg_ctx_sp, reg_num))
       ->GetSP();
 }
 
 ValueObjectRegister::ValueObjectRegister(ExecutionContextScope *exe_scope,
                                          ValueObjectManager &manager,
                                          lldb::RegisterContextSP &reg_ctx,
-                                         const RegisterInfo *reg_info)
+                                         uint32_t reg_num)
     : ValueObject(exe_scope, manager), m_reg_ctx_sp(reg_ctx), m_reg_info(),
       m_reg_value(), m_type_name(), m_compiler_type() {
   assert(reg_ctx);
-  ConstructObject(reg_info);
+  ConstructObject(reg_num);
 }
 
-ValueObjectRegister::~ValueObjectRegister() = default;
+ValueObjectRegister::~ValueObjectRegister() {}
 
 CompilerType ValueObjectRegister::GetCompilerTypeImpl() {
   if (!m_compiler_type.IsValid()) {
@@ -248,9 +249,9 @@ bool ValueObjectRegister::UpdateValue() {
         Process *process = exe_ctx.GetProcessPtr();
         if (process)
           m_data.SetAddressByteSize(process->GetAddressByteSize());
-        m_value.SetContext(Value::ContextType::RegisterInfo,
+        m_value.SetContext(Value::eContextTypeRegisterInfo,
                            (void *)&m_reg_info);
-        m_value.SetValueType(Value::ValueType::HostAddress);
+        m_value.SetValueType(Value::eValueTypeHostAddress);
         m_value.GetScalar() = (uintptr_t)m_data.GetDataStart();
         SetValueIsValid(true);
         SetValueDidChange(!(m_old_reg_value == m_reg_value));

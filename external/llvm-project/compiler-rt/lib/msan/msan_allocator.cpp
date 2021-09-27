@@ -220,8 +220,8 @@ void MsanDeallocate(StackTrace *stack, void *p) {
   }
 }
 
-static void *MsanReallocate(StackTrace *stack, void *old_p, uptr new_size,
-                            uptr alignment) {
+void *MsanReallocate(StackTrace *stack, void *old_p, uptr new_size,
+                     uptr alignment) {
   Metadata *meta = reinterpret_cast<Metadata*>(allocator.GetMetaData(old_p));
   uptr old_size = meta->requested_size;
   uptr actually_allocated_size = allocator.GetActuallyAllocatedSize(old_p);
@@ -245,7 +245,7 @@ static void *MsanReallocate(StackTrace *stack, void *old_p, uptr new_size,
   return new_p;
 }
 
-static void *MsanCalloc(StackTrace *stack, uptr nmemb, uptr size) {
+void *MsanCalloc(StackTrace *stack, uptr nmemb, uptr size) {
   if (UNLIKELY(CheckForCallocOverflow(size, nmemb))) {
     if (AllocatorMayReturnNull())
       return nullptr;

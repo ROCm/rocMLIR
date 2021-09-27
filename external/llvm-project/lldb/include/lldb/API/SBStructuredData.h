@@ -21,7 +21,7 @@ public:
   SBStructuredData(const lldb::SBStructuredData &rhs);
 
   SBStructuredData(const lldb::EventSP &event_sp);
-
+  
   SBStructuredData(lldb_private::StructuredDataImpl *impl);
 
   ~SBStructuredData();
@@ -34,8 +34,6 @@ public:
 
   lldb::SBError SetFromJSON(lldb::SBStream &stream);
 
-  lldb::SBError SetFromJSON(const char *json);
-
   void Clear();
 
   lldb::SBError GetAsJSON(lldb::SBStream &stream) const;
@@ -44,7 +42,7 @@ public:
 
   /// Return the type of data in this data structure
   lldb::StructuredDataType GetType() const;
-
+  
   /// Return the size (i.e. number of elements) in this data structure
   /// if it is an array or dictionary type. For other types, 0 will be
   //  returned.
@@ -53,7 +51,7 @@ public:
   /// Fill keys with the keys in this object and return true if this data
   /// structure is a dictionary.  Returns false otherwise.
    bool GetKeys(lldb::SBStringList &keys) const;
-
+  
   /// Return the value corresponding to a key if this data structure
   /// is a dictionary type.
   lldb::SBStructuredData GetValueForKey(const char *key) const;
@@ -90,7 +88,7 @@ public:
   size_t GetStringValue(char *dst, size_t dst_len) const;
 
 protected:
-  friend class SBLaunchInfo;
+  friend class SBTraceOptions;
   friend class SBDebugger;
   friend class SBTarget;
   friend class SBProcess;
@@ -99,7 +97,6 @@ protected:
   friend class SBBreakpoint;
   friend class SBBreakpointLocation;
   friend class SBBreakpointName;
-  friend class SBTrace;
 
   StructuredDataImplUP m_impl_up;
 };

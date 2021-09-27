@@ -696,20 +696,17 @@ define i32 @bitcasts() {
   ret i32 undef
 }
 
-define i32 @load_extends() #0 {
+define i32 @load_extends() {
 ; CHECK-LABEL: 'load_extends'
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %loadi8 = load i8, i8* undef
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %loadi16 = load i16, i16* undef
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %loadi32 = load i32, i32* undef
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %loadv2i8 = load <2 x i8>, <2 x i8>* undef
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %loadv4i8 = load <4 x i8>, <4 x i8>* undef
+; CHECK-NEXT:  Cost Model: Found an estimated cost of 16 for instruction: %loadv2i8 = load <2 x i8>, <2 x i8>* undef
+; CHECK-NEXT:  Cost Model: Found an estimated cost of 64 for instruction: %loadv4i8 = load <4 x i8>, <4 x i8>* undef
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %loadv8i8 = load <8 x i8>, <8 x i8>* undef
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 4 for instruction: %loadv2i16 = load <2 x i16>, <2 x i16>* undef
+; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %loadv2i16 = load <2 x i16>, <2 x i16>* undef
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %loadv4i16 = load <4 x i16>, <4 x i16>* undef
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %loadv2i32 = load <2 x i32>, <2 x i32>* undef
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %loadv4i32 = load <4 x i32>, <4 x i32>* undef
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %loadnxv2i32 = load <vscale x 2 x i32>, <vscale x 2 x i32>* undef
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %loadnxv4i32 = load <vscale x 4 x i32>, <vscale x 4 x i32>* undef
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r0 = sext i8 %loadi8 to i16
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r1 = zext i8 %loadi8 to i16
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %r2 = sext i8 %loadi8 to i32
@@ -734,12 +731,6 @@ define i32 @load_extends() #0 {
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %v9 = zext <2 x i16> %loadv2i16 to <2 x i64>
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %v10 = sext <2 x i32> %loadv2i32 to <2 x i64>
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %v11 = zext <2 x i32> %loadv2i32 to <2 x i64>
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %v12 = sext <4 x i32> %loadv4i32 to <4 x i64>
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 2 for instruction: %v13 = zext <4 x i32> %loadv4i32 to <4 x i64>
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %v14 = sext <vscale x 2 x i32> %loadnxv2i32 to <vscale x 2 x i64>
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: %v15 = zext <vscale x 2 x i32> %loadnxv2i32 to <vscale x 2 x i64>
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %v16 = sext <vscale x 4 x i32> %loadnxv4i32 to <vscale x 4 x i64>
-; CHECK-NEXT:  Cost Model: Found an estimated cost of 1 for instruction: %v17 = zext <vscale x 4 x i32> %loadnxv4i32 to <vscale x 4 x i64>
 ; CHECK-NEXT:  Cost Model: Found an estimated cost of 0 for instruction: ret i32 undef
 ;
   %loadi8 = load i8, i8* undef
@@ -751,9 +742,6 @@ define i32 @load_extends() #0 {
   %loadv2i16 = load <2 x i16>, <2 x i16>* undef
   %loadv4i16 = load <4 x i16>, <4 x i16>* undef
   %loadv2i32 = load <2 x i32>, <2 x i32>* undef
-  %loadv4i32 = load <4 x i32>, <4 x i32>* undef
-  %loadnxv2i32 = load <vscale x 2 x i32>, <vscale x 2 x i32>* undef
-  %loadnxv4i32 = load <vscale x 4 x i32>, <vscale x 4 x i32>* undef
 
   %r0 = sext i8 %loadi8 to i16
   %r1 = zext i8 %loadi8 to i16
@@ -780,12 +768,6 @@ define i32 @load_extends() #0 {
   %v9 = zext <2 x i16> %loadv2i16 to <2 x i64>
   %v10 = sext <2 x i32> %loadv2i32 to <2 x i64>
   %v11 = zext <2 x i32> %loadv2i32 to <2 x i64>
-  %v12 = sext <4 x i32> %loadv4i32 to <4 x i64>
-  %v13 = zext <4 x i32> %loadv4i32 to <4 x i64>
-  %v14 = sext <vscale x 2 x i32> %loadnxv2i32 to <vscale x 2 x i64>
-  %v15 = zext <vscale x 2 x i32> %loadnxv2i32 to <vscale x 2 x i64>
-  %v16 = sext <vscale x 4 x i32> %loadnxv4i32 to <vscale x 4 x i64>
-  %v17 = zext <vscale x 4 x i32> %loadnxv4i32 to <vscale x 4 x i64>
 
   ret i32 undef
 }
@@ -820,5 +802,3 @@ define i32 @store_truncs() {
   store i8 %r5, i8* undef
   ret i32 undef
 }
-
-attributes #0 = { "target-features"="+sve" }

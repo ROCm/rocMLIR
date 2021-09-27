@@ -57,15 +57,6 @@ static cl::opt<bool>
                      cl::init(false), cl::sub(Convert));
 static cl::alias ConvertSymbolize2("y", cl::aliasopt(ConvertSymbolize),
                                    cl::desc("Alias for -symbolize"));
-static cl::opt<bool>
-    NoDemangle("no-demangle",
-               cl::desc("determines whether to demangle function name "
-                        "when symbolizing function ids from the input log"),
-               cl::init(false), cl::sub(Convert));
-
-static cl::opt<bool> Demangle("demangle",
-                              cl::desc("demangle symbols (default)"),
-                              cl::sub(Convert));
 
 static cl::opt<std::string>
     ConvertInstrMap("instr_map",
@@ -278,14 +269,19 @@ void TraceConverter::exportAsChromeTraceEventFormat(const Trace &Records,
   auto CycleFreq = FH.CycleFrequency;
 
   unsigned id_counter = 0;
-  int NumOutputRecords = 0;
 
-  OS << "{\n  \"traceEvents\": [\n";
+  OS << "{\n  \"traceEvents\": [";
   DenseMap<uint32_t, StackTrieNode *> StackCursorByThreadId{};
   DenseMap<uint32_t, SmallVector<StackTrieNode *, 4>> StackRootsByThreadId{};
   DenseMap<unsigned, StackTrieNode *> StacksByStackId{};
   std::forward_list<StackTrieNode> NodeStore{};
+  int loop_count = 0;
   for (const auto &R : Records) {
+    if (loop_count++ == 0)
+      OS << "\n";
+    else
+      OS << ",\n";
+
     // Chrome trace event format always wants data in micros.
     // CyclesPerMicro = CycleHertz / 10^6
     // TSC / CyclesPerMicro == TSC * 10^6 / CycleHertz == MicroTimestamp
@@ -310,9 +306,6 @@ void TraceConverter::exportAsChromeTraceEventFormat(const Trace &Records,
       // type of B for begin or E for end, thread id, process id,
       // timestamp in microseconds, and a stack frame id. The ids are logged
       // in an id dictionary after the events.
-      if (NumOutputRecords++ > 0) {
-        OS << ",\n";
-      }
       writeTraceViewerRecord(Version, OS, R.FuncId, R.TId, R.PId, Symbolize,
                              FuncIdHelper, EventTimestampUs, *StackCursor, "B");
       break;
@@ -325,7 +318,7 @@ void TraceConverter::exportAsChromeTraceEventFormat(const Trace &Records,
       // (And/Or in loop termination below)
       StackTrieNode *PreviousCursor = nullptr;
       do {
-        if (NumOutputRecords++ > 0) {
+        if (PreviousCursor != nullptr) {
           OS << ",\n";
         }
         writeTraceViewerRecord(Version, OS, StackCursor->FuncId, R.TId, R.PId,
@@ -382,10 +375,7 @@ static CommandRegistration Unused(&Convert, []() -> Error {
   }
 
   const auto &FunctionAddresses = Map.getFunctionAddresses();
-  symbolize::LLVMSymbolizer::Options SymbolizerOpts;
-  if (Demangle.getPosition() < NoDemangle.getPosition())
-    SymbolizerOpts.Demangle = false;
-  symbolize::LLVMSymbolizer Symbolizer(SymbolizerOpts);
+  symbolize::LLVMSymbolizer Symbolizer;
   llvm::xray::FuncIdConversionHelper FuncIdHelper(ConvertInstrMap, Symbolizer,
                                                   FunctionAddresses);
   llvm::xray::TraceConverter TC(FuncIdHelper, ConvertSymbolize);
@@ -393,7 +383,7 @@ static CommandRegistration Unused(&Convert, []() -> Error {
   raw_fd_ostream OS(ConvertOutput, EC,
                     ConvertOutputFormat == ConvertFormats::BINARY
                         ? sys::fs::OpenFlags::OF_None
-                        : sys::fs::OpenFlags::OF_TextWithCRLF);
+                        : sys::fs::OpenFlags::OF_Text);
   if (EC)
     return make_error<StringError>(
         Twine("Cannot open file '") + ConvertOutput + "' for writing.", EC);

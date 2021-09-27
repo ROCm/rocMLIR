@@ -26,8 +26,8 @@
 #include <string>
 #include <vector>
 
-#include <cstdint>
-#include <cstdio>
+#include <stdint.h>
+#include <stdio.h>
 
 namespace lldb_private {
 class Debugger;
@@ -419,14 +419,16 @@ public:
 
 private:
 #if LLDB_ENABLE_LIBEDIT
-  bool IsInputCompleteCallback(Editline *editline, StringList &lines);
+  static bool IsInputCompleteCallback(Editline *editline, StringList &lines,
+                                      void *baton);
 
-  int FixIndentationCallback(Editline *editline, const StringList &lines,
-                             int cursor_position);
+  static int FixIndentationCallback(Editline *editline, const StringList &lines,
+                                    int cursor_position, void *baton);
 
-  llvm::Optional<std::string> SuggestionCallback(llvm::StringRef line);
+  static llvm::Optional<std::string> SuggestionCallback(llvm::StringRef line,
+                                                        void *baton);
 
-  void AutoCompleteCallback(CompletionRequest &request);
+  static void AutoCompleteCallback(CompletionRequest &request, void *baton);
 #endif
 
 protected:
@@ -442,6 +444,8 @@ protected:
   bool m_multi_line;
   bool m_color_prompts;
   bool m_interrupt_exits;
+  bool m_editing; // Set to true when fetching a line manually (not using
+                  // libedit)
   std::string m_line_buffer;
 };
 

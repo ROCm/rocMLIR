@@ -12,7 +12,7 @@
 
 #include "DNBRegisterInfo.h"
 #include "DNBLog.h"
-#include <cstring>
+#include <string.h>
 
 DNBRegisterValueClass::DNBRegisterValueClass(const DNBRegisterInfo *regInfo) {
   Clear();

@@ -1,4 +1,4 @@
-! RUN: %flang_fc1 -fsyntax-only -fdebug-pre-fir-tree %s | FileCheck %s
+! RUN: %f18 -fdebug-pre-fir-tree -fsyntax-only %s | FileCheck %s
 
 ! Test structure of the Pre-FIR tree
 
@@ -20,9 +20,8 @@ subroutine foo()
   ! CHECK: EndDoStmt
   end do
   ! CHECK: <<End DoConstruct>>
-! CHECK: EndSubroutineStmt
 end subroutine
-! CHECK: End Subroutine foo
+! CHECK: EndSubroutine foo
 
 ! CHECK: BlockData
 block data
@@ -30,7 +29,7 @@ block data
   integer, dimension(n) :: a, b, c
   common /arrays/ a, b, c
 end
-! CHECK: End BlockData
+! CHECK: EndBlockData
 
 ! CHECK: ModuleLike
 module test_mod
@@ -45,57 +44,49 @@ end interface
 contains
   ! CHECK: Subroutine foo
   subroutine foo()
-  ! CHECK: EndSubroutineStmt
     contains
     ! CHECK: Subroutine subfoo
     subroutine subfoo()
-    ! CHECK: EndSubroutineStmt
-  9 end subroutine
-    ! CHECK: End Subroutine subfoo
+    end subroutine
+    ! CHECK: EndSubroutine subfoo
     ! CHECK: Function subfoo2
     function subfoo2()
-    ! CHECK: EndFunctionStmt
-  9 end function
-    ! CHECK: End Function subfoo2
+    end function
+    ! CHECK: EndFunction subfoo2
   end subroutine
-  ! CHECK: End Subroutine foo
+  ! CHECK: EndSubroutine foo
 
   ! CHECK: Function foo2
   function foo2(i, j)
     integer i, j, foo2
     ! CHECK: AssignmentStmt
     foo2 = i + j
-  ! CHECK: EndFunctionStmt
     contains
     ! CHECK: Subroutine subfoo
     subroutine subfoo()
-    ! CHECK: EndSubroutineStmt
     end subroutine
-    ! CHECK: End Subroutine subfoo
+    ! CHECK: EndSubroutine subfoo
   end function
-  ! CHECK: End Function foo2
+  ! CHECK: EndFunction foo2
 end module
-! CHECK: End ModuleLike
+! CHECK: EndModuleLike
 
 ! CHECK: ModuleLike
 submodule (test_mod) test_mod_impl
 contains
   ! CHECK: Subroutine foo
   subroutine foo()
-  ! CHECK: EndSubroutineStmt
     contains
     ! CHECK: Subroutine subfoo
     subroutine subfoo()
-    ! CHECK: EndSubroutineStmt
     end subroutine
-    ! CHECK: End Subroutine subfoo
+    ! CHECK: EndSubroutine subfoo
     ! CHECK: Function subfoo2
     function subfoo2()
-    ! CHECK: EndFunctionStmt
     end function
-    ! CHECK: End Function subfoo2
+    ! CHECK: EndFunction subfoo2
   end subroutine
-  ! CHECK: End Subroutine foo
+  ! CHECK: EndSubroutine foo
   ! CHECK: MpSubprogram dump
   module procedure dump
     ! CHECK: FormatStmt
@@ -114,34 +105,19 @@ contains
     ! CHECK: <<End IfConstruct>>
   end procedure
 end submodule
-! CHECK: End ModuleLike
+! CHECK: EndModuleLike
 
 ! CHECK: BlockData
 block data named_block
  integer i, j, k
  common /indexes/ i, j, k
 end
-! CHECK: End BlockData
+! CHECK: EndBlockData
 
 ! CHECK: Function bar
 function bar()
-! CHECK: EndFunctionStmt
 end function
-! CHECK: End Function bar
-
-! Test top level directives
-!DIR$ INTEGER=64
-! CHECK: CompilerDirective:
-! CHECK: End CompilerDirective
-
-! Test nested directive
-! CHECK: Subroutine test_directive
-subroutine test_directive()
-  !DIR$ INTEGER=64
-  ! CHECK: <<CompilerDirective>>
-  ! CHECK: <<End CompilerDirective>>
-end subroutine
-! CHECK: EndSubroutine
+! CHECK: EndFunction bar
 
 ! CHECK: Program <anonymous>
   ! check specification parts are not part of the PFT.
@@ -151,4 +127,4 @@ end subroutine
   ! CHECK: AllocateStmt
   allocate(x(foo2(10, 30)))
 end
-! CHECK: End Program
+! CHECK: EndProgram

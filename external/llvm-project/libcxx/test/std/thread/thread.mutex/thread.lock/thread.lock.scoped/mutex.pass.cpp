@@ -130,7 +130,7 @@ int main(int, char**)
     }
 #endif
 
-#if TEST_STD_VER >= 17
+#ifdef __cpp_deduction_guides
     {
     TestMutex m1, m2, m3;
         {

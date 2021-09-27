@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-// REQUIRES: c++17
+// UNSUPPORTED: c++03, c++11, c++14
 // <optional>
 
 // constexpr optional(const optional<T>&& rhs);

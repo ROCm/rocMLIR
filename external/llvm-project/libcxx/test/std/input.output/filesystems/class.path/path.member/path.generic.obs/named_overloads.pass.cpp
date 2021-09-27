@@ -32,24 +32,17 @@
 #include "min_allocator.h"
 #include "filesystem_test_helper.h"
 
-MultiStringType input = MKSTR("c:\\foo\\bar");
-#ifdef _WIN32
-// On windows, the generic_* accessors return a path with forward slashes
-MultiStringType ref = MKSTR("c:/foo/bar");
-#else
-// On posix, the input string is returned as-is
-MultiStringType ref = MKSTR("c:\\foo\\bar");
-#endif
+MultiStringType longString = MKSTR("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ/123456789/abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
 
 int main(int, char**)
 {
   using namespace fs;
-  auto const& MS = ref;
-  const char* value = input;
+  auto const& MS = longString;
+  const char* value = longString;
   const path p(value);
   {
     std::string s = p.generic_string();
-    assert(s == (const char*)MS);
+    assert(s == value);
   }
   {
 #if TEST_STD_VER > 17 && defined(__cpp_char8_t)

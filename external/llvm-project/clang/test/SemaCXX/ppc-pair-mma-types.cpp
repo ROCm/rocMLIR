@@ -1,7 +1,5 @@
 // RUN: %clang_cc1 -triple powerpc64le-unknown-unknown -fsyntax-only \
-// RUN:   -fcxx-exceptions -target-cpu pwr10 %s -verify
-// RUN: %clang_cc1 -triple powerpc64-unknown-unknown -fsyntax-only \
-// RUN:   -fcxx-exceptions -target-cpu pwr10 %s -verify
+// RUN:   -fcxx-exceptions -target-cpu future %s -verify
 
 // vector quad
 

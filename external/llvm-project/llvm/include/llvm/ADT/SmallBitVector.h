@@ -60,7 +60,7 @@ class SmallBitVector {
                 "Unsupported word size");
 
 public:
-  using size_type = uintptr_t;
+  using size_type = unsigned;
 
   // Encapsulation of a single bit.
   class reference {
@@ -96,7 +96,7 @@ private:
     return reinterpret_cast<BitVector *>(X);
   }
 
-  void switchToSmall(uintptr_t NewSmallBits, size_type NewSize) {
+  void switchToSmall(uintptr_t NewSmallBits, size_t NewSize) {
     X = 1;
     setSmallSize(NewSize);
     setSmallBits(NewSmallBits);
@@ -120,11 +120,9 @@ private:
   }
 
   // Return the size.
-  size_type getSmallSize() const {
-    return getSmallRawBits() >> SmallNumDataBits;
-  }
+  size_t getSmallSize() const { return getSmallRawBits() >> SmallNumDataBits; }
 
-  void setSmallSize(size_type Size) {
+  void setSmallSize(size_t Size) {
     setSmallRawBits(getSmallBits() | (Size << SmallNumDataBits));
   }
 
@@ -191,7 +189,7 @@ public:
   }
 
   /// Returns the number of bits in this bitvector.
-  size_type size() const {
+  size_t size() const {
     return isSmall() ? getSmallSize() : getPointer()->size();
   }
 
@@ -338,8 +336,8 @@ public:
     } else {
       BitVector *BV = new BitVector(N, t);
       uintptr_t OldBits = getSmallBits();
-      for (size_type I = 0, E = getSmallSize(); I != E; ++I)
-        (*BV)[I] = (OldBits >> I) & 1;
+      for (size_t i = 0, e = getSmallSize(); i != e; ++i)
+        (*BV)[i] = (OldBits >> i) & 1;
       switchToLarge(BV);
     }
   }
@@ -348,11 +346,11 @@ public:
     if (isSmall()) {
       if (N > SmallNumDataBits) {
         uintptr_t OldBits = getSmallRawBits();
-        size_type SmallSize = getSmallSize();
+        size_t SmallSize = getSmallSize();
         BitVector *BV = new BitVector(SmallSize);
-        for (size_type I = 0; I < SmallSize; ++I)
-          if ((OldBits >> I) & 1)
-            BV->set(I);
+        for (size_t i = 0; i < SmallSize; ++i)
+          if ((OldBits >> i) & 1)
+            BV->set(i);
         BV->reserve(N);
         switchToLarge(BV);
       }
@@ -493,8 +491,8 @@ public:
     else if (!isSmall() && !RHS.isSmall())
       return *getPointer() == *RHS.getPointer();
     else {
-      for (size_type I = 0, E = size(); I != E; ++I) {
-        if ((*this)[I] != RHS[I])
+      for (size_t i = 0, e = size(); i != e; ++i) {
+        if ((*this)[i] != RHS[i])
           return false;
       }
       return true;
@@ -514,11 +512,11 @@ public:
     else if (!isSmall() && !RHS.isSmall())
       getPointer()->operator&=(*RHS.getPointer());
     else {
-      size_type I, E;
-      for (I = 0, E = std::min(size(), RHS.size()); I != E; ++I)
-        (*this)[I] = test(I) && RHS.test(I);
-      for (E = size(); I != E; ++I)
-        reset(I);
+      size_t i, e;
+      for (i = 0, e = std::min(size(), RHS.size()); i != e; ++i)
+        (*this)[i] = test(i) && RHS.test(i);
+      for (e = size(); i != e; ++i)
+        reset(i);
     }
     return *this;
   }
@@ -563,8 +561,8 @@ public:
     else if (!isSmall() && !RHS.isSmall())
       getPointer()->operator|=(*RHS.getPointer());
     else {
-      for (size_type I = 0, E = RHS.size(); I != E; ++I)
-        (*this)[I] = test(I) || RHS.test(I);
+      for (size_t i = 0, e = RHS.size(); i != e; ++i)
+        (*this)[i] = test(i) || RHS.test(i);
     }
     return *this;
   }
@@ -576,8 +574,8 @@ public:
     else if (!isSmall() && !RHS.isSmall())
       getPointer()->operator^=(*RHS.getPointer());
     else {
-      for (size_type I = 0, E = RHS.size(); I != E; ++I)
-        (*this)[I] = test(I) != RHS.test(I);
+      for (size_t i = 0, e = RHS.size(); i != e; ++i)
+        (*this)[i] = test(i) != RHS.test(i);
     }
     return *this;
   }
@@ -723,9 +721,8 @@ template <> struct DenseMapInfo<SmallBitVector> {
   }
   static unsigned getHashValue(const SmallBitVector &V) {
     uintptr_t Store;
-    return DenseMapInfo<
-        std::pair<SmallBitVector::size_type, ArrayRef<uintptr_t>>>::
-        getHashValue(std::make_pair(V.size(), V.getData(Store)));
+    return DenseMapInfo<std::pair<unsigned, ArrayRef<uintptr_t>>>::getHashValue(
+        std::make_pair(V.size(), V.getData(Store)));
   }
   static bool isEqual(const SmallBitVector &LHS, const SmallBitVector &RHS) {
     if (LHS.isInvalid() || RHS.isInvalid())

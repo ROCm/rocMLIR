@@ -12,9 +12,9 @@
     defined(REPLACE_GETOPT_LONG_ONLY)
 
 // getopt.cpp
-#include <cerrno>
-#include <cstdlib>
-#include <cstring>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 
 #if defined(REPLACE_GETOPT)
 int opterr = 1;   /* if error message should be printed */

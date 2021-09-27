@@ -21,7 +21,7 @@ config.name = 'MLIR'
 config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
 
 # suffixes: A list of file extensions to treat as test files.
-config.suffixes = ['.td', '.mlir', '.toy', '.ll', '.tc', '.py', '.yaml', '.test']
+config.suffixes = ['.td', '.mlir', '.toy', '.ll', '.tc', '.py']
 
 # test_source_root: The root path where tests are located.
 config.test_source_root = os.path.dirname(__file__)
@@ -58,13 +58,13 @@ tools = [
     'mlir-opt',
     'mlir-tblgen',
     'mlir-translate',
-    'mlir-lsp-server',
     'mlir-capi-ir-test',
     'mlir-capi-pass-test',
+    'mlir-edsc-builder-api-test',
     'mlir-cpu-runner',
     'mlir-linalg-ods-gen',
-    'mlir-linalg-ods-yaml-gen',
     'mlir-reduce',
+    'mlir-sdbm-api-test',
 ]
 
 # The following tools are optional
@@ -75,12 +75,14 @@ tools.extend([
     ToolSubst('toy-ch3', unresolved='ignore'),
     ToolSubst('toy-ch4', unresolved='ignore'),
     ToolSubst('toy-ch5', unresolved='ignore'),
+    ToolSubst('%cuda_wrapper_library_dir', config.cuda_wrapper_library_dir, unresolved='ignore'),
     ToolSubst('%linalg_test_lib_dir', config.linalg_test_lib_dir, unresolved='ignore'),
     ToolSubst('%mlir_runner_utils_dir', config.mlir_runner_utils_dir, unresolved='ignore'),
+    ToolSubst('%rocm_wrapper_library_dir', config.rocm_wrapper_library_dir, unresolved='ignore'),
     ToolSubst('%spirv_wrapper_library_dir', config.spirv_wrapper_library_dir, unresolved='ignore'),
     ToolSubst('%vulkan_wrapper_library_dir', config.vulkan_wrapper_library_dir, unresolved='ignore'),
-    ToolSubst('%mlir_integration_test_dir', config.mlir_integration_test_dir, unresolved='ignore'),
 ])
+
 llvm_config.add_tool_substitutions(tools, tool_dirs)
 
 
@@ -103,11 +105,11 @@ if config.target_triple:
 # by copying/linking sources to build.
 if config.enable_bindings_python:
     llvm_config.with_environment('PYTHONPATH', [
-        os.path.join(config.mlir_obj_root, 'python_packages', 'mlir_core'),
-        os.path.join(config.mlir_obj_root, 'python_packages', 'mlir_test'),
+        # TODO: Don't reference the llvm_obj_root here: the invariant is that
+        # the python/ must be at the same level of the lib directory
+        # where libMLIR.so is installed. This is presently not optimal from a
+        # project separation perspective and a discussion on how to better
+        # segment MLIR libraries needs to happen. See also
+        # lib/Bindings/Python/CMakeLists.txt for where this is set up.
+        os.path.join(config.llvm_obj_root, 'python'),
     ], append_path=True)
-
-if config.enable_assertions:
-    config.available_features.add('asserts')
-else:
-    config.available_features.add('noasserts')

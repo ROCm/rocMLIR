@@ -290,8 +290,11 @@ public:
                              const ASTContext &context, StringRef Format,
                              raw_ostream &OS) -> void {
       OS << "--- !" << Format << "\n";
-      OS << "IfsVersion: 3.0\n";
-      OS << "Target: " << T.str() << "\n";
+      OS << "IfsVersion: 2.0\n";
+      OS << "Triple: " << T.str() << "\n";
+      OS << "ObjectFileFormat: "
+         << "ELF"
+         << "\n"; // TODO: For now, just ELF.
       OS << "Symbols:\n";
       for (const auto &E : Symbols) {
         const MangledSymbol &Symbol = E.second;
@@ -327,7 +330,7 @@ public:
       OS.flush();
     };
 
-    assert(Format == "ifs-v1" && "Unexpected IFS Format.");
+    assert(Format == "experimental-ifs-v2" && "Unexpected IFS Format.");
     writeIfsV1(Instance.getTarget().getTriple(), Symbols, context, Format, *OS);
   }
 };
@@ -336,5 +339,6 @@ public:
 std::unique_ptr<ASTConsumer>
 GenerateInterfaceStubsAction::CreateASTConsumer(CompilerInstance &CI,
                                                 StringRef InFile) {
-  return std::make_unique<InterfaceStubFunctionsConsumer>(CI, InFile, "ifs-v1");
+  return std::make_unique<InterfaceStubFunctionsConsumer>(
+      CI, InFile, "experimental-ifs-v2");
 }

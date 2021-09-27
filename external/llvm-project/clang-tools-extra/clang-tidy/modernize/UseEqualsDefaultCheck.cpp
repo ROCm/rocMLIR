@@ -245,6 +245,8 @@ void UseEqualsDefaultCheck::registerMatchers(MatchFinder *Finder) {
 }
 
 void UseEqualsDefaultCheck::check(const MatchFinder::MatchResult &Result) {
+  std::string SpecialFunctionName;
+
   // Both CXXConstructorDecl and CXXDestructorDecl inherit from CXXMethodDecl.
   const auto *SpecialFunctionDecl =
       Result.Nodes.getNodeAs<CXXMethodDecl>(SpecialFunction);
@@ -274,14 +276,14 @@ void UseEqualsDefaultCheck::check(const MatchFinder::MatchResult &Result) {
                   bodyEmpty(Result.Context, Body);
 
   std::vector<FixItHint> RemoveInitializers;
-  unsigned MemberType;
+
   if (const auto *Ctor = dyn_cast<CXXConstructorDecl>(SpecialFunctionDecl)) {
     if (Ctor->getNumParams() == 0) {
-      MemberType = 0;
+      SpecialFunctionName = "default constructor";
     } else {
       if (!isCopyConstructorAndCanBeDefaulted(Result.Context, Ctor))
         return;
-      MemberType = 1;
+      SpecialFunctionName = "copy constructor";
       // If there are constructor initializers, they must be removed.
       for (const auto *Init : Ctor->inits()) {
         RemoveInitializers.emplace_back(
@@ -289,11 +291,11 @@ void UseEqualsDefaultCheck::check(const MatchFinder::MatchResult &Result) {
       }
     }
   } else if (isa<CXXDestructorDecl>(SpecialFunctionDecl)) {
-    MemberType = 2;
+    SpecialFunctionName = "destructor";
   } else {
     if (!isCopyAssignmentAndCanBeDefaulted(Result.Context, SpecialFunctionDecl))
       return;
-    MemberType = 3;
+    SpecialFunctionName = "copy-assignment operator";
   }
 
   // The location of the body is more useful inside a macro as spelling and
@@ -302,11 +304,8 @@ void UseEqualsDefaultCheck::check(const MatchFinder::MatchResult &Result) {
   if (Location.isMacroID())
     Location = Body->getBeginLoc();
 
-  auto Diag = diag(
-      Location,
-      "use '= default' to define a trivial %select{default constructor|copy "
-      "constructor|destructor|copy-assignment operator}0");
-  Diag << MemberType;
+  auto Diag = diag(Location, "use '= default' to define a trivial " +
+                                 SpecialFunctionName);
 
   if (ApplyFix) {
     // Skipping comments, check for a semicolon after Body->getSourceRange()

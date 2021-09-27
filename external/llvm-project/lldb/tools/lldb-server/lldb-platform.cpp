@@ -6,15 +6,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <cerrno>
+#include <errno.h>
 #if defined(__APPLE__)
 #include <netinet/in.h>
 #endif
-#include <csignal>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
+#include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #if !defined(_WIN32)
 #include <sys/wait.h>
 #endif
@@ -22,7 +22,6 @@
 
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FileUtilities.h"
-#include "llvm/Support/WithColor.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include "Acceptor.h"
@@ -203,15 +202,14 @@ int main_platform(int argc, char *argv[]) {
 
     case 'p': {
       if (!llvm::to_integer(optarg, port_offset)) {
-        WithColor::error() << "invalid port offset string " << optarg << "\n";
+        llvm::errs() << "error: invalid port offset string " << optarg << "\n";
         option_error = 4;
         break;
       }
       if (port_offset < LOW_PORT || port_offset > HIGH_PORT) {
-        WithColor::error() << llvm::formatv(
-            "port offset {0} is not in the "
-            "valid user port range of {1} - {2}\n",
-            port_offset, LOW_PORT, HIGH_PORT);
+        llvm::errs() << llvm::formatv("error: port offset {0} is not in the "
+                                      "valid user port range of {1} - {2}\n",
+                                      port_offset, LOW_PORT, HIGH_PORT);
         option_error = 5;
       }
     } break;
@@ -221,15 +219,14 @@ int main_platform(int argc, char *argv[]) {
     case 'M': {
       uint16_t portnum;
       if (!llvm::to_integer(optarg, portnum)) {
-        WithColor::error() << "invalid port number string " << optarg << "\n";
+        llvm::errs() << "error: invalid port number string " << optarg << "\n";
         option_error = 2;
         break;
       }
       if (portnum < LOW_PORT || portnum > HIGH_PORT) {
-        WithColor::error() << llvm::formatv(
-            "port number {0} is not in the "
-            "valid user port range of {1} - {2}\n",
-            portnum, LOW_PORT, HIGH_PORT);
+        llvm::errs() << llvm::formatv("error: port number {0} is not in the "
+                                      "valid user port range of {1} - {2}\n",
+                                      portnum, LOW_PORT, HIGH_PORT);
         option_error = 1;
         break;
       }
@@ -256,10 +253,9 @@ int main_platform(int argc, char *argv[]) {
     gdbserver_portmap = GDBRemoteCommunicationServerPlatform::PortMap(
         min_gdbserver_port, max_gdbserver_port);
   } else if (min_gdbserver_port || max_gdbserver_port) {
-    WithColor::error() << llvm::formatv(
-        "--min-gdbserver-port ({0}) is not lower than "
-        "--max-gdbserver-port ({1})\n",
-        min_gdbserver_port, max_gdbserver_port);
+    fprintf(stderr, "error: --min-gdbserver-port (%u) is not lower than "
+                    "--max-gdbserver-port (%u)\n",
+            min_gdbserver_port, max_gdbserver_port);
     option_error = 3;
   }
 
@@ -321,7 +317,7 @@ int main_platform(int argc, char *argv[]) {
     Connection *conn = nullptr;
     error = acceptor_up->Accept(children_inherit_accept_socket, conn);
     if (error.Fail()) {
-      WithColor::error() << error.AsCString() << '\n';
+      printf("error: %s\n", error.AsCString());
       exit(socket_error);
     }
     printf("Connection established.\n");
@@ -376,10 +372,10 @@ int main_platform(int argc, char *argv[]) {
         }
 
         if (error.Fail()) {
-          WithColor::error() << error.AsCString() << '\n';
+          fprintf(stderr, "error: %s\n", error.AsCString());
         }
       } else {
-        WithColor::error() << "handshake with client failed\n";
+        fprintf(stderr, "error: handshake with client failed\n");
       }
     }
   } while (g_server);

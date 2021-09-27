@@ -87,6 +87,8 @@ public:
   // PluginInterface protocol
   lldb_private::ConstString GetPluginName() override;
 
+  uint32_t GetPluginVersion() override;
+
 protected:
   uint32_t CalculateNumCompileUnits() override;
 

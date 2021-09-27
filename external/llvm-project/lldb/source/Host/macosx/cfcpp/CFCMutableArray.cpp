@@ -29,7 +29,7 @@ CFCMutableArray &CFCMutableArray::operator=(const CFCMutableArray &rhs) {
 }
 
 // Destructor
-CFCMutableArray::~CFCMutableArray() = default;
+CFCMutableArray::~CFCMutableArray() {}
 
 CFIndex CFCMutableArray::GetCount() const {
   CFMutableArrayRef array = get();

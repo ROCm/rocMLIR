@@ -290,12 +290,12 @@ class DumpVisitor : public RecursiveASTVisitor<DumpVisitor> {
   }
   std::string getDetail(const TemplateArgumentLoc &TAL) {
     if (TAL.getArgument().getKind() == TemplateArgument::Integral)
-      return toString(TAL.getArgument().getAsIntegral(), 10);
+      return TAL.getArgument().getAsIntegral().toString(10);
     return "";
   }
   std::string getDetail(const TemplateName &TN) {
     return toString([&](raw_ostream &OS) {
-      TN.print(OS, Ctx.getPrintingPolicy(), TemplateName::Qualified::None);
+      TN.print(OS, Ctx.getPrintingPolicy(), /*SuppressNNS=*/true);
     });
   }
   std::string getDetail(const Attr *A) {
@@ -335,7 +335,6 @@ public:
 
   // Override traversal to record the nodes we care about.
   // Generally, these are nodes with position information (TypeLoc, not Type).
-
   bool TraverseDecl(Decl *D) {
     return !D || isInjectedClassName(D) ||
            traverseNode("declaration", D, [&] { Base::TraverseDecl(D); });

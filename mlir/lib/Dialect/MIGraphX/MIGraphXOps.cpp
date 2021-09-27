@@ -17,9 +17,7 @@
 #include "mlir/Support/MathExtras.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 
-#include "mlir/Dialect/MIGraphX/MIGraphXOpsDialect.cpp.inc"
 #include "mlir/Dialect/MIGraphX/MIGraphXTypes.cpp.inc"
-
 using namespace mlir;
 //using namespace mlir::migraphx;
 using namespace migraphx;
@@ -54,7 +52,7 @@ static ParseResult parseBatchNormOp(OpAsmParser &parser, OperationState &result)
 
 static void print(OpAsmPrinter &p, BatchNormOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p.printOptionalAttrDict(op->getAttrs());
+  p.printOptionalAttrDict(op.getAttrs());
   p << " : " << op.getOperandTypes();
 }
 
@@ -81,7 +79,7 @@ static ParseResult parsePoolingOp(OpAsmParser &parser, OperationState &result) {
 
 static void print(OpAsmPrinter &p, PoolingOp op) {
   p << op.getOperationName() << "(" << op.getOperand() << ")";
-  p.printOptionalAttrDict(op->getAttrs());
+  p.printOptionalAttrDict(op.getAttrs());
 }
 
 static LogicalResult verify(PoolingOp op) {
@@ -103,7 +101,7 @@ static ParseResult parseFlattenOp(OpAsmParser &parser, OperationState &result) {
 
 static void print(OpAsmPrinter &p, FlattenOp op) {
   p << op.getOperationName() << "(" << op.getOperand() << ")";
-  p.printOptionalAttrDict(op->getAttrs());
+  p.printOptionalAttrDict(op.getAttrs());
 }
 
 static LogicalResult verify(FlattenOp op) {
@@ -129,7 +127,7 @@ static ParseResult parseMultiBroadcastOp(OpAsmParser &parser, OperationState &re
 
 static void print(OpAsmPrinter &p, MultiBroadcastOp op) {
   p << op.getOperationName() << "(" << op.getOperand() << ")";
-  p.printOptionalAttrDict(op->getAttrs());
+  p.printOptionalAttrDict(op.getAttrs());
 }
 
 static LogicalResult verify(MultiBroadcastOp op) {
@@ -151,7 +149,7 @@ static ParseResult parseDotOp(OpAsmParser &parser, OperationState &result) {
 
 static void print(OpAsmPrinter &p, DotOp op) {
   p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p.printOptionalAttrDict(op->getAttrs());
+  p.printOptionalAttrDict(op.getAttrs());
   p << " : " << op.getOperandTypes();
 }
 

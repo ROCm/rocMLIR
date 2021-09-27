@@ -64,7 +64,7 @@ ContextTrieNode::getHottestChildContext(const LineLocation &CallSite) {
 
 ContextTrieNode &ContextTrieNode::moveToChildContext(
     const LineLocation &CallSite, ContextTrieNode &&NodeToMove,
-    uint32_t ContextFramesToRemove, bool DeleteNode) {
+    StringRef ContextStrToRemove, bool DeleteNode) {
   uint32_t Hash = nodeHash(NodeToMove.getFuncName(), CallSite);
   assert(!AllChildContext.count(Hash) && "Node to remove must exist");
   LineLocation OldCallSite = NodeToMove.CallSiteLoc;
@@ -86,10 +86,10 @@ ContextTrieNode &ContextTrieNode::moveToChildContext(
     FunctionSamples *FSamples = Node->getFunctionSamples();
 
     if (FSamples) {
-      FSamples->getContext().promoteOnPath(ContextFramesToRemove);
+      FSamples->getContext().promoteOnPath(ContextStrToRemove);
       FSamples->getContext().setState(SyntheticContext);
-      LLVM_DEBUG(dbgs() << "  Context promoted to: "
-                        << FSamples->getContext().toString() << "\n");
+      LLVM_DEBUG(dbgs() << "  Context promoted to: " << FSamples->getContext()
+                        << "\n");
     }
 
     for (auto &It : Node->getAllChildContext()) {
@@ -127,15 +127,6 @@ void ContextTrieNode::setFunctionSamples(FunctionSamples *FSamples) {
   FuncSamples = FSamples;
 }
 
-Optional<uint32_t> ContextTrieNode::getFunctionSize() const { return FuncSize; }
-
-void ContextTrieNode::addFunctionSize(uint32_t FSize) {
-  if (!FuncSize.hasValue())
-    FuncSize = 0;
-
-  FuncSize = FuncSize.getValue() + FSize;
-}
-
 LineLocation ContextTrieNode::getCallSiteLoc() const { return CallSiteLoc; }
 
 ContextTrieNode *ContextTrieNode::getParentContext() const {
@@ -146,31 +137,13 @@ void ContextTrieNode::setParentContext(ContextTrieNode *Parent) {
   ParentContext = Parent;
 }
 
-void ContextTrieNode::dumpNode() {
+void ContextTrieNode::dump() {
   dbgs() << "Node: " << FuncName << "\n"
          << "  Callsite: " << CallSiteLoc << "\n"
-         << "  Size: " << FuncSize << "\n"
          << "  Children:\n";
 
   for (auto &It : AllChildContext) {
     dbgs() << "    Node: " << It.second.getFuncName() << "\n";
-  }
-}
-
-void ContextTrieNode::dumpTree() {
-  dbgs() << "Context Profile Tree:\n";
-  std::queue<ContextTrieNode *> NodeQueue;
-  NodeQueue.push(this);
-
-  while (!NodeQueue.empty()) {
-    ContextTrieNode *Node = NodeQueue.front();
-    NodeQueue.pop();
-    Node->dumpNode();
-
-    for (auto &It : Node->getAllChildContext()) {
-      ContextTrieNode *ChildNode = &It.second;
-      NodeQueue.push(ChildNode);
-    }
   }
 }
 
@@ -204,16 +177,13 @@ ContextTrieNode *ContextTrieNode::getOrCreateChildContext(
 
 // Profiler tracker than manages profiles and its associated context
 SampleContextTracker::SampleContextTracker(
-    SampleProfileMap &Profiles,
-    const DenseMap<uint64_t, StringRef> *GUIDToFuncNameMap)
-    : GUIDToFuncNameMap(GUIDToFuncNameMap) {
+    StringMap<FunctionSamples> &Profiles) {
   for (auto &FuncSample : Profiles) {
     FunctionSamples *FSamples = &FuncSample.second;
-    SampleContext Context = FuncSample.first;
-    LLVM_DEBUG(dbgs() << "Tracking Context for function: " << Context.toString()
-                      << "\n");
+    SampleContext Context(FuncSample.first(), RawContext);
+    LLVM_DEBUG(dbgs() << "Tracking Context for function: " << Context << "\n");
     if (!Context.isBaseContext())
-      FuncToCtxtProfiles[Context.getName()].insert(FSamples);
+      FuncToCtxtProfileSet[Context.getNameWithoutContext()].insert(FSamples);
     ContextTrieNode *NewNode = getOrCreateContextPath(Context, true);
     assert(!NewNode->getFunctionSamples() &&
            "New node can't have sample profile");
@@ -229,20 +199,13 @@ SampleContextTracker::getCalleeContextSamplesFor(const CallBase &Inst,
   if (!DIL)
     return nullptr;
 
-  CalleeName = FunctionSamples::getCanonicalFnName(CalleeName);
-  // Convert real function names to MD5 names, if the input profile is
-  // MD5-based.
-  std::string FGUID;
-  CalleeName = getRepInFormat(CalleeName, FunctionSamples::UseMD5, FGUID);
-
   // For indirect call, CalleeName will be empty, in which case the context
   // profile for callee with largest total samples will be returned.
   ContextTrieNode *CalleeContext = getCalleeContextFor(DIL, CalleeName);
   if (CalleeContext) {
     FunctionSamples *FSamples = CalleeContext->getFunctionSamples();
     LLVM_DEBUG(if (FSamples) {
-      dbgs() << "  Callee context found: " << FSamples->getContext().toString()
-             << "\n";
+      dbgs() << "  Callee context found: " << FSamples->getContext() << "\n";
     });
     return FSamples;
   }
@@ -300,17 +263,6 @@ SampleContextTracker::getContextSamplesFor(const SampleContext &Context) {
   return Node->getFunctionSamples();
 }
 
-SampleContextTracker::ContextSamplesTy &
-SampleContextTracker::getAllContextSamplesFor(const Function &Func) {
-  StringRef CanonName = FunctionSamples::getCanonicalFnName(Func);
-  return FuncToCtxtProfiles[CanonName];
-}
-
-SampleContextTracker::ContextSamplesTy &
-SampleContextTracker::getAllContextSamplesFor(StringRef Name) {
-  return FuncToCtxtProfiles[Name];
-}
-
 FunctionSamples *SampleContextTracker::getBaseSamplesFor(const Function &Func,
                                                          bool MergeContext) {
   StringRef CanonName = FunctionSamples::getCanonicalFnName(Func);
@@ -320,11 +272,6 @@ FunctionSamples *SampleContextTracker::getBaseSamplesFor(const Function &Func,
 FunctionSamples *SampleContextTracker::getBaseSamplesFor(StringRef Name,
                                                          bool MergeContext) {
   LLVM_DEBUG(dbgs() << "Getting base profile for function: " << Name << "\n");
-  // Convert real function names to MD5 names, if the input profile is
-  // MD5-based.
-  std::string FGUID;
-  Name = getRepInFormat(Name, FunctionSamples::UseMD5, FGUID);
-
   // Base profile is top-level node (child of root node), so try to retrieve
   // existing top-level node for given function first. If it exists, it could be
   // that we've merged base profile before, or there's actually context-less
@@ -337,14 +284,14 @@ FunctionSamples *SampleContextTracker::getBaseSamplesFor(StringRef Name,
     // We have profile for function under different contexts,
     // create synthetic base profile and merge context profiles
     // into base profile.
-    for (auto *CSamples : FuncToCtxtProfiles[Name]) {
+    for (auto *CSamples : FuncToCtxtProfileSet[Name]) {
       SampleContext &Context = CSamples->getContext();
-      // Skip inlined context profile and also don't re-merge any context
-      if (Context.hasState(InlinedContext) || Context.hasState(MergedContext))
-        continue;
-
       ContextTrieNode *FromNode = getContextFor(Context);
       if (FromNode == Node)
+        continue;
+
+      // Skip inlined context profile and also don't re-merge any context
+      if (Context.hasState(InlinedContext) || Context.hasState(MergedContext))
         continue;
 
       ContextTrieNode &ToNode = promoteMergeContextSamplesTree(*FromNode);
@@ -364,11 +311,9 @@ void SampleContextTracker::markContextSamplesInlined(
     const FunctionSamples *InlinedSamples) {
   assert(InlinedSamples && "Expect non-null inlined samples");
   LLVM_DEBUG(dbgs() << "Marking context profile as inlined: "
-                    << InlinedSamples->getContext().toString() << "\n");
+                    << InlinedSamples->getContext() << "\n");
   InlinedSamples->getContext().setState(InlinedContext);
 }
-
-ContextTrieNode &SampleContextTracker::getRootContext() { return RootContext; }
 
 void SampleContextTracker::promoteMergeContextSamplesTree(
     const Instruction &Inst, StringRef CalleeName) {
@@ -416,23 +361,30 @@ ContextTrieNode &SampleContextTracker::promoteMergeContextSamplesTree(
   FunctionSamples *FromSamples = NodeToPromo.getFunctionSamples();
   assert(FromSamples && "Shouldn't promote a context without profile");
   LLVM_DEBUG(dbgs() << "  Found context tree root to promote: "
-                    << FromSamples->getContext().toString() << "\n");
+                    << FromSamples->getContext() << "\n");
 
   assert(!FromSamples->getContext().hasState(InlinedContext) &&
          "Shouldn't promote inlined context profile");
-  uint32_t ContextFramesToRemove =
-      FromSamples->getContext().getContextFrames().size() - 1;
+  StringRef ContextStrToRemove = FromSamples->getContext().getCallingContext();
   return promoteMergeContextSamplesTree(NodeToPromo, RootContext,
-                                        ContextFramesToRemove);
+                                        ContextStrToRemove);
 }
 
-void SampleContextTracker::dump() { RootContext.dumpTree(); }
+void SampleContextTracker::dump() {
+  dbgs() << "Context Profile Tree:\n";
+  std::queue<ContextTrieNode *> NodeQueue;
+  NodeQueue.push(&RootContext);
 
-StringRef SampleContextTracker::getFuncNameFor(ContextTrieNode *Node) const {
-  if (!FunctionSamples::UseMD5)
-    return Node->getFuncName();
-  assert(GUIDToFuncNameMap && "GUIDToFuncNameMap needs to be populated first");
-  return GUIDToFuncNameMap->lookup(std::stoull(Node->getFuncName().data()));
+  while (!NodeQueue.empty()) {
+    ContextTrieNode *Node = NodeQueue.front();
+    NodeQueue.pop();
+    Node->dump();
+
+    for (auto &It : Node->getAllChildContext()) {
+      ContextTrieNode *ChildNode = &It.second;
+      NodeQueue.push(ChildNode);
+    }
+  }
 }
 
 ContextTrieNode *
@@ -466,7 +418,8 @@ ContextTrieNode *SampleContextTracker::getContextFor(const DILocation *DIL) {
     if (Name.empty())
       Name = PrevDIL->getScope()->getSubprogram()->getName();
     S.push_back(
-        std::make_pair(FunctionSamples::getCallSiteIdentifier(DIL), Name));
+        std::make_pair(FunctionSamples::getCallSiteIdentifier(DIL),
+                       PrevDIL->getScope()->getSubprogram()->getLinkageName()));
     PrevDIL = DIL;
   }
 
@@ -477,22 +430,11 @@ ContextTrieNode *SampleContextTracker::getContextFor(const DILocation *DIL) {
     RootName = PrevDIL->getScope()->getSubprogram()->getName();
   S.push_back(std::make_pair(LineLocation(0, 0), RootName));
 
-  // Convert real function names to MD5 names, if the input profile is
-  // MD5-based.
-  std::list<std::string> MD5Names;
-  if (FunctionSamples::UseMD5) {
-    for (auto &Location : S) {
-      MD5Names.emplace_back();
-      getRepInFormat(Location.second, FunctionSamples::UseMD5, MD5Names.back());
-      Location.second = MD5Names.back();
-    }
-  }
-
   ContextTrieNode *ContextNode = &RootContext;
   int I = S.size();
   while (--I >= 0 && ContextNode) {
     LineLocation &CallSite = S[I].first;
-    StringRef CalleeName = S[I].second;
+    StringRef &CalleeName = S[I].second;
     ContextNode = ContextNode->getChildContext(CallSite, CalleeName);
   }
 
@@ -506,18 +448,27 @@ ContextTrieNode *
 SampleContextTracker::getOrCreateContextPath(const SampleContext &Context,
                                              bool AllowCreate) {
   ContextTrieNode *ContextNode = &RootContext;
+  StringRef ContextRemain = Context;
+  StringRef ChildContext;
+  StringRef CalleeName;
   LineLocation CallSiteLoc(0, 0);
 
-  for (auto &Callsite : Context.getContextFrames()) {
+  while (ContextNode && !ContextRemain.empty()) {
+    auto ContextSplit = SampleContext::splitContextString(ContextRemain);
+    ChildContext = ContextSplit.first;
+    ContextRemain = ContextSplit.second;
+    LineLocation NextCallSiteLoc(0, 0);
+    SampleContext::decodeContextString(ChildContext, CalleeName,
+                                       NextCallSiteLoc);
+
     // Create child node at parent line/disc location
     if (AllowCreate) {
-      ContextNode = ContextNode->getOrCreateChildContext(CallSiteLoc,
-                                                         Callsite.CallerName);
-    } else {
       ContextNode =
-          ContextNode->getChildContext(CallSiteLoc, Callsite.CallerName);
+          ContextNode->getOrCreateChildContext(CallSiteLoc, CalleeName);
+    } else {
+      ContextNode = ContextNode->getChildContext(CallSiteLoc, CalleeName);
     }
-    CallSiteLoc = Callsite.Callsite;
+    CallSiteLoc = NextCallSiteLoc;
   }
 
   assert((!AllowCreate || ContextNode) &&
@@ -526,7 +477,6 @@ SampleContextTracker::getOrCreateContextPath(const SampleContext &Context,
 }
 
 ContextTrieNode *SampleContextTracker::getTopLevelContextNode(StringRef FName) {
-  assert(!FName.empty() && "Top level node query must provide valid name");
   return RootContext.getChildContext(LineLocation(0, 0), FName);
 }
 
@@ -537,7 +487,7 @@ ContextTrieNode &SampleContextTracker::addTopLevelContextNode(StringRef FName) {
 
 void SampleContextTracker::mergeContextNode(ContextTrieNode &FromNode,
                                             ContextTrieNode &ToNode,
-                                            uint32_t ContextFramesToRemove) {
+                                            StringRef ContextStrToRemove) {
   FunctionSamples *FromSamples = FromNode.getFunctionSamples();
   FunctionSamples *ToSamples = ToNode.getFunctionSamples();
   if (FromSamples && ToSamples) {
@@ -545,21 +495,19 @@ void SampleContextTracker::mergeContextNode(ContextTrieNode &FromNode,
     ToSamples->merge(*FromSamples);
     ToSamples->getContext().setState(SyntheticContext);
     FromSamples->getContext().setState(MergedContext);
-    if (FromSamples->getContext().hasAttribute(ContextShouldBeInlined))
-      ToSamples->getContext().setAttribute(ContextShouldBeInlined);
   } else if (FromSamples) {
     // Transfer FromSamples from FromNode to ToNode
     ToNode.setFunctionSamples(FromSamples);
     FromSamples->getContext().setState(SyntheticContext);
-    FromSamples->getContext().promoteOnPath(ContextFramesToRemove);
+    FromSamples->getContext().promoteOnPath(ContextStrToRemove);
     FromNode.setFunctionSamples(nullptr);
   }
 }
 
 ContextTrieNode &SampleContextTracker::promoteMergeContextSamplesTree(
     ContextTrieNode &FromNode, ContextTrieNode &ToNodeParent,
-    uint32_t ContextFramesToRemove) {
-  assert(ContextFramesToRemove && "Context to remove can't be empty");
+    StringRef ContextStrToRemove) {
+  assert(!ContextStrToRemove.empty() && "Context to remove can't be empty");
 
   // Ignore call site location if destination is top level under root
   LineLocation NewCallSiteLoc = LineLocation(0, 0);
@@ -577,21 +525,18 @@ ContextTrieNode &SampleContextTracker::promoteMergeContextSamplesTree(
     // Do not delete node to move from its parent here because
     // caller is iterating over children of that parent node.
     ToNode = &ToNodeParent.moveToChildContext(
-        NewCallSiteLoc, std::move(FromNode), ContextFramesToRemove, false);
+        NewCallSiteLoc, std::move(FromNode), ContextStrToRemove, false);
   } else {
     // Destination node exists, merge samples for the context tree
-    mergeContextNode(FromNode, *ToNode, ContextFramesToRemove);
-    LLVM_DEBUG({
-      if (ToNode->getFunctionSamples())
-        dbgs() << "  Context promoted and merged to: "
-               << ToNode->getFunctionSamples()->getContext().toString() << "\n";
-    });
+    mergeContextNode(FromNode, *ToNode, ContextStrToRemove);
+    LLVM_DEBUG(dbgs() << "  Context promoted and merged to: "
+                      << ToNode->getFunctionSamples()->getContext() << "\n");
 
     // Recursively promote and merge children
     for (auto &It : FromNode.getAllChildContext()) {
       ContextTrieNode &FromChildNode = It.second;
       promoteMergeContextSamplesTree(FromChildNode, *ToNode,
-                                     ContextFramesToRemove);
+                                     ContextStrToRemove);
     }
 
     // Remove children once they're all merged
@@ -604,4 +549,5 @@ ContextTrieNode &SampleContextTracker::promoteMergeContextSamplesTree(
 
   return *ToNode;
 }
+
 } // namespace llvm

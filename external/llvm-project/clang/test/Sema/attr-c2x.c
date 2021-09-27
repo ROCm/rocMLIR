@@ -11,18 +11,16 @@ enum [[clang::flag_enum]] EnumFlag {
   D0 = 1, D1 = 8
 };
 
-[[clang::overloadable]] void foo(void *c);
-[[clang::overloadable]] void foo(char *c);
+void foo(void *c) [[clang::overloadable]];
+void foo(char *c) [[clang::overloadable]];
 
 void context_okay(void *context [[clang::swift_context]]) [[clang::swiftcall]];
 void context_okay2(void *context [[clang::swift_context]], void *selfType, char **selfWitnessTable) [[clang::swiftcall]];
-void context_async_okay(void *context [[clang::swift_async_context]]) [[clang::swiftasynccall]];
-void context_async_okay2(void *context [[clang::swift_async_context]], void *selfType, char **selfWitnessTable) [[clang::swiftasynccall]];
 
-[[clang::ownership_returns(foo)]] void *f1(void);
-[[clang::ownership_returns(foo)]] void *f2(); // expected-warning {{'ownership_returns' attribute only applies to non-K&R-style functions}}
+void *f1(void) [[clang::ownership_returns(foo)]];
+void *f2() [[clang::ownership_returns(foo)]]; // expected-warning {{'ownership_returns' attribute only applies to non-K&R-style functions}}
 
-[[clang::unavailable("not available - replaced")]] void foo2(void); // expected-note {{'foo2' has been explicitly marked unavailable here}}
+void foo2(void) [[clang::unavailable("not available - replaced")]]; // expected-note {{'foo2' has been explicitly marked unavailable here}}
 void bar(void) {
   foo2(); // expected-error {{'foo2' is unavailable: not available - replaced}}
 }

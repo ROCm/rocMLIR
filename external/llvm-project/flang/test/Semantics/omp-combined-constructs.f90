@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang -fopenmp
+! RUN: %S/test_errors.sh %s %t %f18 -fopenmp
 
 program main
   implicit none
@@ -7,7 +7,6 @@ program main
   real(8) :: a(256), b(256)
   N = 256
 
-  !ERROR: `DISTRIBUTE` region has to be strictly nested inside `TEAMS` region.
   !$omp distribute simd
   do i = 1, N
      a(i) = 3.14

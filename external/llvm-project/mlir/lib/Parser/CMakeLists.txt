@@ -1,6 +1,5 @@
 add_mlir_library(MLIRParser
   AffineParser.cpp
-  AsmParserState.cpp
   AttributeParser.cpp
   DialectSymbolParser.cpp
   Lexer.cpp

@@ -34,7 +34,7 @@ ValueObjectConstResultChild::ValueObjectConstResultChild(
   m_name = name;
 }
 
-ValueObjectConstResultChild::~ValueObjectConstResultChild() = default;
+ValueObjectConstResultChild::~ValueObjectConstResultChild() {}
 
 lldb::ValueObjectSP ValueObjectConstResultChild::Dereference(Status &error) {
   return m_impl.Dereference(error);

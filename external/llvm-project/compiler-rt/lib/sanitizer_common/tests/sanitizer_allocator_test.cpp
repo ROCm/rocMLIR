@@ -36,17 +36,6 @@ using namespace __sanitizer;
 #define SKIP_ON_SOLARIS_SPARCV9(x) x
 #endif
 
-// On 64-bit systems with small virtual address spaces (e.g. 39-bit) we can't
-// use size class maps with a large number of classes, as that will make the
-// SizeClassAllocator64 region size too small (< 2^32).
-#if SANITIZER_ANDROID && defined(__aarch64__)
-#define ALLOCATOR64_SMALL_SIZE 1
-#elif SANITIZER_RISCV64
-#define ALLOCATOR64_SMALL_SIZE 1
-#else
-#define ALLOCATOR64_SMALL_SIZE 0
-#endif
-
 // Too slow for debug build
 #if !SANITIZER_DEBUG
 
@@ -64,11 +53,6 @@ static const uptr kAllocatorSpace = 0x3000000000ULL;
 static const uptr kAllocatorSize  = 0x2000000000ULL;
 static const u64 kAddressSpaceSize = 1ULL << 39;
 typedef VeryCompactSizeClassMap SizeClassMap;
-#elif SANITIZER_RISCV64
-const uptr kAllocatorSpace = ~(uptr)0;
-const uptr kAllocatorSize = 0x2000000000ULL;  // 128G.
-static const u64 kAddressSpaceSize = 1ULL << 38;
-typedef VeryDenseSizeClassMap SizeClassMap;
 #else
 static const uptr kAllocatorSpace = 0x700000000000ULL;
 static const uptr kAllocatorSize  = 0x010000000000ULL;  // 1T.
@@ -212,9 +196,9 @@ TEST(SanitizerCommon, DenseSizeClassMap) {
 }
 
 template <class Allocator>
-void TestSizeClassAllocator(uptr premapped_heap = 0) {
+void TestSizeClassAllocator() {
   Allocator *a = new Allocator;
-  a->Init(kReleaseToOSIntervalNever, premapped_heap);
+  a->Init(kReleaseToOSIntervalNever);
   typename Allocator::AllocatorCache cache;
   memset(&cache, 0, sizeof(cache));
   cache.Init(0);
@@ -281,25 +265,6 @@ void TestSizeClassAllocator(uptr premapped_heap = 0) {
 }
 
 #if SANITIZER_CAN_USE_ALLOCATOR64
-
-// Allocates kAllocatorSize aligned bytes on construction and frees it on
-// destruction.
-class ScopedPremappedHeap {
- public:
-  ScopedPremappedHeap() {
-    BasePtr = MmapNoReserveOrDie(2 * kAllocatorSize, "preallocated heap");
-    AlignedAddr = RoundUpTo(reinterpret_cast<uptr>(BasePtr), kAllocatorSize);
-  }
-
-  ~ScopedPremappedHeap() { UnmapOrDie(BasePtr, kAllocatorSize); }
-
-  uptr Addr() { return AlignedAddr; }
-
- private:
-  void *BasePtr;
-  uptr AlignedAddr;
-};
-
 // These tests can fail on Windows if memory is somewhat full and lit happens
 // to run them all at the same time. FIXME: Make them not flaky and reenable.
 #if !SANITIZER_WINDOWS
@@ -311,14 +276,8 @@ TEST(SanitizerCommon, SizeClassAllocator64Dynamic) {
   TestSizeClassAllocator<Allocator64Dynamic>();
 }
 
-#if !ALLOCATOR64_SMALL_SIZE
-// Android only has 39-bit address space, so mapping 2 * kAllocatorSize
-// sometimes fails.
-TEST(SanitizerCommon, SizeClassAllocator64DynamicPremapped) {
-  ScopedPremappedHeap h;
-  TestSizeClassAllocator<Allocator64Dynamic>(h.Addr());
-}
-
+#if !SANITIZER_ANDROID
+//FIXME(kostyak): find values so that those work on Android as well.
 TEST(SanitizerCommon, SizeClassAllocator64Compact) {
   TestSizeClassAllocator<Allocator64Compact>();
 }
@@ -361,9 +320,9 @@ TEST(SanitizerCommon, SizeClassAllocator32SeparateBatches) {
 }
 
 template <class Allocator>
-void SizeClassAllocatorMetadataStress(uptr premapped_heap = 0) {
+void SizeClassAllocatorMetadataStress() {
   Allocator *a = new Allocator;
-  a->Init(kReleaseToOSIntervalNever, premapped_heap);
+  a->Init(kReleaseToOSIntervalNever);
   typename Allocator::AllocatorCache cache;
   memset(&cache, 0, sizeof(cache));
   cache.Init(0);
@@ -402,12 +361,7 @@ TEST(SanitizerCommon, SizeClassAllocator64DynamicMetadataStress) {
   SizeClassAllocatorMetadataStress<Allocator64Dynamic>();
 }
 
-#if !ALLOCATOR64_SMALL_SIZE
-TEST(SanitizerCommon, SizeClassAllocator64DynamicPremappedMetadataStress) {
-  ScopedPremappedHeap h;
-  SizeClassAllocatorMetadataStress<Allocator64Dynamic>(h.Addr());
-}
-
+#if !SANITIZER_ANDROID
 TEST(SanitizerCommon, SizeClassAllocator64CompactMetadataStress) {
   SizeClassAllocatorMetadataStress<Allocator64Compact>();
 }
@@ -420,10 +374,9 @@ TEST(SanitizerCommon, SizeClassAllocator32CompactMetadataStress) {
 }
 
 template <class Allocator>
-void SizeClassAllocatorGetBlockBeginStress(u64 TotalSize,
-                                           uptr premapped_heap = 0) {
+void SizeClassAllocatorGetBlockBeginStress(u64 TotalSize) {
   Allocator *a = new Allocator;
-  a->Init(kReleaseToOSIntervalNever, premapped_heap);
+  a->Init(kReleaseToOSIntervalNever);
   typename Allocator::AllocatorCache cache;
   memset(&cache, 0, sizeof(cache));
   cache.Init(0);
@@ -455,12 +408,7 @@ TEST(SanitizerCommon, SizeClassAllocator64DynamicGetBlockBegin) {
   SizeClassAllocatorGetBlockBeginStress<Allocator64Dynamic>(
       1ULL << (SANITIZER_ANDROID ? 31 : 33));
 }
-#if !ALLOCATOR64_SMALL_SIZE
-TEST(SanitizerCommon, SizeClassAllocator64DynamicPremappedGetBlockBegin) {
-  ScopedPremappedHeap h;
-  SizeClassAllocatorGetBlockBeginStress<Allocator64Dynamic>(
-      1ULL << (SANITIZER_ANDROID ? 31 : 33), h.Addr());
-}
+#if !SANITIZER_ANDROID
 TEST(SanitizerCommon, SizeClassAllocator64CompactGetBlockBegin) {
   SizeClassAllocatorGetBlockBeginStress<Allocator64Compact>(1ULL << 33);
 }
@@ -572,7 +520,7 @@ TEST(SanitizerCommon, LargeMmapAllocatorMapUnmapCallback) {
 
 // Don't test OOM conditions on Win64 because it causes other tests on the same
 // machine to OOM.
-#if SANITIZER_CAN_USE_ALLOCATOR64 && !SANITIZER_WINDOWS64
+#if SANITIZER_CAN_USE_ALLOCATOR64 && !SANITIZER_WINDOWS64 && !SANITIZER_ANDROID
 TEST(SanitizerCommon, SizeClassAllocator64Overflow) {
   Allocator64 a;
   a.Init(kReleaseToOSIntervalNever);
@@ -586,8 +534,7 @@ TEST(SanitizerCommon, SizeClassAllocator64Overflow) {
   uint32_t chunks[kNumChunks];
   bool allocation_failed = false;
   for (int i = 0; i < 1000000; i++) {
-    uptr class_id = a.kNumClasses - 1;
-    if (!a.GetFromAllocator(&stats, class_id, chunks, kNumChunks)) {
+    if (!a.GetFromAllocator(&stats, 52, chunks, kNumChunks)) {
       allocation_failed = true;
       break;
     }
@@ -677,10 +624,10 @@ TEST(SanitizerCommon, LargeMmapAllocator) {
 }
 
 template <class PrimaryAllocator>
-void TestCombinedAllocator(uptr premapped_heap = 0) {
+void TestCombinedAllocator() {
   typedef CombinedAllocator<PrimaryAllocator> Allocator;
   Allocator *a = new Allocator;
-  a->Init(kReleaseToOSIntervalNever, premapped_heap);
+  a->Init(kReleaseToOSIntervalNever);
   std::mt19937 r;
 
   typename Allocator::AllocatorCache cache;
@@ -751,15 +698,7 @@ TEST(SanitizerCommon, CombinedAllocator64Dynamic) {
   TestCombinedAllocator<Allocator64Dynamic>();
 }
 
-#if !ALLOCATOR64_SMALL_SIZE
-#if !SANITIZER_WINDOWS
-// Windows fails to map 1TB, so disable this test.
-TEST(SanitizerCommon, CombinedAllocator64DynamicPremapped) {
-  ScopedPremappedHeap h;
-  TestCombinedAllocator<Allocator64Dynamic>(h.Addr());
-}
-#endif
-
+#if !SANITIZER_ANDROID
 TEST(SanitizerCommon, CombinedAllocator64Compact) {
   TestCombinedAllocator<Allocator64Compact>();
 }
@@ -775,12 +714,12 @@ TEST(SanitizerCommon, SKIP_ON_SOLARIS_SPARCV9(CombinedAllocator32Compact)) {
 }
 
 template <class Allocator>
-void TestSizeClassAllocatorLocalCache(uptr premapped_heap = 0) {
+void TestSizeClassAllocatorLocalCache() {
   using AllocatorCache = typename Allocator::AllocatorCache;
   AllocatorCache cache;
   Allocator *a = new Allocator();
 
-  a->Init(kReleaseToOSIntervalNever, premapped_heap);
+  a->Init(kReleaseToOSIntervalNever);
   memset(&cache, 0, sizeof(cache));
   cache.Init(0);
 
@@ -820,12 +759,7 @@ TEST(SanitizerCommon, SizeClassAllocator64DynamicLocalCache) {
   TestSizeClassAllocatorLocalCache<Allocator64Dynamic>();
 }
 
-#if !ALLOCATOR64_SMALL_SIZE
-TEST(SanitizerCommon, SizeClassAllocator64DynamicPremappedLocalCache) {
-  ScopedPremappedHeap h;
-  TestSizeClassAllocatorLocalCache<Allocator64Dynamic>(h.Addr());
-}
-
+#if !SANITIZER_ANDROID
 TEST(SanitizerCommon, SizeClassAllocator64CompactLocalCache) {
   TestSizeClassAllocatorLocalCache<Allocator64Compact>();
 }
@@ -957,9 +891,9 @@ void IterationTestCallback(uptr chunk, void *arg) {
 }
 
 template <class Allocator>
-void TestSizeClassAllocatorIteration(uptr premapped_heap = 0) {
+void TestSizeClassAllocatorIteration() {
   Allocator *a = new Allocator;
-  a->Init(kReleaseToOSIntervalNever, premapped_heap);
+  a->Init(kReleaseToOSIntervalNever);
   typename Allocator::AllocatorCache cache;
   memset(&cache, 0, sizeof(cache));
   cache.Init(0);
@@ -1008,12 +942,6 @@ TEST(SanitizerCommon, SizeClassAllocator64Iteration) {
 TEST(SanitizerCommon, SizeClassAllocator64DynamicIteration) {
   TestSizeClassAllocatorIteration<Allocator64Dynamic>();
 }
-#if !ALLOCATOR64_SMALL_SIZE
-TEST(SanitizerCommon, SizeClassAllocator64DynamicPremappedIteration) {
-  ScopedPremappedHeap h;
-  TestSizeClassAllocatorIteration<Allocator64Dynamic>(h.Addr());
-}
-#endif
 #endif
 #endif
 
@@ -1088,8 +1016,8 @@ TEST(SanitizerCommon, LargeMmapAllocatorBlockBegin) {
 
 // Don't test OOM conditions on Win64 because it causes other tests on the same
 // machine to OOM.
-#if SANITIZER_CAN_USE_ALLOCATOR64 && !SANITIZER_WINDOWS64
-typedef __sanitizer::SizeClassMap<2, 22, 22, 34, 128, 16> SpecialSizeClassMap;
+#if SANITIZER_CAN_USE_ALLOCATOR64 && !SANITIZER_WINDOWS64 && !SANITIZER_ANDROID
+typedef __sanitizer::SizeClassMap<3, 4, 8, 38, 128, 16> SpecialSizeClassMap;
 template <typename AddressSpaceViewTy = LocalAddressSpaceView>
 struct AP64_SpecialSizeClassMap {
   static const uptr kSpaceBeg = kAllocatorSpace;
@@ -1116,7 +1044,7 @@ TEST(SanitizerCommon, SizeClassAllocator64PopulateFreeListOOM) {
   // ...one man is on a mission to overflow a region with a series of
   // successive allocations.
 
-  const uptr kClassID = ALLOCATOR64_SMALL_SIZE ? 18 : 24;
+  const uptr kClassID = 107;
   const uptr kAllocationSize = SpecialSizeClassMap::Size(kClassID);
   ASSERT_LT(2 * kAllocationSize, kRegionSize);
   ASSERT_GT(3 * kAllocationSize, kRegionSize);
@@ -1124,7 +1052,7 @@ TEST(SanitizerCommon, SizeClassAllocator64PopulateFreeListOOM) {
   EXPECT_NE(cache.Allocate(a, kClassID), nullptr);
   EXPECT_EQ(cache.Allocate(a, kClassID), nullptr);
 
-  const uptr Class2 = ALLOCATOR64_SMALL_SIZE ? 15 : 21;
+  const uptr Class2 = 100;
   const uptr Size2 = SpecialSizeClassMap::Size(Class2);
   ASSERT_EQ(Size2 * 8, kRegionSize);
   char *p[7];
@@ -1149,12 +1077,15 @@ TEST(SanitizerCommon, SizeClassAllocator64PopulateFreeListOOM) {
 
 class NoMemoryMapper {
  public:
-  uptr last_request_buffer_size = 0;
+  uptr last_request_buffer_size;
 
-  u64 *MapPackedCounterArrayBuffer(uptr buffer_size) {
-    last_request_buffer_size = buffer_size * sizeof(u64);
-    return nullptr;
+  NoMemoryMapper() : last_request_buffer_size(0) {}
+
+  uptr MapPackedCounterArrayBuffer(uptr buffer_size) {
+    last_request_buffer_size = buffer_size;
+    return 0;
   }
+  void UnmapPackedCounterArrayBuffer(uptr buffer, uptr buffer_size) {}
 };
 
 class RedZoneMemoryMapper {
@@ -1165,17 +1096,18 @@ class RedZoneMemoryMapper {
     MprotectNoAccess(reinterpret_cast<uptr>(buffer), page_size);
     MprotectNoAccess(reinterpret_cast<uptr>(buffer) + page_size * 2, page_size);
   }
-  ~RedZoneMemoryMapper() { UnmapOrDie(buffer, 3 * GetPageSize()); }
+  ~RedZoneMemoryMapper() {
+    UnmapOrDie(buffer, 3 * GetPageSize());
+  }
 
-  u64 *MapPackedCounterArrayBuffer(uptr buffer_size) {
-    buffer_size *= sizeof(u64);
+  uptr MapPackedCounterArrayBuffer(uptr buffer_size) {
     const auto page_size = GetPageSize();
     CHECK_EQ(buffer_size, page_size);
-    u64 *p =
-        reinterpret_cast<u64 *>(reinterpret_cast<uptr>(buffer) + page_size);
-    memset(p, 0, page_size);
-    return p;
+    memset(reinterpret_cast<void*>(reinterpret_cast<uptr>(buffer) + page_size),
+           0, page_size);
+    return reinterpret_cast<uptr>(buffer) + page_size;
   }
+  void UnmapPackedCounterArrayBuffer(uptr buffer, uptr buffer_size) {}
 
  private:
   void *buffer;
@@ -1183,31 +1115,35 @@ class RedZoneMemoryMapper {
 
 TEST(SanitizerCommon, SizeClassAllocator64PackedCounterArray) {
   NoMemoryMapper no_memory_mapper;
+  typedef Allocator64::PackedCounterArray<NoMemoryMapper>
+      NoMemoryPackedCounterArray;
+
   for (int i = 0; i < 64; i++) {
     // Various valid counter's max values packed into one word.
-    Allocator64::PackedCounterArray counters_2n(1, 1ULL << i,
-                                                &no_memory_mapper);
+    NoMemoryPackedCounterArray counters_2n(1, 1ULL << i, &no_memory_mapper);
     EXPECT_EQ(8ULL, no_memory_mapper.last_request_buffer_size);
 
     // Check the "all bit set" values too.
-    Allocator64::PackedCounterArray counters_2n1_1(1, ~0ULL >> i,
-                                                   &no_memory_mapper);
+    NoMemoryPackedCounterArray counters_2n1_1(1, ~0ULL >> i, &no_memory_mapper);
     EXPECT_EQ(8ULL, no_memory_mapper.last_request_buffer_size);
 
     // Verify the packing ratio, the counter is expected to be packed into the
     // closest power of 2 bits.
-    Allocator64::PackedCounterArray counters(64, 1ULL << i, &no_memory_mapper);
+    NoMemoryPackedCounterArray counters(64, 1ULL << i, &no_memory_mapper);
     EXPECT_EQ(8ULL * RoundUpToPowerOfTwo(i + 1),
               no_memory_mapper.last_request_buffer_size);
   }
 
   RedZoneMemoryMapper memory_mapper;
+  typedef Allocator64::PackedCounterArray<RedZoneMemoryMapper>
+      RedZonePackedCounterArray;
   // Go through 1, 2, 4, 8, .. 64 bits per counter.
   for (int i = 0; i < 7; i++) {
     // Make sure counters request one memory page for the buffer.
     const u64 kNumCounters = (GetPageSize() / 8) * (64 >> i);
-    Allocator64::PackedCounterArray counters(
-        kNumCounters, 1ULL << ((1 << i) - 1), &memory_mapper);
+    RedZonePackedCounterArray counters(kNumCounters,
+                                       1ULL << ((1 << i) - 1),
+                                       &memory_mapper);
     counters.Inc(0);
     for (u64 c = 1; c < kNumCounters - 1; c++) {
       ASSERT_EQ(0ULL, counters.Get(c));
@@ -1234,7 +1170,7 @@ class RangeRecorder {
             Log2(GetPageSizeCached() >> Allocator64::kCompactPtrScale)),
         last_page_reported(0) {}
 
-  void ReleasePageRangeToOS(u32 class_id, u32 from, u32 to) {
+  void ReleasePageRangeToOS(u32 from, u32 to) {
     from >>= page_size_scaled_log;
     to >>= page_size_scaled_log;
     ASSERT_LT(from, to);
@@ -1244,7 +1180,6 @@ class RangeRecorder {
     reported_pages.append(to - from, 'x');
     last_page_reported = to;
   }
-
  private:
   const uptr page_size_scaled_log;
   u32 last_page_reported;
@@ -1274,7 +1209,7 @@ TEST(SanitizerCommon, SizeClassAllocator64FreePagesRangeTracker) {
 
   for (auto test_case : test_cases) {
     RangeRecorder range_recorder;
-    RangeTracker tracker(&range_recorder, 1);
+    RangeTracker tracker(&range_recorder);
     for (int i = 0; test_case[i] != 0; i++)
       tracker.NextPage(test_case[i] == 'x');
     tracker.Done();
@@ -1291,14 +1226,16 @@ TEST(SanitizerCommon, SizeClassAllocator64FreePagesRangeTracker) {
 class ReleasedPagesTrackingMemoryMapper {
  public:
   std::set<u32> reported_pages;
-  std::vector<u64> buffer;
 
-  u64 *MapPackedCounterArrayBuffer(uptr buffer_size) {
+  uptr MapPackedCounterArrayBuffer(uptr buffer_size) {
     reported_pages.clear();
-    buffer.assign(buffer_size, 0);
-    return buffer.data();
+    return reinterpret_cast<uptr>(calloc(1, buffer_size));
   }
-  void ReleasePageRangeToOS(u32 class_id, u32 from, u32 to) {
+  void UnmapPackedCounterArrayBuffer(uptr buffer, uptr buffer_size) {
+    free(reinterpret_cast<void*>(buffer));
+  }
+
+  void ReleasePageRangeToOS(u32 from, u32 to) {
     uptr page_size_scaled =
         GetPageSizeCached() >> Allocator64::kCompactPtrScale;
     for (u32 i = from; i < to; i += page_size_scaled)
@@ -1342,7 +1279,7 @@ void TestReleaseFreeMemoryToOS() {
 
     Allocator::ReleaseFreeMemoryToOS(&free_array[0], free_array.size(),
                                      chunk_size, kAllocatedPagesCount,
-                                     &memory_mapper, class_id);
+                                     &memory_mapper);
 
     // Verify that there are no released pages touched by used chunks and all
     // ranges of free chunks big enough to contain the entire memory pages had
@@ -1400,7 +1337,7 @@ TEST(SanitizerCommon, SizeClassAllocator64ReleaseFreeMemoryToOS) {
   TestReleaseFreeMemoryToOS<Allocator64>();
 }
 
-#if !ALLOCATOR64_SMALL_SIZE
+#if !SANITIZER_ANDROID
 TEST(SanitizerCommon, SizeClassAllocator64CompactReleaseFreeMemoryToOS) {
   TestReleaseFreeMemoryToOS<Allocator64Compact>();
 }
@@ -1408,7 +1345,7 @@ TEST(SanitizerCommon, SizeClassAllocator64CompactReleaseFreeMemoryToOS) {
 TEST(SanitizerCommon, SizeClassAllocator64VeryCompactReleaseFreeMemoryToOS) {
   TestReleaseFreeMemoryToOS<Allocator64VeryCompact>();
 }
-#endif  // !ALLOCATOR64_SMALL_SIZE
+#endif  // !SANITIZER_ANDROID
 
 #endif  // SANITIZER_CAN_USE_ALLOCATOR64
 

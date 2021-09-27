@@ -461,11 +461,6 @@ public:
       }
     }
 
-    if (Expr->getType()->isPointerTy()) {
-      if (isa<ConstantPointerNull>(V))
-        return ValidatorResult(SCEVType::INT); // "int"
-    }
-
     return ValidatorResult(SCEVType::PARAM, Expr);
   }
 };
@@ -777,7 +772,8 @@ extractConstantFactor(const SCEV *S, ScalarEvolution &SE) {
 }
 
 const SCEV *tryForwardThroughPHI(const SCEV *Expr, Region &R,
-                                 ScalarEvolution &SE, ScopDetection *SD) {
+                                 ScalarEvolution &SE, LoopInfo &LI,
+                                 const DominatorTree &DT) {
   if (auto *Unknown = dyn_cast<SCEVUnknown>(Expr)) {
     Value *V = Unknown->getValue();
     auto *PHI = dyn_cast<PHINode>(V);
@@ -788,7 +784,7 @@ const SCEV *tryForwardThroughPHI(const SCEV *Expr, Region &R,
 
     for (unsigned i = 0; i < PHI->getNumIncomingValues(); i++) {
       BasicBlock *Incoming = PHI->getIncomingBlock(i);
-      if (SD->isErrorBlock(*Incoming, R) && R.contains(Incoming))
+      if (isErrorBlock(*Incoming, R, LI, DT) && R.contains(Incoming))
         continue;
       if (Final)
         return Expr;
@@ -801,11 +797,12 @@ const SCEV *tryForwardThroughPHI(const SCEV *Expr, Region &R,
   return Expr;
 }
 
-Value *getUniqueNonErrorValue(PHINode *PHI, Region *R, ScopDetection *SD) {
+Value *getUniqueNonErrorValue(PHINode *PHI, Region *R, LoopInfo &LI,
+                              const DominatorTree &DT) {
   Value *V = nullptr;
   for (unsigned i = 0; i < PHI->getNumIncomingValues(); i++) {
     BasicBlock *BB = PHI->getIncomingBlock(i);
-    if (!SD->isErrorBlock(*BB, *R)) {
+    if (!isErrorBlock(*BB, *R, LI, DT)) {
       if (V)
         return nullptr;
       V = PHI->getIncomingValue(i);

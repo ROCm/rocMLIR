@@ -20,7 +20,7 @@
 
 namespace mlir {
 
-namespace function_like_impl {
+namespace impl {
 
 /// A named class for passing around the variadic flag.
 class VariadicFlag {
@@ -37,9 +37,6 @@ private:
 /// `resultAttrs` arguments, to the list of operation attributes in `result`.
 /// Internally, argument and result attributes are stored as dict attributes
 /// with special names given by getResultAttrName, getArgumentAttrName.
-void addArgAndResultAttrs(Builder &builder, OperationState &result,
-                          ArrayRef<DictionaryAttr> argAttrs,
-                          ArrayRef<DictionaryAttr> resultAttrs);
 void addArgAndResultAttrs(Builder &builder, OperationState &result,
                           ArrayRef<NamedAttrList> argAttrs,
                           ArrayRef<NamedAttrList> resultAttrs);
@@ -106,7 +103,7 @@ void printFunctionAttributes(OpAsmPrinter &p, Operation *op, unsigned numInputs,
                              unsigned numResults,
                              ArrayRef<StringRef> elided = {});
 
-} // namespace function_like_impl
+} // namespace impl
 
 } // namespace mlir
 

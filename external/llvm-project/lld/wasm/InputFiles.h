@@ -31,7 +31,7 @@ class InputChunk;
 class InputFunction;
 class InputSegment;
 class InputGlobal;
-class InputTag;
+class InputEvent;
 class InputTable;
 class InputSection;
 
@@ -116,10 +116,12 @@ public:
   // Returns the underlying wasm file.
   const WasmObjectFile *getWasmObj() const { return wasmObj.get(); }
 
+  void dumpInfo() const;
+
   uint32_t calcNewIndex(const WasmRelocation &reloc) const;
-  uint64_t calcNewValue(const WasmRelocation &reloc, uint64_t tombstone,
-                        const InputChunk *chunk) const;
+  uint64_t calcNewValue(const WasmRelocation &reloc, uint64_t tombstone) const;
   uint64_t calcNewAddend(const WasmRelocation &reloc) const;
+  uint64_t calcExpectedValue(const WasmRelocation &reloc) const;
   Symbol *getSymbol(const WasmRelocation &reloc) const {
     return symbols[reloc.Index];
   };
@@ -134,20 +136,20 @@ public:
   std::vector<uint32_t> tableEntries;
   std::vector<uint32_t> tableEntriesRel;
   std::vector<bool> keptComdats;
-  std::vector<InputChunk *> segments;
+  std::vector<InputSegment *> segments;
   std::vector<InputFunction *> functions;
   std::vector<InputGlobal *> globals;
-  std::vector<InputTag *> tags;
+  std::vector<InputEvent *> events;
   std::vector<InputTable *> tables;
-  std::vector<InputChunk *> customSections;
-  llvm::DenseMap<uint32_t, InputChunk *> customSectionsByIndex;
+  std::vector<InputSection *> customSections;
+  llvm::DenseMap<uint32_t, InputSection *> customSectionsByIndex;
 
   Symbol *getSymbol(uint32_t index) const { return symbols[index]; }
   FunctionSymbol *getFunctionSymbol(uint32_t index) const;
   DataSymbol *getDataSymbol(uint32_t index) const;
   GlobalSymbol *getGlobalSymbol(uint32_t index) const;
   SectionSymbol *getSectionSymbol(uint32_t index) const;
-  TagSymbol *getTagSymbol(uint32_t index) const;
+  EventSymbol *getEventSymbol(uint32_t index) const;
   TableSymbol *getTableSymbol(uint32_t index) const;
 
 private:
@@ -155,7 +157,7 @@ private:
   Symbol *createUndefined(const WasmSymbol &sym, bool isCalledDirectly);
 
   bool isExcludedByComdat(InputChunk *chunk) const;
-  void addLegacyIndirectFunctionTableIfNeeded(uint32_t tableSymbolCount);
+  void synthesizeTableSymbols();
 
   std::unique_ptr<WasmObjectFile> wasmObj;
 };

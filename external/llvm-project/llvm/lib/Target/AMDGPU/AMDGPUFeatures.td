@@ -25,6 +25,7 @@ class SubtargetFeatureLocalMemorySize <int Value> : SubtargetFeature<
   "The size of local memory in bytes"
 >;
 
+def FeatureLocalMemorySize0 : SubtargetFeatureLocalMemorySize<0>;
 def FeatureLocalMemorySize32768 : SubtargetFeatureLocalMemorySize<32768>;
 def FeatureLocalMemorySize65536 : SubtargetFeatureLocalMemorySize<65536>;
 

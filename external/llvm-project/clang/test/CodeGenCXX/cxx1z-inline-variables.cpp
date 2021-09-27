@@ -90,8 +90,10 @@ const int &yib = Y<int>::b;
 // CHECK-LABEL: define {{.*}}global_var_init
 // CHECK: call i32 @_Z1fv
 
-// CHECK-LABEL: define {{.*}}global_var_init{{.*}} comdat($b)
-// CHECK: load atomic {{.*}} acquire, align
+// CHECK-LABEL: define {{.*}}global_var_init
+// CHECK-NOT: comdat
+// CHECK-SAME: {{$}}
+// CHECK: load atomic {{.*}} acquire
 // CHECK: br
 // CHECK: __cxa_guard_acquire(i64* @_ZGV1b)
 // CHECK: br

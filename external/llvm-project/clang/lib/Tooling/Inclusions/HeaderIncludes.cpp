@@ -252,9 +252,9 @@ bool IncludeCategoryManager::isMainHeader(StringRef IncludeName) const {
   //  1) foo.h => bar.cc
   //  2) foo.proto.h => foo.cc
   StringRef Matching;
-  if (MatchingFileStem.startswith_insensitive(HeaderStem))
+  if (MatchingFileStem.startswith_lower(HeaderStem))
     Matching = MatchingFileStem; // example 1), 2)
-  else if (FileStem.equals_insensitive(HeaderStem))
+  else if (FileStem.equals_lower(HeaderStem))
     Matching = FileStem; // example 3)
   if (!Matching.empty()) {
     llvm::Regex MainIncludeRegex(HeaderStem.str() + Style.IncludeIsMainRegex,

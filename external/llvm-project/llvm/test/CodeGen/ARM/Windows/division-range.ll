@@ -10,5 +10,6 @@ entry:
 }
 
 ; CHECK: cmp r1, #0
-; CHECK: beq {{.+}} @ imm = #
+; CHECK: beq #
 ; CHECK: bl
+

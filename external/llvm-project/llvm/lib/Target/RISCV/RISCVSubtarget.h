@@ -62,7 +62,6 @@ class RISCVSubtarget : public RISCVGenSubtargetInfo {
   bool EnableSaveRestore = false;
   unsigned XLen = 32;
   MVT XLenVT = MVT::i32;
-  uint8_t MaxInterleaveFactor = 2;
   RISCVABI::ABI TargetABI = RISCVABI::ABI_Unknown;
   BitVector UserReservedRegister;
   RISCVFrameLowering FrameLowering;
@@ -135,9 +134,6 @@ public:
     assert(i < RISCV::NUM_TARGET_REGS && "Register out of range");
     return UserReservedRegister[i];
   }
-  unsigned getMaxInterleaveFactor() const {
-    return hasStdExtV() ? MaxInterleaveFactor : 1;
-  }
 
 protected:
   // GlobalISel related APIs.
@@ -151,15 +147,6 @@ public:
   InstructionSelector *getInstructionSelector() const override;
   const LegalizerInfo *getLegalizerInfo() const override;
   const RegisterBankInfo *getRegBankInfo() const override;
-
-  // Return the known range for the bit length of RVV data registers. A value
-  // of 0 means nothing is known about that particular limit beyond what's
-  // implied by the architecture.
-  unsigned getMaxRVVVectorSizeInBits() const;
-  unsigned getMinRVVVectorSizeInBits() const;
-  unsigned getMaxLMULForFixedLengthVectors() const;
-  unsigned getMaxELENForFixedLengthVectors() const;
-  bool useRVVForFixedLengthVectors() const;
 };
 } // End llvm namespace
 

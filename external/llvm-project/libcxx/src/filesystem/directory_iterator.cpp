@@ -124,8 +124,7 @@ public:
       ec = detail::make_windows_error(GetLastError());
       const bool ignore_permission_denied =
           bool(opts & directory_options::skip_permission_denied);
-      if (ignore_permission_denied &&
-          ec.value() == static_cast<int>(errc::permission_denied))
+      if (ignore_permission_denied && ec.value() == ERROR_ACCESS_DENIED)
         ec.clear();
       return;
     }
@@ -273,7 +272,7 @@ directory_iterator& directory_iterator::__increment(error_code* ec) {
     path root = move(__imp_->__root_);
     __imp_.reset();
     if (m_ec)
-      err.report(m_ec, "at root " PATH_CSTR_FMT, root.c_str());
+      err.report(m_ec, "at root \"%s\"", root);
   }
   return *this;
 }
@@ -360,7 +359,7 @@ void recursive_directory_iterator::__advance(error_code* ec) {
   if (m_ec) {
     path root = move(stack.top().__root_);
     __imp_.reset();
-    err.report(m_ec, "at root " PATH_CSTR_FMT, root.c_str());
+    err.report(m_ec, "at root \"%s\"", root);
   } else {
     __imp_.reset();
   }
@@ -405,8 +404,7 @@ bool recursive_directory_iterator::__try_recursion(error_code* ec) {
     } else {
       path at_ent = move(curr_it.__entry_.__p_);
       __imp_.reset();
-      err.report(m_ec, "attempting recursion into " PATH_CSTR_FMT,
-                 at_ent.c_str());
+      err.report(m_ec, "attempting recursion into \"%s\"", at_ent);
     }
   }
   return false;

@@ -25,7 +25,6 @@
 #include "clang/Lex/ExternalPreprocessorSource.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/LexDiagnostic.h"
-#include "clang/Lex/LiteralSupport.h"
 #include "clang/Lex/MacroArgs.h"
 #include "clang/Lex/MacroInfo.h"
 #include "clang/Lex/Preprocessor.h"
@@ -171,8 +170,7 @@ ModuleMacro *Preprocessor::addModuleMacro(Module *Mod, IdentifierInfo *II,
   return MM;
 }
 
-ModuleMacro *Preprocessor::getModuleMacro(Module *Mod,
-                                          const IdentifierInfo *II) {
+ModuleMacro *Preprocessor::getModuleMacro(Module *Mod, IdentifierInfo *II) {
   llvm::FoldingSetNodeID ID;
   ModuleMacro::Profile(ID, Mod, II);
 
@@ -471,8 +469,6 @@ bool Preprocessor::isNextPPTokenLParen() {
 /// expanded as a macro, handle it and return the next token as 'Identifier'.
 bool Preprocessor::HandleMacroExpandedIdentifier(Token &Identifier,
                                                  const MacroDefinition &M) {
-  emitMacroExpansionWarnings(Identifier);
-
   MacroInfo *MI = M.getMacroInfo();
 
   // If this is a macro expansion in the "#if !defined(x)" line for the file,
@@ -1432,7 +1428,7 @@ static bool isTargetVendor(const TargetInfo &TI, const IdentifierInfo *II) {
   StringRef VendorName = TI.getTriple().getVendorName();
   if (VendorName.empty())
     VendorName = "unknown";
-  return VendorName.equals_insensitive(II->getName());
+  return VendorName.equals_lower(II->getName());
 }
 
 /// Implements the __is_target_os builtin macro.
@@ -1453,6 +1449,15 @@ static bool isTargetEnvironment(const TargetInfo &TI,
   std::string EnvName = (llvm::Twine("---") + II->getName().lower()).str();
   llvm::Triple Env(EnvName);
   return TI.getTriple().getEnvironment() == Env.getEnvironment();
+}
+
+static void remapMacroPath(
+    SmallString<256> &Path,
+    const std::map<std::string, std::string, std::greater<std::string>>
+        &MacroPrefixMap) {
+  for (const auto &Entry : MacroPrefixMap)
+    if (llvm::sys::path::replace_path_prefix(Path, Entry.first, Entry.second))
+      break;
 }
 
 /// ExpandBuiltinMacro - If an identifier token is read that is to be expanded
@@ -1536,7 +1541,7 @@ void Preprocessor::ExpandBuiltinMacro(Token &Tok) {
       } else {
         FN += PLoc.getFilename();
       }
-      getLangOpts().remapPathPrefix(FN);
+      remapMacroPath(FN, PPOpts->MacroPrefixMap);
       Lexer::Stringify(FN);
       OS << '"' << FN << '"';
     }
@@ -1807,14 +1812,7 @@ void Preprocessor::ExpandBuiltinMacro(Token &Tok) {
 
     if (!Tok.isAnnotation() && Tok.getIdentifierInfo())
       Tok.setKind(tok::identifier);
-    else if (Tok.is(tok::string_literal) && !Tok.hasUDSuffix()) {
-      StringLiteralParser Literal(Tok, *this);
-      if (Literal.hadError)
-        return;
-
-      Tok.setIdentifierInfo(getIdentifierInfo(Literal.GetString()));
-      Tok.setKind(tok::identifier);
-    } else {
+    else {
       Diag(Tok.getLocation(), diag::err_pp_identifier_arg_not_identifier)
         << Tok.getKind();
       // Don't walk past anything that's not a real token.

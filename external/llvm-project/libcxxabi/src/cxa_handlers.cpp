@@ -23,7 +23,7 @@ namespace std
 {
 
 unexpected_handler
-get_unexpected() noexcept
+get_unexpected() _NOEXCEPT
 {
     return __libcpp_atomic_load(&__cxa_unexpected_handler, _AO_Acquire);
 }
@@ -44,18 +44,18 @@ unexpected()
 }
 
 terminate_handler
-get_terminate() noexcept
+get_terminate() _NOEXCEPT
 {
     return __libcpp_atomic_load(&__cxa_terminate_handler, _AO_Acquire);
 }
 
 void
-__terminate(terminate_handler func) noexcept
+__terminate(terminate_handler func) _NOEXCEPT
 {
 #ifndef _LIBCXXABI_NO_EXCEPTIONS
     try
     {
-#endif // _LIBCXXABI_NO_EXCEPTIONS
+#endif  // _LIBCXXABI_NO_EXCEPTIONS
         func();
         // handler should not return
         abort_message("terminate_handler unexpectedly returned");
@@ -66,12 +66,12 @@ __terminate(terminate_handler func) noexcept
         // handler should not throw exception
         abort_message("terminate_handler unexpectedly threw an exception");
     }
-#endif // _LIBCXXABI_NO_EXCEPTIONS
+#endif  // _LIBCXXABI_NO_EXCEPTIONS
 }
 
 __attribute__((noreturn))
 void
-terminate() noexcept
+terminate() _NOEXCEPT
 {
 #ifndef _LIBCXXABI_NO_EXCEPTIONS
     // If there might be an uncaught exception
@@ -97,13 +97,13 @@ new_handler __cxa_new_handler = 0;
 }
 
 new_handler
-set_new_handler(new_handler handler) noexcept
+set_new_handler(new_handler handler) _NOEXCEPT
 {
     return __libcpp_atomic_exchange(&__cxa_new_handler, handler, _AO_Acq_Rel);
 }
 
 new_handler
-get_new_handler() noexcept
+get_new_handler() _NOEXCEPT
 {
     return __libcpp_atomic_load(&__cxa_new_handler, _AO_Acquire);
 }

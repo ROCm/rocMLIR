@@ -99,7 +99,6 @@ protected:
   bool HasDotProd = false;
   bool HasCRC = false;
   bool HasLSE = false;
-  bool HasLSE2 = false;
   bool HasRAS = false;
   bool HasRDM = false;
   bool HasPerfMon = false;
@@ -140,6 +139,7 @@ protected:
   bool HasTRACEV8_4 = false;
   bool HasAM = false;
   bool HasSEL2 = false;
+  bool HasPMU = false;
   bool HasTLB_RMI = false;
   bool HasFlagM = false;
   bool HasRCPC_IMMO = false;
@@ -183,15 +183,6 @@ protected:
   bool HasSVE2SHA3 = false;
   bool HasSVE2BitPerm = false;
 
-  // Armv9-A Extensions
-  bool HasRME = false;
-
-  // Arm Scalable Matrix Extension (SME)
-  bool HasSME = false;
-  bool HasSMEF64 = false;
-  bool HasSMEI64 = false;
-  bool HasStreamingSVE = false;
-
   // Future architecture extensions.
   bool HasETE = false;
   bool HasTRBE = false;
@@ -205,13 +196,8 @@ protected:
   // HasZeroCycleZeroing - Has zero-cycle zeroing instructions.
   bool HasZeroCycleZeroing = false;
   bool HasZeroCycleZeroingGP = false;
+  bool HasZeroCycleZeroingFP = false;
   bool HasZeroCycleZeroingFPWorkaround = false;
-
-  // It is generally beneficial to rewrite "fmov s0, wzr" to "movi d0, #0".
-  // as movi is more efficient across all cores. Newer cores can eliminate
-  // fmovs early and there is no difference with movi, but this not true for
-  // all implementations.
-  bool HasZeroCycleZeroingFP = true;
 
   // StrictAlign - Disallow unaligned memory accesses.
   bool StrictAlign = false;
@@ -223,6 +209,7 @@ protected:
   unsigned MinVectorRegisterBitWidth = 64;
 
   bool OutlineAtomics = false;
+  bool UseAA = false;
   bool PredictableSelectIsExpensive = false;
   bool BalanceFPOps = false;
   bool CustomAsCheapAsMove = false;
@@ -250,7 +237,6 @@ protected:
   bool AllowTaggedGlobals = false;
   bool HardenSlsRetBr = false;
   bool HardenSlsBlr = false;
-  bool HardenSlsNoComdat = false;
   uint8_t MaxInterleaveFactor = 2;
   uint8_t VectorInsertExtractBaseCost = 3;
   uint16_t CacheLineSize = 0;
@@ -269,9 +255,6 @@ protected:
   BitVector CustomCallSavedXRegs;
 
   bool IsLittle;
-
-  unsigned MinSVEVectorSizeInBits;
-  unsigned MaxSVEVectorSizeInBits;
 
   /// TargetTriple - What processor and OS we're targeting.
   Triple TargetTriple;
@@ -303,9 +286,7 @@ public:
   /// of the specified triple.
   AArch64Subtarget(const Triple &TT, const std::string &CPU,
                    const std::string &FS, const TargetMachine &TM,
-                   bool LittleEndian,
-                   unsigned MinSVEVectorSizeInBitsOverride = 0,
-                   unsigned MaxSVEVectorSizeInBitsOverride = 0);
+                   bool LittleEndian);
 
   const AArch64SelectionDAGInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
@@ -376,7 +357,6 @@ public:
   bool hasDotProd() const { return HasDotProd; }
   bool hasCRC() const { return HasCRC; }
   bool hasLSE() const { return HasLSE; }
-  bool hasLSE2() const { return HasLSE2; }
   bool hasRAS() const { return HasRAS; }
   bool hasRDM() const { return HasRDM; }
   bool hasSM4() const { return HasSM4; }
@@ -415,7 +395,6 @@ public:
 
   bool hardenSlsRetBr() const { return HardenSlsRetBr; }
   bool hardenSlsBlr() const { return HardenSlsBlr; }
-  bool hardenSlsNoComdat() const { return HardenSlsNoComdat; }
 
   bool useEL1ForTP() const { return UseEL1ForTP; }
   bool useEL2ForTP() const { return UseEL2ForTP; }
@@ -492,12 +471,6 @@ public:
     return HasEnhancedCounterVirtualization;
   }
 
-  // Arm Scalable Matrix Extension (SME)
-  bool hasSME() const { return HasSME; }
-  bool hasSMEF64() const { return HasSMEF64; }
-  bool hasSMEI64() const { return HasSMEI64; }
-  bool hasStreamingSVE() const { return HasStreamingSVE; }
-
   bool isLittleEndian() const { return IsLittle; }
 
   bool isTargetDarwin() const { return TargetTriple.isOSDarwin(); }
@@ -516,7 +489,7 @@ public:
            TargetTriple.getEnvironment() == Triple::GNUILP32;
   }
 
-  bool useAA() const override;
+  bool useAA() const override { return UseAA; }
 
   bool outlineAtomics() const { return OutlineAtomics; }
 
@@ -544,6 +517,7 @@ public:
   bool hasHCX() const { return HasHCX; }
   bool hasLS64() const { return HasLS64; }
   bool hasSEL2() const { return HasSEL2; }
+  bool hasPMU() const { return HasPMU; }
   bool hasTLB_RMI() const { return HasTLB_RMI; }
   bool hasFlagM() const { return HasFlagM; }
   bool hasRCPC_IMMO() const { return HasRCPC_IMMO; }
@@ -583,7 +557,7 @@ public:
 
   bool enableEarlyIfConversion() const override;
 
-  bool enableAdvancedRASplitCost() const override { return false; }
+  bool enableAdvancedRASplitCost() const override { return true; }
 
   std::unique_ptr<PBQPRAConstraint> getCustomPBQPConstraints() const override;
 
@@ -600,46 +574,13 @@ public:
     }
   }
 
-  /// Return whether FrameLowering should always set the "extended frame
-  /// present" bit in FP, or set it based on a symbol in the runtime.
-  bool swiftAsyncContextIsDynamicallySet() const {
-    // Older OS versions (particularly system unwinders) are confused by the
-    // Swift extended frame, so when building code that might be run on them we
-    // must dynamically query the concurrency library to determine whether
-    // extended frames should be flagged as present.
-    const Triple &TT = getTargetTriple();
-
-    unsigned Major, Minor, Micro;
-    TT.getOSVersion(Major, Minor, Micro);
-    switch(TT.getOS()) {
-    default:
-      return false;
-    case Triple::IOS:
-    case Triple::TvOS:
-      return Major < 15;
-    case Triple::WatchOS:
-      return Major < 8;
-    case Triple::MacOSX:
-    case Triple::Darwin:
-      return Major < 12;
-    }
-  }
-
   void mirFileLoaded(MachineFunction &MF) const override;
 
   // Return the known range for the bit length of SVE data registers. A value
   // of 0 means nothing is known about that particular limit beyong what's
   // implied by the architecture.
-  unsigned getMaxSVEVectorSizeInBits() const {
-    assert(HasSVE && "Tried to get SVE vector length without SVE support!");
-    return MaxSVEVectorSizeInBits;
-  }
-
-  unsigned getMinSVEVectorSizeInBits() const {
-    assert(HasSVE && "Tried to get SVE vector length without SVE support!");
-    return MinSVEVectorSizeInBits;
-  }
-
+  unsigned getMaxSVEVectorSizeInBits() const;
+  unsigned getMinSVEVectorSizeInBits() const;
   bool useSVEForFixedLengthVectors() const;
 };
 } // End llvm namespace

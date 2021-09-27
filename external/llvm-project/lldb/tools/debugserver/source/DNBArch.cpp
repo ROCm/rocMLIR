@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "DNBArch.h"
-#include <cassert>
+#include <assert.h>
 #include <mach/mach.h>
 
 #include <map>

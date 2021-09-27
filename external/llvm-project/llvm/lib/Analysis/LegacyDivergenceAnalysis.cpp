@@ -339,8 +339,7 @@ bool LegacyDivergenceAnalysis::runOnFunction(Function &F) {
   if (shouldUseGPUDivergenceAnalysis(F, TTI)) {
     // run the new GPU divergence analysis
     auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-    gpuDA = std::make_unique<DivergenceInfo>(F, DT, PDT, LI, TTI,
-                                             /* KnownReducible  = */ true);
+    gpuDA = std::make_unique<GPUDivergenceAnalysis>(F, DT, PDT, LI, TTI);
 
   } else {
     // run LLVM's existing DivergenceAnalysis
@@ -397,7 +396,8 @@ void LegacyDivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
     OS << Arg << "\n";
   }
   // Iterate instructions using instructions() to ensure a deterministic order.
-  for (const BasicBlock &BB : *F) {
+  for (auto BI = F->begin(), BE = F->end(); BI != BE; ++BI) {
+    auto &BB = *BI;
     OS << "\n           " << BB.getName() << ":\n";
     for (auto &I : BB.instructionsWithoutDebug()) {
       OS << (isDivergent(&I) ? "DIVERGENT:     " : "               ");

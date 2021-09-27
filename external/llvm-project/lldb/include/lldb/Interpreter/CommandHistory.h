@@ -20,9 +20,9 @@ namespace lldb_private {
 
 class CommandHistory {
 public:
-  CommandHistory() = default;
+  CommandHistory();
 
-  ~CommandHistory() = default;
+  ~CommandHistory();
 
   size_t GetSize() const;
 

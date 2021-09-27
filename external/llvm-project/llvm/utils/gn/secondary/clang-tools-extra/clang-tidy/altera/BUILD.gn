@@ -13,10 +13,8 @@ static_library("altera") {
   ]
   sources = [
     "AlteraTidyModule.cpp",
-    "IdDependentBackwardBranchCheck.cpp",
     "KernelNameRestrictionCheck.cpp",
     "SingleWorkItemBarrierCheck.cpp",
     "StructPackAlignCheck.cpp",
-    "UnrollLoopsCheck.cpp",
   ]
 }

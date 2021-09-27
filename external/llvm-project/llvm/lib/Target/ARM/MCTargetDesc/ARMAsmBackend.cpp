@@ -48,18 +48,13 @@ public:
 } // end anonymous namespace
 
 Optional<MCFixupKind> ARMAsmBackend::getFixupKind(StringRef Name) const {
-  return None;
-}
+  if (!STI.getTargetTriple().isOSBinFormatELF())
+    return None;
 
-Optional<MCFixupKind> ARMAsmBackendELF::getFixupKind(StringRef Name) const {
   unsigned Type = llvm::StringSwitch<unsigned>(Name)
 #define ELF_RELOC(X, Y) .Case(#X, Y)
 #include "llvm/BinaryFormat/ELFRelocs/ARM.def"
 #undef ELF_RELOC
-                      .Case("BFD_RELOC_NONE", ELF::R_ARM_NONE)
-                      .Case("BFD_RELOC_8", ELF::R_ARM_ABS8)
-                      .Case("BFD_RELOC_16", ELF::R_ARM_ABS16)
-                      .Case("BFD_RELOC_32", ELF::R_ARM_ABS32)
                       .Default(-1u);
   if (Type == -1u)
     return None;
@@ -85,7 +80,6 @@ const MCFixupKindInfo &ARMAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
       {"fixup_arm_pcrel_9", 0, 32, MCFixupKindInfo::FKF_IsPCRel},
       {"fixup_t2_pcrel_9", 0, 32,
        IsPCRelConstant | MCFixupKindInfo::FKF_IsAlignedDownTo32Bits},
-      {"fixup_arm_ldst_abs_12", 0, 32, 0},
       {"fixup_thumb_adr_pcrel_10", 0, 8,
        IsPCRelConstant | MCFixupKindInfo::FKF_IsAlignedDownTo32Bits},
       {"fixup_arm_adr_pcrel_12", 0, 32, IsPCRelConstant},
@@ -122,7 +116,8 @@ const MCFixupKindInfo &ARMAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
       {"fixup_bfc_target", 0, 32, MCFixupKindInfo::FKF_IsPCRel},
       {"fixup_bfcsel_else_target", 0, 32, 0},
       {"fixup_wls", 0, 32, MCFixupKindInfo::FKF_IsPCRel},
-      {"fixup_le", 0, 32, MCFixupKindInfo::FKF_IsPCRel}};
+      {"fixup_le", 0, 32, MCFixupKindInfo::FKF_IsPCRel}
+  };
   const static MCFixupKindInfo InfosBE[ARM::NumTargetFixupKinds] = {
       // This table *must* be in the order that the fixup_* kinds are defined in
       // ARMFixupKinds.h.
@@ -139,7 +134,6 @@ const MCFixupKindInfo &ARMAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
       {"fixup_arm_pcrel_9", 0, 32, MCFixupKindInfo::FKF_IsPCRel},
       {"fixup_t2_pcrel_9", 0, 32,
        IsPCRelConstant | MCFixupKindInfo::FKF_IsAlignedDownTo32Bits},
-      {"fixup_arm_ldst_abs_12", 0, 32, 0},
       {"fixup_thumb_adr_pcrel_10", 8, 8,
        IsPCRelConstant | MCFixupKindInfo::FKF_IsAlignedDownTo32Bits},
       {"fixup_arm_adr_pcrel_12", 0, 32, IsPCRelConstant},
@@ -176,7 +170,8 @@ const MCFixupKindInfo &ARMAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
       {"fixup_bfc_target", 0, 32, MCFixupKindInfo::FKF_IsPCRel},
       {"fixup_bfcsel_else_target", 0, 32, 0},
       {"fixup_wls", 0, 32, MCFixupKindInfo::FKF_IsPCRel},
-      {"fixup_le", 0, 32, MCFixupKindInfo::FKF_IsPCRel}};
+      {"fixup_le", 0, 32, MCFixupKindInfo::FKF_IsPCRel}
+  };
 
   // Fixup kinds from .reloc directive are like R_ARM_NONE. They do not require
   // any extra processing.
@@ -358,15 +353,14 @@ void ARMAsmBackend::relaxInstruction(MCInst &Inst,
   Inst.setOpcode(RelaxedOp);
 }
 
-bool ARMAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,
-                                 const MCSubtargetInfo *STI) const {
+bool ARMAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count) const {
   const uint16_t Thumb1_16bitNopEncoding = 0x46c0; // using MOV r8,r8
   const uint16_t Thumb2_16bitNopEncoding = 0xbf00; // NOP
   const uint32_t ARMv4_NopEncoding = 0xe1a00000;   // using MOV r0,r0
   const uint32_t ARMv6T2_NopEncoding = 0xe320f000; // NOP
   if (isThumb()) {
     const uint16_t nopEncoding =
-        hasNOP(STI) ? Thumb2_16bitNopEncoding : Thumb1_16bitNopEncoding;
+        hasNOP() ? Thumb2_16bitNopEncoding : Thumb1_16bitNopEncoding;
     uint64_t NumNops = Count / 2;
     for (uint64_t i = 0; i != NumNops; ++i)
       support::endian::write(OS, nopEncoding, Endian);
@@ -376,7 +370,7 @@ bool ARMAsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,
   }
   // ARM mode
   const uint32_t nopEncoding =
-      hasNOP(STI) ? ARMv6T2_NopEncoding : ARMv4_NopEncoding;
+      hasNOP() ? ARMv6T2_NopEncoding : ARMv4_NopEncoding;
   uint64_t NumNops = Count / 4;
   for (uint64_t i = 0; i != NumNops; ++i)
     support::endian::write(OS, nopEncoding, Endian);
@@ -492,11 +486,9 @@ unsigned ARMAsmBackend::adjustFixupValue(const MCAssembler &Asm,
     // ARM PC-relative values are offset by 8.
     Value -= 4;
     LLVM_FALLTHROUGH;
-  case ARM::fixup_t2_ldst_pcrel_12:
+  case ARM::fixup_t2_ldst_pcrel_12: {
     // Offset by 4, adjusted by two due to the half-word ordering of thumb.
     Value -= 4;
-    LLVM_FALLTHROUGH;
-  case ARM::fixup_arm_ldst_abs_12: {
     bool isAdd = true;
     if ((int64_t)Value < 0) {
       Value = -Value;
@@ -944,7 +936,6 @@ static unsigned getFixupKindNumBytes(unsigned Kind) {
   case ARM::fixup_arm_ldst_pcrel_12:
   case ARM::fixup_arm_pcrel_10:
   case ARM::fixup_arm_pcrel_9:
-  case ARM::fixup_arm_ldst_abs_12:
   case ARM::fixup_arm_adr_pcrel_12:
   case ARM::fixup_arm_uncondbl:
   case ARM::fixup_arm_condbl:
@@ -1302,12 +1293,11 @@ static MCAsmBackend *createARMAsmBackend(const Target &T,
     return new ARMAsmBackendDarwin(T, STI, MRI);
   case Triple::COFF:
     assert(TheTriple.isOSWindows() && "non-Windows ARM COFF is not supported");
-    return new ARMAsmBackendWinCOFF(T, STI.getTargetTriple().isThumb());
+    return new ARMAsmBackendWinCOFF(T, STI);
   case Triple::ELF:
     assert(TheTriple.isOSBinFormatELF() && "using ELF for non-ELF target");
     uint8_t OSABI = MCELFObjectTargetWriter::getOSABI(TheTriple.getOS());
-    return new ARMAsmBackendELF(T, STI.getTargetTriple().isThumb(), OSABI,
-                                Endian);
+    return new ARMAsmBackendELF(T, STI, OSABI, Endian);
   }
 }
 

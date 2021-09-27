@@ -12,8 +12,6 @@
 using namespace mlir;
 using namespace mlir::standalone;
 
-#include "Standalone/StandaloneOpsDialect.cpp.inc"
-
 //===----------------------------------------------------------------------===//
 // Standalone dialect.
 //===----------------------------------------------------------------------===//

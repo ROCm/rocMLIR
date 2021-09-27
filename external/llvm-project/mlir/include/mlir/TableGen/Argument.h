@@ -48,8 +48,6 @@ struct NamedTypeConstraint {
   bool isOptional() const;
   // Returns true if this operand/result is variadic.
   bool isVariadic() const;
-  // Returns true if this operand/result is a variadic of a variadic constraint.
-  bool isVariadicOfVariadic() const;
   // Returns true if this is a variable length type constraint. This is either
   // variadic or optional.
   bool isVariableLength() const { return isOptional() || isVariadic(); }

@@ -19,27 +19,10 @@ class SystemZTargetMachine;
 class SystemZSubtarget;
 
 class SystemZFrameLowering : public TargetFrameLowering {
-
-public:
-  SystemZFrameLowering(StackDirection D, Align StackAl, int LAO, Align TransAl,
-                       bool StackReal);
-
-  static std::unique_ptr<SystemZFrameLowering>
-  create(const SystemZSubtarget &STI);
-
-  // Override TargetFrameLowering.
-  bool isFPCloseToIncomingSP() const override { return false; }
-  bool hasReservedCallFrame(const MachineFunction &MF) const override;
-  MachineBasicBlock::iterator
-  eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
-                                MachineBasicBlock::iterator MI) const override;
-};
-
-class SystemZELFFrameLowering : public SystemZFrameLowering {
   IndexedMap<unsigned> RegSpillOffsets;
 
 public:
-  SystemZELFFrameLowering();
+  SystemZFrameLowering();
 
   // Override TargetFrameLowering.
   bool isFPCloseToIncomingSP() const override { return false; }
@@ -65,35 +48,28 @@ public:
   void inlineStackProbe(MachineFunction &MF,
                         MachineBasicBlock &PrologMBB) const override;
   bool hasFP(const MachineFunction &MF) const override;
+  bool hasReservedCallFrame(const MachineFunction &MF) const override;
   StackOffset getFrameIndexReference(const MachineFunction &MF, int FI,
                                      Register &FrameReg) const override;
+  MachineBasicBlock::iterator
+  eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
+                                MachineBasicBlock::iterator MI) const override;
 
   // Return the byte offset from the incoming stack pointer of Reg's
   // ABI-defined save slot.  Return 0 if no slot is defined for Reg.  Adjust
   // the offset in case MF has packed-stack.
   unsigned getRegSpillOffset(MachineFunction &MF, Register Reg) const;
 
+  // Get or create the frame index of where the old frame pointer is stored.
+  int getOrCreateFramePointerSaveIndex(MachineFunction &MF) const;
+
   bool usePackedStack(MachineFunction &MF) const;
 
   // Return the offset of the backchain.
   unsigned getBackchainOffset(MachineFunction &MF) const {
     // The back chain is stored topmost with packed-stack.
-    return usePackedStack(MF) ? SystemZMC::ELFCallFrameSize - 8 : 0;
+    return usePackedStack(MF) ? SystemZMC::CallFrameSize - 8 : 0;
   }
-
-  // Get or create the frame index of where the old frame pointer is stored.
-  int getOrCreateFramePointerSaveIndex(MachineFunction &MF) const;
-};
-
-class SystemZXPLINKFrameLowering : public SystemZFrameLowering {
-public:
-  SystemZXPLINKFrameLowering();
-
-  void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
-
-  void emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
-
-  bool hasFP(const MachineFunction &MF) const override;
 };
 } // end namespace llvm
 

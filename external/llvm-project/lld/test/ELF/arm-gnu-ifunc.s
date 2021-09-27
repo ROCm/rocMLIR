@@ -5,12 +5,13 @@
 // RUN: llvm-readobj -r --symbols --sections %t | FileCheck %s
  .syntax unified
  .text
- .globl bar, foo
  .type foo STT_GNU_IFUNC
+ .globl foo
 foo:
  bx lr
 
  .type bar STT_GNU_IFUNC
+ .globl bar
 bar:
  bx lr
 
@@ -62,18 +63,8 @@ _start:
 // CHECK-NEXT:     0x30154 R_ARM_IRELATIVE
 // CHECK-NEXT:   }
 // CHECK-NEXT: ]
-// CHECK:          Name: __rel_iplt_start
-// CHECK-NEXT:     Value: 0x100F4
-// CHECK-NEXT:     Size: 0
-// CHECK-NEXT:     Binding: Local
-// CHECK-NEXT:     Type: None
-// CHECK-NEXT:     Other [
-// CHECK-NEXT:       STV_HIDDEN
-// CHECK-NEXT:     ]
-// CHECK-NEXT:     Section: .rel.dyn
-// CHECK-NEXT:   }
-// CHECK-NEXT:   Symbol {
-// CHECK-NEXT:     Name: __rel_iplt_end
+// CHECK:        Symbol {
+// CHECK:          Name: __rel_iplt_end
 // CHECK-NEXT:     Value: 0x10104
 // CHECK-NEXT:     Size: 0
 // CHECK-NEXT:     Binding: Local
@@ -83,6 +74,26 @@ _start:
 // CHECK-NEXT:     ]
 // CHECK-NEXT:     Section: .rel.dyn
 // CHECK-NEXT:   }
+// CHECK-NEXT:   Symbol {
+// CHECK-NEXT:     Name: __rel_iplt_start
+// CHECK-NEXT:     Value: 0x100F4
+// CHECK-NEXT:     Size: 0
+// CHECK-NEXT:     Binding: Local
+// CHECK-NEXT:     Type: None
+// CHECK-NEXT:     Other [
+// CHECK-NEXT:       STV_HIDDEN
+// CHECK-NEXT:     ]
+// CHECK-NEXT:     Section: .rel.dyn
+// CHECK-NEXT:   }
+// CHECK-NEXT:  Symbol {
+// CHECK-NEXT:    Name: _start
+// CHECK-NEXT:    Value: 0x2010C
+// CHECK-NEXT:    Size: 0
+// CHECK-NEXT:    Binding: Global
+// CHECK-NEXT:    Type: None
+// CHECK-NEXT:    Other:
+// CHECK-NEXT:    Section: .text
+// CHECK-NEXT:  }
 // CHECK-NEXT:  Symbol {
 // CHECK-NEXT:    Name: bar
 // CHECK-NEXT:    Value: 0x20108
@@ -101,15 +112,6 @@ _start:
 // CHECK-NEXT:    Other: 0
 // CHECK-NEXT:    Section: .text
 // CHECK-NEXT:  }
-// CHECK-NEXT:  Symbol {
-// CHECK-NEXT:    Name: _start
-// CHECK-NEXT:    Value: 0x2010C
-// CHECK-NEXT:    Size: 0
-// CHECK-NEXT:    Binding: Global
-// CHECK-NEXT:    Type: None
-// CHECK-NEXT:    Other:
-// CHECK-NEXT:    Section: .text
-// CHECK-NEXT:  }
 
 // DISASM: Disassembly of section .text:
 // DISASM-EMPTY:
@@ -118,8 +120,8 @@ _start:
 // DISASM: <bar>:
 // DISASM-NEXT:    20108:      bx      lr
 // DISASM: <_start>:
-// DISASM-NEXT:    2010c:      bl      0x20130
-// DISASM-NEXT:    20110:      bl      0x20140
+// DISASM-NEXT:    2010c:      bl      #28
+// DISASM-NEXT:    20110:      bl      #40
 // 1 * 65536 + 244 = 0x100f4 __rel_iplt_start
 // DISASM-NEXT:    20114:      movw    r0, #244
 // DISASM-NEXT:    20118:      movt    r0, #1
@@ -141,3 +143,4 @@ _start:
 // DISASM-NEXT:    20148:       ldr     pc, [r12, #12]!
 // DISASM: <$d>:
 // DISASM-NEXT:    2014c:       d4 d4 d4 d4     .word   0xd4d4d4d4
+

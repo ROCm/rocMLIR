@@ -17,8 +17,8 @@
 
 #include <vector>
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace lldb_private {
 class CommandInterpreter;
@@ -32,12 +32,12 @@ namespace lldb_private {
 
 class Properties {
 public:
-  Properties() = default;
+  Properties() : m_collection_sp() {}
 
   Properties(const lldb::OptionValuePropertiesSP &collection_sp)
       : m_collection_sp(collection_sp) {}
 
-  virtual ~Properties() = default;
+  virtual ~Properties() {}
 
   virtual lldb::OptionValuePropertiesSP GetValueProperties() const {
     // This function is virtual in case subclasses want to lazily implement

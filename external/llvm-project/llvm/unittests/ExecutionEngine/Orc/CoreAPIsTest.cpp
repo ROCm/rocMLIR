@@ -1019,11 +1019,13 @@ TEST_F(CoreAPIsStandardTest, TestBasicWeakSymbolMaterialization) {
 
 TEST_F(CoreAPIsStandardTest, DefineMaterializingSymbol) {
   bool ExpectNoMoreMaterialization = false;
-  ES.setDispatchTask([&](std::unique_ptr<Task> T) {
-    if (ExpectNoMoreMaterialization && isa<MaterializationTask>(*T))
-      ADD_FAILURE() << "Unexpected materialization";
-    T->run();
-  });
+  ES.setDispatchMaterialization(
+      [&](std::unique_ptr<MaterializationUnit> MU,
+          std::unique_ptr<MaterializationResponsibility> MR) {
+        if (ExpectNoMoreMaterialization)
+          ADD_FAILURE() << "Unexpected materialization";
+        MU->materialize(std::move(MR));
+      });
 
   auto MU = std::make_unique<SimpleMaterializationUnit>(
       SymbolFlagsMap({{Foo, FooSym.getFlags()}}),
@@ -1249,18 +1251,15 @@ TEST_F(CoreAPIsStandardTest, TestLookupWithUnthreadedMaterialization) {
 TEST_F(CoreAPIsStandardTest, TestLookupWithThreadedMaterialization) {
 #if LLVM_ENABLE_THREADS
 
-  std::mutex WorkThreadsMutex;
-  std::vector<std::thread> WorkThreads;
-  ES.setDispatchTask([&](std::unique_ptr<Task> T) {
-    std::promise<void> WaitP;
-    std::lock_guard<std::mutex> Lock(WorkThreadsMutex);
-    WorkThreads.push_back(
-        std::thread([T = std::move(T), WaitF = WaitP.get_future()]() mutable {
-          WaitF.get();
-          T->run();
-        }));
-    WaitP.set_value();
-  });
+  std::thread MaterializationThread;
+  ES.setDispatchMaterialization(
+      [&](std::unique_ptr<MaterializationUnit> MU,
+          std::unique_ptr<MaterializationResponsibility> MR) {
+        MaterializationThread =
+            std::thread([MU = std::move(MU), MR = std::move(MR)]() mutable {
+              MU->materialize(std::move(MR));
+            });
+      });
 
   cantFail(JD.define(absoluteSymbols({{Foo, FooSym}})));
 
@@ -1270,9 +1269,7 @@ TEST_F(CoreAPIsStandardTest, TestLookupWithThreadedMaterialization) {
       << "lookup returned an incorrect address";
   EXPECT_EQ(FooLookupResult.getFlags(), FooSym.getFlags())
       << "lookup returned incorrect flags";
-
-  for (auto &WT : WorkThreads)
-    WT.join();
+  MaterializationThread.join();
 #endif
 }
 
@@ -1409,7 +1406,7 @@ TEST(JITDylibTest, GetDFSLinkOrderTree) {
   // Test that DFS ordering behaves as expected when the linkage relationships
   // form a tree.
 
-  ExecutionSession ES{std::make_unique<UnsupportedExecutorProcessControl>()};
+  ExecutionSession ES;
 
   auto &LibA = ES.createBareJITDylib("A");
   auto &LibB = ES.createBareJITDylib("B");
@@ -1450,7 +1447,7 @@ TEST(JITDylibTest, GetDFSLinkOrderDiamond) {
   // Test that DFS ordering behaves as expected when the linkage relationships
   // contain a diamond.
 
-  ExecutionSession ES{std::make_unique<UnsupportedExecutorProcessControl>()};
+  ExecutionSession ES;
   auto &LibA = ES.createBareJITDylib("A");
   auto &LibB = ES.createBareJITDylib("B");
   auto &LibC = ES.createBareJITDylib("C");
@@ -1472,7 +1469,7 @@ TEST(JITDylibTest, GetDFSLinkOrderCycle) {
   // Test that DFS ordering behaves as expected when the linkage relationships
   // contain a cycle.
 
-  ExecutionSession ES{std::make_unique<UnsupportedExecutorProcessControl>()};
+  ExecutionSession ES;
   auto &LibA = ES.createBareJITDylib("A");
   auto &LibB = ES.createBareJITDylib("B");
   auto &LibC = ES.createBareJITDylib("C");

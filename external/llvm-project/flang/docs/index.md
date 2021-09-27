@@ -53,7 +53,6 @@ Flang is LLVM's Fortran frontend
    ArrayComposition
    BijectiveInternalNameUniquing
    DoConcurrent
-   FortranLLVMTestSuite
 ```
 
 # Indices and tables

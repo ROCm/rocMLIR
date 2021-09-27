@@ -32,7 +32,6 @@ enum class Language : uint8_t {
   ObjC,
   ObjCXX,
   OpenCL,
-  OpenCLCXX,
   CUDA,
   RenderScript,
   HIP,

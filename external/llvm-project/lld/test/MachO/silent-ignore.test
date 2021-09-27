@@ -1,4 +1,4 @@
-RUN: %lld --version \
+RUN: %lld -v \
 RUN:   -dynamic \
 RUN:   -no_deduplicate \
 RUN:   -lto_library /lib/foo \

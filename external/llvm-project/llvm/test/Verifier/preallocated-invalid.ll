@@ -145,6 +145,6 @@ define void @teardown_token_not_from_setup() {
     ret void
 }
 
-; CHECK: Attribute 'preallocated(i32)' applied to incompatible type!
+; CHECK: Wrong types for attribute:
 ; CHECK-NEXT: void (i32)* @not_pointer
 declare void @not_pointer(i32 preallocated(i32))

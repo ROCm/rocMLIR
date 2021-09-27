@@ -67,8 +67,7 @@ struct atomic
     bool is_lock_free() const volatile noexcept;
     bool is_lock_free() const noexcept;
 
-    atomic() noexcept = default; // until C++20
-    constexpr atomic() noexcept(is_nothrow_default_constructible_v<T>); // since C++20
+    atomic() noexcept = default;
     constexpr atomic(T desr) noexcept;
     atomic(const atomic&) = delete;
     atomic& operator=(const atomic&) = delete;
@@ -202,8 +201,7 @@ struct atomic<T*>
     bool is_lock_free() const volatile noexcept;
     bool is_lock_free() const noexcept;
 
-    atomic() noexcept = default; // until C++20
-    constexpr atomic() noexcept; // since C++20
+    atomic() noexcept = default;
     constexpr atomic(T* desr) noexcept;
     atomic(const atomic&) = delete;
     atomic& operator=(const atomic&) = delete;
@@ -511,8 +509,7 @@ typedef atomic<uintmax_t> atomic_uintmax_t;
 
 typedef struct atomic_flag
 {
-    atomic_flag() noexcept = default; // until C++20
-    constexpr atomic_flag() noexcept; // since C++20
+    atomic_flag() noexcept = default;
     atomic_flag(const atomic_flag&) = delete;
     atomic_flag& operator=(const atomic_flag&) = delete;
     atomic_flag& operator=(const atomic_flag&) volatile = delete;
@@ -577,8 +574,8 @@ template <class T>
 
 */
 
-#include <__availability>
 #include <__config>
+#include <__availability>
 #include <__threading_support>
 #include <cstddef>
 #include <cstdint>
@@ -672,7 +669,7 @@ static_assert((is_same<underlying_type<memory_order>::type, __memory_order_under
   "unexpected underlying type for std::memory_order");
 
 #if defined(_LIBCPP_HAS_GCC_ATOMIC_IMP) || \
-    defined(_LIBCPP_ATOMIC_ONLY_USE_BUILTINS)
+	defined(_LIBCPP_ATOMIC_ONLY_USE_BUILTINS)
 
 // [atomics.types.generic]p1 guarantees _Tp is trivially copyable. Because
 // the default operator= in an object is not volatile, a byte-by-byte copy
@@ -1020,33 +1017,26 @@ _Tp __cxx_atomic_exchange(__cxx_atomic_base_impl<_Tp> * __a, _Tp __value, memory
     return __c11_atomic_exchange(&__a->__a_value, __value, static_cast<__memory_order_underlying_t>(__order));
 }
 
-_LIBCPP_INLINE_VISIBILITY inline _LIBCPP_CONSTEXPR memory_order __to_failure_order(memory_order __order) {
-  // Avoid switch statement to make this a constexpr.
-  return __order == memory_order_release ? memory_order_relaxed:
-         (__order == memory_order_acq_rel ? memory_order_acquire:
-             __order);
-}
-
 template<class _Tp>
 _LIBCPP_INLINE_VISIBILITY
 bool __cxx_atomic_compare_exchange_strong(__cxx_atomic_base_impl<_Tp> volatile* __a, _Tp* __expected, _Tp __value, memory_order __success, memory_order __failure) _NOEXCEPT {
-    return __c11_atomic_compare_exchange_strong(&__a->__a_value, __expected, __value, static_cast<__memory_order_underlying_t>(__success), static_cast<__memory_order_underlying_t>(__to_failure_order(__failure)));
+    return __c11_atomic_compare_exchange_strong(&__a->__a_value, __expected, __value, static_cast<__memory_order_underlying_t>(__success), static_cast<__memory_order_underlying_t>(__failure));
 }
 template<class _Tp>
 _LIBCPP_INLINE_VISIBILITY
 bool __cxx_atomic_compare_exchange_strong(__cxx_atomic_base_impl<_Tp> * __a, _Tp* __expected, _Tp __value, memory_order __success, memory_order __failure) _NOEXCEPT {
-    return __c11_atomic_compare_exchange_strong(&__a->__a_value, __expected, __value, static_cast<__memory_order_underlying_t>(__success), static_cast<__memory_order_underlying_t>(__to_failure_order(__failure)));
+    return __c11_atomic_compare_exchange_strong(&__a->__a_value, __expected, __value, static_cast<__memory_order_underlying_t>(__success), static_cast<__memory_order_underlying_t>(__failure));
 }
 
 template<class _Tp>
 _LIBCPP_INLINE_VISIBILITY
 bool __cxx_atomic_compare_exchange_weak(__cxx_atomic_base_impl<_Tp> volatile* __a, _Tp* __expected, _Tp __value, memory_order __success, memory_order __failure) _NOEXCEPT {
-    return __c11_atomic_compare_exchange_weak(&__a->__a_value, __expected, __value, static_cast<__memory_order_underlying_t>(__success), static_cast<__memory_order_underlying_t>(__to_failure_order(__failure)));
+    return __c11_atomic_compare_exchange_weak(&__a->__a_value, __expected, __value, static_cast<__memory_order_underlying_t>(__success), static_cast<__memory_order_underlying_t>(__failure));
 }
 template<class _Tp>
 _LIBCPP_INLINE_VISIBILITY
 bool __cxx_atomic_compare_exchange_weak(__cxx_atomic_base_impl<_Tp> * __a, _Tp* __expected, _Tp __value, memory_order __success, memory_order __failure) _NOEXCEPT {
-    return __c11_atomic_compare_exchange_weak(&__a->__a_value, __expected, __value,  static_cast<__memory_order_underlying_t>(__success), static_cast<__memory_order_underlying_t>(__to_failure_order(__failure)));
+    return __c11_atomic_compare_exchange_weak(&__a->__a_value, __expected, __value,  static_cast<__memory_order_underlying_t>(__success), static_cast<__memory_order_underlying_t>(__failure));
 }
 
 template<class _Tp>
@@ -1137,7 +1127,7 @@ _Tp kill_dependency(_Tp __y) _NOEXCEPT
 #if defined(__CLANG_ATOMIC_BOOL_LOCK_FREE)
 # define ATOMIC_BOOL_LOCK_FREE      __CLANG_ATOMIC_BOOL_LOCK_FREE
 # define ATOMIC_CHAR_LOCK_FREE      __CLANG_ATOMIC_CHAR_LOCK_FREE
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
 # define ATOMIC_CHAR8_T_LOCK_FREE   __CLANG_ATOMIC_CHAR8_T_LOCK_FREE
 #endif
 # define ATOMIC_CHAR16_T_LOCK_FREE  __CLANG_ATOMIC_CHAR16_T_LOCK_FREE
@@ -1151,7 +1141,7 @@ _Tp kill_dependency(_Tp __y) _NOEXCEPT
 #elif defined(__GCC_ATOMIC_BOOL_LOCK_FREE)
 # define ATOMIC_BOOL_LOCK_FREE      __GCC_ATOMIC_BOOL_LOCK_FREE
 # define ATOMIC_CHAR_LOCK_FREE      __GCC_ATOMIC_CHAR_LOCK_FREE
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
 # define ATOMIC_CHAR8_T_LOCK_FREE   __GCC_ATOMIC_CHAR8_T_LOCK_FREE
 #endif
 # define ATOMIC_CHAR16_T_LOCK_FREE  __GCC_ATOMIC_CHAR16_T_LOCK_FREE
@@ -1468,7 +1458,7 @@ template<> struct __cxx_is_always_lock_free<bool> { enum { __value = 2 == ATOMIC
 template<> struct __cxx_is_always_lock_free<char> { enum { __value = 2 == ATOMIC_CHAR_LOCK_FREE }; };
 template<> struct __cxx_is_always_lock_free<signed char> { enum { __value = 2 == ATOMIC_CHAR_LOCK_FREE }; };
 template<> struct __cxx_is_always_lock_free<unsigned char> { enum { __value = 2 == ATOMIC_CHAR_LOCK_FREE }; };
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
 template<> struct __cxx_is_always_lock_free<char8_t> { enum { __value = 2 == ATOMIC_CHAR8_T_LOCK_FREE }; };
 #endif
 template<> struct __cxx_is_always_lock_free<char16_t> { enum { __value = 2 == ATOMIC_CHAR16_T_LOCK_FREE }; };
@@ -1496,8 +1486,11 @@ template <typename _Tp,
           typename _Base = __cxx_atomic_base_impl<_Tp> >
 #endif //_LIBCPP_ATOMIC_ONLY_USE_BUILTINS
 struct __cxx_atomic_impl : public _Base {
+
+#if _GNUC_VER >= 501
     static_assert(is_trivially_copyable<_Tp>::value,
       "std::atomic<Tp> requires that 'Tp' be a trivially copyable type");
+#endif
 
   _LIBCPP_INLINE_VISIBILITY __cxx_atomic_impl() _NOEXCEPT _LIBCPP_DEFAULT
   _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR explicit __cxx_atomic_impl(_Tp value) _NOEXCEPT
@@ -1680,13 +1673,8 @@ struct __atomic_base  // false
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY void notify_all() _NOEXCEPT
         {__cxx_atomic_notify_all(&__a_);}
 
-#if _LIBCPP_STD_VER > 17
-    _LIBCPP_INLINE_VISIBILITY constexpr
-    __atomic_base() noexcept(is_nothrow_default_constructible_v<_Tp>) : __a_(_Tp()) {}
-#else
     _LIBCPP_INLINE_VISIBILITY
     __atomic_base() _NOEXCEPT _LIBCPP_DEFAULT
-#endif
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
     __atomic_base(_Tp __d) _NOEXCEPT : __a_(__d) {}
@@ -1712,10 +1700,8 @@ struct __atomic_base<_Tp, true>
     : public __atomic_base<_Tp, false>
 {
     typedef __atomic_base<_Tp, false> __base;
-
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+    _LIBCPP_INLINE_VISIBILITY
     __atomic_base() _NOEXCEPT _LIBCPP_DEFAULT
-
     _LIBCPP_INLINE_VISIBILITY
     _LIBCPP_CONSTEXPR __atomic_base(_Tp __d) _NOEXCEPT : __base(__d) {}
 
@@ -1797,15 +1783,8 @@ struct atomic
     typedef __atomic_base<_Tp> __base;
     typedef _Tp value_type;
     typedef value_type difference_type;
-
-#if _LIBCPP_STD_VER > 17
-    _LIBCPP_INLINE_VISIBILITY
-    atomic() = default;
-#else
     _LIBCPP_INLINE_VISIBILITY
     atomic() _NOEXCEPT _LIBCPP_DEFAULT
-#endif
-
     _LIBCPP_INLINE_VISIBILITY
     _LIBCPP_CONSTEXPR atomic(_Tp __d) _NOEXCEPT : __base(__d) {}
 
@@ -1829,10 +1808,8 @@ struct atomic<_Tp*>
     typedef __atomic_base<_Tp*> __base;
     typedef _Tp* value_type;
     typedef ptrdiff_t difference_type;
-
     _LIBCPP_INLINE_VISIBILITY
     atomic() _NOEXCEPT _LIBCPP_DEFAULT
-
     _LIBCPP_INLINE_VISIBILITY
     _LIBCPP_CONSTEXPR atomic(_Tp* __d) _NOEXCEPT : __base(__d) {}
 
@@ -1908,7 +1885,7 @@ atomic_is_lock_free(const atomic<_Tp>* __o) _NOEXCEPT
 // atomic_init
 
 template <class _Tp>
-_LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY
 void
 atomic_init(volatile atomic<_Tp>* __o, typename atomic<_Tp>::value_type __d) _NOEXCEPT
 {
@@ -1916,7 +1893,7 @@ atomic_init(volatile atomic<_Tp>* __o, typename atomic<_Tp>::value_type __d) _NO
 }
 
 template <class _Tp>
-_LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY
 void
 atomic_init(atomic<_Tp>* __o, typename atomic<_Tp>::value_type __d) _NOEXCEPT
 {
@@ -2557,13 +2534,8 @@ typedef struct atomic_flag
     void notify_all() _NOEXCEPT
         {__cxx_atomic_notify_all(&__a_);}
 
-#if _LIBCPP_STD_VER > 17
-    _LIBCPP_INLINE_VISIBILITY constexpr
-    atomic_flag() _NOEXCEPT : __a_(false) {}
-#else
     _LIBCPP_INLINE_VISIBILITY
     atomic_flag() _NOEXCEPT _LIBCPP_DEFAULT
-#endif
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
     atomic_flag(bool __b) _NOEXCEPT : __a_(__b) {} // EXTENSION
@@ -2756,7 +2728,7 @@ typedef atomic<long>               atomic_long;
 typedef atomic<unsigned long>      atomic_ulong;
 typedef atomic<long long>          atomic_llong;
 typedef atomic<unsigned long long> atomic_ullong;
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
+#ifndef _LIBCPP_NO_HAS_CHAR8_T
 typedef atomic<char8_t>            atomic_char8_t;
 #endif
 typedef atomic<char16_t>           atomic_char16_t;
@@ -2829,4 +2801,4 @@ typedef atomic<__libcpp_unsigned_lock_free> atomic_unsigned_lock_free;
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_ATOMIC
+#endif  // _LIBCPP_ATOMIC

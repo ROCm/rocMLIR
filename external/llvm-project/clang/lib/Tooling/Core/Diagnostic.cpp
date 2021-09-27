@@ -53,9 +53,10 @@ Diagnostic::Diagnostic(llvm::StringRef DiagnosticName,
 Diagnostic::Diagnostic(llvm::StringRef DiagnosticName,
                        const DiagnosticMessage &Message,
                        const SmallVector<DiagnosticMessage, 1> &Notes,
-                       Level DiagLevel, llvm::StringRef BuildDirectory)
+                       Level DiagLevel, llvm::StringRef BuildDirectory,
+                       const SmallVector<FileByteRange, 1> &Ranges)
     : DiagnosticName(DiagnosticName), Message(Message), Notes(Notes),
-      DiagLevel(DiagLevel), BuildDirectory(BuildDirectory) {}
+      DiagLevel(DiagLevel), BuildDirectory(BuildDirectory), Ranges(Ranges) {}
 
 const llvm::StringMap<Replacements> *selectFirstFix(const Diagnostic& D) {
    if (!D.Message.Fix.empty())

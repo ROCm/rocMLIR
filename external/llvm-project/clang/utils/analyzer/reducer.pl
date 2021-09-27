@@ -1,6 +1,5 @@
-#!/usr/bin/env perl
+#!/usr/bin/perl -w
 use strict;
-use warnings;
 use File::Temp qw/ tempdir /;
 my $prog = "reducer";
 
@@ -32,9 +31,8 @@ push @$command, $srcFile;
 my $commandStr = "@$command";
 
 print OUT <<ENDTEXT;
-#!/usr/bin/env perl
+#!/usr/bin/perl -w
 use strict;
-use warnings;
 my \$BAD = 1;
 my \$GOOD = 0;
 `rm -f $reduceOut`;

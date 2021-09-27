@@ -17,8 +17,6 @@
 
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Analysis/ValueTracking.h"
-#include "llvm/Support/KnownBits.h"
 
 using namespace llvm;
 
@@ -41,18 +39,16 @@ using namespace llvm;
 //===----------------------------------------------------------------------===//
 
 namespace llvm {
-class AssumptionCache;
-class DataLayout;
-class DominatorTree;
-class Function;
-class Instruction;
-class TargetLibraryInfo;
-class TruncInst;
-class Type;
-class Value;
+  class DataLayout;
+  class DominatorTree;
+  class Function;
+  class Instruction;
+  class TargetLibraryInfo;
+  class TruncInst;
+  class Type;
+  class Value;
 
 class TruncInstCombine {
-  AssumptionCache &AC;
   TargetLibraryInfo &TLI;
   const DataLayout &DL;
   const DominatorTree &DT;
@@ -79,9 +75,9 @@ class TruncInstCombine {
   MapVector<Instruction *, Info> InstInfoMap;
 
 public:
-  TruncInstCombine(AssumptionCache &AC, TargetLibraryInfo &TLI,
-                   const DataLayout &DL, const DominatorTree &DT)
-      : AC(AC), TLI(TLI), DL(DL), DT(DT), CurrentTruncInst(nullptr) {}
+  TruncInstCombine(TargetLibraryInfo &TLI, const DataLayout &DL,
+                   const DominatorTree &DT)
+      : TLI(TLI), DL(DL), DT(DT), CurrentTruncInst(nullptr) {}
 
   /// Perform TruncInst pattern optimization on given function.
   bool run(Function &F);
@@ -107,18 +103,6 @@ private:
   ///         expression dag, or nullptr if the expression dag is not eligible
   ///         to be reduced.
   Type *getBestTruncatedType();
-
-  KnownBits computeKnownBits(const Value *V) const {
-    return llvm::computeKnownBits(V, DL, /*Depth=*/0, &AC,
-                                  /*CtxI=*/cast<Instruction>(CurrentTruncInst),
-                                  &DT);
-  }
-
-  unsigned ComputeNumSignBits(const Value *V) const {
-    return llvm::ComputeNumSignBits(
-        V, DL, /*Depth=*/0, &AC, /*CtxI=*/cast<Instruction>(CurrentTruncInst),
-        &DT);
-  }
 
   /// Given a \p V value and a \p SclTy scalar type return the generated reduced
   /// value of \p V based on the type \p SclTy.

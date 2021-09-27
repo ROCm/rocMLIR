@@ -29,7 +29,7 @@ categories_list = None
 # set to true if we are going to use categories for cherry-picking test cases
 use_categories = False
 # Categories we want to skip
-skip_categories = []
+skip_categories = ["darwin-log"]
 # Categories we expect to fail
 xfail_categories = []
 # use this to track per-category failures

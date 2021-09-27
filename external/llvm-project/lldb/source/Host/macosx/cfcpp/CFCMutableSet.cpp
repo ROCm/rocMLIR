@@ -25,7 +25,7 @@ const CFCMutableSet &CFCMutableSet::operator=(const CFCMutableSet &rhs) {
 }
 
 // Destructor
-CFCMutableSet::~CFCMutableSet() = default;
+CFCMutableSet::~CFCMutableSet() {}
 
 CFIndex CFCMutableSet::GetCount() const {
   CFMutableSetRef set = get();

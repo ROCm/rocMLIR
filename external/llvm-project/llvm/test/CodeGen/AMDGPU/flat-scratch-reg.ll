@@ -1,27 +1,20 @@
 ; RUN: llc -march=amdgcn -mcpu=kaveri -verify-machineinstrs < %s | FileCheck -check-prefix=CI -check-prefix=GCN %s
 ; RUN: llc -march=amdgcn -mcpu=fiji -mattr=-xnack -verify-machineinstrs < %s | FileCheck -check-prefix=VI-NOXNACK -check-prefix=GCN %s
 
-; RUN: llc -march=amdgcn -mcpu=carrizo -mattr=-xnack -verify-machineinstrs < %s | FileCheck -check-prefixes=VI-NOXNACK,GCN %s
-; RUN: llc -march=amdgcn -mcpu=stoney -mattr=-xnack -verify-machineinstrs < %s | FileCheck -check-prefixes=VI-NOXNACK,GCN %s
+; RUN: llc -march=amdgcn -mcpu=carrizo -mattr=-xnack -verify-machineinstrs < %s | FileCheck -check-prefix=VI-NOXNACK  -check-prefix=GCN %s
+; RUN: llc -march=amdgcn -mcpu=stoney -mattr=-xnack -verify-machineinstrs < %s | FileCheck -check-prefix=VI-NOXNACK  -check-prefix=GCN %s
 
 ; RUN: llc -march=amdgcn -mcpu=carrizo -mattr=+xnack -verify-machineinstrs < %s | FileCheck -check-prefix=VI-XNACK  -check-prefix=GCN %s
 ; RUN: llc -march=amdgcn -mcpu=stoney -mattr=+xnack -verify-machineinstrs < %s | FileCheck -check-prefix=VI-XNACK  -check-prefix=GCN %s
 
-; RUN: llc -march=amdgcn -mtriple=amdgcn--amdhsa -mcpu=kaveri --amdhsa-code-object-version=2 -verify-machineinstrs < %s | FileCheck -check-prefixes=CI,HSA-CI-V2,GCN %s
-; RUN: llc -march=amdgcn -mtriple=amdgcn--amdhsa -mcpu=carrizo --amdhsa-code-object-version=2 -mattr=+xnack -verify-machineinstrs < %s | FileCheck -check-prefixes=VI-XNACK,HSA-VI-XNACK-V2,GCN %s
-
-; RUN: llc -march=amdgcn -mtriple=amdgcn--amdhsa -mcpu=kaveri -verify-machineinstrs < %s | FileCheck -check-prefixes=GCN %s
-; RUN: llc -march=amdgcn -mtriple=amdgcn--amdhsa -mcpu=carrizo -mattr=-xnack -verify-machineinstrs < %s | FileCheck -check-prefixes=VI-NOXNACK,HSA-VI-NOXNACK,GCN %s
-; RUN: llc -march=amdgcn -mtriple=amdgcn--amdhsa -mcpu=carrizo -mattr=+xnack -verify-machineinstrs < %s | FileCheck -check-prefixes=VI-XNACK,HSA-VI-XNACK,GCN %s
+; RUN: llc -march=amdgcn -mtriple=amdgcn--amdhsa -mcpu=kaveri --amdhsa-code-object-version=2 -verify-machineinstrs < %s | FileCheck -check-prefix=HSA-CI -check-prefix=GCN %s
+; RUN: llc -march=amdgcn -mtriple=amdgcn--amdhsa -mcpu=carrizo --amdhsa-code-object-version=2 -mattr=-xnack -verify-machineinstrs < %s | FileCheck -check-prefix=HSA-VI-NOXNACK -check-prefix=GCN %s
+; RUN: llc -march=amdgcn -mtriple=amdgcn--amdhsa -mcpu=carrizo --amdhsa-code-object-version=2 -mattr=+xnack -verify-machineinstrs < %s | FileCheck -check-prefix=HSA-VI-XNACK -check-prefix=GCN %s
 
 ; GCN-LABEL: {{^}}no_vcc_no_flat:
-
-; HSA-CI-V2: is_xnack_enabled = 0
-; HSA-VI-XNACK-V2: is_xnack_enabled = 1
-
-; NOT-HSA-CI: .amdhsa_reserve_xnack_mask
-; HSA-VI-NOXNACK: .amdhsa_reserve_xnack_mask 0
-; HSA-VI-XNACK: .amdhsa_reserve_xnack_mask 1
+; HSA-CI: is_xnack_enabled = 0
+; HSA-VI-NOXNACK: is_xnack_enabled = 0
+; HSA-VI-XNACK: is_xnack_enabled = 1
 
 ; CI: ; NumSgprs: 8
 ; VI-NOXNACK: ; NumSgprs: 8
@@ -33,13 +26,9 @@ entry:
 }
 
 ; GCN-LABEL: {{^}}vcc_no_flat:
-
-; HSA-CI-V2: is_xnack_enabled = 0
-; HSA-VI-XNACK-V2: is_xnack_enabled = 1
-
-; NOT-HSA-CI: .amdhsa_reserve_xnack_mask
-; HSA-VI-NOXNACK: .amdhsa_reserve_xnack_mask 0
-; HSA-VI-XNACK: .amdhsa_reserve_xnack_mask 1
+; HSA-CI: is_xnack_enabled = 0
+; HSA-VI-NOXNACK: is_xnack_enabled = 0
+; HSA-VI-XNACK: is_xnack_enabled = 1
 
 ; CI: ; NumSgprs: 10
 ; VI-NOXNACK: ; NumSgprs: 10
@@ -51,17 +40,16 @@ entry:
 }
 
 ; GCN-LABEL: {{^}}no_vcc_flat:
-
-; HSA-CI-V2: is_xnack_enabled = 0
-; HSA-VI-XNACK-V2: is_xnack_enabled = 1
-
-; NOT-HSA-CI: .amdhsa_reserve_xnack_mask
-; HSA-VI-NOXNACK: .amdhsa_reserve_xnack_mask 0
-; HSA-VI-XNACK: .amdhsa_reserve_xnack_mask 1
+; HSA-CI: is_xnack_enabled = 0
+; HSA-VI-NOXNACK: is_xnack_enabled = 0
+; HSA-VI-XNACK: is_xnack_enabled = 1
 
 ; CI: ; NumSgprs: 12
 ; VI-NOXNACK: ; NumSgprs: 14
 ; VI-XNACK: ; NumSgprs: 14
+; HSA-CI: ; NumSgprs: 12
+; HSA-VI-NOXNACK: ; NumSgprs: 14
+; HSA-VI-XNACK: ; NumSgprs: 14
 define amdgpu_kernel void @no_vcc_flat() {
 entry:
   call void asm sideeffect "", "~{s7},~{flat_scratch}"()
@@ -69,17 +57,15 @@ entry:
 }
 
 ; GCN-LABEL: {{^}}vcc_flat:
-
-; HSA-CI-V2: is_xnack_enabled = 0
-; HSA-VI-XNACK-V2: is_xnack_enabled = 1
-
-; NOT-HSA-CI: .amdhsa_reserve_xnack_mask
-; HSA-VI-NOXNACK: .amdhsa_reserve_xnack_mask 0
-; HSA-VI-XNACK: .amdhsa_reserve_xnack_mask 1
+; HSA-NOXNACK: is_xnack_enabled = 0
+; HSA-XNACK: is_xnack_enabled = 1
 
 ; CI: ; NumSgprs: 12
 ; VI-NOXNACK: ; NumSgprs: 14
 ; VI-XNACK: ; NumSgprs: 14
+; HSA-CI: ; NumSgprs: 12
+; HSA-VI-NOXNACK: ; NumSgprs: 14
+; HSA-VI-XNACK: ; NumSgprs: 14
 define amdgpu_kernel void @vcc_flat() {
 entry:
   call void asm sideeffect "", "~{s7},~{vcc},~{flat_scratch}"()
@@ -90,14 +76,6 @@ entry:
 ; scratch usage and implicit flat uses.
 
 ; GCN-LABEL: {{^}}use_flat_scr:
-
-; HSA-CI-V2: is_xnack_enabled = 0
-; HSA-VI-XNACK-V2: is_xnack_enabled = 1
-
-; NOT-HSA-CI: .amdhsa_reserve_xnack_mask
-; HSA-VI-NOXNACK: .amdhsa_reserve_xnack_mask 0
-; HSA-VI-XNACK: .amdhsa_reserve_xnack_mask 1
-
 ; CI: NumSgprs: 4
 ; VI-NOXNACK: NumSgprs: 6
 ; VI-XNACK: NumSgprs: 6
@@ -108,14 +86,6 @@ entry:
 }
 
 ; GCN-LABEL: {{^}}use_flat_scr_lo:
-
-; HSA-CI-V2: is_xnack_enabled = 0
-; HSA-VI-XNACK-V2: is_xnack_enabled = 1
-
-; NOT-HSA-CI: .amdhsa_reserve_xnack_mask
-; HSA-VI-NOXNACK: .amdhsa_reserve_xnack_mask 0
-; HSA-VI-XNACK: .amdhsa_reserve_xnack_mask 1
-
 ; CI: NumSgprs: 4
 ; VI-NOXNACK: NumSgprs: 6
 ; VI-XNACK: NumSgprs: 6
@@ -126,14 +96,6 @@ entry:
 }
 
 ; GCN-LABEL: {{^}}use_flat_scr_hi:
-
-; HSA-CI-V2: is_xnack_enabled = 0
-; HSA-VI-XNACK-V2: is_xnack_enabled = 1
-
-; NOT-HSA-CI: .amdhsa_reserve_xnack_mask
-; HSA-VI-NOXNACK: .amdhsa_reserve_xnack_mask 0
-; HSA-VI-XNACK: .amdhsa_reserve_xnack_mask 1
-
 ; CI: NumSgprs: 4
 ; VI-NOXNACK: NumSgprs: 6
 ; VI-XNACK: NumSgprs: 6

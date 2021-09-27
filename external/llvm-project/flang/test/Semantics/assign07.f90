@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 ! Test ASSIGN statement, assigned GOTO, and assigned format labels
 ! (see subclause 8.2.4 in Fortran 90 (*not* 2018!)
 

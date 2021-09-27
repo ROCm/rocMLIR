@@ -5,10 +5,8 @@ def create_display(opts, tests, total_tests, workers):
     if opts.quiet:
         return NopDisplay()
 
-    num_tests = len(tests)
-    of_total = (' of %d' % total_tests) if (num_tests != total_tests) else ''
-    header = '-- Testing: %d%s tests, %d workers --' % (
-        num_tests, of_total, workers)
+    of_total = (' of %d' % total_tests) if (tests != total_tests) else ''
+    header = '-- Testing: %d%s tests, %d workers --' % (tests, of_total, workers)
 
     progress_bar = None
     if opts.succinct and opts.useProgressBar:
@@ -23,44 +21,6 @@ def create_display(opts, tests, total_tests, workers):
     return Display(opts, tests, header, progress_bar)
 
 
-class ProgressPredictor(object):
-    def __init__(self, tests):
-        self.completed = 0
-        self.time_elapsed = 0.0
-        self.predictable_tests_remaining = 0
-        self.predictable_time_remaining = 0.0
-        self.unpredictable_tests_remaining = 0
-
-        for test in tests:
-            if test.previous_elapsed:
-                self.predictable_tests_remaining += 1
-                self.predictable_time_remaining += test.previous_elapsed
-            else:
-                self.unpredictable_tests_remaining += 1
-
-    def update(self, test):
-        self.completed += 1
-        self.time_elapsed += test.result.elapsed
-
-        if test.previous_elapsed:
-            self.predictable_tests_remaining -= 1
-            self.predictable_time_remaining -= test.previous_elapsed
-        else:
-            self.unpredictable_tests_remaining -= 1
-
-        # NOTE: median would be more precise, but might be too slow.
-        average_test_time = (self.time_elapsed + self.predictable_time_remaining) / \
-            (self.completed + self.predictable_tests_remaining)
-        unpredictable_time_remaining = average_test_time * \
-            self.unpredictable_tests_remaining
-        total_time_remaining = self.predictable_time_remaining + unpredictable_time_remaining
-        total_time = self.time_elapsed + total_time_remaining
-
-        if total_time > 0:
-            return self.time_elapsed / total_time
-        return 0
-
-
 class NopDisplay(object):
     def print_header(self): pass
     def update(self, test): pass
@@ -70,10 +30,8 @@ class NopDisplay(object):
 class Display(object):
     def __init__(self, opts, tests, header, progress_bar):
         self.opts = opts
-        self.num_tests = len(tests)
+        self.tests = tests
         self.header = header
-        self.progress_predictor = ProgressPredictor(
-            tests) if progress_bar else None
         self.progress_bar = progress_bar
         self.completed = 0
 
@@ -97,7 +55,7 @@ class Display(object):
         if self.progress_bar:
             if test.isFailure():
                 self.progress_bar.barColor = 'RED'
-            percent = self.progress_predictor.update(test)
+            percent = float(self.completed) / self.tests
             self.progress_bar.update(percent, test.getFullName())
 
     def clear(self, interrupted):
@@ -108,7 +66,7 @@ class Display(object):
         # Show the test result line.
         test_name = test.getFullName()
         print('%s: %s (%d of %d)' % (test.result.code.name, test_name,
-                                     self.completed, self.num_tests))
+                                     self.completed, self.tests))
 
         # Show the test failure output, if requested.
         if (test.isFailure() and self.opts.showOutput) or \

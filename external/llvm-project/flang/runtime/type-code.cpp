@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/Runtime/type-code.h"
+#include "type-code.h"
 
 namespace Fortran::runtime {
 
@@ -78,13 +78,13 @@ TypeCode::TypeCode(TypeCategory f, int kind) {
       raw_ = CFI_type_Bool;
       break;
     case 2:
-      raw_ = CFI_type_int_least16_t;
+      raw_ = CFI_type_int_fast16_t;
       break;
     case 4:
-      raw_ = CFI_type_int_least32_t;
+      raw_ = CFI_type_int_fast32_t;
       break;
     case 8:
-      raw_ = CFI_type_int_least64_t;
+      raw_ = CFI_type_int_fast64_t;
       break;
     }
     break;
@@ -135,13 +135,13 @@ TypeCode::GetCategoryAndKind() const {
     return std::make_pair(TypeCategory::Character, 4);
   case CFI_type_Bool:
     return std::make_pair(TypeCategory::Logical, 1);
-  case CFI_type_int_least8_t:
+  case CFI_type_int_fast8_t:
     return std::make_pair(TypeCategory::Logical, 1);
-  case CFI_type_int_least16_t:
+  case CFI_type_int_fast16_t:
     return std::make_pair(TypeCategory::Logical, 2);
-  case CFI_type_int_least32_t:
+  case CFI_type_int_fast32_t:
     return std::make_pair(TypeCategory::Logical, 4);
-  case CFI_type_int_least64_t:
+  case CFI_type_int_fast64_t:
     return std::make_pair(TypeCategory::Logical, 8);
   case CFI_type_struct:
     return std::make_pair(TypeCategory::Derived, 0);

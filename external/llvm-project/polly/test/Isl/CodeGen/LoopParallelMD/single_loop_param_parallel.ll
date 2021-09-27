@@ -33,15 +33,13 @@ ret:
   ret void
 }
 
-; SEQUENTIAL-LABEL: @test-one
+; SEQUENTIAL: @test-one
 ; SEQUENTIAL-NOT: !llvm.mem.parallel_loop_access
-; SEQUENTIAL-NOT: !llvm.access.group
 ; SEQUENTIAL-NOT: !llvm.loop
 
 ; PARALLEL: @test-one
-; PARALLEL: store i32 1, i32* %scevgep1, {{[ ._!,a-zA-Z0-9]*}}, !llvm.access.group ![[GROUPID3:[0-9]+]]
-; PARALLEL:  br i1 %polly.loop_cond, label %polly.loop_header, label %polly.loop_exit, !llvm.loop ![[LoopID4:[0-9]+]]
-
+; PARALLEL: store i32 1, i32* %scevgep1, {{[ ._!,a-zA-Z0-9]*}}, !llvm.mem.parallel_loop_access ![[LoopID:[0-9]*]]
+; PARALLEL:  br i1 %polly.loop_cond, label %polly.loop_header, label %polly.loop_exit, !llvm.loop ![[LoopID]]
 
 ; This loop has memory dependences that require at least a simple dependence
 ; analysis to detect the parallelism.
@@ -78,18 +76,11 @@ ret:
   ret void
 }
 
-; SEQUENTIAL-LABEL: @test-two
+; SEQUENTIAL: @test-two
 ; SEQUENTIAL-NOT: !llvm.mem.parallel_loop_access
-; SEQUENTIAL-NOT: !llvm.access.group
 ; SEQUENTIAL-NOT: !llvm.loop
 
 ; PARALLEL: @test-two
-; PARALLEL: %val_p_scalar_ = load i32, i32* %scevgep, {{[ ._!,a-zA-Z0-9]*}}, !llvm.access.group ![[GROUPID8:[0-9]*]]
-; PARALLEL: store i32 %val_p_scalar_, i32* %scevgep1, {{[ ._!,a-zA-Z0-9]*}}, !llvm.access.group ![[GROUPID8]]
-; PARALLEL:  br i1 %polly.loop_cond, label %polly.loop_header, label %polly.loop_exit, !llvm.loop ![[LoopID9:[0-9]*]]
-
-
-; PARALLEL: ![[LoopID4]] = distinct !{![[LoopID4]], ![[PARACC5:[0-9]+]]}
-; PARALLEL: ![[PARACC5]] = !{!"llvm.loop.parallel_accesses", ![[GROUPID3]]}
-; PARALLEL: ![[LoopID9]] = distinct !{![[LoopID9]], ![[PARACC10:[0-9]+]]}
-; PARALLEL: ![[PARACC10]] = !{!"llvm.loop.parallel_accesses", ![[GROUPID8]]}
+; PARALLEL: %val_p_scalar_ = load i32, i32* %scevgep, {{[ ._!,a-zA-Z0-9]*}}, !llvm.mem.parallel_loop_access ![[LoopID:[0-9]*]]
+; PARALLEL: store i32 %val_p_scalar_, i32* %scevgep1, {{[ ._!,a-zA-Z0-9]*}}, !llvm.mem.parallel_loop_access ![[LoopID]]
+; PARALLEL:  br i1 %polly.loop_cond, label %polly.loop_header, label %polly.loop_exit, !llvm.loop ![[LoopID]]

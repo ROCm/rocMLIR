@@ -1,3 +1,4 @@
+; RUN: opt -scalar-evolution -analyze -enable-new-pm=0 < %s | FileCheck %s
 ; RUN: opt "-passes=print<scalar-evolution>" -disable-output < %s 2>&1 | FileCheck %s
 
 define void @test1(i8 %t, i32 %len) {

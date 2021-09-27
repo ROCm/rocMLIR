@@ -92,8 +92,7 @@ static constexpr ISANameRevision ISARevisions[] = {
   {{"arch10"}, 10}, {{"zEC12"}, 10},
   {{"arch11"}, 11}, {{"z13"}, 11},
   {{"arch12"}, 12}, {{"z14"}, 12},
-  {{"arch13"}, 13}, {{"z15"}, 13},
-  {{"arch14"}, 14}
+  {{"arch13"}, 13}, {{"z15"}, 13}
 };
 
 int SystemZTargetInfo::getISARevision(StringRef Name) const {
@@ -121,7 +120,6 @@ bool SystemZTargetInfo::hasFeature(StringRef Feature) const {
       .Case("arch11", ISARevision >= 11)
       .Case("arch12", ISARevision >= 12)
       .Case("arch13", ISARevision >= 13)
-      .Case("arch14", ISARevision >= 14)
       .Case("htm", HasTransactionalExecution)
       .Case("vx", HasVector)
       .Default(false);
@@ -146,7 +144,7 @@ void SystemZTargetInfo::getTargetDefines(const LangOptions &Opts,
   if (HasVector)
     Builder.defineMacro("__VX__");
   if (Opts.ZVector)
-    Builder.defineMacro("__VEC__", "10304");
+    Builder.defineMacro("__VEC__", "10303");
 }
 
 ArrayRef<Builtin::Info> SystemZTargetInfo::getTargetBuiltins() const {

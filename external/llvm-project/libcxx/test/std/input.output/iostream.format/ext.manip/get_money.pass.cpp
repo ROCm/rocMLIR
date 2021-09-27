@@ -12,8 +12,6 @@
 
 // REQUIRES: locale.en_US.UTF-8
 
-// XFAIL: LIBCXX-WINDOWS-FIXME
-
 #include <iomanip>
 #include <istream>
 #include <cassert>

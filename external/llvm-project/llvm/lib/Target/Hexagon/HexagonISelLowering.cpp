@@ -35,8 +35,6 @@
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
-#include "llvm/IR/DiagnosticInfo.h"
-#include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/InlineAsm.h"
@@ -44,7 +42,6 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicsHexagon.h"
-#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
@@ -222,29 +219,8 @@ HexagonTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   // Copy the result values into the output registers.
   for (unsigned i = 0; i != RVLocs.size(); ++i) {
     CCValAssign &VA = RVLocs[i];
-    SDValue Val = OutVals[i];
 
-    switch (VA.getLocInfo()) {
-      default:
-        // Loc info must be one of Full, BCvt, SExt, ZExt, or AExt.
-        llvm_unreachable("Unknown loc info!");
-      case CCValAssign::Full:
-        break;
-      case CCValAssign::BCvt:
-        Val = DAG.getBitcast(VA.getLocVT(), Val);
-        break;
-      case CCValAssign::SExt:
-        Val = DAG.getNode(ISD::SIGN_EXTEND, dl, VA.getLocVT(), Val);
-        break;
-      case CCValAssign::ZExt:
-        Val = DAG.getNode(ISD::ZERO_EXTEND, dl, VA.getLocVT(), Val);
-        break;
-      case CCValAssign::AExt:
-        Val = DAG.getNode(ISD::ANY_EXTEND, dl, VA.getLocVT(), Val);
-        break;
-    }
-
-    Chain = DAG.getCopyToReg(Chain, dl, VA.getLocReg(), Val, Flag);
+    Chain = DAG.getCopyToReg(Chain, dl, VA.getLocReg(), OutVals[i], Flag);
 
     // Guarantee that all emitted copies are stuck together with flags.
     Flag = Chain.getValue(1);
@@ -332,8 +308,6 @@ Register HexagonTargetLowering::getRegisterByName(
                      .Case("m1", Hexagon::M1)
                      .Case("usr", Hexagon::USR)
                      .Case("ugp", Hexagon::UGP)
-                     .Case("cs0", Hexagon::CS0)
-                     .Case("cs1", Hexagon::CS1)
                      .Default(Register());
   if (Reg)
     return Reg;
@@ -524,7 +498,7 @@ HexagonTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   if (NeedsArgAlign && Subtarget.hasV60Ops()) {
     LLVM_DEBUG(dbgs() << "Function needs byte stack align due to call args\n");
-    Align VecAlign = HRI.getSpillAlign(Hexagon::HvxVRRegClass);
+    Align VecAlign(HRI.getSpillAlignment(Hexagon::HvxVRRegClass));
     LargestAlignSeen = std::max(LargestAlignSeen, VecAlign);
     MFI.ensureMaxAlignment(LargestAlignSeen);
   }
@@ -727,7 +701,7 @@ SDValue HexagonTargetLowering::LowerREADCYCLECOUNTER(SDValue Op,
                                                      SelectionDAG &DAG) const {
   SDValue Chain = Op.getOperand(0);
   SDLoc dl(Op);
-  SDVTList VTs = DAG.getVTList(MVT::i64, MVT::Other);
+  SDVTList VTs = DAG.getVTList(MVT::i32, MVT::Other);
   return DAG.getNode(HexagonISD::READCYCLE, dl, VTs, Chain);
 }
 
@@ -1729,12 +1703,6 @@ HexagonTargetLowering::HexagonTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::STORE, VT, Custom);
   }
 
-  // Custom-lower load/stores of boolean vectors.
-  for (MVT VT : {MVT::v2i1, MVT::v4i1, MVT::v8i1}) {
-    setOperationAction(ISD::LOAD,  VT, Custom);
-    setOperationAction(ISD::STORE, VT, Custom);
-  }
-
   for (MVT VT : {MVT::v2i16, MVT::v4i8, MVT::v8i8, MVT::v2i32, MVT::v4i16,
                  MVT::v2i32}) {
     setCondCodeAction(ISD::SETNE,  VT, Expand);
@@ -1914,57 +1882,24 @@ const char* HexagonTargetLowering::getTargetNodeName(unsigned Opcode) const {
   return nullptr;
 }
 
-bool
-HexagonTargetLowering::validateConstPtrAlignment(SDValue Ptr, Align NeedAlign,
-      const SDLoc &dl, SelectionDAG &DAG) const {
+void
+HexagonTargetLowering::validateConstPtrAlignment(SDValue Ptr, const SDLoc &dl,
+      unsigned NeedAlign) const {
   auto *CA = dyn_cast<ConstantSDNode>(Ptr);
   if (!CA)
-    return true;
+    return;
   unsigned Addr = CA->getZExtValue();
-  Align HaveAlign =
-      Addr != 0 ? Align(1ull << countTrailingZeros(Addr)) : NeedAlign;
-  if (HaveAlign >= NeedAlign)
-    return true;
-
-  static int DK_MisalignedTrap = llvm::getNextAvailablePluginDiagnosticKind();
-
-  struct DiagnosticInfoMisalignedTrap : public DiagnosticInfo {
-    DiagnosticInfoMisalignedTrap(StringRef M)
-      : DiagnosticInfo(DK_MisalignedTrap, DS_Remark), Msg(M) {}
-    void print(DiagnosticPrinter &DP) const override {
-      DP << Msg;
-    }
-    static bool classof(const DiagnosticInfo *DI) {
-      return DI->getKind() == DK_MisalignedTrap;
-    }
-    StringRef Msg;
-  };
-
-  std::string ErrMsg;
-  raw_string_ostream O(ErrMsg);
-  O << "Misaligned constant address: " << format_hex(Addr, 10)
-    << " has alignment " << HaveAlign.value()
-    << ", but the memory access requires " << NeedAlign.value();
-  if (DebugLoc DL = dl.getDebugLoc())
-    DL.print(O << ", at ");
-  O << ". The instruction has been replaced with a trap.";
-
-  DAG.getContext()->diagnose(DiagnosticInfoMisalignedTrap(O.str()));
-  return false;
-}
-
-SDValue
-HexagonTargetLowering::replaceMemWithUndef(SDValue Op, SelectionDAG &DAG)
-      const {
-  const SDLoc &dl(Op);
-  auto *LS = cast<LSBaseSDNode>(Op.getNode());
-  assert(!LS->isIndexed() && "Not expecting indexed ops on constant address");
-
-  SDValue Chain = LS->getChain();
-  SDValue Trap = DAG.getNode(ISD::TRAP, dl, MVT::Other, Chain);
-  if (LS->getOpcode() == ISD::LOAD)
-    return DAG.getMergeValues({DAG.getUNDEF(ty(Op)), Trap}, dl);
-  return Trap;
+  unsigned HaveAlign = Addr != 0 ? 1u << countTrailingZeros(Addr) : NeedAlign;
+  if (HaveAlign < NeedAlign) {
+    std::string ErrMsg;
+    raw_string_ostream O(ErrMsg);
+    O << "Misaligned constant address: " << format_hex(Addr, 10)
+      << " has alignment " << HaveAlign
+      << ", but the memory access requires " << NeedAlign;
+    if (DebugLoc DL = dl.getDebugLoc())
+      DL.print(O << ", at ");
+    report_fatal_error(O.str());
+  }
 }
 
 // Bit-reverse Load Intrinsic: Check if the instruction is a bit reverse load
@@ -2137,7 +2072,7 @@ bool HexagonTargetLowering::isShuffleMaskLegal(ArrayRef<int> Mask,
 
 TargetLoweringBase::LegalizeTypeAction
 HexagonTargetLowering::getPreferredVectorAction(MVT VT) const {
-  unsigned VecLen = VT.getVectorMinNumElements();
+  unsigned VecLen = VT.getVectorNumElements();
   MVT ElemTy = VT.getVectorElementType();
 
   if (VecLen == 1 || VT.isScalableVector())
@@ -2556,7 +2491,7 @@ HexagonTargetLowering::extractVector(SDValue VecV, SDValue IdxV,
       // Extracting the lowest bit is a no-op, but it changes the type,
       // so it must be kept as an operation to avoid errors related to
       // type mismatches.
-      if (IdxN->isZero() && ValTy.getSizeInBits() == 1)
+      if (IdxN->isNullValue() && ValTy.getSizeInBits() == 1)
         return DAG.getNode(HexagonISD::TYPECAST, dl, MVT::i1, VecV);
     }
 
@@ -2920,64 +2855,27 @@ HexagonTargetLowering::allowTruncateForTailCall(Type *Ty1, Type *Ty2) const {
 
 SDValue
 HexagonTargetLowering::LowerLoad(SDValue Op, SelectionDAG &DAG) const {
-  MVT Ty = ty(Op);
-  const SDLoc &dl(Op);
-  // Lower loads of scalar predicate vectors (v2i1, v4i1, v8i1) to loads of i1
-  // followed by a TYPECAST.
   LoadSDNode *LN = cast<LoadSDNode>(Op.getNode());
-  bool DoCast = (Ty == MVT::v2i1 || Ty == MVT::v4i1 || Ty == MVT::v8i1);
-  if (DoCast) {
-    SDValue NL = DAG.getLoad(
-        LN->getAddressingMode(), LN->getExtensionType(), MVT::i1, dl,
-        LN->getChain(), LN->getBasePtr(), LN->getOffset(), LN->getPointerInfo(),
-        /*MemoryVT*/ MVT::i1, LN->getAlign(), LN->getMemOperand()->getFlags(),
-        LN->getAAInfo(), LN->getRanges());
-    LN = cast<LoadSDNode>(NL.getNode());
-  }
-
-  Align ClaimAlign = LN->getAlign();
-  if (!validateConstPtrAlignment(LN->getBasePtr(), ClaimAlign, dl, DAG))
-    return replaceMemWithUndef(Op, DAG);
-
+  unsigned ClaimAlign = LN->getAlignment();
+  validateConstPtrAlignment(LN->getBasePtr(), SDLoc(Op), ClaimAlign);
   // Call LowerUnalignedLoad for all loads, it recognizes loads that
   // don't need extra aligning.
-  SDValue LU = LowerUnalignedLoad(SDValue(LN, 0), DAG);
-  if (DoCast) {
-    SDValue TC = DAG.getNode(HexagonISD::TYPECAST, dl, Ty, LU);
-    SDValue Ch = cast<LoadSDNode>(LU.getNode())->getChain();
-    return DAG.getMergeValues({TC, Ch}, dl);
-  }
-  return LU;
+  return LowerUnalignedLoad(Op, DAG);
 }
 
 SDValue
 HexagonTargetLowering::LowerStore(SDValue Op, SelectionDAG &DAG) const {
-  const SDLoc &dl(Op);
   StoreSDNode *SN = cast<StoreSDNode>(Op.getNode());
-  SDValue Val = SN->getValue();
-  MVT Ty = ty(Val);
-
-  bool DoCast = (Ty == MVT::v2i1 || Ty == MVT::v4i1 || Ty == MVT::v8i1);
-  if (DoCast) {
-    SDValue TC = DAG.getNode(HexagonISD::TYPECAST, dl, MVT::i1, Val);
-    SDValue NS = DAG.getStore(SN->getChain(), dl, TC, SN->getBasePtr(),
-                              SN->getMemOperand());
-    if (SN->isIndexed()) {
-      NS = DAG.getIndexedStore(NS, dl, SN->getBasePtr(), SN->getOffset(),
-                               SN->getAddressingMode());
-    }
-    SN = cast<StoreSDNode>(NS.getNode());
-  }
-
-  Align ClaimAlign = SN->getAlign();
-  if (!validateConstPtrAlignment(SN->getBasePtr(), ClaimAlign, dl, DAG))
-    return replaceMemWithUndef(Op, DAG);
+  unsigned ClaimAlign = SN->getAlignment();
+  SDValue Ptr = SN->getBasePtr();
+  const SDLoc &dl(Op);
+  validateConstPtrAlignment(Ptr, dl, ClaimAlign);
 
   MVT StoreTy = SN->getMemoryVT().getSimpleVT();
-  Align NeedAlign = Subtarget.getTypeAlignment(StoreTy);
+  unsigned NeedAlign = Subtarget.getTypeAlignment(StoreTy);
   if (ClaimAlign < NeedAlign)
     return expandUnalignedStore(SN, DAG);
-  return SDValue(SN, 0);
+  return Op;
 }
 
 SDValue
@@ -2985,8 +2883,8 @@ HexagonTargetLowering::LowerUnalignedLoad(SDValue Op, SelectionDAG &DAG)
       const {
   LoadSDNode *LN = cast<LoadSDNode>(Op.getNode());
   MVT LoadTy = ty(Op);
-  unsigned NeedAlign = Subtarget.getTypeAlignment(LoadTy).value();
-  unsigned HaveAlign = LN->getAlign().value();
+  unsigned NeedAlign = Subtarget.getTypeAlignment(LoadTy);
+  unsigned HaveAlign = LN->getAlignment();
   if (HaveAlign >= NeedAlign)
     return Op;
 
@@ -3054,7 +2952,7 @@ HexagonTargetLowering::LowerUnalignedLoad(SDValue Op, SelectionDAG &DAG)
     WideMMO = MF.getMachineMemOperand(
         MMO->getPointerInfo(), MMO->getFlags(), 2 * LoadLen, Align(LoadLen),
         MMO->getAAInfo(), MMO->getRanges(), MMO->getSyncScopeID(),
-        MMO->getSuccessOrdering(), MMO->getFailureOrdering());
+        MMO->getOrdering(), MMO->getFailureOrdering());
   }
 
   SDValue Load0 = DAG.getLoad(LoadTy, dl, Chain, Base0, WideMMO);
@@ -3591,32 +3489,31 @@ bool HexagonTargetLowering::shouldReduceLoadWidth(SDNode *Load,
   return true;
 }
 
-Value *HexagonTargetLowering::emitLoadLinked(IRBuilderBase &Builder,
-                                             Type *ValueTy, Value *Addr,
-                                             AtomicOrdering Ord) const {
+Value *HexagonTargetLowering::emitLoadLinked(IRBuilder<> &Builder, Value *Addr,
+      AtomicOrdering Ord) const {
   BasicBlock *BB = Builder.GetInsertBlock();
   Module *M = BB->getParent()->getParent();
-  unsigned SZ = ValueTy->getPrimitiveSizeInBits();
+  auto PT = cast<PointerType>(Addr->getType());
+  Type *Ty = PT->getElementType();
+  unsigned SZ = Ty->getPrimitiveSizeInBits();
   assert((SZ == 32 || SZ == 64) && "Only 32/64-bit atomic loads supported");
   Intrinsic::ID IntID = (SZ == 32) ? Intrinsic::hexagon_L2_loadw_locked
                                    : Intrinsic::hexagon_L4_loadd_locked;
   Function *Fn = Intrinsic::getDeclaration(M, IntID);
 
-  auto PtrTy = cast<PointerType>(Addr->getType());
-  PointerType *NewPtrTy =
-      Builder.getIntNTy(SZ)->getPointerTo(PtrTy->getAddressSpace());
+  PointerType *NewPtrTy
+    = Builder.getIntNTy(SZ)->getPointerTo(PT->getAddressSpace());
   Addr = Builder.CreateBitCast(Addr, NewPtrTy);
 
   Value *Call = Builder.CreateCall(Fn, Addr, "larx");
 
-  return Builder.CreateBitCast(Call, ValueTy);
+  return Builder.CreateBitCast(Call, Ty);
 }
 
 /// Perform a store-conditional operation to Addr. Return the status of the
 /// store. This should be 0 if the store succeeded, non-zero otherwise.
-Value *HexagonTargetLowering::emitStoreConditional(IRBuilderBase &Builder,
-                                                   Value *Val, Value *Addr,
-                                                   AtomicOrdering Ord) const {
+Value *HexagonTargetLowering::emitStoreConditional(IRBuilder<> &Builder,
+      Value *Val, Value *Addr, AtomicOrdering Ord) const {
   BasicBlock *BB = Builder.GetInsertBlock();
   Module *M = BB->getParent()->getParent();
   Type *Ty = Val->getType();

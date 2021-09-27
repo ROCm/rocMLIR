@@ -13,7 +13,6 @@
 #include "xray-color-helper.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cmath>
 
 using namespace llvm;
 using namespace xray;

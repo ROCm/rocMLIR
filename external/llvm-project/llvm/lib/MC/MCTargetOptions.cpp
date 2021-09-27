@@ -13,8 +13,7 @@ using namespace llvm;
 
 MCTargetOptions::MCTargetOptions()
     : MCRelaxAll(false), MCNoExecStack(false), MCFatalWarnings(false),
-      MCNoWarn(false), MCNoDeprecatedWarn(false),
-      MCNoTypeCheck(false), MCSaveTempLabels(false),
+      MCNoWarn(false), MCNoDeprecatedWarn(false), MCSaveTempLabels(false),
       MCUseDwarfDirectory(false), MCIncrementalLinkerCompatible(false),
       ShowMCEncoding(false), ShowMCInst(false), AsmVerbose(false),
       PreserveAsmComments(true), Dwarf64(false) {}

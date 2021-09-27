@@ -18,8 +18,10 @@ static size_t getNameColumnWidth(const SectionSizes &Sizes,
                                  const StringRef SectionNameTitle) {
   // The minimum column width should be the size of "SECTION".
   size_t Width = SectionNameTitle.size();
-  for (const auto &It : Sizes.DebugSectionSizes)
-    Width = std::max(Width, It.first.size());
+  for (const auto &DebugSec : Sizes.DebugSectionSizes) {
+    StringRef SectionName = DebugSec.getKey();
+    Width = std::max(Width, SectionName.size());
+  }
   return Width;
 }
 
@@ -27,8 +29,8 @@ static size_t getSizeColumnWidth(const SectionSizes &Sizes,
                                  const StringRef SectionSizeTitle) {
   // The minimum column width should be the size of the column title.
   size_t Width = SectionSizeTitle.size();
-  for (const auto &It : Sizes.DebugSectionSizes) {
-    size_t NumWidth = std::to_string(It.second).size();
+  for (const auto &DebugSec : Sizes.DebugSectionSizes) {
+    size_t NumWidth = std::to_string(DebugSec.getValue()).size();
     Width = std::max(Width, NumWidth);
   }
   return Width;
@@ -57,13 +59,13 @@ static void prettyPrintSectionSizes(const ObjectFile &Obj,
     OS << "-";
   OS << '\n';
 
-  for (const auto &It : Sizes.DebugSectionSizes) {
-    OS << left_justify(It.first, NameColWidth) << "  ";
+  for (const auto &DebugSec : Sizes.DebugSectionSizes) {
+    OS << left_justify(DebugSec.getKey(), NameColWidth) << "  ";
 
-    std::string NumBytes = std::to_string(It.second);
+    auto NumBytes = std::to_string(DebugSec.getValue());
     OS << right_justify(NumBytes, SizeColWidth) << " ("
-       << format("%0.2f",
-                 It.second / static_cast<double>(Sizes.TotalObjectSize) * 100)
+       << format("%0.2f", DebugSec.getValue() /
+                              static_cast<double>(Sizes.TotalObjectSize) * 100)
        << "%)\n";
   }
 
@@ -93,11 +95,11 @@ void dwarfdump::calculateSectionSizes(const ObjectFile &Obj,
     LLVM_DEBUG(dbgs() << SectionName.str() << ": " << Section.getSize()
                       << '\n');
 
-    if (!Section.isDebugSection())
+    if (!Section.isDebugSection(SectionName))
       continue;
 
     Sizes.TotalDebugSectionsSize += Section.getSize();
-    Sizes.DebugSectionSizes[std::string(SectionName)] += Section.getSize();
+    Sizes.DebugSectionSizes[SectionName] += Section.getSize();
   }
 }
 

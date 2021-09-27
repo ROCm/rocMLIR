@@ -32,7 +32,7 @@ TEST(LICMTest, TestSCEVInvalidationOnHoisting) {
   PB.registerLoopAnalyses(LAM);
   PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
-  StringRef PipelineStr = "require<opt-remark-emit>,loop-mssa(licm)";
+  StringRef PipelineStr = "require<opt-remark-emit>,loop(licm)";
   ASSERT_THAT_ERROR(PB.parsePassPipeline(MPM, PipelineStr), Succeeded());
 
   SMDiagnostic Error;

@@ -1,6 +1,5 @@
-#import <objc/NSObject.h>
+#import <Foundation/Foundation.h>
 #import "Container.h"
-#import <stdio.h>
 
 int main(int argc, const char * argv[])
 {

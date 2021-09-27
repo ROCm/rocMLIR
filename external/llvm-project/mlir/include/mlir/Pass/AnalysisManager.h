@@ -13,13 +13,10 @@
 #include "mlir/Pass/PassInstrumentation.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Support/TypeName.h"
 
 namespace mlir {
-class AnalysisManager;
-
 //===----------------------------------------------------------------------===//
 // Analysis Preservation and Concept Modeling
 //===----------------------------------------------------------------------===//
@@ -62,16 +59,6 @@ public:
   bool isPreserved(TypeID id) const { return preservedIDs.count(id); }
 
 private:
-  /// Remove the analysis from preserved set.
-  template <typename AnalysisT>
-  void unpreserve() {
-    preservedIDs.erase(TypeID::get<AnalysisT>());
-  }
-
-  /// AnalysisModel need access to unpreserve().
-  template <typename>
-  friend struct AnalysisModel;
-
   /// The set of analyses that are known to be preserved.
   SmallPtrSet<TypeID, 2> preservedIDs;
 };
@@ -104,9 +91,8 @@ struct AnalysisConcept {
   /// set, returns true if it should truly be invalidated. This allows for more
   /// fine-tuned invalidation in cases where an analysis wasn't explicitly
   /// marked preserved, but may be preserved(or invalidated) based upon other
-  /// properties such as analyses sets. Invalidated analyses must also be
-  /// removed from pa.
-  virtual bool invalidate(PreservedAnalyses &pa) = 0;
+  /// properties such as analyses sets.
+  virtual bool isInvalidated(const PreservedAnalyses &pa) = 0;
 };
 
 /// A derived analysis model used to hold a specific analysis object.
@@ -115,13 +101,9 @@ template <typename AnalysisT> struct AnalysisModel : public AnalysisConcept {
   explicit AnalysisModel(Args &&...args)
       : analysis(std::forward<Args>(args)...) {}
 
-  /// A hook used to query analyses for invalidation. Removes invalidated
-  /// analyses from pa.
-  bool invalidate(PreservedAnalyses &pa) final {
-    bool result = analysis_impl::isInvalidated(analysis, pa);
-    if (result)
-      pa.unpreserve<AnalysisT>();
-    return result;
+  /// A hook used to query analyses for invalidation.
+  bool isInvalidated(const PreservedAnalyses &pa) final {
+    return analysis_impl::isInvalidated(analysis, pa);
   }
 
   /// The actual analysis object.
@@ -132,7 +114,7 @@ template <typename AnalysisT> struct AnalysisModel : public AnalysisConcept {
 /// computation, caching, and invalidation of analyses takes place here.
 class AnalysisMap {
   /// A mapping between an analysis id and an existing analysis instance.
-  using ConceptMap = llvm::MapVector<TypeID, std::unique_ptr<AnalysisConcept>>;
+  using ConceptMap = DenseMap<TypeID, std::unique_ptr<AnalysisConcept>>;
 
   /// Utility to return the name of the given analysis class.
   template <typename AnalysisT> static StringRef getAnalysisName() {
@@ -147,19 +129,17 @@ public:
 
   /// Get an analysis for the current IR unit, computing it if necessary.
   template <typename AnalysisT>
-  AnalysisT &getAnalysis(PassInstrumentor *pi, AnalysisManager &am) {
-    return getAnalysisImpl<AnalysisT, Operation *>(pi, ir, am);
+  AnalysisT &getAnalysis(PassInstrumentor *pi) {
+    return getAnalysisImpl<AnalysisT, Operation *>(pi, ir);
   }
 
   /// Get an analysis for the current IR unit assuming it's of specific derived
   /// operation type.
   template <typename AnalysisT, typename OpT>
-  std::enable_if_t<
-      std::is_constructible<AnalysisT, OpT>::value ||
-          std::is_constructible<AnalysisT, OpT, AnalysisManager &>::value,
-      AnalysisT &>
-  getAnalysis(PassInstrumentor *pi, AnalysisManager &am) {
-    return getAnalysisImpl<AnalysisT, OpT>(pi, cast<OpT>(ir), am);
+  typename std::enable_if<std::is_constructible<AnalysisT, OpT>::value,
+                          AnalysisT &>::type
+  getAnalysis(PassInstrumentor *pi) {
+    return getAnalysisImpl<AnalysisT, OpT>(pi, cast<OpT>(ir));
   }
 
   /// Get a cached analysis instance if one exists, otherwise return null.
@@ -180,52 +160,35 @@ public:
   /// Invalidate any cached analyses based upon the given set of preserved
   /// analyses.
   void invalidate(const PreservedAnalyses &pa) {
-    PreservedAnalyses paCopy(pa);
     // Remove any analyses that were invalidated.
-    // As we are using MapVector, order of insertion is preserved and
-    // dependencies always go before users, so we need only one iteration.
-    analyses.remove_if(
-        [&](auto &val) { return val.second->invalidate(paCopy); });
+    for (auto it = analyses.begin(), e = analyses.end(); it != e;) {
+      auto curIt = it++;
+      if (curIt->second->isInvalidated(pa))
+        analyses.erase(curIt);
+    }
   }
 
 private:
   template <typename AnalysisT, typename OpT>
-  AnalysisT &getAnalysisImpl(PassInstrumentor *pi, OpT op,
-                             AnalysisManager &am) {
+  AnalysisT &getAnalysisImpl(PassInstrumentor *pi, OpT op) {
     TypeID id = TypeID::get<AnalysisT>();
 
-    auto it = analyses.find(id);
+    typename ConceptMap::iterator it;
+    bool wasInserted;
+    std::tie(it, wasInserted) = analyses.try_emplace(id);
+
     // If we don't have a cached analysis for this operation, compute it
     // directly and add it to the cache.
-    if (analyses.end() == it) {
+    if (wasInserted) {
       if (pi)
         pi->runBeforeAnalysis(getAnalysisName<AnalysisT>(), id, ir);
 
-      bool wasInserted;
-      std::tie(it, wasInserted) =
-          analyses.insert({id, constructAnalysis<AnalysisT>(am, op)});
-      assert(wasInserted);
+      it->second = std::make_unique<AnalysisModel<AnalysisT>>(op);
 
       if (pi)
         pi->runAfterAnalysis(getAnalysisName<AnalysisT>(), id, ir);
     }
     return static_cast<AnalysisModel<AnalysisT> &>(*it->second).analysis;
-  }
-
-  /// Construct analysis using two arguments contructor (OpT, AnalysisManager)
-  template <typename AnalysisT, typename OpT,
-            std::enable_if_t<std::is_constructible<
-                AnalysisT, OpT, AnalysisManager &>::value> * = nullptr>
-  static auto constructAnalysis(AnalysisManager &am, OpT op) {
-    return std::make_unique<AnalysisModel<AnalysisT>>(op, am);
-  }
-
-  /// Construct analysis using single argument contructor (OpT)
-  template <typename AnalysisT, typename OpT,
-            std::enable_if_t<!std::is_constructible<
-                AnalysisT, OpT, AnalysisManager &>::value> * = nullptr>
-  static auto constructAnalysis(AnalysisManager &, OpT op) {
-    return std::make_unique<AnalysisModel<AnalysisT>>(op);
   }
 
   Operation *ir;
@@ -310,15 +273,14 @@ public:
 
   /// Query for the given analysis for the current operation.
   template <typename AnalysisT> AnalysisT &getAnalysis() {
-    return impl->analyses.getAnalysis<AnalysisT>(getPassInstrumentor(), *this);
+    return impl->analyses.getAnalysis<AnalysisT>(getPassInstrumentor());
   }
 
   /// Query for the given analysis for the current operation of a specific
   /// derived operation type.
   template <typename AnalysisT, typename OpT>
   AnalysisT &getAnalysis() {
-    return impl->analyses.getAnalysis<AnalysisT, OpT>(getPassInstrumentor(),
-                                                      *this);
+    return impl->analyses.getAnalysis<AnalysisT, OpT>(getPassInstrumentor());
   }
 
   /// Query for a cached entry of the given analysis on the current operation.

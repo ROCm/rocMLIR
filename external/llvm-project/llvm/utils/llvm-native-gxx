@@ -1,4 +1,4 @@
-#!/usr/bin/env perl
+#!/usr/bin/perl
 # Wrapper around LLVM tools to generate a native .o from llvm-gxx using an
 # LLVM back-end (CBE by default).
 

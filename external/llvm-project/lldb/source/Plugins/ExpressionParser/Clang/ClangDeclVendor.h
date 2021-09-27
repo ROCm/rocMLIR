@@ -22,7 +22,7 @@ class ClangDeclVendor : public DeclVendor {
 public:
   ClangDeclVendor(DeclVendorKind kind) : DeclVendor(kind) {}
 
-  virtual ~ClangDeclVendor() = default;
+  virtual ~ClangDeclVendor() {}
 
   using DeclVendor::FindDecls;
 

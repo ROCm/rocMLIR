@@ -250,10 +250,12 @@ LoopInfo::createLoopVectorizeMetadata(const LoopAttributes &Attrs,
   Args.push_back(nullptr);
   Args.append(LoopProperties.begin(), LoopProperties.end());
 
-  // Setting vectorize.predicate when it has been specified and vectorization
-  // has not been disabled.
+  // Setting vectorize.predicate
   bool IsVectorPredicateEnabled = false;
-  if (Attrs.VectorizePredicateEnable != LoopAttributes::Unspecified) {
+  if (Attrs.VectorizePredicateEnable != LoopAttributes::Unspecified &&
+      Attrs.VectorizeEnable != LoopAttributes::Disable &&
+      Attrs.VectorizeWidth < 1) {
+
     IsVectorPredicateEnabled =
         (Attrs.VectorizePredicateEnable == LoopAttributes::Enable);
 
@@ -301,8 +303,7 @@ LoopInfo::createLoopVectorizeMetadata(const LoopAttributes &Attrs,
   //    explicitly requested fixed-width vectorization, i.e.
   //    vectorize.scalable.enable is false.
   if (Attrs.VectorizeEnable != LoopAttributes::Unspecified ||
-      (IsVectorPredicateEnabled && Attrs.VectorizeWidth != 1) ||
-      Attrs.VectorizeWidth > 1 ||
+      IsVectorPredicateEnabled || Attrs.VectorizeWidth > 1 ||
       Attrs.VectorizeScalable == LoopAttributes::Enable ||
       (Attrs.VectorizeScalable == LoopAttributes::Disable &&
        Attrs.VectorizeWidth != 1)) {

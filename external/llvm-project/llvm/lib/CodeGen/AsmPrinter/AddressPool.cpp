@@ -25,9 +25,12 @@ unsigned AddressPool::getIndex(const MCSymbol *Sym, bool TLS) {
 
 MCSymbol *AddressPool::emitHeader(AsmPrinter &Asm, MCSection *Section) {
   static const uint8_t AddrSize = Asm.getDataLayout().getPointerSize();
+  StringRef Prefix = "debug_addr_";
+  MCSymbol *BeginLabel = Asm.createTempSymbol(Prefix + "start");
+  MCSymbol *EndLabel = Asm.createTempSymbol(Prefix + "end");
 
-  MCSymbol *EndLabel =
-      Asm.emitDwarfUnitLength("debug_addr", "Length of contribution");
+  Asm.emitDwarfUnitLength(EndLabel, BeginLabel, "Length of contribution");
+  Asm.OutStreamer->emitLabel(BeginLabel);
   Asm.OutStreamer->AddComment("DWARF version number");
   Asm.emitInt16(Asm.getDwarfVersion());
   Asm.OutStreamer->AddComment("Address size");

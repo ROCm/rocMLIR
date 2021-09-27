@@ -14,7 +14,6 @@
 
 #include <exception>
 #include <cassert>
-#include <type_traits>
 
 #include "test_macros.h"
 
@@ -34,5 +33,5 @@ int main(int, char**)
     p3 = nullptr;
     assert(p3 == nullptr);
 
-    return 0;
+  return 0;
 }

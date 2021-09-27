@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-// <string_view>
+// <string>
 
 // template<class charT, class traits>
 //   constexpr bool operator>=(basic_string_view<charT,traits> lhs,

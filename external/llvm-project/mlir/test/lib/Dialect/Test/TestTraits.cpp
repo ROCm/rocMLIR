@@ -11,7 +11,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 using namespace mlir;
-using namespace test;
+using namespace mlir::test;
 
 //===----------------------------------------------------------------------===//
 // Trait Folder.
@@ -32,15 +32,15 @@ OpFoldResult TestInvolutionTraitSuccesfulOperationFolderOp::fold(
 
 namespace {
 struct TestTraitFolder : public PassWrapper<TestTraitFolder, FunctionPass> {
-  StringRef getArgument() const final { return "test-trait-folder"; }
-  StringRef getDescription() const final { return "Run trait folding"; }
   void runOnFunction() override {
     (void)applyPatternsAndFoldGreedily(getFunction(),
-                                       RewritePatternSet(&getContext()));
+                                       OwningRewritePatternList());
   }
 };
 } // end anonymous namespace
 
 namespace mlir {
-void registerTestTraitsPass() { PassRegistration<TestTraitFolder>(); }
+void registerTestTraitsPass() {
+  PassRegistration<TestTraitFolder>("test-trait-folder", "Run trait folding");
+}
 } // namespace mlir

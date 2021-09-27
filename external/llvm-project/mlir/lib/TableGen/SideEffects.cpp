@@ -53,6 +53,6 @@ StringRef SideEffectTrait::getBaseEffectName() const {
   return def->getValueAsString("baseEffectName");
 }
 
-bool SideEffectTrait::classof(const Trait *t) {
+bool SideEffectTrait::classof(const OpTrait *t) {
   return t->getDef().isSubClassOf("SideEffectsTraitBase");
 }

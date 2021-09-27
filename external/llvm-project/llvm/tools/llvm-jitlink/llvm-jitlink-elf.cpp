@@ -116,15 +116,11 @@ Error registerELFGraphInfo(Session &S, LinkGraph &G) {
           return make_error<StringError>("zero-fill atom in GOT section",
                                          inconvertibleErrorCode());
 
-        // If this is a GOT symbol with size (i.e. not the GOT start symbol)
-        // then add it to the GOT entry info table.
-        if (Sym->getSize() != 0) {
-          if (auto TS = getELFGOTTarget(G, Sym->getBlock()))
-            FileInfo.GOTEntryInfos[TS->getName()] = {Sym->getSymbolContent(),
-                                                     Sym->getAddress()};
-          else
-            return TS.takeError();
-        }
+        if (auto TS = getELFGOTTarget(G, Sym->getBlock()))
+          FileInfo.GOTEntryInfos[TS->getName()] = {Sym->getSymbolContent(),
+                                                   Sym->getAddress()};
+        else
+          return TS.takeError();
         SectionContainsContent = true;
       } else if (isStubsSection) {
         if (Sym->isSymbolZeroFill())
@@ -137,9 +133,8 @@ Error registerELFGraphInfo(Session &S, LinkGraph &G) {
         else
           return TS.takeError();
         SectionContainsContent = true;
-      }
-
-      if (Sym->hasName()) {
+      } else if (Sym->hasName()) {
+        dbgs() << "Symbol: " << Sym->getName() << "\n";
         if (Sym->isSymbolZeroFill()) {
           S.SymbolInfos[Sym->getName()] = {Sym->getSize(), Sym->getAddress()};
           SectionContainsZeroFill = true;
@@ -164,7 +159,7 @@ Error registerELFGraphInfo(Session &S, LinkGraph &G) {
       FileInfo.SectionInfos[Sec.getName()] = {SecSize, SecAddr};
     else
       FileInfo.SectionInfos[Sec.getName()] = {
-          ArrayRef<char>(FirstSym->getBlock().getContent().data(), SecSize),
+          StringRef(FirstSym->getBlock().getContent().data(), SecSize),
           SecAddr};
   }
 

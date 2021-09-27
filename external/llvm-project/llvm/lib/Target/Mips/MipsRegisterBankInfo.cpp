@@ -716,11 +716,10 @@ void MipsRegisterBankInfo::setRegBank(MachineInstr &MI,
 
 static void
 combineAwayG_UNMERGE_VALUES(LegalizationArtifactCombiner &ArtCombiner,
-                            GUnmerge &MI, GISelChangeObserver &Observer) {
+                            MachineInstr &MI, GISelChangeObserver &Observer) {
   SmallVector<Register, 4> UpdatedDefs;
   SmallVector<MachineInstr *, 2> DeadInstrs;
-  ArtCombiner.tryCombineUnmergeValues(MI, DeadInstrs,
-                                      UpdatedDefs, Observer);
+  ArtCombiner.tryCombineUnmergeValues(MI, DeadInstrs, UpdatedDefs, Observer);
   for (MachineInstr *DeadMI : DeadInstrs)
     DeadMI->eraseFromParent();
 }
@@ -751,8 +750,8 @@ void MipsRegisterBankInfo::applyMappingImpl(
       // This is new G_UNMERGE that was created during narrowScalar and will
       // not be considered for regbank selection. RegBankSelect for mips
       // visits/makes corresponding G_MERGE first. Combine them here.
-      if (auto *Unmerge = dyn_cast<GUnmerge>(NewMI))
-        combineAwayG_UNMERGE_VALUES(ArtCombiner, *Unmerge, NewInstrObserver);
+      if (NewMI->getOpcode() == TargetOpcode::G_UNMERGE_VALUES)
+        combineAwayG_UNMERGE_VALUES(ArtCombiner, *NewMI, NewInstrObserver);
       // This G_MERGE will be combined away when its corresponding G_UNMERGE
       // gets regBankSelected.
       else if (NewMI->getOpcode() == TargetOpcode::G_MERGE_VALUES)
@@ -764,8 +763,7 @@ void MipsRegisterBankInfo::applyMappingImpl(
     return;
   }
   case TargetOpcode::G_UNMERGE_VALUES:
-    combineAwayG_UNMERGE_VALUES(ArtCombiner, cast<GUnmerge>(MI),
-                                NewInstrObserver);
+    combineAwayG_UNMERGE_VALUES(ArtCombiner, MI, NewInstrObserver);
     return;
   default:
     break;

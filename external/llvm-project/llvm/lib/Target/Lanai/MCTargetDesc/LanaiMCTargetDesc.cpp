@@ -97,9 +97,6 @@ public:
                       uint64_t &Target) const override {
     if (Inst.getNumOperands() == 0)
       return false;
-    if (!isConditionalBranch(Inst) && !isUnconditionalBranch(Inst) &&
-        !isCall(Inst))
-      return false;
 
     if (Info->get(Inst.getOpcode()).OpInfo[0].OperandType ==
         MCOI::OPERAND_PCREL) {

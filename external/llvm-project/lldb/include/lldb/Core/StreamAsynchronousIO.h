@@ -13,7 +13,7 @@
 
 #include <string>
 
-#include <cstddef>
+#include <stddef.h>
 
 namespace lldb_private {
 class Debugger;

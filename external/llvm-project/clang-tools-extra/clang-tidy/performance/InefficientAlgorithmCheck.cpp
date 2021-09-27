@@ -35,24 +35,27 @@ void InefficientAlgorithmCheck::registerMatchers(MatchFinder *Finder) {
       "::std::unordered_set", "::std::unordered_map",
       "::std::unordered_multiset", "::std::unordered_multimap"));
 
-  const auto Matcher =
+  const auto Matcher = traverse(
+      TK_AsIs,
       callExpr(
           callee(functionDecl(Algorithms)),
           hasArgument(
-              0, cxxMemberCallExpr(
+              0, cxxConstructExpr(has(ignoringParenImpCasts(cxxMemberCallExpr(
                      callee(cxxMethodDecl(hasName("begin"))),
                      on(declRefExpr(
                             hasDeclaration(decl().bind("IneffContObj")),
                             anyOf(hasType(ContainerMatcher.bind("IneffCont")),
                                   hasType(pointsTo(
                                       ContainerMatcher.bind("IneffContPtr")))))
-                            .bind("IneffContExpr")))),
+                            .bind("IneffContExpr"))))))),
           hasArgument(
-              1, cxxMemberCallExpr(callee(cxxMethodDecl(hasName("end"))),
-                                   on(declRefExpr(hasDeclaration(
-                                       equalsBoundNode("IneffContObj")))))),
-          hasArgument(2, expr().bind("AlgParam")))
-          .bind("IneffAlg");
+              1, cxxConstructExpr(has(ignoringParenImpCasts(cxxMemberCallExpr(
+                     callee(cxxMethodDecl(hasName("end"))),
+                     on(declRefExpr(
+                         hasDeclaration(equalsBoundNode("IneffContObj"))))))))),
+          hasArgument(2, expr().bind("AlgParam")),
+          unless(isInTemplateInstantiation()))
+          .bind("IneffAlg"));
 
   Finder->addMatcher(Matcher, this);
 }

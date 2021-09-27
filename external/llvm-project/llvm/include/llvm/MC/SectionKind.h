@@ -82,9 +82,6 @@ class SectionKind {
            /// ThreadData - Initialized TLS data objects.
            ThreadData,
 
-           /// ThreadBSSLocal - Zero-initialized TLS data objects with local linkage.
-           ThreadBSSLocal,
-
        /// GlobalWriteableData - Writeable data that is global (not thread
        /// local).
 
@@ -149,12 +146,11 @@ public:
   }
 
   bool isThreadLocal() const {
-    return K == ThreadData || K == ThreadBSS || K == ThreadBSSLocal;
+    return K == ThreadData || K == ThreadBSS;
   }
 
-  bool isThreadBSS() const { return K == ThreadBSS || K == ThreadBSSLocal; }
+  bool isThreadBSS() const { return K == ThreadBSS; }
   bool isThreadData() const { return K == ThreadData; }
-  bool isThreadBSSLocal() const { return K == ThreadBSSLocal; }
 
   bool isGlobalWriteableData() const {
     return isBSS() || isCommon() || isData() || isReadOnlyWithRel();
@@ -198,7 +194,6 @@ public:
   static SectionKind getMergeableConst32() { return get(MergeableConst32); }
   static SectionKind getThreadBSS() { return get(ThreadBSS); }
   static SectionKind getThreadData() { return get(ThreadData); }
-  static SectionKind getThreadBSSLocal() { return get(ThreadBSSLocal); }
   static SectionKind getBSS() { return get(BSS); }
   static SectionKind getBSSLocal() { return get(BSSLocal); }
   static SectionKind getBSSExtern() { return get(BSSExtern); }

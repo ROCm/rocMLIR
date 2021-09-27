@@ -13,6 +13,7 @@
 
 #include <memory>
 
+
 template <typename T>
 constexpr bool test() {
     std::allocator<T> alloc;
@@ -25,13 +26,11 @@ constexpr bool test() {
 int main(int, char**)
 {
     test<int>();
-    test<void>();
 #ifdef _LIBCPP_VERSION // extension
     test<int const>();
 #endif // _LIBCPP_VERSION
 
     static_assert(test<int>());
-    static_assert(test<void>());
 #ifdef _LIBCPP_VERSION // extension
     static_assert(test<int const>());
 #endif // _LIBCPP_VERSION

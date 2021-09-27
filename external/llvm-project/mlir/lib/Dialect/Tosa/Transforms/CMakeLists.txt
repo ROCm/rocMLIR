@@ -1,5 +1,4 @@
 add_mlir_dialect_library(MLIRTosaTransforms
-  TosaInferShapes.cpp
   TosaMakeBroadcastable.cpp
 
   ADDITIONAL_HEADER_DIRS

@@ -18,8 +18,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_ANALYSIS_DEMANDEDBITS_H
-#define LLVM_ANALYSIS_DEMANDEDBITS_H
+#ifndef LLVM_ANALYSIS_DEMANDED_BITS_H
+#define LLVM_ANALYSIS_DEMANDED_BITS_H
 
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
@@ -52,9 +52,6 @@ public:
   /// Instructions that do not have integer or vector of integer type are
   /// accepted, but will always produce a mask with all bits set.
   APInt getDemandedBits(Instruction *I);
-
-  /// Return the bits demanded from use U.
-  APInt getDemandedBits(Use *U);
 
   /// Return true if, during analysis, I could not be reached.
   bool isInstructionDead(Instruction *I);
@@ -149,4 +146,4 @@ FunctionPass *createDemandedBitsWrapperPass();
 
 } // end namespace llvm
 
-#endif // LLVM_ANALYSIS_DEMANDEDBITS_H
+#endif // LLVM_ANALYSIS_DEMANDED_BITS_H

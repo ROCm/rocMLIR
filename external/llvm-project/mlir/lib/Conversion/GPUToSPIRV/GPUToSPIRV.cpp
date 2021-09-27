@@ -85,19 +85,6 @@ public:
                   ConversionPatternRewriter &rewriter) const override;
 };
 
-class GPUModuleEndConversion final
-    : public OpConversionPattern<gpu::ModuleEndOp> {
-public:
-  using OpConversionPattern::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(gpu::ModuleEndOp endOp, ArrayRef<Value> operands,
-                  ConversionPatternRewriter &rewriter) const override {
-    rewriter.eraseOp(endOp);
-    return success();
-  }
-};
-
 /// Pattern to convert a gpu.return into a SPIR-V return.
 // TODO: This can go to DRR when GPU return has operands.
 class GPUReturnOpConversion final : public OpConversionPattern<gpu::ReturnOp> {
@@ -135,14 +122,10 @@ LogicalResult LaunchConfigConversion<SourceOp, builtin>::matchAndRewrite(
   if (!index)
     return failure();
 
-  auto *typeConverter = this->template getTypeConverter<SPIRVTypeConverter>();
-  auto indexType = typeConverter->getIndexType();
-
   // SPIR-V invocation builtin variables are a vector of type <3xi32>
-  auto spirvBuiltin =
-      spirv::getBuiltinVariableValue(op, builtin, indexType, rewriter);
+  auto spirvBuiltin = spirv::getBuiltinVariableValue(op, builtin, rewriter);
   rewriter.replaceOpWithNewOp<spirv::CompositeExtractOp>(
-      op, indexType, spirvBuiltin,
+      op, rewriter.getIntegerType(32), spirvBuiltin,
       rewriter.getI32ArrayAttr({index.getValue()}));
   return success();
 }
@@ -152,11 +135,7 @@ LogicalResult
 SingleDimLaunchConfigConversion<SourceOp, builtin>::matchAndRewrite(
     SourceOp op, ArrayRef<Value> operands,
     ConversionPatternRewriter &rewriter) const {
-  auto *typeConverter = this->template getTypeConverter<SPIRVTypeConverter>();
-  auto indexType = typeConverter->getIndexType();
-
-  auto spirvBuiltin =
-      spirv::getBuiltinVariableValue(op, builtin, indexType, rewriter);
+  auto spirvBuiltin = spirv::getBuiltinVariableValue(op, builtin, rewriter);
   rewriter.replaceOp(op, spirvBuiltin);
   return success();
 }
@@ -215,8 +194,8 @@ lowerAsEntryFunction(gpu::GPUFuncOp funcOp, TypeConverter &typeConverter,
       funcOp.getLoc(), funcOp.getName(),
       rewriter.getFunctionType(signatureConverter.getConvertedTypes(),
                                llvm::None));
-  for (const auto &namedAttr : funcOp->getAttrs()) {
-    if (namedAttr.first == function_like_impl::getTypeAttrName() ||
+  for (const auto &namedAttr : funcOp.getAttrs()) {
+    if (namedAttr.first == impl::getTypeAttrName() ||
         namedAttr.first == SymbolTable::getSymbolAttrName())
       continue;
     newFuncOp->setAttr(namedAttr.first, namedAttr.second);
@@ -229,13 +208,8 @@ lowerAsEntryFunction(gpu::GPUFuncOp funcOp, TypeConverter &typeConverter,
     return nullptr;
   rewriter.eraseOp(funcOp);
 
-  // Set the attributes for argument and the function.
-  StringRef argABIAttrName = spirv::getInterfaceVarABIAttrName();
-  for (auto argIndex : llvm::seq<unsigned>(0, argABIInfo.size())) {
-    newFuncOp.setArgAttr(argIndex, argABIAttrName, argABIInfo[argIndex]);
-  }
-  newFuncOp->setAttr(spirv::getEntryPointABIAttrName(), entryPointInfo);
-
+  if (failed(spirv::setABIAttrs(newFuncOp, entryPointInfo, argABIInfo)))
+    return nullptr;
   return newFuncOp;
 }
 
@@ -296,8 +270,8 @@ LogicalResult GPUFuncOpConversion::matchAndRewrite(
       funcOp, *getTypeConverter(), rewriter, entryPointAttr, argABI);
   if (!newFuncOp)
     return failure();
-  newFuncOp->removeAttr(Identifier::get(
-      gpu::GPUDialect::getKernelFuncAttrName(), rewriter.getContext()));
+  newFuncOp.removeAttr(Identifier::get(gpu::GPUDialect::getKernelFuncAttrName(),
+                                       rewriter.getContext()));
   return success();
 }
 
@@ -318,14 +292,16 @@ LogicalResult GPUModuleConversion::matchAndRewrite(
   // Add a keyword to the module name to avoid symbolic conflict.
   std::string spvModuleName = (kSPIRVModule + moduleOp.getName()).str();
   auto spvModule = rewriter.create<spirv::ModuleOp>(
-      moduleOp.getLoc(), addressingModel, memoryModel.getValue(), llvm::None,
+      moduleOp.getLoc(), addressingModel, memoryModel.getValue(),
       StringRef(spvModuleName));
 
   // Move the region from the module op into the SPIR-V module.
-  Region &spvModuleRegion = spvModule.getRegion();
+  Region &spvModuleRegion = spvModule.body();
   rewriter.inlineRegionBefore(moduleOp.body(), spvModuleRegion,
                               spvModuleRegion.begin());
-  // The spv.module build method adds a block. Remove that.
+  // The spv.module build method adds a block with a terminator. Remove that
+  // block. The terminator of the module op in the remaining block will be
+  // legalized later.
   rewriter.eraseBlock(&spvModuleRegion.back());
   rewriter.eraseOp(moduleOp);
   return success();
@@ -349,11 +325,16 @@ LogicalResult GPUReturnOpConversion::matchAndRewrite(
 // GPU To SPIRV Patterns.
 //===----------------------------------------------------------------------===//
 
-void mlir::populateGPUToSPIRVPatterns(SPIRVTypeConverter &typeConverter,
-                                      RewritePatternSet &patterns) {
-  patterns.add<
-      GPUFuncOpConversion, GPUModuleConversion, GPUModuleEndConversion,
-      GPUReturnOpConversion,
+namespace {
+#include "GPUToSPIRV.cpp.inc"
+}
+
+void mlir::populateGPUToSPIRVPatterns(MLIRContext *context,
+                                      SPIRVTypeConverter &typeConverter,
+                                      OwningRewritePatternList &patterns) {
+  populateWithGenerated(context, patterns);
+  patterns.insert<
+      GPUFuncOpConversion, GPUModuleConversion, GPUReturnOpConversion,
       LaunchConfigConversion<gpu::BlockIdOp, spirv::BuiltIn::WorkgroupId>,
       LaunchConfigConversion<gpu::GridDimOp, spirv::BuiltIn::NumWorkgroups>,
       LaunchConfigConversion<gpu::ThreadIdOp,
@@ -364,5 +345,5 @@ void mlir::populateGPUToSPIRVPatterns(SPIRVTypeConverter &typeConverter,
                                       spirv::BuiltIn::NumSubgroups>,
       SingleDimLaunchConfigConversion<gpu::SubgroupSizeOp,
                                       spirv::BuiltIn::SubgroupSize>,
-      WorkGroupSizeConversion>(typeConverter, patterns.getContext());
+      WorkGroupSizeConversion>(typeConverter, context);
 }

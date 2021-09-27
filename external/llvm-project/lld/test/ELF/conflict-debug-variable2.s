@@ -42,14 +42,6 @@
 .file  "test.c"
 .file  1 "test.c"
 
-.type  bar,@object
-.data
-.globl  bar
-.p2align  2
-bar:
- .long  1
- .size  bar, 4
-
 .type  foo,@object
 .bss
 .globl  foo
@@ -57,6 +49,14 @@ bar:
 foo:
  .long  0
  .size  foo, 4
+
+.type  bar,@object
+.data
+.globl  bar
+.p2align  2
+bar:
+ .long  1
+ .size  bar, 4
 
 .section  .debug_str,"MS",@progbits,1
 .Linfo_string0:

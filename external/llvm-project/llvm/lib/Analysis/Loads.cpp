@@ -12,11 +12,9 @@
 
 #include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/AliasAnalysis.h"
-#include "llvm/Analysis/AssumeBundleQueries.h"
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
-#include "llvm/Analysis/MemoryLocation.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
@@ -28,6 +26,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/Statepoint.h"
 
 using namespace llvm;
 
@@ -59,16 +58,6 @@ static bool isDereferenceableAndAlignedPointer(
   // Note that it is not safe to speculate into a malloc'd region because
   // malloc may return null.
 
-  // Recurse into both hands of select.
-  if (const SelectInst *Sel = dyn_cast<SelectInst>(V)) {
-    return isDereferenceableAndAlignedPointer(Sel->getTrueValue(), Alignment,
-                                              Size, DL, CtxI, DT, TLI, Visited,
-                                              MaxDepth) &&
-           isDereferenceableAndAlignedPointer(Sel->getFalseValue(), Alignment,
-                                              Size, DL, CtxI, DT, TLI, Visited,
-                                              MaxDepth);
-  }
-
   // bitcast instructions are no-ops as far as dereferenceability is concerned.
   if (const BitCastOperator *BC = dyn_cast<BitCastOperator>(V)) {
     if (BC->getSrcTy()->isPointerTy())
@@ -77,12 +66,10 @@ static bool isDereferenceableAndAlignedPointer(
           Visited, MaxDepth);
   }
 
-  bool CheckForNonNull, CheckForFreed;
+  bool CheckForNonNull = false;
   APInt KnownDerefBytes(Size.getBitWidth(),
-                        V->getPointerDereferenceableBytes(DL, CheckForNonNull,
-                                                          CheckForFreed));
-  if (KnownDerefBytes.getBoolValue() && KnownDerefBytes.uge(Size) &&
-      !CheckForFreed)
+                        V->getPointerDereferenceableBytes(DL, CheckForNonNull));
+  if (KnownDerefBytes.getBoolValue() && KnownDerefBytes.uge(Size))
     if (!CheckForNonNull || isKnownNonZero(V, DL, 0, nullptr, CtxI, DT)) {
       // As we recursed through GEPs to get here, we've incrementally checked
       // that each step advanced by a multiple of the alignment. If our base is
@@ -92,31 +79,6 @@ static bool isDereferenceableAndAlignedPointer(
       APInt Offset(DL.getTypeStoreSizeInBits(Ty), 0);
       return isAligned(V, Offset, Alignment, DL);
     }
-
-  if (CtxI) {
-    /// Look through assumes to see if both dereferencability and alignment can
-    /// be provent by an assume
-    RetainedKnowledge AlignRK;
-    RetainedKnowledge DerefRK;
-    if (getKnowledgeForValue(
-            V, {Attribute::Dereferenceable, Attribute::Alignment}, nullptr,
-            [&](RetainedKnowledge RK, Instruction *Assume, auto) {
-              if (!isValidAssumeForContext(Assume, CtxI))
-                return false;
-              if (RK.AttrKind == Attribute::Alignment)
-                AlignRK = std::max(AlignRK, RK);
-              if (RK.AttrKind == Attribute::Dereferenceable)
-                DerefRK = std::max(DerefRK, RK);
-              if (AlignRK && DerefRK && AlignRK.ArgValue >= Alignment.value() &&
-                  DerefRK.ArgValue >= Size.getZExtValue())
-                return true; // We have found what we needed so we stop looking
-              return false;  // Other assumes may have better information. so
-                             // keep looking
-            }))
-      return true;
-  }
-  /// TODO refactor this function to be able to search independently for
-  /// Dereferencability and Alignment requirements.
 
   // For GEPs, determine if the indexing lands within the allocated object.
   if (const GEPOperator *GEP = dyn_cast<GEPOperator>(V)) {
@@ -171,10 +133,19 @@ static bool isDereferenceableAndAlignedPointer(
     Opts.RoundToAlign = false;
     Opts.NullIsUnknownSize = true;
     uint64_t ObjSize;
-    if (getObjectSize(V, ObjSize, DL, TLI, Opts)) {
+    // TODO: Plumb through TLI so that malloc routines and such working.
+    if (getObjectSize(V, ObjSize, DL, nullptr, Opts)) {
       APInt KnownDerefBytes(Size.getBitWidth(), ObjSize);
       if (KnownDerefBytes.getBoolValue() && KnownDerefBytes.uge(Size) &&
-          isKnownNonZero(V, DL, 0, nullptr, CtxI, DT) && !V->canBeFreed()) {
+          isKnownNonZero(V, DL, 0, nullptr, CtxI, DT) &&
+          // TODO: We're currently inconsistent about whether deref(N) is a
+          // global fact or a point in time fact.  Once D61652 eventually
+          // lands, this check will be restricted to the point in time
+          // variant. For that variant, we need to prove that object hasn't
+          // been conditionally freed before ontext instruction - if it has, we
+          // might be hoisting over the inverse conditional and creating a
+          // dynamic use after free. 
+          !PointerMayBeCapturedBefore(V, true, true, CtxI, DT, true)) {
         // As we recursed through GEPs to get here, we've incrementally
         // checked that each step advanced by a multiple of the alignment. If
         // our base is properly aligned, then the original offset accessed
@@ -416,7 +387,7 @@ bool llvm::isSafeToLoadUnconditionally(Value *V, Type *Ty, Align Alignment,
   return isSafeToLoadUnconditionally(V, Alignment, Size, DL, ScanFrom, DT, TLI);
 }
 
-/// DefMaxInstsToScan - the default number of maximum instructions
+  /// DefMaxInstsToScan - the default number of maximum instructions
 /// to scan in the block, used by FindAvailableLoadedValue().
 /// FindAvailableLoadedValue() was introduced in r60148, to improve jump
 /// threading in part by eliminating partially redundant loads.
@@ -438,24 +409,21 @@ Value *llvm::FindAvailableLoadedValue(LoadInst *Load,
   if (!Load->isUnordered())
     return nullptr;
 
-  MemoryLocation Loc = MemoryLocation::get(Load);
-  return findAvailablePtrLoadStore(Loc, Load->getType(), Load->isAtomic(),
-                                   ScanBB, ScanFrom, MaxInstsToScan, AA, IsLoad,
-                                   NumScanedInst);
+  return FindAvailablePtrLoadStore(
+      Load->getPointerOperand(), Load->getType(), Load->isAtomic(), ScanBB,
+      ScanFrom, MaxInstsToScan, AA, IsLoad, NumScanedInst);
 }
 
 // Check if the load and the store have the same base, constant offsets and
 // non-overlapping access ranges.
-static bool areNonOverlapSameBaseLoadAndStore(const Value *LoadPtr,
-                                              Type *LoadTy,
-                                              const Value *StorePtr,
-                                              Type *StoreTy,
-                                              const DataLayout &DL) {
+static bool AreNonOverlapSameBaseLoadAndStore(
+    Value *LoadPtr, Type *LoadTy, Value *StorePtr, Type *StoreTy,
+    const DataLayout &DL) {
   APInt LoadOffset(DL.getTypeSizeInBits(LoadPtr->getType()), 0);
   APInt StoreOffset(DL.getTypeSizeInBits(StorePtr->getType()), 0);
-  const Value *LoadBase = LoadPtr->stripAndAccumulateConstantOffsets(
+  Value *LoadBase = LoadPtr->stripAndAccumulateConstantOffsets(
       DL, LoadOffset, /* AllowNonInbounds */ false);
-  const Value *StoreBase = StorePtr->stripAndAccumulateConstantOffsets(
+  Value *StoreBase = StorePtr->stripAndAccumulateConstantOffsets(
       DL, StoreOffset, /* AllowNonInbounds */ false);
   if (LoadBase != StoreBase)
     return false;
@@ -468,71 +436,23 @@ static bool areNonOverlapSameBaseLoadAndStore(const Value *LoadPtr,
   return LoadRange.intersectWith(StoreRange).isEmptySet();
 }
 
-static Value *getAvailableLoadStore(Instruction *Inst, const Value *Ptr,
-                                    Type *AccessTy, bool AtLeastAtomic,
-                                    const DataLayout &DL, bool *IsLoadCSE) {
-  // If this is a load of Ptr, the loaded value is available.
-  // (This is true even if the load is volatile or atomic, although
-  // those cases are unlikely.)
-  if (LoadInst *LI = dyn_cast<LoadInst>(Inst)) {
-    // We can value forward from an atomic to a non-atomic, but not the
-    // other way around.
-    if (LI->isAtomic() < AtLeastAtomic)
-      return nullptr;
-
-    Value *LoadPtr = LI->getPointerOperand()->stripPointerCasts();
-    if (!AreEquivalentAddressValues(LoadPtr, Ptr))
-      return nullptr;
-
-    if (CastInst::isBitOrNoopPointerCastable(LI->getType(), AccessTy, DL)) {
-      if (IsLoadCSE)
-        *IsLoadCSE = true;
-      return LI;
-    }
-  }
-
-  // If this is a store through Ptr, the value is available!
-  // (This is true even if the store is volatile or atomic, although
-  // those cases are unlikely.)
-  if (StoreInst *SI = dyn_cast<StoreInst>(Inst)) {
-    // We can value forward from an atomic to a non-atomic, but not the
-    // other way around.
-    if (SI->isAtomic() < AtLeastAtomic)
-      return nullptr;
-
-    Value *StorePtr = SI->getPointerOperand()->stripPointerCasts();
-    if (!AreEquivalentAddressValues(StorePtr, Ptr))
-      return nullptr;
-
-    if (IsLoadCSE)
-      *IsLoadCSE = false;
-
-    Value *Val = SI->getValueOperand();
-    if (CastInst::isBitOrNoopPointerCastable(Val->getType(), AccessTy, DL))
-      return Val;
-
-    if (auto *C = dyn_cast<Constant>(Val))
-      return ConstantFoldLoadThroughBitcast(C, AccessTy, DL);
-  }
-
-  return nullptr;
-}
-
-Value *llvm::findAvailablePtrLoadStore(
-    const MemoryLocation &Loc, Type *AccessTy, bool AtLeastAtomic,
-    BasicBlock *ScanBB, BasicBlock::iterator &ScanFrom, unsigned MaxInstsToScan,
-    AAResults *AA, bool *IsLoadCSE, unsigned *NumScanedInst) {
+Value *llvm::FindAvailablePtrLoadStore(Value *Ptr, Type *AccessTy,
+                                       bool AtLeastAtomic, BasicBlock *ScanBB,
+                                       BasicBlock::iterator &ScanFrom,
+                                       unsigned MaxInstsToScan,
+                                       AAResults *AA, bool *IsLoadCSE,
+                                       unsigned *NumScanedInst) {
   if (MaxInstsToScan == 0)
     MaxInstsToScan = ~0U;
 
   const DataLayout &DL = ScanBB->getModule()->getDataLayout();
-  const Value *StrippedPtr = Loc.Ptr->stripPointerCasts();
+  Value *StrippedPtr = Ptr->stripPointerCasts();
 
   while (ScanFrom != ScanBB->begin()) {
     // We must ignore debug info directives when counting (otherwise they
     // would affect codegen).
     Instruction *Inst = &*--ScanFrom;
-    if (Inst->isDebugOrPseudoInst())
+    if (isa<DbgInfoIntrinsic>(Inst))
       continue;
 
     // Restore ScanFrom to expected value in case next test succeeds
@@ -546,14 +466,45 @@ Value *llvm::findAvailablePtrLoadStore(
       return nullptr;
 
     --ScanFrom;
+    // If this is a load of Ptr, the loaded value is available.
+    // (This is true even if the load is volatile or atomic, although
+    // those cases are unlikely.)
+    if (LoadInst *LI = dyn_cast<LoadInst>(Inst))
+      if (AreEquivalentAddressValues(
+              LI->getPointerOperand()->stripPointerCasts(), StrippedPtr) &&
+          CastInst::isBitOrNoopPointerCastable(LI->getType(), AccessTy, DL)) {
 
-    if (Value *Available = getAvailableLoadStore(Inst, StrippedPtr, AccessTy,
-                                                 AtLeastAtomic, DL, IsLoadCSE))
-      return Available;
+        // We can value forward from an atomic to a non-atomic, but not the
+        // other way around.
+        if (LI->isAtomic() < AtLeastAtomic)
+          return nullptr;
+
+        if (IsLoadCSE)
+            *IsLoadCSE = true;
+        return LI;
+      }
 
     // Try to get the store size for the type.
+    auto AccessSize = LocationSize::precise(DL.getTypeStoreSize(AccessTy));
+
     if (StoreInst *SI = dyn_cast<StoreInst>(Inst)) {
       Value *StorePtr = SI->getPointerOperand()->stripPointerCasts();
+      // If this is a store through Ptr, the value is available!
+      // (This is true even if the store is volatile or atomic, although
+      // those cases are unlikely.)
+      if (AreEquivalentAddressValues(StorePtr, StrippedPtr) &&
+          CastInst::isBitOrNoopPointerCastable(SI->getValueOperand()->getType(),
+                                               AccessTy, DL)) {
+
+        // We can value forward from an atomic to a non-atomic, but not the
+        // other way around.
+        if (SI->isAtomic() < AtLeastAtomic)
+          return nullptr;
+
+        if (IsLoadCSE)
+          *IsLoadCSE = false;
+        return SI->getOperand(0);
+      }
 
       // If both StrippedPtr and StorePtr reach all the way to an alloca or
       // global and they are different, ignore the store. This is a trivial form
@@ -568,14 +519,14 @@ Value *llvm::findAvailablePtrLoadStore(
         // base, constant offsets and non-overlapping access ranges, ignore the
         // store. This is a simple form of alias analysis that is used by the
         // inliner. FIXME: use BasicAA if possible.
-        if (areNonOverlapSameBaseLoadAndStore(
-                Loc.Ptr, AccessTy, SI->getPointerOperand(),
+        if (AreNonOverlapSameBaseLoadAndStore(
+                Ptr, AccessTy, SI->getPointerOperand(),
                 SI->getValueOperand()->getType(), DL))
           continue;
       } else {
         // If we have alias analysis and it says the store won't modify the
         // loaded value, ignore the store.
-        if (!isModSet(AA->getModRefInfo(SI, Loc)))
+        if (!isModSet(AA->getModRefInfo(SI, StrippedPtr, AccessSize)))
           continue;
       }
 
@@ -588,7 +539,7 @@ Value *llvm::findAvailablePtrLoadStore(
     if (Inst->mayWriteToMemory()) {
       // If alias analysis claims that it really won't modify the load,
       // ignore it.
-      if (AA && !isModSet(AA->getModRefInfo(Inst, Loc)))
+      if (AA && !isModSet(AA->getModRefInfo(Inst, StrippedPtr, AccessSize)))
         continue;
 
       // May modify the pointer, bail out.
@@ -600,51 +551,6 @@ Value *llvm::findAvailablePtrLoadStore(
   // Got to the start of the block, we didn't find it, but are done for this
   // block.
   return nullptr;
-}
-
-Value *llvm::FindAvailableLoadedValue(LoadInst *Load, AAResults &AA,
-                                      bool *IsLoadCSE,
-                                      unsigned MaxInstsToScan) {
-  const DataLayout &DL = Load->getModule()->getDataLayout();
-  Value *StrippedPtr = Load->getPointerOperand()->stripPointerCasts();
-  BasicBlock *ScanBB = Load->getParent();
-  Type *AccessTy = Load->getType();
-  bool AtLeastAtomic = Load->isAtomic();
-
-  if (!Load->isUnordered())
-    return nullptr;
-
-  // Try to find an available value first, and delay expensive alias analysis
-  // queries until later.
-  Value *Available = nullptr;;
-  SmallVector<Instruction *> MustNotAliasInsts;
-  for (Instruction &Inst : make_range(++Load->getReverseIterator(),
-                                      ScanBB->rend())) {
-    if (Inst.isDebugOrPseudoInst())
-      continue;
-
-    if (MaxInstsToScan-- == 0)
-      return nullptr;
-
-    Available = getAvailableLoadStore(&Inst, StrippedPtr, AccessTy,
-                                      AtLeastAtomic, DL, IsLoadCSE);
-    if (Available)
-      break;
-
-    if (Inst.mayWriteToMemory())
-      MustNotAliasInsts.push_back(&Inst);
-  }
-
-  // If we found an available value, ensure that the instructions in between
-  // did not modify the memory location.
-  if (Available) {
-    MemoryLocation Loc = MemoryLocation::get(Load);
-    for (Instruction *Inst : MustNotAliasInsts)
-      if (isModSet(AA.getModRefInfo(Inst, Loc)))
-        return nullptr;
-  }
-
-  return Available;
 }
 
 bool llvm::canReplacePointersIfEqual(Value *A, Value *B, const DataLayout &DL,

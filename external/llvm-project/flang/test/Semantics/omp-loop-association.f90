@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang -fopenmp
+! RUN: %S/test_errors.sh %s %t %f18 -fopenmp
 
 ! Check the association between OpenMPLoopConstruct and DoConstruct
 

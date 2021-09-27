@@ -1,9 +1,9 @@
 ## We only implement attribute section printing for little-endian encoding.
 
 # RUN: yaml2obj %s -o %t.o
-# RUN: llvm-readobj -A %t.o 2>&1 | FileCheck %s -DFILE=%t.o
+# RUN: llvm-readobj -A %t.o | FileCheck %s
 
-# CHECK: warning: '[[FILE]]': attribute printing not implemented for big-endian RISC-V objects
+# CHECK: Attributes not implemented.
 
 --- !ELF
 FileHeader:

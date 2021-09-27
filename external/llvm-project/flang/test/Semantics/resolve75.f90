@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 ! C726 The length specified for a character statement function or for a 
 ! statement function dummy argument of type character shall be a constant 
 ! expression.

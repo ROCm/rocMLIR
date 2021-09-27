@@ -8,7 +8,7 @@
 
 #include "SymbolVendorMacOSX.h"
 
-#include <cstring>
+#include <string.h>
 
 #include "Plugins/ObjectFile/Mach-O/ObjectFileMachO.h"
 #include "lldb/Core/Module.h"
@@ -315,3 +315,5 @@ SymbolVendorMacOSX::CreateInstance(const lldb::ModuleSP &module_sp,
 ConstString SymbolVendorMacOSX::GetPluginName() {
   return GetPluginNameStatic();
 }
+
+uint32_t SymbolVendorMacOSX::GetPluginVersion() { return 1; }

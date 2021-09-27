@@ -5,7 +5,6 @@ set(BinFiles
 
 set(ShareFiles
       ScanView.py
-      Reporter.py
       startfile.py
       bugcatcher.ico)
 

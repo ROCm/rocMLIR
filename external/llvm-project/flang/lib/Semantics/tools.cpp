@@ -80,24 +80,8 @@ const Scope *FindPureProcedureContaining(const Scope &start) {
   // N.B. We only need to examine the innermost containing program unit
   // because an internal subprogram of a pure subprogram must also
   // be pure (C1592).
-  if (start.IsGlobal()) {
-    return nullptr;
-  } else {
-    const Scope &scope{GetProgramUnitContaining(start)};
-    return IsPureProcedure(scope) ? &scope : nullptr;
-  }
-}
-
-static bool MightHaveCompatibleDerivedtypes(
-    const std::optional<evaluate::DynamicType> &lhsType,
-    const std::optional<evaluate::DynamicType> &rhsType) {
-  const DerivedTypeSpec *lhsDerived{evaluate::GetDerivedTypeSpec(lhsType)};
-  const DerivedTypeSpec *rhsDerived{evaluate::GetDerivedTypeSpec(rhsType)};
-  if (!lhsDerived || !rhsDerived) {
-    return false;
-  }
-  return *lhsDerived == *rhsDerived ||
-      lhsDerived->MightBeAssignmentCompatibleWith(*rhsDerived);
+  const Scope &scope{GetProgramUnitContaining(start)};
+  return IsPureProcedure(scope) ? &scope : nullptr;
 }
 
 Tristate IsDefinedAssignment(
@@ -113,10 +97,15 @@ Tristate IsDefinedAssignment(
   } else if (lhsCat != TypeCategory::Derived) {
     return ToTristate(lhsCat != rhsCat &&
         (!IsNumericTypeCategory(lhsCat) || !IsNumericTypeCategory(rhsCat)));
-  } else if (MightHaveCompatibleDerivedtypes(lhsType, rhsType)) {
-    return Tristate::Maybe; // TYPE(t) = TYPE(t) can be defined or intrinsic
   } else {
-    return Tristate::Yes;
+    const auto *lhsDerived{evaluate::GetDerivedTypeSpec(lhsType)};
+    const auto *rhsDerived{evaluate::GetDerivedTypeSpec(rhsType)};
+    if (lhsDerived && rhsDerived && *lhsDerived == *rhsDerived) {
+      return Tristate::Maybe; // TYPE(t) = TYPE(t) can be defined or
+                              // intrinsic
+    } else {
+      return Tristate::Yes;
+    }
   }
 }
 
@@ -359,16 +348,6 @@ const Symbol *FindExternallyVisibleObject(
   return nullptr;
 }
 
-const Symbol &BypassGeneric(const Symbol &symbol) {
-  const Symbol &ultimate{symbol.GetUltimate()};
-  if (const auto *generic{ultimate.detailsIf<GenericDetails>()}) {
-    if (const Symbol * specific{generic->specific()}) {
-      return *specific;
-    }
-  }
-  return symbol;
-}
-
 bool ExprHasTypeCategory(
     const SomeExpr &expr, const common::TypeCategory &type) {
   auto dynamicType{expr.GetType()};
@@ -395,24 +374,17 @@ static void CheckMissingAnalysis(bool absent, const T &x) {
   }
 }
 
-template <typename T> static const SomeExpr *GetTypedExpr(const T &x) {
+const SomeExpr *GetExprHelper::Get(const parser::Expr &x) {
   CheckMissingAnalysis(!x.typedExpr, x);
   return common::GetPtrFromOptional(x.typedExpr->v);
 }
-const SomeExpr *GetExprHelper::Get(const parser::Expr &x) {
-  return GetTypedExpr(x);
-}
 const SomeExpr *GetExprHelper::Get(const parser::Variable &x) {
-  return GetTypedExpr(x);
+  CheckMissingAnalysis(!x.typedExpr, x);
+  return common::GetPtrFromOptional(x.typedExpr->v);
 }
 const SomeExpr *GetExprHelper::Get(const parser::DataStmtConstant &x) {
-  return GetTypedExpr(x);
-}
-const SomeExpr *GetExprHelper::Get(const parser::AllocateObject &x) {
-  return GetTypedExpr(x);
-}
-const SomeExpr *GetExprHelper::Get(const parser::PointerObject &x) {
-  return GetTypedExpr(x);
+  CheckMissingAnalysis(!x.typedExpr, x);
+  return common::GetPtrFromOptional(x.typedExpr->v);
 }
 
 const evaluate::Assignment *GetAssignment(const parser::AssignmentStmt &x) {
@@ -462,6 +434,17 @@ const Symbol *FindSubprogram(const Symbol &symbol) {
       symbol.details());
 }
 
+const Symbol *FindFunctionResult(const Symbol &symbol) {
+  if (const Symbol * subp{FindSubprogram(symbol)}) {
+    if (const auto &subpDetails{subp->detailsIf<SubprogramDetails>()}) {
+      if (subpDetails->isFunction()) {
+        return &subpDetails->result();
+      }
+    }
+  }
+  return nullptr;
+}
+
 const Symbol *FindOverriddenBinding(const Symbol &symbol) {
   if (symbol.has<ProcBindingDetails>()) {
     if (const DeclTypeSpec * parentType{FindParentTypeSpec(symbol.owner())}) {
@@ -501,18 +484,6 @@ const DeclTypeSpec *FindParentTypeSpec(const Symbol &symbol) {
     if (const auto *details{symbol.detailsIf<DerivedTypeDetails>()}) {
       if (const Symbol * parent{details->GetParentComponent(*scope)}) {
         return parent->GetType();
-      }
-    }
-  }
-  return nullptr;
-}
-
-const EquivalenceSet *FindEquivalenceSet(const Symbol &symbol) {
-  const Symbol &ultimate{symbol.GetUltimate()};
-  for (const EquivalenceSet &set : ultimate.owner().equivalenceSets()) {
-    for (const EquivalenceObject &object : set) {
-      if (object.symbol == ultimate) {
-        return &set;
       }
     }
   }
@@ -581,53 +552,34 @@ bool CanBeTypeBoundProc(const Symbol *symbol) {
   }
 }
 
-bool HasDeclarationInitializer(const Symbol &symbol) {
-  if (IsNamedConstant(symbol)) {
+bool IsStaticallyInitialized(const Symbol &symbol, bool ignoreDATAstatements) {
+  if (!ignoreDATAstatements && symbol.test(Symbol::Flag::InDataStmt)) {
+    return true;
+  } else if (IsNamedConstant(symbol)) {
     return false;
   } else if (const auto *object{symbol.detailsIf<ObjectEntityDetails>()}) {
     return object->init().has_value();
   } else if (const auto *proc{symbol.detailsIf<ProcEntityDetails>()}) {
     return proc->init().has_value();
-  } else {
-    return false;
-  }
-}
-
-bool IsInitialized(const Symbol &symbol, bool ignoreDataStatements) {
-  if (IsAllocatable(symbol) ||
-      (!ignoreDataStatements && symbol.test(Symbol::Flag::InDataStmt)) ||
-      HasDeclarationInitializer(symbol)) {
-    return true;
-  } else if (IsNamedConstant(symbol) || IsFunctionResult(symbol) ||
-      IsPointer(symbol)) {
-    return false;
-  } else if (const auto *object{symbol.detailsIf<ObjectEntityDetails>()}) {
-    if (!object->isDummy() && object->type()) {
-      if (const auto *derived{object->type()->AsDerived()}) {
-        DirectComponentIterator directs{*derived};
-        return bool{std::find_if(
-            directs.begin(), directs.end(), [](const Symbol &component) {
-              return IsAllocatable(component) ||
-                  HasDeclarationInitializer(component);
-            })};
-      }
-    }
   }
   return false;
 }
 
-bool IsDestructible(const Symbol &symbol, const Symbol *derivedTypeSymbol) {
-  if (IsAllocatable(symbol) || IsAutomatic(symbol)) {
+bool IsInitialized(const Symbol &symbol, bool ignoreDATAstatements,
+    const Symbol *derivedTypeSymbol) {
+  if (IsStaticallyInitialized(symbol, ignoreDATAstatements) ||
+      IsAllocatable(symbol)) {
     return true;
   } else if (IsNamedConstant(symbol) || IsFunctionResult(symbol) ||
       IsPointer(symbol)) {
     return false;
   } else if (const auto *object{symbol.detailsIf<ObjectEntityDetails>()}) {
     if (!object->isDummy() && object->type()) {
-      if (const auto *derived{object->type()->AsDerived()}) {
-        return &derived->typeSymbol() != derivedTypeSymbol &&
-            derived->HasDestruction();
-      }
+      const auto *derived{object->type()->AsDerived()};
+      // error recovery: avoid infinite recursion on invalid
+      // recursive usage of a derived type
+      return derived && &derived->typeSymbol() != derivedTypeSymbol &&
+          derived->HasDefaultInitialization();
     }
   }
   return false;
@@ -701,8 +653,7 @@ bool IsAutomatic(const Symbol &symbol) {
   return false;
 }
 
-bool IsFinalizable(
-    const Symbol &symbol, std::set<const DerivedTypeSpec *> *inProgress) {
+bool IsFinalizable(const Symbol &symbol) {
   if (IsPointer(symbol)) {
     return false;
   }
@@ -711,33 +662,19 @@ bool IsFinalizable(
       return false;
     }
     const DeclTypeSpec *type{object->type()};
-    const DerivedTypeSpec *typeSpec{type ? type->AsDerived() : nullptr};
-    return typeSpec && IsFinalizable(*typeSpec, inProgress);
+    const DerivedTypeSpec *derived{type ? type->AsDerived() : nullptr};
+    return derived && IsFinalizable(*derived);
   }
   return false;
 }
 
-bool IsFinalizable(const DerivedTypeSpec &derived,
-    std::set<const DerivedTypeSpec *> *inProgress) {
+bool IsFinalizable(const DerivedTypeSpec &derived) {
   if (!derived.typeSymbol().get<DerivedTypeDetails>().finals().empty()) {
     return true;
   }
-  std::set<const DerivedTypeSpec *> basis;
-  if (inProgress) {
-    if (inProgress->find(&derived) != inProgress->end()) {
-      return false; // don't loop on recursive type
-    }
-  } else {
-    inProgress = &basis;
-  }
-  auto iterator{inProgress->insert(&derived).first};
-  PotentialComponentIterator components{derived};
-  bool result{bool{std::find_if(
-      components.begin(), components.end(), [=](const Symbol &component) {
-        return IsFinalizable(component, inProgress);
-      })}};
-  inProgress->erase(iterator);
-  return result;
+  DirectComponentIterator components{derived};
+  return bool{std::find_if(components.begin(), components.end(),
+      [](const Symbol &component) { return IsFinalizable(component); })};
 }
 
 bool HasImpureFinal(const DerivedTypeSpec &derived) {
@@ -800,39 +737,6 @@ bool IsInBlankCommon(const Symbol &symbol) {
 // of CHARACTER type
 bool IsExternal(const Symbol &symbol) {
   return ClassifyProcedure(symbol) == ProcedureDefinitionClass::External;
-}
-
-// Most scopes have no EQUIVALENCE, and this function is a fast no-op for them.
-std::list<std::list<SymbolRef>> GetStorageAssociations(const Scope &scope) {
-  UnorderedSymbolSet distinct;
-  for (const EquivalenceSet &set : scope.equivalenceSets()) {
-    for (const EquivalenceObject &object : set) {
-      distinct.emplace(object.symbol);
-    }
-  }
-  // This set is ordered by ascending offsets, with ties broken by greatest
-  // size.  A multiset is used here because multiple symbols may have the
-  // same offset and size; the symbols in the set, however, are distinct.
-  std::multiset<SymbolRef, SymbolOffsetCompare> associated;
-  for (SymbolRef ref : distinct) {
-    associated.emplace(*ref);
-  }
-  std::list<std::list<SymbolRef>> result;
-  std::size_t limit{0};
-  const Symbol *currentCommon{nullptr};
-  for (const Symbol &symbol : associated) {
-    const Symbol *thisCommon{FindCommonBlockContaining(symbol)};
-    if (result.empty() || symbol.offset() >= limit ||
-        thisCommon != currentCommon) {
-      // Start a new group
-      result.emplace_back(std::list<SymbolRef>{});
-      limit = 0;
-      currentCommon = thisCommon;
-    }
-    result.back().emplace_back(symbol);
-    limit = std::max(limit, symbol.offset() + symbol.size());
-  }
-  return result;
 }
 
 bool IsModuleProcedure(const Symbol &symbol) {
@@ -937,7 +841,9 @@ std::optional<parser::MessageFixedText> WhyNotModifiable(
 // Modifiability checks for a data-ref
 std::optional<parser::Message> WhyNotModifiable(parser::CharBlock at,
     const SomeExpr &expr, const Scope &scope, bool vectorSubscriptIsOk) {
-  if (auto dataRef{evaluate::ExtractDataRef(expr, true)}) {
+  if (!evaluate::IsVariable(expr)) {
+    return parser::Message{at, "Expression is not a variable"_en_US};
+  } else if (auto dataRef{evaluate::ExtractDataRef(expr, true)}) {
     if (!vectorSubscriptIsOk && evaluate::HasVectorSubscript(expr)) {
       return parser::Message{at, "Variable has a vector subscript"_en_US};
     }
@@ -959,9 +865,6 @@ std::optional<parser::Message> WhyNotModifiable(parser::CharBlock at,
                 std::move(*maybeWhyFirst), first.name()}};
       }
     }
-  } else if (!evaluate::IsVariable(expr)) {
-    return parser::Message{
-        at, "'%s' is not a variable"_en_US, expr.AsFortran()};
   } else {
     // reference to function returning POINTER
   }
@@ -1153,9 +1056,10 @@ SymbolVector OrderParameterDeclarations(const Symbol &typeSymbol) {
   return result;
 }
 
-const DeclTypeSpec &FindOrInstantiateDerivedType(
-    Scope &scope, DerivedTypeSpec &&spec, DeclTypeSpec::Category category) {
-  spec.EvaluateParameters(scope.context());
+const DeclTypeSpec &FindOrInstantiateDerivedType(Scope &scope,
+    DerivedTypeSpec &&spec, SemanticsContext &semanticsContext,
+    DeclTypeSpec::Category category) {
+  spec.EvaluateParameters(semanticsContext);
   if (const DeclTypeSpec *
       type{scope.FindInstantiatedDerivedType(spec, category)}) {
     return *type;
@@ -1163,7 +1067,7 @@ const DeclTypeSpec &FindOrInstantiateDerivedType(
   // Create a new instantiation of this parameterized derived type
   // for this particular distinct set of actual parameter values.
   DeclTypeSpec &type{scope.MakeDerivedType(category, std::move(spec))};
-  type.derivedTypeSpec().Instantiate(scope);
+  type.derivedTypeSpec().Instantiate(scope, semanticsContext);
   return type;
 }
 

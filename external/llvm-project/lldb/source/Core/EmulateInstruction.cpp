@@ -30,8 +30,8 @@
 #include <cstring>
 #include <memory>
 
-#include <cinttypes>
-#include <cstdio>
+#include <inttypes.h>
+#include <stdio.h>
 
 namespace lldb_private {
 class Target;

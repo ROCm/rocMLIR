@@ -47,12 +47,13 @@ public:
   ~AppleGetThreadItemInfoHandler();
 
   struct GetThreadItemInfoReturnInfo {
-    lldb::addr_t item_buffer_ptr = LLDB_INVALID_ADDRESS; /* the address of the
-                                     item buffer from libBacktraceRecording */
-    lldb::addr_t item_buffer_size = 0; /* the size of the item buffer from
+    lldb::addr_t item_buffer_ptr;  /* the address of the item buffer from
+                                      libBacktraceRecording */
+    lldb::addr_t item_buffer_size; /* the size of the item buffer from
                                       libBacktraceRecording */
 
-    GetThreadItemInfoReturnInfo() = default;
+    GetThreadItemInfoReturnInfo()
+        : item_buffer_ptr(LLDB_INVALID_ADDRESS), item_buffer_size(0) {}
   };
 
   /// Get the information about a work item by calling

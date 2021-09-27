@@ -18,17 +18,14 @@
 
 #include "common/debug.h"
 
-static void warn() {
+static DEVICE void warn() {
   PRINT0(LD_ALL, "Locks are not supported in this thread mapping model");
 }
 
-void __kmpc_impl_init_lock(omp_lock_t *) { warn(); }
-void __kmpc_impl_destroy_lock(omp_lock_t *) { warn(); }
-void __kmpc_impl_set_lock(omp_lock_t *) { warn(); }
-void __kmpc_impl_unset_lock(omp_lock_t *) { warn(); }
-int __kmpc_impl_test_lock(omp_lock_t *lock) {
-  warn();
-  return 0;
-}
+DEVICE void __kmpc_impl_init_lock(omp_lock_t *) { warn(); }
+DEVICE void __kmpc_impl_destroy_lock(omp_lock_t *) { warn(); }
+DEVICE void __kmpc_impl_set_lock(omp_lock_t *) { warn(); }
+DEVICE void __kmpc_impl_unset_lock(omp_lock_t *) { warn(); }
+DEVICE int __kmpc_impl_test_lock(omp_lock_t *lock) { warn(); }
 
 #pragma omp end declare target

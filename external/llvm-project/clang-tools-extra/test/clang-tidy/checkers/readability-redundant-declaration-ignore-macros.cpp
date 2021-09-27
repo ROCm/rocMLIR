@@ -1,7 +1,7 @@
 // RUN: %check_clang_tidy %s readability-redundant-declaration %t -- \
 // RUN:   -config="{CheckOptions: \
 // RUN:             [{key: readability-redundant-declaration.IgnoreMacros, \
-// RUN:               value: true}]}"
+// RUN:               value: 1}]}"
 
 extern int Xyz;
 extern int Xyz; // Xyz

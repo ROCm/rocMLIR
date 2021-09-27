@@ -18,7 +18,6 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/HashBuilder.h"
 #include "llvm/Support/VersionTuple.h"
 #include <string>
 
@@ -480,12 +479,6 @@ public:
 
   friend llvm::hash_code hash_value(const ObjCRuntime &OCR) {
     return llvm::hash_combine(OCR.getKind(), OCR.getVersion());
-  }
-
-  template <typename HasherT, llvm::support::endianness Endianness>
-  friend void addHash(llvm::HashBuilderImpl<HasherT, Endianness> &HBuilder,
-                      const ObjCRuntime &OCR) {
-    HBuilder.add(OCR.getKind(), OCR.getVersion());
   }
 };
 

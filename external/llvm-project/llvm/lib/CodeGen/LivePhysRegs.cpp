@@ -125,8 +125,8 @@ void LivePhysRegs::print(raw_ostream &OS) const {
     return;
   }
 
-  for (MCPhysReg R : *this)
-    OS << " " << printReg(R, TRI);
+  for (const_iterator I = begin(), E = end(); I != E; ++I)
+    OS << " " << printReg(*I, TRI);
   OS << "\n";
 }
 
@@ -236,10 +236,6 @@ void LivePhysRegs::addLiveOuts(const MachineBasicBlock &MBB) {
 void LivePhysRegs::addLiveIns(const MachineBasicBlock &MBB) {
   const MachineFunction &MF = *MBB.getParent();
   addPristines(MF);
-  addBlockLiveIns(MBB);
-}
-
-void LivePhysRegs::addLiveInsNoPristines(const MachineBasicBlock &MBB) {
   addBlockLiveIns(MBB);
 }
 

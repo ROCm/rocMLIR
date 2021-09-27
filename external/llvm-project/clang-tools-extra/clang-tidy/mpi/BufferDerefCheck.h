@@ -10,7 +10,6 @@
 #define LLVM_CLANG_TOOLS_EXTRA_CLANG_TIDY_MPI_BUFFER_DEREF_H
 
 #include "../ClangTidyCheck.h"
-#include "clang/StaticAnalyzer/Checkers/MPIFunctionClassifier.h"
 
 namespace clang {
 namespace tidy {
@@ -31,7 +30,6 @@ public:
       : ClangTidyCheck(Name, Context) {}
   void registerMatchers(ast_matchers::MatchFinder *Finder) override;
   void check(const ast_matchers::MatchFinder::MatchResult &Result) override;
-  void onEndOfTranslationUnit() override;
 
 private:
   /// Checks for all buffers in an MPI call if they are sufficiently
@@ -43,8 +41,6 @@ private:
                     ArrayRef<const Expr *> BufferExprs);
 
   enum class IndirectionType : unsigned char { Pointer, Array };
-
-  Optional<ento::mpi::MPIFunctionClassifier> FuncClassifier;
 };
 
 } // namespace mpi

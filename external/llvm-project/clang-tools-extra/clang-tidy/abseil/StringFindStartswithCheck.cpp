@@ -83,18 +83,24 @@ void StringFindStartswithCheck::check(const MatchFinder::MatchResult &Result) {
       Context.getLangOpts());
 
   // Create the StartsWith string, negating if comparison was "!=".
-  bool Neg = ComparisonExpr->getOpcode() == BO_NE;
+  bool Neg = ComparisonExpr->getOpcodeStr() == "!=";
+  StringRef StartswithStr;
+  if (Neg) {
+    StartswithStr = "!absl::StartsWith";
+  } else {
+    StartswithStr = "absl::StartsWith";
+  }
 
   // Create the warning message and a FixIt hint replacing the original expr.
-  auto Diagnostic = diag(ComparisonExpr->getBeginLoc(),
-                         "use %select{absl::StartsWith|!absl::StartsWith}0 "
-                         "instead of find() %select{==|!=}0 0")
-                    << Neg;
+  auto Diagnostic =
+      diag(ComparisonExpr->getBeginLoc(),
+           (StringRef("use ") + StartswithStr + " instead of find() " +
+            ComparisonExpr->getOpcodeStr() + " 0")
+               .str());
 
   Diagnostic << FixItHint::CreateReplacement(
       ComparisonExpr->getSourceRange(),
-      ((Neg ? "!absl::StartsWith(" : "absl::StartsWith(") + HaystackExprCode +
-       ", " + NeedleExprCode + ")")
+      (StartswithStr + "(" + HaystackExprCode + ", " + NeedleExprCode + ")")
           .str());
 
   // Create a preprocessor #include FixIt hint (CreateIncludeInsertion checks

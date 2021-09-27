@@ -36,7 +36,7 @@ ValueObjectCast::ValueObjectCast(ValueObject &parent, ConstString name,
   m_value.SetCompilerType(cast_type);
 }
 
-ValueObjectCast::~ValueObjectCast() = default;
+ValueObjectCast::~ValueObjectCast() {}
 
 CompilerType ValueObjectCast::GetCompilerTypeImpl() { return m_cast_type; }
 

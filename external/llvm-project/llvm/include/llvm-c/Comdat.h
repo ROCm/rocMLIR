@@ -25,7 +25,8 @@ typedef enum {
                                      ///< be the same.
   LLVMLargestComdatSelectionKind,    ///< The linker will choose the largest
                                      ///< COMDAT.
-  LLVMNoDeduplicateComdatSelectionKind, ///< No deduplication is performed.
+  LLVMNoDuplicatesComdatSelectionKind, ///< No other Module may specify this
+                                       ///< COMDAT.
   LLVMSameSizeComdatSelectionKind ///< The data referenced by the COMDAT must be
                                   ///< the same size.
 } LLVMComdatSelectionKind;

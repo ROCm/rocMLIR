@@ -47,8 +47,8 @@ LLVMComdatSelectionKind LLVMGetComdatSelectionKind(LLVMComdatRef C) {
     return LLVMExactMatchComdatSelectionKind;
   case Comdat::Largest:
     return LLVMLargestComdatSelectionKind;
-  case Comdat::NoDeduplicate:
-    return LLVMNoDeduplicateComdatSelectionKind;
+  case Comdat::NoDuplicates:
+    return LLVMNoDuplicatesComdatSelectionKind;
   case Comdat::SameSize:
     return LLVMSameSizeComdatSelectionKind;
   }
@@ -67,8 +67,8 @@ void LLVMSetComdatSelectionKind(LLVMComdatRef C, LLVMComdatSelectionKind kind) {
   case LLVMLargestComdatSelectionKind:
     Cd->setSelectionKind(Comdat::Largest);
     break;
-  case LLVMNoDeduplicateComdatSelectionKind:
-    Cd->setSelectionKind(Comdat::NoDeduplicate);
+  case LLVMNoDuplicatesComdatSelectionKind:
+    Cd->setSelectionKind(Comdat::NoDuplicates);
     break;
   case LLVMSameSizeComdatSelectionKind:
     Cd->setSelectionKind(Comdat::SameSize);

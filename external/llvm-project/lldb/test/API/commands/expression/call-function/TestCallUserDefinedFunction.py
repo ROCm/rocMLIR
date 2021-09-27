@@ -24,13 +24,13 @@ class ExprCommandCallUserDefinedFunction(TestBase):
         # Test recursive function call.
         self.expect_expr("fib(5)", result_type="unsigned int", result_value="5")
 
-        # Test function with more than one parameter
+        # Test function with more than one paramter
         self.expect_expr("add(4, 8)", result_type="int", result_value="12")
 
-        # Test nesting function calls in function parameters
+        # Test nesting function calls in function paramters
         self.expect_expr("add(add(5,2),add(3,4))", result_type="int", result_value="14")
         self.expect_expr("add(add(5,2),fib(5))", result_type="int", result_value="12")
 
-        # Test function with pointer parameter
+        # Test function with pointer paramter
         self.expect_expr('stringCompare((const char*) \"Hello world\")', result_type="bool", result_value="true")
         self.expect_expr('stringCompare((const char*) \"Hellworld\")', result_type="bool", result_value="false")

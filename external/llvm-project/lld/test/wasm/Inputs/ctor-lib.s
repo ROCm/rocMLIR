@@ -1,5 +1,3 @@
-	.functype	def () -> ()
-
 	.section	.text.lib_func,"",@
 	.globl	lib_func
 lib_func:

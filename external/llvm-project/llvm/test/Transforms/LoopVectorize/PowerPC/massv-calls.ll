@@ -1,5 +1,7 @@
-; RUN: opt -vector-library=MASSV -mtriple=powerpc64le-unknown-linux-gnu -inject-tli-mappings -loop-vectorize -force-vector-interleave=1 -S < %s | FileCheck %s
-; RUN: opt -vector-library=MASSV -vec-extabi -mattr=+altivec -mtriple=powerpc64-ibm-aix-xcoff -inject-tli-mappings -loop-vectorize -force-vector-interleave=1 -S < %s | FileCheck %s
+; RUN: opt -vector-library=MASSV -inject-tli-mappings -loop-vectorize -force-vector-interleave=1 -S < %s | FileCheck %s
+
+target datalayout = "e-m:e-i64:64-n32:64" 
+target triple = "powerpc64le-unknown-linux-gnu"
 
 declare double @cbrt(double) #0
 declare float @cbrtf(float) #0
@@ -88,7 +90,7 @@ declare float @atanhf(float) #0
 
 define void @cbrt_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @cbrt_f64(
-; CHECK: __cbrtd2{{.*}}<2 x double>
+; CHECK: __cbrtd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -111,7 +113,7 @@ for.end:
 
 define void @cbrt_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @cbrt_f32(
-; CHECK: __cbrtf4{{.*}}<4 x float>
+; CHECK: __cbrtf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -134,7 +136,7 @@ for.end:
 
 define void @pow_f64(double* nocapture %varray, double* nocapture readonly %exp) {
 ; CHECK-LABEL: @pow_f64(
-; CHECK:  __powd2{{.*}}<2 x double>
+; CHECK:  __powd2_massv{{.*}}<2 x double>
 ; CHECK:  ret void
 ;
 entry:
@@ -159,7 +161,7 @@ for.end:
 
 define void @pow_f64_intrinsic(double* nocapture %varray, double* nocapture readonly %exp) {
 ; CHECK-LABEL: @pow_f64_intrinsic(
-; CHECK: __powd2{{.*}}<2 x double>
+; CHECK: __powd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -184,7 +186,7 @@ for.end:
 
 define void @pow_f32(float* nocapture %varray, float* nocapture readonly %exp) {
 ; CHECK-LABEL: @pow_f32(
-; CHECK: __powf4{{.*}}<4 x float>
+; CHECK: __powf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -209,7 +211,7 @@ for.end:
 
 define void @pow_f32_intrinsic(float* nocapture %varray, float* nocapture readonly %exp) {
 ; CHECK-LABEL: @pow_f32_intrinsic(
-; CHECK: __powf4{{.*}}<4 x float>
+; CHECK: __powf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -234,7 +236,7 @@ for.end:
 
 define void @sqrt_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @sqrt_f64(
-; CHECK-NOT: __sqrtd2{{.*}}<2 x double>
+; CHECK: __sqrtd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -257,7 +259,7 @@ for.end:
 
 define void @sqrt_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @sqrt_f32(
-; CHECK-NOT: __sqrtf4{{.*}}<4 x float>
+; CHECK: __sqrtf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -280,7 +282,7 @@ for.end:
 
 define void @exp_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @exp_f64(
-; CHECK: __expd2{{.*}}<2 x double>
+; CHECK: __expd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -303,7 +305,7 @@ for.end:
 
 define void @exp_f64_intrinsic(double* nocapture %varray) {
 ; CHECK-LABEL: @exp_f64_intrinsic(
-; CHECK: __expd2{{.*}}<2 x double>
+; CHECK: __expd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -326,7 +328,7 @@ for.end:
 
 define void @exp_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @exp_f32(
-; CHECK: __expf4{{.*}}<4 x float>
+; CHECK: __expf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -349,7 +351,7 @@ for.end:
 
 define void @exp_f32_intrinsic(float* nocapture %varray) {
 ; CHECK-LABEL: @exp_f32_intrinsic(
-; CHECK: __expf4{{.*}}<4 x float>
+; CHECK: __expf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -372,7 +374,7 @@ for.end:
 
 define void @exp2_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @exp2_f64(
-; CHECK: __exp2d2{{.*}}<2 x double>
+; CHECK: __exp2d2_massv{{.*}}<2 x double>
 ; CHECK:  ret void
 ;
 entry:
@@ -395,7 +397,7 @@ for.end:
 
 define void @exp2_f64_intrinsic(double* nocapture %varray) {
 ; CHECK-LABEL: @exp2_f64_intrinsic(
-; CHECK: __exp2d2{{.*}}<2 x double>
+; CHECK: __exp2d2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -418,7 +420,7 @@ for.end:
 
 define void @exp2_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @exp2_f32(
-; CHECK: __exp2f4{{.*}}<4 x float>
+; CHECK: __exp2f4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -441,7 +443,7 @@ for.end:
 
 define void @exp2_f32_intrinsic(float* nocapture %varray) {
 ; CHECK-LABEL: @exp2_f32_intrinsic(
-; CHECK: __exp2f4{{.*}}<4 x float>
+; CHECK: __exp2f4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -464,7 +466,7 @@ for.end:
 
 define void @expm1_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @expm1_f64(
-; CHECK: __expm1d2{{.*}}<2 x double>
+; CHECK: __expm1d2_massv{{.*}}<2 x double>
 ; CHECK:  ret void
 ;
 entry:
@@ -487,7 +489,7 @@ for.end:
 
 define void @expm1_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @expm1_f32(
-; CHECK: __expm1f4{{.*}}<4 x float>
+; CHECK: __expm1f4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -510,7 +512,7 @@ for.end:
 
 define void @log_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @log_f64(
-; CHECK: __logd2{{.*}}<2 x double>
+; CHECK: __logd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -533,7 +535,7 @@ for.end:
 
 define void @log_f64_intrinsic(double* nocapture %varray) {
 ; CHECK-LABEL: @log_f64_intrinsic(
-; CHECK: __logd2{{.*}}<2 x double>
+; CHECK: __logd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -556,7 +558,7 @@ for.end:
 
 define void @log_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @log_f32(
-; CHECK: __logf4{{.*}}<4 x float>
+; CHECK: __logf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -579,7 +581,7 @@ for.end:
 
 define void @log_f32_intrinsic(float* nocapture %varray) {
 ; CHECK-LABEL: @log_f32_intrinsic(
-; CHECK: __logf4{{.*}}<4 x float>
+; CHECK: __logf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -602,7 +604,7 @@ for.end:
 
 define void @log1p_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @log1p_f64(
-; CHECK: __log1pd2{{.*}}<2 x double>
+; CHECK: __log1pd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -625,7 +627,7 @@ for.end:
 
 define void @log1p_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @log1p_f32(
-; CHECK: __log1pf4{{.*}}<4 x float>
+; CHECK: __log1pf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -648,7 +650,7 @@ for.end:
 
 define void @log10_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @log10_f64(
-; CHECK: __log10d2(<2 x double>
+; CHECK: __log10d2_massv(<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -671,7 +673,7 @@ for.end:
 
 define void @log10_f64_intrinsic(double* nocapture %varray) {
 ; CHECK-LABEL: @log10_f64_intrinsic(
-; CHECK: __log10d2{{.*}}<2 x double>
+; CHECK: __log10d2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -694,7 +696,7 @@ for.end:
 
 define void @log10_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @log10_f32(
-; CHECK: __log10f4{{.*}}<4 x float>
+; CHECK: __log10f4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -717,7 +719,7 @@ for.end:
 
 define void @log10_f32_intrinsic(float* nocapture %varray) {
 ; CHECK-LABEL: @log10_f32_intrinsic(
-; CHECK: __log10f4{{.*}}<4 x float>
+; CHECK: __log10f4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -740,7 +742,7 @@ for.end:
 
 define void @log2_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @log2_f64(
-; CHECK: __log2d2(<2 x double>
+; CHECK: __log2d2_massv(<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -763,7 +765,7 @@ for.end:
 
 define void @log2_f64_intrinsic(double* nocapture %varray) {
 ; CHECK-LABEL: @log2_f64_intrinsic(
-; CHECK: __log2d2{{.*}}<2 x double>
+; CHECK: __log2d2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -786,7 +788,7 @@ for.end:
 
 define void @log2_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @log2_f32(
-; CHECK: __log2f4{{.*}}<4 x float>
+; CHECK: __log2f4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -809,7 +811,7 @@ for.end:
 
 define void @log2_f32_intrinsic(float* nocapture %varray) {
 ; CHECK-LABEL: @log2_f32_intrinsic(
-; CHECK: __log2f4{{.*}}<4 x float>
+; CHECK: __log2f4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -832,7 +834,7 @@ for.end:
 
 define void @sin_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @sin_f64(
-; CHECK: __sind2{{.*}}<2 x double>
+; CHECK: __sind2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -855,7 +857,7 @@ for.end:
 
 define void @sin_f64_intrinsic(double* nocapture %varray) {
 ; CHECK-LABEL: @sin_f64_intrinsic(
-; CHECK: __sind2{{.*}}<2 x double>
+; CHECK: __sind2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -878,7 +880,7 @@ for.end:
 
 define void @sin_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @sin_f32(
-; CHECK: __sinf4{{.*}}<4 x float>
+; CHECK: __sinf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -901,7 +903,7 @@ for.end:
 
 define void @sin_f32_intrinsic(float* nocapture %varray) {
 ; CHECK-LABEL: @sin_f32_intrinsic(
-; CHECK: __sinf4{{.*}}<4 x float>
+; CHECK: __sinf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -924,7 +926,7 @@ for.end:
 
 define void @cos_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @cos_f64(
-; CHECK: __cosd2{{.*}}<2 x double>
+; CHECK: __cosd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -947,7 +949,7 @@ for.end:
 
 define void @cos_f64_intrinsic(double* nocapture %varray) {
 ; CHECK-LABEL: @cos_f64_intrinsic(
-; CHECK:    [[TMP5:%.*]] = call <2 x double> @__cosd2(<2 x double> [[TMP4:%.*]])
+; CHECK:    [[TMP5:%.*]] = call <2 x double> @__cosd2_massv(<2 x double> [[TMP4:%.*]])
 ; CHECK:    ret void
 ;
 entry:
@@ -970,7 +972,7 @@ for.end:
 
 define void @cos_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @cos_f32(
-; CHECK: __cosf4{{.*}}<4 x float>
+; CHECK: __cosf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -993,7 +995,7 @@ for.end:
 
 define void @cos_f32_intrinsic(float* nocapture %varray) {
 ; CHECK-LABEL: @cos_f32_intrinsic(
-; CHECK: __cosf4{{.*}}<4 x float>
+; CHECK: __cosf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -1016,7 +1018,7 @@ for.end:
 
 define void @tan_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @tan_f64(
-; CHECK: __tand2{{.*}}<2 x double>
+; CHECK: __tand2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -1039,7 +1041,7 @@ for.end:
 
 define void @tan_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @tan_f32(
-; CHECK: __tanf4{{.*}}<4 x float>
+; CHECK: __tanf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -1062,7 +1064,7 @@ for.end:
 
 define void @asin_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @asin_f64(
-; CHECK: __asind2{{.*}}<2 x double>
+; CHECK: __asind2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -1085,7 +1087,7 @@ for.end:
 
 define void @asin_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @asin_f32(
-; CHECK: __asinf4{{.*}}<4 x float>
+; CHECK: __asinf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -1108,7 +1110,7 @@ for.end:
 
 define void @acos_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @acos_f64(
-; CHECK: __acosd2{{.*}}<2 x double>
+; CHECK: __acosd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -1131,7 +1133,7 @@ for.end:
 
 define void @acos_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @acos_f32(
-; CHECK: __acosf4{{.*}}<4 x float>
+; CHECK: __acosf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -1154,7 +1156,7 @@ for.end:
 
 define void @atan_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @atan_f64(
-; CHECK: __atand2{{.*}}<2 x double>
+; CHECK: __atand2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -1177,7 +1179,7 @@ for.end:
 
 define void @atan_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @atan_f32(
-; CHECK: __atanf4{{.*}}<4 x float>
+; CHECK: __atanf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -1200,7 +1202,7 @@ for.end:
 
 define void @atan2_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @atan2_f64(
-; CHECK: __atan2d2{{.*}}<2 x double>
+; CHECK: __atan2d2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -1223,7 +1225,7 @@ for.end:
 
 define void @atan2_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @atan2_f32(
-; CHECK: __atan2f4{{.*}}<4 x float>
+; CHECK: __atan2f4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -1246,7 +1248,7 @@ for.end:
 
 define void @sinh_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @sinh_f64(
-; CHECK: __sinhd2{{.*}}<2 x double>
+; CHECK: __sinhd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -1269,7 +1271,7 @@ for.end:
 
 define void @sinh_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @sinh_f32(
-; CHECK: __sinhf4{{.*}}<4 x float>
+; CHECK: __sinhf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -1292,7 +1294,7 @@ for.end:
 
 define void @cosh_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @cosh_f64(
-; CHECK: __coshd2{{.*}}<2 x double>
+; CHECK: __coshd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -1315,7 +1317,7 @@ for.end:
 
 define void @cosh_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @cosh_f32(
-; CHECK: __coshf4{{.*}}<4 x float>
+; CHECK: __coshf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -1338,7 +1340,7 @@ for.end:
 
 define void @tanh_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @tanh_f64(
-; CHECK: __tanhd2{{.*}}<2 x double>
+; CHECK: __tanhd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -1361,7 +1363,7 @@ for.end:
 
 define void @tanh_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @tanh_f32(
-; CHECK: __tanhf4{{.*}}<4 x float>
+; CHECK: __tanhf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -1384,7 +1386,7 @@ for.end:
 
 define void @asinh_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @asinh_f64(
-; CHECK: __asinhd2{{.*}}<2 x double>
+; CHECK: __asinhd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -1407,7 +1409,7 @@ for.end:
 
 define void @asinh_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @asinh_f32(
-; CHECK: __asinhf4{{.*}}<4 x float>
+; CHECK: __asinhf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -1430,7 +1432,7 @@ for.end:
 
 define void @acosh_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @acosh_f64(
-; CHECK: __acoshd2{{.*}}<2 x double>
+; CHECK: __acoshd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -1453,7 +1455,7 @@ for.end:
 
 define void @acosh_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @acosh_f32(
-; CHECK: __acoshf4{{.*}}<4 x float>
+; CHECK: __acoshf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:
@@ -1476,7 +1478,7 @@ for.end:
 
 define void @atanh_f64(double* nocapture %varray) {
 ; CHECK-LABEL: @atanh_f64(
-; CHECK: __atanhd2{{.*}}<2 x double>
+; CHECK: __atanhd2_massv{{.*}}<2 x double>
 ; CHECK: ret void
 ;
 entry:
@@ -1499,7 +1501,7 @@ for.end:
 
 define void @atanh_f32(float* nocapture %varray) {
 ; CHECK-LABEL: @atanh_f32(
-; CHECK: __atanhf4{{.*}}<4 x float>
+; CHECK: __atanhf4_massv{{.*}}<4 x float>
 ; CHECK: ret void
 ;
 entry:

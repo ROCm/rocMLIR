@@ -95,9 +95,9 @@ SANITIZER_INTERFACE_ATTRIBUTE
 void __tsan_write_range(void *addr, unsigned long size);
 
 SANITIZER_INTERFACE_ATTRIBUTE
-void __tsan_read_range_pc(void *addr, unsigned long size, void *pc);
+void __tsan_read_range_pc(void *addr, unsigned long size, void *pc);  // NOLINT
 SANITIZER_INTERFACE_ATTRIBUTE
-void __tsan_write_range_pc(void *addr, unsigned long size, void *pc);
+void __tsan_write_range_pc(void *addr, unsigned long size, void *pc);  // NOLINT
 
 // User may provide function that would be called right when TSan detects
 // an error. The argument 'report' is an opaque pointer that can be used to
@@ -196,8 +196,7 @@ typedef unsigned short a16;
 typedef unsigned int       a32;
 typedef unsigned long long a64;
 #if !SANITIZER_GO && (defined(__SIZEOF_INT128__) \
-    || (__clang_major__ * 100 + __clang_minor__ >= 302)) && \
-    !defined(__mips64) && !defined(__s390x__)
+    || (__clang_major__ * 100 + __clang_minor__ >= 302)) && !defined(__mips64)
 __extension__ typedef __int128 a128;
 # define __TSAN_HAS_INT128 1
 #else
@@ -416,13 +415,6 @@ void __tsan_go_atomic32_compare_exchange(ThreadState *thr, uptr cpc, uptr pc,
 SANITIZER_INTERFACE_ATTRIBUTE
 void __tsan_go_atomic64_compare_exchange(ThreadState *thr, uptr cpc, uptr pc,
                                          u8 *a);
-
-SANITIZER_INTERFACE_ATTRIBUTE
-void __tsan_on_initialize();
-
-SANITIZER_INTERFACE_ATTRIBUTE
-int __tsan_on_finalize(int failed);
-
 }  // extern "C"
 
 }  // namespace __tsan

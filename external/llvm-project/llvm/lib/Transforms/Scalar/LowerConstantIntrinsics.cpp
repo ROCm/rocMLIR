@@ -45,27 +45,21 @@ STATISTIC(ObjectSizeIntrinsicsHandled,
           "Number of 'objectsize' intrinsic calls handled");
 
 static Value *lowerIsConstantIntrinsic(IntrinsicInst *II) {
-  if (auto *C = dyn_cast<Constant>(II->getOperand(0)))
-    if (C->isManifestConstant())
-      return ConstantInt::getTrue(II->getType());
-  return ConstantInt::getFalse(II->getType());
+  Value *Op = II->getOperand(0);
+
+  return isa<Constant>(Op) ? ConstantInt::getTrue(II->getType())
+                           : ConstantInt::getFalse(II->getType());
 }
 
 static bool replaceConditionalBranchesOnConstant(Instruction *II,
                                                  Value *NewValue,
                                                  DomTreeUpdater *DTU) {
   bool HasDeadBlocks = false;
-  SmallSetVector<Instruction *, 8> UnsimplifiedUsers;
+  SmallSetVector<Instruction *, 8> Worklist;
   replaceAndRecursivelySimplify(II, NewValue, nullptr, nullptr, nullptr,
-                                &UnsimplifiedUsers);
-  // UnsimplifiedUsers can contain PHI nodes that may be removed when
-  // replacing the branch instructions, so use a value handle worklist
-  // to handle those possibly removed instructions.
-  SmallVector<WeakVH, 8> Worklist(UnsimplifiedUsers.begin(),
-                                  UnsimplifiedUsers.end());
-
-  for (auto &VH : Worklist) {
-    BranchInst *BI = dyn_cast_or_null<BranchInst>(VH);
+                                &Worklist);
+  for (auto I : Worklist) {
+    BranchInst *BI = dyn_cast<BranchInst>(I);
     if (!BI)
       continue;
     if (BI->isUnconditional())
@@ -157,6 +151,7 @@ LowerConstantIntrinsicsPass::run(Function &F, FunctionAnalysisManager &AM) {
   if (lowerConstantIntrinsics(F, AM.getCachedResult<TargetLibraryAnalysis>(F),
                               AM.getCachedResult<DominatorTreeAnalysis>(F))) {
     PreservedAnalyses PA;
+    PA.preserve<GlobalsAA>();
     PA.preserve<DominatorTreeAnalysis>();
     return PA;
   }

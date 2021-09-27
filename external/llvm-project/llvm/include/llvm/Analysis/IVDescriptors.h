@@ -14,7 +14,6 @@
 #define LLVM_ANALYSIS_IVDESCRIPTORS_H
 
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
@@ -69,31 +68,29 @@ public:
   RecurrenceDescriptor() = default;
 
   RecurrenceDescriptor(Value *Start, Instruction *Exit, RecurKind K,
-                       FastMathFlags FMF, Instruction *ExactFP, Type *RT,
-                       bool Signed, bool Ordered,
-                       SmallPtrSetImpl<Instruction *> &CI)
+                       FastMathFlags FMF, Instruction *UAI, Type *RT,
+                       bool Signed, SmallPtrSetImpl<Instruction *> &CI)
       : StartValue(Start), LoopExitInstr(Exit), Kind(K), FMF(FMF),
-        ExactFPMathInst(ExactFP), RecurrenceType(RT), IsSigned(Signed),
-        IsOrdered(Ordered) {
+        UnsafeAlgebraInst(UAI), RecurrenceType(RT), IsSigned(Signed) {
     CastInsts.insert(CI.begin(), CI.end());
   }
 
   /// This POD struct holds information about a potential recurrence operation.
   class InstDesc {
   public:
-    InstDesc(bool IsRecur, Instruction *I, Instruction *ExactFP = nullptr)
+    InstDesc(bool IsRecur, Instruction *I, Instruction *UAI = nullptr)
         : IsRecurrence(IsRecur), PatternLastInst(I),
-          RecKind(RecurKind::None), ExactFPMathInst(ExactFP) {}
+          RecKind(RecurKind::None), UnsafeAlgebraInst(UAI) {}
 
-    InstDesc(Instruction *I, RecurKind K, Instruction *ExactFP = nullptr)
+    InstDesc(Instruction *I, RecurKind K, Instruction *UAI = nullptr)
         : IsRecurrence(true), PatternLastInst(I), RecKind(K),
-          ExactFPMathInst(ExactFP) {}
+          UnsafeAlgebraInst(UAI) {}
 
     bool isRecurrence() const { return IsRecurrence; }
 
-    bool needsExactFPMath() const { return ExactFPMathInst != nullptr; }
+    bool hasUnsafeAlgebra() const { return UnsafeAlgebraInst != nullptr; }
 
-    Instruction *getExactFPMathInst() const { return ExactFPMathInst; }
+    Instruction *getUnsafeAlgebraInst() const { return UnsafeAlgebraInst; }
 
     RecurKind getRecKind() const { return RecKind; }
 
@@ -107,8 +104,8 @@ public:
     Instruction *PatternLastInst;
     // If this is a min/max pattern.
     RecurKind RecKind;
-    // Recurrence does not allow floating-point reassociation.
-    Instruction *ExactFPMathInst;
+    // Recurrence has unsafe algebra.
+    Instruction *UnsafeAlgebraInst;
   };
 
   /// Returns a struct describing if the instruction 'I' can be a recurrence
@@ -117,7 +114,7 @@ public:
   /// compare instruction to the select instruction and stores this pointer in
   /// 'PatternLastInst' member of the returned struct.
   static InstDesc isRecurrenceInstr(Instruction *I, RecurKind Kind,
-                                    InstDesc &Prev, FastMathFlags FuncFMF);
+                                    InstDesc &Prev, bool HasFunNoNaNAttr);
 
   /// Returns true if instruction I has multiple uses in Insts
   static bool hasMultipleUsesOf(Instruction *I,
@@ -127,21 +124,19 @@ public:
   /// Returns true if all uses of the instruction I is within the Set.
   static bool areAllUsesIn(Instruction *I, SmallPtrSetImpl<Instruction *> &Set);
 
-  /// Returns a struct describing if the instruction is a llvm.(s/u)(min/max),
-  /// llvm.minnum/maxnum or a Select(ICmp(X, Y), X, Y) pair of instructions
-  /// corresponding to a min(X, Y) or max(X, Y), matching the recurrence kind \p
-  /// Kind. \p Prev specifies the description of an already processed select
-  /// instruction, so its corresponding cmp can be matched to it.
-  static InstDesc isMinMaxPattern(Instruction *I, RecurKind Kind,
-                                  const InstDesc &Prev);
+  /// Returns a struct describing if the instruction is a
+  /// Select(ICmp(X, Y), X, Y) instruction pattern corresponding to a min(X, Y)
+  /// or max(X, Y). \p Prev specifies the description of an already processed
+  /// select instruction, so its corresponding cmp can be matched to it.
+  static InstDesc isMinMaxSelectCmpPattern(Instruction *I,
+                                           const InstDesc &Prev);
 
   /// Returns a struct describing if the instruction is a
   /// Select(FCmp(X, Y), (Z = X op PHINode), PHINode) instruction pattern.
   static InstDesc isConditionalRdxPattern(RecurKind Kind, Instruction *I);
 
   /// Returns identity corresponding to the RecurrenceKind.
-  static Constant *getRecurrenceIdentity(RecurKind K, Type *Tp,
-                                         FastMathFlags FMF);
+  static Constant *getRecurrenceIdentity(RecurKind K, Type *Tp);
 
   /// Returns the opcode corresponding to the RecurrenceKind.
   static unsigned getOpcode(RecurKind Kind);
@@ -151,7 +146,7 @@ public:
   /// non-null, the minimal bit width needed to compute the reduction will be
   /// computed.
   static bool AddReductionVar(PHINode *Phi, RecurKind Kind, Loop *TheLoop,
-                              FastMathFlags FuncFMF,
+                              bool HasFunNoNaNAttr,
                               RecurrenceDescriptor &RedDes,
                               DemandedBits *DB = nullptr,
                               AssumptionCache *AC = nullptr,
@@ -176,7 +171,7 @@ public:
   /// to handle Phi as a first-order recurrence.
   static bool
   isFirstOrderRecurrence(PHINode *Phi, Loop *TheLoop,
-                         MapVector<Instruction *, Instruction *> &SinkAfter,
+                         DenseMap<Instruction *, Instruction *> &SinkAfter,
                          DominatorTree *DT);
 
   RecurKind getRecurrenceKind() const { return Kind; }
@@ -189,12 +184,12 @@ public:
 
   Instruction *getLoopExitInstr() const { return LoopExitInstr; }
 
-  /// Returns true if the recurrence has floating-point math that requires
-  /// precise (ordered) operations.
-  bool hasExactFPMath() const { return ExactFPMathInst != nullptr; }
+  /// Returns true if the recurrence has unsafe algebra which requires a relaxed
+  /// floating-point model.
+  bool hasUnsafeAlgebra() const { return UnsafeAlgebraInst != nullptr; }
 
-  /// Returns 1st non-reassociative FP instruction in the PHI node's use-chain.
-  Instruction *getExactFPMathInst() const { return ExactFPMathInst; }
+  /// Returns first unsafe algebra instruction in the PHI node's use-chain.
+  Instruction *getUnsafeAlgebraInst() const { return UnsafeAlgebraInst; }
 
   /// Returns true if the recurrence kind is an integer kind.
   static bool isIntegerRecurrenceKind(RecurKind Kind);
@@ -232,9 +227,6 @@ public:
   /// Returns true if all source operands of the recurrence are SExtInsts.
   bool isSigned() const { return IsSigned; }
 
-  /// Expose an ordered FP reduction to the instance users.
-  bool isOrdered() const { return IsOrdered; }
-
   /// Attempts to find a chain of operations from Phi to LoopExitInst that can
   /// be treated as a set of reductions instructions for in-loop reductions.
   SmallVector<Instruction *, 4> getReductionOpChain(PHINode *Phi,
@@ -251,16 +243,12 @@ private:
   // The fast-math flags on the recurrent instructions.  We propagate these
   // fast-math flags into the vectorized FP instructions we generate.
   FastMathFlags FMF;
-  // First instance of non-reassociative floating-point in the PHI's use-chain.
-  Instruction *ExactFPMathInst = nullptr;
+  // First occurrence of unasfe algebra in the PHI's use-chain.
+  Instruction *UnsafeAlgebraInst = nullptr;
   // The type of the recurrence.
   Type *RecurrenceType = nullptr;
   // True if all source operands of the recurrence are SExtInsts.
   bool IsSigned = false;
-  // True if this recurrence can be treated as an in-order reduction.
-  // Currently only a non-reassociative FAdd can be considered in-order,
-  // if it is also the only FAdd in the PHI's use chain.
-  bool IsOrdered = false;
   // Instructions used for type-promoting the recurrence.
   SmallPtrSet<Instruction *, 8> CastInsts;
 };
@@ -314,25 +302,29 @@ public:
                              PredicatedScalarEvolution &PSE,
                              InductionDescriptor &D, bool Assume = false);
 
-  /// Returns floating-point induction operator that does not allow
-  /// reassociation (transforming the induction requires an override of normal
-  /// floating-point rules).
-  Instruction *getExactFPMathInst() {
-    if (IK == IK_FpInduction && InductionBinOp &&
-        !InductionBinOp->hasAllowReassoc())
-      return InductionBinOp;
-    return nullptr;
+  /// Returns true if the induction type is FP and the binary operator does
+  /// not have the "fast-math" property. Such operation requires a relaxed FP
+  /// mode.
+  bool hasUnsafeAlgebra() {
+    return (IK == IK_FpInduction) && InductionBinOp &&
+           !cast<FPMathOperator>(InductionBinOp)->isFast();
+  }
+
+  /// Returns induction operator that does not have "fast-math" property
+  /// and requires FP unsafe mode.
+  Instruction *getUnsafeAlgebraInst() {
+    if (IK != IK_FpInduction)
+      return nullptr;
+
+    if (!InductionBinOp || cast<FPMathOperator>(InductionBinOp)->isFast())
+      return nullptr;
+    return InductionBinOp;
   }
 
   /// Returns binary opcode of the induction operator.
   Instruction::BinaryOps getInductionOpcode() const {
     return InductionBinOp ? InductionBinOp->getOpcode()
                           : Instruction::BinaryOpsEnd;
-  }
-
-  Type *getElementType() const {
-    assert(IK == IK_PtrInduction && "Only pointer induction has element type");
-    return ElementType;
   }
 
   /// Returns a reference to the type cast instructions in the induction
@@ -346,7 +338,6 @@ private:
   /// Private constructor - used by \c isInductionPHI.
   InductionDescriptor(Value *Start, InductionKind K, const SCEV *Step,
                       BinaryOperator *InductionBinOp = nullptr,
-                      Type *ElementType = nullptr,
                       SmallVectorImpl<Instruction *> *Casts = nullptr);
 
   /// Start value.
@@ -357,9 +348,6 @@ private:
   const SCEV *Step = nullptr;
   // Instruction that advances induction variable.
   BinaryOperator *InductionBinOp = nullptr;
-  // Element type for pointer induction variables.
-  // TODO: This can be dropped once support for typed pointers is removed.
-  Type *ElementType = nullptr;
   // Instructions used for type-casts of the induction variable,
   // that are redundant when guarded with a runtime SCEV overflow check.
   SmallVector<Instruction *, 2> RedundantCasts;

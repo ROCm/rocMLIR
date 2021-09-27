@@ -241,7 +241,7 @@ enum MyEnum { Zero, One, Two, Three, FortyTwo = 42 };
 
 using Fn = void(*)();
 
-// https://llvm.org/PR38638
+// https://bugs.llvm.org/show_bug.cgi?id=38638
 template <class T>
 constexpr T pr38638(T v)
 {

@@ -109,9 +109,9 @@ public:
   typedef std::tuple<unsigned, bool, uint32_t> HwasanMemaccessTuple;
   std::map<HwasanMemaccessTuple, MCSymbol *> HwasanMemaccessSymbols;
   void LowerHWASAN_CHECK_MEMACCESS(const MachineInstr &MI);
-  void emitHwasanMemaccessSymbols(Module &M);
+  void EmitHwasanMemaccessSymbols(Module &M);
 
-  void emitSled(const MachineInstr &MI, SledKind Kind);
+  void EmitSled(const MachineInstr &MI, SledKind Kind);
 
   /// tblgen'erated driver function for lowering simple MI->MC
   /// pseudo instructions.
@@ -178,10 +178,10 @@ private:
   AArch64FunctionInfo *AArch64FI = nullptr;
 
   /// Emit the LOHs contained in AArch64FI.
-  void emitLOHs();
+  void EmitLOHs();
 
   /// Emit instruction to set float register to zero.
-  void emitFMov0(const MachineInstr &MI);
+  void EmitFMov0(const MachineInstr &MI);
 
   using MInstToMCSymbol = std::map<const MachineInstr *, MCSymbol *>;
 
@@ -191,32 +191,7 @@ private:
 } // end anonymous namespace
 
 void AArch64AsmPrinter::emitStartOfAsmFile(Module &M) {
-  const Triple &TT = TM.getTargetTriple();
-
-  if (TT.isOSBinFormatCOFF()) {
-    // Emit an absolute @feat.00 symbol.  This appears to be some kind of
-    // compiler features bitfield read by link.exe.
-    MCSymbol *S = MMI->getContext().getOrCreateSymbol(StringRef("@feat.00"));
-    OutStreamer->BeginCOFFSymbolDef(S);
-    OutStreamer->EmitCOFFSymbolStorageClass(COFF::IMAGE_SYM_CLASS_STATIC);
-    OutStreamer->EmitCOFFSymbolType(COFF::IMAGE_SYM_DTYPE_NULL);
-    OutStreamer->EndCOFFSymbolDef();
-    int64_t Feat00Flags = 0;
-
-    if (M.getModuleFlag("cfguard")) {
-      Feat00Flags |= 0x800; // Object is CFG-aware.
-    }
-
-    if (M.getModuleFlag("ehcontguard")) {
-      Feat00Flags |= 0x4000; // Object also has EHCont.
-    }
-
-    OutStreamer->emitSymbolAttribute(S, MCSA_Global);
-    OutStreamer->emitAssignment(
-        S, MCConstantExpr::create(Feat00Flags, MMI->getContext()));
-  }
-
-  if (!TT.isOSBinFormatELF())
+  if (!TM.getTargetTriple().isOSBinFormatELF())
     return;
 
   // Assemble feature flags that may require creation of a note section.
@@ -260,18 +235,21 @@ void AArch64AsmPrinter::LowerPATCHABLE_FUNCTION_ENTER(const MachineInstr &MI)
     return;
   }
 
-  emitSled(MI, SledKind::FUNCTION_ENTER);
+  EmitSled(MI, SledKind::FUNCTION_ENTER);
 }
 
-void AArch64AsmPrinter::LowerPATCHABLE_FUNCTION_EXIT(const MachineInstr &MI) {
-  emitSled(MI, SledKind::FUNCTION_EXIT);
+void AArch64AsmPrinter::LowerPATCHABLE_FUNCTION_EXIT(const MachineInstr &MI)
+{
+  EmitSled(MI, SledKind::FUNCTION_EXIT);
 }
 
-void AArch64AsmPrinter::LowerPATCHABLE_TAIL_CALL(const MachineInstr &MI) {
-  emitSled(MI, SledKind::TAIL_CALL);
+void AArch64AsmPrinter::LowerPATCHABLE_TAIL_CALL(const MachineInstr &MI)
+{
+  EmitSled(MI, SledKind::TAIL_CALL);
 }
 
-void AArch64AsmPrinter::emitSled(const MachineInstr &MI, SledKind Kind) {
+void AArch64AsmPrinter::EmitSled(const MachineInstr &MI, SledKind Kind)
+{
   static const int8_t NoopsInSledCount = 7;
   // We want to emit the following pattern:
   //
@@ -293,7 +271,7 @@ void AArch64AsmPrinter::emitSled(const MachineInstr &MI, SledKind Kind) {
   //   ;DATA: higher 32 bits of the address of the trampoline
   //   LDP X0, X30, [SP], #16 ; pop X0 and the link register from the stack
   //
-  OutStreamer->emitCodeAlignment(4, &getSubtargetInfo());
+  OutStreamer->emitCodeAlignment(4);
   auto CurSled = OutContext.createTempSymbol("xray_sled_", true);
   OutStreamer->emitLabel(CurSled);
   auto Target = OutContext.createTempSymbol();
@@ -334,7 +312,7 @@ void AArch64AsmPrinter::LowerHWASAN_CHECK_MEMACCESS(const MachineInstr &MI) {
                      .addExpr(MCSymbolRefExpr::create(Sym, OutContext)));
 }
 
-void AArch64AsmPrinter::emitHwasanMemaccessSymbols(Module &M) {
+void AArch64AsmPrinter::EmitHwasanMemaccessSymbols(Module &M) {
   if (HwasanMemaccessSymbols.empty())
     return;
 
@@ -374,7 +352,7 @@ void AArch64AsmPrinter::emitHwasanMemaccessSymbols(Module &M) {
     OutStreamer->SwitchSection(OutContext.getELFSection(
         ".text.hot", ELF::SHT_PROGBITS,
         ELF::SHF_EXECINSTR | ELF::SHF_ALLOC | ELF::SHF_GROUP, 0,
-        Sym->getName(), /*IsComdat=*/true));
+        Sym->getName()));
 
     OutStreamer->emitSymbolAttribute(Sym, MCSA_ELF_TypeFunction);
     OutStreamer->emitSymbolAttribute(Sym, MCSA_Weak);
@@ -561,7 +539,7 @@ void AArch64AsmPrinter::emitHwasanMemaccessSymbols(Module &M) {
 }
 
 void AArch64AsmPrinter::emitEndOfAsmFile(Module &M) {
-  emitHwasanMemaccessSymbols(M);
+  EmitHwasanMemaccessSymbols(M);
 
   const Triple &TT = TM.getTargetTriple();
   if (TT.isOSBinFormatMachO()) {
@@ -579,7 +557,7 @@ void AArch64AsmPrinter::emitEndOfAsmFile(Module &M) {
 
 }
 
-void AArch64AsmPrinter::emitLOHs() {
+void AArch64AsmPrinter::EmitLOHs() {
   SmallVector<MCSymbol *, 3> MCArgs;
 
   for (const auto &D : AArch64FI->getLOHContainer()) {
@@ -596,7 +574,7 @@ void AArch64AsmPrinter::emitLOHs() {
 
 void AArch64AsmPrinter::emitFunctionBodyEnd() {
   if (!AArch64FI->getLOHRelated().empty())
-    emitLOHs();
+    EmitLOHs();
 }
 
 /// GetCPISymbol - Return the symbol for the specified constant pool entry.
@@ -652,9 +630,6 @@ bool AArch64AsmPrinter::printAsmMRegister(const MachineOperand &MO, char Mode,
     break;
   case 'x':
     Reg = getXRegFromWReg(Reg);
-    break;
-  case 't':
-    Reg = getXRegFromXRegTuple(Reg);
     break;
   }
 
@@ -752,10 +727,6 @@ bool AArch64AsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
         AArch64::GPR64allRegClass.contains(Reg))
       return printAsmMRegister(MO, 'x', O);
 
-    // If this is an x register tuple, print an x register.
-    if (AArch64::GPR64x8ClassRegClass.contains(Reg))
-      return printAsmMRegister(MO, 't', O);
-
     unsigned AltName = AArch64::NoRegAltName;
     const TargetRegisterClass *RegClass;
     if (AArch64::ZPRRegClass.contains(Reg)) {
@@ -797,15 +768,11 @@ void AArch64AsmPrinter::PrintDebugValueComment(const MachineInstr *MI,
   OS << MI->getDebugVariable()->getName();
   OS << " <- ";
   // Frame address.  Currently handles register +- offset only.
-  assert(MI->isIndirectDebugValue());
+  assert(MI->getDebugOperand(0).isReg() && MI->isDebugOffsetImm());
   OS << '[';
-  for (unsigned I = 0, E = std::distance(MI->debug_operands().begin(),
-                                         MI->debug_operands().end());
-       I < E; ++I) {
-    if (I != 0)
-      OS << ", ";
-    printOperand(MI, I, OS);
-  }
+  printOperand(MI, 0, OS);
+  OS << '+';
+  printOperand(MI, 1, OS);
   OS << ']';
   OS << "+";
   printOperand(MI, NOps - 2, OS);
@@ -1092,19 +1059,20 @@ void AArch64AsmPrinter::LowerFAULTING_OP(const MachineInstr &FaultingMI) {
   OutStreamer->emitInstruction(MI, getSubtargetInfo());
 }
 
-void AArch64AsmPrinter::emitFMov0(const MachineInstr &MI) {
+void AArch64AsmPrinter::EmitFMov0(const MachineInstr &MI) {
   Register DestReg = MI.getOperand(0).getReg();
   if (STI->hasZeroCycleZeroingFP() && !STI->hasZeroCycleZeroingFPWorkaround()) {
-    // Convert H/S register to corresponding D register
+    // Convert H/S/D register to corresponding Q register
     if (AArch64::H0 <= DestReg && DestReg <= AArch64::H31)
-      DestReg = AArch64::D0 + (DestReg - AArch64::H0);
+      DestReg = AArch64::Q0 + (DestReg - AArch64::H0);
     else if (AArch64::S0 <= DestReg && DestReg <= AArch64::S31)
-      DestReg = AArch64::D0 + (DestReg - AArch64::S0);
-    else
+      DestReg = AArch64::Q0 + (DestReg - AArch64::S0);
+    else {
       assert(AArch64::D0 <= DestReg && DestReg <= AArch64::D31);
-
+      DestReg = AArch64::Q0 + (DestReg - AArch64::D0);
+    }
     MCInst MOVI;
-    MOVI.setOpcode(AArch64::MOVID);
+    MOVI.setOpcode(AArch64::MOVIv2d_ns);
     MOVI.addOperand(MCOperand::createReg(DestReg));
     MOVI.addOperand(MCOperand::createImm(0));
     EmitToStreamer(*OutStreamer, MOVI);
@@ -1217,8 +1185,7 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
     }
     break;
 
-  case AArch64::DBG_VALUE:
-  case AArch64::DBG_VALUE_LIST: {
+  case AArch64::DBG_VALUE: {
     if (isVerbose() && OutStreamer->hasRawTextSupport()) {
       SmallString<128> TmpStr;
       raw_svector_ostream OS(TmpStr);
@@ -1233,13 +1200,13 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
           ExceptionHandlingType != ExceptionHandling::ARM)
         return;
 
-      if (getFunctionCFISectionType(*MF) == CFISection::None)
+      if (needsCFIMoves() == CFI_M_None)
         return;
 
       OutStreamer->emitCFIBKeyFrame();
       return;
     }
-    }
+  }
 
   // Tail calls use pseudo instructions so they have the proper code-gen
   // attributes (isCall, isReturn, etc.). We lower them to the real
@@ -1355,7 +1322,7 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
   case AArch64::FMOVH0:
   case AArch64::FMOVS0:
   case AArch64::FMOVD0:
-    emitFMov0(*MI);
+    EmitFMov0(*MI);
     return;
 
   case TargetOpcode::STACKMAP:
@@ -1388,29 +1355,29 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
     return;
 
   case AArch64::SEH_StackAlloc:
-    TS->emitARM64WinCFIAllocStack(MI->getOperand(0).getImm());
+    TS->EmitARM64WinCFIAllocStack(MI->getOperand(0).getImm());
     return;
 
   case AArch64::SEH_SaveFPLR:
-    TS->emitARM64WinCFISaveFPLR(MI->getOperand(0).getImm());
+    TS->EmitARM64WinCFISaveFPLR(MI->getOperand(0).getImm());
     return;
 
   case AArch64::SEH_SaveFPLR_X:
     assert(MI->getOperand(0).getImm() < 0 &&
            "Pre increment SEH opcode must have a negative offset");
-    TS->emitARM64WinCFISaveFPLRX(-MI->getOperand(0).getImm());
+    TS->EmitARM64WinCFISaveFPLRX(-MI->getOperand(0).getImm());
     return;
 
   case AArch64::SEH_SaveReg:
-    TS->emitARM64WinCFISaveReg(MI->getOperand(0).getImm(),
+    TS->EmitARM64WinCFISaveReg(MI->getOperand(0).getImm(),
                                MI->getOperand(1).getImm());
     return;
 
   case AArch64::SEH_SaveReg_X:
     assert(MI->getOperand(1).getImm() < 0 &&
            "Pre increment SEH opcode must have a negative offset");
-    TS->emitARM64WinCFISaveRegX(MI->getOperand(0).getImm(),
-                                -MI->getOperand(1).getImm());
+    TS->EmitARM64WinCFISaveRegX(MI->getOperand(0).getImm(),
+		                -MI->getOperand(1).getImm());
     return;
 
   case AArch64::SEH_SaveRegP:
@@ -1418,13 +1385,13 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
         MI->getOperand(0).getImm() <= 28) {
       assert((MI->getOperand(0).getImm() - 19) % 2 == 0 &&
              "Register paired with LR must be odd");
-      TS->emitARM64WinCFISaveLRPair(MI->getOperand(0).getImm(),
+      TS->EmitARM64WinCFISaveLRPair(MI->getOperand(0).getImm(),
                                     MI->getOperand(2).getImm());
       return;
     }
     assert((MI->getOperand(1).getImm() - MI->getOperand(0).getImm() == 1) &&
             "Non-consecutive registers not allowed for save_regp");
-    TS->emitARM64WinCFISaveRegP(MI->getOperand(0).getImm(),
+    TS->EmitARM64WinCFISaveRegP(MI->getOperand(0).getImm(),
                                 MI->getOperand(2).getImm());
     return;
 
@@ -1433,26 +1400,26 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
             "Non-consecutive registers not allowed for save_regp_x");
     assert(MI->getOperand(2).getImm() < 0 &&
            "Pre increment SEH opcode must have a negative offset");
-    TS->emitARM64WinCFISaveRegPX(MI->getOperand(0).getImm(),
+    TS->EmitARM64WinCFISaveRegPX(MI->getOperand(0).getImm(),
                                  -MI->getOperand(2).getImm());
     return;
 
   case AArch64::SEH_SaveFReg:
-    TS->emitARM64WinCFISaveFReg(MI->getOperand(0).getImm(),
+    TS->EmitARM64WinCFISaveFReg(MI->getOperand(0).getImm(),
                                 MI->getOperand(1).getImm());
     return;
 
   case AArch64::SEH_SaveFReg_X:
     assert(MI->getOperand(1).getImm() < 0 &&
            "Pre increment SEH opcode must have a negative offset");
-    TS->emitARM64WinCFISaveFRegX(MI->getOperand(0).getImm(),
+    TS->EmitARM64WinCFISaveFRegX(MI->getOperand(0).getImm(),
                                  -MI->getOperand(1).getImm());
     return;
 
   case AArch64::SEH_SaveFRegP:
     assert((MI->getOperand(1).getImm() - MI->getOperand(0).getImm() == 1) &&
             "Non-consecutive registers not allowed for save_regp");
-    TS->emitARM64WinCFISaveFRegP(MI->getOperand(0).getImm(),
+    TS->EmitARM64WinCFISaveFRegP(MI->getOperand(0).getImm(),
                                  MI->getOperand(2).getImm());
     return;
 
@@ -1461,32 +1428,32 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
             "Non-consecutive registers not allowed for save_regp_x");
     assert(MI->getOperand(2).getImm() < 0 &&
            "Pre increment SEH opcode must have a negative offset");
-    TS->emitARM64WinCFISaveFRegPX(MI->getOperand(0).getImm(),
+    TS->EmitARM64WinCFISaveFRegPX(MI->getOperand(0).getImm(),
                                   -MI->getOperand(2).getImm());
     return;
 
   case AArch64::SEH_SetFP:
-    TS->emitARM64WinCFISetFP();
+    TS->EmitARM64WinCFISetFP();
     return;
 
   case AArch64::SEH_AddFP:
-    TS->emitARM64WinCFIAddFP(MI->getOperand(0).getImm());
+    TS->EmitARM64WinCFIAddFP(MI->getOperand(0).getImm());
     return;
 
   case AArch64::SEH_Nop:
-    TS->emitARM64WinCFINop();
+    TS->EmitARM64WinCFINop();
     return;
 
   case AArch64::SEH_PrologEnd:
-    TS->emitARM64WinCFIPrologEnd();
+    TS->EmitARM64WinCFIPrologEnd();
     return;
 
   case AArch64::SEH_EpilogStart:
-    TS->emitARM64WinCFIEpilogStart();
+    TS->EmitARM64WinCFIEpilogStart();
     return;
 
   case AArch64::SEH_EpilogEnd:
-    TS->emitARM64WinCFIEpilogEnd();
+    TS->EmitARM64WinCFIEpilogEnd();
     return;
   }
 

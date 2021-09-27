@@ -23,4 +23,4 @@ CommandObjectLanguage::CommandObjectLanguage(CommandInterpreter &interpreter)
   LanguageRuntime::InitializeCommands(this);
 }
 
-CommandObjectLanguage::~CommandObjectLanguage() = default;
+CommandObjectLanguage::~CommandObjectLanguage() {}

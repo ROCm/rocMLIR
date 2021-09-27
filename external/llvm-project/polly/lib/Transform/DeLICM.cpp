@@ -239,16 +239,15 @@ private:
   void checkConsistency() const {
 #ifndef NDEBUG
     // Default-initialized object
-    if (Occupied.is_null() && Unused.is_null() && Known.is_null() &&
-        Written.is_null())
+    if (!Occupied && !Unused && !Known && !Written)
       return;
 
-    assert(!Occupied.is_null() || !Unused.is_null());
-    assert(!Known.is_null());
-    assert(!Written.is_null());
+    assert(Occupied || Unused);
+    assert(Known);
+    assert(Written);
 
     // If not all fields are defined, we cannot derived the universe.
-    if (Occupied.is_null() || Unused.is_null())
+    if (!Occupied || !Unused)
       return;
 
     assert(Occupied.is_disjoint(Unused));
@@ -273,19 +272,16 @@ public:
   }
 
   /// Return whether this object was not default-constructed.
-  bool isUsable() const {
-    return (Occupied.is_null() || Unused.is_null()) && !Known.is_null() &&
-           !Written.is_null();
-  }
+  bool isUsable() const { return (Occupied || Unused) && Known && Written; }
 
   /// Print the content of this object to @p OS.
   void print(llvm::raw_ostream &OS, unsigned Indent = 0) const {
     if (isUsable()) {
-      if (!Occupied.is_null())
+      if (Occupied)
         OS.indent(Indent) << "Occupied: " << Occupied << "\n";
       else
         OS.indent(Indent) << "Occupied: <Everything else not in Unused>\n";
-      if (!Unused.is_null())
+      if (Unused)
         OS.indent(Indent) << "Unused:   " << Unused << "\n";
       else
         OS.indent(Indent) << "Unused:   <Everything else not in Occupied>\n";
@@ -299,13 +295,13 @@ public:
   /// Combine two knowledges, this and @p That.
   void learnFrom(Knowledge That) {
     assert(!isConflicting(*this, That));
-    assert(!Unused.is_null() && !That.Occupied.is_null());
+    assert(Unused && That.Occupied);
     assert(
-        That.Unused.is_null() &&
+        !That.Unused &&
         "This function is only prepared to learn occupied elements from That");
-    assert(Occupied.is_null() && "This function does not implement "
-                                 "`this->Occupied = "
-                                 "this->Occupied.unite(That.Occupied);`");
+    assert(!Occupied && "This function does not implement "
+                        "`this->Occupied = "
+                        "this->Occupied.unite(That.Occupied);`");
 
     Unused = Unused.subtract(That.Occupied);
     Known = Known.unite(That.Known);
@@ -336,11 +332,11 @@ public:
                             const Knowledge &Proposed,
                             llvm::raw_ostream *OS = nullptr,
                             unsigned Indent = 0) {
-    assert(!Existing.Unused.is_null());
-    assert(!Proposed.Occupied.is_null());
+    assert(Existing.Unused);
+    assert(Proposed.Occupied);
 
 #ifndef NDEBUG
-    if (!Existing.Occupied.is_null() && !Proposed.Unused.is_null()) {
+    if (Existing.Occupied && Proposed.Unused) {
       auto ExistingUniverse = Existing.Occupied.unite(Existing.Unused);
       auto ProposedUniverse = Proposed.Occupied.unite(Proposed.Unused);
       assert(ExistingUniverse.is_equal(ProposedUniverse) &&
@@ -624,7 +620,7 @@ private:
 
     // Find all uses.
     for (auto *MA : S->getValueUses(SAI))
-      Reads = Reads.unite(getDomainFor(MA));
+      Reads = Reads.add_set(getDomainFor(MA));
 
     // { DomainRead[] -> Scatter[] }
     auto ReadSchedule = getScatterFor(Reads);
@@ -734,7 +730,8 @@ private:
     auto DefEltSched = ValInst.apply_domain(WrittenTranslator);
     simplify(DefEltSched);
 
-    Knowledge Proposed(EltZone, {}, filterKnownValInst(EltKnown), DefEltSched);
+    Knowledge Proposed(EltZone, nullptr, filterKnownValInst(EltKnown),
+                       DefEltSched);
     if (isConflicting(Proposed))
       return false;
 
@@ -871,7 +868,7 @@ private:
 
     // { DomainRead[] -> DomainWrite[] }
     auto PerPHIWrites = computePerPHI(SAI);
-    if (PerPHIWrites.is_null()) {
+    if (!PerPHIWrites) {
       LLVM_DEBUG(
           dbgs() << "    Reject because cannot determine incoming values\n");
       return false;
@@ -882,10 +879,10 @@ private:
     simplify(WritesTarget);
 
     // { DomainWrite[] }
-    auto UniverseWritesDom = isl::union_set::empty(ParamSpace.ctx());
+    auto UniverseWritesDom = isl::union_set::empty(ParamSpace);
 
     for (auto *MA : S->getPHIIncomings(SAI))
-      UniverseWritesDom = UniverseWritesDom.unite(getDomainFor(MA));
+      UniverseWritesDom = UniverseWritesDom.add_set(getDomainFor(MA));
 
     auto RelevantWritesTarget = WritesTarget;
     if (DelicmOverapproximateWrites)
@@ -945,7 +942,7 @@ private:
     auto Occupied = LifetimeTranslator.range();
     simplify(Occupied);
 
-    Knowledge Proposed(Occupied, {}, EltLifetimeInst, Written);
+    Knowledge Proposed(Occupied, nullptr, EltLifetimeInst, Written);
     if (isConflicting(Proposed))
       return false;
 
@@ -1183,6 +1180,9 @@ private:
     OS.indent(Indent) << "}\n";
   }
 
+  /// Return whether at least one transformation been applied.
+  bool isModified() const { return NumberOfTargetsMapped > 0; }
+
 public:
   DeLICMImpl(Scop *S, LoopInfo *LI) : ZoneAlgorithm("polly-delicm", S, LI) {}
 
@@ -1207,7 +1207,7 @@ public:
     }
     DeLICMAnalyzed++;
 
-    if (EltUnused.is_null() || EltKnown.is_null() || EltWritten.is_null()) {
+    if (!EltUnused || !EltKnown || !EltWritten) {
       assert(isl_ctx_last_error(IslCtx.get()) == isl_error_quota &&
              "The only reason that these things have not been computed should "
              "be if the max-operations limit hit");
@@ -1222,7 +1222,7 @@ public:
       return false;
     }
 
-    Zone = OriginalZone = Knowledge({}, EltUnused, EltKnown, EltWritten);
+    Zone = OriginalZone = Knowledge(nullptr, EltUnused, EltKnown, EltWritten);
     LLVM_DEBUG(dbgs() << "Computed Zone:\n"; OriginalZone.print(dbgs(), 4));
 
     assert(Zone.isUsable() && OriginalZone.isUsable());
@@ -1352,81 +1352,35 @@ public:
     }
     printAccesses(OS, Indent);
   }
-
-  /// Return whether at least one transformation been applied.
-  bool isModified() const { return NumberOfTargetsMapped > 0; }
 };
 
-static std::unique_ptr<DeLICMImpl> collapseToUnused(Scop &S, LoopInfo &LI) {
-  std::unique_ptr<DeLICMImpl> Impl = std::make_unique<DeLICMImpl>(&S, &LI);
-
-  if (!Impl->computeZone()) {
-    LLVM_DEBUG(dbgs() << "Abort because cannot reliably compute lifetimes\n");
-    return Impl;
-  }
-
-  LLVM_DEBUG(dbgs() << "Collapsing scalars to unused array elements...\n");
-  Impl->greedyCollapse();
-
-  LLVM_DEBUG(dbgs() << "\nFinal Scop:\n");
-  LLVM_DEBUG(dbgs() << S);
-
-  return Impl;
-}
-
-static std::unique_ptr<DeLICMImpl> runDeLICM(Scop &S, LoopInfo &LI) {
-  std::unique_ptr<DeLICMImpl> Impl = collapseToUnused(S, LI);
-
-  Scop::ScopStatistics ScopStats = S.getStatistics();
-  NumValueWrites += ScopStats.NumValueWrites;
-  NumValueWritesInLoops += ScopStats.NumValueWritesInLoops;
-  NumPHIWrites += ScopStats.NumPHIWrites;
-  NumPHIWritesInLoops += ScopStats.NumPHIWritesInLoops;
-  NumSingletonWrites += ScopStats.NumSingletonWrites;
-  NumSingletonWritesInLoops += ScopStats.NumSingletonWritesInLoops;
-
-  return Impl;
-}
-
-static PreservedAnalyses runDeLICMUsingNPM(Scop &S, ScopAnalysisManager &SAM,
-                                           ScopStandardAnalysisResults &SAR,
-                                           SPMUpdater &U, raw_ostream *OS) {
-  LoopInfo &LI = SAR.LI;
-  std::unique_ptr<DeLICMImpl> Impl = runDeLICM(S, LI);
-
-  if (OS) {
-    *OS << "Printing analysis 'Polly - DeLICM/DePRE' for region: '"
-        << S.getName() << "' in function '" << S.getFunction().getName()
-        << "':\n";
-    if (Impl) {
-      assert(Impl->getScop() == &S);
-
-      *OS << "DeLICM result:\n";
-      Impl->print(*OS);
-    }
-  }
-
-  if (!Impl->isModified())
-    return PreservedAnalyses::all();
-
-  PreservedAnalyses PA;
-  PA.preserveSet<AllAnalysesOn<Module>>();
-  PA.preserveSet<AllAnalysesOn<Function>>();
-  PA.preserveSet<AllAnalysesOn<Loop>>();
-  return PA;
-}
-
-class DeLICMWrapperPass : public ScopPass {
+class DeLICM : public ScopPass {
 private:
-  DeLICMWrapperPass(const DeLICMWrapperPass &) = delete;
-  const DeLICMWrapperPass &operator=(const DeLICMWrapperPass &) = delete;
+  DeLICM(const DeLICM &) = delete;
+  const DeLICM &operator=(const DeLICM &) = delete;
 
   /// The pass implementation, also holding per-scop data.
   std::unique_ptr<DeLICMImpl> Impl;
 
+  void collapseToUnused(Scop &S) {
+    auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+    Impl = std::make_unique<DeLICMImpl>(&S, &LI);
+
+    if (!Impl->computeZone()) {
+      LLVM_DEBUG(dbgs() << "Abort because cannot reliably compute lifetimes\n");
+      return;
+    }
+
+    LLVM_DEBUG(dbgs() << "Collapsing scalars to unused array elements...\n");
+    Impl->greedyCollapse();
+
+    LLVM_DEBUG(dbgs() << "\nFinal Scop:\n");
+    LLVM_DEBUG(dbgs() << S);
+  }
+
 public:
   static char ID;
-  explicit DeLICMWrapperPass() : ScopPass(ID) {}
+  explicit DeLICM() : ScopPass(ID) {}
 
   virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequiredTransitive<ScopInfoRegionPass>();
@@ -1438,10 +1392,17 @@ public:
     // Free resources for previous scop's computation, if not yet done.
     releaseMemory();
 
-    auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-    Impl = runDeLICM(S, LI);
+    collapseToUnused(S);
 
-    return Impl->isModified();
+    auto ScopStats = S.getStatistics();
+    NumValueWrites += ScopStats.NumValueWrites;
+    NumValueWritesInLoops += ScopStats.NumValueWritesInLoops;
+    NumPHIWrites += ScopStats.NumPHIWrites;
+    NumPHIWritesInLoops += ScopStats.NumPHIWritesInLoops;
+    NumSingletonWrites += ScopStats.NumSingletonWrites;
+    NumSingletonWritesInLoops += ScopStats.NumSingletonWritesInLoops;
+
+    return false;
   }
 
   virtual void printScop(raw_ostream &OS, Scop &S) const override {
@@ -1456,30 +1417,17 @@ public:
   virtual void releaseMemory() override { Impl.reset(); }
 };
 
-char DeLICMWrapperPass::ID;
+char DeLICM::ID;
 } // anonymous namespace
 
-Pass *polly::createDeLICMWrapperPass() { return new DeLICMWrapperPass(); }
+Pass *polly::createDeLICMPass() { return new DeLICM(); }
 
-INITIALIZE_PASS_BEGIN(DeLICMWrapperPass, "polly-delicm", "Polly - DeLICM/DePRE",
-                      false, false)
+INITIALIZE_PASS_BEGIN(DeLICM, "polly-delicm", "Polly - DeLICM/DePRE", false,
+                      false)
 INITIALIZE_PASS_DEPENDENCY(ScopInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
-INITIALIZE_PASS_END(DeLICMWrapperPass, "polly-delicm", "Polly - DeLICM/DePRE",
-                    false, false)
-
-llvm::PreservedAnalyses DeLICMPass::run(Scop &S, ScopAnalysisManager &SAM,
-                                        ScopStandardAnalysisResults &SAR,
-                                        SPMUpdater &U) {
-  return runDeLICMUsingNPM(S, SAM, SAR, U, nullptr);
-}
-
-llvm::PreservedAnalyses DeLICMPrinterPass::run(Scop &S,
-                                               ScopAnalysisManager &SAM,
-                                               ScopStandardAnalysisResults &SAR,
-                                               SPMUpdater &U) {
-  return runDeLICMUsingNPM(S, SAM, SAR, U, &OS);
-}
+INITIALIZE_PASS_END(DeLICM, "polly-delicm", "Polly - DeLICM/DePRE", false,
+                    false)
 
 bool polly::isConflicting(
     isl::union_set ExistingOccupied, isl::union_set ExistingUnused,

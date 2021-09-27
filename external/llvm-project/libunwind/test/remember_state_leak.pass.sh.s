@@ -1,5 +1,5 @@
-# REQUIRES: target={{x86_64-.+-linux-gnu}}
-# RUN: %{build}
+# REQUIRES: x86, linux
+# RUN: %{build} -target x86_64-unknown-linux-gnu
 # RUN: %{run}
 
 # The following assembly is a translation of this code:

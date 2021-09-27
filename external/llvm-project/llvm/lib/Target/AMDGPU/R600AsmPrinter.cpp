@@ -15,7 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "R600AsmPrinter.h"
-#include "MCTargetDesc/R600MCTargetDesc.h"
+#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "R600Defines.h"
 #include "R600MachineFunctionInfo.h"
 #include "R600Subtarget.h"
@@ -129,3 +129,4 @@ bool R600AsmPrinter::runOnMachineFunction(MachineFunction &MF) {
 
   return false;
 }
+

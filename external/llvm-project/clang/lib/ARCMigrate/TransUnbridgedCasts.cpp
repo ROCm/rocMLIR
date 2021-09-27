@@ -253,8 +253,7 @@ private:
 
       SourceManager &SM = Pass.Ctx.getSourceManager();
       char PrevChar = *SM.getCharacterData(InsertLoc.getLocWithOffset(-1));
-      if (Lexer::isAsciiIdentifierContinueChar(PrevChar,
-                                               Pass.Ctx.getLangOpts()))
+      if (Lexer::isIdentifierBodyChar(PrevChar, Pass.Ctx.getLangOpts()))
         BridgeCall += ' ';
 
       if (Kind == OBC_BridgeTransfer)

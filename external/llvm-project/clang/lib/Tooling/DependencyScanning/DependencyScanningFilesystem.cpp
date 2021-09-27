@@ -99,7 +99,8 @@ CachedFileSystemEntry::createDirectoryEntry(llvm::vfs::Status &&Stat) {
   return Result;
 }
 
-DependencyScanningFilesystemSharedCache::SingleCache::SingleCache() {
+DependencyScanningFilesystemSharedCache::
+    DependencyScanningFilesystemSharedCache() {
   // This heuristic was chosen using a empirical testing on a
   // reasonably high core machine (iMacPro 18 cores / 36 threads). The cache
   // sharding gives a performance edge by reducing the lock contention.
@@ -110,18 +111,16 @@ DependencyScanningFilesystemSharedCache::SingleCache::SingleCache() {
   CacheShards = std::make_unique<CacheShard[]>(NumShards);
 }
 
+/// Returns a cache entry for the corresponding key.
+///
+/// A new cache entry is created if the key is not in the cache. This is a
+/// thread safe call.
 DependencyScanningFilesystemSharedCache::SharedFileSystemEntry &
-DependencyScanningFilesystemSharedCache::SingleCache::get(StringRef Key) {
+DependencyScanningFilesystemSharedCache::get(StringRef Key) {
   CacheShard &Shard = CacheShards[llvm::hash_value(Key) % NumShards];
   std::unique_lock<std::mutex> LockGuard(Shard.CacheLock);
   auto It = Shard.Cache.try_emplace(Key);
   return It.first->getValue();
-}
-
-DependencyScanningFilesystemSharedCache::SharedFileSystemEntry &
-DependencyScanningFilesystemSharedCache::get(StringRef Key, bool Minimized) {
-  SingleCache &Cache = Minimized ? CacheMinimized : CacheOriginal;
-  return Cache.get(Key);
 }
 
 /// Whitelist file extensions that should be minimized, treating no extension as
@@ -150,32 +149,20 @@ static bool shouldCacheStatFailures(StringRef Filename) {
   return shouldMinimize(Filename); // Only cache stat failures on source files.
 }
 
-void DependencyScanningWorkerFilesystem::ignoreFile(StringRef RawFilename) {
-  llvm::SmallString<256> Filename;
-  llvm::sys::path::native(RawFilename, Filename);
-  IgnoredFiles.insert(Filename);
-}
-
-bool DependencyScanningWorkerFilesystem::shouldIgnoreFile(
-    StringRef RawFilename) {
-  llvm::SmallString<256> Filename;
-  llvm::sys::path::native(RawFilename, Filename);
-  return IgnoredFiles.contains(Filename);
-}
-
 llvm::ErrorOr<const CachedFileSystemEntry *>
 DependencyScanningWorkerFilesystem::getOrCreateFileSystemEntry(
     const StringRef Filename) {
-  bool ShouldMinimize = !shouldIgnoreFile(Filename) && shouldMinimize(Filename);
-
-  if (const auto *Entry = Cache.getCachedEntry(Filename, ShouldMinimize))
+  if (const CachedFileSystemEntry *Entry = getCachedEntry(Filename)) {
     return Entry;
+  }
 
   // FIXME: Handle PCM/PCH files.
   // FIXME: Handle module map files.
 
+  bool KeepOriginalSource = IgnoredFiles.count(Filename) ||
+                            !shouldMinimize(Filename);
   DependencyScanningFilesystemSharedCache::SharedFileSystemEntry
-      &SharedCacheEntry = SharedCache.get(Filename, ShouldMinimize);
+      &SharedCacheEntry = SharedCache.get(Filename);
   const CachedFileSystemEntry *Result;
   {
     std::unique_lock<std::mutex> LockGuard(SharedCacheEntry.ValueLock);
@@ -197,15 +184,15 @@ DependencyScanningWorkerFilesystem::getOrCreateFileSystemEntry(
         CacheEntry = CachedFileSystemEntry::createDirectoryEntry(
             std::move(*MaybeStatus));
       else
-        CacheEntry = CachedFileSystemEntry::createFileEntry(Filename, FS,
-                                                            ShouldMinimize);
+        CacheEntry = CachedFileSystemEntry::createFileEntry(
+            Filename, FS, !KeepOriginalSource);
     }
 
     Result = &CacheEntry;
   }
 
   // Store the result in the local cache.
-  Cache.setCachedEntry(Filename, ShouldMinimize, Result);
+  setCachedEntry(Filename, Result);
   return Result;
 }
 

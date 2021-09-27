@@ -8,12 +8,7 @@
 .section __DATA_CONST,__got
 .space 1
 
-.data
-_foo:
-.space 1
-
 .text
 _main:
-## make sure the GOT will be needed
-  pushq _foo@GOTPCREL(%rip)
+  mov $0, %rax
   ret

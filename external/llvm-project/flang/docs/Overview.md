@@ -6,11 +6,6 @@
   
 -->
 
-# Intro
-This document goes briefly over compiler phases in Flang. It focuses on the
-internal implementation and as such, it is intended for Flang developers rather
-than end-users.
-
 # Overview of Compiler Phases
 
 ```eval_rst
@@ -38,7 +33,7 @@ See: [Preprocessing.md](Preprocessing.md).
 
 **Entry point:** `parser::Parsing::Prescan`
 
-**Command:** `flang-new -fc1 -E src.f90` dumps the cooked character stream
+**Command:** `f18 -E src.f90` dumps the cooked character stream
 
 ## Parse
 
@@ -51,8 +46,8 @@ See: [Preprocessing.md](Preprocessing.md).
 **Entry point:** `parser::Parsing::Parse`
 
 **Command:**
-  - `flang-new -fc1 -fdebug-dump-parse-tree src.f90` dumps the parse tree
-  - `flang-new -fc1 -fdebug-unparse src.f90` converts the parse tree to normalized Fortran
+  - `f18 -fdebug-dump-parse-tree -fsyntax-only src.f90` dumps the parse tree
+  - `f18 -funparse src.f90` converts the parse tree to normalized Fortran
 
 ## Validate Labels and Canonicalize Do Statements
 
@@ -79,7 +74,7 @@ See: [Preprocessing.md](Preprocessing.md).
 
 **Entry points:** `semantics::ResolveNames`, `semantics::RewriteParseTree`
 
-**Command:** `flang-new -fc1 -fdebug-dump-symbols src.f90` dumps the
+**Command:** `f18 -fdebug-dump-symbols -fsyntax-only src.f90` dumps the
   tree of scopes and symbols in each scope
 
 ## Check DO CONCURRENT Constraints

@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "polly/Support/GICHelper.h"
 #include "llvm/Support/raw_ostream.h"
 #include "isl/isl-noexceptions.h"
 namespace polly {
@@ -18,7 +17,7 @@ namespace polly {
 #define ADD_OSTREAM_PRINTER(name)                                              \
   inline llvm::raw_ostream &operator<<(llvm::raw_ostream &OS,                  \
                                        const name &Obj) {                      \
-    OS << stringFromIslObj(Obj);                                               \
+    OS << Obj.to_str();                                                        \
     return OS;                                                                 \
   }
 

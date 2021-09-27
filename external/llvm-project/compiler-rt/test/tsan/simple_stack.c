@@ -32,7 +32,7 @@ void *Thread2(void *x) {
   return NULL;
 }
 
-void __attribute__((noinline)) StartThread(pthread_t *t, void *(*f)(void*)) {
+void StartThread(pthread_t *t, void *(*f)(void*)) {
   pthread_create(t, NULL, f, NULL);
 }
 

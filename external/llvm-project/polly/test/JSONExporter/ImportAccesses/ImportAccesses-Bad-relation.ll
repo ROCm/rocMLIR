@@ -1,6 +1,6 @@
 ; RUN: not --crash opt %loadPolly -polly-import-jscop -polly-ast -polly-ast-detect-parallel  < %s 2>&1 >/dev/null | FileCheck %s
 ;
-; CHECK: expecting other token
+; CHECK: The access was not parsed successfully by ISL.
 ;
 ; Verify that the JSONImporter checks if the relation is valid.
 ;

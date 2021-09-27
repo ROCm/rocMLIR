@@ -18,7 +18,6 @@ unittest("GlobalISelTests") {
     "GISelMITest.cpp",
     "GISelUtilsTest.cpp",
     "KnownBitsTest.cpp",
-    "KnownBitsVectorTest.cpp",
     "LegalizerHelperTest.cpp",
     "LegalizerInfoTest.cpp",
     "LegalizerTest.cpp",

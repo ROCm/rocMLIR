@@ -1,7 +1,7 @@
-; RUN: llc -march=hexagon < %s 2>&1 | FileCheck %s
+; RUN: not --crash llc -march=hexagon < %s 2>&1 | FileCheck %s
 
 ; Check that the misaligned load is diagnosed.
-; CHECK: remark: Misaligned constant address: 0x00012345 has alignment 1, but the memory access requires 4, at misaligned-const-load.c:2:10. The instruction has been replaced with a trap.
+; CHECK: LLVM ERROR: Misaligned constant address: 0x00012345 has alignment 1, but the memory access requires 4, at misaligned-const-load.c:2:10
 
 target triple = "hexagon"
 

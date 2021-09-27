@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 ! C1141
 ! A reference to the procedure IEEE_SET_HALTING_MODE ! from the intrinsic 
 ! module IEEE_EXCEPTIONS, shall not ! appear within a DO CONCURRENT construct.
@@ -164,20 +164,28 @@ subroutine s6()
   end do
 
 ! Call to MOVE_ALLOC of a coarray outside a DO CONCURRENT.  This is OK.
-  call move_alloc(ca, cb)
+call move_alloc(ca, cb)
 
-! Call to MOVE_ALLOC with non-coarray arguments in a DO CONCURRENT.  This is OK.
+! Note that the errors below relating to MOVE_ALLOC() bing impure are bogus.  
+! They're the result of the fact that access to the move_alloc() instrinsic 
+! is not yet possible.
+
   allocate(aa)
   do concurrent (i = 1:10)
+!ERROR: Call to an impure procedure is not allowed in DO CONCURRENT
     call move_alloc(aa, ab)
   end do
 
+! Call to MOVE_ALLOC with non-coarray arguments in a DO CONCURRENT.  This is OK.
+
   do concurrent (i = 1:10)
+!ERROR: Call to an impure procedure is not allowed in DO CONCURRENT
 !ERROR: An image control statement is not allowed in DO CONCURRENT
     call move_alloc(ca, cb)
   end do
 
   do concurrent (i = 1:10)
+!ERROR: Call to an impure procedure is not allowed in DO CONCURRENT
 !ERROR: An image control statement is not allowed in DO CONCURRENT
     call move_alloc(pvar%type1_field%coarray_type0_field, qvar%type1_field%coarray_type0_field)
   end do

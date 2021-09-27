@@ -59,8 +59,6 @@ DECLARE_REAL_AND_INTERCEPTOR(void, free, void *)
 #define COMMON_INTERCEPT_FUNCTION(name) MEMPROF_INTERCEPT_FUNC(name)
 #define COMMON_INTERCEPT_FUNCTION_VER(name, ver)                               \
   MEMPROF_INTERCEPT_FUNC_VER(name, ver)
-#define COMMON_INTERCEPT_FUNCTION_VER_UNVERSIONED_FALLBACK(name, ver)          \
-  MEMPROF_INTERCEPT_FUNC_VER_UNVERSIONED_FALLBACK(name, ver)
 #define COMMON_INTERCEPTOR_WRITE_RANGE(ctx, ptr, size)                         \
   MEMPROF_WRITE_RANGE(ptr, size)
 #define COMMON_INTERCEPTOR_READ_RANGE(ctx, ptr, size)                          \
@@ -204,9 +202,9 @@ INTERCEPTOR(char *, strcat, char *to, const char *from) {
   void *ctx;
   MEMPROF_INTERCEPTOR_ENTER(ctx, strcat);
   ENSURE_MEMPROF_INITED();
-  uptr from_length = internal_strlen(from);
+  uptr from_length = REAL(strlen)(from);
   MEMPROF_READ_RANGE(from, from_length + 1);
-  uptr to_length = internal_strlen(to);
+  uptr to_length = REAL(strlen)(to);
   MEMPROF_READ_STRING(to, to_length);
   MEMPROF_WRITE_RANGE(to + to_length, from_length + 1);
   return REAL(strcat)(to, from);
@@ -219,7 +217,7 @@ INTERCEPTOR(char *, strncat, char *to, const char *from, uptr size) {
   uptr from_length = MaybeRealStrnlen(from, size);
   uptr copy_length = Min(size, from_length + 1);
   MEMPROF_READ_RANGE(from, copy_length);
-  uptr to_length = internal_strlen(to);
+  uptr to_length = REAL(strlen)(to);
   MEMPROF_READ_STRING(to, to_length);
   MEMPROF_WRITE_RANGE(to + to_length, from_length + 1);
   return REAL(strncat)(to, from, size);
@@ -232,7 +230,7 @@ INTERCEPTOR(char *, strcpy, char *to, const char *from) {
     return REAL(strcpy)(to, from);
   }
   ENSURE_MEMPROF_INITED();
-  uptr from_size = internal_strlen(from) + 1;
+  uptr from_size = REAL(strlen)(from) + 1;
   MEMPROF_READ_RANGE(from, from_size);
   MEMPROF_WRITE_RANGE(to, from_size);
   return REAL(strcpy)(to, from);
@@ -244,7 +242,7 @@ INTERCEPTOR(char *, strdup, const char *s) {
   if (UNLIKELY(!memprof_inited))
     return internal_strdup(s);
   ENSURE_MEMPROF_INITED();
-  uptr length = internal_strlen(s);
+  uptr length = REAL(strlen)(s);
   MEMPROF_READ_RANGE(s, length + 1);
   GET_STACK_TRACE_MALLOC;
   void *new_mem = memprof_malloc(length + 1, &stack);
@@ -258,7 +256,7 @@ INTERCEPTOR(char *, __strdup, const char *s) {
   if (UNLIKELY(!memprof_inited))
     return internal_strdup(s);
   ENSURE_MEMPROF_INITED();
-  uptr length = internal_strlen(s);
+  uptr length = REAL(strlen)(s);
   MEMPROF_READ_RANGE(s, length + 1);
   GET_STACK_TRACE_MALLOC;
   void *new_mem = memprof_malloc(length + 1, &stack);

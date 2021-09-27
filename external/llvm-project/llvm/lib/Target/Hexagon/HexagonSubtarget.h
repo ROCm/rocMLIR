@@ -24,7 +24,6 @@
 #include "llvm/CodeGen/ScheduleDAGMutation.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/MC/MCInstrItineraries.h"
-#include "llvm/Support/Alignment.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -289,10 +288,10 @@ public:
   bool isHVXVectorType(MVT VecTy, bool IncludeBool = false) const;
   bool isTypeForHVX(Type *VecTy, bool IncludeBool = false) const;
 
-  Align getTypeAlignment(MVT Ty) const {
+  unsigned getTypeAlignment(MVT Ty) const {
     if (isHVXVectorType(Ty, true))
-      return Align(getVectorLength());
-    return Align(std::max<unsigned>(1, Ty.getSizeInBits() / 8));
+      return getVectorLength();
+    return Ty.getSizeInBits() / 8;
   }
 
   unsigned getL1CacheLineSize() const;

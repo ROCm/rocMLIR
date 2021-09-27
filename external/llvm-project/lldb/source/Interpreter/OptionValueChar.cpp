@@ -57,3 +57,7 @@ Status OptionValueChar::SetValueFromString(llvm::StringRef value,
   }
   return error;
 }
+
+lldb::OptionValueSP OptionValueChar::DeepCopy() const {
+  return OptionValueSP(new OptionValueChar(*this));
+}

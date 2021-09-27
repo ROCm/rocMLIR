@@ -35,44 +35,54 @@ void LocationSize::print(raw_ostream &OS) const {
 }
 
 MemoryLocation MemoryLocation::get(const LoadInst *LI) {
+  AAMDNodes AATags;
+  LI->getAAMetadata(AATags);
   const auto &DL = LI->getModule()->getDataLayout();
 
   return MemoryLocation(
       LI->getPointerOperand(),
-      LocationSize::precise(DL.getTypeStoreSize(LI->getType())),
-      LI->getAAMetadata());
+      LocationSize::precise(DL.getTypeStoreSize(LI->getType())), AATags);
 }
 
 MemoryLocation MemoryLocation::get(const StoreInst *SI) {
+  AAMDNodes AATags;
+  SI->getAAMetadata(AATags);
   const auto &DL = SI->getModule()->getDataLayout();
 
   return MemoryLocation(SI->getPointerOperand(),
                         LocationSize::precise(DL.getTypeStoreSize(
                             SI->getValueOperand()->getType())),
-                        SI->getAAMetadata());
+                        AATags);
 }
 
 MemoryLocation MemoryLocation::get(const VAArgInst *VI) {
+  AAMDNodes AATags;
+  VI->getAAMetadata(AATags);
+
   return MemoryLocation(VI->getPointerOperand(),
-                        LocationSize::afterPointer(), VI->getAAMetadata());
+                        LocationSize::afterPointer(), AATags);
 }
 
 MemoryLocation MemoryLocation::get(const AtomicCmpXchgInst *CXI) {
+  AAMDNodes AATags;
+  CXI->getAAMetadata(AATags);
   const auto &DL = CXI->getModule()->getDataLayout();
 
   return MemoryLocation(CXI->getPointerOperand(),
                         LocationSize::precise(DL.getTypeStoreSize(
                             CXI->getCompareOperand()->getType())),
-                        CXI->getAAMetadata());
+                        AATags);
 }
 
 MemoryLocation MemoryLocation::get(const AtomicRMWInst *RMWI) {
+  AAMDNodes AATags;
+  RMWI->getAAMetadata(AATags);
   const auto &DL = RMWI->getModule()->getDataLayout();
 
   return MemoryLocation(RMWI->getPointerOperand(),
                         LocationSize::precise(DL.getTypeStoreSize(
                             RMWI->getValOperand()->getType())),
-                        RMWI->getAAMetadata());
+                        AATags);
 }
 
 Optional<MemoryLocation> MemoryLocation::getOrNone(const Instruction *Inst) {
@@ -107,7 +117,10 @@ MemoryLocation MemoryLocation::getForSource(const AnyMemTransferInst *MTI) {
 
   // memcpy/memmove can have AA tags. For memcpy, they apply
   // to both the source and the destination.
-  return MemoryLocation(MTI->getRawSource(), Size, MTI->getAAMetadata());
+  AAMDNodes AATags;
+  MTI->getAAMetadata(AATags);
+
+  return MemoryLocation(MTI->getRawSource(), Size, AATags);
 }
 
 MemoryLocation MemoryLocation::getForDest(const MemIntrinsic *MI) {
@@ -125,13 +138,17 @@ MemoryLocation MemoryLocation::getForDest(const AnyMemIntrinsic *MI) {
 
   // memcpy/memmove can have AA tags. For memcpy, they apply
   // to both the source and the destination.
-  return MemoryLocation(MI->getRawDest(), Size, MI->getAAMetadata());
+  AAMDNodes AATags;
+  MI->getAAMetadata(AATags);
+
+  return MemoryLocation(MI->getRawDest(), Size, AATags);
 }
 
 MemoryLocation MemoryLocation::getForArgument(const CallBase *Call,
                                               unsigned ArgIdx,
                                               const TargetLibraryInfo *TLI) {
-  AAMDNodes AATags = Call->getAAMetadata();
+  AAMDNodes AATags;
+  Call->getAAMetadata(AATags);
   const Value *Arg = Call->getArgOperand(ArgIdx);
 
   // We may be able to produce an exact size for known intrinsics.

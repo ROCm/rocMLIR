@@ -13,26 +13,17 @@
 #ifndef POLLY_PRUNEUNPROFITABLE_H
 #define POLLY_PRUNEUNPROFITABLE_H
 
-#include "polly/ScopPass.h"
-
 namespace llvm {
+
 class Pass;
 class PassRegistry;
+
+void initializePruneUnprofitablePass(PassRegistry &);
 } // namespace llvm
 
 namespace polly {
-llvm::Pass *createPruneUnprofitableWrapperPass();
 
-struct PruneUnprofitablePass : llvm::PassInfoMixin<PruneUnprofitablePass> {
-  PruneUnprofitablePass() {}
-
-  llvm::PreservedAnalyses run(Scop &S, ScopAnalysisManager &SAM,
-                              ScopStandardAnalysisResults &SAR, SPMUpdater &U);
-};
+llvm::Pass *createPruneUnprofitablePass();
 } // namespace polly
-
-namespace llvm {
-void initializePruneUnprofitableWrapperPassPass(PassRegistry &);
-}
 
 #endif // POLLY_PRUNEUNPROFITABLE_H

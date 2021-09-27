@@ -140,9 +140,6 @@ TEST_CASE(test_follow_symlinks)
     TEST_CHECK(it == endIt);
 }
 
-// Windows doesn't support setting perms::none to trigger failures
-// reading directories.
-#ifndef TEST_WIN_NO_FILESYSTEM_PERMS_NONE
 TEST_CASE(access_denied_on_recursion_test_case)
 {
     using namespace fs;
@@ -493,7 +490,6 @@ TEST_CASE(test_PR35078_with_symlink_file)
       }
     }
 }
-#endif
 
 
 TEST_SUITE_END()

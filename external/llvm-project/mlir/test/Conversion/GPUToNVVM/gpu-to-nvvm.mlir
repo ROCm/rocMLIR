@@ -4,7 +4,7 @@
 gpu.module @test_module {
   // CHECK-LABEL: func @gpu_index_ops()
   // CHECK32-LABEL: func @gpu_index_ops()
-  builtin.func @gpu_index_ops()
+  func @gpu_index_ops()
       -> (index, index, index, index, index, index,
           index, index, index, index, index, index) {
     // CHECK32-NOT: = llvm.sext %{{.*}} : i32 to i64
@@ -61,7 +61,7 @@ gpu.module @test_module {
 gpu.module @test_module {
   // CHECK-LABEL: func @gpu_index_comp
   // CHECK32-LABEL: func @gpu_index_comp
-  builtin.func @gpu_index_comp(%idx : index) -> index {
+  func @gpu_index_comp(%idx : index) -> index {
     // CHECK: = llvm.add %{{.*}}, %{{.*}} : i64
     // CHECK32: = llvm.add %{{.*}}, %{{.*}} : i32
     %0 = addi %idx, %idx : index
@@ -109,7 +109,7 @@ gpu.module @test_module {
 
 gpu.module @test_module {
   // CHECK-LABEL: func @gpu_shuffle()
-  builtin.func @gpu_shuffle() -> (f32) {
+  func @gpu_shuffle() -> (f32) {
     // CHECK: %[[#VALUE:]] = llvm.mlir.constant(1.000000e+00 : f32) : f32
     %arg0 = constant 1.0 : f32
     // CHECK: %[[#OFFSET:]] = llvm.mlir.constant(4 : i32) : i32
@@ -133,7 +133,7 @@ gpu.module @test_module {
 
 gpu.module @test_module {
   // CHECK-LABEL: func @gpu_sync()
-  builtin.func @gpu_sync() {
+  func @gpu_sync() {
     // CHECK: nvvm.barrier0
     gpu.barrier
     std.return
@@ -146,7 +146,7 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_fabsf(f32) -> f32
   // CHECK: llvm.func @__nv_fabs(f64) -> f64
   // CHECK-LABEL: func @gpu_fabs
-  builtin.func @gpu_fabs(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
+  func @gpu_fabs(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
     %result32 = std.absf %arg_f32 : f32
     // CHECK: llvm.call @__nv_fabsf(%{{.*}}) : (f32) -> f32
     %result64 = std.absf %arg_f64 : f64
@@ -161,7 +161,7 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_ceilf(f32) -> f32
   // CHECK: llvm.func @__nv_ceil(f64) -> f64
   // CHECK-LABEL: func @gpu_ceil
-  builtin.func @gpu_ceil(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
+  func @gpu_ceil(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
     %result32 = std.ceilf %arg_f32 : f32
     // CHECK: llvm.call @__nv_ceilf(%{{.*}}) : (f32) -> f32
     %result64 = std.ceilf %arg_f64 : f64
@@ -176,7 +176,7 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_floorf(f32) -> f32
   // CHECK: llvm.func @__nv_floor(f64) -> f64
   // CHECK-LABEL: func @gpu_floor
-  builtin.func @gpu_floor(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
+  func @gpu_floor(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
     %result32 = std.floorf %arg_f32 : f32
     // CHECK: llvm.call @__nv_floorf(%{{.*}}) : (f32) -> f32
     %result64 = std.floorf %arg_f64 : f64
@@ -191,10 +191,10 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_cosf(f32) -> f32
   // CHECK: llvm.func @__nv_cos(f64) -> f64
   // CHECK-LABEL: func @gpu_cos
-  builtin.func @gpu_cos(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
-    %result32 = math.cos %arg_f32 : f32
+  func @gpu_cos(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
+    %result32 = std.cos %arg_f32 : f32
     // CHECK: llvm.call @__nv_cosf(%{{.*}}) : (f32) -> f32
-    %result64 = math.cos %arg_f64 : f64
+    %result64 = std.cos %arg_f64 : f64
     // CHECK: llvm.call @__nv_cos(%{{.*}}) : (f64) -> f64
     std.return %result32, %result64 : f32, f64
   }
@@ -205,25 +205,11 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_expf(f32) -> f32
   // CHECK: llvm.func @__nv_exp(f64) -> f64
   // CHECK-LABEL: func @gpu_exp
-  builtin.func @gpu_exp(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
-    %result32 = math.exp %arg_f32 : f32
+  func @gpu_exp(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
+    %result32 = std.exp %arg_f32 : f32
     // CHECK: llvm.call @__nv_expf(%{{.*}}) : (f32) -> f32
-    %result64 = math.exp %arg_f64 : f64
+    %result64 = std.exp %arg_f64 : f64
     // CHECK: llvm.call @__nv_exp(%{{.*}}) : (f64) -> f64
-    std.return %result32, %result64 : f32, f64
-  }
-}
-
-// -----
-gpu.module @test_module {
-  // CHECK: llvm.func @__nv_exp2f(f32) -> f32
-  // CHECK: llvm.func @__nv_exp2(f64) -> f64
-  // CHECK-LABEL: func @gpu_exp2
-  builtin.func @gpu_exp2(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
-    %result32 = math.exp2 %arg_f32 : f32
-    // CHECK: llvm.call @__nv_exp2f(%{{.*}}) : (f32) -> f32
-    %result64 = math.exp2 %arg_f64 : f64
-    // CHECK: llvm.call @__nv_exp2(%{{.*}}) : (f64) -> f64
     std.return %result32, %result64 : f32, f64
   }
 }
@@ -234,10 +220,10 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_logf(f32) -> f32
   // CHECK: llvm.func @__nv_log(f64) -> f64
   // CHECK-LABEL: func @gpu_log
-  builtin.func @gpu_log(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
-    %result32 = math.log %arg_f32 : f32
+  func @gpu_log(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
+    %result32 = std.log %arg_f32 : f32
     // CHECK: llvm.call @__nv_logf(%{{.*}}) : (f32) -> f32
-    %result64 = math.log %arg_f64 : f64
+    %result64 = std.log %arg_f64 : f64
     // CHECK: llvm.call @__nv_log(%{{.*}}) : (f64) -> f64
     std.return %result32, %result64 : f32, f64
   }
@@ -249,10 +235,10 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_log10f(f32) -> f32
   // CHECK: llvm.func @__nv_log10(f64) -> f64
   // CHECK-LABEL: func @gpu_log10
-  builtin.func @gpu_log10(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
-    %result32 = math.log10 %arg_f32 : f32
+  func @gpu_log10(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
+    %result32 = std.log10 %arg_f32 : f32
     // CHECK: llvm.call @__nv_log10f(%{{.*}}) : (f32) -> f32
-    %result64 = math.log10 %arg_f64 : f64
+    %result64 = std.log10 %arg_f64 : f64
     // CHECK: llvm.call @__nv_log10(%{{.*}}) : (f64) -> f64
     std.return %result32, %result64 : f32, f64
   }
@@ -264,10 +250,10 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_log1pf(f32) -> f32
   // CHECK: llvm.func @__nv_log1p(f64) -> f64
   // CHECK-LABEL: func @gpu_log1p
-  builtin.func @gpu_log1p(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
-    %result32 = math.log1p %arg_f32 : f32
+  func @gpu_log1p(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
+    %result32 = std.log1p %arg_f32 : f32
     // CHECK: llvm.call @__nv_log1pf(%{{.*}}) : (f32) -> f32
-    %result64 = math.log1p %arg_f64 : f64
+    %result64 = std.log1p %arg_f64 : f64
     // CHECK: llvm.call @__nv_log1p(%{{.*}}) : (f64) -> f64
     std.return %result32, %result64 : f32, f64
   }
@@ -279,10 +265,10 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_log2f(f32) -> f32
   // CHECK: llvm.func @__nv_log2(f64) -> f64
   // CHECK-LABEL: func @gpu_log2
-  builtin.func @gpu_log2(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
-    %result32 = math.log2 %arg_f32 : f32
+  func @gpu_log2(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
+    %result32 = std.log2 %arg_f32 : f32
     // CHECK: llvm.call @__nv_log2f(%{{.*}}) : (f32) -> f32
-    %result64 = math.log2 %arg_f64 : f64
+    %result64 = std.log2 %arg_f64 : f64
     // CHECK: llvm.call @__nv_log2(%{{.*}}) : (f64) -> f64
     std.return %result32, %result64 : f32, f64
   }
@@ -294,10 +280,10 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_sinf(f32) -> f32
   // CHECK: llvm.func @__nv_sin(f64) -> f64
   // CHECK-LABEL: func @gpu_sin
-  builtin.func @gpu_sin(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
-    %result32 = math.sin %arg_f32 : f32
+  func @gpu_sin(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
+    %result32 = std.sin %arg_f32 : f32
     // CHECK: llvm.call @__nv_sinf(%{{.*}}) : (f32) -> f32
-    %result64 = math.sin %arg_f64 : f64
+    %result64 = std.sin %arg_f64 : f64
     // CHECK: llvm.call @__nv_sin(%{{.*}}) : (f64) -> f64
     std.return %result32, %result64 : f32, f64
   }
@@ -309,14 +295,14 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_tanhf(f32) -> f32
   // CHECK: llvm.func @__nv_tanh(f64) -> f64
   // CHECK-LABEL: func @gpu_tanh
-  builtin.func @gpu_tanh(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64) -> (f16, f32, f64) {
-    %result16 = math.tanh %arg_f16 : f16
+  func @gpu_tanh(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64) -> (f16, f32, f64) {
+    %result16 = std.tanh %arg_f16 : f16
     // CHECK: llvm.fpext %{{.*}} : f16 to f32
     // CHECK-NEXT: llvm.call @__nv_tanhf(%{{.*}}) : (f32) -> f32
     // CHECK-NEXT: llvm.fptrunc %{{.*}} : f32 to f16
-    %result32 = math.tanh %arg_f32 : f32
+    %result32 = std.tanh %arg_f32 : f32
     // CHECK: llvm.call @__nv_tanhf(%{{.*}}) : (f32) -> f32
-    %result64 = math.tanh %arg_f64 : f64
+    %result64 = std.tanh %arg_f64 : f64
     // CHECK: llvm.call @__nv_tanh(%{{.*}}) : (f64) -> f64
     std.return %result16, %result32, %result64 : f16, f32, f64
   }
@@ -328,15 +314,15 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_rsqrtf(f32) -> f32
   // CHECK: llvm.func @__nv_rsqrt(f64) -> f64
   // CHECK-LABEL: func @gpu_rsqrt
-  builtin.func @gpu_rsqrt(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64)
+  func @gpu_rsqrt(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64)
       -> (f16, f32, f64) {
-    %result16 = math.rsqrt %arg_f16 : f16
+    %result16 = std.rsqrt %arg_f16 : f16
     // CHECK: llvm.fpext %{{.*}} : f16 to f32
     // CHECK-NEXT: llvm.call @__nv_rsqrtf(%{{.*}}) : (f32) -> f32
     // CHECK-NEXT: llvm.fptrunc %{{.*}} : f32 to f16
-    %result32 = math.rsqrt %arg_f32 : f32
+    %result32 = std.rsqrt %arg_f32 : f32
     // CHECK: llvm.call @__nv_rsqrtf(%{{.*}}) : (f32) -> f32
-    %result64 = math.rsqrt %arg_f64 : f64
+    %result64 = std.rsqrt %arg_f64 : f64
     // CHECK: llvm.call @__nv_rsqrt(%{{.*}}) : (f64) -> f64
     std.return %result16, %result32, %result64 : f16, f32, f64
   }
@@ -348,15 +334,15 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_sqrtf(f32) -> f32
   // CHECK: llvm.func @__nv_sqrt(f64) -> f64
   // CHECK-LABEL: func @gpu_sqrt
-  builtin.func @gpu_sqrt(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64)
+  func @gpu_sqrt(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64)
       -> (f16, f32, f64) {
-    %result16 = math.sqrt %arg_f16 : f16
+    %result16 = std.sqrt %arg_f16 : f16
     // CHECK: llvm.fpext %{{.*}} : f16 to f32
     // CHECK-NEXT: llvm.call @__nv_sqrtf(%{{.*}}) : (f32) -> f32
     // CHECK-NEXT: llvm.fptrunc %{{.*}} : f32 to f16
-    %result32 = math.sqrt %arg_f32 : f32
+    %result32 = std.sqrt %arg_f32 : f32
     // CHECK: llvm.call @__nv_sqrtf(%{{.*}}) : (f32) -> f32
-    %result64 = math.sqrt %arg_f64 : f64
+    %result64 = std.sqrt %arg_f64 : f64
     // CHECK: llvm.call @__nv_sqrt(%{{.*}}) : (f64) -> f64
     std.return %result16, %result32, %result64 : f16, f32, f64
   }
@@ -368,15 +354,15 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_atanf(f32) -> f32
   // CHECK: llvm.func @__nv_atan(f64) -> f64
   // CHECK-LABEL: func @gpu_atan
-  builtin.func @gpu_atan(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64)
+  func @gpu_atan(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64)
       -> (f16, f32, f64) {
-    %result16 = math.atan %arg_f16 : f16
+    %result16 = std.atan %arg_f16 : f16
     // CHECK: llvm.fpext %{{.*}} : f16 to f32
     // CHECK-NEXT: llvm.call @__nv_atanf(%{{.*}}) : (f32) -> f32
     // CHECK-NEXT: llvm.fptrunc %{{.*}} : f32 to f16
-    %result32 = math.atan %arg_f32 : f32
+    %result32 = std.atan %arg_f32 : f32
     // CHECK: llvm.call @__nv_atanf(%{{.*}}) : (f32) -> f32
-    %result64 = math.atan %arg_f64 : f64
+    %result64 = std.atan %arg_f64 : f64
     // CHECK: llvm.call @__nv_atan(%{{.*}}) : (f64) -> f64
     std.return %result16, %result32, %result64 : f16, f32, f64
   }
@@ -388,16 +374,16 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_atan2f(f32, f32) -> f32
   // CHECK: llvm.func @__nv_atan2(f64, f64) -> f64
   // CHECK-LABEL: func @gpu_atan2
-  builtin.func @gpu_atan2(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64)
+  func @gpu_atan2(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64)
       -> (f16, f32, f64) {
-    %result16 = math.atan2 %arg_f16, %arg_f16 : f16
+    %result16 = std.atan2 %arg_f16, %arg_f16 : f16
     // CHECK: llvm.fpext %{{.*}} : f16 to f32
     // CHECK: llvm.fpext %{{.*}} : f16 to f32
     // CHECK-NEXT: llvm.call @__nv_atan2f(%{{.*}}) : (f32, f32) -> f32
     // CHECK-NEXT: llvm.fptrunc %{{.*}} : f32 to f16
-    %result32 = math.atan2 %arg_f32, %arg_f32 : f32
+    %result32 = std.atan2 %arg_f32, %arg_f32 : f32
     // CHECK: llvm.call @__nv_atan2f(%{{.*}}) : (f32, f32) -> f32
-    %result64 = math.atan2 %arg_f64, %arg_f64 : f64
+    %result64 = std.atan2 %arg_f64, %arg_f64 : f64
     // CHECK: llvm.call @__nv_atan2(%{{.*}}) : (f64, f64) -> f64
     std.return %result16, %result32, %result64 : f16, f32, f64
   }
@@ -412,10 +398,10 @@ gpu.module @test_module {
   // CHECK: llvm.func @__nv_expf(f32) -> f32
   // CHECK: llvm.func @__nv_exp(f64) -> f64
   // CHECK-LABEL: func @gpu_exp
-    builtin.func @gpu_exp(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
-      %result32 = math.exp %arg_f32 : f32
+    func @gpu_exp(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
+      %result32 = std.exp %arg_f32 : f32
       // CHECK: llvm.call @__nv_expf(%{{.*}}) : (f32) -> f32
-      %result64 = math.exp %arg_f64 : f64
+      %result64 = std.exp %arg_f64 : f64
       // CHECK: llvm.call @__nv_exp(%{{.*}}) : (f64) -> f64
       std.return %result32, %result64 : f32, f64
     }
@@ -426,41 +412,14 @@ gpu.module @test_module {
 // -----
 
 gpu.module @test_module {
-  // CHECK: llvm.func @__nv_expm1f(f32) -> f32
-  // CHECK: llvm.func @__nv_expm1(f64) -> f64
-  // CHECK-LABEL: func @gpu_expm1
-  builtin.func @gpu_expm1(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
-    %result32 = math.expm1 %arg_f32 : f32
-    // CHECK: llvm.call @__nv_expm1f(%{{.*}}) : (f32) -> f32
-    %result64 = math.expm1 %arg_f64 : f64
-    // CHECK: llvm.call @__nv_expm1(%{{.*}}) : (f64) -> f64
-    std.return %result32, %result64 : f32, f64
-  }
-}
-
-// -----
-
-gpu.module @test_module {
   // CHECK: llvm.func @__nv_powf(f32, f32) -> f32
   // CHECK: llvm.func @__nv_pow(f64, f64) -> f64
   // CHECK-LABEL: func @gpu_pow
-  builtin.func @gpu_pow(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
-    %result32 = math.powf %arg_f32, %arg_f32 : f32
+  func @gpu_pow(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
+    %result32 = std.powf %arg_f32, %arg_f32 : f32
     // CHECK: llvm.call @__nv_powf(%{{.*}}, %{{.*}}) : (f32, f32) -> f32
-    %result64 = math.powf %arg_f64, %arg_f64 : f64
+    %result64 = std.powf %arg_f64, %arg_f64 : f64
     // CHECK: llvm.call @__nv_pow(%{{.*}}, %{{.*}}) : (f64, f64) -> f64
     std.return %result32, %result64 : f32, f64
-  }
-}
-
-// -----
-
-gpu.module @test_module {
-  // CHECK-LABEL: @kernel_func
-  // CHECK: attributes
-  // CHECK: gpu.kernel
-  // CHECK: nvvm.kernel
-  gpu.func @kernel_func() kernel {
-    gpu.return
   }
 }

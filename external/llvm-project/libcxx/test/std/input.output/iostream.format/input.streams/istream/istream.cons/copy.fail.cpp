@@ -6,6 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+// UNSUPPORTED: c++03
+
 // <istream>
 
 // template <class charT, class traits = char_traits<charT> >
@@ -45,7 +47,10 @@ struct test_istream
 
 };
 
+
 int main(int, char**)
 {
+
+
   return 0;
 }

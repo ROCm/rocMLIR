@@ -10,8 +10,8 @@
 // of records we encounter in XRay flight data recorder mode traces.
 //
 //===----------------------------------------------------------------------===//
-#ifndef LLVM_XRAY_FDRRECORDS_H
-#define LLVM_XRAY_FDRRECORDS_H
+#ifndef LLVM_LIB_XRAY_FDRRECORDS_H_
+#define LLVM_LIB_XRAY_FDRRECORDS_H_
 
 #include <cstdint>
 #include <string>
@@ -446,4 +446,4 @@ public:
 } // namespace xray
 } // namespace llvm
 
-#endif // LLVM_XRAY_FDRRECORDS_H
+#endif // LLVM_LIB_XRAY_FDRRECORDS_H_

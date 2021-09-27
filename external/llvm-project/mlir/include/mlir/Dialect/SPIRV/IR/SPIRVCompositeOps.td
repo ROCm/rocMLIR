@@ -111,7 +111,7 @@ def SPV_CompositeExtractOp : SPV_Op<"CompositeExtract",
   );
 
   let builders = [
-    OpBuilder<(ins "Value":$composite, "ArrayRef<int32_t>":$indices)>
+    OpBuilderDAG<(ins "Value":$composite, "ArrayRef<int32_t>":$indices)>
   ];
 
   let hasFolder = 1;
@@ -164,7 +164,7 @@ def SPV_CompositeInsertOp : SPV_Op<"CompositeInsert",
   );
 
   let builders = [
-    OpBuilder<(ins "Value":$object, "Value":$composite,
+    OpBuilderDAG<(ins "Value":$object, "Value":$composite,
                       "ArrayRef<int32_t>":$indices)>
   ];
 }

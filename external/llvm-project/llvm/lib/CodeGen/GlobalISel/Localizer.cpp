@@ -82,7 +82,8 @@ bool Localizer::localizeInterBlock(MachineFunction &MF,
   // we start doing CSE across blocks.
   auto &MBB = MF.front();
   auto &TL = *MF.getSubtarget().getTargetLowering();
-  for (MachineInstr &MI : llvm::reverse(MBB)) {
+  for (auto RI = MBB.rbegin(), RE = MBB.rend(); RI != RE; ++RI) {
+    MachineInstr &MI = *RI;
     if (!TL.shouldLocalize(MI, TTI))
       continue;
     LLVM_DEBUG(dbgs() << "Should localize: " << MI);
@@ -92,8 +93,9 @@ bool Localizer::localizeInterBlock(MachineFunction &MF,
     // Check if all the users of MI are local.
     // We are going to invalidation the list of use operands, so we
     // can't use range iterator.
-    for (MachineOperand &MOUse :
-         llvm::make_early_inc_range(MRI->use_operands(Reg))) {
+    for (auto MOIt = MRI->use_begin(Reg), MOItEnd = MRI->use_end();
+         MOIt != MOItEnd;) {
+      MachineOperand &MOUse = *MOIt++;
       // Check if the use is already local.
       MachineBasicBlock *InsertMBB;
       LLVM_DEBUG(MachineInstr &MIUse = *MOUse.getParent();

@@ -56,6 +56,7 @@ public:
     return false;
   }
   ConstString GetPluginName() override { return ConstString("Dummy"); }
+  uint32_t GetPluginVersion() override { return 0; }
 
   ProcessModID &GetModIDNonConstRef() { return m_mod_id; }
 };

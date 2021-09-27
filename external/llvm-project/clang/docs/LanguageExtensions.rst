@@ -132,7 +132,7 @@ macro returns a nonzero value based on the year and month in which the attribute
 was voted into the working draft. See `WG21 SD-6
 <https://isocpp.org/std/standing-documents/sd-6-sg10-feature-test-recommendations>`_
 for the list of values returned for standards-based attributes. If the attribute
-is not supported by the current compilation target, this macro evaluates to 0.
+is not supported by the current compliation target, this macro evaluates to 0.
 It can be used like this:
 
 .. code-block:: c++
@@ -383,18 +383,6 @@ Builtin Macros
   Defined to a string that captures the Clang marketing version, including the
   Subversion tag or revision number, e.g., "``1.5 (trunk 102332)``".
 
-``__clang_literal_encoding__``
-  Defined to a narrow string literal that represents the current encoding of
-  narrow string literals, e.g., ``"hello"``. This macro typically expands to
-  "UTF-8" (but may change in the future if the
-  ``-fexec-charset="Encoding-Name"`` option is implemented.)
-
-``__clang_wide_literal_encoding__``
-  Defined to a narrow string literal that represents the current encoding of
-  wide string literals, e.g., ``L"hello"``. This macro typically expands to
-  "UTF-16" or "UTF-32" (but may change in the future if the
-  ``-fwide-exec-charset="Encoding-Name"`` option is implemented.)
-
 .. _langext-vectors:
 
 Vectors and Extended Vectors
@@ -523,64 +511,6 @@ float matrices and add the result to a third 4x4 matrix.
     return a + b * c;
   }
 
-The matrix type extension also supports operations on a matrix and a scalar.
-
-.. code-block:: c++
-
-  typedef float m4x4_t __attribute__((matrix_type(4, 4)));
-
-  m4x4_t f(m4x4_t a) {
-    return (a + 23) * 12;
-  }
-
-The matrix type extension supports division on a matrix and a scalar but not on a matrix and a matrix.
-
-.. code-block:: c++
-
-  typedef float m4x4_t __attribute__((matrix_type(4, 4)));
-
-  m4x4_t f(m4x4_t a) {
-    a = a / 3.0;
-    return a;
-  }
-
-The matrix type extension supports compound assignments for addition, subtraction, and multiplication on matrices
-and on a matrix and a scalar, provided their types are consistent.
-
-.. code-block:: c++
-
-  typedef float m4x4_t __attribute__((matrix_type(4, 4)));
-
-  m4x4_t f(m4x4_t a, m4x4_t b) {
-    a += b;
-    a -= b;
-    a *= b;
-    a += 23;
-    a -= 12;
-    return a;
-  }
-
-The matrix type extension supports explicit casts. Implicit type conversion between matrix types is not allowed.
-
-.. code-block:: c++
-
-  typedef int ix5x5 __attribute__((matrix_type(5, 5)));
-  typedef float fx5x5 __attribute__((matrix_type(5, 5)));
-
-  fx5x5 f1(ix5x5 i, fx5x5 f) {
-    return (fx5x5) i;
-  }
-
-
-  template <typename X>
-  using matrix_4_4 = X __attribute__((matrix_type(4, 4)));
-
-  void f2() {
-    matrix_5_5<double> d;
-    matrix_5_5<int> i;
-    i = (matrix_5_5<int>)d;
-    i = static_cast<matrix_5_5<int>>(d);
-  }
 
 Half-Precision Floating Point
 =============================
@@ -594,9 +524,7 @@ targets pending ABI standardization:
 
 * 32-bit ARM
 * 64-bit ARM (AArch64)
-* AMDGPU
 * SPIR
-* X86 (Only available under feature AVX512-FP16)
 
 ``_Float16`` will be supported on more targets as they define ABIs for it.
 
@@ -613,7 +541,7 @@ The behavior of ``__fp16`` is specified by the ARM C Language Extensions (`ACLE 
 Clang uses the ``binary16`` format from IEEE 754-2008 for ``__fp16``, not the ARM
 alternative format.
 
-``_Float16`` is an interchange floating-point type.  This means that, just like arithmetic on
+``_Float16`` is an extended floating-point type.  This means that, just like arithmetic on
 ``float`` or ``double``, arithmetic on ``_Float16`` operands is formally performed in the
 ``_Float16`` type, so that e.g. the result of adding two ``_Float16`` values has type
 ``_Float16``.  The behavior of ``_Float16`` is specified by ISO/IEC TS 18661-3:2015
@@ -690,20 +618,6 @@ after the enumerator name and before any initializer, like so:
 Attributes on the ``enum`` declaration do not apply to individual enumerators.
 
 Query for this feature with ``__has_extension(enumerator_attributes)``.
-
-C++11 Attributes on using-declarations
-======================================
-
-Clang allows C++-style ``[[]]`` attributes to be written on using-declarations.
-For instance:
-
-.. code-block:: c++
-
-  [[clang::using_if_exists]] using foo::bar;
-  using foo::baz [[clang::using_if_exists]];
-
-You can test for support for this extension with
-``__has_extension(cxx_attributes_on_using_declarations)``.
 
 'User-Specified' System Frameworks
 ==================================
@@ -1279,9 +1193,7 @@ The following type trait primitives are supported by Clang. Those traits marked
 * ``__is_sealed`` (Microsoft):
   Synonym for ``__is_final``.
 * ``__is_signed`` (C++, Embarcadero):
-  Returns false for enumeration types, and returns true for floating-point
-  types. Note, before Clang 10, returned true for enumeration types if the
-  underlying type was signed, and returned false for floating-point types.
+  Returns false for enumeration types, and returns true for floating-point types. Note, before Clang 10, returned true for enumeration types if the underlying type was signed, and returned false for floating-point types.
 * ``__is_standard_layout`` (C++, GNU, Microsoft, Embarcadero)
 * ``__is_trivial`` (C++, GNU, Microsoft, Embarcadero)
 * ``__is_trivially_assignable`` (C++, GNU, Microsoft)
@@ -1289,9 +1201,10 @@ The following type trait primitives are supported by Clang. Those traits marked
 * ``__is_trivially_copyable`` (C++, GNU, Microsoft)
 * ``__is_trivially_destructible`` (C++, MSVC 2013)
 * ``__is_union`` (C++, GNU, Microsoft, Embarcadero)
-* ``__is_unsigned`` (C++, Embarcadero):
-  Returns false for enumeration types. Note, before Clang 13, returned true for
-  enumeration types if the underlying type was unsigned.
+* ``__is_unsigned`` (C++, Embarcadero)
+  Note that this currently returns true for enumeration types if the underlying
+  type is unsigned, in violation of the requirements for ``std::is_unsigned``.
+  This behavior is likely to change in a future version of Clang.
 * ``__is_void`` (C++, Embarcadero)
 * ``__is_volatile`` (C++, Embarcadero)
 * ``__reference_binds_to_temporary(T, U)`` (Clang):  Determines whether a
@@ -1814,34 +1727,6 @@ OpenCL Features
 
 Clang supports internal OpenCL extensions documented below.
 
-``__cl_clang_bitfields``
---------------------------------
-
-With this extension it is possible to enable bitfields in structs
-or unions using the OpenCL extension pragma mechanism detailed in
-`the OpenCL Extension Specification, section 1.2
-<https://www.khronos.org/registry/OpenCL/specs/3.0-unified/html/OpenCL_Ext.html#extensions-overview>`_.
-
-Use of bitfields in OpenCL kernels can result in reduced portability as struct
-layout is not guaranteed to be consistent when compiled by different compilers.
-If structs with bitfields are used as kernel function parameters, it can result
-in incorrect functionality when the layout is different between the host and
-device code.
-
-**Example of Use**:
-
-.. code-block:: c++
-
-  #pragma OPENCL EXTENSION __cl_clang_bitfields : enable
-  struct with_bitfield {
-    unsigned int i : 5; // compiled - no diagnostic generated
-  };
-
-  #pragma OPENCL EXTENSION __cl_clang_bitfields : disable
-  struct without_bitfield {
-    unsigned int i : 5; // error - bitfields are not supported
-  };
-
 ``__cl_clang_function_pointers``
 --------------------------------
 
@@ -1867,7 +1752,7 @@ correctly in any circumstances. It can be used if:
   metaprogramming algorithms to be able to specify/detect types generically.
 
 - the generated kernel binary does not contain indirect calls because they
-  are eliminated using compiler optimizations e.g. devirtualization.
+  are eliminated using compiler optimizations e.g. devirtualization. 
 
 - the selected target supports the function pointer like functionality e.g.
   most CPU targets.
@@ -1898,7 +1783,7 @@ Extension Specification, section 1.2
 
 This is not conformant behavior and it can only be used portably when the
 functions with variadic prototypes do not get generated in binary e.g. the
-variadic prototype is used to specify a function type with any number of
+variadic prototype is used to spesify a function type with any number of
 arguments in metaprogramming algorithms in C++ for OpenCL.
 
 This extensions can also be used when the kernel code is intended for targets
@@ -1913,95 +1798,6 @@ supporting the variadic arguments e.g. majority of CPU targets.
 
   #pragma OPENCL EXTENSION __cl_clang_variadic_functions : disable
   void bar(int a, ...); // error - variadic prototype is not allowed
-
-``__cl_clang_non_portable_kernel_param_types``
-----------------------------------------------
-
-With this extension it is possible to enable the use of some restricted types
-in kernel parameters specified in `C++ for OpenCL v1.0 s2.4
-<https://www.khronos.org/opencl/assets/CXX_for_OpenCL.html#kernel_function>`_.
-The restrictions can be relaxed using regular OpenCL extension pragma mechanism
-detailed in `the OpenCL Extension Specification, section 1.2
-<https://www.khronos.org/registry/OpenCL/specs/3.0-unified/html/OpenCL_Ext.html#extensions-overview>`_.
-
-This is not a conformant behavior and it can only be used when the
-kernel arguments are not accessed on the host side or the data layout/size
-between the host and device is known to be compatible.
-
-**Example of Use**:
-
-.. code-block:: c++
-
-  // Plain Old Data type.
-  struct Pod {
-    int a;
-    int b;
-  };
-
-  // Not POD type because of the constructor.
-  // Standard layout type because there is only one access control.
-  struct OnlySL {
-    int a;
-    int b;
-    NotPod() : a(0), b(0) {}
-  };
-
-  // Not standard layout type because of two different access controls.
-  struct NotSL {
-    int a;
-  private:
-    int b;
-  }
-
-  kernel void kernel_main(
-    Pod a,
-  #pragma OPENCL EXTENSION __cl_clang_non_portable_kernel_param_types : enable
-    OnlySL b,
-    global NotSL *c,
-  #pragma OPENCL EXTENSION __cl_clang_non_portable_kernel_param_types : disable
-    global OnlySL *d,
-  );
-
-Remove address space builtin function
--------------------------------------
-
-``__remove_address_space`` allows to derive types in C++ for OpenCL
-that have address space qualifiers removed. This utility only affects
-address space qualifiers, therefore, other type qualifiers such as
-``const`` or ``volatile`` remain unchanged.
-
-**Example of Use**:
-
-.. code-block:: c++
-
-  template<typename T>
-  void foo(T *par){
-    T var1; // error - local function variable with global address space
-    __private T var2; // error - conflicting address space qualifiers
-    __private __remove_address_space<T>::type var3; // var3 is __private int
-  }
-
-  void bar(){
-    __global int* ptr;
-    foo(ptr);
-  }
-
-Legacy 1.x atomics with generic address space
----------------------------------------------
-
-Clang allows use of atomic functions from the OpenCL 1.x standards
-with the generic address space pointer in C++ for OpenCL mode.
-
-This is a non-portable feature and might not be supported by all
-targets.
-
-**Example of Use**:
-
-.. code-block:: c++
-
-  void foo(__generic volatile unsigned int* a) {
-    atomic_add(a, 1);
-  }
 
 Builtin Functions
 =================
@@ -2501,40 +2297,6 @@ argument.
   int *pb =__builtin_preserve_access_index(&v->c[3].b);
   __builtin_preserve_access_index(v->j);
 
-``__builtin_sycl_unique_stable_name``
--------------------------------------
-
-``__builtin_sycl_unique_stable_name()`` is a builtin that takes a type and
-produces a string literal containing a unique name for the type that is stable
-across split compilations, mainly to support SYCL/Data Parallel C++ language.
-
-In cases where the split compilation needs to share a unique token for a type
-across the boundary (such as in an offloading situation), this name can be used
-for lookup purposes, such as in the SYCL Integration Header.
-
-The value of this builtin is computed entirely at compile time, so it can be
-used in constant expressions. This value encodes lambda functions based on a
-stable numbering order in which they appear in their local declaration contexts.
-Once this builtin is evaluated in a constexpr context, it is erroneous to use
-it in an instantiation which changes its value.
-
-In order to produce the unique name, the current implementation of the bultin
-uses Itanium mangling even if the host compilation uses a different name
-mangling scheme at runtime. The mangler marks all the lambdas required to name
-the SYCL kernel and emits a stable local ordering of the respective lambdas,
-starting from ``10000``. The initial value of ``10000`` serves as an obvious
-differentiator from ordinary lambda mangling numbers but does not serve any
-other purpose and may change in the future. The resulting pattern is
-demanglable. When non-lambda types are passed to the builtin, the mangler emits
-their usual pattern without any special treatment.
-
-**Syntax**:
-
-.. code-block:: c
-
-  // Computes a unique stable name for the given type.
-  constexpr const char * __builtin_sycl_unique_stable_name( type-id );
-
 Multiprecision Arithmetic Builtins
 ----------------------------------
 
@@ -2729,10 +2491,10 @@ Guaranteed inlined copy
 ``__builtin_memcpy_inline`` has been designed as a building block for efficient
 ``memcpy`` implementations. It is identical to ``__builtin_memcpy`` but also
 guarantees not to call any external functions. See LLVM IR `llvm.memcpy.inline
-<https://llvm.org/docs/LangRef.html#llvm-memcpy-inline-intrinsic>`_ intrinsic
+<https://llvm.org/docs/LangRef.html#llvm-memcpy-inline-intrinsic>`_ intrinsic 
 for more information.
 
-This is useful to implement a custom version of ``memcpy``, implement a
+This is useful to implement a custom version of ``memcpy``, implemement a
 ``libc`` memcpy or work around the absence of a ``libc``.
 
 Note that the `size` argument must be a compile time constant.
@@ -3435,9 +3197,6 @@ to the same code size limit as with ``unroll(enable)``.
 
 Unrolling of a loop can be prevented by specifying ``unroll(disable)``.
 
-Loop unroll parameters can be controlled by options
-`-mllvm -unroll-count=n` and `-mllvm -pragma-unroll-threshold=n`.
-
 Loop Distribution
 -----------------
 
@@ -3569,14 +3328,12 @@ A ``#pragma clang fp`` pragma may contain any number of options:
 
 The ``#pragma float_control`` pragma allows precise floating-point
 semantics and floating-point exception behavior to be specified
-for a section of the source code. This pragma can only appear at file or
-namespace scope, within a language linkage specification or at the start of a
-compound statement (excluding comments). When used within a compound statement,
-the pragma is active within the scope of the compound statement.  This pragma
-is modeled after a Microsoft pragma with the same spelling and syntax.  For
-pragmas specified at file or namespace scope, or within a language linkage
-specification, a stack is supported so that the ``pragma float_control``
-settings can be pushed or popped.
+for a section of the source code. This pragma can only appear at file scope or
+at the start of a compound statement (excluding comments). When using within a
+compound statement, the pragma is active within the scope of the compound
+statement.  This pragma is modeled after a Microsoft pragma with the
+same spelling and syntax.  For pragmas specified at file scope, a stack
+is supported so that the ``pragma float_control`` settings can be pushed or popped.
 
 When ``pragma float_control(precise, on)`` is enabled, the section of code
 governed by the pragma uses precise floating point semantics, effectively
@@ -3890,59 +3647,6 @@ Since the size of ``buffer`` can't be known at compile time, Clang will fold
 ``__builtin_object_size(buffer, 0)`` into ``-1``. However, if this was written
 as ``__builtin_dynamic_object_size(buffer, 0)``, Clang will fold it into
 ``size``, providing some extra runtime safety.
-
-Deprecating Macros
-==================
-
-Clang supports the pragma ``#pragma clang deprecated``, which can be used to
-provide deprecation warnings for macro uses. For example:
-
-.. code-block:: c
-
-   #define MIN(x, y) x < y ? x : y
-   #pragma clang deprecated(MIN, "use std::min instead")
-
-   void min(int a, int b) {
-     return MIN(a, b); // warning: MIN is deprecated: use std::min instead
-   }
-
-``#pragma clang deprecated`` should be preferred for this purpose over
-``#pragma GCC warning`` because the warning can be controlled with
-``-Wdeprecated``.
-
-Restricted Expansion Macros
-===========================
-
-Clang supports the pragma ``#pragma clang restrict_expansion``, which can be
-used restrict macro expansion in headers. This can be valuable when providing
-headers with ABI stability requirements. Any expansion of the annotated macro
-processed by the preprocessor after the ``#pragma`` annotation will log a
-warning. Redefining the macro or undefining the macro will not be diagnosed, nor
-will expansion of the macro within the main source file. For example:
-
-.. code-block:: c
-
-   #define TARGET_ARM 1
-   #pragma clang restrict_expansion(TARGET_ARM, "<reason>")
-
-   /// Foo.h
-   struct Foo {
-   #if TARGET_ARM // warning: TARGET_ARM is marked unsafe in headers: <reason>
-     uint32_t X;
-   #else
-     uint64_t X;
-   #endif
-   };
-
-   /// main.c
-   #include "foo.h"
-   #if TARGET_ARM // No warning in main source file
-   X_TYPE uint32_t
-   #else
-   X_TYPE uint64_t
-   #endif
-
-This warning is controlled by ``-Wpedantic-macros``.
 
 Extended Integer Types
 ======================

@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "AvoidConstParamsInDecls.h"
-#include "../utils/LexerUtils.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/ASTMatchers/ASTMatchers.h"
 #include "clang/Lex/Lexer.h"
@@ -21,8 +20,10 @@ namespace readability {
 namespace {
 
 SourceRange getTypeRange(const ParmVarDecl &Param) {
-  return SourceRange(Param.getBeginLoc(),
-                     Param.getLocation().getLocWithOffset(-1));
+  if (Param.getIdentifier() != nullptr)
+    return SourceRange(Param.getBeginLoc(),
+                       Param.getEndLoc().getLocWithOffset(-1));
+  return Param.getSourceRange();
 }
 
 } // namespace
@@ -32,9 +33,45 @@ void AvoidConstParamsInDecls::registerMatchers(MatchFinder *Finder) {
       parmVarDecl(hasType(qualType(isConstQualified()))).bind("param");
   Finder->addMatcher(
       functionDecl(unless(isDefinition()),
+                   // Lambdas are always their own definition, but they
+                   // generate a non-definition FunctionDecl too. Ignore those.
+                   // Class template instantiations have a non-definition
+                   // CXXMethodDecl for methods that aren't used in this
+                   // translation unit. Ignore those, as the template will have
+                   // already been checked.
+                   unless(cxxMethodDecl(ofClass(cxxRecordDecl(anyOf(
+                       isLambda(), ast_matchers::isTemplateInstantiation()))))),
                    has(typeLoc(forEach(ConstParamDecl))))
           .bind("func"),
       this);
+}
+
+// Re-lex the tokens to get precise location of last 'const'
+static llvm::Optional<Token> constTok(CharSourceRange Range,
+                                      const MatchFinder::MatchResult &Result) {
+  const SourceManager &Sources = *Result.SourceManager;
+  std::pair<FileID, unsigned> LocInfo =
+      Sources.getDecomposedLoc(Range.getBegin());
+  StringRef File = Sources.getBufferData(LocInfo.first);
+  const char *TokenBegin = File.data() + LocInfo.second;
+  Lexer RawLexer(Sources.getLocForStartOfFile(LocInfo.first),
+                 Result.Context->getLangOpts(), File.begin(), TokenBegin,
+                 File.end());
+  Token Tok;
+  llvm::Optional<Token> ConstTok;
+  while (!RawLexer.LexFromRawLexer(Tok)) {
+    if (Sources.isBeforeInTranslationUnit(Range.getEnd(), Tok.getLocation()))
+      break;
+    if (Tok.is(tok::raw_identifier)) {
+      IdentifierInfo &Info = Result.Context->Idents.get(StringRef(
+          Sources.getCharacterData(Tok.getLocation()), Tok.getLength()));
+      Tok.setIdentifierInfo(&Info);
+      Tok.setKind(Info.getTokenID());
+    }
+    if (Tok.is(tok::kw_const))
+      ConstTok = Tok;
+  }
+  return ConstTok;
 }
 
 void AvoidConstParamsInDecls::check(const MatchFinder::MatchResult &Result) {
@@ -72,8 +109,7 @@ void AvoidConstParamsInDecls::check(const MatchFinder::MatchResult &Result) {
   if (!FileRange.isValid())
     return;
 
-  auto Tok = tidy::utils::lexer::getQualifyingToken(
-      tok::kw_const, FileRange, *Result.Context, *Result.SourceManager);
+  auto Tok = constTok(FileRange, Result);
   if (!Tok)
     return;
   Diag << FixItHint::CreateRemoval(

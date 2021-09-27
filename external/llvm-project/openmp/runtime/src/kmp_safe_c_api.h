@@ -10,7 +10,6 @@
 #ifndef KMP_SAFE_C_API_H
 #define KMP_SAFE_C_API_H
 
-#include <type_traits>
 #include "kmp_platform.h"
 #include <string.h>
 
@@ -34,15 +33,7 @@
 // Use this only when buffer size is unknown
 #define KMP_MEMCPY(dst, src, cnt) memcpy_s(dst, cnt, src, cnt)
 
-template <typename T, bool B = std::is_array<T>::value>
-struct kmp_get_rmax_t {};
-template <typename T> struct kmp_get_rmax_t<T, false> {
-  static const size_t value = RSIZE_MAX_STR;
-};
-template <typename T> struct kmp_get_rmax_t<T, true> {
-  static const size_t value = sizeof(T);
-};
-#define KMP_STRLEN(str) strnlen_s(str, kmp_get_rmax_t<decltype(str)>::value)
+#define KMP_STRLEN(str) strnlen_s(str, RSIZE_MAX_STR)
 
 // Use this only when buffer size is unknown
 #define KMP_STRNCPY(dst, src, cnt) strncpy_s(dst, cnt, src, cnt)

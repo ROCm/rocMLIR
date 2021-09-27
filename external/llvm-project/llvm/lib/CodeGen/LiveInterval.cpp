@@ -1336,8 +1336,9 @@ unsigned ConnectedVNInfoEqClasses::Classify(const LiveRange &LR) {
       const MachineBasicBlock *MBB = LIS.getMBBFromIndex(VNI->def);
       assert(MBB && "Phi-def has no defining MBB");
       // Connect to values live out of predecessors.
-      for (MachineBasicBlock *Pred : MBB->predecessors())
-        if (const VNInfo *PVNI = LR.getVNInfoBefore(LIS.getMBBEndIdx(Pred)))
+      for (MachineBasicBlock::const_pred_iterator PI = MBB->pred_begin(),
+           PE = MBB->pred_end(); PI != PE; ++PI)
+        if (const VNInfo *PVNI = LR.getVNInfoBefore(LIS.getMBBEndIdx(*PI)))
           EqClass.join(VNI->id, PVNI->id);
     } else {
       // Normal value defined by an instruction. Check for two-addr redef.
@@ -1360,9 +1361,12 @@ unsigned ConnectedVNInfoEqClasses::Classify(const LiveRange &LR) {
 void ConnectedVNInfoEqClasses::Distribute(LiveInterval &LI, LiveInterval *LIV[],
                                           MachineRegisterInfo &MRI) {
   // Rewrite instructions.
-  for (MachineOperand &MO :
-       llvm::make_early_inc_range(MRI.reg_operands(LI.reg()))) {
-    MachineInstr *MI = MO.getParent();
+  for (MachineRegisterInfo::reg_iterator RI = MRI.reg_begin(LI.reg()),
+                                         RE = MRI.reg_end();
+       RI != RE;) {
+    MachineOperand &MO = *RI;
+    MachineInstr *MI = RI->getParent();
+    ++RI;
     const VNInfo *VNI;
     if (MI->isDebugValue()) {
       // DBG_VALUE instructions don't have slot indexes, so get the index of

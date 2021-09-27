@@ -44,12 +44,11 @@ class WasmSymbol;
 } // namespace object
 
 namespace wasm {
-struct WasmTag;
-struct WasmTagType;
+struct WasmEvent;
+struct WasmEventType;
 struct WasmFunction;
 struct WasmGlobal;
 struct WasmGlobalType;
-struct WasmInitExpr;
 struct WasmLimits;
 struct WasmRelocation;
 struct WasmSignature;
@@ -87,17 +86,16 @@ using llvm::object::WasmObjectFile;
 using llvm::object::WasmSection;
 using llvm::object::WasmSegment;
 using llvm::object::WasmSymbol;
+using llvm::wasm::WasmEvent;
+using llvm::wasm::WasmEventType;
 using llvm::wasm::WasmFunction;
 using llvm::wasm::WasmGlobal;
 using llvm::wasm::WasmGlobalType;
-using llvm::wasm::WasmInitExpr;
 using llvm::wasm::WasmLimits;
 using llvm::wasm::WasmRelocation;
 using llvm::wasm::WasmSignature;
 using llvm::wasm::WasmTable;
 using llvm::wasm::WasmTableType;
-using llvm::wasm::WasmTag;
-using llvm::wasm::WasmTagType;
 } // end namespace lld.
 
 namespace std {

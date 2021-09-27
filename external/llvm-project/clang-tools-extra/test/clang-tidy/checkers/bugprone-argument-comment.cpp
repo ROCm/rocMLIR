@@ -1,4 +1,4 @@
-// RUN: %check_clang_tidy %s bugprone-argument-comment %t -- -- -I %S/Inputs/bugprone-argument-comment
+// RUN: %check_clang_tidy %s bugprone-argument-comment %t
 
 // FIXME: clang-tidy should provide a -verify mode to make writing these checks
 // easier and more accurate.
@@ -134,20 +134,3 @@ void test(int a, int b) {
   std::swap(a, /*num=*/b);
 }
 } // namespace ignore_std_functions
-
-namespace regular_header {
-#include "header-with-decl.h"
-void test() {
-  my_header_function(/*not_arg=*/1);
-// CHECK-NOTES: [[@LINE-1]]:22: warning: argument name 'not_arg' in comment does not match parameter name 'arg'
-// CHECK-NOTES: header-with-decl.h:1:29: note: 'arg' declared here
-// CHECK-FIXES: my_header_function(/*not_arg=*/1);
-}
-} // namespace regular_header
-
-namespace system_header {
-#include "system-header-with-decl.h"
-void test() {
-  my_system_header_function(/*not_arg=*/1);
-}
-} // namespace system_header

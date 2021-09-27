@@ -27,6 +27,8 @@ class InstCombinePass : public PassInfoMixin<InstCombinePass> {
   const unsigned MaxIterations;
 
 public:
+  static StringRef name() { return "InstCombinePass"; }
+
   explicit InstCombinePass();
   explicit InstCombinePass(unsigned MaxIterations);
 

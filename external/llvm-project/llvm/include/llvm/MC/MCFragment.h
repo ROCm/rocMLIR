@@ -311,9 +311,6 @@ class MCAlignFragment : public MCFragment {
   /// cannot be satisfied in this width then this fragment is ignored.
   unsigned MaxBytesToEmit;
 
-  /// When emitting Nops some subtargets have specific nop encodings.
-  const MCSubtargetInfo *STI;
-
 public:
   MCAlignFragment(unsigned Alignment, int64_t Value, unsigned ValueSize,
                   unsigned MaxBytesToEmit, MCSection *Sec = nullptr)
@@ -329,12 +326,7 @@ public:
   unsigned getMaxBytesToEmit() const { return MaxBytesToEmit; }
 
   bool hasEmitNops() const { return EmitNops; }
-  void setEmitNops(bool Value, const MCSubtargetInfo *STI) {
-    EmitNops = Value;
-    this->STI = STI;
-  }
-
-  const MCSubtargetInfo *getSubtargetInfo() const { return STI; }
+  void setEmitNops(bool Value) { EmitNops = Value; }
 
   static bool classof(const MCFragment *F) {
     return F->getKind() == MCFragment::FT_Align;
@@ -377,21 +369,16 @@ class MCNopsFragment : public MCFragment {
   /// Source location of the directive that this fragment was created for.
   SMLoc Loc;
 
-  /// When emitting Nops some subtargets have specific nop encodings.
-  const MCSubtargetInfo &STI;
-
 public:
   MCNopsFragment(int64_t NumBytes, int64_t ControlledNopLength, SMLoc L,
-                 const MCSubtargetInfo &STI, MCSection *Sec = nullptr)
+                 MCSection *Sec = nullptr)
       : MCFragment(FT_Nops, false, Sec), Size(NumBytes),
-        ControlledNopLength(ControlledNopLength), Loc(L), STI(STI) {}
+        ControlledNopLength(ControlledNopLength), Loc(L) {}
 
   int64_t getNumBytes() const { return Size; }
   int64_t getControlledNopLength() const { return ControlledNopLength; }
 
   SMLoc getLoc() const { return Loc; }
-
-  const MCSubtargetInfo *getSubtargetInfo() const { return &STI; }
 
   static bool classof(const MCFragment *F) {
     return F->getKind() == MCFragment::FT_Nops;
@@ -566,7 +553,7 @@ public:
     return Ranges;
   }
 
-  StringRef getFixedSizePortion() const { return FixedSizePortion.str(); }
+  StringRef getFixedSizePortion() const { return FixedSizePortion; }
 
   static bool classof(const MCFragment *F) {
     return F->getKind() == MCFragment::FT_CVDefRange;
@@ -585,14 +572,10 @@ class MCBoundaryAlignFragment : public MCFragment {
   /// is not meaningful before that.
   uint64_t Size = 0;
 
-  /// When emitting Nops some subtargets have specific nop encodings.
-  const MCSubtargetInfo &STI;
-
 public:
-  MCBoundaryAlignFragment(Align AlignBoundary, const MCSubtargetInfo &STI,
-                          MCSection *Sec = nullptr)
-      : MCFragment(FT_BoundaryAlign, false, Sec), AlignBoundary(AlignBoundary),
-        STI(STI) {}
+  MCBoundaryAlignFragment(Align AlignBoundary, MCSection *Sec = nullptr)
+      : MCFragment(FT_BoundaryAlign, false, Sec), AlignBoundary(AlignBoundary) {
+  }
 
   uint64_t getSize() const { return Size; }
   void setSize(uint64_t Value) { Size = Value; }
@@ -605,8 +588,6 @@ public:
     assert(!F || getParent() == F->getParent());
     LastFragment = F;
   }
-
-  const MCSubtargetInfo *getSubtargetInfo() const { return &STI; }
 
   static bool classof(const MCFragment *F) {
     return F->getKind() == MCFragment::FT_BoundaryAlign;

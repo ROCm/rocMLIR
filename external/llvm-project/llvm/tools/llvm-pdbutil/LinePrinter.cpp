@@ -100,7 +100,7 @@ bool LinePrinter::IsClassExcluded(const ClassLayout &Class) {
 }
 
 void LinePrinter::formatBinary(StringRef Label, ArrayRef<uint8_t> Data,
-                               uint64_t StartOffset) {
+                               uint32_t StartOffset) {
   NewLine();
   OS << Label << " (";
   if (!Data.empty()) {
@@ -113,7 +113,7 @@ void LinePrinter::formatBinary(StringRef Label, ArrayRef<uint8_t> Data,
 }
 
 void LinePrinter::formatBinary(StringRef Label, ArrayRef<uint8_t> Data,
-                               uint64_t Base, uint64_t StartOffset) {
+                               uint64_t Base, uint32_t StartOffset) {
   NewLine();
   OS << Label << " (";
   if (!Data.empty()) {
@@ -131,7 +131,7 @@ struct Run {
   Run() = default;
   explicit Run(uint32_t Block) : Block(Block) {}
   uint32_t Block = 0;
-  uint64_t ByteLen = 0;
+  uint32_t ByteLen = 0;
 };
 } // namespace
 
@@ -143,7 +143,7 @@ static std::vector<Run> computeBlockRuns(uint32_t BlockSize,
 
   ArrayRef<support::ulittle32_t> Blocks = Layout.Blocks;
   assert(!Blocks.empty());
-  uint64_t StreamBytesRemaining = Layout.Length;
+  uint32_t StreamBytesRemaining = Layout.Length;
   uint32_t CurrentBlock = Blocks[0];
   Runs.emplace_back(CurrentBlock);
   while (!Blocks.empty()) {
@@ -153,8 +153,7 @@ static std::vector<Run> computeBlockRuns(uint32_t BlockSize,
       Runs.emplace_back(NextBlock);
       CurrentRun = &Runs.back();
     }
-    uint64_t Used =
-        std::min(static_cast<uint64_t>(BlockSize), StreamBytesRemaining);
+    uint32_t Used = std::min(BlockSize, StreamBytesRemaining);
     CurrentRun->ByteLen += Used;
     StreamBytesRemaining -= Used;
     CurrentBlock = NextBlock;
@@ -163,7 +162,7 @@ static std::vector<Run> computeBlockRuns(uint32_t BlockSize,
   return Runs;
 }
 
-static std::pair<Run, uint64_t> findRun(uint64_t Offset, ArrayRef<Run> Runs) {
+static std::pair<Run, uint32_t> findRun(uint32_t Offset, ArrayRef<Run> Runs) {
   for (const auto &R : Runs) {
     if (Offset < R.ByteLen)
       return std::make_pair(R, Offset);
@@ -174,8 +173,8 @@ static std::pair<Run, uint64_t> findRun(uint64_t Offset, ArrayRef<Run> Runs) {
 
 void LinePrinter::formatMsfStreamData(StringRef Label, PDBFile &File,
                                       uint32_t StreamIdx,
-                                      StringRef StreamPurpose, uint64_t Offset,
-                                      uint64_t Size) {
+                                      StringRef StreamPurpose, uint32_t Offset,
+                                      uint32_t Size) {
   if (StreamIdx >= File.getNumStreams()) {
     formatLine("Stream {0}: Not present", StreamIdx);
     return;
@@ -194,7 +193,7 @@ void LinePrinter::formatMsfStreamData(StringRef Label, PDBFile &File,
     return;
   }
 
-  uint64_t End =
+  uint32_t End =
       (Size == 0) ? S->getLength() : std::min(Offset + Size, S->getLength());
   Size = End - Offset;
 
@@ -223,10 +222,10 @@ void LinePrinter::formatMsfStreamData(StringRef Label, PDBFile &File,
     OS << "\n";
 
     Run FoundRun;
-    uint64_t RunOffset;
+    uint32_t RunOffset;
     std::tie(FoundRun, RunOffset) = findRun(Substream.Offset, Runs);
     assert(FoundRun.ByteLen >= RunOffset);
-    uint64_t Len = FoundRun.ByteLen - RunOffset;
+    uint32_t Len = FoundRun.ByteLen - RunOffset;
     Len = std::min(Len, Reader.bytesRemaining());
     uint64_t Base = FoundRun.Block * File.getBlockSize() + RunOffset;
     ArrayRef<uint8_t> Data;
@@ -247,14 +246,13 @@ void LinePrinter::formatMsfStreamData(StringRef Label, PDBFile &File,
 void LinePrinter::formatMsfStreamBlocks(
     PDBFile &File, const msf::MSFStreamLayout &StreamLayout) {
   auto Blocks = makeArrayRef(StreamLayout.Blocks);
-  uint64_t L = StreamLayout.Length;
+  uint32_t L = StreamLayout.Length;
 
   while (L > 0) {
     NewLine();
     assert(!Blocks.empty());
     OS << formatv("Block {0} (\n", uint32_t(Blocks.front()));
-    uint64_t UsedBytes =
-        std::min(L, static_cast<uint64_t>(File.getBlockSize()));
+    uint32_t UsedBytes = std::min(L, File.getBlockSize());
     ArrayRef<uint8_t> BlockData =
         cantFail(File.getBlockData(Blocks.front(), File.getBlockSize()));
     uint64_t BaseOffset = Blocks.front();
@@ -269,7 +267,7 @@ void LinePrinter::formatMsfStreamBlocks(
   }
 }
 
-bool LinePrinter::IsTypeExcluded(llvm::StringRef TypeName, uint64_t Size) {
+bool LinePrinter::IsTypeExcluded(llvm::StringRef TypeName, uint32_t Size) {
   if (IsItemExcluded(TypeName, IncludeTypeFilters, ExcludeTypeFilters))
     return true;
   if (Size < opts::pretty::SizeThreshold)

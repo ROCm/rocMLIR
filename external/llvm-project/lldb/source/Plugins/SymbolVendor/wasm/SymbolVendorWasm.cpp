@@ -8,7 +8,7 @@
 
 #include "SymbolVendorWasm.h"
 
-#include <cstring>
+#include <string.h>
 
 #include "Plugins/ObjectFile/wasm/ObjectFileWasm.h"
 #include "lldb/Core/Module.h"
@@ -142,3 +142,5 @@ SymbolVendorWasm::CreateInstance(const lldb::ModuleSP &module_sp,
 
 // PluginInterface protocol
 ConstString SymbolVendorWasm::GetPluginName() { return GetPluginNameStatic(); }
+
+uint32_t SymbolVendorWasm::GetPluginVersion() { return 1; }

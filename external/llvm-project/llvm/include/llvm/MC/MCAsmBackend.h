@@ -55,8 +55,7 @@ public:
   /// Give the target a chance to manipulate state related to instruction
   /// alignment (e.g. padding for optimization), instruction relaxablility, etc.
   /// before and after actually emitting the instruction.
-  virtual void emitInstructionBegin(MCObjectStreamer &OS, const MCInst &Inst,
-                                    const MCSubtargetInfo &STI) {}
+  virtual void emitInstructionBegin(MCObjectStreamer &OS, const MCInst &Inst) {}
   virtual void emitInstructionEnd(MCObjectStreamer &OS, const MCInst &Inst) {}
 
   /// lifetime management
@@ -130,6 +129,10 @@ public:
                           uint64_t Value, bool IsResolved,
                           const MCSubtargetInfo *STI) const = 0;
 
+  /// Check whether the given target requires emitting differences of two
+  /// symbols as a set of relocations.
+  virtual bool requiresDiffExpressionRelocations() const { return false; }
+
   /// @}
 
   /// \name Target Relaxation Interfaces
@@ -166,16 +169,6 @@ public:
   virtual void relaxInstruction(MCInst &Inst,
                                 const MCSubtargetInfo &STI) const {};
 
-  virtual bool relaxDwarfLineAddr(MCDwarfLineAddrFragment &DF,
-                                  MCAsmLayout &Layout, bool &WasRelaxed) const {
-    return false;
-  }
-
-  virtual bool relaxDwarfCFA(MCDwarfCallFrameFragment &DF, MCAsmLayout &Layout,
-                             bool &WasRelaxed) const {
-    return false;
-  }
-
   /// @}
 
   /// Returns the minimum size of a nop in bytes on this target. The assembler
@@ -186,16 +179,13 @@ public:
 
   /// Returns the maximum size of a nop in bytes on this target.
   ///
-  virtual unsigned getMaximumNopSize(const MCSubtargetInfo &STI) const {
-    return 0;
-  }
+  virtual unsigned getMaximumNopSize() const { return 0; }
 
   /// Write an (optimal) nop sequence of Count bytes to the given output. If the
   /// target cannot generate such a sequence, it should return an error.
   ///
   /// \return - True on success.
-  virtual bool writeNopData(raw_ostream &OS, uint64_t Count,
-                            const MCSubtargetInfo *STI) const = 0;
+  virtual bool writeNopData(raw_ostream &OS, uint64_t Count) const = 0;
 
   /// Give backend an opportunity to finish layout after relaxation
   virtual void finishLayout(MCAssembler const &Asm,

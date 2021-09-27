@@ -27,6 +27,7 @@ class TargetWatchAddressAPITestCase(TestBase):
         # This is for verifying that watch location works.
         self.violating_func = "do_bad_thing_with_location"
 
+    @add_test_categories(['pyapi'])
     def test_watch_address(self):
         """Exercise SBTarget.WatchAddress() API to set a watchpoint."""
         self.build()
@@ -98,6 +99,7 @@ class TargetWatchAddressAPITestCase(TestBase):
 
         # This finishes our test.
 
+    @add_test_categories(['pyapi'])
     # No size constraint on MIPS for watches
     @skipIf(archs=['mips', 'mipsel', 'mips64', 'mips64el'])
     @skipIf(archs=['s390x'])  # Likewise on SystemZ

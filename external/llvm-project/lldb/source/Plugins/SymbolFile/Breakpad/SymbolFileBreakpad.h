@@ -51,7 +51,7 @@ public:
   SymbolFileBreakpad(lldb::ObjectFileSP objfile_sp)
       : SymbolFile(std::move(objfile_sp)) {}
 
-  ~SymbolFileBreakpad() override = default;
+  ~SymbolFileBreakpad() override {}
 
   uint32_t CalculateAbilities() override;
 
@@ -101,7 +101,8 @@ public:
                                 lldb::SymbolContextItem resolve_scope,
                                 SymbolContext &sc) override;
 
-  uint32_t ResolveSymbolContext(const SourceLocationSpec &src_location_spec,
+  uint32_t ResolveSymbolContext(const FileSpec &file_spec, uint32_t line,
+                                bool check_inlines,
                                 lldb::SymbolContextItem resolve_scope,
                                 SymbolContextList &sc_list) override;
 
@@ -147,6 +148,7 @@ public:
                 const RegisterInfoResolver &resolver) override;
 
   ConstString GetPluginName() override { return GetPluginNameStatic(); }
+  uint32_t GetPluginVersion() override { return 1; }
 
 private:
   // A class representing a position in the breakpad file. Useful for

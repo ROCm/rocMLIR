@@ -17,7 +17,4 @@ add_llvm_component_library(LLVMRemarks
   LINK_COMPONENTS
   BitstreamReader
   Support
-
-  DEPENDS
-  intrinsics_gen
 )

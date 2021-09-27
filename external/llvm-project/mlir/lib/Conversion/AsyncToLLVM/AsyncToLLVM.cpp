@@ -9,8 +9,6 @@
 #include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
 
 #include "../PassDetail.h"
-#include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
-#include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -20,7 +18,6 @@
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "llvm/ADT/TypeSwitch.h"
 
 #define DEBUG_TYPE "convert-async-to-llvm"
 
@@ -38,11 +35,6 @@ static constexpr const char *kCreateValue = "mlirAsyncRuntimeCreateValue";
 static constexpr const char *kCreateGroup = "mlirAsyncRuntimeCreateGroup";
 static constexpr const char *kEmplaceToken = "mlirAsyncRuntimeEmplaceToken";
 static constexpr const char *kEmplaceValue = "mlirAsyncRuntimeEmplaceValue";
-static constexpr const char *kSetTokenError = "mlirAsyncRuntimeSetTokenError";
-static constexpr const char *kSetValueError = "mlirAsyncRuntimeSetValueError";
-static constexpr const char *kIsTokenError = "mlirAsyncRuntimeIsTokenError";
-static constexpr const char *kIsValueError = "mlirAsyncRuntimeIsValueError";
-static constexpr const char *kIsGroupError = "mlirAsyncRuntimeIsGroupError";
 static constexpr const char *kAwaitToken = "mlirAsyncRuntimeAwaitToken";
 static constexpr const char *kAwaitValue = "mlirAsyncRuntimeAwaitValue";
 static constexpr const char *kAwaitGroup = "mlirAsyncRuntimeAwaitAllInGroup";
@@ -91,8 +83,7 @@ struct AsyncAPI {
   }
 
   static FunctionType createGroupFunctionType(MLIRContext *ctx) {
-    auto i64 = IntegerType::get(ctx, 64);
-    return FunctionType::get(ctx, {i64}, {GroupType::get(ctx)});
+    return FunctionType::get(ctx, {}, {GroupType::get(ctx)});
   }
 
   static FunctionType getValueStorageFunctionType(MLIRContext *ctx) {
@@ -108,31 +99,6 @@ struct AsyncAPI {
   static FunctionType emplaceValueFunctionType(MLIRContext *ctx) {
     auto value = opaquePointerType(ctx);
     return FunctionType::get(ctx, {value}, {});
-  }
-
-  static FunctionType setTokenErrorFunctionType(MLIRContext *ctx) {
-    return FunctionType::get(ctx, {TokenType::get(ctx)}, {});
-  }
-
-  static FunctionType setValueErrorFunctionType(MLIRContext *ctx) {
-    auto value = opaquePointerType(ctx);
-    return FunctionType::get(ctx, {value}, {});
-  }
-
-  static FunctionType isTokenErrorFunctionType(MLIRContext *ctx) {
-    auto i1 = IntegerType::get(ctx, 1);
-    return FunctionType::get(ctx, {TokenType::get(ctx)}, {i1});
-  }
-
-  static FunctionType isValueErrorFunctionType(MLIRContext *ctx) {
-    auto value = opaquePointerType(ctx);
-    auto i1 = IntegerType::get(ctx, 1);
-    return FunctionType::get(ctx, {value}, {i1});
-  }
-
-  static FunctionType isGroupErrorFunctionType(MLIRContext *ctx) {
-    auto i1 = IntegerType::get(ctx, 1);
-    return FunctionType::get(ctx, {GroupType::get(ctx)}, {i1});
   }
 
   static FunctionType awaitTokenFunctionType(MLIRContext *ctx) {
@@ -190,8 +156,8 @@ struct AsyncAPI {
 
 /// Adds Async Runtime C API declarations to the module.
 static void addAsyncRuntimeApiDeclarations(ModuleOp module) {
-  auto builder =
-      ImplicitLocOpBuilder::atBlockEnd(module.getLoc(), module.getBody());
+  auto builder = ImplicitLocOpBuilder::atBlockTerminator(module.getLoc(),
+                                                         module.getBody());
 
   auto addFuncDecl = [&](StringRef name, FunctionType type) {
     if (module.lookupSymbol(name))
@@ -207,11 +173,6 @@ static void addAsyncRuntimeApiDeclarations(ModuleOp module) {
   addFuncDecl(kCreateGroup, AsyncAPI::createGroupFunctionType(ctx));
   addFuncDecl(kEmplaceToken, AsyncAPI::emplaceTokenFunctionType(ctx));
   addFuncDecl(kEmplaceValue, AsyncAPI::emplaceValueFunctionType(ctx));
-  addFuncDecl(kSetTokenError, AsyncAPI::setTokenErrorFunctionType(ctx));
-  addFuncDecl(kSetValueError, AsyncAPI::setValueErrorFunctionType(ctx));
-  addFuncDecl(kIsTokenError, AsyncAPI::isTokenErrorFunctionType(ctx));
-  addFuncDecl(kIsValueError, AsyncAPI::isValueErrorFunctionType(ctx));
-  addFuncDecl(kIsGroupError, AsyncAPI::isGroupErrorFunctionType(ctx));
   addFuncDecl(kAwaitToken, AsyncAPI::awaitTokenFunctionType(ctx));
   addFuncDecl(kAwaitValue, AsyncAPI::awaitValueFunctionType(ctx));
   addFuncDecl(kAwaitGroup, AsyncAPI::awaitGroupFunctionType(ctx));
@@ -246,8 +207,8 @@ static void addCRuntimeDeclarations(ModuleOp module) {
   using namespace mlir::LLVM;
 
   MLIRContext *ctx = module.getContext();
-  auto builder =
-      ImplicitLocOpBuilder::atBlockEnd(module.getLoc(), module.getBody());
+  ImplicitLocOpBuilder builder(module.getLoc(),
+                               module.getBody()->getTerminator());
 
   auto voidTy = LLVMVoidType::get(ctx);
   auto i64 = IntegerType::get(ctx, 64);
@@ -271,14 +232,15 @@ static void addResumeFunction(ModuleOp module) {
     return;
 
   MLIRContext *ctx = module.getContext();
-  auto loc = module.getLoc();
-  auto moduleBuilder = ImplicitLocOpBuilder::atBlockEnd(loc, module.getBody());
+
+  OpBuilder moduleBuilder(module.getBody()->getTerminator());
+  Location loc = module.getLoc();
 
   auto voidTy = LLVM::LLVMVoidType::get(ctx);
   auto i8Ptr = LLVM::LLVMPointerType::get(IntegerType::get(ctx, 8));
 
   auto resumeOp = moduleBuilder.create<LLVM::LLVMFuncOp>(
-      kResume, LLVM::LLVMFunctionType::get(voidTy, {i8Ptr}));
+      loc, kResume, LLVM::LLVMFunctionType::get(voidTy, {i8Ptr}));
   resumeOp.setPrivate();
 
   auto *block = resumeOp.addEntryBlock();
@@ -367,7 +329,7 @@ public:
 
     // Allocate memory for the coroutine frame.
     auto coroAlloc = rewriter.create<LLVM::CallOp>(
-        loc, i8Ptr, SymbolRefAttr::get(rewriter.getContext(), kMalloc),
+        loc, i8Ptr, rewriter.getSymbolRefAttr(kMalloc),
         ValueRange(coroSize.getResult()));
 
     // Begin a coroutine: @llvm.coro.begin.
@@ -399,9 +361,9 @@ public:
     auto coroMem = rewriter.create<LLVM::CoroFreeOp>(loc, i8Ptr, operands);
 
     // Free the memory.
-    rewriter.replaceOpWithNewOp<LLVM::CallOp>(
-        op, TypeRange(), SymbolRefAttr::get(rewriter.getContext(), kFree),
-        ValueRange(coroMem.getResult()));
+    rewriter.replaceOpWithNewOp<LLVM::CallOp>(op, TypeRange(),
+                                              rewriter.getSymbolRefAttr(kFree),
+                                              ValueRange(coroMem.getResult()));
 
     return success();
   }
@@ -520,7 +482,7 @@ public:
         /*defaultOperands=*/ValueRange(),
         /*caseValues=*/caseValues,
         /*caseDestinations=*/caseDest,
-        /*caseOperands=*/ArrayRef<ValueRange>({ValueRange(), ValueRange()}),
+        /*caseOperands=*/ArrayRef<ValueRange>(),
         /*branchWeights=*/ArrayRef<int32_t>());
 
     return success();
@@ -546,10 +508,11 @@ public:
     TypeConverter *converter = getTypeConverter();
     Type resultType = op->getResultTypes()[0];
 
-    // Tokens creation maps to a simple function call.
-    if (resultType.isa<TokenType>()) {
-      rewriter.replaceOpWithNewOp<CallOp>(op, kCreateToken,
-                                          converter->convertType(resultType));
+    // Tokens and Groups lowered to function calls without arguments.
+    if (resultType.isa<TokenType>() || resultType.isa<GroupType>()) {
+      rewriter.replaceOpWithNewOp<CallOp>(
+          op, resultType.isa<TokenType>() ? kCreateToken : kCreateGroup,
+          converter->convertType(resultType));
       return success();
     }
 
@@ -585,29 +548,6 @@ public:
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// Convert async.runtime.create_group to the corresponding runtime API call.
-//===----------------------------------------------------------------------===//
-
-namespace {
-class RuntimeCreateGroupOpLowering
-    : public OpConversionPattern<RuntimeCreateGroupOp> {
-public:
-  using OpConversionPattern::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(RuntimeCreateGroupOp op, ArrayRef<Value> operands,
-                  ConversionPatternRewriter &rewriter) const override {
-    TypeConverter *converter = getTypeConverter();
-    Type resultType = op.getResult().getType();
-
-    rewriter.replaceOpWithNewOp<CallOp>(
-        op, kCreateGroup, converter->convertType(resultType), operands);
-    return success();
-  }
-};
-} // namespace
-
-//===----------------------------------------------------------------------===//
 // Convert async.runtime.set_available to the corresponding runtime API call.
 //===----------------------------------------------------------------------===//
 
@@ -620,64 +560,18 @@ public:
   LogicalResult
   matchAndRewrite(RuntimeSetAvailableOp op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    StringRef apiFuncName =
-        TypeSwitch<Type, StringRef>(op.operand().getType())
-            .Case<TokenType>([](Type) { return kEmplaceToken; })
-            .Case<ValueType>([](Type) { return kEmplaceValue; });
+    Type operandType = op.operand().getType();
 
-    rewriter.replaceOpWithNewOp<CallOp>(op, apiFuncName, TypeRange(), operands);
+    if (operandType.isa<TokenType>() || operandType.isa<ValueType>()) {
+      rewriter.create<CallOp>(op->getLoc(),
+                              operandType.isa<TokenType>() ? kEmplaceToken
+                                                           : kEmplaceValue,
+                              TypeRange(), operands);
+      rewriter.eraseOp(op);
+      return success();
+    }
 
-    return success();
-  }
-};
-} // namespace
-
-//===----------------------------------------------------------------------===//
-// Convert async.runtime.set_error to the corresponding runtime API call.
-//===----------------------------------------------------------------------===//
-
-namespace {
-class RuntimeSetErrorOpLowering
-    : public OpConversionPattern<RuntimeSetErrorOp> {
-public:
-  using OpConversionPattern::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(RuntimeSetErrorOp op, ArrayRef<Value> operands,
-                  ConversionPatternRewriter &rewriter) const override {
-    StringRef apiFuncName =
-        TypeSwitch<Type, StringRef>(op.operand().getType())
-            .Case<TokenType>([](Type) { return kSetTokenError; })
-            .Case<ValueType>([](Type) { return kSetValueError; });
-
-    rewriter.replaceOpWithNewOp<CallOp>(op, apiFuncName, TypeRange(), operands);
-
-    return success();
-  }
-};
-} // namespace
-
-//===----------------------------------------------------------------------===//
-// Convert async.runtime.is_error to the corresponding runtime API call.
-//===----------------------------------------------------------------------===//
-
-namespace {
-class RuntimeIsErrorOpLowering : public OpConversionPattern<RuntimeIsErrorOp> {
-public:
-  using OpConversionPattern::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(RuntimeIsErrorOp op, ArrayRef<Value> operands,
-                  ConversionPatternRewriter &rewriter) const override {
-    StringRef apiFuncName =
-        TypeSwitch<Type, StringRef>(op.operand().getType())
-            .Case<TokenType>([](Type) { return kIsTokenError; })
-            .Case<GroupType>([](Type) { return kIsGroupError; })
-            .Case<ValueType>([](Type) { return kIsValueError; });
-
-    rewriter.replaceOpWithNewOp<CallOp>(op, apiFuncName, rewriter.getI1Type(),
-                                        operands);
-    return success();
+    return rewriter.notifyMatchFailure(op, "unsupported async type");
   }
 };
 } // namespace
@@ -694,11 +588,17 @@ public:
   LogicalResult
   matchAndRewrite(RuntimeAwaitOp op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    StringRef apiFuncName =
-        TypeSwitch<Type, StringRef>(op.operand().getType())
-            .Case<TokenType>([](Type) { return kAwaitToken; })
-            .Case<ValueType>([](Type) { return kAwaitValue; })
-            .Case<GroupType>([](Type) { return kAwaitGroup; });
+    Type operandType = op.operand().getType();
+
+    StringRef apiFuncName;
+    if (operandType.isa<TokenType>())
+      apiFuncName = kAwaitToken;
+    else if (operandType.isa<ValueType>())
+      apiFuncName = kAwaitValue;
+    else if (operandType.isa<GroupType>())
+      apiFuncName = kAwaitGroup;
+    else
+      return rewriter.notifyMatchFailure(op, "unsupported async type");
 
     rewriter.create<CallOp>(op->getLoc(), apiFuncName, TypeRange(), operands);
     rewriter.eraseOp(op);
@@ -721,11 +621,17 @@ public:
   LogicalResult
   matchAndRewrite(RuntimeAwaitAndResumeOp op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    StringRef apiFuncName =
-        TypeSwitch<Type, StringRef>(op.operand().getType())
-            .Case<TokenType>([](Type) { return kAwaitTokenAndExecute; })
-            .Case<ValueType>([](Type) { return kAwaitValueAndExecute; })
-            .Case<GroupType>([](Type) { return kAwaitAllAndExecute; });
+    Type operandType = op.operand().getType();
+
+    StringRef apiFuncName;
+    if (operandType.isa<TokenType>())
+      apiFuncName = kAwaitTokenAndExecute;
+    else if (operandType.isa<ValueType>())
+      apiFuncName = kAwaitValueAndExecute;
+    else if (operandType.isa<GroupType>())
+      apiFuncName = kAwaitAllAndExecute;
+    else
+      return rewriter.notifyMatchFailure(op, "unsupported async type");
 
     Value operand = RuntimeAwaitAndResumeOpAdaptor(operands).operand();
     Value handle = RuntimeAwaitAndResumeOpAdaptor(operands).handle();
@@ -969,7 +875,7 @@ void ConvertAsyncToLLVMPass::runOnOperation() {
 
   // Convert async dialect types and operations to LLVM dialect.
   AsyncRuntimeTypeConverter converter;
-  RewritePatternSet patterns(ctx);
+  OwningRewritePatternList patterns;
 
   // We use conversion to LLVM type to lower async.runtime load and store
   // operations.
@@ -977,33 +883,31 @@ void ConvertAsyncToLLVMPass::runOnOperation() {
   llvmConverter.addConversion(AsyncRuntimeTypeConverter::convertAsyncTypes);
 
   // Convert async types in function signatures and function calls.
-  populateFuncOpTypeConversionPattern(patterns, converter);
-  populateCallOpTypeConversionPattern(patterns, converter);
+  populateFuncOpTypeConversionPattern(patterns, ctx, converter);
+  populateCallOpTypeConversionPattern(patterns, ctx, converter);
 
   // Convert return operations inside async.execute regions.
-  patterns.add<ReturnOpOpConversion>(converter, ctx);
+  patterns.insert<ReturnOpOpConversion>(converter, ctx);
 
   // Lower async.runtime operations to the async runtime API calls.
-  patterns.add<RuntimeSetAvailableOpLowering, RuntimeSetErrorOpLowering,
-               RuntimeIsErrorOpLowering, RuntimeAwaitOpLowering,
-               RuntimeAwaitAndResumeOpLowering, RuntimeResumeOpLowering,
-               RuntimeAddToGroupOpLowering, RuntimeAddRefOpLowering,
-               RuntimeDropRefOpLowering>(converter, ctx);
+  patterns.insert<RuntimeSetAvailableOpLowering, RuntimeAwaitOpLowering,
+                  RuntimeAwaitAndResumeOpLowering, RuntimeResumeOpLowering,
+                  RuntimeAddToGroupOpLowering, RuntimeAddRefOpLowering,
+                  RuntimeDropRefOpLowering>(converter, ctx);
 
   // Lower async.runtime operations that rely on LLVM type converter to convert
   // from async value payload type to the LLVM type.
-  patterns.add<RuntimeCreateOpLowering, RuntimeCreateGroupOpLowering,
-               RuntimeStoreOpLowering, RuntimeLoadOpLowering>(llvmConverter,
-                                                              ctx);
+  patterns.insert<RuntimeCreateOpLowering, RuntimeStoreOpLowering,
+                  RuntimeLoadOpLowering>(llvmConverter, ctx);
 
   // Lower async coroutine operations to LLVM coroutine intrinsics.
-  patterns
-      .add<CoroIdOpConversion, CoroBeginOpConversion, CoroFreeOpConversion,
-           CoroEndOpConversion, CoroSaveOpConversion, CoroSuspendOpConversion>(
-          converter, ctx);
+  patterns.insert<CoroIdOpConversion, CoroBeginOpConversion,
+                  CoroFreeOpConversion, CoroEndOpConversion,
+                  CoroSaveOpConversion, CoroSuspendOpConversion>(converter,
+                                                                 ctx);
 
   ConversionTarget target(*ctx);
-  target.addLegalOp<ConstantOp, UnrealizedConversionCastOp>();
+  target.addLegalOp<ConstantOp>();
   target.addLegalDialect<LLVM::LLVMDialect>();
 
   // All operations from Async dialect must be lowered to the runtime API and
@@ -1081,16 +985,16 @@ std::unique_ptr<OperationPass<ModuleOp>> mlir::createConvertAsyncToLLVMPass() {
 }
 
 void mlir::populateAsyncStructuralTypeConversionsAndLegality(
-    TypeConverter &typeConverter, RewritePatternSet &patterns,
-    ConversionTarget &target) {
+    MLIRContext *context, TypeConverter &typeConverter,
+    OwningRewritePatternList &patterns, ConversionTarget &target) {
   typeConverter.addConversion([&](TokenType type) { return type; });
   typeConverter.addConversion([&](ValueType type) {
-    Type converted = typeConverter.convertType(type.getValueType());
-    return converted ? ValueType::get(converted) : converted;
+    return ValueType::get(typeConverter.convertType(type.getValueType()));
   });
 
-  patterns.add<ConvertExecuteOpTypes, ConvertAwaitOpTypes, ConvertYieldOpTypes>(
-      typeConverter, patterns.getContext());
+  patterns
+      .insert<ConvertExecuteOpTypes, ConvertAwaitOpTypes, ConvertYieldOpTypes>(
+          typeConverter, context);
 
   target.addDynamicallyLegalOp<AwaitOp, ExecuteOp, async::YieldOp>(
       [&](Operation *op) { return typeConverter.isLegal(op); });

@@ -1,5 +1,4 @@
 ; RUN: llc -mtriple=arm64-apple-ios %s -o - | FileCheck %s
-; RUN: llc -mtriple=arm64-apple-ios -global-isel %s -o - | FileCheck %s
 
 define void @test_ubsantrap() {
 ; CHECK-LABEL: test_ubsantrap

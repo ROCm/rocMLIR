@@ -17,6 +17,4 @@
 using namespace llvm;
 using namespace LegalizeActions;
 
-PPCLegalizerInfo::PPCLegalizerInfo(const PPCSubtarget &ST) {
-  getLegacyLegalizerInfo().computeTables();
-}
+PPCLegalizerInfo::PPCLegalizerInfo(const PPCSubtarget &ST) { computeTables(); }

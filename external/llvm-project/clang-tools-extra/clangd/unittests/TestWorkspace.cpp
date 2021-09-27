@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "TestWorkspace.h"
-#include "gtest/gtest.h"
 
 namespace clang {
 namespace clangd {

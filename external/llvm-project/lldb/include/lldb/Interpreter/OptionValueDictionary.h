@@ -15,14 +15,14 @@
 
 namespace lldb_private {
 
-class OptionValueDictionary
-    : public Cloneable<OptionValueDictionary, OptionValue> {
+class OptionValueDictionary : public OptionValue {
 public:
   OptionValueDictionary(uint32_t type_mask = UINT32_MAX,
                         bool raw_value_dump = true)
-      : m_type_mask(type_mask), m_raw_value_dump(raw_value_dump) {}
+      : OptionValue(), m_type_mask(type_mask), m_values(),
+        m_raw_value_dump(raw_value_dump) {}
 
-  ~OptionValueDictionary() override = default;
+  ~OptionValueDictionary() override {}
 
   // Virtual subclass pure virtual overrides
 
@@ -40,8 +40,7 @@ public:
     m_value_was_set = false;
   }
 
-  lldb::OptionValueSP
-  DeepCopy(const lldb::OptionValueSP &new_parent) const override;
+  lldb::OptionValueSP DeepCopy() const override;
 
   bool IsAggregateValue() const override { return true; }
 

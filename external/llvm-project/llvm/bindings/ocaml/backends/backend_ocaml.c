@@ -26,7 +26,7 @@
  */
 
 #define INITIALIZER1(target) \
-  value llvm_initialize_ ## target(value Unit) {  \
+  CAMLprim value llvm_initialize_ ## target(value Unit) {  \
     LLVMInitialize ## target ## TargetInfo();              \
     LLVMInitialize ## target ## Target();                  \
     LLVMInitialize ## target ## TargetMC();                \

@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 ! Testing 15.6.2.2 point 4 (What function-name refers to depending on the
 ! presence of RESULT).
 

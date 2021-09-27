@@ -10,7 +10,8 @@ declare half @llvm.fma.f16(half, half, half) #1
 
 define dso_local <4 x half> @t_vfma_lane_f16(<4 x half> %a, <4 x half> %b, <4 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vfma_lane_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $d2 killed $d2 def $q2
 ; CHECK-NEXT:    fmla v0.4h, v1.4h, v2.h[0]
 ; CHECK-NEXT:    ret
@@ -22,7 +23,8 @@ entry:
 
 define dso_local <8 x half> @t_vfmaq_lane_f16(<8 x half> %a, <8 x half> %b, <4 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vfmaq_lane_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $d2 killed $d2 def $q2
 ; CHECK-NEXT:    fmla v0.8h, v1.8h, v2.h[0]
 ; CHECK-NEXT:    ret
@@ -34,7 +36,8 @@ entry:
 
 define dso_local <4 x half> @t_vfma_laneq_f16(<4 x half> %a, <4 x half> %b, <8 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vfma_laneq_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmla v0.4h, v1.4h, v2.h[0]
 ; CHECK-NEXT:    ret
 entry:
@@ -45,7 +48,8 @@ entry:
 
 define dso_local <8 x half> @t_vfmaq_laneq_f16(<8 x half> %a, <8 x half> %b, <8 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vfmaq_laneq_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmla v0.8h, v1.8h, v2.h[0]
 ; CHECK-NEXT:    ret
 entry:
@@ -56,7 +60,8 @@ entry:
 
 define dso_local <4 x half> @t_vfma_n_f16(<4 x half> %a, <4 x half> %b, half %c) {
 ; CHECK-LABEL: t_vfma_n_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $h2 killed $h2 def $q2
 ; CHECK-NEXT:    fmla v0.4h, v1.4h, v2.h[0]
 ; CHECK-NEXT:    ret
@@ -69,7 +74,8 @@ entry:
 
 define dso_local <8 x half> @t_vfmaq_n_f16(<8 x half> %a, <8 x half> %b, half %c) {
 ; CHECK-LABEL: t_vfmaq_n_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $h2 killed $h2 def $q2
 ; CHECK-NEXT:    fmla v0.8h, v1.8h, v2.h[0]
 ; CHECK-NEXT:    ret
@@ -82,7 +88,8 @@ entry:
 
 define dso_local half @t_vfmah_lane_f16(half %a, half %b, <4 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vfmah_lane_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $d2 killed $d2 def $q2
 ; CHECK-NEXT:    fmla h0, h1, v2.h[0]
 ; CHECK-NEXT:    ret
@@ -94,7 +101,8 @@ entry:
 
 define dso_local half @t_vfmah_laneq_f16(half %a, half %b, <8 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vfmah_laneq_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmla h0, h1, v2.h[0]
 ; CHECK-NEXT:    ret
 entry:
@@ -105,7 +113,8 @@ entry:
 
 define dso_local <4 x half> @t_vfms_lane_f16(<4 x half> %a, <4 x half> %b, <4 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vfms_lane_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $d2 killed $d2 def $q2
 ; CHECK-NEXT:    fmls v0.4h, v1.4h, v2.h[0]
 ; CHECK-NEXT:    ret
@@ -118,7 +127,8 @@ entry:
 
 define dso_local <8 x half> @t_vfmsq_lane_f16(<8 x half> %a, <8 x half> %b, <4 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vfmsq_lane_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $d2 killed $d2 def $q2
 ; CHECK-NEXT:    fmls v0.8h, v1.8h, v2.h[0]
 ; CHECK-NEXT:    ret
@@ -131,7 +141,8 @@ entry:
 
 define dso_local <4 x half> @t_vfms_laneq_f16(<4 x half> %a, <4 x half> %b, <8 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vfms_laneq_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmls v0.4h, v1.4h, v2.h[0]
 ; CHECK-NEXT:    ret
 entry:
@@ -143,7 +154,8 @@ entry:
 
 define dso_local <8 x half> @t_vfmsq_laneq_f16(<8 x half> %a, <8 x half> %b, <8 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vfmsq_laneq_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmls v0.8h, v1.8h, v2.h[0]
 ; CHECK-NEXT:    ret
 entry:
@@ -155,7 +167,8 @@ entry:
 
 define dso_local <4 x half> @t_vfms_n_f16(<4 x half> %a, <4 x half> %b, half %c) {
 ; CHECK-LABEL: t_vfms_n_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $h2 killed $h2 def $q2
 ; CHECK-NEXT:    fmls v0.4h, v1.4h, v2.h[0]
 ; CHECK-NEXT:    ret
@@ -169,7 +182,8 @@ entry:
 
 define dso_local <8 x half> @t_vfmsq_n_f16(<8 x half> %a, <8 x half> %b, half %c) {
 ; CHECK-LABEL: t_vfmsq_n_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $h2 killed $h2 def $q2
 ; CHECK-NEXT:    fmls v0.8h, v1.8h, v2.h[0]
 ; CHECK-NEXT:    ret
@@ -183,7 +197,8 @@ entry:
 
 define dso_local half @t_vfmsh_lane_f16(half %a, half %b, <4 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vfmsh_lane_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $d2 killed $d2 def $q2
 ; CHECK-NEXT:    fmls h0, h1, v2.h[0]
 ; CHECK-NEXT:    ret
@@ -196,7 +211,8 @@ entry:
 
 define dso_local half @t_vfmsh_laneq_f16(half %a, half %b, <8 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vfmsh_laneq_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmls h0, h1, v2.h[0]
 ; CHECK-NEXT:    ret
 entry:
@@ -208,7 +224,8 @@ entry:
 
 define dso_local <4 x half> @t_vmul_laneq_f16(<4 x half> %a, <8 x half> %b, i32 %lane) {
 ; CHECK-LABEL: t_vmul_laneq_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmul v0.4h, v0.4h, v1.h[0]
 ; CHECK-NEXT:    ret
 entry:
@@ -219,7 +236,8 @@ entry:
 
 define dso_local <8 x half> @t_vmulq_laneq_f16(<8 x half> %a, <8 x half> %b, i32 %lane) {
 ; CHECK-LABEL: t_vmulq_laneq_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmul v0.8h, v0.8h, v1.h[0]
 ; CHECK-NEXT:    ret
 entry:
@@ -230,7 +248,8 @@ entry:
 
 define dso_local half @t_vmulh_lane_f16(half %a, <4 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vmulh_lane_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $d1 killed $d1 def $q1
 ; CHECK-NEXT:    fmul h0, h0, v1.h[0]
 ; CHECK-NEXT:    ret
@@ -242,7 +261,8 @@ entry:
 
 define dso_local half @t_vmulh_laneq_f16(half %a, <8 x half> %c, i32 %lane) {
 ; CHECK-LABEL: t_vmulh_laneq_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmul h0, h0, v1.h[0]
 ; CHECK-NEXT:    ret
 entry:
@@ -253,7 +273,8 @@ entry:
 
 define dso_local half @t_vmulx_f16(half %a, half %b) {
 ; CHECK-LABEL: t_vmulx_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmulx h0, h0, h1
 ; CHECK-NEXT:    ret
 entry:
@@ -263,7 +284,8 @@ entry:
 
 define dso_local half @t_vmulxh_lane_f16(half %a, <4 x half> %b, i32 %lane) {
 ; CHECK-LABEL: t_vmulxh_lane_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $d1 killed $d1 def $q1
 ; CHECK-NEXT:    fmulx h0, h0, v1.h[3]
 ; CHECK-NEXT:    ret
@@ -275,7 +297,8 @@ entry:
 
 define dso_local <4 x half> @t_vmulx_lane_f16(<4 x half> %a, <4 x half> %b, i32 %lane) {
 ; CHECK-LABEL: t_vmulx_lane_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $d1 killed $d1 def $q1
 ; CHECK-NEXT:    fmulx v0.4h, v0.4h, v1.h[0]
 ; CHECK-NEXT:    ret
@@ -287,7 +310,8 @@ entry:
 
 define dso_local <8 x half> @t_vmulxq_lane_f16(<8 x half> %a, <4 x half> %b, i32 %lane) {
 ; CHECK-LABEL: t_vmulxq_lane_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $d1 killed $d1 def $q1
 ; CHECK-NEXT:    fmulx v0.8h, v0.8h, v1.h[0]
 ; CHECK-NEXT:    ret
@@ -299,7 +323,8 @@ entry:
 
 define dso_local <4 x half> @t_vmulx_laneq_f16(<4 x half> %a, <8 x half> %b, i32 %lane) {
 ; CHECK-LABEL: t_vmulx_laneq_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmulx v0.4h, v0.4h, v1.h[0]
 ; CHECK-NEXT:    ret
 entry:
@@ -310,7 +335,8 @@ entry:
 
 define dso_local <8 x half> @t_vmulxq_laneq_f16(<8 x half> %a, <8 x half> %b, i32 %lane) {
 ; CHECK-LABEL: t_vmulxq_laneq_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmulx v0.8h, v0.8h, v1.h[0]
 ; CHECK-NEXT:    ret
 entry:
@@ -321,7 +347,8 @@ entry:
 
 define dso_local half @t_vmulxh_laneq_f16(half %a, <8 x half> %b, i32 %lane) {
 ; CHECK-LABEL: t_vmulxh_laneq_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmulx h0, h0, v1.h[7]
 ; CHECK-NEXT:    ret
 entry:
@@ -332,7 +359,8 @@ entry:
 
 define dso_local <4 x half> @t_vmulx_n_f16(<4 x half> %a, half %c) {
 ; CHECK-LABEL: t_vmulx_n_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $h1 killed $h1 def $q1
 ; CHECK-NEXT:    dup v1.4h, v1.h[0]
 ; CHECK-NEXT:    fmulx v0.4h, v0.4h, v1.4h
@@ -346,7 +374,8 @@ entry:
 
 define dso_local <8 x half> @t_vmulxq_n_f16(<8 x half> %a, half %c) {
 ; CHECK-LABEL: t_vmulxq_n_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $h1 killed $h1 def $q1
 ; CHECK-NEXT:    dup v1.8h, v1.h[0]
 ; CHECK-NEXT:    fmulx v0.8h, v0.8h, v1.8h
@@ -360,7 +389,8 @@ entry:
 
 define dso_local half @t_vfmah_lane3_f16(half %a, half %b, <4 x half> %c) {
 ; CHECK-LABEL: t_vfmah_lane3_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $d2 killed $d2 def $q2
 ; CHECK-NEXT:    fmla h0, h1, v2.h[3]
 ; CHECK-NEXT:    ret
@@ -372,7 +402,8 @@ entry:
 
 define dso_local half @t_vfmah_laneq7_f16(half %a, half %b, <8 x half> %c) {
 ; CHECK-LABEL: t_vfmah_laneq7_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmla h0, h1, v2.h[7]
 ; CHECK-NEXT:    ret
 entry:
@@ -383,7 +414,8 @@ entry:
 
 define dso_local half @t_vfmsh_lane3_f16(half %a, half %b, <4 x half> %c) {
 ; CHECK-LABEL: t_vfmsh_lane3_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    // kill: def $d2 killed $d2 def $q2
 ; CHECK-NEXT:    fmls h0, h1, v2.h[3]
 ; CHECK-NEXT:    ret
@@ -396,7 +428,8 @@ entry:
 
 define dso_local half @t_vfmsh_laneq7_f16(half %a, half %b, <8 x half> %c) {
 ; CHECK-LABEL: t_vfmsh_laneq7_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fmls h0, h1, v2.h[7]
 ; CHECK-NEXT:    ret
 entry:
@@ -408,7 +441,8 @@ entry:
 
 define dso_local half @t_fadd_vfmah_f16(half %a, half %b, <4 x half> %c, <4 x half> %d) {
 ; CHECK-LABEL: t_fadd_vfmah_f16:
-; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    .cfi_startproc
+; CHECK-NEXT:  // %bb.0: // %entry
 ; CHECK-NEXT:    fadd v2.4h, v2.4h, v3.4h
 ; CHECK-NEXT:    fmla h0, h1, v2.h[3]
 ; CHECK-NEXT:    ret

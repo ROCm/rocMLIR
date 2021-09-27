@@ -110,7 +110,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
-#include "llvm/Transforms/Utils/ModuleUtils.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -199,14 +198,12 @@ static cl::opt<bool>
                             "warnings about missing profile data for "
                             "functions."));
 
-namespace llvm {
 // Command line option to enable/disable the warning about a hash mismatch in
 // the profile data.
-cl::opt<bool>
+static cl::opt<bool>
     NoPGOWarnMismatch("no-pgo-warn-mismatch", cl::init(false), cl::Hidden,
                       cl::desc("Use this option to turn off/on "
                                "warnings about profile cfg mismatch."));
-} // namespace llvm
 
 // Command line option to enable/disable the warning about a hash mismatch in
 // the profile data for Comdat functions, which often turns out to be false
@@ -283,7 +280,6 @@ static cl::opt<unsigned> PGOVerifyBFICutoff(
     cl::desc("Set the threshold for pgo-verify-bfi -- skip the counts whose "
              "profile count value is below."));
 
-namespace llvm {
 // Command line option to turn on CFG dot dump after profile annotation.
 // Defined in Analysis/BlockFrequencyInfo.cpp:  -pgo-view-counts
 extern cl::opt<PGOViewCountsType> PGOViewCounts;
@@ -291,7 +287,6 @@ extern cl::opt<PGOViewCountsType> PGOViewCounts;
 // Command line option to specify the name of the function for CFG dump
 // Defined in Analysis/BlockFrequencyInfo.cpp:  -view-bfi-func-name=
 extern cl::opt<std::string> ViewBlockFreqFuncName;
-} // namespace llvm
 
 static cl::opt<bool>
     PGOOldCFGHashing("pgo-instr-old-cfg-hashing", cl::init(false), cl::Hidden,
@@ -465,10 +460,7 @@ public:
 private:
   bool runOnModule(Module &M) override {
     createProfileFileNameVar(M, InstrProfileOutput);
-    // The variable in a comdat may be discarded by LTO. Ensure the
-    // declaration will be retained.
-    appendToCompilerUsed(
-        M, createIRLevelProfileFlagVar(M, /*IsCS=*/true, PGOInstrumentEntry));
+    createIRLevelProfileFlagVar(M, /* IsCS */ true, PGOInstrumentEntry);
     return false;
   }
   std::string InstrProfileOutput;
@@ -537,7 +529,7 @@ struct PGOEdge {
       : SrcBB(Src), DestBB(Dest), Weight(W) {}
 
   // Return the information string of an edge.
-  std::string infoString() const {
+  const std::string infoString() const {
     return (Twine(Removed ? "-" : " ") + (InMST ? " " : "*") +
             (IsCritical ? "c" : " ") + "  W=" + Twine(Weight)).str();
   }
@@ -552,7 +544,7 @@ struct BBInfo {
   BBInfo(unsigned IX) : Group(this), Index(IX) {}
 
   // Return the information string of this object.
-  std::string infoString() const {
+  const std::string infoString() const {
     return (Twine("Index=") + Twine(Index)).str();
   }
 
@@ -995,7 +987,7 @@ struct PGOUseEdge : public PGOEdge {
   }
 
   // Return the information string for this object.
-  std::string infoString() const {
+  const std::string infoString() const {
     if (!CountValid)
       return PGOEdge::infoString();
     return (Twine(PGOEdge::infoString()) + "  Count=" + Twine(CountValue))
@@ -1026,7 +1018,7 @@ struct UseBBInfo : public BBInfo {
   }
 
   // Return the information string of this object.
-  std::string infoString() const {
+  const std::string infoString() const {
     if (!CountValid)
       return BBInfo::infoString();
     return (Twine(BBInfo::infoString()) + "  Count=" + Twine(CountValue)).str();
@@ -1155,7 +1147,7 @@ private:
   void setEdgeCount(DirectEdges &Edges, uint64_t Value);
 
   // Return FuncName string;
-  std::string getFuncName() const { return FuncInfo.FuncName; }
+  const std::string getFuncName() const { return FuncInfo.FuncName; }
 
   // Set the hot/cold inline hints based on the count values.
   // FIXME: This function should be removed once the functionality in
@@ -1473,8 +1465,8 @@ void PGOUseFunc::setBranchWeights() {
 }
 
 static bool isIndirectBrTarget(BasicBlock *BB) {
-  for (BasicBlock *Pred : predecessors(BB)) {
-    if (isa<IndirectBrInst>(Pred->getTerminator()))
+  for (pred_iterator PI = pred_begin(BB), E = pred_end(BB); PI != E; ++PI) {
+    if (isa<IndirectBrInst>((*PI)->getTerminator()))
       return true;
   }
   return false;
@@ -1616,7 +1608,7 @@ static bool InstrumentAllFunctions(
   // For the context-sensitve instrumentation, we should have a separated pass
   // (before LTO/ThinLTO linking) to create these variables.
   if (!IsCS)
-    createIRLevelProfileFlagVar(M, /*IsCS=*/false, PGOInstrumentEntry);
+    createIRLevelProfileFlagVar(M, /* IsCS */ false, PGOInstrumentEntry);
   std::unordered_multimap<Comdat *, GlobalValue *> ComdatMembers;
   collectComdatMembers(M, ComdatMembers);
 
@@ -1636,10 +1628,7 @@ static bool InstrumentAllFunctions(
 PreservedAnalyses
 PGOInstrumentationGenCreateVar::run(Module &M, ModuleAnalysisManager &AM) {
   createProfileFileNameVar(M, CSInstrName);
-  // The variable in a comdat may be discarded by LTO. Ensure the declaration
-  // will be retained.
-  appendToCompilerUsed(
-      M, createIRLevelProfileFlagVar(M, /*IsCS=*/true, PGOInstrumentEntry));
+  createIRLevelProfileFlagVar(M, /* IsCS */ true, PGOInstrumentEntry);
   return PreservedAnalyses::all();
 }
 
@@ -2135,13 +2124,14 @@ template <> struct DOTGraphTraits<PGOUseFunc *> : DefaultDOTGraphTraits {
     if (!PGOInstrSelect)
       return Result;
 
-    for (const Instruction &I : *Node) {
-      if (!isa<SelectInst>(&I))
+    for (auto BI = Node->begin(); BI != Node->end(); ++BI) {
+      auto *I = &*BI;
+      if (!isa<SelectInst>(I))
         continue;
       // Display scaled counts for SELECT instruction:
       OS << "SELECT : { T = ";
       uint64_t TC, FC;
-      bool HasProf = I.extractProfMetadata(TC, FC);
+      bool HasProf = I->extractProfMetadata(TC, FC);
       if (!HasProf)
         OS << "Unknown, F = Unknown }\\l";
       else

@@ -28,6 +28,7 @@ protected:
 
     if (target.GetCollectingStats()) {
       result.AppendError("statistics already enabled");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 
@@ -52,6 +53,7 @@ protected:
 
     if (!target.GetCollectingStats()) {
       result.AppendError("need to enable statistics before disabling them");
+      result.SetStatus(eReturnStatusFailed);
       return false;
     }
 

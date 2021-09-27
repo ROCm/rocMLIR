@@ -13,6 +13,8 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Regex.h"
+#include <fstream>
+#include <streambuf>
 #include <string>
 
 const char *IndexFilename;
@@ -32,15 +34,9 @@ std::unique_ptr<SymbolIndex> buildDex() {
 
 // Reads JSON array of serialized FuzzyFindRequest's from user-provided file.
 std::vector<FuzzyFindRequest> extractQueriesFromLogs() {
-
-  auto Buffer = llvm::MemoryBuffer::getFile(RequestsFilename);
-  if (!Buffer) {
-    llvm::errs() << "Error cannot open JSON request file:" << RequestsFilename
-                 << ": " << Buffer.getError().message() << "\n";
-    exit(1);
-  }
-
-  StringRef Log = Buffer.get()->getBuffer();
+  std::ifstream InputStream(RequestsFilename);
+  std::string Log((std::istreambuf_iterator<char>(InputStream)),
+                  std::istreambuf_iterator<char>());
 
   std::vector<FuzzyFindRequest> Requests;
   auto JSONArray = llvm::json::parse(Log);
@@ -106,7 +102,7 @@ BENCHMARK(DexBuild);
 int main(int argc, char *argv[]) {
   if (argc < 3) {
     llvm::errs() << "Usage: " << argv[0]
-                 << " global-symbol-index.dex requests.json "
+                 << " global-symbol-index.yaml requests.json "
                     "BENCHMARK_OPTIONS...\n";
     return -1;
   }

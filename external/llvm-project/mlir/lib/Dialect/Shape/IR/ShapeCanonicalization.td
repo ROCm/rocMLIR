@@ -18,9 +18,8 @@ def AssumingAllOneOp : Pat<(Shape_AssumingAllOp $args),
                            (replaceWithValue $args),
                            [(HasSingleElement $args)]>;
 
-def CstrBroadcastableEqOps : Pat<(Shape_CstrBroadcastableOp:$op $shapes),
-  (Shape_ConstWitnessOp ConstBoolAttrTrue),
-  [(AllInputShapesEq $shapes)]>;
+def CstrBroadcastableEqOps : Pat<(Shape_CstrBroadcastableOp:$op $x, $x),
+  (Shape_ConstWitnessOp ConstBoolAttrTrue)>;
 
 def CstrEqEqOps : Pat<(Shape_CstrEqOp:$op $shapes),
   (Shape_ConstWitnessOp ConstBoolAttrTrue),

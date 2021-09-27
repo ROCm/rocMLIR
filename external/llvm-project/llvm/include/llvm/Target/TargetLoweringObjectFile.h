@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TARGET_TARGETLOWERINGOBJECTFILE_H
-#define LLVM_TARGET_TARGETLOWERINGOBJECTFILE_H
+#ifndef LLVM_CODEGEN_TARGETLOWERINGOBJECTFILE_H
+#define LLVM_CODEGEN_TARGETLOWERINGOBJECTFILE_H
 
 #include "llvm/MC/MCObjectFileInfo.h"
 #include <cstdint>
@@ -102,10 +102,6 @@ public:
                                  const MachineBasicBlock &MBB,
                                  const TargetMachine &TM) const;
 
-  virtual MCSection *
-  getUniqueSectionForFunction(const Function &F,
-                              const TargetMachine &TM) const;
-
   /// Classify the specified global variable into a set of target independent
   /// categories embodied in SectionKind.
   static SectionKind getKindForGlobal(const GlobalObject *GO,
@@ -129,8 +125,8 @@ public:
 
   virtual MCSection *getSectionForJumpTable(const Function &F,
                                             const TargetMachine &TM) const;
-  virtual MCSection *getSectionForLSDA(const Function &, const MCSymbol &,
-                                       const TargetMachine &) const {
+  virtual MCSection *getSectionForLSDA(const Function &F,
+                                       const TargetMachine &TM) const {
     return LSDASection;
   }
 
@@ -282,4 +278,4 @@ protected:
 
 } // end namespace llvm
 
-#endif // LLVM_TARGET_TARGETLOWERINGOBJECTFILE_H
+#endif // LLVM_CODEGEN_TARGETLOWERINGOBJECTFILE_H

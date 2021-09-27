@@ -1,4 +1,4 @@
-! RUN: %python %S/test_folding.py %s %flang_fc1
+! RUN: %S/test_folding.sh %s %t %f18
 ! Test implementations of IEEE inquiry functions
 module m
   use ieee_arithmetic

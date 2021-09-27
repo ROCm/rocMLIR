@@ -14,8 +14,6 @@
 #include "polly/ScopInfo.h"
 #include "llvm/Analysis/BasicAliasAnalysis.h"
 #include "llvm/Analysis/GlobalsModRef.h"
-#include "llvm/Analysis/LazyBlockFrequencyInfo.h"
-#include "llvm/Analysis/LazyBranchProbabilityInfo.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/ScalarEvolutionAliasAnalysis.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
@@ -52,8 +50,6 @@ void ScopPass::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addPreserved<ScalarEvolutionWrapperPass>();
   AU.addPreserved<SCEVAAWrapperPass>();
   AU.addPreserved<OptimizationRemarkEmitterWrapperPass>();
-  AU.addPreserved<LazyBlockFrequencyInfoPass>();
-  AU.addPreserved<LazyBranchProbabilityInfoPass>();
   AU.addPreserved<RegionInfoPass>();
   AU.addPreserved<ScopInfoRegionPass>();
   AU.addPreserved<TargetTransformInfoWrapperPass>();

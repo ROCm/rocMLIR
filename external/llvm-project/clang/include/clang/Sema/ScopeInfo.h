@@ -118,10 +118,6 @@ public:
   /// Whether this function contains any indirect gotos.
   bool HasIndirectGoto : 1;
 
-  /// Whether this function contains any statement marked with
-  /// \c [[clang::musttail]].
-  bool HasMustTail : 1;
-
   /// Whether a statement was dropped because it was invalid.
   bool HasDroppedStmt : 1;
 
@@ -374,13 +370,14 @@ protected:
 public:
   FunctionScopeInfo(DiagnosticsEngine &Diag)
       : Kind(SK_Function), HasBranchProtectedScope(false),
-        HasBranchIntoScope(false), HasIndirectGoto(false), HasMustTail(false),
+        HasBranchIntoScope(false), HasIndirectGoto(false),
         HasDroppedStmt(false), HasOMPDeclareReductionCombiner(false),
         HasFallthroughStmt(false), UsesFPIntrin(false),
-        HasPotentialAvailabilityViolations(false), ObjCShouldCallSuper(false),
-        ObjCIsDesignatedInit(false), ObjCWarnForNoDesignatedInitChain(false),
-        ObjCIsSecondaryInit(false), ObjCWarnForNoInitDelegation(false),
-        NeedsCoroutineSuspends(true), ErrorTrap(Diag) {}
+        HasPotentialAvailabilityViolations(false),
+        ObjCShouldCallSuper(false), ObjCIsDesignatedInit(false),
+        ObjCWarnForNoDesignatedInitChain(false), ObjCIsSecondaryInit(false),
+        ObjCWarnForNoInitDelegation(false), NeedsCoroutineSuspends(true),
+        ErrorTrap(Diag) {}
 
   virtual ~FunctionScopeInfo();
 
@@ -426,8 +423,6 @@ public:
     HasIndirectGoto = true;
   }
 
-  void setHasMustTail() { HasMustTail = true; }
-
   void setHasDroppedStmt() {
     HasDroppedStmt = true;
   }
@@ -455,8 +450,9 @@ public:
   }
 
   bool NeedsScopeChecking() const {
-    return !HasDroppedStmt && (HasIndirectGoto || HasMustTail ||
-                               (HasBranchProtectedScope && HasBranchIntoScope));
+    return !HasDroppedStmt &&
+        (HasIndirectGoto ||
+          (HasBranchProtectedScope && HasBranchIntoScope));
   }
 
   // Add a block introduced in this function.

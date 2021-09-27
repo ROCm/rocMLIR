@@ -9,11 +9,7 @@
 #include "mlir/Conversion/OpenMPToLLVM/ConvertOpenMPToLLVM.h"
 
 #include "../PassDetail.h"
-#include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
-#include "mlir/Conversion/LLVMCommon/Pattern.h"
-#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 
@@ -32,7 +28,7 @@ struct RegionOpConversion : public ConvertOpToLLVMPattern<OpType> {
   matchAndRewrite(OpType curOp, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto newOp = rewriter.create<OpType>(curOp.getLoc(), TypeRange(), operands,
-                                         curOp->getAttrs());
+                                         curOp.getAttrs());
     rewriter.inlineRegionBefore(curOp.region(), newOp.region(),
                                 newOp.region().end());
     if (failed(rewriter.convertRegionTypes(&newOp.region(),
@@ -45,11 +41,10 @@ struct RegionOpConversion : public ConvertOpToLLVMPattern<OpType> {
 };
 } // namespace
 
-void mlir::populateOpenMPToLLVMConversionPatterns(LLVMTypeConverter &converter,
-                                                  RewritePatternSet &patterns) {
-  patterns.add<RegionOpConversion<omp::MasterOp>,
-               RegionOpConversion<omp::ParallelOp>,
-               RegionOpConversion<omp::WsLoopOp>>(converter);
+void mlir::populateOpenMPToLLVMConversionPatterns(
+    LLVMTypeConverter &converter, OwningRewritePatternList &patterns) {
+  patterns.insert<RegionOpConversion<omp::ParallelOp>,
+                  RegionOpConversion<omp::WsLoopOp>>(converter);
 }
 
 namespace {
@@ -63,14 +58,13 @@ void ConvertOpenMPToLLVMPass::runOnOperation() {
   auto module = getOperation();
 
   // Convert to OpenMP operations with LLVM IR dialect
-  RewritePatternSet patterns(&getContext());
+  OwningRewritePatternList patterns;
   LLVMTypeConverter converter(&getContext());
-  populateMemRefToLLVMConversionPatterns(converter, patterns);
   populateStdToLLVMConversionPatterns(converter, patterns);
   populateOpenMPToLLVMConversionPatterns(converter, patterns);
 
   LLVMConversionTarget target(getContext());
-  target.addDynamicallyLegalOp<omp::MasterOp, omp::ParallelOp, omp::WsLoopOp>(
+  target.addDynamicallyLegalOp<omp::ParallelOp, omp::WsLoopOp>(
       [&](Operation *op) { return converter.isLegal(&op->getRegion(0)); });
   target.addLegalOp<omp::TerminatorOp, omp::TaskyieldOp, omp::FlushOp,
                     omp::BarrierOp, omp::TaskwaitOp>();

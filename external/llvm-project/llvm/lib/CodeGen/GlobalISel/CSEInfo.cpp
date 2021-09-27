@@ -11,7 +11,6 @@
 #include "llvm/CodeGen/GlobalISel/CSEInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/InitializePasses.h"
-#include "llvm/Support/Error.h"
 
 #define DEBUG_TYPE "cseinfo"
 
@@ -260,17 +259,8 @@ void GISelCSEInfo::releaseMemory() {
 #endif
 }
 
-#ifndef NDEBUG
-static const char *stringify(const MachineInstr *MI, std::string &S) {
-  raw_string_ostream OS(S);
-  OS << *MI;
-  return OS.str().c_str();
-}
-#endif
-
 Error GISelCSEInfo::verify() {
 #ifndef NDEBUG
-  std::string S1, S2;
   handleRecordedInsts();
   // For each instruction in map from MI -> UMI,
   // Profile(MI) and make sure UMI is found for that profile.
@@ -283,23 +273,20 @@ Error GISelCSEInfo::verify() {
     if (FoundNode != It.second)
       return createStringError(std::errc::not_supported,
                                "CSEMap mismatch, InstrMapping has MIs without "
-                               "corresponding Nodes in CSEMap:\n%s",
-                               stringify(It.second->MI, S1));
+                               "corresponding Nodes in CSEMap");
   }
 
   // For every node in the CSEMap, make sure that the InstrMapping
   // points to it.
-  for (const UniqueMachineInstr &UMI : CSEMap) {
+  for (auto It = CSEMap.begin(), End = CSEMap.end(); It != End; ++It) {
+    const UniqueMachineInstr &UMI = *It;
     if (!InstrMapping.count(UMI.MI))
       return createStringError(std::errc::not_supported,
-                               "Node in CSE without InstrMapping:\n%s",
-                               stringify(UMI.MI, S1));
+                               "Node in CSE without InstrMapping", UMI.MI);
 
     if (InstrMapping[UMI.MI] != &UMI)
       return createStringError(std::make_error_code(std::errc::not_supported),
-                               "Mismatch in CSE mapping:\n%s\n%s",
-                               stringify(InstrMapping[UMI.MI]->MI, S1),
-                               stringify(UMI.MI, S2));
+                               "Mismatch in CSE mapping");
   }
 #endif
   return Error::success();

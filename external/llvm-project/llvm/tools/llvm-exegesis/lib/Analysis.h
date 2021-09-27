@@ -36,12 +36,10 @@ namespace exegesis {
 // A helper class to analyze benchmark results for a target.
 class Analysis {
 public:
-  Analysis(const Target &Target, std::unique_ptr<MCSubtargetInfo> SubtargetInfo,
-           std::unique_ptr<MCInstrInfo> InstrInfo,
+  Analysis(const Target &Target, std::unique_ptr<MCInstrInfo> InstrInfo,
            const InstructionBenchmarkClustering &Clustering,
            double AnalysisInconsistencyEpsilon,
-           bool AnalysisDisplayUnstableOpcodes,
-           const std::string &ForceCpuName = "");
+           bool AnalysisDisplayUnstableOpcodes);
 
   // Prints a csv of instructions for each cluster.
   struct PrintClusters {};
@@ -113,6 +111,7 @@ private:
                     const char *Separator) const;
 
   const InstructionBenchmarkClustering &Clustering_;
+  MCObjectFileInfo ObjectFileInfo_;
   std::unique_ptr<MCContext> Context_;
   std::unique_ptr<MCSubtargetInfo> SubtargetInfo_;
   std::unique_ptr<MCInstrInfo> InstrInfo_;

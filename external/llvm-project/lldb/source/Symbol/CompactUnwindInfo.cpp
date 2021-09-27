@@ -167,7 +167,7 @@ CompactUnwindInfo::CompactUnwindInfo(ObjectFile &objfile, SectionSP &section_sp)
 
 // destructor
 
-CompactUnwindInfo::~CompactUnwindInfo() = default;
+CompactUnwindInfo::~CompactUnwindInfo() {}
 
 bool CompactUnwindInfo::GetUnwindPlan(Target &target, Address addr,
                                       UnwindPlan &unwind_plan) {

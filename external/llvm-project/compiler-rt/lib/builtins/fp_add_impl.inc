@@ -151,19 +151,19 @@ static __inline fp_t __addXf3__(fp_t a, fp_t b) {
   // Perform the final rounding.  The result may overflow to infinity, but
   // that is the correct result in that case.
   switch (__fe_getround()) {
-  case CRT_FE_TONEAREST:
+  case FE_TONEAREST:
     if (roundGuardSticky > 0x4)
       result++;
     if (roundGuardSticky == 0x4)
       result += result & 1;
     break;
-  case CRT_FE_DOWNWARD:
+  case FE_DOWNWARD:
     if (resultSign && roundGuardSticky) result++;
     break;
-  case CRT_FE_UPWARD:
+  case FE_UPWARD:
     if (!resultSign && roundGuardSticky) result++;
     break;
-  case CRT_FE_TOWARDZERO:
+  case FE_TOWARDZERO:
     break;
   }
   if (roundGuardSticky)

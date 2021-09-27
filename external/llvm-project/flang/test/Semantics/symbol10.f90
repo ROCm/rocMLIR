@@ -1,4 +1,4 @@
-! RUN: %python %S/test_symbols.py %s %flang_fc1
+! RUN: %S/test_symbols.sh %s %t %f18
 !DEF: /m1 Module
 module m1
 contains

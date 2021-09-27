@@ -1,3 +1,4 @@
+; RUN: opt -regions < %s
 ; RUN: opt < %s -passes='print<regions>'
 
 define i32 @main() nounwind {

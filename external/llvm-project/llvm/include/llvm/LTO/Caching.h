@@ -15,6 +15,7 @@
 #define LLVM_LTO_CACHING_H
 
 #include "llvm/LTO/LTO.h"
+#include <string>
 
 namespace llvm {
 namespace lto {

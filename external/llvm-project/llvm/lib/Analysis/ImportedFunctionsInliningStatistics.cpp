@@ -19,8 +19,6 @@
 #include <algorithm>
 #include <iomanip>
 #include <sstream>
-#include <string>
-
 using namespace llvm;
 
 cl::opt<InlinerFunctionImportStatsOpts> InlinerFunctionImportStats(

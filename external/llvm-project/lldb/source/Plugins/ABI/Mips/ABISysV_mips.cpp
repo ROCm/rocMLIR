@@ -131,7 +131,7 @@ static const RegisterInfo g_register_infos[] = {
      nullptr,
      0},
     {"r4",
-     nullptr,
+     "arg1",
      4,
      0,
      eEncodingUint,
@@ -143,7 +143,7 @@ static const RegisterInfo g_register_infos[] = {
      nullptr,
      0},
     {"r5",
-     nullptr,
+     "arg2",
      4,
      0,
      eEncodingUint,
@@ -155,7 +155,7 @@ static const RegisterInfo g_register_infos[] = {
      nullptr,
      0},
     {"r6",
-     nullptr,
+     "arg3",
      4,
      0,
      eEncodingUint,
@@ -167,7 +167,7 @@ static const RegisterInfo g_register_infos[] = {
      nullptr,
      0},
     {"r7",
-     nullptr,
+     "arg4",
      4,
      0,
      eEncodingUint,
@@ -431,7 +431,7 @@ static const RegisterInfo g_register_infos[] = {
      nullptr,
      0},
     {"r29",
-     nullptr,
+     "sp",
      4,
      0,
      eEncodingUint,
@@ -443,7 +443,7 @@ static const RegisterInfo g_register_infos[] = {
      nullptr,
      0},
     {"r30",
-     nullptr,
+     "fp",
      4,
      0,
      eEncodingUint,
@@ -455,7 +455,7 @@ static const RegisterInfo g_register_infos[] = {
      nullptr,
      0},
     {"r31",
-     nullptr,
+     "ra",
      4,
      0,
      eEncodingUint,
@@ -985,7 +985,6 @@ bool ABISysV_mips::CreateDefaultUnwindPlan(UnwindPlan &unwind_plan) {
 
   UnwindPlan::RowSP row(new UnwindPlan::Row);
 
-  row->SetUnspecifiedRegistersAreUndefined(true);
   row->GetCFAValue().SetIsRegisterPlusOffset(dwarf_r29, 0);
 
   row->SetRegisterLocationToRegister(dwarf_pc, dwarf_r31, true);
@@ -1063,3 +1062,5 @@ lldb_private::ConstString ABISysV_mips::GetPluginNameStatic() {
 lldb_private::ConstString ABISysV_mips::GetPluginName() {
   return GetPluginNameStatic();
 }
+
+uint32_t ABISysV_mips::GetPluginVersion() { return 1; }

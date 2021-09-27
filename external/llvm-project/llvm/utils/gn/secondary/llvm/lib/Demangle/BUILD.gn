@@ -6,6 +6,5 @@ static_library("Demangle") {
     "ItaniumDemangle.cpp",
     "MicrosoftDemangle.cpp",
     "MicrosoftDemangleNodes.cpp",
-    "RustDemangle.cpp",
   ]
 }

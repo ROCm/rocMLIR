@@ -166,9 +166,8 @@ static void removeLifetimeMarkers(Region *R) {
   }
 }
 
-static bool generateCode(Scop &S, IslAstInfo &AI, LoopInfo &LI,
-                         DominatorTree &DT, ScalarEvolution &SE,
-                         RegionInfo &RI) {
+static bool CodeGen(Scop &S, IslAstInfo &AI, LoopInfo &LI, DominatorTree &DT,
+                    ScalarEvolution &SE, RegionInfo &RI) {
   // Check whether IslAstInfo uses the same isl_ctx. Since -polly-codegen
   // reports itself to preserve DependenceInfo and IslAstInfo, we might get
   // those analysis that were computed by a different ScopInfo for a different
@@ -189,8 +188,8 @@ static bool generateCode(Scop &S, IslAstInfo &AI, LoopInfo &LI,
   }
 
   // Check if we created an isl_ast root node, otherwise exit.
-  isl::ast_node AstRoot = Ast.getAst();
-  if (AstRoot.is_null())
+  isl_ast_node *AstRoot = Ast.getAst();
+  if (!AstRoot)
     return false;
 
   // Collect statistics. Do it before we modify the IR to avoid having it any
@@ -267,9 +266,11 @@ static bool generateCode(Scop &S, IslAstInfo &AI, LoopInfo &LI,
     assert(ExitingBB);
     DT.changeImmediateDominator(MergeBlock, ExitingBB);
     DT.eraseNode(ExitingBlock);
+
+    isl_ast_node_free(AstRoot);
   } else {
     NodeBuilder.addParameters(S.getContext().release());
-    Value *RTC = NodeBuilder.createRTC(AI.getRunCondition().release());
+    Value *RTC = NodeBuilder.createRTC(AI.getRunCondition());
 
     Builder.GetInsertBlock()->getTerminator()->setOperand(0, RTC);
 
@@ -281,7 +282,7 @@ static bool generateCode(Scop &S, IslAstInfo &AI, LoopInfo &LI,
     // between polly.start and polly.exiting (at this point).
     Builder.SetInsertPoint(StartBlock->getTerminator());
 
-    NodeBuilder.create(AstRoot.release());
+    NodeBuilder.create(AstRoot);
     NodeBuilder.finalize();
     fixRegionInfo(*EnteringBB->getParent(), *R->getParent(), RI);
 
@@ -334,7 +335,7 @@ public:
     SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
     DL = &S.getFunction().getParent()->getDataLayout();
     RI = &getAnalysis<RegionInfoPass>().getRegionInfo();
-    return generateCode(S, *AI, *LI, *DT, *SE, *RI);
+    return CodeGen(S, *AI, *LI, *DT, *SE, *RI);
   }
 
   /// Register all analyses and transformation required.
@@ -362,7 +363,7 @@ PreservedAnalyses CodeGenerationPass::run(Scop &S, ScopAnalysisManager &SAM,
                                           ScopStandardAnalysisResults &AR,
                                           SPMUpdater &U) {
   auto &AI = SAM.getResult<IslAstAnalysis>(S, AR);
-  if (generateCode(S, AI, AR.LI, AR.DT, AR.SE, AR.RI)) {
+  if (CodeGen(S, AI, AR.LI, AR.DT, AR.SE, AR.RI)) {
     U.invalidateScop(S);
     return PreservedAnalyses::none();
   }

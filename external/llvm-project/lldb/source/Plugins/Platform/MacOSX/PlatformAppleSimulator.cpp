@@ -50,7 +50,7 @@ PlatformAppleSimulator::PlatformAppleSimulator(
 ///
 /// The destructor is virtual since this class is designed to be
 /// inherited from by the plug-in instance.
-PlatformAppleSimulator::~PlatformAppleSimulator() = default;
+PlatformAppleSimulator::~PlatformAppleSimulator() {}
 
 lldb_private::Status PlatformAppleSimulator::LaunchProcess(
     lldb_private::ProcessLaunchInfo &launch_info) {
@@ -177,10 +177,11 @@ Status PlatformAppleSimulator::DisconnectRemote() {
 #endif
 }
 
-lldb::ProcessSP
-PlatformAppleSimulator::DebugProcess(ProcessLaunchInfo &launch_info,
-                                     Debugger &debugger, Target &target,
-                                     Status &error) {
+lldb::ProcessSP PlatformAppleSimulator::DebugProcess(
+    ProcessLaunchInfo &launch_info, Debugger &debugger,
+    Target *target, // Can be NULL, if NULL create a new target, else use
+                    // existing one
+    Status &error) {
 #if defined(__APPLE__)
   ProcessSP process_sp;
   // Make sure we stop at the entry point
@@ -194,7 +195,7 @@ PlatformAppleSimulator::DebugProcess(ProcessLaunchInfo &launch_info,
   if (error.Success()) {
     if (launch_info.GetProcessID() != LLDB_INVALID_PROCESS_ID) {
       ProcessAttachInfo attach_info(launch_info);
-      process_sp = Attach(attach_info, debugger, &target, error);
+      process_sp = Attach(attach_info, debugger, target, error);
       if (process_sp) {
         launch_info.SetHijackListener(attach_info.GetHijackListener());
 
@@ -504,16 +505,6 @@ uint32_t PlatformAppleSimulator::FindProcesses(
   return process_infos.size();
 }
 
-/// Whether to skip creating a simulator platform.
-static bool shouldSkipSimulatorPlatform(bool force, const ArchSpec *arch) {
-  // If the arch is known not to specify a simulator environment, skip creating
-  // the simulator platform (we can create it later if there's a matching arch).
-  // This avoids very slow xcrun queries for non-simulator archs (the slowness
-  // is due to xcrun not caching negative queries (rdar://74882205)).
-  return !force && arch && arch->IsValid() &&
-         !arch->TripleEnvironmentWasSpecified();
-}
-
 static llvm::StringRef GetXcodeSDKDir(std::string preferred,
                                       std::string secondary) {
   llvm::StringRef sdk;
@@ -539,8 +530,6 @@ struct PlatformiOSSimulator {
   }
 
   static PlatformSP CreateInstance(bool force, const ArchSpec *arch) {
-    if (shouldSkipSimulatorPlatform(force, arch))
-      return nullptr;
     llvm::StringRef sdk;
     sdk = HostInfo::GetXcodeSDKPath(XcodeSDK("iPhoneSimulator.Internal.sdk"));
     if (sdk.empty())
@@ -589,8 +578,6 @@ struct PlatformAppleTVSimulator {
   }
 
   static PlatformSP CreateInstance(bool force, const ArchSpec *arch) {
-    if (shouldSkipSimulatorPlatform(force, arch))
-      return nullptr;
     return PlatformAppleSimulator::CreateInstance(
         "PlatformAppleTVSimulator", g_tvos_description,
         ConstString(g_tvos_plugin_name),
@@ -632,8 +619,6 @@ struct PlatformAppleWatchSimulator {
   }
 
   static PlatformSP CreateInstance(bool force, const ArchSpec *arch) {
-    if (shouldSkipSimulatorPlatform(force, arch))
-      return nullptr;
     return PlatformAppleSimulator::CreateInstance(
         "PlatformAppleWatchSimulator", g_watchos_description,
         ConstString(g_watchos_plugin_name),

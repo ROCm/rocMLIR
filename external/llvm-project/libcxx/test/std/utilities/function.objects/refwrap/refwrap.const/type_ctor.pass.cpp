@@ -14,7 +14,6 @@
 
 #include <functional>
 #include <cassert>
-#include <type_traits>
 
 #include "test_macros.h"
 
@@ -43,22 +42,6 @@ int main(int, char**)
     test(i);
     const int j = 0;
     test(j);
-
-    {
-    using Ref = std::reference_wrapper<int>;
-    static_assert((std::is_constructible<Ref, int&>::value), "");
-    static_assert((!std::is_constructible<Ref, int>::value), "");
-    static_assert((!std::is_constructible<Ref, int&&>::value), "");
-    }
-
-#if TEST_STD_VER >= 11
-    {
-    using Ref = std::reference_wrapper<int>;
-    static_assert((std::is_nothrow_constructible<Ref, int&>::value), "");
-    static_assert((!std::is_nothrow_constructible<Ref, int>::value), "");
-    static_assert((!std::is_nothrow_constructible<Ref, int&&>::value), "");
-    }
-#endif
 
   return 0;
 }

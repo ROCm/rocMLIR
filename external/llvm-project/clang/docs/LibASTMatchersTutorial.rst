@@ -105,12 +105,9 @@ CMakeLists.txt should have the following contents:
         )
       target_link_libraries(loop-convert
         PRIVATE
-        clangAST
-        clangASTMatchers
-        clangBasic
-        clangFrontend
-        clangSerialization
         clangTooling
+        clangBasic
+        clangASTMatchers
         )
 
 With that done, Ninja will be able to compile our tool. Let's give it

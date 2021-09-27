@@ -39,8 +39,7 @@ public:
   // Returns a functor that repeats `Instructions` so that the function executes
   // at least `MinInstructions` instructions.
   virtual FillFunction Repeat(ArrayRef<MCInst> Instructions,
-                              unsigned MinInstructions,
-                              unsigned LoopBodySize) const = 0;
+                              unsigned MinInstructions) const = 0;
 
   explicit SnippetRepetitor(const LLVMState &State) : State(State) {}
 

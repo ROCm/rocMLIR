@@ -1,4 +1,4 @@
-// RUN: mlir-opt -allow-unregistered-dialect %s -pass-pipeline='builtin.func(canonicalize)' -split-input-file | FileCheck %s
+// RUN: mlir-opt -allow-unregistered-dialect %s -pass-pipeline='func(canonicalize)' -split-input-file | FileCheck %s
 
 // Check the simple case of single operation blocks with a return.
 
@@ -213,13 +213,13 @@ func @mismatch_operand_types(%arg0 : i1, %arg1 : memref<i32>, %arg2 : memref<i1>
   cond_br %arg0, ^bb2, ^bb3
 
 ^bb2:
-  // CHECK: memref.store %{{.*}}, %{{.*}} : memref<i32>
-  memref.store %c0_i32, %arg1[] : memref<i32>
+  // CHECK: store %{{.*}}, %{{.*}} : memref<i32>
+  store %c0_i32, %arg1[] : memref<i32>
   br ^bb1
 
 ^bb3:
-  // CHECK: memref.store %{{.*}}, %{{.*}} : memref<i1>
-  memref.store %true, %arg2[] : memref<i1>
+  // CHECK: store %{{.*}}, %{{.*}} : memref<i1>
+  store %true, %arg2[] : memref<i1>
   br ^bb1
 }
 

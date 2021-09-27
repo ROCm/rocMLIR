@@ -46,7 +46,6 @@ protected:
     SymbolKindUnset,
     SymbolKindCOFF,
     SymbolKindELF,
-    SymbolKindGOFF,
     SymbolKindMachO,
     SymbolKindWasm,
     SymbolKindXCOFF,
@@ -276,8 +275,6 @@ public:
   bool isELF() const { return Kind == SymbolKindELF; }
 
   bool isCOFF() const { return Kind == SymbolKindCOFF; }
-
-  bool isGOFF() const { return Kind == SymbolKindGOFF; }
 
   bool isMachO() const { return Kind == SymbolKindMachO; }
 

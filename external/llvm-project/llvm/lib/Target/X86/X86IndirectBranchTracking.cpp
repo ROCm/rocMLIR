@@ -92,7 +92,7 @@ static bool IsCallReturnTwice(llvm::MachineOperand &MOp) {
   if (!CalleeFn)
     return false;
   AttributeList Attrs = CalleeFn->getAttributes();
-  return Attrs.hasFnAttr(Attribute::ReturnsTwice);
+  return Attrs.hasFnAttribute(Attribute::ReturnsTwice);
 }
 
 bool X86IndirectBranchTrackingPass::runOnMachineFunction(MachineFunction &MF) {

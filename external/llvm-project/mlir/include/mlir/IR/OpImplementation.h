@@ -40,15 +40,6 @@ public:
   /// operation.
   virtual void printNewline() = 0;
 
-  /// Print a block argument in the usual format of:
-  ///   %ssaName : type {attr1=42} loc("here")
-  /// where location printing is controlled by the standard internal option.
-  /// You may pass omitType=true to not print a type, and pass an empty
-  /// attribute list if you don't care for attributes.
-  virtual void printRegionArgument(BlockArgument arg,
-                                   ArrayRef<NamedAttribute> argAttrs = {},
-                                   bool omitType = false) = 0;
-
   /// Print implementations for various things an operation contains.
   virtual void printOperand(Value value) = 0;
   virtual void printOperand(Value value, raw_ostream &os) = 0;
@@ -98,18 +89,11 @@ public:
                                    ArrayRef<StringRef> elidedAttrs = {}) = 0;
 
   /// Print the entire operation with the default generic assembly form.
-  /// If `printOpName` is true, then the operation name is printed (the default)
-  /// otherwise it is omitted and the print will start with the operand list.
-  virtual void printGenericOp(Operation *op, bool printOpName = true) = 0;
+  virtual void printGenericOp(Operation *op) = 0;
 
   /// Prints a region.
-  /// If 'printEntryBlockArgs' is false, the arguments of the
-  /// block are not printed. If 'printBlockTerminator' is false, the terminator
-  /// operation of the block is not printed. If printEmptyBlock is true, then
-  /// the block header is printed even if the block is empty.
   virtual void printRegion(Region &blocks, bool printEntryBlockArgs = true,
-                           bool printBlockTerminators = true,
-                           bool printEmptyBlock = false) = 0;
+                           bool printBlockTerminators = true) = 0;
 
   /// Renumber the arguments for the specified region to the same names as the
   /// SSA values in namesToUse.  This may only be used for IsolatedFromAbove
@@ -123,13 +107,6 @@ public:
   /// dimensions/symbol identifiers according to mlir::isValidDim/Symbol.
   virtual void printAffineMapOfSSAIds(AffineMapAttr mapAttr,
                                       ValueRange operands) = 0;
-
-  /// Prints an affine expression of SSA ids with SSA id names used instead of
-  /// dims and symbols.
-  /// Operand values must come from single-result sources, and be valid
-  /// dimensions/symbol identifiers according to mlir::isValidDim/Symbol.
-  virtual void printAffineExprOfSSAIds(AffineExpr expr, ValueRange dimOperands,
-                                       ValueRange symOperands) = 0;
 
   /// Print an optional arrow followed by a type list.
   template <typename TypeRange>
@@ -298,11 +275,6 @@ public:
   /// Return the location of the original name token.
   virtual llvm::SMLoc getNameLoc() const = 0;
 
-  /// Re-encode the given source location as an MLIR location and return it.
-  /// Note: This method should only be used when a `Location` is necessary, as
-  /// the encoding process is not efficient.
-  virtual Location getEncodedSourceLoc(llvm::SMLoc loc) = 0;
-
   // These methods emit an error and return failure or success. This allows
   // these to be chained together into a linear sequence of || expressions in
   // many cases.
@@ -451,67 +423,23 @@ public:
   }
 
   /// Parse an optional integer value from the stream.
-  virtual OptionalParseResult parseOptionalInteger(APInt &result) = 0;
+  virtual OptionalParseResult parseOptionalInteger(uint64_t &result) = 0;
 
   template <typename IntT>
   OptionalParseResult parseOptionalInteger(IntT &result) {
     auto loc = getCurrentLocation();
 
     // Parse the unsigned variant.
-    APInt uintResult;
+    uint64_t uintResult;
     OptionalParseResult parseResult = parseOptionalInteger(uintResult);
     if (!parseResult.hasValue() || failed(*parseResult))
       return parseResult;
 
-    // Try to convert to the provided integer type.  sextOrTrunc is correct even
-    // for unsigned types because parseOptionalInteger ensures the sign bit is
-    // zero for non-negated integers.
-    result =
-        (IntT)uintResult.sextOrTrunc(sizeof(IntT) * CHAR_BIT).getLimitedValue();
-    if (APInt(uintResult.getBitWidth(), result) != uintResult)
+    // Try to convert to the provided integer type.
+    result = IntT(uintResult);
+    if (uint64_t(result) != uintResult)
       return emitError(loc, "integer value too large");
     return success();
-  }
-
-  /// These are the supported delimiters around operand lists and region
-  /// argument lists, used by parseOperandList and parseRegionArgumentList.
-  enum class Delimiter {
-    /// Zero or more operands with no delimiters.
-    None,
-    /// Parens surrounding zero or more operands.
-    Paren,
-    /// Square brackets surrounding zero or more operands.
-    Square,
-    /// <> brackets surrounding zero or more operands.
-    LessGreater,
-    /// {} brackets surrounding zero or more operands.
-    Braces,
-    /// Parens supporting zero or more operands, or nothing.
-    OptionalParen,
-    /// Square brackets supporting zero or more ops, or nothing.
-    OptionalSquare,
-    /// <> brackets supporting zero or more ops, or nothing.
-    OptionalLessGreater,
-    /// {} brackets surrounding zero or more operands, or nothing.
-    OptionalBraces,
-  };
-
-  /// Parse a list of comma-separated items with an optional delimiter.  If a
-  /// delimiter is provided, then an empty list is allowed.  If not, then at
-  /// least one element will be parsed.
-  ///
-  /// contextMessage is an optional message appended to "expected '('" sorts of
-  /// diagnostics when parsing the delimeters.
-  virtual ParseResult
-  parseCommaSeparatedList(Delimiter delimiter,
-                          function_ref<ParseResult()> parseElementFn,
-                          StringRef contextMessage = StringRef()) = 0;
-
-  /// Parse a comma separated list of elements that must have at least one entry
-  /// in it.
-  ParseResult
-  parseCommaSeparatedList(function_ref<ParseResult()> parseElementFn) {
-    return parseCommaSeparatedList(Delimiter::None, parseElementFn);
   }
 
   //===--------------------------------------------------------------------===//
@@ -630,10 +558,6 @@ public:
                                               StringRef attrName,
                                               NamedAttrList &attrs) = 0;
 
-  /// Parse a loc(...) specifier if present, filling in result if so.
-  virtual ParseResult
-  parseOptionalLocationSpecifier(Optional<Location> &result) = 0;
-
   //===--------------------------------------------------------------------===//
   // Operand Parsing
   //===--------------------------------------------------------------------===//
@@ -650,6 +574,21 @@ public:
 
   /// Parse a single operand if present.
   virtual OptionalParseResult parseOptionalOperand(OperandType &result) = 0;
+
+  /// These are the supported delimiters around operand lists and region
+  /// argument lists, used by parseOperandList and parseRegionArgumentList.
+  enum class Delimiter {
+    /// Zero or more operands with no delimiters.
+    None,
+    /// Parens surrounding zero or more operands.
+    Paren,
+    /// Square brackets surrounding zero or more operands.
+    Square,
+    /// Parens supporting zero or more operands, or nothing.
+    OptionalParen,
+    /// Square brackets supporting zero or more ops, or nothing.
+    OptionalSquare,
+  };
 
   /// Parse zero or more SSA comma-separated operand references with a specified
   /// surrounding delimiter, and an optional required operand count.
@@ -735,14 +674,6 @@ public:
   parseAffineMapOfSSAIds(SmallVectorImpl<OperandType> &operands, Attribute &map,
                          StringRef attrName, NamedAttrList &attrs,
                          Delimiter delimiter = Delimiter::Square) = 0;
-
-  /// Parses an affine expression where dims and symbols are SSA operands.
-  /// Operand values must come from single-result sources, and be valid
-  /// dimensions/symbol identifiers according to mlir::isValidDim/Symbol.
-  virtual ParseResult
-  parseAffineExprOfSSAIds(SmallVectorImpl<OperandType> &dimOperands,
-                          SmallVectorImpl<OperandType> &symbOperands,
-                          AffineExpr &expr) = 0;
 
   //===--------------------------------------------------------------------===//
   // Region Parsing
@@ -898,22 +829,6 @@ public:
   parseOptionalAssignmentList(SmallVectorImpl<OperandType> &lhs,
                               SmallVectorImpl<OperandType> &rhs) = 0;
 
-  /// Parse a list of assignments of the form
-  ///   (%x1 = %y1 : type1, %x2 = %y2 : type2, ...)
-  ParseResult parseAssignmentListWithTypes(SmallVectorImpl<OperandType> &lhs,
-                                           SmallVectorImpl<OperandType> &rhs,
-                                           SmallVectorImpl<Type> &types) {
-    OptionalParseResult result =
-        parseOptionalAssignmentListWithTypes(lhs, rhs, types);
-    if (!result.hasValue())
-      return emitError(getCurrentLocation(), "expected '('");
-    return result.getValue();
-  }
-
-  virtual OptionalParseResult
-  parseOptionalAssignmentListWithTypes(SmallVectorImpl<OperandType> &lhs,
-                                       SmallVectorImpl<OperandType> &rhs,
-                                       SmallVectorImpl<Type> &types) = 0;
   /// Parse a keyword followed by a type.
   ParseResult parseKeywordType(const char *keyword, Type &result) {
     return failure(parseKeyword(keyword) || parseType(result));
@@ -956,29 +871,18 @@ using OpAsmSetValueNameFn = function_ref<void(Value, StringRef)>;
 class OpAsmDialectInterface
     : public DialectInterface::Base<OpAsmDialectInterface> {
 public:
-  /// Holds the result of `getAlias` hook call.
-  enum class AliasResult {
-    /// The object (type or attribute) is not supported by the hook
-    /// and an alias was not provided.
-    NoAlias,
-    /// An alias was provided, but it might be overriden by other hook.
-    OverridableAlias,
-    /// An alias was provided and it should be used
-    /// (no other hooks will be checked).
-    FinalAlias
-  };
-
   OpAsmDialectInterface(Dialect *dialect) : Base(dialect) {}
 
   /// Hooks for getting an alias identifier alias for a given symbol, that is
   /// not necessarily a part of this dialect. The identifier is used in place of
   /// the symbol when printing textual IR. These aliases must not contain `.` or
-  /// end with a numeric digit([0-9]+).
-  virtual AliasResult getAlias(Attribute attr, raw_ostream &os) const {
-    return AliasResult::NoAlias;
+  /// end with a numeric digit([0-9]+). Returns success if an alias was
+  /// provided, failure otherwise.
+  virtual LogicalResult getAlias(Attribute attr, raw_ostream &os) const {
+    return failure();
   }
-  virtual AliasResult getAlias(Type type, raw_ostream &os) const {
-    return AliasResult::NoAlias;
+  virtual LogicalResult getAlias(Type type, raw_ostream &os) const {
+    return failure();
   }
 
   /// Get a special name to use when printing the given operation. See

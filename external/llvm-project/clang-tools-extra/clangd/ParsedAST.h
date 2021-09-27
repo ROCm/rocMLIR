@@ -13,7 +13,7 @@
 // we have several customizations:
 //  - preamble handling
 //  - capturing diagnostics for later access
-//  - running clang-tidy checks
+//  - running clang-tidy checks checks
 //
 //===----------------------------------------------------------------------===//
 
@@ -42,7 +42,6 @@
 
 namespace clang {
 namespace clangd {
-class HeuristicResolver;
 class SymbolIndex;
 
 /// Stores and provides access to parsed AST.
@@ -88,9 +87,7 @@ public:
   /// (These should be const, but RecursiveASTVisitor requires Decl*).
   ArrayRef<Decl *> getLocalTopLevelDecls();
 
-  const llvm::Optional<std::vector<Diag>> &getDiagnostics() const {
-    return Diags;
-  }
+  const std::vector<Diag> &getDiagnostics() const;
 
   /// Returns the estimated size of the AST and the accessory structures, in
   /// bytes. Does not include the size of the preamble.
@@ -112,17 +109,13 @@ public:
   /// AST. Might be None if no Preamble is used.
   llvm::Optional<llvm::StringRef> preambleVersion() const;
 
-  const HeuristicResolver *getHeuristicResolver() const {
-    return Resolver.get();
-  }
-
 private:
   ParsedAST(llvm::StringRef Version,
             std::shared_ptr<const PreambleData> Preamble,
             std::unique_ptr<CompilerInstance> Clang,
             std::unique_ptr<FrontendAction> Action, syntax::TokenBuffer Tokens,
             MainFileMacros Macros, std::vector<Decl *> LocalTopLevelDecls,
-            llvm::Optional<std::vector<Diag>> Diags, IncludeStructure Includes,
+            std::vector<Diag> Diags, IncludeStructure Includes,
             CanonicalIncludes CanonIncludes);
 
   std::string Version;
@@ -144,14 +137,13 @@ private:
 
   /// All macro definitions and expansions in the main file.
   MainFileMacros Macros;
-  // Data, stored after parsing. None if AST was built with a stale preamble.
-  llvm::Optional<std::vector<Diag>> Diags;
+  // Data, stored after parsing.
+  std::vector<Diag> Diags;
   // Top-level decls inside the current file. Not that this does not include
   // top-level decls from the preamble.
   std::vector<Decl *> LocalTopLevelDecls;
   IncludeStructure Includes;
   CanonicalIncludes CanonIncludes;
-  std::unique_ptr<HeuristicResolver> Resolver;
 };
 
 } // namespace clangd

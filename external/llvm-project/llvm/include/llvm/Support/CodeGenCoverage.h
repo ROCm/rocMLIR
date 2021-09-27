@@ -36,4 +36,4 @@ public:
 };
 } // namespace llvm
 
-#endif // LLVM_SUPPORT_CODEGENCOVERAGE_H
+#endif // ifndef LLVM_SUPPORT_CODEGENCOVERAGE_H

@@ -209,11 +209,10 @@ void QualifiedAutoCheck::check(const MatchFinder::MatchResult &Result) {
     }();
 
     DiagnosticBuilder Diag =
-        diag(FixitLoc,
-             "'%select{|const }0%select{|volatile }1%select{|__restrict }2auto "
-             "%3' can be declared as '%4%3'")
-        << IsLocalConst << IsLocalVolatile << IsLocalRestrict << Var->getName()
-        << ReplStr;
+        diag(FixitLoc, "'%0%1%2auto %3' can be declared as '%4%3'")
+        << (IsLocalConst ? "const " : "")
+        << (IsLocalVolatile ? "volatile " : "")
+        << (IsLocalRestrict ? "__restrict " : "") << Var->getName() << ReplStr;
 
     for (SourceRange &Range : RemoveQualifiersRange) {
       Diag << FixItHint::CreateRemoval(CharSourceRange::getCharRange(Range));
@@ -254,12 +253,10 @@ void QualifiedAutoCheck::check(const MatchFinder::MatchResult &Result) {
           TypeSpec->getEnd().isMacroID())
         return;
       SourceLocation InsertPos = TypeSpec->getBegin();
-      diag(InsertPos,
-           "'auto *%select{|const }0%select{|volatile }1%2' can be declared as "
-           "'const auto *%select{|const }0%select{|volatile }1%2'")
-          << Var->getType().isLocalConstQualified()
-          << Var->getType().isLocalVolatileQualified() << Var->getName()
-          << FixItHint::CreateInsertion(InsertPos, "const ");
+      diag(InsertPos, "'auto *%0%1%2' can be declared as 'const auto *%0%1%2'")
+          << (Var->getType().isLocalConstQualified() ? "const " : "")
+          << (Var->getType().isLocalVolatileQualified() ? "volatile " : "")
+          << Var->getName() << FixItHint::CreateInsertion(InsertPos, "const ");
     }
     return;
   }

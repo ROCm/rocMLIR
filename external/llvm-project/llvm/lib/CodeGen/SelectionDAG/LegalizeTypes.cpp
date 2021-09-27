@@ -182,8 +182,9 @@ void DAGTypeLegalizer::PerformExpensiveChecks() {
   // Checked that NewNodes are only used by other NewNodes.
   for (unsigned i = 0, e = NewNodes.size(); i != e; ++i) {
     SDNode *N = NewNodes[i];
-    for (SDNode *U : N->uses())
-      assert(U->getNodeId() == NewNode && "NewNode used by non-NewNode!");
+    for (SDNode::use_iterator UI = N->use_begin(), UE = N->use_end();
+         UI != UE; ++UI)
+      assert(UI->getNodeId() == NewNode && "NewNode used by non-NewNode!");
   }
 #endif
 }
@@ -223,7 +224,8 @@ bool DAGTypeLegalizer::run() {
 #endif
       PerformExpensiveChecks();
 
-    SDNode *N = Worklist.pop_back_val();
+    SDNode *N = Worklist.back();
+    Worklist.pop_back();
     assert(N->getNodeId() == ReadyToProcess &&
            "Node should be ready if on worklist!");
 
@@ -394,7 +396,9 @@ NodeDone:
     assert(N->getNodeId() == ReadyToProcess && "Node ID recalculated?");
     N->setNodeId(Processed);
 
-    for (SDNode *User : N->uses()) {
+    for (SDNode::use_iterator UI = N->use_begin(), E = N->use_end();
+         UI != E; ++UI) {
+      SDNode *User = *UI;
       int NodeId = User->getNodeId();
 
       // This node has two options: it can either be a new node or its Node ID

@@ -166,7 +166,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(oeq), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -200,7 +201,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ogt), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -234,7 +236,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(oge), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -268,7 +271,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(olt), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -302,7 +306,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ole), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -336,7 +341,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(one), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -370,7 +376,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ord), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -404,7 +411,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(uno), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -438,7 +446,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ueq), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -472,7 +481,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ugt), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -506,7 +516,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(uge), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -540,7 +551,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ult), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -574,7 +586,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ule), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -608,7 +621,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s32) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(une), [[TRUNC]](s32), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s32) = G_TRUNC %2(s128)
@@ -642,7 +656,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(oeq), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)
@@ -676,7 +691,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ogt), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)
@@ -710,7 +726,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(oge), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)
@@ -744,7 +761,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(olt), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)
@@ -778,7 +796,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ole), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)
@@ -812,7 +831,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(one), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)
@@ -846,7 +866,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ord), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)
@@ -880,7 +901,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(uno), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)
@@ -914,7 +936,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ueq), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)
@@ -948,7 +971,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ugt), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)
@@ -982,7 +1006,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(uge), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)
@@ -1016,7 +1041,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ult), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)
@@ -1050,7 +1076,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(ule), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)
@@ -1084,7 +1111,8 @@ body:             |
     ; CHECK: [[COPY1:%[0-9]+]]:_(s128) = COPY $xmm1
     ; CHECK: [[TRUNC1:%[0-9]+]]:_(s64) = G_TRUNC [[COPY1]](s128)
     ; CHECK: [[FCMP:%[0-9]+]]:_(s8) = G_FCMP floatpred(une), [[TRUNC]](s64), [[TRUNC1]]
-    ; CHECK: $al = COPY [[FCMP]](s8)
+    ; CHECK: [[COPY2:%[0-9]+]]:_(s8) = COPY [[FCMP]](s8)
+    ; CHECK: $al = COPY [[COPY2]](s8)
     ; CHECK: RET 0, implicit $al
     %2:_(s128) = COPY $xmm0
     %0:_(s64) = G_TRUNC %2(s128)

@@ -50,7 +50,6 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/FileSystem.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -92,11 +91,14 @@ static bool findRefEdges(ModuleSummaryIndex &Index, const User *CurUser,
                          SmallPtrSet<const User *, 8> &Visited) {
   bool HasBlockAddress = false;
   SmallVector<const User *, 32> Worklist;
-  if (Visited.insert(CurUser).second)
-    Worklist.push_back(CurUser);
+  Worklist.push_back(CurUser);
 
   while (!Worklist.empty()) {
     const User *U = Worklist.pop_back_val();
+
+    if (!Visited.insert(U).second)
+      continue;
+
     const auto *CB = dyn_cast<CallBase>(U);
 
     for (const auto &OI : U->operands()) {
@@ -115,8 +117,7 @@ static bool findRefEdges(ModuleSummaryIndex &Index, const User *CurUser,
           RefEdges.insert(Index.getOrInsertValueInfo(GV));
         continue;
       }
-      if (Visited.insert(Operand).second)
-        Worklist.push_back(Operand);
+      Worklist.push_back(Operand);
     }
   }
   return HasBlockAddress;
@@ -177,7 +178,11 @@ static void addIntrinsicToSummary(
     // Intrinsics that are assumed are relevant only to the devirtualization
     // pass, not the type test lowering pass.
     bool HasNonAssumeUses = llvm::any_of(CI->uses(), [](const Use &CIU) {
-      return !isa<AssumeInst>(CIU.getUser());
+      auto *AssumeCI = dyn_cast<CallInst>(CIU.getUser());
+      if (!AssumeCI)
+        return true;
+      Function *F = AssumeCI->getCalledFunction();
+      return !F || F->getIntrinsicID() != Intrinsic::assume;
     });
     if (HasNonAssumeUses)
       TypeTests.insert(Guid);
@@ -264,22 +269,9 @@ static void computeFunctionSummary(
   std::vector<const Instruction *> NonVolatileStores;
 
   bool HasInlineAsmMaybeReferencingInternal = false;
-  bool HasIndirBranchToBlockAddress = false;
-  for (const BasicBlock &BB : F) {
-    // We don't allow inlining of function with indirect branch to blockaddress.
-    // If the blockaddress escapes the function, e.g., via a global variable,
-    // inlining may lead to an invalid cross-function reference. So we shouldn't
-    // import such function either.
-    if (BB.hasAddressTaken()) {
-      for (User *U : BlockAddress::get(const_cast<BasicBlock *>(&BB))->users())
-        if (!isa<CallBrInst>(*U)) {
-          HasIndirBranchToBlockAddress = true;
-          break;
-        }
-    }
-
+  for (const BasicBlock &BB : F)
     for (const Instruction &I : BB) {
-      if (I.isDebugOrPseudoInst())
+      if (isa<DbgInfoIntrinsic>(I))
         continue;
       ++NumInsts;
       // Regular LTO module doesn't participate in ThinLTO import,
@@ -399,7 +391,6 @@ static void computeFunctionSummary(
               .updateHotness(getHotness(Candidate.Count, PSI));
       }
     }
-  }
   Index.addBlockCount(F.size());
 
   std::vector<ValueInfo> Refs;
@@ -466,9 +457,8 @@ static void computeFunctionSummary(
             : CalleeInfo::HotnessType::Critical);
 
   bool NonRenamableLocal = isNonRenamableLocal(F);
-  bool NotEligibleForImport = NonRenamableLocal ||
-                              HasInlineAsmMaybeReferencingInternal ||
-                              HasIndirBranchToBlockAddress;
+  bool NotEligibleForImport =
+      NonRenamableLocal || HasInlineAsmMaybeReferencingInternal;
   GlobalValueSummary::GVFlags Flags(
       F.getLinkage(), F.getVisibility(), NotEligibleForImport,
       /* Live = */ false, F.isDSOLocal(),
@@ -479,7 +469,7 @@ static void computeFunctionSummary(
       F.hasFnAttribute(Attribute::NoRecurse), F.returnDoesNotAlias(),
       // FIXME: refactor this to use the same code that inliner is using.
       // Don't try to import functions with noinline attribute.
-      F.getAttributes().hasFnAttr(Attribute::NoInline),
+      F.getAttributes().hasFnAttribute(Attribute::NoInline),
       F.hasFnAttribute(Attribute::AlwaysInline)};
   std::vector<FunctionSummary::ParamAccess> ParamAccesses;
   if (auto *SSI = GetSSICallback(F))
@@ -521,8 +511,10 @@ static void findFuncPointers(const Constant *I, uint64_t StartingOffset,
     assert(STy);
     const StructLayout *SL = DL.getStructLayout(C->getType());
 
-    for (auto EI : llvm::enumerate(STy->elements())) {
-      auto Offset = SL->getElementOffset(EI.index());
+    for (StructType::element_iterator EB = STy->element_begin(), EI = EB,
+                                      EE = STy->element_end();
+         EI != EE; ++EI) {
+      auto Offset = SL->getElementOffset(EI - EB);
       unsigned Op = SL->getElementContainingOffset(Offset);
       findFuncPointers(cast<Constant>(I->getOperand(Op)),
                        StartingOffset + Offset, M, Index, VTableFuncs);
@@ -672,12 +664,12 @@ ModuleSummaryIndex llvm::buildModuleSummaryIndex(
   // promotion, but we may have opaque uses e.g. in inline asm. We collect them
   // here because we use this information to mark functions containing inline
   // assembly calls as not importable.
-  SmallPtrSet<GlobalValue *, 4> LocalsUsed;
-  SmallVector<GlobalValue *, 4> Used;
+  SmallPtrSet<GlobalValue *, 8> LocalsUsed;
+  SmallPtrSet<GlobalValue *, 8> Used;
   // First collect those in the llvm.used set.
-  collectUsedGlobalVariables(M, Used, /*CompilerUsed=*/false);
+  collectUsedGlobalVariables(M, Used, /*CompilerUsed*/ false);
   // Next collect those in the llvm.compiler.used set.
-  collectUsedGlobalVariables(M, Used, /*CompilerUsed=*/true);
+  collectUsedGlobalVariables(M, Used, /*CompilerUsed*/ true);
   DenseSet<GlobalValue::GUID> CantBePromoted;
   for (auto *V : Used) {
     if (V->hasLocalLinkage()) {

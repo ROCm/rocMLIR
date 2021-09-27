@@ -44,15 +44,11 @@ template <class GraphT,
           class SetType =
               bf_iterator_default_set<typename GraphTraits<GraphT>::NodeRef>,
           class GT = GraphTraits<GraphT>>
-class bf_iterator : public bf_iterator_storage<SetType> {
-public:
-  using iterator_category = std::forward_iterator_tag;
-  using value_type = typename GT::NodeRef;
-  using difference_type = std::ptrdiff_t;
-  using pointer = value_type *;
-  using reference = value_type &;
+class bf_iterator
+    : public std::iterator<std::forward_iterator_tag, typename GT::NodeRef>,
+      public bf_iterator_storage<SetType> {
+  using super = std::iterator<std::forward_iterator_tag, typename GT::NodeRef>;
 
-private:
   using NodeRef = typename GT::NodeRef;
   using ChildItTy = typename GT::ChildIteratorType;
 
@@ -64,8 +60,9 @@ private:
   std::queue<Optional<QueueElement>> VisitQueue;
 
   // Current level.
-  unsigned Level = 0;
+  unsigned Level;
 
+private:
   inline bf_iterator(NodeRef Node) {
     this->Visited.insert(Node);
     Level = 0;
@@ -110,6 +107,8 @@ private:
   }
 
 public:
+  using pointer = typename super::pointer;
+
   // Provide static begin and end methods as our public "constructors"
   static bf_iterator begin(const GraphT &G) {
     return bf_iterator(GT::getEntryNode(G));

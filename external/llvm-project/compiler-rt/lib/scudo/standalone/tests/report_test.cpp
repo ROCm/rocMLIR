@@ -10,14 +10,7 @@
 
 #include "report.h"
 
-TEST(ScudoReportDeathTest, Check) {
-  CHECK_LT(-1, 1);
-  EXPECT_DEATH(CHECK_GT(-1, 1),
-               "\\(-1\\) > \\(1\\) \\(\\(u64\\)op1=18446744073709551615, "
-               "\\(u64\\)op2=1");
-}
-
-TEST(ScudoReportDeathTest, Generic) {
+TEST(ScudoReportTest, Generic) {
   // Potentially unused if EXPECT_DEATH isn't defined.
   UNUSED void *P = reinterpret_cast<void *>(0x42424242U);
   EXPECT_DEATH(scudo::reportError("TEST123"), "Scudo ERROR.*TEST123");
@@ -45,7 +38,7 @@ TEST(ScudoReportDeathTest, Generic) {
                "Scudo ERROR.*42424242.*123.*456");
 }
 
-TEST(ScudoReportDeathTest, CSpecific) {
+TEST(ScudoReportTest, CSpecific) {
   EXPECT_DEATH(scudo::reportAlignmentNotPowerOfTwo(123), "Scudo ERROR.*123");
   EXPECT_DEATH(scudo::reportCallocOverflow(123, 456), "Scudo ERROR.*123.*456");
   EXPECT_DEATH(scudo::reportInvalidPosixMemalignAlignment(789),

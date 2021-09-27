@@ -1,6 +1,6 @@
 ; RUN: not --crash opt %loadPolly -polly-import-jscop -polly-ast -polly-ast-detect-parallel < %s 2>&1 >/dev/null | FileCheck %s
 ;
-; CHECK: expecting other token
+; CHECK: The schedule was not parsed successfully (index = 1).
 ;
 ; Verify if the JSONImporter check if the parsed schedule is valid.
 ;

@@ -25,7 +25,6 @@ target_link_libraries(mlir-miopen-translate
   MLIRTranslation
   MLIRSupport
   MLIRTargetMIOpenCppTranslation
-  MLIRROCDLToLLVMIRTranslation
   )
 
 mlir_check_link_libraries(mlir-miopen-translate)

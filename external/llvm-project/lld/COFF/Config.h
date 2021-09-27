@@ -10,7 +10,6 @@
 #define LLD_COFF_CONFIG_H
 
 #include "llvm/ADT/MapVector.h"
-#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Object/COFF.h"
@@ -75,24 +74,15 @@ enum class DebugType {
   Fixup = 0x4,  /// Relocation Table
 };
 
-enum GuardCFLevel {
-  Off     = 0x0,
-  CF      = 0x1, /// Emit gfids tables
-  LongJmp = 0x2, /// Emit longjmp tables
-  EHCont  = 0x4, /// Emit ehcont tables
-  All     = 0x7  /// Enable all protections
-};
-
-enum class ICFLevel {
-  None,
-  Safe, // Safe ICF for all sections.
-  All,  // Aggressive ICF for code, but safe ICF for data, similar to MSVC's
-        // behavior.
+enum class GuardCFLevel {
+  Off,
+  NoLongJmp, // Emit gfids but no longjmp tables
+  Full,      // Enable all protections.
 };
 
 // Global configuration.
 struct Configuration {
-  enum ManifestKind { Default, SideBySide, Embed, No };
+  enum ManifestKind { SideBySide, Embed, No };
   bool is64() { return machine == AMD64 || machine == ARM64; }
 
   llvm::COFF::MachineTypes machine = IMAGE_FILE_MACHINE_UNKNOWN;
@@ -105,7 +95,7 @@ struct Configuration {
   std::string importName;
   bool demangle = true;
   bool doGC = true;
-  ICFLevel doICF = ICFLevel::None;
+  bool doICF = true;
   bool tailMerge;
   bool relocatable = true;
   bool forceMultiple = false;
@@ -146,7 +136,7 @@ struct Configuration {
   bool saveTemps = false;
 
   // /guard:cf
-  int guardCF = GuardCFLevel::Off;
+  GuardCFLevel guardCF = GuardCFLevel::Off;
 
   // Used for SafeSEH.
   bool safeSEH = false;
@@ -179,9 +169,9 @@ struct Configuration {
   std::map<StringRef, uint32_t> section;
 
   // Options for manifest files.
-  ManifestKind manifest = Default;
+  ManifestKind manifest = No;
   int manifestID = 1;
-  llvm::SetVector<StringRef> manifestDependencies;
+  StringRef manifestDependency;
   bool manifestUAC = true;
   std::vector<std::string> manifestInput;
   StringRef manifestLevel = "'asInvoker'";
@@ -217,15 +207,6 @@ struct Configuration {
 
   // Used for /lto-obj-path:
   llvm::StringRef ltoObjPath;
-
-  // Used for /lto-cs-profile-generate:
-  bool ltoCSProfileGenerate = false;
-
-  // Used for /lto-cs-profile-path
-  llvm::StringRef ltoCSProfileFile;
-
-  // Used for /lto-pgo-warn-mismatch:
-  bool ltoPGOWarnMismatch = true;
 
   // Used for /call-graph-ordering-file:
   llvm::MapVector<std::pair<const SectionChunk *, const SectionChunk *>,
@@ -267,7 +248,6 @@ struct Configuration {
   bool warnLocallyDefinedImported = true;
   bool warnDebugInfoUnusable = true;
   bool warnLongSectionNames = true;
-  bool warnStdcallFixup = true;
   bool incremental = true;
   bool integrityCheck = false;
   bool killAt = false;
@@ -278,7 +258,6 @@ struct Configuration {
   bool thinLTOIndexOnly;
   bool autoImport = false;
   bool pseudoRelocs = false;
-  bool stdcallFixup = false;
 };
 
 extern Configuration *config;

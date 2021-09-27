@@ -192,8 +192,10 @@ void FunctionLoweringInfo::set(const Function &fn, MachineFunction &mf,
           MF->getFrameInfo().CreateVariableSizedObject(
               Alignment <= StackAlign ? Align(1) : Alignment, AI);
         }
-      } else if (auto *Call = dyn_cast<CallBase>(&I)) {
-        // Look for inline asm that clobbers the SP register.
+      }
+
+      // Look for inline asm that clobbers the SP register.
+      if (auto *Call = dyn_cast<CallBase>(&I)) {
         if (Call->isInlineAsm()) {
           Register SP = TLI->getStackPointerRegisterToSaveRestore();
           const TargetRegisterInfo *TRI = MF->getSubtarget().getRegisterInfo();
@@ -212,20 +214,21 @@ void FunctionLoweringInfo::set(const Function &fn, MachineFunction &mf,
             }
           }
         }
-        // Look for calls to the @llvm.va_start intrinsic. We can omit some
-        // prologue boilerplate for variadic functions that don't examine their
-        // arguments.
-        if (const auto *II = dyn_cast<IntrinsicInst>(&I)) {
-          if (II->getIntrinsicID() == Intrinsic::vastart)
-            MF->getFrameInfo().setHasVAStart(true);
-        }
+      }
 
-        // If we have a musttail call in a variadic function, we need to ensure
-        // we forward implicit register parameters.
-        if (const auto *CI = dyn_cast<CallInst>(&I)) {
-          if (CI->isMustTailCall() && Fn->isVarArg())
-            MF->getFrameInfo().setHasMustTailInVarArgFunc(true);
-        }
+      // Look for calls to the @llvm.va_start intrinsic. We can omit some
+      // prologue boilerplate for variadic functions that don't examine their
+      // arguments.
+      if (const auto *II = dyn_cast<IntrinsicInst>(&I)) {
+        if (II->getIntrinsicID() == Intrinsic::vastart)
+          MF->getFrameInfo().setHasVAStart(true);
+      }
+
+      // If we have a musttail call in a variadic function, we need to ensure we
+      // forward implicit register parameters.
+      if (const auto *CI = dyn_cast<CallInst>(&I)) {
+        if (CI->isMustTailCall() && Fn->isVarArg())
+          MF->getFrameInfo().setHasMustTailInVarArgFunc(true);
       }
 
       // Mark values used outside their block as exported, by allocating
@@ -330,23 +333,14 @@ void FunctionLoweringInfo::set(const Function &fn, MachineFunction &mf,
 
   else if (Personality == EHPersonality::Wasm_CXX) {
     WasmEHFuncInfo &EHInfo = *MF->getWasmEHFuncInfo();
-    // Map all BB references in the Wasm EH data to MBBs.
-    DenseMap<BBOrMBB, BBOrMBB> SrcToUnwindDest;
-    for (auto &KV : EHInfo.SrcToUnwindDest) {
+    // Map all BB references in the WinEH data to MBBs.
+    DenseMap<BBOrMBB, BBOrMBB> NewMap;
+    for (auto &KV : EHInfo.EHPadUnwindMap) {
       const auto *Src = KV.first.get<const BasicBlock *>();
-      const auto *Dest = KV.second.get<const BasicBlock *>();
-      SrcToUnwindDest[MBBMap[Src]] = MBBMap[Dest];
+      const auto *Dst = KV.second.get<const BasicBlock *>();
+      NewMap[MBBMap[Src]] = MBBMap[Dst];
     }
-    EHInfo.SrcToUnwindDest = std::move(SrcToUnwindDest);
-    DenseMap<BBOrMBB, SmallPtrSet<BBOrMBB, 4>> UnwindDestToSrcs;
-    for (auto &KV : EHInfo.UnwindDestToSrcs) {
-      const auto *Dest = KV.first.get<const BasicBlock *>();
-      UnwindDestToSrcs[MBBMap[Dest]] = SmallPtrSet<BBOrMBB, 4>();
-      for (const auto P : KV.second)
-        UnwindDestToSrcs[MBBMap[Dest]].insert(
-            MBBMap[P.get<const BasicBlock *>()]);
-    }
-    EHInfo.UnwindDestToSrcs = std::move(UnwindDestToSrcs);
+    EHInfo.EHPadUnwindMap = std::move(NewMap);
   }
 }
 

@@ -71,20 +71,20 @@ LoadCommands:
   - cmd:             LC_RPATH
     cmdsize:         32
     path:            12
-    Content:         '@executable_a/.'
+    PayloadString:   '@executable_a/.'
   - cmd:             LC_RPATH
     cmdsize:         32
     path:            12
-    Content:         '@executable_b/.'
+    PayloadString:   '@executable_b/.'
   - cmd:             LC_RPATH
     cmdsize:         32
     path:            12
-    Content:         '@executable_c/.'
+    PayloadString:   '@executable_c/.'
   - cmd:             LC_RPATH
     cmdsize:         32
     path:            12
-    Content:         '@executable_d/.'
+    PayloadString:   '@executable_d/.'
   - cmd:             LC_RPATH
     cmdsize:         32
     path:            12
-    Content:         '@executable_e/.'
+    PayloadString:   '@executable_e/.'

@@ -218,9 +218,6 @@ FLOATING_TYPE(BFloat16, BFloat16Ty)
 // '__float128'
 FLOATING_TYPE(Float128, Float128Ty)
 
-// '__ibm128'
-FLOATING_TYPE(Ibm128, Ibm128Ty)
-
 //===- Language-specific types --------------------------------------------===//
 
 // This is the type of C++0x 'nullptr'.

@@ -502,7 +502,8 @@ GlobalAlias *GlobalAlias::create(Type *Ty, unsigned AddressSpace,
 
 GlobalAlias *GlobalAlias::create(LinkageTypes Link, const Twine &Name,
                                  GlobalValue *Aliasee) {
-  return create(Aliasee->getValueType(), Aliasee->getAddressSpace(), Link, Name,
+  PointerType *PTy = Aliasee->getType();
+  return create(PTy->getElementType(), PTy->getAddressSpace(), Link, Name,
                 Aliasee);
 }
 

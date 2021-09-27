@@ -113,10 +113,8 @@ def main():
       flags = type('', (object,), {
             'verbose': args.verbose,
             'function_signature': False,
-            'check_attributes': False,
-            'replace_value_regex': []}),
-      scrubber_args = [],
-      path=test)
+            'check_attributes': False}),
+      scrubber_args = [])
 
     for prefixes, opt_args in prefix_list:
       common.debug('Extracted opt cmd:', opt_basename, opt_args, file=sys.stderr)
@@ -127,7 +125,7 @@ def main():
       # Split analysis outputs by "Printing analysis " declarations.
       for raw_tool_output in re.split(r'Printing analysis ', raw_tool_outputs):
         builder.process_run_line(common.ANALYZE_FUNCTION_RE, common.scrub_body,
-                                 raw_tool_output, prefixes, False)
+                                 raw_tool_output, prefixes)
 
     func_dict = builder.finish_and_get_func_dict()
     is_in_function = False

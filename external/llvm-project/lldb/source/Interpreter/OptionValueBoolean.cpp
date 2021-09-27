@@ -67,6 +67,10 @@ Status OptionValueBoolean::SetValueFromString(llvm::StringRef value_str,
   return error;
 }
 
+lldb::OptionValueSP OptionValueBoolean::DeepCopy() const {
+  return OptionValueSP(new OptionValueBoolean(*this));
+}
+
 void OptionValueBoolean::AutoComplete(CommandInterpreter &interpreter,
                                       CompletionRequest &request) {
   llvm::StringRef autocomplete_entries[] = {"true", "false", "on", "off",

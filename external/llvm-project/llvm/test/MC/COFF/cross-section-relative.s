@@ -57,10 +57,6 @@ t6:
 
 .long foobar - .
 
-// As an extension, we allow 64-bit label differences. They lower to
-// IMAGE_REL_AMD64_REL32 because IMAGE_REL_AMD64_REL64 does not exist.
-.quad foobar - .
-
 // READOBJ:       Section {
 // READOBJ:         Number:
 // READOBJ:         Name: .fix (2E 66 69 78 00 00 00 00)
@@ -81,8 +77,7 @@ t6:
 // READOBJ-NEXT:    SectionData (
 // READOBJ-NEXT:      0000: 04000000 00000000 00000000 00000000  |
 // READOBJ-NEXT:      0010: 01020000 00000000 00010000 00000000  |
-// READOBJ-NEXT:      0020: 04000000 00000000 04000000 04000000  |
-// READOBJ-NEXT:      0030: 00000000 |
+// READOBJ-NEXT:      0020: 04000000 00000000 04000000           |
 // READOBJ-NEXT:    )
 // READOBJ-NEXT:  }
 // READOBJ-NEXT:  ]
@@ -108,12 +103,6 @@ t6:
 // READOBJ-NEXT:    }
 // READOBJ-NEXT:    Relocation {
 // READOBJ-NEXT:      Offset: 0x28
-// READOBJ-NEXT:      Type: IMAGE_REL_AMD64_REL32 (4)
-// READOBJ-NEXT:      Symbol: foobar
-// READOBJ-NEXT:      SymbolIndex: 20
-// READOBJ-NEXT:    }
-// READOBJ-NEXT:    Relocation {
-// READOBJ-NEXT:      Offset: 0x2C
 // READOBJ-NEXT:      Type: IMAGE_REL_AMD64_REL32 (4)
 // READOBJ-NEXT:      Symbol: foobar
 // READOBJ-NEXT:      SymbolIndex: 20

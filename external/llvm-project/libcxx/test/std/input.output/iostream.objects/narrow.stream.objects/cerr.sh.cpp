@@ -10,8 +10,6 @@
 
 // istream cerr;
 
-// XFAIL: LIBCXX-WINDOWS-FIXME
-
 // FILE_DEPENDENCIES: ../check-stderr.sh
 // RUN: %{build}
 // RUN: %{exec} bash check-stderr.sh "%t.exe" "1234"
@@ -24,6 +22,11 @@
 int main(int, char**) {
     std::cerr << "1234";
     assert(std::cerr.flags() & std::ios_base::unitbuf);
+
+#ifdef _LIBCPP_HAS_NO_STDOUT
+    assert(std::cerr.tie() == NULL);
+#else
     assert(std::cerr.tie() == &std::cout);
+#endif
     return 0;
 }

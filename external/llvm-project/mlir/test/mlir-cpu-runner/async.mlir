@@ -1,13 +1,9 @@
-// RUN:   mlir-opt %s -async-to-async-runtime                                  \
-// RUN:               -async-runtime-ref-counting                              \
-// RUN:               -async-runtime-ref-counting-opt                          \
+// RUN:   mlir-opt %s -async-ref-counting                                      \
+// RUN:               -async-to-async-runtime                                  \
 // RUN:               -convert-async-to-llvm                                   \
 // RUN:               -convert-linalg-to-loops                                 \
-// RUN:               -convert-scf-to-std                                      \
 // RUN:               -convert-linalg-to-llvm                                  \
-// RUN:               -convert-memref-to-llvm                                  \
 // RUN:               -convert-std-to-llvm                                     \
-// RUN:               -reconcile-unrealized-casts                              \
 // RUN: | mlir-cpu-runner                                                      \
 // RUN:     -e main -entry-point-result=void -O0                               \
 // RUN:     -shared-libs=%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext  \
@@ -27,23 +23,23 @@ func @main() {
   %c3 = constant 3.0 : f32
   %c4 = constant 4.0 : f32
 
-  %A = memref.alloc() : memref<4xf32>
-  linalg.fill(%c0, %A) : f32, memref<4xf32>
+  %A = alloc() : memref<4xf32>
+  linalg.fill(%A, %c0) : memref<4xf32>, f32
 
   // CHECK: [0, 0, 0, 0]
-  %U = memref.cast %A :  memref<4xf32> to memref<*xf32>
+  %U = memref_cast %A :  memref<4xf32> to memref<*xf32>
   call @print_memref_f32(%U): (memref<*xf32>) -> ()
 
   // CHECK: Current thread id: [[MAIN:.*]]
   // CHECK: [1, 0, 0, 0]
-  memref.store %c1, %A[%i0]: memref<4xf32>
+  store %c1, %A[%i0]: memref<4xf32>
   call @mlirAsyncRuntimePrintCurrentThreadId(): () -> ()
   call @print_memref_f32(%U): (memref<*xf32>) -> ()
 
   %outer = async.execute {
     // CHECK: Current thread id: [[THREAD0:.*]]
     // CHECK: [1, 2, 0, 0]
-    memref.store %c2, %A[%i1]: memref<4xf32>
+    store %c2, %A[%i1]: memref<4xf32>
     call @mlirAsyncRuntimePrintCurrentThreadId(): () -> ()
     call @print_memref_f32(%U): (memref<*xf32>) -> ()
 
@@ -57,7 +53,7 @@ func @main() {
     %inner = async.execute [%noop] {
       // CHECK: Current thread id: [[THREAD2:.*]]
       // CHECK: [1, 2, 3, 0]
-      memref.store %c3, %A[%i2]: memref<4xf32>
+      store %c3, %A[%i2]: memref<4xf32>
       call @mlirAsyncRuntimePrintCurrentThreadId(): () -> ()
       call @print_memref_f32(%U): (memref<*xf32>) -> ()
 
@@ -67,7 +63,7 @@ func @main() {
 
     // CHECK: Current thread id: [[THREAD3:.*]]
     // CHECK: [1, 2, 3, 4]
-    memref.store %c4, %A[%i3]: memref<4xf32>
+    store %c4, %A[%i3]: memref<4xf32>
     call @mlirAsyncRuntimePrintCurrentThreadId(): () -> ()
     call @print_memref_f32(%U): (memref<*xf32>) -> ()
 
@@ -80,7 +76,7 @@ func @main() {
   call @mlirAsyncRuntimePrintCurrentThreadId(): () -> ()
   call @print_memref_f32(%U): (memref<*xf32>) -> ()
 
-  memref.dealloc %A : memref<4xf32>
+  dealloc %A : memref<4xf32>
 
   return
 }

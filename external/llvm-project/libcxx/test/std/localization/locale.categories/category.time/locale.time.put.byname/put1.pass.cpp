@@ -9,8 +9,6 @@
 // NetBSD does not support LC_TIME at the moment
 // XFAIL: netbsd
 
-// XFAIL: LIBCXX-WINDOWS-FIXME
-
 // REQUIRES: locale.en_US.UTF-8
 // REQUIRES: locale.fr_FR.UTF-8
 
@@ -29,7 +27,7 @@
 // };
 
 // TODO: investigation needed
-// XFAIL: target={{.*}}-linux-gnu{{.*}}
+// XFAIL: linux-gnu
 
 #include <locale>
 #include <cassert>

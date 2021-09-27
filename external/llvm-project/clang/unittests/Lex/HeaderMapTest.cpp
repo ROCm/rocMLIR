@@ -6,16 +6,88 @@
 //
 //===--------------------------------------------------------------===//
 
-#include "HeaderMapTestUtils.h"
+#include "clang/Basic/CharInfo.h"
+#include "clang/Lex/HeaderMap.h"
+#include "clang/Lex/HeaderMapTypes.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Support/SwapByteOrder.h"
 #include "gtest/gtest.h"
+#include <cassert>
 #include <type_traits>
 
 using namespace clang;
 using namespace llvm;
-using namespace clang::test;
 
 namespace {
+
+// Lay out a header file for testing.
+template <unsigned NumBuckets, unsigned NumBytes> struct MapFile {
+  HMapHeader Header;
+  HMapBucket Buckets[NumBuckets];
+  unsigned char Bytes[NumBytes];
+
+  void init() {
+    memset(this, 0, sizeof(MapFile));
+    Header.Magic = HMAP_HeaderMagicNumber;
+    Header.Version = HMAP_HeaderVersion;
+    Header.NumBuckets = NumBuckets;
+    Header.StringsOffset = sizeof(Header) + sizeof(Buckets);
+  }
+
+  void swapBytes() {
+    using llvm::sys::getSwappedBytes;
+    Header.Magic = getSwappedBytes(Header.Magic);
+    Header.Version = getSwappedBytes(Header.Version);
+    Header.NumBuckets = getSwappedBytes(Header.NumBuckets);
+    Header.StringsOffset = getSwappedBytes(Header.StringsOffset);
+  }
+
+  std::unique_ptr<const MemoryBuffer> getBuffer() const {
+    return MemoryBuffer::getMemBuffer(
+        StringRef(reinterpret_cast<const char *>(this), sizeof(MapFile)),
+        "header",
+        /* RequresNullTerminator */ false);
+  }
+};
+
+// The header map hash function.
+static inline unsigned getHash(StringRef Str) {
+  unsigned Result = 0;
+  for (char C : Str)
+    Result += toLowercase(C) * 13;
+  return Result;
+}
+
+template <class FileTy> struct FileMaker {
+  FileTy &File;
+  unsigned SI = 1;
+  unsigned BI = 0;
+  FileMaker(FileTy &File) : File(File) {}
+
+  unsigned addString(StringRef S) {
+    assert(SI + S.size() + 1 <= sizeof(File.Bytes));
+    std::copy(S.begin(), S.end(), File.Bytes + SI);
+    auto OldSI = SI;
+    SI += S.size() + 1;
+    return OldSI;
+  }
+  void addBucket(unsigned Hash, unsigned Key, unsigned Prefix, unsigned Suffix) {
+    assert(!(File.Header.NumBuckets & (File.Header.NumBuckets - 1)));
+    unsigned I = Hash & (File.Header.NumBuckets - 1);
+    do {
+      if (!File.Buckets[I].Key) {
+        File.Buckets[I].Key = Key;
+        File.Buckets[I].Prefix = Prefix;
+        File.Buckets[I].Suffix = Suffix;
+        ++File.Header.NumEntries;
+        return;
+      }
+      ++I;
+      I &= File.Header.NumBuckets - 1;
+    } while (I != (Hash & (File.Header.NumBuckets - 1)));
+    llvm_unreachable("no empty buckets");
+  }
+};
 
 TEST(HeaderMapTest, checkHeaderEmpty) {
   bool NeedsSwap;
@@ -26,7 +98,7 @@ TEST(HeaderMapTest, checkHeaderEmpty) {
 }
 
 TEST(HeaderMapTest, checkHeaderMagic) {
-  HMapFileMock<1, 1> File;
+  MapFile<1, 1> File;
   File.init();
   File.Header.Magic = 0;
   bool NeedsSwap;
@@ -34,7 +106,7 @@ TEST(HeaderMapTest, checkHeaderMagic) {
 }
 
 TEST(HeaderMapTest, checkHeaderReserved) {
-  HMapFileMock<1, 1> File;
+  MapFile<1, 1> File;
   File.init();
   File.Header.Reserved = 1;
   bool NeedsSwap;
@@ -42,7 +114,7 @@ TEST(HeaderMapTest, checkHeaderReserved) {
 }
 
 TEST(HeaderMapTest, checkHeaderVersion) {
-  HMapFileMock<1, 1> File;
+  MapFile<1, 1> File;
   File.init();
   ++File.Header.Version;
   bool NeedsSwap;
@@ -50,7 +122,7 @@ TEST(HeaderMapTest, checkHeaderVersion) {
 }
 
 TEST(HeaderMapTest, checkHeaderValidButEmpty) {
-  HMapFileMock<1, 1> File;
+  MapFile<1, 1> File;
   File.init();
   bool NeedsSwap;
   ASSERT_TRUE(HeaderMapImpl::checkHeader(*File.getBuffer(), NeedsSwap));
@@ -62,7 +134,7 @@ TEST(HeaderMapTest, checkHeaderValidButEmpty) {
 }
 
 TEST(HeaderMapTest, checkHeader3Buckets) {
-  HMapFileMock<3, 1> File;
+  MapFile<3, 1> File;
   ASSERT_EQ(3 * sizeof(HMapBucket), sizeof(File.Buckets));
 
   File.init();
@@ -72,7 +144,7 @@ TEST(HeaderMapTest, checkHeader3Buckets) {
 
 TEST(HeaderMapTest, checkHeader0Buckets) {
   // Create with 1 bucket to avoid 0-sized arrays.
-  HMapFileMock<1, 1> File;
+  MapFile<1, 1> File;
   File.init();
   File.Header.NumBuckets = 0;
   bool NeedsSwap;
@@ -80,7 +152,7 @@ TEST(HeaderMapTest, checkHeader0Buckets) {
 }
 
 TEST(HeaderMapTest, checkHeaderNotEnoughBuckets) {
-  HMapFileMock<1, 1> File;
+  MapFile<1, 1> File;
   File.init();
   File.Header.NumBuckets = 8;
   bool NeedsSwap;
@@ -88,15 +160,15 @@ TEST(HeaderMapTest, checkHeaderNotEnoughBuckets) {
 }
 
 TEST(HeaderMapTest, lookupFilename) {
-  typedef HMapFileMock<2, 7> FileTy;
+  typedef MapFile<2, 7> FileTy;
   FileTy File;
   File.init();
 
-  HMapFileMockMaker<FileTy> Maker(File);
+  FileMaker<FileTy> Maker(File);
   auto a = Maker.addString("a");
   auto b = Maker.addString("b");
   auto c = Maker.addString("c");
-  Maker.addBucket("a", a, b, c);
+  Maker.addBucket(getHash("a"), a, b, c);
 
   bool NeedsSwap;
   ASSERT_TRUE(HeaderMapImpl::checkHeader(*File.getBuffer(), NeedsSwap));
@@ -113,8 +185,7 @@ template <class FileTy, class PaddingTy> struct PaddedFile {
 };
 
 TEST(HeaderMapTest, lookupFilenameTruncatedSuffix) {
-  typedef HMapFileMock<2, 64 - sizeof(HMapHeader) - 2 * sizeof(HMapBucket)>
-      FileTy;
+  typedef MapFile<2, 64 - sizeof(HMapHeader) - 2 * sizeof(HMapBucket)> FileTy;
   static_assert(std::is_standard_layout<FileTy>::value,
                 "Expected standard layout");
   static_assert(sizeof(FileTy) == 64, "check the math");
@@ -123,11 +194,11 @@ TEST(HeaderMapTest, lookupFilenameTruncatedSuffix) {
   auto &Padding = P.Padding;
   File.init();
 
-  HMapFileMockMaker<FileTy> Maker(File);
+  FileMaker<FileTy> Maker(File);
   auto a = Maker.addString("a");
   auto b = Maker.addString("b");
   auto c = Maker.addString("c");
-  Maker.addBucket("a", a, b, c);
+  Maker.addBucket(getHash("a"), a, b, c);
 
   // Add 'x' characters to cause an overflow into Padding.
   ASSERT_EQ('c', File.Bytes[5]);
@@ -149,8 +220,7 @@ TEST(HeaderMapTest, lookupFilenameTruncatedSuffix) {
 }
 
 TEST(HeaderMapTest, lookupFilenameTruncatedPrefix) {
-  typedef HMapFileMock<2, 64 - sizeof(HMapHeader) - 2 * sizeof(HMapBucket)>
-      FileTy;
+  typedef MapFile<2, 64 - sizeof(HMapHeader) - 2 * sizeof(HMapBucket)> FileTy;
   static_assert(std::is_standard_layout<FileTy>::value,
                 "Expected standard layout");
   static_assert(sizeof(FileTy) == 64, "check the math");
@@ -159,11 +229,11 @@ TEST(HeaderMapTest, lookupFilenameTruncatedPrefix) {
   auto &Padding = P.Padding;
   File.init();
 
-  HMapFileMockMaker<FileTy> Maker(File);
+  FileMaker<FileTy> Maker(File);
   auto a = Maker.addString("a");
   auto c = Maker.addString("c");
   auto b = Maker.addString("b"); // Store the prefix last.
-  Maker.addBucket("a", a, b, c);
+  Maker.addBucket(getHash("a"), a, b, c);
 
   // Add 'x' characters to cause an overflow into Padding.
   ASSERT_EQ('b', File.Bytes[5]);

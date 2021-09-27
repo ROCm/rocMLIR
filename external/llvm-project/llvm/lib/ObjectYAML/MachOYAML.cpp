@@ -218,43 +218,19 @@ void mapLoadCommandData<MachO::segment_command_64>(
 template <>
 void mapLoadCommandData<MachO::dylib_command>(
     IO &IO, MachOYAML::LoadCommand &LoadCommand) {
-  IO.mapOptional("Content", LoadCommand.Content);
+  IO.mapOptional("PayloadString", LoadCommand.PayloadString);
 }
 
 template <>
 void mapLoadCommandData<MachO::rpath_command>(
     IO &IO, MachOYAML::LoadCommand &LoadCommand) {
-  IO.mapOptional("Content", LoadCommand.Content);
+  IO.mapOptional("PayloadString", LoadCommand.PayloadString);
 }
 
 template <>
 void mapLoadCommandData<MachO::dylinker_command>(
     IO &IO, MachOYAML::LoadCommand &LoadCommand) {
-  IO.mapOptional("Content", LoadCommand.Content);
-}
-
-template <>
-void mapLoadCommandData<MachO::sub_framework_command>(
-    IO &IO, MachOYAML::LoadCommand &LoadCommand) {
-  IO.mapOptional("Content", LoadCommand.Content);
-}
-
-template <>
-void mapLoadCommandData<MachO::sub_umbrella_command>(
-    IO &IO, MachOYAML::LoadCommand &LoadCommand) {
-  IO.mapOptional("Content", LoadCommand.Content);
-}
-
-template <>
-void mapLoadCommandData<MachO::sub_client_command>(
-    IO &IO, MachOYAML::LoadCommand &LoadCommand) {
-  IO.mapOptional("Content", LoadCommand.Content);
-}
-
-template <>
-void mapLoadCommandData<MachO::sub_library_command>(
-    IO &IO, MachOYAML::LoadCommand &LoadCommand) {
-  IO.mapOptional("Content", LoadCommand.Content);
+  IO.mapOptional("PayloadString", LoadCommand.PayloadString);
 }
 
 template <>

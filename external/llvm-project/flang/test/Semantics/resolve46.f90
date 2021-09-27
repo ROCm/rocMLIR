@@ -1,4 +1,4 @@
-! RUN: %python %S/test_errors.py %s %flang_fc1
+! RUN: %S/test_errors.sh %s %t %f18
 ! C1030 - pointers to intrinsic procedures
 program main
   intrinsic :: cos ! a specific & generic intrinsic name

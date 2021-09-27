@@ -1,5 +1,6 @@
 ; RUN: opt < %s -disable-output "-passes=print<da>" -aa-pipeline=basic-aa 2>&1 \
 ; RUN: | FileCheck %s
+; RUN: opt < %s -analyze -enable-new-pm=0 -basic-aa -da | FileCheck %s
 
 target datalayout = "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64-S128"
 target triple = "x86_64-apple-macosx10.6.0"
@@ -15,7 +16,7 @@ entry:
 
 ; CHECK-LABEL: exact0
 ; CHECK: da analyze - none!
-; CHECK: da analyze - flow [<=|<]!
+; CHECK: da analyze - flow [>]!
 ; CHECK: da analyze - confused!
 ; CHECK: da analyze - none!
 ; CHECK: da analyze - confused!
@@ -129,7 +130,7 @@ entry:
 
 ; CHECK-LABEL: exact3
 ; CHECK: da analyze - none!
-; CHECK: da analyze - flow [>]!
+; CHECK: da analyze - flow [<]!
 ; CHECK: da analyze - confused!
 ; CHECK: da analyze - none!
 ; CHECK: da analyze - confused!
@@ -166,7 +167,7 @@ entry:
 
 ; CHECK-LABEL: exact4
 ; CHECK: da analyze - none!
-; CHECK: da analyze - flow [>]!
+; CHECK: da analyze - flow [<]!
 ; CHECK: da analyze - confused!
 ; CHECK: da analyze - none!
 ; CHECK: da analyze - confused!
@@ -203,7 +204,7 @@ entry:
 
 ; CHECK-LABEL: exact5
 ; CHECK: da analyze - none!
-; CHECK: da analyze - flow [=>|<]!
+; CHECK: da analyze - flow [<]!
 ; CHECK: da analyze - confused!
 ; CHECK: da analyze - none!
 ; CHECK: da analyze - confused!
@@ -240,7 +241,7 @@ entry:
 
 ; CHECK-LABEL: exact6
 ; CHECK: da analyze - none!
-; CHECK: da analyze - flow [=>|<]!
+; CHECK: da analyze - flow [<]!
 ; CHECK: da analyze - confused!
 ; CHECK: da analyze - none!
 ; CHECK: da analyze - confused!
@@ -277,7 +278,7 @@ entry:
 
 ; CHECK-LABEL: exact7
 ; CHECK: da analyze - none!
-; CHECK: da analyze - flow [*|<]!
+; CHECK: da analyze - flow [<]!
 ; CHECK: da analyze - confused!
 ; CHECK: da analyze - none!
 ; CHECK: da analyze - confused!
@@ -351,7 +352,7 @@ entry:
 
 ; CHECK-LABEL: exact9
 ; CHECK: da analyze - none!
-; CHECK: da analyze - flow [>]!
+; CHECK: da analyze - flow [<]!
 ; CHECK: da analyze - confused!
 ; CHECK: da analyze - none!
 ; CHECK: da analyze - confused!
@@ -388,7 +389,7 @@ entry:
 
 ; CHECK-LABEL: exact10
 ; CHECK: da analyze - none!
-; CHECK: da analyze - flow [>]!
+; CHECK: da analyze - flow [<]!
 ; CHECK: da analyze - confused!
 ; CHECK: da analyze - none!
 ; CHECK: da analyze - confused!
@@ -425,7 +426,7 @@ entry:
 
 ; CHECK-LABEL: exact11
 ; CHECK: da analyze - none!
-; CHECK: da analyze - flow [=>|<]!
+; CHECK: da analyze - flow [<]!
 ; CHECK: da analyze - confused!
 ; CHECK: da analyze - none!
 ; CHECK: da analyze - confused!
@@ -462,7 +463,7 @@ entry:
 
 ; CHECK-LABEL: exact12
 ; CHECK: da analyze - none!
-; CHECK: da analyze - flow [=>|<]!
+; CHECK: da analyze - flow [<]!
 ; CHECK: da analyze - confused!
 ; CHECK: da analyze - none!
 ; CHECK: da analyze - confused!
@@ -499,7 +500,7 @@ entry:
 
 ; CHECK-LABEL: exact13
 ; CHECK: da analyze - none!
-; CHECK: da analyze - flow [*|<]!
+; CHECK: da analyze - flow [<]!
 ; CHECK: da analyze - confused!
 ; CHECK: da analyze - none!
 ; CHECK: da analyze - confused!

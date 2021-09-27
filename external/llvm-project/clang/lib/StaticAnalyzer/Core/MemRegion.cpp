@@ -28,8 +28,6 @@
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/SourceManager.h"
-#include "clang/StaticAnalyzer/Core/AnalyzerOptions.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/DynamicExtent.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/SValBuilder.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/SVals.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/SymbolManager.h"
@@ -731,6 +729,13 @@ SourceRange MemRegion::sourceRange() const {
 // MemRegionManager methods.
 //===----------------------------------------------------------------------===//
 
+static DefinedOrUnknownSVal getTypeSize(QualType Ty, ASTContext &Ctx,
+                                          SValBuilder &SVB) {
+  CharUnits Size = Ctx.getTypeSizeInChars(Ty);
+  QualType SizeTy = SVB.getArrayIndexType();
+  return SVB.makeIntVal(Size.getQuantity(), SizeTy);
+}
+
 DefinedOrUnknownSVal MemRegionManager::getStaticSize(const MemRegion *MR,
                                                      SValBuilder &SVB) const {
   const auto *SR = cast<SubRegion>(MR);
@@ -761,7 +766,7 @@ DefinedOrUnknownSVal MemRegionManager::getStaticSize(const MemRegion *MR,
     if (Ty->isIncompleteType())
       return UnknownVal();
 
-    return getElementExtent(Ty, SVB);
+    return getTypeSize(Ty, Ctx, SVB);
   }
   case MemRegion::FieldRegionKind: {
     // Force callers to deal with bitfields explicitly.
@@ -769,39 +774,14 @@ DefinedOrUnknownSVal MemRegionManager::getStaticSize(const MemRegion *MR,
       return UnknownVal();
 
     QualType Ty = cast<TypedValueRegion>(SR)->getDesugaredValueType(Ctx);
-    const DefinedOrUnknownSVal Size = getElementExtent(Ty, SVB);
+    DefinedOrUnknownSVal Size = getTypeSize(Ty, Ctx, SVB);
 
-    // We currently don't model flexible array members (FAMs), which are:
-    //  - int array[]; of IncompleteArrayType
-    //  - int array[0]; of ConstantArrayType with size 0
-    //  - int array[1]; of ConstantArrayType with size 1 (*)
-    // (*): Consider single element array object members as FAM candidates only
-    //      if the consider-single-element-arrays-as-flexible-array-members
-    //      analyzer option is true.
-    // https://gcc.gnu.org/onlinedocs/gcc/Zero-Length.html
-    const auto isFlexibleArrayMemberCandidate = [this,
-                                                 &SVB](QualType Ty) -> bool {
-      const ArrayType *AT = Ctx.getAsArrayType(Ty);
-      if (!AT)
-        return false;
-      if (isa<IncompleteArrayType>(AT))
-        return true;
-
-      if (const auto *CAT = dyn_cast<ConstantArrayType>(AT)) {
-        const llvm::APInt &Size = CAT->getSize();
-        if (Size.isZero())
-          return true;
-
-        const AnalyzerOptions &Opts = SVB.getAnalyzerOptions();
-        if (Opts.ShouldConsiderSingleElementArraysAsFlexibleArrayMembers &&
-            Size.isOneValue())
-          return true;
-      }
-      return false;
-    };
-
-    if (isFlexibleArrayMemberCandidate(Ty))
-      return UnknownVal();
+    // A zero-length array at the end of a struct often stands for dynamically
+    // allocated extra memory.
+    if (Size.isZeroConstant()) {
+      if (isa<ConstantArrayType>(Ty))
+        return UnknownVal();
+    }
 
     return Size;
   }

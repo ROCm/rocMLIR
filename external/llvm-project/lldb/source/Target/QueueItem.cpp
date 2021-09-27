@@ -27,7 +27,7 @@ QueueItem::QueueItem(QueueSP queue_sp, ProcessSP process_sp,
   m_process_wp = process_sp;
 }
 
-QueueItem::~QueueItem() = default;
+QueueItem::~QueueItem() {}
 
 QueueItemKind QueueItem::GetKind() {
   FetchEntireItem();

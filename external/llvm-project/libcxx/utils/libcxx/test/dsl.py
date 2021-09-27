@@ -64,20 +64,9 @@ def _executeScriptInternal(test, commands):
     if not os.path.exists(d):
       os.makedirs(d)
   res = lit.TestRunner.executeScriptInternal(test, litConfig, tmpBase, parsedCommands, execDir)
-  if isinstance(res, lit.Test.Result): # Handle failure to parse the Lit test
-    res = ('', res.output, 127, None)
-  (out, err, exitCode, timeoutInfo) = res
-
-  # TODO: As a temporary workaround until https://reviews.llvm.org/D81892 lands, manually
-  #       split any stderr output that is included in stdout. It shouldn't be there, but
-  #       the Lit internal shell conflates stderr and stdout.
-  conflatedErrorOutput = re.search("(# command stderr:.+$)", out, flags=re.DOTALL)
-  if conflatedErrorOutput:
-    conflatedErrorOutput = conflatedErrorOutput.group(0)
-    out = out[:-len(conflatedErrorOutput)]
-    err += conflatedErrorOutput
-
-  return (out, err, exitCode, timeoutInfo)
+  if isinstance(res, lit.Test.Result):
+    res = ('', '', 127, None)
+  return res
 
 def _makeConfigTest(config, testPrefix=''):
   sourceRoot = os.path.join(config.test_exec_root, '__config_src__')
@@ -133,7 +122,7 @@ def programOutput(config, program, args=None, testPrefix=''):
       if exitCode != 0:
         return None
 
-      actualOut = re.search("# command output:\n(.+)\n$", out, flags=re.DOTALL)
+      actualOut = re.search("command output:\n(.+)\n$", out, flags=re.DOTALL)
       actualOut = actualOut.group(1) if actualOut else ""
       return actualOut
 
@@ -221,11 +210,9 @@ def featureTestMacros(config, flags=''):
   allMacros = compilerMacros(config, flags)
   return {m: int(v.rstrip('LlUu')) for (m, v) in allMacros.items() if m.startswith('__cpp_')}
 
-def _appendToSubstitution(substitutions, key, value):
-  return [(k, v + ' ' + value) if k == key else (k, v) for (k, v) in substitutions]
 
-def _prependToSubstitution(substitutions, key, value):
-  return [(k, value + ' ' + v) if k == key else (k, v) for (k, v) in substitutions]
+def _addToSubstitution(substitutions, key, value):
+  return [(k, v + ' ' + value) if k == key else (k, v) for (k, v) in substitutions]
 
 
 class ConfigAction(object):
@@ -298,27 +285,7 @@ class AddFlag(ConfigAction):
   def applyTo(self, config):
     flag = self._getFlag(config)
     assert hasCompileFlag(config, flag), "Trying to enable flag {}, which is not supported".format(flag)
-    config.substitutions = _appendToSubstitution(config.substitutions, '%{flags}', flag)
-
-  def pretty(self, config, litParams):
-    return 'add {} to %{{flags}}'.format(self._getFlag(config))
-
-
-class AddFlagIfSupported(ConfigAction):
-  """
-  This action adds the given flag to the %{flags} substitution, only if
-  the compiler supports the flag.
-
-  The flag can be a string or a callable, in which case it is called with the
-  configuration to produce the actual flag (as a string).
-  """
-  def __init__(self, flag):
-    self._getFlag = lambda config: flag(config) if callable(flag) else flag
-
-  def applyTo(self, config):
-    flag = self._getFlag(config)
-    if hasCompileFlag(config, flag):
-      config.substitutions = _appendToSubstitution(config.substitutions, '%{flags}', flag)
+    config.substitutions = _addToSubstitution(config.substitutions, '%{flags}', flag)
 
   def pretty(self, config, litParams):
     return 'add {} to %{{flags}}'.format(self._getFlag(config))
@@ -337,7 +304,7 @@ class AddCompileFlag(ConfigAction):
   def applyTo(self, config):
     flag = self._getFlag(config)
     assert hasCompileFlag(config, flag), "Trying to enable compile flag {}, which is not supported".format(flag)
-    config.substitutions = _appendToSubstitution(config.substitutions, '%{compile_flags}', flag)
+    config.substitutions = _addToSubstitution(config.substitutions, '%{compile_flags}', flag)
 
   def pretty(self, config, litParams):
     return 'add {} to %{{compile_flags}}'.format(self._getFlag(config))
@@ -345,7 +312,7 @@ class AddCompileFlag(ConfigAction):
 
 class AddLinkFlag(ConfigAction):
   """
-  This action appends the given flag to the %{link_flags} substitution.
+  This action adds the given flag to the %{link_flags} substitution.
 
   The flag can be a string or a callable, in which case it is called with the
   configuration to produce the actual flag (as a string).
@@ -356,29 +323,10 @@ class AddLinkFlag(ConfigAction):
   def applyTo(self, config):
     flag = self._getFlag(config)
     assert hasCompileFlag(config, flag), "Trying to enable link flag {}, which is not supported".format(flag)
-    config.substitutions = _appendToSubstitution(config.substitutions, '%{link_flags}', flag)
+    config.substitutions = _addToSubstitution(config.substitutions, '%{link_flags}', flag)
 
   def pretty(self, config, litParams):
-    return 'append {} to %{{link_flags}}'.format(self._getFlag(config))
-
-
-class PrependLinkFlag(ConfigAction):
-  """
-  This action prepends the given flag to the %{link_flags} substitution.
-
-  The flag can be a string or a callable, in which case it is called with the
-  configuration to produce the actual flag (as a string).
-  """
-  def __init__(self, flag):
-    self._getFlag = lambda config: flag(config) if callable(flag) else flag
-
-  def applyTo(self, config):
-    flag = self._getFlag(config)
-    assert hasCompileFlag(config, flag), "Trying to enable link flag {}, which is not supported".format(flag)
-    config.substitutions = _prependToSubstitution(config.substitutions, '%{link_flags}', flag)
-
-  def pretty(self, config, litParams):
-    return 'prepend {} to %{{link_flags}}'.format(self._getFlag(config))
+    return 'add {} to %{{link_flags}}'.format(self._getFlag(config))
 
 
 class AddOptionalWarningFlag(ConfigAction):
@@ -396,7 +344,7 @@ class AddOptionalWarningFlag(ConfigAction):
     flag = self._getFlag(config)
     # Use -Werror to make sure we see an error about the flag being unsupported.
     if hasCompileFlag(config, '-Werror ' + flag):
-      config.substitutions = _appendToSubstitution(config.substitutions, '%{compile_flags}', flag)
+      config.substitutions = _addToSubstitution(config.substitutions, '%{compile_flags}', flag)
 
   def pretty(self, config, litParams):
     return 'add {} to %{{compile_flags}}'.format(self._getFlag(config))
@@ -506,13 +454,6 @@ def _str_to_bool(s):
   else:
     raise ValueError("Got string '{}', which isn't a valid boolean".format(s))
 
-def _parse_parameter(s, type):
-  if type is bool and isinstance(s, str):
-    return _str_to_bool(s)
-  elif type is list and isinstance(s, str):
-    return [x.strip() for x in s.split(',') if x.strip()]
-  return type(s)
-
 
 class Parameter(object):
   """
@@ -537,8 +478,19 @@ class Parameter(object):
   if some actions are not supported in the given configuration. For example,
   trying to set the compilation standard to C++23 when `-std=c++23` is not
   supported by the compiler would be an error.
+
+  One important point is that Parameters customize the behavior of the test
+  suite in a bounded way, i.e. there should be a finite set of possible choices
+  for `<VALUE>`. While this may appear to be an aggressive restriction, this
+  is actually a very important constraint that ensures that the set of
+  configurations supported by a test suite is finite. Otherwise, a test
+  suite could have an unbounded number of supported configurations, and
+  nobody wants to be stuck maintaining that. If it's not possible for an
+  option to have a finite set of possible values (e.g. the path to the
+  compiler), it can be handled in the `lit.cfg`, but it shouldn't be
+  represented with a Parameter.
   """
-  def __init__(self, name, type, help, actions, choices=None, default=None):
+  def __init__(self, name, choices, type, help, actions, default=None):
     """
     Create a Lit parameter to customize the behavior of a test suite.
 
@@ -548,16 +500,15 @@ class Parameter(object):
         when running Lit. This must be non-empty.
 
     - choices
-        An optional non-empty set of possible values for this parameter. If provided,
-        this must be anything that can be iterated. It is an error if the parameter
-        is given a value that is not in that set, whether explicitly or through a
-        default value.
+        A non-empty set of possible values for this parameter. This must be
+        anything that can be iterated. It is an error if the parameter is
+        given a value that is not in that set, whether explicitly or through
+        a default value.
 
     - type
         A callable that can be used to parse the value of the parameter given
         on the command-line. As a special case, using the type `bool` also
-        allows parsing strings with boolean-like contents, and the type `list`
-        will parse a string delimited by commas into a list of the substrings.
+        allows parsing strings with boolean-like contents.
 
     - help
         A string explaining the parameter, for documentation purposes.
@@ -580,14 +531,12 @@ class Parameter(object):
     if len(self._name) == 0:
       raise ValueError("Parameter name must not be the empty string")
 
-    if choices is not None:
-      self._choices = list(choices) # should be finite
-      if len(self._choices) == 0:
-        raise ValueError("Parameter '{}' must be given at least one possible value".format(self._name))
-    else:
-      self._choices = None
+    self._choices = list(choices) # should be finite
+    if len(self._choices) == 0:
+      raise ValueError("Parameter '{}' must be given at least one possible value".format(self._name))
 
-    self._parse = lambda x: _parse_parameter(x, type)
+    self._parse = lambda x: (_str_to_bool(x) if type is bool and isinstance(x, str)
+                                             else type(x))
     self._help = help
     self._actions = actions
     self._default = default
@@ -601,16 +550,10 @@ class Parameter(object):
     if param is None and self._default is None:
       raise ValueError("Parameter {} doesn't have a default value, but it was not specified in the Lit parameters or in the Lit config".format(self.name))
     getDefault = lambda: self._default(config) if callable(self._default) else self._default
-
-    if param is not None:
-      (pretty, value) = (param, self._parse(param))
-    else:
-      value = getDefault()
-      pretty = '{} (default)'.format(value)
-
-    if self._choices and value not in self._choices:
+    value = self._parse(param) if param is not None else getDefault()
+    if value not in self._choices:
       raise ValueError("Got value '{}' for parameter '{}', which is not in the provided set of possible choices: {}".format(value, self.name, self._choices))
-    return (pretty, value)
+    return value
 
   @property
   def name(self):
@@ -626,12 +569,10 @@ class Parameter(object):
     """
     Return the list of actions associated to this value of the parameter.
     """
-    (_, parameterValue) = self._getValue(config, litParams)
-    return self._actions(parameterValue)
+    return self._actions(self._getValue(config, litParams))
 
   def pretty(self, config, litParams):
     """
     Return a pretty representation of the parameter's name and value.
     """
-    (prettyParameterValue, _) = self._getValue(config, litParams)
-    return "{}={}".format(self.name, prettyParameterValue)
+    return "{}={}".format(self.name, self._getValue(config, litParams))

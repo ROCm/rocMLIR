@@ -27,7 +27,8 @@ unit.
       public:
         virtual std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(
           clang::CompilerInstance &Compiler, llvm::StringRef InFile) {
-          return std::make_unique<FindNamedClassConsumer>();
+          return std::unique_ptr<clang::ASTConsumer>(
+              new FindNamedClassConsumer);
         }
       };
 
@@ -113,7 +114,8 @@ freshly created FindNamedClassConsumer:
 
       virtual std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(
         clang::CompilerInstance &Compiler, llvm::StringRef InFile) {
-        return std::make_unique<FindNamedClassConsumer>(&Compiler.getASTContext());
+        return std::unique_ptr<clang::ASTConsumer>(
+            new FindNamedClassConsumer(&Compiler.getASTContext()));
       }
 
 Now that the ASTContext is available in the RecursiveASTVisitor, we can
@@ -187,7 +189,8 @@ Now we can combine all of the above into a small example program:
       public:
         virtual std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(
           clang::CompilerInstance &Compiler, llvm::StringRef InFile) {
-          return std::make_unique<FindNamedClassConsumer>(&Compiler.getASTContext());
+          return std::unique_ptr<clang::ASTConsumer>(
+              new FindNamedClassConsumer(&Compiler.getASTContext()));
         }
       };
 
@@ -201,10 +204,6 @@ We store this into a file called FindClassDecls.cpp and create the
 following CMakeLists.txt to link it:
 
 ::
-
-    set(LLVM_LINK_COMPONENTS
-      Support
-      )
 
     add_clang_executable(find-class-decls FindClassDecls.cpp)
 

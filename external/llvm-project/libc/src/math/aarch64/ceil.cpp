@@ -13,7 +13,12 @@ namespace __llvm_libc {
 
 LLVM_LIBC_FUNCTION(double, ceil, (double x)) {
   double y;
-  __asm__ __volatile__("frintp %d0, %d1\n\t" : "=w"(y) : "w"(x));
+  __asm__ __volatile__("ldr d0, %1\n"
+                       "frintp d0, d0\n"
+                       "str d0, %0\n"
+                       : "=m"(y)
+                       : "m"(x)
+                       : "d0");
   return y;
 }
 

@@ -1,5 +1,9 @@
 // RUN: %clangxx_tsan -O1 %s -o %t && %deflake %run %t | FileCheck %s
-#include "test.h"
+#include <pthread.h>
+#include <stdio.h>
+
+extern "C" void AnnotateIgnoreSyncBegin(const char*, int);
+extern "C" void AnnotateIgnoreSyncEnd(const char*, int);
 
 int Global;
 pthread_mutex_t Mutex = PTHREAD_MUTEX_INITIALIZER;

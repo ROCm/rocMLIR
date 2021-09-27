@@ -1,4 +1,4 @@
-//===-- runtime/unit-map.cpp ----------------------------------------------===//
+//===-- runtime/unit-map.cpp ------------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -67,7 +67,7 @@ void UnitMap::FlushAll(IoErrorHandler &handler) {
   CriticalSection critical{lock_};
   for (int j{0}; j < buckets_; ++j) {
     for (Chain *p{bucket_[j].get()}; p; p = p->next.get()) {
-      p->unit.FlushOutput(handler);
+      p->unit.Flush(handler);
     }
   }
 }
@@ -92,5 +92,4 @@ ExternalFileUnit &UnitMap::Create(int n, const Terminator &terminator) {
   bucket_[Hash(n)].swap(chain.next); // pushes new node as list head
   return chain.unit;
 }
-
 } // namespace Fortran::runtime::io

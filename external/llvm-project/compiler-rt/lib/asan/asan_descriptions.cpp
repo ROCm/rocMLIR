@@ -44,11 +44,11 @@ void DescribeThread(AsanThreadContext *context) {
   CHECK(context);
   asanThreadRegistry().CheckLocked();
   // No need to announce the main thread.
-  if (context->tid == kMainTid || context->announced) {
+  if (context->tid == 0 || context->announced) {
     return;
   }
   context->announced = true;
-  InternalScopedString str;
+  InternalScopedString str(1024);
   str.append("Thread %s", AsanThreadIdAndName(context).c_str());
   if (context->parent_tid == kInvalidTid) {
     str.append(" created by unknown thread\n");
@@ -77,6 +77,7 @@ static bool GetShadowKind(uptr addr, ShadowKind *shadow_kind) {
   } else if (AddrIsInLowShadow(addr)) {
     *shadow_kind = kShadowKindLow;
   } else {
+    CHECK(0 && "Address is not in memory and not in shadow?");
     return false;
   }
   return true;
@@ -125,7 +126,7 @@ static void GetAccessToHeapChunkInformation(ChunkAccess *descr,
 
 static void PrintHeapChunkAccess(uptr addr, const ChunkAccess &descr) {
   Decorator d;
-  InternalScopedString str;
+  InternalScopedString str(4096);
   str.append("%s", d.Location());
   switch (descr.access_type) {
     case kAccessTypeLeft:
@@ -242,7 +243,7 @@ static void PrintAccessAndVarIntersection(const StackVarDescr &var, uptr addr,
     else if (addr >= prev_var_end && addr - prev_var_end >= var.beg - addr_end)
       pos_descr = "underflows";
   }
-  InternalScopedString str;
+  InternalScopedString str(1024);
   str.append("    [%zd, %zd)", var.beg, var_end);
   // Render variable name.
   str.append(" '");
@@ -275,7 +276,7 @@ bool DescribeAddressIfStack(uptr addr, uptr access_size) {
 // Global descriptions
 static void DescribeAddressRelativeToGlobal(uptr addr, uptr access_size,
                                             const __asan_global &g) {
-  InternalScopedString str;
+  InternalScopedString str(4096);
   Decorator d;
   str.append("%s", d.Location());
   if (addr < g.beg) {
@@ -463,13 +464,7 @@ AddressDescription::AddressDescription(uptr addr, uptr access_size,
     return;
   }
   data.kind = kAddressKindWild;
-  data.wild.addr = addr;
-  data.wild.access_size = access_size;
-}
-
-void WildAddressDescription::Print() const {
-  Printf("Address %p is a wild pointer inside of access range of size %p.\n",
-         addr, access_size);
+  addr = 0;
 }
 
 void PrintAddressDescription(uptr addr, uptr access_size,

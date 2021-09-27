@@ -36,7 +36,7 @@ static Error dumpObject(const ObjectFile &Obj) {
 
 static Error dumpInput(StringRef File) {
   ErrorOr<std::unique_ptr<MemoryBuffer>> FileOrErr =
-      MemoryBuffer::getFileOrSTDIN(File, /*IsText=*/false,
+      MemoryBuffer::getFileOrSTDIN(File, /*FileSize=*/-1,
                                    /*RequiresNullTerminator=*/false);
   if (std::error_code EC = FileOrErr.getError())
     return errorCodeToError(EC);

@@ -14,7 +14,6 @@
 
 #include "lldb/Target/Target.h"
 #include "lldb/Utility/Broadcaster.h"
-#include "lldb/Utility/Iterable.h"
 
 namespace lldb_private {
 
@@ -42,11 +41,6 @@ public:
   ConstString &GetBroadcasterClass() const override {
     return GetStaticBroadcasterClass();
   }
-
-  typedef std::vector<lldb::TargetSP> collection;
-  typedef LockingAdaptedIterable<collection, lldb::TargetSP, vector_adapter,
-                                 std::recursive_mutex>
-      TargetIterable;
 
   /// Create a new Target.
   ///
@@ -185,15 +179,14 @@ public:
 
   lldb::TargetSP GetSelectedTarget();
 
-  TargetIterable Targets() {
-    return TargetIterable(m_target_list, m_target_list_mutex);
-  }
-
-private:
+protected:
+  typedef std::vector<lldb::TargetSP> collection;
+  // Member variables.
   collection m_target_list;
   mutable std::recursive_mutex m_target_list_mutex;
   uint32_t m_selected_target_idx;
 
+private:
   static Status CreateTargetInternal(
       Debugger &debugger, llvm::StringRef user_exe_path,
       llvm::StringRef triple_str, LoadDependentFiles load_dependent_files,

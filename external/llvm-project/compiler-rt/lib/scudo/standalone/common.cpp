@@ -8,7 +8,6 @@
 
 #include "common.h"
 #include "atomic_helpers.h"
-#include "string_utils.h"
 
 namespace scudo {
 
@@ -22,16 +21,11 @@ uptr getPageSizeSlow() {
 }
 
 // Fatal internal map() or unmap() error (potentially OOM related).
-void NORETURN dieOnMapUnmapError(uptr SizeIfOOM) {
-  char Error[128] = "Scudo ERROR: internal map or unmap failure\n";
-  if (SizeIfOOM) {
-    formatString(
-        Error, sizeof(Error),
-        "Scudo ERROR: internal map failure (NO MEMORY) requesting %zuKB\n",
-        SizeIfOOM >> 10);
-  }
-  outputRaw(Error);
-  setAbortMessage(Error);
+void NORETURN dieOnMapUnmapError(bool OutOfMemory) {
+  outputRaw("Scudo ERROR: internal map or unmap failure");
+  if (OutOfMemory)
+    outputRaw(" (OOM)");
+  outputRaw("\n");
   die();
 }
 

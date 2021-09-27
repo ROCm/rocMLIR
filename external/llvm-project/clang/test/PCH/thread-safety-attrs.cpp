@@ -254,12 +254,12 @@ void sls_fun_bad_6() {
 
 void sls_fun_bad_7() {
   sls_mu.Lock();
-  while (getBool()) { // \
-        expected-warning{{expecting mutex 'sls_mu' to be held at start of each loop}}
+  while (getBool()) {
     sls_mu.Unlock();
     if (getBool()) {
       if (getBool()) {
-        continue;
+        continue; // \
+        expected-warning{{expecting mutex 'sls_mu' to be held at start of each loop}}
       }
     }
     sls_mu.Lock(); // expected-note {{mutex acquired here}}
@@ -306,14 +306,12 @@ void sls_fun_bad_12() {
     sls_mu.Unlock();
     if (getBool()) {
       if (getBool()) {
-        break;
+        break; // expected-warning{{mutex 'sls_mu' is not held on every path through here}}
       }
     }
     sls_mu.Lock();
   }
-  sls_mu.Unlock(); // \
-    expected-warning{{mutex 'sls_mu' is not held on every path through here}} \
-    expected-warning{{releasing mutex 'sls_mu' that was not held}}
+  sls_mu.Unlock();
 }
 
 #endif

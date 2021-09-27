@@ -7,8 +7,6 @@ add_lldb_unittest(ExpressionTests
 
   LINK_LIBS
     lldbCore
-    lldbPluginObjectFileELF
-    lldbPluginPlatformLinux
     lldbPluginExpressionParserClang
     lldbPluginTypeSystemClang
     lldbUtility

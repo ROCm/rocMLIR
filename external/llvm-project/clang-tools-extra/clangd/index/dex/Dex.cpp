@@ -313,10 +313,14 @@ void Dex::relations(
   }
 }
 
-llvm::unique_function<IndexContents(llvm::StringRef) const>
-Dex::indexedFiles() const {
+llvm::unique_function<bool(llvm::StringRef) const> Dex::indexedFiles() const {
   return [this](llvm::StringRef FileURI) {
-    return Files.contains(FileURI) ? IdxContents : IndexContents::None;
+    auto Path = URI::resolve(FileURI);
+    if (!Path) {
+      llvm::consumeError(Path.takeError());
+      return false;
+    }
+    return Files.contains(*Path);
   };
 }
 

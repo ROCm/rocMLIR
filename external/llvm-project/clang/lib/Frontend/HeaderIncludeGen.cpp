@@ -45,9 +45,6 @@ public:
   void FileChanged(SourceLocation Loc, FileChangeReason Reason,
                    SrcMgr::CharacteristicKind FileType,
                    FileID PrevFID) override;
-
-  void FileSkipped(const FileEntryRef &SkippedFile, const Token &FilenameTok,
-                   SrcMgr::CharacteristicKind FileType) override;
 };
 }
 
@@ -104,7 +101,7 @@ void clang::AttachHeaderIncludeGen(Preprocessor &PP,
     std::error_code EC;
     llvm::raw_fd_ostream *OS = new llvm::raw_fd_ostream(
         OutputPath.str(), EC,
-        llvm::sys::fs::OF_Append | llvm::sys::fs::OF_TextWithCRLF);
+        llvm::sys::fs::OF_Append | llvm::sys::fs::OF_Text);
     if (EC) {
       PP.getDiagnostics().Report(clang::diag::warn_fe_cc_print_header_failure)
           << EC.message();
@@ -122,7 +119,7 @@ void clang::AttachHeaderIncludeGen(Preprocessor &PP,
   // as sanitizer blacklists. It's only important for cl.exe compatibility,
   // the GNU way to generate rules is -M / -MM / -MD / -MMD.
   for (const auto &Header : DepOpts.ExtraDeps)
-    PrintHeaderInfo(OutputFile, Header.first, ShowDepth, 2, MSStyle);
+    PrintHeaderInfo(OutputFile, Header, ShowDepth, 2, MSStyle);
   PP.addPPCallbacks(std::make_unique<HeaderIncludesCallback>(
       &PP, ShowAllHeaders, OutputFile, DepOpts, OwnsOutputFile, ShowDepth,
       MSStyle));
@@ -183,17 +180,4 @@ void HeaderIncludesCallback::FileChanged(SourceLocation Loc,
     PrintHeaderInfo(OutputFile, UserLoc.getFilename(), ShowDepth, IncludeDepth,
                     MSStyle);
   }
-}
-
-void HeaderIncludesCallback::FileSkipped(const FileEntryRef &SkippedFile, const
-                                         Token &FilenameTok,
-                                         SrcMgr::CharacteristicKind FileType) {
-  if (!DepOpts.ShowSkippedHeaderIncludes)
-    return;
-
-  if (!DepOpts.IncludeSystemHeaders && isSystem(FileType))
-    return;
-
-  PrintHeaderInfo(OutputFile, SkippedFile.getName(), ShowDepth,
-                  CurrentIncludeDepth + 1, MSStyle);
 }

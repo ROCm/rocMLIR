@@ -41,7 +41,7 @@ Environment::Environment(const char *const *Env) {
     insert(*Env++);
 }
 
-void Environment::insert(iterator first, iterator last) {
+void Environment::insert(const_iterator first, const_iterator last) {
   while (first != last) {
     try_emplace(first->first(), first->second);
     ++first;

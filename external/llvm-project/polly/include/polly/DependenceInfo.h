@@ -26,6 +26,8 @@
 #include "isl/ctx.h"
 #include "isl/isl-noexceptions.h"
 
+using namespace llvm;
+
 namespace polly {
 
 /// The accumulated dependence information for a SCoP.

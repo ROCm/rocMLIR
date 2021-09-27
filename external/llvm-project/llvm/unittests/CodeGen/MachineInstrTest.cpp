@@ -6,9 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/CodeGen/MachineInstr.h"
-#include "llvm/ADT/Triple.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
+#include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
@@ -34,10 +33,8 @@ namespace {
 #include "MFCommon.inc"
 
 std::unique_ptr<MCContext> createMCContext(MCAsmInfo *AsmInfo) {
-  Triple TheTriple(/*ArchStr=*/"", /*VendorStr=*/"", /*OSStr=*/"",
-                   /*EnvironmentStr=*/"elf");
-  return std::make_unique<MCContext>(TheTriple, AsmInfo, nullptr, nullptr,
-                                     nullptr, nullptr, false);
+  return std::make_unique<MCContext>(
+      AsmInfo, nullptr, nullptr, nullptr, nullptr, false);
 }
 
 // This test makes sure that MachineInstr::isIdenticalTo handles Defs correctly

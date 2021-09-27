@@ -24,7 +24,8 @@ using grpc::ServerBuilder;
 std::promise<void> ShutdownPromise;
 
 int main() {
-  ClientManagerConfigTy Config;
+  RPCConfig Config;
+  parseEnvironment(Config);
 
   RemoteOffloadImpl Service(Config.MaxSize, Config.BlockSize);
 

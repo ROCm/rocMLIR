@@ -12,7 +12,6 @@ add_mlir_conversion_library(MLIRAffineToStandard
 
   LINK_LIBS PUBLIC
   MLIRAffine
-  MLIRMemRef
   MLIRSCF
   MLIRPass
   MLIRStandard

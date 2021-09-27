@@ -67,7 +67,7 @@ struct InstructionBenchmark {
   const MCInst &keyInstruction() const { return Key.Instructions[0]; }
   // The number of instructions inside the repeated snippet. For example, if a
   // snippet of 3 instructions is repeated 4 times, this is 12.
-  unsigned NumRepetitions = 0;
+  int NumRepetitions = 0;
   enum RepetitionModeE { Duplicate, Loop, AggregateMin };
   // Note that measurements are per instruction.
   std::vector<BenchmarkMeasure> Measurements;
@@ -90,8 +90,6 @@ struct InstructionBenchmark {
 
   class Error writeYaml(const LLVMState &State, const StringRef Filename);
 };
-
-bool operator==(const BenchmarkMeasure &A, const BenchmarkMeasure &B);
 
 //------------------------------------------------------------------------------
 // Utilities to work with Benchmark measures.

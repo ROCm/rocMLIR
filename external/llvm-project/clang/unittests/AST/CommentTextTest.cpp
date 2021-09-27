@@ -124,11 +124,4 @@ R"cpp(
   // clang-format on
 }
 
-TEST_F(CommentTextTest, EmptyFormattedText) {
-  // Test that empty formatted text doesn't cause crash.
-  const char *ExpectedOutput = "";
-  auto Formatted = formatComment("//!<");
-  EXPECT_EQ(ExpectedOutput, Formatted);
-}
-
 } // namespace clang

@@ -17,6 +17,8 @@
 
 #include "llvm/IR/Instructions.h"
 #include "llvm/InitializePasses.h"
+#define AA_NAME "alignment-from-assumptions"
+#define DEBUG_TYPE AA_NAME
 #include "llvm/Transforms/Scalar/AlignmentFromAssumptions.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
@@ -35,9 +37,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Scalar.h"
-
-#define AA_NAME "alignment-from-assumptions"
-#define DEBUG_TYPE AA_NAME
 using namespace llvm;
 
 STATISTIC(NumLoadAlignChanged,
@@ -135,8 +134,6 @@ static Align getNewAlignment(const SCEV *AASCEV, const SCEV *AlignSCEV,
   PtrSCEV = SE->getTruncateOrZeroExtend(
       PtrSCEV, SE->getEffectiveSCEVType(AASCEV->getType()));
   const SCEV *DiffSCEV = SE->getMinusSCEV(PtrSCEV, AASCEV);
-  if (isa<SCEVCouldNotCompute>(DiffSCEV))
-    return Align(1);
 
   // On 32-bit platforms, DiffSCEV might now have type i32 -- we've always
   // sign-extended OffSCEV to i64, so make sure they agree again.
@@ -144,7 +141,7 @@ static Align getNewAlignment(const SCEV *AASCEV, const SCEV *AlignSCEV,
 
   // What we really want to know is the overall offset to the aligned
   // address. This address is displaced by the provided offset.
-  DiffSCEV = SE->getAddExpr(DiffSCEV, OffSCEV);
+  DiffSCEV = SE->getMinusSCEV(DiffSCEV, OffSCEV);
 
   LLVM_DEBUG(dbgs() << "AFI: alignment of " << *Ptr << " relative to "
                     << *AlignSCEV << " and offset " << *OffSCEV
@@ -221,10 +218,6 @@ bool AlignmentFromAssumptionsPass::extractAlignmentInfo(CallInst *I,
   AAPtr = AAPtr->stripPointerCastsSameRepresentation();
   AlignSCEV = SE->getSCEV(AlignOB.Inputs[1].get());
   AlignSCEV = SE->getTruncateOrZeroExtend(AlignSCEV, Int64Ty);
-  if (!isa<SCEVConstant>(AlignSCEV))
-    // Added to suppress a crash because consumer doesn't expect non-constant
-    // alignments in the assume bundle.  TODO: Consider generalizing caller.
-    return false;
   if (AlignOB.Inputs.size() == 3)
     OffSCEV = SE->getSCEV(AlignOB.Inputs[2].get());
   else
@@ -359,6 +352,8 @@ AlignmentFromAssumptionsPass::run(Function &F, FunctionAnalysisManager &AM) {
 
   PreservedAnalyses PA;
   PA.preserveSet<CFGAnalyses>();
+  PA.preserve<AAManager>();
   PA.preserve<ScalarEvolutionAnalysis>();
+  PA.preserve<GlobalsAA>();
   return PA;
 }

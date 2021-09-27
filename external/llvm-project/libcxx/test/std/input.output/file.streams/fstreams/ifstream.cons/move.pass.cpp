@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+// UNSUPPORTED: c++03
 // FILE_DEPENDENCIES: test.dat
 
 // <fstream>
@@ -24,14 +25,14 @@ int main(int, char**)
 {
     {
         std::ifstream fso("test.dat");
-        std::ifstream fs = std::move(fso);
+        std::ifstream fs = move(fso);
         double x = 0;
         fs >> x;
         assert(x == 3.25);
     }
     {
         std::wifstream fso("test.dat");
-        std::wifstream fs = std::move(fso);
+        std::wifstream fs = move(fso);
         double x = 0;
         fs >> x;
         assert(x == 3.25);

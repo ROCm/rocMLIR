@@ -283,7 +283,9 @@ void Solaris::addLibStdCxxIncludePaths(
   const GCCVersion &Version = GCCInstallation.getVersion();
 
   // The primary search for libstdc++ supports multiarch variants.
-  addLibStdCXXIncludePaths(LibDir.str() + "/../include/c++/" + Version.Text,
-                           TripleStr, Multilib.includeSuffix(), DriverArgs,
-                           CC1Args);
+  addLibStdCXXIncludePaths(LibDir.str() + "/../include", "/c++/" + Version.Text,
+                           TripleStr,
+                           /*GCCMultiarchTriple*/ "",
+                           /*TargetMultiarchTriple*/ "",
+                           Multilib.includeSuffix(), DriverArgs, CC1Args);
 }

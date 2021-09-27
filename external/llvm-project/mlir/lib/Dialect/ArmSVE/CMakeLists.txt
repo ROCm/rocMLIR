@@ -1,2 +1,13 @@
-add_subdirectory(IR)
-add_subdirectory(Transforms)
+add_mlir_dialect_library(MLIRArmSVE
+  IR/ArmSVEDialect.cpp
+
+  ADDITIONAL_HEADER_DIRS
+  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/ArmSVE
+
+  DEPENDS
+  MLIRArmSVEIncGen
+
+  LINK_LIBS PUBLIC
+  MLIRIR
+  MLIRSideEffectInterfaces
+  )

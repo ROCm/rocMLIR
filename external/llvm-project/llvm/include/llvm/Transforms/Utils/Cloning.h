@@ -75,16 +75,7 @@ struct ClonedCodeInfo {
   /// originally inserted callsites were DCE'ed after they were cloned.
   std::vector<WeakTrackingVH> OperandBundleCallSites;
 
-  /// Like VMap, but maps only unsimplified instructions. Values in the map
-  /// may be dangling, it is only intended to be used via isSimplified(), to
-  /// check whether the main VMap mapping involves simplification or not.
-  DenseMap<const Value *, const Value *> OrigVMap;
-
   ClonedCodeInfo() = default;
-
-  bool isSimplified(const Value *From, const Value *To) const {
-    return OrigVMap.lookup(From) != To;
-  }
 };
 
 /// Return a copy of the specified basic block, but without
@@ -128,17 +119,11 @@ BasicBlock *CloneBasicBlock(const BasicBlock *BB, ValueToValueMapTy &VMap,
 /// values.  The final argument captures information about the cloned code if
 /// non-null.
 ///
-/// \pre VMap contains no non-identity GlobalValue mappings.
+/// VMap contains no non-identity GlobalValue mappings and debug info metadata
+/// will not be cloned.
 ///
 Function *CloneFunction(Function *F, ValueToValueMapTy &VMap,
                         ClonedCodeInfo *CodeInfo = nullptr);
-
-enum class CloneFunctionChangeType {
-  LocalChangesOnly,
-  GlobalChanges,
-  DifferentModule,
-  ClonedModule,
-};
 
 /// Clone OldFunc into NewFunc, transforming the old arguments into references
 /// to VMap values.  Note that if NewFunc already has basic blocks, the ones
@@ -146,27 +131,12 @@ enum class CloneFunctionChangeType {
 /// fills in a list of return instructions, and can optionally remap types
 /// and/or append the specified suffix to all values cloned.
 ///
-/// If \p Changes is \a CloneFunctionChangeType::LocalChangesOnly, VMap is
-/// required to contain no non-identity GlobalValue mappings. Otherwise,
-/// referenced metadata will be cloned.
+/// If ModuleLevelChanges is false, VMap contains no non-identity GlobalValue
+/// mappings.
 ///
-/// If \p Changes is less than \a CloneFunctionChangeType::DifferentModule
-/// indicating cloning into the same module (even if it's LocalChangesOnly), if
-/// debug info metadata transitively references a \a DISubprogram, it will be
-/// cloned, effectively upgrading \p Changes to GlobalChanges while suppressing
-/// cloning of types and compile units.
-///
-/// If \p Changes is \a CloneFunctionChangeType::DifferentModule, the new
-/// module's \c !llvm.dbg.cu will get updated with any newly created compile
-/// units. (\a CloneFunctionChangeType::ClonedModule leaves that work for the
-/// caller.)
-///
-/// FIXME: Consider simplifying this function by splitting out \a
-/// CloneFunctionMetadataInto() and expecting / updating callers to call it
-/// first when / how it's needed.
 void CloneFunctionInto(Function *NewFunc, const Function *OldFunc,
-                       ValueToValueMapTy &VMap, CloneFunctionChangeType Changes,
-                       SmallVectorImpl<ReturnInst *> &Returns,
+                       ValueToValueMapTy &VMap, bool ModuleLevelChanges,
+                       SmallVectorImpl<ReturnInst*> &Returns,
                        const char *NameSuffix = "",
                        ClonedCodeInfo *CodeInfo = nullptr,
                        ValueMapTypeRemapper *TypeMapper = nullptr,
@@ -194,7 +164,8 @@ void CloneAndPruneFunctionInto(Function *NewFunc, const Function *OldFunc,
                                ValueToValueMapTy &VMap, bool ModuleLevelChanges,
                                SmallVectorImpl<ReturnInst*> &Returns,
                                const char *NameSuffix = "",
-                               ClonedCodeInfo *CodeInfo = nullptr);
+                               ClonedCodeInfo *CodeInfo = nullptr,
+                               Instruction *TheCall = nullptr);
 
 /// This class captures the data input to the InlineFunction call, and records
 /// the auxiliary results produced by it.
@@ -205,10 +176,9 @@ public:
       function_ref<AssumptionCache &(Function &)> GetAssumptionCache = nullptr,
       ProfileSummaryInfo *PSI = nullptr,
       BlockFrequencyInfo *CallerBFI = nullptr,
-      BlockFrequencyInfo *CalleeBFI = nullptr, bool UpdateProfile = true)
+      BlockFrequencyInfo *CalleeBFI = nullptr)
       : CG(cg), GetAssumptionCache(GetAssumptionCache), PSI(PSI),
-        CallerBFI(CallerBFI), CalleeBFI(CalleeBFI),
-        UpdateProfile(UpdateProfile) {}
+        CallerBFI(CallerBFI), CalleeBFI(CalleeBFI) {}
 
   /// If non-null, InlineFunction will update the callgraph to reflect the
   /// changes it makes.
@@ -231,10 +201,6 @@ public:
   /// only if CG is null. If CG is non-null, instead the value handle
   /// `InlinedCalls` above is used.
   SmallVector<CallBase *, 8> InlinedCallSites;
-
-  /// Update profile for callee as well as cloned version. We need to do this
-  /// for regular inlining, but not for inlining from sample profile loader.
-  bool UpdateProfile;
 
   void reset() {
     StaticAllocas.clear();
@@ -307,13 +273,6 @@ void updateProfileCallee(
 /// when cloning.
 void identifyNoAliasScopesToClone(
     ArrayRef<BasicBlock *> BBs, SmallVectorImpl<MDNode *> &NoAliasDeclScopes);
-
-/// Find the 'llvm.experimental.noalias.scope.decl' intrinsics in the specified
-/// instruction range and extract their scope. These are candidates for
-/// duplication when cloning.
-void identifyNoAliasScopesToClone(
-    BasicBlock::iterator Start, BasicBlock::iterator End,
-    SmallVectorImpl<MDNode *> &NoAliasDeclScopes);
 
 /// Duplicate the specified list of noalias decl scopes.
 /// The 'Ext' string is added as an extension to the name.

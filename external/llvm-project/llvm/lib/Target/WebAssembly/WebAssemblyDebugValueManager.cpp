@@ -24,14 +24,13 @@ WebAssemblyDebugValueManager::WebAssemblyDebugValueManager(
   // the whole BB, not just contiguous DBG_VALUEs.
   if (!Instr->getOperand(0).isReg())
     return;
-  CurrentReg = Instr->getOperand(0).getReg();
 
   MachineBasicBlock::iterator DI = *Instr;
   ++DI;
   for (MachineBasicBlock::iterator DE = Instr->getParent()->end(); DI != DE;
        ++DI) {
     if (DI->isDebugValue() &&
-        DI->hasDebugOperandForReg(Instr->getOperand(0).getReg()))
+        DI->getDebugOperandForReg(Instr->getOperand(0).getReg()))
       DbgValues.push_back(&*DI);
   }
 }
@@ -44,9 +43,7 @@ void WebAssemblyDebugValueManager::move(MachineInstr *Insert) {
 
 void WebAssemblyDebugValueManager::updateReg(unsigned Reg) {
   for (auto *DBI : DbgValues)
-    for (auto &MO : DBI->getDebugOperandsForReg(CurrentReg))
-      MO.setReg(Reg);
-  CurrentReg = Reg;
+    DBI->getDebugOperand(0).setReg(Reg);
 }
 
 void WebAssemblyDebugValueManager::clone(MachineInstr *Insert,
@@ -55,18 +52,14 @@ void WebAssemblyDebugValueManager::clone(MachineInstr *Insert,
   MachineFunction *MF = MBB->getParent();
   for (MachineInstr *DBI : reverse(DbgValues)) {
     MachineInstr *Clone = MF->CloneMachineInstr(DBI);
-    for (auto &MO : Clone->getDebugOperandsForReg(CurrentReg))
-      MO.setReg(NewReg);
+    Clone->getDebugOperand(0).setReg(NewReg);
     MBB->insert(Insert, Clone);
   }
 }
 
 void WebAssemblyDebugValueManager::replaceWithLocal(unsigned LocalId) {
   for (auto *DBI : DbgValues) {
-    auto IndexType = DBI->isIndirectDebugValue()
-                         ? llvm::WebAssembly::TI_LOCAL_INDIRECT
-                         : llvm::WebAssembly::TI_LOCAL;
-    for (auto &MO : DBI->getDebugOperandsForReg(CurrentReg))
-      MO.ChangeToTargetIndex(IndexType, LocalId);
+    MachineOperand &Op = DBI->getDebugOperand(0);
+    Op.ChangeToTargetIndex(llvm::WebAssembly::TI_LOCAL, LocalId);
   }
 }

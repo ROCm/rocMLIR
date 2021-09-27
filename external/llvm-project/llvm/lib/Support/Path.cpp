@@ -167,8 +167,8 @@ enum FSEntity {
 static std::error_code
 createUniqueEntity(const Twine &Model, int &ResultFD,
                    SmallVectorImpl<char> &ResultPath, bool MakeAbsolute,
-                   FSEntity Type, sys::fs::OpenFlags Flags = sys::fs::OF_None,
-                   unsigned Mode = 0) {
+                   unsigned Mode, FSEntity Type,
+                   sys::fs::OpenFlags Flags = sys::fs::OF_None) {
 
   // Limit the number of attempts we make, so that we don't infinite loop. E.g.
   // "permission denied" could be for a specific file (so we retry with a
@@ -816,16 +816,22 @@ void createUniquePath(const Twine &Model, SmallVectorImpl<char> &ResultPath,
 
 std::error_code createUniqueFile(const Twine &Model, int &ResultFd,
                                  SmallVectorImpl<char> &ResultPath,
-                                 OpenFlags Flags, unsigned Mode) {
-  return createUniqueEntity(Model, ResultFd, ResultPath, false, FS_File, Flags,
-                            Mode);
+                                 unsigned Mode) {
+  return createUniqueEntity(Model, ResultFd, ResultPath, false, Mode, FS_File);
+}
+
+static std::error_code createUniqueFile(const Twine &Model, int &ResultFd,
+                                        SmallVectorImpl<char> &ResultPath,
+                                        unsigned Mode, OpenFlags Flags) {
+  return createUniqueEntity(Model, ResultFd, ResultPath, false, Mode, FS_File,
+                            Flags);
 }
 
 std::error_code createUniqueFile(const Twine &Model,
                                  SmallVectorImpl<char> &ResultPath,
                                  unsigned Mode) {
   int FD;
-  auto EC = createUniqueFile(Model, FD, ResultPath, OF_None, Mode);
+  auto EC = createUniqueFile(Model, FD, ResultPath, Mode);
   if (EC)
     return EC;
   // FD is only needed to avoid race conditions. Close it right away.
@@ -835,39 +841,34 @@ std::error_code createUniqueFile(const Twine &Model,
 
 static std::error_code
 createTemporaryFile(const Twine &Model, int &ResultFD,
-                    llvm::SmallVectorImpl<char> &ResultPath, FSEntity Type,
-                    sys::fs::OpenFlags Flags = sys::fs::OF_None) {
+                    llvm::SmallVectorImpl<char> &ResultPath, FSEntity Type) {
   SmallString<128> Storage;
   StringRef P = Model.toNullTerminatedStringRef(Storage);
   assert(P.find_first_of(separators(Style::native)) == StringRef::npos &&
          "Model must be a simple filename.");
   // Use P.begin() so that createUniqueEntity doesn't need to recreate Storage.
-  return createUniqueEntity(P.begin(), ResultFD, ResultPath, true, Type, Flags,
-                            owner_read | owner_write);
+  return createUniqueEntity(P.begin(), ResultFD, ResultPath, true,
+                            owner_read | owner_write, Type);
 }
 
 static std::error_code
 createTemporaryFile(const Twine &Prefix, StringRef Suffix, int &ResultFD,
-                    llvm::SmallVectorImpl<char> &ResultPath, FSEntity Type,
-                    sys::fs::OpenFlags Flags = sys::fs::OF_None) {
+                    llvm::SmallVectorImpl<char> &ResultPath, FSEntity Type) {
   const char *Middle = Suffix.empty() ? "-%%%%%%" : "-%%%%%%.";
   return createTemporaryFile(Prefix + Middle + Suffix, ResultFD, ResultPath,
-                             Type, Flags);
+                             Type);
 }
 
 std::error_code createTemporaryFile(const Twine &Prefix, StringRef Suffix,
                                     int &ResultFD,
-                                    SmallVectorImpl<char> &ResultPath,
-                                    sys::fs::OpenFlags Flags) {
-  return createTemporaryFile(Prefix, Suffix, ResultFD, ResultPath, FS_File,
-                             Flags);
+                                    SmallVectorImpl<char> &ResultPath) {
+  return createTemporaryFile(Prefix, Suffix, ResultFD, ResultPath, FS_File);
 }
 
 std::error_code createTemporaryFile(const Twine &Prefix, StringRef Suffix,
-                                    SmallVectorImpl<char> &ResultPath,
-                                    sys::fs::OpenFlags Flags) {
+                                    SmallVectorImpl<char> &ResultPath) {
   int FD;
-  auto EC = createTemporaryFile(Prefix, Suffix, FD, ResultPath, Flags);
+  auto EC = createTemporaryFile(Prefix, Suffix, FD, ResultPath);
   if (EC)
     return EC;
   // FD is only needed to avoid race conditions. Close it right away.
@@ -875,12 +876,13 @@ std::error_code createTemporaryFile(const Twine &Prefix, StringRef Suffix,
   return EC;
 }
 
+
 // This is a mkdtemp with a different pattern. We use createUniqueEntity mostly
 // for consistency. We should try using mkdtemp.
 std::error_code createUniqueDirectory(const Twine &Prefix,
                                       SmallVectorImpl<char> &ResultPath) {
   int Dummy;
-  return createUniqueEntity(Prefix + "-%%%%%%", Dummy, ResultPath, true,
+  return createUniqueEntity(Prefix + "-%%%%%%", Dummy, ResultPath, true, 0,
                             FS_Dir);
 }
 
@@ -888,7 +890,7 @@ std::error_code
 getPotentiallyUniqueFileName(const Twine &Model,
                              SmallVectorImpl<char> &ResultPath) {
   int Dummy;
-  return createUniqueEntity(Model, Dummy, ResultPath, false, FS_Name);
+  return createUniqueEntity(Model, Dummy, ResultPath, false, 0, FS_Name);
 }
 
 std::error_code
@@ -1152,21 +1154,6 @@ ErrorOr<perms> getPermissions(const Twine &Path) {
   return Status.permissions();
 }
 
-size_t mapped_file_region::size() const {
-  assert(Mapping && "Mapping failed but used anyway!");
-  return Size;
-}
-
-char *mapped_file_region::data() const {
-  assert(Mapping && "Mapping failed but used anyway!");
-  return reinterpret_cast<char *>(Mapping);
-}
-
-const char *mapped_file_region::const_data() const {
-  assert(Mapping && "Mapping failed but used anyway!");
-  return reinterpret_cast<const char *>(Mapping);
-}
-
 } // end namespace fs
 } // end namespace sys
 } // end namespace llvm
@@ -1229,7 +1216,7 @@ Error TempFile::keep(const Twine &Name) {
   auto H = reinterpret_cast<HANDLE>(_get_osfhandle(FD));
   std::error_code RenameEC = setDeleteDisposition(H, false);
   if (!RenameEC) {
-    RenameEC = rename_handle(H, Name);
+    RenameEC = rename_fd(FD, Name);
     // If rename failed because it's cross-device, copy instead
     if (RenameEC ==
       std::error_code(ERROR_NOT_SAME_DEVICE, std::system_category())) {
@@ -1288,12 +1275,11 @@ Error TempFile::keep() {
   return Error::success();
 }
 
-Expected<TempFile> TempFile::create(const Twine &Model, unsigned Mode,
-                                    OpenFlags ExtraFlags) {
+Expected<TempFile> TempFile::create(const Twine &Model, unsigned Mode) {
   int FD;
   SmallString<128> ResultPath;
   if (std::error_code EC =
-          createUniqueFile(Model, FD, ResultPath, OF_Delete | ExtraFlags, Mode))
+          createUniqueFile(Model, FD, ResultPath, Mode, OF_Delete))
     return errorCodeToError(EC);
 
   TempFile Ret(ResultPath, FD);

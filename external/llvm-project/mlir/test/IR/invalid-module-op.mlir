@@ -4,11 +4,11 @@
 
 func @module_op() {
   // expected-error@+1 {{Operations with a 'SymbolTable' must have exactly one block}}
-  builtin.module {
+  module {
   ^bb1:
-    "test.dummy"() : () -> ()
+    "module_terminator"() : () -> ()
   ^bb2:
-    "test.dummy"() : () -> ()
+    "module_terminator"() : () -> ()
   }
   return
 }
@@ -17,10 +17,29 @@ func @module_op() {
 
 func @module_op() {
   // expected-error@+1 {{region should have no arguments}}
-  builtin.module {
+  module {
   ^bb1(%arg: i32):
+    "module_terminator"() : () -> ()
   }
   return
+}
+
+// -----
+
+func @module_op() {
+  // expected-error@below {{expects regions to end with 'module_terminator'}}
+  // expected-note@below {{the absence of terminator implies 'module_terminator'}}
+  module {
+    return
+  }
+  return
+}
+
+// -----
+
+func @module_op() {
+  // expected-error@+1 {{expects parent op 'module'}}
+  "module_terminator"() : () -> ()
 }
 
 // -----

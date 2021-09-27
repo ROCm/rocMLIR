@@ -13,8 +13,13 @@
 #ifndef MIOPEN_OPS
 #define MIOPEN_OPS
 
-include "mlir/Dialect/MIOpen/MIOpenBase.td"
+include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+
+def MIOpen_Dialect : Dialect {
+  let name = "miopen";
+  let cppNamespace = "miopen";
+}
 
 // Base class for MIOpen dialect ops.
 class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
@@ -85,7 +90,7 @@ def MIOpen_TransformOp :
   }];
   let builders = [
    // Custom builder to populate bounds of input and output memrefs as attributes.
-   OpBuilder<(ins "Type": $output, "Value":$input, "ArrayRef<NamedAttribute>":$attributes, "bool":$populateBounds),
+   OpBuilderDAG<(ins "Type": $output, "Value":$input, "ArrayRef<NamedAttribute>":$attributes, "bool":$populateBounds),
    [{
      $_state.addOperands({input});
      if (populateBounds) {

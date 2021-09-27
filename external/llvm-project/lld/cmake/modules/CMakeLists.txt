@@ -14,7 +14,7 @@ export(TARGETS ${LLD_EXPORTS} FILE ${lld_cmake_builddir}/LLDTargets.cmake)
 # Generate LLDConfig.cmake for the build tree.
 set(LLD_CONFIG_CMAKE_DIR "${lld_cmake_builddir}")
 set(LLD_CONFIG_LLVM_CMAKE_DIR "${llvm_cmake_builddir}")
-set(LLD_CONFIG_INCLUDE_EXPORTS "include(\"${lld_cmake_builddir}/LLDTargets.cmake\")")
+set(LLD_CONFIG_EXPORTS_FILE "${lld_cmake_builddir}/LLDTargets.cmake")
 set(LLD_CONFIG_INCLUDE_DIRS
   "${LLD_SOURCE_DIR}/include"
   "${LLD_BINARY_DIR}/include"
@@ -25,6 +25,7 @@ configure_file(
   @ONLY)
 set(LLD_CONFIG_CMAKE_DIR)
 set(LLD_CONFIG_LLVM_CMAKE_DIR)
+set(LLD_CONFIG_EXPORTS_FILE)
 
 # Generate LLDConfig.cmake for the install tree.
 set(LLD_CONFIG_CODE "
@@ -39,7 +40,7 @@ get_filename_component(LLD_INSTALL_PREFIX \"\${LLD_INSTALL_PREFIX}\" PATH)")
 endforeach(p)
 set(LLD_CONFIG_CMAKE_DIR "\${LLD_INSTALL_PREFIX}/${LLD_INSTALL_PACKAGE_DIR}")
 set(LLD_CONFIG_LLVM_CMAKE_DIR "\${LLD_INSTALL_PREFIX}/${LLVM_INSTALL_PACKAGE_DIR}")
-get_config_exports_includes(LLD LLD_CONFIG_INCLUDE_EXPORTS)
+set(LLD_CONFIG_EXPORTS_FILE "\${LLD_CMAKE_DIR}/LLDTargets.cmake")
 set(LLD_CONFIG_INCLUDE_DIRS "\${LLD_INSTALL_PREFIX}/include")
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/LLDConfig.cmake.in
@@ -47,9 +48,14 @@ configure_file(
   @ONLY)
 set(LLD_CONFIG_CODE)
 set(LLD_CONFIG_CMAKE_DIR)
+set(LLD_CONFIG_EXPORTS_FILE)
 
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
-  install_distribution_exports(LLD)
+  get_property(lld_has_exports GLOBAL PROPERTY LLD_HAS_EXPORTS)
+  if(lld_has_exports)
+    install(EXPORT LLDTargets DESTINATION ${LLD_INSTALL_PACKAGE_DIR}
+            COMPONENT lld-cmake-exports)
+  endif()
 
   install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/LLDConfig.cmake

@@ -21,20 +21,9 @@ struct StripDebugInfo : public StripDebugInfoBase<StripDebugInfo> {
 } // end anonymous namespace
 
 void StripDebugInfo::runOnOperation() {
-  auto unknownLoc = UnknownLoc::get(&getContext());
-
   // Strip the debug info from all operations.
-  getOperation()->walk([&](Operation *op) {
-    op->setLoc(unknownLoc);
-    // Strip block arguments debug info.
-    for (Region &region : op->getRegions()) {
-      for (Block &block : region.getBlocks()) {
-        for (BlockArgument &arg : block.getArguments()) {
-          arg.setLoc(unknownLoc);
-        }
-      }
-    }
-  });
+  auto unknownLoc = UnknownLoc::get(&getContext());
+  getOperation()->walk([&](Operation *op) { op->setLoc(unknownLoc); });
 }
 
 /// Creates a pass to strip debug information from a function.

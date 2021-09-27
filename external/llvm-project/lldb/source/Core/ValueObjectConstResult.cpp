@@ -73,7 +73,7 @@ ValueObjectConstResult::ValueObjectConstResult(
   }
 
   m_value.GetScalar() = (uintptr_t)m_data.GetDataStart();
-  m_value.SetValueType(Value::ValueType::HostAddress);
+  m_value.SetValueType(Value::eValueTypeHostAddress);
   m_value.SetCompilerType(compiler_type);
   m_name = name;
   SetIsConstant();
@@ -115,7 +115,7 @@ ValueObjectConstResult::ValueObjectConstResult(
   m_data.SetAddressByteSize(data_addr_size);
   m_data.SetData(data_sp);
   m_value.GetScalar() = (uintptr_t)data_sp->GetBytes();
-  m_value.SetValueType(Value::ValueType::HostAddress);
+  m_value.SetValueType(Value::eValueTypeHostAddress);
   m_value.SetCompilerType(compiler_type);
   m_name = name;
   SetIsConstant();
@@ -145,19 +145,19 @@ ValueObjectConstResult::ValueObjectConstResult(
   m_value.GetScalar() = address;
   m_data.SetAddressByteSize(addr_byte_size);
   m_value.GetScalar().GetData(m_data, addr_byte_size);
-  // m_value.SetValueType(Value::ValueType::HostAddress);
+  // m_value.SetValueType(Value::eValueTypeHostAddress);
   switch (address_type) {
   case eAddressTypeInvalid:
-    m_value.SetValueType(Value::ValueType::Scalar);
+    m_value.SetValueType(Value::eValueTypeScalar);
     break;
   case eAddressTypeFile:
-    m_value.SetValueType(Value::ValueType::FileAddress);
+    m_value.SetValueType(Value::eValueTypeFileAddress);
     break;
   case eAddressTypeLoad:
-    m_value.SetValueType(Value::ValueType::LoadAddress);
+    m_value.SetValueType(Value::eValueTypeLoadAddress);
     break;
   case eAddressTypeHost:
-    m_value.SetValueType(Value::ValueType::HostAddress);
+    m_value.SetValueType(Value::eValueTypeHostAddress);
     break;
   }
   m_value.SetCompilerType(compiler_type);
@@ -193,7 +193,7 @@ ValueObjectConstResult::ValueObjectConstResult(ExecutionContextScope *exe_scope,
   m_error = m_value.GetValueAsData(&exe_ctx, m_data, module);
 }
 
-ValueObjectConstResult::~ValueObjectConstResult() = default;
+ValueObjectConstResult::~ValueObjectConstResult() {}
 
 CompilerType ValueObjectConstResult::GetCompilerTypeImpl() {
   return m_value.GetCompilerType();

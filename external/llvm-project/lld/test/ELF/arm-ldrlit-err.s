@@ -8,9 +8,6 @@ low:
   bx lr
   nop
   nop
-  nop
-  nop
-  nop
 
  .section .text.1, "ax", %progbits
  .global _start
@@ -30,4 +27,3 @@ _start:
  .balign 4
 high:
  bx lr
- nop

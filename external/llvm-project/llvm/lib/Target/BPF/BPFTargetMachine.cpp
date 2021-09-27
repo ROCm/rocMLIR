@@ -12,7 +12,6 @@
 
 #include "BPFTargetMachine.h"
 #include "BPF.h"
-#include "BPFTargetTransformInfo.h"
 #include "MCTargetDesc/BPFMCAsmInfo.h"
 #include "TargetInfo/BPFTargetInfo.h"
 #include "llvm/CodeGen/Passes.h"
@@ -122,20 +121,21 @@ void BPFTargetMachine::adjustPassManager(PassManagerBuilder &Builder) {
       });
 }
 
-void BPFTargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
+void BPFTargetMachine::registerPassBuilderCallbacks(PassBuilder &PB,
+                                                    bool DebugPassManager) {
   PB.registerPipelineStartEPCallback(
-      [=](ModulePassManager &MPM, OptimizationLevel) {
-        FunctionPassManager FPM;
+      [=](ModulePassManager &MPM, PassBuilder::OptimizationLevel) {
+        FunctionPassManager FPM(DebugPassManager);
         FPM.addPass(BPFAbstractMemberAccessPass(this));
         FPM.addPass(BPFPreserveDITypePass());
         MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
       });
   PB.registerPeepholeEPCallback([=](FunctionPassManager &FPM,
-                                    OptimizationLevel Level) {
+                                    PassBuilder::OptimizationLevel Level) {
     FPM.addPass(SimplifyCFGPass(SimplifyCFGOptions().hoistCommonInsts(true)));
   });
   PB.registerPipelineEarlySimplificationEPCallback(
-      [=](ModulePassManager &MPM, OptimizationLevel) {
+      [=](ModulePassManager &MPM, PassBuilder::OptimizationLevel) {
         MPM.addPass(BPFAdjustOptPass());
       });
 }
@@ -143,11 +143,6 @@ void BPFTargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
 void BPFPassConfig::addIRPasses() {
   addPass(createBPFCheckAndAdjustIR());
   TargetPassConfig::addIRPasses();
-}
-
-TargetTransformInfo
-BPFTargetMachine::getTargetTransformInfo(const Function &F) {
-  return TargetTransformInfo(BPFTTIImpl(this, F));
 }
 
 // Install an instruction selector pass using

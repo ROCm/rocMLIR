@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/Optimizer/Support/InitFIR.h"
+#include "flang/Optimizer/Dialect/FIRDialect.h"
 #include "flang/Optimizer/Support/KindMapping.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
@@ -21,7 +21,6 @@
 #include "mlir/Transforms/Passes.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorOr.h"
-#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
@@ -48,32 +47,30 @@ static void printModuleBody(mlir::ModuleOp mod, raw_ostream &output) {
 }
 
 // compile a .fir file
-static mlir::LogicalResult
-compileFIR(const mlir::PassPipelineCLParser &passPipeline) {
+static int compileFIR() {
   // check that there is a file to load
   ErrorOr<std::unique_ptr<MemoryBuffer>> fileOrErr =
       MemoryBuffer::getFileOrSTDIN(inputFilename);
 
   if (std::error_code EC = fileOrErr.getError()) {
     errs() << "Could not open file: " << EC.message() << '\n';
-    return mlir::failure();
+    return 1;
   }
 
   // load the file into a module
   SourceMgr sourceMgr;
   sourceMgr.AddNewSourceBuffer(std::move(*fileOrErr), SMLoc());
-  mlir::DialectRegistry registry;
-  fir::support::registerDialects(registry);
-  mlir::MLIRContext context(registry);
+  mlir::MLIRContext context;
+  fir::registerFIRDialects(context.getDialectRegistry());
   auto owningRef = mlir::parseSourceFile(sourceMgr, &context);
 
   if (!owningRef) {
     errs() << "Error can't load file " << inputFilename << '\n';
-    return mlir::failure();
+    return 2;
   }
   if (mlir::failed(owningRef->verify())) {
     errs() << "Error verifying FIR module\n";
-    return mlir::failure();
+    return 4;
   }
 
   std::error_code ec;
@@ -97,20 +94,20 @@ compileFIR(const mlir::PassPipelineCLParser &passPipeline) {
     if (emitFir)
       printModuleBody(*owningRef, out.os());
     out.keep();
-    return mlir::success();
+    return 0;
   }
 
   // pass manager failed
   printModuleBody(*owningRef, errs());
   errs() << "\n\nFAILED: " << inputFilename << '\n';
-  return mlir::failure();
+  return 8;
 }
 
 int main(int argc, char **argv) {
-  fir::support::registerMLIRPassesForFortranTools();
+  fir::registerFIRPasses();
   [[maybe_unused]] InitLLVM y(argc, argv);
   mlir::registerPassManagerCLOptions();
   mlir::PassPipelineCLParser passPipe("", "Compiler passes to run");
   cl::ParseCommandLineOptions(argc, argv, "Tilikum Crossing Optimizer\n");
-  return mlir::failed(compileFIR(passPipe));
+  return compileFIR();
 }

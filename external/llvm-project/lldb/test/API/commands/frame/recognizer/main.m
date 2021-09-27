@@ -1,4 +1,4 @@
-#import <stdio.h>
+#import <Foundation/Foundation.h>
 
 void foo(int a, int b)
 {

@@ -98,12 +98,14 @@ struct SpecialFuncs {
   SpecialFuncs& __attribute__((cpu_specific(atom))) operator=(SpecialFuncs&&) = delete;
 };
 
-struct OutOfLine {
+struct BadOutOfLine {
   int __attribute__((cpu_specific(atom, ivybridge))) foo(int);
 };
 
-int __attribute__((cpu_specific(atom, ivybridge))) OutOfLine::foo(int) { return 0; }
-int __attribute__((cpu_specific(sandybridge))) OutOfLine::foo(int) { return 1; }
+int __attribute__((cpu_specific(atom, ivybridge))) BadOutOfLine::foo(int) { return 0; }
+// expected-error@+2 {{out-of-line definition of 'foo' does not match any declaration in 'BadOutOfLine'}}
+// expected-note@-2 {{member declaration nearly matches}}
+int __attribute__((cpu_specific(sandybridge))) BadOutOfLine::foo(int) { return 1; }
 
 // Ensure Cpp Spelling works.
 [[clang::cpu_specific(ivybridge,atom)]] int CppSpelling(){}

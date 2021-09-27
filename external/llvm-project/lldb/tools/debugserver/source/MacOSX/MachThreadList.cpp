@@ -17,7 +17,7 @@
 #include "DNBThreadResumeActions.h"
 #include "MachProcess.h"
 
-#include <cinttypes>
+#include <inttypes.h>
 #include <sys/sysctl.h>
 
 #include <memory>

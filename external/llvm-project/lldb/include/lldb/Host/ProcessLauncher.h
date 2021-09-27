@@ -17,7 +17,7 @@ class HostProcess;
 
 class ProcessLauncher {
 public:
-  virtual ~ProcessLauncher() = default;
+  virtual ~ProcessLauncher() {}
   virtual HostProcess LaunchProcess(const ProcessLaunchInfo &launch_info,
                                     Status &error) = 0;
 };

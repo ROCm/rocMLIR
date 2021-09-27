@@ -9,7 +9,7 @@
 #ifndef LLDB_API_SBCOMMANDRETURNOBJECT_H
 #define LLDB_API_SBCOMMANDRETURNOBJECT_H
 
-#include <cstdio>
+#include <stdio.h>
 
 #include <memory>
 
@@ -105,6 +105,9 @@ public:
 
   void SetError(const char *error_cstr);
 
+  // ref() is internal for LLDB only.
+  lldb_private::CommandReturnObject &ref() const;
+
 protected:
   friend class SBCommandInterpreter;
   friend class SBOptions;
@@ -116,8 +119,6 @@ protected:
   lldb_private::CommandReturnObject &operator*() const;
 
 private:
-  lldb_private::CommandReturnObject &ref() const;
-
   std::unique_ptr<lldb_private::SBCommandReturnObjectImpl> m_opaque_up;
 };
 

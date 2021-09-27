@@ -11,7 +11,7 @@
 
 namespace lldb_private {
 
-ProcessRunLock::ProcessRunLock() {
+ProcessRunLock::ProcessRunLock() : m_running(false) {
   int err = ::pthread_rwlock_init(&m_rwlock, nullptr);
   (void)err;
 }

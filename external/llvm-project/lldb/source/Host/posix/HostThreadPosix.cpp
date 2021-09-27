@@ -9,18 +9,18 @@
 #include "lldb/Host/posix/HostThreadPosix.h"
 #include "lldb/Utility/Status.h"
 
-#include <cerrno>
+#include <errno.h>
 #include <pthread.h>
 
 using namespace lldb;
 using namespace lldb_private;
 
-HostThreadPosix::HostThreadPosix() = default;
+HostThreadPosix::HostThreadPosix() {}
 
 HostThreadPosix::HostThreadPosix(lldb::thread_t thread)
     : HostNativeThreadBase(thread) {}
 
-HostThreadPosix::~HostThreadPosix() = default;
+HostThreadPosix::~HostThreadPosix() {}
 
 Status HostThreadPosix::Join(lldb::thread_result_t *result) {
   Status error;

@@ -9,7 +9,6 @@
 #ifndef PROFILE_INSTRPROFILINGUTIL_H
 #define PROFILE_INSTRPROFILINGUTIL_H
 
-#include <inttypes.h>
 #include <stddef.h>
 #include <stdio.h>
 
@@ -73,15 +72,5 @@ int lprofSuspendSigKill();
 
 /* Restore previously suspended SIGKILL. */
 void lprofRestoreSigKill();
-
-static inline size_t lprofRoundUpTo(size_t x, size_t boundary) {
-  return (x + boundary - 1) & ~(boundary - 1);
-}
-
-static inline size_t lprofRoundDownTo(size_t x, size_t boundary) {
-  return x & ~(boundary - 1);
-}
-
-int lprofReleaseMemoryPagesToOS(uintptr_t Begin, uintptr_t End);
 
 #endif /* PROFILE_INSTRPROFILINGUTIL_H */

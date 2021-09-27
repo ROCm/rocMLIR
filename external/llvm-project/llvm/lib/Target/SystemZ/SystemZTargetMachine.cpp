@@ -97,15 +97,6 @@ static std::string computeDataLayout(const Triple &TT, StringRef CPU,
   return Ret;
 }
 
-static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
-  if (TT.isOSzOS())
-    return std::make_unique<TargetLoweringObjectFileGOFF>();
-
-  // Note: Some times run with -triple s390x-unknown.
-  // In this case, default to ELF unless z/OS specifically provided.
-  return std::make_unique<TargetLoweringObjectFileELF>();
-}
-
 static Reloc::Model getEffectiveRelocModel(Optional<Reloc::Model> RM) {
   // Static code is suitable for use in a dynamic executable; there is no
   // separate DynamicNoPIC model.
@@ -169,7 +160,7 @@ SystemZTargetMachine::SystemZTargetMachine(const Target &T, const Triple &TT,
           getEffectiveRelocModel(RM),
           getEffectiveSystemZCodeModel(CM, getEffectiveRelocModel(RM), JIT),
           OL),
-      TLOF(createTLOF(getTargetTriple())) {
+      TLOF(std::make_unique<TargetLoweringObjectFileELF>()) {
   initAsmInfo();
 }
 
@@ -188,7 +179,9 @@ SystemZTargetMachine::getSubtargetImpl(const Function &F) const {
   // FIXME: This is related to the code below to reset the target options,
   // we need to know whether or not the soft float flag is set on the
   // function, so we can enable it as a subtarget feature.
-  bool softFloat = F.getFnAttribute("use-soft-float").getValueAsBool();
+  bool softFloat =
+    F.hasFnAttribute("use-soft-float") &&
+    F.getFnAttribute("use-soft-float").getValueAsString() == "true";
 
   if (softFloat)
     FS += FS.empty() ? "+soft-float" : ",+soft-float";

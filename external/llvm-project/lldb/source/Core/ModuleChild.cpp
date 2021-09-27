@@ -13,7 +13,7 @@ using namespace lldb_private;
 ModuleChild::ModuleChild(const lldb::ModuleSP &module_sp)
     : m_module_wp(module_sp) {}
 
-ModuleChild::~ModuleChild() = default;
+ModuleChild::~ModuleChild() {}
 
 const ModuleChild &ModuleChild::operator=(const ModuleChild &rhs) {
   if (this != &rhs)

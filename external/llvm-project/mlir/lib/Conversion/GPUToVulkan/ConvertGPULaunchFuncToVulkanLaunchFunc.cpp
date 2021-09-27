@@ -99,7 +99,7 @@ void ConvertGpuLaunchFuncToVulkanLaunchFunc::runOnOperation() {
 
 LogicalResult ConvertGpuLaunchFuncToVulkanLaunchFunc::declareVulkanLaunchFunc(
     Location loc, gpu::LaunchFuncOp launchOp) {
-  auto builder = OpBuilder::atBlockEnd(getOperation().getBody());
+  OpBuilder builder(getOperation().getBody()->getTerminator());
 
   // Workgroup size is written into the kernel. So to properly modelling
   // vulkan launch, we have to skip local workgroup size configuration here.
@@ -171,17 +171,18 @@ void ConvertGpuLaunchFuncToVulkanLaunchFunc::convertGpuLaunchFunc(
 
   // Create vulkan launch call op.
   auto vulkanLaunchCallOp = builder.create<CallOp>(
-      loc, TypeRange{}, SymbolRefAttr::get(builder.getContext(), kVulkanLaunch),
+      loc, TypeRange{}, builder.getSymbolRefAttr(kVulkanLaunch),
       vulkanLaunchOperands);
 
   // Set SPIR-V binary shader data as an attribute.
   vulkanLaunchCallOp->setAttr(
       kSPIRVBlobAttrName,
-      builder.getStringAttr(StringRef(binary.data(), binary.size())));
+      StringAttr::get({binary.data(), binary.size()}, loc->getContext()));
 
   // Set entry point name as an attribute.
-  vulkanLaunchCallOp->setAttr(kSPIRVEntryPointAttrName,
-                              launchOp.getKernelName());
+  vulkanLaunchCallOp->setAttr(
+      kSPIRVEntryPointAttrName,
+      StringAttr::get(launchOp.getKernelName(), loc->getContext()));
 
   launchOp.erase();
 }

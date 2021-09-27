@@ -24,7 +24,7 @@ struct Transformation {
   explicit Transformation(linalg::LinalgTransformationFilter::FilterFunction f)
       : filter(f) {}
   virtual ~Transformation() = default;
-  virtual RewritePatternSet
+  virtual OwningRewritePatternList
   buildRewritePatterns(MLIRContext *context,
                        linalg::LinalgTransformationFilter m) = 0;
   linalg::LinalgTransformationFilter::FilterFunction filter = nullptr;
@@ -35,33 +35,33 @@ template <template <typename> class PatternType, typename ConcreteOpType,
           typename OptionsType,
           typename = std::enable_if_t<std::is_member_function_pointer<
               decltype(&ConcreteOpType::getOperationName)>::value>>
-void sfinae_enqueue(RewritePatternSet &patternList, OptionsType options,
-                    StringRef opName, linalg::LinalgTransformationFilter m) {
+void sfinae_enqueue(OwningRewritePatternList &patternList, OptionsType options,
+                    MLIRContext *context, StringRef opName,
+                    linalg::LinalgTransformationFilter m) {
   assert(opName == ConcreteOpType::getOperationName() &&
          "explicit name must match ConcreteOpType::getOperationName");
-  patternList.add<PatternType<ConcreteOpType>>(patternList.getContext(),
-                                               options, m);
+  patternList.insert<PatternType<ConcreteOpType>>(context, options, m);
 }
 
 /// SFINAE: Enqueue helper for OpType that do not have a `getOperationName`
 /// (e.g. LinalgOp, other interfaces, Operation*).
 template <template <typename> class PatternType, typename OpType,
           typename OptionsType>
-void sfinae_enqueue(RewritePatternSet &patternList, OptionsType options,
-                    StringRef opName, linalg::LinalgTransformationFilter m) {
+void sfinae_enqueue(OwningRewritePatternList &patternList, OptionsType options,
+                    MLIRContext *context, StringRef opName,
+                    linalg::LinalgTransformationFilter m) {
   assert(!opName.empty() && "opName must not be empty");
-  patternList.add<PatternType<OpType>>(opName, patternList.getContext(),
-                                       options, m);
+  patternList.insert<PatternType<OpType>>(opName, context, options, m);
 }
 
 template <typename PatternType, typename OpType, typename OptionsType>
-void enqueue(RewritePatternSet &patternList, OptionsType options,
-             StringRef opName, linalg::LinalgTransformationFilter m) {
+void enqueue(OwningRewritePatternList &patternList, OptionsType options,
+             MLIRContext *context, StringRef opName,
+             linalg::LinalgTransformationFilter m) {
   if (!opName.empty())
-    patternList.add<PatternType>(opName, patternList.getContext(), options, m);
+    patternList.insert<PatternType>(opName, context, options, m);
   else
-    patternList.add<PatternType>(patternList.getContext(),
-                                 m.addOpFilter<OpType>(), options);
+    patternList.insert<PatternType>(m.addOpFilter<OpType>(), options);
 }
 
 /// Promotion transformation enqueues a particular stage-1 pattern for
@@ -77,12 +77,12 @@ struct Tile : public Transformation {
        linalg::LinalgTransformationFilter::FilterFunction f = nullptr)
       : Transformation(f), opName(name), options(options) {}
 
-  RewritePatternSet
+  OwningRewritePatternList
   buildRewritePatterns(MLIRContext *context,
                        linalg::LinalgTransformationFilter m) override {
-    RewritePatternSet tilingPatterns(context);
+    OwningRewritePatternList tilingPatterns;
     sfinae_enqueue<linalg::LinalgTilingPattern, LinalgOpType>(
-        tilingPatterns, options, opName, m);
+        tilingPatterns, options, context, opName, m);
     return tilingPatterns;
   }
 
@@ -105,12 +105,12 @@ struct Promote : public Transformation {
           linalg::LinalgTransformationFilter::FilterFunction f = nullptr)
       : Transformation(f), opName(name), options(options) {}
 
-  RewritePatternSet
+  OwningRewritePatternList
   buildRewritePatterns(MLIRContext *context,
                        linalg::LinalgTransformationFilter m) override {
-    RewritePatternSet promotionPatterns(context);
+    OwningRewritePatternList promotionPatterns;
     sfinae_enqueue<linalg::LinalgPromotionPattern, LinalgOpType>(
-        promotionPatterns, options, opName, m);
+        promotionPatterns, options, context, opName, m);
     return promotionPatterns;
   }
 
@@ -133,14 +133,14 @@ struct Vectorize : public Transformation {
             linalg::LinalgTransformationFilter::FilterFunction f = nullptr)
       : Transformation(f), opName(name), options(options) {}
 
-  RewritePatternSet
+  OwningRewritePatternList
   buildRewritePatterns(MLIRContext *context,
                        linalg::LinalgTransformationFilter m) override {
-    RewritePatternSet vectorizationPatterns(context);
+    OwningRewritePatternList vectorizationPatterns;
     enqueue<linalg::LinalgVectorizationPattern, LinalgOpType>(
-        vectorizationPatterns, options, opName, m);
-    vectorizationPatterns.add<linalg::LinalgCopyVTRForwardingPattern,
-                              linalg::LinalgCopyVTWForwardingPattern>(
+        vectorizationPatterns, options, context, opName, m);
+    vectorizationPatterns.insert<linalg::LinalgCopyVTRForwardingPattern,
+                                 linalg::LinalgCopyVTWForwardingPattern>(
         context, /*benefit=*/2);
     return vectorizationPatterns;
   }
@@ -148,20 +148,6 @@ struct Vectorize : public Transformation {
 private:
   std::string opName;
   linalg::LinalgVectorizationOptions options;
-};
-
-/// Options to control the application of late transformations.
-struct LateCodegenStrategyOptions {
-  /// Hoisting transformations are always deemed beneficial and must disabled
-  /// explicitly.
-  bool enableLICM = true;
-  bool enableHoistRedundantVectorTransfers = true;
-  bool enableHoistRedundantVectorTransfersOnTensor = true;
-  /// Vector lowering operations may result in surprising behavior when
-  /// composing multiple codegen strategies and must be enabled explicitly.
-  bool enableVectorTransferPartialRewrite = false;
-  bool enableVectorContractLowering = false;
-  bool enableVectorToSCFConversion = false;
 };
 
 /// Codegen strategy controls how a Linalg op is progressively lowered.
@@ -297,32 +283,10 @@ struct CodegenStrategy {
     vectorToSCFOptions = options;
     return *this;
   }
-  ///
-  /// Configure the application of late transformations.
-  ///
-  CodegenStrategy &setEnableLICM(bool val) {
-    this->lateCodegenStrategyOptions.enableLICM = val;
-    return *this;
-  }
-  CodegenStrategy &setEnableHoistRedundantVectorTransfers(bool val) {
-    this->lateCodegenStrategyOptions.enableHoistRedundantVectorTransfers = val;
-    return *this;
-  }
-  CodegenStrategy &setEnableHoistRedundantVectorTransfersOnTensor(bool val) {
-    this->lateCodegenStrategyOptions
-        .enableHoistRedundantVectorTransfersOnTensor = val;
-    return *this;
-  }
-  CodegenStrategy &setEnableVectorTransferPartialRewrite(bool val) {
-    this->lateCodegenStrategyOptions.enableVectorTransferPartialRewrite = val;
-    return *this;
-  }
-  CodegenStrategy &setEnableVectorContractLowering(bool val) {
-    this->lateCodegenStrategyOptions.enableVectorContractLowering = val;
-    return *this;
-  }
-  CodegenStrategy &setEnableVectorToSCFConversion(bool val) {
-    this->lateCodegenStrategyOptions.enableVectorToSCFConversion = val;
+  /// Configure the post staged-patterns late vector.transfer to scf
+  /// conversion.
+  CodegenStrategy &setHoistInvariantCode(bool enableLICM) {
+    this->enableLICM = enableLICM;
     return *this;
   }
 
@@ -336,7 +300,7 @@ private:
   vector::VectorTransformsOptions vectorTransformsOptions;
   VectorTransferToSCFOptions vectorToSCFOptions;
   SmallVector<std::unique_ptr<Transformation>, 4> transformationSequence;
-  LateCodegenStrategyOptions lateCodegenStrategyOptions;
+  bool enableLICM = true;
 };
 
 } // namespace linalg

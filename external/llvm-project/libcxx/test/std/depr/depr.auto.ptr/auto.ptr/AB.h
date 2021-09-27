@@ -19,8 +19,6 @@ public:
     A(const A& a) : id_(a.id_) {++count;}
     virtual ~A() {assert(id_ >= 0); id_ = -1; --count;}
 
-    A& operator=(const A& other) { id_ = other.id_; return *this; }
-
     static int count;
 };
 
@@ -39,4 +37,4 @@ public:
 
 int B::count = 0;
 
-#endif // AB_H
+#endif  // AB_H
