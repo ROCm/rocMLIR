@@ -950,7 +950,7 @@ gpu.module @test_module_mfma_bf16 {
     memref.store %30, %arg2[%c1_8] : memref<16xvector<4xf32>>
     gpu.return
   }
-} 
+}
 gpu.module @test_module {
   // CHECK-LABEL: @kernel_func
   // CHECK: attributes
