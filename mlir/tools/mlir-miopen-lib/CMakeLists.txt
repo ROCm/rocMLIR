@@ -16,6 +16,9 @@ set(LIBS
   MLIRShape
   MLIRTransforms
   MLIRSupport
+  MLIRGPUTransforms
+  MLIRTargetLLVMIRExport
+  MLIRToLLVMIRTranslationRegistration
   MLIRIR
   MLIRTargetMIOpenCppTranslation
 )
