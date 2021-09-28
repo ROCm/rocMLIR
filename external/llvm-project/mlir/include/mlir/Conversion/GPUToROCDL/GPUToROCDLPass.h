@@ -8,6 +8,7 @@
 #ifndef MLIR_CONVERSION_GPUTOROCDL_GPUTOROCDLPASS_H_
 #define MLIR_CONVERSION_GPUTOROCDL_GPUTOROCDLPASS_H_
 
+#include "mlir/Conversion/GPUToROCDL/Runtimes.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
 #include <memory>
 
@@ -26,7 +27,8 @@ class GPUModuleOp;
 
 /// Collect a set of patterns to convert from the GPU dialect to ROCDL.
 void populateGpuToROCDLConversionPatterns(LLVMTypeConverter &converter,
-                                          RewritePatternSet &patterns);
+                                          RewritePatternSet &patterns,
+                                          gpu::amd::Runtime runtime);
 
 /// Configure target to convert from the GPU dialect to ROCDL.
 void configureGpuToROCDLConversionLegality(ConversionTarget &target);
@@ -36,7 +38,8 @@ void configureGpuToROCDLConversionLegality(ConversionTarget &target);
 /// is configurable.
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
 createLowerGpuOpsToROCDLOpsPass(
-    unsigned indexBitwidth = kDeriveIndexBitwidthFromDataLayout);
+    unsigned indexBitwidth = kDeriveIndexBitwidthFromDataLayout,
+    gpu::amd::Runtime runtime = gpu::amd::Runtime::Unknown);
 
 } // namespace mlir
 
