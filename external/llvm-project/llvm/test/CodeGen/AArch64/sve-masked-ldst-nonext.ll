@@ -1,8 +1,4 @@
-; RUN: llc -mtriple=aarch64--linux-gnu -mattr=+sve -asm-verbose=0 < %s 2>%t | FileCheck %s
-; RUN: FileCheck --check-prefix=WARN --allow-empty %s <%t
-
-; If this check fails please read test/CodeGen/AArch64/README for instructions on how to resolve it.
-; WARN-NOT: warning
+; RUN: llc -mtriple=aarch64--linux-gnu -mattr=+sve -asm-verbose=0 < %s | FileCheck %s
 
 ;
 ; Masked Loads
@@ -94,6 +90,15 @@ define <vscale x 8 x bfloat> @masked_load_nxv8bf16(<vscale x 8 x bfloat> *%a, <v
 ; CHECK-NEXT: ret
   %load = call <vscale x 8 x bfloat> @llvm.masked.load.nxv8bf16(<vscale x 8 x bfloat> *%a, i32 2, <vscale x 8 x i1> %mask, <vscale x 8 x bfloat> undef)
   ret <vscale x 8 x bfloat> %load
+}
+
+define <vscale x 4 x i32> @masked_load_passthru(<vscale x 4 x i32> *%a, <vscale x 4 x i1> %mask, <vscale x 4 x i32> %passthru) nounwind {
+; CHECK-LABEL: masked_load_passthru:
+; CHECK-NEXT: ld1w { z1.s }, p0/z, [x0]
+; CHECK-NEXT: mov z0.s, p0/m, z1.s
+; CHECK-NEXT: ret
+  %load = call <vscale x 4 x i32> @llvm.masked.load.nxv4i32(<vscale x 4 x i32> *%a, i32 4, <vscale x 4 x i1> %mask, <vscale x 4 x i32> %passthru)
+  ret <vscale x 4 x i32> %load
 }
 
 ;

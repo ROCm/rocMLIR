@@ -73,11 +73,7 @@ class PassManager<Loop, LoopAnalysisManager, LoopStandardAnalysisResults &,
           PassManager<Loop, LoopAnalysisManager, LoopStandardAnalysisResults &,
                       LPMUpdater &>> {
 public:
-  /// Construct a pass manager.
-  ///
-  /// If \p DebugLogging is true, we'll log our progress to llvm::dbgs().
-  explicit PassManager(bool DebugLogging = false)
-      : DebugLogging(DebugLogging) {}
+  explicit PassManager() {}
 
   // FIXME: These are equivalent to the default move constructor/move
   // assignment. However, using = default triggers linker errors due to the
@@ -86,20 +82,20 @@ public:
   PassManager(PassManager &&Arg)
       : IsLoopNestPass(std::move(Arg.IsLoopNestPass)),
         LoopPasses(std::move(Arg.LoopPasses)),
-        LoopNestPasses(std::move(Arg.LoopNestPasses)),
-        DebugLogging(std::move(Arg.DebugLogging)) {}
+        LoopNestPasses(std::move(Arg.LoopNestPasses)) {}
 
   PassManager &operator=(PassManager &&RHS) {
     IsLoopNestPass = std::move(RHS.IsLoopNestPass);
     LoopPasses = std::move(RHS.LoopPasses);
     LoopNestPasses = std::move(RHS.LoopNestPasses);
-    DebugLogging = std::move(RHS.DebugLogging);
     return *this;
   }
 
   PreservedAnalyses run(Loop &L, LoopAnalysisManager &AM,
                         LoopStandardAnalysisResults &AR, LPMUpdater &U);
 
+  void printPipeline(raw_ostream &OS,
+                     function_ref<StringRef(StringRef)> MapClassName2PassName);
   /// Add either a loop pass or a loop-nest pass to the pass manager. Append \p
   /// Pass to the list of loop passes if it has a dedicated \fn run() method for
   /// loops and to the list of loop-nest passes if the \fn run() method is for
@@ -108,23 +104,24 @@ public:
   /// passes in the pass manager later.
   template <typename PassT>
   std::enable_if_t<is_detected<HasRunOnLoopT, PassT>::value>
-  addPass(PassT Pass) {
+  addPass(PassT &&Pass) {
     using LoopPassModelT =
         detail::PassModel<Loop, PassT, PreservedAnalyses, LoopAnalysisManager,
                           LoopStandardAnalysisResults &, LPMUpdater &>;
     IsLoopNestPass.push_back(false);
-    LoopPasses.emplace_back(new LoopPassModelT(std::move(Pass)));
+    LoopPasses.emplace_back(new LoopPassModelT(std::forward<PassT>(Pass)));
   }
 
   template <typename PassT>
   std::enable_if_t<!is_detected<HasRunOnLoopT, PassT>::value>
-  addPass(PassT Pass) {
+  addPass(PassT &&Pass) {
     using LoopNestPassModelT =
         detail::PassModel<LoopNest, PassT, PreservedAnalyses,
                           LoopAnalysisManager, LoopStandardAnalysisResults &,
                           LPMUpdater &>;
     IsLoopNestPass.push_back(true);
-    LoopNestPasses.emplace_back(new LoopNestPassModelT(std::move(Pass)));
+    LoopNestPasses.emplace_back(
+        new LoopNestPassModelT(std::forward<PassT>(Pass)));
   }
 
   // Specializations of `addPass` for `RepeatedPass`. These are necessary since
@@ -132,7 +129,7 @@ public:
   // detection of `HasRunOnLoopT`.
   template <typename PassT>
   std::enable_if_t<is_detected<HasRunOnLoopT, PassT>::value>
-  addPass(RepeatedPass<PassT> Pass) {
+  addPass(RepeatedPass<PassT> &&Pass) {
     using RepeatedLoopPassModelT =
         detail::PassModel<Loop, RepeatedPass<PassT>, PreservedAnalyses,
                           LoopAnalysisManager, LoopStandardAnalysisResults &,
@@ -143,7 +140,7 @@ public:
 
   template <typename PassT>
   std::enable_if_t<!is_detected<HasRunOnLoopT, PassT>::value>
-  addPass(RepeatedPass<PassT> Pass) {
+  addPass(RepeatedPass<PassT> &&Pass) {
     using RepeatedLoopNestPassModelT =
         detail::PassModel<LoopNest, RepeatedPass<PassT>, PreservedAnalyses,
                           LoopAnalysisManager, LoopStandardAnalysisResults &,
@@ -174,9 +171,6 @@ protected:
   std::vector<std::unique_ptr<LoopPassConceptT>> LoopPasses;
   std::vector<std::unique_ptr<LoopNestPassConceptT>> LoopNestPasses;
 
-  /// Flag indicating whether we should do debug logging.
-  bool DebugLogging;
-
   /// Run either a loop pass or a loop-nest pass. Returns `None` if
   /// PassInstrumentation's BeforePass returns false. Otherwise, returns the
   /// preserved analyses of the pass.
@@ -192,6 +186,12 @@ protected:
   PreservedAnalyses runWithoutLoopNestPasses(Loop &L, LoopAnalysisManager &AM,
                                              LoopStandardAnalysisResults &AR,
                                              LPMUpdater &U);
+
+private:
+  static const Loop &getLoopFromIR(Loop &L) { return L; }
+  static const Loop &getLoopFromIR(LoopNest &LN) {
+    return LN.getOutermostLoop();
+  }
 };
 
 /// The Loop pass manager.
@@ -216,6 +216,12 @@ struct RequireAnalysisPass<AnalysisT, Loop, LoopAnalysisManager,
                         LoopStandardAnalysisResults &AR, LPMUpdater &) {
     (void)AM.template getResult<AnalysisT>(L, AR);
     return PreservedAnalyses::all();
+  }
+  void printPipeline(raw_ostream &OS,
+                     function_ref<StringRef(StringRef)> MapClassName2PassName) {
+    auto ClassName = AnalysisT::name();
+    auto PassName = MapClassName2PassName(ClassName);
+    OS << "require<" << PassName << ">";
   }
 };
 
@@ -261,7 +267,7 @@ public:
   /// state, this routine will mark that the current loop should be skipped by
   /// the rest of the pass management infrastructure.
   void markLoopAsDeleted(Loop &L, llvm::StringRef Name) {
-    assert((!LoopNestMode || L.isOutermost()) &&
+    assert((!LoopNestMode || CurrentL == &L) &&
            "L should be a top-level loop in loop-nest mode.");
     LAM.clear(L, Name);
     assert((&L == CurrentL || CurrentL->contains(&L)) &&
@@ -269,6 +275,12 @@ public:
            "subloop tree currently being processed.");
     if (&L == CurrentL)
       SkipCurrentLoop = true;
+  }
+
+  void setParentLoop(Loop *L) {
+#ifdef LLVM_ENABLE_ABI_BREAKING_CHECKS
+    ParentL = L;
+#endif
   }
 
   /// Loop passes should use this method to indicate they have added new child
@@ -305,7 +317,7 @@ public:
   /// loops within them will be visited in postorder as usual for the loop pass
   /// manager.
   void addSiblingLoops(ArrayRef<Loop *> NewSibLoops) {
-#ifndef NDEBUG
+#if defined(LLVM_ENABLE_ABI_BREAKING_CHECKS) && !defined(NDEBUG)
     for (Loop *NewL : NewSibLoops)
       assert(NewL->getParentLoop() == ParentL &&
              "All of the new loops must be siblings of the current loop!");
@@ -346,7 +358,7 @@ private:
   bool SkipCurrentLoop;
   const bool LoopNestMode;
 
-#ifndef NDEBUG
+#ifdef LLVM_ENABLE_ABI_BREAKING_CHECKS
   // In debug builds we also track the parent loop to implement asserts even in
   // the face of loop deletion.
   Loop *ParentL;
@@ -361,9 +373,12 @@ template <typename IRUnitT, typename PassT>
 Optional<PreservedAnalyses> LoopPassManager::runSinglePass(
     IRUnitT &IR, PassT &Pass, LoopAnalysisManager &AM,
     LoopStandardAnalysisResults &AR, LPMUpdater &U, PassInstrumentation &PI) {
+  // Get the loop in case of Loop pass and outermost loop in case of LoopNest
+  // pass which is to be passed to BeforePass and AfterPass call backs.
+  const Loop &L = getLoopFromIR(IR);
   // Check the PassInstrumentation's BeforePass callbacks before running the
   // pass, skip its execution completely if asked to (callback returns false).
-  if (!PI.runBeforePass<IRUnitT>(*Pass, IR))
+  if (!PI.runBeforePass<Loop>(*Pass, L))
     return None;
 
   PreservedAnalyses PA;
@@ -376,7 +391,7 @@ Optional<PreservedAnalyses> LoopPassManager::runSinglePass(
   if (U.skipCurrentLoop())
     PI.runAfterPassInvalidated<IRUnitT>(*Pass, PA);
   else
-    PI.runAfterPass<IRUnitT>(*Pass, IR, PA);
+    PI.runAfterPass<Loop>(*Pass, L, PA);
   return PA;
 }
 
@@ -406,9 +421,8 @@ public:
   explicit FunctionToLoopPassAdaptor(std::unique_ptr<PassConceptT> Pass,
                                      bool UseMemorySSA = false,
                                      bool UseBlockFrequencyInfo = false,
-                                     bool DebugLogging = false,
                                      bool LoopNestMode = false)
-      : Pass(std::move(Pass)), LoopCanonicalizationFPM(DebugLogging),
+      : Pass(std::move(Pass)), LoopCanonicalizationFPM(),
         UseMemorySSA(UseMemorySSA),
         UseBlockFrequencyInfo(UseBlockFrequencyInfo),
         LoopNestMode(LoopNestMode) {
@@ -418,6 +432,8 @@ public:
 
   /// Runs the loop passes across every loop in the function.
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+  void printPipeline(raw_ostream &OS,
+                     function_ref<StringRef(StringRef)> MapClassName2PassName);
 
   static bool isRequired() { return true; }
 
@@ -440,15 +456,14 @@ private:
 template <typename LoopPassT>
 inline std::enable_if_t<is_detected<HasRunOnLoopT, LoopPassT>::value,
                         FunctionToLoopPassAdaptor>
-createFunctionToLoopPassAdaptor(LoopPassT Pass, bool UseMemorySSA = false,
-                                bool UseBlockFrequencyInfo = false,
-                                bool DebugLogging = false) {
+createFunctionToLoopPassAdaptor(LoopPassT &&Pass, bool UseMemorySSA = false,
+                                bool UseBlockFrequencyInfo = false) {
   using PassModelT =
       detail::PassModel<Loop, LoopPassT, PreservedAnalyses, LoopAnalysisManager,
                         LoopStandardAnalysisResults &, LPMUpdater &>;
   return FunctionToLoopPassAdaptor(
-      std::make_unique<PassModelT>(std::move(Pass)), UseMemorySSA,
-      UseBlockFrequencyInfo, DebugLogging, false);
+      std::make_unique<PassModelT>(std::forward<LoopPassT>(Pass)), UseMemorySSA,
+      UseBlockFrequencyInfo, false);
 }
 
 /// If \p Pass is a loop-nest pass, \p Pass will first be wrapped into a
@@ -456,28 +471,25 @@ createFunctionToLoopPassAdaptor(LoopPassT Pass, bool UseMemorySSA = false,
 template <typename LoopNestPassT>
 inline std::enable_if_t<!is_detected<HasRunOnLoopT, LoopNestPassT>::value,
                         FunctionToLoopPassAdaptor>
-createFunctionToLoopPassAdaptor(LoopNestPassT Pass, bool UseMemorySSA = false,
-                                bool UseBlockFrequencyInfo = false,
-                                bool DebugLogging = false) {
-  LoopPassManager LPM(DebugLogging);
-  LPM.addPass(std::move(Pass));
+createFunctionToLoopPassAdaptor(LoopNestPassT &&Pass, bool UseMemorySSA = false,
+                                bool UseBlockFrequencyInfo = false) {
+  LoopPassManager LPM;
+  LPM.addPass(std::forward<LoopNestPassT>(Pass));
   using PassModelT =
       detail::PassModel<Loop, LoopPassManager, PreservedAnalyses,
                         LoopAnalysisManager, LoopStandardAnalysisResults &,
                         LPMUpdater &>;
   return FunctionToLoopPassAdaptor(std::make_unique<PassModelT>(std::move(LPM)),
-                                   UseMemorySSA, UseBlockFrequencyInfo,
-                                   DebugLogging, true);
+                                   UseMemorySSA, UseBlockFrequencyInfo, true);
 }
 
 /// If \p Pass is an instance of \c LoopPassManager, the returned adaptor will
 /// be in loop-nest mode if the pass manager contains only loop-nest passes.
 template <>
 inline FunctionToLoopPassAdaptor
-createFunctionToLoopPassAdaptor<LoopPassManager>(LoopPassManager LPM,
+createFunctionToLoopPassAdaptor<LoopPassManager>(LoopPassManager &&LPM,
                                                  bool UseMemorySSA,
-                                                 bool UseBlockFrequencyInfo,
-                                                 bool DebugLogging) {
+                                                 bool UseBlockFrequencyInfo) {
   // Check if LPM contains any loop pass and if it does not, returns an adaptor
   // in loop-nest mode.
   using PassModelT =
@@ -487,7 +499,7 @@ createFunctionToLoopPassAdaptor<LoopPassManager>(LoopPassManager LPM,
   bool LoopNestMode = (LPM.getNumLoopPasses() == 0);
   return FunctionToLoopPassAdaptor(std::make_unique<PassModelT>(std::move(LPM)),
                                    UseMemorySSA, UseBlockFrequencyInfo,
-                                   DebugLogging, LoopNestMode);
+                                   LoopNestMode);
 }
 
 /// Pass for printing a loop's contents as textual IR.

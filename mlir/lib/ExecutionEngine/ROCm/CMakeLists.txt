@@ -76,7 +76,7 @@ set(LIBS
   LLVMMCParser
   LLVMOption
   LLVMSupport
-  MLIRTargetROCDLIR
+  MLIRROCDLToLLVMIRTranslation
   ${ROCM_RUNTIME_LIBRARY}
 )
 

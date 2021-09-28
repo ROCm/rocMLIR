@@ -24,6 +24,13 @@ def ROCDL_Dialect : Dialect {
   let name = "rocdl";
   let cppNamespace = "::mlir::ROCDL";
   let dependentDialects = ["LLVM::LLVMDialect"];
+  let hasOperationAttrVerify = 1;
+
+  let extraClassDeclaration = [{
+    /// Get the name of the attribute used to annotate external kernel
+    /// functions.
+    static StringRef getKernelFuncAttrName() { return "rocdl.kernel"; }
+  }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -166,7 +173,7 @@ def ROCDL_MubufLoadOp :
   let parser = [{ return parseROCDLMubufLoadOp(parser, result); }];
   let printer = [{
     Operation *op = this->getOperation();
-    p << op->getName() << " " << op->getOperands()
+    p << " " << op->getOperands()
       << " : " << op->getResultTypes();
   }];
 }
@@ -180,7 +187,7 @@ def ROCDL_MubufStoreOp :
                  LLVM_Type:$glc,
                  LLVM_Type:$slc)>{
   string llvmBuilder = [{
-    auto vdataType = convertType(op.vdata().getType());
+    auto vdataType = moduleTranslation.convertType(op.vdata().getType());
     createIntrinsicCall(builder,
           llvm::Intrinsic::amdgcn_buffer_store, {$vdata, $rsrc, $vindex,
           $offset, $glc, $slc}, {vdataType});
@@ -188,7 +195,7 @@ def ROCDL_MubufStoreOp :
   let parser = [{ return parseROCDLMubufStoreOp(parser, result); }];
   let printer = [{
     Operation *op = this->getOperation();
-    p << op->getName() << " " << op->getOperands()
+    p << " " << op->getOperands()
       << " : " << vdata().getType();
   }];
 }
@@ -211,7 +218,7 @@ def ROCDL_RawbufLoadOp :
   let parser = [{ return parseROCDLRawbufLoadOp(parser, result); }];
   let printer = [{
     Operation *op = this->getOperation();
-    p << op->getName() << " " << op->getOperands()
+    p << " " << op->getOperands()
       << " : " << op->getResultTypes();
   }];
 }
@@ -224,7 +231,7 @@ def ROCDL_RawbufStoreOp :
                  LLVM_Type:$soffset,
                  LLVM_Type:$aux)>{
   string llvmBuilder = [{
-    auto vdataType = convertType(op.vdata().getType());
+    auto vdataType = moduleTranslation.convertType(op.vdata().getType());
     createIntrinsicCall(builder,
           llvm::Intrinsic::amdgcn_raw_buffer_store, {$vdata, $rsrc, $offset,
           $soffset, $aux}, {vdataType});
@@ -232,7 +239,7 @@ def ROCDL_RawbufStoreOp :
   let parser = [{ return parseROCDLRawbufStoreOp(parser, result); }];
   let printer = [{
     Operation *op = this->getOperation();
-    p << op->getName() << " " << op->getOperands()
+    p << " " << op->getOperands()
       << " : " << vdata().getType();
   }];
 }
@@ -248,7 +255,7 @@ def ROCDL_AtomicFAddOp :
                  LLVM_Type:$offset,
                  LLVM_Type:$slc)>{
   string llvmBuilder = [{
-      auto vdataType = convertType(op.vdata().getType());
+      auto vdataType = moduleTranslation.convertType(op.vdata().getType());
       createIntrinsicCall(builder,
           llvm::Intrinsic::amdgcn_buffer_atomic_fadd, {$vdata, $rsrc, $vindex, $offset,
             $slc}, {vdataType});
@@ -256,7 +263,7 @@ def ROCDL_AtomicFAddOp :
   let parser = [{ return parseROCDLAtomicFAddOp(parser, result); }];
   let printer = [{
     Operation *op = this->getOperation();
-    p << op->getName() << " " << op->getOperands()
+    p << " " << op->getOperands()
       << " : " << vdata().getType();
   }];
 }

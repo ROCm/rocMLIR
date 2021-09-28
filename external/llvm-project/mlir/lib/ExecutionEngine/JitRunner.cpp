@@ -21,7 +21,6 @@
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/InitAllDialects.h"
 #include "mlir/Parser.h"
 #include "mlir/Support/FileUtilities.h"
 
@@ -38,8 +37,6 @@
 #include <cstdint>
 #include <numeric>
 
-#include "llvm/Support/CommandLine.h"
-
 using namespace mlir;
 using llvm::Error;
 
@@ -50,7 +47,6 @@ typedef std::list<std::string> SharedLibsList;
 /// This options struct prevents the need for global static initializers, and
 /// is only initialized if the JITRunner is invoked.
 struct Options {
-
   llvm::cl::opt<std::string> inputFilename{llvm::cl::Positional,
                                            llvm::cl::desc("<input file>"),
                                            llvm::cl::init("-")};
@@ -162,10 +158,6 @@ static Error compileAndExecute(Options &options, SharedLibsList &sharedLibs,
     jitCodeGenOptLevel =
         static_cast<llvm::CodeGenOpt::Level>(clOptLevel.getValue());
 
-  // If shared library implements custom mlir-runner library init and destroy
-  // functions, we'll use them to register the library with the execution
-  // engine. Otherwise we'll pass library directly to the execution engine.
-
   // Libraries that we'll pass to the ExecutionEngine for loading.
   SmallVector<StringRef, 4> executionEngineLibs;
 
@@ -177,7 +169,7 @@ static Error compileAndExecute(Options &options, SharedLibsList &sharedLibs,
 
   // Handle libraries that do support mlir-runner init/destroy callbacks.
   for (auto &libPath : sharedLibs) {
-    auto lib = llvm::sys::DynamicLibrary::getPermanentLibrary(libPath.data());
+    auto lib = llvm::sys::DynamicLibrary::getPermanentLibrary(libPath.c_str());
     void *initSym = lib.getAddressOfSymbol("__mlir_runner_init");
     void *destroySim = lib.getAddressOfSymbol("__mlir_runner_destroy");
 
@@ -231,17 +223,14 @@ static Error compileAndExecute(Options &options, SharedLibsList &sharedLibs,
   return Error::success();
 }
 
-static Error compileAndExecuteVoidFunction(Options &options,
-                                           SharedLibsList &sharedLibs,
-                                           ModuleOp module,
-                                           StringRef entryPoint,
+static Error compileAndExecuteVoidFunction(Options &options, SharedLibsList &sharedLibs,
+                                           ModuleOp module, StringRef entryPoint,
                                            CompileAndExecuteConfig config) {
   auto mainFunction = module.lookupSymbol<LLVM::LLVMFuncOp>(entryPoint);
   if (!mainFunction || mainFunction.empty())
     return make_string_error("entry point not found");
   void *empty = nullptr;
-  return compileAndExecute(options, sharedLibs, module, entryPoint, config,
-                           &empty);
+  return compileAndExecute(options, sharedLibs, module, entryPoint, config, &empty);
 }
 
 template <typename Type>
@@ -276,10 +265,8 @@ Error checkCompatibleReturnType<float>(LLVM::LLVMFuncOp mainFunction) {
   return Error::success();
 }
 template <typename Type>
-Error compileAndExecuteSingleReturnFunction(Options &options,
-                                            SharedLibsList &sharedLibs,
-                                            ModuleOp module,
-                                            StringRef entryPoint,
+Error compileAndExecuteSingleReturnFunction(Options &options, SharedLibsList &sharedLibs,
+                                            ModuleOp module, StringRef entryPoint,
                                             CompileAndExecuteConfig config) {
   auto mainFunction = module.lookupSymbol<LLVM::LLVMFuncOp>(entryPoint);
   if (!mainFunction || mainFunction.isExternal())
@@ -296,8 +283,8 @@ Error compileAndExecuteSingleReturnFunction(Options &options,
     void *data;
   } data;
   data.data = &res;
-  if (auto error = compileAndExecute(options, sharedLibs, module, entryPoint,
-                                     config, (void **)&data))
+  if (auto error = compileAndExecute(options, sharedLibs, module, entryPoint, config,
+                                     (void **)&data))
     return error;
 
   // Intentional printing of the output so we can test.
@@ -308,13 +295,15 @@ Error compileAndExecuteSingleReturnFunction(Options &options,
 
 /// Entry point for all CPU runners. Expects the common argc/argv arguments for
 /// standard C++ main functions.
-int mlir::JitRunnerMain(int argc, char **argv, JitRunnerConfig config) {
+int mlir::JitRunnerMain(int argc, char **argv, const DialectRegistry &registry,
+                        JitRunnerConfig config) {
   // Create the options struct containing the command line options for the
   // runner. This must come before the command line options are parsed.
   Options options;
   llvm::cl::ParseCommandLineOptions(argc, argv, "MLIR CPU execution driver\n");
 
-  std::string mainFuncType = options.mainFuncType;
+  std::string mainFuncName = options.mainFuncName.getValue();
+  std::string mainFuncType = options.mainFuncType.getValue();
   SharedLibsList sharedLibs =
       SharedLibsList(options.clSharedLibs.begin(), options.clSharedLibs.end());
 
@@ -343,8 +332,7 @@ int mlir::JitRunnerMain(int argc, char **argv, JitRunnerConfig config) {
     }
   }
 
-  MLIRContext context;
-  registerAllDialects(context.getDialectRegistry());
+  MLIRContext context(registry);
 
   auto m = parseMLIRInput(options.inputFilename, &context);
   if (!m) {
@@ -376,8 +364,8 @@ int mlir::JitRunnerMain(int argc, char **argv, JitRunnerConfig config) {
   compileAndExecuteConfig.runtimeSymbolMap = config.runtimesymbolMap;
 
   // Get the function used to compile and execute the module.
-  using CompileAndExecuteFnT = Error (*)(Options &, SharedLibsList &, ModuleOp,
-                                         StringRef, CompileAndExecuteConfig);
+  using CompileAndExecuteFnT =
+      Error (*)(Options &, SharedLibsList &, ModuleOp, StringRef, CompileAndExecuteConfig);
   auto compileAndExecuteFn =
       StringSwitch<CompileAndExecuteFnT>(mainFuncType)
           .Case("i32", compileAndExecuteSingleReturnFunction<int32_t>)
@@ -388,8 +376,7 @@ int mlir::JitRunnerMain(int argc, char **argv, JitRunnerConfig config) {
 
   Error error = compileAndExecuteFn
                     ? compileAndExecuteFn(options, sharedLibs, m.get(),
-                                          options.mainFuncName.getValue(),
-                                          compileAndExecuteConfig)
+                                          mainFuncName, compileAndExecuteConfig)
                     : make_string_error("unsupported function type");
 
   int exitCode = EXIT_SUCCESS;

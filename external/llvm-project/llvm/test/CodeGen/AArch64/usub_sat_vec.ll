@@ -113,26 +113,11 @@ define void @v8i8(<8 x i8>* %px, <8 x i8>* %py, <8 x i8>* %pz) nounwind {
 define void @v4i8(<4 x i8>* %px, <4 x i8>* %py, <4 x i8>* %pz) nounwind {
 ; CHECK-LABEL: v4i8:
 ; CHECK:       // %bb.0:
-; CHECK-NEXT:    ldrb w8, [x0]
-; CHECK-NEXT:    ldrb w9, [x1]
-; CHECK-NEXT:    ldrb w10, [x0, #1]
-; CHECK-NEXT:    ldrb w11, [x1, #1]
-; CHECK-NEXT:    fmov s0, w8
-; CHECK-NEXT:    fmov s1, w9
-; CHECK-NEXT:    ldrb w8, [x0, #2]
-; CHECK-NEXT:    ldrb w9, [x1, #2]
-; CHECK-NEXT:    mov v0.h[1], w10
-; CHECK-NEXT:    mov v1.h[1], w11
-; CHECK-NEXT:    ldrb w10, [x0, #3]
-; CHECK-NEXT:    ldrb w11, [x1, #3]
-; CHECK-NEXT:    mov v0.h[2], w8
-; CHECK-NEXT:    mov v1.h[2], w9
-; CHECK-NEXT:    mov v0.h[3], w10
-; CHECK-NEXT:    mov v1.h[3], w11
-; CHECK-NEXT:    shl v1.4h, v1.4h, #8
-; CHECK-NEXT:    shl v0.4h, v0.4h, #8
+; CHECK-NEXT:    ldr s0, [x0]
+; CHECK-NEXT:    ldr s1, [x1]
+; CHECK-NEXT:    ushll v0.8h, v0.8b, #0
+; CHECK-NEXT:    ushll v1.8h, v1.8b, #0
 ; CHECK-NEXT:    uqsub v0.4h, v0.4h, v1.4h
-; CHECK-NEXT:    ushr v0.4h, v0.4h, #8
 ; CHECK-NEXT:    xtn v0.8b, v0.8h
 ; CHECK-NEXT:    str s0, [x2]
 ; CHECK-NEXT:    ret
@@ -154,10 +139,7 @@ define void @v2i8(<2 x i8>* %px, <2 x i8>* %py, <2 x i8>* %pz) nounwind {
 ; CHECK-NEXT:    fmov s1, w9
 ; CHECK-NEXT:    mov v0.s[1], w10
 ; CHECK-NEXT:    mov v1.s[1], w11
-; CHECK-NEXT:    shl v1.2s, v1.2s, #24
-; CHECK-NEXT:    shl v0.2s, v0.2s, #24
 ; CHECK-NEXT:    uqsub v0.2s, v0.2s, v1.2s
-; CHECK-NEXT:    ushr v0.2s, v0.2s, #24
 ; CHECK-NEXT:    mov w8, v0.s[1]
 ; CHECK-NEXT:    fmov w9, s0
 ; CHECK-NEXT:    strb w9, [x2]
@@ -196,10 +178,7 @@ define void @v2i16(<2 x i16>* %px, <2 x i16>* %py, <2 x i16>* %pz) nounwind {
 ; CHECK-NEXT:    fmov s1, w9
 ; CHECK-NEXT:    mov v0.s[1], w10
 ; CHECK-NEXT:    mov v1.s[1], w11
-; CHECK-NEXT:    shl v1.2s, v1.2s, #16
-; CHECK-NEXT:    shl v0.2s, v0.2s, #16
 ; CHECK-NEXT:    uqsub v0.2s, v0.2s, v1.2s
-; CHECK-NEXT:    ushr v0.2s, v0.2s, #16
 ; CHECK-NEXT:    mov w8, v0.s[1]
 ; CHECK-NEXT:    fmov w9, s0
 ; CHECK-NEXT:    strh w9, [x2]
@@ -272,12 +251,9 @@ define <16 x i4> @v16i4(<16 x i4> %x, <16 x i4> %y) nounwind {
 ; CHECK-LABEL: v16i4:
 ; CHECK:       // %bb.0:
 ; CHECK-NEXT:    movi v2.16b, #15
-; CHECK-NEXT:    and v0.16b, v0.16b, v2.16b
 ; CHECK-NEXT:    and v1.16b, v1.16b, v2.16b
-; CHECK-NEXT:    shl v1.16b, v1.16b, #4
-; CHECK-NEXT:    shl v0.16b, v0.16b, #4
+; CHECK-NEXT:    and v0.16b, v0.16b, v2.16b
 ; CHECK-NEXT:    uqsub v0.16b, v0.16b, v1.16b
-; CHECK-NEXT:    ushr v0.16b, v0.16b, #4
 ; CHECK-NEXT:    ret
   %z = call <16 x i4> @llvm.usub.sat.v16i4(<16 x i4> %x, <16 x i4> %y)
   ret <16 x i4> %z
@@ -287,12 +263,8 @@ define <16 x i1> @v16i1(<16 x i1> %x, <16 x i1> %y) nounwind {
 ; CHECK-LABEL: v16i1:
 ; CHECK:       // %bb.0:
 ; CHECK-NEXT:    movi v2.16b, #1
-; CHECK-NEXT:    and v0.16b, v0.16b, v2.16b
-; CHECK-NEXT:    and v1.16b, v1.16b, v2.16b
-; CHECK-NEXT:    shl v1.16b, v1.16b, #7
-; CHECK-NEXT:    shl v0.16b, v0.16b, #7
-; CHECK-NEXT:    uqsub v0.16b, v0.16b, v1.16b
-; CHECK-NEXT:    ushr v0.16b, v0.16b, #7
+; CHECK-NEXT:    eor v1.16b, v1.16b, v2.16b
+; CHECK-NEXT:    and v0.16b, v0.16b, v1.16b
 ; CHECK-NEXT:    ret
   %z = call <16 x i1> @llvm.usub.sat.v16i1(<16 x i1> %x, <16 x i1> %y)
   ret <16 x i1> %z
@@ -379,7 +351,7 @@ define <2 x i128> @v2i128(<2 x i128> %x, <2 x i128> %y) nounwind {
 ; CHECK-NEXT:    cmp x9, x3
 ; CHECK-NEXT:    cset w11, hi
 ; CHECK-NEXT:    csel w10, w10, w11, eq
-; CHECK-NEXT:    cmp w10, #0 // =0
+; CHECK-NEXT:    cmp w10, #0
 ; CHECK-NEXT:    csel x3, xzr, x9, ne
 ; CHECK-NEXT:    csel x2, xzr, x8, ne
 ; CHECK-NEXT:    subs x8, x0, x4
@@ -389,7 +361,7 @@ define <2 x i128> @v2i128(<2 x i128> %x, <2 x i128> %y) nounwind {
 ; CHECK-NEXT:    cmp x9, x1
 ; CHECK-NEXT:    cset w11, hi
 ; CHECK-NEXT:    csel w10, w10, w11, eq
-; CHECK-NEXT:    cmp w10, #0 // =0
+; CHECK-NEXT:    cmp w10, #0
 ; CHECK-NEXT:    csel x8, xzr, x8, ne
 ; CHECK-NEXT:    csel x1, xzr, x9, ne
 ; CHECK-NEXT:    fmov d0, x8

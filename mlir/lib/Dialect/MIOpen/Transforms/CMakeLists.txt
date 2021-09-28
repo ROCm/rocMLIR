@@ -6,24 +6,23 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   TestAffineTransforms.cpp
 
   ADDITIONAL_HEADER_DIRS
-  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Transforms
+  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/MIOpen
 
   DEPENDS
+  MLIRMIOpenOpsIncGen
   MLIRMIOpenPassIncGen
-  MLIRMIOpenTuning
-  MLIRSCFToStandard
-)
 
-target_link_libraries(MLIRMIOpenTransforms
-  PUBLIC
-  MLIRAffineToStandard
+  LINK_LIBS PUBLIC
+  MLIRDialect
   MLIRIR
+  MLIRPass
   MLIRLLVMIR
+  MLIRStandard
+  MLIRAffineToStandard
   MLIRMIOpenOps
   MLIRMIOpenTuning
-  MLIRPass
   MLIRSCFToStandard
   MLIRSupport
   MLIRTransformUtils
-  LLVMSupport
-  )
+)
+

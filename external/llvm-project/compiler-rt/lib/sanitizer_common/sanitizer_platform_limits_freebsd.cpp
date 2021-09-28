@@ -35,7 +35,10 @@
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/time.h>
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-W#warnings"
 #include <sys/timeb.h>
+#pragma clang diagnostic pop
 #include <sys/times.h>
 #include <sys/timespec.h>
 #include <sys/types.h>
@@ -167,6 +170,7 @@ uptr __sanitizer_in_addr_sz(int af) {
 unsigned struct_ElfW_Phdr_sz = sizeof(Elf_Phdr);
 int glob_nomatch = GLOB_NOMATCH;
 int glob_altdirfunc = GLOB_ALTDIRFUNC;
+const int wordexp_wrde_dooffs = WRDE_DOOFFS;
 
 unsigned path_max = PATH_MAX;
 

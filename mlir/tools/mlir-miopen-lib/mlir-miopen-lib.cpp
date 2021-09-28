@@ -29,9 +29,13 @@
 
 namespace {
 struct MiirHandle_s {
-  MiirHandle_s() {
+  DialectRegistry initRegistry() {
+    DialectRegistry registry;
+    registerAllDialects(registry);
+    return registry;
+  }
+  MiirHandle_s() : context(initRegistry()) {
     context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
-    mlir::registerAllDialects(context.getDialectRegistry());
     OpBuilder builder(&context);
     module = ModuleOp::create(builder.getUnknownLoc());
   }
@@ -312,16 +316,8 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   pm.addPass(createGpuKernelOutliningPass());
   pm.addPass(createStripDebugInfoPass());
   pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
-  pm.addPass(createConvertGPUKernelToBlobPass(
-      [&utils](Operation *m, llvm::LLVMContext &llvmContext,
-               llvm::StringRef name) {
-        return utils.compileModuleToROCDLIR(m, llvmContext, name);
-      },
-      [&utils](const std::string isa, Location loc, StringRef name) {
-        return utils.compileISAToHsaco(isa, loc, name);
-      },
-      utils.getTriple(), utils.getChip(), utils.getFeatures(),
-      /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
+  pm.addPass(createGpuSerializeToHsacoPass(
+      utils.getTriple(), utils.getChip(), utils.getFeatures()));
 
   status = pm.run(module);
 
@@ -340,7 +336,7 @@ extern "C" MiirStatus miirBufferGet(MiirHandle mlirHandle, char *buffer,
   // 1st call: give client the size of buffer to allocate
   if ((buffer == nullptr) && (size != nullptr)) {
     module.walk([&](gpu::GPUModuleOp gpuModule) {
-      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>("rocdl.hsaco");
+      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>(gpu::getDefaultGpuBinaryAnnotation());
       if (hsacoAttr) {
         *size = hsacoAttr.getValue().size();
       }
@@ -348,7 +344,7 @@ extern "C" MiirStatus miirBufferGet(MiirHandle mlirHandle, char *buffer,
     // 2nd call: copy the hsaco to the target buffer
   } else {
     module.walk([&](gpu::GPUModuleOp gpuModule) {
-      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>("rocdl.hsaco");
+      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>(gpu::getDefaultGpuBinaryAnnotation());
       if (hsacoAttr) {
         std::string hsaco = hsacoAttr.getValue().str();
         std::copy(hsaco.begin(), hsaco.end(), buffer);

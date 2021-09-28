@@ -77,8 +77,15 @@ else()
   set(LLVM_BUILD_LLVM_DYLIB ON CACHE BOOL "")
   set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
   set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "")
+  set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
   set(USE_ROCM_4_4_OR_OLDER 1 CACHE BOOL "Use the rocm_4.4 or older release")
 endif()
+
+# Disable other runners
+set(MLIR_CUDA_RUNNER_ENABLED 0 CACHE BOOL "")
+set(MLIR_SPIRV_CPU_RUNNER_ENABLED 0 CACHE BOOL "")
+set(MLIR_VULKAN_RUNNER_ENABLED 0 CACHE BOOL "")
+set(MLIR_BINDINGS_PYTHON_ENABLED 0 CACHE BOOL "")
 
 # Set up the build for the LLVM/MLIR git-submodule
 include(cmake/llvm-project.cmake)

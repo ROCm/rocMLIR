@@ -9,32 +9,17 @@
 #ifndef DIALECT_MIOPEN_TRANSFORMS_PASSDETAIL_H_
 #define DIALECT_MIOPEN_TRANSFORMS_PASSDETAIL_H_
 
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
+#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Vector/VectorOps.h"
+#include "mlir/Dialect/SCF/SCF.h"
+#include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
-
-namespace miopen {
-class MIOpenDialect;
-} // namespace miopen
-
-namespace vector {
-class VectorDialect;
-} // namespace vector
-
-namespace scf {
-class SCFDialect;
-} // namespace scf
-
-namespace linalg {
-class LinalgDialect;
-} // namespace linalg
-
-namespace gpu {
-class GPUDialect;
-} // namespace gpu
-
-class AffineDialect;
-class StandardOpsDialect;
 
 #define GEN_PASS_CLASSES
 #include "mlir/Dialect/MIOpen/Passes.h.inc"
