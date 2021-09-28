@@ -15,6 +15,8 @@
 
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Support/LogicalResult.h"
+#include "llvm/IR/LegacyPassManager.h"
 
 namespace llvm {
 class TargetMachine;
@@ -61,6 +63,13 @@ private:
   /// Translates the 'getOperation()' result to an LLVM module.
   virtual std::unique_ptr<llvm::Module>
   translateToLLVMIR(llvm::LLVMContext &llvmContext);
+
+  // Trannslates the module to ISA
+  virtual Optional<std::string>
+  translateToISA(llvm::Module &llvmModule, llvm::TargetMachine &targetMachine);
+
+  /// Hook allowing users to add optimization passes for the ISA serilization
+  virtual LogicalResult addPreCodegenPasses(llvm::legacy::PassManagerBase &pm);
 
   /// Serializes the target ISA to binary form.
   virtual std::unique_ptr<std::vector<char>>
