@@ -11,8 +11,14 @@
 //
 //===----------------------------------------------------------------------===//
 #include "mlir/Dialect/GPU/Passes.h"
+#include "mlir/Support/LogicalResult.h"
+#include "llvm/IR/LegacyPassManager.h"
+#include "llvm/Support/CodeGen.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Target/CGPassBuilderOption.h"
 
 #if MLIR_GPU_TO_HSACO_PASS_ENABLE
+#include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
@@ -35,6 +41,7 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/WithColor.h"
+#include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 
 #include "lld/Common/Driver.h"
@@ -49,7 +56,8 @@ namespace {
 class SerializeToHsacoPass
     : public PassWrapper<SerializeToHsacoPass, gpu::SerializeToBlobPass> {
 public:
-  SerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features);
+  SerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features,
+                       int optLevel);
 
   StringRef getArgument() const override { return "gpu-to-hsaco"; }
   StringRef getDescription() const override {
@@ -63,9 +71,15 @@ private:
   std::unique_ptr<std::vector<char>>
   serializeISA(const std::string &isa) override;
 
+  // Adds LLVM optimization passes
+  LogicalResult optimizeLlvm(llvm::Module &llvmModule,
+                             llvm::TargetMachine &targetMachine) override;
+
   std::unique_ptr<SmallVectorImpl<char>> assembleIsa(const std::string &isa);
   std::unique_ptr<std::vector<char>>
   createHsaco(const SmallVectorImpl<char> &isaBinary);
+
+  int optLevel;
 };
 } // namespace
 
@@ -133,7 +147,9 @@ static void maybeSetOption(Pass::Option<std::string> &option,
     option = getValue();
 }
 
-SerializeToHsacoPass::SerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features) {
+SerializeToHsacoPass::SerializeToHsacoPass(StringRef triple, StringRef arch,
+                                           StringRef features, int optLevel)
+    : optLevel(optLevel) {
   maybeSetOption(this->triple, [&triple] { return triple.str(); });
   maybeSetOption(this->chip, [&arch] {
     //static auto chip = getDefaultChip();
@@ -146,6 +162,30 @@ void SerializeToHsacoPass::getDependentDialects(
     DialectRegistry &registry) const {
   registerROCDLDialectTranslation(registry);
   gpu::SerializeToBlobPass::getDependentDialects(registry);
+}
+
+LogicalResult
+SerializeToHsacoPass::optimizeLlvm(llvm::Module &llvmModule,
+                                   llvm::TargetMachine &targetMachine) {
+  if (optLevel < 0 || optLevel > 3) {
+    llvm::errs() << "Invalid optimization level passed to SerializeToHsaco: "
+                 << optLevel << "\n";
+    return failure();
+  }
+  targetMachine.setOptLevel(static_cast<llvm::CodeGenOpt::Level>(optLevel));
+
+  auto transformer =
+      makeOptimizingTransformer(optLevel, /*sizeLevel=*/0, &targetMachine);
+  auto error = transformer(&llvmModule);
+  if (error) {
+    llvm::handleAllErrors(std::move(error), [](const llvm::ErrorInfoBase &ei) {
+      llvm::errs() << "Could not optimize LLVM IR: ";
+      ei.log(llvm::errs());
+      llvm::errs() << "\n";
+    });
+    return failure();
+  }
+  return success();
 }
 
 std::unique_ptr<SmallVectorImpl<char>>
@@ -284,13 +324,17 @@ void mlir::registerGpuSerializeToHsacoPass() {
         LLVMInitializeAMDGPUTargetMC();
 
         auto chip = getDefaultChip();
-        return std::make_unique<SerializeToHsacoPass>("amdgcn-amd-amdhsa", chip, "");
+        return std::make_unique<SerializeToHsacoPass>("amdgcn-amd-amdhsa", chip,
+                                                      "", 2);
       });
 }
 
-std::unique_ptr<Pass>
-mlir::createGpuSerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features) {
-  return std::make_unique<SerializeToHsacoPass>(triple, arch, features);
+std::unique_ptr<Pass> mlir::createGpuSerializeToHsacoPass(StringRef triple,
+                                                          StringRef arch,
+                                                          StringRef features,
+                                                          int optLevel) {
+  return std::make_unique<SerializeToHsacoPass>(triple, arch, features,
+                                                optLevel);
 }
 
 #else  // MLIR_GPU_TO_HSACO_PASS_ENABLE
