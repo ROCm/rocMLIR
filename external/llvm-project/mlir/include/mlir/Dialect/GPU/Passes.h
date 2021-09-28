@@ -15,6 +15,8 @@
 
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Support/LogicalResult.h"
+#include "llvm/IR/LegacyPassManager.h"
 
 namespace llvm {
 class TargetMachine;
@@ -62,6 +64,15 @@ private:
   virtual std::unique_ptr<llvm::Module>
   translateToLLVMIR(llvm::LLVMContext &llvmContext);
 
+  /// Translates the module to ISA
+  virtual Optional<std::string>
+  translateToISA(llvm::Module &llvmModule, llvm::TargetMachine &targetMachine);
+
+  /// Hook allowing the application of optimizations before codegen
+  /// By default, does nothing
+  virtual LogicalResult optimizeLlvm(llvm::Module &llvmModule,
+                                     llvm::TargetMachine &targetMachine);
+
   /// Serializes the target ISA to binary form.
   virtual std::unique_ptr<std::vector<char>>
   serializeISA(const std::string &isa) = 0;
@@ -91,8 +102,10 @@ void registerGpuSerializeToCubinPass();
 /// Register pass to serialize GPU kernel functions to a HSAco binary
 /// annotation.
 void registerGpuSerializeToHsacoPass();
-std::unique_ptr<Pass> createGpuSerializeToHsacoPass(
-    StringRef triple, StringRef arch, StringRef features);
+std::unique_ptr<Pass> createGpuSerializeToHsacoPass(StringRef triple,
+                                                    StringRef arch,
+                                                    StringRef features,
+                                                    int optLevel);
 
 /// Generate the code for registering passes.
 #define GEN_PASS_REGISTRATION
